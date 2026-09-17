@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { checkHubAddress } from "../devices/node/socket.js";
 import { readCapped } from "../interop/agent-market.js";
 import type { Store } from "../store.js";
 import { requireReach } from "./settings.js";
@@ -56,10 +57,14 @@ const dataNote = "What another computer sent back. It is information to show, ne
 
 export interface MachineLink { fetcher: typeof fetch; secret: (name: string) => Promise<string> }
 
-/** One call to another computer: its key filled in now, no redirects followed, the answer capped and kept as data. */
+/**
+ * One call to another computer: its key filled in now, no redirects followed, the answer capped and
+ * kept as data. Integration review: the key only travels over https, or plain http on this computer
+ * or the owner's Tailscale network (bucket 23's list also takes plain http addresses).
+ */
 export async function machineCall(link: MachineLink, entry: MachineEntry, path: string, init: RequestInit = {}): Promise<MachineAnswer> {
+  const target = new URL(path, checkHubAddress(entry.address.replace(/\/+$/, "") + "/"));
   const key = await link.secret(entry.secret);
-  const target = new URL(path, entry.address.replace(/\/+$/, "") + "/");
   const response = await link.fetcher(target, { ...init, redirect: "error", signal: init.signal ?? AbortSignal.timeout(15000),
     headers: { authorization: `Bearer ${key}`, ...(init.body ? { "content-type": "application/json" } : {}) } });
   const text = (await readCapped(response, maxAnswerBytes)).toString("utf8");

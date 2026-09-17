@@ -60,11 +60,13 @@ const dataHash = (store: Store, owner: string, table: "specialists" | "procedure
 };
 
 /** The exact git commands, so tests can check them and nothing else is ever run. */
+/** Integration review: the same walls for asking the head as for the copy. */
+const walls = ["-c", "core.hooksPath=/dev/null", "-c", "protocol.allow=never", "-c", "protocol.https.allow=always",
+  "-c", "http.followRedirects=false", "-c", "credential.helper="];
 export const gitCommands = {
-  head: (url: string, ref: string): string[] => ["ls-remote", "--", url, ref],
+  head: (url: string, ref: string): string[] => [...walls, "ls-remote", "--", url, ref],
   clone: (url: string, ref: string, dir: string): string[] => [
-    "-c", "core.hooksPath=/dev/null", "-c", "protocol.allow=never", "-c", "protocol.https.allow=always",
-    "-c", "http.followRedirects=false", "-c", "credential.helper=",
+    ...walls,
     "clone", "--depth", "1", "--no-tags", "--single-branch", "--no-recurse-submodules", "--branch", ref, "--", url, dir,
   ],
   commit: (dir: string): string[] => ["-C", dir, "rev-parse", "HEAD"],
@@ -216,7 +218,7 @@ async function safeRead(path: string): Promise<string> {
 export function gitRunner(gitPath: string, env: NodeJS.ProcessEnv): GitRunner {
   return (args, signal) => new Promise((resolve) => {
     execFile(gitPath, args, { signal, timeout: 120000, maxBuffer: 1024 * 1024, shell: false, windowsHide: true,
-      env: { ...env, GIT_TERMINAL_PROMPT: "0", GIT_CONFIG_NOSYSTEM: "1", GIT_ASKPASS: "", SSH_ASKPASS: "" } },
+      env: { ...env, GIT_TERMINAL_PROMPT: "0", GIT_CONFIG_NOSYSTEM: "1", GIT_ASKPASS: "", SSH_ASKPASS: "", GIT_LFS_SKIP_SMUDGE: "1" } },
     (error, stdout, stderr) => resolve({ code: error ? 1 : 0, stdout: String(stdout), stderr: String(stderr || error?.message || "") }));
   });
 }

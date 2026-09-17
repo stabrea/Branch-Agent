@@ -25,13 +25,20 @@ import { reachRecord, requireReach } from "./settings.js";
 export const videoServices = ["openai", "google"] as const;
 export const VideoSettingsSchema = z.object({
   service: z.enum(videoServices).default("openai"),
-  /** The locker entry holding the key. */
-  secret: z.string().trim().min(1).max(80).default("OPENAI_API_KEY"),
+  /** The locker entry holding the key; empty means the chosen service's usual one. */
+  secret: z.string().trim().max(80).default(""),
   model: z.string().trim().max(80).default(""),
+  /** Integration review: at most this many videos a day, counted before the service is asked. */
+  perDay: z.number().int().min(1).max(50).default(3),
 }).strict();
 export type VideoSettings = z.infer<typeof VideoSettingsSchema>;
 const settingsKey = "reach-video-settings";
-const defaults = { openai: { model: "sora-2", base: "https://api.openai.com" }, google: { model: "veo-3.0-generate-001", base: "https://generativelanguage.googleapis.com" } };
+const countKey = "reach-video-count";
+const defaults = {
+  openai: { model: "sora-2", base: "https://api.openai.com", secret: "OPENAI_API_KEY" },
+  google: { model: "veo-3.0-generate-001", base: "https://generativelanguage.googleapis.com", secret: "GEMINI_API_KEY" },
+};
+const CountSchema = z.object({ day: z.string().max(10).default(""), count: z.number().int().min(0).default(0) }).strict();
 
 export const VideoRequestSchema = z.object({
   prompt: z.string().trim().min(1).max(4000),
@@ -51,14 +58,23 @@ const pollMs = 5000, pollTimes = 120;
 const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 export function videoSettings(store: Store, owner: string): VideoSettings { return reachRecord(store, owner, settingsKey, VideoSettingsSchema); }
+/**
+ * Integration review: a new service without a key named with it goes back to that service's usual
+ * key, so the OpenAI key is never handed to Google (or the other way round) by a leftover name.
+ */
 export function saveVideoSettings(store: Store, owner: string, input: unknown): VideoSettings {
-  const value = VideoSettingsSchema.parse({ ...videoSettings(store, owner), ...(input as object ?? {}) });
+  const current = videoSettings(store, owner);
+  const asked = (input ?? {}) as Partial<VideoSettings>;
+  const reset = asked.service !== undefined && asked.service !== current.service && asked.secret === undefined ? { secret: "", model: "" } : {};
+  const value = VideoSettingsSchema.parse({ ...current, ...reset, ...(input as object ?? {}) });
   store.save("settings", owner, settingsKey, value);
   return value;
 }
 
-async function failed(response: Response, what: string): Promise<never> {
-  const detail = (await response.text().catch(() => "")).slice(0, 300);
+async function failed(response: Response, what: string, key = ""): Promise<never> {
+  let detail = (await response.text().catch(() => "")).slice(0, 2000);
+  if (key) detail = detail.split(key).join("[hidden]");
+  detail = detail.slice(0, 300);
   throw new Error(`The video service refused ${what} (HTTP ${response.status})${detail ? `: ${detail}` : ""}`);
 }
 
@@ -70,16 +86,16 @@ async function openaiVideo(job: Job, request: z.infer<typeof VideoRequestSchema>
   const made = await deps.fetcher(`${base}/v1/videos`, { method: "POST", redirect: "error", signal,
     headers: { ...auth, "content-type": "application/json" },
     body: JSON.stringify({ model: job.model, prompt: request.prompt, seconds: String(request.seconds), size }) });
-  if (!made.ok) await failed(made, "the request");
+  if (!made.ok) await failed(made, "the request", key);
   const { id } = z.object({ id: z.string().regex(/^[\w-]{1,120}$/) }).passthrough().parse(await made.json());
   for (let i = 0; i < pollTimes; i++) {
     const state = await deps.fetcher(`${base}/v1/videos/${id}`, { headers: auth, redirect: "error", signal });
-    if (!state.ok) await failed(state, "a progress check");
+    if (!state.ok) await failed(state, "a progress check", key);
     const { status, error } = z.object({ status: z.string(), error: z.unknown().optional() }).passthrough().parse(await state.json());
     if (status === "failed") throw new Error(`The video could not be made: ${JSON.stringify(error ?? "no reason given").slice(0, 200)}`);
     if (status === "completed") {
       const file = await deps.fetcher(`${base}/v1/videos/${id}/content`, { headers: auth, redirect: "error", signal });
-      if (!file.ok) await failed(file, "the download");
+      if (!file.ok) await failed(file, "the download", key);
       return readCapped(file, maxVideoBytes);
     }
     await (deps.sleep ?? wait)(pollMs);
@@ -92,11 +108,11 @@ async function googleVideo(job: Job, request: z.infer<typeof VideoRequestSchema>
   const made = await deps.fetcher(`${base}/v1beta/models/${encodeURIComponent(job.model)}:predictLongRunning`, {
     method: "POST", redirect: "error", signal, headers: { ...auth, "content-type": "application/json" },
     body: JSON.stringify({ instances: [{ prompt: request.prompt }], parameters: { aspectRatio: request.shape === "wide" ? "16:9" : "9:16", durationSeconds: Math.min(request.seconds, 8) } }) });
-  if (!made.ok) await failed(made, "the request");
+  if (!made.ok) await failed(made, "the request", key);
   const { name } = z.object({ name: z.string().regex(/^[\w/.-]{1,200}$/) }).passthrough().parse(await made.json());
   for (let i = 0; i < pollTimes; i++) {
     const state = await deps.fetcher(`${base}/v1beta/${name}`, { headers: auth, redirect: "error", signal });
-    if (!state.ok) await failed(state, "a progress check");
+    if (!state.ok) await failed(state, "a progress check", key);
     const body = await state.json() as { done?: boolean; error?: { message?: string }; response?: { generateVideoResponse?: { generatedSamples?: { video?: { uri?: string } }[] } } };
     if (body.error) throw new Error(`The video could not be made: ${String(body.error.message ?? "no reason given").slice(0, 200)}`);
     if (body.done) return googleDownload(job, body.response?.generateVideoResponse?.generatedSamples?.[0]?.video?.uri);
@@ -118,17 +134,29 @@ async function googleDownload(job: Job, uri: string | undefined): Promise<Buffer
     if (!moved.ok) await failed(moved, "the download");
     return readCapped(moved, maxVideoBytes);
   }
-  if (!answer.ok) await failed(answer, "the download");
+  if (!answer.ok) await failed(answer, "the download", job.key);
   return readCapped(answer, maxVideoBytes);
 }
 
-/** Makes one video and writes it into the workspace. */
-export async function makeVideo(store: Store, owner: string, deps: VideoDeps, input: unknown, signal: AbortSignal): Promise<{ path: string; bytes: number; service: string; model: string }> {
+/** Counts one video against today's allowance, or refuses before the service is asked. */
+function countOne(store: Store, owner: string, perDay: number, now: Date): void {
+  const day = now.toISOString().slice(0, 10);
+  const saved = reachRecord(store, owner, countKey, CountSchema);
+  const count = saved.day === day ? saved.count : 0;
+  if (count >= perDay) throw new Error(`Today's videos are used up (at most ${perDay} a day). The owner can change that under Making videos.`);
+  store.save("settings", owner, countKey, { day, count: count + 1 });
+}
+
+/** Makes one video and writes it into the workspace. A practice run says what it would do and spends nothing. */
+export async function makeVideo(store: Store, owner: string, deps: VideoDeps, input: unknown, signal: AbortSignal,
+  options: { dryRun?: boolean } = {}): Promise<{ path: string; bytes: number; service: string; model: string } | { wouldMake: string; service: string; model: string }> {
   requireReach(store, owner, "video");
   const request = VideoRequestSchema.parse(input);
   const settings = videoSettings(store, owner);
   const model = settings.model || defaults[settings.service].model;
-  const job: Job = { key: await deps.secret(settings.secret), model, deps, signal };
+  if (options.dryRun) return { wouldMake: `a ${request.seconds}-second video, which costs money at the service`, service: settings.service, model };
+  countOne(store, owner, settings.perDay, deps.now?.() ?? new Date());
+  const job: Job = { key: await deps.secret(settings.secret || defaults[settings.service].secret), model, deps, signal };
   const bytes = settings.service === "openai" ? await openaiVideo(job, request) : await googleVideo(job, request);
   if (bytes.length < 12 || !["ftyp", "moov", "mdat", "free"].includes(bytes.toString("latin1", 4, 8)))
     throw new Error("The service sent something that is not an MP4 video, so it was not kept.");

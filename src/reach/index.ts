@@ -14,7 +14,8 @@ import { RelayAdapter } from "./relay.js";
 import { RemoteTrunks } from "./remote-trunks.js";
 import { allReachModes, reachMode, reachParts, reachRecord, reachTools, saveReachMode, type ReachMode, type ReachPart } from "./settings.js";
 import { SkillBundles } from "./skill-bundles.js";
-import { registrars } from "./tools.js";
+import { ownerOnly, registrars } from "./tools.js";
+import { BackgroundScreen } from "./background-screen.js";
 import { UsbTrigger, type UsbLister } from "./usb.js";
 import type { VideoDeps } from "./video.js";
 
@@ -61,6 +62,7 @@ export class Reach {
   readonly usb: UsbTrigger;
   readonly notes: Notes;
   readonly arena: Arena;
+  readonly background: BackgroundScreen;
   private relayAttached = false;
 
   constructor(readonly deps: ReachDeps) {
@@ -75,6 +77,8 @@ export class Reach {
     const models = this.modelAccess();
     this.notes = new Notes(store, owner, models);
     this.arena = new Arena(store, owner, models);
+    this.background = new BackgroundScreen({ store, owner, exec: deps.backgroundExec, platform: deps.platform });
+    deps.registry.onRunFinished(async (context) => this.background.closeRun(context.runId));
     for (const part of reachParts) this.sync(part);
     byRuntime.set(runtime, this);
     void this.followRelay();
@@ -96,7 +100,7 @@ export class Reach {
 
   private sync(part: ReachPart): void {
     for (const name of reachTools[part]) this.deps.registry.unregister(name);
-    if (this.mode(part) !== "off") registrars[part]?.(this.deps.registry, this);
+    if (this.mode(part) !== "off") registrars[part]?.(ownerOnly(this.deps.registry, this), this);
   }
 
   /** The relay is attached the first time it is switched on; while off it neither polls nor sends. */

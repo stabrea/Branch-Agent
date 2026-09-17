@@ -1,7 +1,9 @@
 import { execFile } from "node:child_process";
 import { z } from "zod";
+import { cappedMessage, readDesktopSettings, refusalFor, secretReferenceIn, switchedOffMessage } from "../integrations/desktop-config.js";
 import type { PosixExec, PosixOutcome } from "../integrations/desktop-script-posix.js";
 import { macFailure, osascriptPath } from "../integrations/desktop-script-posix.js";
+import type { Store } from "../store.js";
 
 /**
  * R17-078: using apps in the background on a Mac and on Linux, leaving the pointer, the keyboard
@@ -172,3 +174,73 @@ export const execBackground: PosixExec = (executable, args, signal) => new Promi
       resolve({ status: error ? "failed" : "ok", exitCode: code, stdout: String(stdout), stderr: String(stderr || (error?.message ?? "")) });
     });
 });
+
+export const psPath = "/bin/ps";
+const gone = "That window is no longer open.";
+type Win = { handle: string; title: string; program: string };
+
+/**
+ * Integration review: background app use keeps every rule the ordinary screen tools keep
+ * (src/integrations/desktop.ts). The owner's "use my screen and keyboard" switch is read before every
+ * action (Lockdown turns it off), each task has the same allowance of screen actions, a password or
+ * sign-in window is never listed as usable, looked into, pressed or typed into — judged by the title
+ * and program the computer reports, never by what was asked — and a saved-password placeholder is
+ * never typed. The one thing it does not do is put up the Stop notice: it works without the screen.
+ */
+export class BackgroundScreen {
+  private readonly runs = new Map<string, number>();
+  constructor(private readonly host: { store: Store; owner: string; exec: PosixExec; platform: NodeJS.Platform }) {}
+
+  closeRun(runId: string): void { this.runs.delete(runId); }
+
+  private begin(runId: string, text: string | undefined): void {
+    const settings = readDesktopSettings(this.host.store, this.host.owner);
+    if (!settings.enabled) throw new Error(switchedOffMessage);
+    const typed = text === undefined ? null : secretReferenceIn(text);
+    if (typed) throw new Error(typed);
+    const used = this.runs.get(runId) ?? 0;
+    if (used >= settings.maxActionsPerRun) throw new Error(cappedMessage(settings.maxActionsPerRun));
+    this.runs.set(runId, used + 1);
+  }
+
+  private async windows(signal: AbortSignal): Promise<Win[]> {
+    const listed = await runBackground(this.host.exec, this.host.platform, { action: "windows" }, signal);
+    return Array.isArray(listed.windows) ? (listed.windows as Win[]) : [];
+  }
+
+  /** The title and program of an X window, for the refusal check. */
+  private async xWindow(xwindow: number, signal: AbortSignal): Promise<Win> {
+    const ask = async (executable: string, args: string[]) => {
+      const outcome = await this.host.exec(executable, args, signal);
+      if (outcome.exitCode !== 0) throw new Error(gone);
+      return outcome.stdout.trim();
+    };
+    const title = await ask(xdotoolPath, ["getwindowname", String(xwindow)]);
+    const pid = await ask(xdotoolPath, ["getwindowpid", String(xwindow)]).catch(() => "");
+    const program = /^\d+$/.test(pid) ? await ask(psPath, ["-o", "comm=", "-p", pid]).catch(() => "") : "";
+    return { handle: String(xwindow), title, program };
+  }
+
+  private async check(request: BackgroundRequest, signal: AbortSignal): Promise<void> {
+    let target: Win | undefined;
+    if (request.action === "type" && request.xwindow) target = await this.xWindow(request.xwindow, signal);
+    else if (request.handle) {
+      target = (await this.windows(signal)).find((w) => w.handle === request.handle);
+      if (!target) throw new Error(gone);
+    }
+    const refused = target ? refusalFor({ title: String(target.title ?? ""), program: String(target.program ?? "") }) : null;
+    if (refused) throw new Error(refused);
+  }
+
+  async run(input: unknown, context: { runId: string; signal: AbortSignal }): Promise<Record<string, unknown>> {
+    const request = BackgroundSchema.parse(input);
+    backgroundCommand(this.host.platform, request); // refuses what cannot be done before anything runs
+    this.begin(context.runId, request.text);
+    if (request.action === "windows") {
+      const all = await this.windows(context.signal);
+      return { windows: all.map((w) => ({ ...w, offLimits: Boolean(refusalFor({ title: String(w.title ?? ""), program: String(w.program ?? "") })) })) };
+    }
+    await this.check(request, context.signal);
+    return runBackground(this.host.exec, this.host.platform, request, context.signal);
+  }
+}

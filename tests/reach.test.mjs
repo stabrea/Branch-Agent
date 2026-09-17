@@ -338,7 +338,7 @@ test("R17-083: an assistant shared through git comes in under the market's rules
   let n = 0;
   const git = async (args) => {
     runs.push(args);
-    if (args[0] === "ls-remote") return { code: 0, stdout: `${commit}\trefs/heads/main\n`, stderr: "" };
+    if (args.includes("ls-remote")) return { code: 0, stdout: `${commit}\trefs/heads/main\n`, stderr: "" };
     if (args.includes("rev-parse")) return { code: 0, stdout: `${commit}\n`, stderr: "" };
     await sharedRepo(args.at(-1), repo);
     return { code: 0, stdout: "", stderr: "" };

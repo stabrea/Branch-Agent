@@ -1,6 +1,9 @@
 import { z } from "zod";
+import type { ToolContext, ToolDefinition } from "../contracts.js";
+import { runOrigin, startedWithShortLivedKey } from "../key-context.js";
+import { currentPerson } from "../people/context.js";
 import type { ToolRegistry } from "../registry.js";
-import { BackgroundSchema, runBackground } from "./background-screen.js";
+import { BackgroundSchema } from "./background-screen.js";
 import type { Reach } from "./index.js";
 import { LookSchema } from "./machines.js";
 import { RewriteSchema } from "./notes.js";
@@ -14,7 +17,38 @@ import { makeVideo, VideoRequestSchema } from "./video.js";
  * None of them starts a task elsewhere, installs anything, or changes a setting: those are the
  * owner's, in the window.
  */
-type Registrar = (registry: ToolRegistry, reach: Reach) => void;
+type Registrar = (registry: Pick<ToolRegistry, "register">, reach: Reach) => void;
+
+export const reachKeyRefusal = "A short-lived key cannot reach the owner's other computers, screen, videos or notes. Do it in the app window.";
+export const reachAgentRefusal = "Work another assistant or program started cannot use this. The owner can, in the app window.";
+
+/**
+ * Integration review: every reach tool is the owner's alone. A household profile, a signed-in person,
+ * a short-lived key, and work another assistant or program started (a Trunk message from another
+ * computer is one) are refused before the tool does anything — the same line as src/personal/guard.ts
+ * and src/devices/tools.ts draw.
+ */
+export function reachRefusal(reach: Reach, context: ToolContext): string | null {
+  const { store } = reach;
+  store.profiles.requireOwner("This");
+  const origin = context.runId && store.run(context.runId) ? runOrigin(store, context.runId) : null;
+  if (startedWithShortLivedKey() || origin?.shortLivedKey) return reachKeyRefusal;
+  if (currentPerson() || origin?.personProfileId || origin?.lentTo) return "This belongs to the owner. Switch back to the owner's profile to use it.";
+  if (["mcp", "a2a", "acp"].includes(context.source ?? origin?.source ?? "owner")) return reachAgentRefusal;
+  return null;
+}
+
+export function ownerOnly(registry: ToolRegistry, reach: Reach): Pick<ToolRegistry, "register"> {
+  return {
+    register<T>(definition: ToolDefinition<T>): void {
+      registry.register<T>({ ...definition, execute: async (input, context) => {
+        const refused = reachRefusal(reach, context);
+        if (refused) throw new Error(refused);
+        return definition.execute(input, context);
+      } });
+    },
+  };
+}
 
 const machines: Registrar = (registry, reach) => {
   registry.register({
@@ -49,7 +83,7 @@ const background: Registrar = (registry, reach) => {
     name: "screen.background", group: "desktop", permission: "desktop.control",
     description: "Use an app in the background on a Mac or Linux without moving the pointer or the focus: list windows, list a window's controls, press a named control, set a field's text, or (Linux) type into a window.",
     parameters: BackgroundSchema,
-    execute: async (args, context) => runBackground(reach.deps.backgroundExec, reach.deps.platform, args, context.signal),
+    execute: async (args, context) => reach.background.run(args, context),
     target: (args) => `${args.action} ${args.name ?? args.handle ?? args.xwindow ?? ""}`.trim(),
   });
 };
@@ -59,7 +93,7 @@ const video: Registrar = (registry, reach) => {
     name: "video.generate", group: "media", permission: "media.write",
     description: "Make a short video (4, 8 or 12 seconds) from a description, through the video service the owner chose. It costs money at the service. The file is saved under made/videos/.",
     parameters: VideoRequestSchema,
-    execute: async (args, context) => makeVideo(reach.store, reach.owner, reach.videoDeps(), args, context.signal),
+    execute: async (args, context) => makeVideo(reach.store, reach.owner, reach.videoDeps(), args, context.signal, { dryRun: !!context.dryRun }),
     target: () => "made/videos",
   });
 };

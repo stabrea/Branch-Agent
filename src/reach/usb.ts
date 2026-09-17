@@ -96,12 +96,17 @@ export class UsbTrigger {
 
   rules(): UsbRule[] { return reachRecord(this.deps.store, this.deps.owner, rulesKey, RulesSchema).rules; }
 
-  /** Adds or changes a rule. A new rule is always off; switching it on is a separate step. */
+  /**
+   * Adds or changes a rule. A new rule is always off; switching it on is a separate step. Integration
+   * review: changing which device a rule answers or the task it starts switches it off again, so a
+   * yes is never carried over to something the owner did not say yes to. A new name alone keeps it.
+   */
   save(input: unknown): UsbRule[] {
     requireReach(this.deps.store, this.deps.owner, "usb");
     const rule = UsbRuleSchema.parse(input);
     const old = this.rules().find((r) => r.id === rule.id);
-    const next = { ...rule, enabled: old ? old.enabled : false };
+    const same = old && old.vendorId === rule.vendorId && old.productId === rule.productId && old.serial === rule.serial && old.prompt === rule.prompt;
+    const next = { ...rule, enabled: same ? old.enabled : false };
     const rules = [...this.rules().filter((r) => r.id !== rule.id), next];
     RulesSchema.parse({ rules });
     this.deps.store.save("settings", this.deps.owner, rulesKey, { rules });

@@ -231,11 +231,16 @@ async function videoCard(state) {
   node.append(...switchFor("video", state.modes, status));
   if (state.modes.video !== "off") {
     const service = choice([["openai", "", "OpenAI"], ["google", "", "Google"]], state.video.service);
-    const secret = field(state.video.secret), model = field(state.video.model);
+    const secret = field(state.video.secret), model = field(state.video.model), perDay = field(String(state.video.perDay ?? 3), "number");
+    perDay.min = "1"; perDay.max = "50";
     const [save, saveHint] = button("reach-video-save", "reach.saveButton", "Save", "reach.video.saveHint", "Keeps which service and key to use.",
-      attempt(status, async () => { await api("reach/video/settings", { service: service.value, secret: secret.value.trim(), model: model.value.trim() }); done(status); }));
+      attempt(status, async () => {
+        await api("reach/video/settings", { service: service.value, secret: secret.value.trim(), model: model.value.trim(), perDay: Number(perDay.value) || 1 });
+        done(status);
+      }));
     node.append(...control("reach-video-service", "reach.video.service", "Service", "reach.video.serviceHint", "Where the video is made.", service),
-      ...control("reach-video-secret", "reach.video.secret", "Key name in Secrets", "reach.video.secretHint", "The name of the saved secret holding the key; the key itself never leaves Secrets.", secret),
+      ...control("reach-video-secret", "reach.video.secret", "Key name in Secrets", "reach.video.secretHint", "The name of the saved secret holding the key; leave empty for OPENAI_API_KEY or GEMINI_API_KEY. The key itself never leaves Secrets.", secret),
+      ...control("reach-video-per-day", "reach.video.perDay", "Videos a day, at most", "reach.video.perDayHint", "Counted before the service is asked; a practice run does not count.", perDay),
       ...control("reach-video-model", "reach.video.model", "Model", "reach.video.modelHint", "Leave empty for the service's usual video model.", model),
       row(save, saveHint));
   }

@@ -114,6 +114,7 @@ import { handlesTrunksPath, trunksApi, TrunksHttpError } from "./trunks/api.js";
 import { codingApi, CodingHttpError, handlesCodingPath } from "./coding/api.js"; // mac7/r17-d: coding polish
 import { handlesPersonalPath, personalApi, PersonalHttpError } from "./personal/api.js"; // R17-C
 import { handlesReachPath, reachApi, ReachHttpError } from "./reach/api.js"; // r17-i
+import { reachKey, reachParts } from "./reach/settings.js"; // r17-i integration review
 // mac4/bucket-20: the Agent Protocol, programs lending tools, and the owner's interop routes.
 import { handleInterop, handlesInteropPath, interopOffLimits } from "./interop/api.js";
 import { clientToolsPath, serveClientToolSocket } from "./interop/client-tools.js";
@@ -932,6 +933,10 @@ async function api(
         "security-check": (patch) => app.security.configure(patch),
         ...Object.fromEntries((["analytics", "answer-engine", "runtimes", "nodes", "project-board"] as const)
           .map((part) => [`asks-${part}`, (patch: Record<string, unknown>) => { app.asks.setMode(part, patch); }])),
+        // r17-i integration review: a reach switch saved through Reach, so its tools and the relay follow at once.
+        ...Object.fromEntries(reachParts.map((part) => [reachKey(part), (patch: Record<string, unknown>) => {
+          void app.reachParts.setMode(part, patch).catch(() => undefined); // the record is saved before the first await
+        }])),
       },
       guard: (target) => protectedTarget({ tool: "files.write", readOnly: false, args: { path: target }, target,
         workspace: app.runtime.workspace }, app.runtime.protectedAreas),

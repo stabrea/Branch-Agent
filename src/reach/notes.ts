@@ -70,7 +70,11 @@ export class Notes {
       const current = this.get(id);
       if (expected !== undefined && expected !== current.updatedAt) throw new Error("This note changed somewhere else. Open it again before saving.");
     } else if (this.list().length >= maxNotes) throw new Error(`At most ${maxNotes} notes.`);
-    const note = { title, body, updatedAt: new Date().toISOString() };
+    // Integration review: two saves within one millisecond still get different stamps, so `expected` always catches the second.
+    const previous = id ? this.get(id).updatedAt : "";
+    let stamp = new Date().toISOString();
+    if (previous && stamp <= previous) stamp = new Date(Date.parse(previous) + 1).toISOString();
+    const note = { title, body, updatedAt: stamp };
     const key = id ?? randomUUID();
     this.store.save("settings", this.owner, notePrefix + key, note);
     return { ...note, id: key };

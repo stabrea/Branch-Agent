@@ -6974,8 +6974,20 @@ part off, nothing of it runs: no polling, no watching, no connection, and its to
 The relay's settings (`/api/reach/relay/settings`) are `address` (https only), `relayId` (the relay's
 own id), `secret` (the name of the pairing secret in Secrets), `platforms` (the chat apps it may bring)
 and `machineId` (this computer's id at the relay, made once and not secret). Video settings are
-`service` (`openai` or `google`), `secret` and `model`; the chat pause keeps `owners` (your own accounts)
-and `paused` (the chat apps paused).
+`service` (`openai` or `google`), `secret` (empty means `OPENAI_API_KEY` or `GEMINI_API_KEY`), `model`
+and `perDay` (at most this many videos a day, 3 at first); the chat pause keeps `owners` (your own
+accounts) and `paused` (the chat apps paused).
+
+**Who can use these (integration review).** Every reach tool is the owner's alone: a household
+profile, a signed-in person, a short-lived key, and work another assistant or program started
+(including a Trunk message from another computer) are refused before the tool does anything. Another
+computer's key only travels over https, or plain http on this computer or your Tailscale network.
+Using apps in the background keeps the ordinary screen rules: it only works while "Allow the
+assistant to use my screen and keyboard" is on (so Lockdown stops it), it has the same allowance of
+actions per task, password and sign-in windows are marked off limits and never looked into, pressed or
+typed into, and a saved-password placeholder is never typed. A practice run of `video.generate` spends
+nothing. Changing a USB rule's device or task switches it off again. The twelve switches are in the
+settings catalogue as settings that reach further when raised.
 
 The notes workspace and the arena are ideas from Open WebUI, whose licence allows study only: they were
 written from the idea, and no code or wording was taken. The other parts follow ideas from Hermes Agent
