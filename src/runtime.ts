@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { currentAccountCall, withAccountCall } from "./accounts/context.js"; // mac6/accounts (currentAccountCall: mac7/lockdown-fix)
-import { lockdownActive, lockdownToolRefusal } from "./lockdown.js"; // mac7/lockdown-fix
+import { lockdownActive, lockdownToolRefusal, lowersRiskOnly } from "./lockdown.js"; // mac7/lockdown-fix
 import { isSignInConnection, trunkCandidates, trunkSignInRefusal } from "./accounts/trunk-guard.js"; // mac7/lockdown-fix
 import { protectedAreas, protectedTarget, cwdOf, type ProtectedAreas } from "./never-break/protected.js"; // mac3/never-break
 import { noJournal, type JournalHook } from "./never-break/journal.js"; // mac3/never-break
@@ -1933,7 +1933,7 @@ ${run.output.slice(0, 6000)}`;
     // R17-S-C integration review: with "confirm sensitive browser steps" on, those are once-only questions too.
     const hold = personal ?? (holdsBrowserStep(this.store, this.owner, tool) ? { reason: browserConfirmationHold, onceOnly: true } : null);
     const held = personal && tightened.decision === "allow" ? "ask" : tightened.decision;
-    const decision = held === "allow" && lockdownActive(this.store, this.owner) ? "ask" : held; // mac7/lockdown-fix
+    const decision = held === "allow" && lockdownActive(this.store, this.owner) && !lowersRiskOnly(tool) ? "ask" : held; // mac7/lockdown-fix
     if (hold?.onceOnly && decision === "ask" && fingerprint) this.approvals.holdOnce(fingerprint, hold.reason);
     // --- end R17-C ---
     // --- end mac7/lockdown-fix ---

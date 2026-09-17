@@ -103,12 +103,16 @@ const refusedPermissions: readonly string[] = [
   "nodes.run", "blocks.run",
 ];
 const refusedTools: readonly string[] = ["browser.borrow"];
+/** Tools that only lower the risk (stopping a program), so Lockdown never stands in their way. */
+const stillAllowedTools: readonly string[] = ["process.stop"];
+export const lowersRiskOnly = (tool: string): boolean => stillAllowedTools.includes(tool);
 
 export const lockdownToolRefusalText =
   "Lockdown is on, so commands, programs, your screen and keyboard, your own browser, your other devices and other computers are refused, without asking. Turn Lockdown off in Settings to allow this again.";
 
 /** Why this tool is refused while Lockdown is on, or null. Checked in `Runtime.checkPolicy`. */
 export function lockdownToolRefusal(store: Reader, owner: string, tool: string, permission: string): string | null {
+  if (lowersRiskOnly(tool)) return null;
   if (!refusedTools.includes(tool) && !refusedPermissions.includes(permission)) return null;
   return lockdownActive(store, owner) ? lockdownToolRefusalText : null;
 }
