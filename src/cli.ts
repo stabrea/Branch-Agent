@@ -45,6 +45,7 @@ import { applyPiiGuard } from "./pii.js";
 // --- mac3/never-break: the gateway that keeps the engine running (src/never-break/) ---
 import { createRequire } from "node:module";
 import { joinGateway, runGatewayIfSwitchedOn } from "./never-break/worker-link.js";
+import { selfTestCommand } from "./never-break/self-test.js";
 // --- end mac3/never-break ---
 
 async function configuredApp(options: Parameters<typeof createBranch>[0]) {
@@ -132,6 +133,9 @@ async function main(): Promise<void> {
   // These two talk to the engine that is already running and never start one of their own, so they
   // come before the workspace and the database are opened at all.
   if (command === "schedule") return scheduleCommand(dataDir);
+  // --- mac3/never-break: a new version checking itself on a copy of the data before an update ---
+  if (command === "start" && process.env.BRANCH_SELF_TEST)
+    return selfTestCommand(process.env.BRANCH_SELF_TEST, { dataDir, workspace, version: String(createRequire(import.meta.url)("../package.json").version) });
   // --- mac3/never-break: with the switch on, `start` runs the gateway, which runs the engine ---
   if (command === "start" && await runGatewayIfSwitchedOn({ dataDir, script: fileURLToPath(import.meta.url),
     version: String(createRequire(import.meta.url)("../package.json").version), port: Number(process.env.BRANCH_PORT ?? 3210) })) return;

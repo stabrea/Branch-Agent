@@ -146,6 +146,8 @@ export class TaskJournal {
     try { this.db.prepare("DELETE FROM steps WHERE state!='started' AND started_at < ?").run(new Date(Date.now() - olderThanMs).toISOString()); }
     catch { /* tidying never matters enough to fail over */ }
   }
+  /** The open database, for taking a copy of it (`VACUUM INTO`) before an update. */
+  get database(): DatabaseSync { return this.db; }
   close(): void { try { this.db.close(); } catch { /* already closed */ } }
 }
 

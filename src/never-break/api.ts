@@ -36,7 +36,8 @@ export async function neverBreakView(dataDir: string): Promise<Record<string, un
   };
 }
 
-export async function neverBreakApi(dataDir: string, request: IncomingMessage, path: string, readBody: Read): Promise<unknown> {
+export async function neverBreakApi(dataDir: string, request: IncomingMessage, path: string, readBody: Read,
+  snapshot?: () => Promise<string>): Promise<unknown> {
   if (request.method === "GET" && path === "/api/never-break") return neverBreakView(dataDir);
   if (request.method !== "POST") throw new NeverBreakApiError(405, "Use GET or POST here.");
   if (path === "/api/never-break") {
@@ -51,6 +52,8 @@ export async function neverBreakApi(dataDir: string, request: IncomingMessage, p
     return { ...(await neverBreakView(dataDir)), note: "Saved. It takes effect the next time Branch starts." };
   }
   if (path === "/api/never-break/proposal/discard") { await discardProposal(dataDir); return neverBreakView(dataDir); }
+  // The window asks the engine that holds the database for a copy, before it tries an update on it.
+  if (path === "/api/never-break/snapshot" && snapshot) return { folder: await snapshot() };
   throw new NeverBreakApiError(404, "Not found");
 }
 

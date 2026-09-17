@@ -29,7 +29,7 @@ export const guardedDataFiles = [
 /** Files and folders in the data folder the gateway and the updater own. */
 export const gatewayDataFiles = [
   "gateway.json", "gateway.good.json", "gateway.proposed.json", "gateway-state.json",
-  "running.json", "first-start.json", "update-backups", "updates",
+  "running.json", "first-start.json", "update-backups", "updates", "update-watch.json",
 ] as const;
 
 const inside = (child: string, parent: string, platform: NodeJS.Platform): boolean => {

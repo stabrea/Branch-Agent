@@ -1,3 +1,7 @@
+import { chmod, mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { launchHandOver, posixRollbackScript, windowsRollbackScript } from "../desktop/hand-over.js";
+import type { UpdateWatch } from "./canary.js";
 import { gatewayContract, GatewayMessageSchema } from "./contract.js";
 import { loadGatewayConfig } from "./gateway-config.js";
 import { Gateway } from "./gateway.js";
@@ -49,7 +53,8 @@ export async function runGatewayIfSwitchedOn(input: { dataDir: string; script: s
   if (process.env.BRANCH_GATEWAY_CHILD === "1") return false;
   const { config } = await loadGatewayConfig(input.dataDir);
   if (config.mode === "off") return false;
-  const gateway = new Gateway({ ...input, presence: true });
+  const gateway: Gateway = new Gateway({ ...input, presence: true,
+    rollBack: async (watch) => { await rollBackUpdate(watch, input.dataDir); void gateway.stop().finally(() => process.exit(1)); } });
   const url = await gateway.start();
   console.log(`Branch gateway listening at ${url}\nThe engine runs behind it and is started again if it stops.`);
   let closing = false;
@@ -61,4 +66,24 @@ export async function runGatewayIfSwitchedOn(input: { dataDir: string; script: s
   process.once("SIGINT", stop);
   process.once("SIGTERM", stop);
   return true;
+}
+
+/**
+ * Writes the way-back script beside the data and starts it so that it outlives this gateway: on
+ * Windows through the same hidden launcher the update uses (no console window), elsewhere as a
+ * detached shell. The script waits for this process to close before it moves anything.
+ */
+export async function rollBackUpdate(watch: UpdateWatch, dataDir: string, launch = launchHandOver): Promise<string> {
+  const folder = join(dataDir, "updates");
+  await mkdir(folder, { recursive: true, mode: 0o700 });
+  const log = join(folder, "roll-back.log");
+  const windows = watch.platform === "win32";
+  const script = join(folder, windows ? "roll-back.cmd" : "roll-back.sh");
+  const text = windows
+    ? windowsRollbackScript({ install: watch.target, exe: join(watch.target, watch.executableName), log })
+    : posixRollbackScript({ platform: watch.platform === "darwin" ? "darwin" : "linux", target: watch.target, log, executableName: watch.executableName });
+  await writeFile(script, text, { encoding: "utf8", mode: 0o700 });
+  if (!windows) await chmod(script, 0o700);
+  await launch(script, process.pid, { platform: watch.platform });
+  return script;
 }

@@ -6,6 +6,7 @@ import { clearRunning, writeRunning } from "../install/running.js";
 import { contractsMeet, gatewayContract, WorkerReadySchema, type WorkerReady } from "./contract.js";
 import { loadGatewayConfig, promoteGood, restoreGood, sameAsGood, type GatewayConfig } from "./gateway-config.js";
 import { clearCrashes, markExited, markRunning, recordCrash } from "./gateway-state.js";
+import { clearWatch, readWatch, repairSwap, watchVerdict, type UpdateWatch } from "./canary.js";
 
 /**
  * The gateway: a small process that keeps Branch's public address open and keeps one worker — the
@@ -29,6 +30,8 @@ export interface GatewayOptions {
   spawn?: (script: string, args: string[], env: NodeJS.ProcessEnv) => ChildProcess;
   /** How long a worker must stay up before its settings count as good and its crash chain is cleared. */
   settleMs?: number;
+  /** Puts the previous version back after an update that does not stay up; the gateway stops afterwards. */
+  rollBack?: (watch: UpdateWatch) => Promise<void>;
   /** Told about every worker that says it is ready, and every crash. */
   onWorker?: (event: { kind: "ready"; ready: WorkerReady } | { kind: "crash"; code: number | null; signal: string | null; tripped: boolean }) => void;
 }
@@ -48,6 +51,9 @@ export class Gateway {
   private tripped = false;
   private relaunch: NodeJS.Timeout | null = null;
   private settle: NodeJS.Timeout | null = null;
+  /** An update being watched in its first minutes, from `update-watch.json`. */
+  private watch: UpdateWatch | null = null;
+  private watchTimer: NodeJS.Timeout | null = null;
   private readonly waiters = new Set<(port: number | null) => void>();
   /** The address of a worker that refused a connection, so it is not tried again before it is replaced. */
   private deadPort: number | null = null;
@@ -67,6 +73,7 @@ export class Gateway {
     const loaded = await loadGatewayConfig(this.options.dataDir);
     this.config = loaded.config;
     if (loaded.problem) this.note(loaded.problem);
+    await this.readUpdateWatch();
     const previous = await markRunning(this.options.dataDir);
     if (previous.uncleanBefore) this.note("Branch did not close properly last time; interrupted work is picked up again.");
     this.server = createServer((request, response) => { void this.handle(request, response); });
@@ -128,6 +135,7 @@ export class Gateway {
     for (const wake of this.waiters) wake(ready.data.port);
     this.waiters.clear();
     this.options.onWorker?.({ kind: "ready", ready: ready.data });
+    void this.checkWatch();
     this.settle = setTimeout(() => { void this.settled(worker); }, this.options.settleMs ?? 30_000);
   }
 
@@ -148,6 +156,8 @@ export class Gateway {
     this.tripped = this.tripped || verdict.tripped;
     this.options.onWorker?.({ kind: "crash", code, signal, tripped: verdict.tripped });
     this.note(`The engine stopped unexpectedly (${signal ?? `code ${code}`}); starting it again${verdict.delayMs ? ` in ${Math.round(verdict.delayMs / 1000)} seconds` : ""}.`);
+    const failing = verdict.tripped || (!wasReady && this.failedStarts >= 1);
+    if (await this.maybeRollBack(failing)) return;
     if (!wasReady) await this.startFailed();
     worker.state = "waiting";
     this.relaunch = setTimeout(() => { this.relaunch = null; this.launch(); }, verdict.delayMs);
@@ -162,6 +172,43 @@ export class Gateway {
     this.config = restored.config;
     this.failedStarts = 0;
     this.note(restored.problem ?? "The last settings that worked were put back.");
+  }
+
+  /* ---------- the first minutes after an update ---------- */
+
+  private async readUpdateWatch(): Promise<void> {
+    this.watch = await readWatch(this.options.dataDir);
+    if (!this.watch || this.watch.platform === "win32") return;
+    for (const line of await repairSwap(this.watch.target).catch(() => [])) this.note(line);
+  }
+
+  private async checkWatch(): Promise<void> {
+    const watch = this.watch;
+    const verdict = watchVerdict(watch, { now: Date.now(), watchSeconds: this.config.watchSeconds,
+      runningVersion: this.worker?.ready?.version ?? null, failing: false });
+    if (!watch || verdict === "roll-back") return;
+    if (verdict === "watching") {
+      if (this.watchTimer) clearTimeout(this.watchTimer);
+      const left = Date.parse(watch.startedAt) + this.config.watchSeconds * 1000 - Date.now();
+      this.watchTimer = setTimeout(() => { void this.checkWatch(); }, Math.max(50, left + 50));
+      return;
+    }
+    this.watch = null;
+    await clearWatch(this.options.dataDir).catch(() => undefined);
+    if (verdict === "done") this.note(`The update to version ${watch.to} is done: it stayed up through its first minutes.`);
+  }
+
+  /** A new version that keeps failing in its first minutes is swapped back for the previous one. */
+  private async maybeRollBack(failing: boolean): Promise<boolean> {
+    const watch = this.watch;
+    if (watchVerdict(watch, { now: Date.now(), watchSeconds: this.config.watchSeconds,
+      runningVersion: this.worker?.ready?.version ?? null, failing }) !== "roll-back" || !watch) return false;
+    this.watch = null;
+    await clearWatch(this.options.dataDir).catch(() => undefined);
+    this.note(`Version ${watch.to} did not stay up after the update, so version ${watch.from} is being put back.`);
+    if (!this.options.rollBack) return false;
+    try { await this.options.rollBack(watch); return true; }
+    catch (error) { this.note(`The previous version could not be put back: ${error instanceof Error ? error.message : String(error)}`); return false; }
   }
 
   private waitForWorker(ms: number): Promise<number | null> {
@@ -247,6 +294,7 @@ export class Gateway {
     this.stopping = true;
     if (this.relaunch) clearTimeout(this.relaunch);
     if (this.settle) clearTimeout(this.settle);
+    if (this.watchTimer) clearTimeout(this.watchTimer);
     for (const wake of this.waiters) wake(null);
     for (const socket of this.tunnels) socket.destroy();
     await this.stopWorker();

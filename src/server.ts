@@ -120,6 +120,7 @@ import { handlesSandboxRemotePath, sandboxRemoteApi, SandboxRemoteApiError } fro
 import { guardsApi, handlesGuardsPath } from "./run-guards.js";
 // mac3/never-break: the gateway switch and suggested changes (src/never-break/api.ts).
 import { handlesNeverBreakPath, NeverBreakApiError, neverBreakApi } from "./never-break/api.js";
+import { snapshotData } from "./never-break/canary.js";
 import { helpApi } from "./help.js";
 import { AuthLimiter, noteAuthFailure, requestSource } from "./auth-limits.js";
 import { handlesOrchestrationPath, orchestrationApi, OrchestrationApiError } from "./orchestration-api.js";
@@ -649,7 +650,8 @@ async function api(
   if (handlesGuardsPath(path)) return guardsApi(app, request, path, readBody);
   // mac3/never-break: the gateway switch and the changes the assistant suggested for it.
   if (handlesNeverBreakPath(path))
-    return neverBreakApi(dataDir, request, path, readBody).catch((error: unknown) => {
+    return neverBreakApi(dataDir, request, path, readBody,
+      () => snapshotData({ dataDir, database: app.store.sqlite, journal: app.neverBreak.journal.database })).catch((error: unknown) => {
       throw error instanceof NeverBreakApiError ? new HttpError(error.status, error.message) : error;
     });
   // Batch 21 (wave 8): the description of this API, Lockdown, kept answers, whole sets, project cost.
