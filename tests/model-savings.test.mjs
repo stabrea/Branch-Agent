@@ -18,6 +18,7 @@ import {
 } from "../dist/index.js";
 import { OpenAIProvider } from "../dist/providers.js";
 import { startServer } from "../dist/server.js";
+import { offersFlex, requestExtras } from "../dist/model-savings/hook.js";
 
 const owner = "local";
 const answer = (content, toolCalls = [], usage) => ({ content, toolCalls, ...(usage ? { usage } : {}) });
@@ -47,7 +48,7 @@ const filler = (n) => `Turn ${n}: ` + "photo renaming details ".repeat(70);
 test("every card ships off, and a fresh install sends and registers nothing extra", async (t) => {
   const values = allSavings({ get: () => undefined }, owner);
   assert.deepEqual(values, {
-    phases: { planModel: null },
+    phases: { planModel: null, sideTier: "same" },
     openrouter: { mode: "off", sort: null, order: [], only: [], ignore: [], allowFallbacks: true, dataCollection: "allow" },
     difficulty: { mode: "off", classifierModel: null, easyModel: null, hardModel: null },
     reportedTokens: { mode: "off" },
@@ -84,6 +85,27 @@ test("R17-044 plans are drafted by the planning connection; the work and the rev
   // R17-S11 (reused, not rebuilt): the sub-task and side-job models are the knobs' own.
   saveKnobs(app.store, owner, "subtasks", { sideJobModel: "planner" });
   assert.equal(readSavings(app.store, owner, "phases").planModel, "planner");
+});
+
+test("R17-045 side questions may ask OpenAI for flex; the main answer and every other service keep their tier", async (t) => {
+  const openai = new OpenAIProvider({ endpoint: "https://api.openai.com/v1", model: "o4-mini", apiKey: "k" });
+  const other = new OpenAIProvider({ endpoint: "https://openrouter.ai/api/v1", model: "x", apiKey: "k" });
+  assert.equal(offersFlex({ id: "o", name: "O", provider: openai, model: "o4-mini" }), true);
+  assert.equal(offersFlex({ id: "r", name: "R", provider: other, model: "x" }), false);
+  assert.equal(offersFlex({ id: "f", name: "F", provider: scripted("fake"), model: "x" }), false);
+
+  const main = scripted("main");
+  const { app } = await fixture(t, [preset("main", main)]);
+  const flexy = { id: "o", name: "O", provider: openai, model: "o4-mini" };
+  assert.deepEqual(requestExtras(app.store, owner, flexy, true), {}, "as shipped nothing changes");
+  saveSavings(app.store, owner, "phases", { sideTier: "flex" });
+  assert.deepEqual(requestExtras(app.store, owner, flexy, true), { serviceTier: "flex" });
+  assert.deepEqual(requestExtras(app.store, owner, flexy, false), {}, "the main answer keeps R17-S-B's tier");
+  assert.deepEqual(requestExtras(app.store, owner, app.runtime.models.presets.get("main"), true), {}, "a service not known to offer flex is never asked");
+  // R17-S12 (now in mac/cross-platform) still decides the main answer's tier.
+  saveKnobs(app.store, owner, "reasoning", { serviceTier: "priority" });
+  await app.runtime.run({ prompt: "hello" });
+  assert.equal(main.requests.at(-1).serviceTier, "priority");
 });
 
 test("R17-046 OpenRouter preferences go only to openrouter.ai, and only when switched on", async (t) => {
@@ -277,6 +299,14 @@ test("R17-050 keeping the cache warm needs its switch, stops at its pings and ca
   await timers.at(-1).run();
   assert.equal(sent, 3, "a model with no price is never pinged");
   assert.match(logged.at(-1).data.reason, /no price/);
+
+  keep.arm(owner, "s5", "anthropic", { ...ping, send: async () => { throw new Error("the service refused"); } });
+  await timers.at(-1).run();
+  assert.match(logged.at(-1).data.reason, /stopped: the service refused/, "a failed ping stops the pause and says why");
+  assert.equal(timers.filter((one) => !one.cleared).length >= 1, true);
+  const afterFailure = timers.length;
+  assert.equal(keep.waiting, 0, "nothing more is scheduled after a failure");
+  assert.equal(timers.length, afterFailure);
 
   keep.arm(owner, "s4", "anthropic", ping);
   const pending = timers.at(-1);

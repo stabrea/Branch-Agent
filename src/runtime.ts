@@ -1733,7 +1733,7 @@ ${run.output.slice(0, 6000)}`;
       // mac2/leak-guard: the copy that is sent has key-shaped values hidden; `messages` stays as it was.
       const request = { messages: this.leakGuard.request(run.id, messages), tools, maxTokens, ...(reasoning ? { reasoning } : {}),
         ...knobs.serviceTierFor(this.store, this.owner), // R17-S12
-        ...savings.requestExtras(this.store, this.owner), // R17-046
+        ...savings.requestExtras(this.store, this.owner, preset, !context.permissions.size), // R17-045 / R17-046
         ...(shape ? { responseFormat: { name: shape.name, schema: shape.schema } } : {}) };
       // mac6/accounts: the call carries its conversation, so a connection with several accounts can honour the one chosen for it.
       const raw = await withAccountCall({ owner: run.owner, sessionId: run.sessionId, runId: run.id, note: (kind, data) => this.store.event(run.id, kind, data) }, async () => onTextDelta

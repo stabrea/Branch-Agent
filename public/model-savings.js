@@ -54,7 +54,8 @@ function labelled(id, key, control) {
 
 /* Fields: switch (off/on), three (off/on/when-needed), connection, select, number, lines. */
 const CARDS = [
-  { id: "phases", home: "settings:models:defaults", fields: [{ name: "planModel", kind: "connection" }] },
+  { id: "phases", home: "settings:models:defaults", fields: [{ name: "planModel", kind: "connection" },
+    { name: "sideTier", kind: "select", options: ["same", "flex"], optionKey: "tier" }] },
   { id: "difficulty", home: "settings:models:defaults", warn: "savings.warn.difficulty", fields: [
     { name: "mode", kind: "three", key: "difficultyMode" },
     { name: "classifierModel", kind: "connection" }, { name: "easyModel", kind: "connection", none: "savings.option.pick" },

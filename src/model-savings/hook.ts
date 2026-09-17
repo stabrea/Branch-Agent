@@ -3,6 +3,7 @@ import type { ModelPreset, ModelRouter, RunModelOverride } from "../models.js";
 import type { Store } from "../store.js";
 import { estimateCost, pricingSettings } from "../pricing.js";
 import { routeByProfile } from "../model-profiles.js";
+import { withAccountCall } from "../accounts/context.js";
 import { chooseByDifficulty, type DifficultyAsk } from "./difficulty.js";
 import { KeepAlive } from "./keep-alive.js";
 import { openRouterRouting } from "./openrouter.js";
@@ -33,10 +34,23 @@ export function planPreset(runtime: SavingsRuntime, owner: string, fallback: Mod
   return (id && runtime.models.presets.get(id)) || fallback;
 }
 
-/** R17-046: what an answered request carries for OpenRouter, or nothing. */
-export function requestExtras(store: Pick<Store, "get">, owner: string): Pick<CompletionRequest, "providerRouting"> {
+/** R17-045: true only for OpenAI's own address, the one service Branch knows offers the flex tier. */
+export function offersFlex(preset: ModelPreset): boolean {
+  try {
+    const route = (preset.provider as { embeddings?: () => { endpoint: string } | null }).embeddings?.();
+    return route ? new URL(route.endpoint).hostname.toLowerCase() === "api.openai.com" : false;
+  } catch { return false; }
+}
+
+/**
+ * What a request carries beyond the usual: OpenRouter's company preferences (R17-046), and the flex
+ * tier for a side question to OpenAI when the owner asked for it (R17-045). Flex only ever lowers
+ * the price, and it is never asked of a service that has not said it offers it.
+ */
+export function requestExtras(store: Pick<Store, "get">, owner: string, preset: ModelPreset, sideQuestion: boolean): Pick<CompletionRequest, "providerRouting" | "serviceTier"> {
   const routing = openRouterRouting(store, owner);
-  return routing ? { providerRouting: routing } : {};
+  const flex = sideQuestion && readSavings(store, owner, "phases").sideTier === "flex" && offersFlex(preset);
+  return { ...(routing ? { providerRouting: routing } : {}), ...(flex ? { serviceTier: "flex" as const } : {}) };
 }
 
 /**
@@ -88,7 +102,9 @@ export function afterRound(runtime: SavingsRuntime, keepAlive: KeepAlive, round:
   keepAlive.arm(round.owner, run.sessionId, preset.provider.name, {
     runId: run.id, price: priced,
     send: async () => {
-      const answer: Completion = await preset.provider.complete({ messages, tools, maxTokens: 1, signal: AbortSignal.timeout(60_000) });
+      // The same account wrapper as every other call, so a connection with several accounts bills the chosen one.
+      const answer: Completion = await withAccountCall({ owner: run.owner, sessionId: run.sessionId, runId: run.id, note: (kind, data) => store.event(run.id, kind, data) },
+        () => preset.provider.complete({ messages, tools, maxTokens: 1, signal: AbortSignal.timeout(60_000) }));
       store.addUsage(run.id, round.estimatedInput, 0, answer.usage);
     },
   });

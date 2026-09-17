@@ -13,9 +13,14 @@ const switchMode = z.enum(["off", "on"]);
 const threeWay = z.enum(["off", "on", "when-needed"]);
 const slug = z.string().trim().min(1).max(80).regex(/^[a-z0-9][a-z0-9._/-]*$/i);
 
-/** R17-044: which connection drafts a plan before the work starts; null uses the conversation's own. */
+/**
+ * R17-044: which connection drafts a plan before the work starts; null uses the conversation's own.
+ * R17-045: the questions asked on the side (plans, reviews, summaries, the easy-or-hard question)
+ * may ask OpenAI for its slower, cheaper flex tier. The main answer keeps R17-S-B's service tier.
+ */
 export const PhaseModelSettingsSchema = z.object({
   planModel: presetId.nullable().default(null),
+  sideTier: z.enum(["same", "flex"]).default("same"),
 }).strict();
 
 /** R17-046: OpenRouter's own choice of which company serves a model. Sent only to openrouter.ai. */
