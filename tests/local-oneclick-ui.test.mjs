@@ -16,6 +16,7 @@ import { startServer } from "../dist/server.js";
 import { readGraphicsCard, useGraphicsReader } from "../dist/local-hardware.js";
 import { useMemoryReaders } from "../dist/local-fit.js";
 import { localModelsMode } from "../dist/local-jobs.js";
+import { localKitFor } from "../dist/local-kit.js";
 import { openPlace, openSettingFor } from "./places.mjs";
 
 async function fixture(t, width = 1440) {
@@ -25,6 +26,9 @@ async function fixture(t, width = 1440) {
   await mkdir(scratch, { recursive: true });
   const root = await mkdtemp(join(scratch, "branch-local-ui-"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data") });
+  // The sizes are only listed once a program that runs models is found. Say Ollama is there, so the
+  // block looks the same on a clean build machine as on a computer that has one (nothing is started).
+  localKitFor(app.store).launcher.installed = async () => ({ ollama: "/stand-in/ollama", "lm-studio": null, "llama-cpp": null, mlx: null });
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
   const browser = await chromium.launch({ headless: true });
   t.after(async () => {

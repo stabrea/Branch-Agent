@@ -153,9 +153,11 @@ test("A0300 a failure is written to the task's log, and a base that is the new b
   app.store.event(run.id, "file.changed", { path: "src/a.ts" });
   app.store.event(run.id, "run.finished", { status: "completed", output: "" });
   await Promise.all(work);
-  const failure = app.store.events(run.id).find((event) => event.kind === "pull_request.failed");
-  assert.ok(failure, "the failure is in the log");
-  assert.match(failure.data.reason, /Permission to acme\/widgets denied/);
+  // The app's own watcher (real Git, no repository here) may log its failure first, so look at them all.
+  const failures = app.store.events(run.id).filter((event) => event.kind === "pull_request.failed");
+  assert.ok(failures.length, "the failure is in the log");
+  assert.ok(failures.some((event) => /Permission to acme\/widgets denied/.test(event.data.reason)),
+    `the push failure is logged: ${failures.map((event) => event.data.reason).join(" | ")}`);
   assert.equal(failing.opened.length, 0);
 });
 
