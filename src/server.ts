@@ -53,6 +53,10 @@ import { knowledgeApi } from "./knowledge-tools.js";
 import { knowledgeExtrasApi } from "./knowledge-more.js";
 import { WhatsAppAdapter } from "./channels/whatsapp.js";
 import { WebhookChatAdapter } from "./channels/webhook-chat.js";
+// Wave mac3 (channels-parity).
+import { isPostedChannel, type PostedChannel } from "./channels/parity-switch.js";
+import type { ChannelAdapter } from "./channels/router.js";
+import { parityApi } from "./channels/parity-api.js";
 // Batch 20 (wave 8): the unguessable word on the end of every inbound webhook address.
 import { rotateWebhookSecret, saveWebhookAddressSettings, webhookAddress, webhookAddressRefusal,
   webhookAddressSettings, webhookSecret } from "./channels/webhook-address.js";
@@ -359,6 +363,8 @@ async function staticFile(
     // Wave mac2 (chat-live): the chat-app switches card under Customize, Chat apps.
     "/chat-live.js": ["chat-live.js", "text/javascript; charset=utf-8"],
     "/skill-revisions.js": ["skill-revisions.js", "text/javascript; charset=utf-8"],
+    // Wave mac3 (channels-parity): the switches for the chat services added to match other assistants.
+    "/channels-more.js": ["channels-more.js", "text/javascript; charset=utf-8"],
     "/specialist-styles.js": ["specialist-styles.js", "text/javascript; charset=utf-8"],
     // Wave 7 (a coder's toolbox): the two Developer switches for language servers and debuggers.
     "/code-ide.js": ["code-ide.js", "text/javascript; charset=utf-8"],
@@ -1584,6 +1590,8 @@ async function chatWebhook(app: Branch, request: IncomingMessage, response: Serv
   if (wrongAddress) throw new HttpError(404, wrongAddress);
   const adapter = app.channels.adapter(match[1]!);
   if (adapter instanceof MetaMessagingAdapter) return metaWebhook(app, adapter, request, response, { limiter, from });
+  // Wave mac3 (channels-parity): services that are posted to and prove the post in their own way.
+  if (isPostedChannel(adapter)) return postedChatWebhook(app, adapter, request, response, { limiter, from });
   if (!(adapter instanceof WebhookChatAdapter)) throw new HttpError(404, "No chat service with that name is connected");
   if (request.method !== "POST") throw new HttpError(404, "Endpoint not found");
   const { raw } = await readBodyWithRaw(request, 256 * 1024).catch(() => { throw new HttpError(400, "That message could not be read"); });
@@ -1592,6 +1600,17 @@ async function chatWebhook(app: Branch, request: IncomingMessage, response: Serv
   limiter.succeed(from);
   // Some services will not send anything until the address echoes a word back once.
   send(response, 200, result.challenge === undefined ? { accepted: result.accepted } : { challenge: result.challenge });
+  return true;
+}
+/** Wave mac3 (channels-parity): hands the exact bytes to a service that checks its own signature. */
+async function postedChatWebhook(app: Branch, adapter: ChannelAdapter & PostedChannel, request: IncomingMessage, response: ServerResponse, limit: ChatWebhookLimit): Promise<boolean> {
+  if (request.method !== "POST") throw new HttpError(404, "Endpoint not found");
+  if (adapter.accepting?.() === false) throw new HttpError(503, "That chat service is switched off in Customize");
+  const { raw } = await readBodyWithRaw(request, 256 * 1024).catch(() => { throw new HttpError(400, "That message could not be read"); });
+  const result = await adapter.receivePost(raw, request.headers)
+    .catch((error: unknown) => { throw refusedChatPost(app, adapter.id, adapter.kind, error, limit); });
+  limit.limiter.succeed(limit.from);
+  send(response, 200, result.reply ?? { accepted: result.accepted });
   return true;
 }
 /** Where a post came from, so repeated refusals from one place can be counted and slowed down. */
@@ -1742,6 +1761,9 @@ async function webhooksApi(app: Branch, request: IncomingMessage, path: string):
 }
 async function channelsApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
   const owner = app.runtime.owner;
+  // Wave mac3 (channels-parity): the list of added chat services and their off / on / when-needed switches.
+  if (path === "/api/channels/parity")
+    return parityApi(app.store, owner, app.channels, request.method ?? "GET", request.method === "POST" ? await readBody(request) : undefined);
   if (request.method === "GET" && path === "/api/channels") return { ...app.channels.summary(), outstanding: app.channels.outstanding() };
   // The chat services this copy knows how to talk to, so the Connections card lists them from data
   // rather than from a piece of hand-written page per service. No secret is involved either way.
@@ -1780,7 +1802,7 @@ function channelAddresses(app: Branch, owner: string): {
 } {
   const addresses = app.channels.summary().channels
     .filter((channel) => channel.kind === "whatsapp" || app.channels.adapter(channel.id) instanceof WebhookChatAdapter
-      || app.channels.adapter(channel.id) instanceof MetaMessagingAdapter)
+      || app.channels.adapter(channel.id) instanceof MetaMessagingAdapter || isPostedChannel(app.channels.adapter(channel.id)))
     .map((channel) => ({
       channel: channel.id, kind: channel.kind,
       address: webhookAddress(channel.kind === "whatsapp" ? "whatsapp" : "chat", channel.id,
@@ -2774,6 +2796,8 @@ function offLimitsToShortLivedKeys(method: string | undefined, path: string): st
   // mac4/bucket-14 (integration review): the report shows every person's tasks, and the counters go out to the trace address.
   if (path.startsWith("/api/usage/report") || path.startsWith("/api/usage/counters"))
     return "A short-lived key cannot make the usage report, change it, or send the task counters. Do that in the app window.";
+  // mac3/channels-parity (integration review): switching a chat app on lets outsiders reach the assistant.
+  if (path === "/api/channels/parity") return "A short-lived key cannot switch chat apps on or off. Do that in the app window.";
   return null;
 }
 /** mac3/security-check: a server tried from Settings is looked up in the malware list before it starts. */
