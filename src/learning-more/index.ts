@@ -64,11 +64,13 @@ export class LearningMore {
       (name) => deps.secret(name, "an outside memory service"), deps.hindsight);
     deps.mirror.beforeWrite = (who) => this.readBack.beforeWrite(who);
     deps.mirror.afterWrite = (who) => this.readBack.afterWrite(who);
-    // Expired facts never reach a conversation's snapshot, even before the next sweep.
+    // While expiry is not off, expired facts never reach a conversation's snapshot, even before the next sweep.
     const order = store.review.orderFacts;
-    store.review.orderFacts = (who, agent, sessionId) =>
-      withoutExpired(order ? order(who, agent, sessionId) : (store.list("memory", who) as MemoryRecord[]).filter((r) => visibleTo(r, agent)));
-    setLearningOpening((run, context) => this.opening(run, context));
+    store.review.orderFacts = (who, agent, sessionId) => {
+      const facts = order ? order(who, agent, sessionId) : (store.list("memory", who) as MemoryRecord[]).filter((r) => visibleTo(r, agent));
+      return this.mode("expiry") === "off" ? facts : withoutExpired(facts);
+    };
+    setLearningOpening(store, (run, context) => this.opening(run, context));
     deps.registry.onRunFinished(async (context) => this.afterTask(context));
     registerLearningTools(deps.registry, this);
   }

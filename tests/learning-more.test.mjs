@@ -103,6 +103,16 @@ test("R17-052: blocks sit in front of the conversation, the assistant edits them
   assert.equal((await api("/api/learning-more/blocks/edit", { label: "rules", action: "set", text: "Be very kind." })).block.value, "Be very kind.");
 });
 
+test("two apps in one process never answer for each other's conversations", async (t) => {
+  const first = await fixture(t), second = await fixture(t);
+  await second.on("blocks");
+  await second.api("/api/learning-more/blocks", { label: "secret-plan", value: "Only the second app knows this." });
+  await first.app.runtime.run({ prompt: "hello" });
+  assert.doesNotMatch(first.provider.seen.at(-1).system, /second app|memory blocks/);
+  await second.app.runtime.run({ prompt: "hello" });
+  assert.match(second.provider.seen.at(-1).system, /Only the second app knows this\./);
+});
+
 test("R17-052: blocks are kept apart per person and per Trunk", async (t) => {
   const { app } = await fixture(t);
   const blocks = new MemoryBlocks(app.store);
@@ -306,6 +316,16 @@ test("R17-058: labels and expiry on facts, search by label and date, expired fac
   assert.deepEqual(app.learningMore.expiry.find(owner, {}, undefined, later).map((f) => f.id), ["oak"]);
   const ordered = app.store.review.orderFacts(owner, undefined, "no-session");
   assert.ok(ordered.some((r) => r.id === "milk"), "not yet expired");
+  // Once expired it is left out of new snapshots while the part is on, and an expiry is ignored while it is off.
+  app.store.save("memory", owner, "gone", { text: "Old parking spot", source: "test", expiresAt: "2001-01-01T00:00:00.000Z" });
+  assert.equal(app.store.review.orderFacts(owner, undefined, "s").some((r) => r.id === "gone"), false);
+  await on("expiry", "off");
+  assert.equal(app.store.review.orderFacts(owner, undefined, "s").some((r) => r.id === "gone"), true);
+  await app.runtime.run({ prompt: "hello" });
+  assert.ok(app.store.get("memory", owner, "gone"), "nothing is swept while the part is off");
+  await on("expiry");
+  await app.runtime.run({ prompt: "hello again" });
+  assert.equal(app.store.get("memory", owner, "gone"), undefined, "a task start sweeps it once the part is on");
   assert.deepEqual(app.learningMore.expiry.sweep(owner, later).setAside, ["milk"]);
   assert.equal(app.store.get("memory", owner, "milk"), undefined);
   assert.equal(app.store.archivedMemory(owner).find((r) => r.id === "milk").note, "expired");
