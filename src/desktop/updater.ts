@@ -23,6 +23,8 @@ export interface UpdaterOptions {
   /** The download for this computer, or null when none is published for it. */
   assetName: string | null;
   scratchDir: string;
+  /** True for a built app (not a source checkout), even when it is not where updates can reach it. */
+  packaged?: boolean;
   /** Which system the update is for; defaults to this computer's. */
   platform?: NodeJS.Platform;
   fetch?: typeof fetch;
@@ -279,6 +281,8 @@ function unsupportedReason(options: UpdaterOptions, platform: NodeJS.Platform): 
   if (!options.assetName) return "Automatic updates are not available for this kind of computer yet. Download the newest version from GitHub instead.";
   if (options.installDir) return null;
   if (platform === "win32") return "Updates apply to the installed app only.";
+  if (options.packaged && platform === "darwin")
+    return "Updates apply to the installed app only. Move Branch Agent into your Applications folder, open it from there, and try again.";
   return "Updates apply to the installed app only. This copy is running from its source code, so update it with `branch update` instead.";
 }
 
