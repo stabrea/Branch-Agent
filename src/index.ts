@@ -483,7 +483,7 @@ export async function createBranch(options: {
   // which ignore files hide paths from searches (src/comfort/). Both do nothing until set. ──
   const outbound = new OutboundNetwork();
   outbound.apply(readComfort(store, runtime.owner, "network"));
-  workspaceSearch.ignoreChoice = () => readComfort(store, runtime.owner, "files");
+  workspaceSearch.ignoreChoice = projectMap.search.ignoreChoice = () => readComfort(store, runtime.owner, "files");
   // ── end R17-S-C ──
   // ---- wave mac3 (os-sandbox): the wall's door asks the same network rules as the web, and never
   // lets a program behind the wall read Branch's own data folder.

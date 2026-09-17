@@ -171,12 +171,28 @@ test("R17-S19: confirming sensitive browser steps asks every time, before any st
   assert.equal(decide(true, "browser.fill", ""), "ask", "a step before any page is open is asked about too");
   assert.equal(decide(true, "browser.click", "bank.example.com"), "deny", "a refusal still decides first");
   assert.equal(decide(true, "browser.snapshot", "shop.example.com"), "allow", "reading a page is not a sensitive step");
+  const refusing = { ...policy, rules: [{ tool: "browser.*", match: "*", applies: "any", decision: "deny", remember: "always" }, ...policy.rules] };
+  for (const host of ["shop.example.com", "files.example.com", ""])
+    assert.equal(evaluatePolicy(withBrowserConfirmation(refusing, store(true), "local"),
+      { tool: "browser.upload", target: host, readOnly: false, resource: host ? { kind: "host", value: host } : null }).decision,
+    evaluatePolicy(refusing, { tool: "browser.upload", target: host, readOnly: false, resource: host ? { kind: "host", value: host } : null }).decision === "deny" ? "deny" : "ask",
+    `a broad refusal is never turned into a question (${host || "no page"})`);
+  const empty = { ...policy, rules: [] };
+  assert.equal(evaluatePolicy(withBrowserConfirmation(empty, store(true), "local"), { tool: "browser.act", target: "", readOnly: false, resource: null }).decision, "ask");
 
-  const { app: branch } = await app(t);
-  saveComfort(branch.store, "local", "browser", { confirmSensitive: true });
+  const { root, app: branch } = await app(t);
   const context = branch.runtime.context({ runId: "comfort-policy" });
+  branch.runtime.approvals.remember(context.runId, "browser.click", "", "allow", {});
+  assert.equal(branch.runtime.approvals.answer(context.runId, "browser.click", ""), "allow");
+  const server = await startServer(branch, { dataDir: join(root, "data"), port: 0 });
+  t.after(() => server.close());
+  const saved = await fetch(`${server.url}/api/comfort`, { method: "POST",
+    headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" },
+    body: JSON.stringify({ card: "browser", values: { confirmSensitive: true } }) });
+  assert.equal(saved.status, 200);
+  assert.equal(branch.runtime.approvals.answer(context.runId, "browser.click", ""), undefined, "turning it on ends the yeses already given");
   const check = branch.runtime.checkPolicy("browser.click", { role: "button", name: "Buy" }, context);
-  assert.equal(check.decision, "ask");
+  assert.equal(check.decision, "ask", "a yes given before the switch was turned on no longer skips the question");
   assert.equal(check.remember, "never", "the question is put again next time");
 });
 

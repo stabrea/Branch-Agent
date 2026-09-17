@@ -455,6 +455,8 @@ export class Tui {
     try {
       said = switchComfort(store, owner, name, value, this.words, (card) => {
         if (card === "network") outbound?.apply(readComfort(store, owner, "network"));
+        // As the window does: asking before sensitive browser steps also ends the yeses already given.
+        if (card === "browser" && readComfort(store, owner, "browser").confirmSensitive) this.runtime.approvals.forgetAll();
       });
     } catch (error) {
       this.conversation.say("warn", `[${error instanceof Error ? error.message : String(error)}]`);

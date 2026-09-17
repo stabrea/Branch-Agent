@@ -72,6 +72,7 @@ function save(app: ComfortApp, body: unknown) {
   const input = SaveSchema.parse(body);
   const { store, runtime: { owner } } = app;
   if (ownerOnlyComfortCards.includes(input.card)) requireOwnerHere(store, cardWords[input.card]!);
+  const before = readComfort(store, owner, "browser").confirmSensitive;
   if (input.reset) resetComfort(store, owner, input.card);
   else if (input.values) {
     // Checked in full before anything is kept, so a refused certificate or proxy never reaches the store.
@@ -79,6 +80,7 @@ function save(app: ComfortApp, body: unknown) {
     saveComfort(store, owner, input.card, input.values);
   }
   if (input.card === "network") app.outbound?.apply(readComfort(store, owner, "network"));
+  if (input.card === "browser") forgetYesesWhenConfirming(app, before);
   return view(app);
 }
 
@@ -107,6 +109,11 @@ function status(app: ComfortApp, url: URL) {
       folder: project.folder ? `${runtime.workspace}/${project.folder}` : runtime.workspace, cost: totals.cost },
     turns,
   };
+}
+
+/** Turning "ask before sensitive browser steps" on also ends the yeses already given, as Lockdown does. */
+function forgetYesesWhenConfirming(app: ComfortApp, before: boolean): void {
+  if (!before && readComfort(app.store, app.runtime.owner, "browser").confirmSensitive) app.runtime.approvals.forgetAll();
 }
 
 function plan(app: ComfortApp, body: unknown) {
