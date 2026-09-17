@@ -249,7 +249,8 @@ async function conversationApi(app: Branch, request: IncomingMessage, path: stri
   if (!match) throw new PeopleHttpError(404, "Not found");
   const sessionId = match[1]!, access = accessTo(app, person, sessionId);
   if (method === "GET" && !match[2]) {
-    const holder = access === "own" ? scope : app.runtime.owner;
+    // A person's own conversation is lent to the assistant while their task runs.
+    const holder = app.store.ownsSession(scope, sessionId) ? scope : app.runtime.owner;
     return { sessionId, access, messages: visible(app, app.store.sessionView(holder, sessionId).messages) };
   }
   if (method !== "POST" || !match[2]) throw new PeopleHttpError(404, "Not found");

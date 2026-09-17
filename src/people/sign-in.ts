@@ -1,4 +1,4 @@
-import { randomBytes, scryptSync } from "node:crypto";
+import { createHash, randomBytes, scryptSync } from "node:crypto";
 import { z } from "zod";
 import type { Profiles } from "../profiles.js";
 import { authorizationUrl, discover, finishSignIn, linkedTo, type GuardedFetch } from "./oidc.js";
@@ -21,7 +21,7 @@ import { verifyAssertion } from "./webauthn.js";
 export interface Where { origin: string; rpId: string; redirectUri: string }
 
 export interface Ticket {
-  id: string; profileId: string | null; required: SignInMethodId[]; passed: SignInMethodId[];
+  id: string; name: string; profileId: string | null; required: SignInMethodId[]; passed: SignInMethodId[];
   failures: number; expiresAt: number; device: string;
   /** What a method keeps between its two stages (a challenge, a nonce). */
   scratch: Partial<Record<SignInMethodId, Record<string, string>>>;
@@ -68,6 +68,9 @@ const passkeyMethod: SignInMethod = {
     const challenge = randomBytes(32).toString("base64url");
     ticket.scratch.passkey = { challenge };
     const allow = ticket.profileId ? host.passkeys.of(ticket.profileId).map((each) => each.credentialId) : [];
+    // Nobody here, or nobody with a passkey yet, is offered the same made-up one, so the answer
+    // does not say which names exist.
+    if (!allow.length) allow.push(createHash("sha256").update(`branch-no-passkey:${ticket.name.toLowerCase()}`).digest("base64url"));
     return { challenge, rpId: where.rpId, allowCredentials: allow, userVerification: "preferred", timeout: 120000 };
   },
   async finish(ticket, input, where, host) {
@@ -124,7 +127,7 @@ export class SignIns {
     const profile = this.host.profiles.byName(name);
     const settings = this.host.settings();
     const required = profile ? chainFor(settings, profile.id) : [...settings.chain];
-    const ticket: Ticket = { id: randomBytes(24).toString("base64url"), profileId: profile?.id ?? null, required, passed: [],
+    const ticket: Ticket = { id: randomBytes(24).toString("base64url"), name: name.trim(), profileId: profile?.id ?? null, required, passed: [],
       failures: 0, expiresAt: this.now() + ticketMs, device: device.slice(0, 120), scratch: {} };
     this.tickets.set(ticket.id, ticket);
     return { ticket: ticket.id, steps: required };

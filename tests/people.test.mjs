@@ -128,6 +128,13 @@ test("B19-5 people cannot read each other's conversations, and the owner's only 
   assert.equal((await f.call("POST", `/api/people/conversations/${made.body.sessionId}/message`, { key: bo, body: { prompt: "hi" } })).status, 404);
   assert.deepEqual((await f.call("GET", "/api/people/conversations", { key: bo })).body.own.sessions, []);
   assert.equal((await f.call("GET", "/api/people/conversations", { key: ada })).body.own.sessions.length, 1);
+  // While her task runs, her conversation is lent to the assistant and she can still read it.
+  f.app.people.lent.set(made.body.sessionId, f.ada.id);
+  f.app.store.reassignSession(made.body.sessionId, f.app.runtime.owner);
+  assert.equal((await f.call("GET", `/api/people/conversations/${made.body.sessionId}`, { key: ada })).status, 200);
+  assert.equal((await f.call("GET", `/api/people/conversations/${made.body.sessionId}`, { key: bo })).status, 404);
+  f.app.store.reassignSession(made.body.sessionId, `profile:${f.ada.id}`);
+  f.app.people.lent.delete(made.body.sessionId);
   // Ada carries on her own conversation; it stays hers.
   assert.equal((await f.call("POST", `/api/people/conversations/${made.body.sessionId}/message`, { key: ada, body: { prompt: "more" } })).status, 200);
   assert.ok(f.app.store.ownsSession(`profile:${f.ada.id}`, made.body.sessionId));
@@ -384,6 +391,10 @@ test("B19-16 passkeys over the page: register while signed in, then sign in with
   // Bo cannot sign in as Ada with Ada's passkey, and cannot use it for himself.
   const bo = await f.call("POST", "/api/people/sign-in/start", { body: { name: "Bo" } });
   const boOptions = await f.call("POST", "/api/people/sign-in/step", { body: { ticket: bo.body.ticket, method: "passkey", stage: "begin" } });
+  assert.equal(boOptions.body.result.allowCredentials.length, 1, "somebody with no passkey looks like somebody with one");
+  const nobody = await f.call("POST", "/api/people/sign-in/start", { body: { name: "Zed" } });
+  const nobodyOptions = await f.call("POST", "/api/people/sign-in/step", { body: { ticket: nobody.body.ticket, method: "passkey", stage: "begin" } });
+  assert.equal(nobodyOptions.body.result.allowCredentials.length, 1, "and so does a name nobody here has");
   const stolen = await f.call("POST", "/api/people/sign-in/step", { body: { ticket: bo.body.ticket, method: "passkey", stage: "finish",
     credential: device.get(boOptions.body.result.challenge) } });
   assert.equal(stolen.status, 400);
