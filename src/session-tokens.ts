@@ -108,6 +108,25 @@ export class SessionTokens {
    * the request may go ahead. A key that works has its use counted, so the owner can see it working.
    */
   check(owner: string, supplied: string, use: TokenUse, now = new Date()): string | null {
+    const found = this.working(owner, supplied, now);
+    if (typeof found === "string") return found;
+    const refusal = scopeRefusal(found.scope, use);
+    if (refusal) return refusal;
+    this.db.prepare("UPDATE session_tokens SET uses=uses+1, last_used_at=? WHERE id=?").run(now.toISOString(), found.id);
+    return null;
+  }
+
+  /**
+   * What a working key may do, or null when it is not a working key of this owner's. Unlike check()
+   * this counts nothing, so a page that has already been let in can ask without a second use showing.
+   */
+  scopeOf(owner: string, supplied: string, now = new Date()): TokenScope | null {
+    const found = this.working(owner, supplied, now);
+    return typeof found === "string" ? null : found.scope;
+  }
+
+  /** The entry for a key that is known, not taken back and not run out; otherwise why not. */
+  private working(owner: string, supplied: string, now: Date): TokenEntry | string {
     if (!supplied.startsWith(prefix)) return "Local session token required";
     const hash = digest(supplied);
     const rows = this.db.prepare("SELECT * FROM session_tokens WHERE owner=?").all(owner).map(toRow);
@@ -117,10 +136,7 @@ export class SessionTokens {
     if (entry.revokedAt) return "That key was taken back. Make a new one with: branch token create";
     if (Date.parse(entry.expiresAt) <= now.getTime())
       return "That key has run out. Make a new one with: branch token create";
-    const refusal = scopeRefusal(entry.scope, use);
-    if (refusal) return refusal;
-    this.db.prepare("UPDATE session_tokens SET uses=uses+1, last_used_at=? WHERE id=?").run(now.toISOString(), entry.id);
-    return null;
+    return entry;
   }
 }
 

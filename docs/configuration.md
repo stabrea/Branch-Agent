@@ -481,6 +481,37 @@ Create a bot with @BotFather, then either save its token as the secret `TELEGRAM
 
 `activation`, `pairing` and `allowlist` mean the same on every channel, and every channel uses the same delivery ledger, the same pairing codes and `POST /api/channels/link { channel, chatId, sessionId }`. Every credential is read from an environment variable of that name first, then from a secret of that name in the **default project's** locker; nothing is ever written into the connections file. Every outbound request goes through the network settings in `web`, including the chat sockets (checked as the matching `https://` address) and the mail servers (checked by host name). `GET /api/channels` reports each channel's `health` as `connected`, `reconnecting` or `needs attention` with a plain reason; **Settings → Channels** shows the same line and a **Check the connection** button. A secret never appears in that output, in an error message or in the log.
 
+### Watching and steering a task from the chat
+
+Everything in this section is **off on a fresh install**: chat replies arrive exactly as before until you switch a part on. There are four switches, each `on`, `off` or `when-needed`, read from `GET /api/channels` (`live`) and changed with `POST /api/channels/live { liveStatus?, commands?, steering?, splitting? }` (the ones you leave out keep their value):
+
+| Switch | On | When needed | Off |
+|---|---|---|---|
+| `liveStatus` | Typing, the reaction and the progress message from the start. | Nothing for a quick answer; all three start once a task has worked for about four seconds. | Just the reply. |
+| `commands` | Every command below. | Only `/stop`, `/status`, `/btw` and `/help`, and only while a task works. | A message starting with `/` is an ordinary message. |
+| `steering` | Quick messages are answered as one, and later ones are handed to the running task. | Handed to the running task, without waiting to gather quick messages. | A message for a busy chat waits for the task to finish and is answered on its own. |
+| `splitting` | Paragraph breaks first, and code blocks closed and reopened. | The same, but only for a reply that contains code. | Cut at the last line break or space, as before. |
+
+These are things the chat does, not things the model reads, so "when needed" is decided by the moment (a slow task, a busy chat, code in the reply) rather than by loading a summary into the prompt.
+
+While a task works, the chat shows it. Where the app has them: "typing…" stays on (Telegram, Discord, Matrix); the message you sent gets a reaction that moves from 👀 (seen) to 🤔 (thinking) to 👨‍💻 (using a tool) and ends on 👍 (done) or 😢 (stopped or went wrong) (Telegram, Discord, Slack); and a task still working after about four seconds gets one progress message that lists its steps and then fills in the reply as it is written, edited in place (Telegram, Discord, Slack). When the reply fits, it replaces the progress message instead of arriving a second time; otherwise the progress message ends as "Done (3 steps)." and the reply follows as usual. An app without these (WhatsApp, Signal, email, Messenger, a plugin's chat service) simply gets the reply. Nothing of this is shown during quiet hours or Lockdown, and every word passes the same last look as a reply.
+
+Messages you send within about a second of each other are answered as one. A message sent while a task works is handed to it as a note it reads before its next step, the same as **Steer** in the app, and gets a 👀 (or "Noted." where there are no reactions); a note that arrives as the task is finishing becomes the next message instead of being lost. Only allowed or approved senders reach any of this; a stranger's `/stop` gets the pairing answer. The commands:
+
+| Send | What happens |
+|---|---|
+| `/stop` (or `/cancel`) | Stops the task (or drops a message that has not started). |
+| `/status` | How long it has worked, how many steps, and the latest one. |
+| `/new` (or `/reset`) | The next message starts a new conversation; the old one stays in the app. |
+| `/compact` | Folds the earlier part of the conversation into a summary now; the latest messages and pinned ones stay. |
+| `/usage on` / `/usage off` | Adds a tokens-and-cost line to replies in this chat (estimates are called estimates). |
+| `/btw <question>` | A quick answer on the side, with no tools, in a throwaway conversation; it never joins the task. |
+| `/help` | The list. |
+
+In a group where the bot answers only when mentioned, mention it before the command (`@YourBot /status`). Long replies are split at paragraph breaks first, and a block of code is closed at the end of one message and opened again, with its language, at the start of the next.
+
+**macOS and Linux.** None of this uses anything from the operating system: it is the same code and the same calls to each chat service on Windows, macOS and Linux, and the tests use stand-in services on all three.
+
 ### Channels (Discord)
 
 Create an application at discord.com/developers, add a bot, and turn on **Message Content Intent** — without it Discord delivers empty message text. Save the bot token as `DISCORD_BOT_TOKEN` and add:
@@ -767,6 +798,25 @@ On Windows, a command is placed inside a **job object** before it does anything:
 
 Setting this up costs about a third of a second per command (measured: roughly 400 ms with a job against roughly 80 ms without, for a command that does nothing), because Windows has no way to make a job from the command line and a small helper has to be started for it. That is worth paying for a limit the system actually enforces, but if you run many very short commands and would rather have the milliseconds, `"useJobObject": false` in the `shell` settings goes back to sampling.
 
+**macOS and Linux.** There is no job object there, so the same setting does the nearest thing
+those systems allow. Each command starts as the head of its own group of programs, through a fixed
+`/bin/sh` line that lowers the processor-time ceiling and then hands over to the program. Your
+program and its arguments are passed alongside that line, never written into it. A ceiling already
+lower than yours is kept, never raised. When the command finishes or is stopped, everything still
+in its group is ended too: first asked to stop, then forced a moment later. This also covers
+programs left running (`process.start`), kept-open command lines, and language servers. What the
+system holds is written in each result, in `heldBySystem`. `isolation` stays `sampling`, because
+that name means a Windows job. Two things are **not** held by the system. **Memory**: the system's
+own memory caps count memory a program has only set aside, and at the default 1 GB they stop Node
+from starting at all, so memory is checked about once a second instead. That check covers the
+largest program in the group. Processor time is also checked as a total across the group. **The
+number of programs**: the only system cap counts every program you run, not just this command's.
+A program that deliberately leaves its group can outlive the command. On macOS a
+`shell` alias is best pointed at `/bin/zsh` (with `-f` to skip your startup files), and on Linux
+at your own `$SHELL` or `/bin/bash`. Add `HOME` (and `TMPDIR`, `USER`, `LOGNAME` or `SHELL` if a
+tool wants them) to `inheritEnv` so the shell behaves as it does in a terminal. Git and SSH also
+pass on `SSH_AUTH_SOCK`, so keys you have already unlocked keep working.
+
 **No internet, best effort.** `"netless": true` in the `shell` settings, or `netless` on a single call, points the command at a dead address on this computer (`http://127.0.0.1:9`) through the usual proxy variables, so curl, git, npm, pip and anything else that respects them fail at once instead of reaching a website. Be clear about what this is: it is **not** a firewall. Blocking a single program properly on Windows needs administrator rights, which a desktop app should not ask for, so a program that ignores proxy settings and opens its own connection is not stopped. Use it to stop an ordinary tool phoning home by accident, not to contain something you do not trust.
 
 The command's environment is built from nothing: only the variables named in `inheritEnv`, then the `env` you set, then the dead-address variables if the command is offline, then the secrets the call asked for. Nothing else from the host — no model keys, no vault variables, no `NODE_OPTIONS` — reaches the program, and the values of those secrets are taken back out of the output before it is recorded.
@@ -860,6 +910,45 @@ Events are filtered by an allow-list of fields, so anything nobody anticipated i
 
 The connector implements tool discovery and invocation. MCP resources, prompts, sampling and other assistants' internal learning or memory are separate capabilities. Newly advertised tools are not automatically granted.
 
+## The dashboard in the browser
+
+One page, served by Branch itself at `/dashboard`, that shows at a glance what Branch is doing (**Now**:
+running or not, the model and connection, the tasks working with a Stop button, what needs you),
+whether its parts are healthy (**Health**: model connections and chat apps, automations as working,
+failing, never run or paused, the background engine and the last update, memory and disk, the last
+week's problems), what it has cost (**Spend**: today and this month by connection and by project,
+with the month's forecast; a task on a model with no price on file is counted apart, never as
+nothing), and what is happening (**Activity**: each step, filtered, with a way into each task). Its
+**Controls** pause every automation, switch Lockdown, restart the engine, and open any Settings
+page. It fits a phone at 400 px and spreads to four columns on a wall screen.
+
+The switch is under Customize → Channels (`dashboard.mode` in the `DashboardSettingsSchema`,
+`src/dashboard-api.ts`) and ships `off`:
+
+- `off` — the page and its files answer 404 and `GET /api/dashboard` refuses.
+- `on` — the page reads `GET /api/dashboard` every ten seconds while it is in view and keeps the
+  live updates of `/api/events/stream` open.
+- `when-needed` — the page is served but reads everything once, when it opens or Refresh is
+  pressed, and keeps nothing open in between.
+
+It sits behind the same key and host rules as the app window, so it is reachable on the paired
+address exactly when the app is. A short-lived key made with `branch token create --scope read`
+gets a page that only looks; `--scope run` may also press Stop (through `POST /api/runs/{id}/cancel`).
+`POST /api/dashboard/automations` with `{ paused }`, `POST /api/dashboard/restart` and
+`POST /api/dashboard/settings` with `{ mode }` need the master key. Pausing sets every waiting
+schedule to paused and switches every trigger off, and remembers which; starting them again brings
+back only those, so anything the owner paused by hand stays paused. Links back into the window use
+`/#open=<place:tab>` (any home in `docs/places.md`) and `/#task=<id>`.
+
+**macOS and Linux.** Restart stops the background engine the way Ctrl+C does, with exit code 75, and
+the sign-in file starts it again: launchd's `KeepAlive` (`SuccessfulExit` false) on a Mac, systemd's
+`Restart=on-failure` on Linux. It is offered only when this copy is the background engine and was
+started by that file (`XPC_SERVICE_NAME` is `com.keepoak.branch-agent`, or systemd set
+`INVOCATION_ID`); a copy started by hand or running in the app window says how to restart it
+instead. On Windows the button explains that Branch is closed from its icon by the clock and opened
+again; nothing on Windows changes. Disk use is read with `statfs` on the data folder, which works the
+same on all three.
+
 ## A conversation that survives a restart
 
 Closing Branch and opening it again does not empty a conversation of what it was carrying. At the end
@@ -918,6 +1007,60 @@ The design, the threat list and the test for each threat are in [never-break.md]
 **Telegram from a card.** `customize:channels` has a **Set up Telegram** card (`public/telegram-setup.js`, `src/never-break/telegram-setup.ts`): the BotFather steps in plain words, a password field whose token goes straight into the locker as `TELEGRAM_BOT_TOKEN` in the default project (checked for BotFather's shape, never sent back), the three-way switch (settings key `telegram-setup`, shipped off), and a box for the six-digit code the bot sends a new person, which approves the owner's own account through the ordinary pairing. `GET|POST /api/never-break/telegram { mode?, token? }`. On a real start with the switch not off, Branch connects that bot through the network rules, unless the integrations file already has a Telegram channel. No real token was used to build or test it.
 
 **macOS and Linux.** The gateway is the same program on every system. It starts the engine with the same runtime it runs on (the app's own on an installed copy), with no window on Windows. The sign-in entries (`launchd`, `systemd --user`, the Windows scheduled task) are unchanged: they run `branch start`, which becomes the gateway when the switch is on, so `KeepAlive`/`Restart=on-failure` look after the gateway and the gateway looks after the engine. An engine whose gateway is killed closes itself within seconds, so the database is never left held.
+## Always allow, per command, and a second look before approvals (wave mac3)
+
+**Always allow, per command.** "Yes, always" (and "No, always") to a command is remembered for that
+one action of the program, not for the exact words and not for the whole program: a yes to
+`git status` covers `git status --short`, and `git push` is still asked
+about; `npm run dev` stays separate from `npm install`. How many words name the action comes from
+OpenCode's table (`src/command-prefix.ts`): `git` takes two, `npm run` three, `ls` one. The rule is
+written as `{ match: "*", resource: { kind: "command", pattern: "git status" } }`; for a program on
+another computer the computer stays in `match` (`"tower: *"`). A command is remembered word for word,
+exactly as before, when it is not a plain list of words (`;`, `&`, `|`, `<`, `>`, `$`, a backtick or a
+bracket), when the table does not know the program, when a flag or quote sits where the action should
+be, and when it is a one-word action that can change something (`rm`, `mv`, `chmod`, `env`,
+`source`). A joined command (`git status && rm -rf ~`) is covered by an allow rule only word for word,
+and by an ask or deny rule when any piece of it is, so joining commands can never get past a rule. A
+command sent to a kept-open command line (`shell.session.run`) is judged by the command it sends.
+
+**A second look before approvals.** `GET|POST /api/approval-reviewer { mode, preset, rules, maxTokens }`
+(`ReviewerSettingsSchema`, Settings → Permissions → A second look before approvals). It ships **off**.
+Another model reads a tool call before the approval card and answers two things: whether the call
+only reads, and — against the owner's own rules in plain English (`rules`; empty uses
+`stockReviewRules`) — whether it is fine, should be asked about, or should be refused. The call is
+given to it as untrusted data after a marker, with saved passwords and anything that looks like a key hidden (the leak guard). While it is off the
+saved setting is read once and kept, so a call costs nothing extra.
+*Only reads* is used only for tools that do not say what they do (another AI tool's tools) and only in
+tasks the owner started, and never for a tool whose name says it changes something (`delete`, `send`,
+`write`…); it can only turn a question into a yes (Ask before changes), never a refusal (Read only, or a
+deny rule) and never a rule for everything. *Fine / ask / refuse*
+can only make the answer stricter: "ask" turns a yes into a question, and "refuse" turns the call into
+a question carrying the reason that the owner may allow **only this once** ("Yes, just now";
+`onceOnly: true` on the waiting question). A longer-lasting yes to it is refused with a 400, and
+nothing is written into the rules. The one-time pass is spent on the next identical request in that
+conversation (`policy.overruled`). **When needed** looks at tools that do not say what they do and at
+commands no rule decides about; **On** also looks at every call that would wait for a yes, and at every
+command and unknown tool the rules let through. A yes the owner already gave for that very request is
+never looked at again. `preset` picks the connection (empty: the one answering); each look has its
+own budget (`maxTokens`) and 30 seconds. If it fails, times out or answers in a shape that cannot be
+read, the rules decide exactly as they would with it off, and `policy.review_failed` says why; a look
+that answered writes `policy.reviewed`. Practice runs are never looked at. A short-lived key cannot
+change these settings.
+
+**What a remembered yes never covers** (integration review). A program named with a folder (`./git`,
+`/tmp/git`, `C:\Temp\git`) is not the program a yes was given to: an allow covers it only when the rule
+names that folder too, and a refusal or question naming the bare program still reaches it. A flag that
+makes the action run or load something else (`git grep -O…`, `git fetch --upload-pack=…`,
+`npm run dev --script-shell=…`, `npm exec x --package=…`, `make build SHELL=…`) is covered only word for
+word. Line and page breaks other than a newline, no-break spaces and invisible characters count as shell
+syntax. A refusal or question also looks past quotes, backslashes, `VAR=value` and wrapper programs
+(`sudo`, `env`, `xargs`, `sh -c`, `find -exec`, `npx`). A command is judged whole from its arguments, not
+from its 300-character target. A remembered command with a `*` in it is kept as an exact rule
+(`resource.exact: true`), so `rm -rf *` never covers `rm -rf /`, and an allow that names a command only
+through `match` (`"npm *"`) covers plain commands only. A `*` in any rule now also fits a line break.
+
+**macOS and Linux.** Both work the same on every system. A program's folder is read whether it is
+written with `/` or `\`.
 
 ## Teams, linked chats, registries and evaluation
 
@@ -1296,6 +1439,14 @@ The Usage screen shows the experiments you have written down under the card for 
 
 Shell: `maxMemoryMb` (default 1024) and `maxCpuSeconds` (default 60) stop a command whose sampled usage passes the limit (reasons `memory_limit`, `cpu_limit`); results carry `usage.peakMemoryMb` and `usage.cpuSeconds`. Network: the `web` section accepts `allowedHosts`, `blockedHosts`, `allowedPaths` and `blockedPaths` (rules look like `api.github.com/repos/`); the same policy applies to web reading, browser navigation and MCP HTTP requests. Hooks: `hooks: [{ id, event, executable, args, failureThreshold, timeoutMs }]` in the integrations file, where `executable` names a shell alias; `GET /api/hooks`, `POST /api/hooks/:id/enable`. Streams: `GET /api/runs/:id/ws` (WebSocket; send the token as the second subprotocol after `bearer`). Channels: `POST /api/channels/test { channel, chatId }`.
 
+### Security self-check
+
+Settings → Permissions has a **Security check** card, and the command line has `branch security audit [--fix] [--json]` (it exits with 1 while anything urgent is left). It runs 85 named checks, each in plain words, over files and folders (who else can read or change Branch's private folder, the database, the key to saved passwords, the ChatGPT sign-in, the app's own key, the launch settings file, plugins, saved website sign-ins, logs and backups; links; the private folder or workspace inside iCloud, Dropbox, OneDrive or Google Drive or a shared place), secrets, the phone door, short-lived keys, approval rules, the programs the assistant may run, the web and the browser, add-ons, models and chat services. The full list is `securityChecks` in `src/security-audit/audit.ts`. Running it changes nothing. **Fix what Branch can** (`--fix`, `POST /api/security-check/fix { ids? }`) only ever takes other people's access away from Branch's own files: `chmod` to 700 or 600 on macOS and Linux, and on Windows `icacls <path> /inheritance:r /grant:r <you>:(F) *S-1-5-18:(F)` followed by `icacls <path> /remove:g *S-1-1-0 *S-1-5-11 *S-1-5-32-545`. A path that turned into a link is left alone; everything else is described with what to do. `branch doctor --fix` adds one line with the counts. Routes: `GET /api/security-check` (switches, last report, malware check status), `POST /api/security-check/run`, `/fix` and `/settings`; a short-lived key may run the check but not fix or change switches, and neither may a household profile (both stay with the owner).
+
+Two three-way switches, saved in `settings/security-check` and both **off** on a fresh install. `audit`: off runs the check only when asked; `when-needed` also gives the assistant one read-only tool, `settings.security_check` (permission `history.read`); `on` also runs it each time Branch starts. `malware`: before an outside server started with `npx`, `bunx`, `pnpm dlx`, `npm exec`, `uvx`, `uv tool run` or `pipx run` starts, also when wrapped in `cmd /c`, (from the launch settings or from "Try a server"), the package is looked up in OSV (`https://api.osv.dev/v1/query`, through the network policy; `BRANCH_OSV_ENDPOINT` points it elsewhere) and one with a `MAL-` advisory is refused with a plain sentence and a `connection.changed` line in the record. `when-needed` keeps each answer for a week, `on` for an hour. If OSV cannot be reached, answers badly, or the network policy refuses the address, the server starts as it did before and the reason shows on the card.
+
+macOS and Linux: permissions are the file mode bits, a folder is open to others when its group or everyone may read or enter it, and files inside a private folder nobody else can enter are not reported again. The iCloud check also notices "Desktop and Documents" syncing. Windows: access lists are read with `icacls <path>`, and the broad groups are recognised by their English, French and German names.
+
 ## Memory over time, scopes and admission
 
 `memory.put` accepts `entity`, `attribute` and `validFrom`; a newer fact for the same entity and attribute ends the earlier one at that moment. `memory.at { entity, attribute?, at? }` returns the facts true at a moment; `memory.timeline { entity }` lists them in order. Facts carry `scope`: `private` (default), `shared`, or `agent:<specialist id>`; delegated specialists see shared facts and their own only. `GET|POST /api/sessions/:id/memory-policy { remember }` controls whether a conversation may save memory on its own (forgetting a conversation denies it; allowing re-admits it). `POST /api/memory/hygiene { olderThanDays, action: preview | archive | purge }` and `GET /api/memory/archive` back the Tidy up controls in the Memory view.
@@ -1308,13 +1459,93 @@ A recipe (`procedures.propose`) may declare `parameters` (`{ name: { type: "stri
 
 `branch <command>` (or `node dist/cli.js <command>`) is the whole command line; `branch help` lists it. Nothing here needs the web app to be running.
 
-**Talking in the terminal.** `branch chat` opens the full terminal view: a status line that stays put above what you type (which model is answering, how many tokens and how much money this conversation has used, and which approval preset is in force), answers wrapped to the window as they stream, and one short row for each step — `· Writing notes.txt` while it happens, `ok Writing notes.txt` when it is done. Press **Ctrl+E** to show or hide what is behind those rows. **Enter** sends, **Alt+Enter** adds another line to the same message, the **up arrow** brings back a message you already sent, **Ctrl+C** stops the task in hand without closing the terminal, and **Ctrl+D** leaves. It is drawn with Node's own readline and escape sequences; there is no extra package involved.
+**Talking in the terminal.** `branch` on its own, in a terminal, opens the terminal view; `branch chat` opens the same view. (Run with no terminal attached — a launcher, a service, a pipe — `branch` on its own still starts the web app, exactly as before.) The view is the window's design in character cells (`docs/design.md`, `docs/places.md`):
 
-The commands inside it are `/help`, `/model [id]`, `/think <low|medium|high|default>`, `/preset [name]`, `/memory [words]`, `/skills`, `/plan`, `/verify`, `/dry-run`, `/attach <file>`, `/history`, `/export [file]`, `/new` and `/exit`. `/plan`, `/verify` and `/dry-run` switch on and off and apply to every message after that. `/attach` takes a picture (PNG, JPEG, WebP or GIF) as a picture and any other text file as words added to your next message. `/export` writes the conversation to a Markdown file in your workspace.
+- **The head** carries the KeepOak mark and the assistant's name, the page you are on (`Inbox › Needs you`, `Settings › Models › Defaults`), the model that answers, and the Lockdown shield while Lockdown is on. While it is on, a red line under the head says so on every page.
+- **The tab row** holds the five places in the window's order and with the window's names — Conversation, Inbox (with a count of what waits for your yes), Automations, Library, Customize.
+- **The conversation** is one column of messages with the composer floating at its foot: the model chip first, then what the next message carries (the approval preset, attached files, practice run, a plan first). Each step the assistant takes is one short row — `· Writing notes.txt` while it happens, `ok Writing notes.txt` when it is done — and **Ctrl+E** shows what is behind those rows. The **side pane** (Activity, Plan, Files, Memory) opens with **Ctrl+P** or **F2**; under 100 columns it floats over the conversation, as the window's does under 1180 px.
+- **Every other place** reads as the window's places do: its name, one sentence saying what it holds, its tabs, and its rows, each a title and one plain line. An empty tab says what the tab is for and what to do next. The ask box at the foot sends a question straight to the conversation.
+- **Settings** opens as a window over the place you were in, with its twelve pages down the left (in a strip along the top under 86 columns) and the five Models tabs. Appearance, Models › Defaults and Permissions can be changed right there; the other pages say what they hold and where the rest of the page is.
+- **Ctrl+K** (or **/** in an empty composer) opens the palette: every place and tab, every Settings page, the top actions, recent conversations and every slash command. Typing narrows it; Enter goes.
+
+**Keys.** **Enter** sends, **Alt+Enter** adds a line, the **up arrow** brings back a message you sent, **PgUp**/**PgDn** scroll the conversation, **Ctrl+C** stops the task in hand without closing anything, **Ctrl+N** starts a conversation, **Ctrl+L** draws everything again and **Ctrl+D** leaves. **Esc** steps out of the composer without touching what you typed; then **1** to **5** open the places (**Alt+1** to **Alt+5** work from anywhere). In a place, the up and down arrows choose a row, left and right change tab, **Enter** opens a row and **Tab** moves to the ask box; **Esc** goes back to the conversation. In Settings, left and right change page and **Tab** changes the Models tab. **F1**, `/help` or `/keys` lists all of this. A paste arrives whole, line breaks and all, rather than sending half of it. Nothing needs a mouse.
+
+**Three switches, all off.** `/switch mouse`, `/switch sidePane` and `/switch oak` (or Settings › Appearance in the view) each take on, off or when needed, and a fresh install has all three off. *Clicks and the wheel*: on catches them everywhere; when needed only while the palette or Settings is open; off never, so your terminal's own text selection always works. *The side pane opens by itself*: on opens it when the view starts; when needed opens it while a task works and folds it when the task ends; off leaves it to Ctrl+P. *The oak*: the window's pixel oak, drawn on an empty conversation in the season of the year from the theme's own colours; on whenever it fits, when needed only on a terminal of 30 rows or more.
+
+The commands inside it are `/help` (and `/keys`), `/model [id]`, `/think <low|medium|high|default>`, `/preset [name]`, `/memory [words]`, `/skills`, `/plan`, `/verify`, `/dry-run`, `/attach <file>`, `/history`, `/export [file]`, `/new`, `/sessions [id]`, `/go <place>`, `/inbox`, `/automations`, `/library`, `/customize`, `/settings [page]`, `/theme`, `/default <id>`, `/switch`, `/pane`, `/lockdown [on|off]` and `/exit`. They live in one table (`src/terminal-command-table.ts`) that the help, the palette and the parser all read, and several answer to the names Hermes and OpenClaw use (`/reset`, `/clear`, `/models`, `/reasoning`, `/config`, `/tools`, `/cron`, `/skin`, `/pause`, `/quit`). `/plan`, `/verify` and `/dry-run` switch on and off and apply to every message after that. `/attach` takes a picture (PNG, JPEG, WebP or GIF) as a picture and any other text file as words added to your next message. `/export` writes the conversation to a Markdown file in your workspace. `/go` takes any place, tab or Settings page by id, English name or French name: `/go inbox finished`, `/go settings models defaults`, `/go Bibliothèque`.
 
 **When it stops to ask.** If your approval preset makes a task pause, the terminal shows the question with the tool and the exact file or command, and takes **y** (yes, remembered as the rule suggests), **n** (no), **a** (yes, always — written into your approval settings as a rule) or **s** (yes, for this conversation), then Enter. The answer goes through the same route as the app's **Settings → When to check with me** screen, and the task carries straight on.
 
-**When the terminal cannot take it.** `branch chat` falls back to the plain streaming view when stdout is not a terminal, when you pass `--plain`, or when you set `NO_COLOR`. `FORCE_TTY=1` asks for the full view anyway (this is what the tests use), and `FORCE_TTY=0` asks for the plain one. With `NO_COLOR` set, or `TERM=dumb`, nothing writes a single escape sequence: no colour, no cursor movement, no window title and no progress indicator. `COLUMNS` and `LINES` override the window size. On a terminal that takes them, the window title follows the task in hand and Windows Terminal's taskbar progress indicator (OSC 9;4) turns on while a task is working; `BRANCH_TUI_DECORATIONS=0` turns just those two off.
+**When the terminal cannot take it.** `branch chat` falls back to the plain streaming view when stdout is not a terminal or when you pass `--plain`. With `NO_COLOR` set, or `TERM=dumb`, the view prints plain lines and writes not a single escape sequence — no colour, no cursor movement, no window title, no progress indicator — and every slash command, place and Settings page still works, printed as lines. `FORCE_TTY=1` asks for the full view anyway (this is what the tests use), and `FORCE_TTY=0` asks for the plain one. `COLUMNS` and `LINES` override the window size; the view redraws itself when the window changes size and works from 80×24 up. The view is drawn on the terminal's second screen with line wrapping off, so leaving puts back exactly what was there. On a terminal that takes them, the window title names the place you are in and Windows Terminal's taskbar progress indicator (OSC 9;4) turns on while a task is working; `BRANCH_TUI_DECORATIONS=0` turns just those two off.
+
+**Colours: the same 44 themes as the window.** Nothing in the terminal names a colour. It reads the window's own table (`public/theme-catalogue.js`), lays each see-through colour over the theme's ground, and writes the result at the depth the terminal shows: true colour where `COLORTERM` is `truecolor` or `24bit`, in Windows Terminal (`WT_SESSION`), in iTerm, WezTerm, VS Code, Ghostty and Hyper, and in the Windows console from build 14931; the 256-colour table where `TERM` ends in `-256color` or in macOS Terminal; the sixteen colours elsewhere, where the terminal's own background and text colour stand in for the ground and the words so a light theme never writes dark text on a dark terminal. A colour lands on the numbered colour that looks nearest (distance in Lab space). `FORCE_COLOR=0…3` and `BRANCH_COLOR=truecolor|256|16|none` choose the depth by hand. Box lines, the dot and the ellipsis are drawn where they can be shown; `BRANCH_ASCII=1` (or a locale that is not UTF-8, or the Linux console) draws plain ASCII instead.
+
+**One theme, two surfaces.** `branch theme <name>` (or `/theme` in the view, or Settings › Appearance in the view) and Settings › Appearance in the window are the same setting. The theme, the extra contrast and the language are kept with the workspace (`GET`/`POST /api/look`); light or dark stays in the preferences record the window has always saved, and "follow this computer" follows the terminal's own background (`COLORFGBG`) in the terminal. The window reads `/api/look` when it opens and whenever it comes back into view, and picks a theme the terminal chose since it last looked by pressing that theme's own tile (`public/look-sync.js`); a theme picked in the window is saved there for the terminal. Moving through the theme list in the view shows each theme as it is passed, Enter keeps it and Esc puts the saved one back. The words come from the window's language files (`public/locales/*.json`): French when the language is set to French, or set to "same as this computer" on a computer whose `LANG` is French.
+
+**macOS, Linux and Windows.** The view looks and works the same in Windows Terminal, PowerShell and cmd, macOS Terminal and iTerm, and Linux terminals. It uses only what all of them understand: the second screen, cursor placement, colour, bracketed paste and, only when switched on, SGR mouse reports; every row is written whole at its own position, so nothing depends on how a terminal wraps or turns a line break into two. Node reads the Windows console's keys as the same sequences a Mac or Linux terminal sends and writes its text as UTF-16, so the box lines show whatever the console's code page. There is no POSIX-only call anywhere in the view. The tests work out the style for a Windows Terminal environment (`WT_SESSION`, no `COLORTERM`), a Windows console, macOS Terminal, iTerm and Linux terminals, check that a Windows-style frame uses only sequences Windows understands, and compare every view at 80×24 and 120×40 in true colour, 256 colours, 16 colours and none with stored snapshots.
+
+**Every place by name, from the command line.** `branch inbox [needs|finished|history]`, `branch automations [tab]`, `branch library [tab]`, `branch customize [tab]` and `branch settings [page] [tab]` open the view there in a terminal, and print the same rows (one per line, or `--json`) anywhere else. `branch places` lists every home in `docs/places.md` with the command that opens it. `branch setup` opens Settings › Models › Connection. `branch resume [id|latest]` carries on a conversation in the view (and prints it without a terminal), `branch sessions [show <id>]` lists them, `branch model [use <id>]` lists the models or sets the one new conversations start with, `branch theme [name|list|light|dark|follow|contrast|language]` changes the look, `branch lockdown [on|off]` turns Lockdown on or off, `branch permissions [preset]` shows or sets when Branch checks with you, and `branch memory`, `branch skills`, `branch tools`, `branch channels`, `branch mcp`, `branch projects`, `branch usage` and `branch snapshots` print what the window shows. `branch version` (also `--version`) prints the version.
+
+**Hermes Agent and OpenClaw, side by side.** Typing `hermes` gives Hermes Agent's terminal and `openclaw` gives OpenClaw's; `branch` gives Branch's. The table below sets their commands beside Branch's. Only their command names were read (both are MIT); no code was taken. The table is kept as data in `src/terminal-parity.ts`, and a test checks that every Branch command it names exists. The names people bring with them work as they are: `config`, `skin`, `models`, `plugins`, `cron`, `approvals`, `insights`, `checkpoints`, `pause`, `serve`, `dashboard`, `acp`, `kanban`, `tasks`, `webhooks`, `hooks`, `documents`, `specialists`, `connections` and `mcp serve` each run the Branch command they mean.
+
+| What | Hermes Agent | OpenClaw | Branch | Status | Note |
+| --- | --- | --- | --- | --- | --- |
+| Interactive view | `hermes` | `openclaw` | `branch` | built | In a terminal it opens the designed view; anywhere else it runs `branch start` as before. |
+| Conversation | `hermes chat` | `openclaw tui \| terminal \| chat` | `branch chat` | existed | Redrawn in the window's design; `--plain` keeps the streaming view. |
+| One request, printed | `hermes -z \| chat -q` | `openclaw agent` | `branch run` | existed |  |
+| A scripted job | `hermes chat --query-file` | `openclaw agent exec` | `branch headless` | existed |  |
+| Carry on a conversation | `hermes --resume \| -c` | `openclaw resume` | `branch resume [id]` | built | `latest` or the first letters of a conversation's number. |
+| Earlier conversations | `hermes sessions` | `openclaw sessions \| transcripts` | `branch sessions [show <id>]` | built | Removing one lives in Settings › Data & usage. |
+| Which model answers | `hermes model` | `openclaw models list \| set \| status` | `branch model [list \| use <id>]` | built |  |
+| Fallback models | `hermes fallback` | `openclaw models fallbacks` | `branch settings models defaults` | window | settings:models:defaults |
+| Several models together | `hermes moa` | — | `branch settings models second` | window | settings:models:second |
+| Signing in to a model service | `hermes auth \| login \| logout \| portal` | `openclaw models auth \| onboard` | `branch login \| logout` | existed | Keys for other services: settings:models:connection. |
+| Setting up | `hermes setup` | `openclaw setup \| onboard \| configure` | `branch setup` | built | Opens Settings › Models › Connection; prints the health check when not in a terminal. |
+| Settings | `hermes config` | `openclaw config get \| set` | `branch settings [page] (also `config`)` | built | Reads every page; changes are made on the page itself. |
+| Status | `hermes status` | `openclaw status \| health` | `branch status` | existed |  |
+| Checking and repairing | `hermes doctor \| dump \| debug` | `openclaw doctor \| triage` | `branch doctor [--fix]` | existed |  |
+| What a task did | `hermes logs` | `openclaw logs` | `branch logs <task>` | existed |  |
+| Emergency stop | `hermes pause \| resume` | `openclaw gateway suspend \| resume` | `branch lockdown [on \| off] (also `pause`)` | built |  |
+| When to ask first | `hermes approvals` | `openclaw approvals \| exec-policy` | `branch permissions [preset]; branch approve` | built | `approve` already existed. |
+| Schedules | `hermes cron` | `openclaw cron` | `branch schedule (also `cron`); branch trigger` | existed |  |
+| Webhooks and hooks | `hermes webhook \| hooks` | `openclaw hooks \| webhooks` | `branch automations triggers` | built | Listed; edited at automations:triggers. |
+| Skills | `hermes skills \| bundles \| curator \| sync` | `openclaw skills` | `branch skills; branch skill pack \| install` | built | `skill` already existed; the rest is customize:skills. |
+| Plugins | `hermes plugins` | `openclaw plugins` | `branch plugin (also `plugins`)` | existed |  |
+| Tools | `hermes tools` | — | `branch tools` | built | Listed by toolbox; what may run without asking is settings:permissions. |
+| MCP servers | `hermes mcp` | `openclaw mcp` | `branch mcp; branch mcp-serve (also `mcp serve`)` | built | `mcp-serve` already existed. |
+| Code editors (ACP) | `hermes acp` | `openclaw acp` | `branch acp-serve (also `acp`)` | existed |  |
+| Chat apps | `hermes gateway \| whatsapp \| slack \| pairing \| peer` | `openclaw channels \| pairing \| directory` | `branch channels` | built | Listed; connecting and pairing are customize:channels. |
+| Sending a message out | `hermes send` | `openclaw message` | — | not applicable | Messages go out through the running engine's own connections, after Lockdown and approval checks; ask the assistant in the view. |
+| Memory | `hermes memory \| journey` | `openclaw memory \| wiki` | `branch memory [words]` | built |  |
+| Documents | — | — | `branch library documents` | built |  |
+| Backups | `hermes backup \| import` | `openclaw backup` | `branch backup \| restore` | existed |  |
+| Moving in from another assistant | `hermes import-agent \| claw migrate` | `openclaw migrate` | `branch import-agent` | existed | Branch's own file; bringing in other assistants is mac2/move-in at settings:data. |
+| Separate assistants | `hermes profile` | `openclaw agents` | `branch export-agent \| import-agent` | window | People on this computer: settings:general. |
+| Projects | `hermes project` | — | `branch projects` | built |  |
+| Updating | `hermes update` | `openclaw update` | `branch update` | existed |  |
+| Removing | `hermes uninstall` | `openclaw uninstall \| reset` | `branch daemon uninstall` | not applicable | The app itself is removed the way this computer removes any app. |
+| Working with the window closed | `hermes gateway install \| start \| stop` | `openclaw daemon \| gateway \| node` | `branch daemon install \| uninstall \| status` | existed |  |
+| The web app | `hermes dashboard \| serve` | `openclaw dashboard \| gateway run` | `branch start (also `serve`, `dashboard`)` | existed |  |
+| Shell completion | `hermes completion` | `openclaw completion` | `branch completion` | existed |  |
+| Version | `hermes --version` | `openclaw --version` | `branch version (also `--version`, `-v`)` | built |  |
+| Theme | `hermes skin` | — | `branch theme [name \| list \| light \| dark \| follow] (also `skin`)` | built | The same setting as Settings › Appearance. |
+| Usage and cost | `hermes insights` | `openclaw gateway usage-cost` | `branch usage (also `insights`)` | built |  |
+| Checkpoints | `hermes checkpoints` | `openclaw backup git` | `branch snapshots (also `checkpoints`)` | built | Putting one back is settings:data. |
+| Worktrees | `hermes worktree` | `openclaw worktrees` | `branch settings general` | window | A project's line of work is switched at settings:general. |
+| Task board | `hermes kanban` | `openclaw tasks` | `branch inbox [needs \| finished \| history]` | built |  |
+| Security audit | `hermes security audit` | `openclaw security audit` | `branch doctor` | not applicable | Branch installs no packages of its own to audit; `doctor` checks what Branch relies on. |
+| Secrets | `hermes secrets \| vault` | `openclaw secrets` | `branch settings secrets` | window | settings:secrets; values are never printed. |
+| Browser and screen | `hermes browser \| computer-use` | `openclaw browser \| nodes \| sandbox` | `branch settings computer` | window | settings:computer. |
+| Language servers | `hermes lsp` | — | `branch settings advanced` | window | settings:advanced, Help with code. |
+| Network reach | `hermes egress \| proxy` | `openclaw proxy \| dns` | `branch settings computer` | window | settings:computer. |
+| Telemetry | — | `openclaw telemetry` | — | not applicable | Branch sends none. |
+| Pets | `hermes pets` | — | `branch switch oak` | not applicable | Branch has its own oak: `/switch oak` in the view. |
+| Evaluations | — | `openclaw qa` | `branch eval \| study` | existed |  |
+| Short-lived keys | — | `openclaw devices \| gateway auth-token` | `branch token` | existed |  |
+| Pairing a phone | — | `openclaw qr` | `branch customize channels` | window | customize:channels. |
+| Prompt size | `hermes prompt-size` | — | `branch settings advanced` | window | settings:advanced, How the assistant finds its tools. |
+| Help | `hermes --help` | `openclaw docs` | `branch help; branch <command> --help` | existed |  |
+| Every place by name | — | — | `branch places; branch inbox \| automations \| library \| customize` | built | Every home in docs/places.md. |
 
 **For scripts.** `branch run "..."` takes `--json` (every event as one JSON object per line on stdout, human wording on stderr), `--attach <file>` (repeatable), `--plan`, `--verify`, `--dry-run`, `--preset <off|ask-before-changes|workspace|read-only>`, `--save-preset <same names>`, `--budget <tokens>` and `--timeout <milliseconds>`. `--preset` uses that approval setting **for this one task** and puts your saved setting back afterwards, so a script cannot quietly change what you chose; `--save-preset` changes the saved setting and stays changed, and says so on stderr. The exit code is the contract:
 
@@ -1396,6 +1627,68 @@ is paused and the reason is written down in plain words under `pausedBecause`, s
 rather than unlucky does not fail quietly every day for ever; start it again with `schedules.pause` set
 to false once whatever it needs is working. One turn finishing clears the count.
 
+### Background work that only speaks up when needed
+
+**Switches.** Schedules → Background work that stays quiet (`POST /api/heartbeat/switches`, setting
+`quiet-jobs`). Three switches, each `off` (the default), `on` or `when-needed`: `checkIn`, `scriptGates`
+and `notifyGate`. "When needed" means the feature never runs on a timer of its own, only when something
+calls for it. What each one means is written under the feature below.
+
+**Check-in.** Schedules → Check-in (`GET`/`POST /api/heartbeat`, `POST /api/heartbeat/check` for "check
+in now"). With `checkIn` on, every `everyMinutes` (30 by default, at least 5), inside `activeHours`
+(`{ from, to }` in `timezone`, 08:00–22:00 by default, may run past midnight; `null` means any time),
+the assistant works through your `checklist`. With `checkIn` set to when needed, nothing runs on a timer.
+A check-in runs only when you press "Check in now" or something wakes it, and a wake still keeps to the
+hours. With `checkIn` off, "Check in now" is refused. The checklist is read through one provider. When
+the `heartbeat` context file (HEARTBEAT.md in the workspace) is switched on or set to when needed, that
+file is the checklist; otherwise the text you keep here is used. That file has one switch, on the "What to
+check when it wakes" card beside the check-in; the check-in card says which list it is using and links to it. If there is no checklist file, the check-in still runs. If the
+checklist has only blank lines, headings, comments or empty boxes, the model is not asked at all. The
+assistant answers with the `heartbeat.respond` tool. That tool sits in the schedules toolbox, so ordinary
+tasks do not carry it, and a check-in is told to load it. It has its own permission, `heartbeat.respond`,
+which counts as look-only, so a check-in answers without asking even under "Ask before changes" or "Read only". `notify: false` sends nothing. `notify: true`
+sends its text to `deliverTo` (a chat) or to the activity list. If the tool is not used, a reply of
+exactly `NOTHING_NEW` counts as quiet, and any other reply is sent as the news.
+With `secondOpinion` on, one short extra question decides whether the news is worth interrupting you;
+if that question cannot be asked or read, the news is sent. Each check-in is recorded (quiet, notified,
+held back, failed) in the setting `heartbeat-state`. News from a check-in is announced to webhooks
+listening for `heartbeat.notify` (`runId`, `via`, `delivered`; the words themselves are not sent). A
+short-lived key may read `/api/heartbeat` but not change, switch or start the check-in.
+
+**Check scripts.** A task or check schedule may carry `gate: { executable, args, timeoutMs, maxMemoryMb,
+maxCpuSeconds, network }`. The program must be named in full and is started with a list of arguments,
+never through a shell, with an emptied environment and, unless `network` is true, proxy settings pointing
+at a dead address. It must end its output with one line of JSON, `{"wakeAgent": true|false, "data": …}`.
+The assistant is only woken when `wakeAgent` is true, and is handed `data` as material to work with. With
+`scriptGates` off, a new schedule with a script is refused. An existing one waits, and its health badge
+says why. When needed, the script runs only for repeating jobs, and a one-off job goes straight ahead. A
+job with a script starts paused until you approve the script in Schedules (`POST
+/api/schedules/:id/gate { approve }`, the app window only; a short-lived key is refused). The approval
+covers that exact program, arguments and limits, so changing any of them asks again. A script that fails
+waits 2, 4, 8, 16 minutes (at most an hour, never sooner than the job's own next turn) and after five
+failures in a row the job is paused with the reason. Each failure is announced to webhooks listening for
+`schedule.script_failed` (`scheduleId`, `failures`, `paused`, `retryAt`; what the script printed stays in
+the app). A saved script that cannot be read pauses the job instead of running. "Run now" and webhooks skip the script.
+
+**Checks send news only.** With `notifyGate` on, a `check` schedule sends its result only when it is
+new. A reply that is exactly `NOTHING_NEW` after trimming (capital letters count), or the same result as
+last time, is recorded (`delivery.held`) but not sent. An answer that merely contains the phrase is still
+sent. A job's first failure is always sent, and so is its first success after failures ("working again").
+Only repeats are held back. When needed, only checks that repeat more than once a day are held back.
+With the switch off, every result is sent, as before. On a schedule, `notify: "always"` or
+`notify: "changes"` overrides the switch whenever the switch is not off. A watch (`monitor.*`) whose page only changed in spacing or line order no longer announces.
+
+**Health.** Each schedule, the check-in and each watch show healthy / failing / waiting / never run, with the run
+count, the share of the last ten turns that worked, and the average time a turn took (`health` on
+`schedules.list`, `monitor.list` and `GET /api/heartbeat`).
+
+**macOS and Linux.** All of this is the same on every computer. A check script on a Mac or Linux gets
+`PATH=/usr/bin:/bin` (so `test` and `grep` are found, but nothing you installed can be picked up by name)
+and `TMPDIR`; on Windows it gets no search path, `SYSTEMROOT` and `TEMP`. Limits are held the way every
+other command's are: by a Windows job where one can be made, and elsewhere by sampling memory and
+processor time about once a second and stopping the whole process group. Waking a check-in early when a
+background command finishes is not done yet.
+
 ## Follow-ups and background specialists
 
 `POST /api/sessions/:id/followups { prompt }` queues a message for a busy conversation; queued messages run in order as soon as the current task finishes (`GET` lists them). `specialists.delegate` with `background: true` starts a child that keeps working after the parent finishes; the result stays on the child run and is recorded on the parent as `delegation.background_finished` and in `/api/state.background`.
@@ -1404,9 +1697,36 @@ to false once whatever it needs is working. One turn finishing clears the count.
 
 `GET /api/backup` (Settings → Backup, `branch backup <file>`) exports every state table as plain rows; secrets are left out because their key never leaves the device. `POST /api/restore` or `branch restore <file>` loads a backup into a fresh install and refuses when the install already has state. `GET /api/health?probe=1` (Settings → Health check, `branch doctor --probe`) reports each dependency with a plain fix.
 
+## Moving in from another assistant
+
+Settings → **Bring things over from another assistant** (placed at `settings:data`) has a three-way switch, **Off** by default: off looks at nothing, offers nothing and refuses a preview; **When needed** looks only when you press *Look for other assistants* (or give a folder or file) and never offers on its own; **On** checks the usual places whenever the card is shown and adds a one-line offer to the first-run card ("Bring your chats and memory from …"). With the switch allowing it, the card reads what Claude Code, Codex CLI, Hermes Agent, OpenClaw or OpenCode left on this computer, or in a folder, `.zip`, `.tar` or `.tar.gz` copy of one, and shows it before anything changes. The owner ticks what to bring; each thing is brought on its own, and a refusal (full memory, a skill name already in use, a chat over 1000 messages or 4 MB) is reported in a sentence while the rest still come.
+
+| What | Where it goes in Branch |
+| --- | --- |
+| Chats | Saved conversations, labelled `from <assistant>`. User and assistant words only: hidden reasoning, tool calls and tool output, side conversations and text the other assistant added itself are left out, and anything that looks like a key is blanked. |
+| Projects (the folders chats were in) | A project `moved-<folder name>`. |
+| Memory, `CLAUDE.md` / `AGENTS.md` / `SOUL.md` | Context files (`AGENTS`, `CLAUDE`, `GEMINI`, `SOUL`, `USER`, `IDENTITY`, `MEMORY`, `HEARTBEAT`, `TOOLS`, `SOP`) are written where the context-file loader (`src/context-files.ts`) reads them: `SOUL`, `IDENTITY` and `USER` in Branch's own folder, the rest in the workspace, under the loader's name for that file (`CLAUDE.md` and `GEMINI.md` become `AGENTS.md`). A file that already exists is added to under a line naming the assistant, never replaced, and the same text is never added twice; a link is never written through. Each file's switch is left as it was (off on a fresh install), and the receipt says so. A `MEMORY.md` from one of the other assistant's projects, and other notes, become saved facts (long text is split, at most 3800 characters each); instructions that are not context files become preferences. |
+| Skills | Installed skills, reshaped to Branch's fields and checked by the skill scanner first; other files in the skill's folder stay behind. |
+| Tool servers (MCP) | Kept under the card, ready to try under Settings → Sharing with other AI tools → Try a server, with the entry to paste into the connections file once its `tools` and `expectedVersion` (both shown by the try) are filled in. |
+| Model choice | Shown as a suggestion when connecting a model. |
+
+Keys and sign-ins are never copied: `auth.json`, `.credentials.json`, `credentials/` and database tables of sign-ins are not opened, and from `.env`, `env` blocks and server headers only the names are read, to list which keys to add under Settings → Secrets. A record per assistant (`settings` row `move-in:<assistant>`, included in backups) makes a second press bring nothing twice, and every import is written in the record of what the assistant was allowed to do as `data.imported`. Text that is kept (chats, memory, instructions) passes the leak guard and the sharing scrubber first. Databases (`state.db`, `openclaw-agent.sqlite`, `opencode.db`) are read from a private copy of at most 2 GB, never in place, and the copy is removed afterwards, also when reading fails. Archives are opened in memory with limits (128 MB packed, 512 MB and 50,000 entries unpacked); links, devices and names that climb out are skipped.
+
+Routes: `GET`/`POST /api/move-in/switch { mode: "off" | "when-needed" | "on" }` (settings row `move-in-switch`), `GET /api/move-in[?look=1]` (what was found and the offer, as the switch allows), `POST /api/move-in/preview { source? , path? | archive?: { name, data (base64, up to 32 MB) } }`, `POST /api/move-in/import { …the same, items: [keys] }`, `GET /api/move-in/brought`. Owner only. `BRANCH_MOVE_IN_HOME` looks under another home folder (an old disk, say) instead of this one, and then ignores the assistants' own overrides.
+
+**macOS and Linux.** The same places are searched on every system: `~/.claude` (or `CLAUDE_CONFIG_DIR`) with `~/.claude.json`, `~/.codex` (or `CODEX_HOME`) with `~/.agents/skills`, `~/.hermes` (or `HERMES_HOME`; `%LOCALAPPDATA%\hermes` on Windows), `~/.openclaw` (or `OPENCLAW_STATE_DIR`), and OpenCode's `~/.local/share/opencode` and `~/.config/opencode` (or `XDG_DATA_HOME` / `XDG_CONFIG_HOME`). Links inside those folders are never followed, and a path that climbs out of the chosen folder is refused.
+
 ## Undo and workspace history
 
 Every `files.write` keeps the file's previous bytes and records a `file.changed` event with a line diff. Activity shows each change with **Show change** and **Undo this change** (`POST /api/history/restore { versionId }`); `GET /api/history/files?path=` lists kept versions; the model has `files.history` and `files.restore`. Whole-workspace snapshots: `POST /api/history/snapshots { label }`, `GET /api/history/snapshots`, `POST /api/history/snapshots/:id/restore` (Settings → Workspace snapshots, tool `workspace.snapshot`). Limits: 500 files, 256 KiB per file, 16 MB per snapshot; `node_modules`, `.git`, `dist`, `release` and secret-named files are skipped.
+
+**Switches for these two (wave mac2).** Settings → *Working until done, and going back* (next to *Workspace snapshots*) (`GET|POST /api/goal-undo/settings { goal, snapshots }`, each `"off"`, `"on"` or `"when-needed"`, both `"off"` on a fresh install; sending one leaves the other as it was). Goal mode: off refuses to start or resume a goal; on shows a **Goal** button and takes `/goal`; when needed takes `/goal` typed in the message box but shows no button. Snapshots: off records nothing (going back then covers only the changes Branch made with its own file tools, and says so); on records the workspace as each task starts; when needed records it just before a task's first tool call that can change something (a call that only reads records nothing), once per task. A snapshot already kept can still be used after the switch is turned off.
+
+**Going back to an earlier message (wave mac2).** Each of your messages has **Edit**. Change the words and choose what to take back to just before that message: **Conversation and files**, **Conversation only** or **Files only**; the new words are then sent as usual. **Undo that** (the button, or typing `undo that` on its own) puts the conversation and the files back the way they were before you went back; it works newest first, once per going-back, and also after the edited message has been answered (whatever was said since is set aside). To cover changes made by commands too, and folders that are not git repositories, the whole workspace is recorded for each of your tasks (when the snapshot switch above allows it), in a hidden store in the private data folder (`snapshots/`, one per workspace). It is a separate git directory used only with `--git-dir` and `--work-tree`, so your own repository is never read from or written to. It uses the git already on this computer; secret-looking names (`.env`, keys, `*credentials*`, `*secret*`), `node_modules`, `dist`, `release` and `.branch` are never copied — a secret-looking name stays out even if a `.gitignore` in the workspace lists it back in — and otherwise your `.gitignore` is respected. Your own global git settings (such as a global ignore file) are not used, and a `.gitattributes` in the workspace cannot change the bytes: every file comes back exactly as it was. A file over 50 MB is left out; a workspace with more than 100,000 files or more than 2 GB in all is not recorded at all. Going back gives every recorded file its recorded bytes and removes files that appeared since (never an ignored or excluded one). If git is not installed, or a snapshot fails (for example a workspace too large to record in time, after which snapshots stay off until Branch restarts), files come back from the per-file copies above and the answer says that changes made by commands were not covered. Nothing is taken back while a task in that conversation is still working. Routes: `GET|POST /api/sessions/:id/rewind { messageId, restore: "conversation"|"files"|"both" }`, `POST /api/sessions/:id/unrevert {}`.
+
+**Working until a goal is met (wave mac2).** `/goal <what should be true when it is done> [--max n]` in the message box (the **Goal** button beside the conversation's *Still to do* list only fills in `/goal ` for you) keeps the conversation working in rounds. After each round a judge decides: the declared completion checks, if the goal has any (`checks`, the same shape as a run's), and a model grader asked, with no tools, for a score from 0 to 1, what is still missing, and whether it is blocked. A reply along the way does not end it; the next round is asked to carry on with what is missing. It stops when the score reaches 0.8 with no check failing (done), when the model starts its reply with `BLOCKED:` or the grader says it cannot go on, when the score has not improved for two rounds (blocked, so a stuck task does not use up every round), when a round fails or waits for your answer, or after `n` rounds (6 unless you say, at most 20). Each round is an ordinary task with the usual approvals and time limit. A strip at the top of the conversation's *Still to do* list (the Plan tab in the redesigned window) shows the round, the score, what is missing and the time worked (pauses not counted), with **Pause** (the round that is working finishes first), **Resume** and **Stop** (the round is cancelled). A goal that was working when Branch closed shows as paused and can be resumed. Routes: `POST /api/goals { objective, maxRounds?, sessionId?, checks? }`, `GET /api/sessions/:id/goal`, `POST /api/sessions/:id/goal { action: "pause"|"resume"|"stop" }`.
+
+**macOS and Linux.** Both work the same on every computer: git is found on the search path (`which git`) and started with a list of arguments, never through a shell, with hooks switched off and no prompts. Line endings are stored exactly as they are (`core.autocrlf=false`), so a file comes back byte for byte on Windows, macOS and Linux alike; links inside the workspace are recorded as links. Tests run the real git only inside temporary folders.
 
 ## Looking through and changing code
 
@@ -1428,11 +1748,26 @@ Ignored files: put a `.branchignore` in the workspace (or the project folder) an
 
 ### The learning core
 
-Branch's learning core (`src/fly-core/`) is modelled on the fruit fly's mushroom body. It has a three-way switch, saved in `settings/fly-core` as `{ mode }`, and it ships **off**. Off means nothing runs and nothing is stored. With `mode: "when-needed"`, finished tasks are still learned from, and the model is offered one short tool, `learning.suggest`, which it asks only when the work calls for it. With `mode: "on"`, every task also has its suggestions worked out as it starts and written on the task as a `fly.suggested` event (`tools`, `skills`, `memories`, `avoid`). Temporary conversations are never learned from. From code, `app.learningCore.settings()` and `app.learningCore.configure({ mode })` read and change the switch; changing it adds or removes the tool at once. There is no screen or web route for it yet.
+Branch's learning core (`src/fly-core/`) is modelled on the fruit fly's mushroom body. It has a three-way switch, saved in `settings/fly-core` as `{ mode }`, and it ships **off**. Off means nothing runs and nothing is stored, not even an empty table. With `mode: "when-needed"`, finished tasks are still learned from, and the model is offered one short tool, `learning.suggest`, which it asks only when the work calls for it; the tool answers from the switch of the person whose task is asking, so someone who has it off is never read or written for. With `mode: "on"`, every task also has its suggestions worked out as it starts, written on the task as a `fly.suggested` event (`tools`, `skills`, `memories`, `avoid`), and **applied** through what Branch already has: the top tools join the tool loader's pre-load (still inside its hard budget), the top skills are listed first, and the top memories go first in a new conversation's memory snapshot. A tool the core says to avoid is only left out of the pre-load, never hidden, and a tool you switched off (such as the screen and keyboard) is never pre-loaded on its advice. Each piece that was applied is written as a `fly.applied` event and shown on the task's "Look inside" screen as one line ("Chose these tools first because they worked before in similar tasks: …"). Temporary conversations are never learned from.
 
-When a task ends, the core learns from how it went: finished or failed, checks passed or failed, what it cost, and whether your next message in the same conversation corrected it. That is written as `fly.learned`, with the reasons in plain words. When the same steps keep working for the same kind of request, the idea of making them a skill appears in the suggestions queue above. Accepting it only notes it for now. The core gives advice only: it changes nothing else, needs no model call, and keeps no words from your requests, only the names of the tools, skills and memories involved. It lives in the `fly_*` tables of the same database. How well it learns, and how that will be measured on real work, is in `experiments/fly-core/PLAN.md`.
+**Where you set it.** Library → Memory has a card, "What Branch learns from experience", with the switch (it saves as it moves), what Branch has learned in plain words (each tool, skill or note with how many tasks that rests on and whether they mostly went well), and **Forget what it learned**, which asks first and clears every `fly_*` row for you, the wiring seed included. The routes are `GET /api/learning-core`, `POST /api/learning-core/settings { mode }` and `POST /api/learning-core/forget { confirm: "forget" }`. A short-lived key can read the first but not use the other two. From code: `app.learningCore.settings()`, `configure({ mode })`, `view()` and `forget()`.
 
-**macOS and Linux.** The learning core is plain TypeScript over the built-in SQLite and works the same on Windows, macOS and Linux.
+When a task ends, the core learns from how it went: finished or failed, checks passed or failed, what it cost, and whether your next message in the same conversation corrected it (the same openings `src/memory-learning.ts` recognises). That is written as `fly.learned`, with the reasons in plain words. When the same steps keep working for the same kind of request, the idea of making them a skill appears in the suggestions queue above, marked `learned.signal: "learning-core"` with the steps as its evidence. Accepting it opens the skill editor (Customize → Skills) on a draft written from those steps; nothing is installed until you install it. The core needs no model call and keeps no words from your requests, only the names of the tools, skills and memories involved. It lives in the `fly_*` tables of the same database and is part of the backup: restoring replaces a person's learning whole, and never leaves a trace pointing at a task that is not in the backup.
+
+**Limits.** At most 5,000 actions per person, and at most 120 learned synapses on each side of an action (the faintest go first), which keeps the tables under about 10 MB at the cap (measured: 9.97 MB). What a task start needs is kept ready in memory (built once after launch; worked out at about 12 MB at the cap, up to twice that while its lists grow, not measured), so working out the advice takes well under a millisecond of processor time even at the cap. How well it learns, and how that is measured on real work (`experiments/fly-core/real-eval.mjs`), is in `experiments/fly-core/PLAN.md`.
+
+**macOS and Linux.** The learning core is plain TypeScript over the built-in SQLite and works the same on Windows, macOS and Linux; it starts no program and asks the computer for nothing. Its timings are measured as the task's own processor time, because the build machines are shared.
+
+### Looking back and writing new skills
+
+Two switches, both saved in `settings/reflection` and both shipped **off** (`src/reflection/`). `GET /api/reflection` answers with the switches, the recent looks back, the skills the assistant wrote and the last background outcomes; `POST /api/reflection/settings` changes any of `reflection`, `everyTurns`, `newSkills` and `retireAfterDays`. Only the owner's profile may change them. From code, `app.learningLoop` does the same. The cards are in Library → Memory ("Looking back over conversations") and Customize → Skills ("Skills your assistant wrote").
+
+- `reflection` (`off`, `when-needed`, `on`). With `on`, once `everyTurns` of your turns (5–500, default 25) have passed in a conversation, and whenever a long conversation is shortened, the assistant rereads only the turns since its last look, beside what it remembers and which skills are on, and asks the model once, with no tools, for corrections, merges, facts to set aside and notes on skills. With `when-needed` it looks only when a conversation is shortened, or when you press *Look back now* (`POST /api/reflection/look-back { sessionId? }`). Every answer is a suggestion in the usual queue, grouped as one batch; a suggestion naming a fact or skill it was not shown, or reading like an order slipped in from outside, is dropped. `POST /api/reflection/batches/:id/accept|reject` decides a whole batch. Temporary conversations are never read.
+- `newSkills` (`off`, `when-needed`, `on`). With `when-needed` a skill is drafted only when asked: typing `/learn` (with anything to add after it) in a conversation, `POST /api/reflection/learn { sessionId, notes? }`, or accepting a skill idea from the learning core. The assistant also has one short tool, `skills.learn` (`skills.manage`), for the same request in plain words. With `on` it may also draft after a finished task that used three or more different tools without a skill (once per conversation), and a look back may suggest skill ideas. A draft is installed switched off, tried as a practice run on the task it came from and up to two like it, once without any skill and once with it, and waits: `POST /api/reflection/new-skills/try|accept|reject { skillId }`. Keeping one that was not tried, or did worse, needs `force: true` with the words shown in the app, and is written to the record. Throwing one away removes it, since nothing used it.
+- Accepting a **skill note** in the queue now changes the skill: a note on an installed skill is written into a new, switched-off version, tried on the last tasks that used the skill, and listed under *Suggested better versions* with its diff, where a second yes switches it on. A skill idea with no skill becomes a new-skill draft as above, and is only noted while `newSkills` is `off`.
+- `retireAfterDays` (7–365, default 60). *Look for skills nobody uses* (`POST /api/reflection/retire`) offers to set aside each switched-on skill that no task has read in that time, once. It looks at the last 100 tasks only and says so; when those go back less far than the setting, it offers nothing. A skill a schedule names is left alone. Accepting switches the skill off; it stays installed.
+
+**macOS and Linux.** All of this is plain TypeScript over the built-in SQLite, with no program started, and works the same on Windows, macOS and Linux.
 
 ## Trust
 
@@ -3145,8 +3480,10 @@ these is looked at before the broader rules, so "never write anything under fina
 files is fine". A rule without one covers whatever the tool would touch, which is exactly how every
 rule written before this behaves — nothing you already had changes.
 A folder rule covers everything inside it, so `finance` fits `finance/2026/q1.xlsx`. A website rule
-covers the site and anything under it, so `example.com` fits `shop.example.com`. A command rule is
-about the program being run, so `rm` fits `rm -rf something`. `*` still stands for any text.
+covers the site and anything under it, so `example.com` fits `shop.example.com`. A command rule
+covers the words it names and anything after them, so `rm` fits `rm -rf something` and `git status`
+fits `git status --short` but not `git push` (see "Always allow, per command" below). `*` still
+stands for any text.
 Which kind a call counts as is worked out from what the call says it would touch, not from its
 arguments: a bare website name is a website, and anything else is a folder or file. That means a
 tool that reports what it touches through its own `target()` — as a tool with no plain `path`

@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark light" />
+    <title>Branch Agent — Dashboard</title>
+    <link rel="icon" href="/assets/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/assets/icon-192.png" />
+    <link rel="stylesheet" href="/tokens.css" />
+    <link rel="stylesheet" href="/style.css" />
+    <link rel="stylesheet" href="/layout.css" />
+    <link rel="stylesheet" href="/dashboard/dashboard.css" />
+  </head>
+  <body class="db">
+    <!-- The pixel oak behind the glass, as in the window (public/grove.js). -->
+    <canvas id="wall" class="lx-wall" aria-hidden="true"></canvas>
+    <canvas id="wall-fx" class="lx-wall" aria-hidden="true"></canvas>
+    <main class="db-pane" id="dashboard">
+      <header class="db-head">
+        <a class="db-brand" href="/">
+          <span class="brand-icon"><img class="oak-reversed" src="/assets/keepoak-mark-reversed.png" alt="" /><img class="oak-normal" src="/assets/keepoak-mark.png" alt="" /></span>
+          <span id="db-name">Branch Agent</span>
+        </a>
+        <span id="db-status" class="lx-chip lx-chip-idle" role="status" data-t="dashboard.connecting">Connecting</span>
+        <span class="db-spacer"></span>
+        <span class="db-head-meta"><span id="db-mode"></span> · <span id="db-updated"></span></span>
+        <button id="db-refresh" class="lx-button" type="button" hidden data-t="dashboard.refresh">Refresh</button>
+        <a class="lx-button" href="/" data-t="dashboard.openBranch">Open Branch</a>
+      </header>
+      <div id="db-lockbanner" class="lx-lockbanner db-lockbanner" role="status" hidden>
+        <span data-t="lockdown.on">Lockdown is on. Everything waits for your yes.</span>
+        <button id="db-lock-off" class="lx-button" type="button" hidden data-t="lockdown.turnOff">Turn it off</button>
+      </div>
+      <!-- The five places and Settings, in the window's order and with its names. -->
+      <nav class="db-map" aria-label="Places in Branch" data-t-label="dashboard.map">
+        <a class="lx-tab" href="/#open=chat" data-t="nav.chat">Conversation</a>
+        <a class="lx-tab" href="/#open=inbox" data-t="place.inbox">Inbox</a>
+        <a class="lx-tab" href="/#open=automations" data-t="place.automations">Automations</a>
+        <a class="lx-tab" href="/#open=library" data-t="place.library">Library</a>
+        <a class="lx-tab" href="/#open=customize" data-t="place.customize">Customize</a>
+        <a class="lx-tab" href="/#open=settings" data-t="nav.settings">Settings</a>
+        <a class="lx-tab" href="/dashboard" aria-current="page" data-t="dashboard.title">Dashboard</a>
+      </nav>
+      <div class="db-intro">
+        <h1 class="lx-place-title" data-t="dashboard.title">Dashboard</h1>
+        <p class="lx-place-intro" data-t="dashboard.intro">What Branch is doing, whether it is healthy, and what it has cost — at a glance, from any screen.</p>
+      </div>
+      <p id="db-message" class="db-message" role="alert" hidden></p>
+
+      <section id="db-signin" class="card db-card db-narrow" hidden>
+        <h2 data-t="dashboard.signin.title">Connect to Branch</h2>
+        <p data-t="dashboard.signin.purpose">This page reads Branch with the same key as the app window. Paste the key to see it here.</p>
+        <form id="db-signin-form">
+          <label for="db-key" data-t="field.session-token">Session token</label>
+          <div class="db-input-row">
+            <input id="db-key" type="password" autocomplete="off" required />
+            <button type="submit" data-t="action.connect">Connect</button>
+          </div>
+        </form>
+        <p class="field-note" data-t="dashboard.signin.phone">On a phone, connect it first with the square code under Settings → Computer &amp; browser, then open this page in the same tab.</p>
+      </section>
+
+      <section id="db-off" class="card db-card db-narrow" hidden>
+        <h2 data-t="dashboard.off.title">The dashboard is switched off</h2>
+        <p data-t="dashboard.off.purpose">Nothing is shown here until you switch it on in Branch, under Customize → Channels.</p>
+        <a class="lx-button lx-primary" href="/#open=customize:channels" data-t="dashboard.off.open">Open Channels</a>
+      </section>
+
+      <div id="db-grid" class="db-grid" hidden>
+        <section class="db-area" aria-labelledby="db-label-now">
+          <p class="lx-eyebrow" id="db-label-now" data-t="dashboard.area.now">Now</p>
+          <div id="db-area-now" class="db-stack"></div>
+        </section>
+        <section class="db-area" aria-labelledby="db-label-health">
+          <p class="lx-eyebrow" id="db-label-health" data-t="dashboard.area.health">Health</p>
+          <div id="db-area-health" class="db-stack"></div>
+        </section>
+        <section class="db-area" aria-labelledby="db-label-spend">
+          <p class="lx-eyebrow" id="db-label-spend" data-t="dashboard.area.spend">Spend</p>
+          <div id="db-area-spend" class="db-stack"></div>
+        </section>
+        <section class="db-area db-area-wide" aria-labelledby="db-label-activity">
+          <p class="lx-eyebrow" id="db-label-activity" data-t="dashboard.area.activity">Activity</p>
+          <div id="db-area-activity" class="db-stack"></div>
+        </section>
+        <section class="db-area" aria-labelledby="db-label-controls">
+          <p class="lx-eyebrow" id="db-label-controls" data-t="dashboard.area.controls">Controls</p>
+          <div id="db-area-controls" class="db-stack"></div>
+        </section>
+      </div>
+    </main>
+    <script src="/dashboard/dashboard.js" type="module"></script>
+  </body>
+</html>

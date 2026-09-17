@@ -56,6 +56,9 @@ export class TelegramAdapter implements ChannelAdapter {
   private username: string | null = null;
   private offset = 0;
   private stopping = new AbortController();
+  /** mac3/never-break: messages handed over and not yet settled, and how far everything is settled. */
+  private readonly inFlight = new Set<number>();
+  private settledUpTo = 0;
   private loop: Promise<void> | null = null;
   constructor(private readonly options: TelegramOptions) {
     this.id = options.id;
@@ -102,11 +105,12 @@ export class TelegramAdapter implements ChannelAdapter {
         const updates = z.array(updateSchema).parse(await this.call("getUpdates", { offset: this.offset, timeout: this.pollTimeout, allowed_updates: ["message", "callback_query"] }, true));
         for (const update of updates) {
           this.offset = Math.max(this.offset, update.update_id + 1);
+          // Handed over without waiting: a message sent while a task works is a note for that task,
+          // and it has to be read while the task is still going. The router keeps one task per chat.
           const pressed = update.callback_query && this.fromButton(update.callback_query);
-          const message = pressed || (update.message && this.inbound(update.message));
-          if (message) await onMessage(message).catch(() => undefined);
-          // mac3/never-break: saved once handled, so a message a crash cut off is fetched again.
-          this.options.position?.save(update.update_id + 1);
+          if (pressed) { this.handOver(update.update_id, pressed, onMessage); continue; }
+          const message = update.message && this.inbound(update.message);
+          this.handOver(update.update_id, message || null, onMessage);
         }
       } catch (error) {
         if (this.stopping.signal.aborted) return;
@@ -114,6 +118,21 @@ export class TelegramAdapter implements ChannelAdapter {
         await new Promise((resolve) => setTimeout(resolve, 2000));
       }
     }
+  }
+  /**
+   * mac3/never-break: hands one update to the router without waiting for it, and saves the read
+   * position only up to the oldest message still being handled, so a crash never skips one.
+   */
+  private handOver(id: number, message: InboundMessage | null, onMessage: (message: InboundMessage) => Promise<void>): void {
+    const settle = () => {
+      this.inFlight.delete(id);
+      this.settledUpTo = Math.max(this.settledUpTo, id + 1);
+      const oldest = Math.min(...this.inFlight);
+      this.options.position?.save(Number.isFinite(oldest) ? Math.min(oldest, this.settledUpTo) : this.settledUpTo);
+    };
+    if (!message) { settle(); return; }
+    this.inFlight.add(id);
+    void onMessage(message).catch(() => undefined).finally(settle);
   }
   /**
    * A pressed button, as an ordinary addressed message carrying the button's own value. The router
@@ -146,6 +165,24 @@ export class TelegramAdapter implements ChannelAdapter {
     });
     const parsed = z.object({ message_id: z.number() }).passthrough().safeParse(result);
     return parsed.success ? String(parsed.data.message_id) : undefined;
+  }
+  /** "typing…" for about five seconds; the router asks again while the task works. */
+  async sendTyping(chatId: string): Promise<void> {
+    await this.call("sendChatAction", { chat_id: Number(chatId), action: "typing" });
+  }
+  /** Telegram shows one reaction from a bot and replaces it, so `previous` needs no removing. */
+  async react(chatId: string, messageId: string, emoji: string): Promise<void> {
+    await this.call("setMessageReaction", {
+      chat_id: Number(chatId), message_id: Number(messageId), reaction: [{ type: "emoji", emoji }],
+    });
+  }
+  async edit(chatId: string, messageId: string, text: string): Promise<void> {
+    try {
+      await this.call("editMessageText", { chat_id: Number(chatId), message_id: Number(messageId), text });
+    } catch (error) {
+      // Sending the same words again is refused with this; the message already says them.
+      if (!/message is not modified/i.test(error instanceof Error ? error.message : "")) throw error;
+    }
   }
   private inbound(message: z.infer<typeof messageSchema>): InboundMessage | null {
     const spoken = message.voice ?? message.audio;

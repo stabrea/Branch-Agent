@@ -89,6 +89,8 @@ Inside a conversation there are no homes to add to, only two surfaces with stric
 | Evaluation and studies | `settings:advanced` |
 | Keep running through crashes and updates (`mac3/never-break`) | `settings:general` |
 | Set up Telegram, step by step (`mac3/never-break`) | `customize:channels` |
+| What Branch learns from experience, the learning core (`mac2/fly-core-2`) | `library:memory`; its skill ideas open in `customize:skills` |
+| The dashboard in the browser (`mac3/web-dashboard`) | A page of its own at `/dashboard`, not a place; its switch in `customize:channels` |
 
 When something new does not fit a row, apply the rule at the top and add a row here in the same
 change.

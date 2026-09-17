@@ -1,5 +1,6 @@
 import type { Event, RunStatus } from "../contracts.js";
 import type { ActionUse } from "./circuit.js";
+import { correctionOpenings } from "../memory-learning.js";
 
 /**
  * Reading a finished task for the two things the learning core needs: which actions were taken,
@@ -18,12 +19,7 @@ const statusSignal: Partial<Record<RunStatus, number>> = {
 export const costlyTokens = 400_000;
 const maximumCostPenalty = 0.3;
 const maximumMemoriesPerTask = 10;
-/**
- * Openings that mark a person putting the assistant right. The same idea as the pattern in
- * src/memory-learning.ts (not exported there), kept in step by hand.
- */
-const correctionOpenings =
-  /^(?:no[,.!\s]|not quite|actually[,\s]|that(?:'s| is) (?:wrong|not right|incorrect)|i meant|i said|wrong[,.!\s]|correction[:,\s])/i;
+/** A correction is recognised by the same openings src/memory-learning.ts uses. */
 export const correctionSignal = -0.8;
 
 export function isCorrection(prompt: string): boolean {

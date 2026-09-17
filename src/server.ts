@@ -9,6 +9,7 @@ import { readFile, writeFile, lstat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
+import { quietJobsApi } from "./scheduler.js";
 import { finishChatGPTSignIn, syncChatGPTPresets } from "./chatgpt-presets.js";
 import { embedSettings, widgetOrigin } from "./embeds.js";
 import { RunInputSchema, errorText } from "./contracts.js";
@@ -76,21 +77,34 @@ import { hiddenToolsText } from "./mcp-policy.js";
 import { listSnapshots } from "./mcp-snapshots.js";
 import { readLifecycleSettings, saveLifecycleSettings } from "./mcp-lifecycle.js";
 import { tryServer } from "./mcp-workbench.js";
+// mac3/security-check: the self-check card's routes.
+import { securityCheckApi } from "./security-audit/api.js";
 import { signIn as mcpSignIn } from "./integrations/mcp-oauth.js";
 import { AppResourceSchema, appHeaders, appPage, type AppResource } from "./mcp-apps.js";
+// mac2/fly-core-2: the learning core's owner routes.
+import { handlesLearningCorePath, learningCoreApi, LearningCoreApiError } from "./fly-core-api.js";
 // Wave 8: artifacts out of a reply, shown in the same locked-down frame an MCP app gets.
 import { ArtifactPageSchema, ArtifactSaveSchema, artifactPageRoute, holdArtifactPage } from "./artifact-pages.js";
 import { readServingSettings, saveServingSettings } from "./mcp-server.js";
 import { meaningSearchExplanation, meaningSearchOn, meaningSearchSetting } from "./tool-loading.js";
 import { handleA2a, remoteAgentsApi } from "./a2a-routes.js";
 import type { createBranch } from "./index.js";
+import { goalApi } from "./goal-mode.js";
+import { rewindApi } from "./rewind.js";
 import { PreferencesSchema, preferences } from "./preferences.js";
+import { lookApi } from "./terminal-theme.js";
+// Wave mac3: the owner's control dashboard, a page of its own at /dashboard.
+import {
+  DashboardApiError, dashboardAccess, dashboardApi, dashboardSettings, handlesDashboardPath, isDashboardFile,
+} from "./dashboard-api.js";
 import { PolicyRememberSchema, policyPresets, readPolicy, savePolicy } from "./policy.js";
 import { maximumArchiveBytes } from "./session-library.js";
 import { maximumMemoryArchiveBytes } from "./memory.js";
 import { conversationMarkdown, maximumImportBytes } from "./memory-export.js";
 import { assistantIdentity, saveAssistantIdentity } from "./identity.js";
 import { contextFileStatus, saveContextFileSettings, contextFileSettings } from "./context-files.js";
+// mac3/reflection-skills: the learning loop's routes.
+import { reflectionApi } from "./reflection/api.js";
 import { voiceSettings, saveVoiceSettings } from "./voice.js";
 import { voiceApi } from "./voice-api.js";
 import { parseModelCommand } from "./model-switch.js";
@@ -116,11 +130,15 @@ import { handlesTracingPath, logsResponse, metricsResponse, tracingApi, TracingA
 // Batch 26 (wave 8): where scripts run, what may reach the internet, how much one person may ask
 // for, the owner's other computers, marks, and how long conversations are kept.
 import { handlesSandboxRemotePath, sandboxRemoteApi, SandboxRemoteApiError } from "./sandbox-remote-api.js";
+// Wave mac2 (move-in): bringing chats and memory over from another assistant.
+import { contextFileSinkFor, defaultMoveInOptions, handlesMoveInPath, moveInApi, MoveInApiError } from "./migrate-api.js";
 // Wave mac2 (guards): which workspace folders are trusted, and the loop guard switch.
 import { guardsApi, handlesGuardsPath } from "./run-guards.js";
 // mac3/never-break: the gateway switch and suggested changes (src/never-break/api.ts).
 import { handlesNeverBreakPath, NeverBreakApiError, neverBreakApi } from "./never-break/api.js";
 import { snapshotData } from "./never-break/canary.js";
+// Wave mac3 (tool-safety): the second look before an approval.
+import { reviewerView, saveReviewerSettings } from "./approval-reviewer.js";
 import { helpApi } from "./help.js";
 import { AuthLimiter, noteAuthFailure, requestSource } from "./auth-limits.js";
 import { handlesOrchestrationPath, orchestrationApi, OrchestrationApiError } from "./orchestration-api.js";
@@ -275,6 +293,7 @@ async function staticFile(
 ): Promise<boolean> {
   const assets: Record<string, [string, string]> = {
     "/acorn.js": ["acorn.js", "text/javascript; charset=utf-8"],
+    "/look-sync.js": ["look-sync.js", "text/javascript; charset=utf-8"],
     "/assets/keepoak-mark.png": ["assets/keepoak-mark.png", "image/png"],
     "/assets/keepoak-mark-reversed.png": ["assets/keepoak-mark-reversed.png", "image/png"],
     "/": ["index.html", "text/html; charset=utf-8"],
@@ -302,6 +321,8 @@ async function staticFile(
     // Wave 6: sharing, labels and notes, workflows, the waiting line, days off and people.
     "/collab.js": ["collab.js", "text/javascript; charset=utf-8"],
     "/automations.js": ["automations.js", "text/javascript; charset=utf-8"],
+    // Wave mac2 (quiet-jobs): the check-in card, automation health and check-script approval.
+    "/heartbeat.js": ["heartbeat.js", "text/javascript; charset=utf-8"],
     "/mcp.js": ["mcp.js", "text/javascript; charset=utf-8"],
     "/mcp-workbench.js": ["mcp-workbench.js", "text/javascript; charset=utf-8"],
     "/browser.js": ["browser.js", "text/javascript; charset=utf-8"],
@@ -314,6 +335,14 @@ async function staticFile(
     "/pair": ["pair.html", "text/html; charset=utf-8"],
     "/pair.js": ["pair.js", "text/javascript; charset=utf-8"],
     "/pair.css": ["pair.css", "text/css; charset=utf-8"],
+    // Wave mac3: the owner's dashboard, and the card in Customize → Channels that switches it on.
+    "/dashboard": ["dashboard/index.html", "text/html; charset=utf-8"],
+    "/dashboard/dashboard.css": ["dashboard/dashboard.css", "text/css; charset=utf-8"],
+    "/dashboard/dashboard.js": ["dashboard/dashboard.js", "text/javascript; charset=utf-8"],
+    "/dashboard/sections.js": ["dashboard/sections.js", "text/javascript; charset=utf-8"],
+    "/dashboard/feed.js": ["dashboard/feed.js", "text/javascript; charset=utf-8"],
+    "/dashboard/look.js": ["dashboard/look.js", "text/javascript; charset=utf-8"],
+    "/dashboard-card.js": ["dashboard/card.js", "text/javascript; charset=utf-8"],
     "/usage.js": ["usage.js", "text/javascript; charset=utf-8"],
     "/evaluation.js": ["evaluation.js", "text/javascript; charset=utf-8"],
     // Wave 7: written-down experiments, under the evaluation card.
@@ -325,6 +354,8 @@ async function staticFile(
     "/flows.js": ["flows.js", "text/javascript; charset=utf-8"],
     // Wave 9: the advisor switch and the two debate bounds.
     "/second-opinion.js": ["second-opinion.js", "text/javascript; charset=utf-8"],
+    // Wave mac2 (chat-live): the chat-app switches card under Customize, Chat apps.
+    "/chat-live.js": ["chat-live.js", "text/javascript; charset=utf-8"],
     "/skill-revisions.js": ["skill-revisions.js", "text/javascript; charset=utf-8"],
     "/specialist-styles.js": ["specialist-styles.js", "text/javascript; charset=utf-8"],
     // Wave 7 (a coder's toolbox): the two Developer switches for language servers and debuggers.
@@ -332,11 +363,18 @@ async function staticFile(
     // Wave 8: the Lockdown switch and the shape branched conversations make.
     "/other.js": ["other.js", "text/javascript; charset=utf-8"],
     "/sandbox-remote.js": ["sandbox-remote.js", "text/javascript; charset=utf-8"],
+    // Wave mac2: bringing your chats and memory over from another assistant.
+    "/move-in.js": ["move-in.js", "text/javascript; charset=utf-8"],
     // Wave mac2 (guards): the card that asks whether a folder is trusted.
     "/folder-trust.js": ["folder-trust.js", "text/javascript; charset=utf-8"],
     // mac3/never-break: the Keep running card and the Telegram setup card.
     "/never-break.js": ["never-break.js", "text/javascript; charset=utf-8"],
     "/telegram-setup.js": ["telegram-setup.js", "text/javascript; charset=utf-8"],
+    // Wave mac2 (goal-undo): the goal strip, and editing an earlier message to go back to it.
+    "/goal.js": ["goal.js", "text/javascript; charset=utf-8"],
+    "/rewind.js": ["rewind.js", "text/javascript; charset=utf-8"],
+    // Wave mac3 (tool-safety): the card for the second look before an approval.
+    "/approval-reviewer.js": ["approval-reviewer.js", "text/javascript; charset=utf-8"],
     "/providers.js": ["providers.js", "text/javascript; charset=utf-8"],
     "/style.css": ["style.css", "text/css; charset=utf-8"],
     // App shell (wave 2): tokens, layout, appearance.
@@ -346,8 +384,16 @@ async function staticFile(
     // Wave 9 redesign: the five places, the Settings window, the 44 themes' colours and the oak.
     "/layout.js": ["layout.js", "text/javascript; charset=utf-8"],
     "/context-files.js": ["context-files.js", "text/javascript; charset=utf-8"],
+    // mac3/reflection-skills: looking back (Library, Memory) and skills it wrote (Customize, Skills).
+    "/learning-loop.js": ["learning-loop.js", "text/javascript; charset=utf-8"],
+    // mac3/security-check: the security self-check card.
+    "/security-check.js": ["security-check.js", "text/javascript; charset=utf-8"],
+    // mac2/fly-core-2: the learning core's card.
+    "/learning-core.js": ["learning-core.js", "text/javascript; charset=utf-8"],
     "/layout.css": ["layout.css", "text/css; charset=utf-8"],
     "/theme-catalogue.js": ["theme-catalogue.js", "text/javascript; charset=utf-8"],
+    // Wave mac3: one theme's colours under Branch's token names, for the window and the dashboard.
+    "/theme-bridge.js": ["theme-bridge.js", "text/javascript; charset=utf-8"],
     "/grove.js": ["grove.js", "text/javascript; charset=utf-8"],
     "/context-pane.js": ["context-pane.js", "text/javascript; charset=utf-8"],
     // Wave 7: what a conversation is allowed to do right now, and the observability screens.
@@ -647,6 +693,11 @@ async function api(
     return sandboxRemoteApi(app, request, path, readBody).catch((error: unknown) => {
       throw error instanceof SandboxRemoteApiError ? new HttpError(error.status, error.message) : error;
     });
+  // Wave mac2 (move-in): the preview of what another assistant left behind, and bringing it over.
+  if (handlesMoveInPath(path))
+    return moveInApi(app, request, path, readBody, { ...defaultMoveInOptions(), contextFiles: contextFileSinkFor(app) }).catch((error: unknown) => {
+      throw error instanceof MoveInApiError ? new HttpError(error.status, error.message) : error;
+    });
   // Wave mac2 (guards): which workspace folders are trusted, what each carries, and both switches.
   if (handlesGuardsPath(path)) return guardsApi(app, request, path, readBody);
   // mac3/never-break: the gateway switch and the changes the assistant suggested for it.
@@ -657,6 +708,12 @@ async function api(
     }).catch((error: unknown) => {
       throw error instanceof NeverBreakApiError ? new HttpError(error.status, error.message) : error;
     });
+  // Wave mac3 (tool-safety): the second look before an approval — its switch, connection and rules.
+  if (path === "/api/approval-reviewer" && request.method === "GET") return reviewerView(app.store, app.runtime.owner);
+  if (path === "/api/approval-reviewer" && request.method === "POST") {
+    saveReviewerSettings(app.store, app.runtime.owner, await readBody(request));
+    return reviewerView(app.store, app.runtime.owner);
+  }
   // Batch 21 (wave 8): the description of this API, Lockdown, kept answers, whole sets, project cost.
   if (handlesOtherPath(path))
     return otherApi(app, request, path, readBody).catch((error: unknown) => {
@@ -668,6 +725,12 @@ async function api(
     if (answer === undefined) throw new HttpError(404, "There is no handbook chapter by that name");
     return answer;
   }
+  // ── mac2/fly-core-2: the learning core's switch, what it has learned, and forgetting it. ──
+  if (handlesLearningCorePath(path))
+    return learningCoreApi({ store: app.store, owner: app.runtime.owner, configure: app.learningCore.configure },
+      request.method ?? "GET", path, () => readBody(request)).catch((error: unknown) => {
+      throw error instanceof LearningCoreApiError ? new HttpError(error.status, error.message) : error;
+    });
   if (request.method === "GET" && path === "/api/state") return state(app);
   // Wave 6: sharing, labels and notes, workflows, the waiting line, days off, and profiles.
   const collab = await collabApi(app, request, path, (maximumBytes) => readBody(request, maximumBytes));
@@ -704,6 +767,9 @@ async function api(
   // everything else, so a paired phone can pick up what was started at the computer.
   if (request.method === "GET" && path === "/api/sessions")
     return app.store.recentSessions(app.store.profiles.scope(), Number(new URL(request.url ?? "/", "http://x").searchParams.get("limit") ?? 20) || 20);
+  // Wave mac2 (goal-undo): working toward a goal in rounds, and going back to an earlier message.
+  if (path === "/api/goals" || path === "/api/goal-undo/settings" || /^\/api\/sessions\/[a-f0-9-]{36}\/(goal|rewind|unrevert)$/.test(path))
+    return goalUndoApi(app, request, path);
   if (path.startsWith("/api/sessions/")) return sessionApi(app, request, path);
   if (path.startsWith("/api/memory/")) return memoryApi(app, request, path);
   if (path.startsWith("/api/history/")) return historyApi(app, request, path);
@@ -716,6 +782,13 @@ async function api(
   if (path.startsWith("/api/lock") || path.startsWith("/api/privacy")) return guardApi(app, request, path);
   if (path.startsWith("/api/connections/")) return connectionsApi(app, request, path);
   if (path.startsWith("/api/channels")) return channelsApi(app, request, path);
+  // Wave mac2 (quiet-jobs): the check-in, and the owner's yes to a job's check script.
+  if (path.startsWith("/api/heartbeat") || /^\/api\/schedules\/[a-f0-9-]{36}\/gate$/.test(path)) {
+    app.store.profiles.requireOwner("Your schedules");
+    const answer = await quietJobsApi(app.scheduler, request.method ?? "GET", path, () => readBody(request));
+    if (answer !== undefined) return answer;
+    throw new HttpError(404, "Endpoint not found");
+  }
   if (path === "/api/schedules" || path.startsWith("/api/schedules/")) return schedulesApi(app, request, path);
   if (path.startsWith("/api/documents")) return documentsApi(app, request, path);
   // Knowledge bases: named sets of folders and files, searched by words and by meaning at once.
@@ -744,6 +817,14 @@ async function api(
     };
   if (request.method === "POST" && path === "/api/context-files")
     return saveContextFileSettings(app.store, app.runtime.owner, await readBody(request));
+  // ── mac3/reflection-skills: looking back over conversations and skills written from experience. ──
+  if (path.startsWith("/api/reflection")) {
+    // What the assistant learns is the owner's, so only the owner changes how it learns.
+    if (request.method !== "GET") app.store.profiles.requireOwner("Changing what the assistant learns");
+    const answer = await reflectionApi(app.learningLoop, app.store, request.method ?? "GET", path, () => readBody(request));
+    if (answer === undefined) throw new HttpError(404, "Not found");
+    return app.runtime.hideSecrets(answer);
+  }
   if (request.method === "POST" && path === "/api/models")
     return app.runtime.models.configure(app.runtime.owner, await readBody(request));
   if (request.method === "POST" && path === "/api/models/test") return testModel(app, await readBody(request));
@@ -766,6 +847,9 @@ async function api(
     app.store.save("settings", app.runtime.owner, "onboarding", { ...value, completedAt: new Date().toISOString() });
     return onboardingState(app);
   }
+  // Wave mac3 (terminal): the theme `branch theme` and Settings › Appearance share (src/terminal-theme.ts).
+  if (path === "/api/look" && request.method !== "GET" && request.method !== "POST") throw new HttpError(405, "Use GET or POST");
+  if (path === "/api/look") return lookApi(app.store, app.runtime.owner, request.method ?? "GET", () => readBody(request));
   if (request.method === "POST" && path === "/api/preferences") {
     const value = PreferencesSchema.parse(await readBody(request));
     app.store.save("settings", app.runtime.owner, "preferences", value);
@@ -1182,6 +1266,15 @@ async function sessionApi(app: Branch, request: IncomingMessage, path: string): 
     return app.store.duplicateSession(owner, match[1]!);
   }
   throw new HttpError(404, "Endpoint not found");
+}
+/** Wave mac2 (goal-undo): both answer only for conversations of the profile that is switched on. */
+async function goalUndoApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
+  const owner = app.store.profiles.scope(), method = request.method ?? "GET", body = () => readBody(request);
+  const answer = path.endsWith("/goal") || path === "/api/goals" || path === "/api/goal-undo/settings"
+    ? await goalApi(app.goals, (id) => app.store.ownsSession(owner, id), method, path, body)
+    : await rewindApi(app.rewinds, owner, method, path, body);
+  if (answer === undefined) throw new HttpError(404, "Endpoint not found");
+  return answer;
 }
 async function historyApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
   const history = app.store.workspaceHistory;
@@ -1657,6 +1750,8 @@ async function channelsApi(app: Branch, request: IncomingMessage, path: string):
   if (request.method === "POST" && retry) return app.channels.retryDelivery(decodeURIComponent(retry[1]!));
   if (request.method === "POST" && path === "/api/channels/pairings/approve") return app.channels.approve(owner, await readBody(request));
   if (request.method === "POST" && path === "/api/channels/link") return app.channels.link(owner, await readBody(request));
+  // Wave mac2 (chat-live): the on / off / when-needed switches for typing, commands, steering and splitting.
+  if (request.method === "POST" && path === "/api/channels/live") return { live: app.channels.setSwitches(await readBody(request)) };
   if (request.method === "POST" && path === "/api/channels/test") {
     const { channel, chatId } = z.object({ channel: z.string().min(1).max(64), chatId: z.string().min(1).max(64) }).strict().parse(await readBody(request));
     return app.channels.deliver(channel, chatId, "Test message from Branch Agent: this channel is connected and working.", `test:${Date.now()}`);
@@ -1904,7 +1999,9 @@ async function mcpModeApi(app: Branch, request: IncomingMessage, path: string): 
     // Trying a server starts a program on this computer, or reaches out to a web address, so it
     // stays with the owner even where several people share the app.
     app.store.profiles.requireOwner("Trying another AI tool's server");
-    return tryServer(app.store, app.runtime.owner, await readBody(request, 65536), process.env, app.web.policy);
+    const trying = await readBody(request, 65536);
+    await vetTriedServer(app, trying); // mac3/security-check
+    return tryServer(app.store, app.runtime.owner, trying, process.env, app.web.policy);
   }
   // The pages outside servers offered during one conversation, newest first. The page itself
   // travels with the answer so the card can hand it straight back for a one-time address; it is
@@ -2183,6 +2280,9 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
       // box off the owner's page rather than only hiding the setting.
       if (path === "/widget.js" && !embedSettings(app.store, app.runtime.owner).widget)
         throw new HttpError(404, "Not found");
+      // Wave mac3: while the dashboard switch is off its page and files are not served at all.
+      if (isDashboardFile(path) && dashboardSettings(app.store, app.runtime.owner).mode === "off")
+        throw new HttpError(404, "Not found");
       if (request.method === "GET" && (await staticFile(path, response)))
         return;
       if (path.startsWith("/hooks/")) {
@@ -2221,6 +2321,20 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
       // refresh of the screen would keep it awake for ever and it would never lock itself.
       if (request.method !== "GET" && path !== "/api/lock") app.sessionLock.touch();
       if (await handleMcpRequest(app, request, response)) return;
+      // ---- Wave mac3: the owner's dashboard (src/dashboard-api.ts). What this key may do is worked
+      // out once here, so the page can show a read-only view to a key that may only look. ----
+      if (handlesDashboardPath(path)) {
+        // The key was already checked and its use counted above; this only reads what it may do.
+        const access = dashboardAccess(request, token, (supplied) => app.sessionTokens.scopeOf(app.runtime.owner, supplied));
+        const answer = await dashboardApi(app, request, path, {
+          dataDir: options.dataDir, access, readBody: () => readBody(request),
+        }).catch((error: unknown) => {
+          throw error instanceof DashboardApiError ? new HttpError(error.status, error.message) : error;
+        });
+        send(response, 200, answer);
+        return;
+      }
+      // ---- end of the dashboard block ----
       const executes = isExecution(request, path);
       const place = executes ? executions.take() : null;
       if (executes && !place)
@@ -2230,6 +2344,14 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
         if (path.startsWith("/api/deployment")) {
           const result = await deploymentApi(app, request, path, deployment(), (r) => readBody(r), remoteHandler);
           if (result !== undefined) { send(response, 200, result); return; }
+        }
+        // mac3/security-check: the self-check card, which needs to know whether the phone door is open.
+        if (path.startsWith("/api/security-check")) {
+          // Switches and repairs stay with the owner, like trying a server does.
+          if (request.method !== "GET" && path !== "/api/security-check/run")
+            app.store.profiles.requireOwner("The security check's switches and repairs");
+          const answer = await securityCheckApi(app.security, request.method ?? "GET", path, () => readBody(request), remote.status().enabled);
+          if (answer !== undefined) { send(response, 200, answer); return; }
         }
         send(response, 200, await api(app, request, path, options.dataDir));
       } finally {
@@ -2625,19 +2747,39 @@ function voiceDeps(app: Branch) {
  */
 function offLimitsToShortLivedKeys(method: string | undefined, path: string): string | null {
   if (method === "GET") return null;
-  if (path === "/api/providers/cli-agents" || path.startsWith("/api/secrets") || path.startsWith("/api/connections"))
+  if (path === "/api/providers/cli-agents" || path.startsWith("/api/secrets") || path.startsWith("/api/connections") || /^\/api\/schedules\/[a-f0-9-]{36}\/gate$/.test(path))
     return "A short-lived key cannot name a program for Branch to run, add a model service, or change the locker. Do that in the app window.";
   if (path === "/api/deployment/close")
     return "A short-lived key cannot close Branch. Only the app on this computer can.";
+  // Wave mac2 (quiet-jobs): the check-in's switches, hours and where its news goes are the owner's.
+  if (path === "/api/heartbeat" || path.startsWith("/api/heartbeat/"))
+    return "A short-lived key cannot change the check-in or start one. Do that in the app window.";
+  // Wave mac3 (dashboard review): a "run" key "cannot change what Branch is allowed to do", and
+  // Lockdown is exactly that; without this a script's key could switch Lockdown off.
+  if (path === "/api/lockdown")
+    return "A short-lived key cannot switch Lockdown on or off. Do that in the app window or with the key of this computer.";
   // Wave mac2 (guards): trusting a folder lets what is in it steer the assistant.
   if (handlesGuardsPath(path)) return "A short-lived key cannot change which folders are trusted or how repeated steps are stopped. Do that in the app window.";
   // mac3/never-break: the gateway's settings are the owner's alone.
   if (handlesNeverBreakPath(path)) return "A short-lived key cannot change how Branch keeps itself running. Do that in the app window.";
+  // Wave mac3 (tool-safety): the second look decides what gets asked about.
+  if (path === "/api/approval-reviewer" && method !== "GET") return "A short-lived key cannot change the safety check before approvals. Do that in the app window.";
+  // mac3/security-check: changing who may reach Branch's files, or the check's own switches.
+  if (path.startsWith("/api/security-check/") && path !== "/api/security-check/run")
+    return "A short-lived key cannot change security settings or file permissions. Do that in the app window.";
+  // mac2/fly-core-2 (integration review): the learning core's switch and "forget" are the owner's.
+  if (handlesLearningCorePath(path)) return "A short-lived key cannot change the learning core or make it forget. Do that in the app window.";
   return null;
+}
+/** mac3/security-check: a server tried from Settings is looked up in the malware list before it starts. */
+async function vetTriedServer(app: Branch, input: unknown): Promise<void> {
+  const server = (input as { server?: { transport?: unknown; command?: unknown; args?: unknown } } | null)?.server;
+  if (server?.transport !== "stdio" || typeof server.command !== "string") return;
+  await app.security.malware.vet(server.command, Array.isArray(server.args) ? server.args.map(String) : []);
 }
 function isExecution(request: IncomingMessage, path: string): boolean {
   return (
-    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore", "/api/deployment/restore-point", "/api/deployment/close", "/a2a", "/api/tools/try", "/api/tools/forget", "/api/tools/meaning-search", "/api/firewall/test", "/api/sandboxes", "/api/limits"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins|local-models|connections|monitors|brief|ask-first|retrieval|issues|practice|workflows|queue|profiles|labels|shares|calendar|knowledge|tracing|rules|flows|deferred|processes|skill-revisions|plugin-catalog|developer|studies|batch|artifacts|reports|todos|obsidian|log|remotes|marks|retention)(\/|$)/.test(path) || /^\/api\/mcp\/(try|signin)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/api\/runs\/[a-f0-9-]{36}\/replay$/.test(path) || /^\/webhooks\/(whatsapp|chat)\//.test(path))
+    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore", "/api/deployment/restore-point", "/api/deployment/close", "/a2a", "/api/tools/try", "/api/tools/forget", "/api/tools/meaning-search", "/api/firewall/test", "/api/sandboxes", "/api/limits"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins|local-models|connections|monitors|brief|ask-first|retrieval|issues|practice|workflows|queue|profiles|labels|shares|calendar|knowledge|tracing|rules|flows|deferred|processes|skill-revisions|plugin-catalog|developer|studies|batch|artifacts|reports|todos|obsidian|log|remotes|marks|retention|heartbeat)(\/|$)/.test(path) || /^\/api\/mcp\/(try|signin)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/api\/runs\/[a-f0-9-]{36}\/replay$/.test(path) || /^\/webhooks\/(whatsapp|chat)\//.test(path))
   );
 }
 function configureLimits(server: Server): void {

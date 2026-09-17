@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { audit } from "./audit.js";
-import { globMatches, ResourceMatcherSchema, resourceMatches, type PolicyResource } from "./policy-resources.js";
+import { globMatches, isCommandTool, ResourceMatcherSchema, resourceMatches, type PolicyResource } from "./policy-resources.js";
+import { commandPrefix, exactCommandPattern, plainWords } from "./command-prefix.js";
 import { sandboxChoices } from "./sandbox.js";
 import { sandboxBackends } from "./sandbox-backends.js";
 import type { Store } from "./store.js";
@@ -171,6 +172,8 @@ const readOnlyPermissions = new Set([
   "process.read",
   // GitLab is read-only here: issues, releases and how the checks went.
   "gitlab.read",
+  // A check-in writing down its own answer (src/heartbeat.ts); the news goes out afterwards, by Branch.
+  "heartbeat.respond",
 ]);
 export const isReadOnlyPermission = (permission: string): boolean => readOnlyPermissions.has(permission);
 
@@ -179,6 +182,11 @@ export function policyTarget(tool: string, args: unknown): string {
   const a = (args && typeof args === "object" ? args : {}) as Record<string, unknown>;
   if (tool === "shell.execute")
     return [a.executable, ...(Array.isArray(a.args) ? a.args : [])].map((v) => String(v ?? "")).join(" ").trim().slice(0, 300);
+  // Wave mac3 (tool-safety): a command sent to a command line kept open is that command, and opening
+  // one is the program it opens, exactly as the tools themselves report it (src/shell-session.ts).
+  if (tool === "shell.session.run" && typeof a.input === "string") return a.input.slice(0, 300);
+  if (tool === "shell.session.open" && typeof a.program === "string")
+    return [a.program, ...(Array.isArray(a.args) ? a.args : [])].map((v) => String(v ?? "")).join(" ").trim().slice(0, 300);
   if (typeof a.url === "string") {
     try { return new URL(a.url).host; } catch { return a.url.slice(0, 300); }
   }
@@ -197,7 +205,19 @@ function ruleCovers(rule: PolicyRule, request: PolicyRequest): boolean {
   if (rule.applies === "changes" && request.readOnly) return false;
   if (!globMatches(rule.tool, request.tool)) return false;
   if (!globMatches(rule.match, request.target)) return false;
-  return rule.resource ? resourceMatches(rule.resource, request.resource) : true;
+  if (!rule.resource && rule.decision === "allow" && rule.match !== "*" && !commandTargetTrusted(request)) return false;
+  return rule.resource ? resourceMatches(rule.resource, request.resource, rule.decision) : true;
+}
+/**
+ * Integration review (mac3/tool-safety): an allow that names a command only through its target — a
+ * remembered command from before, or "npm *" — covers a command only when the target is the whole
+ * command and a plain list of words. A `*` in it never stands for `; rm -rf ~`, and a command cut
+ * at 300 characters is never let through by its harmless start.
+ */
+function commandTargetTrusted(request: PolicyRequest): boolean {
+  const resource = request.resource;
+  if (resource?.kind !== "command") return true;
+  return !resource.cut && plainWords(resource.value) !== null;
 }
 /**
  * The first rule that matches decides, and rules that name a particular folder, website, account or
@@ -256,15 +276,36 @@ export function savePolicy(store: Store, owner: string, input: unknown, reason =
   audit(store, owner, { action: "policy.changed", actor: owner, subject: `${next.preset}, ${next.rules.length} rules`, reason, outcome: "saved" });
   return next;
 }
+/**
+ * Wave mac3 (tool-safety): a standing answer about a command covers that one action of the program
+ * — "git status" with any flags, but not "git push" — rather than only the exact words it was given
+ * for. A command that cannot be narrowed safely (see src/command-prefix.ts) is kept word for word,
+ * and a program on another computer stays tied to that computer.
+ */
+export function standingRule(rule: PolicyRule): PolicyRule {
+  const remote = rule.tool === "remote.run";
+  if (rule.resource || rule.match === "*" || !(remote || isCommandTool(rule.tool))) return rule;
+  const at = remote ? rule.match.indexOf(": ") : 0;
+  if (at < 0) return rule;
+  const command = remote ? rule.match.slice(at + 2) : rule.match;
+  const match = remote ? `${rule.match.slice(0, at)}: *` : "*";
+  // Integration review: a `*` in a remembered command is a star, not "anything" — `rm -rf *` must
+  // never cover `rm -rf /` — so such a command is kept as an exact rule.
+  const prefix = rule.match.includes("*") ? null : commandPrefix(command);
+  if (prefix) return { ...rule, match, resource: { kind: "command", pattern: prefix } };
+  if (!rule.match.includes("*")) return rule;
+  return { ...rule, match, resource: { kind: "command", pattern: exactCommandPattern(command), exact: true } };
+}
 /** Records a standing answer as a rule in front of the others, so it beats the broader ones. */
 export function addPolicyRule(store: Store, owner: string, rule: z.input<typeof PolicyRuleSchema>): Policy {
   const current = readPolicy(store, owner);
-  const added = PolicyRuleSchema.parse(rule);
+  const added = standingRule(PolicyRuleSchema.parse(rule));
   const next: Policy = { ...current, rules: [added, ...current.rules].slice(0, maximumPolicyRules) };
   store.save("settings", owner, policyKey, next);
   audit(store, owner, {
     action: "policy.changed", actor: owner, subject: `${added.tool} on ${added.match}`,
-    reason: `A standing "${added.decision}" was remembered from a question you answered`, outcome: "saved",
+    reason: `A standing "${added.decision}" was remembered from a question you answered`
+      + (added.resource ? `, for the command ${added.resource.pattern}` : ""), outcome: "saved",
   });
   return next;
 }
