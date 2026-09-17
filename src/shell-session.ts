@@ -11,6 +11,8 @@ import { PosixProcessGroup, type HeldBySystem } from "./integrations/posix-limit
 import { ShellConfigSchema, shellEnvironment, type ShellConfig } from "./integrations/shell-config.js";
 import { backgroundSettings, type BackgroundSettings } from "./processes.js";
 import { placeTask, placementLine } from "./dispatch-fallback.js";
+import { commandTuning, keptOpenShellAllowed } from "./knobs/commands.js"; // R17-S10
+import { withPassedEnvironment } from "./knobs/environment.js"; // R17-S10
 
 /**
  * A command line the owner can keep open. An ordinary command starts a program, waits for it and
@@ -159,10 +161,10 @@ export class ShellSessions {
   private closed = false;
   constructor(
     input: unknown, private readonly store: Store, private readonly owner: string,
-    env: NodeJS.ProcessEnv = process.env, private readonly jobs: JobObjects = defaultJobObjects(),
+    private readonly source: NodeJS.ProcessEnv = process.env, private readonly jobs: JobObjects = defaultJobObjects(),
   ) {
     this.config = ShellConfigSchema.parse(input);
-    this.env = shellEnvironment(this.config, env);
+    this.env = shellEnvironment(this.config, source);
   }
   /** The limits a kept-open shell is held to; the same ones a program left running is held to. */
   settings(): BackgroundSettings { return backgroundSettings(this.store, this.owner); }
@@ -172,6 +174,7 @@ export class ShellSessions {
   }
   async start(input: z.infer<typeof OpenShellSchema>, context: ToolContext): Promise<ShellSessionView> {
     if (this.closed) throw new Error("Commands are not being run in this launch any more.");
+    keptOpenShellAllowed(this.store, this.owner); // R17-S10: the owner may switch kept-open command lines off
     const limits = this.settings();
     const program = Object.hasOwn(this.config.executables, input.program)
       ? this.config.executables[input.program] : undefined;
@@ -185,7 +188,8 @@ export class ShellSessions {
       : null;
     const argv = startedThrough(job, { executable: program.path, args: [...program.args, ...input.args] });
     const child = spawn(argv.executable, argv.args, { cwd, shell: false,
-      windowsHide: true, detached: process.platform !== "win32", stdio: ["pipe", "pipe", "pipe"], env: this.env });
+      windowsHide: true, detached: process.platform !== "win32", stdio: ["pipe", "pipe", "pipe"],
+      env: withPassedEnvironment(this.env, commandTuning(this.store, this.owner, this.source).env) }); // R17-S10
     if (job && child.pid) await job.assign(child.pid).catch(() => false);
     const shell = new OpenShell(input.name, input.program, this.sessionOf(context), child, job,
       limits.bufferBytes, limits.maxMinutes);

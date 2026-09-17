@@ -353,6 +353,7 @@ export function openaiBody(request: CompletionRequest, model: string): Record<st
     max_tokens: request.maxTokens,
     ...(shape ? { response_format: { type: "json_schema", json_schema: { name: shape.name, schema: shape.schema } } } : {}),
     ...(request.reasoning ? { reasoning_effort: request.reasoning } : {}),
+    ...(request.serviceTier ? { service_tier: request.serviceTier } : {}), // R17-S12
     ...(request.tools.length ? {
       tools: request.tools.map((t) => ({
         type: "function",
@@ -499,6 +500,8 @@ export function anthropicBody(request: CompletionRequest, model: string): Record
     model,
     max_tokens: request.maxTokens,
     ...anthropicThinking(request),
+    // R17-S12: Claude's own word for "use the faster tier when there is room"; it has no flex tier.
+    ...(request.serviceTier === "priority" ? { service_tier: "auto" } : {}),
     tools,
     ...(shape ? { tool_choice: { type: "tool", name: shape.name } } : {}),
     ...(instructions ? { system: [{ type: "text", text: instructions, ...cacheMarker }] } : {}),

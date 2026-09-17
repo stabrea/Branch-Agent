@@ -127,6 +127,12 @@ Inside a conversation there are no homes to add to, only two surfaces with stric
 | Your settings in one file (R17-S-A) | `settings:data`, beside Backup |
 | What to try after first run: say hello, watch me once, suggested automations (R17-S-A) | The conversation, straight under the first-run card; shown once |
 | A description under every Settings control, and the scope chip on every Settings card (R17-S-A) | Every Settings page; added by `public/settings-describe.js`, nothing to place |
+| Limits that used to be hidden (R17-S-B): summarising long conversations, sub-tasks and side jobs, thinking effort and service tier | `settings:models:defaults` |
+| Most steps and most cost for one task, hiding key-like values (R17-S-B) | `settings:permissions` |
+| Trying the model service again, how much a tool may say (R17-S-B) | `settings:advanced` |
+| How commands run, the launch settings file as a card (R17-S-B) | `settings:computer` |
+| Showing a model's thinking (R17-S-B) | `settings:appearance` |
+| How much it remembers at the start, the note about you, where things are remembered (R17-S-B) | `library:memory` |
 
 When something new does not fit a row, apply the rule at the top and add a row here in the same
 change.

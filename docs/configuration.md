@@ -6790,6 +6790,69 @@ Bucket 14 of the public list ("what it has cost you, in plain figures"). Each pi
 
 macOS and Linux: nothing here depends on the operating system; the tests run the same on all three.
 
+## Limits that used to be hidden, with plain labels (R17-S-B)
+
+Figures that were written into the code are now settings with a label and a sentence each. Every
+default is what Branch did before, so nothing changes until the owner changes it. They are saved per
+card in the settings table (`knobs-compaction`, `knobs-limits`, `knobs-commands`, `knobs-subtasks`,
+`knobs-reasoning`, `knobs-memory`, `knobs-leakGuard`) and read fresh at each step, so a change needs
+no restart. The screen is `public/knobs.js`; the server side is `src/knobs/`. `GET /api/knobs` reads
+every card, and `POST /api/knobs` with `{ card, values }` or `{ card, reset: true }` changes one. A
+short-lived key can read them but never change them.
+
+| Card (where) | Setting | Default | What it does |
+| --- | --- | --- | --- |
+| When a long conversation is summarised (Settings, Models, Defaults) | `autoCompact` | `true` | Off keeps every message; a very long conversation then stops with "start a new conversation". |
+| | `compactAtPercent` | `null` | Fold at this share of the room; `null` works it out each round from the tools and the answer. |
+| | `keepRecentMessages` | `6` | Newest messages never folded. |
+| | `contextWindowTokens` | `null` (20,000) | Room in one request, used both for folding and for the "too long" stop. |
+| How far one task may go (Settings, Permissions) | `maxSteps` | `60` | Model rounds in one task of the owner's (and in a background sub-task). |
+| | `spendCapDollars` | `null` | The task stops before its next model round once it has cost about this much, sub-tasks included. A model with no price on file cannot be checked; the task notes that once (`limits.spend_unpriced`). |
+| Trying the model service again (Settings, Advanced) | `apiRetries` | `null` (launch setting, 2) | Tries after a busy or failed request, 0 to 5. |
+| How much a tool may say (Settings, Advanced) | `toolAnswerChars` | `null` (launch `toolResultChars`) | Longest tool answer the model reads. |
+| | `toolTimeoutSeconds` | `null` (launch `toolTimeoutMs`) | Longest one tool call runs. |
+| How commands run (Settings, Computer) | `commandTimeoutSeconds` | `null` (the file's `shell.timeoutMs`) | Longest one command runs, for `shell.*` and nothing else. |
+| | `keptOpenShell` | `true` | Off refuses to open a kept-open command line. |
+| | `passEnvironment` | `[]` | Extra variable names handed to commands and kept-open command lines. Owner only. |
+| Sub-tasks and side jobs (Settings, Models, Defaults) | `subtaskModel` | `null` | Connection for delegated work; `null` is the conversation's own. |
+| | `sideJobModel` | `null` | Connection for conversation summaries and the after-task and learning reviews. |
+| | `parallelSubtasks` | `4` | Sub-tasks one task runs at once. |
+| | `subtaskTimeoutSeconds` | `120` | Longest a sub-task runs when the call does not say. |
+| How hard each model thinks (Settings, Models, Defaults) | `effortByModel` | `{}` | Default effort per connection id. Order: this run, this conversation, this connection, the owner's general default, the connection's own. |
+| | `serviceTier` | `standard` | `priority` sends `service_tier: "priority"` to OpenAI-style services and `service_tier: "auto"` to Claude; `flex` sends `flex` to OpenAI-style services only. `standard` sends nothing. |
+| Showing a model's thinking (Settings, Appearance) | `showReasoning` | `true` | Off removes `<think>`, `<thinking>` and `<reasoning>` blocks from answers and from the live text. |
+| How much it remembers at the start (Library, Memory) | `snapshotFacts`, `snapshotChars` | `20`, `2000` | The memory snapshot a new conversation starts with. |
+| | `aboutYouOn`, `aboutYou`, `aboutYouChars` | `false`, `""`, `1500` | The owner's own note, put in front of the owner's conversations as background (never a household person's). |
+| | memory provider | Branch's own | "Branch's own plus Hindsight" is the same switch as the Hindsight card (`asks-hindsight`); the address stays there. |
+| Hiding key-like values (Settings, Permissions) | `sensitivity` | `standard` | `strict` also hides long random-looking strings with digits and both cases. |
+| | `exceptions` | `[]` | Kinds of value not hidden. A private key is never let through. Owner only. |
+
+**Security.** Every card can only be changed with the computer's own key, in the owner's own profile,
+never by a household person or a short-lived key, and the card says so in plain words. The owner's
+"about you" note is only shown to the owner. A variable name that mentions a key, token, secret,
+password, credential, sign-in, cookie, session or certificate is refused when it is saved and again
+when a command starts, and so is a name that changes which code a program loads, where it connects or
+which settings file it reads: the search path (`PATH`, `PATHEXT`), proxies and certificate bundles
+(`HTTPS_PROXY`, `NO_PROXY`, `SSL_CERT_FILE`), whole families such as `LD_*`, `DYLD_*`, `GIT_*`,
+`NODE_*`, `npm_config_*`, `PYTHON*`, `JAVA*`, `AWS_*`, `OPENAI_*`, `DOTNET_*`, and single names such as
+`HOME`, `SHELL`, `ENV`, `BASH_ENV`, `EDITOR` and `PROMPT_COMMAND`. Letter case never matters. A passed
+name never replaces one the launch file already sets, and on Windows it is looked up in any letter
+case. A value that looks like a key is left out even under an allowed name, whatever the leak guard's
+exceptions say. The leak guard's address check (`credentialInUrl`) is not affected by exceptions.
+
+**The launch settings file as a card.** "Settings from the launch file" (Settings, Computer) shows
+what `BRANCH_INTEGRATIONS` sets up: how many AI tool servers and hooks, which chat apps and programs,
+and where a key-like value is written. `GET /api/knobs/launch-file` reads it the way the security
+check does. The owner can change `shell.timeoutMs`, `shell.maxOutputBytes`, `shell.netless` and
+`browser.allowedOrigins` (`POST /api/knobs/launch-file` with `commandTimeoutSeconds`,
+`commandOutputBytes`, `commandsOffline`, `browserSites`). The whole file is checked against the
+launch schema before it is replaced in one step (through a spare copy with an unguessable name; a
+linked file keeps its link and the file it points at is written), and the change is used from the next start.
+
+**macOS and Linux.** Nothing here depends on the system. The command timeout and extra variables
+apply to the same program list on every system; the loader names refused include the macOS
+`DYLD_*` family.
+
 ## Typed commands, the same everywhere (wave mac3)
 
 Commands that start with a slash — `/status`, `/stop`, `/tokens`, `/help` — come from one table,

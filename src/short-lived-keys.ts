@@ -92,6 +92,14 @@ const ownerOnlyReads: readonly RegExp[] = [
   /^\/api\/settings-kit\/(export|files)(\/.*)?$/,
 ];
 
+/**
+ * R17-S-B: the hidden knobs (`knobsRoutes` in src/knobs/api.ts) are the owner's alone. Reading
+ * them is a look; every change is refused to a short-lived key, because the cards include which
+ * environment variables commands are given, how key-like values are hidden, and the launch file.
+ */
+export const knobsRefusal =
+  "A short-lived key cannot change Branch's limits, which environment variables commands get, or how keys are hidden. Do that in the app window.";
+
 export const generalShortLivedKeyRefusal =
   "A short-lived key can start, steer and stop tasks, but cannot change settings, permissions or security. Do that in the app window.";
 export const ownerOnlyReadRefusal =
