@@ -99,6 +99,8 @@ const toolFeatures: { reason: string; tools: readonly string[]; hideWhenOff: boo
   ...interopToolFeatures.map(([key, reason, tools]) => ({ reason, tools, hideWhenOff: true, mode: (s: Reader, o: string) => savedMode(s, o, key) })),
   // Bucket 21 hook: tools for people building on Branch (src/sdk-kit.ts).
   { reason: "tools for people building on Branch are switched on", tools: sdkKitToolNames, hideWhenOff: true, mode: (s, o) => savedMode(s, o, "sdk-kit") },
+  // w911 (bucket 10) hook: web page fetching and crawling.
+  { reason: "reading and crawling web pages is switched on", tools: ["web.page", "web.crawl"], hideWhenOff: true, mode: (s, o) => savedMode(s, o, "web-pages") },
 ];
 
 /**

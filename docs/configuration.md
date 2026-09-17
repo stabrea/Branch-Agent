@@ -583,18 +583,28 @@ names: Branch is TypeScript and drives the browser on this computer, the same re
 `hybrid-tooling`, `cloud-compute` and `remote-execution` families are already marked not applicable.
 One implementation satisfies all three rows; none of them needs building again.
 
-**`A0743` (Scrapling page fetch) — not applicable.** It names another project's Python fetching
-library. Fetching a page and reading it out is `web.fetch` (readable text, redirects bounded,
-private addresses refused) and `browser.shape` (the same page in an exact shape) — both built and
-tested. Branch would not gain a capability by adding a Python library, only a dependency.
+## Web page fetching and crawling (A0743, A1452)
 
-**`A1452` (web crawling) — not applicable as a crawler; the capability is covered.** It names
-Crawl4AI. Following a site's own links is `web.fetch` or `browser.navigate`, then `browser.shape`
-for the addresses, then reading a bounded handful of them — which is what the shipped
-**read several pages of one site** skill sets out, with the rules that keep it from becoming a
-crawl: the same website only, one level deep, at most five pages, never in a loop. A page to be
-checked again and again is the `monitors` tool's job, not a crawler's. No crawler is built, and a
-task's caps on actions and websites (above) already stop one being improvised.
+**Settings → Computer → Web access** has the three-way switch, off by default.
+
+**`web.page` (A0743: Fetch a web page).** Three routes:
+- `plain`: HTTP fetch with readable-text extraction (no JavaScript).
+- `browser`: render the page in headless Playwright (JavaScript runs; slow).
+- `auto`: try plain first; fall back to browser if text is nearly empty.
+
+When a challenge is detected (Cloudflare, hCaptcha, or other "are you human?" gates), the tool returns a result marked `{ challenged: true }` instead of throwing. The owner is asked via `user.ask` to visit the site themselves, complete the check, and tell Branch to continue. If the owner has enabled "Let Branch use my browser for this task" in Settings, they are told that option is available.
+
+**`web.crawl` (A1452: Crawl a website).** Stays on one registrable host (last two labels: `a.example.com` → `example.com`; no dependency on a full public-suffix list). Limits:
+- Default 1, max 3 depth.
+- Default 10, max 50 pages per crawl.
+- Polite delay between requests (default 500 ms).
+- Honours `robots.txt` for `User-agent: *` and Branch's own UA; ignores `Allow`, `Crawl-delay`, and wildcards.
+- Strips URL fragments to dedupe and prevent revisits.
+- Stops and asks the owner if a challenge is detected mid-crawl.
+
+Stops on challenge with partial results: the pages fetched before the challenge, so a crawl can be resumed by the owner manually if needed.
+
+Both tools refuse in one sentence while the switch is off: *"Reading and crawling web pages is switched off. Turn it on under Settings → Computer → Web access."*
 
 **The two document rows filed under the browser (`family: doc-processing`, `family:
 document-processing` in #62) are stale.** PDF text extraction and document extraction are both
