@@ -273,7 +273,7 @@ function pictureSection(trunk) {
 }
 function keysNote(keys) {
   const node = section("trunks.keys", "Keys and accounts");
-  if (keys.note) node.append(make("p", "subtle", "trunks.keys.pending", "Several accounts per connection are not in this version yet, so this Trunk uses your own keys."));
+  if (keys.note) node.append(make("p", "subtle", "trunks.keys.pending", "Several accounts per connection are switched off, so this Trunk uses your own keys."));
   for (const note of keys.plan.notes) node.append(plain("p", note, "field-note"));
   return node;
 }

@@ -8,12 +8,9 @@
  * Several accounts per connection are being built on `mac6/accounts` (src/accounts/). There, the
  * account a model call uses is the conversation's own choice (`saveSessionChoice` in
  * src/accounts/settings.ts), and a Trunk always talks in its own conversation, so a Trunk's account
- * is simply its Trunk Chat's choice. This file is the seam: `createBranch` hands in a port once the
- * accounts work is merged; until then the no-op port keeps the choice on the Trunk and says so.
- *
- * HOOK (mac6/accounts): wire `TrunkAccountsPort` to src/accounts/settings.ts when it lands:
- *   choose: (sessionId, pool, account) => saveSessionChoice(store, owner, sessionId, pool, account)
- *   pools:  () => the connections with several accounts, each with its accounts and whether it is a sign-in
+ * is simply its Trunk Chat's choice. `createBranch` hands in the port (src/index.ts, the R17-A block):
+ * `pools` reads src/accounts/settings.ts and `choose` is `saveSessionChoice`. The no-op port below is
+ * what a Trunks service built without it (a test) uses: the Trunk then uses the owner's keys.
  */
 export interface TrunkAccountChoice { id: string; label: string; signIn: boolean }
 export interface TrunkAccountPool { id: string; label: string; accounts: TrunkAccountChoice[] }

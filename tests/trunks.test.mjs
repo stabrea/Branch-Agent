@@ -11,6 +11,7 @@ import { offLimitsToShortLivedKeys, startServer } from "../dist/server.js";
 import { switchedToolTiers } from "../dist/feature-switches.js";
 import { faceFor, pictureAddress, settleAvatar } from "../dist/trunks/avatar.js";
 import { keyPlan } from "../dist/trunks/accounts.js";
+import { saveAccountsSettings, sessionChoice } from "../dist/accounts/settings.js";
 import { slug } from "../dist/trunks/record.js";
 import { trunkPermissions } from "../dist/trunks/shape.js";
 import { HANDLERS } from "../dist/commands/handlers.js";
@@ -158,7 +159,7 @@ test("pictures: a face from the name, an uploaded picture, a generated one, and 
   await app.trunks.introduced();
 });
 
-test("keys: copied from the owner by default, a sign-in never copied, and the accounts hook is a no-op until it lands", async (t) => {
+test("keys: copied from the owner by default, a sign-in never copied, and a pick is the Trunk conversation's account choice", async (t) => {
   const pools = [{ id: "openai", label: "OpenAI", accounts: [{ id: "k1", label: "Work key", signIn: false }] },
     { id: "chatgpt", label: "ChatGPT", accounts: [{ id: "me", label: "My sign-in", signIn: true }] }];
   const plan = keyPlan({ copyFromOwner: true, accounts: {} }, pools);
@@ -172,6 +173,19 @@ test("keys: copied from the owner by default, a sign-in never copied, and the ac
   const keys = app.trunks.keys(ed.id);
   assert.equal(keys.connected, false);
   assert.match(keys.note, /uses your own keys/);
+  // With several accounts switched on, the Trunk's pick becomes its own conversation's choice.
+  const at = "2026-09-17T00:00:00.000Z";
+  saveAccountsSettings(app.store, app.runtime.owner, { mode: "on", pools: [
+    { pool: "openai", kind: "api-key", accounts: [{ id: "primary", label: "First key", createdAt: at }, { id: "0a0b0c0d", label: "Work key", createdAt: at }] },
+    { pool: "chatgpt", kind: "chatgpt", accounts: [{ id: "primary", label: "First sign-in", createdAt: at }] }] });
+  const live = app.trunks.keys(ed.id);
+  assert.equal(live.connected, true);
+  assert.equal(live.note, null);
+  assert.match(live.plan.notes.join(" "), /chatgpt: .*never copied/);
+  app.trunks.edit(ed.id, { keys: { copyFromOwner: true, accounts: { openai: "0a0b0c0d" } } });
+  assert.deepEqual(sessionChoice(app.store, app.runtime.owner, ed.chatSessionId), { openai: "0a0b0c0d" });
+  app.trunks.edit(ed.id, { keys: { copyFromOwner: true, accounts: {} } });
+  assert.deepEqual(sessionChoice(app.store, app.runtime.owner, ed.chatSessionId), {});
   await app.trunks.introduced();
 });
 

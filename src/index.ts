@@ -54,6 +54,7 @@ import { z } from "zod";
 import { ModelRouter, type ModelPreset } from "./models.js";
 import type { ChatGPTAuth } from "./chatgpt-auth.js";
 import { syncChatGPTPresets } from "./chatgpt-presets.js";
+import { startAccounts } from "./accounts/service.js"; // mac6/accounts
 import { People } from "./people/index.js"; // bucket 19
 import { FileLockerKey, type LockerKeySource } from "./locker.js";
 import { SessionLock } from "./session-lock.js";
@@ -193,6 +194,7 @@ import { connectGuidedTelegram, saveTelegramSetup, telegramSetupView } from "./n
 import { fileURLToPath } from "node:url";
 import { Asks } from "./asks/index.js"; // mac6/bucket-23: the smaller asks
 import { Trunks } from "./trunks/index.js"; // R17-A: Trunks, named long-lived agents
+import { accountsSettings, saveSessionChoice } from "./accounts/settings.js"; // R17-A: a Trunk's account (R17-005)
 // mac4/bucket-20: talking to other agents and tools.
 import { Interop } from "./interop/index.js";
 // mac3/reflection-skills: looking back over conversations, and skills written from experience.
@@ -779,6 +781,12 @@ export async function createBranch(options: {
     await chatgpt.load();
     syncChatGPTPresets(runtime.models, chatgpt, (await chatgpt.status()).signedIn, userAgent);
   }
+  // ---- mac6/accounts: several accounts per connection (src/accounts/); off by default ----
+  await startAccounts({
+    store, owner: runtime.owner, models: runtime.models, policy: web.policy, dataDir, userAgent,
+    ...(chatgpt ? { chatgpt } : {}),
+  });
+  // ---- end mac6/accounts ----
   // Nothing is shared with other AI tools until the owner turns it on in Settings.
   const mcpServer = await startMcpServer(registry, store, runtime, knowledge, files);
   mcpServer.documents = { list: (who: string) => documents.list(who) as unknown[] };
@@ -932,7 +940,14 @@ export async function createBranch(options: {
     assertHost: (host, port) => web.policy.assertAllowed(new URL(`https://${host}:${port}/`), "mail server address") });
   // ── end mac6/bucket-23 ──
   // ── R17-A (wave mac7): Trunks (src/trunks/). Every part ships off. ──
-  const trunks = new Trunks({ runtime, registry, knowledge, scheduler, workflows,
+  // R17-005: a Trunk's account is its own conversation's choice in the accounts work (src/accounts/).
+  const trunkAccounts = {
+    get connected() { return accountsSettings(store, runtime.owner).mode !== "off"; },
+    pools: () => accountsSettings(store, runtime.owner).pools.map((pool) => ({ id: pool.pool, label: pool.pool,
+      accounts: pool.accounts.map((account) => ({ id: account.id, label: account.label, signIn: pool.kind !== "api-key" })) })),
+    choose: (sessionId: string, pool: string, account: string | null) => saveSessionChoice(store, runtime.owner, sessionId, pool, account),
+  };
+  const trunks = new Trunks({ runtime, registry, knowledge, scheduler, workflows, accounts: trunkAccounts,
     picture: async (prompt) => {
       const made = await runtime.executeTool("media.image", { prompt, size: "256x256" }, { mode: "owner" }) as { path?: string; mediaType?: string };
       if (!made.path || !runtime.artifacts) throw new Error("The picture model did not hand back a picture");

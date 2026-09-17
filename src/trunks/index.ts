@@ -26,7 +26,7 @@ export interface TrunksDeps {
   knowledge: Knowledge;
   scheduler: Scheduler;
   workflows: TeachDeps["workflows"];
-  /** R17-005: the accounts work (mac6/accounts) plugs in here; until then Trunks use the owner's keys. */
+  /** R17-005: the accounts work (src/accounts/); without it Trunks use the owner's keys. */
   accounts?: TrunkAccountsPort;
   /** Makes a picture from a few words with the connected picture model. */
   picture?: (prompt: string) => Promise<{ bytes: Buffer; mediaType: string }>;
@@ -263,7 +263,7 @@ export class Trunks {
     const trunk = this.records.get(id);
     const pools = this.accounts.pools();
     return { connected: this.accounts.connected, keys: trunk.keys, pools, plan: keyPlan(trunk.keys, pools),
-      note: this.accounts.connected ? null : "Several accounts per connection are not in this version yet, so this Trunk uses your own keys." };
+      note: this.accounts.connected ? null : "Several accounts per connection are switched off, so this Trunk uses your own keys." };
   }
   private pushAccounts(trunk: Trunk): void {
     if (!this.accounts.connected) return;
