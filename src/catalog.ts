@@ -44,7 +44,7 @@ const groupPrefixes: readonly (readonly [string, readonly string[]])[] = [
   ["channels", ["channels.", "telegram.", "slack.", "discord.", "email.", "mail.", "messages.", "whatsapp."]],
   // Watches and the morning brief are recurring things that come and tell you something, so they
   // live with the rest of the assistant's own clockwork rather than in the unrecognised box.
-  ["schedules", ["schedules.", "triggers.", "reminders.", "timers.", "webhooks.", "monitor.", "monitors.", "brief.", "workflows.", "flows.", "queue."]],
+  ["schedules", ["schedules.", "heartbeat.", "triggers.", "reminders.", "timers.", "webhooks.", "monitor.", "monitors.", "brief.", "workflows.", "flows.", "queue."]],
   ["agents", ["agents.", "specialists.", "delegate.", "procedures.", "plans.", "teams.", "orchestration.", "profiles."]],
   ["skills", ["skills.", "plugins.", "recipes.", "mcp."]],
   // The owner's own instruction files (AGENTS.md, SOUL.md and the rest) are part of how Branch is
