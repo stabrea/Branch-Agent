@@ -977,6 +977,41 @@
             <button data-t="appearance.save">Save appearance</button>
           </form>
           <!-- Wave 9: a second pair of eyes on an answer, and two connections arguing a hard question. -->
+          <!-- Wave mac2 (chat-live): its home is Customize, Chat apps (docs/places.md). -->
+          <form id="chat-live-form" class="card" data-home="customize:channels">
+            <h2 data-t="settings.card.chat-live">While a task works in a chat app</h2>
+            <p data-t="settings.chat-live.intro">Choose what the chat shows and accepts while Branch works on a message; everything here starts off.</p>
+            <label for="chat-live-status" data-t="field.chat-live-status">Show the work in the chat</label>
+            <select id="chat-live-status" name="liveStatus">
+              <option value="off" data-t="settings.chat-live.off">Off</option>
+              <option value="when-needed" data-t="settings.chat-live.when-needed">When needed</option>
+              <option value="on" data-t="settings.chat-live.on">On</option>
+            </select>
+            <p class="field-note" data-t="settings.chat-live.status-note">Typing, a reaction on your message, and one message that lists the steps. When needed: only once a task has taken a few seconds.</p>
+            <label for="chat-live-commands" data-t="field.chat-live-commands">Read commands such as /stop</label>
+            <select id="chat-live-commands" name="commands">
+              <option value="off" data-t="settings.chat-live.off">Off</option>
+              <option value="when-needed" data-t="settings.chat-live.when-needed">When needed</option>
+              <option value="on" data-t="settings.chat-live.on">On</option>
+            </select>
+            <p class="field-note" data-t="settings.chat-live.commands-note">/stop, /status, /new, /compact, /usage and /btw. When needed: only /stop, /status and /btw, and only while a task works.</p>
+            <label for="chat-live-steering" data-t="field.chat-live-steering">Pass later messages to the task</label>
+            <select id="chat-live-steering" name="steering">
+              <option value="off" data-t="settings.chat-live.off">Off</option>
+              <option value="when-needed" data-t="settings.chat-live.when-needed">When needed</option>
+              <option value="on" data-t="settings.chat-live.on">On</option>
+            </select>
+            <p class="field-note" data-t="settings.chat-live.steering-note">A message sent while a task works becomes a note it reads next. On also answers quick messages as one. Off: it waits its turn.</p>
+            <label for="chat-live-splitting" data-t="field.chat-live-splitting">Keep code whole in long replies</label>
+            <select id="chat-live-splitting" name="splitting">
+              <option value="off" data-t="settings.chat-live.off">Off</option>
+              <option value="when-needed" data-t="settings.chat-live.when-needed">When needed</option>
+              <option value="on" data-t="settings.chat-live.on">On</option>
+            </select>
+            <p class="field-note" data-t="settings.chat-live.splitting-note">Long replies are split at paragraph breaks and code blocks stay code. When needed: only for replies with code.</p>
+            <p id="chat-live-state" class="field-note" aria-live="polite"></p>
+            <button data-t="action.save-chat-live">Save chat settings</button>
+          </form>
           <form id="second-opinion-form" class="card">
             <h2 data-t="settings.card.second-opinion">A second opinion</h2>
             <p data-t="settings.second-opinion.intro">Have another connection read a finished answer and say whether it stands up. It is shown beside the answer and never written into it, so you read both. Off until you turn it on, and it costs what any other model call costs.</p>
@@ -1744,15 +1779,20 @@
     <script src="/misc.js" type="module"></script>
     <script src="/flows.js" type="module"></script>
     <script src="/second-opinion.js" type="module"></script>
+    <script src="/chat-live.js" type="module"></script>
+    <script src="/heartbeat.js" type="module"></script>
     <script src="/skill-revisions.js" type="module"></script>
     <script src="/specialist-styles.js" type="module"></script>
     <script src="/code-ide.js" type="module"></script>
     <script src="/docs-3.js" type="module"></script>
     <script src="/other.js" type="module"></script>
     <script src="/sandbox-remote.js" type="module"></script>
+    <script src="/move-in.js" type="module"></script>
     <script src="/folder-trust.js" type="module"></script>
     <!-- Wave 9 redesign: last, so every panel it moves already exists. -->
     <script src="/context-files.js" type="module"></script>
+    <!-- Wave mac3: the dashboard's switch (Customize → Channels) and the links back in from it. -->
+    <script src="/dashboard-card.js" type="module"></script>
     <script src="/layout.js" type="module"></script>
   </body>
 </html>

@@ -3,6 +3,7 @@ import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ShellProcess, type ProcessResult } from "./shell-process.js";
+import { posixEnvironment } from "./shell-config.js";
 
 /**
  * Runs the copy of Git already installed on this computer. The program is found once with
@@ -19,12 +20,14 @@ const KEEP_ENV = ["PATH", "PATHEXT", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "HOM
   "HOMEDRIVE", "HOMEPATH", "APPDATA", "LOCALAPPDATA", "PROGRAMFILES", "PROGRAMDATA", "LANG", "LC_ALL", "TZ"];
 
 /** Git's own environment: the little it needs from the host, plus settings that keep it silent. */
-export function gitEnvironment(source: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+export function gitEnvironment(source: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): NodeJS.ProcessEnv {
   const result: NodeJS.ProcessEnv = {};
   for (const key of KEEP_ENV) {
     const entry = Object.entries(source).find(([name]) => name.toUpperCase() === key);
     if (entry?.[1]) result[key] = entry[1];
   }
+  // macOS and Linux: where temporary files go, who is signed in, and the key agent ssh remotes use.
+  Object.assign(result, posixEnvironment(["TMPDIR", "USER", "LOGNAME", "SSH_AUTH_SOCK", "XDG_CONFIG_HOME"], source, platform));
   return { ...result, GIT_TERMINAL_PROMPT: "0", GIT_OPTIONAL_LOCKS: "0", GIT_PAGER: "cat", NO_COLOR: "1", GCM_INTERACTIVE: "never" };
 }
 
@@ -37,14 +40,20 @@ function hardening(cwd: string): string[] {
 let located: Promise<string | null> | undefined;
 /** Asks the operating system where Git is, once per launch. */
 export async function locateGit(env: NodeJS.ProcessEnv = process.env): Promise<string | null> {
-  return (located ??= findGit(env));
+  return (located ??= findGitOn(env));
 }
-async function findGit(env: NodeJS.ProcessEnv): Promise<string | null> {
-  const windows = process.platform === "win32";
-  const finder = windows ? join(env.SystemRoot ?? env.SYSTEMROOT ?? "C:\\Windows", "System32", "where.exe") : "/usr/bin/which";
-  for (const line of (await firstLines(finder, ["git"], env)).slice(0, 5)) {
+/** How Git is looked for: `where git` on Windows, `command -v git` (no extension) elsewhere. */
+export function gitFinder(platform: NodeJS.Platform, env: NodeJS.ProcessEnv): { executable: string; args: string[] } {
+  if (platform === "win32") return { executable: join(env.SystemRoot ?? env.SYSTEMROOT ?? "C:\\Windows", "System32", "where.exe"), args: ["git"] };
+  return { executable: "/bin/sh", args: ["-c", "command -v git"] };
+}
+type LineReader = (executable: string, args: string[], env: NodeJS.ProcessEnv) => Promise<string[]>;
+export async function findGitOn(env: NodeJS.ProcessEnv, platform: NodeJS.Platform = process.platform, lines: LineReader = firstLines): Promise<string | null> {
+  const windows = platform === "win32";
+  const finder = gitFinder(platform, env);
+  for (const line of (await lines(finder.executable, finder.args, env)).slice(0, 5)) {
     const candidate = line.trim().replace(/^"|"$/g, "");
-    if (!candidate || (windows && !/\.exe$/i.test(candidate))) continue;
+    if (!candidate || (windows && !/\.exe$/i.test(candidate)) || (!windows && !candidate.startsWith("/"))) continue;
     if (await stat(candidate).then((info) => info.isFile()).catch(() => false)) return candidate;
   }
   return null;
