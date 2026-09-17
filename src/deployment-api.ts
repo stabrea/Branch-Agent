@@ -42,7 +42,10 @@ function daemonOptions(context: DeploymentContext): DaemonOptions {
     throw new Error("Branch has to be installed on this computer before it can keep running in the background.");
   return {
     executable: context.executable,
-    script: join(context.installRoot, "resources", "app", "dist", "cli.js"),
+    // mac1/service-update: a Mac app keeps its files in Contents/Resources, beside Contents/MacOS.
+    script: process.platform === "darwin"
+      ? join(context.installRoot, "..", "Resources", "app", "dist", "cli.js")
+      : join(context.installRoot, "resources", "app", "dist", "cli.js"),
     dataDir: context.dataDir, workspace: context.workspace, port: context.port,
     launcherPath: join(context.dataDir, daemonLauncherName),
   };

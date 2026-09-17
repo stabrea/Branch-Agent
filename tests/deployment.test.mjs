@@ -160,7 +160,7 @@ test("the background engine is a sign-in task that opens no window, and is never
   const options = {
     executable: "C:\\App\\Branch Agent.exe", script: "C:\\App\\resources\\app\\dist\\cli.js",
     dataDir: "C:\\Data", workspace: "C:\\Work", port: 3210,
-    launcherPath: join(root, "branch-daemon.vbs"), systemRoot: "C:\\Windows",
+    launcherPath: join(root, "branch-daemon.vbs"), systemRoot: "C:\\Windows", platform: "win32",
   };
   const report = await daemonCommand("install", options, {
     run: fake, write: async (path, content) => { written.push({ path, content }); },
@@ -408,7 +408,7 @@ test("an update takes a safety copy first, keeps three, and stops when the copy 
       await mkdir(join(into, "app"), { recursive: true });
       await writeFile(join(into, "app", "Branch Agent.exe"), "new");
     },
-    backup,
+    backup, platform: "win32",
   });
   const good = await updater(async () => { taken.push("copy"); }).install();
   assert.deepEqual(taken, ["copy"], "the copy is taken before the hand-over script is written");
@@ -451,7 +451,7 @@ test("putting back a safety copy replaces what is there; an ordinary restore sti
 
 test("doctor --fix reports each problem in plain words and repairs what it can", async () => {
   const report = await doctorFix(
-    { fix: false, port: 3210, workspace: process.cwd(), browsersInstalled: async () => false },
+    { fix: false, port: 3210, workspace: process.cwd(), browsersInstalled: async () => false, platform: "win32" },
     { run: async (file) => { if (file === "git") throw new Error("not found"); return ""; }, portFree: async (port) => port !== 3210 },
   );
   assert.equal(report.ok, false);

@@ -1970,6 +1970,27 @@ computer, and a writable files folder. With `--fix` it installs the browser
 (`npx playwright install chromium --only-shell`); the rest come with a plain-language step, because
 installing Git asks questions a script should not answer for someone.
 
+**macOS and Linux.** `branch daemon install` on a Mac writes
+`~/Library/LaunchAgents/com.keepoak.branch-agent.plist` (starts when you sign in to your Mac,
+starts again only after a crash, no window, output in `logs/background.log` and
+`logs/background-errors.log` inside the data folder) and loads it for you alone with
+`launchctl bootstrap gui/<your user id>`; `uninstall` runs `launchctl bootout` and deletes the file,
+and `status` asks `launchctl print`. On Linux it writes `~/.config/systemd/user/branch-agent.service`
+(or under `$XDG_CONFIG_HOME`) and runs `systemctl --user daemon-reload` and `enable --now`;
+`uninstall` runs `disable --now` and removes the file; `status` asks `is-enabled`. No administrator
+password is needed on either. The update downloads are `Branch-Agent-macos-arm64.zip`,
+`Branch-Agent-macos-x64.zip` and `Branch-Agent-linux-x64.tar.gz` (Windows keeps
+`Branch-Agent-windows-x64.zip`), each with its `.sha256`; the names live in
+`src/desktop/release-assets.ts`. After the checksum matches, the download is unpacked with `ditto`
+(Mac, which keeps the links inside the app) or `tar` (Linux), and a small `sh` script is started on
+its own with nothing attached, so no terminal window appears. It waits about a minute for the app
+and the background engine to close, then asks them to stop and finally ends them, copies the new
+version in beside the old one, keeps the old one as `Branch Agent.app.previous` (Mac) or
+`<folder>.previous` (Linux), swaps them, and opens the new version (`open -n` on a Mac, the
+`branch-agent` program on Linux). If the new version is not still running twenty seconds later the
+previous one is put back and opened. A copy running from its source code says so and points to
+`branch update` instead. `branch doctor --fix` gives Mac and Linux steps for installing Git.
+
 Routes: `GET /api/deployment`, `POST /api/deployment/autostart`, `POST /api/deployment/daemon`,
 `POST /api/deployment/remote`, `POST /api/deployment/remote/invite`, `GET /api/deployment/doctor`,
 `POST /api/deployment/backup`, `GET /api/deployment/restore-points`,
