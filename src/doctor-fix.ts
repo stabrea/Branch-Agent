@@ -38,6 +38,8 @@ export interface DoctorOptions {
   browsersInstalled?: () => Promise<boolean>;
   /** Which system the advice is for; defaults to this computer's. */
   platform?: NodeJS.Platform;
+  /** mac3/security-check: the security self-check's counts, when the caller can run it. */
+  security?: () => Promise<{ critical: number; warn: number; checks: number }>;
 }
 
 const runCommand = (file: string, args: string[]): Promise<string> =>
@@ -127,11 +129,26 @@ async function checkWorkspace(options: DoctorOptions): Promise<DoctorCheck> {
   }
 }
 
+/** mac3/security-check: one line summing up the security self-check; its own command does the repairs. */
+async function checkSecurity(run: NonNullable<DoctorOptions["security"]>): Promise<DoctorCheck> {
+  try {
+    const { critical, warn, checks } = await run();
+    if (critical + warn === 0) return { name: "Security", ok: true, summary: `All ${checks} security checks passed.` };
+    return {
+      name: "Security", ok: false, summary: `${critical} urgent and ${warn} other security problem${critical + warn === 1 ? "" : "s"} found.`,
+      fix: "Run `branch security audit` to see them, and `branch security audit --fix` to put right what Branch can.",
+    };
+  } catch (error) {
+    return { name: "Security", ok: false, summary: `The security check could not run: ${(error as Error).message}`, fix: "Run `branch security audit` to try again." };
+  }
+}
+
 /** Runs every setting-up check; with `fix` on, repairs what can be repaired from here. */
 export async function doctorFix(options: DoctorOptions, deps: DoctorDeps = {}): Promise<DoctorFixReport> {
   const checks = [
     await checkGit(options, deps), await checkBrowser(options, deps),
     await checkPort(options, deps), await checkWorkspace(options),
+    ...(options.security ? [await checkSecurity(options.security)] : []),
   ];
   return {
     ok: checks.every((check) => check.ok), fixMode: options.fix, checkedAt: new Date().toISOString(),

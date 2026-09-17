@@ -75,6 +75,11 @@ export class MemoryReview {
    * is handed in rather than reached for, so this module never has to know about collections.
    */
   acceptCard?: (owner: string, card: NonNullable<Proposal["card"]>) => unknown;
+  /**
+   * mac3/reflection-skills: what accepting a skill note does (src/reflection/skill-notes.ts), handed
+   * in at start-up like `acceptCard`. Without it a skill note is only noted.
+   */
+  applySkillNote?: (owner: string, proposal: Proposal) => unknown;
   constructor(private readonly db: DatabaseSync, private readonly memories: MemoryFacts) {
     db.exec(`CREATE TABLE IF NOT EXISTS memory_proposals(id TEXT PRIMARY KEY, owner TEXT NOT NULL, data TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL, decided_at TEXT);
       CREATE TABLE IF NOT EXISTS memory_checkpoints(id TEXT PRIMARY KEY, owner TEXT NOT NULL, label TEXT NOT NULL, memories TEXT NOT NULL, skills TEXT NOT NULL, created_at TEXT NOT NULL);`);
@@ -142,6 +147,7 @@ export class MemoryReview {
         throw new Error("That card reads like instructions to the assistant rather than something to remember, so it was not added.");
       return this.acceptCard(owner, proposal.card);
     }
+    if (proposal.kind === "skill-note" && this.applySkillNote) return this.applySkillNote(owner, proposal);
     return { noted: true };
   }
   /**

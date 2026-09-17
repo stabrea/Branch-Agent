@@ -77,6 +77,8 @@ import { hiddenToolsText } from "./mcp-policy.js";
 import { listSnapshots } from "./mcp-snapshots.js";
 import { readLifecycleSettings, saveLifecycleSettings } from "./mcp-lifecycle.js";
 import { tryServer } from "./mcp-workbench.js";
+// mac3/security-check: the self-check card's routes.
+import { securityCheckApi } from "./security-audit/api.js";
 import { signIn as mcpSignIn } from "./integrations/mcp-oauth.js";
 import { AppResourceSchema, appHeaders, appPage, type AppResource } from "./mcp-apps.js";
 // Wave 8: artifacts out of a reply, shown in the same locked-down frame an MCP app gets.
@@ -86,12 +88,19 @@ import { meaningSearchExplanation, meaningSearchOn, meaningSearchSetting } from 
 import { handleA2a, remoteAgentsApi } from "./a2a-routes.js";
 import type { createBranch } from "./index.js";
 import { PreferencesSchema, preferences } from "./preferences.js";
+import { lookApi } from "./terminal-theme.js";
+// Wave mac3: the owner's control dashboard, a page of its own at /dashboard.
+import {
+  DashboardApiError, dashboardAccess, dashboardApi, dashboardSettings, handlesDashboardPath, isDashboardFile,
+} from "./dashboard-api.js";
 import { PolicyRememberSchema, policyPresets, readPolicy, savePolicy } from "./policy.js";
 import { maximumArchiveBytes } from "./session-library.js";
 import { maximumMemoryArchiveBytes } from "./memory.js";
 import { conversationMarkdown, maximumImportBytes } from "./memory-export.js";
 import { assistantIdentity, saveAssistantIdentity } from "./identity.js";
 import { contextFileStatus, saveContextFileSettings, contextFileSettings } from "./context-files.js";
+// mac3/reflection-skills: the learning loop's routes.
+import { reflectionApi } from "./reflection/api.js";
 import { voiceSettings, saveVoiceSettings } from "./voice.js";
 import { voiceApi } from "./voice-api.js";
 import { parseModelCommand } from "./model-switch.js";
@@ -121,6 +130,8 @@ import { handlesSandboxRemotePath, sandboxRemoteApi, SandboxRemoteApiError } fro
 import { contextFileSinkFor, defaultMoveInOptions, handlesMoveInPath, moveInApi, MoveInApiError } from "./migrate-api.js";
 // Wave mac2 (guards): which workspace folders are trusted, and the loop guard switch.
 import { guardsApi, handlesGuardsPath } from "./run-guards.js";
+// Wave mac3 (tool-safety): the second look before an approval.
+import { reviewerView, saveReviewerSettings } from "./approval-reviewer.js";
 import { helpApi } from "./help.js";
 import { AuthLimiter, noteAuthFailure, requestSource } from "./auth-limits.js";
 import { handlesOrchestrationPath, orchestrationApi, OrchestrationApiError } from "./orchestration-api.js";
@@ -275,6 +286,7 @@ async function staticFile(
 ): Promise<boolean> {
   const assets: Record<string, [string, string]> = {
     "/acorn.js": ["acorn.js", "text/javascript; charset=utf-8"],
+    "/look-sync.js": ["look-sync.js", "text/javascript; charset=utf-8"],
     "/assets/keepoak-mark.png": ["assets/keepoak-mark.png", "image/png"],
     "/assets/keepoak-mark-reversed.png": ["assets/keepoak-mark-reversed.png", "image/png"],
     "/": ["index.html", "text/html; charset=utf-8"],
@@ -316,6 +328,14 @@ async function staticFile(
     "/pair": ["pair.html", "text/html; charset=utf-8"],
     "/pair.js": ["pair.js", "text/javascript; charset=utf-8"],
     "/pair.css": ["pair.css", "text/css; charset=utf-8"],
+    // Wave mac3: the owner's dashboard, and the card in Customize → Channels that switches it on.
+    "/dashboard": ["dashboard/index.html", "text/html; charset=utf-8"],
+    "/dashboard/dashboard.css": ["dashboard/dashboard.css", "text/css; charset=utf-8"],
+    "/dashboard/dashboard.js": ["dashboard/dashboard.js", "text/javascript; charset=utf-8"],
+    "/dashboard/sections.js": ["dashboard/sections.js", "text/javascript; charset=utf-8"],
+    "/dashboard/feed.js": ["dashboard/feed.js", "text/javascript; charset=utf-8"],
+    "/dashboard/look.js": ["dashboard/look.js", "text/javascript; charset=utf-8"],
+    "/dashboard-card.js": ["dashboard/card.js", "text/javascript; charset=utf-8"],
     "/usage.js": ["usage.js", "text/javascript; charset=utf-8"],
     "/evaluation.js": ["evaluation.js", "text/javascript; charset=utf-8"],
     // Wave 7: written-down experiments, under the evaluation card.
@@ -340,6 +360,8 @@ async function staticFile(
     "/move-in.js": ["move-in.js", "text/javascript; charset=utf-8"],
     // Wave mac2 (guards): the card that asks whether a folder is trusted.
     "/folder-trust.js": ["folder-trust.js", "text/javascript; charset=utf-8"],
+    // Wave mac3 (tool-safety): the card for the second look before an approval.
+    "/approval-reviewer.js": ["approval-reviewer.js", "text/javascript; charset=utf-8"],
     "/providers.js": ["providers.js", "text/javascript; charset=utf-8"],
     "/style.css": ["style.css", "text/css; charset=utf-8"],
     // App shell (wave 2): tokens, layout, appearance.
@@ -349,8 +371,14 @@ async function staticFile(
     // Wave 9 redesign: the five places, the Settings window, the 44 themes' colours and the oak.
     "/layout.js": ["layout.js", "text/javascript; charset=utf-8"],
     "/context-files.js": ["context-files.js", "text/javascript; charset=utf-8"],
+    // mac3/reflection-skills: looking back (Library, Memory) and skills it wrote (Customize, Skills).
+    "/learning-loop.js": ["learning-loop.js", "text/javascript; charset=utf-8"],
+    // mac3/security-check: the security self-check card.
+    "/security-check.js": ["security-check.js", "text/javascript; charset=utf-8"],
     "/layout.css": ["layout.css", "text/css; charset=utf-8"],
     "/theme-catalogue.js": ["theme-catalogue.js", "text/javascript; charset=utf-8"],
+    // Wave mac3: one theme's colours under Branch's token names, for the window and the dashboard.
+    "/theme-bridge.js": ["theme-bridge.js", "text/javascript; charset=utf-8"],
     "/grove.js": ["grove.js", "text/javascript; charset=utf-8"],
     "/context-pane.js": ["context-pane.js", "text/javascript; charset=utf-8"],
     // Wave 7: what a conversation is allowed to do right now, and the observability screens.
@@ -657,6 +685,12 @@ async function api(
     });
   // Wave mac2 (guards): which workspace folders are trusted, what each carries, and both switches.
   if (handlesGuardsPath(path)) return guardsApi(app, request, path, readBody);
+  // Wave mac3 (tool-safety): the second look before an approval — its switch, connection and rules.
+  if (path === "/api/approval-reviewer" && request.method === "GET") return reviewerView(app.store, app.runtime.owner);
+  if (path === "/api/approval-reviewer" && request.method === "POST") {
+    saveReviewerSettings(app.store, app.runtime.owner, await readBody(request));
+    return reviewerView(app.store, app.runtime.owner);
+  }
   // Batch 21 (wave 8): the description of this API, Lockdown, kept answers, whole sets, project cost.
   if (handlesOtherPath(path))
     return otherApi(app, request, path, readBody).catch((error: unknown) => {
@@ -751,6 +785,14 @@ async function api(
     };
   if (request.method === "POST" && path === "/api/context-files")
     return saveContextFileSettings(app.store, app.runtime.owner, await readBody(request));
+  // ── mac3/reflection-skills: looking back over conversations and skills written from experience. ──
+  if (path.startsWith("/api/reflection")) {
+    // What the assistant learns is the owner's, so only the owner changes how it learns.
+    if (request.method !== "GET") app.store.profiles.requireOwner("Changing what the assistant learns");
+    const answer = await reflectionApi(app.learningLoop, app.store, request.method ?? "GET", path, () => readBody(request));
+    if (answer === undefined) throw new HttpError(404, "Not found");
+    return app.runtime.hideSecrets(answer);
+  }
   if (request.method === "POST" && path === "/api/models")
     return app.runtime.models.configure(app.runtime.owner, await readBody(request));
   if (request.method === "POST" && path === "/api/models/test") return testModel(app, await readBody(request));
@@ -773,6 +815,9 @@ async function api(
     app.store.save("settings", app.runtime.owner, "onboarding", { ...value, completedAt: new Date().toISOString() });
     return onboardingState(app);
   }
+  // Wave mac3 (terminal): the theme `branch theme` and Settings › Appearance share (src/terminal-theme.ts).
+  if (path === "/api/look" && request.method !== "GET" && request.method !== "POST") throw new HttpError(405, "Use GET or POST");
+  if (path === "/api/look") return lookApi(app.store, app.runtime.owner, request.method ?? "GET", () => readBody(request));
   if (request.method === "POST" && path === "/api/preferences") {
     const value = PreferencesSchema.parse(await readBody(request));
     app.store.save("settings", app.runtime.owner, "preferences", value);
@@ -1913,7 +1958,9 @@ async function mcpModeApi(app: Branch, request: IncomingMessage, path: string): 
     // Trying a server starts a program on this computer, or reaches out to a web address, so it
     // stays with the owner even where several people share the app.
     app.store.profiles.requireOwner("Trying another AI tool's server");
-    return tryServer(app.store, app.runtime.owner, await readBody(request, 65536), process.env, app.web.policy);
+    const trying = await readBody(request, 65536);
+    await vetTriedServer(app, trying); // mac3/security-check
+    return tryServer(app.store, app.runtime.owner, trying, process.env, app.web.policy);
   }
   // The pages outside servers offered during one conversation, newest first. The page itself
   // travels with the answer so the card can hand it straight back for a one-time address; it is
@@ -2192,6 +2239,9 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
       // box off the owner's page rather than only hiding the setting.
       if (path === "/widget.js" && !embedSettings(app.store, app.runtime.owner).widget)
         throw new HttpError(404, "Not found");
+      // Wave mac3: while the dashboard switch is off its page and files are not served at all.
+      if (isDashboardFile(path) && dashboardSettings(app.store, app.runtime.owner).mode === "off")
+        throw new HttpError(404, "Not found");
       if (request.method === "GET" && (await staticFile(path, response)))
         return;
       if (path.startsWith("/hooks/")) {
@@ -2230,6 +2280,20 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
       // refresh of the screen would keep it awake for ever and it would never lock itself.
       if (request.method !== "GET" && path !== "/api/lock") app.sessionLock.touch();
       if (await handleMcpRequest(app, request, response)) return;
+      // ---- Wave mac3: the owner's dashboard (src/dashboard-api.ts). What this key may do is worked
+      // out once here, so the page can show a read-only view to a key that may only look. ----
+      if (handlesDashboardPath(path)) {
+        // The key was already checked and its use counted above; this only reads what it may do.
+        const access = dashboardAccess(request, token, (supplied) => app.sessionTokens.scopeOf(app.runtime.owner, supplied));
+        const answer = await dashboardApi(app, request, path, {
+          dataDir: options.dataDir, access, readBody: () => readBody(request),
+        }).catch((error: unknown) => {
+          throw error instanceof DashboardApiError ? new HttpError(error.status, error.message) : error;
+        });
+        send(response, 200, answer);
+        return;
+      }
+      // ---- end of the dashboard block ----
       const executes = isExecution(request, path);
       const place = executes ? executions.take() : null;
       if (executes && !place)
@@ -2239,6 +2303,14 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
         if (path.startsWith("/api/deployment")) {
           const result = await deploymentApi(app, request, path, deployment(), (r) => readBody(r), remoteHandler);
           if (result !== undefined) { send(response, 200, result); return; }
+        }
+        // mac3/security-check: the self-check card, which needs to know whether the phone door is open.
+        if (path.startsWith("/api/security-check")) {
+          // Switches and repairs stay with the owner, like trying a server does.
+          if (request.method !== "GET" && path !== "/api/security-check/run")
+            app.store.profiles.requireOwner("The security check's switches and repairs");
+          const answer = await securityCheckApi(app.security, request.method ?? "GET", path, () => readBody(request), remote.status().enabled);
+          if (answer !== undefined) { send(response, 200, answer); return; }
         }
         send(response, 200, await api(app, request, path, options.dataDir));
       } finally {
@@ -2636,9 +2708,24 @@ function offLimitsToShortLivedKeys(method: string | undefined, path: string): st
   // Wave mac2 (quiet-jobs): the check-in's switches, hours and where its news goes are the owner's.
   if (path === "/api/heartbeat" || path.startsWith("/api/heartbeat/"))
     return "A short-lived key cannot change the check-in or start one. Do that in the app window.";
+  // Wave mac3 (dashboard review): a "run" key "cannot change what Branch is allowed to do", and
+  // Lockdown is exactly that; without this a script's key could switch Lockdown off.
+  if (path === "/api/lockdown")
+    return "A short-lived key cannot switch Lockdown on or off. Do that in the app window or with the key of this computer.";
   // Wave mac2 (guards): trusting a folder lets what is in it steer the assistant.
   if (handlesGuardsPath(path)) return "A short-lived key cannot change which folders are trusted or how repeated steps are stopped. Do that in the app window.";
+  // Wave mac3 (tool-safety): the second look decides what gets asked about.
+  if (path === "/api/approval-reviewer" && method !== "GET") return "A short-lived key cannot change the safety check before approvals. Do that in the app window.";
+  // mac3/security-check: changing who may reach Branch's files, or the check's own switches.
+  if (path.startsWith("/api/security-check/") && path !== "/api/security-check/run")
+    return "A short-lived key cannot change security settings or file permissions. Do that in the app window.";
   return null;
+}
+/** mac3/security-check: a server tried from Settings is looked up in the malware list before it starts. */
+async function vetTriedServer(app: Branch, input: unknown): Promise<void> {
+  const server = (input as { server?: { transport?: unknown; command?: unknown; args?: unknown } } | null)?.server;
+  if (server?.transport !== "stdio" || typeof server.command !== "string") return;
+  await app.security.malware.vet(server.command, Array.isArray(server.args) ? server.args.map(String) : []);
 }
 function isExecution(request: IncomingMessage, path: string): boolean {
   return (
