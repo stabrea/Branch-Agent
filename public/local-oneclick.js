@@ -105,7 +105,7 @@ function variantRow(offer, variant, runtime) {
   const badge = keyed("span", `local.fit.${variant.fit}`, "local-fit");
   badge.dataset.fit = variant.fit;
   row.append(badge);
-  row.append(keyed("span", "local.fit.detail", "meta", {
+  row.append(keyed("span", "local.fit.detail", "local-detail", {
     download: gb(variant.downloadBytes), need: gb(variant.needsBytes), words: formatNumber(variant.context),
   }));
   const setUp = button("action.local-set-up", () => void act("local-models/setup",
@@ -123,7 +123,7 @@ function offerItem(offer, runtime) {
   node.append(el("h3", `${offer.name} · ${offer.params}`));
   node.append(el("p", language() === "fr" ? offer.summary.fr : offer.summary.en));
   if (!offer.tools) node.append(keyed("p", "local.offer.no-tools", "local-warning"));
-  if (offer.vision) node.append(keyed("p", "local.offer.pictures", "meta"));
+  if (offer.vision) node.append(keyed("p", "local.offer.pictures", "local-detail"));
   for (const variant of offer.variants) node.append(variantRow(offer, variant, runtime));
   return node;
 }
@@ -152,8 +152,8 @@ function searchResults(found, runtime) {
   return found.hits.map((hit) => {
     const node = el("div", undefined, "item");
     node.append(el("h3", hit.name));
-    node.append(keyed("p", hit.bytes ? "local.search.size" : "local.search.unknown-tools", "meta", { size: gb(hit.bytes ?? 0) }));
-    if (runtime === "llama-cpp") node.append(keyed("p", "local.search.list-only", "meta"));
+    node.append(keyed("p", hit.bytes ? "local.search.size" : "local.search.unknown-tools", "local-detail", { size: gb(hit.bytes ?? 0) }));
+    if (runtime === "llama-cpp") node.append(keyed("p", "local.search.list-only", "local-detail"));
     else node.append(button("action.local-set-up", () => void act("local-models/setup", { runtime, name: hit.name }, "local.oneclick.started", { name: hit.name })));
     return node;
   });
@@ -177,7 +177,7 @@ function setupItem(job) {
 function loadedItem(model) {
   const node = el("div", undefined, "item");
   node.append(el("h3", model.name));
-  node.append(keyed("p", "local.loaded.detail", "meta", { program: programNames[model.runtime], size: gb(model.sizeBytes), words: model.contextLength ? formatNumber(model.contextLength) : "?" }));
+  node.append(keyed("p", "local.loaded.detail", "local-detail", { program: programNames[model.runtime], size: gb(model.sizeBytes), words: model.contextLength ? formatNumber(model.contextLength) : "?" }));
   node.append(button("action.local-unload", () => void act("local-models/unload", { runtime: model.runtime, id: model.instanceId }, "local.loaded.unloaded", { name: model.name })));
   return node;
 }
@@ -185,7 +185,7 @@ function loadedItem(model) {
 function diskItem(model) {
   const node = el("div", undefined, "item");
   node.append(el("h3", model.name));
-  node.append(keyed("p", model.connectionId ? "local.disk.connected" : "local.disk.detail", "meta", { size: gb(model.sizeBytes), program: programNames[model.runtime] }));
+  node.append(keyed("p", model.connectionId ? "local.disk.connected" : "local.disk.detail", "local-detail", { size: gb(model.sizeBytes), program: programNames[model.runtime] }));
   node.append(button("action.local-remove", () => {
     if (!confirm(t("local.disk.confirm", { name: model.name, size: gb(model.sizeBytes) }))) return;
     void act("local-models/delete", { runtime: model.runtime, id: model.name }, "local.disk.removed", { name: model.name, size: gb(model.sizeBytes) });
@@ -229,4 +229,7 @@ if ($("local-oneclick")) {
   document.addEventListener("branch-language", () => void drawOneClick());
   /* The page loads before the owner signs in, so the block is drawn again each time it comes into view. */
   new IntersectionObserver((entries) => { if (signedIn() && entries.some((entry) => entry.isIntersecting)) void drawOneClick(); }).observe($("local-oneclick"));
+  /* Settings may already be open when the owner signs in: draw once the workspace is shown. */
+  const workspace = $("workspace");
+  if (workspace) new MutationObserver(() => { if (!workspace.hidden) void drawOneClick(); }).observe(workspace, { attributes: true, attributeFilter: ["hidden"] });
 }
