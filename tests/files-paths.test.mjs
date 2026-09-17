@@ -28,6 +28,14 @@ test("workspace rejects links at the root and any ancestor", async (t) => {
   await assert.doesNotReject(new WorkspaceFiles(workspace).checked("file.txt"));
 });
 
+test("macOS system links such as /var are layout, not a refused link", {
+  skip: process.platform !== "darwin",
+}, async (t) => {
+  const { workspace } = await fixture(t);
+  assert.notEqual(await realpath(workspace), workspace, "tmpdir sits under the /var link");
+  await assert.doesNotReject(new WorkspaceFiles(workspace).checked("file.txt"));
+});
+
 test("Windows short directory names are valid workspace paths", {
   skip: process.platform !== "win32",
 }, async (t) => {
