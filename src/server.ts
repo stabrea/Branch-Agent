@@ -396,6 +396,8 @@ async function staticFile(
     "/theme-catalogue.js": ["theme-catalogue.js", "text/javascript; charset=utf-8"],
     // Wave mac3: one theme's colours under Branch's token names, for the window and the dashboard.
     "/theme-bridge.js": ["theme-bridge.js", "text/javascript; charset=utf-8"],
+    // mac3/mobile integration: a phone paired in its browser sends its own secret on every request.
+    "/device-headers.js": ["device-headers.js", "text/javascript; charset=utf-8"],
     "/grove.js": ["grove.js", "text/javascript; charset=utf-8"],
     "/context-pane.js": ["context-pane.js", "text/javascript; charset=utf-8"],
     // Wave 7: what a conversation is allowed to do right now, and the observability screens.

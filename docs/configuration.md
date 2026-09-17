@@ -2660,6 +2660,111 @@ Routes: `GET /api/deployment`, `POST /api/deployment/autostart`, `POST /api/depl
 `POST /api/deployment/backup`, `GET /api/deployment/restore-points`,
 `POST /api/deployment/restore-point`, `POST /api/deployment/close` (macOS and Linux), and `POST /api/pair`. Interface files: `/deployment.js`,
 `/pair` and `/pair.js`.
+## Phone apps
+
+Branch Agent for iPhone and Android is a small native shell around the Branch window you already
+have. It lives in `apps/mobile` (its own `package.json`: Capacitor 8.5.2, MIT, and jsQR 1.4.0,
+Apache-2.0; nothing is added to the main package). Capacitor was chosen because it is the smallest
+way to get one codebase onto both phones while the screens stay Branch's own web pages, so the
+redesign, the 44 themes and every place look the same on the phone. The native parts use only what
+each phone ships (Keychain, `LocalAuthentication`, `BackgroundTasks`; Android Keystore,
+`BiometricPrompt`, `JobScheduler`), so there are no further plugins and no Google services.
+
+**What it does.** The first screen connects to your Branch: switch on reaching Branch from your
+phone on the computer (see above), then scan its square code with the phone's camera (or paste its
+address) and type the six numbers. The phone makes the pairing request itself and keeps the key in
+the iOS Keychain or behind an Android Keystore key; the app's own page never sees it. After that the
+home screen shows the five places in their usual order and *Open Branch*, which opens the full
+window from your computer inside the app. A small KeepOak button in the window's title bar comes
+back to the phone's own screen.
+
+To open the window, the app writes the key and the phone's own secret (for the "this exact phone"
+step) into your Branch address's session storage, exactly as the pairing page does in a phone
+browser, so any script on that address can read them while the window is open. The phone app's
+own plugin answers only its own page: on iPhone every call made while another page is showing is
+refused; on Android the window opens inside the app only when the system web view can keep the app's
+bridge to its own page (otherwise *Open Branch* goes to the phone's browser). A phone paired in its
+browser now keeps its secret too (`public/pair.js`) and sends it with every request
+(`public/device-headers.js`), so turning the "this exact phone" step on no longer locks it out; live
+sockets cannot carry that secret yet.
+
+Addresses are checked twice, in the page (`apps/mobile/web/rules.js`) and natively
+(`BranchRules.swift`, `BranchRules.java`): https is allowed anywhere; plain http only to this
+network (`10/8`, `172.16/12`, `192.168/16`, the phone itself), Tailscale (`100.64.0.0/10`,
+`fd7a:115c:a1e0::/48`, names ending `.ts.net`) and `.local` / `.home.arpa` names. The web view may
+open only the paired address; every other link goes to the phone's browser.
+
+**On this phone.** Five switches, each *off*, *when needed* or *on*, and all off on a new install:
+
+| Switch | When needed | On |
+| --- | --- | --- |
+| Lock with face or fingerprint | asks after five minutes away | asks every time the app opens |
+| Tell me when a task needs me | checks `GET /api/state` every minute while the app is open | also checks in the background about every 15 minutes |
+| Send to Branch from other apps | Branch appears in the share sheet and asks for a note first | sends straight away |
+| Talk button | shows the button | shows the button |
+| Alerts while the app is closed | asks the phone for a push address (see below) | the same |
+
+*Send to Branch* turns words and links into a new conversation (`POST /api/run`): your own note
+comes first, and what the other app shared follows between `<shared>` markers, labelled as untrusted
+content the assistant should read but not obey. Up to four pictures ride along (5 MB each); any
+other file up to 20 MB goes to Library, Documents (`POST /api/documents`). On iPhone a share extension sends directly, reading the key through the
+shared app group; on Android the share target is a switched-off activity alias that the switch
+turns on. *Talk* records while the button is held, has your computer write it out
+(`POST /api/voice/transcribe`) and sends the words. The live-voice route is not used from the phone
+yet: the paired listener has no WebSocket door, so a live conversation cannot reach it.
+
+The splash screen, the icon, the status bar and the native screens take their colours from
+`public/theme-catalogue.js` through `apps/mobile/web/palette.js`, and their words from the
+`phone.*` keys in `public/locales` (English and French). `apps/mobile/scripts/native-files.mjs`
+and `icons.mjs` write those native files before every build; none of them is kept in git.
+
+**Building.** `npm run build`, then `npm ci` in `apps/mobile`, then
+`node scripts/package-mobile.mjs [--android] [--ios]`. Files land in `release/mobile/`, each with a
+`.sha256`:
+
+- `Branch-Agent-android.apk` — signed with a key made once on this Mac in
+  `~/.branch-mobile-keystore/`. Its password is generated and kept in the macOS Keychain (service
+  `branch-mobile-keystore`), handed to the tools only through stdin and the environment, and never
+  printed. On Linux, or on CI without the `ANDROID_KEYSTORE_BASE64` and `ANDROID_KEYSTORE_PASSWORD`
+  secrets, the APK is left unsigned. Needs JDK 21 and an Android SDK (`ANDROID_HOME`).
+- `Branch-Agent-android.aab` — the same app for the Play Store, signed with the same key.
+- `Branch-Agent-ios.ipa` — built without an Apple signing identity (macOS and Xcode only). It
+  carries only a local signature with the app-group entitlement, so the tool that installs it can
+  sign it with your own Apple ID. Without an installed iOS Simulator runtime Xcode cannot compile
+  the asset catalog, so such a build carries the app icons but a plain launch screen; a Mac with a
+  runtime (or the CI runner) builds the full one.
+- `Branch-Agent-ios-simulator.zip` — the same app for the iOS Simulator
+  (`xcrun simctl install booted App.app`).
+
+`.github/workflows/mobile.yml` builds both on pull requests that touch the phone apps and keeps
+the files for seven days. It publishes nothing.
+
+**Putting it on a phone.** Nothing here is uploaded anywhere; each route is a step the owner takes.
+
+- *iPhone, free Apple ID:* open `Branch-Agent-ios.ipa` in Sideloadly or AltStore, sign in with your
+  Apple ID and install. A free ID's apps expire after seven days and need signing again (AltStore
+  can do that on its own). Turn on Developer Mode on the phone when iOS asks.
+- *iPhone, paid Apple Developer account (TestFlight, then the App Store):* in the developer
+  account, register the identifiers `com.keepoak.branchagent` and `com.keepoak.branchagent.share` and
+  the app group `group.com.keepoak.branchagent`; open `apps/mobile/ios/App/App.xcodeproj`, choose the
+  team for both targets, then Product → Archive and Distribute App → App Store Connect. Add testers
+  in TestFlight; submit for review from App Store Connect when ready.
+- *Android, directly:* copy `Branch-Agent-android.apk` to the phone and open it (allow installing
+  from that app when asked), or `adb install Branch-Agent-android.apk`. Keep the key in
+  `~/.branch-mobile-keystore/` and its Keychain entry: every later version must be signed with it.
+- *Google Play:* create the app in the Play Console, enrol in Play App Signing, and upload
+  `Branch-Agent-android.aab` to an internal testing track first.
+- *F-Droid:* `apps/mobile/fdroid/com.keepoak.branchagent.yml` is the metadata to open a merge
+  request with in `fdroiddata` once a `v0.16.0` tag exists; F-Droid builds from source and signs
+  with its own key.
+- *Push (alerts while the app is closed):* needs accounts first. On iPhone, a paid account with the
+  Push Notifications capability and an APNs key; the app already asks for a device token while the
+  switch is not off and keeps it on the phone. On Android, a Firebase project: put its
+  `google-services.json` in `apps/mobile/android/app/` and build with
+  `./gradlew assembleRelease -PbranchPush`, which adds `BranchPushService`. Branch itself has no
+  sender for either yet; until then *Tell me when a task needs me* is the way to hear about
+  questions.
+
 ## Using this computer's screen and keyboard
 Branch can look at what is on this computer's screen and work the windows on it. It is switched
 off, and while it is off every one of these tools answers with one plain sentence instead of

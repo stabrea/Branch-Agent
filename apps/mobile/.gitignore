@@ -1,0 +1,21 @@
+# Made again before every build (scripts/build-web.mjs, scripts/native-files.mjs)
+node_modules/
+www/
+capacitor.config.json
+android/app/src/main/res/values/branch_colors.xml
+android/app/src/main/res/values-night/branch_colors.xml
+android/app/src/main/res/values/branch_strings.xml
+android/app/src/main/res/values-fr/branch_strings.xml
+android/app/src/main/res/mipmap-*/ic_launcher*.png
+android/app/src/main/res/drawable*/splash.png
+ios/App/App/Assets.xcassets/Branch*.colorset/
+ios/App/App/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png
+ios/App/App/Assets.xcassets/LaunchMark.imageset/
+ios/App/App/branch-native.json
+ios/App/ShareExtension/branch-native.json
+ios/App/build/
+ios/DerivedData/
+# Never in git: signing material
+*.keystore
+*.jks
+keystore.properties
