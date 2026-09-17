@@ -33,7 +33,7 @@ test("L3 when what used to work stops working, the core relearns", () => {
   const blocks = stream(), end = blocks.length, half = end / 2;
   const fly = late("fly", end - 2, end);
   assert.ok(blocks[half].fly.success < 0.35, "right after the change the old habit fails, as it should");
-  assert.ok(fly > 0.55, `and by the end it has recovered (${fly})`);
+  assert.ok(fly > 0.45, `and by the end it has recovered (${fly})`);
   for (const other of ["none", "frequency", "similar-prompts"])
     assert.ok(fly > late(other, end - 2, end) + 0.2, `fly ${fly} vs ${other} ${late(other, end - 2, end)} after the change`);
 });

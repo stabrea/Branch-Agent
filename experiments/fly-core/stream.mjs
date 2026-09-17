@@ -52,7 +52,9 @@ function successChance(s, tool, phase) {
 function taskAt(random, s) {
   const topic = topicWords[s].filter(() => random() < 0.75);
   const words = [kindWords[s % 4], ...topic, pickFrom(random, filler), pickFrom(random, filler)];
-  return { situation: s, prompt: words.join(" "), project: `project-${s % 3}` };
+  // Every task is in the same project: a project that followed the situation would hand the core
+  // (the only picker that reads it) a clue about the hidden situation that the others never get.
+  return { situation: s, prompt: words.join(" "), project: "home" };
 }
 
 /** One learner per picker, all with the same `choose(task)` / `learn(task, tool, ok)` shape. */

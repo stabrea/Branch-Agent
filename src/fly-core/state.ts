@@ -18,6 +18,8 @@ export interface Pattern { fingerprint: string; successes: number; failures: num
 export const maximumActions = 5000;
 /** Traces kept per owner, for a correction that arrives in the next task. */
 export const maximumTraces = 200;
+/** Step patterns counted per owner; the ones seen longest ago go first. */
+export const maximumPatterns = 2000;
 
 /** A sparse weight map as base64: 2 bytes of cell number and 4 of value per entry. */
 export function packWeights(weights: Map<number, number>): string {
@@ -41,7 +43,7 @@ export class FlyState {
     db.exec(`CREATE TABLE IF NOT EXISTS fly_wiring(owner TEXT PRIMARY KEY, seed TEXT NOT NULL, created_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS fly_synapses(owner TEXT NOT NULL, kind TEXT NOT NULL, action TEXT NOT NULL, approach TEXT NOT NULL, avoid TEXT NOT NULL, uses INTEGER NOT NULL, net REAL NOT NULL, updated_at INTEGER NOT NULL, PRIMARY KEY(owner, kind, action));
       CREATE TABLE IF NOT EXISTS fly_traces(run_id TEXT PRIMARY KEY, owner TEXT NOT NULL, session_id TEXT NOT NULL, code TEXT NOT NULL, uses TEXT NOT NULL, at INTEGER NOT NULL);
-      CREATE TABLE IF NOT EXISTS fly_patterns(owner TEXT NOT NULL, fingerprint TEXT NOT NULL, successes INTEGER NOT NULL, failures INTEGER NOT NULL, proposed_at TEXT, PRIMARY KEY(owner, fingerprint));`);
+      CREATE TABLE IF NOT EXISTS fly_patterns(owner TEXT NOT NULL, fingerprint TEXT NOT NULL, successes INTEGER NOT NULL, failures INTEGER NOT NULL, proposed_at TEXT, seen_at INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(owner, fingerprint));`);
   }
   /** The owner's wiring seed, chosen once and never changed afterwards. */
   seed(owner: string): string {
@@ -52,8 +54,18 @@ export class FlyState {
     return String(this.db.prepare("SELECT seed FROM fly_wiring WHERE owner=?").get(owner)!.seed);
   }
   load(owner: string): Circuit {
-    const circuit = new Circuit();
-    for (const row of this.db.prepare("SELECT * FROM fly_synapses WHERE owner=?").all(owner)) {
+    return this.fill(new Circuit(), this.db.prepare("SELECT * FROM fly_synapses WHERE owner=?").all(owner));
+  }
+  /**
+   * Only the named actions: what a finished task needs to learn from. It keeps the work done as a
+   * task settles in proportion to that task, however much has been learned overall.
+   */
+  loadSome(owner: string, actions: readonly { kind: ActionKind; action: string }[]): Circuit {
+    const get = this.db.prepare("SELECT * FROM fly_synapses WHERE owner=? AND kind=? AND action=?");
+    return this.fill(new Circuit(), actions.flatMap((a) => { const row = get.get(owner, a.kind, a.action.slice(0, 200)); return row ? [row] : []; }));
+  }
+  private fill(circuit: Circuit, rows: readonly Record<string, unknown>[]): Circuit {
+    for (const row of rows) {
       const kind = String(row.kind) as ActionKind, action = String(row.action);
       circuit.actions.set(`${kind}:${action}`, {
         action, kind, approach: unpackWeights(String(row.approach)), avoid: unpackWeights(String(row.avoid)),
@@ -85,10 +97,12 @@ export class FlyState {
     return { runId: String(row.run_id), sessionId, code, uses: JSON.parse(String(row.uses)) as ActionUse[], at: Number(row.at) };
   }
   /** Counts one more success or failure of a pattern and returns where it stands. */
-  countPattern(owner: string, fingerprint: string, ok: boolean): Pattern {
-    this.db.prepare(`INSERT INTO fly_patterns(owner, fingerprint, successes, failures) VALUES(?,?,?,?)
-      ON CONFLICT(owner, fingerprint) DO UPDATE SET successes=successes+excluded.successes, failures=failures+excluded.failures`)
-      .run(owner, fingerprint, ok ? 1 : 0, ok ? 0 : 1);
+  countPattern(owner: string, fingerprint: string, ok: boolean, now = Date.now()): Pattern {
+    this.db.prepare(`INSERT INTO fly_patterns(owner, fingerprint, successes, failures, seen_at) VALUES(?,?,?,?,?)
+      ON CONFLICT(owner, fingerprint) DO UPDATE SET successes=successes+excluded.successes, failures=failures+excluded.failures, seen_at=excluded.seen_at`)
+      .run(owner, fingerprint, ok ? 1 : 0, ok ? 0 : 1, Math.round(now));
+    this.db.prepare(`DELETE FROM fly_patterns WHERE owner=? AND fingerprint IN (SELECT fingerprint FROM fly_patterns WHERE owner=?
+      ORDER BY seen_at DESC LIMIT -1 OFFSET ?)`).run(owner, owner, maximumPatterns);
     const row = this.db.prepare("SELECT * FROM fly_patterns WHERE owner=? AND fingerprint=?").get(owner, fingerprint)!;
     return { fingerprint, successes: Number(row.successes), failures: Number(row.failures), proposedAt: row.proposed_at ? String(row.proposed_at) : null };
   }

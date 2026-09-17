@@ -19,31 +19,41 @@ al. 2024, Caron et al. 2013, Lin et al. 2014, Hige et al. 2015 and Aso & Rubin 2
 situations and 16 tools, with the same random draws for every picker, and results are averaged over
 seeds 1 to 5. Every picker picks a random tool 10% of the time. At task 600 the tool that works best
 changes in every situation. Each cell reads *success rate / how often the best tool was picked*, per
-block of 100 tasks. Measured on 2026-09-16 on the Mac. `tests/fly-core-stream.test.mjs` checks
-margins well below these.
+block of 100 tasks. Measured on 2026-09-16 on the Mac; re-measured on 2026-09-17 by the integrator
+after one correction: the stream used to put each situation in `project-(situation mod 3)`, and only
+the core reads the project, so it was handed a clue about the hidden situation that the other
+pickers never got. Every task is now in the same project. That correction took about 10 points off
+the core (block 6 was 69.2%). `tests/fly-core-stream.test.mjs` checks margins well below these.
 
 | block | none | frequency | similar-prompts (Branch today) | fly core | told-situation (reference) |
 |---|---|---|---|---|---|
-| 1 | 22.2% / 5.6% | 31.6% / 10.0% | 31.8% / 16.4% | 41.8% / 23.6% | 37.4% / 23.0% |
-| 3 | 23.4% / 6.6% | 27.0% / 8.2% | 44.6% / 31.4% | 57.4% / 57.2% | 58.4% / 58.0% |
-| 6 | 22.2% / 6.0% | 27.2% / 8.6% | 39.6% / 28.4% | 69.2% / 71.4% | 78.8% / 84.6% |
-| 7 (after the change) | 21.6% / 7.2% | 28.8% / 11.8% | 22.0% / 0.6% | 21.8% / 5.8% | 15.2% / 0.2% |
-| 12 | 19.2% / 6.4% | 28.6% / 11.0% | 18.2% / 0.4% | 68.8% / 72.2% | 32.4% / 21.0% |
+| 1 | 22.2% / 5.6% | 31.6% / 10.0% | 31.8% / 16.4% | 33.4% / 11.0% | 37.4% / 23.0% |
+| 3 | 23.4% / 6.6% | 27.0% / 8.2% | 44.6% / 31.4% | 47.4% / 40.0% | 58.4% / 58.0% |
+| 6 | 22.2% / 6.0% | 27.2% / 8.6% | 39.6% / 28.4% | 59.8% / 60.2% | 78.8% / 84.6% |
+| 7 (after the change) | 21.6% / 7.2% | 28.8% / 11.8% | 22.0% / 0.6% | 23.6% / 9.2% | 15.2% / 0.2% |
+| 12 | 19.2% / 6.4% | 28.6% / 11.0% | 18.2% / 0.4% | 56.4% / 51.6% | 32.4% / 21.0% |
 
 What the table shows, and what it does not:
 
-- **The core does improve with use.** Its success rate went from 41.8% to 69.2% before the change,
-  and it got back from 21.8% to 68.8% after it.
+- **The core does improve with use.** Its success rate went from 33.4% to 59.8% before the change,
+  and it got back from 23.6% to 56.4% after it.
 - **The frequency counter plateaus.** It ignores the situation, so it cannot learn "this tool here,
   that one there".
 - **Branch's current habit counts only successes.** That is `src/tool-usage.ts` `preload`, which
-  weights past successes by how much the requests' words overlap. It learns something before the
-  change but never unlearns: after the change, the tools that used to work keep winning.
+  weights past successes by how much the requests' words overlap; the stream copies it faithfully.
+  It learns something before the change but never unlearns: after the change, the tools that used
+  to work keep winning.
+- **Most of the core's lead before the change comes from counting failures, not from the fly
+  circuit.** An extra check (not in the script): the same word-overlap counter, but subtracting
+  failures as well as adding successes, reached 61.2% at block 6 (the core: 59.8%). After the change
+  it only got back to 42.0% by block 12 (the core: 56.4%), because its counts never fade. The core's
+  own advantage in this stream is relearning when things change.
 - **The told-situation reference does better than the core before the change.** It is handed the
   hidden situation number, which no real picker has. Before the change it shows how much the core
-  loses by having to recognise situations from their words (about 10 points). After the change it
-  does worse only because its counts never fade. That comes from how the counts are kept, not
-  from better learning in the core.
+  loses by having to recognise situations from their words (about 19 points). After the change it
+  does worse only because its counts never fade.
+- The numbers move by several points when only a picker's own random draws change, so a gap of a
+  few points between two pickers means nothing.
 - **This is a synthetic world with one tool per task and a clear right answer.** It shows that the
   mechanism works as intended. It does not show that Branch finishes real work better. Section 2
   covers that.

@@ -10,8 +10,10 @@ import { Circuit, eligibilityOf, retention, scoreOf } from "../dist/fly-core/cir
 import { activeCells, forgetHalfLifeDays, kenyonCells } from "../dist/fly-core/sizes.js";
 import { packWeights, unpackWeights } from "../dist/fly-core/state.js";
 import { outcomeOf, usesOf } from "../dist/fly-core/signals.js";
-import { FlyCore, patternSuccesses } from "../dist/fly-core/hook.js";
+import { FlyCore, patternSuccesses, watchTask } from "../dist/fly-core/hook.js";
+import { FlyState, maximumPatterns } from "../dist/fly-core/state.js";
 import { suggestToolName } from "../dist/fly-core/settings.js";
+import { inferToolGroup } from "../dist/catalog.js";
 
 /**
  * The learning core (src/fly-core): a sparse code for the situation, three-factor learning at the
@@ -201,6 +203,7 @@ test("F10 the switch ships off; off runs and stores nothing, when-needed only le
 
   app.learningCore.configure({ mode: "when-needed" });
   assert.equal(hasTool(), true, "when needed: one short tool waits in the catalog");
+  assert.equal(inferToolGroup(suggestToolName), "memory", "filed in the memory box by name, not in the unrecognised one");
   const learning = await app.runtime.run({ prompt: "save a note about the garden" });
   assert.equal(eventOf(app, learning.id, "fly.suggested"), undefined, "when needed: nothing is worked out at the start");
   assert.ok(eventOf(app, learning.id, "fly.learned").signal > 0, "but the outcome is still learned from");
@@ -209,4 +212,26 @@ test("F10 the switch ships off; off runs and stores nothing, when-needed only le
 
   app.learningCore.configure({ mode: "off" });
   assert.equal(hasTool(), false, "switching off takes the tool away at once");
+});
+
+test("F11 off costs the task nothing: no core is built and the check takes well under a millisecond", async (t) => {
+  const { state } = await fixture(t, writeThenRead(), "off");
+  const app = state.app, run = await app.runtime.run({ prompt: "save a note about the garden" });
+  let built = 0;
+  const makeCore = () => { built += 1; throw new Error("the core must not be built while the switch is off"); };
+  const started = performance.now();
+  for (let at = 0; at < 1000; at += 1) watchTask(app.store, run, "local", makeCore)(run);
+  const each = (performance.now() - started) / 1000;
+  assert.equal(built, 0);
+  assert.ok(each < 1, `one off check took ${each} ms`);
+  assert.ok(!app.store.events(run.id).some((event) => event.kind.startsWith("fly.")), "and wrote nothing");
+});
+
+test("F12 what the core keeps stays bounded: step patterns are capped like weights and traces", async (t) => {
+  const { state } = await fixture(t, writeThenRead());
+  const fly = new FlyState(state.app.store.sqlite);
+  for (let at = 0; at < maximumPatterns + 50; at += 1) fly.countPattern("local", `p${at}`, true, start + at);
+  const count = state.app.store.sqlite.prepare("SELECT count(*) AS n FROM fly_patterns WHERE owner='local'").get().n;
+  assert.equal(count, maximumPatterns);
+  assert.equal(fly.countPattern("local", `p${maximumPatterns + 49}`, true, start + maximumPatterns + 50).successes, 2, "the newest are kept");
 });

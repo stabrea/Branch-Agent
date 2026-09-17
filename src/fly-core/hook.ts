@@ -67,7 +67,7 @@ export class FlyCore {
     if (!trace || !trace.uses.length) return false;
     const now = this.now(), age = Math.max(0, now - trace.at);
     const scale = Math.exp(-age / (correctionTraceMinutes * 60_000));
-    const circuit = this.state.load(owner);
+    const circuit = this.state.loadSome(owner, trace.uses);
     this.state.save(owner, circuit.learn(trace.code, trace.uses, correctionSignal, now, scale));
     return true;
   }
@@ -78,7 +78,8 @@ export class FlyCore {
     const events = this.store.events(run.id);
     const outcome = outcomeOf(run.status, events, tokens);
     if (outcome.uses.length && outcome.signal !== 0) {
-      const circuit = this.state.load(owner);
+      // Only what this task used is read and written, so settling stays small however much is learned.
+      const circuit = this.state.loadSome(owner, outcome.uses);
       this.state.save(owner, circuit.learn(code, outcome.uses, outcome.signal, this.now()));
       if (run.status === "completed" || run.status === "failed") this.notePattern(owner, run, code, outcome.uses, circuit);
     }
