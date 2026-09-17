@@ -1784,7 +1784,7 @@ ${run.output.slice(0, 6000)}`;
     // owner did not start is asked about, and a lock or door always is, just this once — whatever the rules say.
     const hold = personalHold(tool, args, source);
     const decision = hold && tightened.decision === "allow" ? "ask" : tightened.decision;
-    if (hold?.onceOnly && decision === "ask" && fingerprint) this.approvals.adviseAgainst(fingerprint, hold.reason);
+    if (hold?.onceOnly && decision === "ask" && fingerprint) this.approvals.holdOnce(fingerprint, hold.reason);
     // --- end R17-C ---
     // An answer given earlier stands in for the question, never for a rule that already decided:
     // switching to a stricter setting takes effect at once. The answer is bound to the exact bytes

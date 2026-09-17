@@ -83,7 +83,15 @@ test("review: locks, doors and alarms always ask, just this once, whatever the r
   const run = app.store.createRun(app.runtime.owner, "open the door");
   app.runtime.approvals.ask({ runId: run.id, sessionId: run.sessionId, tool: "home.call", target: "lock.front_door", label: "Unlock",
     question: "Unlock?", source: "owner", remember: "never", askedAt: new Date().toISOString(), fingerprint: "fp-lock" });
-  assert.throws(() => app.runtime.approve(run.sessionId, "allow", "session", "fp-lock"), /this once/);
+  assert.throws(() => app.runtime.approve(run.sessionId, "allow", "session", "fp-lock"), (error) =>
+    /Locks, doors/.test(error.message) && !/safety check/.test(error.message));
+  // Kept apart from the safety check's own list, so a busy house never pushes one of its warnings out.
+  app.runtime.approvals.adviseAgainst("fp-risky", "looks wrong");
+  for (let i = 0; i < 600; i++) app.runtime.checkPolicy("home.call", { ...unlock, service: `s${i}` }, owner, `fp-${i}`);
+  app.runtime.approvals.ask({ runId: run.id, sessionId: run.sessionId, tool: "shell.execute", target: "rm", label: "Run rm",
+    question: "Run?", source: "owner", remember: "session", askedAt: new Date().toISOString(), fingerprint: "fp-risky" });
+  assert.equal(app.runtime.approvals.questionFor(run.sessionId, "fp-risky").onceOnly, true);
+  assert.throws(() => app.runtime.approve(run.sessionId, "allow", "session", "fp-risky"), /safety check/);
 });
 
 test("review: a service call cannot widen its target, and calls are paced", async () => {
