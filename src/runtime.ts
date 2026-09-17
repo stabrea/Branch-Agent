@@ -88,6 +88,8 @@ import { Deferrals, deferredCall } from "./deferred.js";
 import { RequestCache, type CacheKeyParts } from "./request-cache.js";
 import { traceSettings, writeRunTrace } from "./trace.js";
 import { LeakGuard } from "./leak-guard.js";
+// mac2/fly-core: the mushroom-body learning core.
+import { watchTask } from "./fly-core/hook.js";
 
 const childConcurrency = 4;
 /** What the approval policy says about one tool call, before anything is done about it. */
@@ -629,6 +631,9 @@ ${run.output.slice(0, 6000)}`;
       // What this task was allowed to reach, so "Do this again" can hand it the very same tools.
       permissions: [...context.permissions].sort(),
     });
+    // ── mac2/fly-core: the learning core ranks what worked before as the task starts, and learns from
+    // the outcome once it has settled (src/fly-core/hook.ts). Advice only; it never fails a task. ──
+    const flyCoreSettled = parent || context.dryRun ? null : watchTask(this.store, run, context.owner);
     const span = this.tracer.startRun(run.id, parent ? "branch.child_run" : "branch.run", {
       "branch.session.id": run.sessionId, "branch.run.source": options.source ?? "owner",
       "gen_ai.system": this.provider.name, "branch.run.depth": context.depth,
@@ -657,6 +662,7 @@ ${run.output.slice(0, 6000)}`;
     if (context.dryRun) this.reportDryRun(run);
     if (status === "completed") await this.advise(run, context, output);
     const settled = await this.settleRun(run, context, status, output);
+    flyCoreSettled?.(settled); // mac2/fly-core (see above)
     const usage = this.store.usage(run.id);
     span.end(settled.status === "completed" ? "ok" : "error", settled.status === "completed" ? "" : settled.output, {
       "branch.run.status": settled.status,
