@@ -4,6 +4,7 @@ import { createServer as createSocketServer, connect as tcpConnect } from "node:
 import { fixture, until, delay, assertNoSecret, pairingWalk, refusalWalk } from "./channels-parity-kit.mjs";
 import { buildParityChannel } from "../dist/channels/parity-config.js";
 import { XmppChannel } from "../dist/channels/xmpp.js";
+import { MqttChannel, encodeLength, replyTopicFor } from "../dist/channels/mqtt.js";
 import { XmlStreamReader, decodeEntities, escapeAttr, escapeText } from "../dist/channels/xmpp-xml.js";
 import {
   schnorrSign, schnorrVerify, publicKeyOf, nip04Encrypt, nip04Decrypt, signEvent, verifyEvent, readPrivateKey,
@@ -15,6 +16,7 @@ import {
  * never through a real service or a real installed program.
  */
 const XMPP_PASSWORD = "SECRET-XMPP-PASSWORD-11";
+const MQTT_PASSWORD = "SECRET-MQTT-PASSWORD-12";
 
 const blocked = { assertAllowed: async (url) => { throw new Error(`Not allowed: ${url.hostname}`); }, guard: (f) => f };
 const policy = { activation: "mention", pairing: true, allowlist: [] };
@@ -280,4 +282,198 @@ test("Nostr: NIP-04 messages round-trip between two keys, events verify, and an 
   assert.equal(readPrivateKey("nsec1vl029mgpspedva04g90vltkh6fvh240zqtv9k0t9af8935ke9laqsnlfe5").toString("hex"),
     "67dea2ed018072d675f5415ecfaed7d2597555e202d85b3d65ea4e58d2d92ffa");
   assert.throws(() => readPrivateKey("nsec1vl029mgpspedva04g90vltkh6fvh240zqtv9k0t9af8935ke9laqsnlfe6"), /not written correctly/);
+});
+
+// ---------------------------------------------------------------- MQTT
+
+/** MQTT packets written independently of the adapter, the way the standard lays them out. */
+const mq = {
+  length(n) { const out = []; do { let b = n % 128; n = Math.floor(n / 128); if (n) b |= 128; out.push(b); } while (n); return Buffer.from(out); },
+  str(value) { const bytes = Buffer.from(value); return Buffer.concat([Buffer.from([bytes.length >> 8, bytes.length & 255]), bytes]); },
+  packet(first, body = Buffer.alloc(0)) { return Buffer.concat([Buffer.from([first]), mq.length(body.length), body]); },
+  publish(topic, payload, { qos = 0, retain = false, id = 7 } = {}) {
+    return mq.packet(0x30 | (qos << 1) | (retain ? 1 : 0),
+      Buffer.concat([mq.str(topic), qos ? Buffer.from([id >> 8, id & 255]) : Buffer.alloc(0), Buffer.from(payload)]));
+  },
+};
+
+/** Reads packets out of a byte stream (for the broker side). */
+function mqttPackets(buffer) {
+  const out = [];
+  let at = 0;
+  while (at < buffer.length) {
+    let length = 0, i = 1, byte;
+    do { if (at + i >= buffer.length) return { out, rest: buffer.subarray(at) }; byte = buffer[at + i]; length += (byte & 127) * 128 ** (i - 1); i++; } while (byte & 128);
+    if (at + i + length > buffer.length) break;
+    out.push({ type: buffer[at] >> 4, flags: buffer[at] & 15, body: buffer.subarray(at + i, at + i + length) });
+    at += i + length;
+  }
+  return { out, rest: buffer.subarray(at) };
+}
+
+/**
+ * A stand-in MQTT broker: checks the password on CONNECT, grants subscriptions, acknowledges
+ * QoS 1, answers pings, and passes every publish on to subscribers of a matching topic (so the
+ * assistant's own replies come back to it, as a real broker would do).
+ */
+function mqttBroker(connection, { password, refuse, retained } = {}) {
+  const state = { connect: null, subscriptions: [], published: [], pings: 0, disconnected: false };
+  connection.mqtt = state;
+  let pending = Buffer.alloc(0);
+  const matches = (filter, topic) => new RegExp(`^${filter.replace(/[.]/g, "\\.").replace(/\+/g, "[^/]+").replace(/\/?#$/, "(/.*)?")}$`).test(topic);
+  connection.deliver = (topic, payload, options) => { if (state.subscriptions.some((f) => matches(f, topic))) connection.write(mq.publish(topic, payload, options)); };
+  connection.onData = (chunk) => {
+    const { out, rest } = mqttPackets(Buffer.concat([pending, chunk]));
+    pending = rest;
+    for (const p of out) {
+      if (p.type === 1) {
+        const body = p.body;
+        const flags = body[7];
+        let at = 10;
+        const read = () => { const n = body.readUInt16BE(at); const v = body.subarray(at + 2, at + 2 + n).toString(); at += 2 + n; return v; };
+        state.connect = { protocol: body.subarray(2, 6).toString(), level: body[6], flags, keepAlive: body.readUInt16BE(8), clientId: read() };
+        if (flags & 128) state.connect.username = read();
+        if (flags & 64) state.connect.password = read();
+        const code = refuse ?? (password && state.connect.password !== password ? 4 : 0);
+        connection.write(mq.packet(0x20, Buffer.from([0, code])));
+      } else if (p.type === 8) {
+        const filter = p.body.subarray(4, 4 + p.body.readUInt16BE(2)).toString();
+        state.subscriptions.push(filter);
+        state.subscribeFlags = p.flags;
+        connection.write(mq.packet(0x90, Buffer.from([p.body[0], p.body[1], 1])));
+        if (retained) connection.write(mq.publish(retained.topic, retained.payload, { retain: true }));
+      } else if (p.type === 3) {
+        const n = p.body.readUInt16BE(0);
+        const topic = p.body.subarray(2, 2 + n).toString();
+        const qos = (p.flags >> 1) & 3;
+        const payload = p.body.subarray(2 + n + (qos ? 2 : 0)).toString();
+        state.published.push({ topic, qos, payload: JSON.parse(payload) });
+        if (qos) connection.write(mq.packet(0x40, p.body.subarray(2 + n, 4 + n)));
+        connection.deliver(topic, payload);
+      } else if (p.type === 12) { state.pings++; connection.write(mq.packet(0xd0)); }
+      else if (p.type === 14) state.disconnected = true;
+    }
+  };
+}
+
+function mqttChannel(port, extra = {}) {
+  return new MqttChannel({ id: "mqtt", host: "broker.example.org", port, tls: false, open: localSocket(port), clientId: "branch",
+    username: "assistant", password: MQTT_PASSWORD, inboundTopic: "chat/in/#", replyTopic: "chat/in/{chat}", qos: 1, retryBaseMs: 20, ...extra });
+}
+
+test("MQTT: the remaining length is written as the standard's examples show", () => {
+  assert.deepEqual([...encodeLength(0)], [0]);
+  assert.deepEqual([...encodeLength(127)], [0x7f]);
+  assert.deepEqual([...encodeLength(128)], [0x80, 0x01]);
+  assert.deepEqual([...encodeLength(16383)], [0xff, 0x7f]);
+  assert.deepEqual([...encodeLength(2097152)], [0x80, 0x80, 0x80, 0x01]);
+  assert.deepEqual([...encodeLength(268435455)], [0xff, 0xff, 0xff, 0x7f]);
+  assert.throws(() => replyTopicFor("out/{chat}", "a/+"), /cannot be used/);
+  assert.throws(() => replyTopicFor("out/{chat}", "#"), /cannot be used/);
+  assert.throws(() => replyTopicFor("out/{chat}", "a\0b"), /cannot be used/);
+  assert.equal(replyTopicFor("out/{chat}/reply", "kitchen"), "out/kitchen/reply");
+});
+
+test("MQTT: connects with the password, pairs a stranger, answers on the reply topic, and never answers itself or history", async (t) => {
+  const context = await fixture(t);
+  const broker = await rawServer(t, (connection) => mqttBroker(connection, { password: MQTT_PASSWORD,
+    retained: { topic: "chat/in/old", payload: JSON.stringify({ from: "olga", text: "a retained question from before" }) } }));
+  const channel = mqttChannel(broker.port);
+  await context.app.channels.attach(channel, policy);
+  t.after(() => channel.stop());
+  await until(() => broker.connections[0]?.mqtt.subscriptions.length, "subscribed");
+  const link = broker.connections[0];
+  assert.deepEqual({ ...link.mqtt.connect }, { protocol: "MQTT", level: 4, flags: 0xc2, keepAlive: 60, clientId: "branch", username: "assistant", password: MQTT_PASSWORD });
+  assert.deepEqual(link.mqtt.subscriptions, ["chat/in/#"]);
+  assert.equal(link.mqtt.subscribeFlags, 2, "SUBSCRIBE carries the flags the standard requires");
+  assert.equal(channel.health().state, "connected");
+  await delay(80);
+  assert.equal(context.provider.requests.length, 0, "the retained message is not answered");
+  assert.equal(link.mqtt.published.length, 0);
+
+  // Each message is sent one byte at a time, so every packet arrives split.
+  const say = async (text) => {
+    const bytes = mq.publish("chat/in/erin", JSON.stringify({ from: "erin", text }), { qos: 1, id: 300 });
+    for (const byte of bytes) link.write(Buffer.from([byte]));
+  };
+  const texts = () => link.mqtt.published.map((p) => p.payload.text);
+  await pairingWalk(context, { label: "MQTT", say, sent: texts });
+  const reply = link.mqtt.published.at(-1);
+  assert.equal(reply.topic, "chat/in/erin");
+  assert.equal(reply.qos, 1);
+  assert.deepEqual(Object.keys(reply.payload), ["from", "chat", "text"]);
+  assert.equal(reply.payload.from, "branch");
+  assert.equal(reply.payload.chat, "erin");
+  assert.ok(Buffer.concat(link.chunks).includes(Buffer.from([0x40, 0x02, 0x01, 0x2c])), "the QoS 1 message was acknowledged (PUBACK 300)");
+
+  // The replies came back through the broker (same topic tree) and were not answered.
+  const asked = context.provider.requests.length;
+  await delay(120);
+  assert.equal(context.provider.requests.length, asked, "its own replies are never answered");
+  const published = link.mqtt.published.length;
+
+  // In a shared chat, only a message naming the assistant is answered, and the answer goes to that chat.
+  link.write(mq.publish("chat/in/kitchen", JSON.stringify({ from: "erin", chat: "kitchen", text: "who ate the cake" })));
+  await delay(100);
+  assert.equal(link.mqtt.published.length, published, "an unaddressed shared message is left alone");
+  link.write(mq.publish("chat/in/kitchen", JSON.stringify({ from: "erin", chat: "kitchen", text: "@branch what is for dinner" })));
+  await until(() => link.mqtt.published.some((p) => p.topic === "chat/in/kitchen" && /Echo:.*what is for dinner/.test(p.payload.text)), "answered in the shared chat");
+  await assert.rejects(() => channel.send("room/#", "x"), /cannot be used/);
+  await assertNoSecret(context, [MQTT_PASSWORD]);
+});
+
+test("MQTT: a stranger is refused when pairing is off, and plain words come from the configured sender", async (t) => {
+  const context = await fixture(t);
+  const broker = await rawServer(t, (connection) => mqttBroker(connection, {}));
+  const channel = mqttChannel(broker.port, { username: undefined, password: undefined, plainTextSender: "doorbell", qos: 0 });
+  await context.app.channels.attach(channel, { activation: "mention", pairing: false, allowlist: [] });
+  t.after(() => channel.stop());
+  await until(() => broker.connections[0]?.mqtt.subscriptions.length, "subscribed");
+  const link = broker.connections[0];
+  assert.equal(link.mqtt.connect.flags, 0x02, "no user name or password flags without an account");
+  await refusalWalk(context, { label: "MQTT", sent: () => link.mqtt.published.map((p) => p.payload.text),
+    say: async (text) => link.write(mq.publish("chat/in/door", text)) });
+  const refusal = link.mqtt.published.at(-1);
+  assert.equal(refusal.topic, "chat/in/doorbell");
+  assert.equal(refusal.qos, 0);
+  await assertNoSecret(context, [MQTT_PASSWORD]);
+});
+
+test("MQTT: a refused password is said plainly and not retried; a dropped connection is opened again; pings keep it alive", async (t) => {
+  const context = await fixture(t);
+  const wrong = await rawServer(t, (connection) => mqttBroker(connection, { password: "another" }));
+  const refused = mqttChannel(wrong.port);
+  await refused.start(async () => undefined);
+  t.after(() => refused.stop());
+  await until(() => refused.health().state === "needs attention", "the refusal is reported");
+  assert.match(refused.health().reason, /did not accept the user name or password/);
+  assert.ok(!refused.health().reason.includes(MQTT_PASSWORD));
+  await delay(100);
+  assert.equal(wrong.connections.length, 1, "not retried");
+
+  const flaky = await rawServer(t, (connection) => mqttBroker(connection, { password: MQTT_PASSWORD }));
+  const channel = mqttChannel(flaky.port, { keepAliveSeconds: 0.05 });
+  await channel.start(async () => undefined);
+  t.after(() => channel.stop());
+  await until(() => flaky.connections[0]?.mqtt.pings >= 2, "pings answered");
+  assert.equal(channel.health().state, "connected");
+  flaky.connections[0].socket.destroy();
+  await until(() => flaky.connections[1]?.mqtt.subscriptions.length, "reconnected and subscribed again");
+  await channel.stop();
+  await until(() => flaky.connections[1].mqtt.disconnected, "says goodbye with DISCONNECT");
+  await context.app.channels.attach(refused, policy);
+  await assertNoSecret(context, [MQTT_PASSWORD]);
+});
+
+test("MQTT settings: the broker is checked before anything opens, and wildcards never reach a reply topic", async () => {
+  await assert.rejects(() => buildParityChannel({ type: "mqtt", id: "m", host: "mqtt.example.org", inboundTopic: "a/#", replyTopic: "b/{chat}", ...policy },
+    { credential: async () => "x", policy: blocked }), /Not allowed: mqtt.example.org/);
+  await assert.rejects(() => buildParityChannel({ type: "mqtt", id: "m", host: "mqtt.example.org", inboundTopic: "a/#", replyTopic: "b/#", ...policy },
+    { credential: async () => "x" }), /cannot contain \+ or #/);
+  const asked = [];
+  const channel = await buildParityChannel({ type: "mqtt", id: "m", host: "mqtt.example.org", username: "bot", inboundTopic: "a/#", replyTopic: "b/{chat}", ...policy },
+    { credential: async (name) => { asked.push(name); return MQTT_PASSWORD; } });
+  assert.deepEqual(asked, ["MQTT_PASSWORD"]);
+  assert.equal(channel.kind, "mqtt");
+  await channel.stop();
 });
