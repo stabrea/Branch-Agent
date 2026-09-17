@@ -16,7 +16,8 @@ well**, without changing anything a Windows user sees. You build ONE area, named
   then `ssh branch-test-linux 'cd wt/<area> && npm ci --no-audit --no-fund >/dev/null && npm run build && xvfb-run -a node --test <files>'`.
   It is shared by several builders: only use `~/wt/<area>` there, and never install system packages.
   **It has 2 processors and 4 GB. Run every Linux build or test through the shared lock, one at a time, with
-  concurrency 1:** `ssh branch-test-linux 'flock -w 3600 /tmp/branch-linux.lock bash -c "cd wt/<area> && … && xvfb-run -a node --test --test-concurrency=1 <files>"'`.
+  concurrency 1:** `ssh branch-test-linux 'flock -o -w 3600 /tmp/branch-linux.lock bash -c "cd wt/<area> && … && xvfb-run -a node --test --test-concurrency=1 <files>"'`.
+  Use `flock -o` so the virtual screen never inherits the lock (an orphaned Xvfb once held it and froze every job).
   Put a time limit inside the screen wrapper so a hung test cannot hold the lock:
   `xvfb-run -a timeout -k 30 1500 node --test --test-concurrency=1 <files>` (a `timeout` outside `xvfb-run` only kills
   the wrapper, not `node`). Only run the test files your change touches there, never the whole suite. On 17 September several builders at once
