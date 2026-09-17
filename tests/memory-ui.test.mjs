@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { openPlace } from "./places.mjs";
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -25,7 +26,7 @@ async function fixture(t, seed = true) {
   const errors = []; page.on('pageerror', error => errors.push(error.message));
   await page.goto(server.url); await page.getByLabel('Session token', { exact: true }).fill(server.token);
   await page.getByRole('button', { name: 'Connect', exact: true }).click();
-  await page.locator('#workspace').waitFor({ state: 'visible' }); await page.locator('[data-view="memory"]').click();
+  await page.locator('#workspace').waitFor({ state: 'visible' }); await openPlace(page, 'memory');
   return { app, page, root, errors };
 }
 const record = f => f.app.store.list('memory', 'local')[0];
@@ -47,7 +48,7 @@ test('memory edits persist after reload and a new chat retrieves the corrected f
   await f.page.locator('.memory-editor').waitFor({ state: 'detached' });
   assert.equal(record(f).id, before.id); assert.equal(record(f).revision, before.revision + 1);
   assert.equal(record(f).data.source, 'Corrected calendar');
-  await f.page.reload(); await f.page.locator('[data-view="memory"]').click();
+  await f.page.reload(); await openPlace(f.page, 'memory');
   assert.match(await fact(f.page).innerText(), /Juniper meeting Friday/);
   await f.page.setViewportSize({ width: 390, height: 844 });
   assert.equal(await f.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
@@ -56,7 +57,7 @@ test('memory edits persist after reload and a new chat retrieves the corrected f
     await f.page.evaluate(() => window.scrollTo(0, 0));
     await f.page.screenshot({ path: process.env.BRANCH_MEMORY_SCREENSHOT, fullPage: true });
   }
-  await f.page.locator('[data-view="chat"]').click();
+  await openPlace(f.page, 'chat');
   await f.page.getByLabel('Your message', { exact: true }).fill('When is the Juniper meeting?');
   await f.page.locator('#send').click(); await f.page.waitForFunction(() => !document.getElementById('send').disabled);
   assert.match(await f.page.locator('#conversation').innerText(), /Juniper meeting Friday/);
