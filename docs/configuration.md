@@ -6766,10 +6766,11 @@ before, unless "Also run plugin files I put in the plugins folder myself in thei
 
 **Filters** (`POST /api/plugin-catalog/add-ons/filters`) look for plain words (or a pattern; one that could hang
 is refused) and take them out, stop the message, or add a note, in order of priority, only for the models they
-name. They run on a new message before it is stored or sent, and on an answer before it is kept. A stopped
-message never reaches the model. A filter never grants anything, and a stop is final. The live preview of an
-answer as it is typed may show words before the outlet filter takes them out; what is kept and delivered is
-filtered.
+name. They run on a new message before it is stored or sent, and on an answer before it is kept — including
+the words a model says beside its tool calls (a stop there only empties those words). A stopped message never
+reaches the model. A filter never grants anything, and a stop is final. While an outlet filter applies to the
+model answering, the live preview stays empty and the filtered answer arrives whole, so filtered words never
+reach the page; if the filters cannot be read, the preview is held back too.
 
 **Pipelines.** Branch reads `GET <address>/models`, `/pipelines` and `/<id>/valves`, with a saved secret as the
 key, through the network rules. Values whose names look like keys are shown as "(hidden)". Uploading Python
@@ -6793,14 +6794,48 @@ Branch, so it must not import anything but Node's own modules; `definePlugin`, e
 authors who test their plugin against Branch before shipping it. A tool with `search: { label }` is a search source and takes
 `{ query }`. A plugin written for a newer interface than this copy offers is refused in a sentence.
 
+### Integration review (adversarial pass)
+
+- **Installing names what you were shown.** `install`, `bundled/install`, `drafts/install` and `lists/install`
+  all require the fingerprint from the look (or, for a web list, the package fingerprint shown when browsing).
+  A package, draft or list entry that changed after the owner looked is refused, so the assistant cannot
+  rewrite a draft between the look and the yes.
+- **Signed lists.** Only Ed25519 signatures count. The list's signing key is remembered the first time the
+  owner looks at it; a list whose key later changes (or disappears) offers nothing until the owner forgets it
+  and looks again. A list that publishes a key must sign every entry: an entry whose signature was taken off
+  cannot be installed. An unsigned entry must be kept on the list's own site. The list must be looked at before
+  anything is installed from it, and answers are cut off as soon as they are larger than allowed.
+- **Updates** are offered and taken only when the version is later (`1.10.0` after `1.9.2`), never a rollback,
+  and an add-on installed from a signed entry is never replaced by an unsigned one. A newer version that asks for
+  more permissions arrives switched off with those permissions named on the card (`grew`), and no earlier yes
+  carries over.
+- **Walled plugins** are cut back to the permissions their package listed, even when their code describes
+  more; a tool that needs one it did not list is left out with a sentence. A plugin may name only sites by
+  their names: this computer, numbers and private-network names (`localhost`, `.local`, `.lan`, `.internal`,
+  `.home.arpa`) are refused in the package. A hand-placed plugin walled by the tick is pinned to the code it
+  had when it was loaded. One question to a plugin is at most 1 MB, and at most 4 plugin runs go at once.
+- **Windows.** Windows has no file and network wall, only a job object, so add-on code is refused there unless
+  the owner ticks "Run add-on code on Windows without the wall" (`windowsWithoutWall`, ships off); a plugin run
+  that way says so instead of claiming a wall. Nothing else on Windows changes.
+- **Hand-placed plugins stay in-process by default (decided).** "Also run plugin files I put in the plugins
+  folder myself in their own walled program" keeps shipping off: those files are the owner's own, the switch
+  would change how existing plugins behave (Windows included), and a walled plugin loses model connections and
+  chat services. Add-ons from a package, list or draft are walled whatever the tick says.
+- **Branch as a plugin.** A `.branch-export.json` file is trusted only for folders Branch remembers writing, so a
+  record planted in a folder cannot make Branch remove or overwrite the owner's files. A folder with a file the
+  owner changed stays Branch's until everything it wrote is gone.
+- **Start-up order.** The malware check belongs to the security service, which is made after add-ons; until it is
+  connected, a look at a package is refused in a sentence instead of reaching a name that does not exist yet.
+
 ### macOS and Linux
 
 The wall around a walled plugin is macOS's own sandbox (`/usr/bin/sandbox-exec`) on macOS and bubblewrap on Linux,
 exactly as for any program Branch starts: the plugin may read the disk except where keys, passwords and Branch's
 data live, may write only in the temporary folders, and reaches no network unless its package named web addresses —
 then only those, through Branch's door, and never an address on this computer or a private network. Where the wall
-cannot be built (no `sandbox-exec`, no bubblewrap) the plugin is not run and the reason is given. On Windows a walled
-plugin still runs as its own program inside a job object with the same limits, without the file and network wall.
+cannot be built (no `sandbox-exec`, no bubblewrap) the plugin is not run and the reason is given. On Windows add-on
+code is refused unless the owner chose to run it as its own program inside a job object with the same limits,
+without the file and network wall (see above).
 
 ### Where each audit row stands
 
