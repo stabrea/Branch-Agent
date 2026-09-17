@@ -213,6 +213,7 @@ test("a slow task shows its steps and its reply lands in the progress message, w
   const outcome = app.channels.handle(message("tidy up"));
   const progress = await until(() => chat.calls.find((c) => c.op === "send"), "progress message");
   assert.match(progress.text, /Looking through/);
+  await until(() => model.gates.length === 1, "the model is writing the answer");
   model.open();
   assert.equal(await outcome, "replied");
   assert.equal(chat.sent().length, 1, "the reply did not arrive twice");
