@@ -717,7 +717,9 @@ short list is what reading and answering needs, and every one of the four only l
 
 That is the whole list. Writing a file, running code, opening a command line, the screen and keyboard,
 the clipboard, stopping a program, sending to another chat, your other devices, and your mail, calendar,
-files and house are all outside it. This is a change: before, a chat's task was given everything except
+files and house are all outside it. So are pushing to a remote and acting on GitHub: a chat's task used
+to be able to change your local copy but never publish it, and now it cannot do either unless a line
+below allows it — unlike commands and your devices, which a line can never allow. This is a change: before, a chat's task was given everything except
 a named few, so anything nobody had thought of was handed over. It is now the other way round.
 
 **Your own paired account is a chat account.** The list above is what your own phone gets too. Nothing

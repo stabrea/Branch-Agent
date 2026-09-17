@@ -16,6 +16,7 @@ import { createBranch, savePolicy } from "../dist/index.js";
 import { chatPermissionsOf } from "../dist/channels/router.js";
 import { chatSafePermissions, chatExtraPermissions, neverFromChat } from "../dist/channels/chat-permissions.js";
 import { isReadOnlyPermission } from "../dist/policy.js";
+import { changesFor, applyChanges, resetProposals } from "../dist/settings-kit/changes.js";
 
 /** A chat app stand-in: it only has to take a reply. */
 function fakeChat(id = "chat") {
@@ -146,4 +147,21 @@ test("the owner's own paired account is a chat like any other, and can still ans
   assert.equal(app.store.run(lastRun(app).id).status, "needs_input", "a chat's task waits for a yes");
   assert.equal(await app.channels.handle(message("y", from)), "replied");
   assert.match(chat.sent.at(-1), /Noted/, "a bare y still answers the question the chat is waiting on");
+});
+
+test("putting the settings back turns the switch off and leaves the owner's own lines alone", async (t) => {
+  const { app } = await fixture(t, callsTool("files.read"));
+  const store = app.store, owner = app.runtime.owner;
+  const rules = [{ channel: "chat", sender: "owner", allow: ["files.write"], note: "my own phone" }];
+  app.channels.setPermissionSettings({ extras: true, rules });
+  const { changes } = changesFor(store, owner, resetProposals("chat-permissions"));
+  assert.deepEqual(changes.map((change) => [change.id, change.from, change.to, change.loosens]),
+    [["chat-permissions.extras", true, false, false]], "only the switch is ever proposed, and turning it off is not loosening");
+  applyChanges(store, owner, changes, { accept: changes.map((change) => change.id), confirmLoosening: true, why: "test" });
+  const after = app.channels.permissionSettings();
+  assert.equal(after.extras, false, "putting the settings back switches the extras off");
+  assert.deepEqual(after.rules, rules, "a preset or a settings file never throws the owner's own lines away");
+  // And a file that tried to write a line is refused outright: the lines are not a settings field.
+  const { refused } = changesFor(store, owner, [{ key: "chat-permissions", field: "rules", value: [{ allow: ["shell.execute"] }] }]);
+  assert.equal(refused.length, 1, "a settings file cannot write a line");
 });
