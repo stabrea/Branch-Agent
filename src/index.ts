@@ -165,6 +165,7 @@ import { gatewayDryRun, registerNeverBreak } from "./never-break/api.js";
 import { journalHook, TaskJournal } from "./never-break/journal.js";
 import { migrate, storeMigrations } from "./never-break/migrations.js";
 import { recoverOnStart } from "./never-break/resume.js";
+import { connectGuidedTelegram, saveTelegramSetup, telegramSetupView } from "./never-break/telegram-setup.js";
 import { fileURLToPath } from "node:url";
 
 export async function createBranch(options: {
@@ -797,6 +798,12 @@ export async function createBranch(options: {
       journal,
       recoverOnStart: async (dataFolder: string) => recoverOnStart({ store, runtime, journal, nextTurn,
         mode: (await loadGatewayConfig(dataFolder)).config.mode }),
+      /** The Telegram setup card: its state, saving it, and connecting the bot it set up. */
+      telegram: {
+        view: () => telegramSetupView(store, runtime.owner, channels),
+        save: (input: unknown) => saveTelegramSetup(store, runtime.owner, input),
+        connect: () => connectGuidedTelegram({ store, owner: runtime.owner, router: channels, fetch: web.policy.guard(globalThis.fetch) }),
+      },
     },
     /** mac2/fly-core: the learning core's three-way switch (off, when-needed, on); it ships off. */
     learningCore: {

@@ -336,6 +336,7 @@ async function staticFile(
     "/folder-trust.js": ["folder-trust.js", "text/javascript; charset=utf-8"],
     // mac3/never-break: the Keep running card and the Telegram setup card.
     "/never-break.js": ["never-break.js", "text/javascript; charset=utf-8"],
+    "/telegram-setup.js": ["telegram-setup.js", "text/javascript; charset=utf-8"],
     "/providers.js": ["providers.js", "text/javascript; charset=utf-8"],
     "/style.css": ["style.css", "text/css; charset=utf-8"],
     // App shell (wave 2): tokens, layout, appearance.
@@ -650,8 +651,10 @@ async function api(
   if (handlesGuardsPath(path)) return guardsApi(app, request, path, readBody);
   // mac3/never-break: the gateway switch and the changes the assistant suggested for it.
   if (handlesNeverBreakPath(path))
-    return neverBreakApi(dataDir, request, path, readBody,
-      () => snapshotData({ dataDir, database: app.store.sqlite, journal: app.neverBreak.journal.database })).catch((error: unknown) => {
+    return neverBreakApi(dataDir, request, path, readBody, {
+      snapshot: () => snapshotData({ dataDir, database: app.store.sqlite, journal: app.neverBreak.journal.database }),
+      telegram: app.neverBreak.telegram,
+    }).catch((error: unknown) => {
       throw error instanceof NeverBreakApiError ? new HttpError(error.status, error.message) : error;
     });
   // Batch 21 (wave 8): the description of this API, Lockdown, kept answers, whole sets, project cost.
@@ -2277,8 +2280,10 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
   url = `http://127.0.0.1:${address.port}`;
   app.scheduler.start();
   // mac3/never-break: a real start settles work a restart cut off (nothing, with the switch off).
-  if (options.presence || process.env.BRANCH_GATEWAY_CHILD === "1")
+  if (options.presence || process.env.BRANCH_GATEWAY_CHILD === "1") {
     void app.neverBreak.recoverOnStart(options.dataDir).catch((error: unknown) => console.error(`Could not pick up interrupted work: ${errorText(error)}`));
+    void app.neverBreak.telegram.connect().then((why) => { if (why && !/switched off/.test(why)) console.log(why); });
+  }
   if (options.presence) {
     await writeRunning(options.dataDir, { port: address.port, pid: process.pid, url, mode: options.presence, version: app.version }).catch(() => undefined);
     await noteFirstStart(app, options.dataDir).catch(() => undefined);

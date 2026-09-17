@@ -87,6 +87,8 @@ Inside a conversation there are no homes to add to, only two surfaces with stric
 | Cheaper and faster model routing | `settings:models:defaults` |
 | Site skills for the browser | `customize:skills`, with browser access itself in `settings:computer` |
 | Evaluation and studies | `settings:advanced` |
+| Keep running through crashes and updates (`mac3/never-break`) | `settings:general` |
+| Set up Telegram, step by step (`mac3/never-break`) | `customize:channels` |
 
 When something new does not fit a row, apply the rule at the top and add a row here in the same
 change.

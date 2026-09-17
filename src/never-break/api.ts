@@ -36,8 +36,17 @@ export async function neverBreakView(dataDir: string): Promise<Record<string, un
   };
 }
 
+export interface NeverBreakExtras {
+  /** Takes a copy of the saved work for an update's check (the process that holds the database). */
+  snapshot?: () => Promise<string>;
+  /** The Telegram setup card's state, and saving its switch and token. */
+  telegram?: { view: () => Record<string, unknown>; save: (input: unknown) => Promise<void> };
+}
+
 export async function neverBreakApi(dataDir: string, request: IncomingMessage, path: string, readBody: Read,
-  snapshot?: () => Promise<string>): Promise<unknown> {
+  extras: NeverBreakExtras = {}): Promise<unknown> {
+  if (path === "/api/never-break/telegram" && extras.telegram) return telegramApi(request, readBody, extras.telegram);
+  const snapshot = extras.snapshot;
   if (request.method === "GET" && path === "/api/never-break") return neverBreakView(dataDir);
   if (request.method !== "POST") throw new NeverBreakApiError(405, "Use GET or POST here.");
   if (path === "/api/never-break") {
@@ -55,6 +64,17 @@ export async function neverBreakApi(dataDir: string, request: IncomingMessage, p
   // The window asks the engine that holds the database for a copy, before it tries an update on it.
   if (path === "/api/never-break/snapshot" && snapshot) return { folder: await snapshot() };
   throw new NeverBreakApiError(404, "Not found");
+}
+
+async function telegramApi(request: IncomingMessage, readBody: Read, telegram: NonNullable<NeverBreakExtras["telegram"]>): Promise<unknown> {
+  if (request.method === "GET") return telegram.view();
+  if (request.method !== "POST") throw new NeverBreakApiError(405, "Use GET or POST here.");
+  try { await telegram.save(await readBody(request)); }
+  catch (error) {
+    const said = error instanceof z.ZodError ? error.issues.map((issue) => issue.message).join(" ") : (error as Error).message;
+    throw new NeverBreakApiError(400, said);
+  }
+  return { ...telegram.view(), note: "Saved. Branch connects the bot the next time it starts." };
 }
 
 /** The assistant may suggest a change to the gateway's settings; the owner decides. */
