@@ -230,7 +230,7 @@ export class LiveConversation {
         return;
       }
       if (check.decision === "ask") { this.askFirst(session, callId, name, check, bytes, fingerprint); return; }
-      const result = await this.deps.runtime.executeTool(name, args);
+      const result = await this.deps.runtime.executeTool(name, args, { mode: "policy", source: "owner", approvalKey: this.sessionId }); // mac5/manual-actions
       this.deps.store.event(this.runId, "voice.live.tool_done", { name, target: check.target });
       session.toolResult(callId, name, result);
     } catch (error) {

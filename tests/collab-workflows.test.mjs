@@ -623,12 +623,13 @@ test("somebody else's profile reaches none of the owner's sharing, workflows, wa
   // the web routes: otherwise a task started under somebody else's name reaches them that way.
   await assert.rejects(
     () => app.runtime.executeTool("workflows.list", {}),
-    /belongs to the owner/,
+    // mac5/manual-actions: a hand-run tool is held to the profile's role first, so either refusal will do.
+    /belongs to the owner|does not cover/,
     "the assistant's own workflow tools are refused while a profile is switched on",
   );
   await assert.rejects(
     () => app.runtime.executeTool("workflows.create", { name: "Sneaky", steps: [{ name: "Do it", kind: "tool", tool: "memory.put", args: { text: "x", source: "y" } }] }),
-    /belongs to the owner/,
+    /belongs to the owner|does not cover/,
   );
   await call("/api/profiles/switch", { profileId: null });
   assert.equal((await call("/api/workflows")).body.workflows.length, 1, "the owner still sees their own");

@@ -48,6 +48,10 @@ import { buildTrajectory, trajectoryLines } from "./trajectory.js";
 import { replayRun } from "./replay.js";
 import { meteringFolder, meteringSettings, saveMeteringSettings, writeMeteringFile } from "./metering.js";
 import { TryToolSchema, toolForms, tryTool } from "./playground.js";
+// mac5/manual-actions: the hand-pressed gate for "Try a tool".
+import { manualVerdict } from "./tool-gate.js";
+import { ApprovalRequiredError, PolicyRefusedError } from "./approvals.js";
+import { argumentFingerprint } from "./runtime.js";
 import { exportTemplate, importTemplate } from "./templates.js";
 import { serveRunSocket, tokenFromProtocol } from "./ws.js";
 // Bucket 13 (mac4): seeing what a task did, step by step, afterwards.
@@ -744,7 +748,7 @@ async function api(
   if (handlesWorkspaceEditorPath(path))
     return workspaceEditorApi({
       files: app.files, store: app.store, owner: app.runtime.owner, readBody,
-      runTool: (name, args) => app.runtime.executeTool(name, args),
+      runTool: (name, args) => app.runtime.executeTool(name, args, { mode: "owner" }), // mac5/manual-actions
       // Integration review: Branch's own program, settings and saved work stay out of reach here too.
       guard: (target, readOnly) => protectedTarget({ tool: readOnly ? "files.read" : "files.write", readOnly, args: { path: target },
         target, workspace: app.files.base }, app.runtime.protectedAreas),
@@ -815,14 +819,15 @@ async function api(
   if (request.method === "GET" && path === "/api/tools/forms") return { tools: toolForms(app.registry) };
   if (request.method === "POST" && path === "/api/tools/try") {
     const input = TryToolSchema.parse(await readBody(request));
-    // mac5/key-sweep (integration review): a short-lived key cannot answer its own question.
-    if (startedWithShortLivedKey()) { shortLivedToolGate(app, input.name, input.arguments); input.confirm = false; }
     // Scrubbed on the way out, exactly as the runtime scrubs a tool result before it records one,
     // and given the same two-minute ceiling a manual action gets so nothing holds a slot for ever.
     return app.runtime.hideSecrets(
       await tryTool(app.registry, app.store, app.runtime.owner,
         app.runtime.context({ signal: AbortSignal.timeout(120000) }), input,
-        (tool, permission) => app.runtime.roleRefusal(tool, permission)));
+        (tool, permission) => app.runtime.roleRefusal(tool, permission),
+        // mac5/manual-actions: the same hand-pressed gate as /api/action, with its question kept. A
+        // short-lived key meets the full rules there: only "allow" runs, and it cannot confirm (key-sweep).
+        (tool, args, context) => manualVerdict(app.runtime, tool, args, context, argumentFingerprint(JSON.stringify(args)))));
   }
   // Wave 8: an artifact out of a reply. Minting an address puts the page behind an unguessable
   // name the frame can fetch; saving keeps it beside the task, where the Documents list finds it.
@@ -1192,10 +1197,9 @@ async function api(
   }
   if (request.method === "POST" && path === "/api/action") {
     const action = actionSchema.parse(await readBody(request));
-    // mac5/key-sweep (integration review): the owner's manual action skips the approval rules; a
-    // short-lived key's goes through them and runs only what they allow outright.
-    if (startedWithShortLivedKey()) shortLivedToolGate(app, action.tool, action.args);
-    return app.runtime.executeTool(action.tool, action.args);
+    // mac5/manual-actions: the owner pressed it in the app window (src/tool-gate.ts). A short-lived
+    // key goes through the same gate held to the full rules; its refusal is a 401 (mac5/key-sweep).
+    return asKeyRefusal(() => app.runtime.executeTool(action.tool, action.args, { mode: "owner" }));
   }
   // Usage and observability routes
   if (request.method === "GET" && path === "/api/usage") {
@@ -2998,17 +3002,18 @@ export function offLimitsToShortLivedKeys(method: string | undefined, path: stri
   return interopOffLimits(method, path);
 }
 /**
- * mac5/key-sweep (integration review): one tool run by hand with a short-lived key. The same rules a
- * task's tool call meets (never-break, the person's role, the approval rules, the leak guard) must
- * say "allow"; a question is not the key's to answer, so "ask" is refused like "deny".
+ * mac5/key-sweep + mac5/manual-actions (integration review): a tool run by hand with a short-lived
+ * key is decided by the one gate (src/tool-gate.ts: never-break, the role, the rules, the leak guard;
+ * only "allow" runs). What that gate refuses for the key is answered as the key's refusal, a 401.
  */
-function shortLivedToolGate(app: Branch, tool: string, args: unknown): void {
-  if (!app.registry.permissionOf(tool)) return; // an unknown tool is refused where it is run
-  const verdict = app.runtime.checkPolicy(tool, args, app.runtime.context());
-  if (verdict.decision === "allow") return;
-  throw new HttpError(401, verdict.decision === "deny"
-    ? `A short-lived key cannot run ${tool}: ${verdict.reason ?? "your settings do not allow it"}.`
-    : `A short-lived key cannot say yes to ${tool} for itself. Start it as a task, or run it in the app window.`);
+async function asKeyRefusal<T>(work: () => Promise<T>): Promise<T> {
+  try {
+    return await work();
+  } catch (error) {
+    if (startedWithShortLivedKey() && (error instanceof PolicyRefusedError || error instanceof ApprovalRequiredError))
+      throw new HttpError(401, error.message);
+    throw error;
+  }
 }
 /** mac3/security-check: a server tried from Settings is looked up in the malware list before it starts. */
 async function vetTriedServer(app: Branch, input: unknown): Promise<void> {

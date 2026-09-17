@@ -58,7 +58,13 @@ export interface PullRequestDeps {
   policy: NetworkPolicy;
   registry: ToolRegistry;
   /** Runs a registered tool as the owner (the saved GitHub tools); the runtime's executeTool. */
-  runTool: (name: string, args: unknown) => Promise<unknown>;
+  /** `runId` is the task whose own call got here; without one it is the hook working by itself. */
+  runTool: (name: string, args: unknown, runId?: string) => Promise<unknown>;
+  /**
+   * Integration review: the tool gate's answer for opening the pull request, asked before Git is
+   * touched, so a refusal never leaves a pushed branch behind. A sentence refuses; null lets it go.
+   */
+  preflight?: (name: string, args: unknown, runId?: string) => string | null;
   /** Integration review: Branch's own guard (src/never-break/protected.ts); a reason when a path may not be read. */
   guard?: (path: string) => string | null;
 }
@@ -123,6 +129,13 @@ export async function pullRequestFromChanges(deps: PullRequestDeps, input: { nam
   const paths = input.paths ?? (await changedPaths(deps, cwd, input.signal));
   const visible = await sendablePaths(deps, cwd, paths);
   if (!visible.length) throw new Error("There are no changed files that may be sent.");
+  const opening = {
+    repo: where.repo, title: input.title.slice(0, 200), body: input.summary.slice(0, 8000),
+    base: where.base, head, changes: visible.slice(0, 20), draft: true,
+    ...issueArgument(input.summary),
+  };
+  const refusal = deps.preflight?.("github.open_pull_request", opening, input.runId);
+  if (refusal) throw new Error(refusal);
   await gitText(deps, cwd, ["switch", "--create", head], input.signal);
   // Names are taken literally (a "*" is a file called "*"), and only the named files are committed,
   // whatever else happened to be staged already.
@@ -130,11 +143,7 @@ export async function pullRequestFromChanges(deps: PullRequestDeps, input: { nam
   await gitText(deps, cwd, ["--literal-pathspecs", "commit", "--only", "--message", input.title.slice(0, 200), "--", ...visible], input.signal);
   // An explicit refspec: exactly this new line, to a branch of the same name, never anything else.
   await gitText(deps, cwd, ["push", "--set-upstream", settings.remote, `refs/heads/${head}:refs/heads/${head}`], input.signal, 180000);
-  const pullRequest = await deps.runTool("github.open_pull_request", {
-    repo: where.repo, title: input.title.slice(0, 200), body: input.summary.slice(0, 8000),
-    base: where.base, head, changes: visible.slice(0, 20), draft: true,
-    ...issueArgument(input.summary),
-  });
+  const pullRequest = await deps.runTool("github.open_pull_request", opening, input.runId);
   return { repository: where.repo, branch: head, base: where.base, files: visible, pullRequest };
 }
 

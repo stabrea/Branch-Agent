@@ -452,6 +452,34 @@ test("MCP tool calls are recorded as tasks with a receipt", async (t) => {
   assert.equal(receipts.items[0].name, "files.read");
 });
 
+test("MCP may not change Branch's own files even when writing is shared and allowed", async (t) => {
+  // mac5/manual-actions: another AI tool's call goes through the runtime's own policy check.
+  const { url, token, sessionId } = await initialized(t);
+  await settings(url, token, { enabled: true, exposedTools: ["files.write"] });
+  const call = await mcpRequest(url, token, {
+    jsonrpc: "2.0", id: 3, method: "tools/call",
+    params: { name: "files.write", arguments: { path: "../data/gateway.json", content: "{}" } },
+  }, sessionId);
+  assert.equal(call.result.isError, true);
+  assert.match(call.result.content[0].text, /never lets a task/);
+});
+
+test("MCP holds a household profile to its role even where the rules allow", async (t) => {
+  // Integration review (mac5/manual-actions): the rewritten gate takes its refusal from the runtime's check.
+  const { app, url, token, sessionId } = await initialized(t);
+  await settings(url, token, { enabled: true, exposedTools: ["files.write"] });
+  const child = app.store.profiles.create({ name: "Sam", pin: "1234" });
+  app.runtime.roles.save(child.id, { role: "child", projects: [], dailySpendLimit: 0 });
+  app.store.profiles.switch({ profileId: child.id, pin: "1234" });
+  t.after(() => app.store.profiles.switch({ profileId: null }));
+  const call = await mcpRequest(url, token, {
+    jsonrpc: "2.0", id: 3, method: "tools/call",
+    params: { name: "files.write", arguments: { path: "sam.txt", content: "x" } },
+  }, sessionId);
+  assert.equal(call.result.isError, true);
+  assert.match(call.result.content[0].text, /Sam is set up as "Child"/);
+});
+
 test("MCP offers recent conversations and reads one as plain text", async (t) => {
   const { app, url, token, sessionId } = await initialized(t);
   const run = await app.runtime.run({ prompt: "Remember that the kettle is broken." });

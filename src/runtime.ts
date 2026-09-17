@@ -43,6 +43,8 @@ import { checkResult, fanoutWaves, type FanoutTask, type ResultCheck } from "./d
 import { describeToolCall, filePathOf } from "./activity.js";
 // Wave mac2 (guards): loop guard and folder trust; see src/run-guards.ts.
 import { RunGuards } from "./run-guards.js";
+// mac5/manual-actions: the gate for tools run outside a conversation.
+import { gateToolUse, type ToolGateOptions } from "./tool-gate.js";
 // Wave mac3 (tool-safety): the second look before an approval.
 import { reviewCall } from "./approval-reviewer.js";
 import { routeForTask, routingSettings } from "./local-routing.js";
@@ -432,8 +434,9 @@ export class Runtime {
     if (previous.status !== "interrupted") throw new Error("Only interrupted tasks can be continued");
     return this.track(() => this.execute({ prompt: previous.prompt, sessionId: previous.sessionId, resumeFrom: previous.id }));
   }
-  async executeTool(name: string, args: unknown): Promise<unknown> {
-    return this.track(() => this.performTool(name, args));
+  /** A tool run outside a conversation; `options` says how it is gated (src/tool-gate.ts). */
+  async executeTool(name: string, args: unknown, options: ToolGateOptions = {}): Promise<unknown> {
+    return this.track(() => this.performTool(name, args, options));
   }
   async auditOperation<T>(
     context: ToolContext,
@@ -492,20 +495,25 @@ export class Runtime {
     );
     return pending;
   }
-  private async performTool(name: string, args: unknown): Promise<unknown> {
+  private async performTool(name: string, args: unknown, options: ToolGateOptions): Promise<unknown> {
     const run = this.store.createRun(this.owner, `Manual action: ${name}`),
       controller = new AbortController();
     this.controllers.set(run.id, controller);
     const context = this.context({
       runId: run.id,
       signal: AbortSignal.any([controller.signal, AbortSignal.timeout(120000)]),
+      ...(options.source ? { source: options.source } : {}),
+      ...(options.approvalKey ? { approvalKey: options.approvalKey } : {}),
     });
     this.store.event(run.id, "tool.started", { name, manual: true });
     let result: unknown;
     let failure: unknown;
     let status: Run["status"] = "completed";
     try {
-      result = this.hideSecrets(await this.registry.execute(name, args, context));
+      // --- mac5/manual-actions: never-break, Lockdown, folder trust, the rules and the sandbox wall.
+      const scoped = { ...context, ...this.gateManual(run.id, name, args, context, options) };
+      // --- end mac5/manual-actions ---
+      result = this.hideSecrets(await this.registry.execute(name, args, scoped));
       this.store.event(run.id, "tool.completed", { name, result });
     } catch (e) {
       failure = e;
@@ -521,6 +529,25 @@ export class Runtime {
     if (status !== "completed") throw failure;
     if (settled.status !== "completed") throw new Error(settled.output);
     return result;
+  }
+  /**
+   * mac5/manual-actions: the OS sandbox wall for a call made outside a conversation, worked out with
+   * exactly the inputs a conversation's call uses (see callTool). Never taken from the caller.
+   */
+  wallFor(tool: string, args: unknown, context: ToolContext, choice: PolicyCheck["sandbox"]): Pick<ToolContext, "osSandbox"> {
+    return wallContextFor({ store: this.store, owner: this.owner, policy: this.policy(context.source ?? "owner"),
+      approvals: this.approvals, context, tool, permission: this.registry.permissionOf(tool),
+      target: this.registry.targetOf(tool, args, context), args, choice, untouchable: this.protectedAreas });
+  }
+  /** mac5/manual-actions: src/tool-gate.ts decides; a refusal is written on the record first. */
+  private gateManual(runId: string, name: string, args: unknown, context: ToolContext, options: ToolGateOptions) {
+    try {
+      return gateToolUse(this, name, args, context, argumentFingerprint(JSON.stringify(args ?? {})), options.mode);
+    } catch (error) {
+      const kind = error instanceof ApprovalRequiredError ? "policy.ask" : "policy.denied";
+      this.store.event(runId, kind, { name, manual: true, reason: this.hideSecrets(errorText(error)) });
+      throw error;
+    }
   }
   async delegate(
     prompt: string,

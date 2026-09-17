@@ -9,6 +9,7 @@ import type { Store } from "./store.js";
 import type { ToolContext } from "./contracts.js";
 import { evaluatePolicy, isReadOnlyPermission, policyTarget, readPolicy } from "./policy.js";
 import { resourceOf } from "./policy-resources.js";
+import type { ManualVerdict } from "./tool-gate.js";
 
 export const TryToolSchema = z
   .object({
@@ -49,6 +50,11 @@ export async function tryTool(
   input: z.infer<typeof TryToolSchema>,
   /** Why the person at the keyboard may not have this done, from their profile's role. */
   personRefusal: (tool: string, permission: string) => string | null = () => null,
+  /**
+   * mac5/manual-actions: the runtime's hand-pressed gate (src/tool-gate.ts) — Branch's own files,
+   * Lockdown, folder trust and the sandbox wall on top of the rules. Without it only the rules apply.
+   */
+  gate?: (tool: string, args: unknown, context: ToolContext) => ManualVerdict,
 ): Promise<TryOutcome> {
   const permission = registry.permissionOf(input.name);
   if (!permission) return { status: "refused", reason: `There is no tool called ${input.name}.`, tool: input.name, target: "" };
@@ -60,14 +66,16 @@ export async function tryTool(
   // What the call is about goes in too, so trying a command by hand is decided exactly as a
   // command the assistant asked for would be — a command nobody has ruled on is asked about.
   const resource = resourceOf(input.name, permission, target, input.arguments);
-  const { decision } = evaluatePolicy(readPolicy(store, owner), { tool: input.name, target, readOnly: isReadOnlyPermission(permission), resource });
+  const verdict = gate?.(input.name, input.arguments, context);
+  const decision = verdict?.decision
+    ?? evaluatePolicy(readPolicy(store, owner), { tool: input.name, target, readOnly: isReadOnlyPermission(permission), resource }).decision;
   if (decision === "deny")
-    return { status: "refused", reason: `Your settings do not allow ${input.name}${target ? ` on ${target}` : ""}.`, tool: input.name, target };
+    return { status: "refused", reason: verdict?.reason ?? `Your settings do not allow ${input.name}${target ? ` on ${target}` : ""}.`, tool: input.name, target };
   if (decision === "ask" && !input.confirm)
     return { status: "asked", question: `Before I go ahead: run ${input.name}${target ? ` on ${target}` : ""}. Is that all right?`, tool: input.name, target };
   const started = Date.now();
   try {
-    const result = await registry.execute(input.name, input.arguments, context);
+    const result = await registry.execute(input.name, input.arguments, { ...context, ...verdict?.scope });
     return { status: "ran", tool: input.name, target, milliseconds: Date.now() - started, result };
   } catch (error) {
     return { status: "failed", tool: input.name, target, milliseconds: Date.now() - started, error: error instanceof Error ? error.message : String(error) };
