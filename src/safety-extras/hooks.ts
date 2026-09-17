@@ -57,6 +57,11 @@ export function repairForSending(store: Store, owner: string, runId: string, mes
   return repaired;
 }
 
+/** An answer without its tool calls, for keeping what was said when the task stops before they run; null when it said nothing. */
+export function wordsOnly(message: Message): Message | null {
+  return message.content.trim() ? { role: "assistant", content: message.content } : null;
+}
+
 export { forgetProgress, watchProgress } from "./progress-judge.js";
 export { guardApproval, confirmWithCode } from "./code-approvals.js";
 export { assertAddressNotStopped } from "./emergency-stop.js";

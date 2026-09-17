@@ -332,3 +332,27 @@ test("chain: a second writer on the same database never silences the first", asy
   assert.deepEqual(chain.list("local").map((entry) => entry.detail), ["from the app", "from the command line", "step 0"]);
   assert.equal(chain.verify("local").ok, true);
 });
+
+/* ---------- the progress judge ---------- */
+
+test("progress: a stopped task leaves its conversation whole, so the next turn can carry on", async (t) => {
+  let turn = 0, followUp = null;
+  const lookup = { name: "notes.find", permission: "memory.read", description: "find", parameters: z.object({ n: z.number() }).strict(), execute: async () => ({ found: true }) };
+  const provider = async (request) => {
+    if (request.messages.some((message) => message.role === "user" && message.content === "carry on")) { followUp = request.messages; return { content: "Carrying on.", toolCalls: [] }; }
+    turn += 1;
+    return { content: "Let me look at that once more.", toolCalls: [{ id: `c${turn}`, name: "notes.find", arguments: JSON.stringify({ n: turn }) }] };
+  };
+  const { app, api } = await served(t, [provider]);
+  app.registry.register(lookup);
+  await api("POST", "/api/safety-extras/switch", { part: "progress-judge", mode: "on" });
+  const stopped = (await api("POST", "/api/run", { prompt: "go" })).body;
+  assert.match(stopped.output, /^Stopped: the assistant was not getting anywhere/, stopped.output);
+  assert.deepEqual(app.neverBreak.journal.open().filter((step) => step.runId === stopped.id), [], "no step is left waiting to run after a restart");
+  const next = (await api("POST", "/api/run", { prompt: "carry on", sessionId: stopped.sessionId })).body;
+  assert.equal(next.status, "completed", next.output);
+  const answered = new Set(followUp.filter((message) => message.role === "tool").map((message) => message.toolCallId));
+  const asked = followUp.flatMap((message) => message.toolCalls ?? []).map((call) => call.id);
+  assert.deepEqual(asked.filter((id) => !answered.has(id)), [], "every call the model is shown has its result");
+  assert.ok(followUp.some((message) => message.role === "assistant" && message.content === "Let me look at that once more."), "the stuck answer's words are kept");
+});

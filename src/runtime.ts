@@ -1145,13 +1145,16 @@ ${run.output.slice(0, 6000)}`;
         content: completion.content,
         ...(completion.toolCalls.length ? { toolCalls: completion.toolCalls } : {}),
       };
+      // mac7/r17-g: the progress judge looks before the calls are written down or kept, so a stop leaves
+      // no call without its result; the stuck answer's words are still kept.
+      await safetyExtras.watchProgress(this.store, this.owner, { runId: run.id, round: round + 1, text: completion.content, messages: [...messages, assistant] },
+        (asked) => this.aside(run, context, route, asked)).catch((error: unknown) => { this.add(run, messages, ids, safetyExtras.wordsOnly(assistant)); throw error; });
       // mac5/resume-gap: the calls are written to the journal before the conversation holds them, so a
       // restart in between knows they never ran.
       if (completion.toolCalls.length) this.journal.intend({ runId: run.id, sessionId: run.sessionId,
         calls: completion.toolCalls.map((call) => ({ call, permission: this.registry.permissionOf(call.name) })) });
       messages.push(assistant); ids.push(null);
       this.store.message(run.sessionId, assistant);
-      await safetyExtras.watchProgress(this.store, this.owner, { runId: run.id, round: round + 1, text: completion.content, messages }, (asked) => this.aside(run, context, route, asked)); // mac7/r17-g
       if (!completion.toolCalls.length) {
         if (checks && conductor.lastStep() && !(await this.answerPasses(run, messages, ids, context, checks, spoken, checkFailures))) { checkFailures++; continue; }
         const next = await conductor.afterAnswer(spoken);
