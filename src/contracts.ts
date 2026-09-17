@@ -74,6 +74,8 @@ export interface CompletionRequest {
   reasoning?: "low" | "medium" | "high";
   /** R17-S12: a faster or cheaper service tier, where the service offers one; absent asks for the usual. */
   serviceTier?: "priority" | "flex";
+  /** R17-046: OpenRouter's company preferences; only a connection whose address is openrouter.ai sends them. */
+  providerRouting?: import("./model-savings/openrouter.js").OpenRouterRouting;
   /** Live provider text only; partial text is not a committed completion. */
   onTextDelta?: (text: string) => void;
   /**
