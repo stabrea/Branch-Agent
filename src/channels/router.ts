@@ -460,7 +460,12 @@ export class ChannelRouter {
    * Returns null when this chat has nothing waiting, so an ordinary message that happens to be the
    * single letter "n" is still an ordinary message.
    */
-  async answerApproval(channel: string, chatId: string, value: string, senderId?: string): Promise<{ decision: string; tool: string; refusal?: string } | null> {
+  async answerApproval(
+    channel: string, chatId: string, value: string,
+    /** Who typed it and whether this is a one-to-one chat (mac7/chat-approvals); both are needed
+     *  before a chat's own yes may answer a question about what one of the owner's lines granted. */
+    from?: { senderId?: string; chatKind?: InboundMessage["chatKind"] },
+  ): Promise<{ decision: string; tool: string; refusal?: string } | null> {
     const read = readApprovalAnswer(value);
     if (!read) return null;
     const sessionId = this.sessionFor(channel, chatId);
@@ -470,7 +475,7 @@ export class ChannelRouter {
     // what every chat may already do. Anything one of the owner's lines granted is approved in the
     // window, unless that same line is one the owner switched on for this person (mac7/chat-approvals).
     const asked = read.fingerprint ? waiting.find((one) => one.fingerprint === read.fingerprint) : waiting[0];
-    const mayApprove = !asked || chatMayApprove(this.runtime.registry.permissionOf(asked.tool), this.chatApprovals(channel, senderId));
+    const mayApprove = !asked || chatMayApprove(this.runtime.registry.permissionOf(asked.tool), this.chatApprovals(channel, from));
     if (read.decision === "allow" && asked && !mayApprove)
       return { decision: "in-window", tool: asked.tool, refusal: approveInWindow(asked.label || asked.tool) };
     const result = this.runtime.approve(sessionId, read.decision, read.remember,
@@ -480,10 +485,15 @@ export class ChannelRouter {
   /**
    * mac7/chat-approvals: what this person on this app may say yes to from the chat, out of what
    * their own switched-on lines granted. Empty for a sender nobody named, which is the old rule.
+   *
+   * Only one to one, for the same reason a standing yes is only offered one to one a few lines
+   * below: in a group anybody paired may press the button, and a line the owner wrote naming one
+   * person — or naming `*` — was not them handing the yes to whoever else is in the room. A group
+   * gets what it got before: No, and the sentence saying where the yes belongs.
    */
-  private chatApprovals(channel: string, senderId?: string): string[] {
-    if (!senderId) return [];
-    return chatApprovablePermissions(chatPermissionSettings(this.store, this.runtime.owner), channel, senderId);
+  private chatApprovals(channel: string, from?: { senderId?: string; chatKind?: InboundMessage["chatKind"] }): string[] {
+    if (!from?.senderId || from.chatKind !== "direct") return [];
+    return chatApprovablePermissions(chatPermissionSettings(this.store, this.runtime.owner), channel, from.senderId);
   }
 
   /**
@@ -504,7 +514,7 @@ export class ChannelRouter {
     // with the sentence saying where the yes belongs. mac7/chat-approvals: unless the owner switched
     // that line on for this person on this app, in which case the Yes is theirs to press.
     const mayApprove = !waiting
-      || chatMayApprove(this.runtime.registry.permissionOf(waiting.tool), this.chatApprovals(message.channel, message.senderId));
+      || chatMayApprove(this.runtime.registry.permissionOf(waiting.tool), this.chatApprovals(message.channel, message));
     const buttons = approvalButtons(waiting?.fingerprint ?? "", canAlways && mayApprove)
       .filter((button) => mayApprove || button.value.startsWith("n"));
     const text = mayApprove ? checked.text : `${checked.text}\n\n${approveInWindow(waiting?.label || waiting?.tool || "that")}`;
@@ -530,7 +540,7 @@ export class ChannelRouter {
     if (command) return this.command(message, command);
     // A bare "y", "a" or "n" answers whatever this chat's conversation is waiting on, rather than
     // starting a new task. Anything longer is an ordinary message, whatever it happens to say.
-    const answered = await this.answerApproval(message.channel, message.chatId, message.text.trim(), message.senderId).catch(() => null);
+    const answered = await this.answerApproval(message.channel, message.chatId, message.text.trim(), message).catch(() => null);
     if (answered) {
       await this.deliver(message.channel, message.chatId,
         answered.refusal ? answered.refusal

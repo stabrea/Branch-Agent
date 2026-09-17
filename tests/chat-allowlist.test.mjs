@@ -313,7 +313,7 @@ test("the switch never reaches a name a chat may never have, and never a standin
   // "Yes always" is a standing yes, and a chat never gets one however its line is written: a chat
   // message's task is not one the owner started, and Runtime.approve refuses a standing yes for
   // those whoever answered. The switch neither needs to add that refusal nor may get round it.
-  await assert.rejects(() => app.channels.answerApproval("chat", "c1", "a", "owner"),
+  await assert.rejects(() => app.channels.answerApproval("chat", "c1", "a", { senderId: "owner", chatKind: "direct" }),
     /standing yes/i, "a chat was given a standing yes");
   assert.equal(app.store.run(lastRun(app).id).status, "needs_input", "a standing yes from a chat went ahead");
   assert.equal(app.store.audit.list(app.runtime.owner, { action: "approval.decided" }).length, 0);
@@ -323,6 +323,20 @@ test("the switch never reaches a name a chat may never have, and never a standin
   // The one-off yes still works, so the refusal above is about "always" and nothing else.
   assert.equal(await app.channels.handle(message("y")), "replied");
   assert.match(chat.sent.at(-1), /Noted/);
+});
+
+test("a line's yes works one to one only, never in a group where anybody paired could press it", async (t) => {
+  // In a group anybody paired may answer, so a line naming one person — or naming everybody — was
+  // never the owner handing their yes to whoever else happens to be in the room. Same rule as the
+  // standing yes, which is also only offered one to one.
+  const { app, chat } = await stoppedOnAsk(t, [line({ approvals: true })]);
+  assert.equal(await app.channels.handle(message("y", { chatKind: "group" })), "replied");
+  assert.match(chat.sent.at(-1), /Branch app window/, "a group chat approved what a line granted");
+  assert.equal(app.store.run(lastRun(app).id).status, "needs_input", "the task went ahead on a group's yes");
+  assert.equal(app.store.audit.list(app.runtime.owner, { action: "approval.decided" }).length, 0);
+  // One to one, the same person on the same line still may.
+  assert.equal(await app.channels.handle(message("y")), "replied");
+  assert.match(chat.sent.at(-1), /Noted/, "the line's yes stopped working one to one as well");
 });
 
 test("a person with no line of their own gets nothing from somebody else's switch", async (t) => {

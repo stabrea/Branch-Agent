@@ -46,8 +46,6 @@ function draw() {
 
 function show(permissions) {
   $("chat-permissions-extras").checked = permissions?.extras === true;
-  /* The box for the next line starts clear, so a yes is never carried over into a line by accident. */
-  if ($("chat-permissions-approvals")) $("chat-permissions-approvals").checked = false;
   rules = (permissions?.rules ?? []).map((rule) => ({ ...rule, allow: [...rule.allow] }));
   draw();
 }

@@ -776,8 +776,12 @@ What it cannot do, however the line is written:
   not: a chat message's task is not one you started yourself, and Branch refuses a standing yes for
   those wherever the answer came from.
 - It does nothing at all while `extras` above it is off, and nothing for a person no line of yours names.
-- A line written with `sender: *` hands the yes to everybody paired on that app, in a group as well as
-  one to one. That is what the line says, so it is what happens; name the person if you meant one person.
+- It only works one to one. In a group anybody paired may press the button, and a line of yours was
+  not you handing your yes to whoever else is in the room, so a group gets No and the sentence saying
+  where the yes belongs — even for the person the line names. This is the same rule as `a`.
+- A line written with `sender: *` lets everybody paired on that app answer in their own one-to-one
+  chat with Branch. That is what the line says, so it is what happens; name the person if you meant
+  one person.
 
 Every save is written to the record, including how many of your lines may now answer yes from the chat,
 so turning one on is something you can find again later.
