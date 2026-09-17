@@ -199,6 +199,9 @@ import { handlesKnobsPath, knobsApi, KnobsApiError } from "./knobs/api.js";
 // R17-E: models, cheaper and smarter (src/model-savings/).
 import { handlesSavingsPath, savingsApi, SavingsApiError } from "./model-savings/api.js";
 import { savingsRefusal } from "./short-lived-keys.js";
+// R17-S-C: the comfort settings (src/comfort/); every change is the owner's.
+import { ComfortApiError, comfortApi, handlesComfortPath } from "./comfort/api.js";
+import { comfortRefusal } from "./short-lived-keys.js";
 // mac3/never-break: the gateway switch and suggested changes (src/never-break/api.ts).
 import { handlesNeverBreakPath, NeverBreakApiError, neverBreakApi } from "./never-break/api.js";
 import { channelSetupApi, handlesChannelSetupPath } from "./channel-setup/api.js"; // mac7/connect
@@ -475,6 +478,7 @@ async function staticFile(
     "/knobs.js": ["knobs.js", "text/javascript; charset=utf-8"], // R17-S-B: the hidden knobs
     "/model-savings.js": ["model-savings.js", "text/javascript; charset=utf-8"], // R17-E
     "/round-chart.js": ["round-chart.js", "text/javascript; charset=utf-8"], // R17-E (R17-049)
+    "/comfort.js": ["comfort.js", "text/javascript; charset=utf-8"], // R17-S-C
     // mac3/never-break: the Keep running card and the Telegram setup card.
     "/never-break.js": ["never-break.js", "text/javascript; charset=utf-8"],
     // mac6/accounts: the Accounts list in each connection's card, and the chip in the conversation header.
@@ -867,6 +871,10 @@ async function api(
   if (handlesSavingsPath(path))
     return savingsApi(app, request, path, new URL(request.url ?? "/", "http://branch.invalid"), readBody)
       .catch((error: unknown) => { throw error instanceof SavingsApiError ? new HttpError(error.status, error.message) : error; });
+  // R17-S-C: shortcuts, status line, notifications, voice keys, browser care, proxy and certificates.
+  if (handlesComfortPath(path))
+    return comfortApi({ store: app.store, runtime: app.runtime, outbound: app.comfort.outbound }, request, path, readBody)
+      .catch((error: unknown) => { throw error instanceof ComfortApiError ? new HttpError(error.status, error.message) : error; });
   // mac6/accounts: the accounts of each connection, and switching between them.
   if (handlesAccountsPath(path))
     return accountsApi(request, path, {
@@ -3303,6 +3311,8 @@ export function offLimitsToShortLivedKeys(method: string | undefined, path: stri
   // R17-S-B: the knobs include which environment variables commands get and how keys are hidden.
   if (handlesKnobsPath(path)) return knobsRefusal;
   if (handlesSavingsPath(path)) return savingsRefusal; // R17-E
+  // R17-S-C: the proxy, certificates, browser care and automatic updates are the owner's.
+  if (handlesComfortPath(path)) return comfortRefusal;
   // mac3/never-break: the gateway's settings are the owner's alone.
   if (handlesNeverBreakPath(path)) return "A short-lived key cannot change how Branch keeps itself running. Do that in the app window.";
   // mac7/connect: saving a chat app's token or switching setting-up on is the owner's alone.

@@ -35,6 +35,8 @@ export interface CommandContext {
   newConversation(): void;
   quit(): void;
   keys(): void;
+  /** R17-S21: opens a model picker and says true, where the view can draw one. */
+  pickModel?(): boolean;
   /** What the shared commands can reach; the runtime alone when the view was opened without the app. */
   host?: CommandHost;
 }
@@ -56,7 +58,7 @@ function listModels(context: CommandContext): void {
 }
 function chooseModel(context: CommandContext, argument: string): void {
   const { runtime, conversation } = context, models = runtime.models;
-  if (!argument) return listModels(context);
+  if (!argument) return context.pickModel?.() ? undefined : listModels(context); // R17-S21: a picker in the full view
   if (!models.presets.has(argument)) return context.say("warn", `No model called ${argument}. Use /model to list them.`);
   conversation.model = argument;
   if (conversation.sessionId) models.configureSession(runtime.owner, conversation.sessionId, { preset: argument });
