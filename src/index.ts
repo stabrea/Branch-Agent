@@ -150,6 +150,9 @@ import { DebugAdapters, registerDebug } from "./debug-adapter.js";
 import { registerCheckpoints } from "./checkpoints.js";
 import { KeptArtifacts, registerKeptArtifacts } from "./build-artifacts.js";
 import { OpenApiTools, registerOpenApiTools } from "./openapi-tools.js";
+// mac2/fly-core: the learning core switch and its on-demand tool.
+import { flyCoreSettings } from "./fly-core/settings.js";
+import { setFlyCoreMode, syncSuggestTool } from "./fly-core/tool.js";
 
 export async function createBranch(options: {
   workspace: string;
@@ -240,6 +243,8 @@ export async function createBranch(options: {
   registerLanguageServers(registry, languageServers, codeChanges);
   const debugAdapters = new DebugAdapters(store, options.owner ?? "local", files);
   registerDebug(registry, debugAdapters);
+  // ── mac2/fly-core: the learning core's on-demand tool, present only while its switch is not off. ──
+  syncSuggestTool(registry, store, options.owner ?? "local");
   // Programs left running (a preview server, a watcher) and small scripts run on their own. Both
   // go through the same approval a host command does, and both are off until the owner sets them up.
   const processes = new BackgroundProcesses(store, options.owner ?? "local", workspace);
@@ -755,6 +760,11 @@ export async function createBranch(options: {
     store,
     registry,
     runtime,
+    /** mac2/fly-core: the learning core's three-way switch (off, when-needed, on); it ships off. */
+    learningCore: {
+      settings: () => flyCoreSettings(store, options.owner ?? "local"),
+      configure: (input: unknown) => setFlyCoreMode(store, options.owner ?? "local", input, registry),
+    },
     /** Wave 8: the shape conversations make when one is branched off another, and carrying an answer back. */
     sessionTree,
     files,

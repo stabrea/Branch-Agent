@@ -11,6 +11,7 @@ import { activeCells, forgetHalfLifeDays, kenyonCells } from "../dist/fly-core/s
 import { packWeights, unpackWeights } from "../dist/fly-core/state.js";
 import { outcomeOf, usesOf } from "../dist/fly-core/signals.js";
 import { FlyCore, patternSuccesses } from "../dist/fly-core/hook.js";
+import { suggestToolName } from "../dist/fly-core/settings.js";
 
 /**
  * The learning core (src/fly-core): a sparse code for the situation, three-factor learning at the
@@ -33,10 +34,12 @@ const call = (name, args) => ({ content: "", toolCalls: [{ id: `c${Math.random()
 const writeThenRead = () => scripted([
   call("files.write", { path: "note.txt", content: "hi" }), call("files.read", { path: "note.txt" }), { content: "done", toolCalls: [] },
 ]);
-async function fixture(t, provider) {
+/** A fresh app with the learning core switched to `mode` (it ships off). */
+async function fixture(t, provider, mode = "on") {
   const root = await mkdtemp(join(tmpdir(), "branch-fly-core-"));
   const open = () => createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider });
   const app = await open();
+  if (mode !== "off") app.learningCore.configure({ mode });
   const state = { app };
   t.after(async () => { await state.app.close(); await discardTemp(root); });
   return { state, open };
@@ -181,4 +184,29 @@ test("F9 memories whose use keeps going well or badly are named for keeping or f
   }
   core.state.save("local", [...circuit.actions.values()]);
   assert.deepEqual(core.memoryAdvice("local"), { strengthen: ["helpful-fact"], fade: ["stale-fact"] });
+});
+
+test("F10 the switch ships off; off runs and stores nothing, when-needed only learns and waits to be asked", async (t) => {
+  const { state } = await fixture(t, writeThenRead(), "off");
+  const app = state.app;
+  const tables = () => app.store.sqlite.prepare("SELECT name FROM sqlite_master WHERE name LIKE 'fly_%'").all().length;
+  const hasTool = () => app.registry.descriptions(new Set(["memory.read"])).some((tool) => tool.name === suggestToolName);
+  assert.deepEqual(app.learningCore.settings(), { mode: "off" }, "a fresh install has it off");
+  const quiet = await app.runtime.run({ prompt: "save a note about the garden" });
+  assert.equal(quiet.status, "completed");
+  assert.ok(!app.store.events(quiet.id).some((event) => event.kind.startsWith("fly.")), "off: no hook ran");
+  assert.equal(tables(), 0, "off: nothing is stored, not even an empty table");
+  assert.equal(hasTool(), false, "off: the model is not offered the tool");
+  assert.throws(() => app.learningCore.configure({ mode: "sometimes" }), "only the three positions are accepted");
+
+  app.learningCore.configure({ mode: "when-needed" });
+  assert.equal(hasTool(), true, "when needed: one short tool waits in the catalog");
+  const learning = await app.runtime.run({ prompt: "save a note about the garden" });
+  assert.equal(eventOf(app, learning.id, "fly.suggested"), undefined, "when needed: nothing is worked out at the start");
+  assert.ok(eventOf(app, learning.id, "fly.learned").signal > 0, "but the outcome is still learned from");
+  const asked = await app.registry.execute(suggestToolName, { request: "save a note about the garden" }, app.runtime.context());
+  assert.deepEqual(asked.tools.map((s) => s.name).sort(), ["files.read", "files.write"], "asking the tool gives the ranking");
+
+  app.learningCore.configure({ mode: "off" });
+  assert.equal(hasTool(), false, "switching off takes the tool away at once");
 });

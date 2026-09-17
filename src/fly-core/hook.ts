@@ -5,13 +5,15 @@ import { type ActionKind, type ActionUse, type Circuit, type Scored } from "./ci
 import { Expansion, requestKind, type KenyonCode, type TaskContext } from "./encode.js";
 import { correctionSignal, isCorrection, outcomeOf } from "./signals.js";
 import { correctionTraceMinutes } from "./sizes.js";
+import { flyCoreSettings } from "./settings.js";
 import { FlyState } from "./state.js";
 
 /**
  * Branch's learning core, as the runtime sees it: when a task starts, it ranks what has worked in
  * situations like this one; when the task ends, it learns from how it went.
  *
- * Version 1 gives advice only. The ranking is written on the task as a `fly.suggested` event; a
+ * It follows the owner's three-way switch (settings.ts), which ships off. Version 1 gives advice
+ * only. With the switch on, the ranking is written on the task as a `fly.suggested` event; a
  * pattern of steps that keeps working is offered as a skill idea in the owner's existing review
  * queue; nothing is changed without the owner. See experiments/fly-core for how well it learns.
  */
@@ -119,24 +121,26 @@ export class FlyCore {
 }
 
 /** Where the task started from, as the tasks table recorded it. */
-function contextOf(store: Store, run: Run): TaskContext {
+export function contextOf(store: Store, run: Run): TaskContext {
   const row = store.sqlite.prepare("SELECT source, project FROM tasks WHERE id=?").get(run.id);
   return { prompt: run.prompt, project: String(row?.project ?? run.project ?? "default"), source: String(row?.source ?? "owner") };
 }
 
 /**
- * The runtime's one call. Ranks suggestions as the task starts and returns what to call when it
- * has settled. Nothing here may fail or slow a task: any error is recorded and dropped.
+ * The runtime's one call. With the switch off it does nothing at all. Otherwise it applies a
+ * correction, ranks suggestions as the task starts (only when the switch is on), and returns what
+ * to call when the task has settled. Nothing here may fail or slow a task: errors are recorded.
  */
-export function watchTask(store: Store, run: Run, owner: string, core = new FlyCore(store)): (settled: Run) => void {
+export function watchTask(store: Store, run: Run, owner: string, makeCore = () => new FlyCore(store)): (settled: Run) => void {
   try {
-    if (store.sessionTemporary(run.sessionId)) return () => undefined;
+    const mode = flyCoreSettings(store, owner).mode;
+    if (mode === "off" || store.sessionTemporary(run.sessionId)) return () => undefined;
+    const core = makeCore();
     const corrected = isCorrection(run.prompt) && core.applyCorrection(owner, run.sessionId);
     const code = core.code(owner, contextOf(store, run));
-    const advice = core.suggest(owner, code);
-    store.event(run.id, "fly.suggested", { ...advice, corrected, activeCells: code.length });
+    if (mode === "on") store.event(run.id, "fly.suggested", { ...core.suggest(owner, code), corrected, activeCells: code.length });
     return (settled) => {
-      try { store.event(run.id, "fly.learned", core.learn(owner, settled, code)); }
+      try { store.event(run.id, "fly.learned", { ...core.learn(owner, settled, code), corrected }); }
       catch (error) { noteFailure(store, run.id, error); }
     };
   } catch (error) {
