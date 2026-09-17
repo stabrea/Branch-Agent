@@ -9,7 +9,8 @@ import { OpenAIResponsesProvider, type ResponsesOptions } from "./openai-respons
  *   - the route is `/agent` rather than `/responses`;
  *   - a model is picked either by a preset (`fast`, `low`, `medium`, `high`, `xhigh`) or by a
  *     `provider/model` name, so a preset name goes in `preset` and anything else in `model`;
- *   - input text parts are `input_text` only, so an earlier reply is sent as plain words.
+ *   - an earlier reply is sent as plain words. Not confirmed against Perplexity's docs (the
+ *     migration guide does not say which input parts it takes); this is the cautious shape.
  */
 export const perplexityPresets = ["fast", "low", "medium", "high", "xhigh"] as const;
 
