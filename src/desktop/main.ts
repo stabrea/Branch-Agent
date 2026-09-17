@@ -13,6 +13,7 @@ import { resolveDataLocation } from "../install/layout.js";
 import { attachToRunning } from "../install/running.js";
 import { writeUpdateBackup } from "../install/update-backup.js";
 import { requestUpdateBackup, stopBackgroundEngine } from "../install/background-engine.js";
+import { installedAppRoot } from "./install-root.js";
 import { startsMinimized } from "../install/autostart.js";
 import { createBranch } from "../index.js";
 import { defaultPreset, providerFromEnv } from "../providers.js";
@@ -215,7 +216,7 @@ async function start(): Promise<void> {
     const server = await startServer(branch, {
       dataDir, port: 0, presence: "app",
       executable: app.isPackaged ? process.execPath : null,
-      installRoot: app.isPackaged ? dirname(process.execPath) : null,
+      installRoot: installedAppRoot(app.isPackaged, process.platform, process.execPath),
     });
     serverClose = server.close;
     await createWindow(server.url, server.token, settings, {
