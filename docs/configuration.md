@@ -772,16 +772,17 @@ What it cannot do, however the line is written:
   yes, so a line that may answer yes to `files.write` cannot answer yes to what another line granted.
 - It never reaches a name a chat may never have. Everything in the paragraphs above — the exact names
   and the whole families — is still refused, even if a line names it and ticks the box.
-- It never becomes a standing yes. `a` ("yes always") was never offered for a chat's task and still is
-  not: a chat message's task is not one you started yourself, and Branch refuses a standing yes for
-  those wherever the answer came from.
+- It never becomes a standing yes. `a` ("yes always") is not offered in a chat at all, and typing it
+  is answered with a sentence saying a standing yes has to be given here in the window. Nothing is
+  written to your rules by it, whoever asked and whatever their line says.
 - It does nothing at all while `extras` above it is off, and nothing for a person no line of yours names.
 - It only works one to one. In a group anybody paired may press the button, and a line of yours was
   not you handing your yes to whoever else is in the room, so a group gets No and the sentence saying
   where the yes belongs — even for the person the line names. This is the same rule as `a`.
-- A line written with `sender: *` lets everybody paired on that app answer in their own one-to-one
-  chat with Branch. That is what the line says, so it is what happens; name the person if you meant
-  one person.
+- It needs a line that names **one person on one app**. A line written with `*` for the app or for
+  the person keeps its tick with no effect: the widest line there is would otherwise have been the
+  easiest one to tick, since both boxes fall back to `*` when you leave them empty. Such a line
+  still adds what it allows; only its yes is refused.
 
 Every save is written to the record, including how many of your lines may now answer yes from the chat,
 so turning one on is something you can find again later.

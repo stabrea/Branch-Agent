@@ -169,7 +169,11 @@ test("G2 the letters and the buttons say the same thing, and a yes is tied to th
   assert.deepEqual(readApprovalAnswer(`n:${fingerprint}`), { decision: "deny", remember: "session", fingerprint });
   assert.equal(readApprovalAnswer("write the file"), null, "an ordinary message is not an answer");
   assert.equal(readApprovalAnswer(""), null);
-  assert.match(approvalFallbackNote, /reply y for yes, a for yes always, or n for no/i);
+  /* mac7/chat-approvals (integration review): the note is only ever sent to a chat, and a chat may
+     never give a standing yes, so the letter for one is not offered there. "a" is still read, for
+     the window and the API that may give one. */
+  assert.match(approvalFallbackNote, /reply y for yes, or n for no/i);
+  assert.equal(/yes always/i.test(approvalFallbackNote), false);
 });
 
 test("G2 Discord's component payload is an action row of buttons carrying the same answers", async () => {
@@ -226,6 +230,42 @@ test("G2 a paused task asks in Telegram with buttons, and a pressed button answe
   assert.ok(decided.length >= 1);
   assert.match(decided[0].reason, /answered on telegram/);
   assert.equal(decided[0].outcome, "allowed");
+});
+
+test("G2 a button pressed by a bot answers nothing, the same as a message from one", async (t) => {
+  /* mac7/chat-approvals (integration review): an ordinary message from a bot is dropped before it is
+     anything, but a pressed button was not, so a bot posting as somebody the owner named on a line
+     would have carried that person's yes. The two ways in have to agree. */
+  const { TelegramAdapter } = await import("../dist/index.js");
+  const { app } = await served(t, writesAFile("gated.txt"));
+  const { state, apiBase } = await fakeTelegram(t);
+  const adapter = new TelegramAdapter({ id: "telegram", token: "123:abc", apiBase, pollTimeoutSeconds: 1 });
+  await app.channels.attach(adapter, { activation: "always", pairing: false, allowlist: ["42"] });
+  t.after(async () => { await app.channels.detachAll(); });
+  const chat = { id: 501, type: "private" };
+  const person = { id: 42, first_name: "Alice", username: "alice" };
+  app.store.save("settings", app.runtime.owner, "policy", { preset: "ask-before-changes", rules: [{ tool: "*", applies: "changes", decision: "ask", remember: "session" }], limits: {} });
+  app.channels.setPermissionSettings({ extras: true,
+    rules: [{ channel: "telegram", sender: "42", allow: ["files.write"], note: "my own phone", approvals: true }] });
+
+  state.queue.push({ update_id: 1, message: { message_id: 10, text: "write the notes", from: person, chat } });
+  await until(() => state.sent.some((sent) => sent.reply_markup), "the question went out with buttons");
+  const row = state.sent.find((sent) => sent.reply_markup).reply_markup.inline_keyboard[0];
+  const waiting = app.runtime.waitingApprovals()[0];
+  const sessionId = waiting.sessionId;
+
+  /* The same id, the same chat, the same button — but Telegram says it is a bot. */
+  state.queue.push({ update_id: 2, callback_query: { id: "cb1", data: row[0].callback_data,
+    from: { ...person, is_bot: true }, message: { message_id: 11, chat, from: person } } });
+  await until(() => state.calls.filter((call) => call === "getUpdates").length >= 3, "the update was taken off the queue");
+  assert.equal(app.runtime.waitingApprovals(sessionId).length, 1, "a bot's press answered the question");
+  assert.equal(app.runtime.allowedNow(sessionId).length, 0, "and something was allowed by it");
+  assert.equal(app.store.audit.list(app.runtime.owner, { action: "approval.decided" }).length, 0);
+
+  /* The person's own press still lands, so this refuses bots and nothing else. */
+  state.queue.push({ update_id: 3, callback_query: { id: "cb2", data: row[0].callback_data, from: person,
+    message: { message_id: 12, chat, from: person } } });
+  await until(() => app.runtime.waitingApprovals(sessionId).length === 0, "the person's own press stopped working");
 });
 
 test("G2 a button press is refused from another chat, from a stranger, with the wrong fingerprint, and a second time", async (t) => {
@@ -347,7 +387,7 @@ test("G2 without the owner's switch the chat gets No alone and is told where the
   assert.equal(decided[0].outcome, "refused");
 });
 
-test("G2 a channel with no buttons gets the same question with reply y / a / n", async (t) => {
+test("G2 a channel with no buttons gets the same question with reply y / n", async (t) => {
   const { app } = await served(t, writesAFile("gated.txt"));
   const sent = [];
   /* A plain adapter: it can send words and nothing else, which is WhatsApp and email. */

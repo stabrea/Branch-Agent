@@ -79,8 +79,18 @@ export const ChatPermissionRuleSchema = z.object({
    * for any run the owner did not start themselves.
    */
   approvals: z.boolean().default(false),
-}).strict();
+}).strict()
+  // Integration review (mac7/chat-approvals): the switch is one named person on one named app, so a
+  // line written with "*" in either place never carries it. Both boxes in the card fall back to "*"
+  // when left empty, which would have made the widest line there is the easiest one to tick: every
+  // paired person on every app answering yes to everything any line granted. A transform rather than
+  // a check that fails, because the settings are read back with `safeParse` and a refusal there
+  // would silently throw away the owner's whole list. A wide line still adds what it allows; only
+  // its yes is refused.
+  .transform((rule) => (rule.channel === "*" || rule.sender === "*" ? { ...rule, approvals: false } : rule));
 export type ChatPermissionRule = z.infer<typeof ChatPermissionRuleSchema>;
+/** Whether this line is about one named person on one named app, which its yes needs and its grant does not. */
+const namesOnePerson = (rule: ChatPermissionRule): boolean => rule.channel !== "*" && rule.sender !== "*";
 
 /**
  * The owner's setting. `extras` is off on a fresh install, so a chat's task gets the short list and
@@ -177,9 +187,26 @@ export function chatApprovablePermissions(
   if (!settings.extras) return [];
   // Per line, not per person: a line that may answer yes lends its yes to what that same line
   // granted and to nothing else, so two lines for one person never borrow each other's reach.
-  const named = settings.rules.filter((rule) => rule.approvals && covers(rule, channel, sender)).flatMap((rule) => rule.allow);
+  // `namesOnePerson` again after the schema already dropped the tick from a wide line: this is the
+  // gate that decides, and it must not depend on a value having been rewritten somewhere upstream.
+  const named = settings.rules
+    .filter((rule) => rule.approvals && namesOnePerson(rule) && covers(rule, channel, sender))
+    .flatMap((rule) => rule.allow);
   return [...new Set(named)].filter(grantableToChat);
 }
+
+/**
+ * Integration review (mac7/chat-approvals): what a chat is told when it types "a".
+ *
+ * "Yes always" writes a rule that answers every question like this one from now on, and a chat is
+ * the one place that may never do it: the app cannot prove who is typing, so a standing yes given
+ * there is a standing yes given by whoever holds the account. The letter used to reach
+ * `Runtime.approve`, throw there, and be swallowed by the caller, which left the chat treating "a"
+ * as an ordinary message and sending the single letter on to the assistant. It is answered here.
+ */
+export const standingYesInWindow =
+  "A standing yes cannot come from a chat: \"yes always\" has to be given in the Branch app window. "
+  + "Reply y to allow this one thing just this once, or n to refuse it.";
 
 /**
  * Whether a "yes" typed in a chat may answer a question about this permission: always for the short
