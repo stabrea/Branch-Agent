@@ -3242,3 +3242,19 @@ The graduated warn / refuse / stop loop guard in `src/loop-guard.ts` — countin
 ### Gemini CLI (Google) loop detection and folder trust (idea only), Apache-2.0
 
 The loop detection in `src/loop-guard.ts` and the trusted folders in `src/folder-trust.ts`, with their read-only listing before a folder is trusted, are ideas from Gemini CLI's `packages/core/src/services/loopDetectionService.ts`, `packages/core/src/utils/trust.ts` and `packages/core/src/services/FolderTrustDiscoveryService.ts` (https://github.com/google-gemini/gemini-cli), Copyright 2025 Google LLC, licensed under the Apache License, Version 2.0 (https://www.apache.org/licenses/LICENSE-2.0). They were written afresh; no code was copied.
+
+### OpenCode command arity table, MIT
+
+The table of how many words name a program's action in `src/command-prefix.ts` (`git status`, `npm run dev`) is copied from OpenCode's `packages/opencode/src/permission/arity.ts` (https://github.com/sst/opencode), together with its longest-prefix lookup. Used under the MIT licence:
+
+Copyright (c) 2025 opencode
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+### Goose and Codex approval reviewers (idea only), Apache-2.0
+
+The second model that reviews tool calls in `src/approval-reviewer.ts` — deciding whether a tool that does not say only reads, and checking a risky call against the owner's own rules with its arguments treated as untrusted data — follows the ideas of Goose's `crates/goose/src/permission/permission_judge.rs` and `crates/goose/src/security/adversary_inspector.rs` (https://github.com/block/goose, Copyright 2024 Block, Inc.) and Codex's `codex-rs/core/src/guardian/` (https://github.com/openai/codex, Copyright 2025 OpenAI), both licensed under the Apache License, Version 2.0 (https://www.apache.org/licenses/LICENSE-2.0). It was written afresh; no code was copied.

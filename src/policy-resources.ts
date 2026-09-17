@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { sandboxSentences, type SandboxChoice } from "./sandbox.js";
+import { commandCovers, tidyCommand } from "./command-prefix.js";
 
 /**
  * What a rule is *about*, beyond the tool's name: a folder in the workspace, a website, a messaging
@@ -47,8 +48,8 @@ export function hostMatches(pattern: string, value: string): boolean {
   return host === rule || host.endsWith("." + rule);
 }
 
-/** The first word of a command, which is the program being run: "git status" is the command "git". */
-export const commandAlias = (command: string): string => (command.trim().split(/[\s]+/)[0] ?? "").replace(/^.*[\\/]/, "");
+/** Tools whose target is a command line: a program on this computer, or one kept open. */
+export const isCommandTool = (tool: string): boolean => tool === "shell.execute" || /^(shell|terminal)\./.test(tool);
 
 /**
  * Which kind of thing a call is about. The tool's own name decides first, because a browser click
@@ -64,8 +65,10 @@ export function resourceOf(tool: string, permission: string, target: string, arg
   if (/^(browser|web)\./.test(tool) || /^(browser|web)\./.test(permission)) return { kind: "host", value: target };
   // Batch 26 (wave 8): a program on another computer is a command like any other, but its target
   // reads "tower: make build", so the computer's name is taken off before the program is read.
-  if (tool === "remote.run") return { kind: "command", value: commandAlias(target.split(": ").slice(1).join(": ") || target) };
-  if (tool === "shell.execute" || /^(shell|terminal)\./.test(tool)) return { kind: "command", value: commandAlias(target) };
+  // Wave mac3 (tool-safety): the value is the whole command, tidied, so a rule can name a program
+  // ("git") or one of its actions ("git status"); see src/command-prefix.ts.
+  if (tool === "remote.run") return { kind: "command", value: tidyCommand(target.split(": ").slice(1).join(": ") || target) };
+  if (isCommandTool(tool)) return { kind: "command", value: tidyCommand(target) };
   if (/^(channels|email)\./.test(tool) || /^(channels|email)\./.test(permission))
     return { kind: "channel", value: String(a.channel ?? a.to ?? a.chat ?? target) };
   // Otherwise the target itself says what kind of thing it is. Going by the target rather than the
@@ -74,11 +77,19 @@ export function resourceOf(tool: string, permission: string, target: string, arg
   return looksLikeHost(target) ? { kind: "host", value: target } : { kind: "path", value: target };
 }
 
-/** Whether a rule's resource matcher fits what the call is about. A different kind never matches. */
-export function resourceMatches(matcher: ResourceMatcher, resource: PolicyResource | null | undefined): boolean {
+/**
+ * Whether a rule's resource matcher fits what the call is about. A different kind never matches.
+ * A command rule covers the words it names and anything after them ("git" covers "git push",
+ * "git status" does not); what a joined command can match depends on the rule's decision, so a
+ * rule can only ever be made stricter by it (src/command-prefix.ts).
+ */
+export function resourceMatches(
+  matcher: ResourceMatcher, resource: PolicyResource | null | undefined, decision: "allow" | "ask" | "deny" = "allow",
+): boolean {
   if (!resource || matcher.kind !== resource.kind) return false;
   if (matcher.kind === "path") return pathMatches(matcher.pattern, resource.value);
   if (matcher.kind === "host") return hostMatches(matcher.pattern, resource.value);
+  if (matcher.kind === "command") return commandCovers(matcher.pattern, resource.value, decision);
   return globMatches(matcher.pattern, resource.value);
 }
 

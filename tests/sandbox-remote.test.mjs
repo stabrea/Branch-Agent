@@ -820,10 +820,11 @@ test("A0648 a rule about another computer is about the program, not the computer
 
   // "tower: make build" is a command rule about `make`, so "always allow make" means make and not
   // everything that computer can run.
+  // Wave mac3 (tool-safety): the whole command is kept; a rule naming "make" still covers it.
   assert.deepEqual(resourceOf("remote.run", "remote.execute", "tower: make build", { computer: "tower", program: "make" }),
-    { kind: "command", value: "make" });
+    { kind: "command", value: "make build" });
   assert.deepEqual(resourceOf("remote.run", "remote.execute", "tower: /usr/bin/make build", {}),
-    { kind: "command", value: "make" });
+    { kind: "command", value: "make build" });
 
   // Running a program elsewhere is a change, so the strict presets cover it without naming it.
   assert.equal(isReadOnlyPermission("remote.execute"), false);

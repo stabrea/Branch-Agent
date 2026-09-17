@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { audit } from "./audit.js";
-import { globMatches, ResourceMatcherSchema, resourceMatches, type PolicyResource } from "./policy-resources.js";
+import { globMatches, isCommandTool, ResourceMatcherSchema, resourceMatches, type PolicyResource } from "./policy-resources.js";
+import { commandPrefix } from "./command-prefix.js";
 import { sandboxChoices } from "./sandbox.js";
 import { sandboxBackends } from "./sandbox-backends.js";
 import type { Store } from "./store.js";
@@ -178,6 +179,11 @@ export function policyTarget(tool: string, args: unknown): string {
   const a = (args && typeof args === "object" ? args : {}) as Record<string, unknown>;
   if (tool === "shell.execute")
     return [a.executable, ...(Array.isArray(a.args) ? a.args : [])].map((v) => String(v ?? "")).join(" ").trim().slice(0, 300);
+  // Wave mac3 (tool-safety): a command sent to a command line kept open is that command, and opening
+  // one is the program it opens, exactly as the tools themselves report it (src/shell-session.ts).
+  if (tool === "shell.session.run" && typeof a.input === "string") return a.input.slice(0, 300);
+  if (tool === "shell.session.open" && typeof a.program === "string")
+    return [a.program, ...(Array.isArray(a.args) ? a.args : [])].map((v) => String(v ?? "")).join(" ").trim().slice(0, 300);
   if (typeof a.url === "string") {
     try { return new URL(a.url).host; } catch { return a.url.slice(0, 300); }
   }
@@ -196,7 +202,7 @@ function ruleCovers(rule: PolicyRule, request: PolicyRequest): boolean {
   if (rule.applies === "changes" && request.readOnly) return false;
   if (!globMatches(rule.tool, request.tool)) return false;
   if (!globMatches(rule.match, request.target)) return false;
-  return rule.resource ? resourceMatches(rule.resource, request.resource) : true;
+  return rule.resource ? resourceMatches(rule.resource, request.resource, rule.decision) : true;
 }
 /**
  * The first rule that matches decides, and rules that name a particular folder, website, account or
@@ -255,15 +261,31 @@ export function savePolicy(store: Store, owner: string, input: unknown, reason =
   audit(store, owner, { action: "policy.changed", actor: owner, subject: `${next.preset}, ${next.rules.length} rules`, reason, outcome: "saved" });
   return next;
 }
+/**
+ * Wave mac3 (tool-safety): a standing answer about a command covers that one action of the program
+ * — "git status" with any flags, but not "git push" — rather than only the exact words it was given
+ * for. A command that cannot be narrowed safely (see src/command-prefix.ts) is kept word for word,
+ * and a program on another computer stays tied to that computer.
+ */
+export function standingRule(rule: PolicyRule): PolicyRule {
+  const remote = rule.tool === "remote.run";
+  if (rule.resource || rule.match === "*" || rule.match.includes("*") || !(remote || isCommandTool(rule.tool))) return rule;
+  const at = remote ? rule.match.indexOf(": ") : 0;
+  if (at < 0) return rule;
+  const prefix = commandPrefix(remote ? rule.match.slice(at + 2) : rule.match);
+  if (!prefix) return rule;
+  return { ...rule, match: remote ? `${rule.match.slice(0, at)}: *` : "*", resource: { kind: "command", pattern: prefix } };
+}
 /** Records a standing answer as a rule in front of the others, so it beats the broader ones. */
 export function addPolicyRule(store: Store, owner: string, rule: z.input<typeof PolicyRuleSchema>): Policy {
   const current = readPolicy(store, owner);
-  const added = PolicyRuleSchema.parse(rule);
+  const added = standingRule(PolicyRuleSchema.parse(rule));
   const next: Policy = { ...current, rules: [added, ...current.rules].slice(0, maximumPolicyRules) };
   store.save("settings", owner, policyKey, next);
   audit(store, owner, {
     action: "policy.changed", actor: owner, subject: `${added.tool} on ${added.match}`,
-    reason: `A standing "${added.decision}" was remembered from a question you answered`, outcome: "saved",
+    reason: `A standing "${added.decision}" was remembered from a question you answered`
+      + (added.resource ? `, for the command ${added.resource.pattern}` : ""), outcome: "saved",
   });
   return next;
 }
