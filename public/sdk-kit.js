@@ -103,6 +103,10 @@ async function render() {
 // Filled again whenever a place, a tab or a Settings page is opened, so a flow saved a moment ago is
 // in the list; and once now, for a window that is already connected.
 document.addEventListener("click", (event) => {
-  if (event.target instanceof Element && event.target.closest(".lx-gear, .lx-place-link, .lx-tab, .lx-settings-link, .nav")) void render();
+  if (event.target instanceof Element && event.target.closest(".lx-gear, .lx-place-link, .lx-tab, .lx-settings-link, .nav")) // The language lines and the tool list are put together here, so they are drawn again in a new language.
+document.addEventListener("branch-language", () => void render());
+void render();
 });
+// The language lines and the tool list are put together here, so they are drawn again in a new language.
+document.addEventListener("branch-language", () => void render());
 void render();

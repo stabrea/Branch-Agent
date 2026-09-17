@@ -67,7 +67,7 @@ test("every Go snippet and the Go starter the sdk tools hand out compile against
   const root = await mkdtemp(join(tmpdir(), "branch-sdk-go-snippets-"));
   t.after(() => discardTemp(root));
   const module = "github.com/stabrea/Branch-Agent/packages/sdk-go";
-  const goMod = `module example.com/uses-branch\n\ngo 1.23\n\nrequire ${module} v0.0.0\n\nreplace ${module} => ${JSON.stringify(packageDir)}\n`;
+  const goMod = `module example.com/uses-branch\n\ngo 1.23\n\nrequire ${module} v0.0.0\n\nreplace ${module} => ${JSON.stringify(packageDir.replaceAll("\\", "/"))}\n`;
   const calls = apiRoutes.map((route) => `\t_, _ = ${routeSnippets(route).go}`).join("\n");
   const snippets = `package main
 
