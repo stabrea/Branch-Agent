@@ -990,10 +990,10 @@ ${run.output.slice(0, 6000)}`;
     this.add(run, messages, ids, await conductor.start());
     let checkFailures = 0;
     let knownTools = this.registry.version;
-    // ── bucket-15: which models the owner's filters are asked about; while an outlet filter applies,
-    // the live preview gets nothing (the stall watch still runs) and the filtered answer arrives whole. ──
-    const filterModels = [plan.choice.presetName ?? "", plan.choice.presetId ?? "", this.provider.name];
-    const preview = onTextDelta && this.holdsPreview(filterModels) ? () => undefined : onTextDelta;
+    // ── bucket-15: the owner's filters are asked about the connection that answers. The preview is held
+    // back (the stall watch still runs) while an outlet filter applies to any connection this round may
+    // fall back to, so filtered words never reach the page before the whole answer is filtered. ──
+    const namesOf = (preset: ModelPreset | undefined): string[] => preset ? [preset.name, preset.id, preset.model, preset.provider.name] : [];
     for (let round = 0; round < conductor.maxRounds(12); round++) {
       catalog.nextRound();
       if (this.registry.version !== knownTools) { knownTools = this.registry.version; this.reindex(run, context, catalog); }
@@ -1003,7 +1003,10 @@ ${run.output.slice(0, 6000)}`;
       await this.fitContext(run, messages, ids, context, route);
       this.store.event(run.id, "catalog.size", { round: round + 1, ...catalog.stats() });
       this.journal.turn(run.id, run.sessionId, round + 1); // mac3/never-break
+      const everyModel = [plan.choice.presetName ?? "", plan.choice.presetId ?? "", this.provider.name, ...route.candidates.flatMap(namesOf)];
+      const preview = onTextDelta && this.holdsPreview(everyModel) ? () => undefined : onTextDelta;
       const completion = await this.completeWithRetries(run, messages, context, route, preview);
+      const filterModels = [this.provider.name, ...namesOf(route.candidates[route.index])];
       // A think-then-act specialist writes one line of reasoning first. The transcript keeps it, so
       // the model can see its own trail; the owner reads it in the events; the answer never has it.
       const scratch = shape.scratch ? takeScratch(completion.content) : null;

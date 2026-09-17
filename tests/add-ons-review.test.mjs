@@ -369,6 +369,28 @@ test("review: while an outlet filter applies, the live preview never shows words
   assert.ok(other.join("").includes("4111"));
 });
 
+test("review: a filter for the connection a task falls back to holds the preview and filters that answer", async (t) => {
+  const { ProviderHttpError } = await import("../dist/provider-retry.js");
+  const answer = "Backup says 4111 1111 1111 1111.";
+  const main = { name: "main-provider", async complete() { throw new ProviderHttpError(503); } };
+  const backup = { name: "backup-provider", async complete(request) {
+    for (const piece of answer.split(" ")) request.onTextDelta?.(`${piece} `);
+    return { content: answer, toolCalls: [] };
+  } };
+  const root = await temp(t, "branch-addons-fallback-");
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"),
+    presets: [{ id: "main", name: "Main", provider: main, model: "m" }, { id: "backup", name: "Backup", provider: backup, model: "b" }],
+    retryPolicy: { maxRetries: 0, baseDelayMs: 1, maxDelayMs: 2 } });
+  t.after(() => app.close());
+  app.runtime.models.configure("local", { fallbackOrder: ["backup"] });
+  app.addOns.filters.save({ id: "cards", name: "Cards", stage: "outlet", match: "4111", action: "redact", text: "[card]", models: ["Backup"] });
+  const shown = [];
+  const run = await app.runtime.run({ prompt: "go", onTextDelta: (text) => shown.push(text) });
+  assert.equal(app.store.events(run.id).filter((event) => event.kind === "model.fallback").length, 1, "the task really fell back");
+  assert.equal(shown.join(""), "", "the fallback's words never reached the page unfiltered");
+  assert.doesNotMatch(run.output, /4111/);
+});
+
 test("review: words said beside tool calls are filtered too, and unreadable filters hold the preview back", async (t) => {
   let round = 0;
   const provider = { name: "scripted", async complete() {
