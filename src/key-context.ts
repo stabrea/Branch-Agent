@@ -64,18 +64,26 @@ export function runOrigin(store: EventReader, runId: string): RunOrigin {
   };
   const seen = new Set<string>();
   const queue = [runId];
+  // A chat message's task carries source "channel"; one saved before that said "owner" and only carried
+  // the "channel.inbound" mark the chat router writes, so that mark still means "channel". A chat seen
+  // anywhere along the chain wins, whatever order the rest is read in: a chat cannot prove who is typing.
+  let chat = false;
   while (queue.length && seen.size < 20) {
     const id = queue.shift()!;
     if (seen.has(id)) continue;
     seen.add(id);
-    const data = startOf(store, id);
+    const events = store.events(id);
+    const data = events.find((event) => event.kind === "run.started")?.data;
+    if (events.some((event) => event.kind === "channel.inbound")) chat = true;
     if (!data) continue;
     if (data.shortLivedKey === true) origin.shortLivedKey = true;
     if (typeof data.shortLivedKeyId === "string" && !origin.keyIds.includes(data.shortLivedKeyId)) origin.keyIds.push(data.shortLivedKeyId);
     if (typeof data.personProfileId === "string") origin.personProfileId ??= data.personProfileId;
     if (typeof data.source === "string" && data.source !== "owner") origin.source = data.source;
+    if (data.source === "channel") chat = true;
     for (const next of [data.parentRunId, data.resumedFrom]) if (typeof next === "string") queue.push(next);
   }
+  if (chat) origin.source = "channel";
   origin.lentTo = lentAlong(store, runId);
   return origin;
 }
@@ -104,4 +112,21 @@ export function keyAnswerRefusal(store: EventReader, runId: string | undefined):
   const { keyId } = shortLivedKeyMark();
   if (!keyId || !runId) return otherKeysQuestionRefusal;
   return runOrigin(store, runId).keyIds.includes(keyId) ? null : otherKeysQuestionRefusal;
+}
+
+/**
+ * Whether a chat message started this work, or started the task it belongs to. A chat cannot prove who
+ * is typing, so such work never gets what only the owner may do.
+ *
+ * The record is always read, never the context alone: a helper's context is built by hand and often
+ * carries no source at all, so a guard that believed the context would let a chat's helper through.
+ * Passing the store is therefore not optional (mac7/chat-source integration review).
+ */
+export function startedFromChat(context: { source?: string | undefined; runId?: string | undefined }, store: EventReader): boolean {
+  if (context.source === "channel") return true;
+  return !!context.runId && runOrigin(store, context.runId).source === "channel";
+}
+/** The refusal a chat message's task gets for something only the owner may do. */
+export function chatOwnerOnly(what: string): Error {
+  return new Error(`${what} is for the owner only, and a message from a chat app cannot prove who is typing. Do it in the Branch app.`);
 }

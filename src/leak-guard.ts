@@ -126,13 +126,32 @@ function insidePictures(text: string): (hit: LeakHit) => boolean {
   return (hit) => spans.some((span) => hit.start >= span.start && hit.end <= span.end);
 }
 
+// --- R17-S14: the owner's sensitivity and exceptions (src/knobs/leak-options.ts) ---
+/** How eagerly values are hidden. Left out, the guard works exactly as it always did. */
+export interface LeakOptions {
+  /** Also hide long random-looking strings (mixed case and digits, 32 characters or more). */
+  strict?: boolean;
+  /** Kinds the owner lets through. "private key" is never let through. */
+  except?: ReadonlySet<string>;
+}
+const randomLooking: Detector = { kind: "random-looking value", hints: [""],
+  pattern: /(?<![A-Za-z0-9_+/=-])[A-Za-z0-9_+/-]{32,512}={0,2}(?![A-Za-z0-9_+/=-])/g,
+  accept: (value) => /\d/.test(value) && /[a-z]/.test(value) && /[A-Z]/.test(value) };
+/** Every kind of value the guard can hide, for the owner's exceptions list. */
+export const leakKinds: readonly string[] = [...new Set([...detectors.map((d) => d.kind), randomLooking.kind])];
+const kept = (options: LeakOptions) => (hit: LeakHit): boolean =>
+  hit.kind === "private key" || !options.except?.has(hit.kind);
+// --- end R17-S14 ---
+
 /** Every key-shaped value in the text, in order, overlaps merged into the first one found. */
-export function findLeaks(text: string): LeakHit[] {
+export function findLeaks(text: string, options: LeakOptions = {}): LeakHit[] {
   if (text.length < 16) return [];
   const lower = text.toLowerCase();
   const inPicture = insidePictures(text);
-  const all = [...privateKeyHits(text), ...detectors.flatMap((detector) => detectorHits(text, lower, detector))]
+  const active = options.strict ? [...detectors, randomLooking] : detectors; // R17-S14
+  const all = [...privateKeyHits(text), ...active.flatMap((detector) => detectorHits(text, lower, detector))]
     .filter((hit) => !inPicture(hit))
+    .filter(kept(options))
     .sort((a, b) => a.start - b.start || b.end - a.end);
   const merged: LeakHit[] = [];
   for (const hit of all) {
@@ -146,8 +165,8 @@ export function findLeaks(text: string): LeakHit[] {
 export const hiddenMarker = (kind: string): string => `[hidden key-like value: ${kind}]`;
 
 /** The text with every key-shaped value replaced by a plain note, and the kinds that were hidden. */
-export function redactLeaks(text: string): { text: string; kinds: string[] } {
-  const hits = findLeaks(text);
+export function redactLeaks(text: string, options: LeakOptions = {}): { text: string; kinds: string[] } {
+  const hits = findLeaks(text, options);
   if (!hits.length) return { text, kinds: [] };
   let result = "", at = 0;
   for (const hit of hits) {
@@ -160,19 +179,19 @@ export function redactLeaks(text: string): { text: string; kinds: string[] } {
 const maxDepth = 32;
 const secretName = /^(?:password|passwd|passphrase|client[_-]?secret|secret[_-]?key|api[_-]?key|access[_-]?token|auth[_-]?token|authorization)$/i;
 /** The same through a whole tool result: objects, arrays and nested values; other things untouched. */
-export function redactLeaksIn<T>(value: T, kinds: Set<string> = new Set(), depth = 0): { value: T; kinds: Set<string> } {
-  if (typeof value === "string") return { value: redactText(value, kinds, depth) as T, kinds };
+export function redactLeaksIn<T>(value: T, kinds: Set<string> = new Set(), depth = 0, options: LeakOptions = {}): { value: T; kinds: Set<string> } {
+  if (typeof value === "string") return { value: redactText(value, kinds, depth, options) as T, kinds };
   if (!value || typeof value !== "object") return { value, kinds };
-  if (depth >= maxDepth) return deepFallback(value, kinds);
+  if (depth >= maxDepth) return deepFallback(value, kinds, options);
   if (Array.isArray(value))
-    return { value: value.map((entry) => redactLeaksIn(entry, kinds, depth + 1).value) as T, kinds };
+    return { value: value.map((entry) => redactLeaksIn(entry, kinds, depth + 1, options).value) as T, kinds };
   if (Object.getPrototypeOf(value) !== Object.prototype) return { value, kinds };
   const result: Record<string, unknown> = {};
   for (const [key, entry] of Object.entries(value)) {
     // `{ password: "…" }` is only recognisable with its name beside it, so the pair is looked at too.
-    const named = typeof entry === "string" && secretName.test(key) && looksLikeSecretValue(entry);
+    const named = typeof entry === "string" && secretName.test(key) && looksLikeSecretValue(entry) && !options.except?.has("password");
     if (named) kinds.add("password");
-    result[redactText(key, kinds, depth + 1)] = named ? hiddenMarker("password") : redactLeaksIn(entry, kinds, depth + 1).value;
+    result[redactText(key, kinds, depth + 1, options)] = named ? hiddenMarker("password") : redactLeaksIn(entry, kinds, depth + 1, options).value;
   }
   return { value: result as T, kinds };
 }
@@ -181,12 +200,12 @@ export function redactLeaksIn<T>(value: T, kinds: Set<string> = new Set(), depth
  * One string. Text that is itself JSON (tool-call arguments, a logged event) is cleaned value by
  * value and written back, so what comes out still parses; anything else is cleaned as text.
  */
-function redactText(text: string, kinds: Set<string>, depth = 0): string {
-  const done = redactLeaks(text);
+function redactText(text: string, kinds: Set<string>, depth = 0, options: LeakOptions = {}): string {
+  const done = redactLeaks(text, options);
   if (!done.kinds.length) return text;
   if (/^\s*[{[]/.test(text) && depth < maxDepth && parses(text) && !parses(done.text)) {
-    const cleaned = JSON.stringify(redactLeaksIn(JSON.parse(text) as unknown, kinds, depth + 1).value);
-    if (!findLeaks(cleaned).length) return cleaned;
+    const cleaned = JSON.stringify(redactLeaksIn(JSON.parse(text) as unknown, kinds, depth + 1, options).value);
+    if (!findLeaks(cleaned, options).length) return cleaned;
     return JSON.stringify("[hidden: this part held a key-like value]");
   }
   done.kinds.forEach((kind) => kinds.add(kind));
@@ -198,19 +217,19 @@ function parses(text: string): boolean {
 }
 
 /** Nesting deeper than anyone writes by hand: checked as a whole and replaced if it holds a key. */
-function deepFallback<T>(value: T, kinds: Set<string>): { value: T; kinds: Set<string> } {
+function deepFallback<T>(value: T, kinds: Set<string>, options: LeakOptions = {}): { value: T; kinds: Set<string> } {
   let text: string;
   try { text = JSON.stringify(value) ?? ""; } catch { return { value, kinds }; }
-  const hits = findLeaks(text);
+  const hits = findLeaks(text, options);
   if (!hits.length) return { value, kinds };
   hits.forEach((hit) => kinds.add(hit.kind));
   return { value: "[hidden: this part held a key-like value]" as T, kinds };
 }
 
 /** A copy of the request's messages with key-shaped values hidden; pictures and tool names are left alone. */
-export function redactMessages(messages: readonly Message[]): { messages: Message[]; kinds: Set<string> } {
+export function redactMessages(messages: readonly Message[], options: LeakOptions = {}): { messages: Message[]; kinds: Set<string> } {
   const kinds = new Set<string>();
-  const clean = (text: string): string => redactText(text, kinds);
+  const clean = (text: string): string => redactText(text, kinds, 0, options);
   const copied = messages.map((message) => ({
     ...message,
     content: clean(message.content),
@@ -260,15 +279,17 @@ type Record_ = (runId: string, kind: string, detail: Record<string, unknown>) =>
  */
 export class LeakGuard {
   private readonly told = new Set<string>();
+  /** R17-S14: the owner's sensitivity and exceptions, read fresh each time; `createBranch` connects it. */
+  options: () => LeakOptions = () => ({});
   constructor(private readonly record: Record_) {}
   toolResult<T>(runId: string, tool: string, result: T): T {
-    const { value, kinds } = redactLeaksIn(result);
+    const { value, kinds } = redactLeaksIn(result, new Set(), 0, this.options());
     if (kinds.size) this.tell(runId, { where: "tool result", tool, kinds: [...kinds],
       message: `A key-like value in what ${tool} returned was hidden before the model read it.` }, false);
     return value;
   }
   request(runId: string, messages: Message[]): Message[] {
-    const { messages: copied, kinds } = redactMessages(messages);
+    const { messages: copied, kinds } = redactMessages(messages, this.options());
     if (!kinds.size) return messages;
     this.tell(runId, { where: "model request", kinds: [...kinds],
       message: "A key-like value was hidden before the conversation was sent to the model service." }, true);

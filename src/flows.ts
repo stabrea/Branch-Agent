@@ -171,6 +171,9 @@ export class Flows {
   }
   remove(id: string): { removed: boolean } {
     if (this.store.get("flow_graphs", this.mine, id)) {
+      // mac7/lockdown-fix (integration review): the kept task limits of its runs go with it.
+      for (const row of this.store.sqlite.prepare("SELECT run_id FROM flow_graph_runs WHERE owner=? AND flow_id=?").all(this.mine, id))
+        this.graphs.forgetLimit(String((row as { run_id: unknown }).run_id));
       const removed = this.store.delete("flow_graphs", this.mine, id);
       this.publishTools();
       return { removed };
@@ -196,10 +199,11 @@ export class Flows {
    * Starts a graph flow and hands back the task id straight away, before a single box has run, so
    * the page can open the run socket and watch the boxes happen rather than asking over and over.
    */
-  startGraph(id: string, input: Record<string, unknown> = {}): GraphRunStart {
+  startGraph(id: string, input: Record<string, unknown> = {}, within?: readonly string[]): GraphRunStart {
     const definition = this.definitionOf(id);
     const started = this.graphs.begin(definition, input, { source: "owner" });
-    this.follow(started.runId, this.graphs.work(started.runId, started.compiled, { source: "owner" }));
+    // mac7/lockdown-fix: a flow a task sets going through its own tool keeps to that task's tools.
+    this.follow(started.runId, this.graphs.work(started.runId, started.compiled, { source: "owner", ...(within ? { within } : {}) }));
     return { runId: started.runId, flowId: id, status: "running", name: definition.name };
   }
   /** Whether a saved flow is drawn as a graph rather than kept as a list of steps. */
@@ -210,7 +214,7 @@ export class Flows {
    * assistant never sets it, so a flow waiting on the owner stays waiting until they answer.
    */
   resumeGraph(id: string,
-    options: { runId?: string; approve?: boolean; interrupted?: "again" | "past" } = {}): GraphRunStart {
+    options: { runId?: string; approve?: boolean; interrupted?: "again" | "past"; within?: readonly string[] } = {}): GraphRunStart {
     const definition = this.definitionOf(id);
     const pick = options.runId ?? this.graphs.resumable(id)?.runId;
     if (!pick) throw new Error("There is nothing to carry on: no run of that flow stopped part way through.");
@@ -218,7 +222,8 @@ export class Flows {
     if (!options.approve && !options.interrupted && waiting.question)
       throw new Error("That flow is waiting for you to say yes on your own screen. Approve it there, then carry it on.");
     this.follow(pick, this.graphs.resume(pick, definition, { source: "owner", approve: options.approve === true,
-      ...(options.interrupted === undefined ? {} : { interrupted: options.interrupted }) }));
+      ...(options.interrupted === undefined ? {} : { interrupted: options.interrupted }),
+      ...(options.within ? { within: options.within } : {}) })); // mac7/lockdown-fix: a task carrying it on keeps to its tools
     return { runId: pick, flowId: id, status: "running", name: definition.name };
   }
   /** Keeps hold of a run happening in the background, so a caller can wait for it if it wants to. */
@@ -266,7 +271,7 @@ export class Flows {
         name, permission: "workflows.manage",
         description: `Runs the saved flow "${flow.name}".`.slice(0, 200),
         parameters: zodForShape(flow.definition.input) as z.ZodType<Record<string, unknown>>,
-        execute: async (value) => this.settled(this.startGraph(flow.id, value).runId),
+        execute: async (value, context) => this.settled(this.startGraph(flow.id, value, this.workflows.taskLimit(context)).runId), // mac7/lockdown-fix
       });
       published.push(name);
     }

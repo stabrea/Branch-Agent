@@ -82,6 +82,24 @@ Inside a conversation there are no homes to add to, only two surfaces with stric
 | MEMORY.md | `library:memory` |
 | HEARTBEAT.md | `automations:scheduled` |
 | SOP.md | `automations:procedures` |
+| Suggested automations, the automation catalogue, standing orders, repeating in conversations and the limits on automatic work (`mac7/r17-b`) | `automations:scheduled`; the `/loop`, `/heartbeat`, `/subgoal`, `/bg`, `/handoff`, `/suggestions` and `/blueprint` commands live in the message box |
+| Procedures that start themselves, with how much each may do on its own (`mac7/r17-b`) | `automations:procedures` |
+| What an automation, a procedure or a standing order waits for your yes on (`mac7/r17-b`) | `inbox:needs` |
+| "From now on" instructions (`mac7/r17-b`) | `settings:assistant` |
+| Going back to an earlier step of a flow, and checks for saved procedures (`mac7/r17-h`) | `automations:procedures` |
+| The shared board of cards (`mac7/r17-h`) | `automations:scheduled`, beside the waiting line: it is work waiting to be done (bucket 23's project board stays in `settings:general`, and the shared board lays its lanes over it) |
+| Changing the waiting line, and what typing does while a task works (`mac7/r17-h`) | `automations:scheduled`; `/queue` and `/busy` live in the message box |
+| Widgets the assistant built (`mac7/r17-h`) | `library:made`, beside the live tool pages they are made from |
+| Focus view (`mac7/r17-h`) | `settings:appearance`; `/focus` lives in the message box |
+| Requests for new packages and tool servers (`mac7/r17-h`) | `inbox:needs` |
+| What installed skills need on this computer (`mac7/r17-b`) | `customize:skills` |
+| Other computers side by side, using apps in the background, USB devices (`mac7/r17-i`) | `settings:computer` |
+| Trunks on other computers (`mac7/r17-i`) | `customize:specialists`, beside the Trunks card |
+| Making videos (`mac7/r17-i`) | `settings:models:media` |
+| The chat relay, sending from a script and pausing chat apps (`mac7/r17-i`) | `customize:channels`; `/platform` lives in the message box |
+| Sharing the assistant through git, skill bundles (`mac7/r17-i`) | `customize:skills` |
+| Notes with rewriting (`mac7/r17-i`) | `library:documents` |
+| Model arena (`mac7/r17-i`) | `settings:models:second` |
 | TOOLS.md | `customize:skills` |
 | DREAMS.md and other things the assistant writes for the owner | `library:made` |
 | Cheaper and faster model routing | `settings:models:defaults` |
@@ -89,9 +107,11 @@ Inside a conversation there are no homes to add to, only two surfaces with stric
 | Evaluation and studies | `settings:advanced` |
 | Keep running through crashes and updates (`mac3/never-break`) | `settings:general` |
 | Set up Telegram, step by step (`mac3/never-break`) | `customize:channels` |
+| Set up any chat app: the one command, square codes and Check and save (`mac7/connect`) | `customize:channels`; the phone app shows it on its home screen, and the terminal view lists the command under Customize › Channels |
 | Watching and saving videos, ffmpeg and yt-dlp (bucket 17) | `settings:models:media`; a video attachment in the message box |
 | Other speech services and spoken commands (bucket 17) | `settings:voice` |
 | What Branch learns from experience, the learning core (`mac2/fly-core-2`) | `library:memory`; its skill ideas open in `customize:skills` |
+| Learning, deeper: memory blocks, the timeline, meaning search, lessons, preferences from Claude Code and Codex, expiring memories, note read-back, outside memory (R17-F) | `library:memory`; skill usage and merging in `customize:skills` |
 | The wall around programs and keys at the network edge (`mac3/os-sandbox`) | `settings:computer`, beside "What can reach out"; its questions in `inbox:needs` |
 | The dashboard in the browser (`mac3/web-dashboard`) | A page of its own at `/dashboard`, not a place; its switch in `customize:channels` |
 | Typed commands, the same everywhere (`mac3/commands`) | The switch and "what works where" in `settings:general`; the `/` menu lives in the message box, because it changes the next message |
@@ -104,8 +124,51 @@ Inside a conversation there are no homes to add to, only two surfaces with stric
 | Flows written out and read back as YAML files (bucket 21) | `automations:procedures` |
 | Saved prompts, your own commands and the example tool server (bucket 12) | `automations:procedures`, beside saved procedures; the commands themselves live in the message box's `/` menu |
 | Installing and removing skills with a written account, Agent Skills folders (bucket 12) | `customize:skills` |
+| Several accounts per connection (`mac6/accounts`) | `settings:models:connection`, one Accounts card (ChatGPT's list inside the ChatGPT card); the account chip sits in the title bar beside the page name, because it only names and switches what the conversation's model uses |
 | Signing in from other devices, groups and sharing a conversation (bucket 19) | `settings:general`, beside the people on this computer; a person's own page at `/people`, not a place |
 | One-click models on this computer (`mac5/local-models`) | `settings:models:local`, inside the existing "Models on this computer" card; each finished setup appears as a connection in `settings:models:connection` |
+| The smaller asks (`mac6/bucket-23`): project boards | `settings:general` |
+| Counting how Branch is used, with consent (`mac6/bucket-23`) | `settings:data` |
+| Other computers running Branch (`mac6/bucket-23`) | `settings:computer` |
+| Other agents answering a conversation (`mac6/bucket-23`) | `settings:models:connection` |
+| Quick answers, pages kept, long articles and live tool pages (`mac6/bucket-23`) | `library:made` |
+| Bringing in new items from GitHub, mail and Telegram (`mac6/bucket-23`) | `library:documents` |
+| A Hindsight memory server (`mac6/bucket-23`) | `library:memory` |
+| Sending requests where they belong, the intent pipeline (`mac6/bucket-23`) | `customize:skills` |
+| Steps for other apps, MCP examples and the app-server door (`mac6/bucket-23`) | `customize:connections` |
+| Your devices: pairing other computers and the phone, each one's switches, who it is shared with (`mac7/nodes`) | `customize:channels`; the "which device" picker lives in the message box, because it changes the next message |
+| Trunks, named assistants of the owner's own: the switches, the three-field create, Edit Trunk, rooms, bringing one in (R17-A) | `customize:specialists`, a card of its own after the specialist panels |
+| The Trunks roster: each Trunk with its latest line and unread replies, and each room (R17-A) | The sidebar, a group above Recents that shows only while Trunks are switched on |
+| Rooms where a Trunk asked for the owner (R17-A) | `inbox:needs` |
+| A Trunk's routines (R17-A) | `automations:scheduled`, with the rest, their words starting `[Trunk @name]`; each Trunk's own list is in its editor |
+| `@name` in the message box (R17-A) | The message box: the `@` menu, and the message goes to that Trunk's own conversation |
+| Safety extras: tool scripts, WebAssembly add-ons, authenticator codes, the emergency stop by level, command checks, the progress check, the tamper-evident record, history repair (`mac7/r17-g`) | `settings:permissions`; the emergency stop sits beside Lockdown's rules there, and a question that needs a code is still answered in `inbox:needs` |
+| The browser extension's side panel and the Obsidian plugin (`mac6/bucket-23`) | Outside the window; their instructions are in `extras/`, and the extension's switch stays in `customize:channels` |
+| Starting from a preset, and putting settings back (R17-S-A) | `settings:general` |
+| Which file does what, with editing of each file (R17-S-A) | `settings:general`, beside "How to work in this project"; each file's switch stays on its own card |
+| Your settings in one file (R17-S-A) | `settings:data`, beside Backup |
+| What to try after first run: say hello, watch me once, suggested automations (R17-S-A) | The conversation, straight under the first-run card; shown once |
+| A description under every Settings control, and the scope chip on every Settings card (R17-S-A) | Every Settings page; added by `public/settings-describe.js`, nothing to place |
+| Limits that used to be hidden (R17-S-B): summarising long conversations, sub-tasks and side jobs, thinking effort and service tier | `settings:models:defaults` |
+| Most steps and most cost for one task, hiding key-like values (R17-S-B) | `settings:permissions` |
+| Trying the model service again, how much a tool may say (R17-S-B) | `settings:advanced` |
+| How commands run, the launch settings file as a card (R17-S-B) | `settings:computer` |
+| Showing a model's thinking (R17-S-B) | `settings:appearance` |
+| How much it remembers at the start, the note about you, where things are remembered (R17-S-B) | `library:memory` |
+| Model for planning, choosing by difficulty, counting what the service says, keeping the cache warm (R17-E) | `settings:models:defaults` |
+| OpenRouter company choice (R17-E) | `settings:models:connection` |
+| Mixtures of models, which then appear in the model picker (R17-E) | `settings:models:second` |
+| The round-by-round chart switch (R17-E); the chart itself sits inside the conversation meter's popover | `settings:appearance` |
+| Coding polish (`mac7/r17-d`): its switches, formatters, shell snapshot, copies, rules, checks and CI lines | `settings:advanced`, one card beside the developer tools |
+| A task's checklist (`mac7/r17-d`) | The side pane's Plan tab, under the to-do list |
+| The `@` picker (`mac7/r17-d`) | The message box, the same menu as `/`, because it changes the next message |
+| Keyboard shortcuts and vim keys, files searches skip (R17-S-C) | `settings:general` |
+| The status line and a time on each message (R17-S-C) | `settings:appearance`; the line itself sits in the composer's foot row |
+| Where you are told and the sound (R17-S-C) | `settings:notifications` |
+| Updating by itself (R17-S-C) | `settings:about` |
+| The push-to-talk key and the longest recording (R17-S-C) | `settings:voice` |
+| How carefully the browser acts, the proxy and trusted certificates (R17-S-C) | `settings:computer` |
+| How long a tool server may take to start (R17-S-C) | `customize:connections` |
 
 When something new does not fit a row, apply the rule at the top and add a row here in the same
 change.

@@ -19,6 +19,8 @@ export const cliCommands: { name: string; summary: string; options: string[] }[]
   { name: "completion", summary: "Print a completion script for bash, zsh, fish or PowerShell", options: [] },
   { name: "demo", summary: "Run the offline demonstration", options: ["--json"] },
   { name: "doctor", summary: "Check that everything works", options: ["--probe", "--fix"] },
+  // mac7/nodes: lend this computer's camera, screen, notifications and more to Branch elsewhere (src/devices/node/cli.ts).
+  { name: "node", summary: "Lend this computer to your Branch elsewhere: node pair | run | status | never | forget", options: ["--name"] },
   { name: "daemon", summary: "Keep Branch working with the window closed: daemon install | uninstall | status", options: [] },
   { name: "login", summary: "Sign in to a ChatGPT account", options: [] },
   { name: "logout", summary: "Sign out of the ChatGPT account", options: [] },
@@ -32,6 +34,7 @@ export const cliCommands: { name: string; summary: string; options: string[] }[]
   { name: "study", summary: "Run a written-down experiment: study list | run <id> | compare <a> <b> | replay <id>", options: ["--fresh", "--json"] },
   { name: "mcp-serve", summary: "Offer Branch's tools to another AI tool", options: [] },
   { name: "acp-serve", summary: "Let a code editor talk to Branch", options: [] },
+  { name: "app-server", summary: "Let an editor drive Branch over the app-server protocol (switch it on first)", options: [] },
   { name: "skill", summary: "Pack a skill folder, or install a skill file: skill pack | skill install", options: ["--author", "--package-version", "--approve"] },
   { name: "plugin", summary: "See and switch plugins on or off: plugin list | enable | disable", options: [] },
   { name: "update", summary: "Update a copy installed from Git, or check an installed copy and install the newest release with --yes", options: ["--yes"] },
@@ -41,9 +44,15 @@ export const cliCommands: { name: string; summary: string; options: string[] }[]
   // Batch 20 (wave 8): short-lived keys, schedules over the running engine, and one task's trace.
   { name: "token", summary: "Short-lived keys for a script: token create | list | revoke <id>", options: ["--scope", "--minutes", "--name", "--json"] },
   { name: "schedule", summary: "Schedules on the engine already running: schedule add | list | remove <id>", options: ["--prompt", "--at", "--every", "--kind", "--json"] },
+  // r17-i: a script's words into a chat that already talks to Branch (src/reach/send-cli.ts).
+  { name: "send", summary: "Send words, or what is piped in, to a chat: send <chat app> <chat> [words]", options: ["--json"] },
   { name: "trace", summary: "The trace number for one task, and whether it was sent anywhere", options: ["--json"] },
+  // mac7/r17-g: the tamper-evident activity chain.
+  { name: "activity", summary: "Check that the tamper-evident activity record is unbroken: activity verify", options: ["--tip"] },
   // mac3/security-check: the security self-check.
   { name: "security", summary: "Check this computer's Branch setup for security problems: security audit", options: ["--fix", "--json"] },
+  // mac7/connect: getting a chat app, making its bot and saving its token (src/channel-setup/).
+  { name: "connect", summary: "Set up a chat app: connect <app> installs the official app, opens the bot page and saves the token", options: [] },
   // Wave mac3 (terminal): every place by name and the everyday commands (src/terminal-parity.ts).
   ...TERMINAL_CLI_COMMANDS,
 ];

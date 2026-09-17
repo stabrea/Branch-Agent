@@ -193,7 +193,7 @@ function skipReason(store: Store, runId: string): string | null {
   const origin = runOrigin(store, runId);
   if (startedWithShortLivedKey() || origin.shortLivedKey) return "The task was started with a short-lived key, so its work was not sent to GitHub.";
   if (origin.parentRunId) return "A specialist's part of a task is sent with the task it belongs to, not on its own.";
-  if (origin.source !== "owner") return `The task was started by ${origin.source === "schedule" ? "a schedule" : origin.source === "trigger" ? "a trigger" : "another program"}, not by you, so its work was not sent to GitHub.`;
+  if (origin.source !== "owner") return `The task was started by ${origin.source === "schedule" ? "a schedule" : origin.source === "trigger" ? "a trigger" : origin.source === "channel" ? "a chat message" : "another program"}, not by you, so its work was not sent to GitHub.`;
   if (origin.permissions && !origin.permissions.includes("github.manage")) return "The task was not allowed to publish (a message from a chat app, for one), so its work was not sent to GitHub.";
   return null;
 }

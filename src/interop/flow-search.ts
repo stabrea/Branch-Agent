@@ -1,3 +1,4 @@
+import { chatOwnerOnly, startedFromChat } from "../key-context.js";
 import { z } from "zod";
 import { errorText, estimateTokens, type ToolContext } from "../contracts.js";
 import { compileGraph, FlowGraphError, type FlowGraphDefinition } from "../flow-graph.js";
@@ -5,6 +6,7 @@ import type { Flows } from "../flows.js";
 import type { ToolRegistry } from "../registry.js";
 import type { Runtime } from "../runtime.js";
 import { requireInterop } from "./settings.js";
+import { taskLimitOf } from "../workflows.js"; // mac7/lockdown-fix
 
 /**
  * Finding a better flow automatically. Given a goal and a few worked examples (an input and words
@@ -143,7 +145,9 @@ export function flowSearchParts(runtime: Runtime, flows: Flows, context?: ToolCo
     },
     tryFlow: async (definition, input) => {
       const { runId, compiled } = flows.graphs.begin(definition, input, { source: "schedule" });
-      const view = await flows.graphs.work(runId, compiled, { source: "schedule" });
+      // mac7/lockdown-fix (integration review): a drafted flow keeps to the tools of the task that asked.
+      const within = context ? taskLimitOf(runtime, context) : undefined;
+      const view = await flows.graphs.work(runId, compiled, { source: "schedule", ...(within ? { within } : {}) });
       return { status: view.status, state: view.state };
     },
     save: (definition) => { const { id: _drop, ...rest } = definition; return flows.saveGraph(rest); },
@@ -158,6 +162,8 @@ export function registerFlowSearch(registry: ToolRegistry, runtime: Runtime, flo
     parameters: FlowSearchSchema.omit({ save: true }),
     execute: async (args, context) => {
       requireInterop(runtime.store, context.owner, "flow-search");
+      // Trying drafted flows runs their steps with the owner's own tools.
+      if (startedFromChat(context, runtime.store)) throw chatOwnerOnly("Trying out drafted flows");
       return searchFlows(flowSearchParts(runtime, flows, context), { ...args, save: false });
     },
   });

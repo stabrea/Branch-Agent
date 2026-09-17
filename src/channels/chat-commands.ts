@@ -1,4 +1,5 @@
 import type { Runtime } from "../runtime.js";
+import type { RunSource } from "../policy.js";
 import { compactionSplit } from "../runtime.js";
 import { parseSessionSummary, summaryText } from "../session-summary.js";
 import { usageLine } from "../terminal-tui.js";
@@ -196,7 +197,7 @@ export function keepEnds(text: string, room: number): string {
  * its own: the most recent messages and anything pinned stay as they are. The summary is written
  * by a short side task with no tools, so nothing in the conversation can make it act.
  */
-export async function compactConversation(runtime: Runtime, sessionId: string): Promise<number> {
+export async function compactConversation(runtime: Runtime, sessionId: string, source?: RunSource): Promise<number> {
   const { summary: earlier, rows } = runtime.store.workingMessages(sessionId);
   const messages = rows.map((row) => row.message), ids = rows.map((row) => row.id);
   const split = compactionSplit(messages, ids);
@@ -205,7 +206,7 @@ export async function compactConversation(runtime: Runtime, sessionId: string): 
   const transcript = messages.slice(split.from, split.to).map((m) => `${m.role}: ${m.content}`).join("\n");
   const run = await runtime.run({
     prompt: head + keepEnds(transcript, promptLimit - head.length),
-    temporary: true, permissions: [], onTextDelta: () => undefined,
+    temporary: true, permissions: [], onTextDelta: () => undefined, ...(source ? { source } : {}),
   });
   if (run.status !== "completed" || !run.output.trim()) throw new Error("the summary could not be written");
   const reply = run.output.trim().slice(0, 6000);
@@ -220,7 +221,7 @@ async function compact(context: CommandContext): Promise<string> {
   if (context.turn) return "I am still working on something. Try /compact once I have answered.";
   if (!context.sessionId) return "There is nothing to fold yet.";
   try {
-    const folded = await compactConversation(context.runtime, context.sessionId);
+    const folded = await compactConversation(context.runtime, context.sessionId, "channel");
     return folded
       ? `Folded ${folded} earlier messages into a summary. The most recent ones stay as they are.`
       : "This conversation is still short; there is nothing to fold yet.";
@@ -235,10 +236,10 @@ async function compact(context: CommandContext): Promise<string> {
  * joins the task, never changes anything, and is gone when the app next starts.
  */
 async function aside(question: string, context: CommandContext): Promise<string> {
-  return askAside(context.runtime, context.sessionId, question);
+  return askAside(context.runtime, context.sessionId, question, "channel");
 }
 /** The side question itself, shared with the other surfaces through src/commands (wave mac3). */
-export async function askAside(runtime: Runtime, sessionId: string | undefined, question: string): Promise<string> {
+export async function askAside(runtime: Runtime, sessionId: string | undefined, question: string, source?: RunSource): Promise<string> {
   if (!question) return "Ask it like this: /btw what time is it in Lagos?";
   const recent = sessionId ? runtime.store.workingMessages(sessionId).rows.slice(-6)
     .filter((row) => row.message.role === "user" || row.message.role === "assistant")
@@ -249,7 +250,7 @@ export async function askAside(runtime: Runtime, sessionId: string | undefined, 
     `Question: ${question.slice(0, 4000)}`,
   ].join("\n\n");
   try {
-    const run = await runtime.run({ prompt, temporary: true, permissions: [], onTextDelta: () => undefined });
+    const run = await runtime.run({ prompt, temporary: true, permissions: [], onTextDelta: () => undefined, ...(source ? { source } : {}) });
     return run.status === "completed" && run.output.trim() ? `(on the side) ${run.output.trim()}` : "I could not answer that on the side.";
   } catch (error) {
     return `I could not answer that on the side: ${error instanceof Error ? error.message : String(error)}.`;

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { openRouterBodyPart } from "./model-savings/openrouter.js"; // R17-046
 import { z } from "zod";
 import type {
   BatchApi,
@@ -115,7 +116,10 @@ function validateOptions(options: ProviderOptions): void {
  * Whether a connection can be shown a picture. Providers say so themselves; anything that does
  * not answer is treated as text only, so a picture is refused in plain words rather than dropped.
  */
-/** The addresses known to take a whole set of questions at once. */
+/**
+ * The addresses known to take a whole set of questions at once. OpenAI's entry is also the gate for
+ * `service_tier` (see `serviceTierPart`), so edit it with both in mind.
+ */
 export const openaiBatchHosts = ["api.openai.com", ".openai.azure.com"];
 export const anthropicBatchHosts = ["api.anthropic.com"];
 /**
@@ -126,6 +130,14 @@ export function offersBatch(endpoint: string, hosts: readonly string[]): boolean
   let host: string;
   try { host = new URL(endpoint).host.toLowerCase(); } catch { return false; }
   return hosts.some((known) => (known.startsWith(".") ? host.endsWith(known) : host === known));
+}
+
+/**
+ * R17-S12 / R17-045 (integration review): `service_tier` is OpenAI's own field. Only OpenAI's
+ * address and Azure deployments of it are sent one; every other OpenAI-shaped service is not.
+ */
+export function serviceTierPart(endpoint: string, tier: CompletionRequest["serviceTier"]): { service_tier?: "priority" | "flex" } {
+  return tier && offersBatch(endpoint, openaiBatchHosts) ? { service_tier: tier } : {};
 }
 
 export function supportsImages(provider: Provider): boolean {
@@ -292,7 +304,11 @@ export class OpenAIProvider implements Provider {
     return offersBatch(this.options.endpoint, openaiBatchHosts) ? openaiBatchApi(this.options) : null;
   }
   async complete(request: CompletionRequest): Promise<Completion> {
-    const body = openaiBody(request, this.options.model);
+    // R17-046: OpenRouter company preferences, added only when this address is openrouter.ai.
+    // R17-S12 (integration review): the tier goes only to OpenAI's own address or Azure.
+    const { service_tier: _tier, ...plain } = openaiBody(request, this.options.model);
+    const body = { ...plain, ...serviceTierPart(this.options.endpoint, request.serviceTier),
+      ...openRouterBodyPart(this.options.endpoint, request.providerRouting) };
     if (request.onTextDelta) {
       const stream = new OpenAIStream(request.onTextDelta);
       try {
@@ -353,6 +369,7 @@ export function openaiBody(request: CompletionRequest, model: string): Record<st
     max_tokens: request.maxTokens,
     ...(shape ? { response_format: { type: "json_schema", json_schema: { name: shape.name, schema: shape.schema } } } : {}),
     ...(request.reasoning ? { reasoning_effort: request.reasoning } : {}),
+    ...(request.serviceTier ? { service_tier: request.serviceTier } : {}), // R17-S12
     ...(request.tools.length ? {
       tools: request.tools.map((t) => ({
         type: "function",
@@ -499,6 +516,10 @@ export function anthropicBody(request: CompletionRequest, model: string): Record
     model,
     max_tokens: request.maxTokens,
     ...anthropicThinking(request),
+    // R17-S12: Claude's own word for "use the faster tier when there is room"; it has no flex tier.
+    // "auto" is also Anthropic's documented default (platform.claude.com/docs/en/api/service-tiers,
+    // read 2026-09-17), so this never asks for more than an unmarked request would.
+    ...(request.serviceTier === "priority" ? { service_tier: "auto" } : {}),
     tools,
     ...(shape ? { tool_choice: { type: "tool", name: shape.name } } : {}),
     ...(instructions ? { system: [{ type: "text", text: instructions, ...cacheMarker }] } : {}),

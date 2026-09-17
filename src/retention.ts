@@ -73,6 +73,9 @@ export class ConversationRetention {
     private readonly now: () => number = () => Date.now(),
   ) {}
 
+  /** R17-A (Trunks): conversations the rule never sweeps up — a Trunk's own, and its rooms'. */
+  keeps: (sessionId: string) => boolean = () => false;
+
   /** What the rule would sweep up, and the sentence that goes above the list. Nothing is deleted. */
   propose(): { settings: RetentionSettings; sentence: string; conversations: PruneCandidate[]; bytes: number } {
     const settings = retentionSettings(this.store, this.owner);
@@ -80,7 +83,7 @@ export class ConversationRetention {
     if (!settings.enabled || (settings.keepDays === 0 && settings.megabytes === 0))
       return { settings, sentence, conversations: [], bytes: this.store.prunableSessions(this.owner, 0, 0, this.now()).bytes };
     const found = this.store.prunableSessions(this.owner, settings.keepDays, settings.megabytes, this.now());
-    return { settings, sentence, conversations: found.conversations, bytes: found.bytes };
+    return { settings, sentence, conversations: found.conversations.filter((entry) => !this.keeps(entry.sessionId)), bytes: found.bytes };
   }
 
   /**

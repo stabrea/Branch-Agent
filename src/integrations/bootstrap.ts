@@ -1,4 +1,5 @@
 import { readFile, stat } from 'node:fs/promises';
+import { withLoginPath } from "../coding/shell-snapshot.js"; // mac7/r17-d
 import { channelPosition } from '../never-break/channel-position.js'; // mac3/never-break
 import { channelMark } from '../channels/catch-up.js'; // mac6/bucket-16
 import { z } from 'zod';
@@ -12,6 +13,7 @@ import type { RunArtifacts } from '../artifacts.js';
 import { ShellConfigSchema } from './shell-config.js';
 import { BranchShell, registerShell, type SecretResolver } from './shell.js';
 import { ShellSessions, registerShellSessions } from '../shell-session.js';
+import { commandTuning } from '../knobs/commands.js'; // R17-S10
 import type { Store } from '../store.js';
 import { ChannelPolicySchema, type ChannelAdapter, type ChannelRouter } from '../channels/router.js';
 import { TelegramAdapter } from '../channels/telegram.js';
@@ -206,6 +208,8 @@ const ConfigSchema = z.object({ mcp: z.array(McpConfigSchema).max(8).default([])
   git: GitConfigSchema.optional(),
   issues: IssuesConfigSchema.optional(),
   hooks: z.array(HookSchema).max(16).default([]) }).strict();
+/** R17-S14: the whole launch settings file, so the Settings card can check a change before writing it. */
+export const LaunchFileSchema = ConfigSchema;
 
 export async function loadIntegrations(registry: ToolRegistry, path?: string, env = process.env, secrets?: SecretResolver, channels?: ChannelHost) {
   const closers: (() => Promise<void>)[] = [];
@@ -266,8 +270,14 @@ export async function loadIntegrations(registry: ToolRegistry, path?: string, en
     let shell: BranchShell | undefined;
     if (config.shell) {
       hosted.commandsNetless = config.shell.netless === true;
+      // mac7/r17-d: with "Using your own command-line setup" on, commands get the owner's login PATH (src/coding/shell-snapshot.ts).
+      const loginStore = channels?.store as Store | undefined, loginOwner = channels?.context?.('bootstrap').owner;
+      if (loginStore && loginOwner) config.shell = withLoginPath(config.shell, loginStore, loginOwner);
       const created = new BranchShell(config.shell, env, secrets);
       shell = created;
+      // R17-S10: the owner's command timeout and extra environment names, read for each command.
+      const tunedStore = channels?.store as Store | undefined, tunedOwner = channels?.context?.('bootstrap').owner;
+      if (tunedStore && tunedOwner) created.tuning = () => commandTuning(tunedStore, tunedOwner, env);
       await created.ready();
       registerShell(registry, created); closers.push(() => created.close());
       // A command line the owner can keep open, from the very same list of programs. It is closed
@@ -321,7 +331,7 @@ async function startMcp(
   // With no checker this adds nothing.
   const vet = () => vetLaunch(server, host);
   await vet();
-  const connect = () => connectMcp(registry, server, env, guard, host?.cache);
+  const connect = () => connectMcp(registry, server, env, guard, host?.cache, host?.startupTimeoutMs?.()); // R17-S20
   if (!host || host.connectWhen() !== 'on-demand') {
     const connection = await connect();
     return connection.close;
@@ -329,7 +339,7 @@ async function startMcp(
   const id = McpConfigSchema.parse(server).id;
   // Opening it puts nothing in the tool list — the tools are already there — so `openMcp`, not
   // `connectMcp`: the same connection, without a second registration to collide with the first.
-  host.connections.register(id, () => vet().then(() => openMcp(server, env, guard, host.cache)));
+  host.connections.register(id, () => vet().then(() => openMcp(server, env, guard, host.cache, host.startupTimeoutMs?.()))); // R17-S20
   const names = registerCachedMcp(registry, server, host.cache.read(id), async () => {
     // Opened through the manager, so keep-warm, the cap and the retries all apply to it. What it
     // says its tools are NOW, and the credentials it was opened with, travel back with it: the
@@ -356,6 +366,8 @@ export interface McpHost {
   /** mac3/security-check: throws a plain sentence for a package listed as malware. */
   vetLaunch?: (command: string, args: readonly string[]) => Promise<void>;
   cache: McpToolCache;
+  /** R17-S20: how long a server may take to start, in milliseconds; unset keeps 10 seconds. */
+  startupTimeoutMs?: () => number;
   connections: { register(id: string, opener: () => Promise<{ close(): Promise<void> }>): void;
     acquire(runId: string, id: string): Promise<{ close(): Promise<void> }> };
 }

@@ -1,0 +1,136 @@
+import { z } from "zod";
+import type { Store } from "../store.js";
+
+/**
+ * R17-S08 … R17-S14: the knobs that used to be constants, written down as settings the owner can
+ * change. Every default below is exactly what Branch did before the knob existed, so a fresh install
+ * behaves as it always has. `null` means "as it was" wherever the old figure came from somewhere else
+ * (the launch settings file, the connection itself, or a figure worked out each round).
+ *
+ * Each card has its own record, so saving one card never touches another.
+ */
+const presetId = z.string().min(1).max(64).regex(/^[a-z0-9]+(?:[-_.][a-z0-9]+)*$/i);
+
+/** R17-S08: when a long conversation is folded into a summary, and how much room a model has. */
+export const KnobCompactionSettingsSchema = z.object({
+  /** Fold older messages into a summary when the conversation gets long. */
+  autoCompact: z.boolean().default(true),
+  /** Fold once the conversation fills this share of the room; null works it out each round. */
+  compactAtPercent: z.number().int().min(20).max(95).nullable().default(null),
+  /** How many recent messages always stay word for word. */
+  keepRecentMessages: z.number().int().min(2).max(40).default(6),
+  /** How many tokens one request may hold; null keeps the built-in 20,000. */
+  contextWindowTokens: z.number().int().min(8000).max(2_000_000).nullable().default(null),
+}).strict();
+
+/** R17-S09: how far one task may go before it stops. */
+export const KnobTaskLimitsSettingsSchema = z.object({
+  /** Model rounds and tool steps one task may take. */
+  maxSteps: z.number().int().min(1).max(500).default(60),
+  /** Stop a task once it has cost about this much, in dollars; null means no cap. */
+  spendCapDollars: z.number().min(0.01).max(10000).nullable().default(null),
+  /** How many times a failed request to the model service is tried again; null keeps the launch setting. */
+  apiRetries: z.number().int().min(0).max(5).nullable().default(null),
+}).strict();
+
+/**
+ * R17-S10: what tools and commands may do. `passEnvironment` is security-relevant: only the owner
+ * may change it, and a name that looks like it holds a secret is refused whatever the owner says.
+ */
+export const KnobCommandSettingsSchema = z.object({
+  /** Longest tool answer the model reads, in characters; null keeps the launch setting. */
+  toolAnswerChars: z.number().int().min(1000).max(60000).nullable().default(null),
+  /** Longest one tool call may run, in seconds; null keeps the launch setting. */
+  toolTimeoutSeconds: z.number().int().min(5).max(600).nullable().default(null),
+  /** Longest one command may run, in seconds; null keeps the launch settings file's figure. */
+  commandTimeoutSeconds: z.number().int().min(1).max(120).nullable().default(null),
+  /** Whether a task may keep a command line open between commands. */
+  keptOpenShell: z.boolean().default(true),
+  /** Extra environment variable names handed to commands, beyond the built-in safe list. */
+  passEnvironment: z.array(z.string().regex(/^[A-Za-z_][A-Za-z0-9_]{0,63}$/)).max(16).default([]),
+}).strict();
+
+/** R17-S11: work a task hands on, and the small jobs Branch does on the side. */
+export const KnobSubtaskSettingsSchema = z.object({
+  /** Which connection answers sub-tasks; null uses the conversation's own. */
+  subtaskModel: presetId.nullable().default(null),
+  /** Which connection writes summaries and after-task reviews; null uses the conversation's own. */
+  sideJobModel: presetId.nullable().default(null),
+  /** How many sub-tasks one task may run at the same time. */
+  parallelSubtasks: z.number().int().min(1).max(8).default(4),
+  /** Longest a sub-task may run, in seconds. */
+  subtaskTimeoutSeconds: z.number().int().min(1).max(120).default(120),
+}).strict();
+
+/** R17-S12: how hard each model thinks, whether its thinking is shown, and which service tier is asked for. */
+export const KnobReasoningSettingsSchema = z.object({
+  /** A default thinking effort for particular connections, by connection id. */
+  effortByModel: z.record(presetId, z.enum(["low", "medium", "high"])).default({}),
+  /** Show a model's written-out thinking (the part between think marks) in answers. */
+  showReasoning: z.boolean().default(true),
+  /** standard sends nothing extra; priority and flex ask services that offer them. */
+  serviceTier: z.enum(["standard", "priority", "flex"]).default("standard"),
+}).strict();
+
+/** R17-S13: how much remembered text a conversation starts with, and the owner's own "about you" note. */
+export const KnobMemorySettingsSchema = z.object({
+  /** Most remembered facts put in front of a new conversation. */
+  snapshotFacts: z.number().int().min(0).max(200).default(20),
+  /** Most characters of remembered facts put in front of a new conversation. */
+  snapshotChars: z.number().int().min(0).max(40000).default(2000),
+  /** Put the owner's "about you" note in front of every conversation. */
+  aboutYouOn: z.boolean().default(false),
+  /** The owner's own words about themselves. */
+  aboutYou: z.string().max(8000).default(""),
+  /** Most characters of the note that are used. */
+  aboutYouChars: z.number().int().min(100).max(8000).default(1500),
+}).strict();
+
+/** R17-S14: how eagerly key-like values are hidden, and which kinds the owner lets through. Owner only. */
+export const KnobLeakGuardSettingsSchema = z.object({
+  /** standard is today's list; strict also hides long random-looking strings. */
+  sensitivity: z.enum(["standard", "strict"]).default("standard"),
+  /** Kinds of value that are not hidden. A private key can never be let through. */
+  exceptions: z.array(z.string().min(1).max(40)).max(20).default([]),
+}).strict();
+
+export const knobCards = {
+  compaction: KnobCompactionSettingsSchema,
+  limits: KnobTaskLimitsSettingsSchema,
+  commands: KnobCommandSettingsSchema,
+  subtasks: KnobSubtaskSettingsSchema,
+  reasoning: KnobReasoningSettingsSchema,
+  memory: KnobMemorySettingsSchema,
+  leakGuard: KnobLeakGuardSettingsSchema,
+} as const;
+export type KnobCard = keyof typeof knobCards;
+export type KnobValues = { [K in KnobCard]: z.infer<(typeof knobCards)[K]> };
+export const knobCardNames = Object.keys(knobCards) as KnobCard[];
+
+const keyOf = (card: KnobCard): string => `knobs-${card}`;
+type Reader = Pick<Store, "get">;
+
+/** One card's settings, with today's behaviour for anything never saved or saved wrongly. */
+export function readKnobs<K extends KnobCard>(store: Reader, owner: string, card: K): KnobValues[K] {
+  const schema = knobCards[card] as unknown as z.ZodType<KnobValues[K]>;
+  const saved = schema.safeParse(store.get("settings", owner, keyOf(card))?.data ?? {});
+  return saved.success ? saved.data : schema.parse({});
+}
+
+/** Saves one card; fields left out keep what was there. Returns what is now in force. */
+export function saveKnobs<K extends KnobCard>(store: Store, owner: string, card: K, input: unknown): KnobValues[K] {
+  const schema = knobCards[card] as unknown as z.ZodType<KnobValues[K]>;
+  const next = schema.parse({ ...readKnobs(store, owner, card), ...(input && typeof input === "object" ? input : {}) });
+  store.save("settings", owner, keyOf(card), next as Record<string, unknown>);
+  return next;
+}
+
+/** Every card, for the screen. */
+export function allKnobs(store: Reader, owner: string): KnobValues {
+  return Object.fromEntries(knobCardNames.map((card) => [card, readKnobs(store, owner, card)])) as KnobValues;
+}
+
+/** Puts one card back to how Branch ships. */
+export function resetKnobs(store: Store, owner: string, card: KnobCard): void {
+  store.save("settings", owner, keyOf(card), {});
+}

@@ -49,6 +49,9 @@ export const shortLivedKeyTaskRoutes: readonly TaskRoute[] = [
   post("/api/ask-first/answers", "a task prompt with the answers in it"),
   post("/api/processes", "stops a program a task left running"),
   post(new RegExp(`^/api/teams/${id}/run$`), "starts a team on a task"),
+  // R17-A: talking to a Trunk, and to a room of Trunks, is a task; changing them is the owner's.
+  post(new RegExp(`^/api/trunks/${id}/say$`), "a message to one of the owner's Trunks"),
+  post(new RegExp(`^/api/trunks/rooms/${id}/(send|stop)$`), "a message to a room of Trunks, or stopping it"),
   post("/api/queue", "puts a task in the waiting line"),
   post(new RegExp(`^/api/queue/${id}/cancel$`), "takes a task out of the waiting line"),
   post(new RegExp(`^/api/flows/${id}/(run|resume|pause)$`), "runs, resumes or pauses a saved flow"),
@@ -73,8 +76,24 @@ export const shortLivedKeyTaskRoutes: readonly TaskRoute[] = [
   post("/api/knowledge/ask", "asks the knowledge bases"),
   post("/api/retrieval/search", "searches passages"),
   post("/api/tools/meaning-search", "finds a tool by what it does"),
+  // R17-F (src/learning-more/api.ts): finding past conversations by meaning, and facts by label and date.
+  post("/api/learning-more/search", "searches conversations by meaning"),
+  post("/api/learning-more/memory/find", "searches what is remembered by label and date"),
   post("/api/receipts/verify", "checks a task's receipt"),
   post("/api/security-check/run", "runs the security check, which only reads"),
+  // mac7/r17-d: the project's review checks (read-only helpers) and a conversation forked into its own copy.
+  post("/api/coding/checks/run", "runs the project's review checks, each by a helper that may only read"),
+  post("/api/coding/worktrees/fork", "carries a conversation on in its own copy of the project"),
+  // r17-i: another of the owner's computers hands a message to a Trunk here with the "run" key it was given;
+  // the message is quoted as that computer's text, capped and limited per hour (src/reach/remote-trunks.ts).
+  post("/api/reach/trunks/inbox", "a message from a Trunk on another of the owner's computers"),
+  // mac7/r17-g: the safety extras. Everything else under /api/safety-extras (the switches, letting the
+  // emergency stop go, setting up authenticator codes, installing or running WebAssembly add-ons) is
+  // refused by the rule above. Reading /api/safety-extras is allowed: it never carries the code key.
+  post("/api/safety-extras/activity/verify", "checks the tamper-evident activity chain, which only reads"),
+  post("/api/safety-extras/scan", "checks one command for hidden codes and look-alike letters, which only reads"),
+  post("/api/safety-extras/stop", "presses the emergency stop, which only stops things; letting it go is the owner's"),
+  post("/api/safety-extras/codes/confirm", "types an authenticator code for a question it may answer"),
 ];
 
 /** Reads a short-lived key may not make: what they return is a secret, or everybody's data. */
@@ -86,7 +105,45 @@ const ownerOnlyReads: readonly RegExp[] = [
   /^\/api\/channels\/slack-automations$/,
   // bucket 19: who may sign in, their linked accounts and devices, and the share list.
   /^\/api\/people\/(settings|shares\/export)$/,
+  // mac6/bucket-23 (A2240): the live pages' list carries each page's frame address, which opens without a key.
+  /^\/api\/asks\/surfaces$/,
+  // mac7/nodes: the owner's devices, their switches and who they are shared with. Changes are refused
+  // by the fail-closed rule above; the device socket and pairing carry their own proof, not a key.
+  /^\/api\/devices(\/.*)?$/,
+  // R17-S-A: the settings file outlives the key, and the owner's own files say who they are.
+  /^\/api\/settings-kit\/(export|files)(\/.*)?$/,
+  // mac7/r17-d: the shell snapshot holds the owner's PATH, aliases and functions.
+  /^\/api\/coding\/shell$/,
+  // R17-C: the owner's mail, calendar, house, sign-ins and public webhook address (src/personal/api.ts).
+  /^\/api\/personal(\/|$)/,
+  // r17-h integration review: the widgets' list carries each widget's frame address, which opens without a key.
+  /^\/api\/flows-boards\/widgets$/,
 ];
+
+/**
+ * R17-S-B: the hidden knobs (`knobsRoutes` in src/knobs/api.ts) are the owner's alone. Reading
+ * them is a look; every change is refused to a short-lived key, because the cards include which
+ * environment variables commands are given, how key-like values are hidden, and the launch file.
+ */
+export const knobsRefusal =
+  "A short-lived key cannot change Branch's limits, which environment variables commands get, or how keys are hidden. Do that in the app window.";
+
+/**
+ * R17-E: how models are chosen and what they may spend (`savingsRoutes` in src/model-savings/api.ts).
+ * Reading the cards and one conversation's rounds is a look; every change is the owner's alone,
+ * because the cards can add model calls (a classifier, cache pings, mixtures) that cost money.
+ */
+export const savingsRefusal =
+  "A short-lived key cannot change how models are chosen or what they may spend. Do that in the app window.";
+
+/**
+ * R17-S-C: the comfort settings (`/api/comfort`, `/api/comfort/update-plan`, `/api/comfort/status`, src/comfort/api.ts) are
+ * the owner's alone. Reading them is a look (a proxy address and public certificates are not
+ * secrets); every change is refused to a short-lived key, because the cards include the proxy, the
+ * trusted certificates, how carefully the browser acts and whether Branch installs updates.
+ */
+export const comfortRefusal =
+  "A short-lived key cannot change shortcuts, notifications, updates, the browser's care, the proxy or certificates. Do that in the app window.";
 
 export const generalShortLivedKeyRefusal =
   "A short-lived key can start, steer and stop tasks, but cannot change settings, permissions or security. Do that in the app window.";

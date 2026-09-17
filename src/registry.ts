@@ -109,12 +109,23 @@ export class ToolRegistry {
     if (!context.permissions.has(tool.permission))
       throw new Error(`Permission denied: ${tool.permission}`);
     context.budget.step(context.signal);
-    const result = await tool.execute(tool.parameters.parse(args), context);
+    const parsed = tool.parameters.parse(args);
+    let result = await tool.execute(parsed, context);
     context.signal.throwIfAborted();
-    if (JSON.stringify(result).length > 65536)
+    // ── mac7/r17-d: format and diagnostics after an edit, and a very long answer kept in a file. ──
+    if (this.afterTool) result = await this.afterTool(name, parsed, result, context);
+    if (JSON.stringify(result).length > 65536) {
+      const kept = this.oversized?.(name, result, context);
+      if (kept !== undefined) return kept;
       throw new Error("Tool output exceeds 64 KiB limit");
+    }
+    // ── end mac7/r17-d ──
     return result;
   }
+  /** mac7/r17-d (src/coding/): looks at a finished call and may add to its answer (format-on-edit). */
+  afterTool?: (name: string, args: unknown, result: unknown, context: ToolContext) => Promise<unknown>;
+  /** mac7/r17-d (src/coding/large-output.ts): a replacement for an answer over 64 KiB, or undefined to refuse it. */
+  oversized?: (name: string, result: unknown, context: ToolContext) => unknown;
 }
 
 /**

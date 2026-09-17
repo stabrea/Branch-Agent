@@ -1,0 +1,9 @@
+{
+  "id": "branch-agent",
+  "name": "Branch Agent",
+  "version": "1.0.0",
+  "minAppVersion": "1.4.0",
+  "description": "Ask your own Branch Agent about the note you are writing, and put its answer in the note.",
+  "author": "Branch Agent",
+  "isDesktopOnly": true
+}

@@ -43,7 +43,10 @@ function objectBody(source, open) {
 }
 
 /** The keys written at the top level of one object body, ignoring anything nested inside it. */
-function topLevelKeys(body) {
+function topLevelKeys(source) {
+  // Prose in a block comment can read like a key ("w911: the three-way switch"), so the comments are
+  // blanked - to the same length, so every other index still lines up - before the keys are read.
+  const body = source.replace(/\/\*[\s\S]*?\*\//g, (comment) => " ".repeat(comment.length));
   const keys = [];
   let depth = 0;
   for (let i = 0; i < body.length; i += 1) {

@@ -198,7 +198,7 @@ export class IrcChannel implements ChannelAdapter {
     const [target = "", text = ""] = line.params;
     const nick = line.prefix.split("!")[0] ?? "";
     if (!nick || !text || nick.toLowerCase() === this.nick.toLowerCase()) return null;
-    if (text.startsWith("")) return null; // CTCP (actions, version requests) is not conversation.
+    if (text.startsWith("\u0001")) return null; // CTCP (actions, version requests) is not conversation.
     const direct = !/^[#&!+]/.test(target);
     const lower = text.toLowerCase(), me = this.nick.toLowerCase();
     const named = lower.startsWith(`${me}:`) || lower.startsWith(`${me},`) || lower.startsWith(`@${me}`);

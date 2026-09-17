@@ -6,6 +6,7 @@ import { sandboxChoices } from "./sandbox.js";
 import { sandboxBackends } from "./sandbox-backends.js";
 import type { Store } from "./store.js";
 import { optionalFields } from "./feature-switches.js";
+import { asksEveryTime, asksUnlessRuled } from "./devices/capabilities.js"; // mac7/nodes
 
 export { globMatches } from "./policy-resources.js";
 
@@ -96,8 +97,11 @@ export const PolicyInputSchema = z
   })
   .strict();
 
-/** Where a task came from. Anything but the owner's own app or command line is held to the "Ask before changes" preset. */
-export type RunSource = "owner" | "trigger" | "schedule" | "mcp" | "a2a" | "acp";
+/**
+ * Where a task came from. Anything but the owner's own app or command line is held to the "Ask before changes" preset.
+ * "channel" is a message from a chat app (Telegram, Discord, ...): a chat cannot prove who is typing, so it is never the owner.
+ */
+export type RunSource = "owner" | "trigger" | "schedule" | "mcp" | "a2a" | "acp" | "channel";
 
 interface PresetDefinition { label: string; description: string; rules: z.input<typeof PolicyRuleSchema>[] }
 const presetDefinitions: Record<Exclude<PolicyPresetName, "custom">, PresetDefinition> = {
@@ -174,6 +178,15 @@ const readOnlyPermissions = new Set([
   "gitlab.read",
   // A check-in writing down its own answer (src/heartbeat.ts); the news goes out afterwards, by Branch.
   "heartbeat.respond",
+  // mac6/bucket-23: a project's board, which intent a request is, the sources' cursors, the list of
+  // app steps and whether other Branch computers are up only look (src/asks/).
+  "projects.read", "intents.read", "sources.read", "blocks.read", "nodes.read",
+  // mac7/nodes: which of the owner's devices are paired and connected only looks (src/devices/).
+  "devices.read",
+  // R17-C: reading the owner's own mail, calendar, files, music and house only looks (src/personal/).
+  "personal.read",
+  // r17-h: the shared board's cards, the widgets' list and the install requests only look (src/flows-boards/).
+  "boards.read", "widgets.read", "installs.read",
 ]);
 export const isReadOnlyPermission = (permission: string): boolean => readOnlyPermissions.has(permission);
 
@@ -238,6 +251,12 @@ export function evaluatePolicy(policy: Policy, request: PolicyRequest): PolicyOu
  * so it is one question the first time and nothing afterwards.
  */
 function unmatched(policy: Policy, request: PolicyRequest): PolicyOutcome {
+  // ---- mac7/nodes: a device taking a picture, a sound, a place, a file or running a command asks
+  // unless a rule decided (src/devices/capabilities.ts). A yes is remembered for the conversation. ----
+  if (asksUnlessRuled(request.tool))
+    return { decision: "ask", rule: { tool: request.tool, match: request.target || "*", applies: "any", decision: "ask",
+      remember: asksEveryTime(request.tool) ? "never" : "session" } };
+  // ---- end mac7/nodes ----
   if (request.resource?.kind !== "command" || policy.unmatchedCommands === "allow")
     return { decision: "allow", rule: null };
   return {

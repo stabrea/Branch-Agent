@@ -1,3 +1,4 @@
+import { runOrigin } from "../key-context.js";
 import { createHash } from "node:crypto";
 import type { Run } from "../contracts.js";
 import type { Store } from "../store.js";
@@ -138,7 +139,8 @@ export const learningCoreSignal = "learning-core";
 /** Where the task started from, as the tasks table recorded it. */
 export function contextOf(store: Store, run: Run): TaskContext {
   const row = store.sqlite.prepare("SELECT source, project FROM tasks WHERE id=?").get(run.id);
-  return { prompt: run.prompt, project: String(row?.project ?? run.project ?? "default"), source: String(row?.source ?? "owner") };
+  // A task that did not come through the waiting line (a chat message's, for one) says where it came from itself.
+  return { prompt: run.prompt, project: String(row?.project ?? run.project ?? "default"), source: String(row?.source ?? runOrigin(store, run.id).source) };
 }
 
 /**

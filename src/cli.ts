@@ -16,6 +16,7 @@ import { startTui } from "./terminal-tui.js";
 import { looksInteractive } from "./terminal-style.js";
 import { runTerminalCommand, terminalArgv, terminalCommandNames, versionText } from "./terminal-cli.js";
 import { asksForHelp, cliCommands, commandHelp, completionScript, usageText } from "./cli-completion.js";
+import { nodeCommand } from "./devices/node/cli.js"; // mac7/nodes
 // Batch 20 (wave 8): short-lived keys, schedules and the attach client for the running engine.
 import { connect, conversations, messagesOf, since, transcriptLines } from "./cli-attach.js";
 import { scopeDescriptions } from "./session-tokens.js";
@@ -29,6 +30,7 @@ import {
 import { parseHeadlessArgs, promptsFromScript, runHeadless } from "./headless.js";
 import { serveMcpStdio } from "./mcp-stdio.js";
 import { serveAcpStdio } from "./acp.js";
+import { serveAppServerStdio } from "./asks/app-server.js"; // mac6/bucket-23
 import { healthReport } from "./health.js";
 import { summaryLine } from "./evaluation-runner.js";
 import { runMemoryEvaluation } from "./memory-evaluation.js";
@@ -39,6 +41,7 @@ import { readFile, writeFile } from "node:fs/promises";
 // Wave 5 (deployment): background running and setting-up repairs.
 import { daemonCommand, daemonLauncherName, type DaemonAction } from "./install/daemon.js";
 import { doctorFix, doctorText } from "./doctor-fix.js";
+import { activityCommand } from "./safety-extras/cli.js"; // mac7/r17-g
 // mac3/security-check: the security self-check on the command line.
 import { securityAuditCommand } from "./security-audit/api.js";
 import { probeAll } from "./provider-probe.js";
@@ -54,6 +57,7 @@ import { selfTestCommand } from "./never-break/self-test.js";
 import { manageCommand } from "./install/manage-cli.js";
 import { bringInShareable, shareableSections } from "./interop/agent-market.js";
 // --- end bucket 22 ---
+import { sendCommand } from "./reach/send-cli.js"; // r17-i: branch send
 
 async function configuredApp(options: Parameters<typeof createBranch>[0]) {
   const app = await createBranch(options);
@@ -149,6 +153,12 @@ async function main(): Promise<void> {
     console.log(commandHelp(command));
     return;
   }
+  // ---- mac7/nodes: `branch node` lends this computer to Branch elsewhere; it opens no workspace or database. ----
+  if (command === "node") {
+    process.exitCode = await nodeCommand({ argv: process.argv.slice(3), env: process.env, platform: process.platform, print: (line) => console.log(line) });
+    return;
+  }
+  // ---- end mac7/nodes ----
   if (command === "update") return updateCheckout();
   if (command === "daemon") return runDaemonCommand();
   // Printing a completion script or the command list needs no workspace, database or integrations.
@@ -162,6 +172,14 @@ async function main(): Promise<void> {
   // These two talk to the engine that is already running and never start one of their own, so they
   // come before the workspace and the database are opened at all.
   if (command === "schedule") return scheduleCommand(dataDir);
+  // --- mac7/connect: `branch connect <chat app>` (src/channel-setup/cli.ts) ---
+  if (command === "connect") {
+    const { connectCommand } = await import("./channel-setup/cli.js");
+    process.exitCode = await connectCommand(process.argv.slice(3), { dataDir, workspace });
+    return;
+  }
+  // --- end mac7/connect ---
+  if (command === "send") return sendCommand(process.argv.slice(3), dataDir); // r17-i
   // --- mac3/never-break: a new version checking itself on a copy of the data before an update ---
   if (command === "start" && process.env.BRANCH_SELF_TEST)
     return selfTestCommand(process.env.BRANCH_SELF_TEST, { dataDir, workspace, version: String(createRequire(import.meta.url)("../package.json").version) });
@@ -209,6 +227,10 @@ async function main(): Promise<void> {
     } else if (command === "acp-serve") {
       await serveAcpStdio(app.runtime, app.store);
       return;
+    } else if (command === "app-server") {
+      // mac6/bucket-23 (A0032): the app-server protocol on standard input and output, while switched on.
+      await serveAppServerStdio(app.runtime, app.version);
+      return;
     }
     // Wave mac3 (terminal): places, Settings pages and the everyday commands, in src/terminal-cli.ts.
     if (terminalCommandNames.has(command)) {
@@ -240,6 +262,8 @@ async function main(): Promise<void> {
       return;
     }
     if (command === "trace") { traceCommand(app); return; }
+    // mac7/r17-g: `branch activity verify [--tip <hash>] [--json]` checks the tamper-evident chain.
+    if (command === "activity") { process.exitCode = activityCommand(app.safetyExtras.chain, app.runtime.owner, process.argv.slice(3)); return; }
     if (command === "eval") {
       await runEvaluation(app);
       return;

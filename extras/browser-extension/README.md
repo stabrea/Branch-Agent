@@ -29,6 +29,16 @@ Open a page, press the extension, paste the paired address and key the first tim
 what you want, and press **Send it**. The address is remembered in the extension's own storage; the
 key is not, so you type it each session.
 
+## Talking to Branch in the side panel
+
+Open Chrome's side panel (the side panel button in the toolbar) and choose **Send to Branch**. Fill in
+the same paired address and key under **Your paired Branch**, then write to Branch as you would in
+the app: each answer appears under your message, and the next message carries on the same
+conversation until you press **New conversation**. Tick **About this page** to send the page's address,
+title and whatever you selected with your message; Chrome only lets the panel read a page after you
+have pressed the extension's toolbar button on it once. If Branch stops to ask for a yes, answer it in
+the Branch app.
+
 ## Taking it away
 
 `chrome://extensions` → **Remove**. Then switch the setting back off in Branch.
