@@ -1,6 +1,7 @@
 import { basename } from "node:path";
 import { parseDocument, stringify } from "yaml";
 import { redactText } from "../conversation-share.js";
+import { redactLeaks } from "../leak-guard.js";
 import { parseSkillDocument, skillDocumentLimit } from "../skill-document.js";
 import { describeFindings, scanSkill } from "../skill-scan.js";
 import type { SourceTree } from "./source-tree.js";
@@ -9,9 +10,13 @@ import {
   type FoundItem, type ItemKind, type KeyPrompt, type MovedMessage, type MovedServer, type MoveInSource, type Payload,
 } from "./types.js";
 
-/** Anything that looks like a key is blanked out of text before it is kept in Branch. */
+/**
+ * Anything that looks like a key is blanked out of text before it is kept in Branch: first by the
+ * leak guard every tool result and model request passes through (tokens, sign-in headers,
+ * passwords in addresses), then by the sharing scrubber's own patterns.
+ */
 export const scrub = (text: string): string =>
-  redactText(text, { secrets: true, contactDetails: false, toolResults: false }).text;
+  redactText(redactLeaks(text).text, { secrets: true, contactDetails: false, toolResults: false }).text;
 
 /** Every line of a JSON-lines file that parses as an object; broken lines are skipped, not fatal. */
 export function jsonLines(text: string): Record<string, unknown>[] {
@@ -228,7 +233,7 @@ export function textItem(
   source: MoveInSource, kind: "memory" | "instructions", origin: string, title: string, text: string,
   about: "person" | "world" | "project" = "person", project?: string,
 ): FoundItem | null {
-  const clean = text.trim();
+  const clean = scrub(text.trim()).trim();
   if (!clean) return null;
   const facts = splitForMemory(clean).length;
   const detail = `${clean.length.toLocaleString("en")} characters, kept as ${facts} saved fact${facts === 1 ? "" : "s"}.`;

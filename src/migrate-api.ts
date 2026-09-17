@@ -2,6 +2,8 @@ import type { IncomingMessage } from "node:http";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute } from "node:path";
 import { z } from "zod";
+import { audit } from "./audit.js";
+import { writeContextFile } from "./context-files.js";
 import type { createBranch } from "./index.js";
 import { broughtServers, broughtSettings, bringOver, type ContextFileSink } from "./migrate/apply.js";
 import { placesFor, type PlaceInput } from "./migrate/detect.js";
@@ -42,6 +44,26 @@ export function defaultMoveInOptions(env: Record<string, string | undefined> = p
     : { platform: process.platform, env, home: homedir() };
 }
 
+/**
+ * The sink that hands a context file to Branch's own loader (`context-files.ts`): the text is
+ * written where that loader reads the file, and the switch the owner set for it is left alone.
+ * A memory file that belonged to one of the other assistant's projects is declined, because the
+ * loader reads one MEMORY.md for this workspace; that text stays a saved fact about its project.
+ */
+export function contextFileSinkFor(app: Branch): ContextFileSink {
+  return async (file) => {
+    if (file.project) return null;
+    const written = writeContextFile(app.store, app.runtime.owner, app.runtime.workspace,
+      { name: file.name, text: file.text, from: sourceNames[file.source] });
+    const where = written.folder === app.store.folder ? "Branch's own folder" : "the workspace";
+    const state = !written.readable ? "; the workspace folder is not trusted, so it is not read until you trust it"
+      : written.setting === "off" ? "; it is switched off under Settings, so it is not read yet"
+      : written.setting === "when-needed" ? "; it is read when a task needs it" : "";
+    const verb = written.outcome === "created" ? "written to" : written.outcome === "added" ? "added to" : "already in";
+    return `${verb} ${written.name} in ${where}${state}`;
+  };
+}
+
 export const maximumUploadBytes = 32 * 1024 * 1024;
 const SourceRequestSchema = z.object({
   source: MoveInSourceSchema.optional(),
@@ -60,9 +82,12 @@ async function opened(body: z.infer<typeof SourceRequestSchema>, options: PlaceI
     return { source: place.source, input: placeInput(place) };
   }
   if (body.path && !isAbsolute(body.path)) throw new MoveInApiError(400, "Give the whole path to the folder or file, starting from the top of the disk");
-  const tree = body.archive
+  const tree = await (async () => body.archive
     ? archiveTree(body.archive.name, Buffer.from(body.archive.data, "base64"))
-    : await openSource(body.path!).catch((error: Error) => { throw new MoveInApiError(400, error.message); });
+    : openSource(body.path!))().catch((error: Error) => {
+    // A damaged archive can fail with a bare range error; the owner is told it could not be opened.
+    throw new MoveInApiError(400, error instanceof RangeError ? "That file is damaged, so Branch could not open it" : error.message);
+  });
   const source = body.source ?? await recognise(tree);
   if (!source) throw new MoveInApiError(400, "Branch could not tell which assistant this came from. Choose it from the list and try again.");
   const input: ScanInput = { tree, extras: {} };
@@ -118,10 +143,13 @@ export async function moveInApi(
     const { items: _items, ...where } = body ?? {};
     const project = app.store.projects.active(owner).id;
     const held = new Set(app.store.locker.names(owner, project).map((entry) => entry.name));
-    return withScan(where, options, async (source, from, scan) => ({
-      source, name: sourceNames[source], from,
-      ...await bringOver(app.store, owner, source, scan, items, held, options.contextFiles),
-    }));
+    return withScan(where, options, async (source, from, scan) => {
+      const receipt = await bringOver(app.store, owner, source, scan, items, held, options.contextFiles);
+      audit(app.store, owner, { action: "data.imported", actor: "owner", source: "owner",
+        subject: `${sourceNames[source]}: ${receipt.brought.length} brought over, ${receipt.skipped.length} left behind`.slice(0, 200),
+        reason: `Brought over from ${from}`.slice(0, 500), outcome: receipt.brought.length ? "completed" : "nothing brought" });
+      return { source, name: sourceNames[source], from, ...receipt };
+    });
   }
   throw new MoveInApiError(404, "Endpoint not found");
 }

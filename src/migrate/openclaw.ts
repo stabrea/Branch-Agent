@@ -138,8 +138,16 @@ function configItems(config: Record<string, unknown>, keys: KeyPrompt[]): FoundI
   return items;
 }
 
-export async function scanOpenClaw({ tree }: ScanInput): Promise<ScanResult> {
-  const keys: KeyPrompt[] = [], notes: string[] = [], closers: (() => Promise<void>)[] = [];
+export async function scanOpenClaw(input: ScanInput): Promise<ScanResult> {
+  const closers: (() => Promise<void>)[] = [];
+  const close = async () => { for (const closer of closers.splice(0)) await closer(); };
+  // A database Branch cannot read still has its private copy removed before the error is reported.
+  try { return { ...await readOpenClaw(input, closers), close }; }
+  catch (error) { await close(); throw error; }
+}
+
+async function readOpenClaw({ tree }: ScanInput, closers: (() => Promise<void>)[]): Promise<ScanResult> {
+  const keys: KeyPrompt[] = [], notes: string[] = [];
   const config = readConfig(await tree.read("openclaw.json", 4 * 1024 * 1024) ?? await tree.read("clawdbot.json", 4 * 1024 * 1024), notes);
   const items = [...await workspaceItems(workspaceOf(tree, config, notes)), ...await skillsIn(tree, "openclaw", "skills")];
   items.push(...configItems(config, keys));
@@ -150,6 +158,6 @@ export async function scanOpenClaw({ tree }: ScanInput): Promise<ScanResult> {
   items.push(...await chatItems(tree, closers));
   if ((await tree.list("")).some((entry) => entry.name === "credentials"))
     notes.push("Your OpenClaw sign-ins and chat-app pairings stay with OpenClaw. Connect them again under Settings.");
-  return { items, keys: mergeKeys(keys), notes, close: async () => { for (const close of closers) await close(); } };
+  return { items, keys: mergeKeys(keys), notes };
 }
 

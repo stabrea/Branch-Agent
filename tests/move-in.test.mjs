@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readdir, readFile, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
@@ -12,6 +12,7 @@ import { bringOver, broughtServers, broughtSettings } from "../dist/migrate/appl
 import { parseToml } from "../dist/migrate/toml.js";
 import { normaliseSkill, serverFrom } from "../dist/migrate/common.js";
 import { zipWrite } from "../dist/skill-package.js";
+import { openPlace } from "./places.mjs";
 import {
   SECRET, claudeHome, codexHome, hermesHome, openclawHome, opencodeHome, tarOf, skillDocument,
 } from "./move-in-fixtures.mjs";
@@ -417,6 +418,175 @@ test("a context file's text goes to the loader that owns such files, when there 
   assert.equal(app.store.exportMemory(owner).records.length, 0, "nothing was kept on a path of this feature's own");
 });
 
+test("the running app hands context files to the loader: where it reads them, the owner's own kept, switches untouched", async (t) => {
+  const { app, root, home, owner } = await fixture(t);
+  await claudeHome(home);
+  await hermesHome(home);
+  const { contextFileSinkFor } = await import("../dist/migrate-api.js");
+  const { contextFileSettings, contextFileStatus, saveContextFileSettings, slotForName, writeContextFile } = await import("../dist/context-files.js");
+  const workspace = join(root, "workspace");
+  await writeFile(join(workspace, "AGENTS.md"), "The owner's own rule.\n");
+  const sink = contextFileSinkFor(app);
+  const claude = await scanned(home, "claude-code");
+  const texts = claude.items.filter((item) => item.kind === "memory" || item.kind === "instructions").map((item) => item.key);
+  const receipt = await bringOver(app.store, owner, "claude-code", claude, texts, new Set(), sink);
+  assert.deepEqual(receipt.brought.map((entry) => entry.target).sort(), [
+    "1 saved fact",
+    "added to AGENTS.md in the workspace; it is switched off under Settings, so it is not read yet",
+  ], "a project's own memory stays a saved fact; the instructions join the file the loader reads");
+  const agents = await readFile(join(workspace, "AGENTS.md"), "utf8");
+  assert.ok(agents.startsWith("The owner's own rule.\n"), "the owner's file is added to, never replaced");
+  assert.match(agents, /<!-- Brought over from Claude Code -->\n# How I like to work/);
+  await assert.rejects(lstat(join(workspace, "CLAUDE.md")), "no second file the loader would never read");
+  assert.deepEqual(contextFileSettings(app.store, owner).files, {}, "bringing a file over switches nothing on");
+  saveContextFileSettings(app.store, owner, { files: { agents: "on" } });
+  const report = contextFileStatus(app.store, owner, workspace).find((entry) => entry.key === "agents");
+  assert.deepEqual([report.name, report.outcome], ["AGENTS.md", "carried"]);
+
+  const hermes = await scanned(home, "hermes");
+  const personal = hermes.items.filter((item) => item.kind === "memory" || item.kind === "instructions").map((item) => item.key);
+  try {
+    const moved = await bringOver(app.store, owner, "hermes", hermes, personal, new Set(), sink);
+    assert.equal(moved.skipped.length, 0);
+    assert.ok(moved.brought.some((entry) => entry.target === "written to SOUL.md in Branch's own folder; it is switched off under Settings, so it is not read yet"),
+      JSON.stringify(moved.brought));
+  } finally { await hermes.close?.(); }
+  assert.equal(await readFile(join(app.store.folder, "SOUL.md"), "utf8"), "You are calm and precise.\n");
+  assert.equal(await readFile(join(app.store.folder, "USER.md"), "utf8"), "Prefers metric units.\n");
+  assert.match(await readFile(join(workspace, "MEMORY.md"), "utf8"), /zone 7[\s\S]*Rex/);
+  await assert.rejects(lstat(join(workspace, "SOUL.md")), "a file about the owner is kept where the owner's files are");
+  assert.equal(app.store.exportMemory(owner).records.filter((record) => /calm and precise|metric/.test(record.data.text)).length, 0);
+
+  const again = writeContextFile(app.store, owner, workspace, { name: "SOUL.md", text: "You are calm and precise.", from: "Hermes Agent" });
+  assert.equal(again.outcome, "already there");
+  assert.equal(slotForName("GEMINI.md"), "agents");
+  assert.equal(slotForName("NOTES.md"), null);
+  // A link where a context file would go is never written through.
+  const outside = join(root, "outside.md");
+  await writeFile(outside, "untouched");
+  await symlink(outside, join(workspace, "TOOLS.md"));
+  assert.throws(() => writeContextFile(app.store, owner, workspace, { name: "TOOLS.md", text: "x", from: "Codex CLI" }), /not a plain file/);
+  assert.equal(await readFile(outside, "utf8"), "untouched");
+
+  // Folder trust: an owner file skips a workspace the owner has not trusted, and a work file says it is not read.
+  const { decideFolder, saveFolderTrustSettings } = await import("../dist/folder-trust.js");
+  saveFolderTrustSettings(app.store, owner, { mode: "on" });
+  decideFolder(app.store, owner, workspace, { folder: "", decision: "distrust" });
+  await writeFile(join(workspace, "IDENTITY.md"), "A workspace identity.\n");
+  const identity = writeContextFile(app.store, owner, workspace, { name: "IDENTITY.md", text: "Called Fern.", from: "OpenClaw" });
+  assert.deepEqual([identity.folder, identity.outcome, identity.readable], [app.store.folder, "created", true]);
+  assert.equal(await readFile(join(workspace, "IDENTITY.md"), "utf8"), "A workspace identity.\n");
+  const heartbeat = await sink({ name: "HEARTBEAT.md", home: "project", text: "Check the plants.", source: "openclaw" });
+  assert.equal(heartbeat, "written to HEARTBEAT.md in the workspace; the workspace folder is not trusted, so it is not read until you trust it");
+});
+
+/** Every file under a folder, so a key anywhere on disk is found. */
+async function everyFile(folder) {
+  const found = [];
+  for (const entry of await readdir(folder, { withFileTypes: true }).catch(() => [])) {
+    const path = join(folder, entry.name);
+    if (entry.isDirectory()) found.push(...await everyFile(path));
+    else if (entry.isFile()) found.push(path);
+  }
+  return found;
+}
+
+test("after an import no key is anywhere Branch writes, every import is on the record, and no tool server can run", async (t) => {
+  const { app, root, home } = await fixture(t);
+  await Promise.all([claudeHome(home), codexHome(home), hermesHome(home), openclawHome(home), opencodeHome(home)]);
+  // A password inside an address, which only the leak guard's patterns know, in a memory file.
+  const hidden = "Hunter22deploy";
+  await writeFile(join(home, ".codex", "memories", "MEMORY.md"), `Deploys use postgres://bot:${hidden}@db.example.com/app for the bot.`);
+  const { startServer } = await import("../dist/server.js");
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0, presence: "daemon" });
+  const previous = process.env.BRANCH_MOVE_IN_HOME;
+  process.env.BRANCH_MOVE_IN_HOME = home;
+  t.after(async () => {
+    if (previous === undefined) delete process.env.BRANCH_MOVE_IN_HOME; else process.env.BRANCH_MOVE_IN_HOME = previous;
+    await server.close();
+  });
+  const api = async (path, body) => {
+    const response = await fetch(server.url + path, { method: "POST",
+      headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" }, body: JSON.stringify(body) });
+    return { status: response.status, body: await response.json() };
+  };
+  const tools = app.registry.names().sort();
+  await api("/api/move-in/switch", { mode: "on" });
+  for (const source of ["claude-code", "codex", "hermes", "openclaw", "opencode"]) {
+    const preview = await api("/api/move-in/preview", { source });
+    assert.equal(preview.status, 200, source);
+    const keys = preview.body.groups.flatMap((group) => group.items).filter((item) => !item.blocked).map((item) => item.key);
+    const brought = await api("/api/move-in/import", { source, items: keys });
+    assert.equal(brought.status, 200, `${source}: ${JSON.stringify(brought.body)}`);
+    assert.ok(brought.body.brought.length > 0, source);
+  }
+  const imports = app.store.audit.list(app.runtime.owner, { limit: 50 }).filter((entry) => entry.action === "data.imported");
+  assert.equal(imports.length, 5, "every import is on the record");
+  assert.ok(imports.every((entry) => /brought over, \d+ left behind$/.test(entry.subject)));
+  const backup = JSON.stringify(app.store.backup("test").tables);
+  assert.ok(!backup.includes(SECRET) && !backup.includes(hidden), "a key reached the database");
+  // Everything on disk that is not the made-up home folder: the database, logs, traces, the workspace.
+  const written = (await everyFile(root)).filter((path) => !path.startsWith(home));
+  assert.ok(written.some((path) => path.startsWith(join(root, "data"))));
+  for (const file of written) {
+    const bytes = await readFile(file);
+    assert.ok(!bytes.includes(SECRET) && !bytes.includes(hidden), `a key reached ${file}`);
+  }
+  assert.match(await readFile(join(root, "workspace", "MEMORY.md"), "utf8"), /Deploys use postgres:\/\/bot:\[hidden key-like value/);
+  // Tool servers wait to be tried: none of their tools exist, and each still lacks its tool list and version.
+  assert.deepEqual(app.registry.names().sort(), tools);
+  const servers = broughtServers(app.store, app.runtime.owner);
+  assert.ok(servers.length >= 6, `${servers.length} servers`);
+  for (const entry of servers)
+    assert.deepEqual([entry.server.connection.tools, entry.server.connection.expectedVersion], [[], ""]);
+});
+
+test("hostile input: prototype names and deep nesting in TOML, links out of a folder, damaged archives and fake databases", async (t) => {
+  assert.throws(() => parseToml("[__proto__]\npolluted = 1\n"), /does not accept/);
+  assert.throws(() => parseToml("a.constructor.prototype.polluted = 1\n"), /not a name Branch accepts/);
+  assert.throws(() => parseToml("x = { __proto__ = { polluted = 1 } }\n"), /not a name Branch accepts/);
+  assert.equal({}.polluted, undefined);
+  assert.throws(() => parseToml(`x = ${"[".repeat(5000)}${"]".repeat(5000)}\n`), /nested too deeply/);
+  assert.deepEqual(parseToml(`x = ${"[".repeat(10)}1${"]".repeat(10)}\n`).x.flat(20), [1]);
+
+  const { app, root, home } = await fixture(t);
+  const claude = join(home, ".claude");
+  await mkdir(join(root, "elsewhere"), { recursive: true });
+  await writeFile(join(root, "elsewhere", "secret.md"), "OUTSIDE");
+  await writeFile(join(root, "elsewhere", "journal"), "OUTSIDE");
+  await mkdir(join(claude, "projects"), { recursive: true });
+  await symlink(join(root, "elsewhere"), join(claude, "projects", "linked"));
+  await writeFile(join(claude, "state.db"), "not a database at all");
+  await symlink(join(root, "elsewhere", "journal"), join(claude, "state.db-wal"));
+  const tree = folderTree(claude);
+  assert.equal(await tree.read("projects/linked/secret.md"), null, "a linked folder is not followed");
+  assert.deepEqual(await tree.list("projects/linked"), []);
+  const copy = await tree.copyOut("state.db");
+  assert.deepEqual(await readdir(join(copy.path, "..")), ["state.db"], "a linked journal is not copied");
+  await copy.discard();
+  await assert.rejects(lstat(join(copy.path, "..")));
+  const { openCopy } = await import("../dist/migrate/sqlite.js");
+  let made = "";
+  const watching = { ...tree, copyOut: async (path) => { const opened = await tree.copyOut(path); made = opened.path; return opened; } };
+  assert.equal(await openCopy(watching, "state.db"), null);
+  await assert.rejects(lstat(made), "the copy of a file that is not a database is removed at once");
+
+  const { startServer } = await import("../dist/server.js");
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0, presence: "daemon" });
+  t.after(() => server.close());
+  const post = (path, body) => fetch(server.url + path, { method: "POST",
+    headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" }, body: JSON.stringify(body) });
+  await post("/api/move-in/switch", { mode: "when-needed" });
+  // An end-of-contents record that points at a list far past the end of the file.
+  const broken = Buffer.alloc(22);
+  broken.writeUInt32LE(0x06054b50, 0);
+  broken.writeUInt16LE(1, 10);
+  broken.writeUInt32LE(0xfffff0, 16);
+  const response = await post("/api/move-in/preview", { archive: { name: "broken.zip", data: broken.toString("base64") } });
+  assert.equal(response.status, 400);
+  assert.match((await response.json()).error, /damaged|could not/);
+});
+
 test("the move-in switch ships off and keeps only the three settings", async (t) => {
   const { app, owner } = await fixture(t);
   const { moveInMode, saveMoveInMode, requireMoveInAllowed } = await import("../dist/migrate/switch.js");
@@ -539,14 +709,8 @@ test("every word the move-in card shows is on file in English and in real French
   assert.ok(!/textContent = "[A-Z]/.test(script), "a word is written into the page without a key");
 });
 
-/**
- * Opens one place in the window. The only line that knows how the current window is laid out, so
- * the redesign can swap it for tests/places.mjs.
- */
-async function openScreen(page, place) {
-  const view = place.split(":")[0];
-  await page.evaluate((name) => document.querySelector(`button.nav[data-view="${name}"]`).click(), view);
-}
+/** Opens one place in the window, through the redesigned window's own controls (tests/places.mjs). */
+const openScreen = (page, place) => openPlace(page, place);
 
 test("the move-in card works at 400 pixels wide, with no sideways scroll and no page errors", async (t) => {
   const { chromium } = await import("playwright");
@@ -586,8 +750,10 @@ test("the move-in card works at 400 pixels wide, with no sideways scroll and no 
   await offer.waitFor({ state: "visible" });
   assert.equal(await offer.textContent(), "Bring your chats and memory from Claude Code.");
   await offer.click();
-  await page.locator("#settings").waitFor({ state: "visible" });
+  await page.locator("#settings-window").waitFor({ state: "visible" });
+  await page.locator("#move-in-card").waitFor({ state: "visible" });
   assert.equal(await page.locator("#move-in-card").getAttribute("data-home"), "settings:data");
+  assert.equal(await page.locator("#lx-page-data #move-in-card").count(), 1, "the offer opens the data page, where the card lives");
   assert.equal(await page.locator("#move-in-card button:not(.quiet-button)").count(), 0, "only the bring button is filled, and it appears with the preview");
   await page.getByRole("button", { name: "See what is there", exact: true }).click();
   const bring = page.getByRole("button", { name: "Bring the ticked things over", exact: true });
@@ -599,6 +765,7 @@ test("the move-in card works at 400 pixels wide, with no sideways scroll and no 
   await page.locator("#move-in-brought details").first().evaluate((node) => { node.open = true; });
   assert.ok(await wide() <= 0, "the receipt or a server entry pushes the page sideways");
   assert.match(await page.locator("#move-in-status").textContent(), /^9 brought over, 0 left behind\.$/);
-  assert.equal(await page.locator("#move-in-offer").count(), 0, "the offer stays after everything came over");
+  await page.locator("#move-in-offer").waitFor({ state: "detached", timeout: 5000 })
+    .catch(() => assert.fail("the offer stays after everything came over"));
   assert.deepEqual(errors, []);
 });

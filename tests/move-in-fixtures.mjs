@@ -11,7 +11,7 @@ import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { gzipSync } from "node:zlib";
 
-export const SECRET = "sk-live-FIXTURE0000000000000000000000000001";
+export const SECRET = "sk-live-FIXTURE0000000000000000000000000001"; // not-a-real-secret
 
 async function put(root, files) {
   for (const [name, content] of Object.entries(files)) {

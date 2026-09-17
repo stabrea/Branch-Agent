@@ -12,12 +12,14 @@ import { clip, sourceNames, contextFileHome, type ContextFileHome, type ContextF
  */
 /**
  * Where a context file's text goes when the loader that owns those files is present. It returns a
- * short description of where the text now lives. Without one, the text becomes saved facts.
+ * short description of where the text now lives, or null when the loader does not take it (a
+ * memory file that belongs to one of the other assistant's projects); without a loader, or when it
+ * declines, the text becomes saved facts.
  */
 export type ContextFileSink = (file: {
   name: ContextFileName; home: ContextFileHome; text: string; source: MoveInSource;
   about?: "person" | "world" | "project"; project?: string;
-}) => Promise<string>;
+}) => Promise<string | null>;
 
 export interface Receipt {
   brought: { key: string; title: string; kind: string; target: string }[];
@@ -76,9 +78,11 @@ async function bringOne(
   store: Store, owner: string, source: MoveInSource, item: FoundItem, contextFiles?: ContextFileSink,
 ): Promise<string> {
   const payload = await item.load();
-  if ((payload.kind === "memory" || payload.kind === "instructions") && payload.contextFile && contextFiles)
-    return contextFiles({ name: payload.contextFile, home: contextFileHome(payload.contextFile), text: payload.text, source,
+  if ((payload.kind === "memory" || payload.kind === "instructions") && payload.contextFile && contextFiles) {
+    const target = await contextFiles({ name: payload.contextFile, home: contextFileHome(payload.contextFile), text: payload.text, source,
       ...(payload.kind === "memory" ? { about: payload.about, ...(payload.project ? { project: payload.project } : {}) } : {}) });
+    if (target !== null) return target;
+  }
   switch (payload.kind) {
     case "chat": {
       const { sessionId } = store.importSession(owner, { format: "branch-agent-conversation", version: 1,

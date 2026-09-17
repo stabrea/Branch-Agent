@@ -7,8 +7,14 @@
 type Value = string | number | boolean | Value[] | { [key: string]: Value };
 type Table = { [key: string]: Value };
 
+/** Names that would reach into JavaScript's own objects rather than make a table entry. */
+const forbiddenNames = new Set(["__proto__", "constructor", "prototype"]);
+/** How deeply arrays and inline tables may nest, so a hostile file cannot exhaust the stack. */
+const maximumDepth = 32;
+
 class Reader {
   position = 0;
+  depth = 0;
   constructor(readonly text: string) {}
   fail(what: string): never { throw new Error(`config.toml could not be read: ${what} near character ${this.position}`); }
   peek(offset = 0): string { return this.text[this.position + offset] ?? ""; }
@@ -79,12 +85,14 @@ class Reader {
     const number = Number(match[0].replace(/_/g, ""));
     return Number.isFinite(number) && /^[+-]?[\d.]/.test(match[0]) && !/^\d{4}-/.test(match[0]) ? number : match[0];
   }
+  nest(): void { if (++this.depth > maximumDepth) this.fail("values are nested too deeply"); }
   array(): Value[] {
     const items: Value[] = [];
+    this.nest();
     this.position++;
     for (;;) {
       this.skip(true);
-      if (this.peek() === "]") { this.position++; return items; }
+      if (this.peek() === "]") { this.position++; this.depth--; return items; }
       items.push(this.value());
       this.skip(true);
       if (this.peek() === ",") this.position++;
@@ -93,10 +101,11 @@ class Reader {
   }
   inline(): Table {
     const table: Table = {};
+    this.nest();
     this.position++;
     for (;;) {
       this.skip(false);
-      if (this.peek() === "}") { this.position++; return table; }
+      if (this.peek() === "}") { this.position++; this.depth--; return table; }
       const key = this.key();
       if (this.peek() !== "=") this.fail("= was expected");
       this.position++;
@@ -110,8 +119,8 @@ class Reader {
 function tableAt(root: Table, path: string[]): Table {
   let table = root;
   for (const part of path) {
-    const next = table[part];
-    if (next === undefined) table = (table[part] = {}) as Table;
+    const next = Object.hasOwn(table, part) ? table[part] : undefined;
+    if (next === undefined) table = (table[part] = {});
     else if (typeof next === "object" && !Array.isArray(next)) table = next;
     else throw new Error(`config.toml could not be read: ${path.join(".")} is both a value and a table`);
   }
@@ -119,6 +128,7 @@ function tableAt(root: Table, path: string[]): Table {
 }
 
 function assign(root: Table, key: string[], value: Value): void {
+  if (key.some((part) => forbiddenNames.has(part))) throw new Error(`config.toml could not be read: ${key.join(".")} is not a name Branch accepts`);
   tableAt(root, key.slice(0, -1))[key[key.length - 1]!] = value;
 }
 
@@ -138,6 +148,7 @@ export function parseToml(text: string): Table {
     if (reader.peek() === "[") {
       reader.position++;
       const path = reader.key();
+      if (path.some((part) => forbiddenNames.has(part))) reader.fail("a table name Branch does not accept");
       if (reader.peek() !== "]") reader.fail("] was expected");
       reader.position++;
       current = tableAt(root, path);

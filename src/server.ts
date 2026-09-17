@@ -117,7 +117,7 @@ import { handlesTracingPath, logsResponse, metricsResponse, tracingApi, TracingA
 // for, the owner's other computers, marks, and how long conversations are kept.
 import { handlesSandboxRemotePath, sandboxRemoteApi, SandboxRemoteApiError } from "./sandbox-remote-api.js";
 // Wave mac2 (move-in): bringing chats and memory over from another assistant.
-import { handlesMoveInPath, moveInApi, MoveInApiError } from "./migrate-api.js";
+import { contextFileSinkFor, defaultMoveInOptions, handlesMoveInPath, moveInApi, MoveInApiError } from "./migrate-api.js";
 // Wave mac2 (guards): which workspace folders are trusted, and the loop guard switch.
 import { guardsApi, handlesGuardsPath } from "./run-guards.js";
 import { helpApi } from "./help.js";
@@ -647,7 +647,7 @@ async function api(
     });
   // Wave mac2 (move-in): the preview of what another assistant left behind, and bringing it over.
   if (handlesMoveInPath(path))
-    return moveInApi(app, request, path, readBody).catch((error: unknown) => {
+    return moveInApi(app, request, path, readBody, { ...defaultMoveInOptions(), contextFiles: contextFileSinkFor(app) }).catch((error: unknown) => {
       throw error instanceof MoveInApiError ? new HttpError(error.status, error.message) : error;
     });
   // Wave mac2 (guards): which workspace folders are trusted, what each carries, and both switches.

@@ -100,6 +100,8 @@ function buildCard() {
   const [sourcesBox, previewBox, broughtBox, body] = ["move-in-sources", "move-in-preview", "move-in-brought", "move-in-body"]
     .map((id) => Object.assign(make("div"), { id }));
   sourcesBox.className = "card-list";
+  // Nothing but the switch shows until the switch's saved position is known.
+  body.hidden = true;
   const look = button("action.movein-look-for", () => showSources(true).catch((error) => say(error.message)), "quiet-button");
   look.id = "move-in-look";
   const modeHint = make("p", "", "subtle");
@@ -246,6 +248,16 @@ function offerWords() {
   return t("memory.movein.offer", { names });
 }
 
+/** Opens Settings on the data page, where the card lives, the way a person would. */
+function openCard() {
+  const panel = $("settings-window");
+  if (panel) {
+    if (panel.hidden || !panel.offsetParent) document.querySelector(".lx-gear")?.click();
+    document.querySelector('.lx-settings-link[data-page="data"]')?.click();
+  } else document.querySelector('button.nav[data-view="settings"]')?.click();
+  $("move-in-card")?.scrollIntoView({ block: "start" });
+}
+
 function showOffer() {
   const firstRun = $("first-run"), words = offerWords();
   $("move-in-offer")?.remove();
@@ -254,19 +266,22 @@ function showOffer() {
   line.id = "move-in-offer";
   const go = make("button", words, "quiet-button");
   go.type = "button";
-  go.addEventListener("click", () => {
-    document.querySelector('button.nav[data-view="settings"]')?.click();
-    $("move-in-card")?.scrollIntoView({ block: "start" });
-  });
+  go.addEventListener("click", openCard);
   line.append(go);
   firstRun.querySelector(".doors")?.after(line);
 }
 
-async function refresh() {
+async function draw() {
   ({ mode } = await api("move-in/switch"));
   showMode();
   await Promise.all([showSources(), showBrought()]);
   showOffer();
+}
+/* Redraws run one after another, so one started before an import cannot finish after it with old news. */
+let drawn = Promise.resolve();
+function refresh() {
+  drawn = drawn.catch(() => undefined).then(draw);
+  return drawn;
 }
 
 async function start() {

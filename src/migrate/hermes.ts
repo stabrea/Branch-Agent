@@ -101,7 +101,10 @@ export async function scanHermes({ tree: home }: ScanInput): Promise<ScanResult>
     if (locker) keys.push({ name: locker, why: "Hermes kept it in its .env file" });
   }
   const opened = await openCopy(tree, "state.db");
-  const chats = opened ? chatItems(opened, folders) : [];
+  let chats: FoundItem[];
+  // A database Branch cannot read still has its private copy removed before the error is reported.
+  try { chats = opened ? chatItems(opened, folders) : []; }
+  catch (error) { await opened?.close(); throw error; }
   for (const folder of folders)
     items.push(found("hermes", "project", `project:${folder}`, projectNameFor(folder),
       `Chats in ${folder}. Becomes the project "${projectNameFor(folder)}".`,

@@ -1,4 +1,5 @@
-import { copyFile, lstat, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
+import { constants } from "node:fs";
+import { copyFile, lstat, mkdtemp, open, readdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join, resolve, sep } from "node:path";
 import { gunzipSync, inflateRawSync } from "node:zlib";
@@ -26,6 +27,8 @@ export interface SourceTree {
 
 export const defaultReadLimit = 8 * 1024 * 1024;
 /** The most an archive may hold once unpacked, and how many entries, so a hostile file cannot fill memory. */
+/** The largest database Branch copies aside to read, so a huge one cannot fill the disk. */
+export const databaseCopyBytes = 2 * 1024 * 1024 * 1024;
 export const archiveLimits = { fileBytes: 128 * 1024 * 1024, totalBytes: 512 * 1024 * 1024, entries: 50_000 };
 
 /** A relative path made safe: forward slashes, no empty or `.` parts, and never `..`. */
@@ -35,6 +38,34 @@ export function cleanRelative(path: string): string | null {
   return parts.join("/");
 }
 
+const within = (base: string, full: string): boolean => full === base || full.startsWith(base.endsWith(sep) ? base : base + sep);
+
+/**
+ * The full path for a relative one inside `top`, or null. The path must stay inside by its name, and
+ * a folder inside that is really a link elsewhere is not followed: the real place must still be inside.
+ */
+async function insideFolder(top: string, only: string[] | undefined, path: string): Promise<string | null> {
+  const relative = cleanRelative(path);
+  if (relative === null) return null;
+  if (only && relative !== "" && !only.includes(relative.split("/")[0] ?? "")) return null;
+  const full = resolve(top, relative);
+  if (!within(top, full)) return null;
+  if (full === top) return full;
+  const real = (where: string) => realpath(where).catch(() => null);
+  const [realTop, realItself] = await Promise.all([real(top), real(full).then((found) => found ?? real(resolve(full, "..")))]);
+  return realTop && realItself && within(realTop, realItself) ? full : null;
+}
+
+/** A plain file, opened without following a link, and no larger than `maxBytes`. */
+async function plainFile(full: string, maxBytes: number): Promise<Buffer | null> {
+  const handle = await open(full, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0)).catch(() => null);
+  if (!handle) return null;
+  try {
+    const info = await handle.stat();
+    return info.isFile() && info.size <= maxBytes ? await handle.readFile() : null;
+  } finally { await handle.close(); }
+}
+
 /**
  * A folder on this computer. `only`, when given, limits it to those names at its top, so a single
  * file beside another assistant's folder (Claude Code's `~/.claude.json`) can be read without the
@@ -42,17 +73,11 @@ export function cleanRelative(path: string): string | null {
  */
 export function folderTree(root: string, only?: string[]): SourceTree {
   const top = resolve(root);
-  const inside = (path: string): string | null => {
-    const relative = cleanRelative(path);
-    if (relative === null) return null;
-    if (only && relative !== "" && !only.includes(relative.split("/")[0] ?? "")) return null;
-    const full = resolve(top, relative);
-    return full === top || full.startsWith(top.endsWith(sep) ? top : top + sep) ? full : null;
-  };
+  const inside = (path: string) => insideFolder(top, only, path);
   return {
     label: top,
     async list(dir) {
-      const full = inside(dir);
+      const full = await inside(dir);
       if (!full) return [];
       const names = (await readdir(full).catch(() => [] as string[]))
         .filter((name) => !only || full !== top || only.includes(name));
@@ -66,25 +91,34 @@ export function folderTree(root: string, only?: string[]): SourceTree {
       return entries;
     },
     async read(path, maxBytes = defaultReadLimit) {
-      const full = inside(path);
-      if (!full) return null;
-      const info = await lstat(full).catch(() => null);
-      if (!info?.isFile() || info.size > maxBytes) return null;
-      return readFile(full, "utf8").catch(() => null);
+      const full = await inside(path);
+      const data = full ? await plainFile(full, maxBytes).catch(() => null) : null;
+      return data ? data.toString("utf8") : null;
     },
     async copyOut(path) {
-      const full = inside(path);
-      const info = full ? await lstat(full).catch(() => null) : null;
-      if (!full || !info?.isFile()) return null;
-      const folder = await mkdtemp(join(tmpdir(), "branch-move-in-"));
-      const target = join(folder, basename(full));
-      for (const suffix of ["", "-wal", "-shm"])
-        await copyFile(full + suffix, target + suffix).catch((error: NodeJS.ErrnoException) => {
-          if (suffix === "" || error.code !== "ENOENT") throw error;
-        });
-      return { path: target, discard: () => discardFolder(folder) };
+      const full = await inside(path);
+      return full ? copyDatabase(full) : null;
     },
   };
+}
+
+/** A private copy of a database and the journal beside it: each a plain file, and together not too large. */
+async function copyDatabase(full: string): Promise<{ path: string; discard(): Promise<void> } | null> {
+  const parts: string[] = [];
+  let bytes = 0;
+  for (const suffix of ["", "-wal", "-shm"]) {
+    const info = await lstat(full + suffix).catch(() => null);
+    if (!info?.isFile()) { if (suffix === "") return null; continue; }
+    bytes += info.size;
+    parts.push(suffix);
+  }
+  if (bytes > databaseCopyBytes) throw new Error(`${basename(full)} is larger than Branch will copy to read`);
+  const folder = await mkdtemp(join(tmpdir(), "branch-move-in-"));
+  const target = join(folder, basename(full));
+  try {
+    for (const suffix of parts) await copyFile(full + suffix, target + suffix);
+  } catch (error) { await discardFolder(folder); throw error; }
+  return { path: target, discard: () => discardFolder(folder) };
 }
 
 /** One folder inside a tree, seen as a tree of its own (a Hermes profile inside its home folder). */

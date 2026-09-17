@@ -112,8 +112,16 @@ async function configItems(config: SourceTree, keys: KeyPrompt[]): Promise<Found
   return items;
 }
 
-export async function scanOpenCode({ tree, extras }: ScanInput): Promise<ScanResult> {
-  const keys: KeyPrompt[] = [], notes: string[] = [], folders = new Set<string>(), closers: (() => Promise<void>)[] = [];
+export async function scanOpenCode(input: ScanInput): Promise<ScanResult> {
+  const closers: (() => Promise<void>)[] = [];
+  const close = async () => { for (const closer of closers.splice(0)) await closer(); };
+  // A database Branch cannot read still has its private copy removed before the error is reported.
+  try { return { ...await readOpenCode(input, closers), close }; }
+  catch (error) { await close(); throw error; }
+}
+
+async function readOpenCode({ tree, extras }: ScanInput, closers: (() => Promise<void>)[]): Promise<ScanResult> {
+  const keys: KeyPrompt[] = [], notes: string[] = [], folders = new Set<string>();
   const items = await configItems(extras.config ?? tree, keys);
   const chats = await chatItems(tree, folders, closers);
   for (const folder of folders)
@@ -123,5 +131,5 @@ export async function scanOpenCode({ tree, extras }: ScanInput): Promise<ScanRes
   items.push(...chats);
   if ((await tree.list("")).some((entry) => entry.name === "auth.json"))
     notes.push("Your OpenCode sign-ins stay with OpenCode. Connect a model under Settings.");
-  return { items, keys: mergeKeys(keys), notes, close: async () => { for (const close of closers) await close(); } };
+  return { items, keys: mergeKeys(keys), notes };
 }

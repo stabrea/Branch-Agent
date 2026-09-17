@@ -16,18 +16,25 @@ export interface OpenedDatabase {
 export async function openCopy(tree: SourceTree, path: string): Promise<OpenedDatabase | null> {
   const copy = await tree.copyOut(path);
   if (!copy) return null;
-  let db: DatabaseSync;
-  try { db = new DatabaseSync(copy.path); }
-  catch { await copy.discard(); return null; }
-  const known = new Set(db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map((row) => String(row.name)));
+  let db: DatabaseSync | undefined, known: Set<string>;
+  // A file that only looks like a database fails here, and its copy is removed straight away.
+  try {
+    db = new DatabaseSync(copy.path);
+    known = new Set(db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map((row) => String(row.name)));
+  } catch {
+    try { db?.close(); } catch { /* never opened */ }
+    await copy.discard();
+    return null;
+  }
+  const opened = db;
   return {
-    db,
+    db: opened,
     columns(table) {
       if (!known.has(table)) return new Set();
-      return new Set(db.prepare(`PRAGMA table_info("${table.replace(/"/g, "")}")`).all().map((row) => String(row.name)));
+      return new Set(opened.prepare(`PRAGMA table_info("${table.replace(/"/g, "")}")`).all().map((row) => String(row.name)));
     },
     async close() {
-      try { db.close(); } catch { /* already closed */ }
+      try { opened.close(); } catch { /* already closed */ }
       await copy.discard();
     },
   };
