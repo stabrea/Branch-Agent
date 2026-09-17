@@ -92,7 +92,7 @@ test("R17-S20: certificates are added to the computer's own list and never repla
   const state = outbound.apply({ proxy: "http://proxy.example.com:8080", noProxy: ["intranet.example.com"], caCertificates: [{ name: "Office", pem: CA }, { name: "Leaf", pem: LEAF }] });
   assert.deepEqual(state, { proxy: "in use", certificates: 1 });
   assert.deepEqual(calls[0], ["certificates", ["SYSTEM-1", "SYSTEM-2", CA.trim()]], "only the authority is added, after the computer's own");
-  assert.deepEqual(calls[1], ["proxy", { HTTP_PROXY: "http://proxy.example.com:8080", HTTPS_PROXY: "http://proxy.example.com:8080", NO_PROXY: "intranet.example.com" }]);
+  assert.deepEqual(calls[1], ["proxy", { HTTP_PROXY: "http://proxy.example.com:8080", HTTPS_PROXY: "http://proxy.example.com:8080", NO_PROXY: "localhost,127.0.0.1,::1,intranet.example.com" }], "local model servers on this computer never go through the proxy");
   outbound.apply({ proxy: null, noProxy: [], caCertificates: [] });
   assert.equal(undone, 1, "turning the proxy off takes it back");
   assert.deepEqual(calls.at(-1), ["certificates", ["SYSTEM-1", "SYSTEM-2"]], "removing the last certificate puts the computer's list back");

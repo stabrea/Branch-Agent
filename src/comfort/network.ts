@@ -86,7 +86,8 @@ export class OutboundNetwork {
     if (choice.proxy && !proxyProblem(choice.proxy)) {
       if (!this.hooks.setProxy) proxy = "needs a newer Node";
       else {
-        const noProxy = choice.noProxy.join(",");
+        // Local model servers (Ollama, LM Studio) on this computer never go through the proxy.
+        const noProxy = [...new Set(["localhost", "127.0.0.1", "::1", ...choice.noProxy])].join(",");
         this.undoProxy = this.hooks.setProxy({ HTTP_PROXY: choice.proxy, HTTPS_PROXY: choice.proxy, ...(noProxy ? { NO_PROXY: noProxy } : {}) });
         proxy = "in use";
       }
