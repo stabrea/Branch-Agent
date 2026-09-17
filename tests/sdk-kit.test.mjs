@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parse } from "yaml";
+import { parse, stringify } from "yaml";
 import {
   apiRoutes, createBranch, flowFromYaml, flowToYaml, FlowYamlError, flowYamlFormat, routeSnippets,
   sdkKitMode, sdkKitTools, sdkLanguages, starterProgram,
@@ -268,4 +268,25 @@ test("integration review: a file's id never replaces a saved flow, and a short-l
   assert.equal((await withKey("/api/flows/yaml", { yaml })).status, 401, "reading a flow in is refused");
   assert.equal((await withKey("/api/sdk-kit", { mode: "off" })).status, 401, "the switch is the owner's");
   assert.equal(app.flows.list().length, 2);
+});
+
+test("integration review: an imported tool box is the same as one saved by hand, and a missing flow is a 404", async (t) => {
+  const { app, call } = await served(t);
+  await call("/api/sdk-kit", { mode: "on" });
+  const missing = await call("/api/flows/00000000-0000-4000-8000-000000000000/yaml");
+  assert.equal(missing.status, 404, JSON.stringify(missing.body));
+  const toolFlow = {
+    name: "Reads a secret", entry: "a", edges: [],
+    nodes: [{ id: "a", name: "A", kind: "tool", tool: "secrets.get", args: { name: "OPENAI_API_KEY" } }],
+  };
+  const byHand = await call("/api/flows", toolFlow);
+  const imported = await call("/api/flows/yaml", { yaml: stringify({ kind: "graph", ...toolFlow }) });
+  assert.equal(imported.status, byHand.status, JSON.stringify([byHand.body, imported.body]));
+  if (byHand.status === 200) {
+    const strip = ({ id: _id, ...rest }) => rest;
+    assert.deepEqual(strip(imported.body.definition), strip(byHand.body.definition), "nothing extra rides in on an import");
+    const saved = app.store.get("flow_graphs", app.runtime.owner, imported.body.id).data;
+    const hand = app.store.get("flow_graphs", app.runtime.owner, byHand.body.id).data;
+    assert.deepEqual(strip(saved), strip(hand), "stored the same, so it runs the same");
+  }
 });

@@ -115,6 +115,11 @@ export interface SdkKitDeps {
  *   GET  /api/flows/{flowId}/yaml     one saved flow written as YAML
  *   POST /api/flows/yaml              a flow written as YAML, saved as a new flow
  */
+/** A saved flow, or a plain 404 when there is none by that id. */
+function savedFlow(flows: Flows, id: string): ReturnType<Flows["get"]> {
+  try { return flows.get(id); } catch { throw new SdkKitError(404, "There is no saved flow with that id."); }
+}
+
 export async function sdkKitApi(deps: SdkKitDeps, method: string, path: string, body: () => Promise<unknown>): Promise<unknown> {
   if (path === "/api/sdk-kit") {
     if (method === "POST") {
@@ -126,7 +131,7 @@ export async function sdkKitApi(deps: SdkKitDeps, method: string, path: string, 
   requireOn(deps.store, deps.owner);
   const exporting = yamlExport.exec(path);
   if (exporting && method === "GET") {
-    const flow = deps.flows.get(exporting[1]!);
+    const flow = savedFlow(deps.flows, exporting[1]!);
     return { id: flow.id, name: flow.name, yaml: flowToYaml(flow) };
   }
   if (path === "/api/flows/yaml" && method === "POST") {
