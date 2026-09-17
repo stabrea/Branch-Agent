@@ -32,6 +32,8 @@ export function looksLikeSecretValue(value: string): boolean {
   if (value.length < 6 || placeholder.test(value)) return false;
   if (/[(){}<>$`[\]]/.test(value)) return false;
   if (/^[A-Za-z_][\w]*(?:\.[A-Za-z_][\w]*)+$/.test(value)) return false;
+  // "Reset your password: https://…" names a page, not a password.
+  if (/^[a-z][a-z0-9+.-]{0,31}:\/\//i.test(value)) return false;
   return hasDigit(value) || /[^A-Za-z0-9_.-]/.test(value);
 }
 
@@ -60,7 +62,7 @@ const detectors: Detector[] = [
   { kind: "Slack token", hints: ["xox"], pattern: /\bxox[abposr]-[A-Za-z0-9-]{10,}/g, accept: hasDigit },
   { kind: "Slack webhook", hints: ["hooks.slack.com"], pattern: /https:\/\/hooks\.slack\.com\/services\/[A-Za-z0-9/]{20,}/g },
   { kind: "Google key", hints: ["aiza"], pattern: /\bAIza[0-9A-Za-z_-]{35}/g },
-  { kind: "access token", hints: ["ey"], pattern: /\bey[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g, accept: isJsonWebToken },
+  { kind: "access token", hints: ["ey"], pattern: /(?<![A-Za-z0-9_-])ey[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g, accept: isJsonWebToken },
   { kind: "sign-in header", hints: ["authorization"], group: 2,
     pattern: /\b(authorization["']?\s*[:=]\s*["']?(?:(?:bearer|basic|token|bot|digest)\s+)?)([^\s"',;]+)/gi, accept: looksLikeSecretValue },
   { kind: "sign-in header", hints: ["bearer"], group: 2, pattern: /\b(Bearer\s+)([A-Za-z0-9._~+/-]{20,}=*)/g, accept: mixed },
@@ -71,9 +73,11 @@ const detectors: Detector[] = [
     pattern: /(?<=[?&#;])((?:api[_-]?key|apikey|access[_-]?token|auth[_-]?token|token|client[_-]?secret|secret|password|passwd)=)([^&#\s"'<>]+)/gi,
     accept: (value) => value.length >= 6 && !placeholder.test(value) && !/^[$<{[]/.test(value) },
   { kind: "password in an address", hints: ["://"], group: 2,
-    pattern: /\b([a-z][a-z0-9+.-]*:\/\/[^\s:@/]+:)([^\s@/]+)(?=@)/gi, accept: (value) => value.length >= 3 && !placeholder.test(value) && !/^[$<{*]/.test(value) },
+    pattern: /\b([a-z][a-z0-9+.-]{0,31}:\/\/[^\s:@/]{1,256}:)([^\s@/]{1,256})(?=@)/gi, accept: (value) => value.length >= 3 && !placeholder.test(value) && !/^[$<{*]/.test(value) },
 ];
 
+// Every pattern stays linear on long hostile text: a start is only tried where the run it scans
+// begins (the token look-behind) or the scan is bounded (the address scheme and its parts).
 const beginKey = /-----BEGIN ((?:(?:RSA|EC|DSA|OPENSSH|ENCRYPTED) )?PRIVATE KEY|PGP PRIVATE KEY BLOCK)-----/g;
 
 /** Private key blocks, up to their matching end line or, when that never comes, to the end. */
@@ -84,6 +88,8 @@ function privateKeyHits(text: string): LeakHit[] {
     const end = `-----END ${match[1]}-----`;
     const found = text.indexOf(end, match.index);
     hits.push({ kind: "private key", start: match.index, end: found < 0 ? text.length : found + end.length });
+    // Everything after an unfinished block is already hidden; looking again would only repeat the scan.
+    if (found < 0) break;
   }
   return hits;
 }
@@ -96,7 +102,11 @@ function detectorHits(text: string, lower: string, detector: Detector): LeakHit[
     const value = match[group] ?? "";
     if (!value || (detector.accept && !detector.accept(value))) continue;
     const offset = group ? match.slice(1, group).reduce((sum, part) => sum + (part?.length ?? 0), 0) : 0;
-    hits.push({ kind: detector.kind, start: match.index + offset, end: match.index + offset + value.length });
+    const start = match.index + offset;
+    // A trailing backslash stays in the text: inside JSON it escapes the quote that follows.
+    let end = start + value.length;
+    while (end > start && text[end - 1] === "\\") end--;
+    if (end > start) hits.push({ kind: detector.kind, start, end });
   }
   return hits;
 }
@@ -131,21 +141,43 @@ export function redactLeaks(text: string): { text: string; kinds: string[] } {
 }
 
 const maxDepth = 32;
+const secretName = /^(?:password|passwd|passphrase|client[_-]?secret|secret[_-]?key|api[_-]?key|access[_-]?token|auth[_-]?token|authorization)$/i;
 /** The same through a whole tool result: objects, arrays and nested values; other things untouched. */
 export function redactLeaksIn<T>(value: T, kinds: Set<string> = new Set(), depth = 0): { value: T; kinds: Set<string> } {
-  if (typeof value === "string") {
-    const done = redactLeaks(value);
-    done.kinds.forEach((kind) => kinds.add(kind));
-    return { value: done.text as T, kinds };
-  }
+  if (typeof value === "string") return { value: redactText(value, kinds, depth) as T, kinds };
   if (!value || typeof value !== "object") return { value, kinds };
   if (depth >= maxDepth) return deepFallback(value, kinds);
   if (Array.isArray(value))
     return { value: value.map((entry) => redactLeaksIn(entry, kinds, depth + 1).value) as T, kinds };
   if (Object.getPrototypeOf(value) !== Object.prototype) return { value, kinds };
   const result: Record<string, unknown> = {};
-  for (const [key, entry] of Object.entries(value)) result[key] = redactLeaksIn(entry, kinds, depth + 1).value;
+  for (const [key, entry] of Object.entries(value)) {
+    // `{ password: "…" }` is only recognisable with its name beside it, so the pair is looked at too.
+    const named = typeof entry === "string" && secretName.test(key) && looksLikeSecretValue(entry);
+    if (named) kinds.add("password");
+    result[redactText(key, kinds, depth + 1)] = named ? hiddenMarker("password") : redactLeaksIn(entry, kinds, depth + 1).value;
+  }
   return { value: result as T, kinds };
+}
+
+/**
+ * One string. Text that is itself JSON (tool-call arguments, a logged event) is cleaned value by
+ * value and written back, so what comes out still parses; anything else is cleaned as text.
+ */
+function redactText(text: string, kinds: Set<string>, depth = 0): string {
+  const done = redactLeaks(text);
+  if (!done.kinds.length) return text;
+  if (/^\s*[{[]/.test(text) && depth < maxDepth && parses(text) && !parses(done.text)) {
+    const cleaned = JSON.stringify(redactLeaksIn(JSON.parse(text) as unknown, kinds, depth + 1).value);
+    if (!findLeaks(cleaned).length) return cleaned;
+    return JSON.stringify("[hidden: this part held a key-like value]");
+  }
+  done.kinds.forEach((kind) => kinds.add(kind));
+  return done.text;
+}
+
+function parses(text: string): boolean {
+  try { JSON.parse(text); return true; } catch { return false; }
 }
 
 /** Nesting deeper than anyone writes by hand: checked as a whole and replaced if it holds a key. */
@@ -161,11 +193,7 @@ function deepFallback<T>(value: T, kinds: Set<string>): { value: T; kinds: Set<s
 /** A copy of the request's messages with key-shaped values hidden; pictures and tool names are left alone. */
 export function redactMessages(messages: readonly Message[]): { messages: Message[]; kinds: Set<string> } {
   const kinds = new Set<string>();
-  const clean = (text: string): string => {
-    const done = redactLeaks(text);
-    done.kinds.forEach((kind) => kinds.add(kind));
-    return done.text;
-  };
+  const clean = (text: string): string => redactText(text, kinds);
   const copied = messages.map((message) => ({
     ...message,
     content: clean(message.content),
@@ -174,19 +202,31 @@ export function redactMessages(messages: readonly Message[]): { messages: Messag
   return { messages: copied, kinds };
 }
 
-/** Query names that say the address itself carries a key or a password (OpenFang's taint check). */
-const credentialParameter = /^(?:api[_-]?key|apikey|token|access[_-]?token|auth[_-]?token|secret|client[_-]?secret|password|passwd)$/i;
+/**
+ * Query names that say the address itself carries a key or a password (after OpenFang's taint
+ * check), compared with case, punctuation and brackets taken out: `API-Key`, `api_key[]` and
+ * `api%5Fkey` are all `apikey`.
+ */
+const credentialParameters = new Set(["apikey", "xapikey", "apisecret", "token", "accesstoken", "authtoken",
+  "privatetoken", "refreshtoken", "idtoken", "sessiontoken", "secret", "clientsecret", "secretkey", "accesskey",
+  "password", "passwd", "pass", "pwd"]);
+function credentialName(name: string): boolean {
+  let plain = name;
+  for (let round = 0; round < 3 && /%[0-9a-f]{2}/i.test(plain); round++) plain = decodeURIComponentSafe(plain);
+  return credentialParameters.has(plain.toLowerCase().replace(/[^a-z0-9]/g, ""));
+}
 
 /** Which part of an address carries a credential, or null when it carries none. */
 export function credentialInUrl(address: string): string | null {
   let url: URL;
   try { url = new URL(address); } catch { return null; }
   if (url.password) return "a password";
-  for (const name of url.searchParams.keys())
-    if (credentialParameter.test(name) && url.searchParams.get(name)) return `"${name}="`;
+  // A name alone before the @ is how a token is often put into an address (https://<token>@host).
+  if (url.username) return "a sign-in name";
   const hash = new URLSearchParams(url.hash.replace(/^#/, ""));
-  for (const name of hash.keys())
-    if (credentialParameter.test(name) && hash.get(name)) return `"${name}="`;
+  for (const params of [url.searchParams, hash])
+    for (const [name, value] of params)
+      if (value && credentialName(name)) return `"${name.slice(0, 40)}="`;
   return findLeaks(decodeURIComponentSafe(address)).length ? "a key-like value" : null;
 }
 

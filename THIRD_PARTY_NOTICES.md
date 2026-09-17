@@ -3209,7 +3209,7 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 ## Source code adapted from other projects
 
-Written by hand. `scripts/dependency-notices.mjs` does not carry this section over yet, so put it back after regenerating the file.
+Written by hand. `scripts/dependency-notices.mjs` keeps this section, from its heading to the end of the file, when it regenerates the notices above; add new entries below it.
 
 ### IronClaw (NEAR AI), MIT OR Apache-2.0
 

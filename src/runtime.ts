@@ -1602,7 +1602,7 @@ ${run.output.slice(0, 6000)}`;
     // switching to a stricter setting takes effect at once. The answer is bound to the exact bytes
     // it was given for, so a changed command is asked about again.
     const answered = decision === "ask"
-      ? this.approvals.answer(this.sessionOf(context), tool, target, fingerprint) : undefined;
+      ? this.approvals.answer(this.sessionOf(context), tool, target, fingerprint, !!leak) : undefined;
     return { decision: answered ?? decision, label: leak ? `${label}, and the address carries ${leak}` : label, target, readOnly,
       remember: source === "owner" ? rule?.remember ?? "session" : "session",
       sandbox: rule?.sandbox ?? null, backend: rule?.backend ?? null, paths: rule?.paths ?? null };
@@ -2065,7 +2065,8 @@ ${run.output.slice(0, 6000)}`;
       if (e instanceof ApprovalRequiredError) {
         span?.end("error", "waiting for the person");
         this.askApproval(context, { tool: e.tool, label: e.label, target: e.target,
-          source: context.source ?? "owner", remember: e.remember }, call.id);
+          source: context.source ?? "owner", remember: e.remember,
+          ...(e.fingerprint === undefined ? {} : { fingerprint: e.fingerprint }) }, call.id);
       }
       if (e instanceof BudgetError || e instanceof NeedsInputError || context.signal.aborted) {
         span?.end("error", e instanceof NeedsInputError ? "waiting for the person" : errorText(e));

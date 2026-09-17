@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
+import { argumentFingerprint } from "../dist/runtime.js";
 import { WorkspaceFiles } from "../dist/files.js";
 import { WorkspaceSearch } from "../dist/code-search.js";
 import {
@@ -278,4 +279,107 @@ test("the file tools refuse more places keys live, and still read look-alikes", 
   const walked = (await new WorkspaceSearch(files).walk(".", 100)).entries.map((entry) => entry.path);
   assert.ok(walked.includes("notes.txt") && walked.includes("gh/notes.md"), walked.join(", "));
   assert.ok(!walked.includes(".npmrc") && !walked.includes("gh/hosts.yml"), walked.join(", "));
+});
+
+// ---- Integration review (integrate/mac2-leak-guard) ------------------------------------------
+
+test("more ordinary text passes untouched: ids, hex logs, keys that are public, prose", async () => {
+  const { randomBytes, randomUUID } = await import("node:crypto");
+  const ordinary = [
+    `commit ${randomBytes(20).toString("hex")} Merge branch 'main'`,
+    `request ${randomUUID()} finished; trace ${randomUUID()}`,
+    `digest: sha256:${randomBytes(32).toString("hex")}`,
+    `2026-09-16T10:00:00Z DEBUG frame ${randomBytes(256).toString("hex")}`,
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl me@laptop",
+    "Reset your password: https://example.org/account/reset",
+    "Forgot your password? Open https://example.org/reset?token= and follow the steps.",
+    "api_key: os.environ['OPENAI_API_KEY'] and password=os.getenv('DB_PASSWORD')",
+    "access_token: str = Field(default=None); client_secret: ${{ secrets.CLIENT_SECRET }}",
+    "The API key is kept in the keychain; token rotation happens every 90 days; Password: ********",
+    "eyJmb28iOiJiYXIifQ.eyJmb28iOiJiYXIifQ.c2lnbmF0dXJlc2lnbmF0dXJl is base64 JSON without an alg",
+    "redis://:@localhost:6379 and postgres://localhost:5432/app and https://example.org:8443/x",
+  ];
+  for (const text of ordinary) assert.deepEqual(findLeaks(text), [], text);
+  // Pictures inside data addresses, many megabytes of them, stay whole.
+  for (let i = 0; i < 5; i += 1) {
+    const picture = `data:image/png;base64,${randomBytes(750_000).toString("base64")}`;
+    assert.equal(redactLeaksIn({ picture }).value.picture, picture);
+  }
+});
+
+test("long hostile text is checked in linear time", () => {
+  const size = 200_000;
+  const hostile = [
+    "a.".repeat(size / 2) + "://", "ey-".repeat(size / 3), "-----BEGIN PRIVATE KEY-----\n".repeat(size / 28),
+    "authorization: ".repeat(size / 15), "password=".repeat(size / 9), "?token=".repeat(size / 7),
+    "sk-".repeat(size / 3), "-ghp_" + "a".repeat(size) + "_", "Bearer " + " ".repeat(size),
+    "a://b:" + "c".repeat(size), "x://u:".repeat(size / 6), "-xoxb-".repeat(size / 6),
+    ("eyAAAAAAAAA.BBBBBBBBB.").repeat(size / 22), "https://hooks.slack.com/services/".repeat(size / 33),
+  ];
+  for (const text of hostile) {
+    const started = performance.now();
+    findLeaks(text);
+    const took = performance.now() - started;
+    assert.ok(took < 1500, `${text.slice(0, 12)}… took ${Math.round(took)} ms`);
+  }
+});
+
+test("hidden tool-call arguments still parse, even around escaped quotes", () => {
+  const commands = [
+    { command: `curl -H "Authorization: Bearer ${fake.openaiLegacy}" https://example.org` },
+    { command: `echo "password=${fake.password}" > settings` },
+    { command: `curl "https://example.org/?token=abc123def456" -o page` },
+    { text: `url "postgres://app:${fake.password}@db/app"` },
+    { password: fake.password, nested: { note: `"${keyBlock}` } },
+  ];
+  for (const args of commands) {
+    const bytes = JSON.stringify(args);
+    const { messages } = redactMessages([{ role: "assistant", content: "", toolCalls: [{ id: "1", name: "t", arguments: bytes }] }]);
+    const sent = messages[0].toolCalls[0].arguments;
+    assert.doesNotThrow(() => JSON.parse(sent), sent);
+    assert.deepEqual(leaked(sent), [], sent);
+    assert.ok(!sent.includes("abc123def456") && !sent.includes("FAKEKEYMATERIAL"), sent);
+  }
+});
+
+test("a structured result hides a value by the name beside it, and names that are keys", () => {
+  const { value, kinds } = redactLeaksIn({ database: { password: fake.password, user: "app" },
+    [fake.github]: "listed by token", schema: { password: "string" } });
+  assert.deepEqual(leaked(JSON.stringify(value)), []);
+  assert.equal(value.database.user, "app");
+  assert.equal(value.schema.password, "string", "a type name is not a password");
+  assert.deepEqual([...kinds].sort(), ["GitHub token", "password"]);
+  const twice = redactLeaksIn(value);
+  assert.deepEqual(twice.value, value, "hiding a second time changes nothing");
+  assert.equal(twice.kinds.size, 0);
+});
+
+test("an address is recognised however the key's name is written", () => {
+  for (const url of [
+    "https://example.org/?API_KEY=abc", "https://example.org/?api%5Fkey=abc", "https://example.org/?Api-Key=abc",
+    "https://example.org/?ToKeN=abc", "https://example.org/?to%6Ben=abc", "https://example.org/?api_key[]=abc",
+    "https://example.org/?api%255Fkey=abc", "https://example.org/?token%00=abc", "HTTPS://ME:PW@EXAMPLE.ORG/",
+    "https://example.org/?private_token=abc", "https://example.org/?refresh_token=abc", "https://example.org/?pwd=abc",
+    "https://sometoken123456@example.org/",
+  ]) assert.ok(credentialInUrl(url), url);
+});
+
+test("a yes for one address never covers another on the same website, on any path", async (t) => {
+  const { app } = await fixture(t, [say("done")]);
+  app.registry.unregister("web.fetch");
+  app.registry.register({ name: "web.fetch", permission: "web.read", description: "stand-in fetch",
+    parameters: z.object({ url: z.string() }).strict(), execute: async () => ({ text: "page" }) });
+  const context = app.runtime.context({ runId: "leak-review", source: "owner", approvalKey: "conversation-1" });
+  const args = { url: "https://api.example.org/?api_key=abc123def456" };
+  const fingerprint = argumentFingerprint(JSON.stringify(args));
+  // A yes kept without a fingerprint (as a recipe step's used to be) is a yes for the website, not the address.
+  app.runtime.approvals.remember("conversation-1", "web.fetch", "api.example.org", "allow");
+  assert.equal(app.runtime.checkPolicy("web.fetch", args, context, fingerprint).decision, "ask");
+  assert.equal(app.runtime.checkPolicy("web.fetch", args, context).decision, "ask", "no fingerprint, no kept yes");
+  app.runtime.approvals.remember("conversation-1", "web.fetch", "api.example.org", "allow", { fingerprint });
+  assert.equal(app.runtime.checkPolicy("web.fetch", args, context, fingerprint).decision, "allow");
+  const other = { url: "https://api.example.org/?API_KEY=abc123def456" };
+  assert.equal(app.runtime.checkPolicy("web.fetch", other, context, argumentFingerprint(JSON.stringify(other))).decision, "ask");
+  const elsewhere = app.runtime.context({ runId: "leak-review", source: "owner", approvalKey: "conversation-2" });
+  assert.equal(app.runtime.checkPolicy("web.fetch", args, elsewhere, fingerprint).decision, "ask", "another conversation asks again");
 });

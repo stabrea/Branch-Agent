@@ -219,7 +219,8 @@ export class LiveConversation {
     // to them here exactly as it is for a typed request, so a yes given for one command cannot
     // stand in for a different one that happens to touch the same thing.
     const bytes = this.deps.runtime.hideSecrets(JSON.stringify(args));
-    const fingerprint = argumentFingerprint(bytes);
+    // Fingerprinted before hiding: two different keys hide to the same words and must stay two questions.
+    const fingerprint = argumentFingerprint(JSON.stringify(args));
     try {
       const check = this.deps.runtime.checkPolicy(name, args, context, fingerprint);
       this.out.notice("voice.live.tool", { name, target: this.deps.runtime.hideSecrets(check.target), decision: check.decision });
