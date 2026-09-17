@@ -125,3 +125,34 @@ test("sign-in goes through the existing connection flow, with the client secret 
   assert.equal(JSON.stringify(started.body).includes("locker-held-client-secret"), false);
   await app.oauth.cancel("personal-google");
 });
+
+test("R17-026: a spoken yes answers the real waiting question once, and never as a standing rule", async (t) => {
+  const { app, call } = await fixture(t);
+  await call("/api/personal/switch", { part: "voice-approvals", mode: "on" });
+  const run = app.store.createRun(app.runtime.owner, "tidy the reports");
+  const ask = (fingerprint) => app.runtime.approvals.ask({ runId: run.id, sessionId: run.sessionId, tool: "files.delete", target: "reports/old.txt",
+    label: "Delete reports/old.txt", question: "Delete it?", source: "owner", remember: "always", askedAt: new Date().toISOString(), fingerprint });
+  ask("fp-one");
+  const stale = await call("/api/personal/voice/offer", { sessionId: run.sessionId, fingerprint: "fp-two" });
+  assert.equal(stale.status, 400);
+  const offer = await call("/api/personal/voice/offer", { sessionId: run.sessionId, fingerprint: "fp-one" });
+  assert.equal(offer.status, 200);
+  const unclear = await call("/api/personal/voice/answer", { id: offer.body.id, transcript: "yes, and also delete everything else" });
+  assert.equal(unclear.body.decision, null);
+  assert.ok(app.runtime.approvals.questionFor(run.sessionId, "fp-one"), "an unclear answer leaves the question waiting");
+  const yes = await call("/api/personal/voice/answer", { id: offer.body.id, transcript: "Yes." });
+  assert.equal(yes.body.decision, "allow");
+  assert.equal(app.runtime.approvals.questionFor(run.sessionId, "fp-one"), undefined);
+  const rules = JSON.stringify((await call("/api/policy")).body.policy?.rules ?? []);
+  assert.equal(rules.includes("reports/old.txt"), false, "a spoken yes is never written down as a rule");
+  const again = await call("/api/personal/voice/answer", { id: offer.body.id, transcript: "yes" });
+  assert.equal(again.status, 400);
+  // The question changed after the offer was made: the answer does not land on the new one.
+  ask("fp-three");
+  const offer3 = await call("/api/personal/voice/offer", { sessionId: run.sessionId, fingerprint: "fp-three" });
+  app.runtime.approvals.resolve(run.sessionId, "fp-three");
+  ask("fp-four");
+  const moved = await call("/api/personal/voice/answer", { id: offer3.body.id, transcript: "yes" });
+  assert.equal(moved.status, 400);
+  assert.ok(app.runtime.approvals.questionFor(run.sessionId, "fp-four"));
+});

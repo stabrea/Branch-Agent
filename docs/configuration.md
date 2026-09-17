@@ -7150,3 +7150,37 @@ without the file and network wall (see above).
   plugins are also installable (`src/add-ons/formats.ts`).
 - **A0602** (a helper that installs and manages an isolated plugin for another agent): built as the write / check /
   remove lifecycle of Branch's own plugin for Codex and Claude Code, in a folder the owner names (`src/add-ons/export.ts`).
+
+## Files, voice, devices and personal connectors (R17-C)
+
+Ten parts, each with the usual three-way switch (off, only when it is needed, on), and **every one ships off**. Their
+cards are in **Customize → Connections** (your own accounts, searching X, Home Assistant), **Customize → Channels**
+(files into chats, searching the email inbox), **Automations → Triggers** (the webhook address) and
+**Settings → Voice** (the spoken briefing, saying yes aloud). Everything here is the owner's alone: the routes under
+`/api/personal/` refuse other people on this computer, and a short-lived key can neither read nor change them.
+Keys and passwords are only ever *named* here; the values stay in Secrets. Every call to an outside service goes
+through your network rules.
+
+| Part | Tools | What it does |
+| --- | --- | --- |
+| Sending files into your chats | `chat.send_file` | Sends a workspace file into a Telegram, Slack or Discord chat as that app's own attachment. Only to a chat that already talks to the assistant (or a sender on your list); never from a chat-started task; within your size limit (20 MB unless you change it) and the app's own (Telegram 50 MB, Discord 10 MB, Slack 100 MB); refused if its words hold anything key-shaped or one of your saved secrets; the caption passes the same last look as every reply, so Lockdown stops it. Each send is written in the record of what the assistant was allowed to do. |
+| Home Assistant | `home.states`, `home.call` | Looks at devices, and calls a service on one device — only for the kinds of device you list (lights, switches, scenes, scripts, media players, climate and fans to begin with; locks and alarms are not on it). Uses a long-lived access token saved as `HOMEASSISTANT_TOKEN`. A Home Assistant on your home network needs private addresses allowed under Settings → Computer → Network reach. |
+| A spoken daily briefing | `brief.spoken` | Today's events and unread mail from Google and Outlook (whichever is on and signed in) and the morning brief, read with your voice settings. "Play my briefing" plays it in the window; the tool can also send it to a linked chat as a voice note, after the same checks as a file. |
+| Saying yes aloud | — | Beside each waiting question, "Answer aloud" listens for four seconds, only when you press it. Your words are written out by your own speech settings and must be just a yes or a no (English or French). The answer is bound to that exact request, used once, and runs out after two minutes; a spoken yes is always "just this once". |
+| Searching X | `x.search` | xAI's own `x_search` tool, with an xAI API key saved as `XAI_API_KEY` (xAI charges for it). Signing in with a SuperGrok subscription is not used. |
+| Spotify | `spotify.now`, `spotify.search`, `spotify.control` | Your own Spotify app registration and sign-in. Controlling playback needs a Premium account and an open device. |
+| Google | `gmail.search`, `gmail.read`, `gmail.draft`, `gcal.events`, `gdrive.search`, `gdrive.read` | Your own Google Cloud OAuth client (desktop type; save its client secret in Secrets and name it on the card). Read-only scopes; "allow drafts" adds `gmail.compose`, which Google only offers together with sending — Branch never sends. |
+| Microsoft | `outlook.search`, `outlook.read`, `outlook.draft`, `outlook.events`, `teams.summary` | Your own Microsoft Entra app (public client, redirect `http://127.0.0.1`). Scopes: `Mail.Read` (or `Mail.ReadWrite` with drafts), `Calendars.Read`, `OnlineMeetings.Read`, `OnlineMeetingTranscript.Read.All` — the last may need your organisation's admin to agree. `teams.summary` fetches a meeting's newest transcript for the model to summarise. |
+| Searching the email inbox | `mail.search`, `mail.attachments`, `mail.save_attachment` | The email channel's mailbox (server, user, and the saved password's name). Search by sender, subject, words, dates or unread, with plain-ASCII words; open a message and its attached files; save one into the workspace's `mail-attachments` folder, never over an existing file. Nothing is marked read or sent. |
+| A public address for webhooks | — | Starts *your* tunnel program — `cloudflared`, `tailscale funnel` (without `--bg`, so nothing stays configured) or `ngrok` — pointed at a small door on this computer that only passes `/webhooks/chat/…`, `/webhooks/whatsapp/…`, `/hooks/…` and `POST /api/triggers/<id>/fire`, with any key, cookie or origin removed. The window is never on the internet. Lockdown refuses to start it; locking or closing Branch stops it. |
+
+Each connector hands its text to the model marked as somebody else's words: information, never instructions.
+
+**Not built in this round.** *Live voice in Discord voice channels* (R17-023) is left out: Discord voice needs the Opus
+codec and Discord's end-to-end voice encryption (DAVE, built on MLS), neither of which Node ships, and new
+dependencies are not allowed. *A wake word* is left out on purpose until the owner decides how one could be built
+safely; nothing here ever listens by itself.
+
+**macOS and Linux.** Everything above is plain HTTPS, IMAP and the owner's own programs started with an argument list,
+so it behaves the same on all three systems. The tunnel program is found by name on the search path or by the full
+path you give; nothing is installed. The tests use fake services, a loopback mail server and fake programs only.
