@@ -92,6 +92,8 @@ import { traceSettings, writeRunTrace } from "./trace.js";
 import { LeakGuard } from "./leak-guard.js";
 // mac2/fly-core: the mushroom-body learning core.
 import { watchTask } from "./fly-core/hook.js";
+// mac3/reflection-skills: looking back over conversations and writing new skills (src/reflection/).
+import { learnAfterTask } from "./reflection/hook.js";
 
 const childConcurrency = 4;
 /** What the approval policy says about one tool call, before anything is done about it. */
@@ -675,6 +677,15 @@ ${run.output.slice(0, 6000)}`;
     // running — so every task lets go of its ids here, child runs included.
     this.tracer.forget(run.id);
     if (!parent && settled.status === "completed" && !options.resumeFrom) this.scheduleReview(run, context);
+    // ── mac3/reflection-skills: once a task of the owner's has settled, the learning loop may look back
+    // over the conversation or draft a skill (src/reflection/hook.ts). Its one model question is
+    // asked with no tools, charged to this task, as reviewRun's is; everything it finds waits for
+    // the owner. Nothing happens unless its switches are on, and it never fails the task. ──
+    if (!parent) void this.track(() => learnAfterTask(this, settled, context, async (system, question) => {
+      const preset = this.models.plan(context.owner, run.sessionId).candidates[0]!;
+      const scoped: ToolContext = { ...context, permissions: new Set(), budget: new Budget({ maxSteps: 2, maxTokens: 24000 }), signal: AbortSignal.timeout(120000) };
+      return (await this.complete(run, [{ role: "system", content: system }, { role: "user", content: question }], scoped, preset, null)).content;
+    })).catch(() => undefined);
     if (!parent) { try { this.store.governanceFor(context.owner).recordOutcome(run.id, settled.status, settled.output); } catch { /* governance never fails a task */ } }
     if (!parent) this.drainFollowUps(run.sessionId);
     return settled;
