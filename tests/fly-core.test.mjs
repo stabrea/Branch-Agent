@@ -139,17 +139,25 @@ test("F5 a real task is advised at the start and learned from at the end, and it
   assert.equal(state.app.store.review.proposals("local", "pending").length, 0, "advice alone changes nothing the owner owns");
 });
 
-test("F6 steps that keep working are offered as a skill idea, once, and accepting it only notes it", async (t) => {
+test("F6 steps that keep working are offered as a skill idea, once, and accepting it opens a draft without installing anything", async (t) => {
   const { state } = await fixture(t, writeThenRead());
   for (let at = 0; at < patternSuccesses + 1; at += 1) await state.app.runtime.run({ prompt: `save a note about the garden, part ${at}` });
   const ideas = state.app.store.review.proposals("local", "pending").filter((p) => p.source === "Noticed by Branch's learning core");
   assert.equal(ideas.length, 1, "offered once, not every time after");
   assert.equal(ideas[0].kind, "skill-note");
   assert.match(ideas[0].text, /files\.write, then files\.read/);
+  assert.equal(ideas[0].learned.signal, "learning-core", "it says it came from the learning core");
+  assert.deepEqual(ideas[0].learned.evidence, ["files.write", "files.read"], "and carries the steps, in order");
   const memories = state.app.store.list("memory", "local").length;
+  const skills = state.app.store.skills.list("local").length;
   const decided = state.app.store.review.decide("local", ideas[0].id, true);
-  assert.deepEqual(decided.applied, { noted: true });
-  assert.equal(state.app.store.list("memory", "local").length, memories, "nothing is saved or made by accepting it");
+  const draft = decided.applied.skillDraft;
+  assert.match(draft.document, /^---\nname: [a-z-]+-steps\n/, "a skill file the editor can open");
+  assert.match(draft.document, /1\. Use `files\.write`\.\n2\. Use `files\.read`\./);
+  assert.equal(state.app.store.list("memory", "local").length, memories, "nothing is remembered by accepting it");
+  assert.equal(state.app.store.skills.list("local").length, skills, "and nothing is installed");
+  const other = state.app.store.review.propose("local", { kind: "skill-note", skillId: null, text: "a model's note" });
+  assert.deepEqual(state.app.store.review.decide("local", other.id, true).applied, { noted: true }, "other skill notes still only note");
 });
 
 test("F7 a correction in the next message counts against what the previous task did", async (t) => {

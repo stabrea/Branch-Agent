@@ -67,6 +67,32 @@ For writing tests, `ScriptedProvider` and `ScriptedTools` are part of the packag
 author can write tests with no model, no key and no network. A scripted model answers by *what it was
 asked*, not by how many times it has been called, so one test cannot shift another's script.
 
+## Logging from a program that embeds Branch
+
+If your program runs Branch with `createBranch`, it can hand Branch's own story to the logger you already
+use. Nothing is installed for this, and nothing is sent anywhere:
+
+```ts
+import { createBranch, bridgeLogs } from "branch-agent";
+
+const app = await createBranch({ workspace, dataDir, provider });
+const stop = bridgeLogs(app.store, console, { level: "info", kinds: ["tool.", "model."], prefix: "branch" });
+// ... later
+stop();
+```
+
+Any logger with `debug`, `info`, `warn` and `error` methods works — `console`, pino, winston, bunyan.
+Each event becomes one line: failures at `error`, retries, stalls and limits at `warn`, streamed pieces
+at `debug`, everything else at `info`. The fields are the same cut-down shape the diagnostics folder
+uses — the task's number, the kind, the tool or model name, counts and outcomes — never a prompt, an
+answer, a file or a key. A logger that throws is ignored, so logging can never break a task.
+
+Two more ways to read the same story, without writing code:
+
+- `GET /api/logs` answers one JSON object per line, for a log shipper that reads files or addresses.
+- With sending traces on, each finished task also goes out as OpenTelemetry log records to your own
+  collector (`/v1/logs`), next to its spans and, if you switch them on, the task counters.
+
 ## Other AI tools using Branch
 
 Branch is itself a Model Context Protocol server, so another AI tool on the same computer can ask it to
