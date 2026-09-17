@@ -193,6 +193,9 @@ import { recoverOnStart } from "./never-break/resume.js";
 import { connectGuidedTelegram, saveTelegramSetup, telegramSetupView } from "./never-break/telegram-setup.js";
 import { fileURLToPath } from "node:url";
 import { Asks } from "./asks/index.js"; // mac6/bucket-23: the smaller asks
+import { Autonomy } from "./autonomy/index.js"; // r17-b: it suggests, and runs things on its own
+import { Trunks } from "./trunks/index.js"; // R17-A: Trunks, named long-lived agents
+import { accountsSettings, saveSessionChoice } from "./accounts/settings.js"; // R17-A: a Trunk's account (R17-005)
 // mac4/bucket-20: talking to other agents and tools.
 import { Interop } from "./interop/index.js";
 // mac3/reflection-skills: looking back over conversations, and skills written from experience.
@@ -947,6 +950,35 @@ export async function createBranch(options: {
     telegramInUse: () => channels.summary().channels.some((channel) => channel.kind === "telegram"), version,
     assertHost: (host, port) => web.policy.assertAllowed(new URL(`https://${host}:${port}/`), "mail server address") });
   // ── end mac6/bucket-23 ──
+  // ── r17-b: suggestions, standing orders, loops, self-starting procedures (src/autonomy/). Every part ships off. ──
+  const autonomy = new Autonomy({ runtime, registry, scheduler, chats: channels, handoff: interop.handoffParts,
+    hasSecret: (name) => {
+      try { return store.secrets.list(runtime.owner, store.projects.active(runtime.owner).id).some((entry) => entry.name === name); } catch { return false; }
+    } });
+  scheduler.onTick.add(() => autonomy.tick());
+  // ── end r17-b ──
+  // ── R17-A (wave mac7): Trunks (src/trunks/). Every part ships off. ──
+  // R17-005: a Trunk's account is its own conversation's choice in the accounts work (src/accounts/).
+  const trunkAccounts = {
+    get connected() { return accountsSettings(store, runtime.owner).mode !== "off"; },
+    pools: () => accountsSettings(store, runtime.owner).pools.map((pool) => ({ id: pool.pool, label: pool.pool,
+      accounts: pool.accounts.map((account) => ({ id: account.id, label: account.label, signIn: pool.kind !== "api-key" })) })),
+    choose: (sessionId: string, pool: string, account: string | null) => saveSessionChoice(store, runtime.owner, sessionId, pool, account),
+  };
+  const trunks = new Trunks({ runtime, registry, knowledge, scheduler, workflows, accounts: trunkAccounts,
+    picture: async (prompt) => {
+      const made = await runtime.executeTool("media.image", { prompt, size: "256x256" }, { mode: "owner" }) as { path?: string; mediaType?: string };
+      if (!made.path || !runtime.artifacts) throw new Error("The picture model did not hand back a picture");
+      return { bytes: await runtime.artifacts.read(made.path), mediaType: made.mediaType ?? "image/png" };
+    } });
+  retention.keeps = (sessionId) => trunks.keeps(sessionId);
+  channels.trunkReach = (channel, sessionId) => {
+    const owned = trunks.trunkForConversation(sessionId);
+    const trunk = owned ? trunks.records.find(owned.trunkId) : undefined;
+    return trunk && !trunk.reach.channels.includes(channel) // whatever the switch says, reach only narrows
+      ? `${trunk.name} does not answer on ${channel}. The owner can allow it under Customize → Trunks.` : null;
+  };
+  // ── end R17-A ──
   // ── mac3/security-check: the self-check and the malware check (src/security-audit). Both ship off. ──
   const security = new SecurityService(
     { store, runtime, registry, sessionLock, privacy, web, sessionTokens, plugins, pluginCatalog, people },
@@ -993,6 +1025,10 @@ export async function createBranch(options: {
     addOns,
     /** mac6/bucket-23: the smaller asks (src/asks/); every part ships off. */
     asks,
+    /** r17-b: suggested automations, standing orders, loops and self-starting procedures; every part ships off. */
+    autonomy,
+    /** R17-A: Trunks, named long-lived agents (src/trunks/); every part ships off. */
+    trunks,
     runtime,
     /** mac3/never-break: the task journal, and settling interrupted work after a restart. */
     neverBreak: {
@@ -1257,6 +1293,8 @@ export async function createBranch(options: {
       mcpServer.close();
       asks.close(); // mac6/bucket-23: live pages stop asking their tools again
       runtime.keepAlive.stop(); // R17-050: no cache ping outlives the app
+      await autonomy.close(); // r17-b: nothing more starts by itself, and a turn that is working gets a moment
+      await trunks.close(); // R17-A: rooms stop between turns
       await mcpConnections.closeAll();
       // Nothing the assistant left running outlives the app.
       await processes.stopAll().catch(() => undefined);

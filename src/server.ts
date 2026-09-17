@@ -109,6 +109,8 @@ import { goalApi } from "./goal-mode.js";
 import { rewindApi } from "./rewind.js";
 import { PreferencesSchema, preferences } from "./preferences.js";
 import { asksApi, AsksHttpError, handlesAsksPath } from "./asks/api.js"; // mac6/bucket-23: the smaller asks
+import { autonomyApi, AutonomyHttpError, handlesAutonomyPath } from "./autonomy/api.js"; // r17-b
+import { handlesTrunksPath, trunksApi, TrunksHttpError } from "./trunks/api.js"; // R17-A: Trunks
 // mac4/bucket-20: the Agent Protocol, programs lending tools, and the owner's interop routes.
 import { handleInterop, handlesInteropPath, interopOffLimits } from "./interop/api.js";
 import { clientToolsPath, serveClientToolSocket } from "./interop/client-tools.js";
@@ -129,6 +131,7 @@ import { assistantIdentity, saveAssistantIdentity } from "./identity.js";
 import { contextFileStatus, saveContextFileSettings, contextFileSettings } from "./context-files.js";
 // mac3/reflection-skills: the learning loop's routes.
 import { reflectionApi } from "./reflection/api.js";
+import { handlesSettingsKitPath, settingsKitApi, settingsKitBodyBytes, SettingsKitError } from "./settings-kit/api.js"; // R17-S-A
 import { voiceSettings, saveVoiceSettings } from "./voice.js";
 import { voiceApi } from "./voice-api.js";
 // bucket-18: pull requests from changes (A0300), and which requests came with a short-lived key.
@@ -422,6 +425,8 @@ async function staticFile(
     // Bucket 15: the add-ons card (Customize → Plugins).
     "/add-ons.js": ["add-ons.js", "text/javascript; charset=utf-8"],
     "/asks.js": ["asks.js", "text/javascript; charset=utf-8"], // mac6/bucket-23
+    "/autonomy.js": ["autonomy.js", "text/javascript; charset=utf-8"], // r17-b
+    "/trunks.js": ["trunks.js", "text/javascript; charset=utf-8"], // R17-A
     "/usage.js": ["usage.js", "text/javascript; charset=utf-8"],
     "/evaluation.js": ["evaluation.js", "text/javascript; charset=utf-8"],
     // Wave 7: written-down experiments, under the evaluation card.
@@ -474,6 +479,11 @@ async function staticFile(
     // Wave 9 redesign: the five places, the Settings window, the 44 themes' colours and the oak.
     "/layout.js": ["layout.js", "text/javascript; charset=utf-8"],
     "/context-files.js": ["context-files.js", "text/javascript; charset=utf-8"],
+    // R17-S-A (understandable settings): the settings kit, descriptions on every control, and first-run offers.
+    "/settings-kit.js": ["settings-kit.js", "text/javascript; charset=utf-8"],
+    "/settings-describe.js": ["settings-describe.js", "text/javascript; charset=utf-8"],
+    "/settings-descriptions.js": ["settings-descriptions.js", "text/javascript; charset=utf-8"],
+    "/first-run-next.js": ["first-run-next.js", "text/javascript; charset=utf-8"],
     // mac3/reflection-skills: looking back (Library, Memory) and skills it wrote (Customize, Skills).
     "/learning-loop.js": ["learning-loop.js", "text/javascript; charset=utf-8"],
     // mac3/security-check: the security self-check card.
@@ -875,6 +885,22 @@ async function api(
     return learningCoreApi({ store: app.store, owner: app.runtime.owner, configure: app.learningCore.configure },
       request.method ?? "GET", path, () => readBody(request)).catch((error: unknown) => {
       throw error instanceof LearningCoreApiError ? new HttpError(error.status, error.message) : error;
+    });
+  // ── R17-S-A (understandable settings): presets, putting settings back, one settings file, and the files you write. ──
+  if (handlesSettingsKitPath(path))
+    return settingsKitApi({
+      store: app.store, owner: app.runtime.owner, workspace: app.runtime.workspace, appVersion: app.version,
+      writers: {
+        "fly-core": (patch) => app.learningCore.configure(patch), reflection: (patch) => app.learningLoop.configure(patch),
+        // Integration review: each through its own save, so a tool or a helper comes and goes at once.
+        "security-check": (patch) => app.security.configure(patch),
+        ...Object.fromEntries((["analytics", "answer-engine", "runtimes", "nodes", "project-board"] as const)
+          .map((part) => [`asks-${part}`, (patch: Record<string, unknown>) => { app.asks.setMode(part, patch); }])),
+      },
+      guard: (target) => protectedTarget({ tool: "files.write", readOnly: false, args: { path: target }, target,
+        workspace: app.runtime.workspace }, app.runtime.protectedAreas),
+    }, request.method ?? "GET", path, () => readBody(request, settingsKitBodyBytes)).catch((error: unknown) => {
+      throw error instanceof SettingsKitError ? new HttpError(error.status, error.message) : error;
     });
   if (request.method === "GET" && path === "/api/state") return state(app);
   // Wave 6: sharing, labels and notes, workflows, the waiting line, days off, and profiles.
@@ -2661,6 +2687,28 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
           return;
         }
         // ---- end of the bucket-23 block ----
+        // ---- r17-b: suggestions, standing orders, loops and procedures under /api/autonomy; the owner's alone. ----
+        if (handlesAutonomyPath(path)) {
+          app.store.profiles.requireOwner("Automations that run on their own");
+          const answer = await autonomyApi({
+            autonomy: app.autonomy, method: request.method ?? "GET",
+            query: new URL(request.url ?? "/", "http://local").searchParams, readBody: () => readBody(request, 131072),
+          }, path).catch((error: unknown) => {
+            throw error instanceof AutonomyHttpError ? new HttpError(error.status, error.message) : error;
+          });
+          send(response, 200, answer);
+          return;
+        }
+        // ---- end of the r17-b block ----
+        // ---- R17-A: Trunks under /api/trunks (src/trunks/api.ts); the owner's, bar talking to them. ----
+        if (handlesTrunksPath(path)) {
+          app.store.profiles.requireOwner("Trunks");
+          const answer = await trunksApi({ trunks: app.trunks, method: request.method ?? "GET", readBody: () => readBody(request, 524288) }, path)
+            .catch((error: unknown) => { throw error instanceof TrunksHttpError ? new HttpError(error.status, error.message) : error; });
+          send(response, 200, answer);
+          return;
+        }
+        // ---- end of the R17-A block ----
         if (await rawApi(app, request, response, path)) return;
         if (path.startsWith("/api/deployment")) {
           // bucket 22: `branch quit`, from this computer with the master key only (src/install/quit.ts).
@@ -3203,6 +3251,10 @@ function isExecution(request: IncomingMessage, path: string): boolean {
     || (request.method !== "GET" && handlesInteropPath(path))
     // mac6/bucket-23: every change under /api/asks may start work (an answer, an article, a send).
     || (request.method !== "GET" && handlesAsksPath(path))
+    // r17-b: every change under /api/autonomy may start work (a schedule, an order's turn, a procedure).
+    || (request.method !== "GET" && handlesAutonomyPath(path))
+    // R17-A: every change under /api/trunks may start work (a Trunk's turn, a room's rounds).
+    || (request.method !== "GET" && handlesTrunksPath(path))
   );
 }
 function configureLimits(server: Server): void {

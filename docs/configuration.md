@@ -6618,6 +6618,86 @@ arguments, no shell, and only what they need from the environment. The stand-in 
 program on macOS and Linux and is skipped on Windows, where the in-process stand-in covers the same
 protocol.
 
+## It suggests, and runs things on its own (r17-b)
+
+Seven parts, each with the owner's three-way switch (off, on, only when it is needed), all off at
+first. Their switches and settings are under `/api/autonomy/`, owner only; a short-lived key can read
+some of them and change none (`tests/short-lived-key-routes.mjs`). Nothing lasting is made without the
+owner: the assistant's tools here only read or ask, and every question waits in Inbox → Needs you. A
+"no" is remembered for good, so the same thing is never asked or offered again; at most 20 questions
+wait at once.
+
+| Part | Where it lives | What it does |
+| --- | --- | --- |
+| Suggested automations | Automations → Scheduled | A catalogue of 13 blueprints with checked blanks, and up to five suggestions worked out from what Branch remembers and what is connected, without asking a model (`automation.ideas`, `automation.propose`, `/suggestions`, `/blueprint`) |
+| Standing orders | Automations → Scheduled | A named programme: what it may do, when it starts, what needs a yes, when to stop and ask. A reply starting `ESCALATE:` pauses it and asks you (`orders.list`, `orders.propose`) |
+| Repeating in a conversation | Automations → Scheduled | `/loop every 10m <what> [--times n] [--until …]` (1 minute apart at least, 10 turns unless said, 100 at most, stops on `LOOP_COMPLETE`) and `/heartbeat every 30m <what>` (5 minutes apart at least, adds a note only with news). Owner only |
+| Sub-goals, background tasks, handing on | The message box | `/subgoal` adds to the conversation's goal (the judge sees them); `/bg` runs a task in its own conversation, three at most; `/handoff <chat app>` points a chat that has talked to Branch at this conversation, and `/handoff terminal` or `assistant <name>` uses Interop's hand-on, behind its own switch |
+| Procedures that start themselves | Automations → Procedures | Steps that start on a clock, after one of your tasks, or by hand; each asks before every step, before it starts (the default), or runs on its own. A step marked `confirm` always asks; an "on its own" procedure under 50% after four runs goes back to asking (`procedures.auto.list`, `procedures.auto.propose`) |
+| What skills need | Customize → Skills | Programs, keys and systems a skill declares in its `metadata` (`requires-bins`, `requires-any-bins`, `requires-keys`, `os`, `install-brew`/`-apt`/`-winget`/`-npm`/`-pip`, or OpenClaw's `openclaw` block), and whether this computer has them (`skills.readiness`). Programs are looked for on `PATH` without running anything; install lines are only shown |
+| "From now on" instructions | Settings → Assistant | "From now on, …" in one of your messages is kept, after one yes, as a standing instruction for the assistant, every specialist, or one specialist (`instructions.list`, `instructions.propose`) |
+
+**Bounds.** Everything these parts start by themselves is an ordinary task marked as started by a
+schedule, so your approval rules are capped as for a timed job. Its permissions are never wider than
+what you hold, and never include making schedules, changing settings, installing anything or
+proposing more automations (`narrowed` in `src/autonomy/runner.ts`), whichever part asked. Nothing
+starts while Lockdown is on; turning Lockdown on, or switching a part off, cancels the turns that are
+working. Only your own tasks, typed in the window, the phone or the terminal, start an after-task order
+or procedure, pick up "from now on", or let the assistant propose something: a chat sender's message,
+a short-lived key's task and a household person's task never do (`src/autonomy/origin.ts`). A
+proposal is shown in full, with every step and what it may use, before you answer. Together they may start 48
+turns a day, each of at most 12 steps and 40,000 tokens (Automations → Scheduled, "Limits on
+automatic work", up to 200 turns, 40 steps and 200,000 tokens). Each order or procedure has its own
+daily count (4 unless set, 24 at most) and orders wait five minutes between turns. A conversation that
+is still busy is left alone until the next beat. "On" gives a task the standing orders and
+instructions in full; "only when it is needed" gives it one line saying where to read them.
+
+**macOS and Linux.** Everything here is plain Node and behaves the same on all three systems. The
+readiness check splits `PATH` with `:` on macOS and Linux and `;` on Windows (trying `.exe`, `.cmd`
+and `.bat` there), checks the file can be run, and suggests `brew` on macOS and Linux, `apt` on Linux
+and `winget` on Windows.
+
+## Trunks: assistants of your own (R17-A)
+
+A Trunk is a named assistant that stays: it has its own conversation, pinned and never swept away by
+the history rule, its own memory, model, instructions, style, tools, picture and routines. It is not a
+person on this computer (those are people, in Settings → General) and not a specialist (a reusable
+set of instructions), though a specialist can be brought across as a Trunk. Branch's answer to Hermes
+Agent's Bots and Grok's bots.
+
+Five parts, each with the three-way switch, all off at first. The card is in Customize → Specialists,
+under "Trunks"; the roster sits in the sidebar above Recents; rooms that asked for you show in
+Inbox → Needs you.
+
+| Part | What it does |
+| --- | --- |
+| Trunks | Make one from three fields (name, what it does, about it); it introduces itself. Edit Trunk opens every field. A message written `@name …` in the message box goes to that Trunk, and `/trunk` lists them or talks to one. |
+| Rooms | Two to six Trunks and you in one conversation. Your message starts at most three rounds and ten replies; only those you @mention answer (nobody mentioned means everyone); a Trunk may pass; `@you` raises "needs you"; a Trunk waiting for your yes is answered in the room. Rooms run inside Branch, not the window, and carry on after a restart. |
+| Messages | `trunk.message` lets a Trunk write to another from its own conversation only. Branch signs the message, it waits until the other is free, the answer comes back later, a failure that a second try can help is tried once more, and a chain stops three messages deep. One task sends at most three messages, and all Trunks together at most thirty an hour. |
+| Routines | Schedules a Trunk owns (`[Trunk @name]` in Automations). They run as the Trunk and report in its conversation; the first turn is at the time you chose. While Routines are off, or once the Trunk is gone, they do not run at all (never as you). |
+| Teaching | Watch me, do the job once, Save what I did: the task's steps become a workflow the Trunk owns, optionally repeated every day. |
+
+What a Trunk may reach starts off: no chat apps (a chat linked to its conversation is refused in one
+sentence until the Trunk may answer there), no commands (`shell.execute`, `code.execute`,
+`remote.execute`, `process.manage`), no connected tool servers until named. A Trunk never gets more
+than whoever started its turn; a reviewing style takes away every tool that writes. What it learns is
+saved in its own memory scope (`agent:trunk:<id>`); it never reads your private facts, and reads the
+facts you marked as shared unless you switch that off; it never writes into the shared facts. A
+Trunk's conversation keeps these limits even while Trunks are switched off, and a room turn runs
+without its own plan or reviewer pass. Keys are copies of yours. With several accounts per
+connection switched on (`src/accounts/`), the account you pick for a Trunk is its conversation's
+choice; without a pick, the connection's default account answers, sign-ins included, and the editor
+says so. A Trunk saved as a file (`branch-trunk/1`) carries who it is and never its conversations,
+memory, keys or reach, and key-shaped text is taken out. One brought in from a file says nothing by
+itself, uses no tool server and may only look (reads that stay on this computer) until you change it.
+Teaching learns only from a task you started yourself.
+
+Everything is under `/api/trunks/`, owner only (and so is `/trunk`), except talking to a Trunk and sending to or stopping
+a room, which a short-lived "run" key may do (`src/short-lived-keys.ts`). The picture model is asked
+through the one tool gate (`media.image`).
+
+**macOS and Linux.** Plain Node and the window's own code; it works the same on all three systems.
+
 ## Comments that ask the assistant (A0344)
 
 `branch watch <folder> --ai-comments` watches a folder inside your workspace. A comment written in
@@ -6768,7 +6848,7 @@ short-lived key can read them but never change them.
 | | `keepRecentMessages` | `6` | Newest messages never folded. |
 | | `contextWindowTokens` | `null` (20,000) | Room in one request, used both for folding and for the "too long" stop. |
 | How far one task may go (Settings, Permissions) | `maxSteps` | `60` | Model rounds in one task of the owner's (and in a background sub-task). |
-| | `spendCapDollars` | `null` | The task stops before its next model round once it has cost about this much. Unpriced models are not counted. |
+| | `spendCapDollars` | `null` | The task stops before its next model round once it has cost about this much, sub-tasks included. A model with no price on file cannot be checked; the task notes that once (`limits.spend_unpriced`). |
 | Trying the model service again (Settings, Advanced) | `apiRetries` | `null` (launch setting, 2) | Tries after a busy or failed request, 0 to 5. |
 | How much a tool may say (Settings, Advanced) | `toolAnswerChars` | `null` (launch `toolResultChars`) | Longest tool answer the model reads. |
 | | `toolTimeoutSeconds` | `null` (launch `toolTimeoutMs`) | Longest one tool call runs. |
@@ -6788,13 +6868,18 @@ short-lived key can read them but never change them.
 | Hiding key-like values (Settings, Permissions) | `sensitivity` | `standard` | `strict` also hides long random-looking strings with digits and both cases. |
 | | `exceptions` | `[]` | Kinds of value not hidden. A private key is never let through. Owner only. |
 
-**Security.** `passEnvironment` and the leak guard card can only be changed with the computer's own
-key, in the owner's own profile, never by a household person or a short-lived key, and the card says
-so in plain words. A variable name that mentions a key, token, secret, password, credential, sign-in,
-cookie, session or certificate is refused when it is saved and again when a command starts, and so
-is a name that changes which code a program loads (`LD_*`, `DYLD_*`, `NODE_OPTIONS`, `PYTHONPATH`,
-`GIT_*` and the like). A value that looks like a key is left out even under an allowed name. The
-leak guard's address check (`credentialInUrl`) is not affected by exceptions.
+**Security.** Every card can only be changed with the computer's own key, in the owner's own profile,
+never by a household person or a short-lived key, and the card says so in plain words. The owner's
+"about you" note is only shown to the owner. A variable name that mentions a key, token, secret,
+password, credential, sign-in, cookie, session or certificate is refused when it is saved and again
+when a command starts, and so is a name that changes which code a program loads, where it connects or
+which settings file it reads: the search path (`PATH`, `PATHEXT`), proxies and certificate bundles
+(`HTTPS_PROXY`, `NO_PROXY`, `SSL_CERT_FILE`), whole families such as `LD_*`, `DYLD_*`, `GIT_*`,
+`NODE_*`, `npm_config_*`, `PYTHON*`, `JAVA*`, `AWS_*`, `OPENAI_*`, `DOTNET_*`, and single names such as
+`HOME`, `SHELL`, `ENV`, `BASH_ENV`, `EDITOR` and `PROMPT_COMMAND`. Letter case never matters. A passed
+name never replaces one the launch file already sets, and on Windows it is looked up in any letter
+case. A value that looks like a key is left out even under an allowed name, whatever the leak guard's
+exceptions say. The leak guard's address check (`credentialInUrl`) is not affected by exceptions.
 
 **The launch settings file as a card.** "Settings from the launch file" (Settings, Computer) shows
 what `BRANCH_INTEGRATIONS` sets up: how many AI tool servers and hooks, which chat apps and programs,
@@ -6802,7 +6887,8 @@ and where a key-like value is written. `GET /api/knobs/launch-file` reads it the
 check does. The owner can change `shell.timeoutMs`, `shell.maxOutputBytes`, `shell.netless` and
 `browser.allowedOrigins` (`POST /api/knobs/launch-file` with `commandTimeoutSeconds`,
 `commandOutputBytes`, `commandsOffline`, `browserSites`). The whole file is checked against the
-launch schema before it is replaced in one step, and the change is used from the next start.
+launch schema before it is replaced in one step (through a spare copy with an unguessable name; a
+linked file keeps its link and the file it points at is written), and the change is used from the next start.
 
 **macOS and Linux.** Nothing here depends on the system. The command timeout and extra variables
 apply to the same program list on every system; the loader names refused include the macOS
@@ -6926,6 +7012,7 @@ the switch is off.
 | `/version` | `/about` | any key | new | new | new | new | new |
 | `/health` | `/doctor` | any key | new | new | new | — | new |
 | `/prompts [name]` | `/procedures`, `/workflows` | any key | new | new | new | new | new |
+| `/trunk [name] [message]` | `/trunks` | a key that may start tasks (on its own: any key) | new | new | new | — | — |
 
 ### Parity with other agents
 
@@ -7258,3 +7345,44 @@ without the file and network wall (see above).
   plugins are also installable (`src/add-ons/formats.ts`).
 - **A0602** (a helper that installs and manages an isolated plugin for another agent): built as the write / check /
   remove lifecycle of Branch's own plugin for Codex and Claude Code, in a folder the owner names (`src/add-ons/export.ts`).
+
+## Understandable settings (R17-S-A)
+
+Every control in Settings has one sentence under it saying what it does and what changing it means,
+and every Settings card has a small chip saying how far it reaches: everything, this project only, or
+this computer only (`public/settings-describe.js`, words in `public/settings-descriptions.js`). A card
+that writes its own `.field-note` and links it with `aria-describedby` needs no row there.
+`tests/settings-descriptions.test.mjs` walks every Settings page and fails, naming the control, when
+one has no description. A card can declare `data-scope="project"`, `"computer"` or `"trunk"`; no card
+uses "trunk" yet, because Trunks are not built.
+
+Settings → General has **Start from a preset** (Private and local, Cheapest, Most capable, Hands-off,
+Careful) and **Put settings back** (one setting or all of them). Settings → Data has **Your settings in
+one file**. All three show every change before anything is written, and only the ticked lines are
+made. A change that makes Branch less careful (a guard turned down, or a switch that reaches further
+turned up) starts unticked and also needs "Yes, make it less careful"; the server refuses it otherwise.
+They reach only the fields listed in `src/settings-kit/catalogue.ts` (switches, yes/no, short choices
+and bounded numbers), never Lockdown, the session lock, connections, keys, people or pairing, so a
+settings file cannot carry or bring in a secret. The list fails closed: a setting or field that is not
+in the catalogue, including any added later, is blocked (`classify`), and accounts, add-ons, the leak
+guard, what is passed on to programs, never-break, tunnels and the launch file are on the never-touched
+list as well. Working until a goal is met and writing new skills count as reaching further; turning off
+the snapshots counts as taking a protection away. Guards are saved through their own module's save
+(the second look, loop guard, folder trust, security check, the wall, Keychain entries, retention, the
+smaller asks), so the change takes effect at once and is recorded. While Lockdown is on, nothing is
+changed from here. Every route is the owner's: a household profile gets 403. A short-lived key may read
+the list of settings but not the file, the owner's own files, or any change (`src/short-lived-keys.ts`).
+
+**Which file does what** (Settings → General) lists SOUL, IDENTITY, USER, AGENTS, TOOLS, SOP, MEMORY
+and HEARTBEAT: what each is for, whether it is kept with your own things or in the project, and whether
+it is read right now. "Change it here" reads the file through the loader in `src/context-files.ts`
+and replaces it whole; a file longer than the loader carries, a link, a file with a second name (hard
+link), or a file in an untrusted project folder is not edited here, and a project's file is checked
+against the never-break guard before it is written.
+
+After first run, a card under the conversation offers Say hello, Watch me once (turns on recording
+each task, "only when it is needed", so the next task can be saved as a workflow from Inbox › History)
+and three suggested automations that only fill in the message box.
+
+macOS and Linux: nothing here depends on the operating system. A file is never written through a
+link: it is checked with `lstat` first, and opened with `O_NOFOLLOW` where the system has it.

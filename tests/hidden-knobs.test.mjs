@@ -160,11 +160,13 @@ test("R17-S10 the longest tool answer the model reads follows the setting", asyn
 });
 
 test("R17-S10 environment names that could carry a secret or change code loading are refused", () => {
-  for (const name of ["GITHUB_TOKEN", "OPENAI_API_KEY", "DB_PASSWORD", "AWS_SECRET_ACCESS_KEY", "SESSION_ID", "LD_PRELOAD", "DYLD_INSERT_LIBRARIES", "NODE_OPTIONS", "GIT_SSH_COMMAND", "bad-name"])
+  for (const name of ["GITHUB_TOKEN", "OPENAI_API_KEY", "DB_PASSWORD", "AWS_SECRET_ACCESS_KEY", "SESSION_ID", "LD_PRELOAD", "DYLD_INSERT_LIBRARIES", "NODE_OPTIONS", "GIT_SSH_COMMAND", "bad-name",
+    // Integration review: each of these picks which program runs (java, go, git's editor), so they are refused too.
+    "JAVA_HOME", "GOPATH", "EDITOR"])
     assert.ok(refusedEnvironmentName(name), `${name} should be refused`);
-  for (const name of ["JAVA_HOME", "GOPATH", "EDITOR", "MY_PROJECT_REGION"]) assert.equal(refusedEnvironmentName(name), null, name);
-  const source = { JAVA_HOME: "/opt/java", GITHUB_TOKEN: "ghp_x", EDITOR: "ghp_abcdefghijklmnopqrstuvwxyz0123456789" };
-  assert.deepEqual(passedEnvironment(["JAVA_HOME", "GITHUB_TOKEN", "EDITOR", "MISSING"], source), { JAVA_HOME: "/opt/java" },
+  for (const name of ["BUILD_MODE", "PHOTO_ALBUM", "MY_PROJECT_REGION"]) assert.equal(refusedEnvironmentName(name), null, name);
+  const source = { BUILD_MODE: "fast", GITHUB_TOKEN: "ghp_x", PHOTO_ALBUM: "ghp_abcdefghijklmnopqrstuvwxyz0123456789" };
+  assert.deepEqual(passedEnvironment(["BUILD_MODE", "GITHUB_TOKEN", "PHOTO_ALBUM", "MISSING"], source), { BUILD_MODE: "fast" },
     "a secret-like name and a key-like value are both left out");
 });
 
@@ -410,10 +412,11 @@ test("the knobs route: the owner saves, bad values and loosening from elsewhere 
 
   const person = app.store.profiles.create({ name: "Sam", pin: "4321" });
   app.store.profiles.switch({ profileId: person.id, pin: "4321" });
-  const household = await call("POST", { card: "commands", values: { passEnvironment: ["JAVA_HOME"] } });
+  const household = await call("POST", { card: "commands", values: { passEnvironment: ["BUILD_MODE"] } });
   assert.equal(household.status, 403);
-  assert.equal((await call("POST", { card: "limits", values: { maxSteps: 30 } })).status, 200, "plain limits are not security settings");
+  // Integration review: every card is the owner's own setting (the spending cap included), so a profile changes none.
+  assert.equal((await call("POST", { card: "limits", values: { maxSteps: 30 } })).status, 403);
   app.store.profiles.switch({ profileId: null });
   assert.deepEqual(readKnobs(app.store, owner, "commands").passEnvironment, []);
-  assert.equal((await call("POST", { card: "commands", values: { passEnvironment: ["JAVA_HOME"] } })).status, 200);
+  assert.equal((await call("POST", { card: "commands", values: { passEnvironment: ["BUILD_MODE"] } })).status, 200);
 });

@@ -49,6 +49,9 @@ export const shortLivedKeyTaskRoutes: readonly TaskRoute[] = [
   post("/api/ask-first/answers", "a task prompt with the answers in it"),
   post("/api/processes", "stops a program a task left running"),
   post(new RegExp(`^/api/teams/${id}/run$`), "starts a team on a task"),
+  // R17-A: talking to a Trunk, and to a room of Trunks, is a task; changing them is the owner's.
+  post(new RegExp(`^/api/trunks/${id}/say$`), "a message to one of the owner's Trunks"),
+  post(new RegExp(`^/api/trunks/rooms/${id}/(send|stop)$`), "a message to a room of Trunks, or stopping it"),
   post("/api/queue", "puts a task in the waiting line"),
   post(new RegExp(`^/api/queue/${id}/cancel$`), "takes a task out of the waiting line"),
   post(new RegExp(`^/api/flows/${id}/(run|resume|pause)$`), "runs, resumes or pauses a saved flow"),
@@ -88,6 +91,8 @@ const ownerOnlyReads: readonly RegExp[] = [
   /^\/api\/people\/(settings|shares\/export)$/,
   // mac6/bucket-23 (A2240): the live pages' list carries each page's frame address, which opens without a key.
   /^\/api\/asks\/surfaces$/,
+  // R17-S-A: the settings file outlives the key, and the owner's own files say who they are.
+  /^\/api\/settings-kit\/(export|files)(\/.*)?$/,
 ];
 
 /**

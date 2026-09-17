@@ -844,7 +844,10 @@ $("first-run-test").addEventListener("click", async () => {
   } finally { $("first-run-test").disabled = false; }
 });
 $("first-run-done").addEventListener("click", async () => {
-  try { await api("onboarding", { done: true }); await refresh(); toast("You're set. Say hello."); $("prompt").focus(); }
+  try {
+    await api("onboarding", { done: true }); await refresh(); toast("You're set. Say hello."); $("prompt").focus();
+    globalThis.branchFirstRunDone?.(); // R17-S06: what to try next (public/first-run-next.js)
+  }
   catch (e) { toast(e.message); }
 });
 let chatgptTimer = null, chatgptBusy = false;
@@ -1491,6 +1494,7 @@ $("login-form").addEventListener("submit", async (event) => {
     globalThis.branchSecurityCheckReady?.();
     globalThis.branchLearningCoreReady?.(); // mac2/fly-core-2
     globalThis.branchPeopleReady?.(); // bucket 19: who may sign in from other devices
+    globalThis.branchSettingsKitReady?.(); // R17-S-A: presets, putting settings back, the settings file
   } catch (e) {
     toast(e.message);
   }

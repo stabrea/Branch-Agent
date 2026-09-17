@@ -4,6 +4,7 @@ import { declareShape, type AnswerShape, type ShapedAnswer } from "./answer-shap
 import { CompletionCheckSchema, evaluateChecks, type CompletionCheck } from "./reliability.js";
 import type { RunOptions } from "./runtime.js";
 import type { Store } from "./store.js";
+import { goalWithSubgoals } from "./autonomy/subgoals.js"; // r17-b: /subgoal
 
 /**
  * Wave mac2: goal mode. `/goal <objective> [--max n]` keeps one conversation working in rounds until
@@ -213,7 +214,9 @@ export class GoalMode {
 
   /** One round: the goal itself the first time, a request to carry on afterwards. */
   private async round(state: GoalState, controller: AbortController, onStarted: () => void): Promise<Run> {
-    const prompt = state.round === 1 && !state.lastRunId ? firstPrompt(state.objective) : nextPrompt(state);
+    // r17-b: the sub-goals added with /subgoal are part of the goal each round is shown.
+    const goal = { ...state, objective: goalWithSubgoals(this.store, this.runtime.owner, state) };
+    const prompt = state.round === 1 && !state.lastRunId ? firstPrompt(goal.objective) : nextPrompt(goal);
     for (;;) {
       try {
         return await this.runtime.run({
@@ -252,7 +255,7 @@ export class GoalMode {
   private async grade(run: Run, state: GoalState): Promise<{ score: number; missing: string[]; blocked: boolean }> {
     const context = this.runtime.context({ runId: run.id, signal: AbortSignal.timeout(60_000), permissions: [] });
     try {
-      const answer = await this.runtime.shaped(run, context, gradeQuestion(state, this.recent(state.sessionId)), gradeShape);
+      const answer = await this.runtime.shaped(run, context, gradeQuestion({ ...state, objective: goalWithSubgoals(this.store, this.runtime.owner, state) }, this.recent(state.sessionId)) /* r17-b */, gradeShape);
       if (answer.status === "resolved") return GradeSchema.parse(answer.value);
     } catch { /* an unanswered grade is judged as no progress, below */ }
     return { score: state.score ?? 0, missing: ["The judge could not give a score for this round."], blocked: false };
