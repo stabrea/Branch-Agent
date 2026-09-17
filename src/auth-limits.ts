@@ -89,6 +89,12 @@ export function noteAuthFailure(
  * the app's own listener is on this computer and the phone's listener is on the private network, so
  * in both cases the connection's own address is the true one.
  */
-export function requestSource(remoteAddress: string | undefined | null): string {
+export function requestSource(remoteAddress: string | undefined | null, headers: Record<string, unknown> = {}): string {
+  // R17-C integration review: the webhook door (src/personal/tunnel.ts) connects from this computer but
+  // carries the internet, so what it passes on is counted on its own. The door always sets this mark
+  // and drops one a caller sent; anything else sending it only puts itself in that stricter place.
+  if (headers[tunnelMark] !== undefined) return "tunnel";
   return (remoteAddress || "local").replace(/^::ffff:/, "").slice(0, 60);
 }
+/** The header the webhook door puts on everything it passes on. */
+export const tunnelMark = "x-branch-tunnel";

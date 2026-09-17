@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { ChannelAdapter, InboundMessage } from "./router.js";
+import type { ChannelAdapter, InboundMessage, OutgoingFile } from "./router.js"; // R17-C: OutgoingFile
 import type { ChannelPosition } from "../never-break/channel-position.js";
 
 /**
@@ -98,6 +98,21 @@ export class TelegramAdapter implements ChannelAdapter {
     const message = z.object({ message_id: z.number() }).passthrough().safeParse(parsed.result);
     return message.success ? String(message.data.message_id) : undefined;
   }
+  // ---- R17-C (R17-022): a file as a Telegram document. Bots may send up to 50 MB. ----
+  readonly maxFileBytes = 50 * 1024 * 1024;
+  async sendFile(chatId: string, file: OutgoingFile, replyToMessageId?: string): Promise<string | undefined> {
+    const form = new FormData();
+    form.append("chat_id", chatId);
+    form.append("document", new Blob([new Uint8Array(file.bytes)], { type: file.mediaType }), file.name);
+    if (file.caption) form.append("caption", file.caption.slice(0, 1024));
+    if (replyToMessageId) form.append("reply_to_message_id", replyToMessageId);
+    const response = await this.fetch(`${this.base}/sendDocument`, { method: "POST", body: form, signal: AbortSignal.timeout(120000) });
+    const parsed = responseSchema.parse(await response.json());
+    if (!parsed.ok) throw new Error(`Telegram sendDocument failed: ${parsed.description ?? response.status}`);
+    const message = z.object({ message_id: z.number() }).passthrough().safeParse(parsed.result);
+    return message.success ? String(message.data.message_id) : undefined;
+  }
+  // ---- end R17-C ----
   private async poll(onMessage: (message: InboundMessage) => Promise<void>): Promise<void> {
     while (!this.stopping.signal.aborted) {
       try {

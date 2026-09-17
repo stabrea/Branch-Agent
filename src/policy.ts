@@ -180,6 +180,8 @@ const readOnlyPermissions = new Set([
   "projects.read", "intents.read", "sources.read", "blocks.read", "nodes.read",
   // mac7/nodes: which of the owner's devices are paired and connected only looks (src/devices/).
   "devices.read",
+  // R17-C: reading the owner's own mail, calendar, files, music and house only looks (src/personal/).
+  "personal.read",
 ]);
 export const isReadOnlyPermission = (permission: string): boolean => readOnlyPermissions.has(permission);
 

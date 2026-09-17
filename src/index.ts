@@ -194,6 +194,12 @@ import { connectGuidedTelegram, saveTelegramSetup, telegramSetupView } from "./n
 import { fileURLToPath } from "node:url";
 import { Asks } from "./asks/index.js"; // mac6/bucket-23: the smaller asks
 import { Devices } from "./devices/index.js"; // mac7/nodes: the owner's other devices
+import { Autonomy } from "./autonomy/index.js"; // r17-b: it suggests, and runs things on its own
+import { Trunks } from "./trunks/index.js"; // R17-A: Trunks, named long-lived agents
+import { accountsSettings, saveSessionChoice } from "./accounts/settings.js"; // R17-A: a Trunk's account (R17-005)
+import { Coding } from "./coding/index.js"; // mac7/r17-d: coding polish
+import { worktreeScope } from "./coding/worktrees.js"; // mac7/r17-d
+import { Personal } from "./personal/index.js"; // R17-C: files, voice, devices and personal connectors
 // mac4/bucket-20: talking to other agents and tools.
 import { Interop } from "./interop/index.js";
 // mac3/reflection-skills: looking back over conversations, and skills written from experience.
@@ -202,6 +208,9 @@ import { attachLearningLoop } from "./reflection/hook.js";
 // mac2/fly-core-2: advice that acts, the owner's view of what was learned, and skill ideas as drafts.
 import { advisedFacts } from "./fly-core/apply.js";
 import { warmLearningCore } from "./fly-core/hook.js";
+// R17-S-B: the hidden knobs, with plain labels (src/knobs/).
+import { memorySnapshotBudget as knobSnapshotLimits } from "./knobs/apply.js";
+import { leakOptions } from "./knobs/leak-options.js";
 import { skillIdeaDraft } from "./fly-core/skill-idea.js";
 import { forgetLearning, learningCoreView } from "./fly-core-api.js";
 
@@ -261,7 +270,8 @@ export async function createBranch(options: {
   const artifacts = new RunArtifacts(join(dataDir, "artifacts"));
   const browserProfiles = new BrowserProfiles(join(dataDir, "browser-profiles"), lockerKey);
   const registry = new ToolRegistry();
-  files.scope = () => store.projects.active(options.owner ?? "local").folder;
+  // mac7/r17-d: a task working in its own copy of the project (src/coding/worktrees.ts) reads and writes there.
+  files.scope = () => worktreeScope() ?? store.projects.active(options.owner ?? "local").folder;
   const history = store.openWorkspaceHistory(files, options.owner ?? "local");
   let documents: DocumentLibrary | undefined;
   const writeObserver = {
@@ -425,7 +435,11 @@ export async function createBranch(options: {
   // is happening now, then the job in hand, then everything the assistant knows for good.
   // mac2/fly-core-2: with the learning core "on", the facts that helped in similar tasks go first.
   store.review.orderFacts = (factOwner, agent, sessionId) =>
-    chooseForInjection(advisedFacts(sessionId, memory.retrieval.ranking(factOwner, agent).map((entry) => entry.record)), memorySnapshotLimits).records;
+    chooseForInjection(advisedFacts(sessionId, memory.retrieval.ranking(factOwner, agent).map((entry) => entry.record)), knobSnapshotLimits(store, runtime.owner)).records;
+  // ── R17-S-B: the owner's memory budget and the leak guard's sensitivity, read fresh each time. ──
+  store.review.snapshotLimits = () => knobSnapshotLimits(store, runtime.owner);
+  runtime.leakGuard.options = () => leakOptions(store, runtime.owner);
+  // ── end R17-S-B ──
   registerMemory(registry, store, memory.retrieval);
   registerHistory(registry, store);
   registerSessions(registry, store);
@@ -941,6 +955,54 @@ export async function createBranch(options: {
   // ── mac7/nodes: the owner's other devices lending Branch a few abilities (src/devices/). Ships off. ──
   const devices = new Devices({ store, owner: runtime.owner, registry, files });
   // ── end mac7/nodes ──
+  // ── r17-b: suggestions, standing orders, loops, self-starting procedures (src/autonomy/). Every part ships off. ──
+  const autonomy = new Autonomy({ runtime, registry, scheduler, chats: channels, handoff: interop.handoffParts,
+    hasSecret: (name) => {
+      try { return store.secrets.list(runtime.owner, store.projects.active(runtime.owner).id).some((entry) => entry.name === name); } catch { return false; }
+    } });
+  scheduler.onTick.add(() => autonomy.tick());
+  // ── end r17-b ──
+  // ── R17-A (wave mac7): Trunks (src/trunks/). Every part ships off. ──
+  // R17-005: a Trunk's account is its own conversation's choice in the accounts work (src/accounts/).
+  const trunkAccounts = {
+    get connected() { return accountsSettings(store, runtime.owner).mode !== "off"; },
+    pools: () => accountsSettings(store, runtime.owner).pools.map((pool) => ({ id: pool.pool, label: pool.pool,
+      accounts: pool.accounts.map((account) => ({ id: account.id, label: account.label, signIn: pool.kind !== "api-key" })) })),
+    choose: (sessionId: string, pool: string, account: string | null) => saveSessionChoice(store, runtime.owner, sessionId, pool, account),
+  };
+  const trunks = new Trunks({ runtime, registry, knowledge, scheduler, workflows, accounts: trunkAccounts,
+    picture: async (prompt) => {
+      const made = await runtime.executeTool("media.image", { prompt, size: "256x256" }, { mode: "owner" }) as { path?: string; mediaType?: string };
+      if (!made.path || !runtime.artifacts) throw new Error("The picture model did not hand back a picture");
+      return { bytes: await runtime.artifacts.read(made.path), mediaType: made.mediaType ?? "image/png" };
+    } });
+  retention.keeps = (sessionId) => trunks.keeps(sessionId);
+  channels.trunkReach = (channel, sessionId) => {
+    const owned = trunks.trunkForConversation(sessionId);
+    const trunk = owned ? trunks.records.find(owned.trunkId) : undefined;
+    return trunk && !trunk.reach.channels.includes(channel) // whatever the switch says, reach only narrows
+      ? `${trunk.name} does not answer on ${channel}. The owner can allow it under Customize → Trunks.` : null;
+  };
+  // ── end R17-A ──
+  // ── mac7/r17-d: coding polish (src/coding/). Every part ships off. ──
+  const coding = new Coding({ runtime, registry, files, servers: languageServers, git, gitRun });
+  runtime.coding = coding;
+  // ── end mac7/r17-d ──
+  // ── R17-C: files, voice, devices and personal connectors (src/personal/). Every part ships off. ──
+  const personalSecret = async (name: string, purpose: string) =>
+    (await store.secrets.resolve(runtime.owner, store.projects.active(runtime.owner).id, [name], { purpose }))[name]!;
+  const personal = new Personal({ runtime, registry, files, oauth, fetch: web.policy.guard(globalThis.fetch), secret: personalSecret,
+    assertHost: (host, port) => web.policy.assertAllowed(new URL(`https://${host}:${port}/`), "mail server address"),
+    channels: { adapter: (id) => channels.adapter(id), outboundGuard: (text) => channels.outboundGuard(text),
+      reachable: (id, chatId) => channels.chats(runtime.owner).some((chat) => chat.channel === id && chat.chatId === chatId) },
+    holdsKnownSecret: (text) => store.secrets.scrubber.deep(text) !== text,
+    requireOwner: (what) => store.profiles.requireOwner(what),
+    morningBrief: () => brief.preview(runtime.owner).markdown,
+    speak: async (text) => { const spoken = await voice.speak(runtime.owner, { text, voice: "", speed: 1 }); return { bytes: spoken.bytes, mediaType: spoken.mediaType }; },
+    transcribe: async (clip) => (await voice.transcribe(runtime.owner, { ...clip, name: "spoken answer" })).text,
+    lockdownRefusal: () => (lockedDown(store, runtime.owner) ? lockdownRefusal : null) });
+  releaseOnLock.push(() => personal.close()); // locking Branch stops the tunnel and forgets spoken answers
+  // ── end R17-C ──
   // ── mac3/security-check: the self-check and the malware check (src/security-audit). Both ship off. ──
   const security = new SecurityService(
     { store, runtime, registry, sessionLock, privacy, web, sessionTokens, plugins, pluginCatalog, people },
@@ -989,6 +1051,14 @@ export async function createBranch(options: {
     asks,
     /** mac7/nodes: paired devices, their switches and the device socket (src/devices/); ships off. */
     devices,
+    /** r17-b: suggested automations, standing orders, loops and self-starting procedures; every part ships off. */
+    autonomy,
+    /** R17-A: Trunks, named long-lived agents (src/trunks/); every part ships off. */
+    trunks,
+    /** mac7/r17-d: coding polish (src/coding/); every part ships off. */
+    coding,
+    /** R17-C: files, voice, devices and personal connectors (src/personal/); every part ships off. */
+    personal,
     runtime,
     /** mac3/never-break: the task journal, and settling interrupted work after a restart. */
     neverBreak: {
@@ -1253,6 +1323,9 @@ export async function createBranch(options: {
       mcpServer.close();
       asks.close(); // mac6/bucket-23: live pages stop asking their tools again
       devices.close(); // mac7/nodes: every device socket is closed
+      await autonomy.close(); // r17-b: nothing more starts by itself, and a turn that is working gets a moment
+      await trunks.close(); // R17-A: rooms stop between turns
+      await personal.close().catch(() => undefined); // R17-C: the webhook tunnel program stops
       await mcpConnections.closeAll();
       // Nothing the assistant left running outlives the app.
       await processes.stopAll().catch(() => undefined);
@@ -1621,6 +1694,14 @@ export { Interop } from "./interop/index.js";
 export { AddOns, applyFilters, branchPluginFiles, definePlugin, addOnApiVersion, readOffer, signListEntry, verifyListEntry, pluginWall } from "./add-ons/index.js";
 // Wave mac2 (guards): the loop guard, the folder's own instructions and folder trust.
 export * from "./loop-guard.js";
+// R17-S-B: the hidden knobs, with plain labels.
+export * from "./knobs/settings.js";
+export * from "./knobs/apply.js";
+export * from "./knobs/environment.js";
+export * from "./knobs/thinking.js";
+export * from "./knobs/commands.js";
+export * from "./knobs/leak-options.js";
+export { LaunchFileChangeSchema, launchFileView, saveLaunchFile } from "./knobs/launch-file.js";
 export * from "./folder-trust.js";
 export * from "./run-guards.js";
 // Wave mac3 (tool-safety): "always allow" per subcommand, and the second look before an approval.

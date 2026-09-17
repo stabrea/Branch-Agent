@@ -8,6 +8,7 @@ import { defaultJobObjects, type Job, type JobObjects } from './job-object.js';
 import { scrubSecrets } from '../locker.js';
 import { sandboxShape, shapeChoice, type WallContext } from '../sandbox.js';
 import { openWall } from '../sandbox-backends.js'; // wave mac3 (os-sandbox)
+import { withPassedEnvironment } from '../knobs/environment.js'; // R17-S10
 
 /** Longest a command waits for its Windows job object before running with sampled limits. */
 const jobStartupMs = 1000;
@@ -27,6 +28,11 @@ export class BranchShell {
   private readonly pending = new Set<Operation>();
   private closed = false;
   private spare: Job | null = null;
+  /**
+   * R17-S10: the owner's command timeout and extra environment names, read fresh for each command
+   * (src/knobs/commands.ts). The launch connects it; left alone, the file's settings are all there is.
+   */
+  tuning: () => { timeoutMs: number | null; env: Record<string, string> } = () => ({ timeoutMs: null, env: {} });
   constructor(input: unknown, env = process.env, private readonly secrets?: SecretResolver,
     private readonly jobs: JobObjects = defaultJobObjects()) {
     this.config = ShellConfigSchema.parse(input);
@@ -52,7 +58,9 @@ export class BranchShell {
     signal.throwIfAborted();
     const cwd = await new WorkspaceFiles(context.workspace).checked(input.cwd, true);
     if (!(await stat(cwd)).isDirectory()) throw new Error('Command cwd must be a workspace directory');
-    if (input.timeoutMs && input.timeoutMs > this.config.timeoutMs) throw new Error('Command timeout exceeds configured maximum');
+    const tuned = this.tuning(); // R17-S10
+    const limitMs = tuned.timeoutMs ?? this.config.timeoutMs;
+    if (input.timeoutMs && input.timeoutMs > limitMs) throw new Error('Command timeout exceeds configured maximum');
     signal.throwIfAborted();
     const injected = await this.injected(input.secrets, context);
     // An approval rule may say how tightly this command is held; without one the shell settings and
@@ -62,7 +70,7 @@ export class BranchShell {
     const netless = shape.netless;
     const job = shape.job ? await this.job() : null;
     const result = await this.spawn({ executable, args: input.args, cwd, injected, netless, job,
-      timeoutMs: input.timeoutMs ?? this.config.timeoutMs, signal,
+      timeoutMs: input.timeoutMs ?? limitMs, signal, passed: tuned.env,
       // wave mac3 (os-sandbox): a command pointed at the dead address gets no network behind the wall either.
       wall: context.osSandbox && netless ? { ...context.osSandbox, network: 'none' as const } : context.osSandbox, workspace: context.workspace });
     const scrubbed = { ...result, stdout: scrubSecrets(result.stdout, injected), stderr: scrubSecrets(result.stderr, injected) };
@@ -83,9 +91,10 @@ export class BranchShell {
   }
   private async spawn(run: { executable: { path: string; args: string[] }; args: string[]; cwd: string;
     injected: Record<string, string>; netless: boolean; job: Job | null; timeoutMs: number; signal: AbortSignal;
-    wall?: WallContext | undefined; workspace: string }): Promise<ProcessResult> {
-    // The environment is built from an allowlist only, then the dead-address proxy, then secrets.
-    const env = { ...this.env, ...(run.netless ? netlessEnvironment() : {}), ...run.injected };
+    wall?: WallContext | undefined; workspace: string; passed?: Record<string, string> }): Promise<ProcessResult> {
+    // The environment is built from an allowlist only, then the owner's extra names (R17-S10, never a
+    // secret, never replacing a name already set), then the dead-address proxy, then secrets.
+    const env = { ...withPassedEnvironment(this.env, run.passed ?? {}), ...(run.netless ? netlessEnvironment() : {}), ...run.injected };
     // wave mac3 (os-sandbox): behind the wall when the owner's switch says so. A saved key the owner
     // tied to a site reaches the program only as a stand-in; the wall's door swaps the real one in.
     const plain = { executable: run.executable.path, args: [...run.executable.args, ...run.args], cwd: run.cwd, env };
