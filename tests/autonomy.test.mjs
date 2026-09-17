@@ -608,3 +608,20 @@ test("review: a restart finishes a procedure that was cut off, and keeps one tha
   assert.equal(after.trigger(cut.id, "again").started, true, "the closed one can start again");
   await second.autonomy.idle();
 });
+
+test("review: a household person cannot use /bg or /subgoal to work in the owner's name", async (t) => {
+  const { app, on } = await fixture(t);
+  await on("session-commands");
+  const { executeCommand } = await import("../dist/commands/execute.js");
+  const { commandHost } = await import("../dist/commands/host.js");
+  const { asPerson } = await import("../dist/people/context.js");
+  const owned = await app.runtime.run({ prompt: "hello", onTextDelta: () => undefined });
+  const before = app.store.runs(app.runtime.owner).length;
+  const host = commandHost(app.runtime, app);
+  const mark = { profileId: "kid", keyId: "k1" };
+  const bg = await asPerson(mark, () => executeCommand(host, { surface: "window", line: "/bg tidy the owner's files", access: "run" }));
+  assert.match(bg.text, /belongs to the owner/);
+  const sub = await asPerson(mark, () => executeCommand(host, { surface: "window", line: "/subgoal send the files out", sessionId: owned.sessionId, access: "run" }));
+  assert.match(sub.text, /belongs to the owner/);
+  assert.equal(app.store.runs(app.runtime.owner).length, before, "no task was started in the owner's name");
+});

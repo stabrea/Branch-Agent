@@ -47,6 +47,7 @@ function repeating(kind: LoopKind): Handler {
 const subgoal: Handler = async (call) => {
   const autonomy = reach(call, "session-commands");
   if (typeof autonomy === "string") return say(autonomy);
+  call.host.requireOwner("/subgoal"); // a household person never adds to the owner's goal
   if (!call.sessionId) return say(needSession);
   const goal = call.host.goals?.status(call.sessionId);
   if (!goal || (goal.status !== "working" && goal.status !== "paused")) return say("There is no goal working here. Start one with /goal first.");
@@ -71,6 +72,8 @@ const maxBackground = 3;
 const bg: Handler = async (call) => {
   const autonomy = reach(call, "session-commands");
   if (typeof autonomy === "string") return say(autonomy);
+  // The task below is started in the owner's name, so it is the owner's alone.
+  call.host.requireOwner("/bg");
   const prompt = call.argument.trim();
   if (!prompt) return say("Say what to do in the background: /bg <what to do>");
   const runtime = call.host.runtime;
