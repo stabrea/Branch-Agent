@@ -48,6 +48,18 @@ export interface InboundMessage {
   };
 }
 /** What a channel says about itself, in words the owner can act on. */
+/**
+ * What a task started from a chat may use, out of everything registered. Integration review
+ * (mac7/nodes): a chat cannot prove who is typing, so the owner's other devices (camera, screen,
+ * microphone, files, commands) are never lent to a chat sender either.
+ */
+export function chatPermissionsOf(all: readonly string[]): string[] {
+  // R17-C: nor the owner's own mail, calendars, files in other services, or house.
+  const personal = ["personal.read", "personal.write", "home.control"];
+  return all.filter((p) => ![...personal, "shell.execute", "remote.execute", "git.remote", "github.manage", "channels.send"].includes(p)
+    && !p.startsWith("devices."));
+}
+
 export interface ChannelHealth {
   state: "connected" | "reconnecting" | "needs attention";
   reason?: string;
@@ -525,9 +537,7 @@ export class ChannelRouter {
     // A message from a chat app can read and change the local copy, but never publish it, and
     // never send to somebody else's chat: a paired person in one group must not be able to
     // make the assistant write to every chat it is linked to.
-    // R17-C: nor the owner's own mail, calendars, files in other services, or house.
-    const personal = ["personal.read", "personal.write", "home.control"];
-    return this.runtime.registry.permissions().filter((p) => ![...personal, "shell.execute", "remote.execute", "git.remote", "github.manage", "channels.send"].includes(p));
+    return chatPermissionsOf(this.runtime.registry.permissions());
   }
   // ---- chat-live (wave mac2): one task per chat, notes steer it, commands control it ----------
   /** Carries out a chat command and sends its answer back. */

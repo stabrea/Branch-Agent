@@ -122,6 +122,7 @@ Inside a conversation there are no homes to add to, only two surfaces with stric
 | A Hindsight memory server (`mac6/bucket-23`) | `library:memory` |
 | Sending requests where they belong, the intent pipeline (`mac6/bucket-23`) | `customize:skills` |
 | Steps for other apps, MCP examples and the app-server door (`mac6/bucket-23`) | `customize:connections` |
+| Your devices: pairing other computers and the phone, each one's switches, who it is shared with (`mac7/nodes`) | `customize:channels`; the "which device" picker lives in the message box, because it changes the next message |
 | Trunks, named assistants of the owner's own: the switches, the three-field create, Edit Trunk, rooms, bringing one in (R17-A) | `customize:specialists`, a card of its own after the specialist panels |
 | The Trunks roster: each Trunk with its latest line and unread replies, and each room (R17-A) | The sidebar, a group above Recents that shows only while Trunks are switched on |
 | Rooms where a Trunk asked for the owner (R17-A) | `inbox:needs` |
