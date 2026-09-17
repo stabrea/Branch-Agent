@@ -11,8 +11,8 @@ import { estimateTokens } from "./contracts.js";
 
 /** Toolboxes a tool can belong to. "core" is always open; "other" catches anything unrecognised. */
 export const toolGroups = [
-  "core", "files", "code", "git", "web", "browser", "desktop", "memory", "documents",
-  "data", "research", "media", "channels", "schedules", "agents", "skills", "settings", "services", "other",
+  "core", "files", "code", "git", "web", "browser", "desktop", "memory", "memory-extra", "documents",
+  "data", "research", "media", "personal", "channels", "schedules", "agents", "skills", "settings", "services", "other",
 ] as const;
 
 /** Name prefixes that decide a tool's group when the tool does not name one itself. */
@@ -27,6 +27,10 @@ const groupPrefixes: readonly (readonly [string, readonly string[]])[] = [
   ["web", ["web.", "http."]],
   ["browser", ["browser.", "page."]],
   ["desktop", ["desktop.", "screen.", "apps.", "clipboard.", "windows.", "computer."]],
+  // R17-F (integration review): memory blocks, finding facts by label, the learning timeline, meaning
+  // search, lessons and outside memory services get a box of their own, before "memory" so these
+  // names win. In "memory" they pushed the opened-boxes answer past its budget (tests/catalog-diet).
+  ["memory-extra", ["memory.block_", "memory.find", "memory.label", "memory.outside_", "history.meaning", "learning.journey", "lessons."]],
   // A finished task's own record is history, so "runs." belongs with the rest of what happened.
   // "learning." is the learning core's one read-only question about what worked before (src/fly-core).
   ["memory", ["memory.", "knowledge.", "history.", "sessions.", "scratch.", "templates.", "notes.", "labels.", "projects.", "runs.", "learning.",
@@ -43,6 +47,9 @@ const groupPrefixes: readonly (readonly [string, readonly string[]])[] = [
   ["data", ["data.", "sql.", "database.", "sheets.", "tables.", "csv."]],
   ["research", ["research.", "papers.", "citations.", "sources."]],
   ["media", ["media.", "images.", "image.", "audio.", "video.", "voice.", "speech.", "camera."]],
+  // R17-C (integration review): the owner's own accounts, music, house and files sent into chats —
+  // one box, before "agents" so a Teams transcript is not taken for a team of agents.
+  ["personal", ["gmail.", "gcal.", "gdrive.", "outlook.", "teams.summary", "spotify.", "home.", "x.search", "chat.send_file"]],
   ["channels", ["channels.", "telegram.", "slack.", "discord.", "email.", "mail.", "messages.", "whatsapp."]],
   // Watches and the morning brief are recurring things that come and tell you something, so they
   // live with the rest of the assistant's own clockwork rather than in the unrecognised box.
@@ -55,7 +62,9 @@ const groupPrefixes: readonly (readonly [string, readonly string[]])[] = [
   // mac4/bucket-20: tools a connected program lends over its socket; a box of their own, since
   // they are somebody else's and come and go with the program.
   ["client", ["client."]],
-  ["skills", ["skills.", "plugins.", "recipes.", "mcp."]],
+  // Bucket 21: the tools for people building a program on Branch.
+  // bucket-15: drafting an add-on and searching what plugins bring sit with the rest of what extends Branch.
+  ["skills", ["skills.", "plugins.", "recipes.", "mcp.", "sdk.", "addon."]],
   // The owner's own instruction files (AGENTS.md, SOUL.md and the rest) are part of how Branch is
   // set up, so they file under settings rather than opening a box of their own for two tools.
   ["settings", ["settings.", "preferences.", "policy.", "secrets.", "locker.", "usage.", "costs.", "models.", "context."]],

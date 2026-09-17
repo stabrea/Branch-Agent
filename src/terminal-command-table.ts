@@ -12,6 +12,7 @@ import { available, commandMode, commandsFor } from "./commands/settings.js";
 import { executeCommand } from "./commands/execute.js";
 import { commandHost } from "./commands/host.js";
 import type { CommandHost } from "./commands/handlers.js";
+import { savedLine } from "./commands/saved.js";
 
 /**
  * Every slash command the terminal view understands, as one table: its name, other names, what it
@@ -34,6 +35,8 @@ export interface CommandContext {
   newConversation(): void;
   quit(): void;
   keys(): void;
+  /** R17-S21: opens a model picker and says true, where the view can draw one. */
+  pickModel?(): boolean;
   /** What the shared commands can reach; the runtime alone when the view was opened without the app. */
   host?: CommandHost;
 }
@@ -55,7 +58,7 @@ function listModels(context: CommandContext): void {
 }
 function chooseModel(context: CommandContext, argument: string): void {
   const { runtime, conversation } = context, models = runtime.models;
-  if (!argument) return listModels(context);
+  if (!argument) return context.pickModel?.() ? undefined : listModels(context); // R17-S21: a picker in the full view
   if (!models.presets.has(argument)) return context.say("warn", `No model called ${argument}. Use /model to list them.`);
   conversation.model = argument;
   if (conversation.sessionId) models.configureSession(runtime.owner, conversation.sessionId, { preset: argument });
@@ -187,6 +190,11 @@ export function helpLines(words: Words, mode: FeatureMode = "off"): string[] {
 export async function runCommand(context: CommandContext, text: string): Promise<void> {
   const [name = "", ...rest] = text.trim().split(/\s+/);
   const found = findCommand(name, modeOf(context));
+  // ---- bucket 12: one of the owner's saved commands is sent as the message it stands for ----
+  const saved = found ? null : savedLine(context.runtime.store, context.runtime.owner, text);
+  if (saved && "reply" in saved) return saved.reply.split("\n").forEach((line) => context.say("note", line));
+  if (saved) return "problem" in saved ? context.say("warn", saved.problem) : context.conversation.send(saved.text);
+  // ---- end of the bucket 12 hook ----
   if (!found) return context.say("warn", `I do not know ${name}. Type /help for the list.`);
   try {
     // Wave mac3 (commands): settings and permissions stay with the owner's own profile, as in the window.

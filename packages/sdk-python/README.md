@@ -61,11 +61,22 @@ entries = branch.audit(action="secret.used", limit=20)["entries"]
 | `branch.documents` | list, add, search, remove, settings |
 | `branch.schedules` | get, trigger |
 | `branch.policy` | get, save, approve, categories, set_categories |
+| `branch.flows` | list, get, save, run, export_yaml, import_yaml |
 | on the client | `state`, `tools`, `audit`, `action`, `ask_first`, `with_answers`, `search`, `issue_context` |
 
 Anything else goes through `branch.get(path)`, `branch.post(path, body)` or
 `branch.request(method, path, body)`. The full list of routes is served by the app at
 `/api/openapi.json` and written out in `docs/api.md`.
+
+## Flows as YAML
+
+```python
+text = branch.flows.export_yaml(flow_id)      # one saved flow, written out
+copy = branch.flows.import_yaml(text)         # always saved as a new flow
+```
+
+Both need "Building on Branch" switched on in the app (Settings → Advanced); until then they raise
+`BranchError` with status 409.
 
 ## Errors
 

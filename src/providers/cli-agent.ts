@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { z } from "zod";
 import type { Completion, CompletionRequest, Provider } from "../contracts.js";
+import { refuseSignInForTrunk } from "../accounts/context.js"; // mac7/lockdown-fix
 
 /**
  * Batch 20 (wave 8): using a coding assistant already installed on this computer as a model.
@@ -115,6 +116,8 @@ export interface CliAgentLimits {
 }
 export type SpawnAgent = (
   row: CliAgentRow, prompt: string, signal: AbortSignal, limits: Required<CliAgentLimits>,
+  /** mac6/accounts: the one extra variable naming this account's own folder (CLAUDE_CONFIG_DIR, ...). */
+  home?: AccountHome,
 ) => Promise<{ code: number | null; stdout: string; stderr: string; missing?: boolean }>;
 
 /** Branch's whole transcript as the one question the tool is asked. */
@@ -138,10 +141,29 @@ export function answerFrom(row: CliAgentRow, stdout: string): string {
   return text;
 }
 
-export const runCliAgent: SpawnAgent = (row, prompt, signal, limits) =>
+// ---- mac6/accounts: several sign-ins of one program, each in the folder its maker documents ----
+/** The environment variable each program officially reads for a folder of its own, sign-in included. */
+export const accountHomeVariables: Record<string, string> = {
+  // https://code.claude.com/docs/en/claude-directory ("If you set CLAUDE_CONFIG_DIR ...")
+  "claude-code": "CLAUDE_CONFIG_DIR",
+  // https://learn.chatgpt.com/docs/config-file/environment-variables ("Sets the root for Codex state ... auth")
+  codex: "CODEX_HOME",
+  // https://geminicli.com/docs/cli/enterprise/ (GEMINI_CLI_HOME)
+  "gemini-cli": "GEMINI_CLI_HOME",
+  // https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-config-dir-reference (COPILOT_HOME)
+  copilot: "COPILOT_HOME",
+};
+export interface AccountHome { name: string; path: string }
+/** The program said it has reached its plan's limit. */
+export class ProgramLimitError extends Error { override name = "ProgramLimitError"; }
+const limitWords = /usage limit|rate limit|limit reached|quota exceeded|exceeded your (?:current )?quota|too many requests/i;
+// ---- end mac6/accounts ----
+
+export const runCliAgent: SpawnAgent = (row, prompt, signal, limits, home) =>
   new Promise((resolve) => {
     const child = spawn(row.command, row.args, {
-      stdio: ["pipe", "pipe", "pipe"], windowsHide: true, shell: false, env: strippedEnvironment(),
+      stdio: ["pipe", "pipe", "pipe"], windowsHide: true, shell: false,
+      env: home ? { ...strippedEnvironment(), [home.name]: home.path } : strippedEnvironment(),
     });
     let stdout = "", stderr = "", settled = false;
     const finish = (code: number | null, missing?: boolean): void => {
@@ -172,20 +194,30 @@ export const runCliAgent: SpawnAgent = (row, prompt, signal, limits) =>
 export class CliAgentProvider implements Provider {
   readonly name: string;
   private readonly limits: Required<CliAgentLimits>;
+  /** mac6/accounts: say plainly when the program reports a plan limit (set for accounts in a list). */
+  detectLimits = false;
   constructor(
     private readonly row: CliAgentRow,
     limits: CliAgentLimits = {},
     private readonly spawnAgent: SpawnAgent = runCliAgent,
+    /** mac6/accounts: which account's folder the program uses; absent means its usual one. */
+    private readonly home?: AccountHome,
   ) {
     this.name = `${cliAgentShape}:${row.id}`;
     this.limits = { timeoutMs: limits.timeoutMs ?? 180_000, maxOutputChars: limits.maxOutputChars ?? 200_000 };
   }
   async complete(request: CompletionRequest): Promise<Completion> {
-    const outcome = await this.spawnAgent(this.row, agentPromptFrom(request), request.signal, this.limits);
+    refuseSignInForTrunk(); // mac7/lockdown-fix: an installed program's sign-in never answers for a Trunk
+    const outcome = this.home
+      ? await this.spawnAgent(this.row, agentPromptFrom(request), request.signal, this.limits, this.home)
+      : await this.spawnAgent(this.row, agentPromptFrom(request), request.signal, this.limits);
     if (outcome.missing)
       throw new Error(`"${this.row.command}" is not on this computer, so Branch cannot use ${this.row.name}. Install it, or pick another model.`);
     if (outcome.code === null)
       throw new Error(`${this.row.name} took too long and was stopped. Ask again, or pick another model.`);
+    // mac6/accounts: only when an account folder is in use, so a single sign-in behaves as before.
+    if (outcome.code !== 0 && (this.home || this.detectLimits) && limitWords.test(`${outcome.stderr}\n${outcome.stdout.slice(0, 4000)}`))
+      throw new ProgramLimitError(`${this.row.name} says this account has reached its plan limit.`);
     if (outcome.code !== 0)
       throw new Error(`${this.row.name} stopped with an error and said nothing Branch can pass on. Run it yourself to see why.`);
     const content = answerFrom(this.row, outcome.stdout);

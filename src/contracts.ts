@@ -72,6 +72,10 @@ export interface CompletionRequest {
   maxTokens: number;
   /** Requested reasoning effort; adapters map it to their own parameter or ignore it. */
   reasoning?: "low" | "medium" | "high";
+  /** R17-S12: a faster or cheaper service tier, where the service offers one; absent asks for the usual. */
+  serviceTier?: "priority" | "flex";
+  /** R17-046: OpenRouter's company preferences; only a connection whose address is openrouter.ai sends them. */
+  providerRouting?: import("./model-savings/openrouter.js").OpenRouterRouting;
   /** Live provider text only; partial text is not a committed completion. */
   onTextDelta?: (text: string) => void;
   /**
@@ -254,6 +258,11 @@ export interface ToolContext {
    * bubblewrap), set by the runtime from the owner's settings. Never set from a tool's arguments.
    */
   osSandbox?: WallContext;
+  /**
+   * mac7/lockdown-fix: set on a Trunk's turn (and carried into its sub-tasks and side jobs): the keys
+   * it may use. A sign-in account never answers for it (src/accounts/trunk-guard.ts).
+   */
+  trunkKeys?: { copyFromOwner: boolean; accounts: Record<string, string> };
 }
 export interface ToolDefinition<T = unknown> {
   name: string;

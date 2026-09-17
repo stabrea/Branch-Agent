@@ -13,6 +13,7 @@ import { backgroundSettings, saveBackgroundSettings } from "./processes.js";
 import { SettleDeferredSchema } from "./deferred.js";
 import { specialistStyles, styleShape } from "./specialist-styles.js";
 import type { createBranch } from "./index.js";
+import { AddOnsApiError, addOnsApi } from "./add-ons/api.js"; // bucket-15
 
 /**
  * The routes for this batch: flows as boxes and arrows, jobs handed over to finish later, programs
@@ -153,6 +154,11 @@ async function pluginCatalogApi(
   readBody: (request: IncomingMessage, maximumBytes?: number) => Promise<unknown>,
 ): Promise<unknown> {
   if (request.method === "GET" && path === "/api/plugin-catalog") return { plugins: await app.pluginCatalog.list() };
+  // ── bucket-15: add-ons other people wrote (src/add-ons/api.ts). ──
+  if (path.startsWith("/api/plugin-catalog/add-ons"))
+    return addOnsApi(app.addOns, request.method ?? "GET", path, () => readBody(request, 1_000_000)).catch((error: unknown) => {
+      throw error instanceof AddOnsApiError ? new OrchestrationApiError(error.status, error.message) : error;
+    });
   if (request.method !== "POST") return notFound();
   if (path === "/api/plugin-catalog/inspect") return app.pluginCatalog.inspect(pluginSource.parse(await readBody(request)).source);
   if (path === "/api/plugin-catalog/install") {

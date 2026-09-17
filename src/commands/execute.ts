@@ -1,6 +1,7 @@
 import { levelFor, parseLine, type CatalogCommand, type Level, type Surface } from "./catalog.js";
 import { available, commandMode } from "./settings.js";
 import { HANDLERS, type Access, type Call, type CommandHost, type Reply } from "./handlers.js";
+import { runSavedCommand } from "./saved.js";
 
 /**
  * Carries out one typed command for a surface (wave mac3, commands). The rules, in order:
@@ -43,7 +44,9 @@ export function commandFor(host: CommandHost, surface: Surface, line: string): {
 
 export async function executeCommand(host: CommandHost, input: Invocation): Promise<Outcome | null> {
   const parsed = commandFor(host, input.surface, input.line);
-  if (!parsed) return null;
+  // ---- bucket 12: the owner's own saved commands, only when the shipped table did not know the line ----
+  if (!parsed) return runSavedCommand(host, input);
+  // ---- end of the bucket 12 hook ----
   const { command, argument } = parsed, name = command.name;
   const level = levelFor(command, argument);
   const refused = refusalFor(level, input.access, input.surface);

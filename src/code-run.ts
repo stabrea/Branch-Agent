@@ -2,6 +2,7 @@ import { stat } from "node:fs/promises";
 import { isAbsolute } from "node:path";
 import { z } from "zod";
 import type { Store } from "./store.js";
+import { lockdownOverrides } from "./lockdown.js"; // mac7/lockdown-fix
 import type { ToolContext } from "./contracts.js";
 import type { ToolRegistry } from "./registry.js";
 import { WorkspaceFiles } from "./files.js";
@@ -42,7 +43,8 @@ export type CodeRunSettings = z.infer<typeof CodeRunSettingsSchema>;
 
 export function codeRunSettings(store: Store, owner: string): CodeRunSettings {
   const parsed = CodeRunSettingsSchema.safeParse(store.get("settings", owner, "code-run")?.data ?? {});
-  return parsed.success ? parsed.data : CodeRunSettingsSchema.parse({});
+  const settings = parsed.success ? parsed.data : CodeRunSettingsSchema.parse({});
+  return lockdownOverrides(store, owner, "code-run") ? { ...settings, enabled: false } : settings; // mac7/lockdown-fix
 }
 export async function saveCodeRunSettings(store: Store, owner: string, input: unknown): Promise<CodeRunSettings> {
   const value = CodeRunSettingsSchema.parse(input ?? {});

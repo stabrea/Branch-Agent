@@ -104,6 +104,27 @@ export const remoteChecks: SecurityCheck[] = [
   }),
 ];
 
+/** bucket 19 (integration review): the page people sign in on from their own device. */
+const peopleOn = (snapshot: SecuritySnapshot) => !!snapshot.people && snapshot.people.mode !== "off";
+
+export const peopleChecks: SecurityCheck[] = [
+  check("people.pin-alone-from-afar", "remote", "warn", "People signing in from their phones need more than a PIN", (snapshot) =>
+    peopleOn(snapshot) && remoteOn(snapshot) && snapshot.people!.chain.every((step) => step === "pin") ? {
+      detail: "Signing in from other devices is on, your phone door is open, and a PIN of four to eight digits is all a person must give.",
+      advice: "In Settings → General, add a passkey to the checks everybody passes.",
+    } : null),
+  check("people.long-sign-in", "remote", "info", "A person's sign-in on another device ends within a day", (snapshot) =>
+    peopleOn(snapshot) && snapshot.people!.sessionMinutes > 24 * 60 ? {
+      detail: `A person who signs in from another device stays signed in for ${Math.round(snapshot.people!.sessionMinutes / 60)} hours.`,
+      advice: "Choose a shorter sign-in in Settings → General, beside the people on this computer.",
+    } : null),
+  check("people.accounts-waiting", "remote", "info", "No identity service account is waiting for you", (snapshot) =>
+    peopleOn(snapshot) && snapshot.people!.waiting > 0 ? {
+      detail: `${snapshot.people!.waiting} account${snapshot.people!.waiting === 1 ? " has" : "s have"} signed in with an email address you linked and ${snapshot.people!.waiting === 1 ? "is" : "are"} waiting for you to confirm ${snapshot.people!.waiting === 1 ? "it" : "them"}.`,
+      advice: "Confirm only the accounts you recognise, in Settings → General.",
+    } : null),
+];
+
 const shellTool = (tool: string): boolean => ["shell.execute", "shell.session.run", "shell.*"].some((name) => globMatches(tool, name) || globMatches(name, tool));
 const coversAll = (rule: PolicyRuleFact): boolean => rule.tool === "*" && rule.match === "*" && !rule.hasResource;
 const firstAllowCovering = (rules: PolicyRuleFact[], later: PolicyRuleFact) =>

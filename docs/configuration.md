@@ -45,6 +45,33 @@ The first preset is the default. **Settings → Models** chooses the workspace d
 
 `node dist/cli.js login` (or **Settings → ChatGPT account** in the app) starts OpenAI's device-code sign-in: open the shown page, enter the code, and Branch receives tokens that are stored in `chatgpt-auth.json` inside the data directory, protected with the device key in the desktop app. Signing in registers `ChatGPT (unofficial) · GPT-5.6 Sol (light)`, `GPT-5.6 Terra`, `GPT-5.6 Luna` and `GPT-5.5` presets (models `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, `gpt-5.5`; plain `gpt-5.6` and `gpt-5.4` are refused for a ChatGPT account) and makes ChatGPT the default, with Sol first and the others as fallbacks, when the workspace was still on the offline demonstration. Requests carry the `originator: branch-agent` header and a `BranchAgent/<version>` user agent. Access through a ChatGPT plan is provided by OpenAI for its own tools and may change without notice. **This route is unofficial**; see [ChatGPT plan sign-in and OpenAI's terms](#chatgpt-plan-sign-in-and-openais-terms).
 
+### Several accounts per connection (mac6)
+
+**Settings › Models › Connection › Accounts** (and `/account` in the message box, the terminal, the phone and the dashboard) lets one connection hold several accounts, each with a name. It follows the three-way switch and ships **off**; off means one key or sign-in per connection, exactly as before (the connection is registered untouched). With it on:
+
+- **API keys** (any catalog connection with a key, such as OpenAI, Anthropic, Gemini, OpenRouter). Each extra key is pasted once and goes straight into the locker, in a project of its own per connection (`acct-<hash>`, name `KEY_<id>`); the first key stays where the connection put it. Each extra key is tied to the address (scheme, host and port) the connection used when the key was added; if the connection is later removed and added again under the same name with another address, Branch refuses to send the old key there and says so. Keys from the same OpenAI organization or project share one rate limit, so adding them does not raise it. Which key answers: *the first ready key in this order* (pinned first), *each key in turn*, or *the least used key*. A key refused with 401 or 403 rests five minutes; a billing or quota refusal (402, `insufficient_quota` and the other spend codes) rests the whole key an hour or as long as `Retry-After` says; a plain 429 rests **that model on that key** for exactly the `Retry-After` the service sent (a minute when it sent none). The next key is tried in the same request, and only once every key rests does the task move to the next connection in the fallback order. A service outage (5xx, a dropped connection) rests nothing, since every key would fail the same way. Each key's calls, tokens and estimated cost this month are counted (`account_usage` table, no key in it), and a key with a monthly cap in US dollars is passed over once the month's estimate reaches it.
+- **Sign-in accounts.** *ChatGPT*: each extra account signs in with the same device code as the first (still labelled unofficial) and keeps its tokens in its own locker project (`acct-chatgpt-<id>`); the first sign-in stays in `chatgpt-auth.json`. The plan window left is read from the `x-codex-primary-used-percent` header when ChatGPT sends it (the header Codex reads; OpenAI does not document it, so it may disappear). *Installed programs* (Claude Code, Codex, Gemini CLI, Copilot CLI): each extra account is a folder under `<data>/accounts/<connection>/<id>`, passed to the program in the variable its maker documents for exactly this (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `GEMINI_CLI_HOME`, `COPILOT_HOME`). The owner signs in by running the program once with that variable (the card shows the line to type: `VAR='<folder>' claude` on macOS and Linux, `$env:VAR='<folder>'; claude` in PowerShell on Windows); Branch only runs the unmodified program with it and never opens the folder.
+- **Choosing.** A conversation can be switched by hand (the chip in the title bar, or `/account <name>`); `/account default <name>` or *Use for new work* sets what new work uses. `/account` on its own lists. Switching is the owner's: short-lived keys and household profiles are refused (a household profile or a signed-in person gets no answer from `/account` at all, not even the list) (`src/short-lived-keys.ts` rule in `offLimitsToShortLivedKeys`), and `/account` is not offered to chat apps.
+- **People sharing the computer** may use only API keys the owner ticked *Others on this computer may use this key* (the first key is ticked, which keeps today's behaviour), and never a sign-in account.
+- **What is saved** (the `accounts` setting): `mode`, and `pools`, one per connection with `pool`, `kind` (`api-key`, `chatgpt`, `cli`), `strategy` (`priority`, `round-robin`, `least-used`), `autoSwitch`, `defaultAccount` and `accounts` (`id`, `label`, `pinned`, `disabled`, `monthlyCapUsd`, `shared`, `createdAt`). A conversation's own choice is the `account-session:<conversation>` setting.
+- **Backups** copy the list (names, order, caps) with the other settings. The usage counts (`account_usage`), keys and tokens stay out; the program folders are outside the database and are not in a backup either.
+- **Limits of the counts.** A key's cost is only counted when its service reports tokens with the answer; a connection that does not report them never reaches its cap. The locker holds values of up to 8192 characters, so a ChatGPT sign-in whose tokens are longer cannot be kept for an extra account: nothing is written (a token is never cut short) and the list says the account is not signed in, with that reason in a sentence.
+- **Someone else using Branch** (a household profile, or a person signed in from their own device) sees only the keys shared with them, without the owner's spending or caps, and cannot change anything.
+- **When every key already rests**, the connection answers as rate limited until its first key is ready: when that wait is within the retry limits (five seconds at most) the task waits and asks the same connection again, up to the retry count, and then moves to the next connection in the fallback order; a longer wait moves it on at once. A sign-in account at its limit is different on purpose: the task stops and says so (see below), and does not move to another connection unasked.
+
+#### The terms decision (read at the sources on 2026-09-17)
+
+- OpenAI's Terms of Use forbid using the services to "circumvent any rate limits or restrictions" (https://openai.com/policies/row-terms-of-use/; the page refuses automated reads, so the wording was checked against search-index copies on 2026-09-17, not the live page), and OpenAI sets API rate limits "at the organization level and at the project level, not user level" (https://developers.openai.com/api/docs/guides/rate-limits), which also says to follow `Retry-After` when it is present. None of the vendors below says in writing whether spreading work across several of one's own API keys is allowed or not; Branch's choices are therefore the cautious reading.
+- Google's API terms: "You agree to, and will not attempt to circumvent, such limitations" (https://developers.google.com/terms). Gemini CLI's terms call reusing its sign-in from other software a violation (https://geminicli.com/docs/resources/tos-privacy/); its enterprise guide documents `GEMINI_CLI_HOME` for a separate home (https://geminicli.com/docs/cli/enterprise/).
+- Anthropic's consumer terms: "You may not share your Account login information, Anthropic API key, or Account credentials with anyone else" (https://www.anthropic.com/legal/consumer-terms); its usage policy forbids getting round a ban with a different account and coordinating malicious activity across accounts (https://www.anthropic.com/legal/aup); "Anthropic does not permit third-party developers to offer Claude.ai login", developers "may not collect, store, or intermediate Claude.ai credentials or session tokens", nothing prevents "an end user from signing in to the unmodified Claude Code binary with their own Claude subscription", and "advertised usage limits for Pro and Max plans assume ordinary, individual usage" (https://code.claude.com/docs/en/legal-and-compliance). `CLAUDE_CONFIG_DIR` moves every `~/.claude` path, `.credentials.json` included (https://code.claude.com/docs/en/claude-directory).
+- GitHub: "One person or legal entity may maintain no more than one free Account", and "a single login may not be shared by multiple people" (https://docs.github.com/en/site-policy/github-terms/github-terms-of-service). `COPILOT_HOME` is the documented way to move Copilot CLI's folder (https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-config-dir-reference). `CODEX_HOME` "sets the root for Codex state, including config, auth" (https://learn.chatgpt.com/docs/config-file/environment-variables).
+
+So Branch does this, and the card says it in one Terms line with the links:
+
+1. **API keys rotate automatically.** Each key is one the owner holds and pays for; Branch always waits out a key's `Retry-After` before using it again, so it never hammers a limit, and moving to another key is ordinary spreading of work across credentials. The Terms line says to add only keys the owner is entitled to use, and that opening extra accounts just to get past a service's limits is against OpenAI's, Google's and others' terms. Branch does not present rotation as a way past a limit.
+2. **Sign-in accounts never switch by themselves.** Moving to another subscription account because one reached its plan limit is the kind of thing "circumvent any rate limits" can cover, and none of the four vendors permits it in writing. When an account reaches its limit (HTTP 429 from ChatGPT, or the program saying so), the task stops with a sentence naming the account, when it resets, and the others that are ready, with `/account <name>` and the list's *Use for new work* as the one-click switch. *Share work between these accounts* (per connection, off) is the explicit opt-in: with it on, new conversations go to the account with most of its plan left (then the one used longest ago, pinned first), a conversation keeps its account, and a limited account is skipped. The opt-in carries the risk in words beside the tick box and is written to the record of what Branch was allowed to do.
+3. **Never:** Branch never holds Claude.ai, Gemini CLI or Copilot sign-ins (it runs the owner's own program with its documented folder variable), never reuses another app's sign-in client for them, and never shares a sign-in account with another person on the computer. The ChatGPT route stays labelled unofficial as before.
+
 ### Provider catalog and testing
 
 `GET /api/providers/catalog` returns a list of built-in provider presets: Groq, Mistral, DeepSeek, OpenRouter, Together, Fireworks, Perplexity, xAI, Cerebras, Ollama and LM Studio. Each preset includes the provider's base URL, well-known model identifiers and plain-language help text on where to obtain an API key or how to set up a local service. The desktop and web interface can use this catalog to guide model configuration.
@@ -85,7 +112,7 @@ by hand; edit the data file and run that command.
 
 <!-- providers:start -->
 
-Branch knows 42 model services. Every one of them has been tested against a fake of the
+Branch knows 44 model services. Every one of them has been tested against a fake of the
 service, not against the real one, so treat this as "Branch speaks the right language", not as
 "this was tried on a live account". Addresses and prices were last checked on 2026-09-16.
 
@@ -106,6 +133,7 @@ service, not against the real one, so treat this as "Branch speaks the right lan
 | GitHub Copilot (sign-in) | in the cloud | OpenAI |  | just a key | [None: Branch does not sign in to Copilot itself](https://github.blog/changelog/2026-01-16-github-copilot-now-supports-opencode/) (not offered) |
 | GitHub Models | in the cloud | OpenAI |  | just a key | [GitHub Models inference (ended)](https://github.blog/changelog/2026-07-30-github-models-is-now-retired/) (retired) |
 | Google Gemini | in the cloud | Gemini | conversation, pictures in, tools, fixed format, as it types, compare passages, live conversation | just a key | [Your own Google AI Studio key](https://ai.google.dev/gemini-api/terms) |
+| Google PaLM | in the cloud | Gemini |  | just a key | [PaLM API (ended)](https://ai.google.dev/palm_docs/deprecation) (retired) |
 | Google Vertex AI | in the cloud | Gemini | conversation, pictures in, tools, fixed format, as it types | Your Google Cloud project id; The region your project uses | [Your own Google Cloud project and access token](https://cloud.google.com/terms/service-terms) |
 | Groq | in the cloud | OpenAI | conversation, tools, fixed format, as it types, speech | just a key | [Your own API key](https://groq.com/terms-of-use) |
 | Hugging Face Inference | in the cloud | OpenAI | conversation, tools, as it types | just a key | [Your own access token](https://huggingface.co/terms-of-service) |
@@ -127,6 +155,7 @@ service, not against the real one, so treat this as "Branch speaks the right lan
 | SambaNova | in the cloud | OpenAI | conversation, pictures in, tools, as it types | just a key | [Your own API key](https://sambanova.ai/terms-and-conditions) |
 | Something else that speaks OpenAI's shape | in the cloud | OpenAI | conversation, tools, as it types | The address the service gave you | [An address and key you give](https://github.com/stabrea/Branch-Agent/blob/main/docs/configuration.md) (unofficial) |
 | Together AI | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types, compare passages, pictures out | just a key | [Your own API key](https://www.together.ai/terms-of-service) |
+| Vercel AI Gateway | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types, compare passages | just a key | [Your own AI Gateway key](https://vercel.com/legal/terms) |
 | Voyage AI | in the cloud | OpenAI | compare passages | just a key | [Your own API key](https://www.voyageai.com/tos) |
 | Z.ai (GLM) | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types | just a key | [Your own API key](https://docs.z.ai/legal-agreement/terms-of-use) |
 | Zhipu GLM (China) | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types, compare passages | just a key | [Your own API key](https://open.bigmodel.cn/) |
@@ -146,6 +175,7 @@ Services that need something more than a key, or that do not publish a list of t
 - **Doubao (Volcengine Ark)** — ByteDance's Ark service. The model name is usually an endpoint id you created there. Billed in yuan; Branch keeps no price on file.
 - **GitHub Copilot (sign-in)** — Not offered. Use the GitHub Copilot command line under coding assistants instead: it is GitHub's own program with your own sign-in. GitHub supports Copilot sign-in only in its own tools and in OpenCode, through OpenCode's own sign-in. Reusing another app's sign-in or posing as VS Code has led to abuse warnings, so Branch does neither. Use GitHub's Copilot command line instead.
 - **GitHub Models** — Retired by GitHub on 30 July 2026. A saved connection stays on the list with this note and is never used. GitHub retired GitHub Models on 30 July 2026 and its address now refuses every request. For a model catalogue GitHub points to Microsoft Foundry (use Azure OpenAI here); for GitHub work, use the GitHub Copilot command line under coding assistants.
+- **Google PaLM** — Retired by Google. PaLM's models were replaced by Gemini, which uses the same kind of key: connect Gemini instead. Google turned the PaLM API off and its models (text-bison, chat-bison) no longer answer. The same Google AI Studio key works for Gemini: connect Gemini instead and pick a Gemini model.
 - **Google Vertex AI** — Needs a project id and a region, and a sign-in token rather than an API key. Branch does not fetch that token for you: paste one from `gcloud auth print-access-token`. Tokens expire after about an hour.
 - **MiniMax** — International keys use api.minimax.io (the usual choice); keys from the Chinese platform use api.minimax.cn. Branch keeps no price on file for it.
 - **ModelScope** — Alibaba's model hub in its OpenAI-compatible mode. Branch keeps no price on file for it.
@@ -693,6 +723,14 @@ Create an app at api.slack.com/apps, turn on **Socket Mode**, and subscribe to `
 
 Socket Mode means Slack never needs to reach this computer. Every envelope is acknowledged immediately and an event id already seen is dropped, so a message Slack sends twice is answered once. Edits, joins and the assistant's own posts are ignored. `slackChannels`, when given, is the only list of Slack channel ids that will be answered; `allowlist` holds Slack user ids. Replies are posted into the thread the question came from, with markdown converted to Slack's own formatting (`**bold**` → `*bold*`, `*italic*` → `_italic_`, links → `<url|text>`, code fences untouched).
 
+**Automations started by Slack's own events.** The same Socket Mode connection can start an automation (an inbound trigger) when something happens in Slack: a reaction, a message with certain words, a new channel. Subscribe the Slack app to the events you want (for example `reaction_added`, `message.channels`, `channel_created`), make the trigger under Automations, then write rules with `POST /api/channels/slack-automations`:
+
+```json
+{ "mode": "on", "rules": [{ "event": "reaction_added", "reaction": "rocket", "channel": "C0123456789", "users": ["U0123456789"], "trigger": "<trigger id>" }] }
+```
+
+A rule matches on the event type and, when given, the Slack channel, the people (`users`), the reaction and words the message must contain (`contains`, ignoring case). The trigger's prompt can use `{{slack_type}}`, `{{slack_user}}`, `{{slack_channel}}`, `{{slack_text}}`, `{{slack_reaction}}`, `{{slack_ts}}`, `{{slack_thread_ts}}` and `{{slack_connection}}`; `{{payload}}` holds all of them. The switch ships **off**: Slack's events start nothing. **When needed** starts nothing by itself: matching events wait in a list (`GET /api/channels/slack-automations`, the last fifty) and one is started with `POST /api/channels/slack-automations/run {"event": "<id>"}`, which a script's run key may also do. **On** starts the automation as the event arrives, within the trigger's own rate limit and log. Events from bots, the assistant's own events and Slack's resends start nothing. Whatever a person writes reaches the automation's prompt between `<slack-message trust="untrusted">` markers, with a note that it is data and not instructions. A rule that names its `users` answers only them; a rule that names nobody answers only people who may already use the assistant on that Slack connection (the sender list or an approved pairing), and an event with nobody behind it (a new channel counts its maker) starts nothing. A waiting event whose rule has since changed is not started. Changing the rules is the owner's alone. Nothing new is opened to the internet: Slack still never reaches this computer.
+
 ### Channels (WhatsApp)
 
 WhatsApp pushes messages to a web address rather than holding a connection open, so Branch must be reachable from the internet. Save the Graph API access token as `WHATSAPP_TOKEN`, the app secret as `WHATSAPP_APP_SECRET`, and a word of your own choosing as `WHATSAPP_VERIFY_TOKEN`:
@@ -845,7 +883,7 @@ service is switched off its address answers 503 and reads nothing.
 
 ### IRC (`irc`)
 
-`{"type": "irc", "id": "irc", "server": "irc.libera.chat", "port": 6697, "tls": true, "nick": "branch-bot", "channels": ["#my-team"], "passwordSecret": "IRC_PASSWORD"}`. With `passwordSecret` the nick signs in with SASL PLAIN before it joins anything. A channel line is answered when it starts with the nick (`branch-bot: …`); a private message always is. IRC cannot carry a line break, so a reply goes out one line at a time, at most 400 characters each, spaced so the server does not disconnect the assistant for flooding. `allowlist` holds nicks. A nick taken by somebody else gets an underscore added; a refused password shows as "needs attention".
+`{"type": "irc", "id": "irc", "server": "irc.libera.chat", "port": 6697, "tls": true, "nick": "branch-bot", "channels": ["#my-team"], "passwordSecret": "IRC_PASSWORD"}`. With `passwordSecret` the nick signs in with SASL PLAIN before it joins anything. A channel line is answered when it starts with the nick (`branch-bot: …`); a private message always is. IRC cannot carry a line break, so a reply goes out one line at a time, at most 400 characters each, spaced so the server does not disconnect the assistant for flooding. Branch asks the server for IRCv3 `account-tag`, so somebody signed in to the network's accounts is known as `account:<name>` whatever nick they use, and nobody can pass for them by taking their nick; anybody not signed in is known by nick only. The account tag is only believed when the server agreed to send account tags. `allowlist` holds `account:<name>` entries (recommended) or nicks. A nick taken by somebody else gets an underscore added; a refused password shows as "needs attention".
 
 ### Twitch chat (`twitch`)
 
@@ -1073,7 +1111,7 @@ Register a bot on the QQ open platform (q.qq.com) and save its client secret (Ap
 ```json
 { "type": "guilded", "id": "guilded", "tokenSecret": "GUILDED_BOT_TOKEN" }
 ```
-Create a bot in your Guilded server's settings (Bots), generate an API token and save it as `GUILDED_BOT_TOKEN`. Guilded bots only see server channels, so the assistant answers when it is @mentioned there; there are no direct messages for bots. After a dropped connection Guilded replays what was missed. Replies are cut at 3500 characters (Guilded allows 4000). Limitation: Branch's socket client answers Guilded's pings but does not send its own, so a silently dead connection is only noticed when it closes.
+Create a bot in your Guilded server's settings (Bots), generate an API token and save it as `GUILDED_BOT_TOKEN`. Guilded bots only see server channels, so the assistant answers when it is @mentioned there; there are no direct messages for bots. After a dropped connection Guilded replays what was missed. Replies are cut at 3500 characters (Guilded allows 4000). Branch sends its own ping at the interval Guilded names; one that goes unanswered closes the connection and it is opened again. The last message handled is remembered across restarts, so Guilded also replays what arrived while Branch was closed.
 
 ### Revolt (`revolt`)
 
@@ -1089,7 +1127,42 @@ Create a bot in Revolt's settings (My Bots), invite it to your server and save i
 ```
 Branch joins as an ordinary (text-only) user. A private message to it is always answered; in a channel it answers when its username is in the message. Save the server password, if there is one, as the named secret. The server certificate is checked: a server with a certificate from a public authority needs nothing more; for a self-signed server, save its SHA-256 fingerprint as `certificateFingerprint` (pinning, recommended) or set `allowSelfSigned: true`. Voice is not supported. People with a registered account or a client certificate are recognised by it; guests are only known by name, so approve guests with care. Replies are cut at 3500 characters and sent as escaped HTML.
 
+### KOOK (`kook`)
+
+```json
+{ "type": "kook", "id": "kook", "tokenSecret": "KOOK_BOT_TOKEN" }
+```
+Make a bot application at developer.kookapp.cn, choose the WebSocket connection, invite the bot to your KOOK server, and save its token as `KOOK_BOT_TOKEN`. This is KOOK's official bot API (v3): the token travels as `Authorization: Bot …`, and the socket address KOOK hands back is followed only when it is on `kookapp.cn` or `kaiheila.cn` and is never written into an error, because it carries a key. Direct messages are always answered; in a channel the bot must be @mentioned. Replies are sent as plain text, never KMarkdown, so nothing a model writes can mention everybody. Branch pings every thirty seconds and reconnects when KOOK stops answering; after a drop, or a restart soon after one, it asks KOOK to resume the session and answers what was missed once. People are paired and listed as `kook:<user id>`. Replies are cut at 4000 characters.
+
+### WeChat Official Account (`wechat-mp`)
+
+```json
+{ "type": "wechat-mp", "id": "wechat", "appId": "wx0123456789abcdef" }
+```
+For a **verified** WeChat Official Account (the customer-service message API needs verification). In the account's developer settings, save the AppSecret as `WECHAT_MP_APP_SECRET`, add this computer's public address to the IP allowlist, and under server settings enter the address shown under Connections, a Token (saved as `WECHAT_MP_TOKEN`) and an EncodingAESKey (saved as `WECHAT_MP_AES_KEY`), with the message mode set to **safe mode** (安全模式). Branch answers WeChat's address check only when it is signed and less than five minutes old, and only echoes a plain word, then takes in only encrypted posts whose signature covers the message itself; plain-text and compatible mode are refused, because there WeChat signs only the time and a random word, not the words. A post more than five minutes old is refused, and WeChat's resend of a message it thinks went unanswered is taken in once. Replies go out through the customer-service message API, which WeChat allows for 48 hours after the person last wrote; a later reply waits under **Messages still to send** with "Outside WeChat's reply window". One-to-one only, text only, replies cut at 600 characters (WeChat's limit is 2048 bytes). Personal WeChat accounts are not supported.
+
+### WeCom app (`wecom-app`)
+
+```json
+{ "type": "wecom-app", "id": "wecom", "corpId": "ww0123456789abcdef", "agentId": 1000002 }
+```
+A self-built app (自建应用) in your WeCom admin console, which, unlike the group robot, can be written to. Save the app's Secret as `WECOM_APP_SECRET`, add this computer's public address to the app's trusted IP list, and under "Receive messages" enter the address shown under Connections with a Token (`WECOM_APP_TOKEN`) and an EncodingAESKey (`WECOM_APP_AES_KEY`). Every post is encrypted and signed the same way as WeChat's safe mode, and must be addressed to your CorpID and to this app's AgentId. Replies go out through the app message API with an access token that is renewed when WeCom says it has expired. WeCom only takes the app secret inside the token address; Branch never writes an address into an error or a log. One-to-one text only; replies cut at 600 characters.
+
 <!-- channels-parity:services-end -->
+
+**Catching up after Branch was closed.** Telegram, Matrix, Mastodon, Bluesky, Discourse, ntfy, VK and
+Guilded (and KOOK, for as long as KOOK keeps the session) remember where they had read up to, in the saved-work database, and after a restart fetch
+what arrived in the meantime and answer it once. The place is saved only after every message before
+it has been answered, so a message cut off by a crash is fetched again. A place older than a day is
+not trusted: the service takes stock from now instead, so a computer that was off for a month does
+not answer a month of messages at once. At most 20 missed messages are answered after a restart (the
+rest are let go), and a missed message from somebody who is not yet allowed is let go without a
+pairing code. The services that are posted to (WhatsApp, Messenger, the
+`chat` services, Teams, Webex and the rest) are retried by the service itself while Branch is
+unreachable. The others cannot catch up: IRC, XMPP, MQTT, Mumble, Twitch, Nostr, Revolt, QQ, Discord
+and Slack Socket Mode do not hand a bot messages from before it connected; Reddit, X, Twilio, Twist
+and Nextcloud Talk still take stock from now, because their lists have no place that can be resumed
+safely.
 
 **macOS and Linux.** Every service here works the same on Windows, macOS and Linux except iMessage,
 which exists only on a Mac and is refused by name anywhere else. The programs some services speak
@@ -1160,6 +1233,9 @@ means this wave added it (behind its switch, off); **not built** gives the reaso
 | Guilded | OpenFang | built now (`guilded`) |
 | Revolt (Stoat) | OpenFang | built now (`revolt`) |
 | Mumble text chat | OpenFang | built now (`mumble`); voice is ignored |
+| KOOK (Kaiheila) | audit row A2156 | built now (`kook`), official bot API v3 over its WebSocket gateway |
+| WeChat Official Account (Weixin gateway) | Hermes (`weixin`), audit row A2117 | built now (`wechat-mp`), safe mode only |
+| WeCom self-built app (two-way) | PicoClaw, OpenFang, ZeroClaw (`wecom_ws`) | built now (`wecom-app`); the group robot (`chat` / `wecom`) stays send only |
 | AMQP (RabbitMQ and others) | ZeroClaw | not built: AMQP 0-9-1 is a large binary protocol that would need a client of its own; most brokers also speak MQTT, which is built |
 | LinkedIn messaging | OpenFang | not built: LinkedIn's messaging API is open only to approved partners |
 | Tlon / Urbit | OpenClaw | not built: the chat runs inside an Urbit ship through agents whose interface changes between releases; there is no stable public bot API to write against |
@@ -1169,7 +1245,7 @@ means this wave added it (behind its switch, off); **not built** gives the reaso
 | Yuanbao (Tencent) | Hermes | not built: no public bot API documentation; the reference speaks a private protocol |
 | BlueBubbles, Photon, Linq (iMessage relays) | Hermes, OpenClaw, ZeroClaw | not built: third-party relays for iMessage; Branch drives Messages on your own Mac instead |
 | WhatsApp personal account (WhatsApp Web emulation, Baileys, whatsmeow) | OpenClaw, PicoClaw (`whatsapp_native`), nanobot, ZeroClaw (`whatsapp_web`), Agent Zero | not built: emulates the WhatsApp Web client, which WhatsApp's terms forbid; the official Business API is built |
-| Personal WeChat (iLink, web protocols) | OpenClaw, PicoClaw, nanobot, ZeroClaw, Hermes, IronClaw | not built: signs a personal WeChat account in by QR code rather than through an official bot API; WeCom is built |
+| Personal WeChat (iLink, web protocols) | OpenClaw, PicoClaw, nanobot, ZeroClaw, Hermes, IronClaw | not built: signs a personal WeChat account in by QR code rather than through an official bot API; WeChat Official Accounts and WeCom apps are built |
 | Personal QQ (OneBot, NapCat) | PicoClaw (`onebot`), nanobot (`napcat`) | not built: drives a personal QQ account through an unofficial client; the official QQ bot API is built |
 | Personal Zalo (zca-js) | OpenClaw (`zalouser`) | not built: drives a personal Zalo account through an unofficial client; Zalo Official Account is built |
 | Instagram private API | — | not built: unofficial and against Instagram's terms; Instagram messaging through Meta's Graph API is built |
@@ -1178,6 +1254,200 @@ means this wave added it (behind its switch, off); **not built** gives the reaso
 | Voice calls and meetings (Twilio/Telnyx voice, ClawdTalk, Google Meet, Zoom, Teams meetings) | OpenClaw, ZeroClaw | not built here: these are phone calls and meetings, not chat; Branch's voice lives under Settings, Voice |
 | Their own devices and bridges (PicoClaw `pico`, MaixCam, OpenClaw Raft and Reef, QA channel, device pairing, visitor access) | PicoClaw, OpenClaw | not applicable: parts of those projects rather than chat services; Branch has its own phone pairing and A2A |
 | Notion, Gmail push, file-drop and git "channels" | ZeroClaw | not applicable: not chat services; Branch has documents, email and triggers for these |
+
+## Setting up a chat app in one command
+
+*mac7/connect.* For every chat app Branch supports (55 of them, counted from the code: the nine with a
+type of their own, the ten team-chat services in `data/channels.json`, and the 36 wave mac3 services in
+`src/channels/connectors.ts`), one command gets the official app, opens the page that makes the bot,
+takes the token without showing it, checks it with the app's own service, keeps it in the locker, and
+switches the app on if you say so:
+
+```sh
+branch connect telegram
+```
+
+It is the same line in zsh, bash, PowerShell and cmd, wherever the `branch` command exists. It:
+
+1. looks for the system's own package manager (winget on Windows, Homebrew casks on a Mac, Flatpak from
+   Flathub or Snap on Linux), says exactly what it would run, and asks. Nothing is installed without a
+   typed yes; Snap is the only one that uses `sudo`, and the command says so before asking. Only
+   vendor-verified Flathub apps and Snap packages from verified publishers are offered, never a
+   community repackage. With no package manager, or no official package, it offers to open the
+   vendor's own download page instead. An app that is already installed is left alone;
+2. waits (ten minutes at most) until the app is there, when the computer can tell (`/Applications` on a
+   Mac, `winget list`, `flatpak info`, `snap list`), and otherwise asks you to press Enter;
+3. asks you to sign in, asks for your own server when the app is self-hosted, and opens the page that
+   makes the bot, in the app when it is installed and the app has its own link;
+4. asks for the token with nothing shown on screen. A terminal that cannot hide what is typed gets a
+   one-time page on `127.0.0.1` instead (a long random address, one form, closed after use or fifteen
+   minutes; the token travels in the form, never in an address);
+5. checks it with the app's own read-only "who am I" request, through your network settings;
+6. keeps it in the locker, switches the app on only if you answer `on` or `when-needed`, and, for
+   Telegram with Branch running, takes the six-digit code the bot sends and pairs your account.
+
+When Branch is running, the command goes through the same door as the window (the data folder's own
+key), so a Telegram bot connects at once. Otherwise it opens the saved work itself, and the bot connects
+the next time Branch starts.
+
+**One command or two.** Every app is one command. Telegram and the wave mac3 services are switched on by
+it. The nine older connections (Discord, Slack, WhatsApp, email, Messenger, Instagram, Matrix, Signal
+and the ten team-chat services) are switched on by a line in the connections file, which Branch does not
+rewrite for you (it may sit in a folder you have not trusted, and holds at most eight channels), so the
+command prints that line with your settings filled in, and you add it and restart. That is the second
+step, and the only one.
+
+**The switch.** *Setting up from here and from the terminal* ships **off**. Off, the panel still shows
+the command, the links and the codes; it only refuses to save a token or switch anything on. The first
+`branch connect` asks whether to switch it to *when needed*. *On* and *when needed* behave the same here.
+`GET /api/channel-setup` (the switch and the list), `POST /api/channel-setup {"mode": …}`,
+`GET /api/channel-setup/<app>` (one app's panel), `POST /api/channel-setup/<app>/check
+{"values": {…}, "enable": "on"}`. Looking needs only the app's key; saving and the switch are the
+owner's, and a short-lived key is refused.
+
+**In the window.** Customize → Chat apps → **Set up a chat app**: the command for this computer with a
+Copy button, the app's package or download page, three square codes (the app on iPhone, the app on
+Android, the page that makes the bot), the steps, a paste box and **Check and save**. Each row of **More
+chat apps** has a **Set up** button that opens this card on that app, and the Telegram card has the same
+panel folded inside it (there is still one Telegram card, and it keeps its own token field). The codes
+are drawn on this computer from `src/remote/qr.ts`; nothing is fetched. A phone cannot reach this
+computer, so the store code is two codes (iPhone and Android) rather than one page that guesses the
+phone. Slack's filled-in page is too long for a code, so its code opens Slack's plain new-app page.
+The phone app shows the same panel as links: the store page for that phone, and the page that makes the
+bot. The terminal view lists the command under Customize › Channels; the interactive steps run in an
+ordinary terminal (leave the view with Ctrl+D).
+
+**Starting from nothing.** On a Mac or Linux, beside the download, its `.sha256` and
+`install-branch-agent.sh` (bucket 22), one line installs Branch, checked against its checksum, and sets
+up Telegram:
+
+```sh
+sh install-branch-agent.sh --quiet && ~/.local/bin/branch connect telegram
+```
+
+Nothing is piped from the internet. On Windows the installer does not write a `branch` command yet, so
+it is two steps. First, in the folder with the download, install it: in Command Prompt: `"Install Branch Agent.cmd" /quiet`;
+in PowerShell: `& '.\Install Branch Agent.cmd' /quiet` (PowerShell needs the `&` and the `.\` to run a quoted file).
+Then use Customize → Chat apps → Set up a chat app in the window that opens (or `node dist\cli.js connect telegram`
+in a copy from Git, which is the same line in both).
+
+**Official means only.** Branch uses each app's official bot or app API and the vendor's own pages.
+It never signs in as you, never drives BotFather or any other app through your personal account, and
+never installs a userbot: Telegram bans accounts that automate BotFather that way. For Telegram the
+most that is officially possible is a link that opens BotFather with `/newbot` already typed:
+`https://t.me/BotFather?text=%2Fnewbot` (and `tg://resolve?domain=BotFather&text=%2Fnewbot` in the
+app), using the `text` draft parameter that Telegram documents for every public username link
+(core.telegram.org/api/links, "Public username links"). You press Send, then give a name and a
+username. What was checked and not used:
+
+- `?start=` on `t.me/BotFather` and `tg://resolve?…&start=` are documented, but only as a start
+  parameter handed to a bot's own code; BotFather does not document any that start `/newbot`.
+- `tg://msg?to=…&text=…` is not a documented link; the documented share links (`t.me/share`,
+  `tg://msg_url`) ask which chat to share into.
+- **Managed bots** (`t.me/newbot/<manager>/<username>?name=<name>`, `tg://newbot?manager=…`,
+  core.telegram.org/api/links and core.telegram.org/bots/features) create a bot with the name filled in,
+  but only on behalf of a *manager bot* that already exists and has Bot Management Mode switched on in
+  BotFather, and the new token goes to that manager bot (`getManagedBotToken`). A first bot therefore
+  cannot be made this way, and Branch runs no central manager bot that would receive your tokens.
+
+Slack's page arrives filled in with Branch's settings (`api.slack.com/apps?new_app=1&manifest_json=…`,
+documented in docs.slack.dev, "Configuring apps with app manifests"): Socket Mode on, the bot scopes
+and events Branch reads. Discord's link (`discord.com/developers/applications?new_application=true`,
+from Discord's own getting-started guide) opens the create dialog. Mastodon, Home Assistant,
+Nextcloud, Discourse, Gotify and Zulip open the right page on your own server. No other vendor
+documents a filled-in create link; those open the official page named below.
+
+**The recipes** are data, `data/channel-setup.json`, checked on 17 September 2026: every package id
+against formulae.brew.sh, microsoft/winget-pkgs, Flathub's verification record and Snapcraft's publisher
+record; every store link by loading it and matching the app's name; every create and check link against
+the vendor's documentation. What could not be confirmed was left out, and the recipe says why in words.
+A check is only a read-only "who am I" request, and a token only ever sits in an address where the
+vendor's API requires it (Telegram's `getMe`); where the only check would put a secret in an address
+(Meta, WeChat, WeCom, Threema) or post a message (incoming webhooks), there is no check, and the panel
+says so.
+
+<!-- channel-setup-table:start -->
+
+| Channel | One command? | Install source per OS | Bot or app page | What is pasted back | Check |
+| --- | --- | --- | --- | --- | --- |
+| Telegram (`telegram`) | yes, and switched on from it | Windows: winget `Telegram.TelegramDesktop`; Mac: cask `telegram`; Linux: Flathub `org.telegram.desktop` or Snap `telegram-desktop` | `https://t.me/BotFather?text=%2Fnewbot` (pre-filled) | `TELEGRAM_BOT_TOKEN` | GET `https://api.telegram.org/bot<token>/getMe` |
+| Discord (`discord`) | yes; then one line in the connections file | Windows: winget `Discord.Discord`; Mac: cask `discord`; Linux: Flathub `com.discordapp.Discord` | `https://discord.com/developers/applications?new_application=true` | `DISCORD_BOT_TOKEN` | GET `https://discord.com/api/v10/users/@me` |
+| Slack (`slack`) | yes; then one line in the connections file | Windows: winget `SlackTechnologies.Slack`; Mac: cask `slack`; Linux: Snap `slack` | `https://api.slack.com/apps?new_app=1&manifest_json=…` (pre-filled) | `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN` | POST `https://slack.com/api/auth.test` |
+| WhatsApp Business (`whatsapp`) | yes; then one line in the connections file | Windows: download page; Mac: cask `whatsapp`; Linux: download page | `https://developers.facebook.com/docs/whatsapp/cloud-api/get-started` | `WHATSAPP_TOKEN`, `WHATSAPP_APP_SECRET`, `WHATSAPP_VERIFY_TOKEN`; plus phoneNumberId | none |
+| Email (`email`) | yes; then one line in the connections file | nothing to install | none (plain steps) | `EMAIL_PASSWORD` | none |
+| Facebook Messenger (`messenger`) | yes; then one line in the connections file | nothing to install | `https://developers.facebook.com/docs/messenger-platform/getting-started/quick-start` | `META_PAGE_TOKEN`, `META_APP_SECRET`, `META_VERIFY_TOKEN`; plus pageId | none |
+| Instagram (`instagram`) | yes; then one line in the connections file | nothing to install | `https://developers.facebook.com/docs/instagram-platform/instagram-api-with-instagram-login/messaging-api` | `META_PAGE_TOKEN`, `META_APP_SECRET`, `META_VERIFY_TOKEN`; plus pageId | none |
+| Matrix (Element) (`matrix`) | yes; then one line in the connections file | Windows: winget `Element.Element`; Mac: cask `element`; Linux: download page | `https://app.element.io/#/register` | `MATRIX_ACCESS_TOKEN`; plus server, userId | GET `<server>/_matrix/client/v3/account/whoami` |
+| Signal (`signal`) | yes; then one line in the connections file | Windows: winget `OpenWhisperSystems.Signal`; Mac: cask `signal`; Linux: download page | none (plain steps) | nothing; plus path, account | none |
+| Mattermost (`mattermost`) | yes; then one line in the connections file | Windows: winget `Mattermost.MattermostDesktop`; Mac: cask `mattermost`; Linux: download page | `https://docs.mattermost.com/integrations-guide/incoming-webhooks.html` | `MATTERMOST_WEBHOOK_URL`, `MATTERMOST_TOKEN` (optional); plus server | none |
+| Rocket.Chat (`rocketchat`) | yes; then one line in the connections file | Windows: winget `RocketChat.RocketChat`; Mac: cask `rocket-chat`; Linux: Snap `rocketchat-desktop` | `https://docs.rocket.chat/docs/integrations` | `ROCKETCHAT_WEBHOOK_URL`, `ROCKETCHAT_TOKEN` (optional); plus server | none |
+| Google Chat (`googlechat`) | yes; then one line in the connections file | nothing to install | `https://developers.google.com/workspace/chat/quickstart/webhooks` | `GOOGLECHAT_WEBHOOK_URL`, `GOOGLECHAT_TOKEN` (optional) | none |
+| Microsoft Teams (webhook) (`msteams`) | yes; then one line in the connections file | Windows: winget `Microsoft.Teams`; Mac: cask `microsoft-teams`; Linux: download page | `https://learn.microsoft.com/microsoftteams/platform/webhooks-and-connectors/how-to/add-incoming-webhook` | `MSTEAMS_WEBHOOK_URL`, `MSTEAMS_SECRET` (optional) | none |
+| Zulip (`zulip`) | yes; then one line in the connections file | Windows: winget `Zulip.Zulip`; Mac: cask `zulip`; Linux: Flathub `org.zulip.Zulip` | `<server>/#settings/your-bots` | `ZULIP_BOT_API_KEY`; plus server | none |
+| Feishu / Lark (`feishu`) | yes; then one line in the connections file | Windows: winget `ByteDance.Feishu`; Mac: cask `feishu`; Linux: download page | `https://open.feishu.cn/document/client-docs/bot-v3/add-custom-bot` | `FEISHU_WEBHOOK_URL`, `FEISHU_SECRET` (optional) | none |
+| DingTalk (`dingtalk`) | yes; then one line in the connections file | Windows: winget `Alibaba.DingTalk`; Mac: cask `dingtalk`; Linux: download page | `https://open.dingtalk.com/document/robots/custom-robot-access` | `DINGTALK_WEBHOOK_URL`, `DINGTALK_SECRET` (optional) | none |
+| WeCom (group robot) (`wecom`) | yes; then one line in the connections file | Windows: winget `Tencent.WeCom`; Mac: download page; Linux: download page | `https://developer.work.weixin.qq.com/document/path/91770` | `WECOM_WEBHOOK_URL` | none |
+| LINE (`line`) | yes; then one line in the connections file | Windows: download page; Mac: download page; Linux: download page | `https://developers.line.biz/console/` | `LINE_CHANNEL_ACCESS_TOKEN`, `LINE_CHANNEL_SECRET` | GET `https://api.line.me/v2/bot/info` |
+| Viber (`viber`) | yes; then one line in the connections file | Windows: winget `Rakuten.Viber`; Mac: cask `viber`; Linux: download page | `https://developers.viber.com/docs/api/rest-bot-api/` | `VIBER_AUTH_TOKEN` | POST `https://chatapi.viber.com/pa/get_account_info` |
+| IRC (`irc`) | yes; switched on from it | nothing to install | none (plain steps) | `IRC_PASSWORD` (optional); plus server, nick | none |
+| Twitch chat (`twitch`) | yes; switched on from it | nothing to install | `https://dev.twitch.tv/console/apps/create` | `TWITCH_CHAT_TOKEN`; plus login, channel | GET `https://id.twitch.tv/oauth2/validate` |
+| Gotify (`gotify`) | yes; switched on from it | nothing to install | `<server>/#/applications` | `GOTIFY_APP_TOKEN`; plus server | none |
+| iMessage (`imessage`) | yes; switched on from it | nothing to install | none (plain steps) | nothing | none |
+| Microsoft Teams (bot) (`msteams-bot`) | yes; switched on from it | Windows: winget `Microsoft.Teams`; Mac: cask `microsoft-teams`; Linux: download page | `https://dev.teams.microsoft.com/bots` | `MSTEAMS_APP_PASSWORD`; plus appId | POST `https://login.microsoftonline.com/botframework.com/oauth2/v2.0/token` |
+| Webex (`webex`) | yes; switched on from it | Windows: winget `Cisco.Webex`; Mac: cask `webex`; Linux: download page | `https://developer.webex.com/docs/bots` | `WEBEX_BOT_TOKEN`, `WEBEX_WEBHOOK_SECRET` | GET `https://webexapis.com/v1/people/me` |
+| Synology Chat (`synology-chat`) | yes; switched on from it | Windows: winget `Synology.ChatClient`; Mac: download page; Linux: download page | `https://kb.synology.com/en-global/DSM/help/Chat/chat_integration` | `SYNOLOGY_CHAT_INCOMING_URL`, `SYNOLOGY_CHAT_TOKEN`; plus server | none |
+| Zalo Official Account (`zalo`) | yes; switched on from it | Windows: winget `VNGCorp.Zalo`; Mac: cask `zalo`; Linux: download page | `https://developers.zalo.me/` | `ZALO_APP_SECRET`, `ZALO_OA_SECRET_KEY`, `ZALO_OA_ACCESS_TOKEN`, `ZALO_OA_REFRESH_TOKEN`; plus appId | none |
+| Flock (`flock`) | yes; switched on from it | Windows: download page; Mac: download page; Linux: download page | `https://dev.flock.com/` | `FLOCK_APP_SECRET`, `FLOCK_BOT_TOKEN` | none |
+| Pumble (`pumble`) | yes; switched on from it | Windows: download page; Mac: download page; Linux: download page | `https://pumble.com/help/integrations/add-pumble-apps/` | `PUMBLE_APP_KEY`, `PUMBLE_BOT_TOKEN`, `PUMBLE_SIGNING_SECRET`; plus botUserId | none |
+| Mastodon (`mastodon`) | yes; switched on from it | nothing to install | `<server>/settings/applications/new` | `MASTODON_ACCESS_TOKEN`; plus server | GET `<server>/api/v1/accounts/verify_credentials` |
+| Bluesky (`bluesky`) | yes; switched on from it | nothing to install | `https://bsky.app/settings/app-passwords` | `BLUESKY_APP_PASSWORD`; plus handle | none |
+| Reddit (`reddit`) | yes; switched on from it | nothing to install | `https://www.reddit.com/prefs/apps` | `REDDIT_CLIENT_SECRET`, `REDDIT_PASSWORD`; plus username, clientId | none |
+| Discourse (`discourse`) | yes; switched on from it | nothing to install | `<server>/admin/api/keys/new` | `DISCOURSE_API_KEY`; plus server, username | GET `<server>/session/current.json` |
+| X direct messages (`x-dm`) | yes; switched on from it | nothing to install | `https://developer.x.com/en/portal/dashboard` | `X_USER_ACCESS_TOKEN` | GET `https://api.x.com/2/users/me` |
+| Twist (`twist`) | yes; switched on from it | Windows: download page; Mac: cask `twist`; Linux: download page | `https://developer.twist.com/v3/` | `TWIST_ACCESS_TOKEN`; plus conversation | none |
+| Nextcloud Talk (`nextcloud-talk`) | yes; switched on from it | Windows: winget `Nextcloud.Talk`; Mac: cask `nextcloud-talk`; Linux: download page | `<server>/settings/user/security` | `NEXTCLOUD_TALK_APP_PASSWORD`; plus server, username, room | GET `<server>/ocs/v2.php/cloud/user?format=json` |
+| Text messages (Twilio) (`sms`) | yes; switched on from it | nothing to install | `https://console.twilio.com/` | `TWILIO_AUTH_TOKEN`; plus accountSid, from | GET `https://api.twilio.com/2010-04-01/Accounts/{{accountSid}}.json` |
+| ntfy (`ntfy`) | yes; switched on from it | nothing to install | none (plain steps) | `NTFY_ACCESS_TOKEN` (optional); plus topic | none |
+| Pushover (`pushover`) | yes; switched on from it | nothing to install | `https://pushover.net/apps/build` | `PUSHOVER_APP_TOKEN`, `PUSHOVER_USER_KEY` | POST `https://api.pushover.net/1/users/validate.json` |
+| Threema Gateway (`threema`) | yes; switched on from it | Windows: winget `Threema.Threema`; Mac: cask `threema`; Linux: download page | `https://gateway.threema.ch/` | `THREEMA_GATEWAY_SECRET`; plus gatewayId | none |
+| Home Assistant (`homeassistant`) | yes; switched on from it | Windows: download page; Mac: cask `home-assistant`; Linux: download page | `<server>/profile/security` | `HOMEASSISTANT_TOKEN`; plus server | GET `<server>/api/` |
+| XMPP (Jabber) (`xmpp`) | yes; switched on from it | nothing to install | none (plain steps) | `XMPP_PASSWORD`; plus jid | none |
+| MQTT (`mqtt`) | yes; switched on from it | nothing to install | none (plain steps) | `MQTT_PASSWORD` (optional); plus host, inboundTopic, replyTopic | none |
+| Keybase (`keybase`) | yes; switched on from it | Windows: winget `Keybase.Keybase`; Mac: cask `keybase`; Linux: download page | none (plain steps) | nothing; plus path | none |
+| SimpleX Chat (`simplex`) | yes; switched on from it | Windows: download page; Mac: cask `simplex`; Linux: Flathub `chat.simplex.simplex` | none (plain steps) | nothing | none |
+| Delta Chat (`deltachat`) | yes; switched on from it | Windows: winget `DeltaChat.DeltaChat`; Mac: cask `deltachat`; Linux: Flathub `chat.delta.desktop` | none (plain steps) | nothing; plus path | none |
+| Nostr (`nostr`) | yes; switched on from it | nothing to install | none (plain steps) | `NOSTR_PRIVATE_KEY`; plus relay | none |
+| VK (`vk`) | yes; switched on from it | nothing to install | `https://dev.vk.com/en/api/bots/getting-started` | `VK_GROUP_TOKEN`; plus groupId | POST `https://api.vk.com/method/groups.getById` |
+| QQ (official bot) (`qq-bot`) | yes; switched on from it | Windows: winget `Tencent.QQ.NT`; Mac: cask `qq`; Linux: download page | `https://q.qq.com/` | `QQ_BOT_CLIENT_SECRET`; plus appId | POST `https://bots.qq.com/app/getAppAccessToken` |
+| Guilded (`guilded`) | yes; switched on from it | Windows: winget `Guilded.Guilded`; Mac: cask `guilded`; Linux: download page | `https://www.guilded.gg/` | `GUILDED_BOT_TOKEN` | GET `https://www.guilded.gg/api/v1/users/@me` |
+| Revolt (Stoat) (`revolt`) | yes; switched on from it | Windows: download page; Mac: download page; Linux: download page | `https://app.revolt.chat/settings/bots` | `REVOLT_BOT_TOKEN` | GET `https://api.revolt.chat/users/@me` |
+| Mumble (`mumble`) | yes; switched on from it | Windows: winget `Mumble.Mumble.Client`; Mac: download page; Linux: Flathub `info.mumble.Mumble` | none (plain steps) | `MUMBLE_PASSWORD` (optional); plus server, username | none |
+| KOOK (`kook`) | yes; switched on from it | Windows: download page; Mac: download page; Linux: download page | `https://developer.kookapp.cn/app/index` | `KOOK_BOT_TOKEN` | GET `https://www.kookapp.cn/api/v3/user/me` |
+| WeChat Official Account (`wechat-mp`) | yes; switched on from it | Windows: winget `Tencent.WeChat`; Mac: cask `wechat`; Linux: download page | `https://mp.weixin.qq.com/` | `WECHAT_MP_APP_SECRET`, `WECHAT_MP_TOKEN`, `WECHAT_MP_AES_KEY`; plus appId | none |
+| WeCom app (`wecom-app`) | yes; switched on from it | Windows: winget `Tencent.WeCom`; Mac: download page; Linux: download page | `https://work.weixin.qq.com/wework_admin/frame#apps` | `WECOM_APP_SECRET`, `WECOM_APP_TOKEN`, `WECOM_APP_AES_KEY`; plus corpId, agentId | none |
+
+<!-- channel-setup-table:end -->
+
+**What is not possible, and why.**
+
+- *Creating the bot for you.* No vendor offers an official way to make a bot on a person's behalf
+  without them confirming in their own account; the pre-filled links above are the closest.
+- *One install source for everything.* LINE, Flock, Pumble, KOOK and Stoat (Revolt) publish no package
+  a package manager can install on any system, and most apps have no vendor-verified Linux package; the
+  download page opens instead. WhatsApp's desktop app is only in the Microsoft Store on Windows, which
+  Branch does not drive, and Homebrew's Mumble cask is disabled.
+- *Store links for every phone.* No store page could be found for Twist or Guilded; VK and Stoat have
+  no iPhone link that could be confirmed, and KOOK and Flock no Play link. Those codes are left out.
+- *Signal, SimpleX and Delta Chat programs.* Branch talks through `signal-cli`, `simplex-chat` and
+  `deltachat-rpc-server`, which you install yourself; `signal-cli` is not made by Signal. The command
+  installs the chat app for you to talk from, never those programs.
+- *A connections line written for you.* See "One command or two" above.
+
+**macOS and Linux.** The command is the same on all three systems and each system's branch is tested
+with stand-ins (`tests/channel-setup.test.mjs`, `tests/channel-setup-command.test.mjs`): Homebrew casks
+and `open` on a Mac; Flatpak (`--user`, Flathub) then Snap (with `sudo`, said first) and `xdg-open` on
+Linux; winget (`--exact --source winget`) and `rundll32 url.dll,FileProtocolHandler` on Windows. Only
+`https://` and `tg://` links from a recipe are ever opened, always as an argument, never through a shell.
 
 ## Voice
 
@@ -1292,6 +1562,29 @@ Two things worth knowing before you turn it on. **Reading is not activity**: the
 Branch Agent can sign in to a service the ordinary way, without ever seeing your password: it opens the service's own sign-in page in your default browser, the service sends its answer back to a small page running on this computer only (`http://127.0.0.1:<port>/oauth/callback`), and the key that comes back goes straight into the locker. This is the standard OAuth 2.0 authorization-code flow with PKCE, so the same setting works for Google, Microsoft, GitHub, Slack and anything else that follows the standard.
 
 `POST /api/connections/oauth/start` takes `{ id, label, authorizeUrl, tokenUrl, clientId, clientSecret?, scopes?, extra? }` and returns the address to open. `GET /api/connections/oauth/:id` says whether that connection is signed in and when its key runs out; `POST /api/connections/oauth/:id/cancel` abandons a sign-in that is still waiting. An answer that does not match the sign-in that was started is refused, which is what stops someone else finishing it for you. A key that has run out is renewed automatically before it is used. Nothing is provider-specific yet: there are no Google or Slack buttons in the app, only this flow underneath them.
+
+## People on this computer, from their own device (bucket 19)
+
+Somebody the owner added under **People on this computer** (`settings:general`) can reach their own conversations from their own phone or laptop. The switch is on the **Signing in from other devices** card, beside the people list, and ships **off**; while it is off the sign-in page answers 404 and no person's key works, and switching it off signs everybody out (switching it back on does not bring old sign-ins back). "When needed" and "on" behave the same here: the feature has no tools for the model.
+
+- **The page.** A person opens this computer's address followed by `/people` (on the phone, through the paired address). They type their name, then pass every check the owner chose: **their PIN**, **a passkey** on their device, or **an identity service** the owner linked (OpenID Connect: a family or company service, or Google, Microsoft or GitLab from the presets). The chain is all of them, never one of them; the owner may add extra checks for one person, never take any away. A name nobody here has is asked the same checks and fails in the same words. Five wrong answers from one place and that place waits five minutes; the owner's window is counted separately and is never held up.
+- **What a person's key reaches.** Only their own page: who they are, their PIN and passkeys, their own conversations, and what the owner shared with them (`src/people/access.ts`, a list that fails closed). Every other address answers 401 before any route runs, reads included. While a request is a person's, the profile switch answers for that person and never for the owner, whatever the window is switched to (`src/people/context.ts`); a person cannot switch the window's profile. Their tasks run under their role, narrowed by every group they are in. A removed profile's keys stop at once.
+- **Forgotten PIN, first passkey.** The owner presses **Make a one-time code** beside the person and tells them the code. It works once, for 15 minutes, is kept only as a hash, closes after five wrong tries, signs the person out everywhere, and gives a 15-minute sign-in that can only set a new PIN or register a passkey. An ordinary sign-in must say the old PIN to change it.
+- **Groups.** A group has members and limits (which kinds of thing, which projects, a daily allowance). Being in a group can only take things away: `ProfileRoles.effective` applies every group and then `onlyTighter`, which refuses any narrower that would change the role or add a kind, a project or money.
+- **A person's own conversation while their task runs.** It is lent to the assistant and back (`src/people/lending.ts`); every such task writes down whose it is (`run.started.lentTo`), so in that moment the owner cannot share it and nobody else's key reaches it. If Branch stops mid-task, the conversation is handed back to the person when it starts again, and carrying the task on (by hand or by the never-break switch) runs as that person, under their role, steps redone after the restart included.
+- **Sharing a conversation.** The owner shares one of their own conversations with a person or a group, to read (**viewer**) or also to write in (**driver**). A driver's message goes into the owner's conversation as "Name: …" and runs under the driver's role; a viewer's page updates by itself every three seconds. Shares are relation tuples in OpenFGA's shape (`conversation:<id>`, `viewer`/`driver`, `profile:<id>` or `group:<id>#member`); `GET /api/people/shares/export` and `POST /api/people/shares/import` carry them to and from such a service.
+- **Passkeys.** Checked with Node's own crypto (ES256 on P-256, and RS256 of 2048 bits or more; no attestation asked for). The device must check who is holding it (fingerprint, face or device PIN: `userVerification: "required"`, checked on the server too), and a sign-in challenge works once, for two minutes. A passkey only works on the address it was registered on (an `https` origin when the door itself is served over TLS; a forwarded-protocol header is never believed), and browsers only allow passkeys on `localhost` or a named host, never on a bare IP address such as `127.0.0.1`. A signature count that did not go up is refused as a possible copy.
+- **Identity services.** Authorization code with PKCE, a state and a nonce; the ID token's signature (RS256 or ES256, never "none"), issuer, audience, expiry and nonce are checked here, and the discovery document must name the issuer that was set up. The service only proves who somebody is for a profile the owner linked by the service's subject id. A link that names only an email address is a suggestion: the first time an account with that address (verified by the service) signs in, it is refused and waits on the card until the owner presses **Confirm this account**, which writes its subject id into the link. The service sends the browser back to `/api/people/oidc/callback`, which finishes nothing: it passes the answer to the page in the address fragment, and only the page that started that sign-in (it holds the ticket) finishes it, with the sign-in's own state; an answer that lands in somebody else's browser signs nobody in. On the paired door the way back passes the door's checks like the rest. Register `http://<this address>/api/people/oidc/callback` with the service. Every call goes through the network rules, so a service on the home network needs "private addresses" allowed. A client secret, when the service needs one, is named from the locker and handed over only for the exchange.
+
+Settings (`POST /api/people/settings`, only the fields sent change): `mode` (`off`, `when-needed`, `on`), `chain` (one or more of `pin`, `passkey`, `oidc`), `extra` (profile id → more checks for that person), `sessionMinutes` (how long a sign-in lasts, 5 minutes to a week; 12 hours by default), `providers` (`id`, `label`, `issuer`, `clientId`, `clientSecretName`, `scopes`) and `links` (`provider`, `profileId`, `subject` or `email`).
+
+Routes: `GET /api/people/sign-in`, `POST /api/people/sign-in/start|step|finish|code`, `GET /api/people/oidc/callback` (no key); `GET /api/people/me`, `POST /api/people/me/sign-out|pin`, `GET|POST /api/people/me/passkeys[/begin|/finish|/remove]`, `GET|POST /api/people/conversations[/<id>[/message]]` (a person's key); `GET|POST /api/people/settings`, `POST /api/people/groups`, `POST /api/people/groups/<id>/remove`, `POST /api/people/shares[/remove|/import]`, `GET /api/people/shares/export`, `POST /api/people/<profile>/reset-code|sign-out|forget`, `POST /api/people/keys/revoke`, `POST /api/people/links/confirm` (the owner's window only; a short-lived key is refused).
+
+**Keys handed to another device, and answering questions.** A key made by "Carry on a conversation on another device" is now held to that one conversation: its own `/api/sessions/<id>` addresses, the tasks in it, `GET /api/people/handoff`, and starting a task or answering a question in it. The link opens `/people#handoff=<id>`, a page that shows only that conversation. Separately, any short-lived key may answer only the questions of tasks it started itself (or their specialists); each task writes down which key started it (`run.started.shortLivedKeyId`). A question from the owner's own task is answered in the app window.
+
+**The security self-check** (`src/security-audit/`) looks at this door too: a PIN alone while the phone door is open (`people.pin-alone-from-afar`), a sign-in that lasts more than a day (`people.long-sign-in`), and accounts waiting to be confirmed (`people.accounts-waiting`).
+
+**macOS and Linux.** Nothing here depends on the operating system: the keys, passkeys and identity checks use Node's own crypto and SQLite on all three.
 
 ## Personal details and the content check
 
@@ -1436,7 +1729,7 @@ Routes: `GET`/`POST /api/trace/settings` with `{ "enabled": boolean, "folder": s
 
 ### Diagnostics
 
-**Branch sends no usage data to anyone.** There is no telemetry client, no analytics, no crash reporting and no opt-out to configure, because nothing is collected in the first place. Settings → Diagnostics says so on the screen.
+**Branch sends no usage data to its makers.** There is no telemetry client and no crash reporting. The only counters that can leave the computer are the optional ones described under the usage report and the smaller asks, which ship off and go only to an address you type in yourself. Settings → Diagnostics says so on the screen.
 
 When you want help with a problem, **Save a diagnostics folder** (`POST /api/diagnostics/bundle`) writes a timestamped folder under `diagnostics/` in the private data directory — plain files, no archive — so you can read it and pass it on by hand:
 
@@ -1547,7 +1840,10 @@ The design, the threat list and the test for each threat are in [never-break.md]
 **Telegram from a card.** `customize:channels` has a **Set up Telegram** card (`public/telegram-setup.js`, `src/never-break/telegram-setup.ts`): the BotFather steps in plain words, a password field whose token goes straight into the locker as `TELEGRAM_BOT_TOKEN` in the default project (checked for BotFather's shape, never sent back), the three-way switch (settings key `telegram-setup`, shipped off), and a box for the six-digit code the bot sends a new person, which approves the owner's own account through the ordinary pairing. `GET|POST /api/never-break/telegram { mode?, token? }`. On a real start with the switch not off, Branch connects that bot through the network rules, unless the integrations file already has a Telegram channel. No real token was used to build or test it.
 
 **macOS and Linux.** The gateway is the same program on every system. It starts the engine with the same runtime it runs on (the app's own on an installed copy), with no window on Windows. The sign-in entries (`launchd`, `systemd --user`, the Windows scheduled task) are unchanged: they run `branch start`, which becomes the gateway when the switch is on, so `KeepAlive`/`Restart=on-failure` look after the gateway and the gateway looks after the engine. An engine whose gateway is killed closes itself within seconds, so the database is never left held.
-**Tools run by hand or by a workflow (mac5/manual-actions).** A tool run outside a conversation goes through one gate, `src/tool-gate.ts`, called from `Runtime.executeTool`. Pressed by the owner in the app window (`POST /api/action`, the code editor's save, "Try a tool"), it obeys Branch's own files (above), a refusing rule, the role of a profile that is switched on, and the sandbox and OS wall the matching rule and `settings:computer` give a task's call; with Lockdown on, or in a folder marked untrusted while folder trust is on, anything that changes something is refused with a sentence saying why (looking still works). An "ask first" rule does not stop it, because the owner is the one asking ("Try a tool" still puts its question once); a short-lived key is not the owner at the window, so the same gate holds it to the full rules: only what the rules allow outright runs, "ask" is a refusal it cannot confirm, and every refusal names the key (HTTP 401; this is the one gate for both, shared with the key sweep). An address carrying a key or password (the leak guard) is never skipped by hand: "Try a tool" puts the question, `/api/action` refuses it. A saved workflow's tool step, a flow box and a live voice call are held to the full rules like a task (`mode: "policy"`, also what a caller that names no mode gets): "ask" stops them for the owner's yes, kept under the workflow's (or flow box's, or call's) own name. The pull-request hook working by itself after a task has nobody there to say yes, so it asks the same gate before it touches Git: a refusal, or an "ask first" rule that covers opening a pull request, leaves nothing made or pushed and is written on the task's record (`pull_request.failed`) with the reason. When a task (or a hand press) uses `github.pull_request_from_changes`, that call was itself gated, so the pull request it opens is not asked about a second time; refusals, Lockdown and folder trust still apply, and are checked before anything is pushed. Another AI tool over MCP, a saved procedure's steps and a step redone after a restart use the same policy check and wall. Windows behaves as before apart from these refusals; the wall there stays the job object.
+**Tools run by hand or by a workflow (mac5/manual-actions).** A tool run outside a conversation goes through one gate, `src/tool-gate.ts`, called from `Runtime.executeTool`. Pressed by the owner in the app window (`POST /api/action`, the code editor's save, "Try a tool"), it obeys Branch's own files (above), a refusing rule, the role of a profile that is switched on, and the sandbox and OS wall the matching rule and `settings:computer` give a task's call; with Lockdown on, or in a folder marked untrusted while folder trust is on, anything that changes something is refused with a sentence saying why (looking still works). An "ask first" rule does not stop it, because the owner is the one asking ("Try a tool" still puts its question once); a short-lived key is not the owner at the window, so the same gate holds it to the full rules: only what the rules allow outright runs, "ask" is a refusal it cannot confirm, and every refusal names the key (HTTP 401; this is the one gate for both, shared with the key sweep). An address carrying a key or password (the leak guard) is never skipped by hand: "Try a tool" puts the question, `/api/action` refuses it. A saved workflow's tool step, a flow box and a live voice call are held to the full rules like a task (`mode: "policy"`, also what a caller that names no mode gets): "ask" stops them for the owner's yes, kept under the workflow's (or flow box's, or call's) own name. A workflow a task started (`workflows.run`, or `workflows.resume` carrying a saved or graph flow on) is also held to that task's own permissions (mac7/lockdown-fix): every tool step and box is refused before any question if the task could not use the tool itself (`within` in `src/tool-gate.ts`), its prompt steps and the flows inside it get only those permissions, and the limit is kept with the workflow, so the owner's yes later does not widen it. A workflow the owner starts afresh runs as before. Saving a workflow's steps again keeps the limit, a flow the
+`flow.search` tool drafts and tries keeps to the calling task's tools, and a graph flow run's kept limit
+(settings record `flow-run-limit:<runId>`, never reachable from the settings kit) is removed when the run
+finishes or its flow is removed; a failed run keeps it, because it can still be carried on. The pull-request hook working by itself after a task has nobody there to say yes, so it asks the same gate before it touches Git: a refusal, or an "ask first" rule that covers opening a pull request, leaves nothing made or pushed and is written on the task's record (`pull_request.failed`) with the reason. When a task (or a hand press) uses `github.pull_request_from_changes`, that call was itself gated, so the pull request it opens is not asked about a second time; refusals, Lockdown and folder trust still apply, and are checked before anything is pushed. Another AI tool over MCP, a saved procedure's steps and a step redone after a restart use the same policy check and wall. Windows behaves as before apart from these refusals; the wall there stays the job object.
 
 ## Always allow, per command, and a second look before approvals (wave mac3)
 
@@ -3215,6 +3511,66 @@ certificate is bought and a signing step added to the workflow. On Linux the dow
 entry is copied by hand and updates come from Branch's own updater. Checksums (`.sha256`) are
 published for every download on every system.
 
+**Installing and managing Branch from a script (bucket 22).** Every step works without a click and
+answers with exit code 0 only when it did what it says, so a catalogue such as KeepOak's can install,
+check, restart, update and remove Branch with one script.
+
+| | macOS and Linux | Windows |
+|---|---|---|
+| Install | `sh install-branch-agent.sh --quiet` beside the download and its `.sha256` | `"Install Branch Agent.cmd" /quiet` beside the zip |
+| Where it goes | Mac: `~/Applications/Branch Agent.app` (a copy already in `/Applications` is linked up instead, and never written to or removed). Linux: `~/.local/share/branch-agent/app`, with `~/.local/share/applications/branch-agent.desktop` | `%LOCALAPPDATA%\Programs\Branch Agent` |
+| The `branch` command | `~/.local/bin/branch` | not written yet |
+| Conversations and files | Mac: `~/Library/Application Support/Branch Agent`. Linux: `~/.config/Branch Agent` | `%APPDATA%\Branch Agent` |
+| What is installed | `branch --version --json` prints `{"version","path","dataDir","running","installed"}` | — |
+| Restart | `branch quit`, then open the app (or `branch start`); while the never-break gateway runs the engine, `branch quit` refuses (exit 1) | — |
+| Update | `branch update --yes` | the app's Update button |
+| Remove | `sh install-branch-agent.sh --uninstall [--delete-data]` or `branch uninstall [--delete-data]` | `Uninstall Branch Agent.cmd /quiet [--delete-data]` |
+
+Installing a version that is already there does not copy it again: the copy is linked up (the
+`branch` command and menu entry are written again) and `--repair` copies it anyway. Installing a
+different version keeps the one before as `<name>.previous`. `install-branch-agent.sh` refuses a
+download whose `.sha256` is missing or does not match, and never downloads anything itself; it picks the
+download by its full name (`Branch-Agent-macos-arm64.zip`, never just "a zip"), so an Intel copy of the
+shell on Apple silicon still gets the arm64 app. The `branch` command runs the engine inside the app with
+the app's own runtime, on the app's own data folder, so it sees the same conversations as the window
+(a `BRANCH_DATA_DIR` you set still wins).
+
+`branch quit` asks the running Branch, window or background engine, to close the way Quit does (work
+is saved, and the window gives it eight seconds at most), then waits up to twenty seconds for the
+process to go; a background engine that does not answer is stopped its own way. Only a program on this
+computer holding the data folder's own key can ask (`POST /api/deployment/quit`); short-lived keys, the
+phone door, a web page (Origin and cross-site checks) and an engine run by the never-break gateway cannot. "Not running" counts as done.
+
+`branch update` in an installed copy checks for a newer release and says what it found; `--yes` installs
+it through the same updater as the Update button: the download is checked against its published
+checksum, tried on a copy of the work when that switch is on, a safety copy is written, Branch is closed,
+and the same hand-over script swaps the folders, keeps the version before and writes its log. If Branch
+will not close (or closing it fails outright), the update stops there and nothing is changed; it is never
+ended mid-work to make room. A release older than the installed copy is never installed. The log is
+`branch-agent-update/apply-update.log` in the temporary folder. It prints the old and new version.
+The window is opened again only if it was open before. A copy installed from Git keeps `branch update`
+as `git pull`, `npm ci` and a build.
+
+Removing Branch closes it, takes out its "start by itself when you sign in" entry, the app, the version
+before, the `branch` command and the menu entry. Conversations and files stay unless `--delete-data` is
+given. A `branch` command or menu entry the installer did not write (or a link in its place) is left
+alone, and installing refuses to write over another program's `branch`. A copy in the Mac's shared
+`/Applications` is not the installer's and is left; `branch uninstall` names it.
+`install-branch-agent.sh --uninstall` only runs a `branch` command the installer wrote. The script uses
+the system's own tools whatever `PATH` says, checks and unpacks a private copy of the download (so it
+cannot be swapped in between), and refuses a download that names files outside its own folder.
+
+A custom distribution is a folder with the download, `install-branch-agent.sh` and an assistant file
+made with `branch export-agent`: `sh install-branch-agent.sh --assistant team.branch-agent` brings its
+specialists, procedures and skills in on a fresh install, and never over an assistant already set up. It
+follows the same rules as bringing an assistant in from a market: every part is checked against its
+fingerprint, approval rules, model choices and memory never come in this way, and new skills arrive
+switched off. The square logo for catalogues is `public/assets/icon.svg` on `main`.
+
+The release workflow never uploads over a download that is already attached to the release (a
+hand-built Windows zip once was replaced that way): a download that is there stays, with its own
+checksum, and only the missing ones are added.
+
 **Portable copies.** Put an empty `portable.txt` beside `Branch Agent.exe` and the app keeps its
 state in `Branch Data\state` and its workspace in `Branch Data\workspace`, both next to the
 program. Without the marker it uses the per-person application-data folder as before.
@@ -3316,6 +3672,62 @@ Routes: `GET /api/deployment`, `POST /api/deployment/autostart`, `POST /api/depl
 `POST /api/deployment/backup`, `GET /api/deployment/restore-points`,
 `POST /api/deployment/restore-point`, `POST /api/deployment/close` (macOS and Linux), and `POST /api/pair`. Interface files: `/deployment.js`,
 `/pair` and `/pair.js`.
+## Devices: your other computers and your phone lending Branch a hand
+
+*Customize, Channels, Your devices.* Ships **off**, and so does every capability of every device.
+Another computer (with `branch node`) or the phone app can lend Branch a few abilities: a photo from
+the camera, a picture of the screen, where the device is, a notification, the clipboard, opening a
+web page, reading files in one chosen folder, running a command inside that folder, speaking,
+listening for a few seconds, and showing a page on a phone. The model uses them through `device.list`,
+`device.camera`, `device.screen`, `device.location`, `device.notify`, `device.clipboard`, `device.open`,
+`device.run`, `device.files`, `device.speak`, `device.listen` and `device.canvas`.
+
+**Pairing.** Press *Pair a device*. On the other computer run `branch node pair "<link>" <number>`
+(or scan the square with the phone app). The device makes its own key, which never leaves it; Branch
+keeps only the public half. The request waits in the card until you press *Let it in*. Then run
+`branch node run` on that computer: it dials out to Branch (nothing is opened on the device, so a
+home router is no obstacle) and dials again by itself if the line drops. *Remove this device* stops
+its key working at once.
+
+**What is checked.** Each connection starts with a fresh challenge the device must sign, so a
+recorded answer is useless; wrong device names from one address, and failed proofs for one device,
+are limited to ten a minute (kept apart, so noise behind a gateway never locks a real device out),
+pairing to five wrong numbers per invitation, ten tries a minute per address and twenty overall, and
+each device to thirty requests a minute. Before it has proven itself a socket may hold at most 64 KiB. The device key opens only the device socket; it is not Branch's key.
+Taking a picture, a sound, a place, a file or the clipboard, and running a command, asks you first
+even when no approval rule says so; a rule you write still decides first. A yes to the camera, the
+screen, the microphone or a command covers that one call unless you choose otherwise when answering.
+A short-lived key, another AI tool (MCP, A2A, ACP) and a message from a chat app can never use a device; somebody else on this computer can use only a
+device you shared with them. What a device sends back is marked as information, never instructions,
+passes through the leak guard, and pictures and sound (at most 8 MB) are saved in the workspace under
+`device-media/`. The device itself refuses anything not switched on, and `branch node never camera,run`
+refuses things there whatever Branch says.
+
+**On the device.** The operating system's own permission question appears only on the device, at
+the moment you switch that capability on. `device.run` runs behind the device's own wall with no
+network, writing only inside the chosen folder, with the node's key folder unreadable and nothing of
+the node's own environment passed in. The device refuses a chosen folder that is the whole disk, the
+home folder or anything above it, or that holds or sits inside its key folder, a secrets folder
+(`.ssh`, `.aws`, the keychain…) or the Branch program. A node talks plain http only to this computer
+or a Tailscale address; anywhere else Branch must be reached over https.
+
+**macOS and Linux.** A Mac node uses `screencapture`, `osascript` notifications, `pbcopy`/`pbpaste`,
+`open`, `say`, `ffmpeg` (camera and microphone, only if already installed) and `/usr/bin/sandbox-exec`
+for the wall; it cannot say where it is. A Linux node uses `grim` (Wayland) or `scrot`, `notify-send`,
+`wl-clipboard` or `xclip`, `xdg-open`, `spd-say`, `ffmpeg`, GeoClue's `where-am-i`, and bubblewrap for
+the wall. A Windows node uses PowerShell for the screen, notifications, clipboard, opening pages and
+speech, with the model's words passed in the environment rather than the script; it offers no camera,
+microphone or commands, because Branch has no wall around a program there. Nothing is installed: a
+capability whose program is missing is simply not offered (`branch node status` lists them). The
+paired door (the Tailscale address) now answers the device socket, and only that, with the same host
+and page checks, so a phone or computer on your tailnet can be a device; a task's own socket stays on
+this computer's own address. The door's chain (key, pairing, phone secret) is not asked of a device,
+which holds none of them and proves itself by signature instead, but a "never" rule for the device's
+id on `remote` in the list of who may reach Branch still turns it away there. The phone app's device module (`apps/mobile/web/phone-node.js`) needs no new plugin for the
+camera, microphone, location, speech, opening pages and showing a page while the app is open;
+notifications and the clipboard need `@capacitor/local-notifications` and `@capacitor/clipboard`, and
+working while the app is closed needs a native background service, none of which is added yet.
+
 ## Phone apps
 
 Branch Agent for iPhone and Android is a small native shell around the Branch window you already
@@ -3544,6 +3956,35 @@ copy of the source). Its tests run against a fake server
 (`python3 -m unittest discover -s packages/sdk-python/tests`); `tests/sdk-python.test.mjs` runs them as
 part of `npm test` and also drives a real Branch Agent with it, and is skipped where no Python is
 installed. See `packages/sdk-python/README.md`.
+### Building on Branch
+Everything a program of your own needs to use Branch, in one place (bucket 21):
+
+- **Clients.** JavaScript and TypeScript (`packages/sdk`), Python (`packages/sdk-python`), Go
+  (`packages/sdk-go`, standard library only, Go 1.23 or later) and React hooks (`packages/sdk-react`,
+  around the JavaScript client, React being your page's own). They cover the same groups, keep the
+  session key to this computer's own address or `https`, and are not published to any package index:
+  each README says how to use it from a copy of the source. Branch refuses any web page on another
+  address, so the React hooks run in a desktop app, React Native, a server-rendered page, or behind
+  a development proxy.
+- **The switch.** Settings → Advanced → **Building on Branch**: off (the default), when needed, or on.
+  `GET`/`POST /api/sdk-kit` with `{"mode": "off" | "when-needed" | "on"}` does the same; only the owner
+  may change it, and a short-lived key may not.
+- **Tools for an AI coding tool.** With the switch not off, `sdk.routes` lists the web routes (by group
+  or by words), `sdk.route` gives one route's body and the call in Python, TypeScript, Go and React,
+  and `sdk.starter` gives a small working program in one language. They only read. Share them under
+  Customize → Connections and an editor connected to Branch's MCP server can ask them while it writes
+  your program. Off, they are not advertised and refuse in one sentence.
+- **Flows as files.** Automations → Procedures → **Flows as files** writes a saved flow out as YAML and
+  reads one back as a new flow (never over an existing one); `GET /api/flows/{flowId}/yaml` and
+  `POST /api/flows/yaml {"yaml": "..."}` do the same. A file starts with `format: branch-flow/1` and
+  `kind: steps` or `kind: graph`, then the flow exactly as the flow editor saves it; a file written by
+  hand may leave both out. Aliases, anchors, tags (`!!binary`, `!foo`), repeated keys, the names
+  `__proto__`, `constructor` and `prototype`, numbers too large to keep exactly, other formats and files
+  over 512 KB are refused.
+  The switch must not be off.
+
+macOS and Linux: nothing here depends on the system. The Go and Python tests are skipped where Go
+1.23+ or Python 3.9+ is not installed.
 ### Issues as context
 `{"issues": {"github": true, "linear": {"tokenSecret": "LINEAR_API_KEY"}}}` in the integration
 settings file switches on `issues.search`, `issues.get` (both behind `issues.read`) and
@@ -4193,7 +4634,9 @@ Branch Agent collects nothing about you and sends nothing to the people who made
 "help us improve by sharing anonymous statistics" setting to turn off, because nothing is ever
 collected in the first place. Everything on this page is about *you* choosing to send *your own*
 traces to a tool *you* run. All of it is off until you switch it on, and the address is one you
-type yourself. The diagnostics folder (Settings → Health) is written only when you press the
+type yourself. (One part you control, "Counting how Branch is used", is off, asks first, keeps
+daily counts on this computer for you and sends them only to an address you type; nothing reaches
+the people who made Branch.) The diagnostics folder (Settings → Health) is written only when you press the
 button, it now carries the last 200 steps with their names, timings and outcomes, and every value
 in it has been through the same scrub as the rest of the folder.
 ### Spans: the shape of a task while it runs
@@ -5005,7 +5448,7 @@ back-end, implement `Provider` and register a preset — that is the whole contr
 - `POST /api/lockdown` with `{ "on": true }` or `{ "on": false }`.
 - It also sits at the top of the sidebar.
 
-Turning it on makes **every tool wait for your yes**, and switches off running a script (`code.run`),
+Turning it on **refuses commands without asking** (see below) and makes **every other tool wait for your yes**, and switches off running a script (`code.run`),
 leaving a program running (`process.start` refuses by name, because the list of programs allowed to
 be left running is emptied), using your screen and keyboard, borrowing your browser, sending messages
 out, and telling other programs what happened. It also ends every "yes, just for this conversation"
@@ -5013,10 +5456,24 @@ you gave earlier, so nothing that was already said yes to carries on unasked. On
 it on or off: under someone else's profile the route refuses. It is kept in the database, so it is
 still on after the app is closed and opened again.
 
+It also switches off automations that start by themselves (every part under Automations),
+routines a Trunk owns, your other devices (`src/devices/`) and every personal connector
+(`src/personal/`). **Lockdown wins over every saved switch** (mac7/lockdown-fix): each of these
+features asks `src/lockdown.ts` whenever its switch is read, so a mode saved as "on" or "when needed",
+before or during Lockdown, reads as off until Lockdown is turned off. Commands, scripts, programs, the
+screen and keyboard, borrowing your browser and your other devices (`shell.execute`, `code.execute`,
+`remote.execute`, `process.manage`, `desktop.*`, `browser.borrow`, `devices.*`), handing a task to another
+computer running Branch (`nodes.run`) and a step that sends something to another app (`blocks.run`) are
+refused outright in `Runtime.checkPolicy`, whatever a rule says: you are not asked, you are told Lockdown is
+on. This is a change from before, when a command was asked about. A rule saved while Lockdown is on cannot
+let any other tool past without a yes. A task that was already working when Lockdown went on meets the
+refusal at its next tool call. Turning it on closes every open device socket at once, and nothing more is
+sent to a device while it is on. The `/lockdown` command in the app, the terminal (`branch lockdown on`)
+and the route all end earlier yeses the same way; only the owner may use any of them (a chat sender, a
+short-lived key and somebody else's profile are refused).
+
 What it does **not** switch off, because there is no switch to throw:
 
-- **Running a command** (`shell.execute`) is held to "ask", like every other tool, rather than being
-  refused outright.
 - A **server for another AI tool** that is already set up stays reachable; every tool call through it
   waits for your yes like any other.
 
@@ -5103,8 +5560,9 @@ These rows of the audit are done, by a feature that exists under another name.
 - **A1979 self-evolution** — skill governance drafts a better version of a skill from a task that went
   well, benchmarks it against the old one and keeps the owner's answer (`src/skill-governance.ts`,
   `src/skill-revisions.ts`). Unbounded self-modification is deliberately not offered.
-- **A2001 prompt library** — saved procedures with named inputs (`src/recipes.ts`) and templates that
-  carry one between installs (`src/templates.ts`).
+- **A2001 prompt library** — built in bucket 12: saved prompts in groups, with blanks, earlier
+  wordings and a command each (`src/prompt-library.ts`; see *Your saved prompts, your own commands
+  and installing skills* below).
 - **A2243 background terminal sessions** — programs left running (`src/processes.ts`), with the owner
   naming which programs may be left running at all.
 - **A2315 headless mode** — `branch run --json` prints one JSON object per line and exits with a code
@@ -5122,12 +5580,11 @@ These rows of the audit are done, by a feature that exists under another name.
 - **A0098 embedded code editor** — the Documents and "Look inside" screens show code read-only with
   syntax colouring, which is what a desktop assistant needs. A full editor is not: the owner already
   has one, and building a second would be a worse version of it.
-- **A2375 configurable intent pipeline** — skill discovery and dispatch already choose what to do. A
-  pipeline the owner configures would be a second, competing way to decide the same thing.
+- **A2375 configurable intent pipeline** — built later, in wave mac6 (see "The smaller asks").
 - **A1976 personal knowledge base on a graph database** — needs a graph store running alongside; the
   knowledge bases here do the same job on the SQLite file that is already there.
-- **A1749 Gradio interface** and **A1611 side-panel chat** — Gradio is a Python web toolkit; the web
-  app here is the interface. A browser side panel is an extension, not part of a local app.
+- **A1749 Gradio interface** — Gradio is a Python web toolkit; the web app here is the interface.
+  (**A1611 side-panel chat** was built later, in the browser extension; see "The smaller asks".)
 - **A0663 C FFI** — calling native libraries from the assistant would put unsandboxed native code
   inside the app. Anything needing that is a program the owner runs through the shell tools.
 - **A1468 ADB operator** — driving an Android phone over USB is not a local Windows desktop
@@ -5354,8 +5811,8 @@ recorded here as deliberately out of scope rather than left open for ever.
 - **A0419 Chainlit UI example** — the same, for Chainlit: a Python chat front end for a Python agent.
 - **A1435 Next.js web chat** — a React/Next.js chat app is a second front end to keep in step with
   this one. The web app here is plain modules served by the app itself, with no build step.
-- **sdk-react (React SDK)** — likewise a front-end library for somebody else's page. The TypeScript
-  client in `packages/sdk` and the OpenAPI description are what an outside page talks to.
+- **sdk-react (React SDK)** — re-opened and built in wave mac6: `packages/sdk-react` (see "Building on
+  Branch").
 - **A1905 Interactive terminal coding agent** — Branch's terminal interface is `src/terminal-tui.ts`
   in the same Node process as everything else. A Rust TUI would be a second program to ship, sign
   and update for no new behaviour.
@@ -5807,9 +6264,10 @@ because it writes outside this folder.
   answer for this tree.
 - **A1519, A1841 (Bitwarden and 1Password)** are built on another branch of this wave and land
   separately; `secret://cmd/<name>` above is the general form of the same idea.
-- **FAMILY custom-commands (#72)** — the owner's own saved procedures and skills are their custom
-  commands; the terminal view's slash commands stay fixed on purpose, so a mistyped one can never
-  become a task. Still open.
+- **FAMILY custom-commands (#72)** — built in bucket 12: a saved prompt can have a command of its
+  own, laid over the shipped table on every surface with a message box (see *Your saved prompts, your
+  own commands and installing skills* below). A mistyped name still never becomes a task: only a
+  saved command the owner wrote is read, and a shipped name can never be taken.
 
 ## Sandboxes: where a script actually runs (batch 26, wave 8)
 
@@ -6252,119 +6710,288 @@ every row is listed here and that every file named here exists.
 
 ### A library other people can build on (bucket 21)
 
-- **sdk-python** — built: `packages/sdk-python/branch_agent/client.py`, tested by
-  `packages/sdk-python/tests/test_client.py` and `tests/sdk-python.test.mjs` (see "A client for Python programs").
-- **framework-adapters** (Python API SDK) — built: the same Python client.
-- **A1509** (TypeScript, Python and Go clients) — partly: the TypeScript client is `packages/sdk/client.mjs`
-  (`packages/sdk/test/sdk.test.mjs`) and the Python one is above. There is no Go client; the OpenAPI
-  description below is what a Go program would generate one from.
+Re-opened in wave mac6 (every declined row came back); each row is now built or verified. See
+"Building on Branch" for how the pieces fit.
+
+- **sdk-python** — verified: `packages/sdk-python/branch_agent/client.py`, tested by
+  `packages/sdk-python/tests/test_client.py` and `tests/sdk-python.test.mjs` (see "A client for Python
+  programs"); it now also has `flows` (list, get, save, run, export_yaml, import_yaml).
+- **framework-adapters** (Python API SDK) — verified: the same Python client,
+  `packages/sdk-python/branch_agent/client.py`, tested by `tests/sdk-python.test.mjs`.
+- **A1509** (TypeScript, Python and Go clients) — built: the Go client is `packages/sdk-go/branch/client.go`
+  (standard library only), tested by `packages/sdk-go/branch/client_test.go` and `tests/sdk-go.test.mjs`,
+  which also drives a real Branch Agent with it and compiles every Go snippet the app hands out. The
+  TypeScript client is `packages/sdk/client.mjs` (`packages/sdk/test/sdk.test.mjs`).
 - **A2353** (REST API) and **A0758** (HTTP API) — verified: `src/server.ts` serves it and
   `src/api-openapi.ts` describes it at `GET /api/openapi.json`, with `docs/api.md` written from the same
   description. `tests/other-2.test.mjs` checks the description is well formed, that every route it
-  promises is really served, and that `docs/api.md` matches; `tests/sdk-python.test.mjs` checks the routes
-  the Python client calls are in it.
-- **sdk-react** — not applicable: a front-end library for somebody else's page (see "What Branch is not").
-  An outside page uses `packages/sdk/client.mjs` or the OpenAPI description.
-- **app-building** (an MCP server for building apps with an SDK) — not built: Branch's own MCP server
-  (`src/mcp-server.ts`) offers Branch's tools to other programs; a server for writing somebody else's
-  app is a different product.
-- **serialization** (pipelines written as YAML) — partly: skills are YAML (`src/skill-document.ts`),
-  flows are JSON (`src/flows.ts`), and a whole assistant goes out and back as one file
-  (`src/agent-export.ts`, `tests/code-ide.test.mjs`). Flows are not written as YAML because JSON is what
-  the flow editor saves and reads; a second format would be a second thing to keep in step.
+  promises is really served, and that `docs/api.md` matches; `tests/sdk-python.test.mjs` and
+  `tests/sdk-go.test.mjs` check the routes each client calls are in it.
+- **sdk-react** — built: `packages/sdk-react/hooks.mjs` (`BranchProvider`, `useBranch`, `useBranchGet`,
+  `useBranchRun`), with no dependency of its own (React is the page's own), tested by
+  `tests/sdk-react.test.mjs` with a small stand-in React and against a real Branch Agent.
+- **app-building** (an MCP server for building apps with an SDK) — built: `src/sdk-kit.ts` adds
+  `sdk.routes`, `sdk.route` and `sdk.starter`, made from the same route list as the OpenAPI description
+  (`src/sdk-starters.ts`). Shared under Customize → Connections, they make Branch's own MCP server
+  (`src/mcp-server.ts`) the server an AI coding tool asks while writing a program on Branch. Behind a
+  three-way switch that ships off; `tests/sdk-kit.test.mjs` checks the switch, the answers and the
+  MCP calls.
+- **serialization** (pipelines written as YAML) — built: `src/flow-yaml.ts` writes a saved flow (a
+  list of steps or a graph) out as YAML and reads one back as a new flow, through
+  `GET /api/flows/{flowId}/yaml` and `POST /api/flows/yaml`; `tests/sdk-kit.test.mjs` checks
+  YAML → flow → YAML is stable and that a bad file is refused in plain words. Skills were already
+  YAML (`src/skill-document.ts`).
 
 ### Installing it should be boring (bucket 22)
 
-- **installers** — partly: Windows has a real installer with an uninstall entry
-  (`src/install/installer.ts`); macOS and Linux have downloads you unzip or unpack
-  (`scripts/package-macos.mjs`, `scripts/package-linux.mjs`, `tests/packaging.test.mjs`) and a
-  start-at-sign-in file (`src/install/launchd.ts`, `src/install/systemd.ts`, `tests/service-update.test.mjs`).
-  What is still needed for signed installers is written under "What is still needed for a signed
-  installer on every computer".
+Bucket 22 (wave mac6) built what was missing; how to use it is under "Installing and managing Branch
+from a script".
+
+- **installers** — built: macOS and Linux now have a no-questions installer beside their downloads,
+  `install-branch-agent.sh` (`src/install/unix-bootstrap.ts`), which checks the download against its
+  `.sha256` and hands over to the installer inside the app (`src/install/unix-install.ts`,
+  `src/install/unix-install-cli.ts`): the app in this person's own folders, a `branch` command, a menu
+  entry on Linux, the version before kept, and `--uninstall` that keeps conversations and files unless
+  `--delete-data` is given. Windows keeps its installer (`src/install/installer.ts`), which now takes
+  `/quiet` and whose uninstaller takes `--delete-data`. Tested by `tests/install-boring.test.mjs` and
+  `tests/deployment.test.mjs`. Signing and notarising are written but need the owner's certificates
+  (see "What is still needed for a signed installer on every computer").
 - **desktop-packaging** — verified: `scripts/package-desktop.mjs` builds the download for Windows, macOS
-  (both chips) and Linux, and `.github/workflows/package.yml` builds all four on a version tag.
+  (both chips) and Linux, and `.github/workflows/package.yml` builds all four on a version tag and
+  attaches them without ever replacing one that is already on the release.
   `tests/packaging.test.mjs` checks every name, option, signing step and the menu entry;
-  `tests/service-update.test.mjs` checks the packaging, the workflow and the updater agree.
-- **platform-support** — verified for macOS and Linux: the same downloads and sign-in files
-  (`src/install/launchd.ts`, `src/install/systemd.ts`, `tests/service-update.test.mjs`); WSL is not a target, because on Windows
-  the Windows download is the one to use.
-- **distributions** (custom distributions) — not built: there is no rebranded or trimmed-down build.
-  Portable copies (`portable.txt`) and the settings file cover running one copy differently.
+  `tests/service-update.test.mjs` checks the packaging, the workflow and the updater agree, and that
+  nothing is uploaded over what is there.
+- **platform-support** — verified for macOS and Linux: one script installs, and the same sign-in files
+  keep Branch running (`src/install/unix-install.ts`, `src/install/launchd.ts`, `src/install/systemd.ts`,
+  `tests/install-boring.test.mjs`, `tests/service-update.test.mjs`). Under WSL 2 the Linux download and
+  its script are the ones to use; that has not been tried on a real WSL machine.
+- **distributions** (custom distributions) — built: a folder holding the release download, the installer
+  script and an assistant file made with `branch export-agent` is a custom Branch; `--assistant <file>`
+  brings its specialists, procedures and skills in on a fresh install (market rules: skills off, no approval
+rules, model choices or memory) and never replaces one already set up
+  (`src/install/unix-install-cli.ts`, `tests/install-boring.test.mjs`). There is no rebranded build, and
+  Windows has no `--assistant` yet (run `branch import-agent` after installing there).
 
 ### The smaller asks (bucket 23)
 
-- **A0794** (project bookkeeping) — partly: projects hold instructions, a model, a folder and knowledge
-  bases, each task records its project, and cost adds up per project (`src/projects.ts`,
-  `src/project-ledger.ts`, `tests/projects-locker.test.mjs`, `tests/other-2.test.mjs`). Flows are not
-  filed under a project.
-- **A2334** (artifact versioning) — verified: keeping a file again under the same name makes the next
-  version, each with its checksum (the cap of 20 in `keptLimits` is not tested) (`src/build-artifacts.ts`, `tests/code-ide.test.mjs`).
-  Changing an artifact means keeping the changed file as the next version; there is no editor for it.
-- **A0612** (source sync with a cursor) — not built: nothing copies Telegram, Gmail or GitHub into
-  Branch in the background. The chat channels read new messages as they arrive, and knowledge bases
-  read folders (`src/knowledge-bases.ts`).
-- **A2221** (Hindsight memory) — not applicable: it is an outside memory service. Memory stays in this
-  computer's own database behind the contract in `src/memory-backend.ts` (`tests/docs-memory-2.test.mjs`).
+Wave mac6 built what was missing here; every new part has its own three-way switch and ships off
+(see "The smaller asks" below). Row by row, with the file and the test that asserts it:
+
+- **A0794** (project bookkeeping) — built: flows, schedules and triggers can be put under a project, and
+  a project's board shows them with the tasks done under it (`src/asks/project-board.ts`,
+  `tests/asks.test.mjs` "A0794").
+- **A2334** (artifact file operations) — verified: a kept file gets numbered versions with checksums,
+  a version can be put back byte for byte or let go (`src/build-artifacts.ts`, `src/artifact-versions.ts`,
+  `tests/artifact-versions.test.mjs`, `tests/code-ide.test.mjs`).
+- **A0612** (source sync with a cursor) — built: GitHub issues by update time, a mailbox by UID and a
+  Telegram bot by update id, written into `sources/` (`src/asks/source-sync.ts`, `src/channels/mail-client.ts`
+  `sinceUid`, `tests/asks-integrations.test.mjs` "A0612").
+- **A2221** (Hindsight memory) — built: keep, recall and reflect against the owner's Hindsight server,
+  beside Branch's own memory (`src/asks/hindsight.ts`, `tests/asks-integrations.test.mjs` "A2221").
 - **A1895** (image generation) — verified: `src/media-images.ts` makes and changes pictures through the
-  services that offer it, and says plainly when a model cannot (`tests/media.test.mjs`).
-- **examples** (an MCP example, a Notion MCP example) — partly: connecting an MCP server is shown under
-  "MCP tools" and the app hands out ready-made connection snippets (`src/mcp-server.ts`,
-  `tests/mcp-server.test.mjs`); Notion is shown as an OpenAPI connection (`src/openapi-tools.ts`), not as
-  an MCP server.
-- **integration-blocks** (a catalogue of third-party blocks) — partly: GitHub, GitLab and Linear are built
-  in (`src/integrations/github.ts`, `src/integrations/gitlab.ts`, `src/integrations/linear.ts`) and
-  plugins install from files (`src/plugin-catalog.ts`); there is no online catalogue of blocks.
-- **A0355** (pages that stay shared) — partly: a share link needs its code, works once and expires
-  (`src/conversation-share.ts`, `tests/collab-workflows.test.mjs`); a lasting public page is not offered
-  on purpose, because Branch only listens on this computer and its private address.
-- **A0354** (an answer engine) — verified: `knowledge.ask` answers from a knowledge base and numbers its
-  sources (`src/knowledge-tools.ts`, `src/knowledge-bases.ts`, `tests/rag-vector.test.mjs`).
-- **A2375** (a configurable intent pipeline) — not built: requests are not sorted into intents first; the
-  model picks tools itself, and the one configurable pipeline is for searching
-  (`src/retrieval-pipeline.ts`, `tests/retrieval-2.test.mjs`).
-- **A1012** (a model gateway) — partly: OpenRouter, LiteLLM, Portkey and Cloudflare's gateway are
-  connections in `data/providers.json` (`src/provider-catalog.ts`, `tests/providers-2.test.mjs`); Vercel's
-  AI SDK is a JavaScript library, not a service, so there is nothing to connect to.
-- **A2258** (several agent runtimes) — partly: Claude Code, Codex and the Copilot command line, when
-  installed here, can answer as a model (`src/providers/cli-agent.ts`, `tests/auth-tracing-cli.test.mjs`);
-  they answer in words only, without Branch's tools.
-- **A0032** (an app-server protocol) — partly, in its shared form: `branch acp-serve` speaks the Agent
-  Client Protocol to editors (`src/acp.ts`, `tests/interop-agents.test.mjs`), alongside the OpenAI-shaped
-  way in (`src/openai-compat.ts`, `tests/interop.test.mjs`), the MCP server (`src/mcp-server.ts`) and
-  agent-to-agent (`src/a2a.ts`). Codex's own app-server protocol is not spoken (A0601).
-- **A0601** (Codex's app-server as a backend) — not built: Codex is reached through `codex exec`
-  (`src/providers/cli-agent.ts`). Its app-server protocol is Codex's own and still changing; ACP above is
-  the shared one.
-- **A0464** (desktop conversations that last) — partly: the desktop app (`src/desktop/main.ts`) runs the
-  same app and server, and a conversation coming back after a restart is proven for that shared core
-  (`tests/long-jobs.test.mjs`); no test drives the desktop app itself.
-- **A2043** (computer use) — verified: `computer.look`, `computer.press` and `computer.type` go to a web
-  page or to a window (`src/integrations/computer.ts`, `tests/browser-2.test.mjs`). Window control is
-  Windows-only.
-- **research-pipeline** (STORM-style articles) — partly: research splits the question, reads several
-  pages, compares them and cites them (`src/research.ts`, `tests/data-research.test.mjs`); there are no
-  persona, outline or polishing stages.
-- **gateway** — partly: one local router fronts every chat channel (`src/channels/router.ts`,
-  `tests/channels.test.mjs`); there is no gateway spread over several computers, because Branch runs on one.
-- **A0504** (analytics collected only with consent) and **A1620** (optional analytics) — not applicable:
-  Branch collects nothing, so there is nothing to consent to (see "There is no telemetry, and there never
-  will be"; `tests/tracing-policy.test.mjs` checks the promise is written where the owner reads it). No
-  analytics will be added, with or without a switch.
-- **A1611** (a side-panel chat) — not built: the browser extension (`extras/browser-extension/`) opens a
-  small window from its button. A side panel would need one more browser permission for the same job.
-- **A2240** (live app surfaces inside a reply) — partly: pages from MCP servers and artifacts are shown,
-  but with no scripts, forms or network (`src/mcp-apps.ts`, `tests/mcp-mode.test.mjs`,
-  `tests/artifacts-ui.test.mjs`). Keeping them inert is the safety rule, so "live" is not planned.
-- **A2133** (an Obsidian plugin) — partly: Branch writes to and reads from your notes folder
-  (`src/obsidian.ts`, `tests/obsidian.test.mjs`); nothing is installed inside Obsidian.
-- **A1932** (a browser extension) — partly: `extras/browser-extension/` sends the page or the selection to
-  Branch (`src/embeds.ts`); `tests/embeds-watches.test.mjs` checks its folder, its permissions and that it
-  refuses this computer's own address, but no test drives the popup sending a page.
-- **A1934** (a chat box for other websites) — partly: `public/widget.js` is a small ask box for pages of
-  the owner's own, on sites the owner lists (`src/embeds.ts`, `tests/embeds-watches.test.mjs`); it is not
-  meant for putting in front of the public.
-- **A2367** (Google PaLM) — not applicable: Google retired PaLM. Gemini, its successor, is supported
-  (`src/providers/gemini.ts`, `tests/provider-presets.test.mjs`).
+  services that offer it (`tests/media.test.mjs` "a picture is asked for at /images/generations").
+- **examples** (an MCP example, a Notion MCP example) — built: copyable entries for Notion (program and
+  hosted) and the reference fetch server, each accepted by the integrations file's own schema
+  (`src/asks/mcp-examples.ts`, `tests/asks-integrations.test.mjs` "examples").
+- **integration-blocks** (third-party blocks) — built: fixed steps for Slack, Discord, Telegram, Notion,
+  Google Sheets, Airtable, Todoist and HubSpot, each with the owner's named key (`src/asks/app-blocks.ts`,
+  `tests/asks-integrations.test.mjs` "integration-blocks").
+- **A0355** (pages that stay) — built: answers kept as pages in Library, updated, and handed on as one
+  sealed file (`src/asks/answer-pages.ts`, `tests/asks.test.mjs` "A0355").
+- **A0354** (an answer engine) — built: search, read a few pages, answer with a numbered source after
+  each claim (`src/asks/answer-engine.ts`, `tests/asks.test.mjs` "A0354"); `knowledge.ask` does the same
+  for knowledge bases.
+- **A2375** (a configurable intent pipeline) — built: the owner's intents, and the phrase, word and model
+  stages in the owner's order (`src/asks/intent-pipeline.ts`, `tests/asks.test.mjs` "A2375").
+- **A1012** (a model gateway) — built: the Vercel AI Gateway is a connection, and a model name is
+  spelled `vendor/model` for a gateway and bare for the vendor itself (`data/providers.json`,
+  `src/asks/model-gateway.ts`, `tests/asks-runtimes.test.mjs` "A1012").
+- **A2258** (several agent runtimes) — built: Claude Code, Codex, Copilot, Gemini CLI and Codex over
+  app-server are added as connections, remembered, and follow their switch (`src/asks/runtimes.ts`,
+  `tests/asks-runtimes.test.mjs` "A2258").
+- **A0032** (an app-server protocol) — built: `branch app-server` speaks Codex's app-server protocol
+  (`src/asks/app-server.ts`, `tests/asks-runtimes.test.mjs` "A0032"); `branch acp-serve` still speaks ACP.
+- **A0601** (Codex's app-server as a backend) — built: Codex answers over app-server, read-only, and its
+  approval requests are declined (`src/asks/codex-app-server.ts`, `tests/asks-runtimes.test.mjs` "A0601").
+- **A0464** (desktop conversations that last) — verified: a conversation is listed and continues after
+  the engine the desktop runs is closed and opened again (`src/desktop/main.ts`, `tests/asks-verify.test.mjs`,
+  `tests/long-jobs.test.mjs`).
+- **A2043** (computer use) — verified: on a Mac every screen action goes through one fixed JXA script
+  run by `osascript`, on Linux through `xdotool` (`src/integrations/desktop-script-posix.ts`,
+  `src/integrations/computer.ts`; `tests/asks-verify.test.mjs` drives `computer.look`, `computer.press`
+  and `computer.type` to a stand-in `osascript`, `tests/posix-desktop-script.test.mjs` the script itself).
+- **research-pipeline** (STORM-style articles) — built: personas, sources read per persona, an outline,
+  sections written from the notes with sources, a lead and a tidy (`src/asks/article-writer.ts`,
+  `tests/asks.test.mjs` "research-pipeline").
+- **gateway** (across several computers) — built: other computers running Branch, checked for health,
+  chosen by label and passed over when down or busy (`src/asks/nodes.ts`, `tests/asks-surfaces.test.mjs` "gateway").
+- **A0504** (analytics only with consent) and **A1620** (optional analytics) — built: counts per day of
+  named events, only after a yes (the time of that answer is kept as `decidedAt`), wiped on a no, sent
+  only to an https address of the owner's own (`sendTo`, empty by default) (`src/asks/analytics.ts`, `tests/asks.test.mjs` "A0504 A1620"). Nothing goes to Branch's makers.
+- **A1611** (a side-panel chat) — built: the extension's side panel keeps one conversation with the
+  paired Branch (`extras/browser-extension/chat.js`, `sidepanel.js`, `tests/asks-surfaces.test.mjs` "A1611").
+- **A2240** (live app surfaces) — built: a tool's page is asked again on a timer through the tool gate
+  and shown in the same sealed frame, reloading itself (`src/asks/live-surfaces.ts`,
+  `tests/asks-surfaces.test.mjs` "A2240").
+- **A2133** (an Obsidian plugin) — built: `extras/obsidian-plugin/` asks Branch about a note with a
+  short-lived key, and only to Branch on the same computer (`tests/asks-surfaces.test.mjs` "A2133",
+  `tests/asks-hardening.test.mjs`); the notes-folder bridge (`src/obsidian.ts`) stays.
+- **A1932** (a browser extension) — verified: `extras/browser-extension/` is a Manifest V3 folder that
+  refuses this computer's own address (`tests/embeds-watches.test.mjs` "E1", "E2").
+- **A1934** (a chat box for other websites) — verified: `public/widget.js` answers only on sites the
+  owner lists (`src/embeds.ts`, `tests/embeds-watches.test.mjs` "E1", "E2").
+- **A2367** (Google PaLM) — built: PaLM is on the list as retired, with a note pointing at Gemini, and
+  never reaches the network (`data/providers.json`, `tests/asks-runtimes.test.mjs` "A2367").
+
+## The smaller asks
+
+Thirteen small parts, each with the owner's three-way switch (off, on, only when it is needed), all
+off at first. "On" loads a part's tools into every task from the start; "only when it is needed"
+lists them for the assistant to load; "off" leaves them out, and the timer that refreshes live pages
+does not run. The switches and settings are under `/api/asks/`, owner only; a short-lived key can read
+some of them and change none (`tests/short-lived-key-routes.mjs`). A tool of these parts pressed in the
+window goes through the one tool gate (`src/tool-gate.ts`), and work that runs by itself (live pages)
+is held to what the rules allow outright. A live page whose tool fails or is held waits twice as long
+before the next try each time (up to 64 times its interval, at most a day), one refresh round never
+overlaps another, and pressing Refresh again within ten seconds asks nothing. A mailbox source checks
+the owner's network rules before it connects, like every other outgoing call here, so a mail server
+on the home network needs private addresses allowed.
+
+| Part | Where it lives | What it does |
+| --- | --- | --- |
+| Project boards | Settings → General | Flows, schedules and triggers put under a project, and its tasks (`project.board`, `project.assign`) |
+| Quick answers | Library → Made | Search, read, answer with numbered sources (`answer.ask`) |
+| Pages kept | Library → Made | Answers kept, updated and saved as one sealed file (`answer.page`) |
+| Long articles | Library → Made | Personas, outline, cited sections, lead, tidy, into `research/` (`research.article`) |
+| Live tool pages | Library → Made | A tool asked again every so often, its page shown sealed |
+| Intents | Customize → Skills | Named kinds of request and where each goes (`intent.route`) |
+| Bringing items in | Library → Documents | GitHub, mailbox and Telegram, each with a cursor, into `sources/` (`sources.sync`) |
+| Hindsight | Library → Memory | Keep, recall and reflect on your Hindsight server (`hindsight.*`) |
+| Steps for other apps | Customize → Connections | Slack, Discord, Telegram, Notion, Sheets, Airtable, Todoist, HubSpot (`blocks.run`) |
+| App-server | Customize → Connections | `branch app-server` for editors that speak Codex's protocol |
+| Other agents | Settings → Models → Connection | Installed coding agents added as connections |
+| Other computers | Settings → Computer | Health, labels and failover across your Branch computers (`nodes.*`) |
+| Counting use | Settings → Data | Daily counts after a yes; sent only to your own address |
+
+Keys are always named secrets from the locker, filled in at the moment of the call. Every outside
+call follows the network rules; a Hindsight server or another computer on your home network needs
+private addresses allowed there (Tailscale addresses are not private and work as they are).
+
+**macOS and Linux.** Everything here is plain Node and works the same on all three systems. The
+agents found on this computer are looked up on `PATH` (with `PATHEXT` on Windows) without running
+anything; `codex app-server` and the command-line agents are started from their names with fixed
+arguments, no shell, and only what they need from the environment. The stand-in Codex test runs a real
+program on macOS and Linux and is skipped on Windows, where the in-process stand-in covers the same
+protocol.
+
+## It suggests, and runs things on its own (r17-b)
+
+Seven parts, each with the owner's three-way switch (off, on, only when it is needed), all off at
+first. Their switches and settings are under `/api/autonomy/`, owner only; a short-lived key can read
+some of them and change none (`tests/short-lived-key-routes.mjs`). Nothing lasting is made without the
+owner: the assistant's tools here only read or ask, and every question waits in Inbox → Needs you. A
+"no" is remembered for good, so the same thing is never asked or offered again; at most 20 questions
+wait at once.
+
+| Part | Where it lives | What it does |
+| --- | --- | --- |
+| Suggested automations | Automations → Scheduled | A catalogue of 13 blueprints with checked blanks, and up to five suggestions worked out from what Branch remembers and what is connected, without asking a model (`automation.ideas`, `automation.propose`, `/suggestions`, `/blueprint`) |
+| Standing orders | Automations → Scheduled | A named programme: what it may do, when it starts, what needs a yes, when to stop and ask. A reply starting `ESCALATE:` pauses it and asks you (`orders.list`, `orders.propose`) |
+| Repeating in a conversation | Automations → Scheduled | `/loop every 10m <what> [--times n] [--until …]` (1 minute apart at least, 10 turns unless said, 100 at most, stops on `LOOP_COMPLETE`) and `/heartbeat every 30m <what>` (5 minutes apart at least, adds a note only with news). Owner only |
+| Sub-goals, background tasks, handing on | The message box | `/subgoal` adds to the conversation's goal (the judge sees them); `/bg` runs a task in its own conversation, three at most; `/handoff <chat app>` points a chat that has talked to Branch at this conversation, and `/handoff terminal` or `assistant <name>` uses Interop's hand-on, behind its own switch |
+| Procedures that start themselves | Automations → Procedures | Steps that start on a clock, after one of your tasks, or by hand; each asks before every step, before it starts (the default), or runs on its own. A step marked `confirm` always asks; an "on its own" procedure under 50% after four runs goes back to asking (`procedures.auto.list`, `procedures.auto.propose`) |
+| What skills need | Customize → Skills | Programs, keys and systems a skill declares in its `metadata` (`requires-bins`, `requires-any-bins`, `requires-keys`, `os`, `install-brew`/`-apt`/`-winget`/`-npm`/`-pip`, or OpenClaw's `openclaw` block), and whether this computer has them (`skills.readiness`). Programs are looked for on `PATH` without running anything; install lines are only shown |
+| "From now on" instructions | Settings → Assistant | "From now on, …" in one of your messages is kept, after one yes, as a standing instruction for the assistant, every specialist, or one specialist (`instructions.list`, `instructions.propose`) |
+
+**Bounds.** Everything these parts start by themselves is an ordinary task marked as started by a
+schedule, so your approval rules are capped as for a timed job. Its permissions are never wider than
+what you hold, and never include making schedules, changing settings, installing anything or
+proposing more automations (`narrowed` in `src/autonomy/runner.ts`), whichever part asked. Nothing
+starts while Lockdown is on; turning Lockdown on, or switching a part off, cancels the turns that are
+working. Only your own tasks, typed in the window, the phone or the terminal, start an after-task order
+or procedure, pick up "from now on", or let the assistant propose something: a chat sender's message,
+a short-lived key's task and a household person's task never do (`src/autonomy/origin.ts`). A
+proposal is shown in full, with every step and what it may use, before you answer. Together they may start 48
+turns a day, each of at most 12 steps and 40,000 tokens (Automations → Scheduled, "Limits on
+automatic work", up to 200 turns, 40 steps and 200,000 tokens). Each order or procedure has its own
+daily count (4 unless set, 24 at most) and orders wait five minutes between turns. A conversation that
+is still busy is left alone until the next beat. "On" gives a task the standing orders and
+instructions in full; "only when it is needed" gives it one line saying where to read them.
+
+**macOS and Linux.** Everything here is plain Node and behaves the same on all three systems. The
+readiness check splits `PATH` with `:` on macOS and Linux and `;` on Windows (trying `.exe`, `.cmd`
+and `.bat` there), checks the file can be run, and suggests `brew` on macOS and Linux, `apt` on Linux
+and `winget` on Windows.
+
+## Trunks: assistants of your own (R17-A)
+
+A Trunk is a named assistant that stays: it has its own conversation, pinned and never swept away by
+the history rule, its own memory, model, instructions, style, tools, picture and routines. It is not a
+person on this computer (those are people, in Settings → General) and not a specialist (a reusable
+set of instructions), though a specialist can be brought across as a Trunk. Branch's answer to Hermes
+Agent's Bots and Grok's bots.
+
+Five parts, each with the three-way switch, all off at first. The card is in Customize → Specialists,
+under "Trunks"; the roster sits in the sidebar above Recents; rooms that asked for you show in
+Inbox → Needs you.
+
+| Part | What it does |
+| --- | --- |
+| Trunks | Make one from three fields (name, what it does, about it); it introduces itself. Edit Trunk opens every field. A message written `@name …` in the message box goes to that Trunk, and `/trunk` lists them or talks to one. |
+| Rooms | Two to six Trunks and you in one conversation. Your message starts at most three rounds and ten replies; only those you @mention answer (nobody mentioned means everyone); a Trunk may pass; `@you` raises "needs you"; a Trunk waiting for your yes is answered in the room. Rooms run inside Branch, not the window, and carry on after a restart. |
+| Messages | `trunk.message` lets a Trunk write to another from its own conversation only. Branch signs the message, it waits until the other is free, the answer comes back later, a failure that a second try can help is tried once more, and a chain stops three messages deep. One task sends at most three messages, and all Trunks together at most thirty an hour. |
+| Routines | Schedules a Trunk owns (`[Trunk @name]` in Automations). They run as the Trunk and report in its conversation; the first turn is at the time you chose. While Routines are off, or once the Trunk is gone, they do not run at all (never as you). |
+| Teaching | Watch me, do the job once, Save what I did: the task's steps become a workflow the Trunk owns, optionally repeated every day. |
+
+What a Trunk may reach starts off: no chat apps (a chat linked to its conversation is refused in one
+sentence until the Trunk may answer there), no commands (`shell.execute`, `code.execute`,
+`remote.execute`, `process.manage`), no connected tool servers until named. A Trunk never gets more
+than whoever started its turn; a reviewing style takes away every tool that writes. What it learns is
+saved in its own memory scope (`agent:trunk:<id>`); it never reads your private facts, and reads the
+facts you marked as shared unless you switch that off; it never writes into the shared facts. A
+Trunk's conversation keeps these limits even while Trunks are switched off, and a room turn runs
+without its own plan or reviewer pass. A Trunk answers through API keys only, never through a
+sign-in account (a ChatGPT sign-in, an installed program's sign-in, or Gemini signed in with Google):
+in its own conversation, in a room and in its routines alike, sign-in connections are skipped in its
+model list and a task where only sign-ins are left is refused in one sentence
+(`src/accounts/trunk-guard.ts`). With several accounts per connection switched on (`src/accounts/`),
+the key you pick for a Trunk is the one it uses first; with "copy from owner" on it may go on to your
+other keys, with it off a connection with no pick refuses the Trunk rather than using your default.
+The same holds for everything a Trunk's turn sets going: a summary or document read one of its tools asks
+for, a workflow or flow it starts, a mixture of models (a sign-in member is skipped) and the keep-alive
+ping. Each sign-in connection (ChatGPT, an installed program, Gemini signed in with Google) refuses work
+marked as a Trunk's, whichever way the call arrives (`refuseSignInForTrunk` in `src/accounts/context.ts`). A Trunk saved as a file (`branch-trunk/1`) carries who it is and never its conversations,
+memory, keys or reach, and key-shaped text is taken out. One brought in from a file says nothing by
+itself, uses no tool server and may only look (reads that stay on this computer) until you change it.
+Teaching learns only from a task you started yourself.
+
+Everything is under `/api/trunks/`, owner only (and so is `/trunk`), except talking to a Trunk and sending to or stopping
+a room, which a short-lived "run" key may do (`src/short-lived-keys.ts`). The picture model is asked
+through the one tool gate (`media.image`).
+
+**macOS and Linux.** Plain Node and the window's own code; it works the same on all three systems.
+
+## Flows and boards (r17-h)
+
+Seven parts, each with the owner's three-way switch (off, on, only when it is needed), all off at
+first. Their switches and settings are under `/api/flows-boards/`, owner only; a short-lived key can
+read and change nothing there except by looking (`tests/short-lived-key-routes.mjs`). Every tool call
+any of them makes goes through the one tool gate (`src/tool-gate.ts`).
+
+| Part | Where it lives | What it does |
+| --- | --- | --- |
+| Going back in a flow | Automations → Procedures | While it is on, a graph flow keeps its values after every step. Pick a step, change a value (checked against what the flow says each value is), and run a copy from the next step. The run you came from never changes; the copy is a task of its own whose recording starts with the copied steps (`flow.steps`) |
+| Checks for procedures | Automations → Procedures | After a verified procedure runs: checks (a tool call whose answer must contain some words, or a small script through `code.run` that must end with 0), clean-up calls after each failed try, a time limit per try and per call, and 0–5 more tries. A question or a refusal from your approval rules stops it at once and is never retried. A time limit stops the check itself, not only the wait for it; when the assistant runs it, each try counts against that task's budget, the task's Stop stops it, and the repeated-call guard sees every check. A task's own call never reaches past its permissions, and a check cannot start procedures, schedules, specialists or flows (`procedures.replay_checked`) |
+| Shared board | Automations → Scheduled | Cards in To do, Doing, To check, Done and Stuck for the active project, laid over bucket 23's project board. The assistant may add cards, move them among the first three and hand them on with a note — only from your own work, never from a chat, a key, a household person or another program. Only you start work on a card (an ordinary task), finish, reset or remove one. A card whose work fails 3 times in a row (`stopAfter`, 1–10) stops in Stuck until you reset it (`board.cards`, `board.card_add`, `board.card_move`, `board.card_handoff`) |
+| Widgets the assistant built | Library → Made | The assistant suggests a widget — a look-only tool, its settings and how often to ask again — only from your own conversation. A widget may only use a tool that looks at the web, schedules, watches, GitLab, tool servers, running programs, projects or other Branch computers: never your mail, calendar, memory, history, files, documents, pictures, signed-in browser pages or devices, and this is checked again every time the page is asked, so a tool that changes under the same name is not called. The model never sees a widget's frame address, and a short-lived key cannot read the list; at most ten wait, and a no is never asked again. A yes makes it one of bucket 23's live pages (which must be on), shown in the same sealed frame and asked again only as your rules allow unattended work (`widgets.list`, `widgets.propose`) |
+| The waiting line | Automations → Scheduled | Reword, move or take out the messages waiting in a conversation and the tasks waiting for room (a move never puts automatic work ahead of yours). Only you do this, in the window or your own terminal: a short-lived key or a household person can look with `/queue` but never reword, move or remove, because a waiting message runs as whoever queued it. While a task works, what you type waits (as before), is passed on as the trusted steer note, or stops the task and goes next (`/queue`, `/busy`) |
+| Focus view | Settings → Appearance | Shows only what you asked and the final answers; tool steps and in-between replies are folded away until you switch it off. Kept per browser (`/focus`) |
+| Package and tool server requests | Inbox → Needs you | The assistant or a chat can ask for an npm or PyPI package or a tool server (`install.request`, `/installs request`). The public list of harmful packages (OSV) is asked first, as the malware check does; one named as malware is refused on the spot. Only you answer — in the window or your own terminal, never from a chat app, a short-lived key or a household person — and a request the list could not be asked about needs "approve without the check". Every yes asks the list again, so a package named as malware since it was requested is refused. A yes installs nothing: it comes back with the exact command or server settings to use (`install.requests`) |
+
+**macOS and Linux.** Everything here is plain Node and behaves the same on all three systems; a check
+script runs wherever `code.run` runs, under its own sandbox settings. `BRANCH_OSV_ENDPOINT` points the
+request check at another copy of the list, as it does for the malware check.
 
 ## Comments that ask the assistant (A0344)
 
@@ -6499,6 +7126,97 @@ Bucket 14 of the public list ("what it has cost you, in plain figures"). Each pi
 
 macOS and Linux: nothing here depends on the operating system; the tests run the same on all three.
 
+## Limits that used to be hidden, with plain labels (R17-S-B)
+
+Figures that were written into the code are now settings with a label and a sentence each. Every
+default is what Branch did before, so nothing changes until the owner changes it. They are saved per
+card in the settings table (`knobs-compaction`, `knobs-limits`, `knobs-commands`, `knobs-subtasks`,
+`knobs-reasoning`, `knobs-memory`, `knobs-leakGuard`) and read fresh at each step, so a change needs
+no restart. The screen is `public/knobs.js`; the server side is `src/knobs/`. `GET /api/knobs` reads
+every card, and `POST /api/knobs` with `{ card, values }` or `{ card, reset: true }` changes one. A
+short-lived key can read them but never change them.
+
+| Card (where) | Setting | Default | What it does |
+| --- | --- | --- | --- |
+| When a long conversation is summarised (Settings, Models, Defaults) | `autoCompact` | `true` | Off keeps every message; a very long conversation then stops with "start a new conversation". |
+| | `compactAtPercent` | `null` | Fold at this share of the room; `null` works it out each round from the tools and the answer. |
+| | `keepRecentMessages` | `6` | Newest messages never folded. |
+| | `contextWindowTokens` | `null` (20,000) | Room in one request, used both for folding and for the "too long" stop. |
+| How far one task may go (Settings, Permissions) | `maxSteps` | `60` | Model rounds in one task of the owner's (and in a background sub-task). |
+| | `spendCapDollars` | `null` | The task stops before its next model round once it has cost about this much, sub-tasks included. A model with no price on file cannot be checked; the task notes that once (`limits.spend_unpriced`). |
+| Trying the model service again (Settings, Advanced) | `apiRetries` | `null` (launch setting, 2) | Tries after a busy or failed request, 0 to 5. |
+| How much a tool may say (Settings, Advanced) | `toolAnswerChars` | `null` (launch `toolResultChars`) | Longest tool answer the model reads. |
+| | `toolTimeoutSeconds` | `null` (launch `toolTimeoutMs`) | Longest one tool call runs. |
+| How commands run (Settings, Computer) | `commandTimeoutSeconds` | `null` (the file's `shell.timeoutMs`) | Longest one command runs, for `shell.*` and nothing else. |
+| | `keptOpenShell` | `true` | Off refuses to open a kept-open command line. |
+| | `passEnvironment` | `[]` | Extra variable names handed to commands and kept-open command lines. Owner only. |
+| Sub-tasks and side jobs (Settings, Models, Defaults) | `subtaskModel` | `null` | Connection for delegated work; `null` is the conversation's own. |
+| | `sideJobModel` | `null` | Connection for conversation summaries and the after-task and learning reviews. |
+| | `parallelSubtasks` | `4` | Sub-tasks one task runs at once. |
+| | `subtaskTimeoutSeconds` | `120` | Longest a sub-task runs when the call does not say. |
+| How hard each model thinks (Settings, Models, Defaults) | `effortByModel` | `{}` | Default effort per connection id. Order: this run, this conversation, this connection, the owner's general default, the connection's own. |
+| | `serviceTier` | `standard` | `priority` sends `service_tier: "priority"` to OpenAI-style services and `service_tier: "auto"` to Claude; `flex` sends `flex` to OpenAI-style services only. `standard` sends nothing. |
+| Showing a model's thinking (Settings, Appearance) | `showReasoning` | `true` | Off removes `<think>`, `<thinking>` and `<reasoning>` blocks from answers and from the live text. |
+| How much it remembers at the start (Library, Memory) | `snapshotFacts`, `snapshotChars` | `20`, `2000` | The memory snapshot a new conversation starts with. |
+| | `aboutYouOn`, `aboutYou`, `aboutYouChars` | `false`, `""`, `1500` | The owner's own note, put in front of the owner's conversations as background (never a household person's). |
+| | memory provider | Branch's own | "Branch's own plus Hindsight" is the same switch as the Hindsight card (`asks-hindsight`); the address stays there. |
+| Hiding key-like values (Settings, Permissions) | `sensitivity` | `standard` | `strict` also hides long random-looking strings with digits and both cases. |
+| | `exceptions` | `[]` | Kinds of value not hidden. A private key is never let through. Owner only. |
+
+**Security.** Every card can only be changed with the computer's own key, in the owner's own profile,
+never by a household person or a short-lived key, and the card says so in plain words. The owner's
+"about you" note is only shown to the owner. A variable name that mentions a key, token, secret,
+password, credential, sign-in, cookie, session or certificate is refused when it is saved and again
+when a command starts, and so is a name that changes which code a program loads, where it connects or
+which settings file it reads: the search path (`PATH`, `PATHEXT`), proxies and certificate bundles
+(`HTTPS_PROXY`, `NO_PROXY`, `SSL_CERT_FILE`), whole families such as `LD_*`, `DYLD_*`, `GIT_*`,
+`NODE_*`, `npm_config_*`, `PYTHON*`, `JAVA*`, `AWS_*`, `OPENAI_*`, `DOTNET_*`, and single names such as
+`HOME`, `SHELL`, `ENV`, `BASH_ENV`, `EDITOR` and `PROMPT_COMMAND`. Letter case never matters. A passed
+name never replaces one the launch file already sets, and on Windows it is looked up in any letter
+case. A value that looks like a key is left out even under an allowed name, whatever the leak guard's
+exceptions say. The leak guard's address check (`credentialInUrl`) is not affected by exceptions.
+
+**The launch settings file as a card.** "Settings from the launch file" (Settings, Computer) shows
+what `BRANCH_INTEGRATIONS` sets up: how many AI tool servers and hooks, which chat apps and programs,
+and where a key-like value is written. `GET /api/knobs/launch-file` reads it the way the security
+check does. The owner can change `shell.timeoutMs`, `shell.maxOutputBytes`, `shell.netless` and
+`browser.allowedOrigins` (`POST /api/knobs/launch-file` with `commandTimeoutSeconds`,
+`commandOutputBytes`, `commandsOffline`, `browserSites`). The whole file is checked against the
+launch schema before it is replaced in one step (through a spare copy with an unguessable name; a
+linked file keeps its link and the file it points at is written), and the change is used from the next start.
+
+**macOS and Linux.** Nothing here depends on the system. The command timeout and extra variables
+apply to the same program list on every system; the loader names refused include the macOS
+`DYLD_*` family.
+
+## Models, cheaper and smarter (R17-E)
+
+Seven cards, all off at first; with nothing saved Branch sends, routes and spends exactly what it did
+before. The sub-task and side-job models, thinking effort and the priority or flex service tier are
+R17-S-B's cards (above) and are reused, not repeated. Settings are under `/api/model-savings`
+(owner only; a short-lived key and a household profile are refused every change). One conversation's
+rounds are read from `/api/model-savings/rounds?session=<id>`.
+
+| Card | Where it lives | What it does |
+| --- | --- | --- |
+| Model for planning, and side questions on flex (R17-044, R17-045) | Models → Defaults | The connection that drafts the plan when "Show me the plan first" is on; the work is still done by the conversation's model. Side questions (plans, reviews, summaries, the easy-or-hard question) can ask for OpenAI's cheaper flex tier, sent only to `api.openai.com`; the main answer keeps R17-S-B's service tier |
+| Choose the model by how hard the task is (R17-047) | Models → Defaults | Off, on, or only when unsure. A small model is asked "easy or hard?" (one short, charged question per task; answers are kept for ten minutes) and the answer picks the easy or hard connection. "Only when unsure" asks only when the free length-and-tools reading cannot tell. A model picked for the run, the conversation or a routing profile always wins; a failed question leaves the usual choice |
+| Count what the service says (R17-048) | Models → Defaults | The ratio between what the service reported and Branch's estimate for the task's last request scales the estimate before the fold decision, only upwards (at most four times) |
+| Keep the cache warm during a pause (R17-050) | Models → Defaults | Claude connections only. After each answered round the same request is repeated for one token every few minutes, up to a number of pings and a spending cap per pause (both required). Each ping is priced at the full input price before it is sent; a model with no price is never pinged. Pings are added to the task's usage and written down as `cache.keep_alive` events |
+| OpenRouter company choice (R17-046) | Models → Connection | Sends OpenRouter's documented `provider` object (sort, order, only, ignore, fallbacks, data collection), and only to connections whose address is `openrouter.ai` |
+| Mixtures of models (R17-051) | Models → Second opinion | Each mixture becomes a connection named `mixture-<name>` in the picker. Its reference connections answer without tools, and the writing connection answers with their answers as material. Usage is the sum of every call; the mixture is priced as its most expensive member so a spending cap is never undercounted |
+| Round-by-round chart (R17-049) | Appearance | Adds a chart to the meter's popover: tokens in and out per round, what the cache served, where the conversation was summarised (a `context.compacting` event marks a summary in progress), and how close the last round was to the next one |
+
+Setting names: `planModel` and `sideTier` (planning model and flex for side questions), `easyModel`, `hardModel` and
+`classifierModel` (choose by difficulty), `maxPings` (keep-alive), `allowFallbacks` and `dataCollection` (OpenRouter),
+and `mixtures` (mixtures of models).
+
+The planning, difficulty and OpenRouter ideas come from aider, cline, gemini-cli and Hermes Agent
+(Apache-2.0 and MIT); no code was copied.
+
+**macOS and Linux.** Nothing here depends on the system: the cards, the routing and the pings behave
+the same on Windows, macOS and Linux, and the keep-alive timers never keep the app from closing.
+
 ## Typed commands, the same everywhere (wave mac3)
 
 Commands that start with a slash — `/status`, `/stop`, `/tokens`, `/help` — come from one table,
@@ -6592,6 +7310,8 @@ the switch is off.
 | `/whoami` | `/id` | any key | new | new | new | new | new |
 | `/version` | `/about` | any key | new | new | new | new | new |
 | `/health` | `/doctor` | any key | new | new | new | — | new |
+| `/prompts [name]` | `/procedures`, `/workflows` | any key | new | new | new | new | new |
+| `/trunk [name] [message]` | `/trunks` | a key that may start tasks (on its own: any key) | new | new | new | — | — |
 
 ### Parity with other agents
 
@@ -6645,7 +7365,80 @@ The same table is in `src/commands/parity.ts`.
 | Mascots and pets | /pet, /hatch (Hermes), /pets (Codex), /corgi (Gemini) | — | not applicable | Branch draws its own oak instead. |
 | Vendor account and billing | /subscription, /topup (Hermes), /upgrade (Gemini) | — | not applicable | Branch has no account of its own. |
 | Report a bug | /bug (Gemini), /feedback (Codex), /debug upload (Hermes) | — | not applicable | Nothing is sent anywhere; Settings › Advanced has diagnostics. |
+| Your own commands | custom commands (Claude Code, Gemini CLI, OpenCode, Kilo Code), prompt groups with a command (LibreChat) | `/prompts` | built | Saved prompts with a command of their own, on every surface with a message box; /prompts lists them and the saved procedures. |
 | Restart or update | /restart, /update (Hermes, OpenClaw) | — | elsewhere | The dashboard's restart control and Settings › About. |
+
+## Your saved prompts, your own commands and installing skills (public list, bucket 12)
+
+**Saved prompts** (Automations › Procedures, *Your saved prompts*; `src/prompt-library.ts`). The
+things you ask for often, kept in groups. Each has a name, an optional group, an optional command
+(`weekly` becomes `/weekly`), a line saying what it is for, and the text. Write `{{name}}` where a word
+should be filled in when it is used; `{{input}}` takes whatever follows the command and `{{today}}` is
+the date. Saving a new wording keeps the last ten, and *Put this wording back* restores one. A prompt
+carrying something that looks like a key is refused, and so is one starting with `/`. At most 200.
+
+*Try it* (the prompt editor, A1882) asks one model, or two side by side, with the blanks filled in —
+with no tools at all and in a conversation that is not kept (`POST /api/prompts/try`). *Add the
+examples* adds four starter prompts in the group *Examples*; nothing is added by itself. *Save all as
+a file* and *Add prompts from a file* carry the library to another computer
+(`branch-prompt-library` version 1); a prompt whose name is already there is skipped, and a command
+already taken arrives without it.
+
+**Your own commands** (family custom-commands; `src/commands/saved.ts`). A saved prompt with a command
+answers to it wherever the shipped commands are read: the window and the phone (`/` menu and
+`POST /api/commands/run`), both terminal views and the chat apps. Using one only ever turns it into
+the text of an ordinary message, sent the way typing it would send it, so it asks of the key exactly
+what starting a task asks and a key that may only look is refused. `/weekly day=monday more words`
+fills `{{day}}` and hands the rest to `{{input}}` (or to the prompt's only other blank); a blank left
+empty stops it with the list of what is missing, and nothing is sent. A shipped name or any of its
+other names can never be given to a saved prompt, so `/stop` or `/lockdown` always mean what they
+say. The dashboard has no message box and does not offer them. In a chat app they are read only
+while that chat reads commands at all. `/prompts` (also `/procedures`, `/workflows`, A0147) is a
+shipped command; it answers while either the *Typed commands* switch or this one is not off: on its own it lists the saved prompts by group
+and the saved procedures with their status, steps and inputs; with a name it shows that one and puts
+it in the message box without sending it — for a procedure, the sentence that asks for it with its
+inputs to fill in. A procedure still runs only once it is verified, through the usual approval rules.
+
+**The switch** is on the card and ships **off** (`GET /api/prompts`, `POST /api/prompts/settings
+{ mode }`). Off: nothing is saved, tried or offered, and a typed `/weekly` is what it always was.
+When needed: your commands work when typed, but no `/` menu lists them (`/prompts` does). On: they
+work and the menus list them. It is separate from the *Typed commands* switch, so turning the shipped
+commands on never turns yours on.
+
+**The example tool server** (family examples, A1282; `src/examples/mcp-notes-server.ts`). A small MCP
+server that ships with Branch: it keeps a few notes in memory while it runs (`add_note`,
+`list_notes`), reads no files, opens no network connection and needs no key. The card shows the exact
+lines to add under `"mcp"` in the integrations file (this Node, this copy's file, both tools, version
+1.0.0); after a restart, the example prompt `/notes-example buy milk` asks a task to use it.
+
+**Installing skills, with a written account** (Customize › Skills, *Install a skill, and what
+happened*; `src/skill-installs.ts`, A2374). Installing from an Agent Skills folder, a Branch package,
+a registry or pasted instructions, and removing a skill, while Branch runs. Each time the steps are
+written down — what was opened, what was checked, what was left out, what it asks to do, how it
+arrived — or the exact reason it stopped; the last thirty are kept. The install is the same code as
+everywhere else, so a skill still arrives switched off and passes the same scan. The card has its own
+three-way switch, shipped off. Routes: `GET /api/skill-installs` (switch, accounts, installed skills),
+`GET /api/skill-installs/export?skill=<id>`, `POST /api/skill-installs/settings | inspect | install |
+remove`.
+
+**Agent Skills folders** (A0776; `src/agent-skills.ts`). The open layout other agents share
+(agentskills.io): `<name>/SKILL.md` with `name` and `description` front matter, and optional
+`references/`, `scripts/` and `assets/`. The front matter must meet that layout's rules (a lowercase
+name with single dashes, at most 64 long, matching its folder; a description up to 1024). Text
+references (`.md`, `.txt`) are kept with the package and added to the instructions under
+*Reference:* headings while they fit, because Branch gives the assistant one document per skill.
+Programs in `scripts/` are never run and files in `assets/` are never unpacked; both are named in the
+account. A version in `metadata.version` becomes the package version. *Save as an Agent Skills
+folder* writes any installed skill back out in the same layout, with its references in their own
+files again, so reading it back gives the same skill.
+
+**Who may do what.** Every change above is the owner's: a short-lived key is refused before it gets
+there (none of these routes is in `src/short-lived-keys.ts`), and the owner's own profile is asked for
+as well. Reading the list and the accounts, and exporting a skill, needs any key.
+
+**macOS and Linux.** Nothing here depends on the operating system. The example tool server is started
+with the same Node that runs Branch, so the snippet the card shows is right for the computer it is
+shown on.
 
 ## Talking to other agents and tools: where each one stands (wave mac4, bucket 20)
 
@@ -6725,3 +7518,497 @@ same on all three, and the tests run on each.
   call cannot save). A drafted flow may only ask and branch — at most eight boxes, no tool, list or other-flow box. It is greedy
   improvement, not MetaGPT's tree search, and every try is a real run that costs what it costs
   (`src/interop/flow-search.ts`, `tests/agent-interop.test.mjs`).
+
+## Add-ons other people wrote (bucket 15)
+
+Customize → Plugins has a card, **Add-ons other people wrote**, with the three-way switch for each part.
+Every part ships off; while a part is off its routes refuse in one sentence and its tools are not in the
+catalog. Switching an add-on off and removing one always work, whatever the switches say.
+
+| Part | What it does |
+| --- | --- |
+| Installing add-on packages | Reads a package in Branch's own layout (`branch-addon.json`), as a Claude Code plugin (`.claude-plugin/plugin.json`), a Codex plugin (`.codex-plugin/plugin.json` or an Agent Plugins `plugin.json`) or a Gemini CLI extension (`gemini-extension.json`). |
+| Add-on lists you name | A signed web list (`branch-addon-list`, whose entries are flat Branch packages in one zip file) or a folder holding a Claude Code / Codex marketplace. |
+| Your own filters | Rules on what goes in to the model and what comes out. |
+| Reading a Pipelines server | Whether an address is a Pipelines server, its pipelines, their settings. Read only. |
+| Letting the assistant draft an add-on | The `addon.draft` tool saves a plugin as a draft for you to review. |
+| Search sources that plugins bring | The `addon.search` tool searches every source your switched-on plugins bring. |
+| Branch as a plugin for Claude Code and Codex | Writes Branch's own plugin into a folder you name. |
+
+**Looking, installing and switching on are three separate presses.** Looking (`POST /api/plugin-catalog/add-ons/look`)
+reads the files — nothing is run; Claude Code, Codex and Gemini CLI packages are read from a folder, and one zip file
+holds only a flat Branch package — and lists in plain words everything the package would add and need, what
+was left out and why, and its fingerprint. Each outside server it names is looked up in the malware list
+first (the security check's "Check add-ons for malware"); a listed one stops the package. Installing copies the
+files with a fingerprint for each, and switches nothing on. Switching on adds its skills (scanned like any
+skill), puts its plugin file in the plugins list, and adds its filters switched off. Its outside servers are
+**never connected**: they come back as drafts to try under Connections. Shell hooks, scripts, tool
+allowances (`allowed-tools`), themes and "tools to hide" lists are left out, and the look says so. A package
+whose files changed since it was installed is refused, and nothing is updated by itself — a list only offers
+a newer version, and taking it installs the new version switched off.
+
+**A plugin that came from a package, a list or a draft runs walled.** It is never imported into Branch: each
+question ("what are you", one tool call, one event for a hook) starts the plugin as its own program behind the
+same wall as any program Branch starts, in a throwaway folder, with none of Branch's environment, no saved
+key, and limits on time (30 s), memory (512 MB) and output (1 MB). The code is checked against its install
+fingerprint before every run. A walled plugin gets tools, hooks and search sources; model connections and
+chat services need Branch's own process and are left out, with a sentence. The owner's yes can only narrow
+what the package asked for: a permission the package did not list is never granted, and a tool needing one is
+not registered. Plugin files a developer puts in the plugins folder by hand keep running inside Branch as
+before, unless "Also run plugin files I put in the plugins folder myself in their own walled program" is ticked.
+
+**Filters** (`POST /api/plugin-catalog/add-ons/filters`) look for plain words (or a pattern; one that could hang
+is refused) and take them out, stop the message, or add a note, in order of priority, only for the models they
+name. They run on a new message before it is stored or sent, and on an answer before it is kept — including
+the words a model says beside its tool calls (a stop there only empties those words). A stopped message never
+reaches the model. A filter never grants anything, and a stop is final. While an outlet filter applies to the
+model answering, the live preview stays empty and the filtered answer arrives whole, so filtered words never
+reach the page; if the filters cannot be read, the preview is held back too.
+
+**Pipelines.** Branch reads `GET <address>/models`, `/pipelines` and `/<id>/valves`, with a saved secret as the
+key, through the network rules. Values whose names look like keys are shown as "(hidden)". Uploading Python
+files, adding pipelines from an address and changing valves are deliberately not built: that would make Branch
+install code on another computer. Talk to a Pipelines server as an OpenAI-compatible connection in Settings,
+Models.
+
+**Branch as a plugin.** `POST /api/plugin-catalog/add-ons/export` writes `.claude-plugin/` (or `.codex-plugin/`),
+`.mcp.json` (starting `branch mcp-serve`) and one skill into an empty folder you name, with a fingerprint list.
+`export/status` says whether the folder is Branch's, for which tool and version, and what changed; `export/remove`
+takes out only the files Branch wrote and nobody changed. Branch never writes into another tool's settings; add
+the folder there yourself. The same plugin is in the repository at `integrations/agent-plugin/`.
+
+**The add-on that comes with Branch.** `data/add-ons/branch-starter` (copied to `dist/bundled-add-ons`) is offered
+while packages are switched on and installed only on a press: a word counter, a "Branch words" search source, a
+skill, and a filter that takes out card numbers.
+
+**Writing an add-on.** A plugin's default export is a plain object, `{ id, name, apiVersion: 1, permissions, tools, hooks }`
+(see `data/add-ons/branch-starter/branch-starter.mjs`). A walled plugin runs alone in its folder and cannot import
+Branch, so it must not import anything but Node's own modules; `definePlugin`, exported by the package, is for
+authors who test their plugin against Branch before shipping it. A tool with `search: { label }` is a search source and takes
+`{ query }`. A plugin written for a newer interface than this copy offers is refused in a sentence.
+
+### Integration review (adversarial pass)
+
+- **Installing names what you were shown.** `install`, `bundled/install`, `drafts/install` and `lists/install`
+  all require the fingerprint from the look (or, for a web list, the package fingerprint shown when browsing).
+  A package, draft or list entry that changed after the owner looked is refused, so the assistant cannot
+  rewrite a draft between the look and the yes.
+- **Signed lists.** Only Ed25519 signatures count. The list's signing key is remembered the first time the
+  owner looks at it; a list whose key later changes (or disappears) offers nothing until the owner forgets it
+  and looks again. A list that publishes a key must sign every entry: an entry whose signature was taken off
+  cannot be installed. An unsigned entry must be kept on the list's own site. The list must be looked at before
+  anything is installed from it, and answers are cut off as soon as they are larger than allowed.
+- **Updates** are offered and taken only when the version is later (`1.10.0` after `1.9.2`), never a rollback,
+  and an add-on installed from a signed entry is never replaced by an unsigned one. A newer version that asks for
+  more permissions arrives switched off with those permissions named on the card (`grew`), and no earlier yes
+  carries over.
+- **Walled plugins** are cut back to the permissions their package listed, even when their code describes
+  more; a tool that needs one it did not list is left out with a sentence. A plugin may name only sites by
+  their names: this computer, numbers and private-network names (`localhost`, `.local`, `.lan`, `.internal`,
+  `.home.arpa`) are refused in the package. A hand-placed plugin walled by the tick is pinned to the code it
+  had when it was loaded. One question to a plugin is at most 1 MB, and at most 4 plugin runs go at once.
+- **Windows.** Windows has no file and network wall, only a job object, so add-on code is refused there unless
+  the owner ticks "Run add-on code on Windows without the wall" (`windowsWithoutWall`, ships off); a plugin run
+  that way says so instead of claiming a wall. Nothing else on Windows changes.
+- **Hand-placed plugins stay in-process by default (decided).** "Also run plugin files I put in the plugins
+  folder myself in their own walled program" (`wallEveryPlugin`) keeps shipping off: those files are the owner's own, the switch
+  would change how existing plugins behave (Windows included), and a walled plugin loses model connections and
+  chat services. Add-ons from a package, list or draft are walled whatever the tick says.
+- **Branch as a plugin.** A `.branch-export.json` file is trusted only for folders Branch remembers writing, so a
+  record planted in a folder cannot make Branch remove or overwrite the owner's files. A folder with a file the
+  owner changed stays Branch's until everything it wrote is gone.
+- **Start-up order.** The malware check belongs to the security service, which is made after add-ons; until it is
+  connected, a look at a package is refused in a sentence instead of reaching a name that does not exist yet.
+
+### macOS and Linux
+
+The wall around a walled plugin is macOS's own sandbox (`/usr/bin/sandbox-exec`) on macOS and bubblewrap on Linux,
+exactly as for any program Branch starts: the plugin may read the disk except where keys, passwords and Branch's
+data live, may write only in the temporary folders, and reaches no network unless its package named web addresses —
+then only those, through Branch's door, and never an address on this computer or a private network. Where the wall
+cannot be built (no `sandbox-exec`, no bubblewrap) the plugin is not run and the reason is given. On Windows add-on
+code is refused unless the owner chose to run it as its own program inside a job object with the same limits,
+without the file and network wall (see above).
+
+### Where each audit row stands
+
+- **extensions** — A2130 (search plugins): built, `src/add-ons/search.ts`; A2150 (plugin and extension hooks):
+  verified and extended, hooks fire in-process and walled (`src/plugins.ts`, `src/add-ons/walled-plugin.ts`);
+  A2274 (extension SDK): built, `src/add-ons/sdk.ts`; A2275 (bundled extensions): built, `data/add-ons/`;
+  A2322 (mods): built, `src/add-ons/drafts.ts`. Tests: `tests/add-ons.test.mjs`, `tests/add-ons-walled.test.mjs`.
+- **plugin-marketplace** — A0022, A2045: built as lists the owner names, `src/add-ons/lists.ts`.
+- **extension-packages** — A0045: built, `src/add-ons/formats.ts`, `src/add-ons/package-shelf.ts`.
+- **filter-system** — A1891: built, `src/add-ons/filters.ts` and the marked hook in `src/runtime.ts`.
+- **pipeline-integration** — A1890: built, read side only, `src/add-ons/pipelines.ts`.
+- **claude-integration** — A1333, A1567: built, `src/add-ons/export.ts`, `integrations/agent-plugin/`; Claude Code
+  plugins are also installable (`src/add-ons/formats.ts`).
+- **A0602** (a helper that installs and manages an isolated plugin for another agent): built as the write / check /
+  remove lifecycle of Branch's own plugin for Codex and Claude Code, in a folder the owner names (`src/add-ons/export.ts`).
+
+## Understandable settings (R17-S-A)
+
+Every control in Settings has one sentence under it saying what it does and what changing it means,
+and every Settings card has a small chip saying how far it reaches: everything, this project only, or
+this computer only (`public/settings-describe.js`, words in `public/settings-descriptions.js`). A card
+that writes its own `.field-note` and links it with `aria-describedby` needs no row there.
+`tests/settings-descriptions.test.mjs` walks every Settings page and fails, naming the control, when
+one has no description. A card can declare `data-scope="project"`, `"computer"` or `"trunk"`; no card
+uses "trunk" yet, because Trunks are not built.
+
+Settings → General has **Start from a preset** (Private and local, Cheapest, Most capable, Hands-off,
+Careful) and **Put settings back** (one setting or all of them). Settings → Data has **Your settings in
+one file**. All three show every change before anything is written, and only the ticked lines are
+made. A change that makes Branch less careful (a guard turned down, or a switch that reaches further
+turned up) starts unticked and also needs "Yes, make it less careful"; the server refuses it otherwise.
+They reach only the fields listed in `src/settings-kit/catalogue.ts` (switches, yes/no, short choices
+and bounded numbers), never Lockdown, the session lock, connections, keys, people or pairing, so a
+settings file cannot carry or bring in a secret. The list fails closed: a setting or field that is not
+in the catalogue, including any added later, is blocked (`classify`), and accounts, add-ons, the leak
+guard, what is passed on to programs, never-break, tunnels and the launch file are on the never-touched
+list as well. Working until a goal is met and writing new skills count as reaching further; turning off
+the snapshots counts as taking a protection away. Guards are saved through their own module's save
+(the second look, loop guard, folder trust, security check, the wall, Keychain entries, retention, the
+smaller asks), so the change takes effect at once and is recorded. While Lockdown is on, nothing is
+changed from here. Every route is the owner's: a household profile gets 403. A short-lived key may read
+the list of settings but not the file, the owner's own files, or any change (`src/short-lived-keys.ts`).
+
+**Which file does what** (Settings → General) lists SOUL, IDENTITY, USER, AGENTS, TOOLS, SOP, MEMORY
+and HEARTBEAT: what each is for, whether it is kept with your own things or in the project, and whether
+it is read right now. "Change it here" reads the file through the loader in `src/context-files.ts`
+and replaces it whole; a file longer than the loader carries, a link, a file with a second name (hard
+link), or a file in an untrusted project folder is not edited here, and a project's file is checked
+against the never-break guard before it is written.
+
+After first run, a card under the conversation offers Say hello, Watch me once (turns on recording
+each task, "only when it is needed", so the next task can be saved as a workflow from Inbox › History)
+and three suggested automations that only fill in the message box.
+
+macOS and Linux: nothing here depends on the operating system. A file is never written through a
+link: it is checked with `lstat` first, and opened with `O_NOFOLLOW` where the system has it.
+
+## Coding polish (mac7/r17-d)
+
+Eleven parts for work on code, each with the owner's three-way switch (off, on, only when it is
+needed) and all off at first. The switches and their settings are one card in **Settings → Advanced**
+(`public/coding.js`), under `/api/coding/`, owner only. A short-lived "run" key may run the review
+checks and fork a conversation into its own copy (both only start work); it may read the rest except
+the shell snapshot, and change nothing else (`src/short-lived-keys.ts`). Every Branch tool one of
+these parts runs on a task's behalf goes through the one tool gate (`src/tool-gate.ts`) with that
+task's own permissions (`src/coding/gated.ts`); a call the rules would ask about is skipped and
+said so, never asked.
+
+| Part | What it does | Where |
+| --- | --- | --- |
+| Tidying and checking after every change (`format-on-edit`) | After `files.write`, `files.edit` or `files.patch`, the file is tidied with the owner's formatter for its ending and the language servers set up in Settings → Advanced report its errors and warnings in the same answer (`afterEdit`); `code.format` does it by hand | `src/coding/format-on-edit.ts` |
+| Your own command-line setup (`shell-snapshot`) | "Take a snapshot" starts your login shell once (`-l -c`), reads its start-up files, and keeps its PATH, install folders (`*_HOME`, `GOPATH` …), aliases and functions, with anything key-like left out. Commands use that PATH from the next start, unless the shell settings already name a PATH; the PATH folders that are relative, `..`-shaped or inside the workspace are dropped, and so is any alias or function that reads or sets a key-like name. The aliases and functions are written to `<data folder>/shell-snapshot/replay.sh` (only you can read it) for you to look at; Branch does not load that file into its command lines yet | `src/coding/shell-snapshot.ts` |
+| `@` mentions and `@imports` (`mentions`) | `@src/app.ts`, `@src/`, `@diff` or `@https://…` in a message is read first (with `files.read`, `files.list`, `git.diff`, `web.fetch`) and handed to the model as material, not instructions; the message box suggests paths as you type `@`. Inside an instruction file, `@docs/style.md` brings that file in (Markdown or text only, inside the same folder, not a key file, nothing `.branchignore` hides, not through a link that leaves the folder, five levels deep, 16 KB together) | `src/coding/mentions.ts`, `src/coding/imports.ts` |
+| Separate copies (`worktrees`) | Forking a conversation at a message gives the new one its own Git worktree in `.branch-worktrees/fork-…` on `branch/fork-…`; its file tools and commands work there. Removing a fork's copy is refused while it holds unsaved changes (its line of work is always kept). "A copy for each helper" gives every helper a task hands work to its own worktree, removed afterwards only when it has no commits and no unsaved change | `src/coding/worktrees.ts` |
+| `/init` (`init`) | Asks the model to look around and write AGENTS.md with `project.init`, through the instruction-file loader's own writer. An existing instruction file is never replaced; the text comes back as a proposal | `src/coding/init.ts`, `src/coding/commands.ts` |
+| Branch in CI (`ci`) | The GitHub Action `extras/ci/github/action.yml` and the GitLab component `extras/ci/gitlab/branch.yml` run `branch headless` on the checked-out project (read-only by default; the key only through a CI secret, `contents: read`, and no Git token left behind by the checkout); the card writes the lines to paste | `src/coding/ci.ts` |
+| A checklist per task (`checklist`) | `checklist.write` / `checklist.read`; the list is in the side pane's Plan tab, where you can tick, add and change steps while the task works. It is sent with every round and never stored in the conversation, so compaction cannot lose it; after your change the model is told your version wins | `src/coding/checklist.ts` |
+| Folder rules and schedule files (`path-rules`) | `.agents/rules/*.md`, each with its own switch: a `paths:` header limits a rule to the files the task is working on (none means always, `paths: []` never). `.agents/schedules/*.md` (`every: 6h` or `daily: "09:00"` with `timezone`, `kind`, `permissions`) become schedules only when you press "Make it a schedule". A schedule made from a file may only look: with no `permissions` it gets Branch's look-only permissions, and a file that asks for anything that changes something is refused (make that schedule yourself). Nothing is read from a folder you have not trusted | `src/coding/path-rules.ts` |
+| Very long answers kept (`large-output`) | A tool answer over 64 KB, which used to fail the call, is kept (secrets hidden, at most 8 million characters) in `<data folder>/tool-output/`, for a week and at most 200 per person, and the model reads it in pieces with `output.read` | `src/coding/large-output.ts` |
+| Notebooks (`notebooks`) | `notebook.read` gives a `.ipynb` as numbered cells with their printed output; pictures are named, not carried | `src/coding/notebooks.ts` |
+| Review checks (`review-checks`) | `.agents/checks/*.md` (`name`, optional `paths`, the body says what to look for); `review.checks` hands each check and the current changes to a read-only helper, four at a time | `src/coding/review-checks.ts` |
+
+The runtime asks these parts two things, in marked blocks of `src/runtime.ts`: where a task works (a
+fork's or helper's copy) and what to add to each round (the mentions once; the checklist and folder
+rules every round). The registry asks them after every call (`src/registry.ts`).
+
+Formatters are programs you already have (`formatters`, at most 16): give each one's full address,
+its endings and its arguments (`{file}` is the file). After tidying, Branch waits up to `waitMs`
+(1.5 seconds by default, at most 10) for the language server's error report. A copy per helper
+(`perHelper`, off by default) gives every helper a task starts its own worktree too. Branch never installs one, refuses one that sits inside the
+workspace (a task could rewrite it), starts it with an argument array and the clean environment
+(`src/child-env.ts`), and never on one of Branch's own files (`src/never-break/protected.ts`). A
+formatter reads the project's own settings (a `.prettierrc` can load plugins from the project), so it
+runs **only behind the wall around programs**, with no internet, and only for a folder you trust.
+While the wall is off (Settings, Computer) the file is not tidied and the answer says why; the
+language servers' report still comes back.
+
+**macOS and Linux.** The shell snapshot is for macOS and Linux (zsh, bash, sh, dash or ksh; your
+login shell unless you name one); on Windows it says so and commands keep their own settings. The
+formatter runs behind macOS's sandbox or bubblewrap, and only when the wall is on; Windows has no wall, so no formatter is started there. Worktrees, rules, checks,
+notebooks and long answers are plain Node and Git and work the same on all three systems.
+
+**Not built here.** Scripts that call Branch's own tools (a6) belong to bucket R17-G (R17-061).
+
+## Files, voice, devices and personal connectors (R17-C)
+
+Ten parts, each with the usual three-way switch (off, only when it is needed, on), and **every one ships off**. Their
+cards are in **Customize → Connections** (your own accounts, searching X, Home Assistant), **Customize → Channels**
+(files into chats, searching the email inbox), **Automations → Triggers** (the webhook address) and
+**Settings → Voice** (the spoken briefing, saying yes aloud). Everything here is the owner's alone: the routes under
+`/api/personal/` refuse other people on this computer, and a short-lived key can neither read nor change them.
+Keys and passwords are only ever *named* here; the values stay in Secrets. Every call to an outside service goes
+through your network rules.
+
+| Part | Tools | What it does |
+| --- | --- | --- |
+| Sending files into your chats | `chat.send_file` | Sends a workspace file into a Telegram, Slack or Discord chat as that app's own attachment. Only to a chat that has already talked to the assistant; never from a chat-started task; within your size limit (20 MB unless you change it) and the app's own (Telegram 50 MB, Discord 10 MB, Slack 100 MB); refused if its words hold anything key-shaped or one of your saved secrets; the caption passes the same last look as every reply, so Lockdown stops it. Each send is written in the record of what the assistant was allowed to do. |
+| Home Assistant | `home.states`, `home.call` | Looks at devices, and calls a service on one device — only for the kinds of device you list (lights, switches, scenes, scripts, media players, climate and fans to begin with; locks and alarms are not on it, and are always asked about if you add them). Uses a long-lived access token saved as `HOMEASSISTANT_TOKEN`. A Home Assistant on your home network needs private addresses allowed under Settings → Computer → Network reach. |
+| A spoken daily briefing | `brief.spoken`, `brief.send_voice` | Today's events and unread mail from Google and Outlook (whichever is on and signed in) and the morning brief, read with your voice settings. "Play my briefing" plays it in the window; `brief.send_voice` sends it to a linked chat as a voice note, after the same checks as a file, and like every sending tool it is never given to a task a chat started. |
+| Saying yes aloud | — | Beside each waiting question, "Answer aloud" listens for four seconds, only when you press it. Your words are written out by your own speech settings and must be just a yes or a no (English or French). The answer is bound to that exact request, used once, and runs out after two minutes; a spoken yes is always "just this once", and a risky request also needs a press. |
+| Searching X | `x.search` | xAI's own `x_search` tool, with an xAI API key saved as `XAI_API_KEY` (xAI charges for it). Signing in with a SuperGrok subscription is not used. |
+| Spotify | `spotify.now`, `spotify.search`, `spotify.control` | Your own Spotify app registration and sign-in. Controlling playback needs a Premium account and an open device. |
+| Google | `gmail.search`, `gmail.read`, `gmail.draft`, `gcal.events`, `gdrive.search`, `gdrive.read` | Your own Google Cloud OAuth client (desktop type; save its client secret in Secrets and name it on the card). Read-only scopes; "allow drafts" adds `gmail.compose`, which Google only offers together with sending — Branch never sends. |
+| Microsoft | `outlook.search`, `outlook.read`, `outlook.draft`, `outlook.events`, `teams.summary` | Your own Microsoft Entra app (public client, redirect `http://127.0.0.1`). Scopes: `Mail.Read` (or `Mail.ReadWrite` with drafts), `Calendars.Read`, `OnlineMeetings.Read`, `OnlineMeetingTranscript.Read.All` — the last may need your organisation's admin to agree. `teams.summary` fetches a meeting's newest transcript for the model to summarise. |
+| Searching the email inbox | `mail.search`, `mail.attachments`, `mail.save_attachment` | The email channel's mailbox (server, user, and the saved password's name). Search by sender, subject, words, dates or unread, with plain-ASCII words; open a message and its attached files; save one into the workspace's `mail-attachments` folder, never over an existing file. Nothing is marked read or sent. |
+| A public address for webhooks | — | Starts *your* tunnel program — `cloudflared`, `tailscale funnel` (without `--bg`, so nothing stays configured) or `ngrok` — pointed at a small door on this computer that only passes `/webhooks/chat/…`, `/webhooks/whatsapp/…`, `/hooks/…` and `POST /api/triggers/<id>/fire`, with any key, cookie or origin removed. The window is never on the internet. Lockdown refuses to start it; locking or closing Branch stops it. |
+
+Each connector hands its text to the model marked as somebody else's words: information, never instructions. A task started
+by a chat message gets none of these tools, so somebody you have paired cannot read your mail, hear your day, or
+switch things in your house.
+
+**Held tighter than the rules (integration review).** These hold whatever your approval settings say, "No approvals"
+included (`src/personal/guard.ts`):
+
+- Every personal tool refuses a household profile, a person signed in on the people page and a short-lived key before
+  it does anything.
+- Work you did not start yourself — a schedule, a trigger or webhook, another AI tool over MCP, another agent — is
+  asked about before any personal tool runs, so a scheduled spoken briefing waits for your yes.
+- A call to a lock, cover (garage doors and blinds), alarm, valve, siren or button is asked about every time, and only
+  "yes, just now" is accepted. A call names one device (no area, device, floor or label targets) and at most 30 calls
+  a minute go to Home Assistant. A script or switch that opens a door is not recognised as one; keep those off the list.
+- A spoken yes to anything past looking and changing workspace files — a command, a message, money, a setting, the
+  house, or a request the safety check advised against — decides nothing until you also press **Yes, allow it**.
+- "Play my briefing" asks the approval rules about `brief.spoken` first, as the tool would.
+- A packed file (zip, tar, gz and the like) is never sent into a chat, since its insides cannot be checked for keys.
+- What comes through the webhook address is counted on its own for wrong signatures and keys, never together with
+  this computer's own requests, and Branch is handed the path the door checked rather than the raw one.
+
+**What each card saves.** Your own accounts (one record each for Google, Microsoft and Spotify): `clientId`,
+`clientSecretName` (the name of a secret, or empty), `tenant` (Microsoft only, `common` by default) and `drafts`
+(off). Searching X: `keyName` (`XAI_API_KEY`) and `model` (`grok-4.5`). Home Assistant: `url`, `tokenName`
+(`HOMEASSISTANT_TOKEN`) and `domains`. Files into chats: `maxMegabytes` (20). The spoken briefing: `calendar`, `mail`
+and `morningBrief` (all on) and `maxCharacters` (1500). The email inbox: `host`, `port` (993), `user`, `passwordName`
+(`EMAIL_PASSWORD`) and `folder` (`mail-attachments`). The webhook address: `program` (`cloudflared`) and
+`executable` (a full path, or empty to find the program by name).
+
+**Not built in this round.** *Live voice in Discord voice channels* (R17-023) is left out: Discord voice needs the Opus
+codec and Discord's end-to-end voice encryption (DAVE, built on MLS), neither of which Node ships, and new
+dependencies are not allowed. *A wake word* is left out on purpose until the owner decides how one could be built
+safely; nothing here ever listens by itself.
+
+**macOS and Linux.** Everything above is plain HTTPS, IMAP and the owner's own programs started with an argument list,
+so it behaves the same on all three systems. The tunnel program is found by name on the search path or by the full
+path you give; nothing is installed. The tests use fake services, a loopback mail server and fake programs only.
+
+## Safety extras (mac7/r17-g)
+
+**Settings → Permissions** has five cards for the extra checks and limits of re-audit bucket R17-G. Every part has
+the three-way switch and ships **off**, the scans that can only tighten included: no owner design asks for them to
+start on, so a fresh install behaves exactly as before. The emergency stop has no switch; it is a button and starts
+unpressed. API: `GET /api/safety-extras` (the switches, the stop, the code setup without its key, the record's
+length and latest fingerprint, the WebAssembly add-ons) and `POST /api/safety-extras/switch {part, mode}` with
+`part` one of `tool-scripts`, `wasm-add-ons`, `code-approvals`, `command-scan`, `progress-judge`, `activity-chain`,
+`history-repair`. Only the owner changes these. A short-lived key may read them, check the record
+(`/activity/verify`), try the command check (`/scan`), press the emergency stop (`/stop`, never let it go) and type
+an authenticator code for a question it may answer (`/codes/confirm`); everything else is refused
+(`src/short-lived-keys.ts`). The code is in `src/safety-extras/`; each place the rest of Branch calls in is one line
+marked `mac7/r17-g` (`src/runtime.ts`, `src/server.ts`, `src/index.ts`, `src/network-policy.ts`, `src/audit.ts`,
+`src/feature-switches.ts`, `src/cli.ts`, `src/cli-completion.ts`). In *Settings → presets, reset and a settings
+file* the command check, the progress check, the record and history repair count as guards, scripts and WebAssembly
+add-ons as reach; authenticator codes and the emergency stop are never reached from there.
+
+**Scripts that call several tools (R17-061).** With the switch not off, the model has `tools.script`
+(`{ source, tools, timeoutMs }`): one JavaScript module that calls `await branch.call("files.read", { path })` as
+often as it needs, and `export default`s its answer (a value, or an async function taking `branch`). The script runs
+as its own program behind the wall (`/usr/bin/sandbox-exec` on macOS, bubblewrap on Linux) with no network at all,
+no keys and no environment of Branch's; Branch's data folder and your unreadable places are closed to it, and it
+writes only in its throwaway folder. Every call goes through the one gate (`src/tool-gate.ts`) with the calling
+task's own permissions, source and yeses; a call your rules would ask about is refused inside the script with a
+sentence telling the model to make it on its own. Only the tools the script named in `tools` (at most 16) may be
+called, never `tools.script` itself, at most 50 calls, within 1–120 seconds. On Windows there is no file and network
+wall, so scripts are refused there. Each call a script makes also passes the task's repeated-call guard, is written
+to the never-break journal before it runs (under a `branch-script:` id), and hands back its result with keys hidden
+before the script can reshape it. After a restart in the middle of a script, the script and the call that was in
+flight are put to you; nothing is run again by itself. A script gets no network and no key sites even when the task's
+own wall has them, and Branch's data folder stays unreadable to it.
+
+**WebAssembly add-ons (R17-062).** Beside bucket 15's walled add-on programs, an add-on can be a WebAssembly module
+run with Node's own WebAssembly, no dependency. It may import only `branch.memory`, `branch.input_size`,
+`branch.read_input(ptr)`, `branch.write_output(ptr, len)` and `branch.log(ptr, len)`, and must export `run()`
+(0 means success) and either import its memory or export it as `memory` with a declared maximum. It gets no files, no
+network, no clock and no randomness; it runs in a worker thread with a small heap, its memory ceiling (1–256 MB,
+16 by default) and a time limit (0.1–30 s, 5 by default; there is no fuel counter in Node, so time stands in for
+it). Install: `POST /api/safety-extras/wasm { name, description, wasm (base64), maxMemoryMb, timeoutMs }`; the file is
+kept in `<data>/wasm-add-ons/` with its SHA-256, which is also kept in the database, and a file that no longer
+matches both is refused. At most two add-ons run at once. Remove: `POST …/wasm/remove {name}`.
+The model runs one with `wasm.run { name, input }`; the owner presses one with `POST …/wasm/run`.
+
+**Authenticator codes and the emergency stop (R17-063).** *Set up an app* (`POST …/codes/begin`) makes a 20-byte key,
+keeps it only in the locker (project `branch-safety`, name `APPROVAL_CODE_KEY`) and shows it once as an
+`otpauth://` link; nothing is held until the first good code is typed back (`POST …/codes/finish {code}`). The codes
+are RFC 6238 (SHA-1, six digits, 30 seconds, one step of clock drift) built on Node's crypto, and a code is taken
+once. `POST …/codes { tools, releaseNeedsCode }` lists the tools whose yes needs a code (names or `payments.*`
+patterns; `shell.execute`, `payments.*`, `email.send`, `channels.send` by default). With the switch **on**, those
+tools always ask, even where a rule allows them; **when needed**, only for work you did not start at the window
+(schedules, triggers, other AI tools). A yes needs a code typed with it (`code` on `POST /api/policy/approve`, or
+`POST …/codes/confirm { sessionId, fingerprint, code }` first); it counts only for those exact bytes and never
+becomes a standing rule. A tool on the list pressed by hand in the app window is refused (a pressed tool cannot ask
+for a code); use *Try a tool* or a conversation. Five wrong codes in a row rest every code for five minutes. While
+codes are on, switching them down, *Remove the app*, setting up a new app and changing the list each need a code too
+(`code` in the body). *Remove the app* forgets the key. The locker projects Branch keeps for itself
+(`branch-safety`, `model-connections`, `acct-…`) cannot be made into projects or changed from the secrets card.
+The **emergency stop** (`POST …/stop { everything, network, sites, tools }`) adds levels to whatever is stopped:
+*every tool*; *everything that reaches past this computer* (web, browser, messages, other AI tools, and programs and
+scripts, which can open connections of their own; your network rules refuse every address too); named *sites*
+(in tools and in the network rules); named *tools*. It refuses outright, for tasks and hand-pressed tools alike,
+before any rule or earlier yes. Pressing it and letting it go (`POST …/stop/release { code? }`) are both written in
+the record of what the assistant was allowed to do; letting it go needs a code when you ticked that.
+
+**Checking commands (R17-064).** Plugged into the approval check for command tools (`shell.execute`, the
+`shell.`/`terminal.` tools, `remote.run`), reading the whole command: a control character, an escape code, a
+right-to-left or invisible mark is **refused** (what you would read is not what would run); a word that mixes
+alphabets, full-width letters, a punycode or non-ASCII address, and a download handed straight to a program that
+runs it (`curl … | sh`, `bash <(wget …)`, `bash -c "$(curl …)"`, `iwr … | iex`, and the same with a decoder such
+as `base64 -d` in place of the download) are **asked about**, with the reason on the question card. The command is
+read the way a shell joins its words (`c''url`, `s\h`, `$IFS`), a shell named by its path or `$SHELL` counts,
+look-alike letters are found by Unicode's compatibility folding, and a program name must be plain ASCII. A question
+it raises is answered only by a yes for those exact bytes. It can only tighten. **On** checks every command; **when needed** only the commands
+your rules would have run without asking. *Check a command* on the card (`POST …/scan {command}`) runs nothing.
+
+**Is this getting anywhere? (R17-065).** Reusing the loop guard (`src/loop-guard.ts`), the same answer three
+times ends the task, and so does one passage written over and over (a 50-character window seen ten times, on
+average within 250 characters; code and table rules are not counted). Every few rounds of a long task the model is
+asked, with no tools, whether the work is moving; only a confident "stuck" (0.9 or more) ends it, and a check that
+fails is ignored. **On** asks from the third round every third round; **when needed** from the sixth round every
+fourth. The task ends with one plain sentence, like the loop guard's.
+
+**Tamper-evident record (R17-066).** With the switch not off, each entry of the record of what the assistant was
+allowed to do, and each refusal and question, is also written to a hash-linked chain (`activity_chain` in the
+database, SHA-256 over the entry and the previous hash, and two database rules that refuse edits and removals).
+**On** adds every tool that started, finished or failed. Entries carry names, a short label and a fingerprint of the
+rest, never arguments or file contents. *Check the record* (`POST …/activity/verify { tip? }`, or on the command line
+`branch activity verify [--tip <hash>] [--json]`, exit code 0 unbroken, 1 broken) walks the whole chain and names
+the first entry that is missing, out of order or changed. Someone who can rewrite the whole database can rebuild the
+chain, so write the latest fingerprint down somewhere else and pass it as `tip`: the check then also proves it is
+still there. The latest entry's number and hash are also written to `<data>/activity-chain.anchor`, outside the
+database, and the check holds the chain to it: entries cut off the end, a record rebuilt from the start, or a missing
+note are reported. `GET …/activity?limit=` lists the newest entries.
+
+**History repair (R17-067).** With the switch not off, the copy of a conversation sent to a model service is tidied
+first; the kept conversation never changes. **When needed** fixes what services refuse: a result with no call
+before it, or a second result for one call, is dropped; a call repeated under one id keeps its first copy; a call
+with no result gets a stand-in saying the outcome is unknown; a note that landed between two results is moved after
+them. **On** also drops empty answers and joins two messages in a row from the same side. Each repair is noted on the
+task (`history.repaired`).
+
+### Credential vault (R17-068): awaiting owner
+
+Not built; the owner has not decided. The proposal: signing in and filling forms goes only through the owner's
+password manager's own autofill (for example the Bitwarden extension in the owner's browser, or a local helper that
+fills the field itself), so the model asks for "sign in to example.com with the matching saved login" and never
+receives, prints or types the secret. Branch would check that the page's address matches the saved login's site
+before asking the password manager, show the owner which login is about to be used, and record the moment in the
+record of what the assistant was allowed to do. Branch would keep no copy of any password, and a model-written
+value would never be typed into a password field. Row R17-068 stays **awaiting owner**.
+
+### macOS and Linux
+
+Tool scripts run behind `/usr/bin/sandbox-exec` on macOS and bubblewrap on Linux, exactly as walled add-ons do,
+always with no network; where the wall cannot be built the script is not run and the reason is given. WebAssembly
+add-ons, codes, the emergency stop, the command check, the progress check, the record and history repair are plain
+Node and behave the same on macOS, Linux and Windows. On Windows tool scripts are refused, and nothing a Windows
+user already had changes.
+
+### Where each audit row stands
+
+- **R17-061** built: `src/safety-extras/tool-scripts.ts`, `script-host.ts`; `tests/safety-extras-scripts.test.mjs`.
+- **R17-062** built: `src/safety-extras/wasm-add-ons.ts`, `wasm-check.ts`; `tests/safety-extras-wasm.test.mjs`.
+- **R17-063** built: `src/safety-extras/totp.ts`, `code-approvals.ts`, `emergency-stop.ts`; `tests/safety-extras-codes.test.mjs`.
+- **R17-064** built: `src/safety-extras/command-scan.ts`, `hooks.ts`; `tests/safety-extras-scan.test.mjs`.
+- **R17-065** built: `src/safety-extras/progress-judge.ts`; `tests/safety-extras-progress.test.mjs`.
+- **R17-066** built: `src/safety-extras/activity-chain.ts`, `cli.ts`; `tests/safety-extras-chain.test.mjs`.
+- **R17-067** built: `src/safety-extras/history-repair.ts`; `tests/safety-extras-progress.test.mjs`.
+- **R17-068** awaiting owner: design note above; nothing built.
+## Comfort: shortcuts, status line, notifications, voice keys, the browser's care, proxy and certificates (R17-S-C)
+
+Every setting here ships as Branch has always behaved; nothing changes until you change it. The values live in the
+settings store (`comfort-<card>` records, `src/comfort/settings.ts`) and are changed from the window's cards
+(`public/comfort.js`), from the terminal's Settings pages, or with `POST /api/comfort` `{ card, values }` /
+`{ card, reset: true }`. A short-lived key can read them but never change them.
+
+| Setting | Where | Ships as |
+| --- | --- | --- |
+| Keys for Find anything, New conversation, Appearance settings, Fold the side pane | Settings › General | Ctrl+K, Ctrl+N, Ctrl+,, Ctrl+Shift+K (Cmd works as Ctrl on macOS) |
+| Vim keys in the message box (Esc to move: h j k l, w b, 0 $, x, dd; i a I A o O to type) | Settings › General | off |
+| Skip what `.gitignore` lists; more ignore files (such as `.aiignore`) | Settings › General | on; none. `.branchignore`, when there is one, is still used instead of `.gitignore` |
+| Status line: model, room used, folder, cost so far, time — in the window and the terminal | Settings › Appearance | as always |
+| A time on every message (from each task's start and end) | Settings › Appearance | off |
+| Where you are told: your computer and the banner, or this window only | Settings › Notifications | your computer and the banner |
+| Sound when Branch needs you: off, chime, knock | Settings › Notifications | off |
+| Updating by itself: off, look daily and tell me, look daily and install safely | Settings › Updates & about | off |
+| Push-to-talk key; longest recording in seconds | Settings › Voice | none; no limit |
+| Ask before the browser types, presses, sends a file or borrows your browser | Settings › Computer & browser (owner only) | off |
+| Never send files to websites | Settings › Computer & browser (owner only) | off |
+| A website's message boxes: dismiss or accept | Settings › Computer & browser (owner only) | dismiss |
+| Proxy address, hosts reached without it, extra trusted certificates | Settings › Computer & browser (owner only) | none |
+| Seconds a tool server may take to start | Customize › Connections | 10 |
+
+**Installing by itself** goes through the same path as the Update button: it waits until no task is working, checks
+the download against its published checksum, tries the new version on a copy of your work (never-break's canary) and
+writes a safety copy before anything is swapped. It runs in the app window only; `branch update --yes` is unchanged.
+A task paused on a question, or one somebody else in the house started, also counts as working. Only the owner can
+turn installing on or off (a household profile and a short-lived key are refused, in the window and the terminal).
+
+**The proxy and certificates** apply to every call Branch itself makes, after the network rules have allowed the
+address. A proxy address may not carry a user name or password. A certificate must be a certificate authority, current
+and readable; it is added to the certificates this computer already trusts and never replaces them, and nothing here
+can turn certificate checks off. The proxy needs Node 25 or newer inside Branch; with an older Node it is kept and the
+card says so. Programs the assistant starts are not given the proxy. The card says plainly that a proxy passes on
+everything Branch sends, including requests carrying your provider keys, and that an added certificate lets whoever
+holds its private key read and change Branch's secure connections. Presets, "put back" and settings files never
+touch the proxy, the certificates, the browser's care or installing by itself.
+
+**Confirm sensitive browser steps** asks every time, before any standing yes, including a yes for one website; a
+refusal you wrote still decides first. It covers pressing and typing through the shared computer tools and using a
+saved sign-in, and each question can only be answered "Yes, just now". **Accept** for message boxes never answers a
+box that asks you to type something; that one is always dismissed. Extra ignore files can only hide more, and a file
+that may hold secrets (such as `.env`) can never be named as one; turning `.gitignore` off never shows a secret file.
+
+**In the terminal** each of these is a row on its Settings page: Enter moves it to the next choice, and
+`/switch <name> <value>` sets it (`vim`, `statusLine`, `timestamps`, `notify`, `sound`, `maxRecording`,
+`confirmBrowser`, `blockUploads`, `dialogs`, `proxy`, `gitignore`, `mcpTimeout`, `autoUpdate`). `/model` with nothing
+after it opens a picker of the connections.
+
+### macOS and Linux
+
+Nothing here differs by system. Cmd counts as Ctrl for the shortcuts on macOS. The sound is played by the window
+itself, not by a system program.
+
+## Learning, deeper (R17-F)
+
+Nine parts under `src/learning-more/`, each with the owner's three-way switch (off, on, only when it
+is needed), all off at first. "On" loads a part's tools from the first round and, for memory blocks
+and lessons, puts them at the start of each conversation; "only when it is needed" lists the tools for
+the assistant to load (and names the memory blocks in one line); "off" refuses. The cards are in
+Library → Memory, with skill usage in Customize → Skills. Routes are under `/api/learning-more/`, the
+owner's profile only; a short-lived key may read, and may use the two searches
+(`/api/learning-more/search`, `/api/learning-more/memory/find`), and changes nothing.
+
+| Part | What it does | Tools |
+| --- | --- | --- |
+| Memory blocks | Named notes, each with a size budget, kept in front of every conversation; the assistant edits them itself. Each person, and each Trunk or specialist, has its own. A task a chat message started cannot change them. The "about-you" block is the "about you" note from Settings (its size and whether it is shown are set there; this part never shows it twice). Key-like values are hidden on save. | `memory.block_view`, `memory.block_edit` |
+| Skill usage and merging | Tasks that used each skill over the last 100 tasks (the report says when that is all it saw); skills whose wording overlaps; a dry run of a merge; the merge itself is two review-queue suggestions (a new, tried version of the kept skill, and setting the other aside). | `skills.usage` |
+| Timeline | Facts saved and changed, skills written, the owner's decisions, the learning core's habits, and kept or dropped lessons, newest first, filterable by kind and date. | `learning.journey` |
+| Meaning search | Conversations compared by meaning through the same embeddings route memory search uses, filtered by who spoke and when the conversation started; word search when no route is connected. Key-like values are hidden before text is sent. Only the owner's own tasks can use it, not a Trunk or specialist. | `history.meaning` |
+| Lessons from failed evaluation tasks | A failed suite task leaves a lesson on trial; a later task whose learning-core situation code overlaps it is shown the lesson, and that task's result is credited. After 2 passes at two thirds or better it is offered as a fact to remember; after 2 failures below half it is dropped. | `lessons.list` |
+| Preferences from Claude Code and Codex | Off twice: the switch, and one opt-in per assistant. Reads only `projects/` (Claude Code) and `sessions/` (Codex) in their home folders, only what the owner typed (command output, agent notices and compacted summaries are skipped; at most 256 MB is read per assistant in one look), only preference sentences seen in two chats or more; a sentence holding a key-like value is dropped. The look shows everything; only ticked items are kept, as preferences. | none (owner only) |
+| Expiring memories | Labels and an expiry date on a fact; an expired fact is set aside (restorable) at the start and end of each task, and never reaches a conversation's snapshot. Search by label and by created or changed date. Correcting a fact's words keeps its labels and expiry; a fact the owner puts back after it expired is kept for good. With the switch off, expiry dates already set are ignored: nothing is swept or left out. | `memory.find`, `memory.label` |
+| Note read-back | Edits the owner makes in the `memory/` notes become review-queue suggestions before the notes are written again; the assistant's own file tools still cannot write there. The owner can write tidy instructions; "Tidy now" asks the model once and stages its ideas. | none |
+| Outside memory | One of Hindsight (the server set up under the smaller asks, with its own switch), a self-hosted Mem0 server (`POST /memories`, `POST /search`, `X-API-Key`) or Honcho (v2 session messages and the peer "dialectic" chat), none by default. Each person and agent has its own user or peer name with Mem0 and Honcho; Hindsight keeps one bank, so only the owner's own tasks can recall from it or ask it; key-like values are hidden before sending; answers are information. The Mem0 and Honcho routes were written from their public contracts and have not been tried against a live server. | `memory.outside_recall`, `memory.outside_keep`, `memory.outside_ask` |
+
+Settings fields: the switches are `mode` in `learning-more-<part>`; note read-back keeps
+`tidyInstructions` (up to 2,000 characters); the chat preferences keep `claude-code`, `codex` (both
+false) and `minChats` (2 to 20, default 2); outside memory keeps `active` (`none`, `hindsight`, `mem0`,
+`honcho`), `mem0.address`, `mem0.secret`, `mem0.user`, `honcho.address`, `honcho.secret`,
+`honcho.workspace` and `honcho.peer`; `mem0.secret` and `honcho.secret` are the names of keys in the locker (such as `MEM0_KEY`), never a key. A block has `label`, `description`, `limit` (100 to 8,000
+characters), `readOnly` and `value`; a fact's labels are `tags` (up to 12) and `expiresAt`.
+
+### macOS and Linux
+
+Nothing here depends on the platform. The Claude Code and Codex folders follow each assistant's own
+override variable (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`) and otherwise `~/.claude` and `~/.codex` on
+every system (`src/migrate/detect.ts`).

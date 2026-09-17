@@ -5,6 +5,7 @@ import { rejectedHttpResponse } from "./provider-retry.js";
 import { readEventStream } from "./provider-stream.js";
 import { restoreToolNames, wireName } from "./providers.js";
 import { chatgptAccountId, chatgptDefaults, type ChatGPTAuth } from "./chatgpt-auth.js";
+import { refuseSignInForTrunk } from "./accounts/context.js"; // mac7/lockdown-fix
 
 /** Models the ChatGPT subscription route serves; the first is the suggested default. */
 export const chatgptModels = [
@@ -37,6 +38,7 @@ export class ChatGPTProvider implements Provider {
     return null;
   }
   async complete(request: CompletionRequest): Promise<Completion> {
+    refuseSignInForTrunk(); // mac7/lockdown-fix: a ChatGPT sign-in never answers for a Trunk
     const stream = new ResponsesStream(request.onTextDelta ?? (() => {}));
     try {
       const response = await this.send(request);

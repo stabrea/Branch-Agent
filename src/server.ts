@@ -6,7 +6,7 @@ import {
 } from "node:http";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { readFile, writeFile, lstat } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve as resolvePath } from "node:path"; // R17-S-B: resolvePath
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { quietJobsApi } from "./scheduler.js";
@@ -64,6 +64,9 @@ import { WhatsAppAdapter } from "./channels/whatsapp.js";
 import { WebhookChatAdapter } from "./channels/webhook-chat.js";
 // Wave mac3 (channels-parity).
 import { isPostedChannel, type PostedChannel } from "./channels/parity-switch.js";
+import { isSignedQueryChannel, readRawBody, type SignedQueryChannel } from "./channels/signed-query.js"; // mac6/bucket-16
+import { saveSlackAutomations } from "./channels/slack-automations.js"; // mac6/bucket-16
+import { wechatXmlLimit } from "./channels/wechat-crypto.js"; // mac6/bucket-16 integration
 import type { ChannelAdapter } from "./channels/router.js";
 import { parityApi } from "./channels/parity-api.js";
 // Batch 20 (wave 8): the unguessable word on the end of every inbound webhook address.
@@ -105,6 +108,16 @@ import type { createBranch } from "./index.js";
 import { goalApi } from "./goal-mode.js";
 import { rewindApi } from "./rewind.js";
 import { PreferencesSchema, preferences } from "./preferences.js";
+import { asksApi, AsksHttpError, handlesAsksPath } from "./asks/api.js"; // mac6/bucket-23: the smaller asks
+import { autonomyApi, AutonomyHttpError, handlesAutonomyPath } from "./autonomy/api.js"; // r17-b
+import { handlesTrunksPath, trunksApi, TrunksHttpError } from "./trunks/api.js"; // R17-A: Trunks
+import { codingApi, CodingHttpError, handlesCodingPath } from "./coding/api.js"; // mac7/r17-d: coding polish
+import { handlesPersonalPath, personalApi, PersonalHttpError } from "./personal/api.js"; // R17-C
+import { handlesSafetyPath, safetyApi, SafetyHttpError } from "./safety-extras/api.js"; // mac7/r17-g: the safety extras
+import { codesResting, confirmWithCode, restingRefusal } from "./safety-extras/code-approvals.js"; // mac7/r17-g
+import { reservedProjectId } from "./projects.js"; // mac7/r17-g integration review
+import { flowsBoardsApi, FlowsBoardsHttpError, handlesFlowsBoardsPath } from "./flows-boards/api.js"; // r17-h
+import { handlesLearningMorePath, learningMoreApi, LearningMoreHttpError } from "./learning-more/api.js"; // R17-F
 // mac4/bucket-20: the Agent Protocol, programs lending tools, and the owner's interop routes.
 import { handleInterop, handlesInteropPath, interopOffLimits } from "./interop/api.js";
 import { clientToolsPath, serveClientToolSocket } from "./interop/client-tools.js";
@@ -115,6 +128,8 @@ import {
 } from "./dashboard-api.js";
 // Wave mac3 (commands): the one slash-command table's routes.
 import { CommandApiError, commandsApi, handlesCommandsPath } from "./commands/api.js";
+import { handlesPromptsPath, promptsApi } from "./prompt-library-api.js"; // bucket 12
+import { handlesSkillInstallsPath, skillInstallsApi } from "./skill-installs.js"; // bucket 12
 import { PolicyRememberSchema, policyPresets, readPolicy, savePolicy } from "./policy.js";
 import { maximumArchiveBytes } from "./session-library.js";
 import { maximumMemoryArchiveBytes } from "./memory.js";
@@ -123,6 +138,7 @@ import { assistantIdentity, saveAssistantIdentity } from "./identity.js";
 import { contextFileStatus, saveContextFileSettings, contextFileSettings } from "./context-files.js";
 // mac3/reflection-skills: the learning loop's routes.
 import { reflectionApi } from "./reflection/api.js";
+import { handlesSettingsKitPath, settingsKitApi, settingsKitBodyBytes, SettingsKitError } from "./settings-kit/api.js"; // R17-S-A
 import { voiceSettings, saveVoiceSettings } from "./voice.js";
 import { voiceApi } from "./voice-api.js";
 // bucket-18: pull requests from changes (A0300), and which requests came with a short-lived key.
@@ -130,7 +146,16 @@ import { pullRequestHookSettings, savePullRequestHookSettings } from "./pr-hook.
 import { markShortLivedKey, startedWithShortLivedKey } from "./key-context.js";
 import { connectionCheck } from "./local-connection-policy.js"; // mac5/key-sweep: Test this connection
 import type { NetworkPolicy } from "./network-policy.js";
-import { generalShortLivedKeyRefusal, ownerOnlyRead, taskRouteFor } from "./short-lived-keys.js"; // mac5/key-sweep
+import { generalShortLivedKeyRefusal, knobsRefusal, ownerOnlyRead, taskRouteFor } from "./short-lived-keys.js"; // mac5/key-sweep (R17-S-B: knobsRefusal)
+// ---- bucket 19: people signing in from their own device (src/people/). ----
+import { notPeople, PeopleHttpError, peopleApi, peopleSignInRoute } from "./people/api.js";
+import { People } from "./people/index.js";
+import { peopleEnabled } from "./people/settings.js";
+import { interopMode } from "./interop/settings.js";
+import { requireBoundSession } from "./people/access.js";
+import { keyAnswerRefusal, shortLivedKeyMark } from "./key-context.js";
+import { currentPerson } from "./people/context.js";
+// ---- end bucket 19 ----
 // bucket-18: code editor (A0098)
 import { handlesWorkspaceEditorPath, workspaceEditorApi, WorkspaceEditorApiError } from "./workspace-editor-api.js";
 import { protectedTarget } from "./never-break/protected.js"; // bucket-18 integration review
@@ -147,7 +172,16 @@ import { toolCatalogReport } from "./tool-report.js";
 import { RemoteAccess } from "./remote/remote-access.js";
 import { cliAgentRows, registerCliAgent } from "./providers/cli-agent.js";
 import { GatewayAuth } from "./remote/gateway-auth.js";
+// ---- mac7/nodes: the owner's devices (src/devices/) ----
+import type { Duplex } from "node:stream";
+import { devicesApi, DevicesHttpError, handlesDevicesPath, openDevicePaths, openDevicesApi } from "./devices/api.js";
+import { claimedDevice, refuseUpgrade } from "./devices/hub.js";
+import { decide as allowlistSays, readSenderAllowlist } from "./channels/allowlist.js";
+import { remoteChannel } from "./remote/gateway-auth.js";
+import { socketPath as deviceSocketPath } from "./devices/protocol.js";
+// ---- end mac7/nodes ----
 import { deploymentApi, type DeploymentContext } from "./deployment-api.js";
+import { quitRequest } from "./install/quit.js"; // bucket 22
 import { clearRunning, writeRunning } from "./install/running.js";
 import { readFirstStart, recordFirstStart } from "./install/update-backup.js";
 import { readDesktopSettings, saveDesktopSettings } from "./integrations/desktop-config.js";
@@ -164,8 +198,21 @@ import { handlesSandboxRemotePath, sandboxRemoteApi, SandboxRemoteApiError } fro
 import { contextFileSinkFor, defaultMoveInOptions, handlesMoveInPath, moveInApi, MoveInApiError } from "./migrate-api.js";
 // Wave mac2 (guards): which workspace folders are trusted, and the loop guard switch.
 import { guardsApi, handlesGuardsPath } from "./run-guards.js";
+// R17-S-B: the hidden knobs, with plain labels, and the launch settings file as a card.
+import { handlesKnobsPath, knobsApi, KnobsApiError } from "./knobs/api.js";
+// R17-E: models, cheaper and smarter (src/model-savings/).
+import { handlesSavingsPath, savingsApi, SavingsApiError } from "./model-savings/api.js";
+import { savingsRefusal } from "./short-lived-keys.js";
+// R17-S-C: the comfort settings (src/comfort/); every change is the owner's.
+import { ComfortApiError, comfortApi, handlesComfortPath } from "./comfort/api.js";
+import { comfortRefusal } from "./short-lived-keys.js";
 // mac3/never-break: the gateway switch and suggested changes (src/never-break/api.ts).
 import { handlesNeverBreakPath, NeverBreakApiError, neverBreakApi } from "./never-break/api.js";
+import { channelSetupApi, handlesChannelSetupPath } from "./channel-setup/api.js"; // mac7/connect
+import { SetupRefusal } from "./channel-setup/check.js"; // mac7/connect
+// mac6/accounts: several accounts per connection (src/accounts/api.ts).
+import { AccountsApiError, accountsApi, handlesAccountsPath } from "./accounts/api.js";
+import { accountsServiceFor } from "./accounts/service.js";
 import { snapshotData } from "./never-break/canary.js";
 // Wave mac3 (tool-safety): the second look before an approval.
 import { reviewerView, saveReviewerSettings } from "./approval-reviewer.js";
@@ -175,6 +222,7 @@ import { handlesOrchestrationPath, orchestrationApi, OrchestrationApiError } fro
 // Batch 21 (wave 8): the app's own OpenAPI description, Lockdown, kept answers, whole sets of
 // questions at once, and what each project has cost.
 import { handlesOtherPath, otherApi, OtherApiError } from "./other-api.js";
+import { handlesSdkKitPath, sdkKitApi, SdkKitError } from "./sdk-kit.js"; // bucket 21
 import { audit, csvCell } from "./audit.js";
 import { askFirstSettings } from "./ask-first.js";
 import { decisionsFromRules } from "./tool-categories.js";
@@ -278,7 +326,8 @@ export function hostAllowed(
 ): boolean {
   const hosts = [new URL(url).host, ...extra];
   if (!host || !hosts.includes(host)) return false;
-  return !origin || hosts.some((allowed) => origin === `http://${allowed}`);
+  // bucket 19 (integration review): the same host served over TLS (a paired door behind https) is the same place.
+  return !origin || hosts.some((allowed) => origin === `http://${allowed}` || origin === `https://${allowed}`);
 }
 function authorize(
   request: IncomingMessage, url: string, token: string, extra: readonly string[] = [],
@@ -307,7 +356,7 @@ function authorize(
   const supplied = request.headers.authorization?.replace(/^Bearer /, "") ?? "";
   const correct =
     supplied.length === token.length && timingSafeEqual(Buffer.from(supplied), Buffer.from(token));
-  const from = requestSource(request.socket?.remoteAddress);
+  const from = requestSource(request.socket?.remoteAddress, request.headers);
   // The right key is checked first and clears the count at once, so the owner's own app can never
   // shut itself out. Only a wrong key is counted, and a place that keeps guessing is made to wait.
   if (correct) { limits?.limiter.succeed(from); return; }
@@ -349,6 +398,8 @@ async function staticFile(
     "/media.js": ["media.js", "text/javascript; charset=utf-8"],
     // Bucket 17: the video programs card and the speech plug-ins card.
     "/media-programs.js": ["media-programs.js", "text/javascript; charset=utf-8"],
+    // Bucket 21: the "Building on Branch" and "Flows as files" cards.
+    "/sdk-kit.js": ["sdk-kit.js", "text/javascript; charset=utf-8"],
     "/memory-tidy.js": ["memory-tidy.js", "text/javascript; charset=utf-8"],
     "/docs-memory-2.js": ["docs-memory-2.js", "text/javascript; charset=utf-8"],
     // Batch 27 (wave 8): writing documents, summaries, the map of names and knowledge housekeeping.
@@ -391,6 +442,17 @@ async function staticFile(
     "/recordings.js": ["recordings.js", "text/javascript; charset=utf-8"],
     // mac4/bucket-20: the cards for talking to other agents and tools, and ways of working.
     "/interop.js": ["interop.js", "text/javascript; charset=utf-8"],
+    // Bucket 15: the add-ons card (Customize → Plugins).
+    "/add-ons.js": ["add-ons.js", "text/javascript; charset=utf-8"],
+    "/asks.js": ["asks.js", "text/javascript; charset=utf-8"], // mac6/bucket-23
+    "/devices.js": ["devices.js", "text/javascript; charset=utf-8"], // mac7/nodes
+    "/autonomy.js": ["autonomy.js", "text/javascript; charset=utf-8"], // r17-b
+    "/trunks.js": ["trunks.js", "text/javascript; charset=utf-8"], // R17-A
+    "/coding.js": ["coding.js", "text/javascript; charset=utf-8"], // mac7/r17-d
+    "/personal.js": ["personal.js", "text/javascript; charset=utf-8"], // R17-C
+    "/safety-extras.js": ["safety-extras.js", "text/javascript; charset=utf-8"], // mac7/r17-g
+    "/flows-boards.js": ["flows-boards.js", "text/javascript; charset=utf-8"], // r17-h
+    "/learning-more.js": ["learning-more.js", "text/javascript; charset=utf-8"], // R17-F
     "/usage.js": ["usage.js", "text/javascript; charset=utf-8"],
     "/evaluation.js": ["evaluation.js", "text/javascript; charset=utf-8"],
     // Wave 7: written-down experiments, under the evaluation card.
@@ -419,9 +481,18 @@ async function staticFile(
     "/usage-report.js": ["usage-report.js", "text/javascript; charset=utf-8"], // bucket 14 (A0367)
     // Wave mac2 (guards): the card that asks whether a folder is trusted.
     "/folder-trust.js": ["folder-trust.js", "text/javascript; charset=utf-8"],
+    "/knobs.js": ["knobs.js", "text/javascript; charset=utf-8"], // R17-S-B: the hidden knobs
+    "/model-savings.js": ["model-savings.js", "text/javascript; charset=utf-8"], // R17-E
+    "/round-chart.js": ["round-chart.js", "text/javascript; charset=utf-8"], // R17-E (R17-049)
+    "/comfort.js": ["comfort.js", "text/javascript; charset=utf-8"], // R17-S-C
     // mac3/never-break: the Keep running card and the Telegram setup card.
     "/never-break.js": ["never-break.js", "text/javascript; charset=utf-8"],
+    // mac6/accounts: the Accounts list in each connection's card, and the chip in the conversation header.
+    "/accounts.js": ["accounts.js", "text/javascript; charset=utf-8"],
     "/telegram-setup.js": ["telegram-setup.js", "text/javascript; charset=utf-8"],
+    // mac7/connect: the Set up panel for each chat app.
+    "/channel-setup.js": ["channel-setup.js", "text/javascript; charset=utf-8"],
+    "/channel-setup.css": ["channel-setup.css", "text/css; charset=utf-8"],
     // Wave mac2 (goal-undo): the goal strip, and editing an earlier message to go back to it.
     "/goal.js": ["goal.js", "text/javascript; charset=utf-8"],
     "/rewind.js": ["rewind.js", "text/javascript; charset=utf-8"],
@@ -438,10 +509,23 @@ async function staticFile(
     // Wave 9 redesign: the five places, the Settings window, the 44 themes' colours and the oak.
     "/layout.js": ["layout.js", "text/javascript; charset=utf-8"],
     "/context-files.js": ["context-files.js", "text/javascript; charset=utf-8"],
+    // R17-S-A (understandable settings): the settings kit, descriptions on every control, and first-run offers.
+    "/settings-kit.js": ["settings-kit.js", "text/javascript; charset=utf-8"],
+    "/settings-describe.js": ["settings-describe.js", "text/javascript; charset=utf-8"],
+    "/settings-descriptions.js": ["settings-descriptions.js", "text/javascript; charset=utf-8"],
+    "/first-run-next.js": ["first-run-next.js", "text/javascript; charset=utf-8"],
     // mac3/reflection-skills: looking back (Library, Memory) and skills it wrote (Customize, Skills).
     "/learning-loop.js": ["learning-loop.js", "text/javascript; charset=utf-8"],
     // mac3/security-check: the security self-check card.
     "/security-check.js": ["security-check.js", "text/javascript; charset=utf-8"],
+    // bucket 12: saved prompts (Automations › Procedures) and the skill install record (Customize › Skills).
+    "/prompt-library.js": ["prompt-library.js", "text/javascript; charset=utf-8"],
+    "/skill-installs.js": ["skill-installs.js", "text/javascript; charset=utf-8"],
+    // bucket 19: the page people sign in on, and the owner's card for it (Settings, General).
+    "/people": ["people.html", "text/html; charset=utf-8"],
+    "/people.js": ["people.js", "text/javascript; charset=utf-8"],
+    "/people.css": ["people.css", "text/css; charset=utf-8"],
+    "/people-admin.js": ["people-admin.js", "text/javascript; charset=utf-8"],
     // mac2/fly-core-2: the learning core's card.
     "/learning-core.js": ["learning-core.js", "text/javascript; charset=utf-8"],
     "/layout.css": ["layout.css", "text/css; charset=utf-8"],
@@ -760,6 +844,12 @@ async function api(
     return tracingApi(app, request, path, readBody).catch((error: unknown) => {
       throw error instanceof TracingApiError ? new HttpError(error.status, error.message) : error;
     });
+  // ── Bucket 21: the switch for building on Branch, and flows written out and read back as YAML. ──
+  if (handlesSdkKitPath(path))
+    return sdkKitApi({ store: app.store, owner: app.runtime.owner, flows: app.flows,
+      requireOwner: (what) => app.store.profiles.requireOwner(what) }, request.method ?? "GET", path, () => readBody(request)).catch((error: unknown) => {
+      throw error instanceof SdkKitError ? new HttpError(error.status, error.message) : error;
+    });
   // Batch 20 (wave 7): flows as boxes and arrows, jobs handed over to finish later, programs left
   // running, and the switches for the project's check, those programs, and small scripts.
   if (handlesOrchestrationPath(path))
@@ -779,6 +869,26 @@ async function api(
     });
   // Wave mac2 (guards): which workspace folders are trusted, what each carries, and both switches.
   if (handlesGuardsPath(path)) return guardsApi(app, request, path, readBody);
+  // R17-S-B: the hidden knobs. Every change is the owner's (see offLimitsToShortLivedKeys).
+  if (handlesKnobsPath(path))
+    return knobsApi(app, request, path, readBody, () => (process.env.BRANCH_INTEGRATIONS ? resolvePath(process.env.BRANCH_INTEGRATIONS) : null))
+      .catch((error: unknown) => { throw error instanceof KnobsApiError ? new HttpError(error.status, error.message) : error; });
+  // R17-E: how models are chosen and what they may spend; every change is the owner's.
+  if (handlesSavingsPath(path))
+    return savingsApi(app, request, path, new URL(request.url ?? "/", "http://branch.invalid"), readBody)
+      .catch((error: unknown) => { throw error instanceof SavingsApiError ? new HttpError(error.status, error.message) : error; });
+  // R17-S-C: shortcuts, status line, notifications, voice keys, browser care, proxy and certificates.
+  if (handlesComfortPath(path))
+    return comfortApi({ store: app.store, runtime: app.runtime, outbound: app.comfort.outbound }, request, path, readBody)
+      .catch((error: unknown) => { throw error instanceof ComfortApiError ? new HttpError(error.status, error.message) : error; });
+  // mac6/accounts: the accounts of each connection, and switching between them.
+  if (handlesAccountsPath(path))
+    return accountsApi(request, path, {
+      service: accountsServiceFor(app.runtime.models), readBody: () => readBody(request, 16 * 1024),
+      requireOwner: (what) => app.store.profiles.requireOwner(what),
+    }).catch((error: unknown) => {
+      throw error instanceof AccountsApiError ? new HttpError(error.status, error.message) : error;
+    });
   // mac3/never-break: the gateway switch and the changes the assistant suggested for it.
   if (handlesNeverBreakPath(path))
     return neverBreakApi(dataDir, request, path, readBody, {
@@ -787,6 +897,14 @@ async function api(
     }).catch((error: unknown) => {
       throw error instanceof NeverBreakApiError ? new HttpError(error.status, error.message) : error;
     });
+  // --- mac7/connect: the Set up panel for each chat app (src/channel-setup/) ---
+  if (handlesChannelSetupPath(path))
+    return channelSetupApi({ store: app.store, owner: app.runtime.owner, fetch: app.web.policy.guard(globalThis.fetch),
+      telegram: app.neverBreak.telegram, requireOwner: (what) => app.store.profiles.requireOwner(what) },
+    request.method ?? "GET", path, () => readBody(request)).catch((error: unknown) => {
+      throw error instanceof SetupRefusal ? new HttpError(error.status, error.message) : error;
+    });
+  // --- end mac7/connect ---
   // Wave mac3 (tool-safety): the second look before an approval — its switch, connection and rules.
   if (path === "/api/approval-reviewer" && request.method === "GET") return reviewerView(app.store, app.runtime.owner);
   if (path === "/api/approval-reviewer" && request.method === "POST") {
@@ -809,6 +927,22 @@ async function api(
     return learningCoreApi({ store: app.store, owner: app.runtime.owner, configure: app.learningCore.configure },
       request.method ?? "GET", path, () => readBody(request)).catch((error: unknown) => {
       throw error instanceof LearningCoreApiError ? new HttpError(error.status, error.message) : error;
+    });
+  // ── R17-S-A (understandable settings): presets, putting settings back, one settings file, and the files you write. ──
+  if (handlesSettingsKitPath(path))
+    return settingsKitApi({
+      store: app.store, owner: app.runtime.owner, workspace: app.runtime.workspace, appVersion: app.version,
+      writers: {
+        "fly-core": (patch) => app.learningCore.configure(patch), reflection: (patch) => app.learningLoop.configure(patch),
+        // Integration review: each through its own save, so a tool or a helper comes and goes at once.
+        "security-check": (patch) => app.security.configure(patch),
+        ...Object.fromEntries((["analytics", "answer-engine", "runtimes", "nodes", "project-board"] as const)
+          .map((part) => [`asks-${part}`, (patch: Record<string, unknown>) => { app.asks.setMode(part, patch); }])),
+      },
+      guard: (target) => protectedTarget({ tool: "files.write", readOnly: false, args: { path: target }, target,
+        workspace: app.runtime.workspace }, app.runtime.protectedAreas),
+    }, request.method ?? "GET", path, () => readBody(request, settingsKitBodyBytes)).catch((error: unknown) => {
+      throw error instanceof SettingsKitError ? new HttpError(error.status, error.message) : error;
     });
   if (request.method === "GET" && path === "/api/state") return state(app);
   // Wave 6: sharing, labels and notes, workflows, the waiting line, days off, and profiles.
@@ -1161,10 +1295,21 @@ async function api(
     const input = z.object({ sessionId: z.string().uuid(), decision: z.enum(["allow", "deny"]),
       remember: PolicyRememberSchema.default("session"),
       // Batch 19 (wave 7): the fingerprint the person was shown, so a yes cannot land on a changed request.
-      fingerprint: z.string().regex(/^[a-f0-9]{32}$/).optional() }).strict().parse(await readBody(request));
+      fingerprint: z.string().regex(/^[a-f0-9]{32}$/).optional(),
+      // mac7/r17-g: the six-digit code from the owner's authenticator app, for a yes that needs one.
+      code: z.string().max(12).optional() }).strict().parse(await readBody(request));
     // mac5/key-sweep: answering is a run key's job, but "always" would write a standing rule.
     if (input.remember === "always" && startedWithShortLivedKey())
       throw new HttpError(401, "A short-lived key can answer this once or for this conversation, but cannot make a standing rule. Do that in the app window.");
+    // bucket 19: a short-lived key answers only the questions of tasks it started itself.
+    requireBoundSession(shortLivedKeyMark().sessionId, input.sessionId);
+    // With nothing waiting, the answer below says so in its own words.
+    const asked = app.runtime.approvals.questionFor(input.sessionId, input.fingerprint);
+    const keyRefusal = asked ? keyAnswerRefusal(app.store, asked.runId) : null;
+    if (keyRefusal) throw new HttpError(401, keyRefusal);
+    // mac7/r17-g: a code typed with the answer is checked first; a wrong one is said plainly.
+    if (input.code !== undefined && asked && !(await confirmWithCode(app.store, app.runtime.owner, input.sessionId, asked.fingerprint, input.code)))
+      throw new HttpError(401, codesResting(app.store, app.runtime.owner) ? restingRefusal : "That authenticator code did not match, or it was already used. Wait for the next code.");
     return app.runtime.approve(input.sessionId, input.decision, input.remember, input.fingerprint);
   }
   if (request.method === "GET" && path === "/api/governance")
@@ -1183,6 +1328,7 @@ async function api(
   }
   if (request.method === "POST" && path === "/api/run") {
     const input = RunInputSchema.parse(await readBody(request));
+    requireBoundSession(shortLivedKeyMark().sessionId, input.sessionId); // bucket 19
     // Wave 6: a task started while somebody's profile is switched on is filed under their name.
     return runForCurrentPerson(app, {
       prompt: input.prompt,
@@ -1324,6 +1470,8 @@ async function sessionApi(app: Branch, request: IncomingMessage, path: string): 
     }
   }
   if (match && match[2] === "followups") {
+    // bucket 19: only whoever the conversation belongs to may read or add its queued messages.
+    if (!app.store.ownsSession(owner, match[1]!)) throw new HttpError(404, "Session not found");
     if (request.method === "GET") return { followUps: app.runtime.queued(match[1]!) };
     if (request.method === "POST") {
       const { prompt } = z.object({ prompt: z.string().trim().min(1).max(16000) }).strict().parse(await readBody(request));
@@ -1539,6 +1687,8 @@ async function secretsApi(app: Branch, request: IncomingMessage, path: string): 
   }
   const action = /^\/api\/secrets\/([a-z0-9-]{1,40})\/([A-Z][A-Z0-9_]{0,63})\/(remove|rotate)$/.exec(path);
   if (action && request.method === "POST") {
+    // mac7/r17-g integration review: Branch's own locker projects are never changed from the secrets card.
+    if (reservedProjectId(action[1]!)) throw new HttpError(403, "Branch keeps these secrets itself; change them where they are set up.");
     if (action[3] === "remove") {
       z.object({}).strict().parse(await readBody(request));
       return { removed: secrets.remove(owner, action[1]!, action[2]!) };
@@ -1679,7 +1829,7 @@ async function chatWebhook(app: Branch, request: IncomingMessage, response: Serv
   if (!match) return false;
   // Nothing here carries the session key, so a place that keeps posting rubbish is made to wait,
   // exactly as somewhere guessing the key is. That also keeps a flood off the record of refusals.
-  const from = requestSource(request.socket?.remoteAddress);
+  const from = requestSource(request.socket?.remoteAddress, request.headers);
   const waiting = limiter.refusal(from, "signature");
   if (waiting) throw new HttpError(429, waiting);
   // The random word on the end of the address is what makes it unguessable. Checked before the
@@ -1688,6 +1838,8 @@ async function chatWebhook(app: Branch, request: IncomingMessage, response: Serv
   if (wrongAddress) throw new HttpError(404, wrongAddress);
   const adapter = app.channels.adapter(match[1]!);
   if (adapter instanceof MetaMessagingAdapter) return metaWebhook(app, adapter, request, response, { limiter, from });
+  // mac6/bucket-16: WeChat and WeCom check the address with a GET and sign XML posts in the query.
+  if (isSignedQueryChannel(adapter)) return signedQueryWebhook(app, adapter, request, response, { limiter, from });
   // Wave mac3 (channels-parity): services that are posted to and prove the post in their own way.
   if (isPostedChannel(adapter)) return postedChatWebhook(app, adapter, request, response, { limiter, from });
   if (!(adapter instanceof WebhookChatAdapter)) throw new HttpError(404, "No chat service with that name is connected");
@@ -1709,6 +1861,21 @@ async function postedChatWebhook(app: Branch, adapter: ChannelAdapter & PostedCh
     .catch((error: unknown) => { throw refusedChatPost(app, adapter.id, adapter.kind, error, limit); });
   limit.limiter.succeed(limit.from);
   send(response, 200, result.reply ?? { accepted: result.accepted });
+  return true;
+}
+/** mac6/bucket-16: hands a WeChat or WeCom request over whole and answers with the plain text it returns. */
+async function signedQueryWebhook(app: Branch, adapter: ChannelAdapter & SignedQueryChannel, request: IncomingMessage, response: ServerResponse, limit: ChatWebhookLimit): Promise<boolean> {
+  if (request.method !== "POST" && request.method !== "GET") throw new HttpError(404, "Endpoint not found");
+  if (adapter.accepting?.() === false) throw new HttpError(503, "That chat service is switched off in Customize");
+  const query = new URL(request.url ?? "/", "http://127.0.0.1").searchParams;
+  const raw = request.method === "POST"
+    ? await readRawBody(request, wechatXmlLimit).catch((error: unknown) => { throw new HttpError(/exceeds/.test(errorText(error)) ? 413 : 400, "That message could not be read"); })
+    : Buffer.alloc(0);
+  const text = await adapter.receiveSigned(request.method, query, raw)
+    .catch((error: unknown) => { throw refusedChatPost(app, adapter.id, adapter.kind, error, limit); });
+  limit.limiter.succeed(limit.from);
+  response.writeHead(200, { "content-type": "text/plain; charset=utf-8", "x-content-type-options": "nosniff" });
+  response.end(text);
   return true;
 }
 /** Where a post came from, so repeated refusals from one place can be counted and slowed down. */
@@ -1863,6 +2030,11 @@ async function channelsApi(app: Branch, request: IncomingMessage, path: string):
   if (path === "/api/channels/parity")
     return parityApi(app.store, owner, app.channels, request.method ?? "GET", request.method === "POST" ? await readBody(request) : undefined);
   if (request.method === "GET" && path === "/api/channels") return { ...app.channels.summary(), outstanding: app.channels.outstanding() };
+  // mac6/bucket-16: automations started by Slack's own events, and starting one that is waiting.
+  if (path === "/api/channels/slack-automations") return request.method === "POST"
+    ? saveSlackAutomations(app.store, owner, await readBody(request), (id) => !!app.triggers.get(owner, id))
+    : app.slackAutomations.list();
+  if (request.method === "POST" && path === "/api/channels/slack-automations/run") return app.slackAutomations.run(await readBody(request));
   // The chat services this copy knows how to talk to, so the Connections card lists them from data
   // rather than from a piece of hand-written page per service. No secret is involved either way.
   if (request.method === "GET" && path === "/api/channels/catalog")
@@ -1900,7 +2072,8 @@ function channelAddresses(app: Branch, owner: string): {
 } {
   const addresses = app.channels.summary().channels
     .filter((channel) => channel.kind === "whatsapp" || app.channels.adapter(channel.id) instanceof WebhookChatAdapter
-      || app.channels.adapter(channel.id) instanceof MetaMessagingAdapter || isPostedChannel(app.channels.adapter(channel.id)))
+      || app.channels.adapter(channel.id) instanceof MetaMessagingAdapter || isPostedChannel(app.channels.adapter(channel.id))
+      || isSignedQueryChannel(app.channels.adapter(channel.id)))
     .map((channel) => ({
       channel: channel.id, kind: channel.kind,
       address: webhookAddress(channel.kind === "whatsapp" ? "whatsapp" : "chat", channel.id,
@@ -1915,13 +2088,15 @@ async function chatgptApi(app: Branch, request: IncomingMessage, path: string): 
   if (request.method === "POST" && path === "/api/chatgpt/login") {
     z.object({}).strict().parse(await readBody(request));
     const prompt = await auth.startDeviceLogin();
-    void finishChatGPTSignIn(app.runtime.models, auth, owner, app.userAgent).catch(() => undefined);
+    void finishChatGPTSignIn(app.runtime.models, auth, owner, app.userAgent)
+      .then(() => accountsServiceFor(app.runtime.models)?.ensureChatGPTPresets()).catch(() => undefined); // mac6/accounts
     return { userCode: prompt.userCode, verificationUrl: prompt.verificationUrl, expiresAt: prompt.expiresAt };
   }
   if (request.method === "POST" && path === "/api/chatgpt/logout") {
     z.object({}).strict().parse(await readBody(request));
     const status = await auth.signOut();
     syncChatGPTPresets(app.runtime.models, auth, false, app.userAgent);
+    await accountsServiceFor(app.runtime.models)?.ensureChatGPTPresets(); // mac6/accounts: other ChatGPT accounts stay
     return status;
   }
   throw new HttpError(404, "Endpoint not found");
@@ -2356,6 +2531,8 @@ export async function startServer(
     presence?: "app" | "daemon";
     /** How many wrong keys a place may try before it waits; the defaults suit a real install. */
     authLimits?: { attempts?: number; lockoutMs?: number; windowMs?: number };
+    /** bucket 22: what `branch quit` does to this launch (src/install/quit.ts); without it, it refuses. */
+    quit?: () => void;
   },
 ) {
   const token = await sessionToken(options.dataDir);
@@ -2407,6 +2584,10 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
       // Wave mac3: while the dashboard switch is off its page and files are not served at all.
       if (isDashboardFile(path) && dashboardSettings(app.store, app.runtime.owner).mode === "off")
         throw new HttpError(404, "Not found");
+      // bucket 19: the person's page is only served while signing in, or handing a conversation over, is on.
+      if (["/people", "/people.js", "/people.css"].includes(path) && !peopleEnabled(app.store, app.runtime.owner)
+        && interopMode(app.store, app.runtime.owner, "handoff") === "off")
+        throw new HttpError(404, "Not found");
       if (request.method === "GET" && (await staticFile(path, response)))
         return;
       if (path.startsWith("/hooks/")) {
@@ -2423,6 +2604,34 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
       // Wave 8: an artifact out of a reply, in that same frame. Its address is not used up by the
       // first fetch, so the frame may reload and "open larger" may show the same one again.
       if (artifactPageRoute(request, response, path)) return;
+      // ---- bucket 19: signing a person in needs no key yet; only this app's own pages may ask. ----
+      if (path.startsWith("/api/people/sign-in")) {
+        if (!hostAllowed(request.headers.host, request.headers.origin, url, remote.allowedHosts()) || request.headers["sec-fetch-site"] === "cross-site")
+          throw new HttpError(403, "Origin rejected");
+      }
+      // Integration review: the identity service's way back is a navigation from its own site, so it
+      // has no origin check, but on the paired door it passes the door's chain like the rest.
+      if ((path.startsWith("/api/people/sign-in") || path === "/api/people/oidc/callback") && viaRemote) {
+        const refused = gateway.check(request, true);
+        if (refused) throw new HttpError(401, refused);
+      }
+      if (await peopleSignInRoute(app, request, response, path, () => readBody(request), (status, value) => send(response, status, value))) return;
+      // ---- end bucket 19 ----
+      // ---- mac7/nodes: a device answering an invitation has no key; its number and its signature are checked. ----
+      if (openDevicePaths.includes(path)) {
+        if (request.headers.origin && !hostAllowed(request.headers.host, request.headers.origin, url, remote.allowedHosts()))
+          throw new HttpError(403, "Origin rejected");
+        const answer = await openDevicesApi({ devices: app.devices, method: request.method ?? "GET", readBody: () => readBody(request, 4096) },
+          path, requestSource(request.socket?.remoteAddress)).catch((error: unknown) => {
+          throw error instanceof DevicesHttpError ? new HttpError(error.status, error.message) : error;
+        });
+        send(response, 200, answer);
+        return;
+      }
+      // ---- end mac7/nodes ----
+      // mac6/bucket-23 (A2240): a live page in the same sealed frame, under its own long random name;
+      // only on this computer's own listener, since the name does not run out as an artifact's does.
+      if (!viaRemote && app.asks.surfaces.serve(request, response, path)) return;
       const triggerFireMatch = /^\/api\/triggers\/([a-f0-9-]{36})\/fire$/.exec(path);
       if (triggerFireMatch && request.method === "POST") {
         send(response, 200, await triggerFire(app, request, triggerFireMatch[1]!));
@@ -2434,16 +2643,24 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
         limiter: authLimiter,
         onFailure: (from) => noteAuthFailure(authLimiter, app.store, app.runtime.owner, from, "the local key"),
       }, (supplied) => {
+        // bucket 19: a person's own key reaches only their own page (src/people/access.ts).
+        if (People.isPersonKey(supplied)) {
+          const refused = app.people.admit(supplied, request.method, path);
+          if (refused === null) markShortLivedKey({ keyId: `person:${currentPerson()!.keyId}` });
+          return refused;
+        }
         const look = commandLook(app, request, path, supplied);
         onlyLooking = look !== null;
         const refusal = offLimitsToShortLivedKeys(request.method, path)
-          ?? app.sessionTokens.check(app.runtime.owner, supplied, look ?? {
+          ?? app.sessionTokens.check(app.runtime.owner, supplied, { ...(look ?? {
             method: request.method ?? "GET", executes: isExecution(request, path),
-          });
+          }), path });
         // bucket-18 (A0300): everything this request starts knows it came with a short-lived key.
-        if (refusal === null) markShortLivedKey();
+        // bucket 19: and which key, and the one conversation it may be held to.
+        if (refusal === null) markShortLivedKey(app.sessionTokens.markOf(app.runtime.owner, supplied) ?? {});
         return refusal;
-      }, (supplied) => app.sessionTokens.scopeOf(app.runtime.owner, supplied) !== null);
+      }, (supplied) => app.sessionTokens.scopeOf(app.runtime.owner, supplied) !== null
+        || app.people.keys.working(supplied)); // bucket 19
       // The extra door has its own chain on top of the key: see src/remote/gateway-auth.ts. The
       // window on this computer never goes through it.
       if (viaRemote) {
@@ -2487,6 +2704,17 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
           return;
         }
         // ---- end of the commands block ----
+        // ---- bucket 12: saved prompts (src/prompt-library-api.ts) and the skill install record
+        // (src/skill-installs.ts). Every change there is the owner's; short-lived keys never get this far. ----
+        if (handlesPromptsPath(path) || handlesSkillInstallsPath(path)) {
+          const method = request.method ?? "GET", body = () => readBody(request, 2 * 1024 * 1024);
+          const answer = handlesPromptsPath(path) ? await promptsApi(app, method, path, body)
+            : await skillInstallsApi(app, method, new URL(request.url ?? "/", "http://local"), body);
+          if (answer === undefined) throw new HttpError(404, "Endpoint not found");
+          send(response, 200, answer);
+          return;
+        }
+        // ---- end of the bucket 12 block ----
         // ---- mac4/bucket-20: the Agent Protocol and /api/interop (src/interop/api.ts). ----
         if (handlesInteropPath(path)) {
           app.store.profiles.requireOwner("Working with other agents");
@@ -2499,8 +2727,134 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
           return;
         }
         // ---- end of the bucket-20 block ----
+        // ---- bucket 19: a person's own page, a handed-over conversation, and the owner's card. ----
+        if (path.startsWith("/api/people/")) {
+          const answer = await peopleApi(app, request, path, () => readBody(request, 262144)).catch((error: unknown) => {
+            throw error instanceof PeopleHttpError ? new HttpError(error.status, error.message) : error;
+          });
+          if (answer !== notPeople) { send(response, 200, answer); return; }
+        }
+        // ---- end bucket 19 ----
+        // ---- mac7/nodes: the Devices card's routes (src/devices/api.ts); the owner's alone. ----
+        if (handlesDevicesPath(path)) {
+          app.store.profiles.requireOwner("Your devices");
+          const answer = await devicesApi({ devices: app.devices, store: app.store, owner: app.runtime.owner, method: request.method ?? "GET",
+            readBody: () => readBody(request, 16384), baseUrl: remote.status().url ?? url }, path).catch((error: unknown) => {
+            throw error instanceof DevicesHttpError ? new HttpError(error.status, error.message) : error;
+          });
+          if (answer === undefined) throw new HttpError(404, "Endpoint not found");
+          send(response, 200, answer);
+          return;
+        }
+        // ---- end mac7/nodes ----
+        // ---- mac6/bucket-23: the smaller asks under /api/asks (src/asks/api.ts); the owner's alone. ----
+        if (handlesAsksPath(path)) {
+          app.store.profiles.requireOwner("These parts of Branch");
+          const answer = await asksApi({
+            asks: app.asks, runtime: app.runtime, method: request.method ?? "GET",
+            query: new URL(request.url ?? "/", "http://local").searchParams, readBody: () => readBody(request, 131072),
+          }, path).catch((error: unknown) => {
+            throw error instanceof AsksHttpError ? new HttpError(error.status, error.message) : error;
+          });
+          send(response, 200, answer);
+          return;
+        }
+        // ---- end of the bucket-23 block ----
+        // ---- r17-b: suggestions, standing orders, loops and procedures under /api/autonomy; the owner's alone. ----
+        if (handlesAutonomyPath(path)) {
+          app.store.profiles.requireOwner("Automations that run on their own");
+          const answer = await autonomyApi({
+            autonomy: app.autonomy, method: request.method ?? "GET",
+            query: new URL(request.url ?? "/", "http://local").searchParams, readBody: () => readBody(request, 131072),
+          }, path).catch((error: unknown) => {
+            throw error instanceof AutonomyHttpError ? new HttpError(error.status, error.message) : error;
+          });
+          send(response, 200, answer);
+          return;
+        }
+        // ---- end of the r17-b block ----
+        // ---- mac7/r17-d: coding polish under /api/coding (src/coding/api.ts); the owner's alone. ----
+        if (handlesCodingPath(path)) {
+          app.store.profiles.requireOwner("These parts of Branch");
+          const answer = await codingApi({
+            coding: app.coding, runtime: app.runtime, method: request.method ?? "GET",
+            query: new URL(request.url ?? "/", "http://local").searchParams, readBody: () => readBody(request, 131072),
+          }, path).catch((error: unknown) => {
+            throw error instanceof CodingHttpError ? new HttpError(error.status, error.message) : error;
+          });
+          send(response, 200, answer);
+          return;
+        }
+        // ---- end of the r17-d block ----
+        // ---- R17-A: Trunks under /api/trunks (src/trunks/api.ts); the owner's, bar talking to them. ----
+        if (handlesTrunksPath(path)) {
+          app.store.profiles.requireOwner("Trunks");
+          const answer = await trunksApi({ trunks: app.trunks, method: request.method ?? "GET", readBody: () => readBody(request, 524288) }, path)
+            .catch((error: unknown) => { throw error instanceof TrunksHttpError ? new HttpError(error.status, error.message) : error; });
+          send(response, 200, answer);
+          return;
+        }
+        // ---- end of the R17-A block ----
+        // ---- R17-C: files, voice, devices and personal connectors under /api/personal (src/personal/api.ts). ----
+        if (handlesPersonalPath(path)) {
+          app.store.profiles.requireOwner("Your personal connectors");
+          const answer = await personalApi({ personal: app.personal, runtime: app.runtime, method: request.method ?? "GET",
+            readBody: () => readBody(request, 4 * 1024 * 1024) }, path).catch((error: unknown) => {
+            throw error instanceof PersonalHttpError ? new HttpError(error.status, error.message) : error;
+          });
+          send(response, 200, answer);
+          return;
+        }
+        // ---- end of the R17-C block ----
+        // ---- mac7/r17-g: the safety extras under /api/safety-extras (src/safety-extras/api.ts); the owner's alone. ----
+        if (handlesSafetyPath(path)) {
+          app.store.profiles.requireOwner("The safety extras");
+          const answer = await safetyApi({
+            extras: app.safetyExtras, runtime: app.runtime, method: request.method ?? "GET",
+            query: new URL(request.url ?? "/", "http://local").searchParams, // Only an add-on install carries a WebAssembly file; everything else keeps the usual small limit.
+            readBody: () => readBody(request, path === "/api/safety-extras/wasm" ? 11_000_000 : 131072),
+          }, path).catch((error: unknown) => {
+            throw error instanceof SafetyHttpError ? new HttpError(error.status, error.message) : error;
+          });
+          send(response, 200, answer);
+          return;
+        }
+        // ---- end of the mac7/r17-g block ----
+        // ---- r17-h: flows and boards under /api/flows-boards; the owner's alone. ----
+        if (handlesFlowsBoardsPath(path)) {
+          app.store.profiles.requireOwner("Flows and boards");
+          const answer = await flowsBoardsApi({
+            boards: app.flowsBoards, method: request.method ?? "GET",
+            query: new URL(request.url ?? "/", "http://local").searchParams, readBody: () => readBody(request, 131072),
+          }, path).catch((error: unknown) => {
+            throw error instanceof FlowsBoardsHttpError ? new HttpError(error.status, error.message) : error;
+          });
+          send(response, 200, answer);
+          return;
+        }
+        // ---- end of the r17-h block ----
+        // ---- R17-F: learning, deeper under /api/learning-more (src/learning-more/api.ts); the owner's alone. ----
+        if (handlesLearningMorePath(path)) {
+          app.store.profiles.requireOwner("Learning, deeper");
+          const answer = await learningMoreApi({
+            more: app.learningMore, runtime: app.runtime, method: request.method ?? "GET", scope: app.store.profiles.scope(),
+            query: new URL(request.url ?? "/", "http://local").searchParams, readBody: () => readBody(request, 131072),
+          }, path).catch((error: unknown) => {
+            throw error instanceof LearningMoreHttpError ? new HttpError(error.status, error.message) : error;
+          });
+          send(response, 200, answer);
+          return;
+        }
+        // ---- end R17-F ----
         if (await rawApi(app, request, response, path)) return;
         if (path.startsWith("/api/deployment")) {
+          // bucket 22: `branch quit`, from this computer with the master key only (src/install/quit.ts).
+          if (path === "/api/deployment/quit") {
+            const answer = await quitRequest(request, { dataDir: options.dataDir, quit: options.quit, viaRemote })
+              .catch((error: unknown) => { throw new HttpError(request.method === "POST" ? 403 : 405, errorText(error)); });
+            send(response, 200, answer);
+            return;
+          }
           const result = await deploymentApi(app, request, path, deployment(), (r) => readBody(r), remoteHandler);
           if (result !== undefined) { send(response, 200, result); return; }
         }
@@ -2532,9 +2886,27 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
     dataDir: options.dataDir, workspace: app.runtime.workspace, port: new URL(url).port ? Number(new URL(url).port) : 0,
     executable: options.executable ?? null, installRoot: options.installRoot ?? null, remote,
   });
-  server.on("upgrade", (request, socket) => {
+  // mac7/nodes: one upgrade handler for this computer's door and the paired door (`viaRemote`).
+  const upgrade = (request: IncomingMessage, socket: Duplex, viaRemote: boolean): void => {
     void (async () => {
       const path = new URL(request.url ?? "/", url || "http://127.0.0.1").pathname;
+      // ---- mac7/nodes: a device's socket. Its own signature is the key; never the window's key. ----
+      if (path === deviceSocketPath) {
+        const hosts = remote.allowedHosts();
+        const refused = app.devices.hub.refusal(request, requestSource(request.socket?.remoteAddress),
+          hostAllowed(request.headers.host, undefined, url, hosts), hostAllowed(request.headers.host, request.headers.origin, url, hosts));
+        // Integration review: the door's chain is not run here. Its `token` and `device` steps are the
+        // phone window's key and secret, which a device never holds; the device's own signature over a
+        // fresh challenge stands in for them. The door's one allowlist still holds: "never" wins.
+        const neverOnDoor = viaRemote && allowlistSays(readSenderAllowlist(app.store, app.runtime.owner), remoteChannel, claimedDevice(request)) === "block";
+        if (refused || neverOnDoor) { refuseUpgrade(socket); return; }
+        app.devices.hub.attach(request, socket);
+        return;
+      }
+      // Integration review: the paired door serves the device socket and nothing else. It had no
+      // upgrade handler before this branch, and a task's socket stays on this computer's own door.
+      if (viaRemote) { refuseUpgrade(socket); return; }
+      // ---- end mac7/nodes ----
       // mac4/bucket-20: a program on this computer lending tools, behind the key and while the switch is on.
       if (path === clientToolsPath) {
         // Integration review: "a program on this computer" — the paired address never lends tools.
@@ -2557,7 +2929,9 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
       // one. Nothing is opened until it does, so an ordinary task is unchanged.
       await serveRunSocket(app.store, run.id, request, socket, liveHooks(app.live, run.id, run.sessionId));
     })().catch(() => socket.destroy());
-  });
+  };
+  server.on("upgrade", (request, socket) => upgrade(request, socket, false));
+  remote.upgrade = (request, socket) => upgrade(request, socket, true);
   configureLimits(server);
   startEventLoopWatch(app); // bucket 13: runs from the start only when the owner has it on
   await new Promise<void>((resolve, reject) => {
@@ -2571,6 +2945,7 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
   if (!address || typeof address === "string")
     throw new Error("Failed to bind loopback server");
   url = `http://127.0.0.1:${address.port}`;
+  app.personal.tunnel.localAddress = url; // R17-C: the webhook door passes requests on to this address
   app.scheduler.start();
   // mac3/never-break: a real start settles work a restart cut off (nothing, with the switch off).
   if (options.presence || process.env.BRANCH_GATEWAY_CHILD === "1") {
@@ -2949,7 +3324,10 @@ export function offLimitsToShortLivedKeys(method: string | undefined, path: stri
     return "A short-lived key cannot change when Branch checks with you, the models, or which commands are offered. Do that in the app window.";
   if (path === "/api/providers/cli-agents" || path.startsWith("/api/secrets") || path.startsWith("/api/connections") || /^\/api\/schedules\/[a-f0-9-]{36}\/gate$/.test(path))
     return "A short-lived key cannot name a program for Branch to run, add a model service, or change the locker. Do that in the app window.";
-  if (path === "/api/deployment/close")
+  // mac6/accounts: adding, removing and switching accounts is the owner's alone.
+  if (handlesAccountsPath(path))
+    return "A short-lived key cannot add, remove or switch accounts. Do that in the app window.";
+  if (path === "/api/deployment/close" || path === "/api/deployment/quit") // quit: bucket 22
     return "A short-lived key cannot close Branch. Only the app on this computer can.";
   // Wave mac2 (quiet-jobs): the check-in's switches, hours and where its news goes are the owner's.
   if (path === "/api/heartbeat" || path.startsWith("/api/heartbeat/"))
@@ -2970,8 +3348,15 @@ export function offLimitsToShortLivedKeys(method: string | undefined, path: stri
     return "A short-lived key cannot change the wall around programs or where scripts run. Do that in the app window.";
   // Wave mac2 (guards): trusting a folder lets what is in it steer the assistant.
   if (handlesGuardsPath(path)) return "A short-lived key cannot change which folders are trusted or how repeated steps are stopped. Do that in the app window.";
+  // R17-S-B: the knobs include which environment variables commands get and how keys are hidden.
+  if (handlesKnobsPath(path)) return knobsRefusal;
+  if (handlesSavingsPath(path)) return savingsRefusal; // R17-E
+  // R17-S-C: the proxy, certificates, browser care and automatic updates are the owner's.
+  if (handlesComfortPath(path)) return comfortRefusal;
   // mac3/never-break: the gateway's settings are the owner's alone.
   if (handlesNeverBreakPath(path)) return "A short-lived key cannot change how Branch keeps itself running. Do that in the app window.";
+  // mac7/connect: saving a chat app's token or switching setting-up on is the owner's alone.
+  if (handlesChannelSetupPath(path)) return "A short-lived key cannot save a chat app's token or change how chat apps are set up. Do that in the app window.";
   // mac3/never-break (integration review): letting a new person reach the assistant is the owner's alone.
   if (path.startsWith("/api/channels/pairings/")) return "A short-lived key cannot let a new person reach the assistant, or remove one. Do that in the app window.";
   // Bucket 17: naming a program for Branch to run (ffmpeg, yt-dlp, a reading-aloud program) is the owner's step.
@@ -3026,6 +3411,22 @@ function isExecution(request: IncomingMessage, path: string): boolean {
     request.method === "POST" && (["/api/run", "/api/commands/run", "/api/action", "/v1/chat/completions", "/api/restore", "/api/deployment/restore-point", "/api/deployment/close", "/a2a", "/api/tools/try", "/api/tools/forget", "/api/tools/meaning-search", "/api/firewall/test", "/api/sandboxes", "/api/os-sandbox", "/api/limits"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins|local-models|connections|monitors|brief|ask-first|retrieval|issues|practice|workflows|queue|profiles|labels|shares|calendar|knowledge|tracing|rules|flows|deferred|processes|skill-revisions|plugin-catalog|developer|studies|batch|artifacts|reports|todos|obsidian|log|remotes|marks|retention|heartbeat)(\/|$)/.test(path) || /^\/api\/mcp\/(try|signin)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/api\/runs\/[a-f0-9-]{36}\/replay$/.test(path) || /^\/webhooks\/(whatsapp|chat)\//.test(path))
     // mac4/bucket-20: an Agent Protocol step, and every change under /api/interop, start or change work.
     || (request.method !== "GET" && handlesInteropPath(path))
+    // mac6/bucket-23: every change under /api/asks may start work (an answer, an article, a send).
+    || (request.method !== "GET" && handlesAsksPath(path))
+    // r17-b: every change under /api/autonomy may start work (a schedule, an order's turn, a procedure).
+    || (request.method !== "GET" && handlesAutonomyPath(path))
+    // R17-A: every change under /api/trunks may start work (a Trunk's turn, a room's rounds).
+    || (request.method !== "GET" && handlesTrunksPath(path))
+    // mac7/r17-d: every change under /api/coding may start work (a snapshot, the checks, a fork).
+    || (request.method !== "GET" && handlesCodingPath(path))
+    // R17-C: every change under /api/personal may reach an outside service or start a program.
+    || (request.method !== "GET" && handlesPersonalPath(path))
+    // mac7/r17-g: every change under /api/safety-extras may run something (a WebAssembly add-on).
+    || (request.method !== "GET" && handlesSafetyPath(path))
+    // r17-h: every change under /api/flows-boards may start work (a flow copy, a procedure, a card's task).
+    || (request.method !== "GET" && handlesFlowsBoardsPath(path))
+    // R17-F: every change under /api/learning-more may ask a model or an outside service.
+    || (request.method !== "GET" && handlesLearningMorePath(path))
   );
 }
 function configureLimits(server: Server): void {

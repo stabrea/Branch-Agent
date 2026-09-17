@@ -159,3 +159,16 @@ to decide what to keep. The core spends none. The comparison should show whether
 - The memory boost applies when a conversation's snapshot is first taken; `memory.search` results
   are not reordered.
 - Accepting a skill idea opens a draft in the skill editor; installing it is still the owner's step.
+
+## 5. Lessons from failed evaluation tasks (R17-056): what is measured
+
+`src/learning-more/lessons.ts` uses the core's situation code (`Expansion`, `codeOverlap`) to decide
+which lesson from a failed evaluation task a later task is shown, and credits each later evaluation
+result to the lessons that task was shown. `tests/learning-more.test.mjs` runs a real suite through
+the evaluation runner three times with a scripted model that answers correctly only when a lesson is
+in front of it: pass 1 fails and leaves a lesson, passes 2 and 3 are shown it and pass, and the lesson
+is then offered to the owner. That shows the bookkeeping works end to end. It says nothing about
+whether lessons help a real model: **no real-model run has been made**. The measurement to make is
+section 2's harness with the "lessons" part on in one arm and off in the other, comparing the last
+pass, with the spread over repeats as the bar. The overlap threshold (0.3) was chosen by hand from
+the test prompts and has not been tuned.

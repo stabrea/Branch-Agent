@@ -1,0 +1,263 @@
+import { randomUUID } from "node:crypto";
+import { z } from "zod";
+import type { Run } from "../contracts.js";
+import type { PolicyRemember } from "../policy.js";
+import type { Runtime } from "../runtime.js";
+import type { Store } from "../store.js";
+import type { TrunkRecords } from "./record.js";
+import {
+  asksForOwner, isPass, maxRoomMembers, minRoomMembers, nextRoomTurn,
+  type RoomDecision, type RoomEvent, type RoomMember, type RoomTask,
+} from "./room-plan.js";
+
+/**
+ * R17-009 (T-09): rooms where two to six Trunks and the owner talk in one transcript.
+ *
+ * The owner's message starts at most three rounds and ten member messages (src/trunks/room-plan.ts).
+ * Each member answers in a conversation of its own for that room, run as that Trunk, and what it
+ * says is copied into the room's transcript with its @name. `@you` from a member, or a member that
+ * stopped for an approval, raises "needs you" in the Inbox, and the approval can be answered in the
+ * room. The turns run inside Branch, not the window, so closing the window does not stop a room;
+ * after a restart `resumeAll` replays each log and carries on.
+ */
+const pictureData = z.string().max(400_000).regex(/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+=*$/);
+export const RoomCreateSchema = z.object({
+  name: z.string().trim().min(1).max(60),
+  members: z.array(z.string().uuid()).min(minRoomMembers).max(maxRoomMembers),
+}).strict();
+export const RoomEditSchema = z.object({
+  name: z.string().trim().min(1).max(60).optional(),
+  members: z.array(z.string().uuid()).min(minRoomMembers).max(maxRoomMembers).optional(),
+  picture: pictureData.nullable().optional(),
+  pinned: z.boolean().optional(),
+  section: z.string().trim().max(40).optional(),
+  order: z.number().int().min(0).max(10000).optional(),
+}).strict();
+const maxKeptEvents = 300;
+
+export interface Room {
+  id: string;
+  name: string;
+  members: string[];
+  /** The room's own transcript, as a conversation. */
+  sessionId: string;
+  /** Each member's own conversation for this room. */
+  memberSessions: Record<string, string>;
+  events: RoomEvent[];
+  seq: number;
+  /** A member asked for the owner, or is waiting for a yes. */
+  needsYou: boolean;
+  picture: string | null;
+  pinned: boolean;
+  section: string;
+  order: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type RoomRuntime = Pick<Runtime, "run" | "approve" | "waitingApprovals" | "cancel">;
+export interface RoomDeps {
+  store: Store;
+  owner: string;
+  records: TrunkRecords;
+  runtime: RoomRuntime;
+  /** Tells the owner something needs them (the Inbox badge and a notification). */
+  notify: (room: Room, why: string) => void;
+  /** Called whenever the set of conversations that belong to Trunks changes. */
+  changed: () => void;
+}
+
+export class TrunkRooms {
+  private readonly driving = new Map<string, Promise<void>>();
+  private readonly running = new Map<string, string>();
+  /** Set while Branch closes: a turn cut off then is not written down, so a restart takes it again. */
+  private closing = false;
+
+  constructor(private readonly deps: RoomDeps) {}
+
+  list(): Room[] {
+    return this.deps.store.list("governance", this.deps.owner).filter((r) => r.id.startsWith("trunk-room:"))
+      .map((r) => r.data as unknown as Room)
+      .sort((a, b) => Number(b.pinned) - Number(a.pinned) || a.order - b.order || b.updatedAt.localeCompare(a.updatedAt));
+  }
+  get(id: string): Room {
+    const room = this.deps.store.get("governance", this.deps.owner, `trunk-room:${id}`)?.data as unknown as Room | undefined;
+    if (!room) throw Object.assign(new Error("There is no room with that id"), { status: 404 });
+    return room;
+  }
+  private put(room: Room): Room {
+    this.deps.store.save("governance", this.deps.owner, `trunk-room:${room.id}`, { ...room, updatedAt: new Date().toISOString() });
+    return room;
+  }
+  private checkMembers(members: string[]): void {
+    if (new Set(members).size !== members.length) throw new Error("A Trunk can sit in a room only once");
+    for (const id of members) this.deps.records.get(id);
+  }
+  private conversation(title: string): string {
+    const { store, owner } = this.deps;
+    const run = store.createRun(owner, title);
+    store.finish(run.id, "completed", "Opened");
+    return run.sessionId;
+  }
+
+  create(input: unknown): Room {
+    const value = RoomCreateSchema.parse(input);
+    this.checkMembers(value.members);
+    if (this.list().some((r) => r.name.toLowerCase() === value.name.toLowerCase())) throw new Error("A room already has that name");
+    const now = new Date().toISOString();
+    const room: Room = { id: randomUUID(), name: value.name, members: value.members, sessionId: this.conversation(`Room: ${value.name}`),
+      memberSessions: {}, events: [], seq: 0, needsYou: false, picture: null, pinned: false, section: "", order: 0, createdAt: now, updatedAt: now };
+    for (const id of room.members) room.memberSessions[id] = this.conversation(`Room ${value.name}: ${this.deps.records.get(id).name}`);
+    this.deps.store.message(room.sessionId, { role: "system", content: `Room "${room.name}". ${this.roster(room).map((m) => `@${m.handle}`).join(", ")} and you.` });
+    this.put(room);
+    this.deps.changed();
+    return room;
+  }
+  /** Renames, re-seats, pins or files a room; its history and each member's conversation stay. */
+  edit(id: string, input: unknown): Room {
+    const change = RoomEditSchema.parse(input);
+    const room = this.get(id);
+    if (change.name && change.name.toLowerCase() !== room.name.toLowerCase() && this.list().some((r) => r.name.toLowerCase() === change.name!.toLowerCase()))
+      throw new Error("A room already has that name");
+    if (change.members) {
+      this.checkMembers(change.members);
+      for (const member of change.members) room.memberSessions[member] ??= this.conversation(`Room ${room.name}: ${this.deps.records.get(member).name}`);
+      room.members = change.members;
+    }
+    const { members: _members, picture, ...rest } = change;
+    Object.assign(room, rest, picture !== undefined ? { picture } : {});
+    this.put(room);
+    this.deps.changed();
+    return room;
+  }
+  remove(id: string): { removed: boolean } {
+    this.stop(id);
+    const removed = this.deps.store.delete("governance", this.deps.owner, `trunk-room:${id}`);
+    this.deps.changed();
+    return { removed };
+  }
+  /** Every conversation that belongs to a Trunk through a room: member conversation → Trunk id. */
+  memberConversations(): Map<string, string> {
+    return new Map(this.list().flatMap((room) => Object.entries(room.memberSessions).map(([trunk, session]) => [session, trunk] as const)));
+  }
+  roster(room: Room): RoomMember[] {
+    return room.members.flatMap((id) => {
+      const trunk = this.deps.records.find(id);
+      return trunk ? [{ id, handle: trunk.handle, name: trunk.name }] : [];
+    });
+  }
+  private append(id: string, event: Omit<RoomEvent, "seq" | "at">): Room {
+    const room = this.get(id);
+    room.seq += 1;
+    room.events = [...room.events, { ...event, seq: room.seq, at: new Date().toISOString() }].slice(-maxKeptEvents);
+    return this.put(room);
+  }
+  private flag(room: Room, why: string): void {
+    if (!room.needsYou) this.put({ ...room, needsYou: true });
+    this.deps.notify(room, why);
+  }
+
+  /** The owner speaks. The turns it starts run in the background; `settled` waits for them. */
+  send(id: string, input: unknown): { seq: number } {
+    const { text } = z.object({ text: z.string().trim().min(1).max(8000) }).strict().parse(input);
+    const room = this.append(id, { kind: "user", text });
+    this.put({ ...room, needsYou: this.waiting(id).length > 0 });
+    this.deps.store.message(room.sessionId, { role: "user", content: text });
+    this.kick(id);
+    return { seq: room.seq };
+  }
+  /** Stops the discussion: the member speaking now is cancelled and nobody else is asked. */
+  stop(id: string): { stopped: boolean } {
+    const run = this.running.get(id);
+    if (run) this.deps.runtime.cancel(run);
+    this.append(id, { kind: "stopped", text: "Stopped by the owner" });
+    return { stopped: true };
+  }
+  /** Resolves once the room has nothing left to do for now. */
+  async settled(id: string): Promise<void> {
+    while (this.driving.has(id)) await this.driving.get(id);
+  }
+  kick(id: string): void {
+    if (this.driving.has(id)) return;
+    const work = this.drive(id).catch(() => undefined).finally(() => this.driving.delete(id));
+    this.driving.set(id, work);
+  }
+  private async drive(id: string): Promise<void> {
+    // Each round has a hard cap, so this bound is only a guard against a log that cannot settle.
+    for (let step = 0; step < 40 && !this.closing; step++) {
+      const room = this.get(id);
+      const decision: RoomDecision = nextRoomTurn(room.name, this.roster(room), room.events);
+      if (decision.status === "waiting") return this.flag(room, "A Trunk in the room is waiting for your answer");
+      if (decision.status !== "task") return;
+      await this.turn(room, decision.task);
+    }
+  }
+  private async turn(room: Room, task: RoomTask): Promise<void> {
+    const member = this.deps.records.find(task.memberId);
+    const sessionId = room.memberSessions[task.memberId];
+    if (!member || !sessionId) { this.append(room.id, { kind: "failed", text: "This Trunk is gone", memberId: task.memberId, round: task.round, discussion: task.discussion, seen: task.seen }); return; }
+    let run: Run;
+    try {
+      run = await this.deps.runtime.run({ prompt: task.prompt, sessionId, onStarted: (started) => this.running.set(room.id, started.id), onTextDelta: () => undefined });
+    } catch (error) {
+      if (this.closing) return;
+      this.append(room.id, { kind: "failed", text: error instanceof Error ? error.message : String(error), memberId: member.id, round: task.round, discussion: task.discussion, seen: task.seen });
+      return;
+    } finally { this.running.delete(room.id); }
+    if (!this.closing) this.settleTurn(room.id, task, member.handle, run);
+  }
+  private settleTurn(id: string, task: RoomTask, handle: string, run: Run): void {
+    // A turn that ends after the owner stopped the room is not published.
+    if (this.get(id).events.some((e) => e.kind === "stopped" && e.seq > task.discussion)) return;
+    const base = { memberId: task.memberId, round: task.round, discussion: task.discussion, seen: task.seen };
+    if (run.status === "needs_input") {
+      const room = this.append(id, { ...base, kind: "waiting", text: run.output.slice(0, 2000) });
+      this.flag(room, `@${handle} is waiting for your answer`);
+      return;
+    }
+    if (run.status !== "completed") {
+      this.append(id, { ...base, kind: "failed", text: run.output.slice(0, 2000) });
+      return;
+    }
+    if (isPass(run.output)) { this.append(id, { ...base, kind: "pass", text: "" }); return; }
+    const text = run.output.trim().slice(0, 8000);
+    const room = this.append(id, { ...base, kind: "member", text });
+    this.deps.store.message(room.sessionId, { role: "assistant", content: `@${handle}: ${text}` });
+    if (asksForOwner(text)) this.flag(room, `@${handle} asked for you`);
+  }
+
+  /** The questions the room's members are waiting on, so they can be answered in the room. */
+  waiting(id: string): { memberId: string; sessionId: string; tool: string; target: string; label: string; fingerprint: string | null }[] {
+    const room = this.get(id);
+    return Object.entries(room.memberSessions).filter(([member]) => room.members.includes(member)).flatMap(([memberId, sessionId]) =>
+      this.deps.runtime.waitingApprovals(sessionId).map((q) => ({ memberId, sessionId, tool: q.tool, target: q.target, label: q.label, fingerprint: q.fingerprint ?? null })));
+  }
+  /** Answers a member's question in the room, and lets that member take its turn again. */
+  answer(id: string, input: unknown): unknown {
+    const value = z.object({ memberId: z.string().uuid(), decision: z.enum(["allow", "deny"]),
+      remember: z.enum(["never", "session"]).default("never"), fingerprint: z.string().regex(/^[a-f0-9]{32}$/).optional() }).strict().parse(input);
+    const room = this.get(id);
+    const sessionId = room.memberSessions[value.memberId];
+    if (!sessionId || !room.members.includes(value.memberId)) throw new Error("That Trunk is not in this room");
+    const answered = this.deps.runtime.approve(sessionId, value.decision, value.remember satisfies PolicyRemember, value.fingerprint);
+    const fresh = this.get(id);
+    fresh.events = fresh.events.map((e) => (e.kind === "waiting" && e.memberId === value.memberId ? { ...e, answered: true } : e));
+    this.put({ ...fresh, needsYou: this.waiting(id).length > 0 });
+    this.kick(id);
+    return answered;
+  }
+  /** After a restart: every room with a discussion still open carries on. */
+  resumeAll(): void {
+    for (const room of this.list()) this.kick(room.id);
+  }
+  async close(): Promise<void> {
+    this.closing = true;
+    for (const [room, run] of this.running) { this.deps.runtime.cancel(run); this.running.delete(room); }
+    await Promise.all([...this.driving.values()]);
+  }
+  /** What the room shows: its members, the log, and whether anyone is speaking. */
+  view(id: string) {
+    const room = this.get(id);
+    return { ...room, roster: this.roster(room), speaking: this.driving.has(id), waiting: this.waiting(id) };
+  }
+}

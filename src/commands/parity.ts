@@ -51,7 +51,7 @@ export const PARITY: readonly ParityRow[] = [
   row("Branch or fork a conversation", "/branch (Hermes), /fork (Codex, OpenCode)", "—", "elsewhere", "The window's branch action (session tree); not a typed command yet."),
   row("Show the changes", "/diff (Hermes, Codex, Aider)", "—", "elsewhere", "Receipts in the side pane's Files tab."),
   row("Review the work", "/review (Hermes, Codex)", "—", "elsewhere", "/verify (terminal) and the reviewer switch."),
-  row("Write project instructions", "/init (Hermes, Codex, Gemini, Claude Code)", "—", "elsewhere", "Context files belong to the context-file loader (Legion)."),
+  row("Write project instructions", "/init (Hermes, Codex, Gemini, Claude Code)", "/init", "built", "mac7/r17-d: the model writes AGENTS.md through the context-file loader's writer; follows the \"Writing the project's instruction file\" switch."),
   row("Copy the last answer", "/copy (Hermes, Codex, Gemini, Aider)", "—", "not applicable", "The window has a copy button on each answer; a terminal copies with the mouse."),
   row("Sign in or out", "/login, /logout (Hermes, Codex, OpenClaw), /auth (Gemini)", "—", "not applicable", "Signing in is a Settings screen; a typed command would carry secrets."),
   row("Run a shell command", "/run, /bash, ! (Aider, OpenClaw, Gemini)", "—", "not applicable", "Programs run only as tool calls under the approval rules."),
@@ -59,5 +59,20 @@ export const PARITY: readonly ParityRow[] = [
   row("Mascots and pets", "/pet, /hatch (Hermes), /pets (Codex), /corgi (Gemini)", "—", "not applicable", "Branch draws its own oak instead."),
   row("Vendor account and billing", "/subscription, /topup (Hermes), /upgrade (Gemini)", "—", "not applicable", "Branch has no account of its own."),
   row("Report a bug", "/bug (Gemini), /feedback (Codex), /debug upload (Hermes)", "—", "not applicable", "Nothing is sent anywhere; Settings › Advanced has diagnostics."),
+  // bucket 12
+  row("Your own commands", "custom commands (Claude Code, Gemini CLI, OpenCode, Kilo Code), prompt groups with a command (LibreChat)", "/prompts", "built", "Saved prompts with a command of their own, on every surface with a message box; /prompts lists them and the saved procedures."),
   row("Restart or update", "/restart, /update (Hermes, OpenClaw)", "—", "elsewhere", "The dashboard's restart control and Settings › About."),
+  // r17-b
+  row("Repeat in this conversation", "/loop, /proactive (Hermes), /loop (OpenClaw)", "/loop", "built", "Owner only; one per conversation, at most 100 turns, a minute apart at least."),
+  row("A quiet check on this conversation", "/heartbeat, /hb (Hermes)", "/heartbeat", "built", "Speaks up only with news; five minutes apart at least."),
+  row("More to a goal", "/subgoal (Hermes)", "/subgoal", "built", "The judge counts the goal done only when every sub-goal holds."),
+  row("A task on the side, in its own conversation", "/bg (Hermes)", "/bg", "built", "At most three at once."),
+  row("Carry on elsewhere", "/handoff (Hermes)", "/handoff", "built", "A chat app that has talked to Branch, a terminal, or another assistant."),
+  row("Suggested automations", "/suggestions, /suggest (Hermes)", "/suggestions", "built", "A no is kept for good."),
+  row("Automation blueprints", "/blueprint, /bp (Hermes)", "/blueprint", "built", "The blanks are checked; the owner's own command is the yes."),
+  // r17-h
+  row("The waiting line", "/queue (Hermes)", "/queue", "built", "Reword, move or take out a message before it starts."),
+  row("Typing while it works", "/busy (Hermes); queue, steer or interrupt (Cline)", "/busy", "built", "Owner only; steering uses the same trusted note as the Steer button."),
+  row("Focus view", "/focus (Hermes)", "/focus", "built", "Only the prompt and the final answer; the steps are still one click away with /focus off."),
+  row("Asking for packages and tool servers", "self-modification requests (NanoClaw)", "/installs", "built", "The malware list is asked first; approving works only in the app or the owner's terminal, and nothing installs itself."),
 ];

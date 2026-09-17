@@ -37,6 +37,13 @@ export interface ToolGateOptions {
   source?: RunSource;
   /** Where yeses already given are remembered (a workflow's or conversation's key). */
   approvalKey?: string;
+  /** r17-h integration review: the caller's own stop (a time limit, a cancelled task) reaches the tool too. */
+  signal?: AbortSignal;
+  /**
+   * mac7/lockdown-fix: set when a task (not the owner) started this work, such as a workflow a task
+   * ran: the task's own permissions. Only tools they cover run; the call's context is narrowed to them.
+   */
+  within?: readonly string[];
 }
 
 export interface ToolGateHost {
@@ -44,6 +51,8 @@ export interface ToolGateHost {
   readonly owner: string;
   readonly guards: RunGuards;
   checkPolicy(tool: string, args: unknown, context: ToolContext, fingerprint?: string): PolicyCheck;
+  /** The kind of permission a tool needs; empty for a tool that is not there. */
+  permissionOf(tool: string): string;
   /** The OS sandbox wall, decided exactly as for a task's call: the owner's switch, tightened by rules. */
   wallFor(tool: string, args: unknown, context: ToolContext, choice: PolicyCheck["sandbox"]): Pick<ToolContext, "osSandbox">;
 }
@@ -54,6 +63,9 @@ export const shortLivedKeyRefusal =
   "Your approval settings ask first about this, and a short-lived key cannot say yes. Do it in the app window.";
 export const leakManualRefusal =
   "This address carries a key or password, so it is not opened by hand without a question. Use \"Try a tool\" to be asked, or take the key out of the address.";
+/** mac7/r17-g integration review: a tool whose yes needs an authenticator code is never run by hand without one. */
+export const codeManualRefusal =
+  "A yes to this needs the six-digit code from your authenticator app, and a tool pressed by hand cannot ask for it. Use \"Try a tool\" or ask Branch in a conversation, where the question card takes the code.";
 export const untrustedManualRefusal =
   "This folder is not trusted, so nothing that changes anything in it is done by hand. Trust the folder in Settings first.";
 
@@ -106,6 +118,7 @@ export function manualVerdict(host: ToolGateHost, tool: string, args: unknown, c
   const held = ownerHold(host, check);
   if (held) return { ...base, decision: "deny", reason: key ? forKey(tool, held) : held };
   if (check.decision === "ask" && key) return { ...base, decision: "deny", reason: shortLivedKeyRefusal };
+  if (check.decision === "ask" && check.needsCode) return { ...base, decision: "deny", reason: codeManualRefusal }; // mac7/r17-g
   return { ...base, decision: check.decision, reason: null };
 }
 
@@ -117,12 +130,27 @@ function carriesCredential(args: unknown): boolean {
   return typeof address === "string" && credentialInUrl(address) !== null;
 }
 
+/** mac7/lockdown-fix: what a step is told when the task that started its workflow may not use the tool. */
+export const outsideTaskRefusal = (tool: string): string =>
+  `The task that started this workflow may not use ${tool}, so this step was not run. Start the workflow yourself to use it.`;
+
+/**
+ * mac7/lockdown-fix: a call whose tool is outside its context's permissions is refused here, before
+ * any question is put, so work a task set going can never use a tool that task could not.
+ */
+export function outsideTask(host: Pick<ToolGateHost, "permissionOf">, tool: string, context: Pick<ToolContext, "permissions">): string | null {
+  const permission = host.permissionOf(tool);
+  return permission && !context.permissions.has(permission) ? outsideTaskRefusal(tool) : null;
+}
+
 /**
  * Decides one call. Throws `PolicyRefusedError` or `ApprovalRequiredError`; otherwise answers with
  * the sandbox the matching rule wants, to be put on the context the tool runs with.
  */
 export function gateToolUse(host: ToolGateHost, tool: string, args: unknown, context: ToolContext,
   fingerprint: string, mode: ToolGateMode = "policy"): SandboxScope {
+  const outside = outsideTask(host, tool, context); // mac7/lockdown-fix
+  if (outside) throw refused(tool, tool, outside);
   if (mode === "owner") {
     // The owner is the one asking, so an "ask first" rule of theirs does not stop it.
     const verdict = manualVerdict(host, tool, args, context, fingerprint);

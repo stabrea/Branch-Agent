@@ -74,6 +74,8 @@ export class MemoryReview {
    * The conversation is passed so the learning core can put what helped in similar tasks first.
    */
   orderFacts?: (owner: string, agent?: string, sessionId?: string) => MemoryRecord[];
+  /** R17-S13: the owner's memory budget; `createBranch` connects it, and without it the fixed figures apply. */
+  snapshotLimits?: (owner: string) => { facts: number; chars: number };
   /**
    * Set at start-up: what accepting a skill idea from the learning core does. It returns a skill
    * draft for the existing skill editor to open, pre-filled from the steps; nothing is installed.
@@ -273,9 +275,10 @@ export class MemoryReview {
     if (saved) return { ...(JSON.parse(String(saved.data)) as { text: string; count: number; takenAt: string }), reused: true };
     const lines: string[] = []; let chars = 0;
     const ordered = this.orderFacts?.(owner, agent, sessionId) ?? this.memories.list(owner).filter((r) => visibleTo(r, agent));
-    for (const record of ordered.slice(0, memorySnapshotLimits.facts)) {
+    const limits = this.snapshotLimits?.(owner) ?? memorySnapshotLimits; // R17-S13
+    for (const record of ordered.slice(0, limits.facts)) {
       const line = `- ${String(record.data.text).replace(/\s+/g, " ").trim()}`;
-      if (chars + line.length > memorySnapshotLimits.chars) break;
+      if (chars + line.length > limits.chars) break;
       lines.push(line); chars += line.length + 1;
     }
     const snapshot = { text: lines.join("\n"), count: lines.length, takenAt: new Date().toISOString() };

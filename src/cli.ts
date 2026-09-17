@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { createBranch } from "./index.js";
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { basename, join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defaultPreset, presetsFromEnv } from "./providers.js";
 import { ChatGPTAuth, FileTokenVault } from "./chatgpt-auth.js";
@@ -16,6 +16,7 @@ import { startTui } from "./terminal-tui.js";
 import { looksInteractive } from "./terminal-style.js";
 import { runTerminalCommand, terminalArgv, terminalCommandNames, versionText } from "./terminal-cli.js";
 import { asksForHelp, cliCommands, commandHelp, completionScript, usageText } from "./cli-completion.js";
+import { nodeCommand } from "./devices/node/cli.js"; // mac7/nodes
 // Batch 20 (wave 8): short-lived keys, schedules and the attach client for the running engine.
 import { connect, conversations, messagesOf, since, transcriptLines } from "./cli-attach.js";
 import { scopeDescriptions } from "./session-tokens.js";
@@ -29,6 +30,7 @@ import {
 import { parseHeadlessArgs, promptsFromScript, runHeadless } from "./headless.js";
 import { serveMcpStdio } from "./mcp-stdio.js";
 import { serveAcpStdio } from "./acp.js";
+import { serveAppServerStdio } from "./asks/app-server.js"; // mac6/bucket-23
 import { healthReport } from "./health.js";
 import { summaryLine } from "./evaluation-runner.js";
 import { runMemoryEvaluation } from "./memory-evaluation.js";
@@ -39,6 +41,7 @@ import { readFile, writeFile } from "node:fs/promises";
 // Wave 5 (deployment): background running and setting-up repairs.
 import { daemonCommand, daemonLauncherName, type DaemonAction } from "./install/daemon.js";
 import { doctorFix, doctorText } from "./doctor-fix.js";
+import { activityCommand } from "./safety-extras/cli.js"; // mac7/r17-g
 // mac3/security-check: the security self-check on the command line.
 import { securityAuditCommand } from "./security-audit/api.js";
 import { probeAll } from "./provider-probe.js";
@@ -50,6 +53,10 @@ import { createRequire } from "node:module";
 import { joinGateway, runGatewayIfSwitchedOn } from "./never-break/worker-link.js";
 import { selfTestCommand } from "./never-break/self-test.js";
 // --- end mac3/never-break ---
+// --- bucket 22: commands a script uses to manage an installed Branch (src/install/manage-cli.ts) ---
+import { manageCommand } from "./install/manage-cli.js";
+import { bringInShareable, shareableSections } from "./interop/agent-market.js";
+// --- end bucket 22 ---
 
 async function configuredApp(options: Parameters<typeof createBranch>[0]) {
   const app = await createBranch(options);
@@ -86,6 +93,7 @@ async function serve(
   dataDir: string,
   close: () => Promise<void>,
 ): Promise<void> {
+  let stopEngine: (() => Promise<void>) | undefined; // bucket 22
   const port = Number(process.env.BRANCH_PORT ?? 3210);
   if (!Number.isInteger(port) || port < 0 || port > 65535)
     throw new Error("Invalid BRANCH_PORT");
@@ -94,6 +102,8 @@ async function serve(
     dataDir, port, ...(link ? {} : { presence: "daemon" as const }),
     executable: process.env.BRANCH_EXECUTABLE ?? null,
     installRoot: process.env.BRANCH_INSTALL_ROOT ?? null,
+    // bucket 22: `branch quit` is the same stop as Ctrl+C (an engine run by the gateway is stopped through the gateway).
+    ...(link ? {} : { quit: () => void stopEngine?.() }),
   });
   console.log(
     `Branch Agent listening at ${server.url}\nProvider: ${app.runtime.provider.name}\nWorkspace: ${app.runtime.workspace}\nLocal session token (paste into browser): ${server.token}`,
@@ -110,6 +120,8 @@ async function serve(
   };
   process.once("SIGINT", () => void stop());
   process.once("SIGTERM", () => void stop());
+  // bucket 22: after a `branch quit`, leave even if something still holds the process open.
+  stopEngine = () => stop().finally(() => { setTimeout(() => process.exit(0), 1000).unref(); });
   // mac3/never-break: tell the gateway where the engine is, and close when it asks or goes away.
   link?.onStop(stop);
   link?.ready(Number(new URL(server.url).port), app.version);
@@ -121,6 +133,16 @@ async function main(): Promise<void> {
   // Branch command they mean; `version` needs nothing opened. See src/terminal-cli.ts.
   const inTerminal = looksInteractive(process.env, process.stdout.isTTY === true && process.stdin.isTTY === true);
   process.argv.splice(2, Infinity, ...terminalArgv(process.argv.slice(2), inTerminal));
+  // ---- bucket 22: `--version --json`, `quit`, `uninstall` and an installed copy's `update` ----
+  if (!asksForHelp(process.argv.slice(3))) {
+    const code = await manageCommand(process.argv.slice(2), {
+      env: process.env, platform: process.platform, print: (line) => console.log(line),
+      version: String(createRequire(import.meta.url)("../package.json").version),
+      packageRoot: dirname(dirname(fileURLToPath(import.meta.url))),
+    });
+    if (code !== null) { process.exitCode = code; return; }
+  }
+  // ---- end of the bucket 22 block
   if (process.argv[2] === "version" && !asksForHelp(process.argv.slice(3))) { console.log(versionText()); return; }
   // ---- end of the terminal block
   const command = process.argv[2] ?? "start";
@@ -130,6 +152,12 @@ async function main(): Promise<void> {
     console.log(commandHelp(command));
     return;
   }
+  // ---- mac7/nodes: `branch node` lends this computer to Branch elsewhere; it opens no workspace or database. ----
+  if (command === "node") {
+    process.exitCode = await nodeCommand({ argv: process.argv.slice(3), env: process.env, platform: process.platform, print: (line) => console.log(line) });
+    return;
+  }
+  // ---- end mac7/nodes ----
   if (command === "update") return updateCheckout();
   if (command === "daemon") return runDaemonCommand();
   // Printing a completion script or the command list needs no workspace, database or integrations.
@@ -143,6 +171,13 @@ async function main(): Promise<void> {
   // These two talk to the engine that is already running and never start one of their own, so they
   // come before the workspace and the database are opened at all.
   if (command === "schedule") return scheduleCommand(dataDir);
+  // --- mac7/connect: `branch connect <chat app>` (src/channel-setup/cli.ts) ---
+  if (command === "connect") {
+    const { connectCommand } = await import("./channel-setup/cli.js");
+    process.exitCode = await connectCommand(process.argv.slice(3), { dataDir, workspace });
+    return;
+  }
+  // --- end mac7/connect ---
   // --- mac3/never-break: a new version checking itself on a copy of the data before an update ---
   if (command === "start" && process.env.BRANCH_SELF_TEST)
     return selfTestCommand(process.env.BRANCH_SELF_TEST, { dataDir, workspace, version: String(createRequire(import.meta.url)("../package.json").version) });
@@ -190,6 +225,10 @@ async function main(): Promise<void> {
     } else if (command === "acp-serve") {
       await serveAcpStdio(app.runtime, app.store);
       return;
+    } else if (command === "app-server") {
+      // mac6/bucket-23 (A0032): the app-server protocol on standard input and output, while switched on.
+      await serveAppServerStdio(app.runtime, app.version);
+      return;
     }
     // Wave mac3 (terminal): places, Settings pages and the everyday commands, in src/terminal-cli.ts.
     if (terminalCommandNames.has(command)) {
@@ -221,6 +260,8 @@ async function main(): Promise<void> {
       return;
     }
     if (command === "trace") { traceCommand(app); return; }
+    // mac7/r17-g: `branch activity verify [--tip <hash>] [--json]` checks the tamper-evident chain.
+    if (command === "activity") { process.exitCode = activityCommand(app.safetyExtras.chain, app.runtime.owner, process.argv.slice(3)); return; }
     if (command === "eval") {
       await runEvaluation(app);
       return;
@@ -267,6 +308,16 @@ async function agentPortability(app: Awaited<ReturnType<typeof configuredApp>>["
   console.log(`Exported ${opened.manifest.exportedAt} by Branch ${opened.manifest.appVersion}. Inside:`);
   for (const section of opened.manifest.sections) console.log(`  ${section.name}: ${section.summary}`);
   const chosen = (flag("sections") ?? "").split(",").map((name) => name.trim()).filter(Boolean);
+  // bucket 22 integration: an installer's `--assistant` file follows a market's rules (only the parts
+  // that cannot widen anything, yours kept, new skills off), never the whole-file import below.
+  if (process.argv.includes("--shareable-only")) {
+    const parts = shareableSections.filter((name) => chosen.includes(name));
+    const label = { subject: `${basename(target)}, a custom distribution`, from: "Brought in by the installer" };
+    for (const report of parts.length ? bringInShareable(app.store, app.runtime.owner, opened, parts, label) : [])
+      console.log(`  ${report.section}: ${report.brought} ${report.note}`);
+    if (!parts.length) console.log(`Nothing was brought in. Choose parts with --sections ${shareableSections.join(",")}`);
+    return;
+  }
   const wanted = agentSections.filter((name) => chosen.includes(name));
   if (!wanted.length) {
     console.log(`Nothing was brought in. Choose parts with --sections ${agentSections.join(",")}`);

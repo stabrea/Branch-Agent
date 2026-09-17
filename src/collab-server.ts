@@ -176,7 +176,9 @@ async function profilesApi(app: Branch, request: IncomingMessage, path: string, 
   if (remove && request.method === "POST") {
     profiles.requireOwner("Removing somebody from this computer");
     await body();
-    return profiles.remove(remove[1]!);
+    const removed = profiles.remove(remove[1]!);
+    if (removed.removed) app.people.forgetProfile(remove[1]!); // bucket 19: their sign-ins, passkeys and shares go too
+    return removed;
   }
   return notCollab;
 }
@@ -197,7 +199,8 @@ export async function runForCurrentPerson(app: Branch, options: RunOptions): Pro
     throw new Error("Conversation not found");
   if (options.sessionId) app.store.reassignSession(options.sessionId, app.runtime.owner);
   try {
-    const run = await app.runtime.run(options);
+    // bucket 19 (integration review): the task writes down whose conversation is lent (src/people/lending.ts).
+    const run = await app.runtime.run({ ...options, lentTo: scope });
     app.store.reassignSession(run.sessionId, scope);
     return run;
   } catch (error) {

@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { z } from "zod";
-import { agentManifestEntry, exportAgent, importAgent, openAgent, type AgentSection, type OpenedAgent } from "../agent-export.js";
+import { agentManifestEntry, exportAgent, importAgent, openAgent, type AgentImportReport, type AgentSection, type OpenedAgent } from "../agent-export.js";
 import { audit } from "../audit.js";
 import type { WorkspaceFiles } from "../files.js";
 import type { NetworkPolicy } from "../network-policy.js";
@@ -24,7 +24,7 @@ import { requireInterop } from "./settings.js";
  * independent implementation over Branch's own export format.
  */
 export const shareableSections = ["specialists", "procedures", "skills"] as const satisfies readonly AgentSection[];
-type Shareable = (typeof shareableSections)[number];
+export type Shareable = (typeof shareableSections)[number];
 const maxIndexBytes = 256 * 1024;
 const maxPackageBytes = 16 * 1024 * 1024;
 const indexesKey = "interop-market-indexes";
@@ -111,6 +111,26 @@ function withoutYours(store: Store, owner: string, opened: OpenedAgent): { opene
   return { opened: { ...opened, files }, kept };
 }
 
+/**
+ * An assistant file that has already been opened (every part checked against its fingerprint),
+ * brought in under a market's rules: only specialists, saved procedures and skills, never one of
+ * yours rewritten, and every new skill switched off. Also used for an installer's `--assistant` file.
+ */
+export function bringInShareable(store: Store, owner: string, opened: OpenedAgent, chosen: readonly Shareable[],
+  label: { subject: string; from: string }): AgentImportReport[] {
+  const sections = shareableSections.filter((name) => chosen.includes(name));
+  const before = new Set(store.skills.list(owner).map((s) => s.id));
+  const trimmed = withoutYours(store, owner, opened);
+  const reports = importAgent(store, owner, trimmed.opened, sections);
+  if (trimmed.kept) reports.push({ section: "specialists", brought: 0, note: `kept yours: ${trimmed.kept} with a name you already use were left out` });
+  for (const skill of store.skills.list(owner))
+    if (!before.has(skill.id) && skill.activeVersion !== null)
+      store.skills.disable(owner, skill.id, { expectedRevision: skill.revision });
+  audit(store, owner, { action: "data.imported", actor: owner, subject: label.subject,
+    reason: `${label.from}: ${sections.join(", ")}; new skills are switched off`, outcome: "saved" });
+  return reports.filter((r) => r.note !== "left out");
+}
+
 export class AgentMarket {
   constructor(private readonly store: Store, private readonly owner: string, private readonly policy: NetworkPolicy,
     private readonly files: WorkspaceFiles, private readonly appVersion: string,
@@ -156,16 +176,9 @@ export class AgentMarket {
   async install(url: string, id: string, chosen: unknown) {
     const sections = z.array(z.enum(shareableSections)).min(1).max(3).parse(chosen);
     const { entry, opened } = await this.open(url, id);
-    const before = new Set(this.store.skills.list(this.owner).map((s) => s.id));
-    const trimmed = withoutYours(this.store, this.owner, opened);
-    const reports = importAgent(this.store, this.owner, trimmed.opened, sections);
-    if (trimmed.kept) reports.push({ section: "specialists", brought: 0, note: `kept yours: ${trimmed.kept} with a name you already use were left out` });
-    for (const skill of this.store.skills.list(this.owner))
-      if (!before.has(skill.id) && skill.activeVersion !== null)
-        this.store.skills.disable(this.owner, skill.id, { expectedRevision: skill.revision });
-    audit(this.store, this.owner, { action: "data.imported", actor: this.owner, subject: `${entry.name} from ${new URL(url).host}`,
-      reason: `Brought in from a market: ${sections.join(", ")}; new skills are switched off`, outcome: "saved" });
-    return { entry, reports: reports.filter((r) => r.note !== "left out") };
+    const reports = bringInShareable(this.store, this.owner, opened, sections,
+      { subject: `${entry.name} from ${new URL(url).host}`, from: "Brought in from a market" });
+    return { entry, reports };
   }
   /** Writes this assistant's shareable parts and the market list into a workspace folder. */
   async publish(input: unknown) {

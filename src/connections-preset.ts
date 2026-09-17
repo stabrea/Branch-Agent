@@ -1,3 +1,4 @@
+import { gatewayModel } from "./asks/model-gateway.js"; // mac6/bucket-23 (A1012)
 import { z } from "zod";
 import type { Provider } from "./contracts.js";
 import type { Locker } from "./locker.js";
@@ -210,7 +211,8 @@ export async function connectFromPreset(deps: FromPresetDeps, input: unknown): P
   const id = uniqueId(deps.models, asked.provider);
   const built = buildConnection({
     provider: asked.provider, key: asked.key, extras: asked.extras,
-    ...(asked.model ? { model: asked.model } : {}),
+    // mac6/bucket-23 (A1012): "vendor/model" or a bare name, spelled the way this service wants it.
+    ...(asked.model ? { model: gatewayModel(entry.id, asked.model) } : {}),
     policy: deps.policy, fetchImpl: deps.models.health.watch(id, call),
   });
   const list = modelsAddress(entry, built.baseUrl);

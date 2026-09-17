@@ -6,6 +6,7 @@ import { PolicyInputSchema } from "./policy.js";
 import { WorkflowSchema } from "./workflows.js";
 import { ProjectSchema } from "./projects.js";
 import { CommandRunSchema, CommandSettingsSchema } from "./commands/settings.js";
+import { FlowYamlImportSchema } from "./flow-yaml.js";
 
 /**
  * Branch's own web API, described the way every other program expects to be told: an OpenAPI 3
@@ -60,6 +61,11 @@ export const apiRoutes: readonly ApiRoute[] = [
   { method: "get", path: "/api/flows", summary: "Saved flows as boxes and arrows.", tag: "flows" },
   { method: "post", path: "/api/flows", summary: "Save a flow.", tag: "flows", body: WorkflowSchema },
   { method: "post", path: "/api/flows/{flowId}/run", summary: "Start a saved flow.", tag: "flows" },
+  // Bucket 21: flows written out and read back as YAML, and the switch for building on Branch.
+  { method: "get", path: "/api/flows/{flowId}/yaml", summary: "One saved flow written as YAML (building on Branch must be switched on).", tag: "flows" },
+  { method: "post", path: "/api/flows/yaml", summary: "Save a flow written as YAML, always as a new flow (building on Branch must be switched on).", tag: "flows", body: FlowYamlImportSchema },
+  { method: "get", path: "/api/sdk-kit", summary: "The switch for building on Branch, the clients for each language, and the tools to share.", tag: "developer" },
+  { method: "post", path: "/api/sdk-kit", summary: "Change that switch (the owner only).", tag: "developer", bodyNote: "{ mode: \"off\" | \"on\" | \"when-needed\" }" },
   { method: "get", path: "/api/policy", summary: "The approval settings.", tag: "settings" },
   { method: "post", path: "/api/policy", summary: "Change the approval settings.", tag: "settings", body: PolicyInputSchema },
   { method: "get", path: "/api/lockdown", summary: "Whether Lockdown is on.", tag: "settings" },

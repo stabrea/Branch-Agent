@@ -189,6 +189,8 @@ allowed to name a colour and no others may be added without a reason written dow
 
 - `public/deployment.js` paints the square code for the phone in plain black on plain white,
   because a phone camera needs that contrast to read it, in either theme.
+- `public/channel-setup.js` paints the square codes of the Set up a chat app panel (mac7/connect)
+  black on white for the same reason as the phone code.
 - `public/update-screen.js` carries the palette of the little figure who walks across the screen
   while an update installs. It is a picture, not a surface.
 - `public/flows.js` passes a token to the SVG with a colour after it as a safety net. The token is

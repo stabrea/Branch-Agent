@@ -387,7 +387,7 @@ function controlsCard(summary, actions) {
   if (restart.disabled) restart.title = restartWords(summary.health.engine.restart.reason);
   row2.append(restart);
   box.append(row2, make("p", "db-quiet", say("dashboard.controls.lockdownNote",
-    "While Lockdown is on, nothing is sent out and everything waits for your yes.")));
+    "While Lockdown is on, commands, programs, your screen and your other devices are refused without asking, nothing is sent out, and everything else waits for your yes.")));
   return box;
 }
 

@@ -11,6 +11,12 @@ import { answerFromHandbook } from "./docs-answer.js";
 import { tokenLines, tokenReport } from "./tokens.js";
 import { runningLines, statusLines, whoamiLines } from "./status.js";
 import { helpText } from "./help-text.js";
+import { promptsCommand } from "./saved.js";
+import { trunkCommand } from "./trunk.js"; // R17-A
+import { accountCommand } from "./account.js"; // mac6/accounts
+import { BOARD_HANDLERS } from "../flows-boards/commands.js"; // r17-h
+import { AUTONOMY_HANDLERS } from "../autonomy/commands.js"; // r17-b
+import { initCommand } from "../coding/commands.js"; // mac7/r17-d
 
 /**
  * What each command does when it is carried out for a surface that has no code of its own for it:
@@ -25,7 +31,11 @@ export type ClientAction =
   | { do: "new" } | { do: "attach" } | { do: "refresh-model" } | { do: "help" }
   | { do: "download"; name: string; text: string }
   | { do: "open-session"; id: string }
-  | { do: "theme"; name: string };
+  | { do: "theme"; name: string }
+  // bucket 12: send the finished text as the next message, or only put it in the message box
+  | { do: "send"; text: string } | { do: "fill"; text: string }
+  // r17-h: focus view on, off, or switched (public/flows-boards.js)
+  | { do: "focus"; on: boolean | null };
 export interface Reply { text: string; client?: ClientAction }
 
 interface GoalView { status: string; round: number; maxRounds: number; objective: string; reason?: string; sessionId: string }
@@ -118,12 +128,12 @@ function defaultModel(call: Call): Reply {
 }
 function lockdown(call: Call): Reply {
   const { store, owner } = call.host.runtime, wanted = onOff(call.argument);
-  if (!call.argument) return say(lockdownState(store, owner).on ? "Lockdown is on. Everything waits for your yes." : "Lockdown is off.");
+  if (!call.argument) return say(lockdownState(store, owner).on ? "Lockdown is on. Commands are refused; all else asks you." : "Lockdown is off.");
   if (wanted === null) return say("Send /lockdown on or /lockdown off.");
   const state = setLockdown(store, owner, { on: wanted });
   // As the route does: turning it on also ends the yeses already given.
   if (state.on) call.host.runtime.approvals.forgetAll();
-  return say(state.on ? "Lockdown is on. Everything waits for your yes." : "Lockdown is off.");
+  return say(state.on ? "Lockdown is on. Commands are refused; all else asks you." : "Lockdown is off.");
 }
 function toggle(what: "plan" | "temporary"): Handler {
   return (call) => say(`Changing ${what === "plan" ? "plan first" : "temporary"}.`, { do: "toggle", what, on: onOff(call.argument) });
@@ -240,4 +250,10 @@ export const HANDLERS: Record<string, Handler> = {
   whoami: (call) => say(whoamiLines(call).join("\n")),
   version: (call) => say(`Branch Agent ${call.host.version ?? "(version unknown)"}`),
   health,
+  prompts: promptsCommand, // bucket 12
+  trunk: trunkCommand, // R17-A
+  account: accountCommand, // mac6/accounts
+  ...AUTONOMY_HANDLERS, // r17-b: /loop, /heartbeat, /subgoal, /bg, /handoff, /suggestions, /blueprint
+  init: initCommand, // mac7/r17-d
+  ...BOARD_HANDLERS, // r17-h: /queue, /busy, /focus, /installs
 };

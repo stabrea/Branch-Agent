@@ -1,0 +1,2684 @@
+{
+ "version": 1,
+ "checked": "2026-09-17",
+ "note": "How to get each chat app and make its bot, one recipe per channel Branch supports. Only official packages and links. See docs/configuration.md, Setting up a chat app in one command.",
+ "recipes": [
+  {
+   "id": "telegram",
+   "name": "Telegram",
+   "family": "core",
+   "turnOn": "guided",
+   "app": {
+    "name": "Telegram",
+    "download": "https://desktop.telegram.org/",
+    "winget": "Telegram.TelegramDesktop",
+    "brew": "telegram",
+    "flatpak": "org.telegram.desktop",
+    "snap": "telegram-desktop",
+    "macApp": "Telegram.app"
+   },
+   "stores": {
+    "ios": "https://apps.apple.com/app/id686449807",
+    "android": "https://play.google.com/store/apps/details?id=org.telegram.messenger"
+   },
+   "create": {
+    "url": "https://t.me/BotFather?text=%2Fnewbot",
+    "how": "BotFather opens with /newbot already typed. Send it, then give the bot a name and a username ending in bot. BotFather answers with the token.",
+    "prefilled": true,
+    "app": "tg://resolve?domain=BotFather&text=%2Fnewbot"
+   },
+   "paste": [
+    {
+     "secret": "TELEGRAM_BOT_TOKEN",
+     "what": "The token BotFather sends: digits, a colon, then a long run of letters",
+     "pattern": "^\\d{5,15}:[A-Za-z0-9_-]{30,64}$"
+    }
+   ],
+   "check": {
+    "method": "GET",
+    "url": "https://api.telegram.org/bot{{TELEGRAM_BOT_TOKEN}}/getMe",
+    "auth": {
+     "kind": "path",
+     "secret": "TELEGRAM_BOT_TOKEN"
+    },
+    "ok": "ok",
+    "docs": "https://core.telegram.org/bots/api#getme",
+    "name": "result.username",
+    "okValue": true
+   },
+   "pairing": "Send any message to your bot in Telegram. It answers with a six-digit code; type that code here.",
+   "sources": [
+    "https://core.telegram.org/api/links",
+    "https://core.telegram.org/bots/features",
+    "https://formulae.brew.sh/cask/telegram",
+    "https://flathub.org/apps/org.telegram.desktop",
+    "https://snapcraft.io/telegram-desktop",
+    "https://desktop.telegram.org/"
+   ],
+   "fields": []
+  },
+  {
+   "id": "discord",
+   "name": "Discord",
+   "family": "core",
+   "turnOn": "file",
+   "app": {
+    "name": "Discord",
+    "download": "https://discord.com/download",
+    "winget": "Discord.Discord",
+    "brew": "discord",
+    "flatpak": "com.discordapp.Discord",
+    "macApp": "Discord.app"
+   },
+   "stores": {
+    "ios": "https://apps.apple.com/app/id985746746",
+    "android": "https://play.google.com/store/apps/details?id=com.discord"
+   },
+   "create": {
+    "url": "https://discord.com/developers/applications?new_application=true",
+    "how": "Name the application, open Bot, press Reset Token and copy it. Switch on Message Content Intent on the same page.",
+    "prefilled": false
+   },
+   "paste": [
+    {
+     "secret": "DISCORD_BOT_TOKEN",
+     "what": "The bot token from the Bot page"
+    }
+   ],
+   "check": {
+    "method": "GET",
+    "url": "https://discord.com/api/v10/users/@me",
+    "auth": {
+     "kind": "bot",
+     "secret": "DISCORD_BOT_TOKEN"
+    },
+    "ok": "id",
+    "docs": "https://discord.com/developers/docs/resources/user#get-current-user",
+    "name": "username"
+   },
+   "entry": {
+    "type": "discord",
+    "id": "discord",
+    "tokenSecret": "DISCORD_BOT_TOKEN"
+   },
+   "pairing": "Invite the bot to your server and send it a direct message. It answers with a six-digit code; approve it under Customize, Chat apps.",
+   "sources": [
+    "https://discord.com/developers/docs/quick-start/getting-started",
+    "https://formulae.brew.sh/cask/discord",
+    "https://flathub.org/apps/com.discordapp.Discord"
+   ],
+   "fields": []
+  },
+  {
+   "id": "slack",
+   "name": "Slack",
+   "family": "core",
+   "turnOn": "file",
+   "app": {
+    "name": "Slack",
+    "download": "https://slack.com/downloads",
+    "winget": "SlackTechnologies.Slack",
+    "brew": "slack",
+    "snap": "slack",
+    "macApp": "Slack.app"
+   },
+   "stores": {
+    "ios": "https://apps.apple.com/app/id618783545",
+    "android": "https://play.google.com/store/apps/details?id=com.Slack"
+   },
+   "create": {
+    "url": "https://api.slack.com/apps?new_app=1&manifest_json={{manifest}}",
+    "how": "Slack opens its new-app page with Branch's settings filled in. Pick your workspace and press Create, then Install. Copy the Bot User OAuth Token, and under Basic Information make an app-level token with connections:write.",
+    "prefilled": true
+   },
+   "manifest": {
+    "display_information": {
+     "name": "Branch"
+    },
+    "features": {
+     "bot_user": {
+      "display_name": "Branch",
+      "always_online": true
+     }
+    },
+    "oauth_config": {
+     "scopes": {
+      "bot": [
+       "app_mentions:read",
+       "chat:write",
+       "im:history",
+       "im:read",
+       "im:write",
+       "channels:history",
+       "groups:history",
+       "files:read",
+       "files:write",
+       "reactions:write"
+      ]
+     }
+    },
+    "settings": {
+     "event_subscriptions": {
+      "bot_events": [
+       "app_mention",
+       "message.im",
+       "message.channels",
+       "message.groups"
+      ]
+     },
+     "socket_mode_enabled": true,
+     "org_deploy_enabled": false,
+     "token_rotation_enabled": false
+    }
+   },
+   "paste": [
+    {
+     "secret": "SLACK_BOT_TOKEN",
+     "what": "The Bot User OAuth Token, starting xoxb-",
+     "pattern": "^xoxb-[A-Za-z0-9-]{20,250}$"
+    },
+    {
+     "secret": "SLACK_APP_TOKEN",
+     "what": "The app-level token, starting xapp-",
+     "pattern": "^xapp-[A-Za-z0-9-]{20,250}$"
+    }
+   ],
+   "check": {
+    "method": "POST",
+    "url": "https://slack.com/api/auth.test",
+    "auth": {
+     "kind": "bearer",
+     "secret": "SLACK_BOT_TOKEN"
+    },
+    "ok": "ok",
+    "docs": "https://docs.slack.dev/reference/methods/auth.test",
+    "name": "user",
+    "okValue": true
+   },
+   "entry": {
+    "type": "slack",
+    "id": "slack",
+    "tokenSecret": "SLACK_BOT_TOKEN",
+    "appTokenSecret": "SLACK_APP_TOKEN"
+   },
+   "pairing": "Send the app a direct message in Slack. It answers with a six-digit code; approve it under Customize, Chat apps.",
+   "sources": [
+    "https://docs.slack.dev/app-manifests/configuring-apps-with-app-manifests",
+    "https://formulae.brew.sh/cask/slack",
+    "https://snapcraft.io/slack"
+   ],
+   "fields": []
+  },
+  {
+   "id": "whatsapp",
+   "name": "WhatsApp Business",
+   "family": "core",
+   "turnOn": "file",
+   "app": {
+    "name": "WhatsApp",
+    "download": "https://www.whatsapp.com/download",
+    "brew": "whatsapp",
+    "macApp": "WhatsApp.app"
+   },
+   "stores": {
+    "ios": "https://apps.apple.com/app/id1386412985",
+    "android": "https://play.google.com/store/apps/details?id=com.whatsapp.w4b"
+   },
+   "create": {
+    "url": "https://developers.facebook.com/docs/whatsapp/cloud-api/get-started",
+    "how": "Make a Meta app with the WhatsApp product, then copy the access token, the phone number ID and the app secret from its pages.",
+    "prefilled": false
+   },
+   "fields": [
+    {
+     "name": "phoneNumberId",
+     "what": "The phone number ID shown under WhatsApp, API Setup",
+     "kind": "text",
+     "pattern": "^\\d{5,32}$"
+    }
+   ],
+   "paste": [
+    {
+     "secret": "WHATSAPP_TOKEN",
+     "what": "The access token"
+    },
+    {
+     "secret": "WHATSAPP_APP_SECRET",
+     "what": "The app secret"
+    },
+    {
+     "secret": "WHATSAPP_VERIFY_TOKEN",
+     "what": "A word of your own choosing, typed into WhatsApp's webhook page too"
+    }
+   ],
+   "noCheck": "Meta's read-only check needs the token inside the address, which Branch never does, so the token is checked when WhatsApp first posts to Branch.",
+   "entry": {
+    "type": "whatsapp",
+    "id": "whatsapp",
+    "phoneNumberId": "{{phoneNumberId}}"
+   },
+   "pairing": "Send a WhatsApp message to the business number. It answers with a six-digit code; approve it under Customize, Chat apps.",
+   "sources": [
+    "https://developers.facebook.com/docs/whatsapp/cloud-api/get-started",
+    "https://formulae.brew.sh/cask/whatsapp"
+   ]
+  },
+  {
+   "id": "email",
+   "name": "Email",
+   "family": "core",
+   "turnOn": "file",
+   "noApp": "Any mail program works, and Branch reads the mailbox itself, so there is nothing to install.",
+   "noCreate": "Each mail service has its own page for app passwords; Branch cannot pick one for you.",
+   "steps": [
+    "Turn on two-step sign-in with your mail service.",
+    "Make an app password on its security page (Google: myaccount.google.com/apppasswords).",
+    "Paste the app password here. Add the IMAP and SMTP servers to the connections line."
+   ],
+   "paste": [
+    {
+     "secret": "EMAIL_PASSWORD",
+     "what": "The app password (not your usual password)"
+    }
+   ],
+   "noCheck": "Mail is checked by signing in to the IMAP server when Branch starts, not by a web request.",
+   "entry": {
+    "type": "email",
+    "id": "email",
+    "address": "…",
+    "imap": {
+     "host": "…",
+     "port": 993,
+     "user": "…"
+    },
+    "smtp": {
+     "host": "…",
+     "port": 465,
+     "user": "…"
+    }
+   },
+   "sources": [
+    "https://support.google.com/accounts/answer/185833"
+   ],
+   "fields": []
+  },
+  {
+   "id": "messenger",
+   "name": "Facebook Messenger",
+   "family": "core",
+   "turnOn": "file",
+   "noApp": "Messenger's desktop app has been retired; the page is managed on the web.",
+   "stores": {
+    "ios": "https://apps.apple.com/app/id454638411",
+    "android": "https://play.google.com/store/apps/details?id=com.facebook.orca"
+   },
+   "create": {
+    "url": "https://developers.facebook.com/docs/messenger-platform/getting-started/quick-start",
+    "how": "Make a Meta app with the Messenger product, link your page, and copy the page access token and the app secret.",
+    "prefilled": false
+   },
+   "fields": [
+    {
+     "name": "pageId",
+     "what": "Your page's ID",
+     "kind": "text",
+     "pattern": "^\\d{5,32}$"
+    }
+   ],
+   "paste": [
+    {
+     "secret": "META_PAGE_TOKEN",
+     "what": "The page access token"
+    },
+    {
+     "secret": "META_APP_SECRET",
+     "what": "The app secret"
+    },
+    {
+     "secret": "META_VERIFY_TOKEN",
+     "what": "A word of your own choosing, typed into Meta's webhook page too"
+    }
+   ],
+   "noCheck": "Meta's read-only check needs the token inside the address, which Branch never does.",
+   "entry": {
+    "type": "messenger",
+    "id": "messenger",
+    "pageId": "{{pageId}}"
+   },
+   "sources": [
+    "https://developers.facebook.com/docs/messenger-platform/getting-started/quick-start"
+   ]
+  },
+  {
+   "id": "instagram",
+   "name": "Instagram",
+   "family": "core",
+   "turnOn": "file",
+   "noApp": "Instagram has no desktop app to install; messages are handled through Meta's developer site.",
+   "stores": {
+    "ios": "https://apps.apple.com/app/id389801252",
+    "android": "https://play.google.com/store/apps/details?id=com.instagram.android"
+   },
+   "create": {
+    "url": "https://developers.facebook.com/docs/instagram-platform/instagram-api-with-instagram-login/messaging-api",
+    "how": "Make a Meta app with Instagram messaging for your professional account, then copy its token and app secret.",
+    "prefilled": false
+   },
+   "fields": [
+    {
+     "name": "pageId",
+     "what": "Your Instagram professional account's ID",
+     "kind": "text",
+     "pattern": "^\\d{5,32}$"
+    }
+   ],
+   "paste": [
+    {
+     "secret": "META_PAGE_TOKEN",
+     "what": "The access token"
+    },
+    {
+     "secret": "META_APP_SECRET",
+     "what": "The app secret"
+    },
+    {
+     "secret": "META_VERIFY_TOKEN",
+     "what": "A word of your own choosing, typed into Meta's webhook page too"
+    }
+   ],
+   "noCheck": "Meta's read-only check needs the token inside the address, which Branch never does.",
+   "entry": {
+    "type": "instagram",
+    "id": "instagram",
+    "pageId": "{{pageId}}"
+   },
+   "sources": [
+    "https://developers.facebook.com/docs/instagram-platform/instagram-api-with-instagram-login/messaging-api"
+   ]
+  },
+  {
+   "id": "matrix",
+   "name": "Matrix (Element)",
+   "family": "core",
+   "turnOn": "file",
+   "app": {
+    "name": "Element",
+    "download": "https://element.io/download",
+    "winget": "Element.Element",
+    "brew": "element",
+    "macApp": "Element.app"
+   },
+   "stores": {
+    "ios": "https://apps.apple.com/app/id1631335820",
+    "android": "https://play.google.com/store/apps/details?id=io.element.android.x"
+   },
+   "create": {
+    "url": "https://app.element.io/#/register",
+    "how": "Make a separate account for the assistant on your homeserver, sign in with it, and copy its access token from Settings, Help and About.",
+    "prefilled": false
+   },
+   "fields": [
+    {
+     "name": "server",
+     "what": "Your homeserver's address, for example https://matrix.org",
+     "kind": "url"
+    },
+    {
+     "name": "userId",
+     "what": "The assistant's Matrix id, like @branch:matrix.org",
+     "kind": "text",
+     "pattern": "^@[^:\\s]+:[^\\s]+$"
+    }
+   ],
+   "paste": [
+    {
+     "secret": "MATRIX_ACCESS_TOKEN",
+     "what": "The assistant account's access token"
+    }
+   ],
+   "check": {
+    "method": "GET",
+    "url": "{{server}}/_matrix/client/v3/account/whoami",
+    "auth": {
+     "kind": "bearer",
+     "secret": "MATRIX_ACCESS_TOKEN"
+    },
+    "ok": "user_id",
+    "docs": "https://spec.matrix.org/latest/client-server-api/#get_matrixclientv3accountwhoami",
+    "name": "user_id"
+   },
+   "entry": {
+    "type": "matrix",
+    "id": "matrix",
+    "homeserver": "{{server}}",
+    "userId": "{{userId}}"
+   },
+   "sources": [
+    "https://element.io/download",
+    "https://formulae.brew.sh/cask/element",
+    "https://spec.matrix.org/latest/client-server-api/"
+   ]
+  },
+  {
+   "id": "signal",
+   "name": "Signal",
+   "family": "core",
+   "turnOn": "file",
+   "app": {
+    "name": "Signal",
+    "download": "https://signal.org/download/",
+    "winget": "OpenWhisperSystems.Signal",
+    "brew": "signal",
+    "macApp": "Signal.app"
+   },
+   "stores": {
+    "ios": "https://apps.apple.com/app/id874139669",
+    "android": "https://play.google.com/store/apps/details?id=org.thoughtcrime.securesms"
+   },
+   "noCreate": "Signal has no bot API. Branch talks through signal-cli, a separate open-source program (not made by Signal) that you install yourself; Branch never installs it.",
+   "steps": [
+    "Install signal-cli from its own releases page (github.com/AsamK/signal-cli).",
+    "Link it to your phone's Signal as a new device, or register a second number with it.",
+    "Put the full path to signal-cli and the number in the connections line."
+   ],
+   "fields": [
+    {
+     "name": "path",
+     "what": "The full path to signal-cli",
+     "kind": "text"
+    },
+    {
+     "name": "account",
+     "what": "The number, like +15551234567",
+     "kind": "text",
+     "pattern": "^\\+\\d{5,19}$"
+    }
+   ],
+   "noCheck": "Nothing to paste: signal-cli holds the account itself.",
+   "entry": {
+    "type": "signal",
+    "id": "signal",
+    "path": "{{path}}",
+    "account": "{{account}}"
+   },
+   "sources": [
+    "https://signal.org/download/",
+    "https://github.com/AsamK/signal-cli"
+   ],
+   "paste": []
+  },
+  {
+   "id": "mattermost",
+   "name": "Mattermost",
+   "family": "chat",
+   "turnOn": "file",
+   "stores": {
+    "ios": "https://apps.apple.com/app/id1257222717",
+    "android": "https://play.google.com/store/apps/details?id=com.mattermost.rn"
+   },
+   "create": {
+    "url": "https://docs.mattermost.com/integrations-guide/incoming-webhooks.html",
+    "how": "In your Mattermost, open Integrations, add an incoming webhook for a channel and copy its address; add an outgoing webhook too if the assistant should answer.",
+    "prefilled": false
+   },
+   "paste": [
+    {
+     "secret": "MATTERMOST_WEBHOOK_URL",
+     "what": "The incoming webhook address",
+     "pattern": "^https://\\S+$"
+    },
+    {
+     "secret": "MATTERMOST_TOKEN",
+     "what": "The outgoing webhook's token",
+     "optional": true
+    }
+   ],
+   "noCheck": "The only way to test an incoming address is to post a message into your chat, so Branch checks that it is an https address and leaves the first message to you.",
+   "entry": {
+    "type": "chat",
+    "service": "mattermost",
+    "id": "mattermost",
+    "webhookUrlSecret": "MATTERMOST_WEBHOOK_URL",
+    "secretSecret": "MATTERMOST_TOKEN",
+    "apiBase": "{{server}}"
+   },
+   "sources": [
+    "https://docs.mattermost.com/integrations-guide/incoming-webhooks.html",
+    "https://formulae.brew.sh/cask/mattermost"
+   ],
+   "app": {
+    "name": "Mattermost",
+    "download": "https://mattermost.com/apps/",
+    "winget": "Mattermost.MattermostDesktop",
+    "brew": "mattermost",
+    "macApp": "Mattermost.app"
+   },
+   "fields": [
+    {
+     "name": "server",
+     "what": "The address of your own server, starting with https://",
+     "kind": "url"
+    }
+   ]
+  },
+  {
+   "id": "rocketchat",
+   "name": "Rocket.Chat",
+   "family": "chat",
+   "turnOn": "file",
+   "stores": {
+    "ios": "https://apps.apple.com/app/id1148741252",
+    "android": "https://play.google.com/store/apps/details?id=chat.rocket.android"
+   },
+   "create": {
+    "url": "https://docs.rocket.chat/docs/integrations",
+    "how": "In Administration, Integrations, make an incoming integration for a channel and copy its address; make an outgoing one with a token if the assistant should answer.",
+    "prefilled": false
+   },
+   "paste": [
+    {
+     "secret": "ROCKETCHAT_WEBHOOK_URL",
+     "what": "The incoming integration's address",
+     "pattern": "^https://\\S+$"
+    },
+    {
+     "secret": "ROCKETCHAT_TOKEN",
+     "what": "The outgoing integration's token",
+     "optional": true
+    }
+   ],
+   "noCheck": "The only way to test an incoming address is to post a message into your chat, so Branch checks that it is an https address and leaves the first message to you.",
+   "entry": {
+    "type": "chat",
+    "service": "rocketchat",
+    "id": "rocketchat",
+    "webhookUrlSecret": "ROCKETCHAT_WEBHOOK_URL",
+    "secretSecret": "ROCKETCHAT_TOKEN"
+   },
+   "sources": [
+    "https://docs.rocket.chat/docs/integrations",
+    "https://snapcraft.io/rocketchat-desktop"
+   ],
+   "app": {
+    "name": "Rocket.Chat",
+    "download": "https://www.rocket.chat/download-apps",
+    "winget": "RocketChat.RocketChat",
+    "brew": "rocket-chat",
+    "snap": "rocketchat-desktop",
+    "macApp": "Rocket.Chat.app"
+   },
+   "fields": [
+    {
+     "name": "server",
+     "what": "The address of your own server, starting with https://",
+     "kind": "url"
+    }
+   ]
+  },
+  {
+   "id": "googlechat",
+   "name": "Google Chat",
+   "family": "chat",
+   "turnOn": "file",
+   "stores": {
+    "ios": "https://apps.apple.com/app/id1163852619",
+    "android": "https://play.google.com/store/apps/details?id=com.google.android.apps.dynamite"
+   },
+   "create": {
+    "url": "https://developers.google.com/workspace/chat/quickstart/webhooks",
+    "how": "In a Chat space, open Apps and integrations, add a webhook and copy its address.",
+    "prefilled": false
+   },
+   "paste": [
+    {
+     "secret": "GOOGLECHAT_WEBHOOK_URL",
+     "what": "The space's webhook address",
+     "pattern": "^https://chat\\.googleapis\\.com/\\S+$"
+    },
+    {
+     "secret": "GOOGLECHAT_TOKEN",
+     "what": "The token Google Chat sends with each post",
+     "optional": true
+    }
+   ],
+   "noCheck": "The only way to test an incoming address is to post a message into your chat, so Branch checks that it is an https address and leaves the first message to you.",
+   "entry": {
+    "type": "chat",
+    "service": "googlechat",
+    "id": "googlechat",
+    "webhookUrlSecret": "GOOGLECHAT_WEBHOOK_URL",
+    "secretSecret": "GOOGLECHAT_TOKEN"
+   },
+   "sources": [
+    "https://developers.google.com/workspace/chat/quickstart/webhooks"
+   ],
+   "noApp": "Google Chat has no desktop app to install; it runs in the browser.",
+   "fields": []
+  },
+  {
+   "id": "msteams",
+   "name": "Microsoft Teams (webhook)",
+   "family": "chat",
+   "turnOn": "file",
+   "stores": {
+    "ios": "https://apps.apple.com/app/id1113153706",
+    "android": "https://play.google.com/store/apps/details?id=com.microsoft.teams"
+   },
+   "create": {
+    "url": "https://learn.microsoft.com/microsoftteams/platform/webhooks-and-connectors/how-to/add-incoming-webhook",
+    "how": "In the Teams channel, add an incoming webhook (Microsoft now suggests the Workflows app for this) and copy its address.",
+    "prefilled": false
+   },
+   "paste": [
+    {
+     "secret": "MSTEAMS_WEBHOOK_URL",
+     "what": "The incoming webhook address",
+     "pattern": "^https://\\S+$"
+    },
+    {
+     "secret": "MSTEAMS_SECRET",
+     "what": "The outgoing webhook's security token",
+     "optional": true
+    }
+   ],
+   "noCheck": "The only way to test an incoming address is to post a message into your chat, so Branch checks that it is an https address and leaves the first message to you.",
+   "entry": {
+    "type": "chat",
+    "service": "msteams",
+    "id": "msteams",
+    "webhookUrlSecret": "MSTEAMS_WEBHOOK_URL",
+    "secretSecret": "MSTEAMS_SECRET"
+   },
+   "sources": [
+    "https://learn.microsoft.com/microsoftteams/platform/webhooks-and-connectors/how-to/add-incoming-webhook",
+    "https://formulae.brew.sh/cask/microsoft-teams"
+   ],
+   "app": {
+    "name": "Microsoft Teams",
+    "download": "https://www.microsoft.com/microsoft-teams/download-app",
+    "winget": "Microsoft.Teams",
+    "brew": "microsoft-teams",
+    "macApp": "Microsoft Teams.app"
+   },
+   "fields": []
+  },
+  {
+   "id": "zulip",
+   "name": "Zulip",
+   "family": "chat",
+   "turnOn": "file",
+   "stores": {
+    "ios": "https://apps.apple.com/app/id1203036395",
+    "android": "https://play.google.com/store/apps/details?id=com.zulipmobile"
+   },
+   "create": {
+    "url": "{{server}}/#settings/your-bots",
+    "how": "Your Zulip opens on Personal settings, Bots. Add a new bot of the outgoing webhook kind and copy its API key.",
+    "prefilled": false
+   },
+   "paste": [
+    {
+     "secret": "ZULIP_BOT_API_KEY",
+     "what": "The bot's API key",
+     "pattern": "^[A-Za-z0-9]{20,64}$"
+    }
+   ],
+   "noCheck": "The only way to test an incoming address is to post a message into your chat, so Branch checks that it is an https address and leaves the first message to you.",
+   "entry": {
+    "type": "chat",
+    "service": "zulip",
+    "id": "zulip",
+    "tokenSecret": "ZULIP_BOT_API_KEY",
+    "apiBase": "{{server}}"
+   },
+   "sources": [
+    "https://zulip.com/help/add-a-bot-or-integration",
+    "https://flathub.org/apps/org.zulip.Zulip"
+   ],
+   "app": {
+    "name": "Zulip",
+    "download": "https://zulip.com/apps/",
+    "winget": "Zulip.Zulip",
+    "brew": "zulip",
+    "flatpak": "org.zulip.Zulip",
+    "macApp": "Zulip.app"
+   },
+   "fields": [
+    {
+     "name": "server",
+     "what": "The address of your own server, starting with https://",
+     "kind": "url"
+    }
+   ]
+  },
+  {
+   "id": "feishu",
+   "name": "Feishu / Lark",
+   "family": "chat",
+   "turnOn": "file",
+   "stores": {
+    "ios": "https://apps.apple.com/app/id1452166623",
+    "android": "https://play.google.com/store/apps/details?id=com.larksuite.suite"
+   },
+   "create": {
+    "url": "https://open.feishu.cn/document/client-docs/bot-v3/add-custom-bot",
+    "how": "In a group's settings, add a custom bot, switch on signature checking, and copy the address and the secret.",
+    "prefilled": false
+   },
+   "paste": [
+    {
+     "secret": "FEISHU_WEBHOOK_URL",
+     "what": "The custom bot's address",
+     "pattern": "^https://\\S+$"
+    },
+    {
+     "secret": "FEISHU_SECRET",
+     "what": "The signing secret",
+     "optional": true
+    }
+   ],
+   "noCheck": "The only way to test an incoming address is to post a message into your chat, so Branch checks that it is an https address and leaves the first message to you.",
+   "entry": {
+    "type": "chat",
+    "service": "feishu",
+    "id": "feishu",
+    "webhookUrlSecret": "FEISHU_WEBHOOK_URL",
+    "secretSecret": "FEISHU_SECRET"
+   },
+   "sources": [
+    "https://open.feishu.cn/document/client-docs/bot-v3/add-custom-bot",
+    "https://formulae.brew.sh/cask/feishu"
+   ],
+   "app": {
+    "name": "Feishu",
+    "download": "https://www.feishu.cn/en/download",
+    "winget": "ByteDance.Feishu",
+    "brew": "feishu",
+    "macApp": "Feishu.app"
+   },
+   "fields": []
+  },
+  {
+   "id": "dingtalk",
+   "name": "DingTalk",
+   "family": "chat",
+   "turnOn": "file",
+   "stores": {
+    "ios": "https://apps.apple.com/app/id930368978",
+    "android": "https://play.google.com/store/apps/details?id=com.alibaba.android.rimet"
+   },
+   "create": {
+    "url": "https://open.dingtalk.com/document/robots/custom-robot-access",
+    "how": "In a group's settings, add a custom robot with signing switched on, and copy the address and the secret.",
+    "prefilled": false
+   },
+   "paste": [
+    {
+     "secret": "DINGTALK_WEBHOOK_URL",
+     "what": "The robot's address",
+     "pattern": "^https://\\S+$"
+    },
+    {
+     "secret": "DINGTALK_SECRET",
+     "what": "The signing secret",
+     "optional": true
+    }
+   ],
+   "noCheck": "The only way to test an incoming address is to post a message into your chat, so Branch checks that it is an https address and leaves the first message to you.",
+   "entry": {
+    "type": "chat",
+    "service": "dingtalk",
+    "id": "dingtalk",
+    "webhookUrlSecret": "DINGTALK_WEBHOOK_URL",
+    "secretSecret": "DINGTALK_SECRET"
+   },
+   "sources": [
+    "https://open.dingtalk.com/document/robots/custom-robot-access",
+    "https://formulae.brew.sh/cask/dingtalk"
+   ],
+   "app": {
+    "name": "DingTalk",
+    "download": "https://www.dingtalk.com/en/download",
+    "winget": "Alibaba.DingTalk",
+    "brew": "dingtalk"
+   },
+   "fields": []
+  },
+  {
+   "id": "wecom",
+   "name": "WeCom (group robot)",
+   "family": "chat",
+   "turnOn": "file",
+   "stores": {
+    "ios": "https://apps.apple.com/app/id1087897068",
+    "android": "https://play.google.com/store/apps/details?id=com.tencent.wework"
+   },
+   "create": {
+    "url": "https://developer.work.weixin.qq.com/document/path/91770",
+    "how": "In a WeCom group, add a group robot and copy its address. It can only send.",
+    "prefilled": false
+   },
+   "paste": [
+    {
+     "secret": "WECOM_WEBHOOK_URL",
+     "what": "The group robot's address",
+     "pattern": "^https://\\S+$"
+    }
+   ],
+   "noCheck": "The only way to test an incoming address is to post a message into your chat, so Branch checks that it is an https address and leaves the first message to you.",
+   "entry": {
+    "type": "chat",
+    "service": "wecom",
+    "id": "wecom",
+    "webhookUrlSecret": "WECOM_WEBHOOK_URL"
+   },
+   "sources": [
+    "https://developer.work.weixin.qq.com/document/path/91770"
+   ],
+   "app": {
+    "name": "WeCom",
+    "download": "https://work.weixin.qq.com/",
+    "winget": "Tencent.WeCom"
+   },
+   "fields": []
+  },
+  {
+   "id": "line",
+   "name": "LINE",
+   "family": "chat",
+   "turnOn": "file",
+   "app": {
+    "name": "LINE",
+    "download": "https://line.me/en/download"
+   },
+   "stores": {
+    "ios": "https://apps.apple.com/app/id443904275",
+    "android": "https://play.google.com/store/apps/details?id=jp.naver.line.android"
+   },
+   "create": {
+    "url": "https://developers.line.biz/console/",
+    "how": "Make a Messaging API channel, then copy its channel access token and channel secret.",
+    "prefilled": false
+   },
+   "paste": [
+    {
+     "secret": "LINE_CHANNEL_ACCESS_TOKEN",
+     "what": "The channel access token"
+    },
+    {
+     "secret": "LINE_CHANNEL_SECRET",
+     "what": "The channel secret",
+     "pattern": "^[a-f0-9]{32}$"
+    }
+   ],
+   "check": {
+    "method": "GET",
+    "url": "https://api.line.me/v2/bot/info",
+    "auth": {
+     "kind": "bearer",
+     "secret": "LINE_CHANNEL_ACCESS_TOKEN"
+    },
+    "ok": "userId",
+    "docs": "https://developers.line.biz/en/reference/messaging-api/#get-bot-info",
+    "name": "displayName"
+   },
+   "entry": {
+    "type": "chat",
+    "service": "line",
+    "id": "line",
+    "tokenSecret": "LINE_CHANNEL_ACCESS_TOKEN",
+    "secretSecret": "LINE_CHANNEL_SECRET"
+   },
+   "sources": [
+    "https://developers.line.biz/en/docs/messaging-api/getting-started/",
+    "https://line.me/en/download"
+   ],
+   "fields": []
+  },
+  {
+   "id": "viber",
+   "name": "Viber",
+   "family": "chat",
+   "turnOn": "file",
+   "app": {
+    "name": "Viber",
+    "download": "https://www.viber.com/download/",
+    "winget": "Rakuten.Viber",
+    "brew": "viber",
+    "macApp": "Viber.app"
+   },
+   "stores": {
+    "ios": "https://apps.apple.com/app/id382617920",
+    "android": "https://play.google.com/store/apps/details?id=com.viber.voip"
+   },
+   "create": {
+    "url": "https://developers.viber.com/docs/api/rest-bot-api/",
+    "how": "Create a bot account through Viber's partner site and copy its token.",
+    "prefilled": false
+   },
+   "paste": [
+    {
+     "secret": "VIBER_AUTH_TOKEN",
+     "what": "The bot's token"
+    }
+   ],
+   "check": {
+    "method": "POST",
+    "url": "https://chatapi.viber.com/pa/get_account_info",
+    "auth": {
+     "kind": "header",
+     "header": "X-Viber-Auth-Token",
+     "secret": "VIBER_AUTH_TOKEN"
+    },
+    "ok": "status",
+    "docs": "https://developers.viber.com/docs/api/rest-bot-api/#get-account-info",
+    "name": "name",
+    "okValue": 0
+   },
+   "entry": {
+    "type": "chat",
+    "service": "viber",
+    "id": "viber",
+    "tokenSecret": "VIBER_AUTH_TOKEN"
+   },
+   "sources": [
+    "https://developers.viber.com/docs/api/rest-bot-api/",
+    "https://formulae.brew.sh/cask/viber"
+   ],
+   "fields": []
+  },
+  {
+   "id": "irc",
+   "name": "IRC",
+   "family": "parity",
+   "turnOn": "switch",
+   "steps": [
+    "Pick a network, for example Libera.Chat.",
+    "Register the assistant's nick with the network (Libera.Chat: /msg NickServ REGISTER).",
+    "Paste its password here if it has one."
+   ],
+   "fields": [
+    {
+     "name": "server",
+     "what": "The network's server name, like irc.libera.chat",
+     "kind": "text",
+     "pattern": "^[A-Za-z0-9.-]+$"
+    },
+    {
+     "name": "nick",
+     "what": "The assistant's nick",
+     "kind": "text"
+    }
+   ],
+   "paste": [
+    {
+     "secret": "IRC_PASSWORD",
+     "what": "The registered nick's password",
+     "optional": true
+    }
+   ],
+   "entry": {
+    "type": "irc",
+    "id": "irc",
+    "server": "{{server}}",
+    "nick": "{{nick}}",
+    "passwordSecret": "IRC_PASSWORD"
+   },
+   "noCreate": "IRC networks register nicks by chat command, not on a web page.",
+   "sources": [
+    "https://libera.chat/guides/registration"
+   ],
+   "noCheck": "There is nothing Branch can ask a web service to check; the connection is tried when the switch goes on.",
+   "noApp": "IRC is an open protocol with many programs; Branch connects by itself, so nothing needs installing."
+  },
+  {
+   "id": "twitch",
+   "name": "Twitch chat",
+   "family": "parity",
+   "turnOn": "switch",
+   "noApp": "Twitch chat runs in the browser; Branch connects by itself.",
+   "stores": {
+    "ios": "https://apps.apple.com/app/id460177396",
+    "android": "https://play.google.com/store/apps/details?id=tv.twitch.android.app"
+   },
+   "create": {
+    "url": "https://dev.twitch.tv/console/apps/create",
+    "how": "Register an application, then make a user access token for the bot's account with the chat:read and chat:edit scopes.",
+    "prefilled": false
+   },
+   "fields": [
+    {
+     "name": "login",
+     "what": "The bot account's Twitch login",
+     "kind": "text"
+    },
+    {
+     "name": "channel",
+     "what": "The channel to join",
+     "kind": "text"
+    }
+   ],
+   "paste": [
+    {
+     "secret": "TWITCH_CHAT_TOKEN",
+     "what": "The bot account's user access token"
+    }
+   ],
+   "check": {
+    "method": "GET",
+    "url": "https://id.twitch.tv/oauth2/validate",
+    "auth": {
+     "kind": "oauth",
+     "secret": "TWITCH_CHAT_TOKEN"
+    },
+    "ok": "client_id",
+    "docs": "https://dev.twitch.tv/docs/authentication/validate-tokens/",
+    "name": "login"
+   },
+   "entry": {
+    "type": "twitch",
+    "id": "twitch",
+    "login": "{{login}}",
+    "channels": [
+     "{{channel}}"
+    ],
+    "tokenSecret": "TWITCH_CHAT_TOKEN"
+   },
+   "sources": [
+    "https://dev.twitch.tv/docs/authentication/register-app/",
+    "https://dev.twitch.tv/docs/authentication/validate-tokens/"
+   ]
+  },
+  {
+   "id": "gotify",
+   "name": "Gotify",
+   "family": "parity",
+   "turnOn": "switch",
+   "noApp": "Gotify is a server you run yourself; its phone app is the only thing to install.",
+   "stores": {
+    "android": "https://f-droid.org/packages/com.github.gotify/"
+   },
+   "create": {
+    "url": "{{server}}/#/applications",
+    "how": "In your Gotify, open Apps, create an application and copy its token.",
+    "prefilled": false
+   },
+   "fields": [
+    {
+     "name": "server",
+     "what": "The address of your own server, starting with https://",
+     "kind": "url"
+    }
+   ],
+   "paste": [
+    {
+     "secret": "GOTIFY_APP_TOKEN",
+     "what": "The application token"
+    }
+   ],
+   "noCheck": "An application token can only send, so there is no read-only check; the first message is the test.",
+   "entry": {
+    "type": "gotify",
+    "id": "gotify",
+    "server": "{{server}}",
+    "tokenSecret": "GOTIFY_APP_TOKEN"
+   },
+   "sources": [
+    "https://gotify.net/docs/pushmsg",
+    "https://f-droid.org/packages/com.github.gotify/"
+   ]
+  },
+  {
+   "id": "imessage",
+   "name": "iMessage",
+   "family": "parity",
+   "turnOn": "switch",
+   "steps": [
+    "Only on a Mac: sign in to Messages with your Apple Account.",
+    "Let Branch read Messages (System Settings, Privacy and Security, Full Disk Access) and control it (Automation)."
+   ],
+   "fields": [],
+   "paste": [],
+   "entry": {
+    "type": "imessage",
+    "id": "imessage"
+   },
+   "noCreate": "Messages has no bot to create: the assistant answers as you, on your own Mac.",
+   "sources": [
+    "https://support.apple.com/guide/mac-help/change-privacy-security-settings-on-mac-mchl211c911f/mac"
+   ],
+   "noCheck": "There is nothing Branch can ask a web service to check; the connection is tried when the switch goes on.",
+   "noApp": "Messages comes with every Mac; there is nothing to install."
+  },
+  {
+   "id": "msteams-bot",
+   "name": "Microsoft Teams (bot)",
+   "family": "parity",
+   "turnOn": "switch",
+   "app": {
+    "name": "Microsoft Teams",
+    "download": "https://www.microsoft.com/microsoft-teams/download-app",
+    "winget": "Microsoft.Teams",
+    "brew": "microsoft-teams",
+    "macApp": "Microsoft Teams.app"
+   },
+   "stores": {
+    "ios": "https://apps.apple.com/app/id1113153706",
+    "android": "https://play.google.com/store/apps/details?id=com.microsoft.teams"
+   },
+   "create": {
+    "url": "https://dev.teams.microsoft.com/bots",
+    "how": "In the Teams Developer Portal, open Bot management, add a bot, make a client secret, and copy the bot id and the secret.",
+    "prefilled": false
+   },
+   "fields": [
+    {
+     "name": "appId",
+     "what": "The bot's app id",
+     "kind": "text",
+     "pattern": "^[0-9a-fA-F-]{36}$"
+    }
+   ],
+   "paste": [
+    {
+     "secret": "MSTEAMS_APP_PASSWORD",
+     "what": "The client secret"
+    }
+   ],
+   "check": {
+    "method": "POST",
+    "url": "https://login.microsoftonline.com/botframework.com/oauth2/v2.0/token",
+    "auth": {
+     "kind": "none"
+    },
+    "ok": "access_token",
+    "docs": "https://learn.microsoft.com/azure/bot-service/rest-api/bot-framework-rest-connector-authentication",
+    "body": {
+     "grant_type": "client_credentials",
+     "client_id": "{{appId}}",
+     "client_secret": "{{MSTEAMS_APP_PASSWORD}}",
+     "scope": "https://api.botframework.com/.default"
+    },
+    "encoding": "form"
+   },
+   "entry": {
+    "type": "msteams-bot",
+    "id": "teams",
+    "appId": "{{appId}}"
+   },
+   "sources": [
+    "https://learn.microsoft.com/microsoftteams/platform/concepts/build-and-test/teams-developer-portal",
+    "https://formulae.brew.sh/cask/microsoft-teams"
+   ]
+  },
+  {
+   "id": "webex",
+   "name": "Webex",
+   "family": "parity",
+   "turnOn": "switch",
+   "app": {
+    "name": "Webex",
+    "download": "https://www.webex.com/downloads.html",
+    "winget": "Cisco.Webex",
+    "brew": "webex",
+    "macApp": "Webex.app"
+   },
+   "stores": {
+    "ios": "https://apps.apple.com/app/id833967564",
+    "android": "https://play.google.com/store/apps/details?id=com.cisco.wx2.android"
+   },
+   "create": {
+    "url": "https://developer.webex.com/docs/bots",
+    "how": "Sign in to Webex for Developers, create a bot and copy its access token.",
+    "prefilled": false
+   },
+   "paste": [
+    {
+     "secret": "WEBEX_BOT_TOKEN",
+     "what": "The bot's access token"
+    },
+    {
+     "secret": "WEBEX_WEBHOOK_SECRET",
+     "what": "A secret of your own for the webhook"
+    }
+   ],
+   "check": {
+    "method": "GET",
+    "url": "https://webexapis.com/v1/people/me",
+    "auth": {
+     "kind": "bearer",
+     "secret": "WEBEX_BOT_TOKEN"
+    },
+    "ok": "id",
+    "docs": "https://developer.webex.com/docs/api/v1/people/get-my-own-details",
+    "name": "displayName"
+   },
+   "entry": {
+    "type": "webex",
+    "id": "webex"
+   },
+   "sources": [
+    "https://developer.webex.com/docs/bots",
+    "https://formulae.brew.sh/cask/webex"
+   ],
+   "fields": []
+  },
+  {
+   "id": "synology-chat",
+   "name": "Synology Chat",
+   "family": "parity",
+   "turnOn": "switch",
+   "app": {
+    "name": "Synology Chat",
+    "download": "https://www.synology.com/support/download",
+    "winget": "Synology.ChatClient"
+   },
+   "stores": {
+    "ios": "https://apps.apple.com/app/id1121875041",
+    "android": "https://play.google.com/store/apps/details?id=com.synology.dschat"
+   },
+   "create": {
+    "url": "https://kb.synology.com/en-global/DSM/help/Chat/chat_integration",
+    "how": "In Synology Chat, open Integration, make an incoming webhook and an outgoing webhook, and copy the address and the token.",
+    "prefilled": false
+   },
+   "fields": [
+    {
+     "name": "server",
+     "what": "The address of your own server, starting with https://",
+     "kind": "url"
+    }
+   ],
+   "paste": [
+    {
+     "secret": "SYNOLOGY_CHAT_INCOMING_URL",
+     "what": "The incoming webhook address",
+     "pattern": "^https://\\S+$"
+    },
+    {
+     "secret": "SYNOLOGY_CHAT_TOKEN",
+     "what": "The outgoing webhook's token"
+    }
+   ],
+   "noCheck": "The only way to test an incoming address is to post a message into your chat, so Branch checks that it is an https address and leaves the first message to you.",
+   "entry": {
+    "type": "synology-chat",
+    "id": "synology-chat"
+   },
+   "sources": [
+    "https://kb.synology.com/en-global/DSM/help/Chat/chat_integration"
+   ]
+  },
+  {
+   "id": "zalo",
+   "name": "Zalo Official Account",
+   "family": "parity",
+   "turnOn": "switch",
+   "app": {
+    "name": "Zalo",
+    "download": "https://zalo.me/pc",
+    "winget": "VNGCorp.Zalo",
+    "brew": "zalo",
+    "macApp": "Zalo.app"
+   },
+   "stores": {
+    "ios": "https://apps.apple.com/app/id579523206",
+    "android": "https://play.google.com/store/apps/details?id=com.zing.zalo"
+   },
+   "create": {
+    "url": "https://developers.zalo.me/",
+    "how": "Make an app on Zalo for Developers, link your Official Account, and copy the app secret, the OA secret key and the tokens.",
+    "prefilled": false
+   },
+   "fields": [
+    {
+     "name": "appId",
+     "what": "The Zalo app id",
+     "kind": "text",
+     "pattern": "^\\d{1,30}$"
+    }
+   ],
+   "paste": [
+    {
+     "secret": "ZALO_APP_SECRET",
+     "what": "The app secret"
+    },
+    {
+     "secret": "ZALO_OA_SECRET_KEY",
+     "what": "The Official Account secret key"
+    },
+    {
+     "secret": "ZALO_OA_ACCESS_TOKEN",
+     "what": "The access token"
+    },
+    {
+     "secret": "ZALO_OA_REFRESH_TOKEN",
+     "what": "The refresh token"
+    }
+   ],
+   "noCheck": "Zalo's check would spend the refresh token, so Branch leaves it for the first connection.",
+   "entry": {
+    "type": "zalo",
+    "id": "zalo",
+    "appId": "{{appId}}"
+   },
+   "sources": [
+    "https://developers.zalo.me/",
+    "https://formulae.brew.sh/cask/zalo"
+   ]
+  },
+  {
+   "id": "flock",
+   "name": "Flock",
+   "family": "parity",
+   "turnOn": "switch",
+   "app": {
+    "name": "Flock",
+    "download": "https://flock.com/download/"
+   },
+   "stores": {
+    "ios": "https://apps.apple.com/app/id879007584"
+   },
+   "create": {
+    "url": "https://dev.flock.com/",
+    "how": "Sign in to Flock's developer site, create an app with a bot, and copy the app secret and the bot token.",
+    "prefilled": false
+   },
+   "paste": [
+    {
+     "secret": "FLOCK_APP_SECRET",
+     "what": "The app secret"
+    },
+    {
+     "secret": "FLOCK_BOT_TOKEN",
+     "what": "The bot token"
+    }
+   ],
+   "noCheck": "Flock does not document a read-only check for a bot token.",
+   "entry": {
+    "type": "flock",
+    "id": "flock"
+   },
+   "sources": [
+    "https://docs.flock.com/"
+   ],
+   "fields": []
+  },
+  {
+   "id": "pumble",
+   "name": "Pumble",
+   "family": "parity",
+   "turnOn": "switch",
+   "app": {
+    "name": "Pumble",
+    "download": "https://pumble.com/apps"
+   },
+   "stores": {
+    "ios": "https://apps.apple.com/app/id1536136725",
+    "android": "https://play.google.com/store/apps/details?id=com.pumble"
+   },
+   "create": {
+    "url": "https://pumble.com/help/integrations/add-pumble-apps/",
+    "how": "Create a Pumble app for your workspace and copy its app key, bot token and signing secret.",
+    "prefilled": false
+   },
+   "fields": [
+    {
+     "name": "botUserId",
+     "what": "The bot's user id",
+     "kind": "text"
+    }
+   ],
+   "paste": [
+    {
+     "secret": "PUMBLE_APP_KEY",
+     "what": "The app key"
+    },
+    {
+     "secret": "PUMBLE_BOT_TOKEN",
+     "what": "The bot token"
+    },
+    {
+     "secret": "PUMBLE_SIGNING_SECRET",
+     "what": "The signing secret"
+    }
+   ],
+   "noCheck": "Pumble does not document a read-only check for a bot token.",
+   "entry": {
+    "type": "pumble",
+    "id": "pumble",
+    "botUserId": "{{botUserId}}"
+   },
+   "sources": [
+    "https://pumble.com/apps"
+   ]
+  },
+  {
+   "id": "mastodon",
+   "name": "Mastodon",
+   "family": "parity",
+   "turnOn": "switch",
+   "noApp": "Mastodon runs in the browser; the phone app is optional.",
+   "stores": {
+    "ios": "https://apps.apple.com/app/id1571998974",
+    "android": "https://play.google.com/store/apps/details?id=org.joinmastodon.android"
+   },
+   "create": {
+    "url": "{{server}}/settings/applications/new",
+    "how": "Your server opens its new-application page. Give it a name, keep read and write, save, and copy Your access token.",
+    "prefilled": false
+   },
+   "fields": [
+    {
+     "name": "server",
+     "what": "Your Mastodon server, for example https://mastodon.social",
+     "kind": "url"
+    }
+   ],
+   "paste": [
+    {
+     "secret": "MASTODON_ACCESS_TOKEN",
+     "what": "The application's access token"
+    }
+   ],
+   "check": {
+    "method": "GET",
+    "url": "{{server}}/api/v1/accounts/verify_credentials",
+    "auth": {
+     "kind": "bearer",
+     "secret": "MASTODON_ACCESS_TOKEN"
+    },
+    "ok": "id",
+    "docs": "https://docs.joinmastodon.org/methods/accounts/#verify_credentials",
+    "name": "acct"
+   },
+   "entry": {
+    "type": "mastodon",
+    "id": "mastodon",
+    "instance": "{{server}}"
+   },
+   "sources": [
+    "https://docs.joinmastodon.org/client/token/",
+    "https://joinmastodon.org/apps"
+   ]
+  },
+  {
+   "id": "bluesky",
+   "name": "Bluesky",
+   "family": "parity",
+   "turnOn": "switch",
+   "noApp": "Bluesky runs in the browser; the phone app is optional.",
+   "stores": {
+    "ios": "https://apps.apple.com/app/id6444370199",
+    "android": "https://play.google.com/store/apps/details?id=xyz.blueskyweb.app"
+   },
+   "create": {
+    "url": "https://bsky.app/settings/app-passwords",
+    "how": "Bluesky opens on App passwords. Add one (allow direct messages) and copy it.",
+    "prefilled": false
+   },
+   "fields": [
+    {
+     "name": "handle",
+     "what": "The account's handle, like branch.bsky.social",
+     "kind": "text"
+    }
+   ],
+   "paste": [
+    {
+     "secret": "BLUESKY_APP_PASSWORD",
+     "what": "The app password",
+     "pattern": "^[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}$"
+    }
+   ],
+   "noCheck": "Checking an app password means signing in, which Branch does when the switch goes on.",
+   "entry": {
+    "type": "bluesky",
+    "id": "bluesky",
+    "handle": "{{handle}}"
+   },
+   "sources": [
+    "https://docs.bsky.app/docs/api/com-atproto-server-create-app-password"
+   ]
+  },
+  {
+   "id": "reddit",
+   "name": "Reddit",
+   "family": "parity",
+   "turnOn": "switch",
+   "noApp": "Reddit runs in the browser; the phone app is optional.",
+   "stores": {
+    "ios": "https://apps.apple.com/app/id1064216828",
+    "android": "https://play.google.com/store/apps/details?id=com.reddit.frontpage"
+   },
+   "create": {
+    "url": "https://www.reddit.com/prefs/apps",
+    "how": "Reddit opens its apps page. Create a script app and copy its id (under the name) and its secret.",
+    "prefilled": false
+   },
+   "fields": [
+    {
+     "name": "username",
+     "what": "The bot account's Reddit name",
+     "kind": "text"
+    },
+    {
+     "name": "clientId",
+     "what": "The script app's id",
+     "kind": "text"
+    }
+   ],
+   "paste": [
+    {
+     "secret": "REDDIT_CLIENT_SECRET",
+     "what": "The script app's secret"
+    },
+    {
+     "secret": "REDDIT_PASSWORD",
+     "what": "The bot account's password"
+    }
+   ],
+   "noCheck": "Reddit's check means signing in, which Branch does when the switch goes on.",
+   "entry": {
+    "type": "reddit",
+    "id": "reddit",
+    "username": "{{username}}",
+    "clientId": "{{clientId}}"
+   },
+   "sources": [
+    "https://github.com/reddit-archive/reddit/wiki/OAuth2-Quick-Start-Example"
+   ]
+  },
+  {
+   "id": "discourse",
+   "name": "Discourse",
+   "family": "parity",
+   "turnOn": "switch",
+   "noApp": "Discourse is a forum in the browser; nothing to install.",
+   "create": {
+    "url": "{{server}}/admin/api/keys/new",
+    "how": "Your forum opens its new API key page (admins only). Give it a description, choose the assistant's user, and copy the key.",
+    "prefilled": false
+   },
+   "fields": [
+    {
+     "name": "server",
+     "what": "Your forum's address",
+     "kind": "url"
+    },
+    {
+     "name": "username",
+     "what": "The forum user the assistant acts as",
+     "kind": "text"
+    }
+   ],
+   "paste": [
+    {
+     "secret": "DISCOURSE_API_KEY",
+     "what": "The API key"
+    }
+   ],
+   "check": {
+    "method": "GET",
+    "url": "{{server}}/session/current.json",
+    "auth": {
+     "kind": "header",
+     "header": "Api-Key",
+     "secret": "DISCOURSE_API_KEY"
+    },
+    "ok": "current_user.id",
+    "docs": "https://docs.discourse.org/#tag/Users",
+    "name": "current_user.username",
+    "headers": {
+     "Api-Username": "{{username}}"
+    }
+   },
+   "entry": {
+    "type": "discourse",
+    "id": "discourse",
+    "forum": "{{server}}",
+    "username": "{{username}}"
+   },
+   "sources": [
+    "https://meta.discourse.org/t/create-and-configure-an-api-key/230124"
+   ]
+  },
+  {
+   "id": "x-dm",
+   "name": "X direct messages",
+   "family": "parity",
+   "turnOn": "switch",
+   "noApp": "X runs in the browser; the phone app is optional.",
+   "stores": {
+    "ios": "https://apps.apple.com/app/id333903271",
+    "android": "https://play.google.com/store/apps/details?id=com.twitter.android"
+   },
+   "create": {
+    "url": "https://developer.x.com/en/portal/dashboard",
+    "how": "In the X developer portal, make an app with direct-message access and make a user access token for the bot's account. X charges for this API.",
+    "prefilled": false
+   },
+   "paste": [
+    {
+     "secret": "X_USER_ACCESS_TOKEN",
+     "what": "The user access token"
+    }
+   ],
+   "check": {
+    "method": "GET",
+    "url": "https://api.x.com/2/users/me",
+    "auth": {
+     "kind": "bearer",
+     "secret": "X_USER_ACCESS_TOKEN"
+    },
+    "ok": "data.id",
+    "docs": "https://docs.x.com/x-api/users/user-lookup-me",
+    "name": "data.username"
+   },
+   "entry": {
+    "type": "x-dm",
+    "id": "x"
+   },
+   "sources": [
+    "https://docs.x.com/x-api/users/user-lookup-me"
+   ],
+   "fields": []
+  },
+  {
+   "id": "twist",
+   "name": "Twist",
+   "family": "parity",
+   "turnOn": "switch",
+   "app": {
+    "name": "Twist",
+    "download": "https://twist.com/downloads",
+    "brew": "twist",
+    "macApp": "Twist.app"
+   },
+   "create": {
+    "url": "https://developer.twist.com/v3/",
+    "how": "Make a Twist integration, or a test token from its OAuth section, and copy the access token.",
+    "prefilled": false
+   },
+   "fields": [
+    {
+     "name": "conversation",
+     "what": "The id of the conversation to answer in",
+     "kind": "text",
+     "pattern": "^\\d{1,15}$"
+    }
+   ],
+   "paste": [
+    {
+     "secret": "TWIST_ACCESS_TOKEN",
+     "what": "The access token"
+    }
+   ],
+   "noCheck": "Twist's read-only check was not confirmed in its documentation, so Branch does not guess one.",
+   "entry": {
+    "type": "twist",
+    "id": "twist",
+    "conversations": [
+     "{{conversation}}"
+    ]
+   },
+   "sources": [
+    "https://developer.twist.com/v3/",
+    "https://formulae.brew.sh/cask/twist"
+   ]
+  },
+  {
+   "id": "nextcloud-talk",
+   "name": "Nextcloud Talk",
+   "family": "parity",
+   "turnOn": "switch",
+   "app": {
+    "name": "Nextcloud Talk",
+    "download": "https://nextcloud.com/talk/",
+    "winget": "Nextcloud.Talk",
+    "brew": "nextcloud-talk",
+    "macApp": "Nextcloud Talk.app"
+   },
+   "stores": {
+    "ios": "https://apps.apple.com/app/id1296825574",
+    "android": "https://play.google.com/store/apps/details?id=com.nextcloud.talk2"
+   },
+   "create": {
+    "url": "{{server}}/settings/user/security",
+    "how": "Your Nextcloud opens on Security. Make an app password for the assistant's account and copy it.",
+    "prefilled": false
+   },
+   "fields": [
+    {
+     "name": "server",
+     "what": "Your Nextcloud's address",
+     "kind": "url"
+    },
+    {
+     "name": "username",
+     "what": "The assistant's Nextcloud user",
+     "kind": "text"
+    },
+    {
+     "name": "room",
+     "what": "The conversation token from the room's address",
+     "kind": "text"
+    }
+   ],
+   "paste": [
+    {
+     "secret": "NEXTCLOUD_TALK_APP_PASSWORD",
+     "what": "The app password"
+    }
+   ],
+   "check": {
+    "method": "GET",
+    "url": "{{server}}/ocs/v2.php/cloud/user?format=json",
+    "auth": {
+     "kind": "basic",
+     "user": "{{username}}",
+     "secret": "NEXTCLOUD_TALK_APP_PASSWORD"
+    },
+    "ok": "ocs.data.id",
+    "docs": "https://docs.nextcloud.com/server/latest/developer_manual/client_apis/OCS/ocs-api-overview.html",
+    "name": "ocs.data.id",
+    "headers": {
+     "OCS-APIRequest": "true"
+    }
+   },
+   "entry": {
+    "type": "nextcloud-talk",
+    "id": "nextcloud-talk",
+    "server": "{{server}}",
+    "username": "{{username}}",
+    "rooms": [
+     "{{room}}"
+    ]
+   },
+   "sources": [
+    "https://nextcloud.com/talk/",
+    "https://formulae.brew.sh/cask/nextcloud-talk"
+   ]
+  },
+  {
+   "id": "sms",
+   "name": "Text messages (Twilio)",
+   "family": "parity",
+   "turnOn": "switch",
+   "noApp": "Twilio is a web service; nothing to install.",
+   "create": {
+    "url": "https://console.twilio.com/",
+    "how": "In the Twilio Console, copy the Account SID and Auth Token, and buy or pick a number.",
+    "prefilled": false
+   },
+   "fields": [
+    {
+     "name": "accountSid",
+     "what": "The Account SID, starting AC",
+     "kind": "text",
+     "pattern": "^AC[0-9a-fA-F]{32}$"
+    },
+    {
+     "name": "from",
+     "what": "Your Twilio number, like +15551234567",
+     "kind": "text",
+     "pattern": "^\\+\\d{5,19}$"
+    }
+   ],
+   "paste": [
+    {
+     "secret": "TWILIO_AUTH_TOKEN",
+     "what": "The Auth Token"
+    }
+   ],
+   "check": {
+    "method": "GET",
+    "url": "https://api.twilio.com/2010-04-01/Accounts/{{accountSid}}.json",
+    "auth": {
+     "kind": "basic",
+     "user": "{{accountSid}}",
+     "secret": "TWILIO_AUTH_TOKEN"
+    },
+    "ok": "sid",
+    "docs": "https://www.twilio.com/docs/iam/api/account#fetch-an-account-resource",
+    "name": "friendly_name"
+   },
+   "entry": {
+    "type": "sms",
+    "id": "sms",
+    "accountSid": "{{accountSid}}",
+    "from": "{{from}}"
+   },
+   "sources": [
+    "https://www.twilio.com/docs/iam/api/account"
+   ]
+  },
+  {
+   "id": "ntfy",
+   "name": "ntfy",
+   "family": "parity",
+   "turnOn": "switch",
+   "noApp": "ntfy needs no desktop program; the phone app shows the notifications.",
+   "stores": {
+    "ios": "https://apps.apple.com/app/id1625396347",
+    "android": "https://play.google.com/store/apps/details?id=io.heckel.ntfy"
+   },
+   "noCreate": "ntfy needs no account: you choose a hard-to-guess topic name and subscribe to it in the phone app.",
+   "steps": [
+    "Choose a long, hard-to-guess topic name.",
+    "Subscribe to it in the ntfy phone app."
+   ],
+   "fields": [
+    {
+     "name": "topic",
+     "what": "The topic name",
+     "kind": "text",
+     "pattern": "^[A-Za-z0-9_-]{1,64}$"
+    }
+   ],
+   "paste": [
+    {
+     "secret": "NTFY_ACCESS_TOKEN",
+     "what": "An access token, only for a server that asks for one",
+     "optional": true
+    }
+   ],
+   "noCheck": "A public topic has nothing to check; the first notification is the test.",
+   "entry": {
+    "type": "ntfy",
+    "id": "ntfy",
+    "topic": "{{topic}}"
+   },
+   "sources": [
+    "https://docs.ntfy.sh/subscribe/phone/"
+   ]
+  },
+  {
+   "id": "pushover",
+   "name": "Pushover",
+   "family": "parity",
+   "turnOn": "switch",
+   "noApp": "Pushover's desktop client runs in the browser; the phone app shows the notifications.",
+   "stores": {
+    "ios": "https://apps.apple.com/app/id506088175",
+    "android": "https://play.google.com/store/apps/details?id=net.superblock.pushover"
+   },
+   "create": {
+    "url": "https://pushover.net/apps/build",
+    "how": "Pushover opens its new-application page. Name it Branch, create it, and copy its API token. Your user key is on the Pushover home page.",
+    "prefilled": false
+   },
+   "paste": [
+    {
+     "secret": "PUSHOVER_APP_TOKEN",
+     "what": "The application's API token",
+     "pattern": "^[A-Za-z0-9]{30}$"
+    },
+    {
+     "secret": "PUSHOVER_USER_KEY",
+     "what": "Your user key",
+     "pattern": "^[A-Za-z0-9]{30}$"
+    }
+   ],
+   "check": {
+    "method": "POST",
+    "url": "https://api.pushover.net/1/users/validate.json",
+    "auth": {
+     "kind": "none"
+    },
+    "ok": "status",
+    "docs": "https://pushover.net/api#verification",
+    "okValue": 1,
+    "body": {
+     "token": "{{PUSHOVER_APP_TOKEN}}",
+     "user": "{{PUSHOVER_USER_KEY}}"
+    },
+    "encoding": "form"
+   },
+   "entry": {
+    "type": "pushover",
+    "id": "pushover"
+   },
+   "sources": [
+    "https://pushover.net/api"
+   ],
+   "fields": []
+  },
+  {
+   "id": "threema",
+   "name": "Threema Gateway",
+   "family": "parity",
+   "turnOn": "switch",
+   "app": {
+    "name": "Threema",
+    "download": "https://threema.com/download",
+    "winget": "Threema.Threema",
+    "brew": "threema",
+    "macApp": "Threema.app"
+   },
+   "stores": {
+    "ios": "https://apps.apple.com/app/id578665578",
+    "android": "https://play.google.com/store/apps/details?id=ch.threema.app"
+   },
+   "create": {
+    "url": "https://gateway.threema.ch/",
+    "how": "Sign up for Threema Gateway, request a Basic ID, and copy the ID and its secret.",
+    "prefilled": false
+   },
+   "fields": [
+    {
+     "name": "gatewayId",
+     "what": "The Gateway ID, like *BRANCH1",
+     "kind": "text",
+     "pattern": "^\\*[0-9A-Z]{7}$"
+    }
+   ],
+   "paste": [
+    {
+     "secret": "THREEMA_GATEWAY_SECRET",
+     "what": "The Gateway secret"
+    }
+   ],
+   "noCheck": "Threema's check needs the secret inside the address, which Branch never does.",
+   "entry": {
+    "type": "threema",
+    "id": "threema",
+    "gatewayId": "{{gatewayId}}"
+   },
+   "sources": [
+    "https://gateway.threema.ch/en/developer/api",
+    "https://formulae.brew.sh/cask/threema"
+   ]
+  },
+  {
+   "id": "homeassistant",
+   "name": "Home Assistant",
+   "family": "parity",
+   "turnOn": "switch",
+   "app": {
+    "name": "Home Assistant",
+    "download": "https://companion.home-assistant.io/",
+    "brew": "home-assistant",
+    "macApp": "Home Assistant.app"
+   },
+   "stores": {
+    "ios": "https://apps.apple.com/app/id1099568401",
+    "android": "https://play.google.com/store/apps/details?id=io.homeassistant.companion.android"
+   },
+   "create": {
+    "url": "{{server}}/profile/security",
+    "how": "Your Home Assistant opens on Security. Under Long-lived access tokens, create one and copy it.",
+    "prefilled": false
+   },
+   "fields": [
+    {
+     "name": "server",
+     "what": "Your Home Assistant's address",
+     "kind": "url"
+    }
+   ],
+   "paste": [
+    {
+     "secret": "HOMEASSISTANT_TOKEN",
+     "what": "The long-lived access token"
+    }
+   ],
+   "check": {
+    "method": "GET",
+    "url": "{{server}}/api/",
+    "auth": {
+     "kind": "bearer",
+     "secret": "HOMEASSISTANT_TOKEN"
+    },
+    "ok": "message",
+    "docs": "https://developers.home-assistant.io/docs/api/rest/"
+   },
+   "entry": {
+    "type": "homeassistant",
+    "id": "homeassistant",
+    "url": "{{server}}"
+   },
+   "sources": [
+    "https://developers.home-assistant.io/docs/api/rest/",
+    "https://formulae.brew.sh/cask/home-assistant"
+   ]
+  },
+  {
+   "id": "xmpp",
+   "name": "XMPP (Jabber)",
+   "family": "parity",
+   "turnOn": "switch",
+   "steps": [
+    "Make an account for the assistant on an XMPP server.",
+    "Paste its password here."
+   ],
+   "fields": [
+    {
+     "name": "jid",
+     "what": "The assistant's address, like branch@example.org",
+     "kind": "text"
+    }
+   ],
+   "paste": [
+    {
+     "secret": "XMPP_PASSWORD",
+     "what": "The account's password"
+    }
+   ],
+   "entry": {
+    "type": "xmpp",
+    "id": "xmpp",
+    "jid": "{{jid}}"
+   },
+   "noCreate": "XMPP accounts are made on the server you choose; there is no single sign-up page.",
+   "sources": [
+    "https://xmpp.org/software/"
+   ],
+   "noCheck": "There is nothing Branch can ask a web service to check; the connection is tried when the switch goes on.",
+   "noApp": "XMPP is an open protocol with many programs (xmpp.org lists them); Branch connects by itself, so nothing needs installing."
+  },
+  {
+   "id": "mqtt",
+   "name": "MQTT",
+   "family": "parity",
+   "turnOn": "switch",
+   "steps": [
+    "Use the MQTT broker you already run (for example Mosquitto).",
+    "Make a user for the assistant and paste its password here."
+   ],
+   "fields": [
+    {
+     "name": "host",
+     "what": "The broker's name",
+     "kind": "text",
+     "pattern": "^[A-Za-z0-9.-]+$"
+    },
+    {
+     "name": "inboundTopic",
+     "what": "The topic Branch listens on",
+     "kind": "text"
+    },
+    {
+     "name": "replyTopic",
+     "what": "The topic Branch answers on",
+     "kind": "text"
+    }
+   ],
+   "paste": [
+    {
+     "secret": "MQTT_PASSWORD",
+     "what": "The broker password",
+     "optional": true
+    }
+   ],
+   "entry": {
+    "type": "mqtt",
+    "id": "mqtt",
+    "host": "{{host}}",
+    "inboundTopic": "{{inboundTopic}}",
+    "replyTopic": "{{replyTopic}}"
+   },
+   "noCreate": "A broker is yours to run; there is nothing to create on a web page.",
+   "sources": [
+    "https://mqtt.org/"
+   ],
+   "noCheck": "There is nothing Branch can ask a web service to check; the connection is tried when the switch goes on.",
+   "noApp": "MQTT is a message protocol, not an app; Branch connects to your broker by itself."
+  },
+  {
+   "id": "keybase",
+   "name": "Keybase",
+   "family": "parity",
+   "turnOn": "switch",
+   "steps": [
+    "Install Keybase and sign in with the assistant's account.",
+    "Put the full path to the keybase program in the connections line."
+   ],
+   "fields": [
+    {
+     "name": "path",
+     "what": "The full path to the keybase program",
+     "kind": "text"
+    }
+   ],
+   "paste": [],
+   "entry": {
+    "type": "keybase",
+    "id": "keybase",
+    "path": "{{path}}"
+   },
+   "noCreate": "Keybase bots are ordinary accounts made in the Keybase app.",
+   "sources": [
+    "https://keybase.io/download",
+    "https://formulae.brew.sh/cask/keybase"
+   ],
+   "noCheck": "Nothing to paste: the keybase program holds the account.",
+   "app": {
+    "name": "Keybase",
+    "download": "https://keybase.io/download",
+    "winget": "Keybase.Keybase",
+    "brew": "keybase",
+    "macApp": "Keybase.app"
+   },
+   "stores": {
+    "ios": "https://apps.apple.com/app/id1044461770",
+    "android": "https://play.google.com/store/apps/details?id=io.keybase.ossifrage"
+   }
+  },
+  {
+   "id": "simplex",
+   "name": "SimpleX Chat",
+   "family": "parity",
+   "turnOn": "switch",
+   "steps": [
+    "Install SimpleX Chat on your phone and connect to the assistant's address once it runs.",
+    "Run simplex-chat (from SimpleX's own releases page) with its WebSocket port on this computer; Branch does not install it."
+   ],
+   "fields": [],
+   "paste": [],
+   "entry": {
+    "type": "simplex",
+    "id": "simplex"
+   },
+   "noCreate": "SimpleX has no accounts to create; the assistant's address is made by simplex-chat.",
+   "sources": [
+    "https://github.com/simplex-chat/simplex-chat/blob/stable/docs/DOWNLOADS.md",
+    "https://flathub.org/apps/chat.simplex.simplex"
+   ],
+   "noCheck": "Nothing to paste: SimpleX has no tokens.",
+   "app": {
+    "name": "SimpleX Chat",
+    "download": "https://simplex.chat/downloads/",
+    "brew": "simplex",
+    "flatpak": "chat.simplex.simplex",
+    "macApp": "SimpleX.app"
+   },
+   "stores": {
+    "ios": "https://apps.apple.com/app/id1605771084",
+    "android": "https://play.google.com/store/apps/details?id=chat.simplex.app"
+   }
+  },
+  {
+   "id": "deltachat",
+   "name": "Delta Chat",
+   "family": "parity",
+   "turnOn": "switch",
+   "steps": [
+    "Install Delta Chat to talk to the assistant.",
+    "Install deltachat-rpc-server (Delta Chat's own releases) for the assistant and put its full path in the connections line; Branch does not install it."
+   ],
+   "fields": [
+    {
+     "name": "path",
+     "what": "The full path to deltachat-rpc-server",
+     "kind": "text"
+    }
+   ],
+   "paste": [],
+   "entry": {
+    "type": "deltachat",
+    "id": "deltachat",
+    "path": "{{path}}"
+   },
+   "noCreate": "Delta Chat uses an email-like account made inside the program; there is no bot page.",
+   "sources": [
+    "https://delta.chat/en/download",
+    "https://flathub.org/apps/chat.delta.desktop",
+    "https://formulae.brew.sh/cask/deltachat"
+   ],
+   "noCheck": "Nothing to paste: the program holds the account.",
+   "app": {
+    "name": "Delta Chat",
+    "download": "https://delta.chat/en/download",
+    "winget": "DeltaChat.DeltaChat",
+    "brew": "deltachat",
+    "flatpak": "chat.delta.desktop",
+    "macApp": "DeltaChat.app"
+   },
+   "stores": {
+    "ios": "https://apps.apple.com/app/id1459523234",
+    "android": "https://play.google.com/store/apps/details?id=chat.delta"
+   }
+  },
+  {
+   "id": "nostr",
+   "name": "Nostr",
+   "family": "parity",
+   "turnOn": "switch",
+   "steps": [
+    "Make a private key for the assistant in a Nostr program you trust, on this computer. Never make one on a website.",
+    "Paste the key (nsec or hex) here."
+   ],
+   "fields": [
+    {
+     "name": "relay",
+     "what": "A relay address, starting wss://",
+     "kind": "text",
+     "pattern": "^wss://\\S+$"
+    }
+   ],
+   "paste": [
+    {
+     "secret": "NOSTR_PRIVATE_KEY",
+     "what": "The assistant's private key"
+    }
+   ],
+   "entry": {
+    "type": "nostr",
+    "id": "nostr",
+    "relays": [
+     "{{relay}}"
+    ]
+   },
+   "noCreate": "Nostr keys are made by programs, not on a sign-up page.",
+   "sources": [
+    "https://nostr.com/"
+   ],
+   "noCheck": "There is nothing Branch can ask a web service to check; the connection is tried when the switch goes on.",
+   "noApp": "Nostr is an open protocol with many programs; Branch connects by itself."
+  },
+  {
+   "id": "vk",
+   "name": "VK",
+   "family": "parity",
+   "turnOn": "switch",
+   "noApp": "VK runs in the browser; the phone app is optional.",
+   "stores": {
+    "android": "https://play.google.com/store/apps/details?id=com.vkontakte.android"
+   },
+   "create": {
+    "url": "https://dev.vk.com/en/api/bots/getting-started",
+    "how": "In your community's settings, open API usage, create a token with messages access, and switch on the Long Poll API.",
+    "prefilled": false
+   },
+   "fields": [
+    {
+     "name": "groupId",
+     "what": "The community's id (digits)",
+     "kind": "text",
+     "pattern": "^\\d{1,12}$"
+    }
+   ],
+   "paste": [
+    {
+     "secret": "VK_GROUP_TOKEN",
+     "what": "The community token"
+    }
+   ],
+   "check": {
+    "method": "POST",
+    "url": "https://api.vk.com/method/groups.getById",
+    "auth": {
+     "kind": "none"
+    },
+    "ok": "response",
+    "docs": "https://dev.vk.com/en/method/groups.getById",
+    "body": {
+     "access_token": "{{VK_GROUP_TOKEN}}",
+     "v": "5.199"
+    },
+    "encoding": "form"
+   },
+   "entry": {
+    "type": "vk",
+    "id": "vk",
+    "groupId": "{{groupId}}"
+   },
+   "sources": [
+    "https://dev.vk.com/en/api/bots/getting-started",
+    "https://dev.vk.com/en/api/api-requests"
+   ]
+  },
+  {
+   "id": "qq-bot",
+   "name": "QQ (official bot)",
+   "family": "parity",
+   "turnOn": "switch",
+   "app": {
+    "name": "QQ",
+    "download": "https://im.qq.com/",
+    "winget": "Tencent.QQ.NT",
+    "brew": "qq",
+    "macApp": "QQ.app"
+   },
+   "stores": {
+    "ios": "https://apps.apple.com/app/id444934666",
+    "android": "https://play.google.com/store/apps/details?id=com.tencent.mobileqq"
+   },
+   "create": {
+    "url": "https://q.qq.com/",
+    "how": "Sign in to the QQ bot platform, create a bot, and copy its AppID and AppSecret.",
+    "prefilled": false
+   },
+   "fields": [
+    {
+     "name": "appId",
+     "what": "The bot's AppID",
+     "kind": "text",
+     "pattern": "^\\d{3,20}$"
+    }
+   ],
+   "paste": [
+    {
+     "secret": "QQ_BOT_CLIENT_SECRET",
+     "what": "The AppSecret"
+    }
+   ],
+   "check": {
+    "method": "POST",
+    "url": "https://bots.qq.com/app/getAppAccessToken",
+    "auth": {
+     "kind": "none"
+    },
+    "ok": "access_token",
+    "docs": "https://bot.q.qq.com/wiki/develop/api-v2/dev-prepare/interface-framework/api-use.html",
+    "body": {
+     "appId": "{{appId}}",
+     "clientSecret": "{{QQ_BOT_CLIENT_SECRET}}"
+    },
+    "encoding": "json"
+   },
+   "entry": {
+    "type": "qq-bot",
+    "id": "qq",
+    "appId": "{{appId}}"
+   },
+   "sources": [
+    "https://bot.q.qq.com/wiki/",
+    "https://formulae.brew.sh/cask/qq"
+   ]
+  },
+  {
+   "id": "guilded",
+   "name": "Guilded",
+   "family": "parity",
+   "turnOn": "switch",
+   "app": {
+    "name": "Guilded",
+    "download": "https://www.guilded.gg/downloads",
+    "winget": "Guilded.Guilded",
+    "brew": "guilded",
+    "macApp": "Guilded.app"
+   },
+   "create": {
+    "url": "https://www.guilded.gg/",
+    "how": "In your server's menu, open Bots, create a bot, and copy its token from the API tab.",
+    "prefilled": false
+   },
+   "paste": [
+    {
+     "secret": "GUILDED_BOT_TOKEN",
+     "what": "The bot token"
+    }
+   ],
+   "check": {
+    "method": "GET",
+    "url": "https://www.guilded.gg/api/v1/users/@me",
+    "auth": {
+     "kind": "bearer",
+     "secret": "GUILDED_BOT_TOKEN"
+    },
+    "ok": "user.id",
+    "docs": "https://www.guilded.gg/docs/api/members/UserRead",
+    "name": "user.name"
+   },
+   "entry": {
+    "type": "guilded",
+    "id": "guilded"
+   },
+   "sources": [
+    "https://www.guilded.gg/docs/api/connecting",
+    "https://formulae.brew.sh/cask/guilded"
+   ],
+   "fields": []
+  },
+  {
+   "id": "revolt",
+   "name": "Revolt (Stoat)",
+   "family": "parity",
+   "turnOn": "switch",
+   "app": {
+    "name": "Stoat",
+    "download": "https://stoat.chat/download"
+   },
+   "stores": {
+    "android": "https://play.google.com/store/apps/details?id=chat.revolt"
+   },
+   "create": {
+    "url": "https://app.revolt.chat/settings/bots",
+    "how": "In Settings, My Bots, create a bot and copy its token.",
+    "prefilled": false
+   },
+   "paste": [
+    {
+     "secret": "REVOLT_BOT_TOKEN",
+     "what": "The bot token"
+    }
+   ],
+   "check": {
+    "method": "GET",
+    "url": "https://api.revolt.chat/users/@me",
+    "auth": {
+     "kind": "header",
+     "header": "X-Bot-Token",
+     "secret": "REVOLT_BOT_TOKEN"
+    },
+    "ok": "_id",
+    "docs": "https://developers.revolt.chat/developers/api/reference.html",
+    "name": "username"
+   },
+   "entry": {
+    "type": "revolt",
+    "id": "revolt"
+   },
+   "sources": [
+    "https://developers.revolt.chat/"
+   ],
+   "fields": []
+  },
+  {
+   "id": "mumble",
+   "name": "Mumble",
+   "family": "parity",
+   "turnOn": "switch",
+   "steps": [
+    "Install Mumble to talk to the assistant.",
+    "Give Branch the server name and a username for the assistant."
+   ],
+   "fields": [
+    {
+     "name": "server",
+     "what": "The Mumble server's name",
+     "kind": "text",
+     "pattern": "^[A-Za-z0-9.-]+$"
+    },
+    {
+     "name": "username",
+     "what": "The assistant's username",
+     "kind": "text"
+    }
+   ],
+   "paste": [
+    {
+     "secret": "MUMBLE_PASSWORD",
+     "what": "The server password, if there is one",
+     "optional": true
+    }
+   ],
+   "entry": {
+    "type": "mumble",
+    "id": "mumble",
+    "server": "{{server}}",
+    "username": "{{username}}"
+   },
+   "noCreate": "Mumble has no accounts to create; the assistant joins a server by name.",
+   "sources": [
+    "https://www.mumble.info/downloads/",
+    "https://flathub.org/apps/info.mumble.Mumble"
+   ],
+   "noCheck": "Mumble is tried by connecting to the server when the switch goes on.",
+   "app": {
+    "name": "Mumble",
+    "download": "https://www.mumble.info/downloads/",
+    "winget": "Mumble.Mumble.Client",
+    "flatpak": "info.mumble.Mumble"
+   }
+  },
+  {
+   "id": "kook",
+   "name": "KOOK",
+   "family": "parity",
+   "turnOn": "switch",
+   "app": {
+    "name": "KOOK",
+    "download": "https://www.kookapp.cn/app/download"
+   },
+   "stores": {
+    "ios": "https://apps.apple.com/app/id1501289327"
+   },
+   "create": {
+    "url": "https://developer.kookapp.cn/app/index",
+    "how": "On KOOK's developer site, create an application, open Bot, choose WebSocket, and copy the token.",
+    "prefilled": false
+   },
+   "paste": [
+    {
+     "secret": "KOOK_BOT_TOKEN",
+     "what": "The bot token"
+    }
+   ],
+   "check": {
+    "method": "GET",
+    "url": "https://www.kookapp.cn/api/v3/user/me",
+    "auth": {
+     "kind": "bot",
+     "secret": "KOOK_BOT_TOKEN"
+    },
+    "ok": "code",
+    "docs": "https://developer.kookapp.cn/doc/http/user",
+    "name": "data.username",
+    "okValue": 0
+   },
+   "entry": {
+    "type": "kook",
+    "id": "kook"
+   },
+   "sources": [
+    "https://developer.kookapp.cn/doc/reference"
+   ],
+   "fields": []
+  },
+  {
+   "id": "wechat-mp",
+   "name": "WeChat Official Account",
+   "family": "parity",
+   "turnOn": "switch",
+   "app": {
+    "name": "WeChat",
+    "download": "https://www.wechat.com/",
+    "winget": "Tencent.WeChat",
+    "brew": "wechat",
+    "macApp": "WeChat.app"
+   },
+   "stores": {
+    "ios": "https://apps.apple.com/app/id414478124",
+    "android": "https://play.google.com/store/apps/details?id=com.tencent.mm"
+   },
+   "create": {
+    "url": "https://mp.weixin.qq.com/",
+    "how": "In your verified Official Account's developer settings, copy the AppSecret, set a Token and EncodingAESKey, and choose safe mode.",
+    "prefilled": false
+   },
+   "fields": [
+    {
+     "name": "appId",
+     "what": "The AppID, starting wx",
+     "kind": "text",
+     "pattern": "^wx[a-z0-9]{14,18}$"
+    }
+   ],
+   "paste": [
+    {
+     "secret": "WECHAT_MP_APP_SECRET",
+     "what": "The AppSecret"
+    },
+    {
+     "secret": "WECHAT_MP_TOKEN",
+     "what": "The Token you set"
+    },
+    {
+     "secret": "WECHAT_MP_AES_KEY",
+     "what": "The EncodingAESKey"
+    }
+   ],
+   "noCheck": "WeChat only takes the AppSecret inside the address, which Branch never does, so it is checked on first connection.",
+   "entry": {
+    "type": "wechat-mp",
+    "id": "wechat",
+    "appId": "{{appId}}"
+   },
+   "sources": [
+    "https://developers.weixin.qq.com/doc/offiaccount/en/Basic_Information/Get_access_token.html",
+    "https://formulae.brew.sh/cask/wechat"
+   ]
+  },
+  {
+   "id": "wecom-app",
+   "name": "WeCom app",
+   "family": "parity",
+   "turnOn": "switch",
+   "app": {
+    "name": "WeCom",
+    "download": "https://work.weixin.qq.com/",
+    "winget": "Tencent.WeCom"
+   },
+   "stores": {
+    "ios": "https://apps.apple.com/app/id1087897068",
+    "android": "https://play.google.com/store/apps/details?id=com.tencent.wework"
+   },
+   "create": {
+    "url": "https://work.weixin.qq.com/wework_admin/frame#apps",
+    "how": "In the WeCom admin console, make a self-built app, and copy its Secret; under Receive messages set a Token and EncodingAESKey.",
+    "prefilled": false
+   },
+   "fields": [
+    {
+     "name": "corpId",
+     "what": "Your CorpID",
+     "kind": "text",
+     "pattern": "^ww[a-z0-9]{10,30}$"
+    },
+    {
+     "name": "agentId",
+     "what": "The app's AgentId",
+     "kind": "text",
+     "pattern": "^\\d{1,12}$"
+    }
+   ],
+   "paste": [
+    {
+     "secret": "WECOM_APP_SECRET",
+     "what": "The app Secret"
+    },
+    {
+     "secret": "WECOM_APP_TOKEN",
+     "what": "The Token you set"
+    },
+    {
+     "secret": "WECOM_APP_AES_KEY",
+     "what": "The EncodingAESKey"
+    }
+   ],
+   "noCheck": "WeCom only takes the secret inside the address, which Branch never does, so it is checked on first connection.",
+   "entry": {
+    "type": "wecom-app",
+    "id": "wecom",
+    "corpId": "{{corpId}}",
+    "agentId": "{{agentId}}"
+   },
+   "sources": [
+    "https://developer.work.weixin.qq.com/document/path/90665"
+   ]
+  }
+ ]
+}

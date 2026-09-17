@@ -37,12 +37,13 @@ export interface LockdownState {
   effects: string[];
 }
 export const lockdownEffects = [
-  "Every tool waits for your yes.",
+  "Every other tool waits for your yes.",
   "Anything you already said yes to has to be asked again.",
-  "Running a script, and leaving a program running, are both off. A command still has to be asked about, like every other tool.",
-  "Using your screen and keyboard is off.",
-  "Borrowing your browser is off.",
-  "Sending messages out and telling other programs what happened are both off.",
+  "Running a command or a script, leaving a program running, and handing work to another computer are refused outright; you are not asked.",
+  "Using your screen and keyboard is refused.",
+  "Borrowing your browser is refused.",
+  "Sending messages out, steps that send to other apps, and telling other programs what happened are all off.",
+  "Automations that start by themselves, routines a Trunk owns, your other devices and your personal connectors are off, whatever they were set to.",
 ];
 
 interface SavedLockdown { on: boolean; since: string | null; before: Record<string, Record<string, unknown> | null> }
@@ -60,8 +61,72 @@ export function lockdownState(store: Store, owner: string): LockdownState {
 
 /** True while Lockdown is on. The one question the sending paths ask before they send anything. */
 export function lockedDown(store: Store, owner: string): boolean {
-  return saved(store, owner).on;
+  return lockdownActive(store, owner);
 }
+
+/* ---------- mac7/lockdown-fix: Lockdown wins over any saved switch, read at the moment of use ---------- */
+
+/**
+ * The switches written above are only half of it: a feature with a saved mode ("on", "when
+ * needed") reads its mode first, and a change saved while Lockdown is on would switch it back on.
+ * So every covered feature also asks here each time it is read, and while Lockdown is on the answer
+ * is "off" whatever was saved.
+ */
+type Reader = Pick<Store, "get">;
+
+/** True while Lockdown is on; for the settings readers, which only hold a reader. */
+export function lockdownActive(store: Reader, owner: string): boolean {
+  const record = store.get("settings", owner, stateKey)?.data as { on?: unknown } | undefined;
+  return record?.on === true;
+}
+
+/**
+ * The settings records Lockdown switches off: the screen and keyboard, borrowing the browser,
+ * running a script, every automation part, routines a Trunk owns, the owner's other devices
+ * (src/devices/) and every personal connector (src/personal/).
+ */
+const coveredSettings: readonly RegExp[] = [
+  /^desktop-control$/, /^browser-attach$/, /^code-run$/, /^autonomy-/, /^trunks-routines$/, /^devices-book$/, /^personal-/,
+];
+
+/** True when Lockdown is on and this settings record is one it switches off. */
+export function lockdownOverrides(store: Reader, owner: string, key: string): boolean {
+  return coveredSettings.some((pattern) => pattern.test(key)) && lockdownActive(store, owner);
+}
+
+/** Kinds of tool refused outright while Lockdown is on, rather than asked about. */
+const refusedPermissions: readonly string[] = [
+  "shell.execute", "code.execute", "remote.execute", "process.manage", "desktop.control", "desktop.view", "desktop.clipboard",
+  "devices.read", "devices.capture", "devices.act", "devices.run",
+  // Integration review: handing a task to another computer running Branch, and a step that sends
+  // something to another app (Slack, Notion, Telegram...), reach past this computer on their own.
+  "nodes.run", "blocks.run",
+];
+const refusedTools: readonly string[] = ["browser.borrow"];
+
+export const lockdownToolRefusalText =
+  "Lockdown is on, so commands, programs, your screen and keyboard, your own browser, your other devices and other computers are refused, without asking. Turn Lockdown off in Settings to allow this again.";
+
+/** Why this tool is refused while Lockdown is on, or null. Checked in `Runtime.checkPolicy`. */
+export function lockdownToolRefusal(store: Reader, owner: string, tool: string, permission: string): string | null {
+  if (!refusedTools.includes(tool) && !refusedPermissions.includes(permission)) return null;
+  return lockdownActive(store, owner) ? lockdownToolRefusalText : null;
+}
+type LockdownListener = (store: Reader, owner: string, on: boolean) => void;
+const listeners = new Set<LockdownListener>();
+
+/**
+ * Integration review: told each time Lockdown is turned on or off, so a part holding something open
+ * (a device's socket) can let go at once. Hands back the way to stop listening.
+ */
+export function onLockdownChange(listener: LockdownListener): () => void {
+  listeners.add(listener);
+  return () => { listeners.delete(listener); };
+}
+function tellListeners(store: Reader, owner: string, on: boolean): void {
+  for (const listener of [...listeners]) try { listener(store, owner, on); } catch { /* telling must not undo the switch */ }
+}
+/* ---------- end mac7/lockdown-fix ---------- */
 
 /** The sentence a refused send gives back, so every place says the same thing. */
 export const lockdownRefusal = "Lockdown is on, so nothing is being sent out. Turn it off in Settings to allow this again.";
@@ -84,6 +149,7 @@ export function setLockdown(store: Store, owner: string, input: unknown): Lockdo
       : "The settings that were in place before Lockdown were put back exactly as they were",
     outcome: "saved",
   });
+  tellListeners(store, owner, on); // mac7/lockdown-fix integration review
   return lockdownState(store, owner);
 }
 

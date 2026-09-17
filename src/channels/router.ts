@@ -11,6 +11,7 @@ import type { Run } from "../contracts.js";
 import { LiveStatus, defaultLiveTiming, statusEmoji, type LiveTiming } from "./live-status.js";
 import { chatLiveSwitches, saveChatLiveSwitches, type ChatLiveSwitches } from "./chat-live-settings.js";
 import { commandMode } from "../commands/settings.js";
+import { savedLine } from "../commands/saved.js";
 import { chatCommandSpec, parseChatCommand, runChatCommand, usageFooter, usageShown, type ChatCommand, type ChatTurn } from "./chat-commands.js";
 
 /**
@@ -32,6 +33,11 @@ export interface InboundMessage {
   /** The message a reaction goes on, where it differs from `messageId` (a Slack thread reply). */
   reactTo?: string;
   /**
+   * mac6/bucket-16 integration: the message arrived while Branch was closed and was fetched after a
+   * restart (src/channels/catch-up.ts). A stranger's such message is let go without a pairing code.
+   */
+  caughtUp?: boolean;
+  /**
    * A voice note, when the person sent one instead of typing. The bytes are fetched only if the
    * message gets as far as being answered, so a stranger cannot make Branch download anything.
    */
@@ -42,6 +48,18 @@ export interface InboundMessage {
   };
 }
 /** What a channel says about itself, in words the owner can act on. */
+/**
+ * What a task started from a chat may use, out of everything registered. Integration review
+ * (mac7/nodes): a chat cannot prove who is typing, so the owner's other devices (camera, screen,
+ * microphone, files, commands) are never lent to a chat sender either.
+ */
+export function chatPermissionsOf(all: readonly string[]): string[] {
+  // R17-C: nor the owner's own mail, calendars, files in other services, or house.
+  const personal = ["personal.read", "personal.write", "home.control"];
+  return all.filter((p) => ![...personal, "shell.execute", "remote.execute", "git.remote", "github.manage", "channels.send"].includes(p)
+    && !p.startsWith("devices."));
+}
+
 export interface ChannelHealth {
   state: "connected" | "reconnecting" | "needs attention";
   reason?: string;
@@ -102,8 +120,18 @@ export interface ChannelAdapter {
    * Absent means there is no progress message and replies are not streamed.
    */
   edit?(chatId: string, messageId: string, text: string): Promise<void>;
+  // ---- R17-C (R17-022): a file delivered into the chat as the app's own attachment -------------
+  // Absent means "this app cannot". A failure must throw. Only `chat.send_file`
+  // (src/personal/chat-files.ts) calls it, after the owner, recipient, size and leak checks.
+  /** The largest file this app takes from a bot, in bytes. */
+  readonly maxFileBytes?: number;
+  /** Sends one file with an optional caption, and returns the id of the message it made. */
+  sendFile?(chatId: string, file: OutgoingFile, replyToMessageId?: string): Promise<string | undefined>;
+  // ---- end R17-C ----
   stop(): Promise<void>;
 }
+/** R17-C (R17-022): one file on its way into a chat. */
+export interface OutgoingFile { name: string; mediaType: string; bytes: Uint8Array; caption?: string }
 
 /** One answer on an approval question, as a button. `value` is what comes back when it is pressed. */
 export interface ApprovalButton {
@@ -211,6 +239,11 @@ export class ChannelRouter {
    */
   outboundGuard: (text: string) => Promise<{ text: string; blocked: boolean; reason?: string }> =
     async (text) => ({ text, blocked: false });
+  /**
+   * R17-A (Trunks): a plain refusal when a chat app may not reach the Trunk whose conversation this
+   * chat is linked to (src/trunks/). `createBranch` connects it; on its own every chat is answered.
+   */
+  trunkReach: (channel: string, sessionId: string) => string | null = () => null;
   /**
    * Batch 26 (wave 8): the ceiling the owner set for one person messaging from outside. `createBranch`
    * connects the real counter; on its own nothing is limited. Somebody who reaches it is told so in
@@ -349,6 +382,7 @@ export class ChannelRouter {
     if (message.chatKind === "group" && policy.activation === "mention" && !message.addressed) return "ignored";
     const access = this.access(message, policy);
     if (access !== "allowed") {
+      if (message.caughtUp) return "ignored"; // mac6/bucket-16 integration
       const text = access === "pairing"
         ? `I don't know you yet. Ask my owner to approve code ${this.pairingCode(message)} under Settings → Channels, then message me again.`
         : "This assistant is private.";
@@ -449,6 +483,15 @@ export class ChannelRouter {
   }
 
   private async answer(message: InboundMessage): Promise<Outcome> {
+    // ---- bucket 12: one of the owner's saved commands becomes the message it stands for ----
+    const saved = this.switches().commands === "off" || message.voice ? null : savedLine(this.store, this.runtime.owner, message.text);
+    if (saved && !("text" in saved)) {
+      const said = "problem" in saved ? saved.problem : saved.reply;
+      await this.deliver(message.channel, message.chatId, said, `saved:${message.messageId}`, message.messageId).catch(() => undefined);
+      return "replied";
+    }
+    if (saved) message = { ...message, text: saved.text };
+    // ---- end of the bucket 12 hook ----
     const command = this.commandIn(message);
     if (command) return this.command(message, command);
     // A bare "y", "a" or "n" answers whatever this chat's conversation is waiting on, rather than
@@ -494,7 +537,7 @@ export class ChannelRouter {
     // A message from a chat app can read and change the local copy, but never publish it, and
     // never send to somebody else's chat: a paired person in one group must not be able to
     // make the assistant write to every chat it is linked to.
-    return this.runtime.registry.permissions().filter((p) => !["shell.execute", "remote.execute", "git.remote", "github.manage", "channels.send"].includes(p));
+    return chatPermissionsOf(this.runtime.registry.permissions());
   }
   // ---- chat-live (wave mac2): one task per chat, notes steer it, commands control it ----------
   /** Carries out a chat command and sends its answer back. */
@@ -631,6 +674,13 @@ export class ChannelRouter {
     const off = this.store.onEvent((runId, kind, data) => { if (runId === turn.runId) live?.event(kind, data); });
     try {
       const sessionId = this.sessionFor(message.channel, message.chatId);
+      // R17-A (Trunks): a chat linked to a Trunk's conversation is answered only where that Trunk may reach.
+      const trunkRefusal = sessionId ? this.trunkReach(message.channel, sessionId) : null;
+      if (trunkRefusal) {
+        await live?.finish("error");
+        await this.deliver(message.channel, message.chatId, trunkRefusal, `trunk-reach:${message.channel}:${message.messageId}`, message.messageId).catch(() => undefined);
+        return "rejected";
+      }
       const run = await this.runtime.run({
         prompt: heard.prompt, ...(sessionId ? { sessionId } : {}), permissions: this.chatPermissions(),
         onStarted: (started) => {
@@ -741,7 +791,12 @@ export class ChannelRouter {
     return new LiveStatus({ adapter, chatId: message.chatId, messageId: message.messageId, reactTo: message.reactTo,
       allowed: () => this.liveOn() }, (text) => this.outboundGuard(this.hideLeaks(text)), this.liveTiming, setting === "when-needed");
   }
-  private access(message: InboundMessage, policy: ChannelPolicy): "allowed" | "pairing" | "rejected" {
+  /** mac6/bucket-16 integration: whether a sender may use a connected chat app, without offering a code. */
+  senderAllowed(channel: string, senderId: string): boolean {
+    const entry = this.adapters.get(channel);
+    return !!entry && !!senderId && this.access({ channel, senderId } as InboundMessage, entry.policy) === "allowed";
+  }
+  private access(message: Pick<InboundMessage, "channel" | "senderId">, policy: ChannelPolicy): "allowed" | "pairing" | "rejected" {
     // Batch 20 (wave 8): the one list for every chat app is read first, so "never this person"
     // holds everywhere at once. A channel's own list still works and is read after it.
     const list = readSenderAllowlist(this.store, this.runtime.owner);

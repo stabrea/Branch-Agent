@@ -77,6 +77,8 @@ class FakeBranch(BaseHTTPRequestHandler):
             return self._send(400, {"error": "Give the task some words"})
         if path == "/api/run":
             return self._send(200, {"id": RUN_ID, "sessionId": "s-1", "status": "running"})
+        if path.endswith("/yaml") and entry["method"] == "GET":
+            return self._send(200, {"id": "f-1", "name": "Tidy", "yaml": "name: Tidy\n"})
         if path == f"/api/runs/{RUN_ID}":
             return self._send(200, {"run": {"id": RUN_ID, "status": "completed", "output": "Three lines."}})
         return self._send(200, {"ok": True, "path": path})
@@ -191,6 +193,16 @@ class ClientTest(unittest.TestCase):
         self.assertEqual((self.last()["path"], self.last()["body"]), ("/api/sessions/s-1/followups", {"prompt": "And shorter."}))
         self.branch.schedules.trigger("daily")
         self.assertEqual(self.last()["path"], "/api/schedules/daily/trigger")
+
+    def test_flows_and_flows_as_yaml(self):
+        self.branch.flows.run("f-1", topic="invoices")
+        self.assertEqual((self.last()["path"], self.last()["body"]), ("/api/flows/f-1/run", {"topic": "invoices"}))
+        self.assertEqual(self.branch.flows.export_yaml("f-1"), "name: Tidy\n")
+        self.assertEqual((self.last()["method"], self.last()["path"]), ("GET", "/api/flows/f-1/yaml"))
+        self.branch.flows.import_yaml("name: Tidy\n")
+        self.assertEqual((self.last()["path"], self.last()["body"]), ("/api/flows/yaml", {"yaml": "name: Tidy\n"}))
+        self.branch.flows.list()
+        self.assertEqual(self.last()["path"], "/api/flows")
 
     def test_an_id_cannot_reach_a_different_route(self):
         self.branch.sessions.get("../../api/secrets")

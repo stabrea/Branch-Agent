@@ -77,7 +77,10 @@ export function uninstallScript(options: {
   const remove = options.shortcuts.map((path) => `del /q "${path}" 2>NUL`);
   return [
     "@echo off", "setlocal",
-    `echo Removing Branch Agent. Your conversations and files stay in ${options.userDataDir}.`,
+    // bucket 22: `--delete-data` removes conversations and files too; without it they are always kept.
+    'set "DELETE_DATA="', 'for %%A in (%*) do if /i "%%~A"=="--delete-data" set "DELETE_DATA=1"',
+    `if not defined DELETE_DATA echo Removing Branch Agent. Your conversations and files stay in ${options.userDataDir}.`,
+    "if defined DELETE_DATA echo Removing Branch Agent, with its conversations and files.",
     `${sys}taskkill.exe /IM "${options.executableName}" /F >NUL 2>&1`,
     `${sys}ping.exe -n 3 127.0.0.1 >NUL`,
     `${sys}schtasks.exe /Delete /F /TN "Branch Agent daemon" >NUL 2>&1`,
@@ -85,6 +88,7 @@ export function uninstallScript(options: {
     `${sys}reg.exe delete "${uninstallKey(options.uninstallHive)}" /f >NUL 2>&1`,
     ...remove,
     `rmdir /s /q "${options.installRoot}.previous" 2>NUL`,
+    `if defined DELETE_DATA rmdir /s /q "${options.userDataDir}" 2>NUL`,
     // A script cannot delete the folder it is running from, so the last step runs from the temp folder.
     `start "" /d "%TEMP%" ${sys}cmd.exe /d /c "${sys}ping.exe -n 4 127.0.0.1 >NUL & rmdir /s /q ""${options.installRoot}"""`,
     "exit /b 0", "",
@@ -99,23 +103,27 @@ export function bootstrapperScript(options: { assetName: string; executableName:
   const sys = "%SystemRoot%\\System32\\";
   return [
     "@echo off", "setlocal enabledelayedexpansion", "title Install Branch Agent",
+    // bucket 22: `/quiet` (or `--quiet`) never waits for a key press, so a script can run it. The stand-in
+    // is `type NUL`, not `rem`: a `rem` would swallow the rest of the line it lands on, `exit` included.
+    'set "PAUSE=pause"', 'for %%A in (%*) do if /i "%%~A"=="/quiet" set "PAUSE=type NUL"',
+    'for %%A in (%*) do if /i "%%~A"=="--quiet" set "PAUSE=type NUL"',
     'set "HERE=%~dp0"', `set "ZIP=%HERE%${options.assetName}"`,
     'set "STAGE=%TEMP%\\branch-agent-setup"',
-    `if not exist "%ZIP%" ( echo Put this file in the same folder as ${options.assetName} and run it again. & pause & exit /b 1 )`,
+    `if not exist "%ZIP%" ( echo Put this file in the same folder as ${options.assetName} and run it again. & %PAUSE% & exit /b 1 )`,
     'rmdir /s /q "%STAGE%" 2>NUL', 'mkdir "%STAGE%"',
     "echo Unpacking Branch Agent...",
     `${sys}tar.exe -xf "%ZIP%" -C "%STAGE%"`,
     "if errorlevel 1 powershell.exe -NoProfile -NonInteractive -Command \"Expand-Archive -LiteralPath $env:ZIP -DestinationPath $env:STAGE -Force\"",
     `set "APP=%STAGE%"`,
     `if not exist "%APP%\\${options.executableName}" for /d %%D in ("%STAGE%\\*") do if exist "%%~fD\\${options.executableName}" set "APP=%%~fD"`,
-    `if not exist "%APP%\\${options.executableName}" ( echo The download did not contain the app. & pause & exit /b 1 )`,
+    `if not exist "%APP%\\${options.executableName}" ( echo The download did not contain the app. & %PAUSE% & exit /b 1 )`,
     "echo Installing...",
     'set "ELECTRON_RUN_AS_NODE=1"',
     `"%APP%\\${options.executableName}" "%APP%\\resources\\app\\dist\\install\\install-cli.js" install --source "%APP%" %*`,
     "set CODE=%ERRORLEVEL%",
     'rmdir /s /q "%STAGE%" 2>NUL',
-    "if not \"%CODE%\"==\"0\" ( echo Installing did not finish. & pause & exit /b %CODE% )",
-    "echo Done. Branch Agent is in your Start menu.", "pause", "exit /b 0", "",
+    "if not \"%CODE%\"==\"0\" ( echo Installing did not finish. & %PAUSE% & exit /b %CODE% )",
+    "echo Done. Branch Agent is in your Start menu.", "%PAUSE%", "exit /b 0", "",
   ].join("\r\n");
 }
 
