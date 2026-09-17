@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { ChannelAdapter, InboundMessage } from "./router.js";
+import type { ChannelPosition } from "../never-break/channel-position.js";
 
 /**
  * Telegram Bot API adapter using long polling. Only text messages are delivered; a message is
@@ -11,6 +12,8 @@ export interface TelegramOptions {
   apiBase?: string;
   fetch?: typeof fetch;
   pollTimeoutSeconds?: number;
+  /** mac3/never-break: where the stream was read up to, kept across restarts. */
+  position?: ChannelPosition;
 }
 const userSchema = z.object({ id: z.number(), is_bot: z.boolean().optional(), first_name: z.string().optional(), username: z.string().optional() }).passthrough();
 const voiceSchema = z.object({
@@ -53,6 +56,9 @@ export class TelegramAdapter implements ChannelAdapter {
   private username: string | null = null;
   private offset = 0;
   private stopping = new AbortController();
+  /** mac3/never-break: messages handed over and not yet settled, and how far everything is settled. */
+  private readonly inFlight = new Set<number>();
+  private settledUpTo = 0;
   private loop: Promise<void> | null = null;
   constructor(private readonly options: TelegramOptions) {
     this.id = options.id;
@@ -64,6 +70,7 @@ export class TelegramAdapter implements ChannelAdapter {
   async start(onMessage: (message: InboundMessage) => Promise<void>): Promise<void> {
     const me = userSchema.parse(await this.call("getMe", {}));
     this.username = me.username ?? null;
+    this.offset = Math.max(this.offset, this.options.position?.load() ?? 0); // mac3/never-break
     this.loop = this.poll(onMessage);
   }
   async stop(): Promise<void> {
@@ -101,9 +108,9 @@ export class TelegramAdapter implements ChannelAdapter {
           // Handed over without waiting: a message sent while a task works is a note for that task,
           // and it has to be read while the task is still going. The router keeps one task per chat.
           const pressed = update.callback_query && this.fromButton(update.callback_query);
-          if (pressed) { void onMessage(pressed).catch(() => undefined); continue; }
+          if (pressed) { this.handOver(update.update_id, pressed, onMessage); continue; }
           const message = update.message && this.inbound(update.message);
-          if (message) void onMessage(message).catch(() => undefined);
+          this.handOver(update.update_id, message || null, onMessage);
         }
       } catch (error) {
         if (this.stopping.signal.aborted) return;
@@ -111,6 +118,21 @@ export class TelegramAdapter implements ChannelAdapter {
         await new Promise((resolve) => setTimeout(resolve, 2000));
       }
     }
+  }
+  /**
+   * mac3/never-break: hands one update to the router without waiting for it, and saves the read
+   * position only up to the oldest message still being handled, so a crash never skips one.
+   */
+  private handOver(id: number, message: InboundMessage | null, onMessage: (message: InboundMessage) => Promise<void>): void {
+    const settle = () => {
+      this.inFlight.delete(id);
+      this.settledUpTo = Math.max(this.settledUpTo, id + 1);
+      const oldest = Math.min(...this.inFlight);
+      this.options.position?.save(Number.isFinite(oldest) ? Math.min(oldest, this.settledUpTo) : this.settledUpTo);
+    };
+    if (!message) { settle(); return; }
+    this.inFlight.add(id);
+    void onMessage(message).catch(() => undefined).finally(settle);
   }
   /**
    * A pressed button, as an ordinary addressed message carrying the button's own value. The router
