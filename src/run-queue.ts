@@ -4,6 +4,7 @@ import type { Store } from "./store.js";
 import type { Runtime } from "./runtime.js";
 import type { ExecutionLimit } from "./execution-limit.js";
 import { errorText } from "./contracts.js";
+import { placeTask, type Placement } from "./dispatch-fallback.js";
 
 /**
  * A waiting line for tasks. When as many tasks are already working as this computer is set to
@@ -52,8 +53,26 @@ export class RunQueue {
     this.drain(owner);
     return value;
   }
+  /**
+   * Where a task ended up and why: started, or waiting with the reason and the next best thing the
+   * owner can do about it. A task that cannot be placed is never left to hang in silence.
+   */
+  placement(owner: string, id: string): Placement {
+    const entry = this.entry(owner, id);
+    if (!entry) throw new Error("No queued task with that number");
+    if (entry.status !== "waiting")
+      return placeTask({ atOnce: this.settings(owner).atOnce, running: this.running(owner).length });
+    const running = this.running(owner);
+    const sessionBusy = !!entry.sessionId && running.some((item) => item.sessionId === entry.sessionId);
+    const position = entry.position;
+    // The whole app being as busy as it may get is the honest reason when it is the real one: a
+    // task started from the app's own screen takes up one of the same places this line draws from.
+    if (this.executions && this.executions.room === 0 && !sessionBusy)
+      return placeTask({ atOnce: this.executions.limit, running: this.executions.limit, position });
+    return placeTask({ atOnce: this.settings(owner).atOnce, running: running.length, position, sessionBusy });
+  }
   /** Joins the line. It starts straight away when there is room, and says where it is if not. */
-  submit(owner: string, input: unknown): QueueEntry {
+  submit(owner: string, input: unknown): QueueEntry & { placement: Placement } {
     const value = QueueEntrySchema.parse(input);
     if (value.sessionId && !this.store.ownsSession(owner, value.sessionId)) throw new Error("Conversation not found");
     if (this.waiting(owner).length >= 200) throw new Error("The waiting line is full");
@@ -61,7 +80,7 @@ export class RunQueue {
     this.store.sqlite.prepare("INSERT INTO run_queue VALUES(?,?,?,?,?,?,?,?,?,?,?)")
       .run(id, owner, value.prompt, value.sessionId ?? null, value.source, sourcePriority[value.source], "waiting", null, null, now, now);
     this.drain(owner);
-    return this.entry(owner, id)!;
+    return { ...this.entry(owner, id)!, placement: this.placement(owner, id) };
   }
   /** Takes the queued task out of the line. A task already working is cancelled instead. */
   cancel(owner: string, id: string): { cancelled: boolean; wasRunning: boolean } {

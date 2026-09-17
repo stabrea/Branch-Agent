@@ -1060,6 +1060,11 @@ export * from "./channels/docs-table.js";
 export * from "./json-template.js";
 export * from "./skill-document.js";
 export * from "./scheduler.js";
+// Bucket 8 (wave 9): long jobs that survive being interrupted.
+export * from "./session-carry.js";
+export * from "./shell-session.js";
+export * from "./headless.js";
+export * from "./dispatch-fallback.js";
 export * from "./provider-retry.js";
 export * from "./triggers.js";
 export * from "./webhooks.js";

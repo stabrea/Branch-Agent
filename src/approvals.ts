@@ -146,6 +146,18 @@ export class ApprovalGate {
     });
     this.answers.set(sessionId, forSession);
   }
+  /**
+   * Puts a kept answer back exactly as it was, after the app has been closed and opened again. The
+   * moment it runs out is the one it was given, never a fresh hour: a restart must not quietly
+   * lengthen a permission. One already out of date is refused here and named to the owner instead.
+   */
+  restoreGrant(sessionId: string, grant: SessionGrant): boolean {
+    if (Date.parse(grant.expiresAt) <= Date.now()) return false;
+    const forSession = this.answers.get(sessionId) ?? new Map<string, SessionGrant>();
+    forSession.set(answerKey(grant.tool, grant.target), { ...grant });
+    this.answers.set(sessionId, forSession);
+    return true;
+  }
   /** What this conversation is allowed to do right now, for the "What is allowed" list. */
   grants(sessionId: string): SessionGrant[] {
     const forSession = this.answers.get(sessionId);

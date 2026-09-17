@@ -38,6 +38,16 @@ export const ScheduleSchema = z
 export type DeliveryHandler = (channel: string, chatId: string, text: string, key: string) => Promise<{ messageId?: string | undefined; queued?: number }>;
 export interface HistoryEntry { runId: string | null; status: string; startedAt: string; finishedAt?: string; trigger: string }
 const historyLimit = 50;
+/** How many turns in a row a repeating job may miss before it is paused and the owner told why. */
+export const failuresBeforePausing = 3;
+/** Whether a schedule comes round again, rather than happening once. */
+const repeating = (data: Record<string, unknown>): boolean =>
+  typeof data.intervalMs === "number" || typeof data.dailyAt === "string";
+/** The moment a repeating schedule is next due after `now`. */
+const nextTurn = (data: Record<string, unknown>, now: Date): string =>
+  typeof data.dailyAt === "string"
+    ? nextDailyOccurrence(now, data.dailyAt, String(data.timezone)).toISOString()
+    : new Date(now.getTime() + Number(data.intervalMs ?? 0)).toISOString();
 
 /** The next moment `HH:MM` occurs in `zone` strictly after `after`. */
 export function nextDailyOccurrence(after: Date, hhmm: string, zone: string): Date {
@@ -133,11 +143,8 @@ export class Scheduler {
     const decision = this.calendar?.decide(record.owner, now, mode);
     if (!decision || decision.action === "run") return false;
     const data = record.data;
-    const repeats = typeof data.intervalMs === "number" || typeof data.dailyAt === "string";
-    const nextTurn = typeof data.dailyAt === "string"
-      ? nextDailyOccurrence(now, data.dailyAt, String(data.timezone)).toISOString()
-      : new Date(now.getTime() + Number(data.intervalMs ?? 0)).toISOString();
-    const movedTo = decision.action === "shift" ? decision.moveTo! : repeats ? nextTurn : String(data.dueAt);
+    const repeats = repeating(data);
+    const movedTo = decision.action === "shift" ? decision.moveTo! : repeats ? nextTurn(data, now) : String(data.dueAt);
     this.store.save("schedules", record.owner, record.id, {
       ...data, dueAt: movedTo,
       status: decision.action === "skip" && !repeats ? "skipped" : "pending",
@@ -170,25 +177,39 @@ export class Scheduler {
       Object.assign(entry, { runId: run.id, status: run.status, finishedAt: new Date().toISOString() });
       this.runtime.notifyEvent("schedule.fired", { scheduleId: record.id, runId: run.id, status: run.status, trigger });
       const delivery = await this.deliverResult(data, run);
-      const repeats = run.status === "completed" && (typeof data.intervalMs === "number" || typeof data.dailyAt === "string");
-      const nextDue = !advance ? String(data.dueAt)
-        : typeof data.dailyAt === "string" ? nextDailyOccurrence(now, data.dailyAt, String(data.timezone)).toISOString()
-        : new Date(now.getTime() + Number(data.intervalMs ?? 0)).toISOString();
       this.store.save("schedules", record.owner, record.id, {
-        ...data, status: !advance ? String(data.status) === "running" ? "pending" : data.status : repeats ? "pending" : run.status,
-        runId: run.id, runCount: Number(data.runCount ?? 0) + 1, history: [...history, entry],
+        ...data, runId: run.id, runCount: Number(data.runCount ?? 0) + 1, history: [...history, entry],
         lastRunAt: startedAt, lastResult: run.status === "completed" ? run.output.slice(0, 4000) : data.lastResult ?? null,
-        ...(delivery ? { delivery } : {}), ...(advance && repeats ? { dueAt: nextDue } : {}),
+        ...(delivery ? { delivery } : {}), ...this.afterTurn(data, now, run.status, advance),
       });
       return run;
     } catch (e) {
       Object.assign(entry, { status: "failed", finishedAt: new Date().toISOString() });
       this.store.save("schedules", record.owner, record.id, {
-        ...data, status: advance ? "failed" : data.status, history: [...history, entry],
+        ...data, history: [...history, entry], lastRunAt: startedAt,
         error: e instanceof Error ? e.message : String(e),
+        ...this.afterTurn(data, now, "failed", advance),
       });
       return undefined;
     }
+  }
+  /**
+   * Where a repeating job stands after one turn. A turn that failed used to stop the job for good:
+   * its state became "failed" and its due moment was never moved on, so a daily job that failed
+   * once never ran again and nothing said so. Now a failed turn moves on to the next one, the
+   * failures in a row are counted, and after three the job is paused with the reason written down,
+   * so one that is broken rather than unlucky does not fail quietly every day for ever.
+   */
+  private afterTurn(data: Record<string, unknown>, now: Date, status: string, advance: boolean): Record<string, unknown> {
+    if (!advance) return { status: String(data.status) === "running" ? "pending" : data.status };
+    if (!repeating(data)) return { status, consecutiveFailures: 0 };
+    const failures = status === "completed" ? 0 : Number(data.consecutiveFailures ?? 0) + 1;
+    const paused = failures >= failuresBeforePausing;
+    return {
+      status: paused ? "paused" : "pending", dueAt: nextTurn(data, now), consecutiveFailures: failures,
+      ...(paused ? { pausedBecause: `This repeating job did not finish ${failures} turns in a row, so it has been paused. Start it again once whatever it needs is working.` } : {}),
+      ...(status === "completed" ? { pausedBecause: null } : {}),
+    };
   }
   /** Runs the test suite a schedule is attached to; anything that has stopped working is announced. */
   private async evaluateSuite(record: SavedRecord): Promise<Run> {

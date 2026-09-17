@@ -11,6 +11,7 @@ export const cliCommands: { name: string; summary: string; options: string[] }[]
   { name: "start", summary: "Run the local web app", options: [] },
   { name: "chat", summary: "Talk to the assistant in this terminal", options: ["--plain", "--attach", "--session", "--watch"] },
   { name: "run", summary: "Carry out one task and print the result", options: ["--json", "--attach", "--plan", "--verify", "--dry-run", "--preset", "--save-preset", "--budget", "--timeout", "--session", "--resume", "--fork"] },
+  { name: "headless", summary: "Run a scripted job with no window at all, one request per line", options: ["--script", "--stop-early", "--json", "--budget", "--timeout", "--session", "--preset"] },
   { name: "status", summary: "Tasks working now, questions waiting, and a health summary", options: ["--json"] },
   { name: "logs", summary: "Print what happened during one task", options: ["--json"] },
   { name: "approve", summary: "Answer a task that stopped to ask: approve <task id> yes|no", options: ["--json"] },

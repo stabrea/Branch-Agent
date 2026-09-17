@@ -72,6 +72,9 @@ import {
 } from "./catalog.js";
 // Wave 7: three tiers of tool, a hard ceiling on the tool section, and searching for the rest.
 import { ToolLoader, meaningSearchOn, toolDescribeName, toolNoteName, toolSearchName } from "./tool-loading.js";
+import {
+  carrySentences, rememberSessionCarry, restoreSessionCarry, type CarryDeps, type RestoredSession,
+} from "./session-carry.js";
 import type { RunToolEmbedder, ToolEmbedder } from "./tool-index.js";
 import { mcpAppIn } from "./mcp-apps.js";
 import { NoteInputSchema } from "./tool-usage.js";
@@ -197,6 +200,10 @@ export class Runtime {
   private readonly steers = new Map<string, string[]>();
   /** The catalog each running task is showing the model, so a tool it found stays loaded. */
   private readonly catalogs = new Map<string, ToolLoader>();
+  /** Conversations already put back in this launch, so it is done once and not on every task. */
+  private readonly carriedBack = new Set<string>();
+  /** Toolboxes a conversation brought back with it, opened again from its next task's first round. */
+  private readonly carriedToolboxes = new Map<string, string[]>();
   /** What each task searched for and called, until it finishes and the lesson is written down. */
   private readonly toolWork = new Map<string, { searched: string[]; called: string[]; failures: Map<string, string>; rounds: number }>();
   private readonly pending = new Set<Promise<unknown>>();
@@ -563,6 +570,7 @@ export class Runtime {
     const controller = new AbortController();
     this.controllers.set(run.id, controller);
     this.activeSessions.add(run.sessionId);
+    if (!parent) this.restoreCarried(run);
     const signal = AbortSignal.any([
       controller.signal,
       options.signal ?? new AbortController().signal,
@@ -725,6 +733,10 @@ export class Runtime {
       this.activeSessions.delete(run.sessionId);
       this.steers.delete(run.id);
       this.recordToolWork(run, context, status);
+      // What this conversation is carrying is written down at the end of every task, so closing the
+      // app between one task and the next changes nothing about what the next one starts with. Only
+      // the task at the top of a delegation writes it; a helper it started is not the conversation.
+      if ((context.scratchRoot ?? run.id) === run.id) this.rememberCarried(run);
       this.catalogs.delete(run.id);
       // The scratch area belongs to the whole delegation tree, so only its top task empties it.
       if ((context.scratchRoot ?? run.id) === run.id) this.orchestration.clearScratch(run.id);
@@ -1031,6 +1043,37 @@ export class Runtime {
     return text;
   }
   /**
+   * What this conversation is carrying, put back the first time a task joins it in this launch.
+   * Anything that could not be put back is written into the task's own record in plain words, so
+   * the owner is told rather than quietly handed a conversation that is not the one they left.
+   */
+  private restoreCarried(run: Run): void {
+    if (this.carriedBack.has(run.sessionId)) return;
+    this.carriedBack.add(run.sessionId);
+    const restored = restoreSessionCarry(this.carryDeps(), this.owner, run.sessionId);
+    if (!restored.found) return;
+    this.carriedToolboxes.set(run.sessionId, restored.toolboxes);
+    this.store.event(run.id, "session.restored", {
+      preset: restored.preset, projectId: restored.projectId, toolboxes: restored.toolboxes,
+      permissions: restored.permissions.length, notRestored: restored.notRestored,
+      summary: carrySentences(restored),
+    });
+  }
+  /** Writes down what this conversation is carrying, at the end of every task in it. */
+  private rememberCarried(run: Run): void {
+    const opened = this.catalogs.get(run.id)?.openedToolboxes() ?? [];
+    const carried = [...opened, ...(this.carriedToolboxes.get(run.sessionId) ?? [])];
+    rememberSessionCarry(this.carryDeps(), this.owner, run.sessionId, carried);
+  }
+  private carryDeps(): CarryDeps {
+    return { store: this.store, models: this.models, approvals: this.approvals,
+      toolboxes: () => [...new Set(this.registry.names().map((name) => this.registry.groupOf(name)))] };
+  }
+  /** What one conversation is carrying and what a restart could not bring back, for the owner. */
+  carriedBySession(sessionId: string): RestoredSession {
+    return restoreSessionCarry(this.carryDeps(), this.owner, sessionId);
+  }
+  /**
    * Opens the catalog this task will show the model: the toolboxes that are always open, plus a
    * cheap lexical guess at the two or three this request needs, so an ordinary task never has to
    * spend a round opening one. No model call and no network is involved.
@@ -1044,7 +1087,8 @@ export class Runtime {
     const guessed = rankGroups(signals, available, 3);
     // A specialist's style says which toolboxes its work always needs, so it never spends a round
     // opening the obvious one; a box it has no tools for is simply not there and costs nothing.
-    const opened = styleGroups.filter((group) => available.includes(group));
+    const opened = [...styleGroups, ...(this.carriedToolboxes.get(run.sessionId) ?? [])]
+      .filter((group) => available.includes(group));
     const learned = this.store.toolUsage, notes = learned.noteMap(context.owner);
     const catalog = new ToolLoader(tools, {
       expanded: [...alwaysOpenGroups, ...guessed, ...opened], signals,

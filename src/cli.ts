@@ -24,6 +24,8 @@ import {
   answerFromCommand, usePreset, exitCodeFor, parseRunArgs, runForScripts, statusSnapshot,
   timelineLines, type RunFlags,
 } from "./cli-run.js";
+// Bucket 8 (wave 9): the whole assistant with no window, for a job a script starts.
+import { parseHeadlessArgs, promptsFromScript, runHeadless } from "./headless.js";
 import { serveMcpStdio } from "./mcp-stdio.js";
 import { serveAcpStdio } from "./acp.js";
 import { healthReport } from "./health.js";
@@ -198,6 +200,7 @@ async function main(): Promise<void> {
       console.log(JSON.stringify(app.store.restore(JSON.parse(await readFile(source, "utf8")))));
       return;
     }
+    if (command === "headless") return await headlessJob(app);
     await runOnce(app, command);
   } finally {
     await close();
@@ -484,6 +487,27 @@ async function runOnce(
     writer.note(run.status === "completed" ? run.output : `[task ${run.status}] ${run.output}`);
   } else console.log(JSON.stringify({ run, usage: app.store.usage(run.id), events: app.store.events(run.id) }, null, 2));
   process.exitCode = exitCodeFor(run.status);
+}
+/**
+ * `branch headless`: no window, no web page, no terminal conversation — one request or a file of
+ * them, carried out in order in one conversation, and the exit code `branch run` already uses.
+ */
+async function headlessJob(app: Awaited<ReturnType<typeof createBranch>>): Promise<void> {
+  const { script, stopEarly, rest } = parseHeadlessArgs(process.argv.slice(3));
+  const flags: RunFlags = parseRunArgs(rest);
+  const prompts = script ? promptsFromScript(await readFile(script, "utf8")) : flags.prompt ? [flags.prompt] : [];
+  if (!prompts.length) throw new Error('Provide a request or a script: branch headless --script jobs.txt');
+  const writer = {
+    line: (value: unknown) => { if (flags.json) process.stdout.write(`${JSON.stringify(value)}\n`); },
+    note: (text: string) => console.error(text),
+  };
+  const preset = flags.preset ? usePreset(app.store, app.runtime.owner, flags.preset, flags.savePreset) : undefined;
+  if (preset) writer.note(preset.message);
+  try {
+    const report = await runHeadless(app.runtime, { prompts, flags, stopEarly }, writer);
+    if (!flags.json) console.log(JSON.stringify(report, null, 2));
+    process.exitCode = report.exitCode;
+  } finally { preset?.restore(); }
 }
 /** Tasks working now, questions waiting for an answer, and the health summary. */
 async function printStatus(app: Awaited<ReturnType<typeof createBranch>>): Promise<void> {

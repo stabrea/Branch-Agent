@@ -8,6 +8,8 @@ import type { BrowserProfiles } from './browser-profiles.js';
 import type { RunArtifacts } from '../artifacts.js';
 import { ShellConfigSchema } from './shell-config.js';
 import { BranchShell, registerShell, type SecretResolver } from './shell.js';
+import { ShellSessions, registerShellSessions } from '../shell-session.js';
+import type { Store } from '../store.js';
 import { ChannelPolicySchema, type ChannelAdapter, type ChannelRouter } from '../channels/router.js';
 import { TelegramAdapter } from '../channels/telegram.js';
 import { DiscordAdapter } from '../channels/discord.js';
@@ -240,6 +242,14 @@ export async function loadIntegrations(registry: ToolRegistry, path?: string, en
       shell = created;
       await created.ready();
       registerShell(registry, created); closers.push(() => created.close());
+      // A command line the owner can keep open, from the very same list of programs. It is closed
+      // with everything else here, so nothing it started outlives the app.
+      const store = channels?.store as Store | undefined;
+      const owner = channels?.context?.('bootstrap').owner;
+      if (store && owner) {
+        const kept = new ShellSessions(config.shell, store, owner, env);
+        registerShellSessions(registry, kept); closers.push(() => kept.closeAll());
+      }
     }
     if (config.git) enableGit(registry, config.git, channels, policy);
     if (config.issues) hosted.issues = enableIssues(registry, config.issues, config.git, channels, policy);

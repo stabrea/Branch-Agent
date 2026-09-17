@@ -736,6 +736,21 @@ Events are filtered by an allow-list of fields, so anything nobody anticipated i
 
 The connector implements tool discovery and invocation. MCP resources, prompts, sampling and other assistants' internal learning or memory are separate capabilities. Newly advertised tools are not automatically granted.
 
+## A conversation that survives a restart
+
+Closing Branch and opening it again does not empty a conversation of what it was carrying. At the end
+of every task, the conversation's model choice, how hard it was asked to think, the project it was
+under, the toolboxes it had opened for itself (at most three) and the standing yeses given in it are
+written down beside it. The first task in that conversation after a restart puts them back and records
+a `session.restored` line on itself saying what came back.
+
+Anything that could not be put back is **said plainly instead of papered over**: a model that is no
+longer set up names the one being used in its place, a project that has been removed names the one the
+conversation is in now, a toolbox nothing offers any more is named, and a standing permission that had
+already run out while the app was closed is named as needing to be asked for again. A permission that
+is still in date comes back with the moment it was always going to run out, never a fresh hour: a
+restart cannot lengthen a permission you gave.
+
 ## Long conversations and questions for you
 
 When a conversation's working context passes about 11,000 estimated tokens, Branch asks the model for a short handoff summary of the older turns (facts, decisions, file paths, open tasks, next step), keeps at least the six most recent turns plus everything from the current task, and continues with the summary in place. The run records a `context.compacted` event with sizes before and after; the summary is saved per conversation and reused; the complete transcript stays stored and searchable.
@@ -1032,11 +1047,67 @@ The commands inside it are `/help`, `/model [id]`, `/think <low|medium|high|defa
 
 `branch status` lists the tasks working now, the ones waiting for an answer, and the health summary (`--json` for the same thing as JSON). `branch logs <task id>` prints that task's timeline one line per step (`--json` for the stored events). `branch approve <task id> yes|no` answers a task that stopped to ask. It cannot answer just this once: the program run that stopped has already ended, so the answer is **saved as a standing rule** for that tool and that exact target and applies to every future task, not only this one. The command says so when it runs, and the rule can be changed under **Settings → When to check with me**. For a one-time yes, use the terminal view (`branch chat`) or the settings screen instead.
 
+**No window at all.** `branch headless` runs a scripted job with nothing on the screen: no web page, no
+terminal conversation, no window. Give it one request, or `--script <file>` with one request per line
+(blank lines and lines starting with `#` are notes, at most 100 requests). Every request after the
+first joins the conversation the first one made, so a script reads as one job. `--stop-early` stops at
+the first request that does not finish; without it the rest still run. It takes the same `--json`,
+`--budget`, `--timeout`, `--session` and `--preset` flags as `branch run`, and **the exit code is the
+same contract as the table above** — 0 finished, 2 stopped to ask you something, 3 failed, 4 out of
+budget. For a whole job, the first request that did not finish decides the code. A summary line goes
+to stderr; with `--json` the last line of stdout is `{"type":"headless.finished", ...}`.
+
+**A command line kept open.** An ordinary command starts a program, waits for it and lets it go, so
+nothing carries from one command to the next. `shell.session.open` opens one of the same programs your
+host command settings allow and **keeps it open**, so a later command lands in the same folder with the
+same loaded state, in a later task of the same conversation. `shell.session.run` sends one command and
+reads what it printed, `shell.session.list` lists the ones this conversation has open (name one to read
+what it has printed lately), and `shell.session.close` closes it and everything it started. It is held
+to exactly what any other command is held to: the same allowed programs, the same environment built
+from an allowlist, the same Windows job enforcing the limits, and the same approval rules — asked again
+for **every** command sent, not once when it was opened. The limits are the ones under **programs left
+running** (`maxRunning`, `maxMinutes`, `maxMemoryMb`, `maxCpuSeconds`, `bufferBytes`); it is never a
+window on your screen, and every kept-open command line is closed when the app closes.
+
+**When a task cannot be placed.** A task that cannot start is never left to hang in silence. The
+waiting line answers every `submit` with where the task went and why: started, waiting (with its place
+in the line and what would let it start sooner), moved to another model because the one it asked for is
+no longer set up, or refused because something it needs is not on this computer — each with the next
+best thing you can actually do about it.
+
 **Completion.** `branch completion bash` and `branch completion powershell` print a completion script. Write it to a file and load it from your shell profile (`source branch-completion.bash`, or `. .\branch-completion.ps1`). Nothing is installed for you and the script never runs a Branch command to work out its suggestions.
+
+## A queue service, and why there is not one
+
+Some assistants put a queue service such as Redis in the middle: tasks go into it, separate workers
+take them out, and the two halves talk over the network. Branch does not, and this is a decision
+rather than an omission. The waiting line is already here, in `src/run-queue.ts`: it is kept in the
+same private database as everything else, it orders what you asked for ahead of anything automatic,
+it holds one task at a time per conversation, it shares one count of what is working with the app's
+own screen, and it marks anything that was working when the app closed instead of quietly replaying
+it. A queue service would add a second program to keep running and a second place your work can sit,
+for a single computer that has no second worker to coordinate with. That is the same reason the
+audit's other middle-men were turned down (see the "not going to be built" list). If Branch ever runs
+across more than one computer, this is the paragraph to come back to.
 
 ## Other programs and streams
 
 `POST /v1/chat/completions` accepts the OpenAI chat shape with the local session token as the bearer token. The last user message becomes the task, system/developer messages travel as caller instructions, `model` may name a preset id, `x-branch-session` (or `metadata.session_id`) continues a conversation, and `stream: true` returns `chat.completion.chunk` events. Every response carries `branch.{run_id, session_id, status}`. `GET /v1/models` lists presets. `GET /api/runs/:id/stream?after=<id>` streams a run's events in order over Server-Sent Events until it ends.
+
+## Schedules that repeat, and ones that keep failing
+
+`schedules.create` writes down a reminder, a task, a check or an evaluation with a due moment, and
+optionally an interval (`intervalMs`, at least a minute) or a daily time in a timezone (`dailyAt` plus
+`timezone`). It can deliver its result to a chat (`deliverTo`), be triggered by a signed webhook
+(`webhook`), and be held back on a holiday or a day off (`daysOff`: run, skip or shift). Missed turns
+while the app was closed coalesce into one. `schedules.pause`, `schedules.remove` and `schedules.list`
+do what they say, and each schedule keeps the last fifty turns with what happened on each.
+
+A repeating job that **fails** a turn now moves on to its next turn rather than stopping for good, and
+the failures in a row are counted on the record as `consecutiveFailures`. After three in a row the job
+is paused and the reason is written down in plain words under `pausedBecause`, so a job that is broken
+rather than unlucky does not fail quietly every day for ever; start it again with `schedules.pause` set
+to false once whatever it needs is working. One turn finishing clears the count.
 
 ## Follow-ups and background specialists
 
