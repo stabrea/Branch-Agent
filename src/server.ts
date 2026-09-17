@@ -2688,6 +2688,11 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
             query: new URL(request.url ?? "/", "http://local").searchParams, readBody: () => readBody(request, 131072),
           }, path).catch((error: unknown) => {
             throw error instanceof AutonomyHttpError ? new HttpError(error.status, error.message) : error;
+          });
+          send(response, 200, answer);
+          return;
+        }
+        // ---- end of the r17-b block ----
         // ---- mac7/r17-d: coding polish under /api/coding (src/coding/api.ts); the owner's alone. ----
         if (handlesCodingPath(path)) {
           app.store.profiles.requireOwner("These parts of Branch");
@@ -2700,7 +2705,7 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
           send(response, 200, answer);
           return;
         }
-        // ---- end of the r17-b block ----
+        // ---- end of the r17-d block ----
         // ---- R17-A: Trunks under /api/trunks (src/trunks/api.ts); the owner's, bar talking to them. ----
         if (handlesTrunksPath(path)) {
           app.store.profiles.requireOwner("Trunks");
@@ -2710,7 +2715,6 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
           return;
         }
         // ---- end of the R17-A block ----
-        // ---- end of the r17-d block ----
         if (await rawApi(app, request, response, path)) return;
         if (path.startsWith("/api/deployment")) {
           // bucket 22: `branch quit`, from this computer with the master key only (src/install/quit.ts).
