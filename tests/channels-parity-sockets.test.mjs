@@ -8,6 +8,7 @@ import { buildParityChannel } from "../dist/channels/parity-config.js";
 import { XmppChannel } from "../dist/channels/xmpp.js";
 import { SimplexChannel } from "../dist/channels/simplex.js";
 import { connectWebSocket } from "../dist/channels/ws-client.js";
+import { DeltaChatChannel } from "../dist/channels/deltachat.js";
 import { KeybaseChannel } from "../dist/channels/keybase.js";
 import { MqttChannel, encodeLength, replyTopicFor } from "../dist/channels/mqtt.js";
 import { XmlStreamReader, decodeEntities, escapeAttr, escapeText } from "../dist/channels/xmpp-xml.js";
@@ -684,5 +685,134 @@ test("SimpleX settings: only this computer unless allowed, and the address is ch
     { credential: async () => "x", policy: blocked }), /Not allowed: chat.example.org/);
   const channel = await buildParityChannel({ type: "simplex", id: "s", ...policy }, { credential: async () => "x" });
   assert.equal(channel.kind, "simplex");
+  await channel.stop();
+});
+
+// ---------------------------------------------------------------- Delta Chat
+
+const DELTACHAT = "/opt/deltachat/deltachat-rpc-server";
+const NOW = 1_800_000_000;
+
+/**
+ * A stand-in deltachat-rpc-server: answers JSON-RPC calls from its own small store of chats and
+ * messages, and holds `get_next_event` until the test has an event to hand out.
+ */
+function deltaProgram(program, { configured = true, accounts = [1] } = {}) {
+  const state = { messages: new Map(), chats: new Map([[10, { id: 10, name: "Hana", chatType: "Single" }], [20, { id: 20, name: "Garden club", chatType: "Group" }],
+    [30, { id: 30, name: "Device messages", chatType: "Single", isDeviceChat: true }]]), sent: [], events: [], waiters: [], nextId: 500 };
+  const push = (event) => { const waiter = state.waiters.shift(); if (waiter) waiter(event); else state.events.push(event); };
+  state.incoming = ({ chatId = 10, fromId = 12, address = "hana@chat.example", text, timestamp = NOW + 5, isInfo = false, account = 1 }) => {
+    const id = state.nextId++;
+    state.messages.set(id, { id, chatId, fromId, text, timestamp, isInfo, sender: { address, displayName: address.split("@")[0] } });
+    push({ contextId: account, event: { kind: "IncomingMsg", chatId, msgId: id } });
+  };
+  state.other = () => push({ contextId: 1, event: { kind: "Info", msg: "connected" } });
+  program.starter.onStart = (child) => {
+    state.child = child;
+    child.onInput = ({ id, method, params }) => {
+      const reply = (result) => child.say({ jsonrpc: "2.0", id, result });
+      switch (method) {
+        case "get_all_account_ids": return reply(accounts);
+        case "is_configured": return reply(configured);
+        case "get_config": return reply(params[1] === "addr" ? "Branch@Chat.Example" : params[1] === "displayname" ? "branch" : null);
+        case "start_io": return reply(null);
+        case "get_next_event": { const next = state.events.shift(); if (next) reply(next); else state.waiters.push(reply); return; }
+        case "get_message": return reply(state.messages.get(params[1]));
+        case "get_basic_chat_info": return state.chats.has(params[1]) ? reply(state.chats.get(params[1]))
+          : child.say({ jsonrpc: "2.0", id, error: { code: -1, message: "no such chat" } });
+        case "misc_send_text_message": state.sent.push({ account: params[0], chatId: params[1], text: params[2] }); return reply(state.nextId++);
+        default: return child.say({ jsonrpc: "2.0", id, error: { code: -32601, message: "unknown method" } });
+      }
+    };
+  };
+  return state;
+}
+
+function deltaChannel(program, extra = {}) {
+  return new DeltaChatChannel({ id: "deltachat", path: DELTACHAT, startProcess: program.starter, exists: async (path) => path === DELTACHAT,
+    now: () => NOW * 1000, retryBaseMs: 20, accountsPath: "/tmp/dc-accounts", ...extra });
+}
+
+test("Delta Chat: JSON-RPC over the program's input and output, pairs a stranger, answers in their chat, and skips history and itself", async (t) => {
+  const context = await fixture(t);
+  const program = fakeProgram();
+  const delta = deltaProgram(program);
+  const channel = deltaChannel(program);
+  await context.app.channels.attach(channel, policy);
+  t.after(() => channel.stop());
+  await until(() => channel.health().state === "connected", "the account is running");
+  assert.equal(program.started[0].file, DELTACHAT);
+  assert.deepEqual(program.started[0].args, []);
+  assert.deepEqual(program.started[0].env, { DC_ACCOUNTS_PATH: "/tmp/dc-accounts" });
+  const input = program.started[0].child.input;
+  assert.deepEqual(input.slice(0, 5).map((c) => c.method), ["get_all_account_ids", "is_configured", "get_config", "get_config", "start_io"]);
+  assert.ok(input.every((c) => c.jsonrpc === "2.0" && Array.isArray(c.params)));
+
+  // History, the account's own messages, info lines and the device chat are left alone.
+  delta.incoming({ text: "an old message", timestamp: NOW - 3600 });
+  delta.incoming({ text: "sent from my other device", fromId: 1 });
+  delta.incoming({ text: "echo of my address", address: "branch@chat.example", fromId: 40 });
+  delta.incoming({ text: "Hana joined", isInfo: true });
+  delta.incoming({ chatId: 30, text: "welcome to Delta Chat" });
+  delta.other();
+  await delay(120);
+  assert.equal(context.provider.requests.length, 0);
+  assert.equal(delta.sent.length, 0);
+
+  const texts = () => delta.sent.map((s) => s.text);
+  await pairingWalk(context, { label: "Delta Chat", sent: texts, say: async (text) => delta.incoming({ text }) });
+  assert.deepEqual({ account: delta.sent.at(-1).account, chatId: delta.sent.at(-1).chatId }, { account: 1, chatId: 10 }, "answered in Hana's chat");
+  assert.ok(context.app.channels.summary().approved.some((p) => p.senderId === "hana@chat.example"));
+
+  // A group is answered only when the assistant is named.
+  const asked = context.provider.requests.length;
+  delta.incoming({ chatId: 20, text: "the tomatoes are in" });
+  await delay(120);
+  assert.equal(context.provider.requests.length, asked);
+  delta.incoming({ chatId: 20, text: "@branch when do we water" });
+  await until(() => delta.sent.some((s) => s.chatId === 20 && /Echo:.*when do we water/.test(s.text)), "answered in the group");
+  await assert.rejects(() => channel.send("10; rm", "x"), /not a Delta Chat chat/);
+});
+
+test("Delta Chat: a stranger is refused when pairing is off; a missing program or account is said plainly; a stopped program is started again", async (t) => {
+  const context = await fixture(t);
+  const program = fakeProgram();
+  const delta = deltaProgram(program);
+  const channel = deltaChannel(program);
+  await context.app.channels.attach(channel, { activation: "mention", pairing: false, allowlist: [] });
+  t.after(() => channel.stop());
+  await until(() => channel.health().state === "connected", "running");
+  await refusalWalk(context, { label: "Delta Chat", sent: () => delta.sent.map((s) => s.text),
+    say: async (text) => delta.incoming({ text, address: "mallory@evil.example" }) });
+  program.started[0].child.emit("exit", 1);
+  await until(() => program.started.length === 2, "started again");
+  await until(() => channel.health().state === "connected", "running again");
+
+  const none = fakeProgram();
+  const absent = new DeltaChatChannel({ id: "d2", path: "/nowhere/deltachat-rpc-server", startProcess: none.starter, exists: async () => false });
+  await assert.rejects(() => absent.start(async () => undefined), /nothing at \/nowhere/);
+  assert.equal(none.started.length, 0, "nothing was run");
+  const empty = fakeProgram();
+  deltaProgram(empty, { accounts: [] });
+  const noAccount = deltaChannel(empty);
+  await noAccount.start(async () => undefined);
+  t.after(() => noAccount.stop());
+  await until(() => noAccount.health().state === "needs attention", "no account");
+  assert.match(noAccount.health().reason, /no account/);
+  const unset = fakeProgram();
+  deltaProgram(unset, { configured: false });
+  const notReady = deltaChannel(unset);
+  await notReady.start(async () => undefined);
+  t.after(() => notReady.stop());
+  await until(() => notReady.health().state === "needs attention", "not configured");
+  assert.match(notReady.health().reason, /not set up yet/);
+  await assertNoSecret(context, []);
+});
+
+test("Delta Chat settings: only full paths, and building runs nothing", async () => {
+  await assert.rejects(() => buildParityChannel({ type: "deltachat", id: "d", path: "deltachat-rpc-server", ...policy }, { credential: async () => "x" }), /full path/);
+  await assert.rejects(() => buildParityChannel({ type: "deltachat", id: "d", path: "/usr/bin/deltachat-rpc-server", password: "x", ...policy }, { credential: async () => "x" }), /password|Unrecognized/);
+  const channel = await buildParityChannel({ type: "deltachat", id: "d", path: "/usr/bin/deltachat-rpc-server", accountId: 2, ...policy }, { credential: async () => "x", policy: blocked });
+  assert.equal(channel.kind, "deltachat");
   await channel.stop();
 });
