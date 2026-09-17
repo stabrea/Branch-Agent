@@ -47,6 +47,7 @@ import { describeToolCall, filePathOf } from "./activity.js";
 import { RunGuards } from "./run-guards.js";
 // mac5/manual-actions: the gate for tools run outside a conversation.
 import { gateToolUse, type ToolGateOptions } from "./tool-gate.js";
+import * as safetyExtras from "./safety-extras/hooks.js"; // mac7/r17-g: the safety extras' hooks
 // Wave mac3 (tool-safety): the second look before an approval.
 import { reviewCall } from "./approval-reviewer.js";
 import { routeForTask, routingSettings } from "./local-routing.js";
@@ -775,6 +776,7 @@ ${run.output.slice(0, 6000)}`;
     // running — so every task lets go of its ids here, child runs included.
     this.tracer.forget(run.id);
     this.guards.forget(run.id); // wave mac2 (guards)
+    safetyExtras.forgetProgress(this.store, run.id); // mac7/r17-g
     if (!parent && settled.status === "completed" && !options.resumeFrom) this.scheduleReview(run, context);
     // ── mac3/reflection-skills: once a task of the owner's has settled, the learning loop may look back
     // over the conversation or draft a skill (src/reflection/hook.ts). Its one model question is
@@ -1056,6 +1058,7 @@ ${run.output.slice(0, 6000)}`;
         calls: completion.toolCalls.map((call) => ({ call, permission: this.registry.permissionOf(call.name) })) });
       messages.push(assistant); ids.push(null);
       this.store.message(run.sessionId, assistant);
+      await safetyExtras.watchProgress(this.store, this.owner, { runId: run.id, round: round + 1, text: completion.content, messages }, (asked) => this.aside(run, context, route, asked)); // mac7/r17-g
       if (!completion.toolCalls.length) {
         if (checks && conductor.lastStep() && !(await this.answerPasses(run, messages, ids, context, checks, spoken, checkFailures))) { checkFailures++; continue; }
         const next = await conductor.afterAnswer(spoken);
@@ -1642,7 +1645,8 @@ ${run.output.slice(0, 6000)}`;
       // Wave 8: one more call against this connection, for the "how busy is it" reading.
       this.models.requests.record(preset.id);
       // mac2/leak-guard: the copy that is sent has key-shaped values hidden; `messages` stays as it was.
-      const request = { messages: this.leakGuard.request(run.id, messages), tools, maxTokens, ...(reasoning ? { reasoning } : {}),
+      // mac7/r17-g: the sent copy is also tidied (orphaned results, missing ones, repeats) when the owner asks.
+      const request = { messages: this.leakGuard.request(run.id, safetyExtras.repairForSending(this.store, this.owner, run.id, messages)), tools, maxTokens, ...(reasoning ? { reasoning } : {}),
         ...(shape ? { responseFormat: { name: shape.name, schema: shape.schema } } : {}) };
       // mac6/accounts: the call carries its conversation, so a connection with several accounts can honour the one chosen for it.
       const raw = await withAccountCall({ owner: run.owner, sessionId: run.sessionId, runId: run.id, note: (kind, data) => this.store.event(run.id, kind, data) }, async () => onTextDelta
@@ -1777,14 +1781,21 @@ ${run.output.slice(0, 6000)}`;
     const refusal = this.roleRefusal(tool, permission);
     if (refusal) return { decision: "deny", label, target, readOnly, remember: "session", sandbox: null, backend: null, paths: null, reason: refusal };
     // mac2/leak-guard: an address carrying a key or password is asked about even where rules allow it.
-    const { decision, rule, leak } = this.leakGuard.tighten(evaluatePolicy(this.policy(source), { tool, target, readOnly, resource }), args);
+    const { decision: ruled, rule, leak } = this.leakGuard.tighten(evaluatePolicy(this.policy(source), { tool, target, readOnly, resource }), args);
+    // --- mac7/r17-g: the emergency stop, the command scan and authenticator codes; only ever stricter.
+    const extra = safetyExtras.tightenCheck(this.store, this.owner, { tool, permission, resource, source }, ruled);
+    const decision = extra.decision;
+    if (decision === "deny" && extra.reason)
+      return { decision, label, target, readOnly, remember: "never", sandbox: null, backend: null, paths: null, reason: extra.reason };
+    // --- end mac7/r17-g ---
     // An answer given earlier stands in for the question, never for a rule that already decided:
     // switching to a stricter setting takes effect at once. The answer is bound to the exact bytes
     // it was given for, so a changed command is asked about again.
     const answered = decision === "ask"
-      ? this.approvals.answer(this.sessionOf(context), tool, target, fingerprint, !!leak) : undefined;
-    return { decision: answered ?? decision, label: leak ? `${label}, and the address carries ${leak}` : label, target, readOnly,
-      remember: source === "owner" ? rule?.remember ?? "session" : "session",
+      ? this.approvals.answer(this.sessionOf(context), tool, target, fingerprint, !!leak || extra.exact) : undefined;
+    const noted = extra.note ? `${label} — ${extra.note}` : label; // mac7/r17-g
+    return { decision: answered ?? decision, label: leak ? `${noted}, and the address carries ${leak}` : noted, target, readOnly,
+      remember: extra.exact ? "session" : source === "owner" ? rule?.remember ?? "session" : "session",
       sandbox: rule?.sandbox ?? null, backend: rule?.backend ?? null, paths: rule?.paths ?? null };
   }
   /**
@@ -2042,6 +2053,8 @@ ${run.output.slice(0, 6000)}`;
     // certainly not given for.
     if (fingerprint !== undefined && waiting.fingerprint !== fingerprint)
       throw new Error("That answer was for a different request. Look at what it wants to do now and answer again.");
+    // mac7/r17-g: a yes the owner chose to guard needs a code from their authenticator app first.
+    remember = safetyExtras.guardApproval(this.store, this.owner, waiting, sessionId, decision, remember);
     // Wave mac3 (tool-safety): a request the safety check advised against may be allowed only this once.
     this.approvals.settleOverrule(sessionId, waiting, decision, remember);
     this.approvals.resolve(sessionId, waiting.fingerprint);

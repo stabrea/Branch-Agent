@@ -75,6 +75,13 @@ export const shortLivedKeyTaskRoutes: readonly TaskRoute[] = [
   post("/api/tools/meaning-search", "finds a tool by what it does"),
   post("/api/receipts/verify", "checks a task's receipt"),
   post("/api/security-check/run", "runs the security check, which only reads"),
+  // mac7/r17-g: the safety extras. Everything else under /api/safety-extras (the switches, letting the
+  // emergency stop go, setting up authenticator codes, installing or running WebAssembly add-ons) is
+  // refused by the rule above. Reading /api/safety-extras is allowed: it never carries the code key.
+  post("/api/safety-extras/activity/verify", "checks the tamper-evident activity chain, which only reads"),
+  post("/api/safety-extras/scan", "checks one command for hidden codes and look-alike letters, which only reads"),
+  post("/api/safety-extras/stop", "presses the emergency stop, which only stops things; letting it go is the owner's"),
+  post("/api/safety-extras/codes/confirm", "types an authenticator code for a question it may answer"),
 ];
 
 /** Reads a short-lived key may not make: what they return is a secret, or everybody's data. */

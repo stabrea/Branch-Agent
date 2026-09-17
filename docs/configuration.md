@@ -7177,3 +7177,117 @@ without the file and network wall (see above).
   plugins are also installable (`src/add-ons/formats.ts`).
 - **A0602** (a helper that installs and manages an isolated plugin for another agent): built as the write / check /
   remove lifecycle of Branch's own plugin for Codex and Claude Code, in a folder the owner names (`src/add-ons/export.ts`).
+
+## Safety extras (mac7/r17-g)
+
+**Settings → Permissions** has five cards for the extra checks and limits of re-audit bucket R17-G. Every part has
+the three-way switch and ships **off**, the scans that can only tighten included: no owner design asks for them to
+start on, so a fresh install behaves exactly as before. The emergency stop has no switch; it is a button and starts
+unpressed. API: `GET /api/safety-extras` (the switches, the stop, the code setup without its key, the record's
+length and latest fingerprint, the WebAssembly add-ons) and `POST /api/safety-extras/switch {part, mode}` with
+`part` one of `tool-scripts`, `wasm-add-ons`, `code-approvals`, `command-scan`, `progress-judge`, `activity-chain`,
+`history-repair`. Only the owner changes these. A short-lived key may read them, check the record
+(`/activity/verify`), try the command check (`/scan`), press the emergency stop (`/stop`, never let it go) and type
+an authenticator code for a question it may answer (`/codes/confirm`); everything else is refused
+(`src/short-lived-keys.ts`). The code is in `src/safety-extras/`; each place the rest of Branch calls in is one line
+marked `mac7/r17-g` (`src/runtime.ts`, `src/server.ts`, `src/index.ts`, `src/network-policy.ts`, `src/audit.ts`,
+`src/feature-switches.ts`, `src/cli.ts`, `src/cli-completion.ts`).
+
+**Scripts that call several tools (R17-061).** With the switch not off, the model has `tools.script`
+(`{ source, tools, timeoutMs }`): one JavaScript module that calls `await branch.call("files.read", { path })` as
+often as it needs, and `export default`s its answer (a value, or an async function taking `branch`). The script runs
+as its own program behind the wall (`/usr/bin/sandbox-exec` on macOS, bubblewrap on Linux) with no network at all,
+no keys and no environment of Branch's; Branch's data folder and your unreadable places are closed to it, and it
+writes only in its throwaway folder. Every call goes through the one gate (`src/tool-gate.ts`) with the calling
+task's own permissions, source and yeses; a call your rules would ask about is refused inside the script with a
+sentence telling the model to make it on its own. Only the tools the script named in `tools` (at most 16) may be
+called, never `tools.script` itself, at most 50 calls, within 1–120 seconds. On Windows there is no file and network
+wall, so scripts are refused there.
+
+**WebAssembly add-ons (R17-062).** Beside bucket 15's walled add-on programs, an add-on can be a WebAssembly module
+run with Node's own WebAssembly, no dependency. It may import only `branch.memory`, `branch.input_size`,
+`branch.read_input(ptr)`, `branch.write_output(ptr, len)` and `branch.log(ptr, len)`, and must export `run()`
+(0 means success) and either import its memory or export it as `memory` with a declared maximum. It gets no files, no
+network, no clock and no randomness; it runs in a worker thread with a small heap, its memory ceiling (1–256 MB,
+16 by default) and a time limit (0.1–30 s, 5 by default; there is no fuel counter in Node, so time stands in for
+it). Install: `POST /api/safety-extras/wasm { name, description, wasm (base64), maxMemoryMb, timeoutMs }`; the file is
+kept in `<data>/wasm-add-ons/` with its SHA-256, and a changed file is refused. Remove: `POST …/wasm/remove {name}`.
+The model runs one with `wasm.run { name, input }`; the owner presses one with `POST …/wasm/run`.
+
+**Authenticator codes and the emergency stop (R17-063).** *Set up an app* (`POST …/codes/begin`) makes a 20-byte key,
+keeps it only in the locker (project `branch-safety`, name `APPROVAL_CODE_KEY`) and shows it once as an
+`otpauth://` link; nothing is held until the first good code is typed back (`POST …/codes/finish {code}`). The codes
+are RFC 6238 (SHA-1, six digits, 30 seconds, one step of clock drift) built on Node's crypto, and a code is taken
+once. `POST …/codes { tools, releaseNeedsCode }` lists the tools whose yes needs a code (names or `payments.*`
+patterns; `shell.execute`, `payments.*`, `email.send`, `channels.send` by default). With the switch **on**, those
+tools always ask, even where a rule allows them; **when needed**, only for work you did not start at the window
+(schedules, triggers, other AI tools). A yes needs a code typed with it (`code` on `POST /api/policy/approve`, or
+`POST …/codes/confirm { sessionId, fingerprint, code }` first); it counts only for those exact bytes and never
+becomes a standing rule. A tool you press by hand in the app window is not asked. *Remove the app* forgets the key.
+The **emergency stop** (`POST …/stop { everything, network, sites, tools }`) adds levels to whatever is stopped:
+*every tool*; *everything that reaches past this computer* (web, browser, messages, other AI tools, and programs and
+scripts, which can open connections of their own; your network rules refuse every address too); named *sites*
+(in tools and in the network rules); named *tools*. It refuses outright, for tasks and hand-pressed tools alike,
+before any rule or earlier yes. Pressing it and letting it go (`POST …/stop/release { code? }`) are both written in
+the record of what the assistant was allowed to do; letting it go needs a code when you ticked that.
+
+**Checking commands (R17-064).** Plugged into the approval check for command tools (`shell.execute`, the
+`shell.`/`terminal.` tools, `remote.run`), reading the whole command: a control character, an escape code, a
+right-to-left or invisible mark is **refused** (what you would read is not what would run); a word that mixes
+alphabets, full-width letters, a punycode or non-ASCII address, and a download handed straight to a program that
+runs it (`curl … | sh`, `bash <(wget …)`, `bash -c "$(curl …)"`, `iwr … | iex`) are **asked about**, with the
+reason on the question card. It can only tighten. **On** checks every command; **when needed** only the commands
+your rules would have run without asking. *Check a command* on the card (`POST …/scan {command}`) runs nothing.
+
+**Is this getting anywhere? (R17-065).** Reusing the loop guard (`src/loop-guard.ts`), the same answer three
+times ends the task, and so does one passage written over and over (a 50-character window seen ten times, on
+average within 250 characters; code and table rules are not counted). Every few rounds of a long task the model is
+asked, with no tools, whether the work is moving; only a confident "stuck" (0.9 or more) ends it, and a check that
+fails is ignored. **On** asks from the third round every third round; **when needed** from the sixth round every
+fourth. The task ends with one plain sentence, like the loop guard's.
+
+**Tamper-evident record (R17-066).** With the switch not off, each entry of the record of what the assistant was
+allowed to do, and each refusal and question, is also written to a hash-linked chain (`activity_chain` in the
+database, SHA-256 over the entry and the previous hash, and two database rules that refuse edits and removals).
+**On** adds every tool that started, finished or failed. Entries carry names, a short label and a fingerprint of the
+rest, never arguments or file contents. *Check the record* (`POST …/activity/verify { tip? }`, or on the command line
+`branch activity verify [--tip <hash>] [--json]`, exit code 0 unbroken, 1 broken) walks the whole chain and names
+the first entry that is missing, out of order or changed. Someone who can rewrite the whole database can rebuild the
+chain, so write the latest fingerprint down somewhere else and pass it as `tip`: the check then also proves it is
+still there. `GET …/activity?limit=` lists the newest entries.
+
+**History repair (R17-067).** With the switch not off, the copy of a conversation sent to a model service is tidied
+first; the kept conversation never changes. **When needed** fixes what services refuse: a result with no call
+before it, or a second result for one call, is dropped; a call repeated under one id keeps its first copy; a call
+with no result gets a stand-in saying the outcome is unknown; a note that landed between two results is moved after
+them. **On** also drops empty answers and joins two messages in a row from the same side. Each repair is noted on the
+task (`history.repaired`).
+
+### Credential vault (R17-068): awaiting owner
+
+Not built; the owner has not decided. The proposal: signing in and filling forms goes only through the owner's
+password manager's own autofill (for example the Bitwarden extension in the owner's browser, or a local helper that
+fills the field itself), so the model asks for "sign in to example.com with the matching saved login" and never
+receives, prints or types the secret. Branch would check that the page's address matches the saved login's site
+before asking the password manager, show the owner which login is about to be used, and record the moment in the
+record of what the assistant was allowed to do. Branch would keep no copy of any password, and a model-written
+value would never be typed into a password field. Row R17-068 stays **awaiting owner**.
+
+### macOS and Linux
+
+Tool scripts run behind `/usr/bin/sandbox-exec` on macOS and bubblewrap on Linux, exactly as walled add-ons do,
+always with no network; where the wall cannot be built the script is not run and the reason is given. WebAssembly
+add-ons, codes, the emergency stop, the command check, the progress check, the record and history repair are plain
+Node and behave the same on macOS, Linux and Windows. On Windows tool scripts are refused, and nothing a Windows
+user already had changes.
+
+### Where each audit row stands
+
+- **R17-061** built: `src/safety-extras/tool-scripts.ts`, `script-host.ts`; `tests/safety-extras-scripts.test.mjs`.
+- **R17-062** built: `src/safety-extras/wasm-add-ons.ts`, `wasm-check.ts`; `tests/safety-extras-wasm.test.mjs`.
+- **R17-063** built: `src/safety-extras/totp.ts`, `code-approvals.ts`, `emergency-stop.ts`; `tests/safety-extras-codes.test.mjs`.
+- **R17-064** built: `src/safety-extras/command-scan.ts`, `hooks.ts`; `tests/safety-extras-scan.test.mjs`.
+- **R17-065** built: `src/safety-extras/progress-judge.ts`; `tests/safety-extras-progress.test.mjs`.
+- **R17-066** built: `src/safety-extras/activity-chain.ts`, `cli.ts`; `tests/safety-extras-chain.test.mjs`.
+- **R17-067** built: `src/safety-extras/history-repair.ts`; `tests/safety-extras-progress.test.mjs`.
+- **R17-068** awaiting owner: design note above; nothing built.

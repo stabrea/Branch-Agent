@@ -1,0 +1,148 @@
+import { spawn, type ChildProcess } from "node:child_process";
+import { createHash } from "node:crypto";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createInterface } from "node:readline";
+import { z } from "zod";
+import { pluginWall } from "../add-ons/walled-plugin.js";
+import { ApprovalRequiredError } from "../approvals.js";
+import type { ToolContext } from "../contracts.js";
+import type { ToolRegistry } from "../registry.js";
+import { openWall, type SandboxStart, type WallDeps } from "../sandbox-backends.js";
+import type { WallContext } from "../sandbox.js";
+import { gateToolUse, type ToolGateHost } from "../tool-gate.js";
+import { requireSafety } from "./settings.js";
+import { scriptAnswerMarker, scriptHostSource } from "./script-host.js";
+
+/**
+ * mac7/r17-g (R17-061): the model writes one JavaScript module that calls several Branch tools,
+ * instead of one round with the model per call. The idea follows Hermes Agent's
+ * `tools/code_execution_tool.py` and `code_execution_rpc.py` (MIT); the code is written here.
+ *
+ *  - The script runs as its own program behind the wall (src/sandbox-backends.ts): no network at
+ *    all, no keys, no environment of Branch's, Branch's data unreadable, writes only in its scratch
+ *    folder. Anything it needs from outside it asks for through a tool.
+ *  - Every `branch.call` goes through the one gate (src/tool-gate.ts) with the calling task's own
+ *    context: its permissions, where it came from, its yeses. A call the rules would ask about is
+ *    not asked mid-script; the script is told to leave that step to the task.
+ *  - Only the tools the script named up front may be called, never a script from a script, and at
+ *    most `maxCalls` calls; the whole run has a time limit.
+ * On Windows there is no file and network wall, so scripts are refused there.
+ */
+export const maxCalls = 50;
+export const ScriptInputSchema = z.object({
+  source: z.string().min(1).max(32_768),
+  tools: z.array(z.string().regex(/^[a-z][a-z0-9_.-]{0,99}$/)).min(1).max(16),
+  timeoutMs: z.number().int().min(1000).max(120_000).default(60_000),
+}).strict();
+export type ScriptInput = z.infer<typeof ScriptInputSchema>;
+
+export interface ToolScriptDeps {
+  host: ToolGateHost;
+  registry: Pick<ToolRegistry, "execute">;
+  /** Places the script may never read: the owner's wall list and Branch's own data. */
+  unreadable: () => readonly string[];
+  wallDeps?: WallDeps;
+  /** Starts the program; replaced in tests. */
+  start?: (start: SandboxStart) => ChildProcess;
+}
+export interface ScriptResult { ok: boolean; result: unknown; calls: { tool: string; outcome: string }[]; output: string; error?: string }
+
+export const windowsScriptRefusal = "On Windows Branch cannot wall a script off from your files and the internet, so tool scripts do not run here.";
+export const askedInScript = "Your approval settings ask first about this, and a script cannot stop to ask. Call this tool on its own, outside the script.";
+const fingerprintOf = (args: unknown): string => createHash("sha256").update(JSON.stringify(args ?? {}), "utf8").digest("hex").slice(0, 32);
+
+export class ToolScripts {
+  constructor(private readonly deps: ToolScriptDeps) {}
+
+  async run(input: ScriptInput, context: ToolContext): Promise<ScriptResult> {
+    requireSafety(this.deps.host.store, this.deps.host.owner, "tool-scripts");
+    if ((this.deps.wallDeps?.platform ?? process.platform) === "win32") throw new Error(windowsScriptRefusal);
+    const staging = await mkdtemp(join(tmpdir(), "branch-script-"));
+    try {
+      await writeFile(join(staging, "script.mjs"), input.source, { mode: 0o600 });
+      await writeFile(join(staging, "host.mjs"), scriptHostSource, { mode: 0o600 });
+      const wall: WallContext = context.osSandbox ? { ...context.osSandbox, network: "none" } : pluginWall([], this.deps.unreadable());
+      const env: NodeJS.ProcessEnv = { PATH: "/usr/bin:/bin", HOME: staging, TMPDIR: staging,
+        ...(process.versions.electron ? { ELECTRON_RUN_AS_NODE: "1" } : {}) };
+      const plain = { executable: process.execPath, args: ["--no-warnings", "--max-old-space-size=256", join(staging, "host.mjs")], cwd: staging, env };
+      const opened = await openWall(wall, plain, { workspace: staging }, this.deps.wallDeps ?? {});
+      try { return await this.drive(opened.start, input, context); }
+      finally { await opened.close(); }
+    } finally { await rm(staging, { recursive: true, force: true }).catch(() => undefined); }
+  }
+
+  private drive(start: SandboxStart, input: ScriptInput, context: ToolContext): Promise<ScriptResult> {
+    const child = (this.deps.start ?? startScript)(start);
+    const calls: ScriptResult["calls"] = [];
+    let output = "";
+    child.stdout?.on("data", (chunk: Buffer) => { if (output.length < 64_000) output += chunk.toString("utf8"); });
+    child.stderr?.on("data", (chunk: Buffer) => { if (output.length < 64_000) output += chunk.toString("utf8"); });
+    let queue = Promise.resolve();
+    const requests = child.stdio[3];
+    if (requests && "on" in requests) createInterface({ input: requests as NodeJS.ReadableStream }).on("line", (line) => {
+      queue = queue.then(() => this.answer(line, input, context, calls)).then((reply) => { child.stdin?.write(`${JSON.stringify(reply)}\n`); });
+    });
+    return new Promise<ScriptResult>((resolve) => {
+      const timer = setTimeout(() => stopChild(child), input.timeoutMs);
+      const abort = () => stopChild(child);
+      context.signal.addEventListener("abort", abort, { once: true });
+      child.on("error", (error) => { output += `\n${error.message}`; });
+      child.on("close", () => {
+        clearTimeout(timer);
+        context.signal.removeEventListener("abort", abort);
+        resolve(readScriptAnswer(output, calls));
+      });
+    });
+  }
+
+  /** One `branch.call`: named up front, within the count, and let through by the gate. */
+  private async answer(line: string, input: ScriptInput, context: ToolContext, calls: ScriptResult["calls"]): Promise<Record<string, unknown>> {
+    let request: { id?: unknown; tool?: unknown; args?: unknown };
+    try { request = JSON.parse(line) as typeof request; } catch { return { id: null, ok: false, error: "unreadable request" }; }
+    const id = request.id, tool = String(request.tool ?? "");
+    const refuse = (error: string, outcome = "refused") => { calls.push({ tool, outcome }); return { id, ok: false, error }; };
+    if (calls.length >= maxCalls) return refuse(`A script may make at most ${maxCalls} tool calls.`);
+    if (tool === "tools.script" || !input.tools.includes(tool)) return refuse(`${tool} was not named in the script's list of tools.`);
+    try {
+      const scope = gateToolUse(this.deps.host, tool, request.args ?? {}, context, fingerprintOf(request.args), "policy");
+      const result = await this.deps.registry.execute(tool, request.args ?? {}, { ...context, ...scope });
+      calls.push({ tool, outcome: "done" });
+      if (context.runId) this.deps.host.store.event(context.runId, "script.called", { name: tool, outcome: "done" });
+      return { id, ok: true, result: result ?? null };
+    } catch (error) {
+      const asked = error instanceof ApprovalRequiredError;
+      if (context.runId) this.deps.host.store.event(context.runId, "script.called", { name: tool, outcome: asked ? "asked" : "failed" });
+      return refuse(asked ? askedInScript : error instanceof Error ? error.message : String(error), asked ? "needs a yes" : "failed");
+    }
+  }
+}
+
+function startScript(start: SandboxStart): ChildProcess {
+  return spawn(start.executable, start.args, { cwd: start.cwd, env: start.env, shell: false, windowsHide: true,
+    detached: true, stdio: ["pipe", "pipe", "pipe", "pipe"] });
+}
+function stopChild(child: ChildProcess): void {
+  try { if (child.pid) process.kill(-child.pid, "SIGKILL"); } catch { child.kill("SIGKILL"); }
+}
+
+const AnswerShape = z.object({ ok: z.boolean(), result: z.unknown().optional(), error: z.string().max(1000).optional() }).strip();
+export function readScriptAnswer(stdout: string, calls: ScriptResult["calls"]): ScriptResult {
+  const at = stdout.lastIndexOf(scriptAnswerMarker);
+  const output = (at < 0 ? stdout : stdout.slice(0, at)).slice(-8000);
+  if (at < 0) return { ok: false, result: null, calls, output, error: "The script stopped without answering (it may have run out of time)." };
+  const parsed = AnswerShape.safeParse((() => { try { return JSON.parse(stdout.slice(at + scriptAnswerMarker.length).split("\n")[0] ?? ""); } catch { return null; } })());
+  if (!parsed.success) return { ok: false, result: null, calls, output, error: "The script's answer could not be read." };
+  return { ok: parsed.data.ok, result: parsed.data.result ?? null, calls, output, ...(parsed.data.error ? { error: parsed.data.error } : {}) };
+}
+
+export function registerToolScripts(registry: ToolRegistry, scripts: ToolScripts): void {
+  registry.register({
+    name: "tools.script", permission: "code.execute", group: "code",
+    description: "Run one JavaScript module that calls several tools in a row. Name every tool it will use in `tools`. Inside, `await branch.call(\"files.read\", { path })` runs a tool under the same approval rules as a direct call; `export default` a value or an async function taking `branch` to answer. The script has no internet and no keys; a call the rules would ask about is refused inside a script.",
+    parameters: ScriptInputSchema,
+    target: (args) => `a script calling ${args.tools.join(", ")}`,
+    execute: (args, context) => scripts.run(args, context),
+  });
+}

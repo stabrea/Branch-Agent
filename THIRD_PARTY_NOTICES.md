@@ -3465,3 +3465,14 @@ The bubblewrap arguments in `src/sandbox-bwrap.ts` also follow Gemini CLI's `pac
 ### IronClaw (NEAR AI) keys at the network edge (idea only), MIT OR Apache-2.0
 
 The stand-in keys in `src/sandbox-proxy.ts` — a program gets a placeholder and the door swaps in the real key only for the site the key belongs to — are an idea from IronClaw's `crates/substrates/ironclaw_secrets/src/placeholder.rs` and `crates/lanes/ironclaw_sandbox/src/sandbox_process/managed_egress.rs` (https://github.com/nearai/ironclaw, MIT OR Apache-2.0; the MIT notice is above). They were written afresh; no code was copied.
+
+### Safety extras (mac7/r17-g): ideas and constants only, MIT and Apache-2.0
+
+The files in `src/safety-extras/` were written for Branch; no code was copied. Ideas and constants came from these projects, each used under the licence named (the MIT and Apache-2.0 texts are given above):
+
+- Scripts that call Branch tools over a pipe (`tool-scripts.ts`, `script-host.ts`): Hermes Agent's `tools/code_execution_tool.py` and `code_execution_rpc.py` (https://github.com/NousResearch/hermes-agent, Copyright (c) 2025 Nous Research, MIT).
+- Checking commands for look-alike letters, piped downloads and hidden terminal codes (`command-scan.ts`): Hermes Agent's `tools/threat_patterns.py` and its tirith command check (MIT, as above).
+- WebAssembly add-ons with a memory and time ceiling (`wasm-add-ons.ts`, `wasm-check.ts`): IronClaw's `crates/lanes/ironclaw_wasm/` (https://github.com/nearai/ironclaw, MIT OR Apache-2.0).
+- Authenticator codes that cannot be used twice and an emergency stop by level (`totp.ts`, `code-approvals.ts`, `emergency-stop.ts`): ZeroClaw's `crates/zeroclaw-runtime/src/security/otp.rs` and `estop.rs` (https://github.com/zeroclaw-labs/zeroclaw, MIT OR Apache-2.0). The codes themselves follow RFC 4226 and RFC 6238.
+- Repeated-text detection (a fifty-character window seen ten times) and the two conditions for "stuck" (`progress-judge.ts`): Gemini CLI's `packages/core/src/services/loopDetectionService.ts` (https://github.com/google-gemini/gemini-cli, Copyright 2026 Google LLC, Apache-2.0); the progress question: AutoGen's Magentic-One orchestrator (https://github.com/microsoft/autogen, Copyright (c) Microsoft Corporation, MIT).
+- The hash-linked activity record (`activity-chain.ts`) and history repair before sending (`history-repair.ts`): OpenFang's `crates/openfang-runtime/src/audit.rs` and `session_repair.rs` (https://github.com/RightNow-AI/openfang, Copyright (c) 2024 OpenFang Contributors, MIT OR Apache-2.0).

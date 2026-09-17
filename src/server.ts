@@ -109,6 +109,8 @@ import { goalApi } from "./goal-mode.js";
 import { rewindApi } from "./rewind.js";
 import { PreferencesSchema, preferences } from "./preferences.js";
 import { asksApi, AsksHttpError, handlesAsksPath } from "./asks/api.js"; // mac6/bucket-23: the smaller asks
+import { handlesSafetyPath, safetyApi, SafetyHttpError } from "./safety-extras/api.js"; // mac7/r17-g: the safety extras
+import { confirmWithCode } from "./safety-extras/code-approvals.js"; // mac7/r17-g
 // mac4/bucket-20: the Agent Protocol, programs lending tools, and the owner's interop routes.
 import { handleInterop, handlesInteropPath, interopOffLimits } from "./interop/api.js";
 import { clientToolsPath, serveClientToolSocket } from "./interop/client-tools.js";
@@ -1211,7 +1213,9 @@ async function api(
     const input = z.object({ sessionId: z.string().uuid(), decision: z.enum(["allow", "deny"]),
       remember: PolicyRememberSchema.default("session"),
       // Batch 19 (wave 7): the fingerprint the person was shown, so a yes cannot land on a changed request.
-      fingerprint: z.string().regex(/^[a-f0-9]{32}$/).optional() }).strict().parse(await readBody(request));
+      fingerprint: z.string().regex(/^[a-f0-9]{32}$/).optional(),
+      // mac7/r17-g: the six-digit code from the owner's authenticator app, for a yes that needs one.
+      code: z.string().max(12).optional() }).strict().parse(await readBody(request));
     // mac5/key-sweep: answering is a run key's job, but "always" would write a standing rule.
     if (input.remember === "always" && startedWithShortLivedKey())
       throw new HttpError(401, "A short-lived key can answer this once or for this conversation, but cannot make a standing rule. Do that in the app window.");
@@ -1221,6 +1225,9 @@ async function api(
     const asked = app.runtime.approvals.questionFor(input.sessionId, input.fingerprint);
     const keyRefusal = asked ? keyAnswerRefusal(app.store, asked.runId) : null;
     if (keyRefusal) throw new HttpError(401, keyRefusal);
+    // mac7/r17-g: a code typed with the answer is checked first; a wrong one is said plainly.
+    if (input.code !== undefined && asked && !(await confirmWithCode(app.store, app.runtime.owner, input.sessionId, asked.fingerprint, input.code)))
+      throw new HttpError(401, "That authenticator code did not match, or it was already used. Wait for the next code.");
     return app.runtime.approve(input.sessionId, input.decision, input.remember, input.fingerprint);
   }
   if (request.method === "GET" && path === "/api/governance")
@@ -2645,6 +2652,19 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
           return;
         }
         // ---- end of the bucket-23 block ----
+        // ---- mac7/r17-g: the safety extras under /api/safety-extras (src/safety-extras/api.ts); the owner's alone. ----
+        if (handlesSafetyPath(path)) {
+          app.store.profiles.requireOwner("The safety extras");
+          const answer = await safetyApi({
+            extras: app.safetyExtras, runtime: app.runtime, method: request.method ?? "GET",
+            query: new URL(request.url ?? "/", "http://local").searchParams, readBody: () => readBody(request, 11_000_000),
+          }, path).catch((error: unknown) => {
+            throw error instanceof SafetyHttpError ? new HttpError(error.status, error.message) : error;
+          });
+          send(response, 200, answer);
+          return;
+        }
+        // ---- end of the mac7/r17-g block ----
         if (await rawApi(app, request, response, path)) return;
         if (path.startsWith("/api/deployment")) {
           // bucket 22: `branch quit`, from this computer with the master key only (src/install/quit.ts).
@@ -3184,6 +3204,8 @@ function isExecution(request: IncomingMessage, path: string): boolean {
     || (request.method !== "GET" && handlesInteropPath(path))
     // mac6/bucket-23: every change under /api/asks may start work (an answer, an article, a send).
     || (request.method !== "GET" && handlesAsksPath(path))
+    // mac7/r17-g: every change under /api/safety-extras may run something (a WebAssembly add-on).
+    || (request.method !== "GET" && handlesSafetyPath(path))
   );
 }
 function configureLimits(server: Server): void {
