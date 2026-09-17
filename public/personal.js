@@ -113,6 +113,8 @@ async function serviceBlock(service, nameKey, name, tryPath, status) {
   if (service !== "spotify") {
     extra.drafts = input(settings.drafts, "checkbox");
     parts.push(...labelled(`personal-${service}-drafts`, "personal.signin.drafts", "Also allow writing drafts (never sending)", extra.drafts));
+    parts.push(make("p", "field-note", "personal.signin.draftsNote",
+      "The service only offers drafts with a permission that could also send mail. Branch never sends; sign in again after changing this."));
   }
   if (service === "microsoft") {
     extra.tenant = input(settings.tenant);
@@ -236,6 +238,8 @@ async function tunnelCard(modes) {
     "personal.tunnel.purpose", "Chat services and triggers can reach Branch from the internet through your own tunnel program. Only webhook addresses pass; the window never does.");
   node.append(...switchFor("tunnel", modes, status));
   if (modes.tunnel !== "off") {
+    node.append(make("p", "field-note", "personal.tunnel.warning",
+      "While it runs, anyone on the internet who learns the address can reach your webhook addresses. Each one still checks its own signature. Stop it when you do not need it."));
     const view = await api("personal/tunnel");
     const program = document.createElement("select");
     for (const name of ["cloudflared", "tailscale", "ngrok"]) {
@@ -283,7 +287,12 @@ async function waitingQuestions(status) {
       const offer = await api("personal/voice/offer", { sessionId: question.sessionId, fingerprint: question.fingerprint });
       show(status, say("personal.voice.speak", "Listening for four seconds: say yes or no."));
       const spoken = await record(4);
-      show(status, (await api("personal/voice/answer", { id: offer.id, ...spoken })).message);
+      const heard = await api("personal/voice/answer", { id: offer.id, ...spoken });
+      show(status, heard.message);
+      // A risky request needs a press as well as the spoken yes.
+      if (heard.confirm) item.append(" ", button("personal.voice.confirm", "Yes, allow it", attempt(status, async () => {
+        show(status, (await api("personal/voice/confirm", { id: offer.id })).message);
+      })));
     })));
     return item;
   });
