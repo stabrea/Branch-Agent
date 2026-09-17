@@ -1283,7 +1283,21 @@ Everything in this section is off until you turn it on, so a task behaves exactl
 
 **A plan for one task.** `POST /api/run { prompt, plan: true }` asks the model for two to six numbered steps before any work starts. The steps are saved for the conversation and carried out in order: each one is given to the model on its own, and a step that comes back without the word its plan entry asked for is tried once more before the task stops. Events: `plan.created`, `plan.step.started`, `plan.step.retry`, `plan.step.finished`, `plan.completed`, and `plan.failed` when the model's plan cannot be read (the task then simply runs as usual). A planned task gets four extra rounds per step, up to forty.
 
-**Approving and editing a plan.** With `planApproval` on, the task stops with status `needs_input` and the plan as its question (`plan.awaiting_approval`), the same way a question from the assistant does. `GET /api/runs/:id/plan` returns the plan; `POST /api/runs/:id/plan { steps }` replaces the steps and marks it approved (`plan.approved`); saying "go ahead" in the conversation also approves it. Your next message then carries it out. A plan being carried out by a task that stops early is dropped, so the next thing you ask is never answered by an abandoned plan, and a plan you were shown but walked away from is dropped as soon as you ask for something else. If the assistant stops in the middle of a plan to ask you something — an approval rule, for instance — the rest of the plan is not picked up again: your answer carries the conversation on as an ordinary task.
+**Approving and editing a plan.** With `planApproval` on, the task stops with status `needs_input` and the plan as its question (`plan.awaiting_approval`), the same way a question from the assistant does. `GET /api/runs/:id/plan` returns the plan; `POST /api/runs/:id/plan { steps }` replaces the steps and marks it approved (`plan.approved`); saying "go ahead" in the conversation also approves it. Your next message then carries it out. A plan being carried out by a task that stops early is dropped, so the next thing you ask is never answered by an abandoned plan, and a plan you were shown but walked away from is dropped as soon as you ask for something else. If the assistant stops in the middle of a plan made this way to ask you something — an approval rule, for instance — the rest of the plan is not picked up again: your answer carries the conversation on as an ordinary task. A plan made in "Show me the plan first" mode is kept instead, and picked up where it stopped; see the next section.
+
+## Plan first, show me the plan, then act
+
+Asking about one tool call at a time is not the same as agreeing what is going to happen. This section is the other way round: you see the whole plan in plain words, change a step if you want to, and only then does anything run.
+
+**The two modes.** `GET|POST /api/plan-act` holds `planMode` — `just-do-it` (what Branch has always done, and still the default) or `show-plan` (make a plan, show it, and wait) — and `autonomy`, which says how far a task carrying out an agreed plan may go before it checks back: `every-step`, `changes-only` (only steps that change something) or `at-the-end` (the default: not until the whole plan is done). Both live per conversation **and** per project: `POST /api/plan-act { sessionId, planMode }` sets one conversation, `POST /api/plan-act { scope: "project", planMode }` sets what every new conversation in the project starts from, and `{ sessionId, followProject: true }` puts a conversation back on the project's choice. A conversation's own choice always wins. The switch is in the conversation itself, beside the model picker, not in Settings.
+
+**What a plan says.** In `show-plan` mode the first round of the model produces two to six numbered steps in plain words. Each step carries `title` (what it will do), `touches` (the one file, website or program it uses) and `changes` (whether it changes anything; a step that does not say is taken to change something). The plan is stored with the task — run id, conversation, the prompt it was made for, the mode and the autonomy setting — and shown with one sentence naming which steps change something. Events: `plan.created` and `plan.awaiting_approval` carry the titles, what each step touches, which of them change something, and that one sentence.
+
+**Agreeing it.** The task stops with status `needs_input` and the plan as its question. `POST /api/runs/:id/plan {}` agrees to it as it stands; `POST /api/runs/:id/plan { steps }` agrees to it with the wording you changed, and the changed wording is what runs; `POST /api/runs/:id/plan { decision: "reject", reason }` sends it back, and the model is asked for another plan straight away with your reason in front of it. Saying "go ahead" in the conversation also agrees to it. Nothing that changes anything runs before you have agreed. Events: `plan.approved`, `plan.rejected`, `plan.decided`. Every answer is written into the record of what the assistant was allowed to do, against the task, with the numbered plan, the autonomy setting and who answered.
+
+**Following it.** Each step shows as waiting, doing, done or failed against the plan you agreed (`plan.step.started`, `plan.step.finished`). With `autonomy` set to `every-step` or `changes-only`, the task stops before the next step and says which one is coming (`plan.check_back`); your "go ahead" carries it on from exactly there. And if a step that said it would change nothing turns out to need something that does, the task stops and names the difference rather than quietly doing it (`plan.off_plan`), through the same question card as every other approval.
+
+**Debugging a command.** When a command does not work — it failed, or it came back with a complaint — and the assistant then wants to run the same program again, you are shown both commands and what changed between them before anything runs (`command.correction`). You are asked once per command, so agreeing lets the corrected one through.
 
 **Several specialists at once.** `delegate.parallel` runs up to six specialist branches together (at most four are in flight at a time, the same limit as other children). What is left of the task's token budget is split evenly between them, and a branch never costs the task more than its share. One branch failing leaves the others running unless `failFast` is true. The answers come back for the model to combine into one, and the whole thing is recorded as a `delegation.parallel` event. `delegate.handoff { specialist, brief }` hands the rest of a piece of work to a named specialist and brings its answer back, recorded as `delegation.handoff`.
 
@@ -4267,3 +4281,90 @@ backup and the diagnostics folder both already understand is the whole design.
   what is mentioned with what is built in the same SQLite file (`src/knowledge-graph.ts`), which is
   what a house-sized knowledge base actually needs. A separate graph server would be a service to
   install, run and back up for no gain here.
+
+## A second opinion before it commits (wave 9)
+
+Three separate things, all of them off or opt-in, because a second opinion costs a second model call.
+
+### An advisor that reads the answer
+
+When it is on, a connection of your choosing reads each finished answer and says whether it stands
+up and what it would check. **Its words go beside the answer and are never written into it.** The
+answer you were given is the answer the model gave; the advice is a second thing you read next to
+it, and you decide. The pass runs on its own budget and its cost lands on the task like any other
+model call, so you can see what it came to on the Usage screen.
+
+Settings, saved under `second-opinion` and set on the Settings screen:
+
+- `advisor` — whether a second connection checks each finished answer. Off by default.
+- `advisorPreset` — which connection advises. Empty means whichever one answered, which is a
+  weaker check: a model rarely argues with itself.
+- `advisorMaxTokens` — the most the pass may spend on one task.
+
+It never runs for a specialist's sub-task, and it can never fail a task that has already answered:
+an advisor that errors, times out or runs out of its own tokens is written down as
+`advice.failed` and the answer is given exactly as it was.
+
+### Two connections arguing
+
+`delegate.debate` puts two of your model connections on one question. Each answers on its own, then
+each reads the other and says where it disagrees and why, and a short verdict says what was argued
+and what is still open. Nothing here decides anything for you — two models arguing is evidence to
+read, not a ruling to act on.
+
+It is bounded twice over, and it says which bound stopped it:
+
+- `debateExchanges` — how many times each side may answer the other. One unless you raise it.
+- `debateMaxTokens` — the most a whole debate may spend. The running total is checked before every
+  single call, so reaching the ceiling means nothing more is sent.
+
+### Answers in a shape the app can rely on
+
+A task can declare the shape it wants back in zod, the same way a tool declares its arguments
+(`declareShape("weather", z.object({ city: z.string(), temperature: z.number() }))`). The model is
+asked for exactly that shape, and the reply goes through the same check every delegated answer
+already goes through. A reply that does not fit is re-asked **once** with its own validation error,
+and a second reply that still does not fit is refused in a plain sentence naming what was wrong.
+Nothing is half-parsed: a shape that could not be met produces no answer rather than a guess.
+
+Where this uses a service's own setting and where it does not, honestly:
+
+- **OpenAI** (and the OpenAI-compatible adapters that share `openaiBody`): its own
+  `response_format: {"type":"json_schema"}` is sent, so the model is genuinely constrained. `strict`
+  is deliberately left off — it would demand that every property be required and no extras be
+  allowed anywhere, which a shape written in zod need not be, and a refused request is worse than a
+  reply that has to be checked.
+- **Anthropic**: there is no response-format setting. Anthropic's own way of fixing a reply's shape
+  is a tool the model is made to call, so the shape is sent as one tool with `tool_choice` naming
+  it, and the reply arrives as that tool's arguments. This only works when the request carries no
+  other tools — true of the shaped pass, which runs with no permissions and so an empty catalog. A
+  request that does carry tools keeps them and falls back to asking in words.
+- **Every other adapter** (Gemini, Bedrock, Cohere, Ollama, Azure through its own body, the CLI
+  agents): the shape is asked for in the words of the question and checked afterwards. That is the
+  re-ask path, not a native one. It works; it is just not enforced by the service.
+
+### Pydantic: not applicable, and what stands in for it
+
+The capability audit asks for Pydantic model validation of structured output. Pydantic is a Python
+library and Branch is TypeScript, so there is nothing to integrate. The equivalent is zod, which
+Branch already uses to declare every tool's arguments and every setting on this page, and which is
+what a declared shape is written in above. A shape goes from zod through zod's own `toJSONSchema`
+into the same check every delegated answer already passes through, so a declared shape is validated
+the same way a tool's arguments are. Nothing further is needed, and adding a Python dependency to a
+TypeScript app to satisfy the letter of the row would be worse than not having it.
+
+### The adapter family (`adapter-system` in #55): chat and XML are not applicable
+
+The audit's `adapter-system` family asks for three adapters. Only one of them means anything here,
+and building the other two would be building something nobody would run:
+
+- **JSON adapter — built.** That is the shaped answer above, native where a service offers it.
+- **Chat adapter — not applicable.** Every connection Branch has already speaks the one chat shape:
+  `Message[]` in, `Completion` out, through `openaiMessage`, `anthropicMessages` and their
+  equivalents. A "chat adapter" is the `Provider` contract itself, which has existed since the
+  first release. Adding a thing called a chat adapter on top of it would be a second name for the
+  same object.
+- **XML adapter — not applicable.** Nothing in Branch consumes XML from a model. Tool calls arrive
+  as structured objects from every provider's own API, not as tags to be parsed out of prose, and
+  the one place a reply's shape matters is covered by JSON above. An XML adapter would add a
+  parser, a failure mode and a setting for a format no part of the app reads.

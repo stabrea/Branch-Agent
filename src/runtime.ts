@@ -79,7 +79,10 @@ import type { RunToolEmbedder, ToolEmbedder } from "./tool-index.js";
 import { mcpAppIn } from "./mcp-apps.js";
 import { NoteInputSchema } from "./tool-usage.js";
 import { estimateCost, formatCost, pricingSettings } from "./pricing.js";
-import { Orchestration, type ConductOptions } from "./orchestration.js";
+import { Orchestration, type ConductOptions, type PlanAnswer, type StoredPlan } from "./orchestration.js";
+import { commandDifference, commandWords, correctionLabel, offPlanDifference, relatedCommand } from "./plan-act.js";
+import { type AnswerShape, askInShape, shapeInstructions, type ShapedAnswer } from "./answer-shape.js";
+import { advisorInstructions, advisorQuestion, adviceLine, readAdvice, secondOpinionSettings, type Advice } from "./second-opinion.js";
 import { styleShape, takeScratch, type SpecialistStyle } from "./specialist-styles.js";
 import { Deferrals, deferredCall } from "./deferred.js";
 import { RequestCache, type CacheKeyParts } from "./request-cache.js";
@@ -109,7 +112,7 @@ interface GateOutcome {
   refusal: unknown | null; sandbox: SandboxChoice | null;
   backend: SandboxBackendName | null; paths: readonly string[] | null;
 }
-export interface DelegateOptions { timeoutMs?: number; resultSchema?: Record<string, unknown>; checks?: CompletionCheck; background?: boolean; /** Specialist id: limits memory reads to shared facts and its own. */ agent?: string; /** The specialist's working style; it changes how the loop runs. */ style?: SpecialistStyle }
+export interface DelegateOptions { timeoutMs?: number; resultSchema?: Record<string, unknown>; /** The shape this task wants back, declared in zod. A reply that misses it is re-asked once. */ shape?: AnswerShape; checks?: CompletionCheck; background?: boolean; /** Specialist id: limits memory reads to shared facts and its own. */ agent?: string; /** The specialist's working style; it changes how the loop runs. */ style?: SpecialistStyle }
 export interface FollowUp { id: string; prompt: string; createdAt: string }
 export interface BackgroundResult { childRunId: string; parentRunId: string; status: string; output: string; finishedAt: string }
 export interface FanoutOutcome { waves: string[][]; tasks: Record<string, { runId: string; status: string; output: string; result: ResultCheck }> }
@@ -207,6 +210,10 @@ export class Runtime {
   /** What each task searched for and called, until it finishes and the lesson is written down. */
   private readonly toolWork = new Map<string, { searched: string[]; called: string[]; failures: Map<string, string>; rounds: number }>();
   private readonly pending = new Set<Promise<unknown>>();
+  /** Per conversation: the last command that did not work, so the next try is offered, not made. */
+  private readonly failedCommands = new Map<string, string[]>();
+  /** Questions already put once in a conversation, so nothing is stopped twice on the same thing. */
+  private readonly askedAside = new Set<string>();
   private accepting = true;
   readonly retryPolicy: RetryPolicy;
   readonly reliability: ReliabilityOptions;
@@ -507,14 +514,34 @@ export class Runtime {
   }
   /** A delegated run plus the check of its answer against the schema the parent asked for. */
   async delegateChecked(prompt: string, parent: ToolContext, permissions: string[], instructions: string, options: DelegateOptions = {}) {
-    const run = await this.delegate(prompt, parent, permissions, instructions, options);
+    const asked = options.shape ? `${prompt}
+
+${shapeInstructions(options.shape)}` : prompt;
+    const run = await this.delegate(asked, parent, permissions, instructions, options);
     const evidence = run.status === "failed" && run.output.startsWith("The answer did not pass its check") ? `: ${run.output}` : "";
-    const result: ResultCheck = run.status !== "completed"
+    let result: ResultCheck = run.status !== "completed"
       ? { status: "unresolved", reason: `The child ended with status ${run.status}${evidence}` }
-      : checkResult(run.output, options.resultSchema);
+      : checkResult(run.output, options.shape?.schema ?? options.resultSchema);
+    if (result.status === "unresolved" && options.shape && run.status === "completed")
+      result = await this.reshape(run, parent, options.shape, result.reason);
     if (result.status === "unresolved" && parent.runId)
       this.store.event(parent.runId, "delegation.unresolved", { childRunId: run.id, reason: result.reason });
     return { run, result };
+  }
+  /**
+   * One re-ask for an answer that missed its declared shape. The child is not run again — that
+   * would repeat whatever it did — only its words are handed back with the validation error, once.
+   * Still wrong the second time means a plain refusal, because half an answer is worse than none.
+   */
+  private async reshape(run: Run, parent: ToolContext, shape: AnswerShape, reason: string): Promise<ResultCheck> {
+    const holder = this.store.run(parent.runId) ?? run;
+    const question = `This answer was meant to be ${shape.name} and was not: ${reason}. Here it is; send the same content in the right shape.
+
+${run.output.slice(0, 6000)}`;
+    const answer = await this.shaped(holder, parent, question, shape);
+    return answer.status === "resolved"
+      ? { status: "resolved", value: answer.value }
+      : { status: "unresolved", reason: answer.reason };
   }
   /**
    * Runs independent tasks together and dependent ones after their dependencies, feeding earlier
@@ -621,6 +648,7 @@ export class Runtime {
       }
     }
     if (context.dryRun) this.reportDryRun(run);
+    if (status === "completed") await this.advise(run, context, output);
     const settled = await this.settleRun(run, context, status, output);
     const usage = this.store.usage(run.id);
     span.end(settled.status === "completed" ? "ok" : "error", settled.status === "completed" ? "" : settled.output, {
@@ -742,7 +770,7 @@ export class Runtime {
       if ((context.scratchRoot ?? run.id) === run.id) this.orchestration.clearScratch(run.id);
       // A plan that was being carried out by a task that stopped early is not resumed by the next
       // message; one still waiting for the owner's yes stays, because that task stopped to ask.
-      if (status !== "completed") this.orchestration.dropAbandonedPlan(run.sessionId);
+      if (status !== "completed") this.orchestration.dropAbandonedPlan(run.sessionId, status);
     }
     const settled = this.finish(run, status, output);
     this.saveTrace(run.id);
@@ -908,6 +936,76 @@ export class Runtime {
       signal: AbortSignal.any([context.signal, AbortSignal.timeout(60000)]),
     };
     return (await this.complete(run, messages, scoped, route.candidates[route.index]!, null)).content;
+  }
+  /**
+   * The advisor pass: a second connection reads the finished answer and says whether it stands up.
+   * Off unless the owner turns it on, never run for a specialist's sub-task, and given a budget of
+   * its own so it cannot spend the task's. Its words are written down beside the answer as an
+   * event; the answer itself is not touched, here or anywhere, so the owner reads both.
+   *
+   * Nothing in here may fail a task that has already answered. An advisor that errors, times out
+   * or runs out of its own tokens records why and the answer is given exactly as it was.
+   */
+  private async advise(run: Run, context: ToolContext, answer: string): Promise<void> {
+    const settings = secondOpinionSettings(this.store, context.owner);
+    if (!settings.advisor || context.depth > 0 || context.agent || !answer.trim()) return;
+    const chosen = settings.advisorPreset && this.models.presets.has(settings.advisorPreset)
+      ? this.models.presets.get(settings.advisorPreset)!
+      : this.models.plan(context.owner, run.sessionId).candidates[0]!;
+    const scoped: ToolContext = {
+      ...context, permissions: new Set(), budget: new Budget({ maxSteps: 2, maxTokens: settings.advisorMaxTokens }),
+      signal: AbortSignal.any([context.signal, AbortSignal.timeout(60000)]),
+    };
+    this.store.event(run.id, "advice.started", { preset: chosen.id, maxTokens: settings.advisorMaxTokens });
+    try {
+      const said = await this.complete(run, [
+        { role: "system", content: advisorInstructions },
+        { role: "user", content: advisorQuestion(run.prompt, answer) },
+      ], scoped, chosen, null);
+      const advice = readAdvice(chosen.name, said.content);
+      this.store.event(run.id, "advice.given", { ...advice, preset: chosen.name, presetId: chosen.id, line: adviceLine(advice) });
+    } catch (error) {
+      // The ceiling is the ordinary way this ends, so it is said as a sentence rather than as the
+      // budget's own words. Either way the answer is given exactly as it was.
+      const reason = error instanceof BudgetError
+        ? `There was not enough left of the ${settings.advisorMaxTokens.toLocaleString()}-token ceiling for the check, so the answer has not been looked at. Raise it in Settings.`
+        : errorText(error);
+      this.store.event(run.id, "advice.failed", { preset: chosen.id, reason });
+    }
+  }
+  /**
+   * One short question to a named connection with no tools, charged to the task it belongs to.
+   * This is what a debate's turns are made of; the caller supplies the budget so the ceiling it
+   * has to respect is its own, not the task's.
+   */
+  async completeAside(run: Run, context: ToolContext, preset: ModelPreset, question: string): Promise<string> {
+    return (await this.complete(run, [{ role: "user", content: question }], context, preset, null)).content;
+  }
+  /** What the advisor said about one task, for showing beside its answer. Null when none was asked. */
+  advice(runId: string): (Advice & { line: string }) | null {
+    const said = this.store.events(runId).filter((event) => event.kind === "advice.given").at(-1);
+    return said ? (said.data as unknown as Advice & { line: string }) : null;
+  }
+  /**
+   * An answer in a declared shape. One pass with no tools, so the connection's own setting for a
+   * fixed reply shape can be used where it has one (see openaiBody and anthropicBody); a reply that
+   * does not fit is re-asked once with its own validation error and then refused in plain words.
+   * The checking is the same `checkResult` every delegated answer goes through, not a second one.
+   */
+  async shaped(run: Run, context: ToolContext, question: string, shape: AnswerShape, preset?: ModelPreset): Promise<ShapedAnswer> {
+    const chosen = preset ?? this.models.plan(context.owner, run.sessionId).candidates[0]!;
+    const scoped: ToolContext = { ...context, permissions: new Set(),
+      signal: AbortSignal.any([context.signal, AbortSignal.timeout(60000)]) };
+    const ask = async (asked: string, wanted: AnswerShape): Promise<string> => {
+      const said = await this.complete(run, [{ role: "user", content: asked }], scoped, chosen, null, undefined, wanted);
+      // Anthropic answers a shaped ask by calling the tool that holds the shape; its arguments are
+      // the reply. OpenAI answers in the text. Either way what comes back here is the JSON itself.
+      return said.content.trim() || said.toolCalls.find((call) => call.name === wanted.name)?.arguments || said.content;
+    };
+    const answer = await askInShape(ask, question, shape);
+    this.store.event(run.id, "answer.shaped", { shape: shape.name, status: answer.status, reasked: answer.reasked,
+      ...(answer.status === "refused" ? { reason: answer.reason } : {}) });
+    return answer;
   }
   /**
    * A note the owner sends to a task that is still working. It goes in front of the next round,
@@ -1327,6 +1425,7 @@ export class Runtime {
     preset: ModelPreset,
     reasoning: ReasoningEffort | null,
     onTextDelta?: (text: string) => void,
+    shape?: AnswerShape,
   ): Promise<Completion> {
     context.budget.step(context.signal);
     const tools = this.toolsFor(context);
@@ -1340,6 +1439,7 @@ export class Runtime {
     const cacheKey: CacheKeyParts = {
       provider: preset.provider.name, model: preset.model, reasoning: reasoning ?? null, maxTokens,
       messages, tools: tools.map((tool) => ({ name: tool.name, description: tool.description })),
+      shape: shape?.name ?? null,
     };
     const kept = this.requestCache.look(cacheKey);
     if (kept) return this.answeredFromCache(run, preset, kept, input);
@@ -1361,7 +1461,8 @@ export class Runtime {
     try {
       // Wave 8: one more call against this connection, for the "how busy is it" reading.
       this.models.requests.record(preset.id);
-      const request = { messages, tools, maxTokens, ...(reasoning ? { reasoning } : {}) };
+      const request = { messages, tools, maxTokens, ...(reasoning ? { reasoning } : {}),
+        ...(shape ? { responseFormat: { name: shape.name, schema: shape.schema } } : {}) };
       const raw = onTextDelta
         ? await withStallWatchdog(context.signal, this.reliability.modelStallMs, (signal, touch) =>
             preset.provider.complete({ ...request, signal, onTextDelta: (text: string) => { touch(); onTextDelta(text); } }))
@@ -1595,6 +1696,15 @@ export class Runtime {
     // stricter — it can turn a yes into a question or a refusal, never a refusal into a yes.
     const verdict = ruled === "deny" ? null : await this.askHooks(context.runId, { tool: call.name, target, label, decision: ruled });
     const decision = verdict && verdict.decision !== "allow" ? verdict.decision : ruled;
+    // Wave 9: two things the owner asked to be stopped for even when the rules would let them past
+    // — work the agreed plan did not mention, and a command that already failed being tried again.
+    const aside = decision === "deny" ? null
+      : this.offPlanQuestion(context, { label, target, readOnly }) ?? this.retriedCommandQuestion(call, args, context);
+    if (aside) {
+      this.orchestration.pausePlan(this.sessionOf(context));
+      return this.askApproval(context, { tool: call.name, label: aside, target, source: context.source ?? "owner",
+        remember, sandbox, bytes: this.hideSecrets(call.arguments).slice(0, 2000), fingerprint }, call.id);
+    }
     if (decision === "allow") return { refusal: null, ...held };
     if (decision === "deny") {
       this.store.event(context.runId, "policy.denied", { name: call.name, id: call.id, label, target,
@@ -1607,6 +1717,51 @@ export class Runtime {
       // The exact request, cleaned of any saved password or key, is what the person is shown and
       // what their yes is bound to.
       bytes: this.hideSecrets(call.arguments).slice(0, 2000), fingerprint }, call.id);
+  }
+  /**
+   * Why this call is not what the plan the owner agreed said would happen here, or null when it is.
+   * Put once per conversation, so answering it lets the work carry on rather than asking for ever.
+   */
+  private offPlanQuestion(context: ToolContext, about: { label: string; target: string; readOnly: boolean }): string | null {
+    const sessionId = this.sessionOf(context);
+    const current = this.orchestration.currentStep(sessionId);
+    if (!current) return null;
+    const difference = offPlanDifference(current.step, current.at, about);
+    if (!difference || !this.askOnce(sessionId, `plan:${current.at}:${about.label}:${about.target}`)) return null;
+    this.store.event(context.runId, "plan.off_plan", { step: current.at, title: current.step.title,
+      label: about.label, target: about.target, difference });
+    return difference;
+  }
+  /**
+   * A command that already failed in this conversation being tried again. The owner is shown both
+   * commands and the difference between them rather than the second one simply happening.
+   */
+  private retriedCommandQuestion(call: ToolCall, args: unknown, context: ToolContext): string | null {
+    if (call.name !== "shell.execute") return null;
+    const sessionId = this.sessionOf(context);
+    const failed = this.failedCommands.get(sessionId);
+    const next = commandWords(args);
+    if (!failed || !next.length || !relatedCommand(failed, next)) return null;
+    this.failedCommands.delete(sessionId);
+    this.store.event(context.runId, "command.correction", { failed: failed.join(" "),
+      proposed: next.join(" "), difference: commandDifference(failed, next) });
+    return correctionLabel(failed, next);
+  }
+  /** True the first time a conversation is asked one particular thing, false every time after. */
+  private askOnce(sessionId: string, key: string): boolean {
+    if (this.askedAside.size > 500) this.askedAside.clear();
+    const full = `${sessionId}\u0000${key}`;
+    if (this.askedAside.has(full)) return false;
+    this.askedAside.add(full);
+    return true;
+  }
+  /** Remembers a command that did not work, by its words, for the offer above. */
+  private noteCommandFailure(call: ToolCall, context: ToolContext, args: unknown, result?: unknown): void {
+    if (call.name !== "shell.execute") return;
+    const code = (result as { exitCode?: unknown } | undefined)?.exitCode;
+    if (result !== undefined && (typeof code !== "number" || code === 0)) return;
+    const words = commandWords(args);
+    if (words.length) this.failedCommands.set(this.sessionOf(context), words);
   }
   /** Stops the task and records the question, so the person can say yes once, for now, or for good. */
   private askApproval(
@@ -1716,6 +1871,21 @@ export class Runtime {
       outcome: decision === "allow" ? "allowed" : "refused",
     });
     return { tool: waiting.tool, target: waiting.target, decision, remembered: remember, fingerprint: waiting.fingerprint ?? null };
+  }
+  /**
+   * The owner's answer to a plan waiting for them. Yes — with a step's wording changed, if they
+   * changed one — starts it on their next message. No asks for another plan straight away, with
+   * the reason they gave put in front of the model.
+   */
+  async answerPlan(
+    runId: string,
+    input: PlanAnswer,
+  ): Promise<{ plan: StoredPlan; asked: Run | null }> {
+    const decided = this.orchestration.decidePlan(runId, input);
+    if (input.decision !== "reject") return { plan: decided, asked: null };
+    const asked = await this.run({ prompt: decided.reason || "Plan that again, please.",
+      sessionId: decided.sessionId, plan: true });
+    return { plan: this.orchestration.plan(decided.sessionId) ?? decided, asked };
   }
   /** The questions a conversation has stopped on, for whichever surface is going to put them. */
   waitingApprovals(sessionId?: string) {
@@ -1873,6 +2043,8 @@ export class Runtime {
       this.noteApp(call, context, result);
       const receipt = await this.store.receipts.sign(context.runId, call.id, call.name, result);
       this.store.event(context.runId, "tool.completed", { name: call.name, id: call.id, result, receipt });
+      // A command that ran but came back with a complaint is still a command that did not work.
+      this.noteCommandFailure(call, context, args, result);
       const failure = this.toolWork.get(context.runId)?.failures.get(call.name);
       if (failure !== undefined) { this.toolWork.get(context.runId)!.failures.delete(call.name); this.learnFromRetry(context, call.name, failure); }
       span?.end("ok");
@@ -1892,6 +2064,7 @@ export class Runtime {
       const stalled = timeout.aborted;
       const error = this.hideSecrets(stalled ? `The tool was stopped after ${limitMs / 1000} seconds without finishing` : errorText(e));
       this.store.event(context.runId, stalled ? "tool.stalled" : "tool.failed", { name: call.name, id: call.id, error });
+      this.noteCommandFailure(call, context, args);
       this.toolWork.get(context.runId)?.failures.set(call.name, error);
       span?.end("error", error, { "branch.tool.outcome": stalled ? "stalled" : "failed" });
       return { ok: false, error };

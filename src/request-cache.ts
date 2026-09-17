@@ -43,6 +43,8 @@ export interface CacheKeyParts {
   maxTokens: number;
   messages: Message[];
   tools: { name: string; description?: string }[];
+  /** The name of the reply shape that was asked for, when one was; a shaped ask is its own request. */
+  shape?: string | null;
 }
 
 /**
@@ -61,6 +63,7 @@ export function requestHash(parts: CacheKeyParts): string {
       images: (message.images ?? []).map((image) => createHash("sha256").update(image.data).digest("hex").slice(0, 16)),
     })),
     tools: parts.tools.map((tool) => `${tool.name}\u0000${tool.description ?? ""}`).sort(),
+    answerShape: parts.shape ?? null,
   };
   return createHash("sha256").update(JSON.stringify(shape)).digest("hex");
 }

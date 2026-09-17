@@ -17,6 +17,7 @@ import { DemoProvider } from "./demo.js";
 import { Knowledge, registerKnowledge } from "./knowledge.js";
 import { registerOrchestration } from "./orchestration-tools.js";
 import { registerOrchestrationModes } from "./orchestration-modes.js";
+import { registerSecondOpinion } from "./second-opinion-tools.js";
 import { registerMemory } from "./memory.js";
 import { MemoryRetrieval } from "./memory-retrieval.js";
 import { MemoryHygiene } from "./memory-hygiene.js";
@@ -215,6 +216,14 @@ export async function createBranch(options: {
   const projectMap = new ProjectMap(files);
   registerProjectMap(registry, projectMap);
   const editor = new CodeEditor(files, writeObserver);
+  // Wave 9: a patch going in is its own event, so a hook can fire on it (issue #55, workflow-hooks).
+  editor.onPatched = (changed, context) => {
+    if (!context.runId) return;
+    store.event(context.runId, "patch.applied", { files: changed.length,
+      paths: changed.map((file) => file.path).slice(0, 20),
+      added: changed.reduce((total, file) => total + file.added, 0),
+      removed: changed.reduce((total, file) => total + file.removed, 0) });
+  };
   registerCodeEdit(registry, files, editor);
   // Multi-file changes: a whole patch or a set of edits, shown first, written all at once, and
   // followed by the check the owner set up for this project.
@@ -352,6 +361,7 @@ export async function createBranch(options: {
   // Batch 26 (wave 8): a supervisor over named workers, a swarm over one shared list, and a router
   // that sorts a request to the one specialist it belongs to.
   registerOrchestrationModes(registry, runtime, knowledge);
+  registerSecondOpinion(registry, runtime);
   const web = new WebAccess(options.web ?? {}, globalThis.fetch, `BranchAgent/${String(createRequire(import.meta.url)("../package.json").version)}`);
   registerWeb(registry, web, (context, info) => { if (context.runId) store.event(context.runId, "content.flagged", info); });
   // A paid search service's key comes out of the locker for the one request and is written down
@@ -541,9 +551,16 @@ export async function createBranch(options: {
   registerWorkflows(registry, workflows);
   // The same workflows seen as boxes and arrows, with a way in over HTTP and a note sent out as
   // each box finishes.
-  const flows = new Flows(store, runtime.owner, workflows);
+  const flows = new Flows(store, runtime.owner, workflows, runtime);
   flows.notifyEvent = guardedNotify;
   registerFlows(registry, flows);
+  // "workflows.resume" is the one way in for carrying anything saved on, a graph flow included, so
+  // the schedules toolbox does not grow a second tool that says the same thing.
+  workflows.resumeGraph = (id) => (flows.isGraph(id) ? flows.resumeGraph(id) : null);
+  // Wave 9: a graph flow left working when the app closed picks up at the box after the last one
+  // that finished, with the state exactly as that box left it. Nothing is started again from the
+  // top, and a launch with no interrupted flow does nothing at all.
+  try { flows.resumeInterrupted(); } catch { /* a flow that cannot be read must not stop the launch */ }
   // Wave 8: a plain list of what is still to be done — the assistant's plan and the owner's own
   // items in one place, with a due day handed on to the schedules rather than timed here.
   const todos = new Todos(store.sqlite);
@@ -992,6 +1009,7 @@ export * from "./channels/ws-client.js";
 export * from "./integrations/web.js";
 export * from "./delegation.js";
 export * from "./orchestration.js";
+export * from "./plan-act.js";
 export * from "./orchestration-tools.js";
 export * from "./reliability.js";
 export * from "./skill-scan.js";
@@ -1122,7 +1140,11 @@ export * from "./os-permissions.js";
 export * from "./profile-roles.js";
 export * from "./replay.js";
 export * from "./orchestration-modes.js";
+export * from "./answer-shape.js";
+export * from "./second-opinion.js";
 export * from "./flows.js";
+export * from "./flow-graph.js";
+export * from "./flow-graph-run.js";
 // Wave 8: the to-do list, reports in three forms, and artifacts out of a reply.
 export * from "./todos.js";
 export * from "./reports.js";

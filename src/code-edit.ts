@@ -18,7 +18,15 @@ export interface ChangeSummary { path: string; created: boolean; added: number; 
 export interface PlannedChange { path: string; before: string | null; after: string }
 const diffBudget = 20000;
 
+export type PatchWatcher = (changed: ChangeSummary[], context: ToolContext) => void;
+
 export class CodeEditor {
+  /**
+   * Told the moment a patch has gone in, with what it changed. A hook watching for patches hangs
+   * off this: a file changing and a tool finishing are both already announced, and neither of them
+   * says a patch was applied, which is the thing a review hook is actually waiting for.
+   */
+  onPatched: PatchWatcher = () => undefined;
   constructor(private readonly files: WorkspaceFiles, private readonly observer?: WriteObserver) {}
 
   /** The file's current text, or null when it does not exist yet. */
@@ -36,7 +44,13 @@ export class CodeEditor {
 
   /** Applies a whole unified diff or nothing at all. */
   async patch(text: string, context: ToolContext): Promise<{ files: ChangeSummary[] }> {
-    return { files: await this.writeAll(await this.planPatch(text), context) };
+    const changed = await this.writeAll(await this.planPatch(text), context);
+    this.notifyPatched(changed, context);
+    return { files: changed };
+  }
+  /** Says a patch has gone in. Called by every way a patch reaches the files, and by nothing else. */
+  notifyPatched(changed: ChangeSummary[], context: ToolContext): void {
+    try { this.onPatched(changed, context); } catch { /* a watcher must never undo a good patch */ }
   }
 
   /**
