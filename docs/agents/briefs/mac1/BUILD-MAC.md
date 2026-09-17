@@ -15,6 +15,10 @@ well**, without changing anything a Windows user sees. You build ONE area, named
   tree there with `rsync -a --delete --exclude node_modules --exclude dist ./ branch-test-linux:wt/<area>/`
   then `ssh branch-test-linux 'cd wt/<area> && npm ci --no-audit --no-fund >/dev/null && npm run build && xvfb-run -a node --test <files>'`.
   It is shared by several builders: only use `~/wt/<area>` there, and never install system packages.
+  **It has 2 processors and 4 GB. Run every Linux build or test through the shared lock, one at a time, with
+  concurrency 1:** `ssh branch-test-linux 'flock -w 3600 /tmp/branch-linux.lock bash -c "cd wt/<area> && … && xvfb-run -a node --test --test-concurrency=1 <files>"'`.
+  Only run the test files your change touches there, never the whole suite. On 17 September several builders at once
+  pushed it past 230% and it stopped answering.
 - Windows is checked by the pull-request CI (`.github/workflows/checks.yml` runs Windows, macOS and
   Linux) and by the Legion machine. **Every Windows code path must behave exactly as before.** Keep the
   Windows branch of each function textually recognisable, and keep or strengthen its tests.
@@ -39,7 +43,10 @@ your brief owns and their tests (`grep -l <module> tests/*.mjs`).
   (`sandboxShape`), no secret in a log, network policy on every outbound call, no shell string
   built from user text (use argument arrays).
 - Plain language in anything the owner reads ("starts by itself when you sign in", not "launchd agent").
-- Tests tear down through `tests/temp-dir.mjs` (`discardTemp`), never a bare `rm`.
+- Tests tear down through `tests/temp-dir.mjs` (`discardTemp`), never a bare `rm`. **Close the app before deleting its
+  folder, in one `after` hook** (`t.after(async () => { await app.close(); await discardTemp(root); })`): Node runs
+  `after` hooks in registration order, and Windows refuses to delete a database that is still open, so the wrong order
+  passes on macOS and fails on Windows every time.
 - Never run `tests/desktop*.test.mjs` or `tests/screen-control.test.mjs`, never start Electron with a
   window, never set `BRANCH_SCREEN_TESTS`.
 - Stay inside the files your brief owns. If the real fix is in a file another brief owns, write it
