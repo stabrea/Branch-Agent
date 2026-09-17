@@ -1,7 +1,9 @@
+import { accessSync, constants } from 'node:fs';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { ShellProcess } from './shell-process.js';
+import { macDesktopScript, posixAvailability, runLinux, runMac, type PosixExec } from './desktop-script-posix.js';
 
 /**
  * The one Windows script every screen action goes through, and the bounded way it is run.
@@ -332,9 +334,24 @@ export function scriptEnvironment(root = process.env.SYSTEMROOT ?? 'C:\\Windows'
   };
 }
 
+/**
+ * How a Mac or Linux computer is driven. It stays off unless switched on here: the notice with its
+ * Stop button that sits on top of the screen during every action is still a Windows program, and
+ * screen control never runs without a way to stop it.
+ */
+export interface PosixDesktopOptions {
+  /** Turned on only once the on-screen notice works on this kind of computer. */
+  enabled?: boolean;
+  platform?: string;
+  env?: NodeJS.ProcessEnv;
+  exec?: PosixExec;
+  locate?: (name: string) => string | null;
+}
+
 export class DesktopScriptRunner {
   private folder: Promise<string> | undefined;
-  constructor(private readonly executable = powerShellPath) {}
+  constructor(private readonly executable = powerShellPath, private readonly posix: PosixDesktopOptions = {}) {}
+  private get platform(): string { return this.posix.platform ?? process.platform; }
   /** Writes the script once, into a private folder of its own, and gives back its path. */
   private async scriptPath(): Promise<string> {
     this.folder ??= mkdtemp(join(tmpdir(), 'branch-desktop-')).then(async (folder) => {
@@ -360,6 +377,7 @@ export class DesktopScriptRunner {
    * Windows, a timeout) becomes a plain error the model can read.
    */
   async run(action: DesktopAction, payload: Record<string, unknown>, signal: AbortSignal): Promise<Record<string, unknown>> {
+    if (this.platform !== 'win32') return this.runPosix(action, payload, signal);
     const script = await this.scriptPath();
     const body = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64');
     const child = new ShellProcess({
@@ -379,10 +397,54 @@ export class DesktopScriptRunner {
       throw new Error('Windows did not answer that in a way Branch could read.');
     }
   }
+  /** A Mac through `osascript`, Linux through `xdotool`, or one plain sentence saying it cannot. */
+  private async runPosix(action: DesktopAction, payload: Record<string, unknown>, signal: AbortSignal): Promise<Record<string, unknown>> {
+    if (!this.posix.enabled)
+      throw new Error('Using the screen and keyboard is not available on this computer yet: for now Branch can only do it on Windows.');
+    const locate = this.posix.locate ?? locateProgram;
+    const problem = posixAvailability(this.platform, this.posix.env ?? process.env, locate);
+    if (problem) throw new Error(problem);
+    const exec = this.posix.exec ?? runBounded;
+    if (this.platform === 'darwin') {
+      const folder = await this.privateFolder();
+      const script = join(folder, 'branch-desktop.js');
+      await writeFile(script, macDesktopScript, { mode: 0o600 });
+      return runMac(exec, script, action, payload, signal);
+    }
+    return runLinux(exec, locate('xdotool')!, action, payload, signal);
+  }
+  private async privateFolder(): Promise<string> {
+    this.folder ??= mkdtemp(join(tmpdir(), 'branch-desktop-'));
+    return this.folder;
+  }
   async close(): Promise<void> {
     const folder = await this.folder?.catch(() => undefined);
     if (folder) await rm(folder, { recursive: true, force: true });
   }
+}
+
+/** A Mac or Linux program run through the same bounded runner, with only the search path passed on. */
+const runBounded: PosixExec = async (executable, args, signal) => {
+  const child = new ShellProcess({
+    executable, args, cwd: tmpdir(),
+    env: { PATH: '/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin', HOME: process.env.HOME ?? tmpdir(), TMPDIR: tmpdir(),
+      ...(process.env.DISPLAY ? { DISPLAY: process.env.DISPLAY } : {}), ...(process.env.XAUTHORITY ? { XAUTHORITY: process.env.XAUTHORITY } : {}) },
+    signal, timeoutMs, maxOutputBytes, maxMemoryMb: 1024, maxCpuSeconds: 60,
+  });
+  const outcome = await child.run();
+  if (outcome.status === 'cancelled') throw new Error('That was stopped before it finished.');
+  if (outcome.status !== 'completed' && outcome.status !== 'failed')
+    throw new Error('This computer did not answer in time, so nothing more was done.');
+  return { status: outcome.status, exitCode: outcome.exitCode, stdout: outcome.stdout, stderr: outcome.stderr };
+};
+
+/** Where a program lives on the search path, without starting it. */
+function locateProgram(name: string): string | null {
+  for (const folder of (process.env.PATH ?? '').split(delimiter).filter(Boolean)) {
+    const candidate = join(folder, name);
+    try { accessSync(candidate, constants.X_OK); return candidate; } catch { /* keep looking */ }
+  }
+  return null;
 }
 
 /** Turns a stopped or failed script into one plain sentence. */

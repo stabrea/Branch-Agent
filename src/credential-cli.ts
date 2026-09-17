@@ -82,7 +82,7 @@ export function commandFor(reference: CredentialRef, settings: CredentialSetting
 
 /** Only what a password manager needs to find its own vault; nothing else of the owner's is passed on. */
 const passedThrough = ["PATH", "PATHEXT", "SYSTEMROOT", "APPDATA", "LOCALAPPDATA", "USERPROFILE", "HOME", "TEMP", "TMP",
-  "BW_SESSION", "BITWARDENCLI_APPDATA_DIR", "OP_SERVICE_ACCOUNT_TOKEN", "OP_CONNECT_HOST", "OP_CONNECT_TOKEN"];
+  "XDG_CONFIG_HOME", "BW_SESSION", "BITWARDENCLI_APPDATA_DIR", "OP_SERVICE_ACCOUNT_TOKEN", "OP_CONNECT_HOST", "OP_CONNECT_TOKEN"];
 function vaultEnvironment(): NodeJS.ProcessEnv {
   const result: NodeJS.ProcessEnv = {};
   for (const name of passedThrough) if (process.env[name]) result[name] = process.env[name];
@@ -95,10 +95,11 @@ function vaultEnvironment(): NodeJS.ProcessEnv {
  * `bw.exe` would otherwise be the thing asked for the owner's passwords. A name that is nowhere on
  * the path comes back as null, which is the plain "not on this computer" refusal rather than a guess.
  */
-export function locateCommand(name: string): string | null {
+export function locateCommand(name: string, platform: string = process.platform, env: NodeJS.ProcessEnv = process.env): string | null {
   if (name.includes(sep) || name.includes("/") || isAbsolute(name)) return name;
-  const extensions = process.platform === "win32" ? (process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";") : [""];
-  for (const folder of (process.env.PATH ?? "").split(delimiter).filter(Boolean))
+  // On macOS and Linux a program has no extension, so the bare name (`bw`, `op`) is what is looked for.
+  const extensions = platform === "win32" ? (env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";") : [""];
+  for (const folder of (env.PATH ?? "").split(platform === "win32" ? ";" : delimiter).filter(Boolean))
     for (const extension of extensions) {
       const candidate = join(folder, name + extension);
       try { accessSync(candidate, constants.X_OK); return candidate; } catch { /* keep looking */ }
