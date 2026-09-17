@@ -14,6 +14,7 @@ import { helpText } from "./help-text.js";
 import { promptsCommand } from "./saved.js";
 import { accountCommand } from "./account.js"; // mac6/accounts
 import { AUTONOMY_HANDLERS } from "../autonomy/commands.js"; // r17-b
+import { REACH_HANDLERS } from "../reach/commands.js"; // r17-i
 
 /**
  * What each command does when it is carried out for a surface that has no code of its own for it:
@@ -248,4 +249,5 @@ export const HANDLERS: Record<string, Handler> = {
   prompts: promptsCommand, // bucket 12
   account: accountCommand, // mac6/accounts
   ...AUTONOMY_HANDLERS, // r17-b: /loop, /heartbeat, /subgoal, /bg, /handoff, /suggestions, /blueprint
+  ...REACH_HANDLERS, // r17-i: /platform
 };

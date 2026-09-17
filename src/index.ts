@@ -194,6 +194,8 @@ import { connectGuidedTelegram, saveTelegramSetup, telegramSetupView } from "./n
 import { fileURLToPath } from "node:url";
 import { Asks } from "./asks/index.js"; // mac6/bucket-23: the smaller asks
 import { Autonomy } from "./autonomy/index.js"; // r17-b: it suggests, and runs things on its own
+import { Reach } from "./reach/index.js"; // r17-i: reach and platform
+import { platformRunners } from "./reach/host.js"; // r17-i
 // mac4/bucket-20: talking to other agents and tools.
 import { Interop } from "./interop/index.js";
 // mac3/reflection-skills: looking back over conversations, and skills written from experience.
@@ -945,6 +947,12 @@ export async function createBranch(options: {
     } });
   scheduler.onTick.add(() => autonomy.tick());
   // ── end r17-b ──
+  // ── r17-i: reach and platform (src/reach/). Every part ships off. ──
+  const reachParts = new Reach({ runtime, registry, router: channels, files, policy: web.policy, fetch: web.policy.guard(globalThis.fetch),
+    secret: async (name, purpose) => (await store.secrets.resolve(runtime.owner, store.projects.active(runtime.owner).id, [name], { purpose }))[name]!,
+    machines: { list: () => asks.nodes.nodes() }, version, ...platformRunners() });
+  scheduler.onTick.add(() => reachParts.tick());
+  // ── end r17-i ──
   // ── mac3/security-check: the self-check and the malware check (src/security-audit). Both ship off. ──
   const security = new SecurityService(
     { store, runtime, registry, sessionLock, privacy, web, sessionTokens, plugins, pluginCatalog, people },
@@ -993,6 +1001,8 @@ export async function createBranch(options: {
     asks,
     /** r17-b: suggested automations, standing orders, loops and self-starting procedures; every part ships off. */
     autonomy,
+    /** r17-i: other computers, Trunks across computers, background apps, videos, relay, send and pause, sharing, USB, notes, arena. */
+    reachParts,
     runtime,
     /** mac3/never-break: the task journal, and settling interrupted work after a restart. */
     neverBreak: {
@@ -1257,6 +1267,7 @@ export async function createBranch(options: {
       mcpServer.close();
       asks.close(); // mac6/bucket-23: live pages stop asking their tools again
       await autonomy.close(); // r17-b: nothing more starts by itself, and a turn that is working gets a moment
+      await reachParts.close(); // r17-i: the relay stops asking
       await mcpConnections.closeAll();
       // Nothing the assistant left running outlives the app.
       await processes.stopAll().catch(() => undefined);

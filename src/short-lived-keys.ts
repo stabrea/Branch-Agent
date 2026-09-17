@@ -75,6 +75,9 @@ export const shortLivedKeyTaskRoutes: readonly TaskRoute[] = [
   post("/api/tools/meaning-search", "finds a tool by what it does"),
   post("/api/receipts/verify", "checks a task's receipt"),
   post("/api/security-check/run", "runs the security check, which only reads"),
+  // r17-i: another of the owner's computers hands a message to a Trunk here with the "run" key it was given;
+  // the message is quoted as that computer's text, capped and limited per hour (src/reach/remote-trunks.ts).
+  post("/api/reach/trunks/inbox", "a message from a Trunk on another of the owner's computers"),
 ];
 
 /** Reads a short-lived key may not make: what they return is a secret, or everybody's data. */

@@ -70,4 +70,6 @@ export const PARITY: readonly ParityRow[] = [
   row("Carry on elsewhere", "/handoff (Hermes)", "/handoff", "built", "A chat app that has talked to Branch, a terminal, or another assistant."),
   row("Suggested automations", "/suggestions, /suggest (Hermes)", "/suggestions", "built", "A no is kept for good."),
   row("Automation blueprints", "/blueprint, /bp (Hermes)", "/blueprint", "built", "The blanks are checked; the owner's own command is the yes."),
+  // r17-i
+  row("Pause a chat app", "/platform (Hermes)", "/platform", "built", "Owner only; in a chat app, only from the owner's own account in a direct chat."),
 ];

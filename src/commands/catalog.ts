@@ -116,6 +116,8 @@ export const COMMANDS: readonly CatalogCommand[] = [
   entry("suggestions", ["suggest"], "[catalog | accept n | dismiss n]", "automations Branch suggests; a no is never offered again", [...W, "terminal"], "owner", { bareLooks: true }),
   entry("blueprint", ["bp"], "[name] [blank=value ...]", "the automation catalogue; with a name and its blanks, make one", [...W, "terminal"], "owner", { bareLooks: true }),
   // ---- end r17-b ----
+  // r17-i: pausing a chat app; from a chat app it is taken only from the owner's own account (src/reach/platform.ts)
+  entry("platform", [], "[status | pause <chat app> | resume <chat app>]", "pause a chat app so its messages are let go, or turn it back on", [...W, "terminal"], "owner", { bareLooks: true }),
 ];
 
 const bare = (name: string): string => name.replace(/^\//, "").replace(/@[\w.-]+$/, "").toLowerCase();

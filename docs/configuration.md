@@ -2816,7 +2816,7 @@ The assistant has these tools, each of which asks first whether the connected pr
 - `media.trim` — cut a stretch of sound, between two times in seconds, out of a **WAV** file. This is done here in plain JavaScript; MP3, M4A, OGG and other squeezed formats need a converter, which is not part of this app, and are turned down in plain words.
 - `media.info` — how long an MP4 video or a WAV sound file runs, what kind it is and how many tracks it carries, read from the file's own headers.
 
-**What is deliberately not here.** The assistant does not make videos, and on its own it cannot pull still frames out of one: that needs a video decoder this app does not ship. With your own ffmpeg and the switch below turned on, it can (see *Watching and saving videos*). `media.info` exists so it can still reason about a video's length and shape. Sound editing is limited to trimming uncompressed WAV.
+**What is deliberately not here.** On its own the assistant does not make videos (switch on *Making videos* under *Reach and platform* to use OpenAI's or Google's video service with your own key), and on its own it cannot pull still frames out of one: that needs a video decoder this app does not ship. With your own ffmpeg and the switch below turned on, it can (see *Watching and saving videos*). `media.info` exists so it can still reason about a video's length and shape. Sound editing is limited to trimming uncompressed WAV.
 
 Reading a file is `media.read` and counts as looking, not changing; making a picture, speaking and trimming are `media.write` and are held to your approval rules like any other change. Each of those tools tells the approval rules the workspace path it would write (`media/poster.png`), so a rule about that folder fires on the path the file really gets rather than the bare name that was asked for. Every result is signed by the ordinary tool receipt, so what was made and where it was saved can be checked afterwards. A practice run reports what it would have made without calling the provider.
 
@@ -6656,6 +6656,55 @@ instructions in full; "only when it is needed" gives it one line saying where to
 readiness check splits `PATH` with `:` on macOS and Linux and `;` on Windows (trying `.exe`, `.cmd`
 and `.bat` there), checks the file can be run, and suggests `brew` on macOS and Linux, `apt` on Linux
 and `winget` on Windows.
+
+## Reach and platform (r17-i)
+
+Twelve parts, each with the owner's three-way switch (off, on, only when it is needed), all off at
+first. Their switches and settings are under `/api/reach/`, owner only; a short-lived key can read some
+of them and change none, except that another of your computers may hand a Trunk here a message with the
+"run" key you gave it (`POST /api/reach/trunks/inbox`, classified in `src/short-lived-keys.ts`). With a
+part off, nothing of it runs: no polling, no watching, no connection, and its tools are not offered.
+
+| Part | Where it lives | What it does |
+| --- | --- | --- |
+| Other computers side by side | Settings → Computer | The computers added under "Other computers running Branch" (bucket 23), each shown in its own column: health, what is working, conversations; start or stop a task there (`machines.list`, `machines.look`). This computer fills in the other computer's key at the moment of the call; the window never holds it. Only fixed read routes and `/api/run` and `/cancel` are asked for, which a "run" key allows, so nothing here can change another computer's settings |
+| Trunks on other computers | Customize → Specialists | Each computer shares only the names and titles of its Trunks; a Trunk over there is `@name-computer`, and a Trunk here can message it with a receipt and at most one retry (`trunks.remote.roster`, `trunks.remote.message`). An arriving message is taken only from a computer you added, quoted as that computer's text, capped at 4,000 characters and 30 an hour. Built against the `TrunkRoster` interface in `src/reach/remote-trunks.ts` until `src/trunks/` (mac7/r17-a) lands |
+| Using apps in the background | Settings → Computer | Lists windows and their named controls, presses a control or sets a field's text through the accessibility tree, without moving the pointer or the focus (`screen.background`). Mac: one fixed JavaScript for Automation script that never brings an app forward. Linux: one fixed Python script over AT-SPI, and `xdotool type --window` |
+| Making videos | Settings → Models → Media | A 4, 8 or 12 second video from a description, through OpenAI (`/v1/videos`) or Google's Gemini API (Veo, `predictLongRunning`), with a key kept in Secrets; saved under `made/videos/` (`video.generate`). Each video costs money at that service |
+| A relay that holds your chat app accounts | Customize → Channels | Branch polls a relay you run over https; every message is sealed with AES-256-GCM under a key derived from a pairing secret in Secrets, bound to both ends' ids and the time. A message not addressed to this computer, not from the paired relay, older than five minutes, repeated, or from a chat app you did not allow is dropped. Branch only answers chats that wrote to it through the relay first and never passes a message on, so it cannot be used as an open relay. Arriving messages go through the ordinary sender list and pairing |
+| Sending from a script | Customize → Channels | `branch send <chat app> <chat> [words]`, or pipe the words in. Only to a chat that has already talked to Branch, through the ordinary delivery and outbound check |
+| Pausing a chat app | Customize → Channels | A paused chat app's messages are let go without an answer. Pause in the window, with `/platform pause <chat app>` in the window or terminal, or from a chat app with `/platform pause`, `resume` or `status`, which is taken only from a direct chat with one of the accounts you list as your own (chat app and exact sender id). Switching the part off puts every chat app back |
+| Sharing the assistant through git | Customize → Skills | Writes specialists, procedures and skills (never rules, model choices, memory or secrets) into a workspace folder for you to commit; follows an https repository with a shallow clone that runs no hooks, follows no redirects and asks for no password. Imports follow the market's rules (`bringInShareable`): fingerprints checked, nothing of yours rewritten, new skills off. Updating replaces only what arrived from that repository and is unchanged since |
+| Skill bundles | Customize → Skills | Several skills in one `.branch-skills` file with a fingerprint each; looking installs nothing, bringing in uses the market's rules (`skills.bundle.preview`) |
+| USB devices | Settings → Computer | A task starts when a device you named (vendor and product id, and serial when given) is plugged in; each device starts off and is switched on by you. Read once a minute from `/sys/bus/usb/devices` on Linux or `ioreg -p IOUSB` on a Mac; nothing starts under Lockdown, at most once every ten minutes per device, and the task is held by your approval rules like a trigger's (`usb.devices`) |
+| Notes | Library → Documents | Short notes kept in Branch's database; "Suggest a rewrite" (clearer, shorter, fix, list, formal) returns a suggestion that changes the note only if you keep it (`notes.list`, `notes.rewrite`) |
+| Model arena | Settings → Models → Second opinion | Two connections chosen at random answer the same question as A and B; your pick moves their Elo ratings (1000 to start, K 32) and only then are the names shown. "Both bad" changes nothing |
+
+The relay's settings (`/api/reach/relay/settings`) are `address` (https only), `relayId` (the relay's
+own id), `secret` (the name of the pairing secret in Secrets), `platforms` (the chat apps it may bring)
+and `machineId` (this computer's id at the relay, made once and not secret). Video settings are
+`service` (`openai` or `google`), `secret` and `model`; the chat pause keeps `owners` (your own accounts)
+and `paused` (the chat apps paused).
+
+The notes workspace and the arena are ideas from Open WebUI, whose licence allows study only: they were
+written from the idea, and no code or wording was taken. The other parts follow ideas from Hermes Agent
+and PicoClaw (MIT; see `THIRD_PARTY_NOTICES.md`), written afresh.
+
+**Termux, Nix and a container image.** `src/install/container-files.ts` writes
+`packaging/docker/Dockerfile` (with `.dockerignore`), `flake.nix` and
+`packaging/termux/install-branch-termux.sh`; a test keeps the files in the repository equal to it.
+Nothing is built or run here. The image runs `node dist/cli.js start` as a user without rights, keeps
+data in `/data` and the workspace in `/workspace`, and downloads no browser. The engine inside only
+listens on 127.0.0.1, as everywhere: run the container with `--network host` on Linux to open the
+window, or reach it through chat apps. The flake reads `package-lock.json` directly, so it keeps no
+hash; `nix run github:stabrea/Branch-Agent -- start`. The Termux script installs the release's
+`branch-agent-<version>.tgz` after checking its `.sha256` (Node 24 or newer from `pkg`); `--uninstall`
+removes it. Browser tools and the desktop app are not available on Android.
+
+**macOS and Linux.** Background app use, the USB reader and the `ioreg`/`/sys` readers are the only
+parts that differ by system; each takes its program runner as a parameter and is tested with fakes, so
+no test asks macOS for a permission. On Windows, background app use and the USB trigger say plainly that
+they are not available. Everything else is plain Node and behaves the same on all three systems.
 
 ## Comments that ask the assistant (A0344)
 

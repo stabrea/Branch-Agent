@@ -272,6 +272,43 @@ export const ROUTES = {
   "/api/autonomy/suggestions": "owner POST",
   "/api/autonomy/switch": "owner POST",
   // ---- end of the r17-b block ----
+  // ---- r17-i: reach and platform (src/reach/api.ts); every change is the owner's but a Trunk's message from another computer ----
+  "/api/reach": "look",
+  "/api/reach/": "prefix",
+  "/api/reach/arena": "look",
+  "/api/reach/arena/start": "owner POST",
+  "/api/reach/arena/vote": "owner POST",
+  "/api/reach/bundles/install": "owner POST",
+  "/api/reach/bundles/preview": "owner POST",
+  "/api/reach/bundles/write": "owner POST",
+  "/api/reach/git/install": "owner POST",
+  "/api/reach/git/publish": "owner POST",
+  "/api/reach/git/remove": "owner POST",
+  "/api/reach/git/update": "owner POST",
+  "/api/reach/machine-name": "owner POST",
+  "/api/reach/machines": "look",
+  "/api/reach/machines/all": "look",
+  "/api/reach/machines/look": "owner POST",
+  "/api/reach/machines/start": "owner POST",
+  "/api/reach/machines/stop": "owner POST",
+  "/api/reach/notes": "other POST",
+  "/api/reach/notes/remove": "other POST",
+  "/api/reach/notes/rewrite": "other POST",
+  "/api/reach/platforms/owners": "owner POST",
+  "/api/reach/platforms/pause": "owner POST",
+  "/api/reach/relay/settings": "owner POST",
+  "/api/reach/send": "owner POST",
+  "/api/reach/switch": "owner POST",
+  "/api/reach/trunks/inbox": "task POST",
+  "/api/reach/trunks/message": "owner POST",
+  "/api/reach/trunks/remote": "look",
+  "/api/reach/trunks/roster": "look",
+  "/api/reach/usb/devices": "look",
+  "/api/reach/usb/enable": "owner POST",
+  "/api/reach/usb/remove": "owner POST",
+  "/api/reach/usb/rules": "owner POST",
+  "/api/reach/video/settings": "owner POST",
+  // ---- end of the r17-i block ----
   "/api/issues": "prefix",
   "/api/issues/context": "other POST",
   "/api/keychain/settings": "owner POST",
@@ -724,6 +761,8 @@ export const OUTBOUND = [
   // Callers of our own routes, and the route description, rather than the routes themselves.
   /^src\/(cli|cli-attach|api-openapi|short-lived-keys)\.ts$/, /^src\/install\//, /^src\/desktop\//,
   /^src\/never-break\/gateway\.ts$/, /^src\/commands\/catalog\.ts$/,
+  // r17-i: callers of other computers' routes and of the relay's, not routes of this one.
+  /^src\/reach\/(machines|remote-trunks|relay)\.ts$/,
 ];
 
 export const SAMPLE_ID = "0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f";

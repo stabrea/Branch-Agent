@@ -110,6 +110,7 @@ import { rewindApi } from "./rewind.js";
 import { PreferencesSchema, preferences } from "./preferences.js";
 import { asksApi, AsksHttpError, handlesAsksPath } from "./asks/api.js"; // mac6/bucket-23: the smaller asks
 import { autonomyApi, AutonomyHttpError, handlesAutonomyPath } from "./autonomy/api.js"; // r17-b
+import { handlesReachPath, reachApi, ReachHttpError } from "./reach/api.js"; // r17-i
 // mac4/bucket-20: the Agent Protocol, programs lending tools, and the owner's interop routes.
 import { handleInterop, handlesInteropPath, interopOffLimits } from "./interop/api.js";
 import { clientToolsPath, serveClientToolSocket } from "./interop/client-tools.js";
@@ -419,6 +420,7 @@ async function staticFile(
     "/add-ons.js": ["add-ons.js", "text/javascript; charset=utf-8"],
     "/asks.js": ["asks.js", "text/javascript; charset=utf-8"], // mac6/bucket-23
     "/autonomy.js": ["autonomy.js", "text/javascript; charset=utf-8"], // r17-b
+    "/reach.js": ["reach.js", "text/javascript; charset=utf-8"], // r17-i
     "/usage.js": ["usage.js", "text/javascript; charset=utf-8"],
     "/evaluation.js": ["evaluation.js", "text/javascript; charset=utf-8"],
     // Wave 7: written-down experiments, under the evaluation card.
@@ -2660,6 +2662,19 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
           return;
         }
         // ---- end of the r17-b block ----
+        // ---- r17-i: reach and platform under /api/reach; the owner's alone (one peer route: src/reach/api.ts). ----
+        if (handlesReachPath(path)) {
+          app.store.profiles.requireOwner("Reach and platform");
+          const answer = await reachApi({
+            reach: app.reachParts, method: request.method ?? "GET",
+            query: new URL(request.url ?? "/", "http://local").searchParams, readBody: () => readBody(request, 262144),
+          }, path).catch((error: unknown) => {
+            throw error instanceof ReachHttpError ? new HttpError(error.status, error.message) : error;
+          });
+          send(response, 200, answer);
+          return;
+        }
+        // ---- end of the r17-i block ----
         if (await rawApi(app, request, response, path)) return;
         if (path.startsWith("/api/deployment")) {
           // bucket 22: `branch quit`, from this computer with the master key only (src/install/quit.ts).
@@ -3201,6 +3216,8 @@ function isExecution(request: IncomingMessage, path: string): boolean {
     || (request.method !== "GET" && handlesAsksPath(path))
     // r17-b: every change under /api/autonomy may start work (a schedule, an order's turn, a procedure).
     || (request.method !== "GET" && handlesAutonomyPath(path))
+    // r17-i: every change under /api/reach may start work (a task elsewhere, a video, a send, an import).
+    || (request.method !== "GET" && handlesReachPath(path))
   );
 }
 function configureLimits(server: Server): void {

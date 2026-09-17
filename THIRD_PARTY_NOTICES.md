@@ -3476,3 +3476,10 @@ The stand-in keys in `src/sandbox-proxy.ts` — a program gets a placeholder and
 - ZeroClaw (https://github.com/zeroclaw-labs/zeroclaw, MIT OR Apache-2.0): procedures with their own autonomy level, a per-step confirmation that overrides running on their own, coalescing a start while one runs, and the completion rate (`crates/zeroclaw-runtime/src/sop/`).
 - OpenFang (https://github.com/RightNow-AI/openfang, MIT OR Apache-2.0): requirements with install steps per system and a readiness report (`crates/openfang-hands/`).
 - CrewAI (https://github.com/crewAIInc/crewAI, MIT) and Agent Zero (https://github.com/agent0ai/agent-zero, Copyright (c) Agent Zero, s.r.o., MIT): turning feedback into standing instructions given to later tasks (`crew.py` `train`, `plugins/_memory/tools/behaviour_adjustment.py`).
+
+### Reach and platform (r17-i; ideas only), MIT
+
+`src/reach/` and `src/install/container-files.ts` were written afresh for Branch after studying these projects; no code was copied from any of them.
+
+- Hermes Agent (https://github.com/NousResearch/hermes-agent, Copyright (c) 2025 Nous Research, MIT): one desktop window with several connections (`docs/user-guide/multi-connection-desktop.md`); bots on other machines (`website/docs/user-guide/bot-mode.md`); background computer use (`tools/computer_use/`); the video generation tool (`tools/video_generation_tool.py`); the relay connector (`docs/user-guide/messaging/relay.md`); `/platform` and piping script output to a chat (`docs/guides/pipe-script-output.md`); the Termux, Nix and Docker guides; profile distribution and skill bundles (`hermes_cli/profile_distribution.py`).
+- PicoClaw (https://github.com/sipeed/picoclaw, Sipeed, MIT): starting work when a USB device appears (`pkg/devices/service.go`).
