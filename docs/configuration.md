@@ -481,7 +481,10 @@ folders, a plain text editor with line numbers, Save (or Ctrl/Cmd+S) and Tab for
   back with `files.history` / `files.restore` like any other.
 - A save says which version of the file it was opened from. If the file changed on disk since then
   (another program, the assistant), the save is refused and says so; nothing is overwritten.
-- A short-lived key (`branch token create`) cannot switch the editor on or off.
+- A short-lived key (`branch token create`) cannot use the editor at all: not its switch, not the
+  list, not opening a file and not saving one.
+- Branch's own program, settings and saved work stay out of reach here as everywhere else
+  (`src/never-break/protected.ts`): a save there is refused whatever the switch says.
 
 Routes: `GET/POST /api/workspace-editor/settings`, `GET /api/workspace-editor/list?path=`,
 `GET /api/workspace-editor/read?path=`, `POST /api/workspace-editor/save`. Asserted in
@@ -2706,6 +2709,16 @@ It never sends anywhere else:
 - Every attempt that stops is written to the task's log as `pull_request.failed` with the reason. A
   success is written as `pull_request.opened`.
 - The workspace is left on the new branch afterwards.
+
+Integration review (mac4/bucket-18): each file goes through the same checks as the assistant's own
+file tools before it is sent: secret-looking names (`.env`, keys), anything `.branchignore` hides,
+links, folders and Branch's own saved work and keys are left out. Names are taken literally (`*` is
+a file called `*`), and only the named files are committed, whatever else was already staged. Every
+push address of the remote must be the same GitHub repository. A task records where it came from
+when it starts, so "after every task" only sends the owner's own tasks that were allowed to
+publish: never a task a short-lived key started (nor its follow-ups, queued tasks, specialists or a
+continued task), never a schedule's, a trigger's or another program's, never a chat app's, and
+never a specialist's part on its own.
 
 Routes: `GET/POST /api/developer/pull-requests`. Asserted in `tests/pr-hook.test.mjs`.
 
@@ -6195,7 +6208,12 @@ context. This is Aider's rule.
 - Comments are only read through the workspace's checks: secret-looking names and anything
   `.branchignore` hides are skipped, and a folder outside the workspace is refused.
 - `--once` stops after the first task, and `--settle <ms>` sets how long a burst is.
-- Nothing runs unless you start the command.
+- Nothing runs unless you start the command, and only for the folder you name.
+- A comment can come from anyone whose file lands in the folder (a pulled branch, a downloaded
+  project), so its task is not treated as yours: it is a trigger's task, held to the approval rules
+  for work you did not start, and it may only read and change files. It cannot run commands or
+  code, reach the internet, send messages, or send anything to Git or GitHub. The task is also told
+  that the comments are requests about those files only.
 
 Asserted in `tests/ai-comments.test.mjs`.
 
@@ -6217,7 +6235,9 @@ it, off by default. Switch it with `POST /api/memory/history` and `{ "mode": "on
   password in it. Each new version is pushed there as `branch-memory-history`, with this
   computer's own Git sign-in, after the network rules allow the host.
 - **Who decides.** Only the app window or the computer's own key can change the switch or the
-  remote. A short-lived key cannot.
+  remote. A short-lived key cannot. `{ "remote": null }` stops the copy.
+- **No keys in it.** Anything in a remembered fact that looks like a key or password is replaced
+  before the note is written, so it is never committed or copied.
 
 Asserted in `tests/memory-git.test.mjs`. Needs Git installed.
 

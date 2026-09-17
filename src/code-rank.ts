@@ -10,7 +10,7 @@ import type { CodeTag } from "./code-tags.js";
  * shared out over the names it points at, so the declarations come out in order of importance. The
  * outline is the longest prefix of that order that fits the budget, found by halving.
  *
- * Adapted from Aider's `aider/repomap.py` (Apache-2.0, Copyright Paul Gauthier and contributors;
+ * Adapted from Aider's `aider/repomap.py` (Apache-2.0, Aider-AI and contributors;
  * see THIRD_PARTY_NOTICES.md). The weights are Aider's; the graph, PageRank and outline are written
  * here without networkx or tree-sitter.
  */
