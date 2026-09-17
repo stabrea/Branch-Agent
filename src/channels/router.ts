@@ -9,6 +9,7 @@ import { decide, readSenderAllowlist } from "./allowlist.js";
 import type { Run } from "../contracts.js";
 import { LiveStatus, defaultLiveTiming, statusEmoji, type LiveTiming } from "./live-status.js";
 import { chatLiveSwitches, saveChatLiveSwitches, type ChatLiveSwitches } from "./chat-live-settings.js";
+import { commandMode } from "../commands/settings.js";
 import { chatCommandSpec, parseChatCommand, runChatCommand, usageFooter, usageShown, type ChatCommand, type ChatTurn } from "./chat-commands.js";
 
 /**
@@ -477,7 +478,8 @@ export class ChannelRouter {
   private commandIn(message: InboundMessage): ChatCommand | null {
     const setting = this.switches().commands;
     if (setting === "off" || message.voice) return null;
-    const command = parseChatCommand(message.text);
+    // Wave mac3 (commands): which of the shared table's commands a chat may read follows the owner's switch.
+    const command = parseChatCommand(message.text, commandMode(this.store, this.runtime.owner));
     if (!command || setting === "on") return command;
     // "When needed": only the commands for a task that is working, and only while one is.
     const busy = this.turns.has(chatKey(message));

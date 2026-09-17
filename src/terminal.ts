@@ -4,6 +4,9 @@ import type { EventEmitter } from "node:events";
 import type { Readable, Writable } from "node:stream";
 import type { Event, Run } from "./contracts.js";
 import type { Runtime } from "./runtime.js";
+import { executeCommand } from "./commands/execute.js";
+import { commandHost } from "./commands/host.js";
+import { commandMode } from "./commands/settings.js";
 
 export interface TerminalOptions {
   input?: Readable;
@@ -115,7 +118,22 @@ class TerminalConversation {
       this.write(`[thinking set to ${choice ?? "the model's default"} for this conversation]\n`);
       return;
     }
-    this.write("Commands: /models, /model <id>, /think <level>, /skills, /memory [search], /cancel, /new, /exit.\n");
+    void this.shared(text);
+  }
+  /**
+   * Wave mac3 (commands): anything else the shared table offers the terminal, once the owner has
+   * switched those on; with the switch off this answers exactly as it always did.
+   */
+  private async shared(text: string): Promise<void> {
+    const list = "Commands: /models, /model <id>, /think <level>, /skills, /memory [search], /cancel, /new, /exit.\n";
+    if (commandMode(this.runtime.store, this.runtime.owner) === "off") { this.write(list); return; }
+    const outcome = await executeCommand(commandHost(this.runtime), {
+      surface: "terminal", line: text, sessionId: this.sessionId, access: "full",
+    }).catch((error: unknown) => ({ text: error instanceof Error ? error.message : String(error), client: undefined }));
+    if (!outcome) this.write(list);
+    else if (outcome.client) this.write("That one works in the full terminal view (branch) or the app window.\n");
+    else this.write(`${outcome.text}\n`);
+    this.prompt();
   }
   private interrupt = (): void => {
     this.queue = [];

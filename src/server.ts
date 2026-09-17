@@ -93,6 +93,8 @@ import { lookApi } from "./terminal-theme.js";
 import {
   DashboardApiError, dashboardAccess, dashboardApi, dashboardSettings, handlesDashboardPath, isDashboardFile,
 } from "./dashboard-api.js";
+// Wave mac3 (commands): the one slash-command table's routes.
+import { CommandApiError, commandsApi, handlesCommandsPath } from "./commands/api.js";
 import { PolicyRememberSchema, policyPresets, readPolicy, savePolicy } from "./policy.js";
 import { maximumArchiveBytes } from "./session-library.js";
 import { maximumMemoryArchiveBytes } from "./memory.js";
@@ -336,6 +338,9 @@ async function staticFile(
     "/dashboard/feed.js": ["dashboard/feed.js", "text/javascript; charset=utf-8"],
     "/dashboard/look.js": ["dashboard/look.js", "text/javascript; charset=utf-8"],
     "/dashboard-card.js": ["dashboard/card.js", "text/javascript; charset=utf-8"],
+    "/dashboard/commands.js": ["dashboard/commands.js", "text/javascript; charset=utf-8"],
+    // Wave mac3 (commands): the message box's / menu and the commands card.
+    "/commands.js": ["commands.js", "text/javascript; charset=utf-8"],
     "/usage.js": ["usage.js", "text/javascript; charset=utf-8"],
     "/evaluation.js": ["evaluation.js", "text/javascript; charset=utf-8"],
     // Wave 7: written-down experiments, under the evaluation card.
@@ -2294,6 +2299,19 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
         return;
       }
       // ---- end of the dashboard block ----
+      // ---- Wave mac3 (commands): the one slash-command table, for the window, the phone and the
+      // dashboard (src/commands/api.ts). What the key may do is read the way the dashboard reads it. ----
+      if (handlesCommandsPath(path)) {
+        const access = dashboardAccess(request, token, (supplied) => app.sessionTokens.scopeOf(app.runtime.owner, supplied));
+        const answer = await commandsApi(app, path, {
+          method: request.method ?? "GET", url: new URL(request.url ?? "/", "http://local"), access, readBody: () => readBody(request),
+        }).catch((error: unknown) => {
+          throw error instanceof CommandApiError ? new HttpError(error.status, error.message) : error;
+        });
+        send(response, 200, answer);
+        return;
+      }
+      // ---- end of the commands block ----
       const executes = isExecution(request, path);
       const place = executes ? executions.take() : null;
       if (executes && !place)
@@ -2699,7 +2717,7 @@ function voiceDeps(app: Branch) {
  * do — and naming a program for Branch to run, or writing into the locker, is exactly that. Those
  * two are the owner's own step, in the app window, with the master key.
  */
-function offLimitsToShortLivedKeys(method: string | undefined, path: string): string | null {
+export function offLimitsToShortLivedKeys(method: string | undefined, path: string): string | null {
   if (method === "GET") return null;
   if (path === "/api/providers/cli-agents" || path.startsWith("/api/secrets") || path.startsWith("/api/connections") || /^\/api\/schedules\/[a-f0-9-]{36}\/gate$/.test(path))
     return "A short-lived key cannot name a program for Branch to run, add a model service, or change the locker. Do that in the app window.";

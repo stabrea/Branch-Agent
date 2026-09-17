@@ -5536,3 +5536,151 @@ every row is listed here and that every file named here exists.
   meant for putting in front of the public.
 - **A2367** (Google PaLM) — not applicable: Google retired PaLM. Gemini, its successor, is supported
   (`src/providers/gemini.ts`, `tests/provider-presets.test.mjs`).
+
+## Typed commands, the same everywhere (wave mac3)
+
+Commands that start with a slash — `/status`, `/stop`, `/tokens`, `/help` — come from one table,
+`src/commands/catalog.ts`. The app window's message box, the phone (which shows the same window
+through the paired address), the `branch` terminal view, the chat apps and the browser dashboard all
+read their list from it, so they cannot drift apart. `/help` on each of them lists only what that
+place can do.
+
+**The switch** is in Settings › General, under *Typed commands*, and ships **off**:
+
+- **Off:** every place keeps exactly the commands it had before this table — the window `/help` and
+  `/model`, the terminal its 28, the chat apps `/stop /status /new /compact /usage /btw /help`.
+  Anything else typed with a slash is what it always was (a message in the window and in chats).
+- **When needed:** every command in the table works when it is typed, but the `/` menu and `/help`
+  show only the everyday ones; `/help all` shows the rest.
+- **On:** every command works and every list shows it. The window gets a `/` menu above the message
+  box (up and down choose, Tab or Enter fills one in, Esc closes), and the dashboard gets a command line.
+
+The chat apps still have their own switch (Customize › Chat apps, *Commands*), which decides whether
+a chat reads commands at all; this one decides which of the table's commands it may read.
+
+**Who may do what.** A command asks at least what the matching API route asks. Looking needs any
+key; starting a task (or stopping one, or asking on the side) needs a key that may start tasks;
+changing settings or permissions (`/preset <name>`, `/default`, `/lockdown on|off`, `/switch`) needs
+the key of this computer and the owner's own profile — a short-lived key is refused in one sentence.
+Typed on their own, `/preset`, `/lockdown` and `/model` only read, so any key may send them. A key
+that may only look sends its commands with `GET /api/commands/run`, which refuses anything that would
+change something. In a chat app, nothing that changes settings or permissions is a command at all
+(it is an ordinary message), `/goal` is not offered because a goal would run with the owner's tools,
+and `/whoami` tells the sender what their tasks may use.
+
+**What the new ones do.** `/tokens` shows what fills the next request — instructions, the list of
+tools, the conversation and the room left — from the figures the last task measured, and what
+sending it would cost (the idea of Aider's `/tokens`). `/help <question>` answers from Branch's own
+handbook (`docs/handbook`): the best-matching sections are found by word ranking and the model
+answers from those alone, with no tools; with no model it shows the sections themselves. `/goal`
+uses goal mode (mac2/goal-undo) when this copy has it, and says so in one sentence when it does
+not. `/stop`, `/status`, `/compact`, `/usage` and `/btw` work outside chats now too. `/health` is the
+same check as `branch doctor`.
+
+**Routes.** `GET /api/commands?surface=window|phone|dashboard` (the list that place offers, for the
+phone apps as well), `GET /api/commands/table` (every command on every surface, and the table
+below), `GET|POST /api/commands/run`, `GET|POST /api/commands/settings`.
+
+**macOS and Linux.** Nothing here depends on the operating system: the table, the routes and the
+terminal behave the same on macOS, Linux and Windows, and Windows behaves exactly as before while
+the switch is off.
+
+### Every command, and where it works
+
+"had it" means the place offered the command before this table (it works whatever the switch says);
+"new" means it follows the switch.
+
+| Command | Also | Needs | Window | Phone | Terminal | Chat apps | Dashboard |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `/help [question]` | `/?` | any key (with a question: a key that may start tasks) | had it | had it | had it | had it | new |
+| `/model [id]` | `/models` | a key that may start tasks (on its own: any key) | had it | had it | had it | new | — |
+| `/think <low\|medium\|high\|default>` | `/reasoning` | a key that may start tasks | new | new | had it | new | — |
+| `/preset [name]` | `/permissions`, `/approvals` | the key of this computer (on its own: any key) | new | new | had it | — | — |
+| `/memory [words]` | — | any key | new | new | had it | — | — |
+| `/skills` | — | any key | new | new | had it | — | — |
+| `/plan [on\|off]` | — | any key | new | new | had it | — | — |
+| `/verify [on\|off]` | — | any key | — | — | had it | — | — |
+| `/dry-run [on\|off]` | `/practice` | any key | — | — | had it | — | — |
+| `/temporary [on\|off]` | `/incognito` | any key | new | new | had it | — | — |
+| `/attach <file>` | `/image` | any key | new | new | had it | — | — |
+| `/history` | — | any key | — | — | had it | new | — |
+| `/export [file]` | `/save` | any key | new | new | had it | — | — |
+| `/new` | `/clear`, `/reset` | any key | new | new | had it | had it | — |
+| `/sessions [id]` | `/resume` | any key | new | new | had it | — | — |
+| `/go <place>` | `/open` | any key | new | new | had it | — | new |
+| `/inbox [tab]` | — | any key | new | new | had it | — | new |
+| `/automations [tab]` | `/cron` | any key | new | new | had it | — | new |
+| `/library [tab]` | — | any key | new | new | had it | — | new |
+| `/customize [tab]` | `/tools` | any key | new | new | had it | — | new |
+| `/settings [page]` | `/config` | any key | new | new | had it | — | new |
+| `/theme [name\|light\|dark\|follow\|list]` | `/skin` | any key | new | new | had it | — | — |
+| `/default <id>` | — | the key of this computer | new | new | had it | — | — |
+| `/switch <mouse\|sidePane\|oak> [on\|off\|when-needed]` | — | the key of this computer | — | — | had it | — | — |
+| `/pane [activity\|plan\|files\|memory]` | `/details` | any key | new | new | had it | — | — |
+| `/lockdown [on\|off]` | `/pause` | the key of this computer (on its own: any key) | new | new | had it | — | new |
+| `/keys` | `/shortcuts` | any key | — | — | had it | — | — |
+| `/exit` | `/quit` | any key | — | — | had it | — | — |
+| `/stop [task]` | `/cancel` | a key that may start tasks | new | new | new | had it | new |
+| `/status` | — | any key | new | new | new | had it | new |
+| `/compact` | `/compress`, `/fold` | a key that may start tasks | new | new | new | had it | — |
+| `/usage [on\|off]` | `/cost` | any key | new | new | new | had it | new |
+| `/btw <question>` | `/side` | a key that may start tasks | new | new | new | had it | — |
+| `/tokens` | `/context` | any key | new | new | new | new | — |
+| `/goal <what should be true> [--max rounds]` | — | a key that may start tasks | new | new | new | — | — |
+| `/whoami` | `/id` | any key | new | new | new | new | new |
+| `/version` | `/about` | any key | new | new | new | new | new |
+| `/health` | `/doctor` | any key | new | new | new | — | new |
+
+### Parity with other agents
+
+Studied from Hermes Agent, OpenClaw, Codex, Gemini CLI, OpenCode and Aider (MIT or Apache-2.0) and
+OpenHands (study only); Claude Code's list is from its public documentation. No code was copied.
+The same table is in `src/commands/parity.ts`.
+
+| What | Their commands | Branch | Status | Note |
+| --- | --- | --- | --- | --- |
+| List the commands | /help (all), /commands (OpenClaw, Hermes) | `/help` | existed | Now written from the one table, per surface. |
+| Ask about the agent itself | /help <question> (Aider), /docs (Gemini) | `/help <question>` | built | Answers from Branch's own handbook. |
+| Change the model | /model (all), /models (OpenClaw) | `/model` | existed | Now also in chat apps, for that chat's conversation. |
+| How hard it thinks | /think, /reasoning (OpenClaw, Hermes), /reasoning_effort (Aider) | `/think` | built | Was terminal only. |
+| Start afresh | /new, /clear, /reset (all) | `/new` | existed | Window, phone, terminal and chat. |
+| Earlier conversations | /resume, /sessions (Hermes, Codex, Gemini, Claude Code) | `/sessions` | existed |  |
+| Fold the conversation | /compact (Codex, Claude Code, OpenCode, OpenClaw), /compress (Hermes, Gemini) | `/compact` | built | Was chat only. |
+| Stop the task | /stop (Hermes, OpenClaw, Codex), Esc (Claude Code) | `/stop` | built | Was chat only. |
+| What is happening | /status (Hermes, OpenClaw, Codex, Claude Code), /stats (Gemini) | `/status` | built | Was chat only. |
+| Tokens and cost | /usage (Hermes, OpenClaw, Codex), /cost (Claude Code), /stats (Gemini) | `/usage` | built | Chat keeps its footer switch. |
+| What fills the next request | /tokens (Aider), /context (Hermes, OpenClaw, Claude Code) | `/tokens` | built |  |
+| A question on the side | /btw (Hermes, OpenClaw, Codex), /side (Codex) | `/btw` | built | Was chat only. The OpenHands version was only studied. |
+| Work until a goal is met | /goal (Hermes, OpenClaw, Codex, OpenHands) | `/goal` | built | Uses goal mode from mac2/goal-undo when that is in this copy. |
+| Who am I, what may I do | /whoami (Hermes, OpenClaw) | `/whoami` | built |  |
+| Version | /version (Hermes), /about (Gemini) | `/version` | built |  |
+| Health check | /doctor (Claude Code), /diagnostics (OpenClaw), /debug (Hermes) | `/health` | built | The same check as `branch doctor`. |
+| Approval mode | /permissions (Codex, Gemini, Claude Code), /approvals (Hermes), /yolo (Hermes) | `/preset` | existed | Changing it needs the key of this computer; never from a chat. |
+| Emergency stop for everything | /pause (Hermes), /elevated (OpenClaw) | `/lockdown` | existed | Owner only; ends earlier yeses as the route does. |
+| Memory | /memory (Hermes, Gemini, Claude Code, Codex) | `/memory` | existed |  |
+| Skills | /skills (Hermes, Codex, Gemini), /skill (OpenClaw) | `/skills` | existed |  |
+| Plan first | /plan (Hermes, Codex, Gemini), /architect (Aider) | `/plan` | existed |  |
+| Practice without changes | /ask (Aider) | `/dry-run` | existed |  |
+| Private conversation | incognito (OpenClaw) | `/temporary` | existed |  |
+| Attach a file or picture | /image, /paste (Hermes, Aider), /add (Aider), @file (Codex, Gemini) | `/attach` | existed |  |
+| Save the conversation | /export (Codex, Claude Code, OpenCode), /save (Hermes, Aider), /export-session (OpenClaw) | `/export` | existed |  |
+| Theme | /theme (Codex, Gemini, Claude Code), /skin (Hermes) | `/theme` | existed |  |
+| Settings | /config (Hermes, OpenClaw, Claude Code), /settings (Gemini, Aider) | `/settings` | existed |  |
+| Tools and connections | /tools (Hermes, Gemini), /mcp (Codex, Gemini, OpenCode, OpenClaw), /plugins | `/customize` | existed | Opens Customize; adding one stays a screen. |
+| Scheduled work | /cron (Hermes), /loop (OpenClaw, Hermes) | `/automations` | existed |  |
+| Steer the working task | /steer (Hermes, OpenClaw), /queue (Hermes) | — | elsewhere | Typing while it works steers it (window's follow-up, chat notes). |
+| Keyboard help | /keymap (Codex), /shortcuts (Gemini) | `/keys` | existed | Terminal only; the window shows keys in its own help. |
+| Leave | /quit, /exit (all) | `/exit` | existed | Terminal only. |
+| Take back a turn or files | /undo (Hermes, Aider, OpenCode), /rewind (Gemini), /rollback (Hermes) | — | elsewhere | mac2/goal-undo builds it as a message action; a command can follow it. |
+| Branch or fork a conversation | /branch (Hermes), /fork (Codex, OpenCode) | — | elsewhere | The window's branch action (session tree); not a typed command yet. |
+| Show the changes | /diff (Hermes, Codex, Aider) | — | elsewhere | Receipts in the side pane's Files tab. |
+| Review the work | /review (Hermes, Codex) | — | elsewhere | /verify (terminal) and the reviewer switch. |
+| Write project instructions | /init (Hermes, Codex, Gemini, Claude Code) | — | elsewhere | Context files belong to the context-file loader (Legion). |
+| Copy the last answer | /copy (Hermes, Codex, Gemini, Aider) | — | not applicable | The window has a copy button on each answer; a terminal copies with the mouse. |
+| Sign in or out | /login, /logout (Hermes, Codex, OpenClaw), /auth (Gemini) | — | not applicable | Signing in is a Settings screen; a typed command would carry secrets. |
+| Run a shell command | /run, /bash, ! (Aider, OpenClaw, Gemini) | — | not applicable | Programs run only as tool calls under the approval rules. |
+| Change directory | /cd (Codex), /directory (Gemini) | — | not applicable | The workspace is set per project in Settings. |
+| Mascots and pets | /pet, /hatch (Hermes), /pets (Codex), /corgi (Gemini) | — | not applicable | Branch draws its own oak instead. |
+| Vendor account and billing | /subscription, /topup (Hermes), /upgrade (Gemini) | — | not applicable | Branch has no account of its own. |
+| Report a bug | /bug (Gemini), /feedback (Codex), /debug upload (Hermes) | — | not applicable | Nothing is sent anywhere; Settings › Advanced has diagnostics. |
+| Restart or update | /restart, /update (Hermes, OpenClaw) | — | elsewhere | The dashboard's restart control and Settings › About. |

@@ -88,6 +88,7 @@ Inside a conversation there are no homes to add to, only two surfaces with stric
 | Site skills for the browser | `customize:skills`, with browser access itself in `settings:computer` |
 | Evaluation and studies | `settings:advanced` |
 | The dashboard in the browser (`mac3/web-dashboard`) | A page of its own at `/dashboard`, not a place; its switch in `customize:channels` |
+| Typed commands, the same everywhere (`mac3/commands`) | The switch and "what works where" in `settings:general`; the `/` menu lives in the message box, because it changes the next message |
 
 When something new does not fit a row, apply the rule at the top and add a row here in the same
 change.

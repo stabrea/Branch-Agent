@@ -1,5 +1,5 @@
 import { MODEL_TABS, PLACES, SETTINGS_PAGES } from "./terminal-places.js";
-import { TERMINAL_COMMANDS } from "./terminal-command-table.js";
+import { TERMINAL_COMMANDS, type TerminalCommand } from "./terminal-command-table.js";
 import type { PaletteItem } from "./terminal-screen.js";
 import type { ThemeCatalogue } from "./terminal-theme.js";
 import type { Words } from "./terminal-words.js";
@@ -41,14 +41,14 @@ function actionItems(words: Words): PaletteItem[] {
 }
 const squash = (text: string): string => text.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
 
-export function paletteItems(words: Words, recent: RecentConversation[], query: string, crumb = " › "): PaletteItem[] {
-  const commands = TERMINAL_COMMANDS.map((entry) => ({
+export function paletteItems(words: Words, recent: RecentConversation[], query: string, crumb = " › ", table: TerminalCommand[] = TERMINAL_COMMANDS): PaletteItem[] {
+  const commands = table.map((entry) => ({
     label: `/${entry.name}${entry.args ? " " + entry.args : ""}`, section: words.t("terminal.palette.commands", "Commands"),
     hint: words.t(entry.key, entry.english), run: `/${entry.name}`,
   }));
   if (query.startsWith("/")) {
     const typed = query.slice(1).split(/\s+/)[0]!.toLowerCase();
-    return commands.filter((item) => item.run.slice(1).startsWith(typed) || TERMINAL_COMMANDS.find((entry) => `/${entry.name}` === item.run)!.aliases.some((alias) => alias.startsWith(typed)));
+    return commands.filter((item) => item.run.slice(1).startsWith(typed) || table.find((entry) => `/${entry.name}` === item.run)!.aliases.some((alias) => alias.startsWith(typed)));
   }
   const conversations = recent.map((entry) => ({
     label: entry.opening.replace(/\s+/g, " ").slice(0, 80) || entry.sessionId.slice(0, 8), section: words.t("rail.conversations", "Conversations"),
