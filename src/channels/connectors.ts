@@ -10,6 +10,7 @@ import { imessageService } from "./imessage.js";
 import { xmppService } from "./xmpp.js";
 import { mqttService } from "./mqtt.js";
 import { keybaseService } from "./keybase.js";
+import { simplexService } from "./simplex.js";
 
 /**
  * A plugin may bring a chat service of its own. It exports one or more adapters under
@@ -185,5 +186,5 @@ export function registerChannelTools(registry: ToolRegistry, router: ChannelRout
  */
 export const parityServices: ParityService[] = [
   ircService, twitchService, gotifyService, imessageService,
-  xmppService, mqttService, keybaseService,
+  xmppService, mqttService, keybaseService, simplexService,
 ];

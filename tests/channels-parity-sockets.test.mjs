@@ -3,9 +3,11 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { createServer as createSocketServer, connect as tcpConnect } from "node:net";
-import { fixture, until, delay, assertNoSecret, pairingWalk, refusalWalk } from "./channels-parity-kit.mjs";
+import { fixture, until, delay, assertNoSecret, pairingWalk, refusalWalk, socketService } from "./channels-parity-kit.mjs";
 import { buildParityChannel } from "../dist/channels/parity-config.js";
 import { XmppChannel } from "../dist/channels/xmpp.js";
+import { SimplexChannel } from "../dist/channels/simplex.js";
+import { connectWebSocket } from "../dist/channels/ws-client.js";
 import { KeybaseChannel } from "../dist/channels/keybase.js";
 import { MqttChannel, encodeLength, replyTopicFor } from "../dist/channels/mqtt.js";
 import { XmlStreamReader, decodeEntities, escapeAttr, escapeText } from "../dist/channels/xmpp-xml.js";
@@ -593,5 +595,94 @@ test("Keybase settings: only a full program path, and building runs nothing", as
   await assert.rejects(() => buildParityChannel({ type: "keybase", id: "k", path: "/usr/local/bin/keybase", paperKey: "x", ...policy }, { credential: async () => "x" }), /paperKey|Unrecognized/);
   const channel = await buildParityChannel({ type: "keybase", id: "k", path: "/usr/local/bin/keybase", ...policy }, { credential: async () => "x", policy: blocked });
   assert.equal(channel.kind, "keybase");
+  await channel.stop();
+});
+
+// ---------------------------------------------------------------- SimpleX
+
+/** A stand-in simplex-chat API: answers /user and /_send, and lets the test push new messages. */
+function simplexProgram(connection, { name = "Branch Bot" } = {}) {
+  connection.sends = [];
+  let item = 900;
+  connection.onMessage = ({ corrId, cmd }) => {
+    if (cmd === "/user") { connection.send({ corrId, resp: { type: "activeUser", user: { userId: 1, localDisplayName: name, profile: { displayName: name } } } }); return; }
+    const match = /^\/_send ([@#])(\d+) json (.*)$/s.exec(cmd);
+    if (!match) { connection.send({ corrId, resp: { type: "chatCmdError", chatError: { type: "error" } } }); return; }
+    const [, kind, chatId, json] = match;
+    const [message] = JSON.parse(json);
+    connection.sends.push({ ref: `${kind}${chatId}`, text: message.msgContent.text, message });
+    const chatInfo = kind === "@" ? { type: "direct", contact: { contactId: Number(chatId), localDisplayName: "x" } } : { type: "group", groupInfo: { groupId: Number(chatId) } };
+    const sentItem = { chatInfo, chatItem: { chatDir: { type: kind === "@" ? "directSnd" : "groupSnd" }, meta: { itemId: ++item }, content: { type: "sndMsgContent", msgContent: message.msgContent } } };
+    connection.send({ corrId, resp: { type: "newChatItems", user: {}, chatItems: [sentItem] } });
+    // A real program also tells every client about the new item; it must not be answered.
+    connection.send({ resp: { type: "newChatItems", user: {}, chatItems: [sentItem] } });
+  };
+  connection.direct = (contactId, text, displayName = "Frank Ocean") => connection.send({ resp: { type: "newChatItems", user: {}, chatItems: [{
+    chatInfo: { type: "direct", contact: { contactId, localDisplayName: displayName, profile: { displayName } } },
+    chatItem: { chatDir: { type: "directRcv" }, meta: { itemId: ++item, userMention: false }, content: { type: "rcvMsgContent", msgContent: { type: "text", text } } },
+  }] } });
+  connection.group = (groupId, text, { mention = false, memberId = "bWVtYmVyLTE=" } = {}) => connection.send({ resp: { type: "newChatItems", user: {}, chatItems: [{
+    chatInfo: { type: "group", groupInfo: { groupId, localDisplayName: "Book Club" } },
+    chatItem: { chatDir: { type: "groupRcv", groupMember: { memberId, localDisplayName: "gina" } }, meta: { itemId: ++item, userMention: mention },
+      content: { type: "rcvMsgContent", msgContent: { type: "text", text } } },
+  }] } });
+}
+
+test("SimpleX: pairs a stranger from newChatItems, answers with /_send by chat number, and never answers its own items", async (t) => {
+  const context = await fixture(t);
+  const program = await socketService(t, (connection) => simplexProgram(connection));
+  const channel = new SimplexChannel({ id: "simplex", address: program.url, connect: connectWebSocket, retryBaseMs: 20 });
+  await context.app.channels.attach(channel, policy);
+  t.after(() => channel.stop());
+  const link = await until(() => program.connections[0], "connected");
+  await until(() => channel.botName() === "Branch Bot", "learned its own name");
+  assert.equal(link.received[0].cmd, "/user");
+  assert.match(link.received[0].corrId, /^branch-/);
+
+  await pairingWalk(context, { label: "SimpleX", sent: () => link.sends.map((s) => s.text), say: async (text) => link.direct(5, text) });
+  const last = link.sends.at(-1);
+  assert.equal(last.ref, "@5", "answered in the contact's chat, by number");
+  assert.deepEqual(link.received.at(-1).cmd.startsWith("/_send @5 json "), true);
+  assert.ok(context.app.channels.summary().approved.some((p) => p.senderId === "contact:5"));
+
+  // A group: plain talk is ignored; a mention (marked by the program, or by name with a space in it) is answered in the group.
+  const asked = context.provider.requests.length;
+  link.group(3, "anyone read chapter two?");
+  await delay(120);
+  assert.equal(context.provider.requests.length, asked, "its own echoed items and unaddressed group talk are left alone");
+  link.group(3, "@Branch Bot summarise chapter one");
+  await until(() => link.sends.some((s) => s.ref === "#3"), "a mention in the group gets an answer there");
+  const groupReply = link.sends.find((s) => s.ref === "#3");
+  assert.match(groupReply.text, /\b\d{6}\b/, "a new group member is offered a code in the group, not answered");
+
+  // Quotes and newlines in a reply stay inside the JSON.
+  await channel.send("@5", "it's \"quoted\"\nand on two lines");
+  await until(() => link.sends.at(-1).text === "it's \"quoted\"\nand on two lines", "sent verbatim");
+  await assert.rejects(() => channel.send("@5 json []\n/_delete", "x"), /not a SimpleX chat/);
+  await assertNoSecret(context, []);
+});
+
+test("SimpleX: a stranger is refused when pairing is off, and a lost program is reconnected", async (t) => {
+  const context = await fixture(t);
+  const program = await socketService(t, (connection) => simplexProgram(connection));
+  const channel = new SimplexChannel({ id: "simplex", address: program.url, connect: connectWebSocket, retryBaseMs: 20 });
+  await context.app.channels.attach(channel, { activation: "mention", pairing: false, allowlist: [] });
+  t.after(() => channel.stop());
+  const link = await until(() => program.connections[0], "connected");
+  await refusalWalk(context, { label: "SimpleX", sent: () => link.sends.map((s) => s.text), say: async (text) => link.direct(9, text, "Stranger") });
+  assert.equal(link.sends.at(-1).ref, "@9");
+  link.socket.destroy();
+  await until(() => program.connections[1], "connected again");
+  await until(() => channel.health().state === "connected", "healthy again");
+  await assertNoSecret(context, []);
+});
+
+test("SimpleX settings: only this computer unless allowed, and the address is checked", async () => {
+  await assert.rejects(() => buildParityChannel({ type: "simplex", id: "s", address: "ws://chat.example.org:5225", ...policy }, { credential: async () => "x" }),
+    /only connects to it on this computer/);
+  await assert.rejects(() => buildParityChannel({ type: "simplex", id: "s", address: "ws://chat.example.org:5225", allowRemote: true, ...policy },
+    { credential: async () => "x", policy: blocked }), /Not allowed: chat.example.org/);
+  const channel = await buildParityChannel({ type: "simplex", id: "s", ...policy }, { credential: async () => "x" });
+  assert.equal(channel.kind, "simplex");
   await channel.stop();
 });
