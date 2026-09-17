@@ -12,6 +12,8 @@ import { switchedToolTiers } from "../dist/feature-switches.js";
 import { faceFor, pictureAddress, settleAvatar } from "../dist/trunks/avatar.js";
 import { keyPlan } from "../dist/trunks/accounts.js";
 import { saveAccountsSettings, sessionChoice } from "../dist/accounts/settings.js";
+import { saveRetentionSettings } from "../dist/retention.js";
+import { saveOrchestrationSettings } from "../dist/orchestration.js";
 import { slug } from "../dist/trunks/record.js";
 import { trunkPermissions } from "../dist/trunks/shape.js";
 import { HANDLERS } from "../dist/commands/handlers.js";
@@ -93,6 +95,11 @@ test("a Trunk's turn carries its instructions, its tools and its memory scope, h
   app.trunks.edit(bo.id, { reach: { channels: [], commands: true } });
   const again = await app.runtime.run({ prompt: "hello", sessionId: bo.chatSessionId });
   assert.ok(app.store.events(again.id).find((e) => e.kind === "run.started").data.permissions.includes("code.execute"));
+  // A Trunk's own chat is not a delegated run: the reviewer pass still happens there.
+  saveOrchestrationSettings(app.store, app.runtime.owner, { verify: true });
+  const checked = await app.runtime.run({ prompt: "hello", sessionId: bo.chatSessionId });
+  assert.ok(app.store.events(checked.id).some((e) => e.kind === "verify.started"), "the reviewer runs in a Trunk chat");
+  saveOrchestrationSettings(app.store, app.runtime.owner, {});
   app.trunks.edit(bo.id, { style: "critic" });
   const critic = await app.runtime.run({ prompt: "hello", sessionId: bo.chatSessionId });
   assert.equal(app.store.events(critic.id).find((e) => e.kind === "run.started").data.permissions.includes("memory.write"), false);
@@ -126,6 +133,13 @@ test("retiring the chat keeps it in history, the history rule never sweeps a Tru
   assert.ok(app.store.ownsSession(app.runtime.owner, first), "the old chat stays in history");
   assert.equal(app.trunks.keeps(next.chatSessionId), true);
   assert.equal(app.trunks.keeps(first), false);
+  // The wired rule itself: ten days on, everything is old, and only the Trunk's chat is left out.
+  saveRetentionSettings(app.store, app.runtime.owner, { enabled: true, keepDays: 1 });
+  app.store.createSession(app.runtime.owner);
+  app.retention.now = () => Date.now() + 10 * 86_400_000;
+  const swept = app.retention.propose().conversations.map((entry) => entry.sessionId);
+  assert.ok(swept.includes(first), "a retired chat is ordinary history");
+  assert.equal(swept.includes(next.chatSessionId), false, "the Trunk's own chat is never proposed");
   // A specialist with an evaluated version comes across with its instructions, style and permissions.
   const id = "11111111-2222-4333-8444-555555555555";
   const definition = { name: "Reviewer", instructions: "Review carefully.", style: "critic", permissions: ["files.read"], evaluation: { prompt: "x", checks: [{ path: "a", expected: "b" }] } };
