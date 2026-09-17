@@ -160,33 +160,49 @@ for a Google Cloud project.
 
 ### Models on this computer
 
-**Settings → Models on this computer** manages Ollama and LM Studio directly, so a model can answer without anything leaving this machine and without any charge.
+**Settings → Models → On this computer** sets a model up with one click, through Ollama, LM Studio, llama.cpp's `llama-server` or (on a Mac with Apple silicon) MLX's `mlx_lm.server`, so a model can answer without anything leaving this machine and without any charge.
+
+**The switch** (`settings/local-models`, `mode`): `off` (the default: every route that changes something refuses in one sentence, and nothing is restored at start), `when-needed` (one click works; at start Branch rebuilds the local connections and carries on setups that were interrupted), `on` (the same, and at start Branch also starts Ollama or LM Studio for your local connections when it is installed and not already running).
+
+**What one click does** (`POST /api/local-models/setup`, with `{ "model": "qwen3-8b", "quant": "Q4_K_M" }` from the list, or `{ "name": "qwen3:8b" }`, and an optional `runtime`):
+
+1. Picks the program: the one asked for, or the first installed of Ollama, LM Studio, llama.cpp, MLX. Branch only looks for programs where they are normally installed (`candidatePaths` in `src/local-launch.ts`). **It never installs one**: when none is there, the answer is `needsRuntime` with each program's official page.
+2. Judges the fit on **free** memory (`vm_stat` on a Mac, `MemAvailable` on Linux, Node's figure on Windows), the graphics (a card's own memory, or on Apple silicon the shared memory, capped by `sysctl iogpu.wired_limit_mb` when the owner set it), and the room for words: weights × 1.1 + the model's key/value cache for that context + 256 MB. The largest context from 32,768 down to 4,096 that fits well is chosen. A size that will not fit is refused unless `force` is sent.
+3. Checks the disk that will hold the model (`fs.statfs` on Ollama's `OLLAMA_MODELS` or `~/.ollama/models`, LM Studio's `~/.lmstudio/models`, or Branch's own `local-models/` folder), keeping 2 GB spare.
+4. Starts Ollama (`ollama serve`) or LM Studio (`lms daemon up`, `lms server start --port 1234`) if it is installed and not answering. On Linux, when Ollama is a system service, Branch says `sudo systemctl start ollama` instead of starting a second copy.
+5. Downloads with progress: Ollama's `/api/pull`; LM Studio's `POST /api/v1/models/download` and its `/download/status/:job_id`; for llama.cpp and MLX, Branch fetches from Hugging Face itself, keeping a `.partial` file and asking only for the rest with `Range`, following each redirect by hand under the network rules, and checking the published SHA-256 before the file is put in place.
+6. Loads it with the chosen context: for Ollama, a copy named `<model>-branch<N>k` with `num_ctx` set (it shares the weights, so it takes no disk space) is created and warmed; for LM Studio, `POST /api/v1/models/load` with `context_length`; llama.cpp and MLX are started with the file on a free port on this computer that the system picks at each start (`llama-server -m … -c … --host 127.0.0.1 --port <free> --jinja`, `mlx_lm.server --model … --host 127.0.0.1 --port <free>`). Their connections only talk to that port, and send nothing after a restart until the model is set up again. Programs start without Branch's own settings, keys, tokens or `NODE_OPTIONS` in their environment. A short-lived key cannot flip the switch, download, delete, or start or stop a program.
+7. Asks one small question, then adds the connection `local-<program>-<model>` named "… (runs on this computer)", written down in `settings/local-model-connections`.
+
+Every step is written down in `settings/local-model-setups`, so the screen can follow it and a setup still open when Branch closed carries on when it opens. Stopping one (`/setup/stop`) keeps what was downloaded for next time.
 
 Routes, all under `/api/local-models`:
 
 | Route | What it does |
 | --- | --- |
-| `GET /api/local-models` | Everything the card shows: whether Ollama is installed and its version, the models it holds (size, family, parameter size, whether each can be shown a picture), LM Studio's models and which is loaded, this computer's memory/cores/graphics card, the three recommended model sizes, downloads in progress, the routing rules, and the last thing that went wrong. |
-| `GET /api/local-models/downloads` | Just the download list, for the progress bar. |
-| `POST /api/local-models/pull` | `{ "model": "llama3.2:3b" }` starts a download and returns at once. |
-| `POST /api/local-models/stop` | Stops a download that is still going. |
-| `POST /api/local-models/remove` | Removes a downloaded model from this computer. |
-| `POST /api/local-models/details` | What one model is, including how much text it can hold at once. |
-| `POST /api/local-models/load` | Asks LM Studio to bring a model into memory. |
+| `GET /api/local-models` | Everything the card shows, including `mode` and, under `oneClick`, free memory, the programs and whether each is installed, the list sized for this computer, setups, what is loaded and what is downloaded. |
+| `POST /api/local-models/switch` | `{ "mode": "off" \| "when-needed" \| "on" }`. |
+| `POST /api/local-models/offers` | `{ "runtime": … }`: the list, with a fit and a context per size, for that program. |
+| `POST /api/local-models/search` | `{ "runtime", "query" }`. Hugging Face's search for LM Studio (GGUF), llama.cpp (GGUF) and MLX. Ollama's library has no search API, so for Ollama the query is looked up as an exact name in its registry, with its download size. |
+| `POST /api/local-models/setup`, `/setup/stop` | One click, and stopping it. |
+| `POST /api/local-models/unload` | `{ "runtime", "id" }`: Ollama `keep_alive: 0`, LM Studio `POST /api/v1/models/unload` with the instance id, or stopping the llama.cpp or MLX server Branch started. |
+| `POST /api/local-models/delete` | `{ "runtime", "id" }`: removes a downloaded model (and Ollama's sized copies, and the connection that used it) and says how much space it freed. LM Studio offers no delete route, so that one is refused with where to do it. |
+| `POST /api/local-models/runtime/start`, `/runtime/stop` | Starts an installed program; stops LM Studio's server or a program Branch started itself. |
+| `GET /api/local-models/downloads`, `POST /pull`, `/stop`, `/remove`, `/details`, `/load` | The earlier Ollama download routes and LM Studio load, kept for scripts; the changing ones also obey the switch. |
 | `GET` / `POST /api/local-models/routing` | Reads and saves the per-task routing rules (`settings/routing`). |
 | `POST /api/local-models/routing/preview` | Says which model would take a given task, and why, without running it. |
 
-A download takes minutes, far longer than one web request may last, so `pull` starts it and the screen asks `downloads` how it is going. Each progress report is named `model.download.progress` and carries the runtime's own status, bytes so far, total bytes and a percentage.
+**The list** is `data/local-models.json`: ten models, most in two or three sizes (Q4_K_M, Q8_0, F16, or gpt-oss's own MXFP4), each with its Ollama tag, Hugging Face GGUF file and SHA-256, and MLX repository where one exists, their sizes, whether it can use tools (a model that cannot is shown with a warning), and the figures the memory estimate needs. Sizes and hashes were read from the registries on 2026-09-17.
 
-**Recommendations by hardware.** Memory and processor cores come from Node; on Windows the graphics card is read once with `powershell Get-CimInstance Win32_VideoController` and remembered until restart. Three sizes are offered — small (about 2 GB, fast, good for notes), medium (about 5 GB, a steady all-rounder) and large (about 9 GB, slower but better at reasoning) — each marked as fitting this computer or not, with a plain reason.
+**Graphics memory.** Windows asks `nvidia-smi.exe` first; otherwise the name still comes from `Get-CimInstance Win32_VideoController`, and the memory from the driver's 64-bit `HardwareInformation.qwMemorySize` registry value, because `AdapterRAM` is a 32-bit field that reports no more than 4 GB. The `AdapterRAM` figure is still used when the registry has nothing larger. The older three-size advice (`recommendations`) is still in the answer for scripts.
 
-**macOS and Linux.** On a Mac the graphics are read once from `system_profiler SPDisplaysDataType -json`. A Mac with Apple silicon has no separate video memory: its graphics share the computer's own memory, and the summary says so ("Apple M4 graphics, which share that memory"), so a model that fits in memory is described as quick rather than as running on the processor. An Intel Mac with its own card reports that card's memory. On Linux `nvidia-smi --query-gpu=name,memory.total --format=csv,noheader,nounits` is asked first; without it, `lspci` gives the card's name but no memory figure. Anything unexpected simply means "no card reported".
+**macOS and Linux.** On a Mac the graphics are read once from `system_profiler SPDisplaysDataType -json`. A Mac with Apple silicon has no separate video memory: its graphics share the computer's own memory, and the summary says so ("Apple M4 graphics, which share that memory"). Branch cannot ask Metal for its default graphics limit without native code, so unless `iogpu.wired_limit_mb` is set it plans with free memory. MLX is offered only on Apple silicon. On Linux `nvidia-smi --query-gpu=name,memory.total --format=csv,noheader,nounits` is asked first; without it, `lspci` gives the card's name, and for an AMD card `rocm-smi --showmeminfo vram --json` or the driver's `/sys/class/drm/card*/device/mem_info_vram_total` gives the memory. Anything unexpected simply means "no card reported".
 
 **Routing rules** (`settings/routing`, off by default): `enabled`, `localForPrivate` (a task mentioning personal details stays here), `cloudForHard` (long or tool-heavy tasks go to the cloud model), `costCeilingDollars` (a simple task that would cost more than this in the cloud uses the free local model instead), and optional `localPreset` / `cloudPreset`. What you explicitly choose for a run or a conversation always wins; when routing does pick, the run records a `model.routed` event with the reason. The rule itself also has a "local server is not answering, use the cloud one" branch, but nothing probes the local server before a run yet: a task sent to a local model that does not answer falls back the ordinary way, through the connection's configured fallbacks and the provider cooldown. `POST /api/local-models/routing/preview` is the one caller that can set `localUp` today.
 
 **Reading passages by meaning.** When the connected model is Ollama on this computer, document and memory search use Ollama's own `/api/embeddings` instead of the OpenAI-shaped route, one passage per request, and `text-embedding-3-small` is swapped for `nomic-embed-text`, which is what exists here.
 
-**Addresses.** Like `GET /api/providers/local`, these requests do not go through the outbound network policy, because that policy refuses loopback addresses by design and a local runtime is nothing but a loopback address. Instead every address is checked to be `localhost`, `127.0.0.1` or `[::1]` with no credentials, query or fragment, and anything else is refused before a request is sent. Model names are checked against the shape Ollama accepts, so a name can never become a path.
+**Addresses.** Every call to a program on this computer is first checked to be `localhost`, `127.0.0.1` or `[::1]` with no credentials, query or fragment, then against the owner's network rules — allowed and blocked hosts and paths all apply, so blocking `127.0.0.1` stops it — with only the blanket refusal of local addresses left out, since a local runtime is nothing but a local address (`src/local-policy.ts`). Local connections are rebuilt at start with that same check rather than with the ordinary provider rules, which would refuse them. Calls to Hugging Face and Ollama's registry go through the ordinary network policy in full. Model names are checked against the shape each program accepts, so a name can never become a path.
 
 ### Updates
 

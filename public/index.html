@@ -1632,18 +1632,12 @@
           </form>
           <section id="local-models-card" class="card">
             <h2 data-t="settings.card.models-on-this-computer">Models on this computer</h2>
-            <p>Run a model here instead of in the cloud: nothing leaves this computer and nothing is charged. Branch checks what your computer can handle and suggests a size that will feel right.</p>
+            <p data-t="settings.local.purpose">Run a model here instead of in the cloud: nothing leaves this computer and nothing is charged. Branch checks what your computer can handle and suggests a size that will feel right.</p>
             <p id="local-models-hardware" class="subtle"></p>
             <p id="local-models-state" class="subtle">Checking…</p>
-            <div id="local-models-suggestions" class="card-list"></div>
-            <div class="input-row">
-              <input id="local-model-name" maxlength="160" aria-label="Model name" placeholder="Or type a model name, for example llama3.2:3b" />
-              <button id="local-model-get" type="button" data-t="action.get-this-model">Get this model</button>
-            </div>
-            <div id="local-models-downloads" class="card-list"></div>
-            <div id="local-models-installed" class="card-list"></div>
-            <h3>Which model answers which task</h3>
-            <p class="subtle">Off by default. When it is on, Branch still does exactly what you choose for a conversation.</p>
+            <div id="local-oneclick" class="local-oneclick"></div>
+            <h3 data-t="settings.local.routing-title">Which model answers which task</h3>
+            <p class="subtle" data-t="settings.local.routing-note">Off by default. When it is on, Branch still does exactly what you choose for a conversation.</p>
             <label><input id="local-routing-enabled" type="checkbox" /> <span data-t="field.choose-the-model-for-me">Choose the model for me, task by task</span></label>
             <label><input id="local-routing-private" type="checkbox" /> <span data-t="field.keep-tasks-that-mention-personal">Keep tasks that mention personal details on this computer</span></label>
             <label><input id="local-routing-hard" type="checkbox" /> <span data-t="field.send-long-or-fiddly-tasks">Send long or fiddly tasks to the cloud model</span></label>
@@ -1830,6 +1824,7 @@
     <script src="/self-improving.js" type="module"></script>
     <script src="/skills-extra.js" type="module"></script>
     <script src="/local-models.js" type="module"></script>
+    <script src="/local-oneclick.js" type="module"></script>
     <!-- Wave 6. i18n loads first so every later module reads the chosen language. -->
     <script src="/web-ui.js" type="module"></script>
     <script src="/misc.js" type="module"></script>
