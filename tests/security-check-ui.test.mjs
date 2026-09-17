@@ -19,7 +19,7 @@ async function fixture(t, viewport = { width: 1440, height: 1000 }) {
   const root = await mkdtemp(join(scratch, "branch-security-ui-"));
   const dataDir = join(root, "data");
   const provider = { name: "security-ui-fixture", complete: async () => ({ content: "Done", toolCalls: [] }) };
-  const app = await createBranch({ workspace: join(root, "workspace"), dataDir, provider });
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir, provider, home: root });
   const server = await startServer(app, { dataDir, port: 0 });
   const browser = await chromium.launch({ headless: true });
   t.after(async () => { await browser.close(); await server.close(); await app.close(); await discardTemp(root); });

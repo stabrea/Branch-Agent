@@ -2279,6 +2279,9 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
         }
         // mac3/security-check: the self-check card, which needs to know whether the phone door is open.
         if (path.startsWith("/api/security-check")) {
+          // Switches and repairs stay with the owner, like trying a server does.
+          if (request.method !== "GET" && path !== "/api/security-check/run")
+            app.store.profiles.requireOwner("The security check's switches and repairs");
           const answer = await securityCheckApi(app.security, request.method ?? "GET", path, () => readBody(request), remote.status().enabled);
           if (answer !== undefined) { send(response, 200, answer); return; }
         }

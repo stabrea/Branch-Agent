@@ -23,11 +23,19 @@ const programName = (command: string): string =>
   (command.split(/[\\/]/).pop() ?? "").toLowerCase().replace(/\.(cmd|exe|ps1|bat)$/, "");
 
 /** Options of npx/uvx/pipx that take the next argument as their value. */
-const npmValued = new Set(["-p", "--package", "-c", "--call", "--registry", "--cache", "--userconfig", "-w", "--workspace"]);
+const npmValued = new Set([
+  "-p", "--package", "-c", "--call", "--registry", "--cache", "--userconfig", "-w", "--workspace",
+  "--prefix", "--loglevel", "--node-options", "--script-shell", "--globalconfig", "--include", "--omit",
+]);
 const uvValued = new Set([
   "--from", "--with", "--with-editable", "--with-requirements", "--python", "-p", "--index", "--index-url",
   "--extra-index-url", "--default-index", "--find-links", "-f", "--cache-dir", "--directory", "--project",
   "--config-file", "--env-file", "--constraints", "-c", "--overrides", "--python-preference", "--color", "-i", "-w",
+  "--refresh-package", "--reinstall-package", "--upgrade-package", "--exclude-newer", "--exclude-newer-package",
+  "--index-strategy", "--keyring-provider", "--resolution", "--prerelease", "--fork-strategy", "--link-mode",
+  "--python-platform", "--allow-insecure-host", "--build-constraints", "--with-executables-from", "--torch-backend",
+  "--config-setting", "-C", "--no-build-isolation-package", "--no-build-package", "--no-binary-package",
+  "--build-constraint",
 ]);
 const pipxValued = new Set(["--spec", "--python", "--pip-args", "--index-url", "-i", "--editable", "-e", "--backend"]);
 
@@ -90,9 +98,23 @@ function pipxLaunch(args: string[]): PackageRef | null {
   return token ? pypiPackage(token) : null;
 }
 
+/**
+ * `cmd /c npx …`, the usual way Windows settings start an npx server: the program after `/c` (or
+ * `/k`), with cmd's own switches before it skipped. Anything else comes back unchanged.
+ */
+function unwrapCmd(command: string, args: readonly string[]): [string, string[]] {
+  if (programName(command) !== "cmd") return [command, [...args]];
+  const at = args.findIndex((argument) => /^\/[ck]$/i.test(argument));
+  if (at < 0 || !args[at + 1]) return [command, [...args]];
+  // `cmd /c "npx -y pkg"` hands the whole line over as one argument; it is only read, never run.
+  const inner = at + 2 === args.length ? args[at + 1]!.trim().split(/\s+/) : args.slice(at + 1);
+  return [inner[0]!, inner.slice(1)];
+}
+
 /** The package a command line would fetch and run, or null when it is not that kind of command. */
 export function packageOfLaunch(command: string, args: readonly string[]): PackageRef | null {
-  const program = programName(command), rest = [...args];
+  const [inner, innerArgs] = unwrapCmd(command, args);
+  const program = programName(inner), rest = innerArgs;
   if (program === "npx" || program === "bunx") return npmLaunch(rest);
   if ((program === "pnpm" || program === "yarn") && rest[0] === "dlx") return npmLaunch(rest.slice(1));
   if (program === "npm" && (rest[0] === "exec" || rest[0] === "x")) return npmLaunch(rest.slice(1));
@@ -103,8 +125,9 @@ export function packageOfLaunch(command: string, args: readonly string[]): Packa
 }
 
 /** True for a command that downloads what it runs, whether or not the package could be named. */
-export const downloadsWhatItRuns = (command: string, args: readonly string[]): boolean => {
-  const program = programName(command);
+export const downloadsWhatItRuns = (command: string, wrapped: readonly string[]): boolean => {
+  const [inner, args] = unwrapCmd(command, wrapped);
+  const program = programName(inner);
   return ["npx", "bunx", "uvx"].includes(program)
     || (program === "pipx" && args[0] === "run")
     || (["pnpm", "yarn"].includes(program) && args[0] === "dlx")

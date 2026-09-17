@@ -330,7 +330,7 @@ async function fixture(t, extra = {}) {
   const root = await mkdtemp(join(tmpdir(), "branch-security-"));
   const dataDir = join(root, "data"), workspace = join(root, "workspace");
   const provider = { name: "security-fixture", complete: async () => ({ content: "Done", toolCalls: [] }) };
-  const app = await createBranch({ workspace, dataDir, provider, ...extra });
+  const app = await createBranch({ workspace, dataDir, provider, home: root, ...extra });
   t.after(async () => { await app.close(); await discardTemp(root); });
   return { app, root, dataDir, workspace };
 }
@@ -470,4 +470,49 @@ test("branch security audit prints the report, and --fix repairs", { skip: proce
   const help = await run(process.execPath, [cli, "security", "--help"], { env });
   assert.match(help.stdout, /security audit/);
   assert.equal(JSON.parse(await readFile(settings, "utf8")).web.allowPrivateAddresses, true, "the file's contents were not changed");
+});
+
+/* ---- Integrator's adversarial pass ---- */
+
+test("a Branch made in a temporary folder checks that folder's home, never the owner's real one", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-security-home-"));
+  const home = join(root, "home");
+  await mkdir(home, { recursive: true });
+  const provider = { name: "security-fixture", complete: async () => ({ content: "Done", toolCalls: [] }) };
+  // The workspace is the whole (pretend) home folder, which only the pretend home can reveal.
+  const app = await createBranch({ workspace: home, dataDir: join(root, "data"), provider, home });
+  t.after(async () => { await app.close(); await discardTemp(root); });
+  const report = await app.security.check();
+  assert.ok(report.findings.some((finding) => finding.id === "files.workspace-whole-home"), "the home handed in is the one looked at");
+});
+
+test("the assistant's tool only reads: it takes no arguments and hands back no repairs", async (t) => {
+  const { app, dataDir } = await fixture(t);
+  await chmod(dataDir, 0o755);
+  app.security.configure({ audit: "when-needed", malware: "on" });
+  const permissions = new Set(["history.read"]);
+  const context = { signal: new AbortController().signal, permissions, budget: { step: () => undefined } };
+  await assert.rejects(app.registry.execute(securityToolName, { audit: "off" }, context), "a switch cannot be passed in");
+  await assert.rejects(app.registry.execute(securityToolName, { fix: true }, context));
+  const result = await app.registry.execute(securityToolName, {}, context);
+  if (process.platform !== "win32") assert.ok(result.findings.some((finding) => finding.id === "files.private-folder-open"), "the open folder was found");
+  assert.equal(result.findings.some((finding) => "fixes" in finding), false, "no list of paths to change reaches the model");
+  assert.deepEqual(app.security.settings(), { audit: "when-needed", malware: "on" }, "running it changed no switch");
+  if (process.platform !== "win32") assert.equal((await stat(dataDir)).mode & 0o777, 0o755, "running it changed no file");
+});
+
+test("a server wrapped in cmd /c or started with value-taking options is still named", () => {
+  const cases = [
+    ["cmd", ["/c", "npx", "-y", "evil-mcp"], { ecosystem: "npm", name: "evil-mcp", version: null }],
+    ["C:\\Windows\\System32\\cmd.exe", ["/C", "npx.cmd", "-y", "evil-mcp@1.0.0"], { ecosystem: "npm", name: "evil-mcp", version: "1.0.0" }],
+    ["cmd.exe", ["/d", "/s", "/c", "uvx", "evil-py"], { ecosystem: "PyPI", name: "evil-py", version: null }],
+    ["cmd", ["/c", "npx -y evil-mcp"], { ecosystem: "npm", name: "evil-mcp", version: null }],
+    ["npx", ["--prefix", "/somewhere", "evil-mcp"], { ecosystem: "npm", name: "evil-mcp", version: null }],
+    ["npx", ["--loglevel", "silent", "-y", "evil-mcp"], { ecosystem: "npm", name: "evil-mcp", version: null }],
+    ["uvx", ["--refresh-package", "requests", "evil-py"], { ecosystem: "PyPI", name: "evil-py", version: null }],
+    ["uvx", ["--exclude-newer", "2026-01-01", "evil-py"], { ecosystem: "PyPI", name: "evil-py", version: null }],
+    ["uvx", ["--python-platform", "linux", "--index-strategy", "unsafe-best-match", "evil-py"], { ecosystem: "PyPI", name: "evil-py", version: null }],
+  ];
+  for (const [command, args, expected] of cases) assert.deepEqual(packageOfLaunch(command, args), expected, `${command} ${args.join(" ")}`);
+  assert.equal(packageOfLaunch("cmd", ["/c", "echo", "hello"]), null, "cmd running anything else is not a package");
 });
