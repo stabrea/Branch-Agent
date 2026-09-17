@@ -1,4 +1,5 @@
 import { mkdir } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { resolve, join, relative, isAbsolute } from "node:path";
 import { Store } from "./store.js";
 import { ToolRegistry } from "./registry.js";
@@ -106,6 +107,8 @@ import { Monitors, registerMonitors } from "./monitors.js";
 import { ScreenWatches, registerScreenWatches } from "./screen-watch.js";
 import { MorningBrief, registerBrief } from "./brief.js";
 import { DesktopControl } from "./integrations/desktop.js";
+import { screenControlParts, type BannerWindowFactory } from "./integrations/desktop-banner.js";
+import { migrateFeatureSwitches } from "./feature-switch-migration.js";
 import { registerDesktop } from "./integrations/desktop-tools.js";
 import { registerComputer, type ComputerLayers } from "./integrations/computer.js";
 import { audit } from "./audit.js";
@@ -172,6 +175,8 @@ export async function createBranch(options: {
   retryPolicy?: RetryPolicyInput;
   /** Stall, tool time and context-size limits for ordinary runs. */
   reliability?: ReliabilityInput;
+  /* mac2/desktop-ui: the desktop app's own Stop notice window, for screen control on macOS and Linux. */
+  bannerWindow?: BannerWindowFactory;
 }) {
   const retryPolicy = parseRetryPolicy(options.retryPolicy);
   const workspace = resolve(options.workspace),
@@ -188,7 +193,10 @@ export async function createBranch(options: {
   await mkdir(dataDir, { recursive: true, mode: 0o700 });
   const files = new WorkspaceFiles(workspace);
   await files.checked(".", true);
+  // mac2/desktop-ui: whether this is a new install decides whether the three-way switches start off.
+  const existedBefore = existsSync(join(dataDir, "branch.sqlite"));
   const store = new Store(join(dataDir, "branch.sqlite"));
+  migrateFeatureSwitches(store, options.owner ?? "local", existedBefore);
   const lockerKey = options.lockerKey ?? new FileLockerKey(join(dataDir, "locker.key"));
   store.openLocker(lockerKey);
   // One scrubber in front of the whole event log: no saved password or key can be written down.
@@ -297,7 +305,10 @@ export async function createBranch(options: {
   const retention = new ConversationRetention(store, options.owner ?? "local");
   // This computer's screen and keyboard. The tools are always here so they can explain themselves,
   // but every one of them refuses until the owner turns the switch on in Settings.
-  const desktop = new DesktopControl(store, { artifacts });
+  // mac2/desktop-ui: on a Mac or Linux the screen is used only while the app's Stop notice shows.
+  const desktop = new DesktopControl(store, {
+    artifacts, ...screenControlParts(options.bannerWindow ? { window: options.bannerWindow } : {}),
+  });
   // Batch 26 (wave 8): Windows has switches of its own under Privacy & security, and a refusal
   // there looks like nothing happening at all. The screen is probed by asking for the window list;
   // the microphone and the camera are read out of what the person already chose.
