@@ -128,6 +128,42 @@ test("A0374: the same fix suggested twice stops the loop early", async (t) => {
   assert.equal(eventsOf(app, run.id, "tool.started").filter((e) => e.name === "files.write").length, 1);
 });
 
+/*
+ * Integration review (adversarial): the loop asks the model once per try, and those asks are the
+ * task's own spending. Giving them a budget of their own took them outside the cap the owner set
+ * for the task, so a task could quietly cost several times what it was allowed. The task's budget
+ * is charged, exactly as src/runtime.ts `shaped` already does for its own aside.
+ */
+test("A0374: the diagnosis the loop asks for is charged to the task's own budget", async (t) => {
+  const { app, provider } = await fixture(t, [diagnosis(writeFix())]);
+  const run = await app.runtime.run({ prompt: "check the project is ready", budget: { maxSteps: 5, maxTokens: 200000 } });
+  assert.equal(provider.diagnoses, 1, "the loop asked once");
+  assert.equal(run.status, "budget_exceeded", run.output);
+  assert.match(run.output, /Step budget exhausted/,
+    "the ask counted against the task's steps, so the task ran out where it should");
+});
+
+/*
+ * Integration review (adversarial): the "same fix twice" stop is what keeps the loop from writing
+ * the same file, or running the same command, over and over. It must read the fix itself, not the
+ * order a model happened to write it in: the same arguments with their keys swapped round, or a
+ * command whose argument list is the same, is the same fix.
+ */
+test("A0374: the same fix is recognised however its arguments are ordered", async (t) => {
+  const { app, provider } = await fixture(t, [
+    diagnosis({ tool: "files.write", arguments: { path: "a.txt", content: "yes" } }),
+    diagnosis({ tool: "files.write", arguments: { content: "yes", path: "a.txt" } }),
+  ], { maxTries: 5 });
+  const run = await app.runtime.run({ prompt: "check the project is ready" });
+  assert.equal(provider.diagnoses, 2);
+  const attempts = eventsOf(app, run.id, "troubleshoot.attempt");
+  assert.equal(attempts.length, 2);
+  assert.equal(attempts[1].fixOutcome, null, "the repeat was not applied");
+  assert.equal(eventsOf(app, run.id, "troubleshoot.finished")[0].status, "repeated-fix");
+  assert.equal(eventsOf(app, run.id, "tool.started").filter((e) => e.name === "files.write").length, 1,
+    "the same file was written once, not twice");
+});
+
 test("A0374: an \"ask\" rule on files.write stops the fix, nothing is written, and the task is not left waiting", async (t) => {
   const { app, provider, workspace } = await fixture(t, [diagnosis(writeFix())],
     { rules: [{ tool: "files.write", decision: "ask" }], maxTries: 3 });

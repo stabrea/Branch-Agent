@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { ApprovalRequiredError, PolicyRefusedError } from "./approvals.js";
-import { Budget, NeedsInputError, errorText, type ToolCall, type ToolContext } from "./contracts.js";
+import { NeedsInputError, errorText, type ToolCall, type ToolContext } from "./contracts.js";
 import { FeatureModeSchema, type FeatureMode } from "./feature-switches.js";
 import type { ToolRegistry } from "./registry.js";
 import type { Runtime } from "./runtime.js";
@@ -47,6 +47,22 @@ export const troubleshootToolNames = ["troubleshoot.run"] as const;
 export const commandTools = ["shell.execute", "code.run"] as const;
 /** The only tools a suggested fix may use. */
 export const fixTools = ["files.write", "files.edit", "shell.execute"] as const;
+
+/**
+ * Integration review (adversarial): the same fix written twice with its keys in a different order is
+ * still the same fix, so the "already tried" key is read from the fix itself rather than from the
+ * text a model happened to produce. An array keeps its order — the arguments of a command mean
+ * something in the order they are given — while an object's keys are sorted.
+ */
+export function fixKey(value: unknown): string {
+  const stable = (input: unknown): unknown => {
+    if (Array.isArray(input)) return input.map(stable);
+    if (!input || typeof input !== "object") return input;
+    return Object.fromEntries(Object.keys(input as Record<string, unknown>).sort()
+      .map((name) => [name, stable((input as Record<string, unknown>)[name])]));
+  };
+  return JSON.stringify(stable(value) ?? null);
+}
 
 /** A command's result that says it did not work: a non-zero exit, or a run that did not finish. */
 export function commandFailed(result: unknown): boolean {
@@ -145,7 +161,7 @@ async function oneRound(host: TroubleshootHost, failed: FailedCommand, latest: u
   if (!diagnosis) return { attempt: null, stop: "unreadable", latest };
   const base: Attempt = { n, diagnosis: diagnosis.diagnosis, fix: diagnosis.fix, fixOutcome: null, rerunExit: null, note: "" };
   if (!diagnosis.fix) return { attempt: { ...base, note: lines["no-fix"] }, stop: "no-fix", latest };
-  const key = JSON.stringify(diagnosis.fix);
+  const key = fixKey(diagnosis.fix);
   if (seen.has(key)) return { attempt: { ...base, note: "This fix was already tried." }, stop: "repeated-fix", latest };
   seen.add(key);
   const fix = await gatedRun(host, diagnosis.fix.tool, diagnosis.fix.arguments, `fix ${n}`);
@@ -222,13 +238,20 @@ function gateAnswer(runtime: Runtime, tool: string, args: unknown, context: Tool
   }
 }
 
-/** A short question to the model with no tools and a small budget of its own, charged to the task. */
+/**
+ * A short question to the model with no tools, charged to the task.
+ *
+ * Integration review (adversarial): it keeps the task's own budget rather than taking one of its
+ * own. A budget of its own put every try outside the cap the owner set for the task, so a loop of
+ * up to five tries could cost several times what the task was allowed. This is what src/runtime.ts
+ * `shaped` already does for its own aside.
+ */
 function askFor(runtime: Runtime, context: ToolContext): (question: string) => Promise<string> {
   return async (question) => {
     const run = runtime.store.run(context.runId);
     if (!run) throw new Error("The task this belongs to is not on record");
     const preset = runtime.models.plan(context.owner, run.sessionId).candidates[0]!;
-    const scoped: ToolContext = { ...context, permissions: new Set(), budget: new Budget({ maxSteps: 2, maxTokens: 8000 }),
+    const scoped: ToolContext = { ...context, permissions: new Set(),
       signal: AbortSignal.any([context.signal, AbortSignal.timeout(60000)]) };
     return runtime.completeAside(run, scoped, preset, question);
   };
