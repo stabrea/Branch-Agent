@@ -570,6 +570,27 @@ function moveAll() {
   $("lx-page-advanced").append(leftovers);
   new MutationObserver(() => { for (const [id, slot] of MOVES) moveInto(id, slot); })
     .observe(leftovers, { childList: true });
+  sendHome(document);
+  new MutationObserver((records) => {
+    for (const record of records) for (const node of record.addedNodes) if (node.nodeType === 1) sendHome(node);
+  }).observe(document.body, { childList: true, subtree: true });
+}
+/* A new screen says where it lives instead of editing this file: data-home="settings:permissions",
+   "customize:channels", "settings:models:local" and so on (docs/design/places.md lists every home). */
+function slotFor(home) {
+  const [where, page, sub] = home.split(":");
+  if (where === "settings") return $(sub ? `lx-models-${sub}` : `lx-page-${page}`);
+  const tab = PLACES[where]?.tabs.find(([id]) => id === page);
+  if (!tab) return null;
+  return tab[3] ? $(tab[3]) : $(`lx-slot-${where}-${page}`);
+}
+function sendHome(root) {
+  const found = root.matches?.("[data-home]") ? [root] : [...(root.querySelectorAll?.("[data-home]") ?? [])];
+  for (const node of found) {
+    const host = slotFor(node.dataset.home);
+    if (!host) console.warn(`No place called "${node.dataset.home}" (docs/design/places.md)`);
+    else if (node.parentElement !== host) host.append(node);
+  }
 }
 function moveInto(id, slot) {
   const node = $(id), host = $(slot);
@@ -969,7 +990,7 @@ function start() {
   buildModelChip();
   wireKeys();
   extendPalette();
-  globalThis.branchLayout = { go, reveal };
+  globalThis.branchLayout = { go, reveal, homes: () => [...Object.keys(ROUTES)] };
   applyLook();
   const open = [...document.querySelectorAll("#workspace > .view")].find((node) => !node.hidden)?.id || "chat";
   go(open === "settings" ? "chat" : open);

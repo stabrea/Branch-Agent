@@ -90,6 +90,27 @@ test("every place opens from the sidebar in one click, and every Settings page f
   assert.deepEqual(f.errors, []);
 });
 
+test("a new screen that names its home with data-home is shown there, even when added later", async (t) => {
+  const f = await fixture(t);
+  await f.page.evaluate(() => {
+    const card = document.createElement("section");
+    card.className = "card";
+    card.id = "home-probe";
+    card.dataset.home = "settings:secrets";
+    card.innerHTML = "<h2>Probe</h2><p>Lands on the Secrets page.</p>";
+    document.getElementById("workspace").append(card);
+    const local = document.createElement("section");
+    local.id = "home-probe-local";
+    local.dataset.home = "settings:models:local";
+    document.body.append(local);
+  });
+  await f.page.waitForFunction(() => document.getElementById("home-probe").closest("#lx-page-secrets")
+    && document.getElementById("home-probe-local").closest("#lx-models-local"));
+  await openSettingFor(f.page, "#home-probe");
+  await f.page.locator("#home-probe").waitFor({ state: "visible" });
+  assert.deepEqual(f.errors, []);
+});
+
 test("the command palette jumps to a section and closes on Escape", async (t) => {
   const f = await fixture(t);
   await f.page.keyboard.press("Control+k");
