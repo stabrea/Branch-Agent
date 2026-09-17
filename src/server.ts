@@ -78,6 +78,8 @@ import { readLifecycleSettings, saveLifecycleSettings } from "./mcp-lifecycle.js
 import { tryServer } from "./mcp-workbench.js";
 import { signIn as mcpSignIn } from "./integrations/mcp-oauth.js";
 import { AppResourceSchema, appHeaders, appPage, type AppResource } from "./mcp-apps.js";
+// mac2/fly-core-2: the learning core's owner routes.
+import { handlesLearningCorePath, learningCoreApi, LearningCoreApiError } from "./fly-core-api.js";
 // Wave 8: artifacts out of a reply, shown in the same locked-down frame an MCP app gets.
 import { ArtifactPageSchema, ArtifactSaveSchema, artifactPageRoute, holdArtifactPage } from "./artifact-pages.js";
 import { readServingSettings, saveServingSettings } from "./mcp-server.js";
@@ -332,6 +334,8 @@ async function staticFile(
     // Wave 9 redesign: the five places, the Settings window, the 44 themes' colours and the oak.
     "/layout.js": ["layout.js", "text/javascript; charset=utf-8"],
     "/context-files.js": ["context-files.js", "text/javascript; charset=utf-8"],
+    // mac2/fly-core-2: the learning core's card.
+    "/learning-core.js": ["learning-core.js", "text/javascript; charset=utf-8"],
     "/layout.css": ["layout.css", "text/css; charset=utf-8"],
     "/theme-catalogue.js": ["theme-catalogue.js", "text/javascript; charset=utf-8"],
     "/grove.js": ["grove.js", "text/javascript; charset=utf-8"],
@@ -644,6 +648,12 @@ async function api(
     if (answer === undefined) throw new HttpError(404, "There is no handbook chapter by that name");
     return answer;
   }
+  // ── mac2/fly-core-2: the learning core's switch, what it has learned, and forgetting it. ──
+  if (handlesLearningCorePath(path))
+    return learningCoreApi({ store: app.store, owner: app.runtime.owner, configure: app.learningCore.configure },
+      request.method ?? "GET", path, () => readBody(request)).catch((error: unknown) => {
+      throw error instanceof LearningCoreApiError ? new HttpError(error.status, error.message) : error;
+    });
   if (request.method === "GET" && path === "/api/state") return state(app);
   // Wave 6: sharing, labels and notes, workflows, the waiting line, days off, and profiles.
   const collab = await collabApi(app, request, path, (maximumBytes) => readBody(request, maximumBytes));

@@ -155,6 +155,11 @@ import { redactLeaksIn } from "./leak-guard.js";
 // mac2/fly-core: the learning core switch and its on-demand tool.
 import { flyCoreSettings } from "./fly-core/settings.js";
 import { setFlyCoreMode, syncSuggestTool } from "./fly-core/tool.js";
+// mac2/fly-core-2: advice that acts, the owner's view of what was learned, and skill ideas as drafts.
+import { advisedFacts } from "./fly-core/apply.js";
+import { warmLearningCore } from "./fly-core/hook.js";
+import { skillIdeaDraft } from "./fly-core/skill-idea.js";
+import { forgetLearning, learningCoreView } from "./fly-core-api.js";
 
 export async function createBranch(options: {
   workspace: string;
@@ -247,6 +252,9 @@ export async function createBranch(options: {
   registerDebug(registry, debugAdapters);
   // ── mac2/fly-core: the learning core's on-demand tool, present only while its switch is not off. ──
   syncSuggestTool(registry, store, options.owner ?? "local");
+  // mac2/fly-core-2: accepting the core's skill idea opens a pre-filled draft in the skill editor.
+  store.review.acceptSkillIdea = (_ideaOwner, proposal) => ({ skillDraft: skillIdeaDraft(proposal) });
+  warmLearningCore(store, options.owner ?? "local");
   // Programs left running (a preview server, a watcher) and small scripts run on their own. Both
   // go through the same approval a host command does, and both are off until the owner sets them up.
   const processes = new BackgroundProcesses(store, options.owner ?? "local", workspace);
@@ -351,8 +359,9 @@ export async function createBranch(options: {
   try { shipTidyProcedure(store, runtime.owner); } catch { /* an older store simply keeps what it has */ }
   // What goes in front of a task is taken layer by layer in the documented order and budget: what
   // is happening now, then the job in hand, then everything the assistant knows for good.
-  store.review.orderFacts = (factOwner, agent) =>
-    chooseForInjection(memory.retrieval.ranking(factOwner, agent).map((entry) => entry.record), memorySnapshotLimits).records;
+  // mac2/fly-core-2: with the learning core "on", the facts that helped in similar tasks go first.
+  store.review.orderFacts = (factOwner, agent, sessionId) =>
+    chooseForInjection(advisedFacts(sessionId, memory.retrieval.ranking(factOwner, agent).map((entry) => entry.record)), memorySnapshotLimits).records;
   registerMemory(registry, store, memory.retrieval);
   registerHistory(registry, store);
   registerSessions(registry, store);
@@ -768,6 +777,9 @@ export async function createBranch(options: {
     learningCore: {
       settings: () => flyCoreSettings(store, options.owner ?? "local"),
       configure: (input: unknown) => setFlyCoreMode(store, options.owner ?? "local", input, registry),
+      /** mac2/fly-core-2: what it has learned, in plain words, and forgetting all of it. */
+      view: (viewOwner = options.owner ?? "local") => learningCoreView(store, viewOwner),
+      forget: (forgetOwner = options.owner ?? "local") => forgetLearning(store, forgetOwner),
     },
     /** Wave 8: the shape conversations make when one is branched off another, and carrying an answer back. */
     sessionTree,

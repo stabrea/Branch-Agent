@@ -112,11 +112,23 @@ export class Expansion {
   }
 }
 
-/** Feedback inhibition, simplified: the `count` most driven cells stay active, silent cells never do. */
+/**
+ * Feedback inhibition, simplified: the `count` most driven cells stay active, silent cells never do.
+ * Among cells driven exactly as hard as the weakest winner, the lower-numbered ones win. The cut-off
+ * is found with a numeric sort of the drives rather than by sorting cells, which is what keeps
+ * working out a code well under a millisecond.
+ */
 export function winnersTakeMost(drive: Float32Array, count: number): KenyonCode {
-  const order = [...drive.keys()].filter((cell) => drive[cell]! > 0)
-    .sort((a, b) => drive[b]! - drive[a]! || a - b);
-  return order.slice(0, count).sort((a, b) => a - b);
+  const driven = drive.filter((value) => value > 0);
+  const cutOff = driven.length > count ? driven.sort()[driven.length - count]! : 0;
+  const above: number[] = [], at: number[] = [];
+  for (let cell = 0; cell < drive.length; cell += 1) {
+    const value = drive[cell]!;
+    if (value > cutOff) above.push(cell);
+    else if (value === cutOff && value > 0) at.push(cell);
+  }
+  const winners = [...above, ...at.slice(0, Math.max(0, count - above.length))];
+  return winners.sort((a, b) => a - b);
 }
 
 /** How many active cells two codes share, as a share of the code size. */

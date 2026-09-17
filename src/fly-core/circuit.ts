@@ -1,6 +1,6 @@
 import type { KenyonCode } from "./encode.js";
 import {
-  baselineWeight, depressionRate, forgetHalfLifeDays, recoveryRate, traceDecayPerStep, traceFloor,
+  baselineWeight, depressionRate, forgetHalfLifeDays, maximumWeightsPerSide, recoveryRate, traceDecayPerStep, traceFloor,
 } from "./sizes.js";
 
 /**
@@ -11,8 +11,8 @@ import {
  * Learning follows the three-factor rule documented in the fly: a synapse changes only when its
  * Kenyon cell was active (factor one), the action was taken so its output side is eligible
  * (factor two), and a dopamine signal arrives (factor three). Dopamine *depresses* the active
- * synapses (Hige et al. 2015): reward depresses the "avoid" side, punishment depresses the
- * "approach" side, so the balance tips the right way for that situation only.
+ * synapses: punishment depresses the "approach" side (Hige et al. 2015) and reward depresses the
+ * "avoid" side (Owald et al. 2015), so the balance tips the right way for that situation only.
  *
  * Simplification, stated plainly: the opposite side is allowed to recover towards its starting
  * strength at a slower rate, never beyond it. Bidirectional plasticity at these synapses has been
@@ -65,6 +65,13 @@ export function relax(state: ActionState, now: number): void {
   state.updatedAt = Math.max(state.updatedAt, now);
 }
 
+/** Keeps only the `limit` largest learned changes on one side; the faintest go first. */
+export function prune(side: Map<number, number>, limit = maximumWeightsPerSide): void {
+  if (side.size <= limit) return;
+  const faintest = [...side].sort((a, b) => Math.abs(a[1]) - Math.abs(b[1]) || a[0] - b[0]);
+  for (const [cell] of faintest.slice(0, side.size - limit)) side.delete(cell);
+}
+
 /** Depress one side's active synapses and let the other side recover, by `strength` in [0, 1]. */
 function plasticity(depressed: Map<number, number>, recovering: Map<number, number>, code: KenyonCode, strength: number): void {
   for (const cell of code) {
@@ -75,6 +82,8 @@ function plasticity(depressed: Map<number, number>, recovering: Map<number, numb
     const back = high - recoveryRate * strength * high;
     if (Math.abs(back) < tiny) recovering.delete(cell); else recovering.set(cell, back);
   }
+  prune(depressed);
+  prune(recovering);
 }
 
 /** The three-factor update for one action: `signal` in [-1, 1], `eligibility` in [0, 1]. */

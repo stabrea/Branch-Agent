@@ -58,7 +58,43 @@ What the table shows, and what it does not:
   mechanism works as intended. It does not show that Branch finishes real work better. Section 2
   covers that.
 
-## 2. Plan: before and after on Branch's own suites (not yet run)
+### 1a. Version 2: the synapse cap (re-measured 2026-09-17 on the Mac)
+
+Version 2 keeps at most 120 learned synapses on each side of an action (`src/fly-core/sizes.ts`),
+so storage stays bounded. The same stream, same seeds, with the cap:
+
+| block | fly core, no cap (as above) | fly core, cap of 120 |
+|---|---|---|
+| 1 | 33.4% / 11.0% | 32.8% / 13.0% |
+| 3 | 47.4% / 40.0% | 51.8% / 44.0% |
+| 6 | 59.8% / 60.2% | 60.8% / 57.0% |
+| 7 (after the change) | 23.6% / 9.2% | 19.8% / 1.4% |
+| 12 | 56.4% / 51.6% | 54.2% / 53.6% |
+
+The other pickers are unchanged. With the cap lifted in a scratch copy, the version 2 code gives
+the "no cap" column exactly, so the faster code step changed nothing and these differences come from
+the cap alone. They are within the few points the stream moves by on its own; block 7 is the
+largest (3.8 points lower). This is still the synthetic stream and says nothing about real work.
+
+At the cap (5,000 actions, each side full) the `fly_*` tables take 9.97 MB after `VACUUM`, and a
+task start (`tests/fly-core-2.test.mjs` F15) takes a median of 2.7 to 4.0 ms of the thread's own
+processor time on the Mac (the first one after launch, which builds the index, about 75 to 110 ms,
+done in the background at launch when the switch is on). Wall time on the shared Mac was higher
+and uneven because other builders were running.
+
+## 2. Plan: before and after on Branch's own suites (harness built, not yet run on a real model)
+
+`experiments/fly-core/real-eval.mjs` implements this section. It needs two running copies of Branch
+with separate data folders (`BRANCH_EVAL_URL_OFF`/`BRANCH_EVAL_KEY_OFF` and
+`BRANCH_EVAL_URL_ON`/`BRANCH_EVAL_KEY_ON`, plus `BRANCH_EVAL_WORKSPACE_OFF|ON` for the harness's own
+file checks), sets the switch through `/api/learning-core`, forgets what was learned before each
+repeat, runs `/api/evaluation/run` for each suite, and reads each task's "Look inside" record for
+tool calls and the advice it used. It reports, per repeat and pass, the pass rate (Branch's grader
+and the plain checks), tool calls, tokens, cost and time per task, and compares the last pass with
+the last pass with the spread over repeats. `--dry-run` runs it against two throwaway copies with
+the offline demo provider; that tests the harness only. `data/tool-evaluations/*` and the published
+benchmarks are not in it yet.
+
 
 Goal: find out whether the core's advice makes real tasks go better, and whether it costs anything.
 
@@ -82,7 +118,14 @@ Goal: find out whether the core's advice makes real tasks go better, and whether
 6. **Failure check.** Also run `safety.json` with the switch on. The core must not change any
    refusal or approval outcome, and a difference there is a bug.
 
-## 3. Plan: head-to-head against Hermes (not yet run)
+## 3. Plan: head-to-head against Hermes (hook built, not yet run)
+
+`real-eval.mjs --target hermes` puts the same suite tasks to Hermes Agent's OpenAI-compatible API
+(`HERMES_EVAL_URL`, `HERMES_EVAL_KEY`, `HERMES_EVAL_MODEL`, `HERMES_EVAL_WORKSPACE`) and grades the
+answers with the same plain checks it applies to Branch. Tasks that need a model to judge them, or
+Branch's own interrupt and resume, are left ungraded for both. The near-duplicate task set below is
+not written yet.
+
 
 Hermes Agent (NousResearch, MIT) learns through model-written reviews after a task, and so does
 Letta's reflection loop, which `letta-code` starts on a step-count trigger. Both spend model calls
@@ -102,11 +145,12 @@ to decide what to keep. The core spends none. The comparison should show whether
 5. **What would count as a win.** Branch passes at least as many tasks on the third repeat with
    fewer learning tokens, across three repeats. Anything less is reported as it stands.
 
-## 4. Known limits of version 1
+## 4. Known limits
 
-- Advice is recorded on the task (`fly.suggested`) but does not yet change what the model sees
-  (see section 2, step 1).
+- Version 2 applies the advice when the switch is "on" (see `docs/configuration.md`), but no real
+  task has been measured with it yet; the only numbers are the synthetic stream's.
 - Credit goes to every tool a task used, and earlier steps get less of it. A task with many tools
   therefore teaches each one a little. A failed call is always marked down on its own.
-- The core's tables are not in the backup file yet (`src/backup.ts` lists its tables by name).
-- Accepting a skill idea only notes it. Making the skill is still the owner's step.
+- The memory boost applies when a conversation's snapshot is first taken; `memory.search` results
+  are not reordered.
+- Accepting a skill idea opens a draft in the skill editor; installing it is still the owner's step.

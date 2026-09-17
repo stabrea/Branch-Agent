@@ -92,6 +92,7 @@ import { traceSettings, writeRunTrace } from "./trace.js";
 import { LeakGuard } from "./leak-guard.js";
 // mac2/fly-core: the mushroom-body learning core.
 import { watchTask } from "./fly-core/hook.js";
+import { advisedPreload } from "./fly-core/apply.js";
 
 const childConcurrency = 4;
 /** What the approval policy says about one tool call, before anything is done about it. */
@@ -1215,7 +1216,8 @@ ${run.output.slice(0, 6000)}`;
     const learned = this.store.toolUsage, notes = learned.noteMap(context.owner);
     const catalog = new ToolLoader(tools, {
       expanded: [...alwaysOpenGroups, ...guessed, ...opened], signals,
-      preload: learned.preload(context.owner, run.prompt), demoted: learned.stale(context.owner),
+      // mac2/fly-core-2: with the learning core "on", its top tools join this pre-load (src/fly-core/apply.ts).
+      preload: advisedPreload(run.id, learned.preload(context.owner, run.prompt), tools), demoted: learned.stale(context.owner),
       budgetTokens: this.reliability.toolBudgetTokens,
       groupOf: (name) => this.registry.groupOf(name),
       external: (name) => this.registry.isExternal(name),
