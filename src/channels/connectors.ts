@@ -8,6 +8,11 @@ import { gotifyService } from "./gotify.js";
 import { ircService, twitchService } from "./irc.js";
 import { imessageService } from "./imessage.js";
 import { mastodonService } from "./mastodon.js";
+import { blueskyService } from "./bluesky.js";
+import { redditService } from "./reddit.js";
+import { discourseService } from "./discourse.js";
+import { xService } from "./x-dm.js";
+import { twistService } from "./twist.js";
 
 /**
  * A plugin may bring a chat service of its own. It exports one or more adapters under
@@ -183,5 +188,5 @@ export function registerChannelTools(registry: ToolRegistry, router: ChannelRout
  */
 export const parityServices: ParityService[] = [
   ircService, twitchService, gotifyService, imessageService,
-  mastodonService,
+  mastodonService, blueskyService, redditService, discourseService, xService, twistService,
 ];

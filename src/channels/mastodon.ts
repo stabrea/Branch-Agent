@@ -44,7 +44,7 @@ function newer(a: string, b: string): boolean {
 }
 
 export interface MastodonOptions {
-  id: string; instance: string; token: string; maxCharacters?: number; pollMs?: number; fetch?: typeof fetch;
+  id: string; instance: string; token: string; tokenName?: string; maxCharacters?: number; pollMs?: number; fetch?: typeof fetch;
 }
 interface ChatMemory { acct: string; visibility: z.infer<typeof Visibility>; statusId: string }
 
@@ -75,7 +75,7 @@ export class MastodonChannel extends PollingChannel {
       ...init, headers: { authorization: `Bearer ${this.options.token}`, ...(init.headers as Record<string, string> | undefined) },
     }).catch((error: unknown) => {
       if (/\((401|403)\)$/.test(error instanceof Error ? error.message : ""))
-        this.refused = "Mastodon refused the access token. Make a new one under Preferences, Development and save it as MASTODON_ACCESS_TOKEN";
+        this.refused = `Mastodon refused the access token. Make a new one under Preferences, Development and save it as ${this.options.tokenName ?? "MASTODON_ACCESS_TOKEN"}`;
       throw error;
     });
   }
@@ -153,6 +153,6 @@ export const mastodonService = defineService({
   async build(settings, deps) {
     await deps.assertAllowed(new URL(settings.instance), "Mastodon server");
     return new MastodonChannel({ id: deps.id, instance: settings.instance, token: await deps.secret(settings.tokenSecret),
-      maxCharacters: settings.maxCharacters, pollMs: settings.pollSeconds * 1000, fetch: deps.fetch });
+      tokenName: settings.tokenSecret, maxCharacters: settings.maxCharacters, pollMs: settings.pollSeconds * 1000, fetch: deps.fetch });
   },
 });
