@@ -447,15 +447,24 @@ test("summarising a knowledge base sends its parts as one set", async (t) => {
   assert.match(summary.summary, /\[1\]/);
 });
 
-test("with sets switched off the same summary is written the ordinary way", async (t) => {
-  const provider = summarising();
-  const { app, collection } = await knowledgeFixture(t, provider);
+test("with sets switched off the summary is written the ordinary way, word for word the same", async (t) => {
+  const offProvider = summarising();
+  const off = await knowledgeFixture(t, offProvider);
+  const plain = await off.app.knowledgeParts.summaries.summarise(off.app.runtime.owner, { collection: off.collection });
 
-  const summary = await app.knowledgeParts.summaries.summarise(app.runtime.owner, { collection });
-
-  assert.equal(provider.calls.submit, 0, "nothing is handed over until the owner asks for it");
-  assert.equal(provider.calls.complete, summary.batches + 1, "each part, then the drawing-together");
-  assert.match(summary.summary, /Sources/);
+  assert.equal(offProvider.calls.submit, 0, "nothing is handed over until the owner asks for it");
+  assert.equal(offProvider.calls.complete, plain.batches + 1, "each part, then the drawing-together");
+  assert.match(plain.summary, /Sources/);
   // Every part was asked for with the same ceiling the one-at-a-time road always used.
-  assert.ok(provider.requests.every((request) => request.maxTokens === 500 || request.maxTokens === 900));
+  assert.ok(offProvider.requests.every((request) => request.maxTokens === 500 || request.maxTokens === 900));
+
+  // The same folder, the same answers, with sets switched on: the summary must read identically.
+  const onProvider = summarising();
+  const on = await knowledgeFixture(t, onProvider);
+  saveBatchSettings(on.app.store, on.app.runtime.owner, { enabled: true, pollMs: 10 });
+  const batched = await on.app.knowledgeParts.summaries.summarise(on.app.runtime.owner, { collection: on.collection });
+
+  assert.equal(onProvider.calls.submit, 1);
+  assert.equal(batched.batches, plain.batches);
+  assert.equal(batched.summary, plain.summary, "whichever road the parts took, the summary is the same");
 });
