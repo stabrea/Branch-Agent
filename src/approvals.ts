@@ -265,10 +265,11 @@ export class ApprovalGate {
    * conversation, and anything longer-lasting is refused. Other questions are not touched.
    */
   settleOverrule(sessionId: string, question: PendingApproval, decision: "allow" | "deny", remember: PolicyRemember): void {
+    // The question itself carries the mark, so two conversations stopped on the same request are
+    // each held to it, however many other requests were advised against since.
     const fingerprint = question.fingerprint;
-    if (!fingerprint || !this.advisedAgainst.has(fingerprint)) return;
+    if (!question.onceOnly || !fingerprint) return;
     if (decision === "allow" && remember !== "never") throw new Error(onceOnlyRefusal);
-    this.advisedAgainst.delete(fingerprint);
     if (decision === "allow") this.overrules.add(`${sessionId}\u0000${fingerprint}`);
   }
   /** Uses up the owner's one-time overrule for this request, if there is one. */
