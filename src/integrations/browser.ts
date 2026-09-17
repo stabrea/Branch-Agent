@@ -66,6 +66,18 @@ interface RunEntry {
   marks: MarkRegistry;
   /** The owner's own browser, while this task is borrowing it. */
   borrowed: AttachedBrowser | null;
+  // w911 (A1726) hook: a benchmark window (see benchmarkWindow) — its one extra origin, and whether
+  // the end of a task leaves it open for the benchmark to read and close itself.
+  granted?: string | undefined;
+  held?: boolean | undefined;
+}
+/** w911 (A1726): a page Branch itself opened for a benchmark task, before the task starts. */
+export interface BenchmarkWindow {
+  /** Runs a script in the page and hands back its value. */
+  evaluate<T>(script: string): Promise<T>;
+  /** Makes this very page the one the task with this id works in. */
+  handTo(runId: string): void;
+  close(): Promise<void>;
 }
 /** Where the trace of one task is written, when the launch keeps traces. */
 export interface BrowserTracer {
@@ -111,11 +123,15 @@ export class BranchBrowser {
   private care(owner: string): BrowserCare {
     return this.store ? browserCare(this.store, owner) : browserCareDefaults;
   }
-  private allowed(value: string): boolean {
-    try { return this.origins.has(new URL(value).origin); } catch { return false; }
+  /** A1726: besides the listed websites, the one address this run was granted (the local task page). */
+  private allowed(value: string, entry?: RunEntry): boolean {
+    try {
+      const origin = new URL(value).origin;
+      return this.origins.has(origin) || (!!entry?.granted && entry.granted === origin);
+    } catch { return false; }
   }
-  private async route(request: Route): Promise<void> {
-    if (!this.allowed(request.request().url())) { await request.abort(); return; }
+  private async route(request: Route, entry?: RunEntry): Promise<void> {
+    if (!this.allowed(request.request().url(), entry)) { await request.abort(); return; }
     try {
       const response = await request.fetch({ maxRedirects: 0, timeout: 10000 });
       try {
@@ -142,13 +158,17 @@ export class BranchBrowser {
     const key = this.key(context), existing = this.sessions.get(key);
     if (existing) return existing;
     if (this.sessions.size >= this.config.maxRuns) throw new Error('Browser active run limit reached');
+    // A1726: the run entry is named here so the route rule can read the address this run was granted.
+    let created: RunEntry | undefined = undefined;
     // w911 (A2019) hook: the sandbox decides per task at first launch; null keeps the local launch below.
-    const session: BrowserSession = new BrowserSession(() => this.sandbox?.pick(context.owner, !!session.options.storageState) ?? (this.starting ??= this.launch()), route => this.route(route));
+    const session: BrowserSession = new BrowserSession(
+      () => this.sandbox?.pick(context.owner, !!session.options.storageState) ?? (this.starting ??= this.launch()),
+      route => this.route(route, created));
     session.options.saveDownload = download => this.saveDownload(download);
     session.options.dialogAnswer = () => this.care(context.owner).dialogs; // R17-S19
     const cancel = () => { void this.closeRun(context).catch(() => undefined); };
     context.signal.addEventListener('abort', cancel, { once: true });
-    const created: RunEntry = { session, origins: new Set(), actions: 0, host: '', profile: null,
+    created = { session, origins: new Set(), actions: 0, host: '', profile: null,
       marks: new MarkRegistry(), borrowed: null,
       detach: () => context.signal.removeEventListener('abort', cancel) };
     this.sessions.set(key, created);
@@ -166,10 +186,12 @@ export class BranchBrowser {
     } finally { if (context.signal.aborted) await this.closeRun(context); }
   }
   async navigate(url: string, context: ToolContext) {
-    if (!this.allowed(url) || new URL(url).username || new URL(url).password)
+    const known = this.sessions.get(this.key(context)), origin = new URL(url).origin;
+    if (!this.allowed(url, known) || new URL(url).username || new URL(url).password)
       throw new Error('Browser destination is not an allowed origin');
-    await this.policy?.assertAllowed(new URL(url), 'browser address');
-    const entry = this.entry(context), origin = new URL(url).origin;
+    // w911 (A1726): the one loopback page Branch itself serves to this window skips the network policy.
+    if (known?.granted !== origin) await this.policy?.assertAllowed(new URL(url), 'browser address');
+    const entry = this.entry(context);
     // In the owner's own browser the refusals that keep the screen control away from banks and
     // password managers apply to website names too.
     const refused = entry.borrowed ? attachedAddressRefusal(url, '', this.extraRefusedHosts(context.owner)) : null;
@@ -508,7 +530,8 @@ export class BranchBrowser {
   }
   async closeRun(context: Pick<ToolContext, 'owner' | 'runId'>): Promise<void> {
     const key = this.key(context), entry = this.sessions.get(key);
-    if (!entry) return;
+    if (!entry || entry.held) return; // w911 (A1726): a benchmark window is closed by the benchmark
+
     entry.detach();
     await this.keepSignIn(context.owner, entry);
     await entry.session.close();
@@ -521,6 +544,38 @@ export class BranchBrowser {
       const state = await entry.session.storageState();
       if (state) await this.profiles.save(owner, entry.profile, state);
     } catch { /* a sign-in that could not be refreshed is never worth failing a task for */ }
+  }
+  /**
+   * w911 (A1726) hook: a benchmark opens its task page in a window of Branch's own before the task
+   * starts, hands that very window to the task, and reads the page again once the task is over. Only
+   * a page Branch serves on 127.0.0.1 may be opened, and that one origin is allowed for this window
+   * alone. The window outlives the task until the benchmark closes it (see src/benchmark-miniwob.ts).
+   */
+  async benchmarkWindow(owner: string, url: string): Promise<BenchmarkWindow> {
+    const target = new URL(url);
+    if (target.protocol !== 'http:' || target.hostname !== '127.0.0.1' || !target.port || target.username || target.password)
+      throw new Error('A benchmark window may only open a page Branch serves on 127.0.0.1');
+    const context = { owner, runId: `benchmark-${randomUUID()}`, signal: new AbortController().signal } as ToolContext;
+    const entry = this.entry(context);
+    entry.granted = target.origin;
+    entry.held = true;
+    let key = this.key(context);
+    const close = async () => {
+      entry.held = false; entry.detach();
+      await entry.session.close();
+      if (this.sessions.get(key) === entry) this.sessions.delete(key);
+    };
+    const use = <T>(action: (page: Page) => Promise<T>) => entry.session.use(context, action);
+    try { await use(page => page.goto(url, { waitUntil: 'load' })); }
+    catch (error) { await close(); throw error; }
+    entry.origins.add(target.origin);
+    entry.host = target.host;
+    return { close, evaluate: <T>(script: string) => use(page => page.evaluate(script) as Promise<T>),
+      handTo: runId => {
+        const next = this.key({ owner, runId });
+        if (this.sessions.has(next)) throw new Error('That task already has a browser window');
+        this.sessions.delete(key); this.sessions.set(next, entry); key = next;
+      } };
   }
   close(): Promise<void> {
     this.closed = true;

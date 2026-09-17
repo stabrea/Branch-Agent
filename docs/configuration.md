@@ -2251,6 +2251,7 @@ else — a run can have a failing task and still exit 0 when the bar it was give
 | GAIA | `metadata.jsonl` | `<folder>/metadata.jsonl`, with any attached files beside it |
 | Code tasks (APPS, MBPP, HumanEval) | a JSONL of prompt, entry point and tests | `<folder>/*.jsonl` |
 | Web tasks (WebVoyager, BrowserGym) | a JSONL of questions and answers | `<folder>/*.jsonl`, with each saved page at `<folder>/pages/<name>.html` |
+| MiniWoB++ | the benchmark's own HTML task pages | `<folder>/html/miniwob/*.html`, with `<folder>/html/core` and `<folder>/html/common` beside it |
 | terminal-bench | one folder per task | `<folder>/<task>/task.md` and `<folder>/<task>/tests.sh` |
 
 SWE-bench never clones anything from the internet. If the repository an instance names is not
@@ -2291,20 +2292,31 @@ on this computer — Git for Windows provides one, or set `BRANCH_BASH` to the o
 ### What is not supported, and why
 
 OSWorld, WindowsAgentArena (and its checkpoint scoring), AndroidWorld, and the live BrowserGym
-environments — MiniWoB, WebArena and WorkArena — are **not** integrated. Each needs a separate virtual computer — a Linux desktop, a
-throwaway Windows machine, an Android emulator — or a live website whose contents change. Branch
+environments — WebArena and WorkArena — are **not** integrated. Each needs a separate virtual computer — a Linux desktop, a
+throwaway Windows machine, or an Android emulator — or a live website whose contents change. Branch
 Agent runs on your computer and cannot make or roll back one, so a number from it would not mean
-what the published numbers mean. They are listed by name in `GET /api/evaluation/benchmarks` with
-what each would need, rather than half-supported.
+what the published numbers mean.
+
+WebArena needs its own self-hosted websites (a shop, a forum, a GitLab, a map and a content
+manager) running from its Docker images and reset before every task; WorkArena needs a ServiceNow
+developer instance of your own with the benchmark's data loaded. Both are listed by name in
+`GET /api/evaluation/benchmarks` with what each would need, rather than half-supported.
 
 One more thing in this area is deliberately not built, for the same reason, and one is built in a
 limited form; both are written down here so nobody has to guess:
 
-- **A live browser-benchmark environment.** MiniWoB, WebArena and WorkArena are not datasets; they
-  are servers that have to be running, whose pages change as the agent works and whose scoring reads
-  the server's own state. Branch Agent downloads nothing and starts no server, so what it can do
-  honestly is the `web-tasks` adapter: the same task shapes run against pages you have saved to
-  disk. A task that points at a live site is refused by name.
+- **A live browser-benchmark environment.** WebArena and WorkArena are not datasets; they are
+  servers that have to be running, whose pages change as the agent works and whose scoring reads
+  the server's own state. Branch Agent downloads nothing and starts no server of theirs, so what it
+  can do honestly is the `web-tasks` adapter (the same task shapes against pages you have saved to
+  disk) and MiniWoB++ below. A task that points at a live site is refused by name.
+- **Generating tests for you.** Branch Agent runs tests; it does not write your test suite for you
+  and then claim the result. What exists is the execution half: `data/tool-evaluations/*.json` is a
+  set of tool checks kept as plain data that anyone can read and add to, run with `POST
+  /api/evaluation/tools`, and suites in `data/evaluation/*.json` are the same idea one level up.
+  Asking the assistant to draft a test is an ordinary task like any other, and its output is yours
+  to read before it becomes a check. The one drafting Branch does do is the page test below, and it
+  is kept as a draft until you accept it.
 - **Page tests written from plain words** (w911, A1753; `src/qa-scenarios.ts`, `src/qa-api.ts`).
   A three-way switch, off by default (settings key `qa-scenarios`, `GET`/`POST /api/qa/settings`;
   "when needed" and "on" behave the same here, since there is no tool to load). You write a scenario:
@@ -2329,6 +2341,34 @@ limited form; both are written down here so nobody has to guess:
   markup; that path is checked for the address (network rules) and the draft's shape only, and has
   no end-to-end test (PARTIAL). The model writes the draft and can write a weak one, which is why it
   waits for you. Each draft is one model call (at most 20,000 tokens) and shows up as a task of its own.
+
+### MiniWoB++ (A1726)
+
+MiniWoB++ is the part of BrowserGym that is plain files, so it runs here. Put the benchmark's own
+`html` folder in your benchmarks folder: the task pages in `html/miniwob`, and the `core` and
+`common` folders they load beside them. For each go at a task in a study:
+
+1. The page, every file it names with a relative address, and the `core` and `common` folders are
+   copied into the task's folder in your workspace. A page or file that points outside `html`, or
+   is a link, is refused by name and nothing is copied.
+2. Branch starts a small read-only server on `127.0.0.1` for that copy, for this one go only, and
+   opens the page in **its own browser**. Only that address is allowed, only for that window; the
+   browser's usual list of websites is unchanged and no other task can open it.
+3. The episode is started in that page (`core.EPISODE_MAX_TIME` is set to an hour first, then
+   `core.startEpisodeReal()`), the goal is read from `core.getUtterance()` (or `#query`), and the
+   goal and the page's address go into the prompt. The very same page is handed to the task, so
+   `browser.snapshot` and `browser.click` act on it.
+4. When the task ends, the page is read again: the task **passes only when `WOB_DONE_GLOBAL` is
+   true and `WOB_REWARD_GLOBAL` is above 0**. The reason shows all three values, with `WOB_RAW_REWARD_GLOBAL`.
+   What the answer says is never read, so "done, reward 1" without doing it fails. Then the window
+   and the server are closed.
+
+It needs the browser set up in the integrations file (it is off until you do); without it every
+MiniWoB task is refused with that reason and no model is asked. It does not start a program, so the
+"running small scripts" switch does not apply. Limits: pages are not seeded, so a task's goal can
+differ from one go to the next; your approval rules still apply, so a rule that asks before
+`browser.click` stops the task and it fails; if the assistant opens the page again the episode
+starts over unscored.
 
 ### Studies
 

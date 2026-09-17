@@ -14,6 +14,7 @@ import { parsePatch, applyHunks } from "./patch.js";
 import { normaliseAnswer } from "./evaluation-scorers.js";
 import { findBash, findGit, runBenchmarkCommand } from "./benchmark-shell.js";
 import { nexusAdapter } from "./benchmark-nexus.js";
+import { miniwobAdapter } from "./benchmark-miniwob.js";
 import {
   field, judgeFail, judgePass, jsonlFiles, readJsonl, safeId, withinFolder,
   type BenchmarkAdapter, type BenchmarkJudgement, type BenchmarkResult, type BenchmarkTask, type PreparedTask,
@@ -297,7 +298,7 @@ export const terminalBenchAdapter: BenchmarkAdapter = {
 
 /** Every adapter the program has, by name. */
 export const benchmarkAdapters: readonly BenchmarkAdapter[] = [
-  sweBenchAdapter, gaiaAdapter, codeTasksAdapter, webTasksAdapter, terminalBenchAdapter, nexusAdapter,
+  sweBenchAdapter, gaiaAdapter, codeTasksAdapter, webTasksAdapter, terminalBenchAdapter, miniwobAdapter, nexusAdapter,
 ];
 
 export function findBenchmarkAdapter(id: string): BenchmarkAdapter {
