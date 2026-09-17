@@ -319,8 +319,9 @@ test("long hostile text is checked in linear time", () => {
   for (const text of hostile) {
     const started = performance.now();
     findLeaks(text);
+    // Wall clock on a shared machine: linear runs take milliseconds, the old quadratic ones 10-15 s.
     const took = performance.now() - started;
-    assert.ok(took < 1500, `${text.slice(0, 12)}… took ${Math.round(took)} ms`);
+    assert.ok(took < 5000, `${text.slice(0, 12)}… took ${Math.round(took)} ms`);
   }
 });
 
