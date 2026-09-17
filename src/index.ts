@@ -207,6 +207,12 @@ import { Reach } from "./reach/index.js"; // r17-i: reach and platform
 import { platformRunners } from "./reach/host.js"; // r17-i
 import { trunkRoster } from "./reach/trunk-roster.js"; // r17-i
 import { askMode } from "./asks/settings.js"; // r17-i: other computers follow bucket 23's switch
+import { SafetyExtras } from "./safety-extras/index.js"; // mac7/r17-g: the safety extras
+import { assertAddressNotStopped } from "./safety-extras/emergency-stop.js"; // mac7/r17-g
+import { FlowsBoards } from "./flows-boards/index.js"; // r17-h: flows and boards
+// R17-F: learning, deeper (src/learning-more/).
+import { homedir as learningHome } from "node:os";
+import { LearningMore } from "./learning-more/index.js";
 // mac4/bucket-20: talking to other agents and tools.
 import { Interop } from "./interop/index.js";
 // mac3/reflection-skills: looking back over conversations, and skills written from experience.
@@ -775,7 +781,7 @@ export async function createBranch(options: {
   registerSdkKit(registry, store);
   // "workflows.resume" is the one way in for carrying anything saved on, a graph flow included, so
   // the schedules toolbox does not grow a second tool that says the same thing.
-  workflows.resumeGraph = (id) => (flows.isGraph(id) ? flows.resumeGraph(id) : null);
+  workflows.resumeGraph = (id, within) => (flows.isGraph(id) ? flows.resumeGraph(id, within ? { within } : {}) : null); // mac7/lockdown-fix: within
   // Wave 9: a graph flow left working when the app closed picks up at the box after the last one
   // that finished, with the state exactly as that box left it. Nothing is started again from the
   // top, and a launch with no interrupted flow does nothing at all.
@@ -1026,8 +1032,25 @@ export async function createBranch(options: {
     secret: async (name, purpose) => (await store.secrets.resolve(runtime.owner, store.projects.active(runtime.owner).id, [name], { purpose }))[name]!,
     machines: { list: () => (askMode(store, runtime.owner, "nodes") === "off" ? [] : asks.nodes.nodes()) }, version, ...platformRunners() });
   scheduler.onTick.add(() => reachParts.tick());
-  reachParts.remoteTrunks.useRoster(trunkRoster(trunks, runtime, registry)); // R17-077 on R17-A's Trunks
+  reachParts.remoteTrunks.useRoster(trunkRoster(trunks, runtime, registry, reachParts)); // R17-077 on R17-A's Trunks
   // ── end r17-i ──
+  // ── mac7/r17-g: the safety extras (src/safety-extras/). Every part ships off; the emergency stop is unpressed. ──
+  const safetyExtras = new SafetyExtras({ runtime, registry, dataDir });
+  web.policy.emergencyStop = (target) => assertAddressNotStopped(store, runtime.owner, target);
+  // ── end mac7/r17-g ──
+  // ── r17-h: flows and boards (src/flows-boards/). Every part ships off. ──
+  const flowsBoards = new FlowsBoards({ runtime, registry, flows, knowledge, queue: runQueue, asks,
+    fetch: () => web.policy.guard(globalThis.fetch), ...(process.env.BRANCH_OSV_ENDPOINT ? { osvEndpoint: process.env.BRANCH_OSV_ENDPOINT } : {}) });
+  // ── end r17-h ──
+  // ── R17-F: learning, deeper (src/learning-more/). Every part ships off. ──
+  const learningMore = new LearningMore({ store, registry, owner: runtime.owner, models: runtime.models,
+    fetch: () => web.policy.guard(globalThis.fetch), hindsight: asks.hindsight, mirror: memoryMirror, files,
+    secret: async (name, purpose) => (await store.secrets.resolve(runtime.owner, store.projects.active(runtime.owner).id, [name], { purpose }))[name]!,
+    // A home folder given to createBranch is where to look, so the assistants' own override variables are not read then.
+    place: () => (options.home ? { platform: process.platform, env: {}, home: resolve(options.home) } : { platform: process.platform, env: process.env, home: learningHome() }),
+    provider: () => runtime.models.plan(runtime.owner, "").candidates[0]?.provider,
+    wrapEmbedder: (embedder) => new CachedEmbeddings(asEmbeddings(embedder), knowledgeBases.cache) });
+  // ── end R17-F ──
   // ── mac3/security-check: the self-check and the malware check (src/security-audit). Both ship off. ──
   const security = new SecurityService(
     { store, runtime, registry, sessionLock, privacy, web, sessionTokens, plugins, pluginCatalog, people },
@@ -1088,6 +1111,12 @@ export async function createBranch(options: {
     personal,
     /** r17-i: other computers, Trunks across computers, background apps, videos, relay, send and pause, sharing, USB, notes, arena. */
     reachParts,
+    /** mac7/r17-g: tool scripts, WebAssembly add-ons, codes, the emergency stop, scans, the activity chain. */
+    safetyExtras,
+    /** r17-h: going back in a flow, checked procedures, the shared board, widgets, the waiting line, focus, install requests; every part ships off. */
+    flowsBoards,
+    /** R17-F: learning, deeper (src/learning-more/); every part ships off. */
+    learningMore,
     runtime,
     /** mac3/never-break: the task journal, and settling interrupted work after a restart. */
     neverBreak: {
@@ -1358,6 +1387,7 @@ export async function createBranch(options: {
       await trunks.close(); // R17-A: rooms stop between turns
       await personal.close().catch(() => undefined); // R17-C: the webhook tunnel program stops
       await reachParts.close(); // r17-i: the relay stops asking
+      safetyExtras.close(); // mac7/r17-g
       await mcpConnections.closeAll();
       // Nothing the assistant left running outlives the app.
       await processes.stopAll().catch(() => undefined);

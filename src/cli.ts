@@ -41,6 +41,7 @@ import { readFile, writeFile } from "node:fs/promises";
 // Wave 5 (deployment): background running and setting-up repairs.
 import { daemonCommand, daemonLauncherName, type DaemonAction } from "./install/daemon.js";
 import { doctorFix, doctorText } from "./doctor-fix.js";
+import { activityCommand } from "./safety-extras/cli.js"; // mac7/r17-g
 // mac3/security-check: the security self-check on the command line.
 import { securityAuditCommand } from "./security-audit/api.js";
 import { probeAll } from "./provider-probe.js";
@@ -261,6 +262,8 @@ async function main(): Promise<void> {
       return;
     }
     if (command === "trace") { traceCommand(app); return; }
+    // mac7/r17-g: `branch activity verify [--tip <hash>] [--json]` checks the tamper-evident chain.
+    if (command === "activity") { process.exitCode = activityCommand(app.safetyExtras.chain, app.runtime.owner, process.argv.slice(3)); return; }
     if (command === "eval") {
       await runEvaluation(app);
       return;

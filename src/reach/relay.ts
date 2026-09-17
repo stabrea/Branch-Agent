@@ -179,8 +179,8 @@ export class RelayAdapter implements ChannelAdapter {
 
   /** Sends only to a chat that wrote first through the relay, on an allowed chat app. */
   async send(chatId: string, text: string, replyTo?: string): Promise<string | undefined> {
-    requireReach(this.deps.store, this.deps.owner, "relay");
     if (lockedDown(this.deps.store, this.deps.owner)) throw new Error("Lockdown is on, so nothing is sent through the relay.");
+    requireReach(this.deps.store, this.deps.owner, "relay");
     const s = this.settings();
     const platform = chatId.split(":")[0] ?? "";
     if (!s.platforms.includes(platform) || !this.knownChats().includes(chatId))

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { lockdownOverrides } from "../lockdown.js";
 import type { Store } from "../store.js";
 
 /**
@@ -63,7 +64,13 @@ export const reachToolFeatures: readonly (readonly [string, string, readonly str
   .filter((part) => reachTools[part].length > 0)
   .map((part) => [reachKey(part), `${reachLabels[part].charAt(0).toLowerCase()}${reachLabels[part].slice(1)} is switched on`, reachTools[part]] as const);
 
+/** The mode in use: Lockdown answers "off" for the outward parts, whatever was saved (mac7/lockdown-fix). */
 export function reachMode(store: Pick<Store, "get">, owner: string, part: ReachPart): ReachMode {
+  return lockdownOverrides(store, owner, reachKey(part)) ? "off" : savedReachMode(store, owner, part);
+}
+
+/** The mode as the owner saved it, for putting tools in the catalog: Lockdown refuses at use instead. */
+export function savedReachMode(store: Pick<Store, "get">, owner: string, part: ReachPart): ReachMode {
   const saved = RecordSchema.safeParse(store.get("settings", owner, reachKey(part))?.data ?? {});
   return saved.success ? saved.data.mode : "off";
 }

@@ -15,7 +15,9 @@ import type { TrunkRoster } from "./remote-trunks.js";
  * are. It does not wait for the answer. A Trunk that is busy says so, and the other computer's one
  * retry covers it.
  */
-export function trunkRoster(trunks: Trunks, runtime: Runtime, registry: ToolRegistry): TrunkRoster {
+export interface RunTracker { trackRemoteRun(runId: string): void; forgetRemoteRun(runId: string): void }
+
+export function trunkRoster(trunks: Trunks, runtime: Runtime, registry: ToolRegistry, runs?: RunTracker): TrunkRoster {
   const open = (): boolean =>
     trunkMode(runtime.store, runtime.owner, "trunks") !== "off" && trunkMode(runtime.store, runtime.owner, "messages") !== "off";
   const shared = () => (open() ? trunks.records.list().filter((t) => !t.hidden) : []);
@@ -27,8 +29,10 @@ export function trunkRoster(trunks: Trunks, runtime: Runtime, registry: ToolRegi
       const started = await new Promise<true | Error>((resolve) => {
         runtime.run({
           prompt: `A message from the Trunk ${message.from}:\n\n${message.text}`, sessionId: trunk.chatSessionId, source: "a2a",
-          permissions: narrowed(undefined, registry.permissions()), onTextDelta: () => undefined, onStarted: () => resolve(true),
-        }).catch((error: unknown) => resolve(error instanceof Error ? error : new Error(String(error))));
+          permissions: narrowed(undefined, registry.permissions()), onTextDelta: () => undefined,
+          // Lockdown cancels a run it knows about (src/reach/index.ts).
+          onStarted: (run) => { runs?.trackRemoteRun(run.id); resolve(true); },
+        }).then((run) => runs?.forgetRemoteRun(run.id), (error: unknown) => resolve(error instanceof Error ? error : new Error(String(error))));
       });
       if (started instanceof Error)
         throw Object.assign(new Error(/active run/.test(started.message) ? `${trunk.name} is busy; try again shortly.` : started.message), { status: 503 });

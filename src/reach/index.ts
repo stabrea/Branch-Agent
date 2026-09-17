@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { ChannelRouter } from "../channels/router.js";
 import type { WorkspaceFiles } from "../files.js";
 import type { PosixExec } from "../integrations/desktop-script-posix.js";
-import { lockedDown } from "../lockdown.js";
+import { lockedDown, onLockdownChange } from "../lockdown.js";
 import type { NetworkPolicy } from "../network-policy.js";
 import type { ToolRegistry } from "../registry.js";
 import type { Runtime } from "../runtime.js";
@@ -12,7 +12,7 @@ import { MachineWindow, type MachineDirectory } from "./machines.js";
 import { Arena, Notes, type ModelAccess } from "./notes.js";
 import { RelayAdapter } from "./relay.js";
 import { RemoteTrunks } from "./remote-trunks.js";
-import { allReachModes, reachMode, reachParts, reachRecord, reachTools, saveReachMode, type ReachMode, type ReachPart } from "./settings.js";
+import { allReachModes, reachMode, reachParts, reachRecord, reachTools, saveReachMode, savedReachMode, type ReachMode, type ReachPart } from "./settings.js";
 import { SkillBundles } from "./skill-bundles.js";
 import { ownerOnly, registrars } from "./tools.js";
 import { BackgroundScreen } from "./background-screen.js";
@@ -64,6 +64,9 @@ export class Reach {
   readonly arena: Arena;
   readonly background: BackgroundScreen;
   private relayAttached = false;
+  /** Runs a Trunk on another computer started here; Lockdown stops them at once. */
+  private readonly remoteRuns = new Set<string>();
+  private readonly stopListening: () => void;
 
   constructor(readonly deps: ReachDeps) {
     const { runtime } = deps, store = runtime.store, owner = runtime.owner;
@@ -81,6 +84,11 @@ export class Reach {
     deps.registry.onRunFinished(async (context) => this.background.closeRun(context.runId));
     for (const part of reachParts) this.sync(part);
     byRuntime.set(runtime, this);
+    this.stopListening = onLockdownChange((changed, who, on) => {
+      if (!on || changed !== store || who !== owner) return;
+      for (const runId of this.remoteRuns) deps.runtime.cancel(runId);
+      this.remoteRuns.clear();
+    });
     void this.followRelay();
   }
 
@@ -100,7 +108,7 @@ export class Reach {
 
   private sync(part: ReachPart): void {
     for (const name of reachTools[part]) this.deps.registry.unregister(name);
-    if (this.mode(part) !== "off") registrars[part]?.(ownerOnly(this.deps.registry, this), this);
+    if (savedReachMode(this.store, this.owner, part) !== "off") registrars[part]?.(ownerOnly(this.deps.registry, this), this);
   }
 
   /** The relay is attached the first time it is switched on; while off it neither polls nor sends. */
@@ -150,5 +158,9 @@ export class Reach {
   /** One beat from the scheduler: the USB look, only while that part is on. */
   async tick(): Promise<void> { await this.usb.tick(); }
 
-  async close(): Promise<void> { await this.relay.stop(); }
+  /** A remote Trunk's run while it works (src/reach/trunk-roster.ts); forgotten when it ends. */
+  trackRemoteRun(runId: string): void { this.remoteRuns.add(runId); }
+  forgetRemoteRun(runId: string): void { this.remoteRuns.delete(runId); }
+
+  async close(): Promise<void> { this.stopListening(); await this.relay.stop(); }
 }

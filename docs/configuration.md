@@ -1840,7 +1840,10 @@ The design, the threat list and the test for each threat are in [never-break.md]
 **Telegram from a card.** `customize:channels` has a **Set up Telegram** card (`public/telegram-setup.js`, `src/never-break/telegram-setup.ts`): the BotFather steps in plain words, a password field whose token goes straight into the locker as `TELEGRAM_BOT_TOKEN` in the default project (checked for BotFather's shape, never sent back), the three-way switch (settings key `telegram-setup`, shipped off), and a box for the six-digit code the bot sends a new person, which approves the owner's own account through the ordinary pairing. `GET|POST /api/never-break/telegram { mode?, token? }`. On a real start with the switch not off, Branch connects that bot through the network rules, unless the integrations file already has a Telegram channel. No real token was used to build or test it.
 
 **macOS and Linux.** The gateway is the same program on every system. It starts the engine with the same runtime it runs on (the app's own on an installed copy), with no window on Windows. The sign-in entries (`launchd`, `systemd --user`, the Windows scheduled task) are unchanged: they run `branch start`, which becomes the gateway when the switch is on, so `KeepAlive`/`Restart=on-failure` look after the gateway and the gateway looks after the engine. An engine whose gateway is killed closes itself within seconds, so the database is never left held.
-**Tools run by hand or by a workflow (mac5/manual-actions).** A tool run outside a conversation goes through one gate, `src/tool-gate.ts`, called from `Runtime.executeTool`. Pressed by the owner in the app window (`POST /api/action`, the code editor's save, "Try a tool"), it obeys Branch's own files (above), a refusing rule, the role of a profile that is switched on, and the sandbox and OS wall the matching rule and `settings:computer` give a task's call; with Lockdown on, or in a folder marked untrusted while folder trust is on, anything that changes something is refused with a sentence saying why (looking still works). An "ask first" rule does not stop it, because the owner is the one asking ("Try a tool" still puts its question once); a short-lived key is not the owner at the window, so the same gate holds it to the full rules: only what the rules allow outright runs, "ask" is a refusal it cannot confirm, and every refusal names the key (HTTP 401; this is the one gate for both, shared with the key sweep). An address carrying a key or password (the leak guard) is never skipped by hand: "Try a tool" puts the question, `/api/action` refuses it. A saved workflow's tool step, a flow box and a live voice call are held to the full rules like a task (`mode: "policy"`, also what a caller that names no mode gets): "ask" stops them for the owner's yes, kept under the workflow's (or flow box's, or call's) own name. The pull-request hook working by itself after a task has nobody there to say yes, so it asks the same gate before it touches Git: a refusal, or an "ask first" rule that covers opening a pull request, leaves nothing made or pushed and is written on the task's record (`pull_request.failed`) with the reason. When a task (or a hand press) uses `github.pull_request_from_changes`, that call was itself gated, so the pull request it opens is not asked about a second time; refusals, Lockdown and folder trust still apply, and are checked before anything is pushed. Another AI tool over MCP, a saved procedure's steps and a step redone after a restart use the same policy check and wall. Windows behaves as before apart from these refusals; the wall there stays the job object.
+**Tools run by hand or by a workflow (mac5/manual-actions).** A tool run outside a conversation goes through one gate, `src/tool-gate.ts`, called from `Runtime.executeTool`. Pressed by the owner in the app window (`POST /api/action`, the code editor's save, "Try a tool"), it obeys Branch's own files (above), a refusing rule, the role of a profile that is switched on, and the sandbox and OS wall the matching rule and `settings:computer` give a task's call; with Lockdown on, or in a folder marked untrusted while folder trust is on, anything that changes something is refused with a sentence saying why (looking still works). An "ask first" rule does not stop it, because the owner is the one asking ("Try a tool" still puts its question once); a short-lived key is not the owner at the window, so the same gate holds it to the full rules: only what the rules allow outright runs, "ask" is a refusal it cannot confirm, and every refusal names the key (HTTP 401; this is the one gate for both, shared with the key sweep). An address carrying a key or password (the leak guard) is never skipped by hand: "Try a tool" puts the question, `/api/action` refuses it. A saved workflow's tool step, a flow box and a live voice call are held to the full rules like a task (`mode: "policy"`, also what a caller that names no mode gets): "ask" stops them for the owner's yes, kept under the workflow's (or flow box's, or call's) own name. A workflow a task started (`workflows.run`, or `workflows.resume` carrying a saved or graph flow on) is also held to that task's own permissions (mac7/lockdown-fix): every tool step and box is refused before any question if the task could not use the tool itself (`within` in `src/tool-gate.ts`), its prompt steps and the flows inside it get only those permissions, and the limit is kept with the workflow, so the owner's yes later does not widen it. A workflow the owner starts afresh runs as before. Saving a workflow's steps again keeps the limit, a flow the
+`flow.search` tool drafts and tries keeps to the calling task's tools, and a graph flow run's kept limit
+(settings record `flow-run-limit:<runId>`, never reachable from the settings kit) is removed when the run
+finishes or its flow is removed; a failed run keeps it, because it can still be carried on. The pull-request hook working by itself after a task has nobody there to say yes, so it asks the same gate before it touches Git: a refusal, or an "ask first" rule that covers opening a pull request, leaves nothing made or pushed and is written on the task's record (`pull_request.failed`) with the reason. When a task (or a hand press) uses `github.pull_request_from_changes`, that call was itself gated, so the pull request it opens is not asked about a second time; refusals, Lockdown and folder trust still apply, and are checked before anything is pushed. Another AI tool over MCP, a saved procedure's steps and a step redone after a restart use the same policy check and wall. Windows behaves as before apart from these refusals; the wall there stays the job object.
 
 ## Always allow, per command, and a second look before approvals (wave mac3)
 
@@ -5445,7 +5448,7 @@ back-end, implement `Provider` and register a preset — that is the whole contr
 - `POST /api/lockdown` with `{ "on": true }` or `{ "on": false }`.
 - It also sits at the top of the sidebar.
 
-Turning it on makes **every tool wait for your yes**, and switches off running a script (`code.run`),
+Turning it on **refuses commands without asking** (see below) and makes **every other tool wait for your yes**, and switches off running a script (`code.run`),
 leaving a program running (`process.start` refuses by name, because the list of programs allowed to
 be left running is emptied), using your screen and keyboard, borrowing your browser, sending messages
 out, and telling other programs what happened. It also ends every "yes, just for this conversation"
@@ -5453,10 +5456,24 @@ you gave earlier, so nothing that was already said yes to carries on unasked. On
 it on or off: under someone else's profile the route refuses. It is kept in the database, so it is
 still on after the app is closed and opened again.
 
+It also switches off automations that start by themselves (every part under Automations),
+routines a Trunk owns, your other devices (`src/devices/`) and every personal connector
+(`src/personal/`). **Lockdown wins over every saved switch** (mac7/lockdown-fix): each of these
+features asks `src/lockdown.ts` whenever its switch is read, so a mode saved as "on" or "when needed",
+before or during Lockdown, reads as off until Lockdown is turned off. Commands, scripts, programs, the
+screen and keyboard, borrowing your browser and your other devices (`shell.execute`, `code.execute`,
+`remote.execute`, `process.manage`, `desktop.*`, `browser.borrow`, `devices.*`), handing a task to another
+computer running Branch (`nodes.run`) and a step that sends something to another app (`blocks.run`) are
+refused outright in `Runtime.checkPolicy`, whatever a rule says: you are not asked, you are told Lockdown is
+on. This is a change from before, when a command was asked about. A rule saved while Lockdown is on cannot
+let any other tool past without a yes. A task that was already working when Lockdown went on meets the
+refusal at its next tool call. Turning it on closes every open device socket at once, and nothing more is
+sent to a device while it is on. The `/lockdown` command in the app, the terminal (`branch lockdown on`)
+and the route all end earlier yeses the same way; only the owner may use any of them (a chat sender, a
+short-lived key and somebody else's profile are refused).
+
 What it does **not** switch off, because there is no switch to throw:
 
-- **Running a command** (`shell.execute`) is held to "ask", like every other tool, rather than being
-  refused outright.
 - A **server for another AI tool** that is already set up stays reachable; every tool call through it
   waits for your yes like any other.
 
@@ -6934,10 +6951,17 @@ than whoever started its turn; a reviewing style takes away every tool that writ
 saved in its own memory scope (`agent:trunk:<id>`); it never reads your private facts, and reads the
 facts you marked as shared unless you switch that off; it never writes into the shared facts. A
 Trunk's conversation keeps these limits even while Trunks are switched off, and a room turn runs
-without its own plan or reviewer pass. Keys are copies of yours. With several accounts per
-connection switched on (`src/accounts/`), the account you pick for a Trunk is its conversation's
-choice; without a pick, the connection's default account answers, sign-ins included, and the editor
-says so. A Trunk saved as a file (`branch-trunk/1`) carries who it is and never its conversations,
+without its own plan or reviewer pass. A Trunk answers through API keys only, never through a
+sign-in account (a ChatGPT sign-in, an installed program's sign-in, or Gemini signed in with Google):
+in its own conversation, in a room and in its routines alike, sign-in connections are skipped in its
+model list and a task where only sign-ins are left is refused in one sentence
+(`src/accounts/trunk-guard.ts`). With several accounts per connection switched on (`src/accounts/`),
+the key you pick for a Trunk is the one it uses first; with "copy from owner" on it may go on to your
+other keys, with it off a connection with no pick refuses the Trunk rather than using your default.
+The same holds for everything a Trunk's turn sets going: a summary or document read one of its tools asks
+for, a workflow or flow it starts, a mixture of models (a sign-in member is skipped) and the keep-alive
+ping. Each sign-in connection (ChatGPT, an installed program, Gemini signed in with Google) refuses work
+marked as a Trunk's, whichever way the call arrives (`refuseSignInForTrunk` in `src/accounts/context.ts`). A Trunk saved as a file (`branch-trunk/1`) carries who it is and never its conversations,
 memory, keys or reach, and key-shaped text is taken out. One brought in from a file says nothing by
 itself, uses no tool server and may only look (reads that stay on this computer) until you change it.
 Teaching learns only from a task you started yourself.
@@ -6988,7 +7012,11 @@ actions per task, password and sign-in windows are marked off limits and never l
 typed into, and a saved-password placeholder is never typed. A practice run of `video.generate` spends
 nothing. Changing a USB rule's device or task switches it off again. While Lockdown is on, every change
 under `/api/reach/` is refused except switching a part off, the relay is neither asked nor sent to,
-`branch send` sends nothing, and no USB task starts. The twelve switches are in the
+`branch send` sends nothing, and no USB task starts. Lockdown also answers "off" for the parts that reach
+past this computer (other computers, Trunks elsewhere, background apps, videos, the relay, sending,
+git sharing, bundles, USB) whatever was saved, refuses their tools in the approval check, and stops a
+Trunk message from another computer that is already working. Notes, the arena and pausing a chat app
+are left alone. The twelve switches are in the
 settings catalogue as settings that reach further when raised.
 
 The notes workspace and the arena are ideas from Open WebUI, whose licence allows study only: they were
@@ -7010,6 +7038,27 @@ removes it. Browser tools and the desktop app are not available on Android.
 parts that differ by system; each takes its program runner as a parameter and is tested with fakes, so
 no test asks macOS for a permission. On Windows, background app use and the USB trigger say plainly that
 they are not available. Everything else is plain Node and behaves the same on all three systems.
+
+## Flows and boards (r17-h)
+
+Seven parts, each with the owner's three-way switch (off, on, only when it is needed), all off at
+first. Their switches and settings are under `/api/flows-boards/`, owner only; a short-lived key can
+read and change nothing there except by looking (`tests/short-lived-key-routes.mjs`). Every tool call
+any of them makes goes through the one tool gate (`src/tool-gate.ts`).
+
+| Part | Where it lives | What it does |
+| --- | --- | --- |
+| Going back in a flow | Automations → Procedures | While it is on, a graph flow keeps its values after every step. Pick a step, change a value (checked against what the flow says each value is), and run a copy from the next step. The run you came from never changes; the copy is a task of its own whose recording starts with the copied steps (`flow.steps`) |
+| Checks for procedures | Automations → Procedures | After a verified procedure runs: checks (a tool call whose answer must contain some words, or a small script through `code.run` that must end with 0), clean-up calls after each failed try, a time limit per try and per call, and 0–5 more tries. A question or a refusal from your approval rules stops it at once and is never retried. A time limit stops the check itself, not only the wait for it; when the assistant runs it, each try counts against that task's budget, the task's Stop stops it, and the repeated-call guard sees every check. A task's own call never reaches past its permissions, and a check cannot start procedures, schedules, specialists or flows (`procedures.replay_checked`) |
+| Shared board | Automations → Scheduled | Cards in To do, Doing, To check, Done and Stuck for the active project, laid over bucket 23's project board. The assistant may add cards, move them among the first three and hand them on with a note — only from your own work, never from a chat, a key, a household person or another program. Only you start work on a card (an ordinary task), finish, reset or remove one. A card whose work fails 3 times in a row (`stopAfter`, 1–10) stops in Stuck until you reset it (`board.cards`, `board.card_add`, `board.card_move`, `board.card_handoff`) |
+| Widgets the assistant built | Library → Made | The assistant suggests a widget — a look-only tool, its settings and how often to ask again — only from your own conversation. A widget may only use a tool that looks at the web, schedules, watches, GitLab, tool servers, running programs, projects or other Branch computers: never your mail, calendar, memory, history, files, documents, pictures, signed-in browser pages or devices, and this is checked again every time the page is asked, so a tool that changes under the same name is not called. The model never sees a widget's frame address, and a short-lived key cannot read the list; at most ten wait, and a no is never asked again. A yes makes it one of bucket 23's live pages (which must be on), shown in the same sealed frame and asked again only as your rules allow unattended work (`widgets.list`, `widgets.propose`) |
+| The waiting line | Automations → Scheduled | Reword, move or take out the messages waiting in a conversation and the tasks waiting for room (a move never puts automatic work ahead of yours). Only you do this, in the window or your own terminal: a short-lived key or a household person can look with `/queue` but never reword, move or remove, because a waiting message runs as whoever queued it. While a task works, what you type waits (as before), is passed on as the trusted steer note, or stops the task and goes next (`/queue`, `/busy`) |
+| Focus view | Settings → Appearance | Shows only what you asked and the final answers; tool steps and in-between replies are folded away until you switch it off. Kept per browser (`/focus`) |
+| Package and tool server requests | Inbox → Needs you | The assistant or a chat can ask for an npm or PyPI package or a tool server (`install.request`, `/installs request`). The public list of harmful packages (OSV) is asked first, as the malware check does; one named as malware is refused on the spot. Only you answer — in the window or your own terminal, never from a chat app, a short-lived key or a household person — and a request the list could not be asked about needs "approve without the check". Every yes asks the list again, so a package named as malware since it was requested is refused. A yes installs nothing: it comes back with the exact command or server settings to use (`install.requests`) |
+
+**macOS and Linux.** Everything here is plain Node and behaves the same on all three systems; a check
+script runs wherever `code.run` runs, under its own sandbox settings. `BRANCH_OSV_ENDPOINT` points the
+request check at another copy of the list, as it does for the malware check.
 
 ## Comments that ask the assistant (A0344)
 
@@ -7812,6 +7861,135 @@ safely; nothing here ever listens by itself.
 so it behaves the same on all three systems. The tunnel program is found by name on the search path or by the full
 path you give; nothing is installed. The tests use fake services, a loopback mail server and fake programs only.
 
+## Safety extras (mac7/r17-g)
+
+**Settings → Permissions** has five cards for the extra checks and limits of re-audit bucket R17-G. Every part has
+the three-way switch and ships **off**, the scans that can only tighten included: no owner design asks for them to
+start on, so a fresh install behaves exactly as before. The emergency stop has no switch; it is a button and starts
+unpressed. API: `GET /api/safety-extras` (the switches, the stop, the code setup without its key, the record's
+length and latest fingerprint, the WebAssembly add-ons) and `POST /api/safety-extras/switch {part, mode}` with
+`part` one of `tool-scripts`, `wasm-add-ons`, `code-approvals`, `command-scan`, `progress-judge`, `activity-chain`,
+`history-repair`. Only the owner changes these. A short-lived key may read them, check the record
+(`/activity/verify`), try the command check (`/scan`), press the emergency stop (`/stop`, never let it go) and type
+an authenticator code for a question it may answer (`/codes/confirm`); everything else is refused
+(`src/short-lived-keys.ts`). The code is in `src/safety-extras/`; each place the rest of Branch calls in is one line
+marked `mac7/r17-g` (`src/runtime.ts`, `src/server.ts`, `src/index.ts`, `src/network-policy.ts`, `src/audit.ts`,
+`src/feature-switches.ts`, `src/cli.ts`, `src/cli-completion.ts`). In *Settings → presets, reset and a settings
+file* the command check, the progress check, the record and history repair count as guards, scripts and WebAssembly
+add-ons as reach; authenticator codes and the emergency stop are never reached from there.
+
+**Scripts that call several tools (R17-061).** With the switch not off, the model has `tools.script`
+(`{ source, tools, timeoutMs }`): one JavaScript module that calls `await branch.call("files.read", { path })` as
+often as it needs, and `export default`s its answer (a value, or an async function taking `branch`). The script runs
+as its own program behind the wall (`/usr/bin/sandbox-exec` on macOS, bubblewrap on Linux) with no network at all,
+no keys and no environment of Branch's; Branch's data folder and your unreadable places are closed to it, and it
+writes only in its throwaway folder. Every call goes through the one gate (`src/tool-gate.ts`) with the calling
+task's own permissions, source and yeses; a call your rules would ask about is refused inside the script with a
+sentence telling the model to make it on its own. Only the tools the script named in `tools` (at most 16) may be
+called, never `tools.script` itself, at most 50 calls, within 1–120 seconds. On Windows there is no file and network
+wall, so scripts are refused there. Each call a script makes also passes the task's repeated-call guard, is written
+to the never-break journal before it runs (under a `branch-script:` id), and hands back its result with keys hidden
+before the script can reshape it. After a restart in the middle of a script, the script and the call that was in
+flight are put to you; nothing is run again by itself. A script gets no network and no key sites even when the task's
+own wall has them, and Branch's data folder stays unreadable to it.
+
+**WebAssembly add-ons (R17-062).** Beside bucket 15's walled add-on programs, an add-on can be a WebAssembly module
+run with Node's own WebAssembly, no dependency. It may import only `branch.memory`, `branch.input_size`,
+`branch.read_input(ptr)`, `branch.write_output(ptr, len)` and `branch.log(ptr, len)`, and must export `run()`
+(0 means success) and either import its memory or export it as `memory` with a declared maximum. It gets no files, no
+network, no clock and no randomness; it runs in a worker thread with a small heap, its memory ceiling (1–256 MB,
+16 by default) and a time limit (0.1–30 s, 5 by default; there is no fuel counter in Node, so time stands in for
+it). Install: `POST /api/safety-extras/wasm { name, description, wasm (base64), maxMemoryMb, timeoutMs }`; the file is
+kept in `<data>/wasm-add-ons/` with its SHA-256, which is also kept in the database, and a file that no longer
+matches both is refused. At most two add-ons run at once. Remove: `POST …/wasm/remove {name}`.
+The model runs one with `wasm.run { name, input }`; the owner presses one with `POST …/wasm/run`.
+
+**Authenticator codes and the emergency stop (R17-063).** *Set up an app* (`POST …/codes/begin`) makes a 20-byte key,
+keeps it only in the locker (project `branch-safety`, name `APPROVAL_CODE_KEY`) and shows it once as an
+`otpauth://` link; nothing is held until the first good code is typed back (`POST …/codes/finish {code}`). The codes
+are RFC 6238 (SHA-1, six digits, 30 seconds, one step of clock drift) built on Node's crypto, and a code is taken
+once. `POST …/codes { tools, releaseNeedsCode }` lists the tools whose yes needs a code (names or `payments.*`
+patterns; `shell.execute`, `payments.*`, `email.send`, `channels.send` by default). With the switch **on**, those
+tools always ask, even where a rule allows them; **when needed**, only for work you did not start at the window
+(schedules, triggers, other AI tools). A yes needs a code typed with it (`code` on `POST /api/policy/approve`, or
+`POST …/codes/confirm { sessionId, fingerprint, code }` first); it counts only for those exact bytes and never
+becomes a standing rule. A tool on the list pressed by hand in the app window is refused (a pressed tool cannot ask
+for a code); use *Try a tool* or a conversation. Five wrong codes in a row rest every code for five minutes. While
+codes are on, switching them down, *Remove the app*, setting up a new app and changing the list each need a code too
+(`code` in the body). *Remove the app* forgets the key. The locker projects Branch keeps for itself
+(`branch-safety`, `model-connections`, `acct-…`) cannot be made into projects or changed from the secrets card.
+The **emergency stop** (`POST …/stop { everything, network, sites, tools }`) adds levels to whatever is stopped:
+*every tool*; *everything that reaches past this computer* (web, browser, messages, other AI tools, and programs and
+scripts, which can open connections of their own; your network rules refuse every address too); named *sites*
+(in tools and in the network rules); named *tools*. It refuses outright, for tasks and hand-pressed tools alike,
+before any rule or earlier yes. Pressing it and letting it go (`POST …/stop/release { code? }`) are both written in
+the record of what the assistant was allowed to do; letting it go needs a code when you ticked that.
+
+**Checking commands (R17-064).** Plugged into the approval check for command tools (`shell.execute`, the
+`shell.`/`terminal.` tools, `remote.run`), reading the whole command: a control character, an escape code, a
+right-to-left or invisible mark is **refused** (what you would read is not what would run); a word that mixes
+alphabets, full-width letters, a punycode or non-ASCII address, and a download handed straight to a program that
+runs it (`curl … | sh`, `bash <(wget …)`, `bash -c "$(curl …)"`, `iwr … | iex`, and the same with a decoder such
+as `base64 -d` in place of the download) are **asked about**, with the reason on the question card. The command is
+read the way a shell joins its words (`c''url`, `s\h`, `$IFS`), a shell named by its path or `$SHELL` counts,
+look-alike letters are found by Unicode's compatibility folding, and a program name must be plain ASCII. A question
+it raises is answered only by a yes for those exact bytes. It can only tighten. **On** checks every command; **when needed** only the commands
+your rules would have run without asking. *Check a command* on the card (`POST …/scan {command}`) runs nothing.
+
+**Is this getting anywhere? (R17-065).** Reusing the loop guard (`src/loop-guard.ts`), the same answer three
+times ends the task, and so does one passage written over and over (a 50-character window seen ten times, on
+average within 250 characters; code and table rules are not counted). Every few rounds of a long task the model is
+asked, with no tools, whether the work is moving; only a confident "stuck" (0.9 or more) ends it, and a check that
+fails is ignored. **On** asks from the third round every third round; **when needed** from the sixth round every
+fourth. The task ends with one plain sentence, like the loop guard's.
+
+**Tamper-evident record (R17-066).** With the switch not off, each entry of the record of what the assistant was
+allowed to do, and each refusal and question, is also written to a hash-linked chain (`activity_chain` in the
+database, SHA-256 over the entry and the previous hash, and two database rules that refuse edits and removals).
+**On** adds every tool that started, finished or failed. Entries carry names, a short label and a fingerprint of the
+rest, never arguments or file contents. *Check the record* (`POST …/activity/verify { tip? }`, or on the command line
+`branch activity verify [--tip <hash>] [--json]`, exit code 0 unbroken, 1 broken) walks the whole chain and names
+the first entry that is missing, out of order or changed. Someone who can rewrite the whole database can rebuild the
+chain, so write the latest fingerprint down somewhere else and pass it as `tip`: the check then also proves it is
+still there. The latest entry's number and hash are also written to `<data>/activity-chain.anchor`, outside the
+database, and the check holds the chain to it: entries cut off the end, a record rebuilt from the start, or a missing
+note are reported. `GET …/activity?limit=` lists the newest entries.
+
+**History repair (R17-067).** With the switch not off, the copy of a conversation sent to a model service is tidied
+first; the kept conversation never changes. **When needed** fixes what services refuse: a result with no call
+before it, or a second result for one call, is dropped; a call repeated under one id keeps its first copy; a call
+with no result gets a stand-in saying the outcome is unknown; a note that landed between two results is moved after
+them. **On** also drops empty answers and joins two messages in a row from the same side. Each repair is noted on the
+task (`history.repaired`).
+
+### Credential vault (R17-068): awaiting owner
+
+Not built; the owner has not decided. The proposal: signing in and filling forms goes only through the owner's
+password manager's own autofill (for example the Bitwarden extension in the owner's browser, or a local helper that
+fills the field itself), so the model asks for "sign in to example.com with the matching saved login" and never
+receives, prints or types the secret. Branch would check that the page's address matches the saved login's site
+before asking the password manager, show the owner which login is about to be used, and record the moment in the
+record of what the assistant was allowed to do. Branch would keep no copy of any password, and a model-written
+value would never be typed into a password field. Row R17-068 stays **awaiting owner**.
+
+### macOS and Linux
+
+Tool scripts run behind `/usr/bin/sandbox-exec` on macOS and bubblewrap on Linux, exactly as walled add-ons do,
+always with no network; where the wall cannot be built the script is not run and the reason is given. WebAssembly
+add-ons, codes, the emergency stop, the command check, the progress check, the record and history repair are plain
+Node and behave the same on macOS, Linux and Windows. On Windows tool scripts are refused, and nothing a Windows
+user already had changes.
+
+### Where each audit row stands
+
+- **R17-061** built: `src/safety-extras/tool-scripts.ts`, `script-host.ts`; `tests/safety-extras-scripts.test.mjs`.
+- **R17-062** built: `src/safety-extras/wasm-add-ons.ts`, `wasm-check.ts`; `tests/safety-extras-wasm.test.mjs`.
+- **R17-063** built: `src/safety-extras/totp.ts`, `code-approvals.ts`, `emergency-stop.ts`; `tests/safety-extras-codes.test.mjs`.
+- **R17-064** built: `src/safety-extras/command-scan.ts`, `hooks.ts`; `tests/safety-extras-scan.test.mjs`.
+- **R17-065** built: `src/safety-extras/progress-judge.ts`; `tests/safety-extras-progress.test.mjs`.
+- **R17-066** built: `src/safety-extras/activity-chain.ts`, `cli.ts`; `tests/safety-extras-chain.test.mjs`.
+- **R17-067** built: `src/safety-extras/history-repair.ts`; `tests/safety-extras-progress.test.mjs`.
+- **R17-068** awaiting owner: design note above; nothing built.
 ## Comfort: shortcuts, status line, notifications, voice keys, the browser's care, proxy and certificates (R17-S-C)
 
 Every setting here ships as Branch has always behaved; nothing changes until you change it. The values live in the
@@ -7866,3 +8044,38 @@ after it opens a picker of the connections.
 
 Nothing here differs by system. Cmd counts as Ctrl for the shortcuts on macOS. The sound is played by the window
 itself, not by a system program.
+
+## Learning, deeper (R17-F)
+
+Nine parts under `src/learning-more/`, each with the owner's three-way switch (off, on, only when it
+is needed), all off at first. "On" loads a part's tools from the first round and, for memory blocks
+and lessons, puts them at the start of each conversation; "only when it is needed" lists the tools for
+the assistant to load (and names the memory blocks in one line); "off" refuses. The cards are in
+Library → Memory, with skill usage in Customize → Skills. Routes are under `/api/learning-more/`, the
+owner's profile only; a short-lived key may read, and may use the two searches
+(`/api/learning-more/search`, `/api/learning-more/memory/find`), and changes nothing.
+
+| Part | What it does | Tools |
+| --- | --- | --- |
+| Memory blocks | Named notes, each with a size budget, kept in front of every conversation; the assistant edits them itself. Each person, and each Trunk or specialist, has its own. A task a chat message started cannot change them. The "about-you" block is the "about you" note from Settings (its size and whether it is shown are set there; this part never shows it twice). Key-like values are hidden on save. | `memory.block_view`, `memory.block_edit` |
+| Skill usage and merging | Tasks that used each skill over the last 100 tasks (the report says when that is all it saw); skills whose wording overlaps; a dry run of a merge; the merge itself is two review-queue suggestions (a new, tried version of the kept skill, and setting the other aside). | `skills.usage` |
+| Timeline | Facts saved and changed, skills written, the owner's decisions, the learning core's habits, and kept or dropped lessons, newest first, filterable by kind and date. | `learning.journey` |
+| Meaning search | Conversations compared by meaning through the same embeddings route memory search uses, filtered by who spoke and when the conversation started; word search when no route is connected. Key-like values are hidden before text is sent. Only the owner's own tasks can use it, not a Trunk or specialist. | `history.meaning` |
+| Lessons from failed evaluation tasks | A failed suite task leaves a lesson on trial; a later task whose learning-core situation code overlaps it is shown the lesson, and that task's result is credited. After 2 passes at two thirds or better it is offered as a fact to remember; after 2 failures below half it is dropped. | `lessons.list` |
+| Preferences from Claude Code and Codex | Off twice: the switch, and one opt-in per assistant. Reads only `projects/` (Claude Code) and `sessions/` (Codex) in their home folders, only what the owner typed (command output, agent notices and compacted summaries are skipped; at most 256 MB is read per assistant in one look), only preference sentences seen in two chats or more; a sentence holding a key-like value is dropped. The look shows everything; only ticked items are kept, as preferences. | none (owner only) |
+| Expiring memories | Labels and an expiry date on a fact; an expired fact is set aside (restorable) at the start and end of each task, and never reaches a conversation's snapshot. Search by label and by created or changed date. Correcting a fact's words keeps its labels and expiry; a fact the owner puts back after it expired is kept for good. With the switch off, expiry dates already set are ignored: nothing is swept or left out. | `memory.find`, `memory.label` |
+| Note read-back | Edits the owner makes in the `memory/` notes become review-queue suggestions before the notes are written again; the assistant's own file tools still cannot write there. The owner can write tidy instructions; "Tidy now" asks the model once and stages its ideas. | none |
+| Outside memory | One of Hindsight (the server set up under the smaller asks, with its own switch), a self-hosted Mem0 server (`POST /memories`, `POST /search`, `X-API-Key`) or Honcho (v2 session messages and the peer "dialectic" chat), none by default. Each person and agent has its own user or peer name with Mem0 and Honcho; Hindsight keeps one bank, so only the owner's own tasks can recall from it or ask it; key-like values are hidden before sending; answers are information. The Mem0 and Honcho routes were written from their public contracts and have not been tried against a live server. | `memory.outside_recall`, `memory.outside_keep`, `memory.outside_ask` |
+
+Settings fields: the switches are `mode` in `learning-more-<part>`; note read-back keeps
+`tidyInstructions` (up to 2,000 characters); the chat preferences keep `claude-code`, `codex` (both
+false) and `minChats` (2 to 20, default 2); outside memory keeps `active` (`none`, `hindsight`, `mem0`,
+`honcho`), `mem0.address`, `mem0.secret`, `mem0.user`, `honcho.address`, `honcho.secret`,
+`honcho.workspace` and `honcho.peer`; `mem0.secret` and `honcho.secret` are the names of keys in the locker (such as `MEM0_KEY`), never a key. A block has `label`, `description`, `limit` (100 to 8,000
+characters), `readOnly` and `value`; a fact's labels are `tags` (up to 12) and `expiresAt`.
+
+### macOS and Linux
+
+Nothing here depends on the platform. The Claude Code and Codex folders follow each assistant's own
+override variable (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`) and otherwise `~/.claude` and `~/.codex` on
+every system (`src/migrate/detect.ts`).

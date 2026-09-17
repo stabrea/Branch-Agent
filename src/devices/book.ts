@@ -2,6 +2,7 @@ import { randomBytes, randomInt, timingSafeEqual } from "node:crypto";
 import { isAbsolute } from "node:path";
 import { z } from "zod";
 import { audit } from "../audit.js";
+import { lockdownOverrides } from "../lockdown.js"; // mac7/lockdown-fix
 import type { Store } from "../store.js";
 import { capabilities, capabilityInfo, CapabilitySchema, offeredOn, type Capability } from "./capabilities.js";
 import { checkPublicKey, newDeviceId, pairText, PlatformSchema, signedBy, WindowLimit } from "./protocol.js";
@@ -105,7 +106,9 @@ export class DeviceBook {
     for (const listener of this.listeners) try { listener(deviceId, why); } catch { /* telling must not break saving */ }
   }
 
-  mode(): DeviceMode { return this.read().mode; }
+  mode(): DeviceMode { return lockdownOverrides(this.store, this.owner, bookKey) ? "off" : this.savedMode(); } // mac7/lockdown-fix
+  /** The mode as saved, Lockdown aside: what the catalog follows, so turning Lockdown off needs no restart. */
+  savedMode(): DeviceMode { return this.read().mode; }
   setMode(input: unknown): DeviceMode {
     const mode = DeviceModeSchema.parse((input as { mode?: unknown } | null)?.mode);
     this.write({ ...this.read(), mode });

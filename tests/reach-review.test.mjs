@@ -208,3 +208,26 @@ function saveRelaySettingsForTest(store) {
   store.save("settings", owner, "reach-relay-settings", { address: "https://relay.example", machineId: "0123456789abcdef", relayId: "r1",
     secret: "BRANCH_RELAY_SECRET", platforms: ["telegram"] });
 }
+
+test("review (lockdown-fix): Lockdown turns the outward parts off at use, refuses their tools, and stops a remote Trunk's run", async (t) => {
+  const { app, store } = await scratchApp(t);
+  const { setLockdown } = await import("../dist/lockdown.js");
+  const { reachMode } = await import("../dist/reach/settings.js");
+  for (const part of ["machines", "video", "notes", "platform-pause"]) await app.reachParts.setMode(part, { mode: "on" });
+  const cancelled = [];
+  const realCancel = app.runtime.cancel.bind(app.runtime);
+  app.runtime.cancel = (id) => { cancelled.push(id); return realCancel(id); };
+  app.reachParts.trackRemoteRun("run-from-studio");
+  setLockdown(store, owner, { on: true });
+  assert.deepEqual(cancelled, ["run-from-studio"], "the remote Trunk's run is stopped at once");
+  assert.equal(reachMode(store, owner, "machines"), "off");
+  assert.equal(reachMode(store, owner, "video"), "off");
+  assert.equal(reachMode(store, owner, "platform-pause"), "on", "pausing a chat app only tightens, so it stays");
+  const context = app.runtime.context({ source: "a2a" });
+  for (const tool of ["machines.look", "video.generate", "trunks.remote.message"])
+    assert.equal(app.runtime.checkPolicy(tool, {}, app.runtime.context({}), "fp").decision, "deny", tool);
+  assert.equal(app.runtime.checkPolicy("notes.list", {}, context, "fp").decision === "deny", false, "a local note is not refused by Lockdown");
+  setLockdown(store, owner, { on: false });
+  assert.equal(reachMode(store, owner, "machines"), "on", "the saved switch comes back");
+  assert.ok(app.registry.names().includes("machines.look"), "the tools were never lost");
+});

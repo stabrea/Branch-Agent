@@ -140,7 +140,10 @@ function toolsCommand(app: Branch, io: Io): void {
 }
 function lockdownCommand(app: Branch, args: string[], io: Io): void {
   const { store } = app, owner = app.runtime.owner;
-  if (args[0] === "on" || args[0] === "off") setLockdown(store, owner, { on: args[0] === "on" });
+  if (args[0] === "on" || args[0] === "off") {
+    // As the route does: turning it on also ends the yeses already given (mac7/lockdown-fix integration review).
+    if (setLockdown(store, owner, { on: args[0] === "on" }).on) app.runtime.approvals.forgetAll();
+  }
   const state = lockdownState(store, owner);
   io.write(state.on ? `Lockdown is on${state.since ? ` since ${state.since}` : ""}.` : "Lockdown is off.");
   if (state.on) for (const effect of state.effects) io.write(`- ${effect}`);

@@ -2,10 +2,12 @@ import { z } from "zod";
 import { errorText } from "./contracts.js";
 import { ApprovalRequiredError, PolicyRefusedError } from "./approvals.js";
 import { argumentFingerprint } from "./runtime.js";
+import { outsideTask } from "./tool-gate.js"; // mac7/lockdown-fix
 import type { Runtime } from "./runtime.js";
 import type { Store } from "./store.js";
 import type { RunSource } from "./policy.js";
 import { compileGraph, type CompiledGraph, type GraphEdge, type GraphNode } from "./flow-graph.js";
+import { recordFlowStep } from "./flows-boards/time-travel.js"; // r17-h: going back to an earlier step
 
 /**
  * Running a flow that is a real graph: one state object carried from box to box, each box handing
@@ -54,6 +56,14 @@ interface NodeResult {
   childRunId?: string;
 }
 
+/**
+ * How one run of a graph works. mac7/lockdown-fix: `within` is set when a task carried the run on —
+ * that task's permissions, which every box then keeps to.
+ */
+type GraphWorkOptions = { source?: RunSource; chain?: readonly string[]; within?: readonly string[] };
+
+const limitKey = (runId: string): string => `flow-run-limit:${runId}`;
+
 export class FlowGraphRunner {
   constructor(
     private readonly store: Store,
@@ -80,11 +90,15 @@ export class FlowGraphRunner {
     this.store.sqlite.prepare(`INSERT INTO flow_graph_runs(run_id,owner,flow_id,status,next_node,state,loops,depth,updated_at)
       VALUES(?,?,?,'running',?,?,'{}',?,?)`).run(run.id, this.owner, flowId, compiled.definition.entry,
       JSON.stringify(state), options.depth ?? 0, new Date().toISOString());
+    // r17-h: the state before the first box, as step 0 (src/flows-boards/time-travel.ts; nothing while off).
+    recordFlowStep(this.store, { runId: run.id, owner: this.owner, seq: 0, nodeId: compiled.definition.entry, name: "Start", nextNode: compiled.definition.entry }, state, {});
     return { runId: run.id, compiled };
   }
 
   /** Works through the boxes from wherever the checkpoint says, writing the state after each one. */
-  async work(runId: string, compiled: CompiledGraph, options: { source?: RunSource; chain?: readonly string[] } = {}): Promise<GraphRunView> {
+  async work(runId: string, compiled: CompiledGraph, options: GraphWorkOptions = {}): Promise<GraphRunView> {
+    // mac7/lockdown-fix: a task's limit is kept with the run, so the owner's yes later does not widen it.
+    if (options.within) this.store.save("settings", this.owner, limitKey(runId), { within: [...options.within] });
     const limit = compiled.definition.loopLimit;
     let saved = this.checkpoint(runId);
     let at = saved.nextNode, state = saved.state, loops = saved.loops, seq = this.lastSeq(runId);
@@ -103,15 +117,18 @@ export class FlowGraphRunner {
       if ("refusal" in step) return this.stop(runId, "failed", step.refusal);
       at = step.to; loops = step.loops;
       this.save(runId, { next_node: at, state: JSON.stringify(state), loops: JSON.stringify(loops) });
+      recordFlowStep(this.store, { runId, owner: this.owner, seq, nodeId: node.id, name: node.name, nextNode: at }, state, loops); // r17-h
     }
     this.save(runId, { status: "completed", state: JSON.stringify(state) });
+    // mac7/lockdown-fix (integration review): a finished run cannot be carried on, so its limit goes.
+    this.forgetLimit(runId);
     this.store.finish(runId, "completed", `The flow "${compiled.definition.name}" finished.`);
     return this.view(runId);
   }
 
   /** One box, with the two ways it can stop the whole flow kept apart from an ordinary failure. */
   private async attempt(runId: string, seq: number, node: GraphNode, state: Record<string, unknown>,
-    compiled: CompiledGraph, options: { source?: RunSource; chain?: readonly string[] }):
+    compiled: CompiledGraph, options: GraphWorkOptions):
     Promise<NodeResult | { stopped: GraphRunView }> {
     try {
       const result = await this.runNode(node, state, compiled, options);
@@ -158,7 +175,7 @@ export class FlowGraphRunner {
 
   /** What one kind of box actually does. Each returns a patch of only what it said it would write. */
   private async runNode(node: GraphNode, state: Record<string, unknown>, compiled: CompiledGraph,
-    options: { source?: RunSource; chain?: readonly string[] }): Promise<NodeResult> {
+    options: GraphWorkOptions): Promise<NodeResult> {
     if (node.kind === "condition") {
       const looked = String(state[node.field!] ?? "");
       return { patch: {}, output: looked.toLowerCase().includes(node.contains!.toLowerCase()) ? "matched" : "otherwise",
@@ -173,11 +190,11 @@ export class FlowGraphRunner {
     if (node.kind === "subflow") return this.subflow(node, state, options);
     if (node.kind === "prompt") {
       const run = await this.runtime.run({ prompt: fillIn(node.prompt!, state),
-        signal: AbortSignal.timeout(node.timeoutMs), source: "schedule", onTextDelta: () => undefined });
+        signal: AbortSignal.timeout(node.timeoutMs), source: "schedule", onTextDelta: () => undefined, ...this.limited(options) });
       if (run.status !== "completed") throw new Error(`the assistant stopped (${run.status})`);
       return { patch: this.asPatch(node, run.output), output: run.output.slice(0, 2000), childRunId: run.id /* bucket 13: run monitor */ };
     }
-    const result = await this.useTool(node, filledArgs(node.args ?? {}, state), options.source ?? "owner");
+    const result = await this.useTool(node, filledArgs(node.args ?? {}, state), options.source ?? "owner", options.within);
     return { patch: this.asPatch(node, result), output: jsonOf(result).slice(0, 2000) };
   }
 
@@ -186,18 +203,18 @@ export class FlowGraphRunner {
    * collected in the list's own order. Where two items write the same value, the last one wins —
    * they finish in whatever order they finish, so only the order of the list is relied on.
    */
-  private async mapOver(node: GraphNode, state: Record<string, unknown>, options: { source?: RunSource }): Promise<NodeResult> {
+  private async mapOver(node: GraphNode, state: Record<string, unknown>, options: GraphWorkOptions): Promise<NodeResult> {
     const list = Array.isArray(state[node.overField!]) ? (state[node.overField!] as unknown[]) : [];
     if (!node.tool) throw new Error("a map box needs a tool to use on each item");
     const done = await Promise.all(list.map(async (item) => {
       const args = filledArgs(node.args ?? {}, { ...state, item });
-      return jsonOf(await this.useTool(node, { ...args, item }, options.source ?? "owner"));
+      return jsonOf(await this.useTool(node, { ...args, item }, options.source ?? "owner", options.within));
     }));
     return { patch: { [node.intoField!]: done }, output: `Worked through ${done.length} item(s).` };
   }
 
   /** A box whose body is another saved flow, with a state of its own and no way round in a circle. */
-  private async subflow(node: GraphNode, state: Record<string, unknown>, options: { source?: RunSource; chain?: readonly string[] }): Promise<NodeResult> {
+  private async subflow(node: GraphNode, state: Record<string, unknown>, options: GraphWorkOptions): Promise<NodeResult> {
     const chain = [...(options.chain ?? [])];
     if (chain.includes(node.flowId!))
       throw new Error(`that flow leads back to one already running (${node.flowId}), so it was not started`);
@@ -206,7 +223,8 @@ export class FlowGraphRunner {
       throw new Error(`flows may only go ${maximumGraphDepth} deep; this one would be ${chain.length + 2}`);
     const inner = Object.fromEntries(Object.keys(node.input).map((name) => [name, state[name]]));
     const started = this.begin(this.definitionOf(node.flowId!), inner, { ...(options.source === undefined ? {} : { source: options.source }), depth: chain.length + 1 });
-    const finished = await this.work(started.runId, started.compiled, { ...(options.source === undefined ? {} : { source: options.source }), chain: [...chain, node.flowId!] });
+    const finished = await this.work(started.runId, started.compiled, { ...(options.source === undefined ? {} : { source: options.source }), chain: [...chain, node.flowId!],
+      ...(options.within ? { within: options.within } : {}) });
     if (finished.status !== "completed") throw new Error(finished.error ?? `the flow inside it stopped (${finished.status})`);
     const patch = Object.fromEntries(Object.keys(node.output)
       .filter((name) => finished.state[name] !== undefined).map((name) => [name, finished.state[name]]));
@@ -214,13 +232,27 @@ export class FlowGraphRunner {
   }
 
   /** A tool used by a box, held to exactly the approval settings a step of a saved workflow is. */
-  private async useTool(node: GraphNode, args: Record<string, unknown>, source: RunSource): Promise<unknown> {
-    const context = this.runtime.context({ signal: AbortSignal.timeout(node.timeoutMs), source, approvalKey: `flow:${node.id}` });
+  private async useTool(node: GraphNode, args: Record<string, unknown>, source: RunSource, within?: readonly string[]): Promise<unknown> {
+    const context = this.runtime.context({ signal: AbortSignal.timeout(node.timeoutMs), source, approvalKey: `flow:${node.id}`, ...this.limited({ within }) });
     const fingerprint = argumentFingerprint(JSON.stringify(args));
+    const outside = outsideTask(this.runtime, node.tool!, context); // mac7/lockdown-fix: before any question
+    if (outside) throw Object.assign(new PolicyRefusedError(node.tool!, node.name), { message: outside });
     const check = this.runtime.checkPolicy(node.tool!, args, context, fingerprint);
     if (check.decision === "deny") throw new PolicyRefusedError(node.tool!, check.label);
     if (check.decision === "ask") throw new ApprovalRequiredError(node.tool!, check.target, check.label, check.remember, fingerprint);
-    return this.runtime.executeTool(node.tool!, args, { mode: "policy", source, approvalKey: `flow:${node.id}` }); // mac5/manual-actions
+    return this.runtime.executeTool(node.tool!, args, { mode: "policy", source, approvalKey: `flow:${node.id}`, ...(within ? { within } : {}) }); // mac5/manual-actions
+  }
+  /**
+   * mac7/lockdown-fix: drops a run's kept limit. A failed or waiting run keeps it, because it can still
+   * be carried on; a finished run, or every run of a flow that is removed, has no use for it.
+   */
+  forgetLimit(runId: string): void {
+    this.store.delete("settings", this.owner, limitKey(runId));
+  }
+  /** mac7/lockdown-fix: the permissions a box holds under a task's limit; nothing to add otherwise. */
+  private limited(options: { within?: readonly string[] | undefined }): { permissions?: string[] } {
+    const within = options.within;
+    return within ? { permissions: [...this.runtime.context().permissions].filter((p) => within.includes(p)) } : {};
   }
 
   /** What a box that hands back one thing writes: the single value it declared, filled in. */
@@ -341,7 +373,7 @@ export class FlowGraphRunner {
   }
   /** Carries a checkpointed run on from the box after the last one that finished. */
   async resume(runId: string, flow: unknown,
-    options: { source?: RunSource; approve?: boolean; interrupted?: "again" | "past" } = {}): Promise<GraphRunView> {
+    options: { source?: RunSource; approve?: boolean; interrupted?: "again" | "past"; within?: readonly string[] } = {}): Promise<GraphRunView> {
     const current = this.view(runId);
     if (current.status === "completed") throw new Error("That flow has already finished");
     const graph = compileGraph(flow);
@@ -363,6 +395,9 @@ export class FlowGraphRunner {
     const compiled = compileGraph(flow);
     this.save(runId, { status: "running", error: null });
     this.store.sqlite.prepare("UPDATE tasks SET status='running' WHERE id=?").run(runId);
-    return this.work(runId, compiled, { ...(options.source === undefined ? {} : { source: options.source }) });
+    const kept = (this.store.get("settings", this.owner, limitKey(runId))?.data as { within?: string[] } | undefined)?.within;
+    const within = kept && options.within ? kept.filter((p) => options.within!.includes(p)) : kept ?? options.within;
+    return this.work(runId, compiled, { ...(options.source === undefined ? {} : { source: options.source }),
+      ...(within ? { within } : {}) });
   }
 }

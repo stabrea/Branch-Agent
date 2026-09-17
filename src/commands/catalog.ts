@@ -89,7 +89,7 @@ export const COMMANDS: readonly CatalogCommand[] = [
   entry("default", [], "<id>", "the model every new conversation starts with", [...W, "terminal"], "owner", { ...was("terminal"), route: { method: "POST", path: "/api/models" } }),
   entry("switch", [], "<mouse|sidePane|oak> [on|off|when-needed]", "the terminal's own switches, which all start off", ["terminal"], "owner", was("terminal")),
   entry("pane", ["details"], "[activity|plan|files|memory]", "show or hide the side pane", [...W, "terminal"], "look", was("terminal")),
-  entry("lockdown", ["pause"], "[on|off]", "the one switch that makes everything wait for your yes", [...W, "terminal", "dashboard"], "owner", { ...was("terminal"), bareLooks: true, route: { method: "POST", path: "/api/lockdown" } }),
+  entry("lockdown", ["pause"], "[on|off]", "the one switch that refuses commands and makes everything else wait for your yes", [...W, "terminal", "dashboard"], "owner", { ...was("terminal"), bareLooks: true, route: { method: "POST", path: "/api/lockdown" } }),
   entry("keys", ["shortcuts"], "", "every key the view answers to", ["terminal"], "look", { ...was("terminal"), newAliases: added(["shortcuts"], "terminal") }),
   entry("exit", ["quit"], "", "leave", ["terminal"], "look", was("terminal")),
   // ---- added with this table ----
@@ -122,6 +122,12 @@ export const COMMANDS: readonly CatalogCommand[] = [
   entry("init", [], "", "look around this project and write its instruction file (AGENTS.md)", W, "run"),
   // r17-i: pausing a chat app; from a chat app it is taken only from the owner's own account (src/reach/platform.ts)
   entry("platform", [], "[status | pause <chat app> | resume <chat app>]", "pause a chat app so its messages are let go, or turn it back on", [...W, "terminal"], "owner", { bareLooks: true }),
+  // ---- r17-h: the waiting line, typing while it works, focus view, asking for packages (src/flows-boards/commands.ts) ----
+  entry("queue", ["waiting"], "[edit n <words> | move n up|down|first|last | remove n]", "the messages waiting in this conversation; reword, move or take one out", [...W, "terminal"], "owner", { bareLooks: true, whileWorking: true }), // integration review: rewording is the owner's
+  entry("busy", [], "[queue|steer|interrupt]", "what happens when you type while a task works: wait, pass it on, or stop and go next", [...W, "terminal"], "owner", { bareLooks: true }),
+  entry("focus", [], "[on|off]", "show only what you asked and the final answers", W, "look"),
+  entry("installs", ["install"], "[request npm|pypi <name> [why] | approve n | decline n]", "requests for new packages and tool servers; only the owner answers, and nothing installs itself", ALL, "look", { withArgument: "run" }),
+  // ---- end r17-h ----
 ];
 
 const bare = (name: string): string => name.replace(/^\//, "").replace(/@[\w.-]+$/, "").toLowerCase();

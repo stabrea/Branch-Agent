@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { z } from "zod";
 import type { Completion, CompletionRequest, Provider } from "../contracts.js";
+import { refuseSignInForTrunk } from "../accounts/context.js"; // mac7/lockdown-fix
 
 /**
  * Batch 20 (wave 8): using a coding assistant already installed on this computer as a model.
@@ -206,6 +207,7 @@ export class CliAgentProvider implements Provider {
     this.limits = { timeoutMs: limits.timeoutMs ?? 180_000, maxOutputChars: limits.maxOutputChars ?? 200_000 };
   }
   async complete(request: CompletionRequest): Promise<Completion> {
+    refuseSignInForTrunk(); // mac7/lockdown-fix: an installed program's sign-in never answers for a Trunk
     const outcome = this.home
       ? await this.spawnAgent(this.row, agentPromptFrom(request), request.signal, this.limits, this.home)
       : await this.spawnAgent(this.row, agentPromptFrom(request), request.signal, this.limits);

@@ -9,7 +9,7 @@ it is asked. Read this before you let it change anything.
 ## In one minute
 
 - **Settings → When to check with me** has four choices. Until you pick one, nothing is checked.
-- **Lockdown**, at the top of the rail, makes every tool wait for your yes.
+- **Lockdown**, at the top of the rail, refuses commands outright and makes every other tool wait for your yes.
 - **Settings → Secrets** is the locker. A value goes in and never comes out again in readable form.
 - **Lock session** shuts the locker after a quiet spell without stopping the assistant answering.
 - **Settings → Using your screen and keyboard** is off out of the box, and stays off until you say.
@@ -66,7 +66,10 @@ run yourself from this app is your own action and goes straight through.
 
 ## Lockdown: one switch
 
-Lockdown sits at the top of the rail. Turning it on makes **every tool wait for your yes**, and
+Lockdown sits at the top of the rail. Turning it on **refuses, without asking**, running a command
+or a script, leaving a program running, using your screen and keyboard, borrowing your browser, your
+other devices, handing work to another computer and steps that send to other apps: you are told
+Lockdown is on instead of being asked. **Every other tool waits for your yes.** It also
 switches off running a script, leaving a program running, using your screen and keyboard, borrowing
 your browser, sending messages out, and telling other programs what happened. It also ends every
 *"yes, just for this conversation"* you gave earlier, so nothing already agreed to carries on unasked.
@@ -74,9 +77,12 @@ your browser, sending messages out, and telling other programs what happened. It
 Turning it off puts back **exactly** the settings that were there before — they are copied, untouched,
 before anything is changed. Both moments go into the record of what the assistant was allowed to do.
 
-Two things it does not switch off, because there is no switch to throw: running a command is held to
-*ask* rather than refused outright, and a connection another AI tool already has stays reachable, with
-every call through it waiting for your yes like any other.
+Automations that start by themselves, a Trunk's routines and your personal connectors are off too,
+whatever they were set to, and a switch you turn on while Lockdown is on stays off until you turn
+Lockdown off. A task that was already working is stopped at its next step that Lockdown refuses.
+
+One thing it does not switch off, because there is no switch to throw: a connection another AI tool
+already has stays reachable, with every call through it waiting for your yes like any other.
 
 Only the owner can turn it on or off, and it survives closing and reopening the app.
 

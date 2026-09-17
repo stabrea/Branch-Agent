@@ -76,6 +76,9 @@ export const shortLivedKeyTaskRoutes: readonly TaskRoute[] = [
   post("/api/knowledge/ask", "asks the knowledge bases"),
   post("/api/retrieval/search", "searches passages"),
   post("/api/tools/meaning-search", "finds a tool by what it does"),
+  // R17-F (src/learning-more/api.ts): finding past conversations by meaning, and facts by label and date.
+  post("/api/learning-more/search", "searches conversations by meaning"),
+  post("/api/learning-more/memory/find", "searches what is remembered by label and date"),
   post("/api/receipts/verify", "checks a task's receipt"),
   post("/api/security-check/run", "runs the security check, which only reads"),
   // mac7/r17-d: the project's review checks (read-only helpers) and a conversation forked into its own copy.
@@ -84,6 +87,13 @@ export const shortLivedKeyTaskRoutes: readonly TaskRoute[] = [
   // r17-i: another of the owner's computers hands a message to a Trunk here with the "run" key it was given;
   // the message is quoted as that computer's text, capped and limited per hour (src/reach/remote-trunks.ts).
   post("/api/reach/trunks/inbox", "a message from a Trunk on another of the owner's computers"),
+  // mac7/r17-g: the safety extras. Everything else under /api/safety-extras (the switches, letting the
+  // emergency stop go, setting up authenticator codes, installing or running WebAssembly add-ons) is
+  // refused by the rule above. Reading /api/safety-extras is allowed: it never carries the code key.
+  post("/api/safety-extras/activity/verify", "checks the tamper-evident activity chain, which only reads"),
+  post("/api/safety-extras/scan", "checks one command for hidden codes and look-alike letters, which only reads"),
+  post("/api/safety-extras/stop", "presses the emergency stop, which only stops things; letting it go is the owner's"),
+  post("/api/safety-extras/codes/confirm", "types an authenticator code for a question it may answer"),
 ];
 
 /** Reads a short-lived key may not make: what they return is a secret, or everybody's data. */
@@ -106,6 +116,8 @@ const ownerOnlyReads: readonly RegExp[] = [
   /^\/api\/coding\/shell$/,
   // R17-C: the owner's mail, calendar, house, sign-ins and public webhook address (src/personal/api.ts).
   /^\/api\/personal(\/|$)/,
+  // r17-h integration review: the widgets' list carries each widget's frame address, which opens without a key.
+  /^\/api\/flows-boards\/widgets$/,
 ];
 
 /**

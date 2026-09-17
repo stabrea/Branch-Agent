@@ -86,6 +86,12 @@ Inside a conversation there are no homes to add to, only two surfaces with stric
 | Procedures that start themselves, with how much each may do on its own (`mac7/r17-b`) | `automations:procedures` |
 | What an automation, a procedure or a standing order waits for your yes on (`mac7/r17-b`) | `inbox:needs` |
 | "From now on" instructions (`mac7/r17-b`) | `settings:assistant` |
+| Going back to an earlier step of a flow, and checks for saved procedures (`mac7/r17-h`) | `automations:procedures` |
+| The shared board of cards (`mac7/r17-h`) | `automations:scheduled`, beside the waiting line: it is work waiting to be done (bucket 23's project board stays in `settings:general`, and the shared board lays its lanes over it) |
+| Changing the waiting line, and what typing does while a task works (`mac7/r17-h`) | `automations:scheduled`; `/queue` and `/busy` live in the message box |
+| Widgets the assistant built (`mac7/r17-h`) | `library:made`, beside the live tool pages they are made from |
+| Focus view (`mac7/r17-h`) | `settings:appearance`; `/focus` lives in the message box |
+| Requests for new packages and tool servers (`mac7/r17-h`) | `inbox:needs` |
 | What installed skills need on this computer (`mac7/r17-b`) | `customize:skills` |
 | Other computers side by side, using apps in the background, USB devices (`mac7/r17-i`) | `settings:computer` |
 | Trunks on other computers (`mac7/r17-i`) | `customize:specialists`, beside the Trunks card |
@@ -105,6 +111,7 @@ Inside a conversation there are no homes to add to, only two surfaces with stric
 | Watching and saving videos, ffmpeg and yt-dlp (bucket 17) | `settings:models:media`; a video attachment in the message box |
 | Other speech services and spoken commands (bucket 17) | `settings:voice` |
 | What Branch learns from experience, the learning core (`mac2/fly-core-2`) | `library:memory`; its skill ideas open in `customize:skills` |
+| Learning, deeper: memory blocks, the timeline, meaning search, lessons, preferences from Claude Code and Codex, expiring memories, note read-back, outside memory (R17-F) | `library:memory`; skill usage and merging in `customize:skills` |
 | The wall around programs and keys at the network edge (`mac3/os-sandbox`) | `settings:computer`, beside "What can reach out"; its questions in `inbox:needs` |
 | The dashboard in the browser (`mac3/web-dashboard`) | A page of its own at `/dashboard`, not a place; its switch in `customize:channels` |
 | Typed commands, the same everywhere (`mac3/commands`) | The switch and "what works where" in `settings:general`; the `/` menu lives in the message box, because it changes the next message |
@@ -135,6 +142,7 @@ Inside a conversation there are no homes to add to, only two surfaces with stric
 | Rooms where a Trunk asked for the owner (R17-A) | `inbox:needs` |
 | A Trunk's routines (R17-A) | `automations:scheduled`, with the rest, their words starting `[Trunk @name]`; each Trunk's own list is in its editor |
 | `@name` in the message box (R17-A) | The message box: the `@` menu, and the message goes to that Trunk's own conversation |
+| Safety extras: tool scripts, WebAssembly add-ons, authenticator codes, the emergency stop by level, command checks, the progress check, the tamper-evident record, history repair (`mac7/r17-g`) | `settings:permissions`; the emergency stop sits beside Lockdown's rules there, and a question that needs a code is still answered in `inbox:needs` |
 | The browser extension's side panel and the Obsidian plugin (`mac6/bucket-23`) | Outside the window; their instructions are in `extras/`, and the extension's switch stays in `customize:channels` |
 | Starting from a preset, and putting settings back (R17-S-A) | `settings:general` |
 | Which file does what, with editing of each file (R17-S-A) | `settings:general`, beside "How to work in this project"; each file's switch stays on its own card |

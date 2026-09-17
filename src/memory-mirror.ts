@@ -45,6 +45,12 @@ export interface MirrorReport {
 export class MemoryMirror {
   /** A fingerprint of what was last written, so an unchanged store is not rewritten every minute. */
   private lastWritten = new Map<string, string>();
+  // ── R17-059 (src/learning-more/readback.ts): the owner's edits are read back before a rewrite, and
+  // what was written is noted after it. `beforeWrite` answers true when it read edits, which forces
+  // the rewrite so the file shows what is remembered again. Both stay unset while that part is off. ──
+  beforeWrite?: (owner: string) => Promise<boolean>;
+  afterWrite?: (owner: string) => Promise<void>;
+  // ── end R17-059 ──
   constructor(private readonly store: Store, private readonly files?: WorkspaceFiles) {}
 
   /** Whether a workspace path belongs to the mirror, which is what makes it read-only above. */
@@ -77,8 +83,9 @@ export class MemoryMirror {
 
   /** Writes the folder from scratch: one note per kind, plus a short note saying what it all is. */
   async regenerate(owner: string, input: unknown = {}): Promise<MirrorReport> {
-    const { force } = MirrorSchema.parse(input);
+    let { force } = MirrorSchema.parse(input);
     if (!this.files) return { folder: mirrorFolder, files: [], facts: 0, wrote: false, note: "Workspace files are not available in this launch." };
+    if (await this.beforeWrite?.(owner).catch(() => false)) force = true; // R17-059
     const grouped = this.grouped(owner);
     const notes = [...grouped].map(([kind, records]) => ({ kind, records, body: noteFor(kind, records) }));
     const fingerprint = notes.map((note) => `${note.kind}:${note.body.length}:${note.records.length}`).join("|");
@@ -89,6 +96,7 @@ export class MemoryMirror {
     await this.put(`${mirrorFolder}/README.md`, readme(countAll(grouped), notes.length));
     for (const note of notes) await this.put(pathFor(note.kind), note.body);
     this.lastWritten.set(owner, fingerprint);
+    await this.afterWrite?.(owner).catch(() => undefined); // R17-059
     return { folder: mirrorFolder, files: notes.map((note) => ({ path: pathFor(note.kind), facts: note.records.length })),
       facts: countAll(grouped), wrote: true, note: "" };
   }
