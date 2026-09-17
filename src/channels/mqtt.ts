@@ -147,7 +147,7 @@ export class MqttChannel implements ChannelAdapter {
   private loop: Promise<void> | null = null;
   private nextId = 1;
   private counter = 0;
-  private readonly waiting = new Map<number, () => void>();
+  private readonly waiting = new Map<number, (lost?: Error) => void>();
   private readonly ids = new ShortIds();
   private onMessage: (message: InboundMessage) => Promise<void> = async () => undefined;
   constructor(private readonly options: MqttOptions) { this.id = options.id; }
@@ -179,7 +179,7 @@ export class MqttChannel implements ChannelAdapter {
         this.state = { state: "reconnecting", reason: `Could not reach the MQTT broker: ${error instanceof Error ? error.message : String(error)}` };
       }
       this.socket = null;
-      for (const done of this.waiting.values()) done();
+      for (const done of this.waiting.values()) done(new Error("The MQTT connection dropped before the broker confirmed the message"));
       this.waiting.clear();
       if (this.stopping || this.refused) return;
       await new Promise((resolve) => setTimeout(resolve, reconnectDelay(attempt + 1, this.options.retryBaseMs ?? 1000)));
@@ -284,7 +284,7 @@ export class MqttChannel implements ChannelAdapter {
     const acknowledged = new Promise<void>((resolve, reject) => {
       if (this.options.qos === 0) { resolve(); return; }
       const timer = setTimeout(() => { this.waiting.delete(id); reject(new Error("The MQTT broker did not confirm the message")); }, 15000);
-      this.waiting.set(id, () => { clearTimeout(timer); resolve(); });
+      this.waiting.set(id, (lost) => { clearTimeout(timer); if (lost) reject(lost); else resolve(); });
     });
     this.write(publishPacket(topic, payload, this.options.qos, id));
     await acknowledged;
