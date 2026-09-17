@@ -3,8 +3,9 @@ name: Package
 on:
   push:
     tags: ['v*']
+# Only the job that attaches the downloads may write; the builds (which run npm ci) may only read.
 permissions:
-  contents: write
+  contents: read
 jobs:
   build:
     strategy:
@@ -16,8 +17,10 @@ jobs:
       HAS_APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE_P12 != '' }}
       HAS_NOTARY_KEY: ${{ secrets.APPLE_API_KEY_P8 != '' }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '24'
           cache: npm
@@ -52,19 +55,28 @@ jobs:
           if [ -f "$RUNNER_TEMP/notary-key.p8" ]; then export APPLE_API_KEY_PATH="$RUNNER_TEMP/notary-key.p8"; fi
           npm run package:desktop -- --release
           if [ "$RUNNER_OS" = "macOS" ]; then node scripts/package-desktop.mjs --release --arch x64; fi
-      - uses: actions/upload-artifact@v4
+      - name: Remove the signing material
+        if: always() && runner.os == 'macOS'
+        run: |
+          rm -f "$RUNNER_TEMP/notary-key.p8" "$RUNNER_TEMP/cert.p12"
+          if [ -f "$RUNNER_TEMP/signing.keychain-db" ]; then security delete-keychain "$RUNNER_TEMP/signing.keychain-db"; fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: download-${{ runner.os }}
           path: |
-            release/Branch-Agent-*
+            release/Branch-Agent-*.zip
+            release/Branch-Agent-*.tar.gz
+            release/Branch-Agent-*.sha256
             release/Install Branch Agent.cmd
           if-no-files-found: error
           retention-days: 7
   publish:
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: downloads
           merge-multiple: true

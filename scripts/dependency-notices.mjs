@@ -34,5 +34,5 @@ for (const [path, entry] of Object.entries(lock.packages)) {
       "",
     );
 }
-await writeFile("THIRD_PARTY_NOTICES.md", sections.join("\n").replace(/[ \t]+$/gm, ""));
+await writeFile("THIRD_PARTY_NOTICES.md", sections.join("\n").replace(/\r\n?/g, "\n").replace(/[ \t]+$/gm, ""));
 console.log("Collected notices from locked runtime dependencies.");
