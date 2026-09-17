@@ -176,7 +176,9 @@ export class BranchBrowser {
   /** The quirks of this website, when a skill knows any, applied the moment the page has opened. */
   private async quirks(context: ToolContext, page: Page, url: string): Promise<QuirksApplied | null> {
     const known = this.siteSkills?.(context.owner)?.forUrl(url);
-    return known ? applyQuirks(page, known) : null;
+    // Pressing a notice is not reading, so a task allowed only to read is told what it would have
+    // pressed rather than having a press made on its behalf.
+    return known ? applyQuirks(page, known, context.permissions.has('browser.interact')) : null;
   }
   /**
    * Site skills: which websites a skill knows the quirks of, and the readings one of them names.

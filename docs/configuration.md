@@ -401,6 +401,11 @@ skill's own note. `browser.site { action: "list" }` says which websites have a s
 one knows; `browser.site { action: "read", name: "basket" }` reads the page by the name of a
 reading, and refuses by name when there is no such reading.
 
+**Pressing is not reading.** Opening a page is a reading permission and pressing something is not,
+so a task that may only read gets the waiting and the settling but never the pressing: what it
+would have pressed comes back in the answer as `notPressed`, so it can ask for what it needs
+instead of wondering why the notice is still there.
+
 **What a site skill may not do.** It is data and only data: selectors, a wait, a pause and named
 readings. There is deliberately nowhere to put a piece of script, because a skill can arrive from
 anybody and a script in one would run inside the page. The selectors it will press are named in the

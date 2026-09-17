@@ -79,27 +79,37 @@ export class SiteSkills {
 const longest = (hosts: readonly string[]): number => Math.max(...hosts.map(host => host.length));
 
 /** What applying a site's quirks to a page actually did, so the result can say so plainly. */
-export interface QuirksApplied { skill: string; dismissed: string[]; waited: boolean; notes: string }
+export interface QuirksApplied {
+  skill: string; dismissed: string[]; waited: boolean; notes: string;
+  /** Notices it would have pressed, when this task is only allowed to read. */
+  notPressed: string[];
+}
 
 /**
  * Applies one site's quirks to a page that has just opened: waits for the thing that says the page
  * is really ready, presses the notices that sit over everything, and lets it settle. Nothing here
  * can fail a navigation — a quirk that does not apply is simply not applied.
+ *
+ * Opening a page is a reading permission, and pressing something is not, so a task that may only
+ * read gets the waiting and the settling but never the pressing: what it would have pressed is
+ * reported instead, so the assistant can ask for what it needs rather than wonder why the notice
+ * is still there.
  */
-export async function applyQuirks(page: Page, entry: SiteSkillEntry): Promise<QuirksApplied> {
+export async function applyQuirks(page: Page, entry: SiteSkillEntry, mayPress: boolean): Promise<QuirksApplied> {
   const { site } = entry;
   const waited = site.waitFor
     ? await page.waitForSelector(site.waitFor, { timeout: 5000, state: 'attached' }).then(() => true).catch(() => false)
     : false;
   const dismissed: string[] = [];
-  for (const target of site.dismiss) {
+  for (const target of mayPress ? site.dismiss : []) {
     const locator = page.locator(target).first();
     if (!await locator.count().catch(() => 0)) continue;
     const pressed = await locator.click({ timeout: 2000 }).then(() => true).catch(() => false);
     if (pressed) dismissed.push(target);
   }
   if (site.settleMs) await page.waitForTimeout(site.settleMs);
-  return { skill: entry.skill, dismissed, waited, notes: site.notes };
+  return { skill: entry.skill, dismissed, waited, notes: site.notes,
+    notPressed: mayPress ? [] : [...site.dismiss] };
 }
 
 /** One skill package as it is kept, of which only the site block matters here. */

@@ -22,9 +22,9 @@ import {RunArtifacts, ToolRegistry, Budget} from '../dist/index.js';
  * a headless one of the test's own. The borrowing test starts its own headless Chromium with a
  * debugging door, standing in for the owner's browser; the owner's real Chrome is never touched.
  */
-const runContext = (runId, owner = 'test') => ({
+const runContext = (runId, owner = 'test', permissions = ['browser.read', 'browser.interact']) => ({
   owner, workspace: '.', runId, signal: new AbortController().signal, budget: new Budget(),
-  permissions: new Set(['browser.read', 'browser.interact']), depth: 0,
+  permissions: new Set(permissions), depth: 0,
 });
 
 async function scratch(label) {
@@ -217,6 +217,15 @@ test('a site skill presses the notice, waits for the table, and reads it by name
     const read = ok(await h.registry.execute('browser.site', {action: 'read', name: 'basket'}, context));
     assert.deepEqual(read.rows, [{item: 'Tea', price: 3.5}, {item: 'Mug', price: 8}]);
     assert.equal(read.skill, 'the-shop');
+    // A task allowed only to read gets the waiting but never the pressing, and is told so.
+    const reader = runContext('run-site-read', 'test', ['browser.read']);
+    const opened2 = ok(await h.registry.execute('browser.navigate', {url: `${h.origin}/shop`}, reader));
+    assert.deepEqual(opened2.site.dismissed, [], 'a reading task presses nothing');
+    assert.deepEqual(opened2.site.notPressed, ['#accept'], 'it is told what it would have pressed');
+    const still = ok(await h.registry.execute('browser.shape', {fields: {notice: {selector: '#notice'}}}, reader));
+    assert.match(still.rows[0].notice, /We use cookies/, 'the notice is still there');
+    await h.registry.finishRun(reader);
+
     const listed = ok(await h.registry.execute('browser.site', {action: 'list'}, context));
     assert.deepEqual(listed.sites[0].readings, ['basket']);
     await refusal(h.registry.execute('browser.site', {action: 'read', name: 'nothing'}, context),
