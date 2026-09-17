@@ -197,6 +197,10 @@ export class ChannelRouter {
    */
   liveAllowed: () => boolean = () => true;
   private readonly turns = new Map<string, ChatTurnState>();
+  /** How many chats may have a task working at the same time. */
+  maxChatTasks = 4;
+  private chatTasks = 0;
+  private readonly slotWaiters: (() => void)[] = [];
   constructor(private readonly store: Store, private readonly runtime: Runtime, public pumpMs = 10000) {
     this.deliveries = new Deliveries(store, runtime.owner);
   }
@@ -488,8 +492,9 @@ export class ChannelRouter {
     if (this.mergeWindowMs > 0) await new Promise((resolve) => setTimeout(resolve, this.mergeWindowMs).unref());
     let outcome: Outcome = "ignored";
     try {
-      if (turn.dropped) await turn.live?.finish("error");
-      else { turn.phase = "running"; outcome = await this.runTurn(turn); }
+      // A dropped message only gets the "Dropped that" words; nothing more is shown for it.
+      if (turn.dropped) turn.live?.cancel();
+      else { turn.phase = "running"; outcome = await this.withSlot(() => this.runTurn(turn)); }
     } finally {
       this.turns.delete(key);
       for (const resolve of turn.waiters) resolve(outcome);
@@ -588,6 +593,21 @@ export class ChannelRouter {
     await this.deliver(message.channel, message.chatId, text, `reply:${runId}`, message.messageId)
       .then((sent) => span?.end("ok", "", { "branch.delivery.queued": sent.queued }))
       .catch((error) => span?.end("error", error instanceof Error ? error.message : String(error)));
+  }
+  /**
+   * At most `maxChatTasks` chats have a task working at once. The adapters no longer wait for one
+   * message before reading the next (see `attach`), so this is what keeps a burst of messages from
+   * many chats from starting a task for each of them at the same moment. The rest wait their turn.
+   */
+  private async withSlot<T>(work: () => Promise<T>): Promise<T> {
+    while (this.chatTasks >= this.maxChatTasks) await new Promise<void>((resolve) => this.slotWaiters.push(resolve));
+    this.chatTasks++;
+    try {
+      return await work();
+    } finally {
+      this.chatTasks--;
+      this.slotWaiters.shift()?.();
+    }
   }
   /** Whether a chat may be shown typing, reactions and progress right now. */
   private liveOn(): boolean {

@@ -314,7 +314,28 @@ test("/stop during the gathering moment drops the message before anything starts
   assert.equal(await outcome, "ignored");
   assert.equal(model.requests.length, 0);
   assert.deepEqual(chat.sent(), ["Dropped that. Nothing was started."]);
-  assert.equal(chat.calls.filter((c) => c.op === "react").at(-1).emoji, statusEmoji.error);
+  assert.ok(chat.calls.every((c) => c.op !== "edit"), "no progress message for a task that never started");
+  assert.deepEqual(chat.calls.filter((c) => c.op === "react").map((c) => c.emoji), [statusEmoji.queued]);
+});
+
+test("only a few chats have a task working at once; the others wait their turn", async (t) => {
+  const { app, chat, model } = await fixture(t, async (request, n, self) => {
+    await self.hold(request.signal);
+    return echo(request);
+  });
+  app.channels.maxChatTasks = 2;
+  const outcomes = ["a", "b", "c"].map((chatId) => app.channels.handle(message(`hi from ${chatId}`, { chatId })));
+  await until(() => model.requests.length === 2, "two tasks started");
+  await delay(50);
+  assert.equal(model.requests.length, 2, "the third chat waits");
+  model.open();
+  await until(() => model.requests.length === 3 && model.gates.length === 1, "the third task started once a slot was free");
+  model.open();
+  assert.deepEqual(await Promise.all(outcomes), ["replied", "replied", "replied"]);
+  const replies = app.channels.deliveries.list().filter((d) => d.key.startsWith("reply:"));
+  assert.deepEqual(replies.map((d) => d.chatId).sort(), ["a", "b", "c"]);
+  assert.ok(replies.every((d) => d.status === "sent"));
+  void chat;
 });
 
 test("/new starts a fresh conversation and /usage adds a tokens-and-cost line", async (t) => {
