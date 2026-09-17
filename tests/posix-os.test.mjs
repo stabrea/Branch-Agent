@@ -31,9 +31,10 @@ async function temp(t, prefix) {
   return root;
 }
 async function fixture(t) {
-  const root = await temp(t, "branch-posix-os-");
+  const root = await mkdtemp(join(tmpdir(), "branch-posix-os-"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data") });
-  t.after(() => app.close());
+  // One hook, app first: Windows refuses to delete the database while it is still open.
+  t.after(async () => { await app.close(); await discardTemp(root); });
   return app;
 }
 /** A shell script that stands in for a program, made runnable. */

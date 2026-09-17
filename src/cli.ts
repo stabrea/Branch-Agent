@@ -600,8 +600,9 @@ async function runToolChecks(app: Awaited<ReturnType<typeof createBranch>>): Pro
   if (result.summary.passed < result.summary.total) process.exitCode = 1;
 }
 /**
- * `branch study run <id> [--fresh]`, `branch study list`, `branch study compare <a> <b>`. A study
- * that is stopped part way carries on from its checkpoints unless `--fresh` is given.
+ * `branch study run <id> [--fresh]`, `branch study list`, `branch study compare <a> <b>` and
+ * `branch study replay <id>`, which reads the journal and says what changed since the run before.
+ * A study that is stopped part way carries on from its checkpoints unless `--fresh` is given.
  */
 async function runStudy(app: Awaited<ReturnType<typeof createBranch>>): Promise<void> {
   const action = process.argv[3] ?? "list", asJson = process.argv.includes("--json");
@@ -618,7 +619,13 @@ async function runStudy(app: Awaited<ReturnType<typeof createBranch>>): Promise<
     const comparison = compareStudies(left, right);
     return void console.log(asJson ? JSON.stringify(comparison, null, 2) : comparisonTable(comparison));
   }
-  if (action !== "run") throw new Error("Usage: branch study list | run <id> [--fresh] | compare <a> <b>");
+  if (action === "replay") {
+    const studyId = process.argv[4];
+    if (!studyId) throw new Error("Name a study: branch study replay <id>");
+    const { entry, report } = app.studies.replay(studyId);
+    return void console.log(asJson ? JSON.stringify(entry, null, 2) : report);
+  }
+  if (action !== "run") throw new Error("Usage: branch study list | run <id> [--fresh] | compare <a> <b> | replay <id>");
   const id = process.argv[4];
   if (!id) throw new Error("Name a study: branch study run <id>");
   const result = await app.studies.run(id, { fresh: process.argv.includes("--fresh") });

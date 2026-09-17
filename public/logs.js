@@ -118,11 +118,34 @@ async function drawCachedAnswers(view) {
   } catch (error) { list.replaceChildren(el("p", error.message, "meta")); }
 }
 
-/** The Usage screen asks for these two at the end of its own render. */
+/** Every set of questions handed over at once, and what handing it over saved. */
+async function drawBatchSets(view) {
+  const list = card(view, t("batchsets.title"), t("batchsets.intro"));
+  try {
+    const { lines, saved, batched, askedAgain } = await api("batch-sets");
+    if (!lines.length) { list.append(el("p", t("batchsets.empty"), "meta")); return; }
+    list.append(el("p", t("batchsets.total", { amount: saved.toFixed(4), batched, again: askedAgain }), "meta"));
+    for (const line of lines.slice(0, 40)) {
+      const row = el("article", undefined, "card-row");
+      row.append(el("strong", line.model || "a model"));
+      row.append(el("span", `${formatDate(line.at)} · `
+        + (line.route === "batch"
+          ? t("batchsets.row.batch", { batched: line.batched, questions: line.questions, amount: line.saved.toFixed(4) })
+          : t("batchsets.row.direct", { questions: line.questions })), "meta"));
+      if (line.askedAgain || line.unanswered)
+        row.append(el("span", t("batchsets.row.gaps", { again: line.askedAgain, lost: line.unanswered }), "meta"));
+      if (line.reason) row.append(el("span", line.reason, "meta"));
+      list.append(row);
+    }
+  } catch (error) { list.replaceChildren(el("p", error.message, "meta")); }
+}
+
+/** The Usage screen asks for these at the end of its own render. */
 globalThis.branchDashboards = {
   async renderInto(view) {
     await drawRequestRates(view);
     await drawCachedAnswers(view);
+    await drawBatchSets(view);
   },
 };
 

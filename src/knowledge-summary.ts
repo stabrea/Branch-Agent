@@ -4,8 +4,9 @@ import { z } from "zod";
 import { Citations, type Citation } from "./citations.js";
 import { errorText, type Provider } from "./contracts.js";
 import type { KnowledgeBases } from "./knowledge-bases.js";
-import type { ModelRouter } from "./models.js";
+import type { ModelPreset, ModelRouter } from "./models.js";
 import type { Store } from "./store.js";
+import { runBatch, supportsBatch } from "./batch-inference.js";
 
 /**
  * A written summary of a whole knowledge base. A search answers a question; this answers "what is
@@ -44,7 +45,8 @@ const reduceInstructions =
 
 export class KnowledgeSummaries {
   private readonly db: DatabaseSync;
-  constructor(store: Store, private readonly bases: KnowledgeBases, private readonly models?: ModelRouter) {
+  constructor(private readonly store: Store, private readonly bases: KnowledgeBases,
+    private readonly models?: ModelRouter) {
     this.db = store.sqlite;
     this.db.exec(`CREATE TABLE IF NOT EXISTS kb_summaries(owner TEXT NOT NULL, collection TEXT NOT NULL,
       version TEXT NOT NULL, focus TEXT NOT NULL DEFAULT '', summary TEXT NOT NULL, citations TEXT NOT NULL,
@@ -99,13 +101,13 @@ export class KnowledgeSummaries {
     }));
     const batches: string[] = [];
     for (let at = 0; at < numbered.length; at += batchSize) batches.push(listing(numbered.slice(at, at + batchSize)));
-    const provider = this.models?.plan(owner, "").candidates[0]?.provider;
-    if (!provider)
+    const preset = this.models?.plan(owner, "").candidates[0];
+    const provider = preset?.provider;
+    if (!preset || !provider)
       return { summary: extractive(numbered, citations), citations: citations.list(), batches: batches.length,
         note: "No model is connected, so this is the opening of each passage rather than a written summary." };
     try {
-      const parts: string[] = [];
-      for (const batch of batches) parts.push(await ask(provider, mapInstructions, batch, 500, signal));
+      const parts = await this.mapPass(owner, preset, batches, signal);
       const joined = parts.join("\n");
       const summary = parts.length === 1 ? joined
         : await ask(provider, reduceInstructions, `${focus ? `The person asked about: ${focus}\n\n` : ""}${joined}`, 900, signal);
@@ -115,6 +117,30 @@ export class KnowledgeSummaries {
         note: `The model could not be reached (${errorText(error).slice(0, 120)}), so this is the opening of each passage instead.` };
     }
   }
+  /**
+   * Every part of the collection summarised. The parts do not depend on each other, so where the
+   * connection takes a whole set at once they go over together for about half the money; where it
+   * does not, or where there is only one part, they are asked the way they always were. A set that
+   * half worked has its gaps asked again inside `runBatch`, so this gets a full set of parts either
+   * way and never a hole in the middle of a summary.
+   */
+  private async mapPass(owner: string, preset: ModelPreset, batches: string[], signal?: AbortSignal): Promise<string[]> {
+    const provider = preset.provider;
+    if (batches.length < 2 || !supportsBatch(provider)) {
+      const parts: string[] = [];
+      for (const batch of batches) parts.push(await ask(provider, mapInstructions, batch, 500, signal));
+      return parts;
+    }
+    const outcome = await runBatch(this.store, owner, preset,
+      batches.map((batch, at) => ({
+        id: `part${at}`, maxTokens: 500,
+        messages: [{ role: "system" as const, content: mapInstructions }, { role: "user" as const, content: batch }],
+      })), signal ?? AbortSignal.timeout(600000));
+    const failed = outcome.answers.find((answer) => answer.error);
+    if (failed) throw new Error(failed.error);
+    return outcome.answers.map((answer) => answer.content.trim());
+  }
+
   private kept(owner: string, collection: string, version: string, focus: string): Omit<KnowledgeSummary, "collection" | "name" | "cached" | "version"> | null {
     const row = this.db.prepare("SELECT * FROM kb_summaries WHERE owner=? AND collection=? AND version=? AND focus=?")
       .get(owner, collection, version, focus);
