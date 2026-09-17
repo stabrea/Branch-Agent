@@ -534,3 +534,25 @@ test("review: current Claude models have prices, so a Claude cache ping can keep
   assert.deepEqual(tablePrice("claude-haiku-4-5"), { input: 1, output: 5, cached: 0.1 });
   assert.deepEqual(tablePrice("claude-sonnet-5"), { input: 2, output: 10, cached: 0.2 });
 });
+
+test("review: a mixture is priced at its dearest known member, and its summed cost meets the task limit and the month", async (t) => {
+  const { pricedAs, spendCapCheck } = await import("../dist/index.js");
+  const big = { input: 400, output: 100 };
+  const a = scripted("a", () => answer("A", [], big));
+  const b = scripted("b", () => answer("B", [], big));
+  const w = scripted("w", () => answer("done", [], big));
+  const presets = [preset("a", a, "mystery-model"), preset("b", b, "claude-opus-4-1"), preset("w", w, "claude-haiku-4-5")];
+  const { app } = await fixture(t, presets);
+  const mix = { id: "trio", name: "Trio", references: ["a", "b"], aggregator: "w", referenceMaxTokens: 128 };
+  const resolve = (id) => app.runtime.models.presets.get(id);
+  assert.equal(pricedAs(mix, resolve), "claude-opus-4-1", "an unpriced member never drops the price to the writer's");
+  saveSavings(app.store, owner, "mixtures", { mixtures: [mix] });
+  syncMixtures(app.store, owner, app.runtime.models);
+  const run = await app.runtime.run({ prompt: "2+2?", model: "mixture-trio" });
+  assert.equal(app.store.usage(run.id).reportedInput, 1200, "all three calls are in the task's usage");
+  saveKnobs(app.store, owner, "limits", { spendCapDollars: 0.02 });
+  // 1200 in at $15 + 300 out at $75 per million = $0.0405, over the $0.02 limit.
+  assert.match(spendCapCheck(app.store, owner, [run.id], resolve("mixture-trio").model).refusal ?? "", /limit/);
+  const month = app.store.usageStore().getMonthlyStats(undefined, {});
+  assert.ok(month.estimatedCost >= 0.04, `the month counts the whole mixture (${month.estimatedCost})`);
+});

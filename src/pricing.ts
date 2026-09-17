@@ -33,7 +33,7 @@ export interface TokenCounts {
 }
 
 /** The date the built-in prices were last checked against the providers' public pricing pages. */
-export const pricedAt = "2026-09-16";
+export const pricedAt = "2026-09-17";
 
 /**
  * Published list prices in US dollars per million tokens, keyed by the model identifiers that

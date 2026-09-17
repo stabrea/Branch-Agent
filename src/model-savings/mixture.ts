@@ -69,14 +69,19 @@ export class MixtureProvider implements Provider {
   }
 }
 
-/** The member whose input price is highest, so the mixture is never priced below what it costs. */
+/**
+ * The member whose input price is highest, so the mixture's summed usage is never priced below what
+ * the priced members cost. A member with no price on file is skipped rather than letting the writer's
+ * (possibly lower) price stand in for everything; with no priced member at all, the writer names it
+ * and the spending limit says it cannot be checked.
+ */
 export function pricedAs(mixture: Mixture, resolve: Resolve): string {
   const writer = resolve(mixture.aggregator)?.model ?? mixture.aggregator;
   let best = writer, bestPrice = tablePrice(writer)?.input ?? -1;
   for (const id of mixture.references) {
     const model = resolve(id)?.model;
     const price = model ? tablePrice(model)?.input : undefined;
-    if (!model || price === undefined) return writer;
+    if (!model || price === undefined) continue;
     if (price > bestPrice) { best = model; bestPrice = price; }
   }
   return bestPrice < 0 ? writer : best;

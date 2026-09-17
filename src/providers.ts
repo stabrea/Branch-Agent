@@ -116,7 +116,10 @@ function validateOptions(options: ProviderOptions): void {
  * Whether a connection can be shown a picture. Providers say so themselves; anything that does
  * not answer is treated as text only, so a picture is refused in plain words rather than dropped.
  */
-/** The addresses known to take a whole set of questions at once. */
+/**
+ * The addresses known to take a whole set of questions at once. OpenAI's entry is also the gate for
+ * `service_tier` (see `serviceTierPart`), so edit it with both in mind.
+ */
 export const openaiBatchHosts = ["api.openai.com", ".openai.azure.com"];
 export const anthropicBatchHosts = ["api.anthropic.com"];
 /**
