@@ -23,10 +23,19 @@ export interface ToolEntry {
   /** What the owner or a past failure taught about this tool. */
   note: string;
   external: boolean;
-  /** Words this tool is found by. */
+  /** Words this tool is found by, each written once per place it appears. */
   terms: string[];
-  /** How often each of those words appears, so scoring never rescans the list. */
+  /**
+   * How much each of those words is worth on this tool, so scoring never rescans the list. A word
+   * in the tool's own name counts three times, in the opening sentence of its description twice,
+   * and anywhere else once (see `fieldWeights`).
+   */
   counts: Map<string, number>;
+  /** The weighted length of this tool's text: the sum of `counts`, used to keep long text fair. */
+  weight: number;
+  /** The words of the tool's own name, and of the opening sentence of its description. */
+  nameTerms: Set<string>;
+  headTerms: Set<string>;
   /** sha256 of the description: the key an embedding cache would use. */
   digest: string;
 }
@@ -101,6 +110,10 @@ const synonyms: Record<string, readonly string[]> = {
   webpage: ["web", "page", "browser"], repo: ["git", "repository"], commit: ["git"], password: ["secret", "locker"],
   remember: ["memory", "fact", "remembered"], decided: ["memory", "fact"], recall: ["memory", "fact"],
   message: ["channel", "chat", "send"], signin: ["browser", "account", "sign"], login: ["browser", "account", "sign"],
+  // mac7/tool-search: "look it up online" is how a person asks for a web search. Without this the
+  // only thing web.search matched in "look up the prices online" was the word "up", which put it in
+  // the index by accident and took it back out as soon as the ranking improved.
+  online: ["web", "internet", "search"], internet: ["web", "online"],
 };
 
 /** The query's own words plus the everyday words that mean the same thing. */
@@ -112,6 +125,33 @@ export function expandQuery(query: string): string[] {
 
 const firstWords = (text: string, count: number): string =>
   text.split(/\s+/).filter(Boolean).slice(0, count).join(" ").replace(/[,.;:]$/, "");
+
+/**
+ * The opening sentence of a description: what the tool is actually for. Everything after it tends
+ * to be caveats and limits, which is where an incidental mention of somebody else's subject lives.
+ */
+export function firstSentence(text: string): string {
+  const end = text.search(/[.!?](\s|$)/);
+  return end < 0 ? text : text.slice(0, end + 1);
+}
+
+/**
+ * Where a word appears decides how much it is worth. A tool's own name is the tool saying what it
+ * is, so it counts most; its opening sentence is the tool saying what it does, so it counts next;
+ * the rest — later sentences, parameter names, the toolbox, a learned note — counts once. This is
+ * the whole of the fix for a search that used to rank a passing mention of "make" in a paragraph of
+ * caveats above the tool whose name is the word being searched for.
+ */
+export const fieldWeights = { name: 3, head: 2, rest: 1 } as const;
+
+/**
+ * Counting a word more times is not enough on its own, because the word-frequency measure levels
+ * off: a word seen five times is worth barely more than one seen twice. So a word in the tool's own
+ * name earns a flat credit as well, as large as that word is rare. This credit does not level off,
+ * which is what stops a tool that mentions somebody else's subject twice in passing from outranking
+ * the tool the subject is named after.
+ */
+export const nameBonus = 2;
 
 /** One tool's line in the index: its name, what it is for, and anything learned about it. */
 export const indexLine = (entry: ToolEntry): string =>
@@ -136,7 +176,7 @@ export class ToolIndex {
   readonly entries: ToolEntry[];
   private readonly byName = new Map<string, ToolEntry>();
   private readonly frequency = new Map<string, number>();
-  private readonly averageLength: number;
+  private readonly averageWeight: number;
   /** Set when the owner has switched meaning search on; otherwise every search here is lexical. */
   embedder: ToolEmbedder | undefined;
   constructor(tools: readonly ToolDescription[], options: ToolIndexOptions = {}) {
@@ -145,15 +185,17 @@ export class ToolIndex {
       this.byName.set(entry.name, entry);
       for (const term of new Set(entry.terms)) this.frequency.set(term, (this.frequency.get(term) ?? 0) + 1);
     }
-    const total = this.entries.reduce((sum, entry) => sum + entry.terms.length, 0);
-    this.averageLength = this.entries.length ? total / this.entries.length : 1;
+    const total = this.entries.reduce((sum, entry) => sum + entry.weight, 0);
+    this.averageWeight = this.entries.length ? total / this.entries.length : 1;
   }
   get size(): number { return this.entries.length; }
   entry(name: string): ToolEntry | undefined { return this.byName.get(name); }
   has(name: string): boolean { return this.byName.has(name); }
   /**
-   * How well one tool answers a query, by the usual word-frequency measure: a word that few tools
-   * use counts for more than one they all use, and an exact name match is worth a great deal.
+   * How well one tool answers a query, by the usual word-frequency measure, over the weighted
+   * counts above: a word that few tools use counts for more than one they all use, a word in the
+   * tool's own name or opening sentence counts for more than one buried in its small print, and an
+   * exact name match is worth a great deal.
    */
   score(terms: readonly string[], entry: ToolEntry): number {
     const k1 = 1.2, b = 0.75;
@@ -163,7 +205,8 @@ export class ToolIndex {
       if (!count) continue;
       const documents = this.frequency.get(term) ?? 0;
       const rarity = Math.log(1 + (this.entries.length - documents + 0.5) / (documents + 0.5));
-      score += rarity * (count * (k1 + 1)) / (count + k1 * (1 - b + b * (entry.terms.length / this.averageLength)));
+      score += rarity * (count * (k1 + 1)) / (count + k1 * (1 - b + b * (entry.weight / this.averageWeight)));
+      if (entry.nameTerms.has(term)) score += rarity * nameBonus;
     }
     return score;
   }
@@ -217,11 +260,23 @@ function entryOf(tool: ToolDescription, options: ToolIndexOptions): ToolEntry {
   const note = String(options.noteOf?.(tool.name) ?? "").slice(0, 120);
   const properties = (tool.parameters as { properties?: Record<string, unknown> } | undefined)?.properties;
   const params = properties && typeof properties === "object" ? Object.keys(properties).slice(0, 20) : [];
-  const terms = [...toolTerms(tool.name), ...toolTerms(description), ...toolTerms(params.join(" ")), ...toolTerms(group), ...toolTerms(note)];
+  const head = firstSentence(description);
+  const nameTerms = toolTerms(tool.name), headTerms = toolTerms(head);
+  const fields: readonly (readonly [number, string[]])[] = [
+    [fieldWeights.name, nameTerms],
+    [fieldWeights.head, headTerms],
+    [fieldWeights.rest, [...toolTerms(description.slice(head.length)), ...toolTerms(params.join(" ")), ...toolTerms(group), ...toolTerms(note)]],
+  ];
+  const terms = fields.flatMap(([, words]) => words);
   const counts = new Map<string, number>();
-  for (const term of terms) counts.set(term, (counts.get(term) ?? 0) + 1);
+  let weight = 0;
+  for (const [each, words] of fields) for (const term of words) {
+    counts.set(term, (counts.get(term) ?? 0) + each);
+    weight += each;
+  }
   return {
-    name: tool.name, group, description, purpose, params, note, external, terms, counts,
+    name: tool.name, group, description, purpose, params, note, external, terms, counts, weight,
+    nameTerms: new Set(nameTerms), headTerms: new Set(headTerms),
     digest: createHash("sha256").update(description).digest("hex"),
   };
 }
