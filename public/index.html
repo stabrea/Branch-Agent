@@ -207,6 +207,24 @@
             </div>
           </div>
           <div id="conversation" aria-live="polite" tabindex="0" aria-label="Messages"></div>
+          <!-- Wave 9: plan first or just do it, and how far it may go before checking back. The
+               choice belongs in the conversation, not buried in Settings (public/plan-act.js). It
+               is here before the first message too, so a plan can be asked for from the start. -->
+          <div id="plan-controls" class="model-controls">
+            <label for="session-plan-mode" data-t="field.how-it-should-work">How it should work</label>
+            <select id="session-plan-mode">
+              <option value="just-do-it" data-t="planAct.justDoIt">Just do it</option>
+              <option value="show-plan" data-t="planAct.showPlan">Show me the plan first</option>
+            </select>
+            <label for="session-autonomy" data-t="field.check-back-with-me">Check back with me</label>
+            <select id="session-autonomy">
+              <option value="every-step" data-t="planAct.everyStep">Before every step</option>
+              <option value="changes-only" data-t="planAct.changesOnly">Before steps that change something</option>
+              <option value="at-the-end" data-t="planAct.atTheEnd">Not until the end</option>
+            </select>
+            <button id="plan-mode-project" type="button" class="text-button" data-t="action.use-this-for-the-whole-project">Use this for the whole project</button>
+            <span id="plan-mode-state" class="meta" role="status"></span>
+          </div>
           <div id="model-controls" class="model-controls" hidden>
             <label for="session-model" data-t="field.model-for-this-conversation">Model for this conversation</label>
             <select id="session-model"></select>
@@ -221,6 +239,8 @@
             <select id="session-skill"><option value="">None</option></select>
             <span id="model-used" class="meta"></span>
           </div>
+          <!-- The plan itself: what it intends to do, before it does any of it. -->
+          <div id="plan-card" class="plan-card" hidden></div>
           <div class="composer-dock" id="composer-dock">
           <form id="chat-form" class="composer">
             <label class="sr-only" for="prompt" data-t="composer.yourMessage">Your message</label

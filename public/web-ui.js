@@ -95,6 +95,8 @@ await Promise.all([
   import("./logs.js"),
   import("./flow-editor.js"),
   import("./bridges.js"),
+  /* Wave 9: plan first or just do it, and the plan card that goes with it. */
+  import("./plan-act.js"),
 ]);
 wireOfflineBanner();
 registerServiceWorker();

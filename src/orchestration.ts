@@ -4,6 +4,11 @@ import type { Message, Run } from "./contracts.js";
 import type { Store } from "./store.js";
 import { checkResult } from "./delegation.js";
 import { CheckError, CompletionCheckSchema, evaluateChecks, type CompletionCheck } from "./reliability.js";
+import { audit } from "./audit.js";
+import {
+  autonomyWords, riskSentence, sessionPlanAct,
+  type Autonomy, type PlanActSettings, type PlanMode,
+} from "./plan-act.js";
 
 /**
  * Orchestration for one task: an optional short plan carried out step by step, an optional
@@ -28,14 +33,43 @@ export type StuckAction = OrchestrationSettings["stuckAction"];
 
 export const PlanStepSchema = z.object({
   title: z.string().trim().min(2).max(200),
+  /** What this step will touch, in plain words: a file, a website, a program. */
+  touches: z.string().trim().max(200).optional(),
+  /** Whether this step changes anything. Nothing said means it might, which is the safe reading. */
+  changes: z.boolean().default(true),
   check: CompletionCheckSchema.optional(),
   status: z.enum(["waiting", "working", "done", "failed"]).default("waiting"),
   output: z.string().max(2000).optional(),
 }).strict();
 export type PlanStep = z.infer<typeof PlanStepSchema>;
+/** Where a plan stands with the owner: shown and waiting, agreed, or sent back. */
+export type PlanDecision = "waiting" | "approved" | "rejected";
 export interface StoredPlan {
   runId: string; sessionId: string; prompt: string;
   steps: PlanStep[]; current: number; approved: boolean; createdAt: string;
+  /** Which mode made this plan. Only a "Show me the plan first" plan holds the task to it. */
+  mode?: PlanMode;
+  /** How far this task may go before checking back, as it was when the plan was agreed. */
+  autonomy?: Autonomy;
+  decision?: PlanDecision;
+  /** Who said yes or no, and when. */
+  decidedBy?: string;
+  decidedAt?: string;
+  /** Why the owner sent it back, so the next attempt is made with that in mind. */
+  reason?: string;
+  /** The last step the owner has said to carry on past; -1 before anything has been agreed. */
+  clearedThrough?: number;
+  /** True while the task is stopped on a question, so the plan is not dropped as abandoned. */
+  waitingOnOwner?: boolean;
+}
+/** The owner's answer to a plan waiting for them, however it reached us. */
+export interface PlanAnswer {
+  decision?: "approve" | "reject" | undefined;
+  /** New wording for the steps; leaving it out agrees to the plan as it stands. */
+  steps?: unknown;
+  reason?: string | undefined;
+  /** Who answered, when it was not the owner themselves. */
+  actor?: string | undefined;
 }
 export interface ConductOptions {
   /** Ask for a plan for this task whatever the saved setting says. */
@@ -49,7 +83,7 @@ export interface ConductOptions {
 }
 export type Aside = (messages: Message[]) => Promise<string>;
 
-const planInstructions = "You are planning a task before any of it is done. Reply with JSON only: {\"steps\":[{\"title\":\"one short instruction\",\"mustMention\":\"a word the result of that step has to contain\"}]}. Two to six steps, in the order they must happen; mustMention is optional. No prose, no explanation.";
+const planInstructions = "You are planning a task before any of it is done. Reply with JSON only: {\"steps\":[{\"title\":\"one short instruction in plain words\",\"touches\":\"the one file, website or program this step uses\",\"changes\":true,\"mustMention\":\"a word the result of that step has to contain\"}]}. Two to six steps, in the order they must happen. Set changes to false only when the step changes nothing at all and merely looks something up; touches and mustMention are optional. A person who is not technical reads these, so no jargon. No prose, no explanation.";
 const criticInstructions = "You review a finished answer before the person sees it. Reply with JSON only: {\"verdict\":\"accept\",\"fixes\":[]} or {\"verdict\":\"revise\",\"fixes\":[\"one concrete change\"]}. Accept when the answer does what was asked and meets every stated condition. List at most three fixes, each one thing to change.";
 const planShape = { type: "object", required: ["steps"], properties: { steps: { type: "array", minItems: 1, items: { type: "object", required: ["title"], properties: { title: { type: "string", minLength: 2 } } } } } };
 const verdictShape = { type: "object", required: ["verdict"], properties: { verdict: { enum: ["accept", "revise"] } } };
@@ -90,24 +124,84 @@ export class Orchestration {
   clearPlan(sessionId: string): void {
     this.store.delete("settings", this.owner, `plan:${sessionId}`);
   }
+  /** What this conversation is doing: its own choice, or the project's. */
+  planActFor(sessionId: string): PlanActSettings {
+    return sessionPlanAct(this.store, this.owner, sessionId, this.store.projects.active(this.owner).id);
+  }
   /**
    * Drops a plan that was being carried out by a task that did not finish. A plan still waiting for
-   * the owner's yes is kept: that is exactly the task that stopped to ask them.
+   * the owner's yes is kept: that is exactly the task that stopped to ask them — and so is a plan
+   * the owner is halfway through, whose task stopped on a check-back or a question.
    */
-  dropAbandonedPlan(sessionId: string): void {
+  dropAbandonedPlan(sessionId: string, status = "failed"): void {
     const plan = this.plan(sessionId);
-    if (plan?.approved) this.clearPlan(sessionId);
+    if (!plan?.approved) return;
+    if (plan.waitingOnOwner || (plan.mode === "show-plan" && status === "needs_input")) return;
+    this.clearPlan(sessionId);
   }
-  /** Replaces the steps of a plan that is waiting for the owner and marks it approved. */
-  editPlan(runId: string, steps?: unknown): StoredPlan {
+  /** Marks a plan as stopped on a question, so the task ending in order to ask does not drop it. */
+  pausePlan(sessionId: string): void {
+    const plan = this.plan(sessionId);
+    if (plan?.approved) this.savePlan({ ...plan, waitingOnOwner: true });
+  }
+  /** The step an agreed "show me the plan first" plan is on, for anything holding the task to it. */
+  currentStep(sessionId: string): { plan: StoredPlan; step: PlanStep; at: number } | null {
+    const plan = this.plan(sessionId);
+    if (!plan?.approved || plan.mode !== "show-plan") return null;
+    const step = plan.steps[plan.current];
+    return step ? { plan, step, at: plan.current + 1 } : null;
+  }
+  /** The plan a given task is waiting on the owner for. */
+  private waitingPlan(runId: string): StoredPlan {
     const run = this.store.run(runId);
     if (!run || run.owner !== this.owner) throw new Error("Run not found");
     const plan = this.plan(run.sessionId);
     if (!plan || plan.runId !== runId) throw new Error("That task has no plan waiting for you");
-    const edited = steps === undefined ? plan.steps : z.array(PlanStepSchema).min(1).max(8).parse(steps);
-    const next: StoredPlan = { ...plan, steps: edited, current: 0, approved: true };
-    this.store.event(runId, "plan.approved", { steps: edited.map((s) => s.title), edited: steps !== undefined });
+    return plan;
+  }
+  /** Replaces the steps of a plan that is waiting for the owner and marks it approved. */
+  editPlan(runId: string, steps?: unknown): StoredPlan {
+    return this.decidePlan(runId, steps === undefined ? {} : { steps });
+  }
+  /**
+   * The owner's answer to a plan: yes, yes with a step's wording changed, or no with a reason. The
+   * edited wording is what runs, because it is the plan they agreed to and not the one first shown.
+   */
+  decidePlan(runId: string, input: PlanAnswer): StoredPlan {
+    const plan = this.waitingPlan(runId);
+    const actor = input.actor?.trim() || this.owner;
+    if (input.decision === "reject") return this.recordRejection(plan, actor, input.reason ?? "");
+    const steps = input.steps === undefined ? plan.steps : z.array(PlanStepSchema).min(1).max(8).parse(input.steps);
+    const edited = steps.length !== plan.steps.length || steps.some((step, at) => step.title !== plan.steps[at]?.title);
+    const next: StoredPlan = { ...plan, steps, current: 0, approved: true, decision: "approved",
+      decidedBy: actor, decidedAt: new Date().toISOString(), clearedThrough: 0, waitingOnOwner: false };
+    this.store.event(runId, "plan.approved", { steps: steps.map((s) => s.title), edited,
+      autonomy: next.autonomy ?? "at-the-end", risk: riskSentence(steps), decidedBy: actor });
+    this.recordDecision(next, "allowed", actor);
     return this.savePlan(next);
+  }
+  private recordRejection(plan: StoredPlan, actor: string, reason: string): StoredPlan {
+    const next: StoredPlan = { ...plan, approved: false, decision: "rejected", decidedBy: actor,
+      decidedAt: new Date().toISOString(), reason: reason.trim().slice(0, 500), waitingOnOwner: false };
+    this.store.event(plan.runId, "plan.rejected", { steps: plan.steps.map((s) => s.title),
+      reason: next.reason, decidedBy: actor });
+    this.recordDecision(next, "refused", actor);
+    return this.savePlan(next);
+  }
+  /**
+   * The answer, the plan it was given for, how far the task may go and who said so, written into
+   * the record that only ever grows — and onto the task's own events, which hold the whole plan.
+   */
+  private recordDecision(plan: StoredPlan, outcome: "allowed" | "refused", actor: string): void {
+    const numbered = plan.steps.map((step, at) => `${at + 1}. ${step.title}`).join("; ");
+    const autonomy = autonomyWords[plan.autonomy ?? "at-the-end"];
+    const head = outcome === "allowed" ? "Plan agreed" : `Plan sent back: ${plan.reason || "no reason given"}`;
+    this.store.event(plan.runId, "plan.decided", { decision: plan.decision, decidedBy: actor,
+      autonomy: plan.autonomy ?? "at-the-end", steps: plan.steps.map((s) => s.title), plan: plan.steps });
+    audit(this.store, this.owner, {
+      action: "approval.decided", actor, subject: `the plan for: ${plan.prompt.slice(0, 240)}`,
+      reason: `${head} — ${autonomy} — ${numbered}`.slice(0, 500), runId: plan.runId, outcome,
+    });
   }
   /** A plain note of where a long task has got to, built from its own events; no model call. */
   milestone(run: Run, round: number): void {
@@ -154,6 +248,9 @@ export class RunConductor {
   private index = 0;
   private retried = false;
   private reviews = 0;
+  /** How far this task may go before checking back, and the last step the owner has cleared. */
+  private autonomy: Autonomy = "at-the-end";
+  private cleared = 0;
   constructor(
     private readonly deps: { store: Store; owner: string; workspace: string; orchestration: Orchestration },
     private readonly run: Run,
@@ -164,18 +261,29 @@ export class RunConductor {
   async start(): Promise<Message | null> {
     if (this.options.delegated) return null;
     const saved = this.deps.orchestration.plan(this.run.sessionId);
-    if (saved?.approved) return this.begin(saved);
-    if (saved && affirmative.test(this.run.prompt)) return this.begin(this.deps.orchestration.savePlan({ ...saved, approved: true, current: 0 }));
+    if (saved?.approved) return this.carryOn(saved);
+    // A plan the owner sent back is never started by a stray "ok": it is planned again instead.
+    if (saved && saved.decision !== "rejected" && affirmative.test(this.run.prompt))
+      return this.begin(this.deps.orchestration.savePlan({ ...saved, approved: true, current: 0,
+        decision: "approved", clearedThrough: 0, waitingOnOwner: false }));
     // A plan the person neither agreed to nor asked to be redone is finished with: dropping it here
     // stops a much later "ok, ..." in the same conversation from setting it going.
     if (saved && !this.wantsPlan()) { this.deps.orchestration.clearPlan(this.run.sessionId); return null; }
     if (!this.wantsPlan()) return null;
     const plan = await this.makePlan(saved);
     if (!plan) return null;
-    if (!this.needsApproval()) return this.begin(this.deps.orchestration.savePlan({ ...plan, approved: true }));
+    if (!this.needsApproval()) return this.begin(this.deps.orchestration.savePlan({ ...plan, approved: true, decision: "approved", clearedThrough: 0 }));
     this.deps.orchestration.savePlan(plan);
-    this.event("plan.awaiting_approval", { steps: plan.steps.map((s) => s.title) });
-    throw new NeedsInputError(`Here is my plan:\n${plan.steps.map((s, i) => `${i + 1}. ${s.title}`).join("\n")}\n\nSay "go ahead" to start, or tell me what to change.`);
+    this.event("plan.awaiting_approval", { steps: plan.steps.map((s) => s.title),
+      touches: plan.steps.map((s) => s.touches ?? ""), changes: plan.steps.map((s) => s.changes),
+      risk: riskSentence(plan.steps), autonomy: plan.autonomy ?? "at-the-end" });
+    throw new NeedsInputError(planMessage(plan));
+  }
+  /** A plan already agreed, picked up where the owner left it; "go ahead" clears the next step. */
+  private carryOn(saved: StoredPlan): Message {
+    const cleared = affirmative.test(this.run.prompt)
+      ? Math.max(saved.clearedThrough ?? 0, saved.current) : saved.clearedThrough ?? 0;
+    return this.begin(this.deps.orchestration.savePlan({ ...saved, clearedThrough: cleared, waitingOnOwner: false }));
   }
   /** Whether the whole task's own checks apply to this answer: no plan running, or its last step. */
   lastStep(): boolean {
@@ -196,21 +304,41 @@ export class RunConductor {
     if (this.stage === "wrap") this.stage = "review";
     return this.review(answer);
   }
+  private planAct(): PlanActSettings {
+    return this.deps.orchestration.planActFor(this.run.sessionId);
+  }
   private wantsPlan(): boolean {
+    if (this.planAct().planMode === "show-plan") return true;
     const settings = this.deps.orchestration.settings();
     return this.options.plan ?? (settings.autoPlan && looksMultiPart(this.run.prompt));
   }
   private needsApproval(): boolean {
-    return this.deps.orchestration.settings().planApproval;
+    return this.planAct().planMode === "show-plan" || this.deps.orchestration.settings().planApproval;
   }
   private begin(plan: StoredPlan): Message {
     this.steps = plan.steps;
     this.index = Math.min(plan.current, plan.steps.length - 1);
     this.stage = "steps";
+    this.autonomy = plan.autonomy ?? "at-the-end";
+    this.cleared = plan.clearedThrough ?? this.index;
     return this.startStep();
+  }
+  /**
+   * Stops before a step the owner asked to be checked with about, in the words they chose. Their
+   * next "go ahead" clears this step and the task picks up exactly here.
+   */
+  private checkBack(step: PlanStep): void {
+    if (this.index <= this.cleared || this.autonomy === "at-the-end") return;
+    if (this.autonomy === "changes-only" && step.changes === false) return;
+    this.persistPause();
+    this.event("plan.check_back", { step: this.index + 1, of: this.steps.length, title: step.title,
+      changes: step.changes, autonomy: this.autonomy });
+    throw new NeedsInputError(`Step ${this.index + 1} of ${this.steps.length} is next: ${step.title}`
+      + `${step.touches ? ` (${step.touches})` : ""}. You asked me to check with you first. Say "go ahead" when you want it done.`);
   }
   private startStep(): Message {
     const step = this.steps[this.index]!;
+    this.checkBack(step);
     step.status = "working";
     this.persist();
     this.event("plan.step.started", { step: this.index + 1, of: this.steps.length, title: step.title });
@@ -273,7 +401,8 @@ export class RunConductor {
   /** Asks the model for a numbered plan; a plan that cannot be read means the task runs as usual. */
   private async makePlan(previous: StoredPlan | undefined): Promise<StoredPlan | null> {
     const prompt = previous?.prompt ?? this.run.prompt;
-    const note = previous ? `\n\nThe person saw this plan:\n${previous.steps.map((s, i) => `${i + 1}. ${s.title}`).join("\n")}\nand replied: ${this.run.prompt.slice(0, 1000)}\nPlan again with that in mind.` : "";
+    const sentBack = previous?.reason ? `\nThey sent the plan back because: ${previous.reason}` : "";
+    const note = previous ? `\n\nThe person saw this plan:\n${previous.steps.map((s, i) => `${i + 1}. ${s.title}`).join("\n")}${sentBack}\nand replied: ${this.run.prompt.slice(0, 1000)}\nPlan again with that in mind.` : "";
     let raw: string;
     try {
       raw = await this.aside([{ role: "system", content: planInstructions }, { role: "user", content: `Task: ${prompt.slice(0, 4000)}${note}` }]);
@@ -285,26 +414,50 @@ export class RunConductor {
     if (parsed.status !== "resolved") { this.event("plan.failed", { error: parsed.status === "unresolved" ? parsed.reason : "unreadable" }); return null; }
     const steps = planSteps(parsed.value);
     if (!steps.length) { this.event("plan.failed", { error: "The plan had no usable steps" }); return null; }
-    this.event("plan.created", { steps: steps.map((s) => s.title) });
-    return { runId: this.run.id, sessionId: this.run.sessionId, prompt, steps, current: 0, approved: false, createdAt: new Date().toISOString() };
+    const settings = this.planAct();
+    this.event("plan.created", { steps: steps.map((s) => s.title),
+      touches: steps.map((s) => s.touches ?? ""), changes: steps.map((s) => s.changes),
+      risk: riskSentence(steps), mode: settings.planMode, autonomy: settings.autonomy });
+    return { runId: this.run.id, sessionId: this.run.sessionId, prompt, steps, current: 0, approved: false,
+      createdAt: new Date().toISOString(), mode: settings.planMode, autonomy: settings.autonomy,
+      decision: "waiting", clearedThrough: -1 };
   }
   private persist(): void {
     const saved = this.deps.orchestration.plan(this.run.sessionId);
     if (saved) this.deps.orchestration.savePlan({ ...saved, steps: this.steps, current: this.index, runId: this.run.id });
+  }
+  /** The same, plus the note that says this plan is waiting on the owner rather than abandoned. */
+  private persistPause(): void {
+    const saved = this.deps.orchestration.plan(this.run.sessionId);
+    if (saved) this.deps.orchestration.savePlan({ ...saved, steps: this.steps, current: this.index,
+      runId: this.run.id, clearedThrough: this.cleared, waitingOnOwner: true });
   }
   private event(kind: string, data: Record<string, unknown>): void {
     this.deps.store.event(this.run.id, kind, data);
   }
 }
 
-/** The model's planning answer turned into steps, each with an optional one-phrase check. */
+/**
+ * The model's planning answer turned into steps: the instruction, what it will touch, whether it
+ * changes anything, and an optional one-phrase check. A step that does not say whether it changes
+ * anything is taken to change something, because that is the reading that cannot do harm.
+ */
 function planSteps(value: unknown): PlanStep[] {
-  const raw = (value as { steps?: { title?: unknown; mustMention?: unknown }[] }).steps ?? [];
+  const raw = (value as { steps?: { title?: unknown; touches?: unknown; changes?: unknown; mustMention?: unknown }[] }).steps ?? [];
   return raw.slice(0, 6).flatMap((entry) => {
     const title = String(entry?.title ?? "").replace(/\s+/g, " ").trim().slice(0, 200);
     if (title.length < 2) return [];
     const phrase = typeof entry?.mustMention === "string" ? entry.mustMention.trim().slice(0, 200) : "";
     const check = phrase ? CompletionCheckSchema.parse({ mustMention: [phrase], maxRetries: 0 }) : undefined;
-    return [PlanStepSchema.parse({ title, ...(check ? { check } : {}) })];
+    const touches = typeof entry?.touches === "string" ? entry.touches.replace(/\s+/g, " ").trim().slice(0, 200) : "";
+    return [PlanStepSchema.parse({ title, changes: entry?.changes !== false,
+      ...(touches ? { touches } : {}), ...(check ? { check } : {}) })];
   });
+}
+/** The plan as the owner reads it: numbered, in plain words, with the risky steps named once. */
+export function planMessage(plan: StoredPlan): string {
+  const lines = plan.steps.map((step, at) =>
+    `${at + 1}. ${step.title}${step.touches ? ` — ${step.touches}` : ""}${step.changes === false ? " (changes nothing)" : ""}`);
+  return `Here is my plan:\n${lines.join("\n")}\n\n${riskSentence(plan.steps)}\n\n`
+    + 'Say "go ahead" to start, or tell me what to change.';
 }
