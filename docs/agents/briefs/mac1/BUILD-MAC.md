@@ -26,6 +26,13 @@ well**, without changing anything a Windows user sees. You build ONE area, named
   Linux) and by the Legion machine. **Every Windows code path must behave exactly as before.** Keep the
   Windows branch of each function textually recognisable, and keep or strengthen its tests.
 
+## Running tests on the Mac
+
+Many agents share this Mac. **A full-suite run goes through the Mac lock, one at a time:**
+`lockf -t 7200 /tmp/branch-mac-suite.lock node --test --test-concurrency=2 --test-timeout=240000 <files>`.
+Targeted runs of a few files don't need the lock but use `--test-concurrency=2` at most. A test that fails only while
+the Mac is busy (load average above ~20, see `uptime`) must be rerun alone before it is called a failure.
+
 ## Read first
 
 `README.md`, `docs/CHECKPOINT.md` (top section), `docs/agents/README.md`, `src/index.ts`, the files
