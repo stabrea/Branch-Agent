@@ -63,7 +63,9 @@ if (typeof document !== "undefined") void boot();
 async function boot() {
   const app = await import("/app.js");
   const { t } = await import("/i18n.js");
-  if (!app.SLASH_COMMANDS.some(([name]) => name === "/goal")) app.SLASH_COMMANDS.push(["/goal", t("goal.commandHelp")]);
+  // The words may not be loaded yet when this runs; everything below is worded again once they are.
+  const help = ["/goal", t("goal.commandHelp")];
+  if (!app.SLASH_COMMANDS.some(([name]) => name === "/goal")) app.SLASH_COMMANDS.push(help);
   const $ = (id) => document.getElementById(id);
   const el = (tag, text, className) => {
     const node = document.createElement(tag);
@@ -134,6 +136,7 @@ async function boot() {
     } catch { /* the next poll tries again */ }
   };
   setInterval(() => void poll(), POLL_MS);
+  document.addEventListener("branch-language", () => { help[1] = t("goal.commandHelp"); void poll(); });
 
   // Runs before the message box's own handler, so "/goal …" never reaches the model as a message.
   document.addEventListener("submit", (event) => {

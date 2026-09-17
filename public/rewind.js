@@ -45,8 +45,10 @@ async function boot() {
     if (className) node.className = className;
     return node;
   };
-  const button = (label, handler) => {
-    const node = el("button", label, "text-button");
+  /** A button whose words come from `key`, so switching language (or the words arriving late) rewords it. */
+  const button = (key, handler) => {
+    const node = el("button", t(key), "text-button");
+    node.dataset.t = key;
     node.type = "button";
     node.addEventListener("click", handler);
     return node;
@@ -60,7 +62,7 @@ async function boot() {
 
   const showUndo = (sessionId, text) => {
     undoFor = sessionId;
-    bar.replaceChildren(el("p", text), button(t("rewind.undo"), () => void unrevert(sessionId)));
+    bar.replaceChildren(el("p", text), button("rewind.undo", () => void unrevert(sessionId)));
     bar.hidden = false;
   };
   const refreshUndo = async () => {
@@ -101,7 +103,7 @@ async function boot() {
     if (status.note) form.append(el("p", status.note, "meta"));
     const send = el("button", t("rewind.send"), "text-button");
     send.type = "submit";
-    form.append(send, button(t("rewind.cancel"), () => form.remove()));
+    form.append(send, button("rewind.cancel", () => form.remove()));
     form.addEventListener("submit", (event) => {
       event.preventDefault();
       const restore = form.querySelector("input[type=radio]:checked")?.value || "both";
@@ -137,7 +139,7 @@ async function boot() {
     for (const node of $("conversation")?.querySelectorAll(".message.user:not([data-rewind])") ?? []) {
       node.dataset.rewind = "1";
       const controls = el("div", undefined, "message-controls");
-      controls.append(button(t("rewind.edit"), () => void edit(node)));
+      controls.append(button("rewind.edit", () => void edit(node)));
       node.append(controls);
     }
   };
