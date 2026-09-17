@@ -1576,7 +1576,7 @@ export class Runtime {
   /** True the first time a conversation is asked one particular thing, false every time after. */
   private askOnce(sessionId: string, key: string): boolean {
     if (this.askedAside.size > 500) this.askedAside.clear();
-    const full = `${sessionId} ${key}`;
+    const full = `${sessionId}\u0000${key}`;
     if (this.askedAside.has(full)) return false;
     this.askedAside.add(full);
     return true;
