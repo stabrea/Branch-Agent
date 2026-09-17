@@ -242,7 +242,14 @@ test("the composer never comes to rest on top of the greeting or the welcome car
   assert.equal(await f.page.locator("#first-run").isVisible(), true, "a new workspace starts on the welcome card");
   for (const size of SIZES) {
     await f.page.setViewportSize(size);
-    await f.page.waitForTimeout(150);
+    /* The variable is written when the dock reports its new size, which a loaded machine can take
+       well over a fixed pause to do; wait for the two to agree, and the assertion below still
+       names the size if they never do. */
+    await f.page
+      .waitForFunction(() =>
+        Number.parseInt(getComputedStyle(document.documentElement).getPropertyValue("--composer-h"), 10) ===
+          Math.round(document.getElementById("composer-dock").getBoundingClientRect().height), undefined, { timeout: 10000 })
+      .catch(() => undefined);
     /* The column keeps exactly the composer's height in reserve at its end. */
     const reserved = await f.page.evaluate(() => ({
       variable: Number.parseInt(getComputedStyle(document.documentElement).getPropertyValue("--composer-h"), 10),
