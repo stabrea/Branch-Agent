@@ -30,6 +30,18 @@ export const ROUTES = {
   "/v1/chat/completions": "task POST",
   "/v1/models": "look",
 
+  // mac6/accounts: reading the lists is looking; every change is the owner's.
+  "/api/accounts": "look",
+  "/api/accounts/": "prefix",
+  "/api/accounts/add": "owner POST",
+  "/api/accounts/chatgpt/login": "owner POST",
+  "/api/accounts/chatgpt/logout": "owner POST",
+  "/api/accounts/pool": "owner POST",
+  "/api/accounts/remove": "owner POST",
+  "/api/accounts/session": "look",
+  "/api/accounts/settings": "owner POST",
+  "/api/accounts/switch": "owner POST",
+  "/api/accounts/update": "owner POST",
   "/api/action": "task POST",
   "/api/activity": "look",
   "/api/agents": "prefix",

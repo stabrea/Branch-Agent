@@ -12,6 +12,7 @@ import { tokenLines, tokenReport } from "./tokens.js";
 import { runningLines, statusLines, whoamiLines } from "./status.js";
 import { helpText } from "./help-text.js";
 import { promptsCommand } from "./saved.js";
+import { accountCommand } from "./account.js"; // mac6/accounts
 import { AUTONOMY_HANDLERS } from "../autonomy/commands.js"; // r17-b
 
 /**
@@ -245,5 +246,6 @@ export const HANDLERS: Record<string, Handler> = {
   version: (call) => say(`Branch Agent ${call.host.version ?? "(version unknown)"}`),
   health,
   prompts: promptsCommand, // bucket 12
+  account: accountCommand, // mac6/accounts
   ...AUTONOMY_HANDLERS, // r17-b: /loop, /heartbeat, /subgoal, /bg, /handoff, /suggestions, /blueprint
 };
