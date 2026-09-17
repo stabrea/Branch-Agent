@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { protectedAreas, protectedTarget, cwdOf, type ProtectedAreas } from "./never-break/protected.js"; // mac3/never-break
 import {
   Budget,
   BudgetError,
@@ -276,6 +277,8 @@ export class Runtime {
   readonly requestCache: RequestCache;
   /** Wave mac2 (guards): the loop guard and folder trust. */
   readonly guards: RunGuards;
+  /** mac3/never-break: the places no task may touch (src/never-break/protected.ts). */
+  protectedAreas: ProtectedAreas;
   constructor(
     readonly store: Store,
     readonly registry: ToolRegistry,
@@ -295,6 +298,7 @@ export class Runtime {
     this.handoffs = new Handoffs(store, this.owner);
     this.requestCache = new RequestCache(store, this.owner);
     this.guards = new RunGuards(store, this.owner, workspace);
+    this.protectedAreas = protectedAreas({ workspace, dataDir: store.folder }); // mac3/never-break
   }
   /**
    * The answer to a tool call that was handed over earlier. It is written down and then put to the
@@ -1625,6 +1629,11 @@ ${run.output.slice(0, 6000)}`;
     const resource = resourceOf(tool, permission, target, args);
     // Somebody else in the house, working under their own profile, is held to their role first.
     // A role can only refuse; it never lets anything through that the rules would have stopped.
+    // --- mac3/never-break: Branch's own program, gateway settings, database and updater can never be
+    // touched by a task; checked before every rule, standing yes, hook, Lockdown or switch.
+    const untouchable = protectedTarget({ tool, readOnly, args, target, ...cwdOf(args) }, this.protectedAreas);
+    if (untouchable) return { decision: "deny", label, target, readOnly, remember: "never", sandbox: null, backend: null, paths: null, reason: untouchable };
+    // --- end mac3/never-break ---
     const refusal = this.roleRefusal(tool, permission);
     if (refusal) return { decision: "deny", label, target, readOnly, remember: "session", sandbox: null, backend: null, paths: null, reason: refusal };
     // mac2/leak-guard: an address carrying a key or password is asked about even where rules allow it.
