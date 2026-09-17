@@ -493,7 +493,7 @@ test("a voice note sent before a typed note reaches the task first, however long
 });
 
 test("a key in a step label never reaches the chat's progress message", async (t) => {
-  const token = "ghp_aB3dE5gH7jK9mN1pQ3rS5tU7vW9xY1zA3bC5";
+  const token = "ghp_aB3dE5gH7jK9mN1pQ3rS5tU7vW9xY1zA3bC5"; // not-a-real-secret
   const { app, chat, model } = await fixture(t, async (request, n, self) => {
     if (n === 1) return { content: "", toolCalls: [{ id: "r1", name: "files.read", arguments: JSON.stringify({ path: `${token}.txt` }) }] };
     await self.hold(request.signal);
