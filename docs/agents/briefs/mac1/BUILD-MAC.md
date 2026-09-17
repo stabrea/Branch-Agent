@@ -26,6 +26,21 @@ well**, without changing anything a Windows user sees. You build ONE area, named
   Linux) and by the Legion machine. **Every Windows code path must behave exactly as before.** Keep the
   Windows branch of each function textually recognisable, and keep or strengthen its tests.
 
+## Build-fast mode (owner, 2026-09-17) — overrides the test rules below until the feature push is done
+
+- Builders and integrators run **only the macOS test files their change touches** (`--test-concurrency=2`),
+  plus `npm run build` and `npx tsc --noEmit`. **No Linux VM runs, no Windows runs, no full suites** per branch.
+- GitHub CI still runs all three systems on every push; nobody waits for it, but report a red result if you see one.
+- Integrators still review every branch (security areas get the adversarial pass) and merge into `mac/cross-platform`.
+- Nothing is released or installed on the owner's machine until one full three-system round passes at the end.
+
+## Running tests on the Mac
+
+Many agents share this Mac. **A full-suite run goes through the Mac lock, one at a time:**
+`lockf -t 7200 /tmp/branch-mac-suite.lock node --test --test-concurrency=2 --test-timeout=240000 <files>`.
+Targeted runs of a few files don't need the lock but use `--test-concurrency=2` at most. A test that fails only while
+the Mac is busy (load average above ~20, see `uptime`) must be rerun alone before it is called a failure.
+
 ## Read first
 
 `README.md`, `docs/CHECKPOINT.md` (top section), `docs/agents/README.md`, `src/index.ts`, the files
