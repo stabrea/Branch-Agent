@@ -131,6 +131,13 @@ import { markShortLivedKey, startedWithShortLivedKey } from "./key-context.js";
 import { connectionCheck } from "./local-connection-policy.js"; // mac5/key-sweep: Test this connection
 import type { NetworkPolicy } from "./network-policy.js";
 import { generalShortLivedKeyRefusal, ownerOnlyRead, taskRouteFor } from "./short-lived-keys.js"; // mac5/key-sweep
+// ---- bucket 19: people signing in from their own device (src/people/). ----
+import { notPeople, PeopleHttpError, peopleApi, peopleSignInRoute } from "./people/api.js";
+import { People } from "./people/index.js";
+import { requireBoundSession } from "./people/access.js";
+import { keyAnswerRefusal, shortLivedKeyMark } from "./key-context.js";
+import { currentPerson } from "./people/context.js";
+// ---- end bucket 19 ----
 // bucket-18: code editor (A0098)
 import { handlesWorkspaceEditorPath, workspaceEditorApi, WorkspaceEditorApiError } from "./workspace-editor-api.js";
 import { protectedTarget } from "./never-break/protected.js"; // bucket-18 integration review
@@ -442,6 +449,11 @@ async function staticFile(
     "/learning-loop.js": ["learning-loop.js", "text/javascript; charset=utf-8"],
     // mac3/security-check: the security self-check card.
     "/security-check.js": ["security-check.js", "text/javascript; charset=utf-8"],
+    // bucket 19: the page people sign in on, and the owner's card for it (Settings, General).
+    "/people": ["people.html", "text/html; charset=utf-8"],
+    "/people.js": ["people.js", "text/javascript; charset=utf-8"],
+    "/people.css": ["people.css", "text/css; charset=utf-8"],
+    "/people-admin.js": ["people-admin.js", "text/javascript; charset=utf-8"],
     // mac2/fly-core-2: the learning core's card.
     "/learning-core.js": ["learning-core.js", "text/javascript; charset=utf-8"],
     "/layout.css": ["layout.css", "text/css; charset=utf-8"],
@@ -1165,6 +1177,12 @@ async function api(
     // mac5/key-sweep: answering is a run key's job, but "always" would write a standing rule.
     if (input.remember === "always" && startedWithShortLivedKey())
       throw new HttpError(401, "A short-lived key can answer this once or for this conversation, but cannot make a standing rule. Do that in the app window.");
+    // bucket 19: a short-lived key answers only the questions of tasks it started itself.
+    requireBoundSession(shortLivedKeyMark().sessionId, input.sessionId);
+    // With nothing waiting, the answer below says so in its own words.
+    const asked = app.runtime.approvals.questionFor(input.sessionId, input.fingerprint);
+    const keyRefusal = asked ? keyAnswerRefusal(app.store, asked.runId) : null;
+    if (keyRefusal) throw new HttpError(401, keyRefusal);
     return app.runtime.approve(input.sessionId, input.decision, input.remember, input.fingerprint);
   }
   if (request.method === "GET" && path === "/api/governance")
@@ -1183,6 +1201,7 @@ async function api(
   }
   if (request.method === "POST" && path === "/api/run") {
     const input = RunInputSchema.parse(await readBody(request));
+    requireBoundSession(shortLivedKeyMark().sessionId, input.sessionId); // bucket 19
     // Wave 6: a task started while somebody's profile is switched on is filed under their name.
     return runForCurrentPerson(app, {
       prompt: input.prompt,
@@ -1324,6 +1343,8 @@ async function sessionApi(app: Branch, request: IncomingMessage, path: string): 
     }
   }
   if (match && match[2] === "followups") {
+    // bucket 19: only whoever the conversation belongs to may read or add its queued messages.
+    if (!app.store.ownsSession(owner, match[1]!)) throw new HttpError(404, "Session not found");
     if (request.method === "GET") return { followUps: app.runtime.queued(match[1]!) };
     if (request.method === "POST") {
       const { prompt } = z.object({ prompt: z.string().trim().min(1).max(16000) }).strict().parse(await readBody(request));
@@ -2423,6 +2444,14 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
       // Wave 8: an artifact out of a reply, in that same frame. Its address is not used up by the
       // first fetch, so the frame may reload and "open larger" may show the same one again.
       if (artifactPageRoute(request, response, path)) return;
+      // ---- bucket 19: signing a person in needs no key yet; only this app's own pages may ask. ----
+      if (path.startsWith("/api/people/sign-in")) {
+        if (!hostAllowed(request.headers.host, request.headers.origin, url, remote.allowedHosts()) || request.headers["sec-fetch-site"] === "cross-site")
+          throw new HttpError(403, "Origin rejected");
+        if (viaRemote) { const refused = gateway.check(request, true); if (refused) throw new HttpError(401, refused); }
+      }
+      if (await peopleSignInRoute(app, request, response, path, () => readBody(request), (status, value) => send(response, status, value))) return;
+      // ---- end bucket 19 ----
       const triggerFireMatch = /^\/api\/triggers\/([a-f0-9-]{36})\/fire$/.exec(path);
       if (triggerFireMatch && request.method === "POST") {
         send(response, 200, await triggerFire(app, request, triggerFireMatch[1]!));
@@ -2434,16 +2463,24 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
         limiter: authLimiter,
         onFailure: (from) => noteAuthFailure(authLimiter, app.store, app.runtime.owner, from, "the local key"),
       }, (supplied) => {
+        // bucket 19: a person's own key reaches only their own page (src/people/access.ts).
+        if (People.isPersonKey(supplied)) {
+          const refused = app.people.admit(supplied, request.method, path);
+          if (refused === null) markShortLivedKey({ keyId: `person:${currentPerson()!.keyId}` });
+          return refused;
+        }
         const look = commandLook(app, request, path, supplied);
         onlyLooking = look !== null;
         const refusal = offLimitsToShortLivedKeys(request.method, path)
-          ?? app.sessionTokens.check(app.runtime.owner, supplied, look ?? {
+          ?? app.sessionTokens.check(app.runtime.owner, supplied, { ...(look ?? {
             method: request.method ?? "GET", executes: isExecution(request, path),
-          });
+          }), path });
         // bucket-18 (A0300): everything this request starts knows it came with a short-lived key.
-        if (refusal === null) markShortLivedKey();
+        // bucket 19: and which key, and the one conversation it may be held to.
+        if (refusal === null) markShortLivedKey(app.sessionTokens.markOf(app.runtime.owner, supplied) ?? {});
         return refusal;
-      }, (supplied) => app.sessionTokens.scopeOf(app.runtime.owner, supplied) !== null);
+      }, (supplied) => app.sessionTokens.scopeOf(app.runtime.owner, supplied) !== null
+        || app.people.keys.working(supplied)); // bucket 19
       // The extra door has its own chain on top of the key: see src/remote/gateway-auth.ts. The
       // window on this computer never goes through it.
       if (viaRemote) {
@@ -2499,6 +2536,14 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
           return;
         }
         // ---- end of the bucket-20 block ----
+        // ---- bucket 19: a person's own page, a handed-over conversation, and the owner's card. ----
+        if (path.startsWith("/api/people/")) {
+          const answer = await peopleApi(app, request, path, () => readBody(request, 262144)).catch((error: unknown) => {
+            throw error instanceof PeopleHttpError ? new HttpError(error.status, error.message) : error;
+          });
+          if (answer !== notPeople) { send(response, 200, answer); return; }
+        }
+        // ---- end bucket 19 ----
         if (await rawApi(app, request, response, path)) return;
         if (path.startsWith("/api/deployment")) {
           const result = await deploymentApi(app, request, path, deployment(), (r) => readBody(r), remoteHandler);

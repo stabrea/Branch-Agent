@@ -176,7 +176,9 @@ async function profilesApi(app: Branch, request: IncomingMessage, path: string, 
   if (remove && request.method === "POST") {
     profiles.requireOwner("Removing somebody from this computer");
     await body();
-    return profiles.remove(remove[1]!);
+    const removed = profiles.remove(remove[1]!);
+    if (removed.removed) app.people.forgetProfile(remove[1]!); // bucket 19: their sign-ins, passkeys and shares go too
+    return removed;
   }
   return notCollab;
 }

@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { protectedAreas, protectedTarget, cwdOf, type ProtectedAreas } from "./never-break/protected.js"; // mac3/never-break
 import { noJournal, type JournalHook } from "./never-break/journal.js"; // mac3/never-break
 import { neverBreakModeSync } from "./never-break/gateway-config.js"; // mac3/never-break
-import { runOrigin, startedWithShortLivedKey, underShortLivedKey } from "./key-context.js"; // bucket-18 (A0300)
+import { runOrigin, shortLivedKeyMark, startedWithShortLivedKey, underShortLivedKey } from "./key-context.js"; // bucket-18 (A0300), bucket 19
 import {
   Budget,
   BudgetError,
@@ -135,7 +135,7 @@ interface GateOutcome {
   backend: SandboxBackendName | null; paths: readonly string[] | null;
 }
 export interface DelegateOptions { timeoutMs?: number; resultSchema?: Record<string, unknown>; /** The shape this task wants back, declared in zod. A reply that misses it is re-asked once. */ shape?: AnswerShape; checks?: CompletionCheck; background?: boolean; /** Specialist id: limits memory reads to shared facts and its own. */ agent?: string; /** The specialist's working style; it changes how the loop runs. */ style?: SpecialistStyle }
-export interface FollowUp { id: string; prompt: string; createdAt: string; shortLivedKey?: boolean }
+export interface FollowUp { id: string; prompt: string; createdAt: string; shortLivedKey?: boolean; shortLivedKeyId?: string }
 export interface BackgroundResult { childRunId: string; parentRunId: string; status: string; output: string; finishedAt: string }
 export interface FanoutOutcome { waves: string[][]; tasks: Record<string, { runId: string; status: string; output: string; result: ResultCheck }> }
 const reviewInstructions = "You review a finished task. Reply with JSON only: {\"memories\":[{\"text\":\"a durable fact or preference about the person, in one sentence\",\"source\":\"why you believe it\"}],\"skills\":[{\"skillId\":\"id of an installed skill this task used\",\"note\":\"one improvement to its instructions\"}]}. Only include things worth keeping for future tasks; empty arrays are the normal answer.";
@@ -386,7 +386,8 @@ export class Runtime {
     if (!this.store.ownsSession(this.owner, sessionId)) throw new Error("Session not found");
     // bucket-18 (A0300): a message queued with a short-lived key starts later, so the mark is kept with it.
     const items = [...this.queued(sessionId), { id: randomUUID(), prompt, createdAt: new Date().toISOString(),
-      ...(startedWithShortLivedKey() ? { shortLivedKey: true } : {}) }];
+      ...(startedWithShortLivedKey() ? { shortLivedKey: true } : {}),
+      ...(shortLivedKeyMark().keyId ? { shortLivedKeyId: shortLivedKeyMark().keyId } : {}) }];
     this.store.save("settings", this.owner, `followups:${sessionId}`, { items });
     this.drainFollowUps(sessionId);
     const left = this.queued(sessionId);
@@ -398,7 +399,7 @@ export class Runtime {
     if (!next) return;
     this.store.save("settings", this.owner, `followups:${sessionId}`, { items: rest });
     const start = () => this.track(() => this.execute({ prompt: next.prompt, sessionId, onTextDelta: () => undefined }));
-    void (next.shortLivedKey ? underShortLivedKey(start) : start()).catch(() => undefined);
+    void (next.shortLivedKey ? underShortLivedKey(start, next.shortLivedKeyId ? { keyId: next.shortLivedKeyId } : {}) : start()).catch(() => undefined);
   }
   /**
    * Starts a specialist that keeps working after the parent finishes; its result is kept on the
@@ -649,6 +650,8 @@ ${run.output.slice(0, 6000)}`;
       source: context.source ?? "owner",
       ...(options.resumeFrom ? { resumedFrom: options.resumeFrom } : {}),
       ...(startedWithShortLivedKey() || inherited ? { shortLivedKey: true } : {}),
+      // bucket 19: which key, so only that key may answer the questions this task asks.
+      ...(shortLivedKeyMark().keyId ? { shortLivedKeyId: shortLivedKeyMark().keyId } : {}),
     };
   }
   private prepareRun(options: RunOptions): Run {
@@ -1744,7 +1747,7 @@ ${run.output.slice(0, 6000)}`;
   roleRefusal(tool: string, permission: string): string | null {
     const profile = this.store.profiles.active();
     if (!profile) return null;
-    const grant = this.roles.get(profile.id);
+    const grant = this.roles.effective(profile.id); // bucket 19: narrowed by the person's groups
     const spentToday = grant.dailySpendLimit > 0
       ? this.roles.spentToday(this.store.profiles.scope(), this.models.presets.get(this.models.summary(this.owner).defaultPreset)?.model ?? "")
       : 0;

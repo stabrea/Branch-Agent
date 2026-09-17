@@ -81,6 +81,8 @@ const ownerOnlyReads: readonly RegExp[] = [
   /^\/api\/backup$/,
   new RegExp(`^/api/(triggers|webhooks)(/${id})?$`),
   /^\/api\/channels\/addresses$/,
+  // bucket 19: who may sign in, their linked accounts and devices, and the share list.
+  /^\/api\/people\/(settings|shares\/export)$/,
 ];
 
 export const generalShortLivedKeyRefusal =
