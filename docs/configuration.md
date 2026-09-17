@@ -1508,7 +1508,7 @@ Routes: `GET`/`POST /api/trace/settings` with `{ "enabled": boolean, "folder": s
 
 ### Diagnostics
 
-**Branch sends no usage data to anyone.** There is no telemetry client, no analytics, no crash reporting and no opt-out to configure, because nothing is collected in the first place. Settings → Diagnostics says so on the screen.
+**Branch sends no usage data to its makers.** There is no telemetry client and no crash reporting. The only counters that can leave the computer are the optional ones described under the usage report and the smaller asks, which ship off and go only to an address you type in yourself. Settings → Diagnostics says so on the screen.
 
 When you want help with a problem, **Save a diagnostics folder** (`POST /api/diagnostics/bundle`) writes a timestamped folder under `diagnostics/` in the private data directory — plain files, no archive — so you can read it and pass it on by hand:
 
@@ -6533,8 +6533,8 @@ Wave mac6 built what was missing here; every new part has its own three-way swit
 - **gateway** (across several computers) — built: other computers running Branch, checked for health,
   chosen by label and passed over when down or busy (`src/asks/nodes.ts`, `tests/asks-surfaces.test.mjs` "gateway").
 - **A0504** (analytics only with consent) and **A1620** (optional analytics) — built: counts per day of
-  named events, only after a yes, wiped on a no, sent only to an address of the owner's own
-  (`src/asks/analytics.ts`, `tests/asks.test.mjs` "A0504 A1620"). Nothing goes to Branch's makers.
+  named events, only after a yes (the time of that answer is kept as `decidedAt`), wiped on a no, sent
+  only to an https address of the owner's own (`sendTo`, empty by default) (`src/asks/analytics.ts`, `tests/asks.test.mjs` "A0504 A1620"). Nothing goes to Branch's makers.
 - **A1611** (a side-panel chat) — built: the extension's side panel keeps one conversation with the
   paired Branch (`extras/browser-extension/chat.js`, `sidepanel.js`, `tests/asks-surfaces.test.mjs` "A1611").
 - **A2240** (live app surfaces) — built: a tool's page is asked again on a timer through the tool gate
