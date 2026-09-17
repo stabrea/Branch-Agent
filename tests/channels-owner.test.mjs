@@ -67,6 +67,14 @@ const everyRoute = (sessionId) => [
   ["POST", "/api/channels/addresses/settings", { acceptOldAddresses: false }],
 ];
 
+/** The Set up panel next door: the same chat apps, so the same answer to the same question. */
+const everySetupRoute = [
+  ["GET", "/api/channel-setup"],
+  ["POST", "/api/channel-setup", { mode: "on" }],
+  ["GET", "/api/channel-setup/telegram"],
+  ["POST", "/api/channel-setup/telegram/check", { values: { TELEGRAM_BOT_TOKEN: "not-a-real-token" } }],
+];
+
 test("CO-1 every address under /api/channels is refused to a household person and answers the owner", async (t) => {
   const f = await served(t);
   const sessionId = "00000000-0000-4000-8000-000000000000";
@@ -84,6 +92,22 @@ test("CO-1 every address under /api/channels is refused to a household person an
     const answer = await f.call(method, path, body);
     assert.doesNotMatch(String(answer.body?.error ?? ""), refusal, `${method} ${path} still answers the owner`);
   }
+});
+
+test("CO-5 the Set up panel for the same chat apps answers the same way", async (t) => {
+  const f = await served(t);
+
+  await f.asPerson();
+  for (const [method, path, body] of everySetupRoute) {
+    const answer = await f.call(method, path, body);
+    assert.match(String(answer.body?.error ?? ""), refusal, `${method} ${path} is refused`);
+    assert.match(String(answer.body?.error ?? ""), /Setting up chat apps/, `${method} ${path} says what it is about`);
+  }
+
+  await f.asOwner();
+  assert.equal((await f.call("GET", "/api/channel-setup")).status, 200, "the owner still sees the list");
+  assert.equal((await f.call("GET", "/api/channel-setup/telegram")).status, 200, "and one app's panel");
+  assert.equal((await f.call("POST", "/api/channel-setup", { mode: "on" })).status, 200, "and still moves the switch");
 });
 
 test("CO-2 a household person cannot approve a pairing code, and the owner still can", async (t) => {
