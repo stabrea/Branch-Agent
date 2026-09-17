@@ -7,6 +7,7 @@ import type { ToolRegistry } from "./registry.js";
 import type { WebAccess } from "./integrations/web.js";
 import { applyContentPolicy, detectInjection } from "./content-guard.js";
 import type { DeliveryHandler } from "./scheduler.js";
+import { automationHealth, type Health, type HealthEntry } from "./heartbeat.js";
 
 /**
  * Keeping an eye on a page or a search for the person. Each watch remembers what it saw last time;
@@ -31,6 +32,8 @@ export interface MonitorRecord {
   id: string; kind: "page" | "search"; target: string; label: string; everyMinutes: number;
   notifyVia: "activity" | { channel: string; chatId: string };
   lastCheckedAt: string | null; nextAt: string; changes: number;
+  /** Healthy, failing or never run, from the last few looks. */
+  health: Health; lastError: string | null;
 }
 export interface MonitorCheck { id: string; changed: boolean; summary: string; delivered: string | null }
 const snapshotChars = 20000;
@@ -56,6 +59,16 @@ export class Monitors {
       target TEXT NOT NULL, label TEXT NOT NULL DEFAULT '', every_minutes INTEGER NOT NULL, notify TEXT NOT NULL,
       hash TEXT, snapshot TEXT, checked_at TEXT, next_at TEXT NOT NULL, changes INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL); CREATE INDEX IF NOT EXISTS monitors_owner ON monitors(owner);`);
+    // Added later: the last few looks, for the health badge. Older databases gain the columns here.
+    const columns = new Set(this.db.prepare("PRAGMA table_info(monitors)").all().map((row) => String(row.name)));
+    if (!columns.has("recent")) this.db.exec("ALTER TABLE monitors ADD COLUMN recent TEXT NOT NULL DEFAULT '[]'");
+    if (!columns.has("last_error")) this.db.exec("ALTER TABLE monitors ADD COLUMN last_error TEXT");
+  }
+  /** Writes one look into the short record the health badge reads. */
+  private remember(id: string, entry: HealthEntry, error: string | null): void {
+    const row = this.db.prepare("SELECT recent FROM monitors WHERE id=?").get(id);
+    const recent = [...parseRecent(row?.recent), entry].slice(-10);
+    this.db.prepare("UPDATE monitors SET recent=?, last_error=? WHERE id=?").run(JSON.stringify(recent), error, id);
   }
   list(owner: string): MonitorRecord[] {
     return this.db.prepare("SELECT * FROM monitors WHERE owner=? ORDER BY created_at DESC LIMIT 200").all(owner).map(toRecord);
@@ -69,7 +82,8 @@ export class Monitors {
     const value = MonitorSchema.parse(input);
     const minutes = everyMinutes(value.every), id = randomUUID(), now = new Date();
     const kind = value.url ? "page" : "search", target = value.url ?? value.query!;
-    this.db.prepare("INSERT INTO monitors VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)").run(
+    this.db.prepare(`INSERT INTO monitors(id, owner, kind, target, label, every_minutes, notify, hash, snapshot,
+      checked_at, next_at, changes, created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
       id, owner, kind, target, value.label ?? target.slice(0, 120), minutes, JSON.stringify(value.notifyVia),
       null, null, null, new Date(now.getTime() + minutes * 60000).toISOString(), 0, now.toISOString());
     const text = await this.observe(kind, target, signal).catch((error) => `Could not be read: ${errorText(error)}`);
@@ -102,14 +116,18 @@ export class Monitors {
     const next = new Date(now.getTime() + record.everyMinutes * 60000).toISOString();
     this.inFlight.add(id);
     try {
+      const started = new Date().toISOString();
       const text = await this.observe(record.kind, record.target, signal);
-      const changed = digest(text) !== String(row.hash ?? "");
-      const summary = changed ? describeChange(record, String(row.snapshot ?? ""), text) : `No change at ${record.label}.`;
+      const before = String(row.snapshot ?? "");
+      // A different fingerprint with the same lines (spacing, order) is not news: it is kept, not sent.
+      const changed = digest(text) !== String(row.hash ?? "") && linesDiffer(before, text);
+      const summary = changed ? describeChange(record, before, text) : `No change at ${record.label}.`;
       // The news goes out before the new copy is kept: a delivery that fails leaves the old copy in
       // place, so the same change is noticed again next time instead of being lost silently.
       const delivered = changed ? await this.announce(owner, record, summary) : null;
       this.db.prepare("UPDATE monitors SET hash=?, snapshot=?, checked_at=?, next_at=?, changes=? WHERE id=?")
         .run(digest(text), text.slice(0, snapshotChars), now.toISOString(), next, record.changes + (changed ? 1 : 0), id);
+      this.remember(id, { status: "completed", startedAt: started, finishedAt: new Date().toISOString() }, null);
       return { id, changed, summary, delivered };
     } finally { this.inFlight.delete(id); }
   }
@@ -125,6 +143,8 @@ export class Monitors {
       try { results.push(await this.check(owner, id, now, signal)); }
       catch (error) {
         this.db.prepare("UPDATE monitors SET next_at=? WHERE id=?").run(new Date(now.getTime() + 3600000).toISOString(), id);
+        const at = new Date().toISOString();
+        this.remember(id, { status: "failed", startedAt: at, finishedAt: at }, errorText(error).slice(0, 300));
         results.push({ id, changed: false, summary: `That watch could not be checked: ${errorText(error)}`, delivered: null });
       }
     }
@@ -145,13 +165,25 @@ export class Monitors {
   }
 }
 const digest = (text: string): string => createHash("sha256").update(text).digest("hex");
+function parseRecent(value: unknown): HealthEntry[] {
+  try { const parsed: unknown = JSON.parse(String(value ?? "[]")); return Array.isArray(parsed) ? parsed as HealthEntry[] : []; }
+  catch { return []; }
+}
+/** Whether any line came or went; spacing and order alone do not count. */
+function linesDiffer(before: string, after: string): boolean {
+  const lines = (text: string) => new Set(text.split("\n").map((line) => line.trim()).filter(Boolean));
+  const old = lines(before), now = lines(after);
+  return old.size !== now.size || [...now].some((line) => !old.has(line));
+}
 function toRecord(row: Record<string, unknown>): MonitorRecord {
+  const recent = parseRecent(row.recent);
   return {
     id: String(row.id), kind: String(row.kind) as MonitorRecord["kind"], target: String(row.target),
     label: String(row.label ?? ""), everyMinutes: Number(row.every_minutes),
     notifyVia: JSON.parse(String(row.notify)) as MonitorRecord["notifyVia"],
     lastCheckedAt: row.checked_at === null ? null : String(row.checked_at),
     nextAt: String(row.next_at), changes: Number(row.changes ?? 0),
+    health: automationHealth(recent), lastError: row.last_error ? String(row.last_error) : null,
   };
 }
 /** What changed, in sentences: how many lines came and went, with a few of each. */

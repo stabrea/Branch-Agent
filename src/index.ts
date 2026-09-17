@@ -465,6 +465,10 @@ export async function createBranch(options: {
     lockedDown(store, runtime.owner)
       ? { text: "", blocked: true, reason: lockdownRefusal }
       : privacy.outbound(text);
+  // Wave mac2 (chat-live): typing, reactions and progress messages stop under Lockdown as well.
+  channels.liveAllowed = () => !lockedDown(store, runtime.owner);
+  // ...and nothing key-shaped or secret shows in a step label or streamed text (mac2/leak-guard).
+  channels.hideLeaks = (text) => redactLeaksIn(store.secrets.scrubber.deep(text)).value;
   runtime.hideSecrets = (value) => {
     // mac2/leak-guard: key-shaped values nobody looked up are hidden in logs and question cards too.
     const scrubbed = redactLeaksIn(store.secrets.scrubber.deep(value)).value;
@@ -548,6 +552,8 @@ export async function createBranch(options: {
     sessionLimiter.check({ scope: "sender", id: `${channel}:${senderId}` }, "stranger");
   const scheduler = new Scheduler(store, runtime, (channel, chatId, text, key) => channels.deliver(channel, chatId, text, key));
   registerSchedules(registry, scheduler);
+  // wave mac2 (quiet-jobs follow-up): a program left running that finishes wakes the check-in; wake() does nothing while it is off.
+  processes.finished.add(() => { void scheduler.heartbeat.wake("a background command finished").catch(() => undefined); });
   // Figures, looking things up properly, watching pages, and the one message first thing.
   const deliverMessage = (channel: string, chatId: string, text: string, key: string) => channels.deliver(channel, chatId, text, key);
   const dataTables = new DataTables(files, web, writeObserver);

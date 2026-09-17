@@ -2,7 +2,8 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { stat } from "node:fs/promises";
 import { isAbsolute } from "node:path";
 import { killProcessGroup, killWindowsTree } from "./integrations/shell-process.js";
-import { defaultJobObjects, jobWithin, type Job, type JobLimits, type JobObjects } from "./integrations/job-object.js";
+import { defaultJobObjects, jobWithin, startedThrough, type Job, type JobLimits, type JobObjects } from "./integrations/job-object.js";
+import { fromTheTop, posixEnvironment } from "./integrations/shell-config.js";
 
 /**
  * Talking to a helper program over its own input and output. Language servers and debug adapters
@@ -27,7 +28,7 @@ export const maxMessageBytes = 8 * 1024 * 1024;
 
 /** Refuses a program that is not there, is given as a bare name, or is a wrapper script. */
 export async function checkedProgram(path: string): Promise<string> {
-  if (!path || !isAbsolute(path)) throw new Error("Give the program in full, starting from the drive.");
+  if (!path || !isAbsolute(path)) throw new Error(`Give the program in full, ${fromTheTop()}.`);
   if (/\.(cmd|bat)$/i.test(path)) throw new Error("Name the real program, not a .cmd or .bat wrapper.");
   if (!(await stat(path).catch(() => null))?.isFile()) throw new Error("There is no program at that address.");
   return path;
@@ -67,6 +68,7 @@ const environment = (): NodeJS.ProcessEnv => ({
   SYSTEMROOT: process.env.SYSTEMROOT ?? "", TEMP: process.env.TEMP ?? "",
   HOME: process.env.HOME ?? "", USERPROFILE: process.env.USERPROFILE ?? "",
   APPDATA: process.env.APPDATA ?? "", LOCALAPPDATA: process.env.LOCALAPPDATA ?? "",
+  ...posixEnvironment(["TMPDIR", "USER", "LOGNAME", "LANG"], process.env),
 });
 
 /** One running helper program, with messages going both ways. */
@@ -93,7 +95,8 @@ export class StdioChannel {
     await checkedProgram(program.executable);
     const limits = program.limits ?? { maxMemoryMb: 2048, maxCpuSeconds: 1800 };
     const job = await jobWithin(jobs, limits, 1500);
-    const child = spawn(program.executable, program.args, {
+    const argv = startedThrough(job, { executable: program.executable, args: program.args });
+    const child = spawn(argv.executable, argv.args, {
       cwd: program.cwd, shell: false, windowsHide: true,
       detached: process.platform !== "win32", stdio: ["pipe", "pipe", "pipe"], env: environment(),
     });
