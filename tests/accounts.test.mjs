@@ -301,6 +301,12 @@ test("A10 people sharing the computer use only keys the owner shared, and never 
   const shared = await app.runtime.run({ prompt: "hello" });
   assert.equal(shared.output, "from the second key");
   assert.equal(calls.first, 0);
+  /* Bucket 19: a person signed in from their own device is held to the same rule. */
+  app.store.profiles.switch({ profileId: null });
+  const { asPerson } = await import("../dist/people/context.js");
+  const theirs = await asPerson({ profileId: person.id, keyId: "phone" }, () => app.runtime.run({ prompt: "hello" }));
+  assert.equal(theirs.output, "from the second key");
+  assert.equal(calls.first, 0, "the owner's unshared first key is never used for them");
 });
 
 test("A11 a damaged or missing list reads as switched off", async (t) => {
