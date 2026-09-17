@@ -1,4 +1,4 @@
-# Checkpoint 2026-09-17 (early morning) — one machine now, and how to carry on
+# Checkpoint 2026-09-17 — 0.17.0 released; one machine now, and how to carry on
 
 **Read this first, then `docs/places.md`, then `docs/agents/README.md`.**
 
@@ -56,12 +56,46 @@ SSH: `desktop-bridge.ps1 -Install`.
 
 ## Where the work stands
 
-**Released: 0.16.0**, installed and running on the owner's PC.
+**Released: 0.17.0** (2026-09-17), cut and published by the Mac.
+[Release](https://github.com/stabrea/Branch-Agent/releases/tag/v0.17.0), PR #104 merged as
+`2fc3e6e`. The owner's PC still runs **0.16.0**: publish-template.sh has no hand-install step, so
+0.17.0 reaches it through the in-app update.
 
-**0.17.0 is cut and waiting on CI** — branch `feat/assistant-runtime`, pull request #104. It began as
-the eight top buckets of the public list and now also carries buckets 9–11, the Mac's own
-cross-platform work, the wave 9 window redesign, the owner's hand-written context files, and the
-trusted mid-task steering channel. `docs/agents/briefs/release-notes-0.17.0.md` describes all of it.
+- **What 0.17.0 is:** `wave2/integration` at `78045b8` plus fixes only, released from `9515f87`. The
+  newer Mac work on `mac/cross-platform` is not in it. `wave2/integration`, `release/0.17.0` and
+  `feat/assistant-runtime` all point at `9515f87`.
+- **Proof, same commit:** Windows `verify.sh` on Legion 1602 tests, 0 failed, 21 skipped. macOS
+  `verify.sh` 1602, 0 failed, 12 skipped. Linux: every touched file plus all four desktop files under
+  xvfb on branch-test-linux, 189 tests, 0 failed, 3 skipped. PR check green on all three systems.
+- **Downloads:** Windows is packaged on Legion through `desktop-bridge.ps1`. macOS (arm64, x64) and
+  Linux come from the tag-triggered `package.yml`, which worked for the first time here. Its publish
+  job uploads with `--clobber`, so it **replaces the hand-built Windows zip**: attach that zip again
+  once the job finishes (done for 0.17.0; sha256 `66ac6ba4…311784`).
+- **Update rehearsal:** 0.16.0 to 0.17.0 in 18 s with zero console windows, and 0.16.0 kept as
+  `install.previous`. The staging folder now holds 0.17.0, which is the right base for the next rehearsal.
+- **Ticks:** 120 `(merged, ships in 0.17.0)` markers in 17 theme issues now read `(0.17.0)`. #103
+  counts 601 released, 0 merged-but-unreleased, and 154 still to build.
+
+What the release run found and fixed (all in `9515f87`'s history):
+
+1. **Signed out by an early reload** (`public/app.js`): the token was saved only after the locker
+   answered, so a reload in that gap showed the sign-in form again. This caused the "Tab walks the
+   rail" timeouts on the Mac.
+2. **Pictures mistaken for keys** (`src/leak-guard.ts`): random base64 can match the Google key
+   pattern (`/AIza` plus 35 characters). Matches entirely inside a `data:…;base64,` payload are ignored now.
+3. **Activity lists closing themselves** (`public/automations.js`): every refresh redraws the panel.
+   A list that is open is now drawn open again.
+4. **Linux desktop settings:** Playwright's Electron launcher always adds `--password-store=basic`,
+   so no Linux test run can reach a keyring, even when the machine has one (proved on
+   branch-test-linux). The test checks the refusal there and says why. Do not try a CI keyring again.
+5. Test-only fixes: wait for the words or the variable, not a clock (`cli-tui`, `shell-ui`,
+   `session-ui`). Close the server before the app in the same hook (`projects-locker`, `skills`).
+   The docs table test no longer breaks on a space in the checkout path. The desktop tests allow two
+   minutes for app startup, because the shared Windows runner needed more than 30 s on some runs.
+6. **This Mac's `/usr/bin/git` needs the Xcode licence accepted** (owner's password). Until then,
+   use `DEVELOPER_DIR=/Library/Developer/CommandLineTools` for git and gh, and put a `git` symlink
+   to the Command Line Tools copy first on PATH for suite runs, or `tests/git*.test.mjs` fails with a
+   licence message.
 
 **Staging `wave2/integration`** additionally holds the Mac's third-wave briefs and the prompt
 library is on `wave9/prompt-library`, backend and screen complete with 8 passing tests, not yet
