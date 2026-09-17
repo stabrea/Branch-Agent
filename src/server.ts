@@ -286,6 +286,13 @@ function authorize(
    * owner's own app. It answers the plain reason it refused, or null to let the request through.
    */
   scoped?: (supplied: string) => string | null,
+  /**
+   * mac5/key-sweep (integration review): whether a key is one of this computer's working keys. A
+   * working key refused one route is not a guess, so it is not counted: otherwise a script bumping
+   * into the owner's routes would make every short-lived key from that place wait (the dashboard, a
+   * paired phone behind the same address) and write a false "wrong key" line into the record.
+   */
+  working?: (supplied: string) => boolean,
 ): void {
   if (!hostAllowed(request.headers.host, undefined, url, extra))
     throw new HttpError(403, "Host rejected");
@@ -304,7 +311,7 @@ function authorize(
   if (waiting) throw new HttpError(429, waiting);
   const refusal = supplied && scoped ? scoped(supplied) : "Local session token required";
   if (refusal === null) { limits?.limiter.succeed(from); return; }
-  limits?.onFailure(from);
+  if (!(supplied && working?.(supplied))) limits?.onFailure(from);
   throw new HttpError(401, refusal);
 }
 /** A study result without its thousands of rows, for the list on the Evaluation screen. */
@@ -553,7 +560,7 @@ async function testProvider(body: unknown, policy: NetworkPolicy): Promise<unkno
     const options = { endpoint, model, apiKey: input.apiKey, fetchImpl };
     // --- mac5/providers: services whose route the header-style guess below gets wrong (Perplexity's
     // Agent API) or that have ended (GitHub Models). See src/provider-factory.ts testRouteFor.
-    const ownRoute = chosen ? testRouteFor(chosen.id, endpoint, model, input.apiKey) : null;
+    const ownRoute = chosen ? testRouteFor(chosen.id, endpoint, model, input.apiKey, fetchImpl) : null; // key-sweep review: redirects checked too
     // --- end mac5/providers
     const provider = ownRoute ? ownRoute : chosen?.headerStyle === "google-key" ? new GeminiProvider(options)
       : chosen?.headerStyle === "x-api-key" ? new AnthropicProvider(options) : new OpenAIProvider(options);
@@ -806,14 +813,17 @@ async function api(
   if (request.method === "GET" && path === "/api/tools") return toolInventory(app);
   // The developer playground: the form for every tool, and running one by hand through the gate.
   if (request.method === "GET" && path === "/api/tools/forms") return { tools: toolForms(app.registry) };
-  if (request.method === "POST" && path === "/api/tools/try")
+  if (request.method === "POST" && path === "/api/tools/try") {
+    const input = TryToolSchema.parse(await readBody(request));
+    // mac5/key-sweep (integration review): a short-lived key cannot answer its own question.
+    if (startedWithShortLivedKey()) { shortLivedToolGate(app, input.name, input.arguments); input.confirm = false; }
     // Scrubbed on the way out, exactly as the runtime scrubs a tool result before it records one,
     // and given the same two-minute ceiling a manual action gets so nothing holds a slot for ever.
     return app.runtime.hideSecrets(
       await tryTool(app.registry, app.store, app.runtime.owner,
-        app.runtime.context({ signal: AbortSignal.timeout(120000) }),
-        TryToolSchema.parse(await readBody(request)),
+        app.runtime.context({ signal: AbortSignal.timeout(120000) }), input,
         (tool, permission) => app.runtime.roleRefusal(tool, permission)));
+  }
   // Wave 8: an artifact out of a reply. Minting an address puts the page behind an unguessable
   // name the frame can fetch; saving keeps it beside the task, where the Documents list finds it.
   if (request.method === "POST" && path === "/api/artifacts/page")
@@ -1182,6 +1192,9 @@ async function api(
   }
   if (request.method === "POST" && path === "/api/action") {
     const action = actionSchema.parse(await readBody(request));
+    // mac5/key-sweep (integration review): the owner's manual action skips the approval rules; a
+    // short-lived key's goes through them and runs only what they allow outright.
+    if (startedWithShortLivedKey()) shortLivedToolGate(app, action.tool, action.args);
     return app.runtime.executeTool(action.tool, action.args);
   }
   // Usage and observability routes
@@ -2426,7 +2439,7 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
         // bucket-18 (A0300): everything this request starts knows it came with a short-lived key.
         if (refusal === null) markShortLivedKey();
         return refusal;
-      });
+      }, (supplied) => app.sessionTokens.scopeOf(app.runtime.owner, supplied) !== null);
       // The extra door has its own chain on top of the key: see src/remote/gateway-auth.ts. The
       // window on this computer never goes through it.
       if (viaRemote) {
@@ -2983,6 +2996,19 @@ export function offLimitsToShortLivedKeys(method: string | undefined, path: stri
   if (!taskRouteFor(method, path) && interopOffLimits(method, path) === null) return generalShortLivedKeyRefusal;
   // mac4/bucket-20: switching those parts, bringing an assistant in, and handing a conversation on.
   return interopOffLimits(method, path);
+}
+/**
+ * mac5/key-sweep (integration review): one tool run by hand with a short-lived key. The same rules a
+ * task's tool call meets (never-break, the person's role, the approval rules, the leak guard) must
+ * say "allow"; a question is not the key's to answer, so "ask" is refused like "deny".
+ */
+function shortLivedToolGate(app: Branch, tool: string, args: unknown): void {
+  if (!app.registry.permissionOf(tool)) return; // an unknown tool is refused where it is run
+  const verdict = app.runtime.checkPolicy(tool, args, app.runtime.context());
+  if (verdict.decision === "allow") return;
+  throw new HttpError(401, verdict.decision === "deny"
+    ? `A short-lived key cannot run ${tool}: ${verdict.reason ?? "your settings do not allow it"}.`
+    : `A short-lived key cannot say yes to ${tool} for itself. Start it as a task, or run it in the app window.`);
 }
 /** mac3/security-check: a server tried from Settings is looked up in the malware list before it starts. */
 async function vetTriedServer(app: Branch, input: unknown): Promise<void> {

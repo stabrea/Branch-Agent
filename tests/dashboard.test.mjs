@@ -26,8 +26,7 @@ async function fixture(t, provider) {
     workspace: join(root, "workspace"), dataDir: join(root, "data"),
     provider: provider ?? { name: "scripted", async complete() { return { content: "Done.", toolCalls: [] }; } },
   });
-  // mac5/key-sweep: the dashboard's changes are now refused at the key check, where each counts as a wrong key.
-  const server = await startServer(app, { dataDir: join(root, "data"), port: 0, authLimits: { attempts: 100 } });
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
   t.after(async () => { await server.close(); await app.close(); await discardTemp(root); });
   const call = (path, key = server.token, body) => fetch(server.url + path, {
     method: body === undefined ? "GET" : "POST",

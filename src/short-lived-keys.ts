@@ -30,8 +30,8 @@ const post = (pattern: RegExp | string, why: string): TaskRoute =>
 export const shortLivedKeyTaskRoutes: readonly TaskRoute[] = [
   // Starting a task, and talking to Branch the way other programs do.
   post("/api/run", "starts a task"),
-  post("/api/action", "runs one tool through the approval gate"),
-  post("/api/tools/try", "runs one tool by hand through the approval gate"),
+  post("/api/action", "runs one tool the approval rules allow outright (checked in server.ts shortLivedToolGate)"),
+  post("/api/tools/try", "runs one tool the approval rules allow; a short-lived key cannot confirm its own question"),
   post("/api/commands/run", "a slash command; each command checks the key again"),
   post("/api/goals", "starts working toward a goal"),
   post("/v1/chat/completions", "the OpenAI-style chat"),

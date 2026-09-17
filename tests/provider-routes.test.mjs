@@ -145,6 +145,14 @@ test("a new connection to a retired or not-offered service is refused before any
   await assert.rejects(tested.complete(request()), /retired/);
 });
 
+test("key-sweep review: the Perplexity test route sends through the checked fetch it is given", async () => {
+  const seen = [];
+  const fetchImpl = async (target) => { seen.push(String(target)); throw new Error("blocked by the network rules"); };
+  const tested = testRouteFor("perplexity", "https://api.perplexity.ai", "sonar", "k", fetchImpl);
+  await assert.rejects(tested.complete(request()), /blocked/);
+  assert.equal(seen.length, 1, "the checked fetch saw the request");
+});
+
 // ------------------------------------------------------------------ 4. Claude on Vertex
 
 test("Claude on Vertex moves the model into the address and the token into Authorization", async () => {

@@ -5634,6 +5634,14 @@ code editor. `tests/short-lived-keys.test.mjs` fails when a route is added anywh
 being classified in `tests/short-lived-key-routes.mjs`, and tries every owner-only change with a "run"
 key. Windows, macOS and Linux behave the same.
 
+Two more rules came out of the integration review. A tool run by hand with a short-lived key
+(`/api/action`, `/api/tools/try`) goes through the same approval rules a task's tool call meets and
+runs only when they allow it outright: a tool the rules ask about is refused, because the key cannot
+say yes to itself (start it as a task instead). And a working short-lived key that is refused a
+route is not counted as a wrong key, so a script bumping into the owner's routes never makes the
+dashboard or a phone at the same address wait, and nothing is written down as a guessed key. A key
+that is unknown, taken back or run out is still counted.
+
 These are one feature answering two audited rows: A0100 ("session API-key authentication") and
 A1930 ("API keys and temporary auth tokens") describe the same thing from two projects.
 

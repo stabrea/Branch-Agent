@@ -4,6 +4,7 @@ import { mkdtemp, readdir, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
+import { z } from "zod";
 import { createBranch } from "../dist/index.js";
 import { startServer, offLimitsToShortLivedKeys } from "../dist/server.js";
 import { shortLivedKeyTaskRoutes, taskRouteFor } from "../dist/short-lived-keys.js";
@@ -76,7 +77,7 @@ async function served(t) {
   const root = await mkdtemp(join(tmpdir(), "branch-key-sweep-"));
   const provider = { name: "scripted", async complete() { return { content: "Done.", toolCalls: [] }; } };
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider });
-  const server = await startServer(app, { dataDir: join(root, "data"), port: 0, authLimits: { attempts: 100000 } });
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
   t.after(async () => { await server.close(); await app.close(); await discardTemp(root); });
   const keys = {
     read: app.sessionTokens.create(app.runtime.owner, { name: "wall", scope: "read", minutes: 5 }).token,
@@ -130,4 +131,77 @@ test("a run key may still start and answer work, but not make a standing rule wh
   assert.match(always.body.error, /cannot make a standing rule/);
   const once = await call("POST", "/api/policy/approve", keys.run, { sessionId: started.body.sessionId, decision: "allow", remember: "session" });
   assert.notEqual(once.status, 401, "answering for this conversation stays a run key's job");
+});
+
+/* ---- Integration review (mac5/key-sweep): holes found after the builder's round. ---- */
+
+async function servedWithDefaultLimits(t) {
+  const root = await mkdtemp(join(tmpdir(), "branch-key-sweep-limits-"));
+  const provider = { name: "scripted", async complete() { return { content: "Done.", toolCalls: [] }; } };
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider });
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  t.after(async () => { await server.close(); await app.close(); await discardTemp(root); });
+  const make = (scope) => app.sessionTokens.create(app.runtime.owner, { name: scope, scope, minutes: 5 }).token;
+  const call = (method, path, key, body) => fetch(server.url + path, {
+    method,
+    headers: { authorization: `Bearer ${key}`, ...(method === "GET" ? {} : { "content-type": "application/json" }) },
+    ...(method === "GET" ? {} : { body: JSON.stringify(body ?? {}) }),
+  }).then(async (response) => ({ status: response.status, body: await response.json().catch(() => ({})) }));
+  return { app, server, make, call };
+}
+
+test("review: a working key refused a route is not a wrong key, so a script cannot lock out the phone or the dashboard", async (t) => {
+  const { app, make, call } = await servedWithDefaultLimits(t);
+  const run = make("run"), read = make("read");
+  for (let i = 0; i < 8; i++) {
+    const refused = await call("POST", "/api/desktop/settings", run, {});
+    assert.equal(refused.status, 401, `refusal ${i + 1} is a refusal, not a wait`);
+    assert.match(refused.body.error, /short-lived key/);
+  }
+  for (let i = 0; i < 6; i++) assert.equal((await call("GET", "/api/backup", read)).status, 401);
+  // Another key from the same place (the dashboard, a paired phone behind the same address) still works.
+  assert.equal((await call("GET", "/api/state", read)).status, 200);
+  assert.equal((await call("POST", "/api/sessions/search", run, { query: "x" })).status, 200);
+  assert.deepEqual(app.store.audit.list(app.runtime.owner, { action: "auth.refused" }), [], "a refused working key is not written down as a wrong key");
+  // A key that is not one of this computer's is still counted.
+  let last;
+  for (let i = 0; i < 6; i++) last = await call("POST", "/api/desktop/settings", "bat_not-a-real-key-000000000000", {});
+  assert.equal(last.status, 429);
+});
+
+test("review: spellings and methods that differ from a task route are refused, not let through", () => {
+  const id = SAMPLE_ID;
+  for (const path of ["/api/run/", "//api/run", "/API/run", "/api/run;x", "/api/run%2F", "/api/runs", `/api/runs/${id}/cancel/`,
+    `/api/runs/${id}/cancelx`, `/api/runs/${id}/trace`, "/api/runx", "/api/sessions/search/", "/mcp/", "/mcpx"])
+    assert.ok(offLimitsToShortLivedKeys("POST", path), `POST ${path}`);
+  for (const method of ["PUT", "PATCH", "HEAD", "OPTIONS", "DELETE", undefined])
+    assert.ok(offLimitsToShortLivedKeys(method, "/api/run"), `${method} /api/run`);
+  assert.equal(offLimitsToShortLivedKeys("POST", "/api/run"), null);
+});
+
+function standIn(app, ran) {
+  app.registry.register({ name: "probe.change", permission: "probe.write", description: "stand-in", parameters: z.object({}).passthrough(), execute: async () => { ran.push(1); return { ok: true }; } });
+}
+
+test("review: /api/action with a short-lived key goes through the approval rules and is never its own yes", async (t) => {
+  const { app, server, make, call } = await servedWithDefaultLimits(t);
+  const ran = [];
+  standIn(app, ran);
+  const run = make("run");
+  for (const decision of ["ask", "deny"]) {
+    assert.equal((await call("POST", "/api/policy", server.token, { rules: [{ tool: "probe.change", match: "*", decision }] })).status, 200);
+    const refused = await call("POST", "/api/action", run, { tool: "probe.change", args: {} });
+    assert.equal(refused.status, 401, `${decision}: ${JSON.stringify(refused.body)}`);
+    assert.match(refused.body.error, /short-lived key/);
+    const tried = await call("POST", "/api/tools/try", run, { name: "probe.change", arguments: {}, confirm: true });
+    assert.notEqual(tried.body.status, "ran", `${decision}: a run key cannot confirm its own question`);
+  }
+  assert.deepEqual(ran, [], "the tool never ran");
+  // The owner's own "try" still answers its own question, as before.
+  assert.equal((await call("POST", "/api/policy", server.token, { rules: [{ tool: "probe.change", match: "*", decision: "ask" }] })).status, 200);
+  assert.equal((await call("POST", "/api/tools/try", server.token, { name: "probe.change", arguments: {}, confirm: true })).body.status, "ran");
+  assert.equal((await call("POST", "/api/policy", server.token, { rules: [{ tool: "probe.change", match: "*", decision: "allow" }] })).status, 200);
+  const allowed = await call("POST", "/api/action", run, { tool: "probe.change", args: {} });
+  assert.equal(allowed.status, 200, "a tool the rules allow still runs for a run key");
+  assert.equal(ran.length, 2);
 });
