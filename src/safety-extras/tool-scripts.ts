@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,7 +7,8 @@ import { createInterface } from "node:readline";
 import { z } from "zod";
 import { pluginWall } from "../add-ons/walled-plugin.js";
 import { ApprovalRequiredError } from "../approvals.js";
-import type { ToolContext } from "../contracts.js";
+import type { ToolCall, ToolContext } from "../contracts.js";
+import type { JournalHook } from "../never-break/journal.js";
 import type { ToolRegistry } from "../registry.js";
 import { openWall, type SandboxStart, type WallDeps } from "../sandbox-backends.js";
 import type { WallContext } from "../sandbox.js";
@@ -28,6 +29,10 @@ import { scriptAnswerMarker, scriptHostSource } from "./script-host.js";
  *    not asked mid-script; the script is told to leave that step to the task.
  *  - Only the tools the script named up front may be called, never a script from a script, and at
  *    most `maxCalls` calls; the whole run has a time limit.
+ *  - Integration review: each call also passes the task's loop guard, is written to the task journal
+ *    before it runs (under a `branch-script:` id no model call can have, so a restart finds it and
+ *    the outer `tools.script` step is put to the owner rather than run again), and what it hands back
+ *    has keys hidden before the script can reshape them.
  * On Windows there is no file and network wall, so scripts are refused there.
  */
 export const maxCalls = 50;
@@ -38,9 +43,14 @@ export const ScriptInputSchema = z.object({
 }).strict();
 export type ScriptInput = z.infer<typeof ScriptInputSchema>;
 
+/** The runtime, as a script's calls need it: the gate, the loop guard, the journal and the key hider. */
+export interface ScriptHost extends ToolGateHost {
+  journal: JournalHook;
+  hideSecrets: <T>(value: T) => T;
+}
 export interface ToolScriptDeps {
-  host: ToolGateHost;
-  registry: Pick<ToolRegistry, "execute">;
+  host: ScriptHost;
+  registry: Pick<ToolRegistry, "execute" | "permissionOf">;
   /** Places the script may never read: the owner's wall list and Branch's own data. */
   unreadable: () => readonly string[];
   wallDeps?: WallDeps;
@@ -63,17 +73,17 @@ export class ToolScripts {
     try {
       await writeFile(join(staging, "script.mjs"), input.source, { mode: 0o600 });
       await writeFile(join(staging, "host.mjs"), scriptHostSource, { mode: 0o600 });
-      const wall: WallContext = context.osSandbox ? { ...context.osSandbox, network: "none" } : pluginWall([], this.deps.unreadable());
+      const wall = scriptWall(context.osSandbox, this.deps.unreadable());
       const env: NodeJS.ProcessEnv = { PATH: "/usr/bin:/bin", HOME: staging, TMPDIR: staging,
         ...(process.versions.electron ? { ELECTRON_RUN_AS_NODE: "1" } : {}) };
       const plain = { executable: process.execPath, args: ["--no-warnings", "--max-old-space-size=256", join(staging, "host.mjs")], cwd: staging, env };
       const opened = await openWall(wall, plain, { workspace: staging }, this.deps.wallDeps ?? {});
-      try { return await this.drive(opened.start, input, context); }
+      try { return await this.drive(opened.start, input, context, `branch-script:${randomUUID()}:`); }
       finally { await opened.close(); }
     } finally { await rm(staging, { recursive: true, force: true }).catch(() => undefined); }
   }
 
-  private drive(start: SandboxStart, input: ScriptInput, context: ToolContext): Promise<ScriptResult> {
+  private drive(start: SandboxStart, input: ScriptInput, context: ToolContext, idPrefix: string): Promise<ScriptResult> {
     const child = (this.deps.start ?? startScript)(start);
     const calls: ScriptResult["calls"] = [];
     let output = "";
@@ -82,7 +92,7 @@ export class ToolScripts {
     let queue = Promise.resolve();
     const requests = child.stdio[3];
     if (requests && "on" in requests) createInterface({ input: requests as NodeJS.ReadableStream }).on("line", (line) => {
-      queue = queue.then(() => this.answer(line, input, context, calls)).then((reply) => { child.stdin?.write(`${JSON.stringify(reply)}\n`); });
+      queue = queue.then(() => this.answer(line, input, context, calls, idPrefix)).then((reply) => { child.stdin?.write(`${JSON.stringify(reply)}\n`); });
     });
     return new Promise<ScriptResult>((resolve) => {
       const timer = setTimeout(() => stopChild(child), input.timeoutMs);
@@ -98,25 +108,53 @@ export class ToolScripts {
   }
 
   /** One `branch.call`: named up front, within the count, and let through by the gate. */
-  private async answer(line: string, input: ScriptInput, context: ToolContext, calls: ScriptResult["calls"]): Promise<Record<string, unknown>> {
+  private async answer(line: string, input: ScriptInput, context: ToolContext, calls: ScriptResult["calls"], idPrefix: string): Promise<Record<string, unknown>> {
     let request: { id?: unknown; tool?: unknown; args?: unknown };
     try { request = JSON.parse(line) as typeof request; } catch { return { id: null, ok: false, error: "unreadable request" }; }
     const id = request.id, tool = String(request.tool ?? "");
     const refuse = (error: string, outcome = "refused") => { calls.push({ tool, outcome }); return { id, ok: false, error }; };
     if (calls.length >= maxCalls) return refuse(`A script may make at most ${maxCalls} tool calls.`);
     if (tool === "tools.script" || !input.tools.includes(tool)) return refuse(`${tool} was not named in the script's list of tools.`);
+    const note = (outcome: string) => { if (context.runId) this.deps.host.store.event(context.runId, "script.called", { name: tool, outcome }); };
     try {
-      const scope = gateToolUse(this.deps.host, tool, request.args ?? {}, context, fingerprintOf(request.args), "policy");
-      const result = await this.deps.registry.execute(tool, request.args ?? {}, { ...context, ...scope });
+      const reply = await this.perform(tool, request.args ?? {}, context, `${idPrefix}${calls.length}`);
+      if (!reply.ok) { note("stopped"); return refuse(reply.error ?? "The loop guard stopped this call.", "stopped"); }
       calls.push({ tool, outcome: "done" });
-      if (context.runId) this.deps.host.store.event(context.runId, "script.called", { name: tool, outcome: "done" });
-      return { id, ok: true, result: result ?? null };
+      note("done");
+      return { id, ok: true, result: reply.result ?? null };
     } catch (error) {
       const asked = error instanceof ApprovalRequiredError;
-      if (context.runId) this.deps.host.store.event(context.runId, "script.called", { name: tool, outcome: asked ? "asked" : "failed" });
+      note(asked ? "asked" : "failed");
       return refuse(asked ? askedInScript : error instanceof Error ? error.message : String(error), asked ? "needs a yes" : "failed");
     }
   }
+
+  /** Gate, then journal and loop guard around the call itself, as a task's own call has them. */
+  private async perform(tool: string, args: unknown, context: ToolContext, callId: string): Promise<{ ok: boolean; result?: unknown; error?: string }> {
+    const { host, registry } = this.deps;
+    const scope = gateToolUse(host, tool, args, context, fingerprintOf(args), "policy");
+    // As in Runtime.callTool: the wall comes only from the gate, never from the context handed in.
+    const { osSandbox: _outer, ...unwalled } = context;
+    const execute = async () => ({ ok: true, result: host.hideSecrets(await registry.execute(tool, args, { ...unwalled, ...scope })) });
+    const runId = context.runId;
+    if (!runId) return execute();
+    const call: ToolCall = { id: callId, name: tool, arguments: JSON.stringify(args) };
+    const sessionId = host.store.run(runId)?.sessionId ?? runId;
+    return await host.journal.around({ runId, sessionId, call, permission: registry.permissionOf(tool), workspace: context.workspace, signal: context.signal },
+      () => host.guards.call(runId, call, execute)) as { ok: boolean; result?: unknown; error?: string };
+  }
+}
+
+/**
+ * The wall a script runs behind. A task's own wall may carry key sites and a wider reach for its
+ * commands; a script gets none of that: no network at all, no keys, and Branch's data unreadable
+ * whatever the task's wall said. Writes the owner already allowed stay allowed.
+ */
+export function scriptWall(outer: WallContext | undefined, unreadable: readonly string[]): WallContext {
+  if (!outer) return pluginWall([], unreadable);
+  return { ...outer, network: "none", keySites: {}, siteCheck: undefined,
+    unreadable: [...new Set([...outer.unreadable, ...unreadable])],
+    answer: (kind, target) => (kind === "network.site" ? "deny" : outer.answer(kind, target)) };
 }
 
 function startScript(start: SandboxStart): ChildProcess {

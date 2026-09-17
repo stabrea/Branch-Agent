@@ -13,6 +13,9 @@ import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 import { totp } from "../dist/safety-extras/totp.js";
 import { takeCode } from "../dist/safety-extras/code-approvals.js";
+import { scriptWall, ToolScripts } from "../dist/safety-extras/tool-scripts.js";
+import { spawn } from "node:child_process";
+import { saveGatewayConfig, GatewayConfigSchema } from "../dist/never-break/gateway-config.js";
 
 const say = (content) => () => ({ content, toolCalls: [] });
 
@@ -121,4 +124,106 @@ test("codes: the key's locker project cannot be made a project, so no tool or ro
   const removed = await api("POST", "/api/secrets/branch-safety/APPROVAL_CODE_KEY/remove", {});
   assert.ok(removed.status >= 400, JSON.stringify(removed.body));
   assert.equal(app.store.locker.exists(app.runtime.owner, "branch-safety", "APPROVAL_CODE_KEY"), true);
+});
+
+/* ---------- tool scripts ---------- */
+
+/** The real script host, started without the system's wall so these run on every platform (the wall has its own macOS test). */
+function unwalled(app) {
+  return new ToolScripts({ host: app.runtime, registry: app.registry, unreadable: () => [],
+    wallDeps: { platform: "darwin", exists: async () => true, realpath: async (path) => path },
+    start: (start) => spawn(process.execPath, start.args.slice(start.args.indexOf("--no-warnings")),
+      { cwd: start.cwd, env: start.env, stdio: ["pipe", "pipe", "pipe", "pipe"] }) });
+}
+async function scripted(t) {
+  const served_ = await served(t);
+  const { app, api } = served_;
+  await api("POST", "/api/safety-extras/switch", { part: "tool-scripts", mode: "on" });
+  const looked = [];
+  app.registry.register({ name: "notes.lookup", permission: "memory.read", description: "look a note up",
+    parameters: z.object({ q: z.string() }).strict(), execute: async ({ q }) => { looked.push(q); return { note: `about ${q}`, key: "ghp_abcdefghijklmnopqrstuvwxyz0123456789" }; } });
+  const run = app.store.createRun(app.runtime.owner, "script");
+  return { ...served_, looked, run, context: app.runtime.context({ runId: run.id }) };
+}
+const repeat = (times) => `export default async (branch) => {
+  const out = [];
+  for (let i = 0; i < ${times}; i++) out.push(await branch.call("notes.lookup", { q: "same" }).then((r) => r.note ?? "warned", (e) => "refused: " + e.message));
+  return out;
+};`;
+
+test("scripts: the loop guard sees a script's calls, so one script cannot repeat a step without end", async (t) => {
+  const { app, looked, context } = await scripted(t);
+  app.store.save("settings", app.runtime.owner, "loop_guard", { mode: "on" });
+  const answer = await unwalled(app).run({ source: repeat(12), tools: ["notes.lookup"], timeoutMs: 30_000 }, context);
+  assert.equal(answer.ok, true, JSON.stringify(answer));
+  assert.ok(looked.length < 12, `the repeated call ran ${looked.length} times`);
+  assert.ok(answer.result.some((entry) => entry.startsWith("refused")), JSON.stringify(answer.result));
+});
+
+test("scripts: every call a script makes is written to the task journal first, under an id no model call can have", async (t) => {
+  const { app, context, run } = await scripted(t);
+  const answer = await unwalled(app).run({ source: repeat(2), tools: ["notes.lookup"], timeoutMs: 30_000 }, context);
+  assert.equal(answer.ok, true, JSON.stringify(answer));
+  const steps = app.neverBreak.journal.steps(run.id).filter((step) => step.tool === "notes.lookup");
+  assert.equal(steps.length, 2, JSON.stringify(app.neverBreak.journal.steps(run.id)));
+  for (const step of steps) {
+    assert.match(step.callId, /^branch-script:/);
+    assert.equal(step.state, "finished");
+  }
+});
+
+test("scripts: what a tool hands a script has keys hidden before the script can reshape it", async (t) => {
+  const { app, context } = await scripted(t);
+  const source = `export default async (branch) => {
+    const found = await branch.call("notes.lookup", { q: "k" });
+    return Buffer.from(found.key).toString("base64");
+  };`;
+  const answer = await unwalled(app).run({ source, tools: ["notes.lookup"], timeoutMs: 30_000 }, context);
+  assert.equal(answer.ok, true, JSON.stringify(answer));
+  assert.notEqual(Buffer.from(answer.result, "base64").toString(), "ghp_abcdefghijklmnopqrstuvwxyz0123456789");
+});
+
+test("scripts: a task's own wall never widens a script's: no network, no key sites, Branch's data stays unreadable", () => {
+  const outer = { network: "open", keySites: { API_KEY: "api.example.com" }, unreadable: ["/home/me/.ssh"], readOnly: ["/app"],
+    answer: () => "allow", granted: () => ["/tmp/x"], spend: () => undefined };
+  const wall = scriptWall(outer, ["/branch-data"]);
+  assert.equal(wall.network, "none");
+  assert.deepEqual(wall.keySites, {});
+  assert.deepEqual([...wall.unreadable].sort(), ["/branch-data", "/home/me/.ssh"]);
+  assert.deepEqual(wall.readOnly, ["/app"]);
+  assert.equal(wall.answer("network.site", "api.example.com"), "deny");
+  assert.equal(wall.answer("sandbox.write", "/tmp/x"), "allow", "a write the owner allowed stays allowed");
+  const plain = scriptWall(undefined, ["/branch-data"]);
+  assert.equal(plain.network, "none");
+  assert.deepEqual(plain.unreadable, ["/branch-data"]);
+});
+
+test("scripts: a restart in the middle of a script puts it to the owner, and nothing it sent is sent again", async (t) => {
+  const { app, root, run } = await scripted(t);
+  await saveGatewayConfig(join(root, "data"), GatewayConfigSchema.parse({ mode: "on" }));
+  const sent = [];
+  let release;
+  const hang = new Promise((resolve) => { release = resolve; });
+  app.registry.register({ name: "notes.send", permission: "channels.send", description: "send a note",
+    parameters: z.object({ to: z.string() }).strict(), execute: async ({ to }) => { sent.push(to); await hang; return { sent: true }; } });
+  const controller = new AbortController();
+  const context = app.runtime.context({ runId: run.id, signal: controller.signal });
+  const args = { source: `export default async (branch) => branch.call("notes.send", { to: "sam" })`, tools: ["notes.send"], timeoutMs: 30_000 };
+  const outer = { id: "s1", name: "tools.script", arguments: JSON.stringify(args) };
+  app.runtime.journal.intend({ runId: run.id, sessionId: run.sessionId, calls: [{ call: outer, permission: "code.execute" }] });
+  const running = app.runtime.journal.around({ runId: run.id, sessionId: run.sessionId, call: outer, permission: "code.execute",
+    workspace: context.workspace, signal: context.signal }, () => unwalled(app).run(args, context));
+  for (let i = 0; i < 200 && !sent.length; i++) await new Promise((resolve) => setTimeout(resolve, 25));
+  assert.deepEqual(sent, ["sam"]);
+  // Branch "restarts": the task is found interrupted with both steps open.
+  app.store.finish(run.id, "interrupted", "cut off");
+  const reports = await app.neverBreak.recoverOnStart(join(root, "data"));
+  const report = reports.find((entry) => entry.runId === run.id);
+  assert.equal(report.outcome, "asked", JSON.stringify(report));
+  assert.deepEqual(report.steps.map((step) => [step.tool, step.decision]), [["tools.script", "ask"], ["notes.send", "ask"]]);
+  assert.match(app.store.run(run.id).output, /may already have happened/);
+  assert.deepEqual(sent, ["sam"], "nothing was sent a second time");
+  controller.abort();
+  release();
+  await running.catch(() => undefined);
 });
