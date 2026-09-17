@@ -242,10 +242,49 @@ test("a run socket peer that answers pings stays open, and a half-closed peer is
   peer.destroy();
 });
 
-test("a yes to the camera, the screen, the microphone or a command is for that one call", async () => {
+test("a yes to the camera, the screen, the microphone or a command is offered for that one call", async (t) => {
   const { evaluatePolicy, PolicySchema } = await import("../dist/policy.js");
   const none = PolicySchema.parse({});
   const remembered = (tool) => evaluatePolicy(none, { tool, target: "Kitchen Mac: x", readOnly: false }).rule?.remember;
   for (const tool of ["device.camera", "device.screen", "device.listen", "device.run"]) assert.equal(remembered(tool), "never", tool);
   for (const tool of ["device.location", "device.files", "device.clipboard"]) assert.equal(remembered(tool), "session", tool);
+  // Through a real task: the question offers "just this once", and taking it asks again next time.
+  let turn = 0;
+  const camera = { name: "camera-each-time", async complete(request) {
+    turn += 1;
+    return request.messages.at(-1)?.role === "tool" ? { content: "Done.", toolCalls: [] }
+      : { content: "", toolCalls: [{ id: `c${turn}`, name: "device.camera", arguments: JSON.stringify({ device: "Kitchen Mac" }) }] };
+  } };
+  const root = await realpath(await mkdtemp(join(tmpdir(), "branch-devices-ask-")));
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider: camera });
+  t.after(async () => { await app.close(); await discardTemp(root); });
+  app.devices.setMode({ mode: "on" });
+  pairOne(app.devices.book);
+  const sent = [];
+  app.devices.hub.invoke = async (...args) => { sent.push(args); return { value: { captured: "camera" } }; };
+  const first = await app.runtime.run({ prompt: "take a photo" });
+  assert.equal(first.status, "needs_input");
+  const asked = app.store.events(first.id).filter((e) => e.kind === "policy.ask");
+  assert.equal(asked.at(-1).data.remember, "never", "the question offers this one call");
+  app.runtime.approve(first.sessionId, "allow", asked.at(-1).data.remember);
+  const second = await app.runtime.run({ prompt: "and another", sessionId: first.sessionId });
+  assert.equal(second.status, "needs_input", "the next photo asks again");
+  assert.equal(sent.length, 0, "nothing reached the device");
+  // Only if the owner picks "for this conversation" does the next one go ahead.
+  app.runtime.approve(first.sessionId, "allow", "session");
+  const third = await app.runtime.run({ prompt: "one more", sessionId: first.sessionId });
+  assert.equal(third.status, "completed");
+  assert.equal(sent.length, 1);
+});
+
+test("the phone checks a page's address itself, whatever Branch sent", async () => {
+  const { perform } = await import("../apps/mobile/web/phone-node.js");
+  const shown = [];
+  const env = { showPage: (page) => shown.push(page) };
+  for (const args of [{ url: "javascript:alert(1)" }, { url: "file:///etc/hosts" }, {}, { html: "<p>x</p>", url: "https://a.example" }])
+    await assert.rejects(perform(env, "canvas", args), /page|address/, JSON.stringify(args));
+  assert.equal(shown.length, 0, "nothing was shown");
+  await perform(env, "canvas", { url: "https://a.example" });
+  await perform(env, "canvas", { html: "<p>hi</p>" });
+  assert.equal(shown.length, 2);
 });

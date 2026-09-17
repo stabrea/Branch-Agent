@@ -80,7 +80,15 @@ export async function perform(env, capability, args = {}) {
     return { value: { done: "opened" } };
   }
   if (capability === "speak") { env.speak(String(args.text ?? "").slice(0, 2000)); return { value: { done: "spoken" } }; }
-  if (capability === "canvas") { env.showPage({ html: args.html ?? null, url: args.url ?? null }); return { value: { done: "shown" } }; }
+  if (capability === "canvas") {
+    // Integration review: checked here too, so a hub that was taken over cannot show a javascript: or file: address.
+    const html = typeof args.html === "string" && args.html ? args.html.slice(0, 60000) : null;
+    const url = typeof args.url === "string" && args.url ? args.url : null;
+    if (Boolean(html) === Boolean(url)) throw new Error("Give either a page or an address.");
+    if (url && !/^https?:\/\//i.test(url)) throw new Error("Only web addresses can be shown.");
+    env.showPage({ html, url });
+    return { value: { done: "shown" } };
+  }
   throw new Error("This phone does not do that.");
 }
 
