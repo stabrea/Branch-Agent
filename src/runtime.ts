@@ -35,6 +35,8 @@ import { pinnedSkillInstructions, skillInstructions } from "./skill-tools.js";
 import type { ModelPlan, ModelPreset, ModelRouter, ReasoningEffort, RunModelOverride } from "./models.js";
 import { checkResult, fanoutWaves, type FanoutTask, type ResultCheck } from "./delegation.js";
 import { describeToolCall, filePathOf } from "./activity.js";
+// Wave mac2 (guards): loop guard, folder instructions and folder trust; see src/run-guards.ts.
+import { RunGuards } from "./run-guards.js";
 import { routeForTask, routingSettings } from "./local-routing.js";
 import { routeByProfile } from "./model-profiles.js";
 import { memoryScope } from "./memory.js";
@@ -260,6 +262,8 @@ export class Runtime {
   readonly deferrals: Deferrals;
   /** Answers kept for identical requests. Off until the owner turns it on; see src/request-cache.ts. */
   readonly requestCache: RequestCache;
+  /** Wave mac2 (guards): the loop guard, the folder's own instructions and folder trust. */
+  readonly guards: RunGuards;
   constructor(
     readonly store: Store,
     readonly registry: ToolRegistry,
@@ -278,6 +282,7 @@ export class Runtime {
     this.roles = new ProfileRoles(store, this.owner);
     this.handoffs = new Handoffs(store, this.owner);
     this.requestCache = new RequestCache(store, this.owner);
+    this.guards = new RunGuards(store, this.owner, workspace);
   }
   /**
    * The answer to a tool call that was handed over earlier. It is written down and then put to the
@@ -659,6 +664,7 @@ ${run.output.slice(0, 6000)}`;
     // Nothing looks a task up after it has settled — a sub-task registers while its parent is still
     // running — so every task lets go of its ids here, child runs included.
     this.tracer.forget(run.id);
+    this.guards.forget(run.id); // wave mac2 (guards)
     if (!parent && settled.status === "completed" && !options.resumeFrom) this.scheduleReview(run, context);
     if (!parent) { try { this.store.governanceFor(context.owner).recordOutcome(run.id, settled.status, settled.output); } catch { /* governance never fails a task */ } }
     if (!parent) this.drainFollowUps(run.sessionId);
@@ -867,6 +873,7 @@ ${run.output.slice(0, 6000)}`;
     if (style && style !== "default") this.store.event(run.id, "specialist.style", { style, summary: shape.summary });
     const { messages, ids } = this.openingMessages(run, context, instructions);
     await this.addDocuments(run, context, messages, ids);
+    await this.guards.opening(run.id, messages, ids); // wave mac2 (guards)
     const catalog = this.openCatalog(run, context, messages, shape.groups);
     const plan = this.planned(run, context.owner, override, Boolean(images?.length));
     this.store.event(run.id, "model.selected", { ...plan.choice });
@@ -910,13 +917,14 @@ ${run.output.slice(0, 6000)}`;
         this.noteWork(run, call);
         catalog.noteUse(call.name);
         this.rememberToolWork(run.id, call.name, round + 1);
-        const result = await this.callTool(call, context);
+        const result = await this.guards.call(run.id, call, () => this.callTool(call, context)); // wave mac2 (guards)
         const message: Message = { role: "tool", toolCallId: call.id, content: this.clipped(run, call, JSON.stringify(result)) };
         messages.push(message); ids.push(null);
         this.store.message(run.sessionId, message);
         await this.showPicture(run, messages, ids, result, route);
       }
       this.orchestration.milestone(run, round + 1);
+      this.guards.afterRound(run.id); // wave mac2 (guards): ends a task that keeps repeating itself
     }
     throw new BudgetError(conductor.maxRounds(12) === 12 ? "Maximum 12 model rounds reached" : `Maximum ${conductor.maxRounds(12)} model rounds reached`);
   }
@@ -1561,7 +1569,8 @@ ${run.output.slice(0, 6000)}`;
   }
   /** The owner's saved approval policy, held to "Ask before changes" for tasks they did not start. */
   policy(source: RunSource = "owner"): Policy {
-    return cappedPolicy(readPolicy(this.store, this.owner), source);
+    // Wave mac2 (guards): a folder the owner does not trust always asks before a change.
+    return this.guards.policy(cappedPolicy(readPolicy(this.store, this.owner), source));
   }
   /**
    * Where answers already given are remembered for this piece of work: the conversation, or the
