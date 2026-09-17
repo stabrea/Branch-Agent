@@ -300,7 +300,7 @@ test("model names are read for size and generation", () => {
 
 test("key-like values are found by place, never kept, and names of secrets are not values", async (t) => {
   const places = keyLikeValues({
-    mcp: [{ args: ["--token", "sk-proj-abcdefghij1234567890ABCDEFGH"] }],
+    mcp: [{ args: ["--token", "sk-proj-abcdefghij1234567890ABCDEFGH"] }], // not-a-real-secret
     channels: [{ tokenSecret: "TELEGRAM_BOT_TOKEN", password: "hunter22x!" }],
     web: { search: { apiKey: "your-key-here" } },
   });
@@ -424,7 +424,7 @@ test("the launch settings file is read for what is in it", async (t) => {
   const { app, root } = await fixture(t);
   const file = join(root, "integrations.json");
   await writeFile(file, JSON.stringify({
-    mcp: [npx("files", ["-y", "@modelcontextprotocol/server-filesystem", "--token", "ghp_abcdefghijklmnopqrstuvwxyz0123456789"])],
+    mcp: [npx("files", ["-y", "@modelcontextprotocol/server-filesystem", "--token", "ghp_abcdefghijklmnopqrstuvwxyz0123456789"])], // not-a-real-secret
     channels: [channel({ pairing: false })],
   }));
   const { SecurityService } = await import("../dist/security-audit/index.js");
