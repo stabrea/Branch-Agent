@@ -1,5 +1,5 @@
 import { test } from "node:test";
-import { openSettingFor } from "./places.mjs";
+import { openPlace, openSettingFor } from "./places.mjs";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -114,9 +114,11 @@ test(
         "daylight",
       );
       await appearance(page, "forest");
-      await page
-        .locator(".lx-back")
-        .click();
+      /* Settings is a window over whatever place you were on, so after saving the appearance the
+         place behind it is still the conversation and .lx-back is hidden -- a click on it waits
+         thirty seconds and fails. Going back to the conversation is what this wants, and
+         places.mjs knows how: close the window, and only then use the back button if it is there. */
+      await openPlace(page, "chat");
       await page.screenshot({ path: join(home, "desktop.png") });
       await appearance(page, "daylight");
       await electron.evaluate(({ BrowserWindow }) =>
