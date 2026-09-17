@@ -8,10 +8,12 @@ import { chatgptAccountId, chatgptDefaults, type ChatGPTAuth } from "./chatgpt-a
 
 /** Models the ChatGPT subscription route serves; the first is the suggested default. */
 export const chatgptModels = [
+  // Checked against a real ChatGPT account on 2026-09-17: plain gpt-5.6 and gpt-5.4 are refused with
+  // "not supported when using Codex with a ChatGPT account"; these four answer.
   { id: "gpt-5.6-sol", label: "GPT-5.6 Sol (light)", reasoning: "low" },
+  { id: "gpt-5.6-terra", label: "GPT-5.6 Terra", reasoning: "medium" },
+  { id: "gpt-5.6-luna", label: "GPT-5.6 Luna", reasoning: "medium" },
   { id: "gpt-5.5", label: "GPT-5.5", reasoning: "medium" },
-  { id: "gpt-5.6", label: "GPT-5.6", reasoning: "medium" },
-  { id: "gpt-5.4", label: "GPT-5.4", reasoning: "medium" },
 ] as const;
 
 export interface ChatGPTProviderOptions {

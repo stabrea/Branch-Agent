@@ -95,10 +95,10 @@ test("device sign-in stores tokens, registers ChatGPT presets and completes a to
   assert.equal(stored.protected, false);
   assert.ok(!JSON.stringify(stored).includes("refresh_1"), "tokens are not stored in clear text");
   const ids = [...app.runtime.models.presets.keys()].filter((id) => id.startsWith("chatgpt-"));
-  assert.deepEqual(ids, ["chatgpt-gpt-5.6-sol", "chatgpt-gpt-5.5", "chatgpt-gpt-5.6", "chatgpt-gpt-5.4"]);
+  assert.deepEqual(ids, ["chatgpt-gpt-5.6-sol", "chatgpt-gpt-5.6-terra", "chatgpt-gpt-5.6-luna", "chatgpt-gpt-5.5"]);
   const settings = app.runtime.models.settings("local");
   assert.equal(settings.activePreset, "chatgpt-gpt-5.6-sol", "ChatGPT replaces the demonstration as default");
-  assert.deepEqual(settings.fallbackOrder, ["chatgpt-gpt-5.5", "chatgpt-gpt-5.6", "chatgpt-gpt-5.4"]);
+  assert.deepEqual(settings.fallbackOrder, ["chatgpt-gpt-5.6-terra", "chatgpt-gpt-5.6-luna", "chatgpt-gpt-5.5"]);
   useFakeBackend(app, auth, base);
   const run = await app.runtime.run({ prompt: "save a greeting" });
   assert.equal(run.status, "completed");
