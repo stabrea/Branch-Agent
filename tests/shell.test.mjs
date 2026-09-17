@@ -106,9 +106,10 @@ test('shell rejects denied aliases, permissions, traversal, and linked cwd', asy
 });
 
 test('shell captures nonzero exit, bounds output, and enforces timeout', async (t) => {
-  // Exit codes, output caps and timeouts are measured without a job object: on a slow computer the
-  // supervisor's start would compete with the half-second budget this test gives each command.
-  const f = await fixture(t, { maxOutputBytes: 1024, timeoutMs: 500, useJobObject: false });
+  // Exit codes, output caps and timeouts are measured without a job object. The configured maximum is
+  // generous: a loaded Windows runner took over half a second just to start node for the failing
+  // command, which then read as a timeout. Only the held command is given a short limit of its own.
+  const f = await fixture(t, { maxOutputBytes: 1024, timeoutMs: 60000, useJobObject: false });
   const failed = await f.shell.execute({ executable: 'fixture', args: ['fail'] }, f.context());
   assert.equal(failed.exitCode, 7); assert.equal(failed.status, 'failed');
   assert.match(failed.stdout, /before failure/); assert.match(failed.stderr, /compilation failed/);
@@ -117,7 +118,7 @@ test('shell captures nonzero exit, bounds output, and enforces timeout', async (
   assert.ok(Buffer.byteLength(flooded.stdout) + Buffer.byteLength(flooded.stderr) <= 1024);
   const timed = await f.shell.execute({ executable: 'fixture', args: ['hold'], timeoutMs: 100 }, f.context());
   assert.equal(timed.status, 'timed_out'); assert.ok(timed.durationMs < 8000);
-  await assert.rejects(f.shell.execute({ executable: 'fixture', timeoutMs: 501 }, f.context()), /maximum/);
+  await assert.rejects(f.shell.execute({ executable: 'fixture', timeoutMs: 60001 }, f.context()), /maximum/);
 });
 
 test('returned output obeys its combined UTF-8 byte limit for invalid bytes and split Unicode', async (t) => {

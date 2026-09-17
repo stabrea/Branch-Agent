@@ -7,7 +7,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, writeFile, access } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch, savePolicy } from "../dist/index.js";
 import { protectedAreas, protectedTarget, placeWords } from "../dist/never-break/protected.js";
@@ -33,8 +33,10 @@ test("reading is refused only for the database and the keys", () => {
 test("every word of a command is checked, and a sweeping command naming a parent is refused", () => {
   assert.match(check("shell.execute", { executable: "rm", args: ["-rf", "/home/o/.branch"] }), /never lets a task/);
   // `~` and $HOME are read from this computer, so these folders are spelled the way this computer spells them.
+  // The program folder is two levels above home, as ${HOME}/../../opt/branch names it: on Windows that is
+  // on home's drive, which need not be the drive the tests run from (CI: home on C:, checkout on D:).
   const home = protectedAreas({ workspace: join(homedir(), "never-work"), dataDir: join(homedir(), ".never-branch"),
-    installRoot: "/opt/branch", platform: process.platform });
+    installRoot: resolve(homedir(), "..", "..", "opt", "branch"), platform: process.platform });
   for (const line of ["echo x > ~/.never-branch/gateway.json", "cp evil.js $HOME/.never-branch/branch.sqlite",
     "cp evil.js ${HOME}/../../opt/branch/dist/cli.js"])
     assert.match(protectedTarget({ tool: "shell.execute", readOnly: false, args: { executable: "sh", args: ["-c", line] }, target: "" }, home) ?? "",
