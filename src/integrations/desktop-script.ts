@@ -335,13 +335,13 @@ export function scriptEnvironment(root = process.env.SYSTEMROOT ?? 'C:\\Windows'
 }
 
 /**
- * How a Mac or Linux computer is driven. It stays off unless switched on here: the notice with its
- * Stop button that sits on top of the screen during every action is still a Windows program, and
- * screen control never runs without a way to stop it.
+ * How a Mac or Linux computer is driven. It stays off unless switched on here, because screen
+ * control never runs without a way to stop it: the switch is a question asked before every action,
+ * and `screenControlParts` (desktop-banner.ts) answers it with "is the Stop notice showing right now".
  */
 export interface PosixDesktopOptions {
-  /** Turned on only once the on-screen notice works on this kind of computer. */
-  enabled?: boolean;
+  /** On only while the on-screen notice with its Stop button is really showing on this computer. */
+  enabled?: boolean | (() => boolean);
   platform?: string;
   env?: NodeJS.ProcessEnv;
   exec?: PosixExec;
@@ -399,8 +399,11 @@ export class DesktopScriptRunner {
   }
   /** A Mac through `osascript`, Linux through `xdotool`, or one plain sentence saying it cannot. */
   private async runPosix(action: DesktopAction, payload: Record<string, unknown>, signal: AbortSignal): Promise<Record<string, unknown>> {
-    if (!this.posix.enabled)
-      throw new Error('Using the screen and keyboard is not available on this computer yet: for now Branch can only do it on Windows.');
+    const enabled = this.posix.enabled;
+    if (!(typeof enabled === 'function' ? enabled() : enabled))
+      throw new Error(enabled === undefined || enabled === false
+        ? 'Using the screen and keyboard is not available on this computer yet: for now Branch can only do it on Windows.'
+        : 'Branch only uses your screen while its notice with the Stop button is showing, and it is not showing, so nothing was done.');
     const locate = this.posix.locate ?? locateProgram;
     const problem = posixAvailability(this.platform, this.posix.env ?? process.env, locate);
     if (problem) throw new Error(problem);

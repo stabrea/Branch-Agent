@@ -1,4 +1,19 @@
 var $ = (id) => document.getElementById(id);
+// app.js keeps its token to itself (it is a module), so this classic script reads the saved one.
+var voiceToken = () => sessionStorage.getItem("branch-token") || "";
+// Which kind of computer the server runs on, from /api/voice/plan; its words differ for the microphone.
+var voicePlatform = "win32";
+// The app's word list, loaded as a module; until it is here the English below is used.
+var voiceI18n = null;
+import("/i18n.js").then((module) => { voiceI18n = module; }).catch(() => undefined);
+function voiceWord(key, english) {
+  const word = voiceI18n ? voiceI18n.t(key) : key;
+  return word === key ? english : word;
+}
+function microphoneHelp() {
+  const key = "voice.microphone." + (["darwin", "linux"].includes(voicePlatform) ? voicePlatform : "win32");
+  return voiceWord(key, "The microphone is not available. Allow it for Branch Agent in Windows settings and try again.");
+}
 /**
  * Voice input and output for the web UI.
  * Handles microphone recording, transcription, and text-to-speech playback.
@@ -48,7 +63,7 @@ async function startVoiceRecording() {
   // The microphone is asked for on the first press, never when the app opens.
   if (!mediaRecorder && !(await initVoiceRecording())) {
     const toastEl = $("toast");
-    toastEl.textContent = "The microphone is not available. Allow it for Branch Agent in Windows settings and try again.";
+    toastEl.textContent = microphoneHelp();
     toastEl.hidden = false;
     setTimeout(() => { toastEl.hidden = true; }, 4000);
     return false;
@@ -78,7 +93,7 @@ async function transcribeAudio(blob) {
     const response = await fetch("/api/voice/transcribe", {
       method: "POST",
       headers: {
-        authorization: "Bearer " + token,
+        authorization: "Bearer " + voiceToken(),
       },
       body: blob,
     });
@@ -150,7 +165,7 @@ async function speakWithProvider(text) {
     const response = await fetch("/api/voice/speak", {
       method: "POST",
       headers: {
-        authorization: "Bearer " + token,
+        authorization: "Bearer " + voiceToken(),
         "content-type": "application/json",
       },
       body: JSON.stringify({ text }),
@@ -193,7 +208,7 @@ function stopSpeaking() {
 async function loadVoiceSettings() {
   try {
     const response = await fetch("/api/voice/settings", {
-      headers: { authorization: "Bearer " + token },
+      headers: { authorization: "Bearer " + voiceToken() },
     });
     if (!response.ok) return;
 
@@ -232,7 +247,7 @@ async function saveVoiceSettings() {
     const response = await fetch("/api/voice/settings", {
       method: "POST",
       headers: {
-        authorization: "Bearer " + token,
+        authorization: "Bearer " + voiceToken(),
         "content-type": "application/json",
       },
       body: JSON.stringify(settings),
@@ -246,28 +261,87 @@ async function saveVoiceSettings() {
   }
 }
 
-/**
- * Populate the voice selection dropdown with available voices.
- */
-function populateVoices() {
-  if (!('speechSynthesis' in window)) return;
+/** The voices already on this computer (Windows, `say` on a Mac, espeak-ng on Linux), asked for when the list is opened. */
+var systemVoiceNames = [];
+var systemVoicesAsked = false;
 
-  const voiceSelectEl = $("voice-select");
-  if (!voiceSelectEl) return;
-
-  const voices = speechSynthesis.getVoices();
-  voiceSelectEl.replaceChildren(
-    ...voices.map((voice) => {
-      const option = document.createElement("option");
-      option.value = voice.name;
-      option.textContent = `${voice.name} (${voice.lang})`;
-      return option;
-    }),
-  );
+async function voiceRequest(path) {
+  const response = await fetch(path, { headers: { authorization: "Bearer " + voiceToken() } });
+  return response.ok ? response.json() : null;
 }
 
-// Initialize when voices are loaded
-if ('speechSynthesis' in window) {
-  speechSynthesis.onvoiceschanged = populateVoices;
-  populateVoices();
+/** The words this kind of computer uses; asking for the plan starts no program. */
+async function loadSystemVoiceWords() {
+  try {
+    const plan = await voiceRequest("/api/voice/plan");
+    const words = plan && plan.systemVoice;
+    if (!words || typeof words.platform !== "string") return;
+    voicePlatform = words.platform;
+    const route = document.querySelector('#voice-tts-route option[value="windows"]');
+    if (!route) return;
+    route.dataset.t = voicePlatform === "win32" ? "voice.route.system-windows" : "voice.route.system-own";
+    route.textContent = voiceWord(route.dataset.t, words.label);
+  } catch (e) {
+    console.warn("The voice wording could not be read:", e instanceof Error ? e.message : e);
+  }
+}
+
+async function loadSystemVoices() {
+  if (systemVoicesAsked) return;
+  systemVoicesAsked = true;
+  try {
+    const data = await voiceRequest("/api/voice/voices");
+    if (!data) { systemVoicesAsked = false; return; }
+    systemVoiceNames = Array.isArray(data.system) ? data.system : Array.isArray(data.windows) ? data.windows : [];
+    populateVoices();
+  } catch (e) {
+    systemVoicesAsked = false;
+    console.warn("The computer's own voices could not be listed:", e instanceof Error ? e.message : e);
+  }
+}
+
+function voiceOption(value, text) {
+  const option = document.createElement("option");
+  option.value = value;
+  option.textContent = text;
+  return option;
+}
+
+/**
+ * Populate the voice selection dropdown: the computer's own voices first, then the browser's.
+ */
+function populateVoices() {
+  const voiceSelectEl = $("voice-select");
+  if (!voiceSelectEl) return;
+  const chosen = voiceSelectEl.value;
+  const groups = [voiceOption("default", voiceWord("voice.default", "Default"))];
+  groups[0].dataset.t = "voice.default";
+  if (systemVoiceNames.length) {
+    const own = document.createElement("optgroup");
+    own.label = voiceWord("voice.group.own-voices", "Your computer's own voices");
+    own.append(...systemVoiceNames.map((name) => voiceOption(name, name)));
+    groups.push(own);
+  }
+  const listed = new Set(systemVoiceNames);
+  const browser = 'speechSynthesis' in window ? speechSynthesis.getVoices().filter((voice) => !listed.has(voice.name)) : [];
+  if (browser.length) {
+    const inBrowser = document.createElement("optgroup");
+    inBrowser.label = voiceWord("voice.group.window-voices", "Voices in this window");
+    inBrowser.append(...browser.map((voice) => voiceOption(voice.name, `${voice.name} (${voice.lang})`)));
+    groups.push(inBrowser);
+  }
+  voiceSelectEl.replaceChildren(...groups);
+  if (chosen && [...voiceSelectEl.options].some((option) => option.value === chosen)) voiceSelectEl.value = chosen;
+}
+
+// Initialize when voices are loaded; the group names are redrawn when the language changes.
+if ('speechSynthesis' in window) speechSynthesis.onvoiceschanged = populateVoices;
+document.addEventListener("branch-language", populateVoices);
+populateVoices();
+if (sessionStorage.getItem("branch-token")) void loadSystemVoiceWords();
+else addEventListener("load", () => void loadSystemVoiceWords(), { once: true });
+// The computer is asked for its voices only when the owner opens the list, never when the page opens.
+// Its own-voice switch may have changed since, so the list is asked for again each time.
+for (const id of ["voice-select", "voice-tts-route"]) {
+  $(id)?.addEventListener("focus", () => { systemVoicesAsked = false; void loadSystemVoiceWords(); void loadSystemVoices(); });
 }

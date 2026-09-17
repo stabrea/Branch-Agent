@@ -4,6 +4,7 @@ import { globMatches, ResourceMatcherSchema, resourceMatches, type PolicyResourc
 import { sandboxChoices } from "./sandbox.js";
 import { sandboxBackends } from "./sandbox-backends.js";
 import type { Store } from "./store.js";
+import { optionalFields } from "./feature-switches.js";
 
 export { globMatches } from "./policy-resources.js";
 
@@ -89,7 +90,7 @@ export const PolicyInputSchema = z
   .object({
     preset: PolicyPresetSchema.optional(),
     rules: z.array(PolicyRuleSchema).max(maximumPolicyRules).optional(),
-    limits: PolicyLimitsSchema.partial().optional(),
+    limits: optionalFields(PolicyLimitsSchema).optional(),
     unmatchedCommands: z.enum(["ask", "allow"]).optional(),
   })
   .strict();
@@ -170,6 +171,8 @@ const readOnlyPermissions = new Set([
   "process.read",
   // GitLab is read-only here: issues, releases and how the checks went.
   "gitlab.read",
+  // A check-in writing down its own answer (src/heartbeat.ts); the news goes out afterwards, by Branch.
+  "heartbeat.respond",
 ]);
 export const isReadOnlyPermission = (permission: string): boolean => readOnlyPermissions.has(permission);
 

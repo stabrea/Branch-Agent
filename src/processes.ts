@@ -8,8 +8,9 @@ import type { ToolContext } from "./contracts.js";
 import type { ToolRegistry } from "./registry.js";
 import { WorkspaceFiles } from "./files.js";
 import { killProcessGroup, killWindowsTree } from "./integrations/shell-process.js";
-import { defaultJobObjects, jobWithin, type Job, type JobObjects } from "./integrations/job-object.js";
-import { netlessEnvironment } from "./integrations/shell-config.js";
+import { defaultJobObjects, jobWithin, startedThrough, type Job, type JobObjects } from "./integrations/job-object.js";
+import { PosixProcessGroup, type HeldBySystem } from "./integrations/posix-limits.js";
+import { fromTheTop, netlessEnvironment } from "./integrations/shell-config.js";
 import { sandboxShape, shapeChoice, type SandboxChoice } from "./sandbox.js";
 import {
   chooseSandboxBackend, defaultSandboxProbe, sandboxBackendSet, sliceFor,
@@ -49,7 +50,7 @@ export function backgroundSettings(store: Store, owner: string): BackgroundSetti
 export async function saveBackgroundSettings(store: Store, owner: string, input: unknown): Promise<BackgroundSettings> {
   const value = BackgroundSettingsSchema.parse(input ?? {});
   for (const [name, program] of Object.entries(value.programs)) {
-    if (!isAbsolute(program.path)) throw new Error(`Give "${name}" in full, starting from the drive.`);
+    if (!isAbsolute(program.path)) throw new Error(`Give "${name}" in full, ${fromTheTop()}.`);
     if (/\.(cmd|bat)$/i.test(program.path)) throw new Error(`Name the real program for "${name}", not a .cmd or .bat wrapper.`);
     if (!(await stat(program.path).catch(() => null))?.isFile()) throw new Error(`There is no program at the address given for "${name}".`);
   }
@@ -61,7 +62,15 @@ export interface ProcessView {
   id: string; name: string; program: string; pid: number | null; sessionId: string; runId: string;
   status: "running" | "finished" | "stopped" | "failed"; startedAt: string; endedAt: string | null;
   exitCode: number | null; isolation: "job-object" | "sampling"; bytes: number; dropped: boolean;
+  /** macOS and Linux: what the system itself holds for this program, when it holds anything. */
+  heldBySystem?: HeldBySystem;
 }
+
+/** What a macOS or Linux process group is holding, as an optional field of a list entry. */
+const heldBy = (job: Job | null): { heldBySystem?: HeldBySystem } => {
+  const held = job instanceof PosixProcessGroup ? job.held() : null;
+  return held ? { heldBySystem: held } : {};
+};
 
 /** One program left running, with what it has printed so far. */
 class Running {
@@ -80,6 +89,7 @@ class Running {
     readonly name: string, readonly program: string, readonly sessionId: string, readonly runId: string,
     private readonly child: ChildProcess, private readonly job: Job | null,
     private readonly bufferBytes: number, maxMinutes: number,
+    private readonly onSettled: (view: ProcessView) => void = () => {},
   ) {
     child.stdout?.on("data", (chunk: Buffer) => this.keep(chunk));
     child.stderr?.on("data", (chunk: Buffer) => this.keep(chunk));
@@ -103,6 +113,7 @@ class Running {
     this.endedAt = new Date().toISOString();
     clearTimeout(this.timer);
     void this.job?.close().catch(() => undefined);
+    try { this.onSettled(this.view()); } catch { /* telling someone must never break a finished program */ }
   }
   /** What it has printed, newest at the end, and whether anything older was dropped. */
   output(limit: number): { text: string; dropped: boolean } {
@@ -112,7 +123,7 @@ class Running {
   view(): ProcessView {
     return { id: this.id, name: this.name, program: this.program, pid: this.child.pid ?? null,
       sessionId: this.sessionId, runId: this.runId, status: this.status, startedAt: this.startedAt,
-      endedAt: this.endedAt, exitCode: this.exitCode, isolation: this.job ? "job-object" : "sampling",
+      endedAt: this.endedAt, exitCode: this.exitCode, isolation: this.job?.kind === "job-object" ? "job-object" : "sampling", ...heldBy(this.job),
       bytes: this.bytes, dropped: this.dropped };
   }
   /** Stops it and everything it started; letting the job go is what really clears the tree. */
@@ -142,6 +153,8 @@ export const StartInputSchema = z.object({
 
 export class BackgroundProcesses {
   private readonly running = new Map<string, Running>();
+  /** Told once when a program left running finishes, fails or is stopped (the check-in wakes on it). */
+  readonly finished = new Set<(view: ProcessView) => void>();
   constructor(
     private readonly store: Store, private readonly owner: string, private readonly workspace: string,
     private readonly jobs: JobObjects = defaultJobObjects(),
@@ -168,11 +181,13 @@ export class BackgroundProcesses {
     // what it started. A backend that is not on this computer refuses here, before anything starts.
     const start = await this.wrapped(context, cwd,
       { executable: program.path, args: [...program.args, ...input.args] }, shape, settings);
-    const child = spawn(start.executable, start.args, { cwd: start.cwd, shell: false, windowsHide: true,
+    // On macOS and Linux the limits are set as the program starts, so the job may change how it starts.
+    const argv = startedThrough(job, { executable: start.executable, args: start.args });
+    const child = spawn(argv.executable, argv.args, { cwd: start.cwd, shell: false, windowsHide: true,
       detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"], env: start.env });
     if (job && child.pid) await job.assign(child.pid).catch(() => false);
     const entry = new Running(input.name, input.program, this.sessionOf(context), context.runId, child, job,
-      settings.bufferBytes, settings.maxMinutes);
+      settings.bufferBytes, settings.maxMinutes, (view) => { for (const listener of this.finished) listener(view); });
     this.running.set(entry.id, entry);
     if (context.runId) this.store.event(context.runId, "process.started", { id: entry.id, name: entry.name, program: entry.program, pid: child.pid ?? null, sandbox: shapeChoice(shape), backend: context.sandboxBackend ?? "job-object" });
     return { ...entry.view(), sandbox: shapeChoice(shape), backend: context.sandboxBackend ?? "job-object" };

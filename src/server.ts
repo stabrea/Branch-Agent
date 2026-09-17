@@ -9,6 +9,7 @@ import { readFile, writeFile, lstat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
+import { quietJobsApi } from "./scheduler.js";
 import { finishChatGPTSignIn, syncChatGPTPresets } from "./chatgpt-presets.js";
 import { embedSettings, widgetOrigin } from "./embeds.js";
 import { RunInputSchema, errorText } from "./contracts.js";
@@ -89,6 +90,10 @@ import { meaningSearchExplanation, meaningSearchOn, meaningSearchSetting } from 
 import { handleA2a, remoteAgentsApi } from "./a2a-routes.js";
 import type { createBranch } from "./index.js";
 import { PreferencesSchema, preferences } from "./preferences.js";
+// Wave mac3: the owner's control dashboard, a page of its own at /dashboard.
+import {
+  DashboardApiError, dashboardAccess, dashboardApi, dashboardSettings, handlesDashboardPath, isDashboardFile,
+} from "./dashboard-api.js";
 import { PolicyRememberSchema, policyPresets, readPolicy, savePolicy } from "./policy.js";
 import { maximumArchiveBytes } from "./session-library.js";
 import { maximumMemoryArchiveBytes } from "./memory.js";
@@ -112,12 +117,18 @@ import { clearRunning, writeRunning } from "./install/running.js";
 import { readFirstStart, recordFirstStart } from "./install/update-backup.js";
 import { readDesktopSettings, saveDesktopSettings } from "./integrations/desktop-config.js";
 import { readCredentialSettings, saveCredentialSettings } from "./credential-cli.js";
+import { keychainApi, keychainSettingsPath, permissionsContext } from "./keychain-api.js";
+import { optionalFields } from "./feature-switches.js";
 import { auditCsvResponse, handlesMiscPath, miscApi, MiscApiError } from "./misc-api.js";
 // Batch 19 (wave 7): spans, sending traces somewhere, the counters page and the rule sentences.
 import { handlesTracingPath, logsResponse, metricsResponse, tracingApi, TracingApiError } from "./tracing-api.js";
 // Batch 26 (wave 8): where scripts run, what may reach the internet, how much one person may ask
 // for, the owner's other computers, marks, and how long conversations are kept.
 import { handlesSandboxRemotePath, sandboxRemoteApi, SandboxRemoteApiError } from "./sandbox-remote-api.js";
+// Wave mac2 (move-in): bringing chats and memory over from another assistant.
+import { contextFileSinkFor, defaultMoveInOptions, handlesMoveInPath, moveInApi, MoveInApiError } from "./migrate-api.js";
+// Wave mac2 (guards): which workspace folders are trusted, and the loop guard switch.
+import { guardsApi, handlesGuardsPath } from "./run-guards.js";
 import { helpApi } from "./help.js";
 import { AuthLimiter, noteAuthFailure, requestSource } from "./auth-limits.js";
 import { handlesOrchestrationPath, orchestrationApi, OrchestrationApiError } from "./orchestration-api.js";
@@ -157,7 +168,7 @@ const PlanAnswerSchema = z.object({
   reason: z.string().trim().max(500).optional(),
 }).strict();
 /** Which of the two modes this conversation is in, and how far it may go before checking back. */
-const PlanActChoiceSchema = PlanActSettingsSchema.partial().extend({
+const PlanActChoiceSchema = optionalFields(PlanActSettingsSchema).extend({
   sessionId: z.string().max(64).optional(),
   /** "conversation" sets this one apart; "project" changes what every conversation starts from. */
   scope: z.enum(["conversation", "project"]).default("conversation"),
@@ -277,6 +288,8 @@ async function staticFile(
     "/": ["index.html", "text/html; charset=utf-8"],
     "/app.js": ["app.js", "text/javascript; charset=utf-8"],
     "/voice.js": ["voice.js", "text/javascript; charset=utf-8"],
+    // mac2/desktop-ui: this computer's own permission switches, and the Keychain list on a Mac.
+    "/os-permissions.js": ["os-permissions.js", "text/javascript; charset=utf-8"],
     "/voice-talk.js": ["voice-talk.js", "text/javascript; charset=utf-8"],
     // Wave 8: the composer's live-conversation button and everything behind it.
     "/voice-live.js": ["voice-live.js", "text/javascript; charset=utf-8"],
@@ -297,6 +310,8 @@ async function staticFile(
     // Wave 6: sharing, labels and notes, workflows, the waiting line, days off and people.
     "/collab.js": ["collab.js", "text/javascript; charset=utf-8"],
     "/automations.js": ["automations.js", "text/javascript; charset=utf-8"],
+    // Wave mac2 (quiet-jobs): the check-in card, automation health and check-script approval.
+    "/heartbeat.js": ["heartbeat.js", "text/javascript; charset=utf-8"],
     "/mcp.js": ["mcp.js", "text/javascript; charset=utf-8"],
     "/mcp-workbench.js": ["mcp-workbench.js", "text/javascript; charset=utf-8"],
     "/browser.js": ["browser.js", "text/javascript; charset=utf-8"],
@@ -309,6 +324,14 @@ async function staticFile(
     "/pair": ["pair.html", "text/html; charset=utf-8"],
     "/pair.js": ["pair.js", "text/javascript; charset=utf-8"],
     "/pair.css": ["pair.css", "text/css; charset=utf-8"],
+    // Wave mac3: the owner's dashboard, and the card in Customize → Channels that switches it on.
+    "/dashboard": ["dashboard/index.html", "text/html; charset=utf-8"],
+    "/dashboard/dashboard.css": ["dashboard/dashboard.css", "text/css; charset=utf-8"],
+    "/dashboard/dashboard.js": ["dashboard/dashboard.js", "text/javascript; charset=utf-8"],
+    "/dashboard/sections.js": ["dashboard/sections.js", "text/javascript; charset=utf-8"],
+    "/dashboard/feed.js": ["dashboard/feed.js", "text/javascript; charset=utf-8"],
+    "/dashboard/look.js": ["dashboard/look.js", "text/javascript; charset=utf-8"],
+    "/dashboard-card.js": ["dashboard/card.js", "text/javascript; charset=utf-8"],
     "/usage.js": ["usage.js", "text/javascript; charset=utf-8"],
     "/evaluation.js": ["evaluation.js", "text/javascript; charset=utf-8"],
     // Wave 7: written-down experiments, under the evaluation card.
@@ -320,6 +343,8 @@ async function staticFile(
     "/flows.js": ["flows.js", "text/javascript; charset=utf-8"],
     // Wave 9: the advisor switch and the two debate bounds.
     "/second-opinion.js": ["second-opinion.js", "text/javascript; charset=utf-8"],
+    // Wave mac2 (chat-live): the chat-app switches card under Customize, Chat apps.
+    "/chat-live.js": ["chat-live.js", "text/javascript; charset=utf-8"],
     "/skill-revisions.js": ["skill-revisions.js", "text/javascript; charset=utf-8"],
     // Wave mac3 (channels-parity): the switches for the chat services added to match other assistants.
     "/channels-more.js": ["channels-more.js", "text/javascript; charset=utf-8"],
@@ -329,6 +354,10 @@ async function staticFile(
     // Wave 8: the Lockdown switch and the shape branched conversations make.
     "/other.js": ["other.js", "text/javascript; charset=utf-8"],
     "/sandbox-remote.js": ["sandbox-remote.js", "text/javascript; charset=utf-8"],
+    // Wave mac2: bringing your chats and memory over from another assistant.
+    "/move-in.js": ["move-in.js", "text/javascript; charset=utf-8"],
+    // Wave mac2 (guards): the card that asks whether a folder is trusted.
+    "/folder-trust.js": ["folder-trust.js", "text/javascript; charset=utf-8"],
     "/providers.js": ["providers.js", "text/javascript; charset=utf-8"],
     "/style.css": ["style.css", "text/css; charset=utf-8"],
     // App shell (wave 2): tokens, layout, appearance.
@@ -340,6 +369,8 @@ async function staticFile(
     "/context-files.js": ["context-files.js", "text/javascript; charset=utf-8"],
     "/layout.css": ["layout.css", "text/css; charset=utf-8"],
     "/theme-catalogue.js": ["theme-catalogue.js", "text/javascript; charset=utf-8"],
+    // Wave mac3: one theme's colours under Branch's token names, for the window and the dashboard.
+    "/theme-bridge.js": ["theme-bridge.js", "text/javascript; charset=utf-8"],
     "/grove.js": ["grove.js", "text/javascript; charset=utf-8"],
     "/context-pane.js": ["context-pane.js", "text/javascript; charset=utf-8"],
     // Wave 7: what a conversation is allowed to do right now, and the observability screens.
@@ -639,6 +670,13 @@ async function api(
     return sandboxRemoteApi(app, request, path, readBody).catch((error: unknown) => {
       throw error instanceof SandboxRemoteApiError ? new HttpError(error.status, error.message) : error;
     });
+  // Wave mac2 (move-in): the preview of what another assistant left behind, and bringing it over.
+  if (handlesMoveInPath(path))
+    return moveInApi(app, request, path, readBody, { ...defaultMoveInOptions(), contextFiles: contextFileSinkFor(app) }).catch((error: unknown) => {
+      throw error instanceof MoveInApiError ? new HttpError(error.status, error.message) : error;
+    });
+  // Wave mac2 (guards): which workspace folders are trusted, what each carries, and both switches.
+  if (handlesGuardsPath(path)) return guardsApi(app, request, path, readBody);
   // Batch 21 (wave 8): the description of this API, Lockdown, kept answers, whole sets, project cost.
   if (handlesOtherPath(path))
     return otherApi(app, request, path, readBody).catch((error: unknown) => {
@@ -698,6 +736,13 @@ async function api(
   if (path.startsWith("/api/lock") || path.startsWith("/api/privacy")) return guardApi(app, request, path);
   if (path.startsWith("/api/connections/")) return connectionsApi(app, request, path);
   if (path.startsWith("/api/channels")) return channelsApi(app, request, path);
+  // Wave mac2 (quiet-jobs): the check-in, and the owner's yes to a job's check script.
+  if (path.startsWith("/api/heartbeat") || /^\/api\/schedules\/[a-f0-9-]{36}\/gate$/.test(path)) {
+    app.store.profiles.requireOwner("Your schedules");
+    const answer = await quietJobsApi(app.scheduler, request.method ?? "GET", path, () => readBody(request));
+    if (answer !== undefined) return answer;
+    throw new HttpError(404, "Endpoint not found");
+  }
   if (path === "/api/schedules" || path.startsWith("/api/schedules/")) return schedulesApi(app, request, path);
   if (path.startsWith("/api/documents")) return documentsApi(app, request, path);
   // Knowledge bases: named sets of folders and files, searched by words and by meaning at once.
@@ -773,12 +818,15 @@ async function api(
   }
   // Batch 26 (wave 8): what Windows itself allows, with the page that turns each one on.
   if (request.method === "GET" && path === "/api/os-permissions")
-    return { permissions: await app.osPermissions.all() };
+    return { permissions: await app.osPermissions.all(), ...permissionsContext() };
   // Batch 26 (wave 8): reading passwords out of the password manager the owner already has.
   if (request.method === "GET" && path === "/api/credentials/settings")
     return readCredentialSettings(app.store, app.runtime.owner);
   if (request.method === "POST" && path === "/api/credentials/settings")
     return saveCredentialSettings(app.store, app.runtime.owner, await readBody(request));
+  // mac2/desktop-ui: which Keychain entries Branch may read on a Mac (names only, off by default).
+  if (path === keychainSettingsPath)
+    return keychainApi(app.store, app.runtime.owner, request.method ?? "GET", () => readBody(request));
   // Using this computer's screen and keyboard: off until the owner turns it on here.
   if (request.method === "GET" && path === "/api/desktop/settings")
     return readDesktopSettings(app.store, app.runtime.owner);
@@ -1652,6 +1700,8 @@ async function channelsApi(app: Branch, request: IncomingMessage, path: string):
   if (request.method === "POST" && retry) return app.channels.retryDelivery(decodeURIComponent(retry[1]!));
   if (request.method === "POST" && path === "/api/channels/pairings/approve") return app.channels.approve(owner, await readBody(request));
   if (request.method === "POST" && path === "/api/channels/link") return app.channels.link(owner, await readBody(request));
+  // Wave mac2 (chat-live): the on / off / when-needed switches for typing, commands, steering and splitting.
+  if (request.method === "POST" && path === "/api/channels/live") return { live: app.channels.setSwitches(await readBody(request)) };
   if (request.method === "POST" && path === "/api/channels/test") {
     const { channel, chatId } = z.object({ channel: z.string().min(1).max(64), chatId: z.string().min(1).max(64) }).strict().parse(await readBody(request));
     return app.channels.deliver(channel, chatId, "Test message from Branch Agent: this channel is connected and working.", `test:${Date.now()}`);
@@ -2178,6 +2228,9 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
       // box off the owner's page rather than only hiding the setting.
       if (path === "/widget.js" && !embedSettings(app.store, app.runtime.owner).widget)
         throw new HttpError(404, "Not found");
+      // Wave mac3: while the dashboard switch is off its page and files are not served at all.
+      if (isDashboardFile(path) && dashboardSettings(app.store, app.runtime.owner).mode === "off")
+        throw new HttpError(404, "Not found");
       if (request.method === "GET" && (await staticFile(path, response)))
         return;
       if (path.startsWith("/hooks/")) {
@@ -2216,6 +2269,20 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
       // refresh of the screen would keep it awake for ever and it would never lock itself.
       if (request.method !== "GET" && path !== "/api/lock") app.sessionLock.touch();
       if (await handleMcpRequest(app, request, response)) return;
+      // ---- Wave mac3: the owner's dashboard (src/dashboard-api.ts). What this key may do is worked
+      // out once here, so the page can show a read-only view to a key that may only look. ----
+      if (handlesDashboardPath(path)) {
+        // The key was already checked and its use counted above; this only reads what it may do.
+        const access = dashboardAccess(request, token, (supplied) => app.sessionTokens.scopeOf(app.runtime.owner, supplied));
+        const answer = await dashboardApi(app, request, path, {
+          dataDir: options.dataDir, access, readBody: () => readBody(request),
+        }).catch((error: unknown) => {
+          throw error instanceof DashboardApiError ? new HttpError(error.status, error.message) : error;
+        });
+        send(response, 200, answer);
+        return;
+      }
+      // ---- end of the dashboard block ----
       const executes = isExecution(request, path);
       const place = executes ? executions.take() : null;
       if (executes && !place)
@@ -2615,15 +2682,24 @@ function voiceDeps(app: Branch) {
  */
 function offLimitsToShortLivedKeys(method: string | undefined, path: string): string | null {
   if (method === "GET") return null;
-  if (path === "/api/providers/cli-agents" || path.startsWith("/api/secrets") || path.startsWith("/api/connections"))
+  if (path === "/api/providers/cli-agents" || path.startsWith("/api/secrets") || path.startsWith("/api/connections") || /^\/api\/schedules\/[a-f0-9-]{36}\/gate$/.test(path))
     return "A short-lived key cannot name a program for Branch to run, add a model service, or change the locker. Do that in the app window.";
   if (path === "/api/deployment/close")
     return "A short-lived key cannot close Branch. Only the app on this computer can.";
+  // Wave mac2 (quiet-jobs): the check-in's switches, hours and where its news goes are the owner's.
+  if (path === "/api/heartbeat" || path.startsWith("/api/heartbeat/"))
+    return "A short-lived key cannot change the check-in or start one. Do that in the app window.";
+  // Wave mac3 (dashboard review): a "run" key "cannot change what Branch is allowed to do", and
+  // Lockdown is exactly that; without this a script's key could switch Lockdown off.
+  if (path === "/api/lockdown")
+    return "A short-lived key cannot switch Lockdown on or off. Do that in the app window or with the key of this computer.";
+  // Wave mac2 (guards): trusting a folder lets what is in it steer the assistant.
+  if (handlesGuardsPath(path)) return "A short-lived key cannot change which folders are trusted or how repeated steps are stopped. Do that in the app window.";
   return null;
 }
 function isExecution(request: IncomingMessage, path: string): boolean {
   return (
-    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore", "/api/deployment/restore-point", "/api/deployment/close", "/a2a", "/api/tools/try", "/api/tools/forget", "/api/tools/meaning-search", "/api/firewall/test", "/api/sandboxes", "/api/limits"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins|local-models|connections|monitors|brief|ask-first|retrieval|issues|practice|workflows|queue|profiles|labels|shares|calendar|knowledge|tracing|rules|flows|deferred|processes|skill-revisions|plugin-catalog|developer|studies|batch|artifacts|reports|todos|obsidian|log|remotes|marks|retention)(\/|$)/.test(path) || /^\/api\/mcp\/(try|signin)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/api\/runs\/[a-f0-9-]{36}\/replay$/.test(path) || /^\/webhooks\/(whatsapp|chat)\//.test(path))
+    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore", "/api/deployment/restore-point", "/api/deployment/close", "/a2a", "/api/tools/try", "/api/tools/forget", "/api/tools/meaning-search", "/api/firewall/test", "/api/sandboxes", "/api/limits"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins|local-models|connections|monitors|brief|ask-first|retrieval|issues|practice|workflows|queue|profiles|labels|shares|calendar|knowledge|tracing|rules|flows|deferred|processes|skill-revisions|plugin-catalog|developer|studies|batch|artifacts|reports|todos|obsidian|log|remotes|marks|retention|heartbeat)(\/|$)/.test(path) || /^\/api\/mcp\/(try|signin)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/api\/runs\/[a-f0-9-]{36}\/replay$/.test(path) || /^\/webhooks\/(whatsapp|chat)\//.test(path))
   );
 }
 function configureLimits(server: Server): void {

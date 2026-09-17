@@ -3249,7 +3249,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ### OpenClaw, MIT
 
-`src/channels/synology-chat.ts` follows the outgoing-webhook form fields and the `payload` reply shape in OpenClaw's `extensions/synology-chat` (https://github.com/openclaw/openclaw). Used under the MIT licence:
+The meters on the dashboard's "This computer" card (`meter()` in `public/dashboard/sections.js`) follow the meter in OpenClaw's Control UI (`ui/src/pages/connection/system-section.ts`, https://github.com/openclaw/openclaw): an accessible `role="meter"` bar that turns to a warning at 75% and to a problem at 92%. The layout of the dashboard as a whole was studied from OpenClaw's Control UI and Hermes Agent's web dashboard; no other code was taken from either. Used under the MIT licence: In wave mac3, `src/channels/synology-chat.ts` follows the outgoing-webhook form fields and the `payload` reply shape in OpenClaw's `extensions/synology-chat`.
 
 Copyright (c) 2026 OpenClaw Foundation
 
@@ -3301,3 +3301,10 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
 Permission to use, copy, modify, and/or distribute this software for any purpose with or without fee is hereby granted, provided that the above copyright notice and this permission notice appear in all copies.
 
 THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+### OpenFang loop guard (idea only), MIT OR Apache-2.0
+
+The graduated warn / refuse / stop loop guard in `src/loop-guard.ts` — counting identical calls and identical results, noticing calls that go back and forth, and gentler limits for tools meant to be polled — is an idea from OpenFang's `crates/openfang-runtime/src/loop_guard.rs` (https://github.com/RightNow-AI/openfang, MIT OR Apache-2.0). It was written afresh; no code was copied.
+
+### Gemini CLI (Google) loop detection and folder trust (idea only), Apache-2.0
+
+The loop detection in `src/loop-guard.ts` and the trusted folders in `src/folder-trust.ts`, with their read-only listing before a folder is trusted, are ideas from Gemini CLI's `packages/core/src/services/loopDetectionService.ts`, `packages/core/src/utils/trust.ts` and `packages/core/src/services/FolderTrustDiscoveryService.ts` (https://github.com/google-gemini/gemini-cli), Copyright 2025 Google LLC, licensed under the Apache License, Version 2.0 (https://www.apache.org/licenses/LICENSE-2.0). They were written afresh; no code was copied.
