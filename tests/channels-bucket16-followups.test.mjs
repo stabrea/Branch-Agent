@@ -218,3 +218,24 @@ test("IRC: people signed in to the network are known by account, not by a nick a
   link.write("@account=alice :al2!a@home PRIVMSG branch :hello from my other nick");
   await until(() => answered().some((l) => /^PRIVMSG al2 :Echo: .*hello from my other nick/.test(l)), "the account is answered under any nick");
 });
+
+test("IRC: a server that answers both capability requests on one line still signs in with SASL", async (t) => {
+  const server = await lineServer(t, (connection) => {
+    connection.onLine = (line) => {
+      if (line === "CAP REQ :sasl") connection.write(":srv CAP * ACK :account-tag sasl");
+      else if (line === "AUTHENTICATE PLAIN") connection.write("AUTHENTICATE +");
+      else if (line.startsWith("AUTHENTICATE ") && line !== "AUTHENTICATE +") connection.write(":srv 903 branch :SASL authentication successful");
+      else if (line === "CAP END") connection.write(":srv 001 branch :Welcome");
+    };
+  });
+  const local = async () => new Promise((resolve, reject) => {
+    const socket = tcpConnect({ host: "127.0.0.1", port: server.port }, () => resolve(socket));
+    socket.once("error", reject);
+  });
+  const channel = new IrcChannel({ id: "irc", nick: "branch", channels: [], password: "pw", dial: socketDial(local, "irc.example.org", 6697, false) });
+  await channel.start(async () => undefined);
+  t.after(() => channel.stop());
+  const link = await until(() => server.connections[0], "a connection");
+  await until(() => channel.health().state === "connected", "signed in and welcomed");
+  assert.ok(link.lines.indexOf("AUTHENTICATE PLAIN") < link.lines.indexOf("CAP END"));
+});

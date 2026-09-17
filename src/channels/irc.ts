@@ -179,10 +179,10 @@ export class IrcChannel implements ChannelAdapter {
     const verb = line.params[1]?.toUpperCase();
     if (this.options.twitch || (verb !== "ACK" && verb !== "NAK")) return;
     const caps = (line.params.at(-1) ?? "").toLowerCase().split(/\s+/);
-    // mac6/bucket-16: without a password nothing else is waiting, so the capability talk ends here.
+    if (caps.includes("sasl")) { link.write(verb === "ACK" ? "AUTHENTICATE PLAIN" : "CAP END"); return; }
+    // mac6/bucket-16: the answer about account-tag; without a password nothing else is waiting.
     if (caps.includes("account-tag")) { if (!this.options.password) link.write("CAP END"); return; }
-    if (verb === "ACK" && caps.includes("sasl")) link.write("AUTHENTICATE PLAIN");
-    else if (verb === "NAK") link.write("CAP END");
+    if (verb === "NAK") link.write("CAP END");
   }
   private onAuthenticate(line: IrcLine, link: IrcLink): void {
     if (line.params[0] !== "+" || !this.options.password) return;
