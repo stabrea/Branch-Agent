@@ -79,7 +79,8 @@ function commandResource(fromTarget: string, whole: string | null): PolicyResour
   const shown = fromTarget.trim();
   // The arguments are read only when they are the target's own command, carried on past its end.
   const value = whole !== null && whole.trim().startsWith(shown) ? whole.trim() : shown;
-  const cut = value.length > longestCommand || value !== shown;
+  // A command this file cannot read whole from its arguments may have been cut at 300 characters.
+  const cut = value.length > longestCommand || value !== shown || (whole === null && shown.length >= 300);
   return { kind: "command", value: value.slice(0, longestCommand), ...(cut ? { cut } : {}) };
 }
 

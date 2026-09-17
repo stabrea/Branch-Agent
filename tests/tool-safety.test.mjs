@@ -600,3 +600,10 @@ test("a rule for every target also covers a target with a line break in it", () 
   assert.equal(evaluatePolicy(readOnlyPolicy, { tool: "files.write", target: "notes\n.txt", readOnly: false, resource: { kind: "path", value: "notes\n.txt" } }).decision, "deny");
   assert.equal(decide(readOnlyPolicy, "shell.session.run", "true\nrm -rf ~", { id: "s", input: "true\nrm -rf ~" }), "deny");
 });
+
+test("a command tool whose arguments are not read is treated as cut once its target reaches 300 characters", () => {
+  const target = "git status " + "a".repeat(289);
+  assert.equal(target.length, 300);
+  assert.equal(resourceOf("terminal.write", "terminal.write", target, { data: target + "; rm -rf ~" }).cut, true);
+  assert.equal(decide(standing("git status"), "terminal.write", target, { data: target + "; rm -rf ~" }), "ask");
+});
