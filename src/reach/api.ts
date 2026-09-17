@@ -13,7 +13,8 @@ import { saveVideoSettings, videoSettings } from "./video.js";
  * before any of them, and a short-lived key is refused every change here by the fail-closed rule in
  * src/short-lived-keys.ts — except `POST /api/reach/trunks/inbox`, which another of the owner's
  * computers sends with the "run" key the owner gave it (the same kind of key R17-076 uses), and
- * which only hands a message to a Trunk. Reads answer whatever the switches say; every change needs
+ * which only hands a message to a Trunk. That key is what says which computer is sending: the owner
+ * pairs key and computer under `/api/reach/trunks/keys`, which is the owner's own route. Reads answer whatever the switches say; every change needs
  * its part switched on, except the switches themselves.
  */
 export const handlesReachPath = (path: string): boolean => path === "/api/reach" || path.startsWith("/api/reach/");
@@ -22,7 +23,15 @@ export class ReachHttpError extends Error {
   constructor(readonly status: number, message: string) { super(message); }
 }
 
-export interface ReachHttpDeps { reach: Reach; method: string; query: URLSearchParams; readBody: () => Promise<unknown> }
+export interface ReachHttpDeps {
+  reach: Reach; method: string; query: URLSearchParams; readBody: () => Promise<unknown>;
+  /**
+   * mac7/reach-leftovers: the short-lived key this request came with (src/key-context.ts), or
+   * nothing when it came with this computer's own key. The Trunks inbox believes it, and not the
+   * `machine` written in the message, about which computer is sending.
+   */
+  keyId?: string | undefined;
+}
 
 type Handler = (deps: ReachHttpDeps) => unknown;
 const body = async <T extends z.ZodType>(deps: ReachHttpDeps, schema: T): Promise<z.infer<T>> => schema.parse(await deps.readBody());
@@ -51,6 +60,7 @@ const reads: Record<string, Handler> = {
   "/api/reach": overview,
   "/api/reach/machines": ({ reach }) => ({ machines: reach.machines.list() }),
   "/api/reach/trunks/roster": ({ reach }) => reach.remoteTrunks.shared(),
+  "/api/reach/trunks/keys": ({ reach }) => ({ keys: reach.remoteTrunks.keys() }),
   "/api/reach/notes": ({ reach }) => ({ notes: reach.notes.list() }),
   "/api/reach/arena": ({ reach }) => ({ leaderboard: reach.arena.leaderboard() }),
 };
@@ -69,7 +79,9 @@ const changes: Record<string, Handler> = {
   "/api/reach/machines/start": async (d) => d.reach.machines.start(await d.readBody()),
   "/api/reach/machines/stop": async (d) => d.reach.machines.stop(await d.readBody()),
   "/api/reach/trunks/message": async (d) => d.reach.remoteTrunks.send(await d.readBody(), d.reach.machineName()),
-  "/api/reach/trunks/inbox": async (d) => d.reach.remoteTrunks.receive(await d.readBody()),
+  "/api/reach/trunks/inbox": async (d) => d.reach.remoteTrunks.receive(await d.readBody(), d.keyId),
+  "/api/reach/trunks/keys": async (d) => ({ keys: d.reach.remoteTrunks.pair(await d.readBody()) }),
+  "/api/reach/trunks/keys/remove": async (d) => ({ keys: d.reach.remoteTrunks.unpair((await body(d, z.object({ keyId: z.string().trim().min(1).max(64) }).strict())).keyId) }),
   "/api/reach/video/settings": async (d) => { need(d, "video"); return { video: saveVideoSettings(d.reach.store, d.reach.owner, await d.readBody()) }; },
   "/api/reach/relay/settings": async (d) => { need(d, "relay"); return { relay: saveRelaySettings(d.reach.store, d.reach.owner, await d.readBody()) }; },
   "/api/reach/send": async (d) => sendToChat(d.reach.store, d.reach.owner, d.reach.deps.router, await d.readBody()),

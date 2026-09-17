@@ -93,7 +93,9 @@ const video: Registrar = (registry, reach) => {
     name: "video.generate", group: "media", permission: "media.write",
     description: "Make a short video (4, 8 or 12 seconds) from a description, through the video service the owner chose. It costs money at the service. The file is saved under made/videos/.",
     parameters: VideoRequestSchema,
-    execute: async (args, context) => makeVideo(reach.store, reach.owner, reach.videoDeps(), args, context.signal, { dryRun: !!context.dryRun }),
+    // mac7/reach-leftovers: the task is handed over, so the video counts against its spending limit.
+    execute: async (args, context) => makeVideo(reach.store, reach.owner, reach.videoDeps(), args, context.signal,
+      { dryRun: !!context.dryRun, runId: context.runId }),
     target: () => "made/videos",
   });
 };

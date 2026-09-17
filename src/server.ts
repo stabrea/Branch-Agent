@@ -2819,6 +2819,8 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
           const answer = await reachApi({
             reach: app.reachParts, method: request.method ?? "GET",
             query: new URL(request.url ?? "/", "http://local").searchParams, readBody: () => readBody(request, 262144),
+            // mac7/reach-leftovers: which short-lived key this came with, for the Trunks inbox.
+            keyId: shortLivedKeyMark().keyId,
           }, path).catch((error: unknown) => {
             throw error instanceof ReachHttpError ? new HttpError(error.status, error.message) : error;
           });

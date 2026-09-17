@@ -6983,12 +6983,12 @@ part off, nothing of it runs: no polling, no watching, no connection, and its to
 | Part | Where it lives | What it does |
 | --- | --- | --- |
 | Other computers side by side | Settings → Computer | The computers added under "Other computers running Branch" (bucket 23), each shown in its own column: health, what is working, conversations; start or stop a task there (`machines.list`, `machines.look`). This computer fills in the other computer's key at the moment of the call; the window never holds it. Only fixed read routes and `/api/run` and `/cancel` are asked for, which a "run" key allows, so nothing here can change another computer's settings |
-| Trunks on other computers | Customize → Specialists | Each computer shares only the names and titles of its Trunks; a Trunk over there is `@name-computer`, and a Trunk here can message it with a receipt and at most one retry (`trunks.remote.roster`, `trunks.remote.message`). An arriving message is taken only from a computer you added, quoted as that computer's text, capped at 4,000 characters and 30 an hour. Wired to R17-A's Trunks through `TrunkRoster` (`src/reach/trunk-roster.ts`): only Trunks that are not hidden, only while Trunks and their messages are on here, and an arriving message starts a turn marked as another assistant's task, with narrowed permissions |
+| Trunks on other computers | Customize → Specialists | Each computer shares only the names and titles of its Trunks; a Trunk over there is `@name-computer`, and a Trunk here can message it with a receipt and at most one retry (`trunks.remote.roster`, `trunks.remote.message`). An arriving message is taken only from a computer you added **and only with the key you paired with that computer** (see below), quoted as that computer's text, capped at 4,000 characters and 30 an hour. Wired to R17-A's Trunks through `TrunkRoster` (`src/reach/trunk-roster.ts`): only Trunks that are not hidden, only while Trunks and their messages are on here, and an arriving message starts a turn marked as another assistant's task, with narrowed permissions |
 | Using apps in the background | Settings → Computer | Lists windows and their named controls, presses a control or sets a field's text through the accessibility tree, without moving the pointer or the focus (`screen.background`). Mac: one fixed JavaScript for Automation script that never brings an app forward. Linux: one fixed Python script over AT-SPI, and `xdotool type --window` |
-| Making videos | Settings → Models → Media | A 4, 8 or 12 second video from a description, through OpenAI (`/v1/videos`) or Google's Gemini API (Veo, `predictLongRunning`), with a key kept in Secrets; saved under `made/videos/` (`video.generate`). Each video costs money at that service |
-| A relay that holds your chat app accounts | Customize → Channels | Branch polls a relay you run over https; every message is sealed with AES-256-GCM under a key derived from a pairing secret in Secrets, bound to both ends' ids and the time. A message not addressed to this computer, not from the paired relay, older than five minutes, repeated, or from a chat app you did not allow is dropped. Branch only answers chats that wrote to it through the relay first and never passes a message on, so it cannot be used as an open relay. Arriving messages go through the ordinary sender list and pairing |
+| Making videos | Settings → Models → Media | A 4, 8 or 12 second video from a description, through OpenAI (`/v1/videos`) or Google's Gemini API (Veo, `predictLongRunning`), with a key kept in Secrets; saved under `made/videos/` (`video.generate`). Each video costs money at that service, is priced before it is asked for, and counts against the task's spending limit and this month's budget (see below) |
+| A relay that holds your chat app accounts | Customize → Channels | Branch polls a relay you run over https; every message is sealed with AES-256-GCM under a key derived from a pairing secret in Secrets, bound to both ends' ids and the time. A message not addressed to this computer, not from the paired relay, older than five minutes, repeated (**including after a restart**), or from a chat app you did not allow is dropped. Branch only answers chats that wrote to it through the relay first and never passes a message on, so it cannot be used as an open relay. Arriving messages go through the ordinary sender list and pairing |
 | Sending from a script | Customize → Channels | `branch send <chat app> <chat> [words]`, or pipe the words in. Only to a chat that has already talked to Branch, through the ordinary delivery and outbound check |
-| Pausing a chat app | Customize → Channels | A paused chat app's messages are let go without an answer. Pause in the window, with `/platform pause <chat app>` in the window or terminal, or from a chat app with `/platform pause`, `resume` or `status`, which is taken only from a direct chat with one of the accounts you list as your own (chat app and exact sender id). Switching the part off puts every chat app back |
+| Pausing a chat app | Customize → Channels | A paused chat app's messages are let go without an answer. Pause in the window, with `/platform pause <chat app>` in the window or terminal, or from a chat app with `/platform pause`, `resume` or `status`, which is taken only from a direct chat with one of the accounts you list as your own (chat app and exact sender id), and **only when it is a message sent while Branch was running**: a `/platform` sent while Branch was closed and fetched afterwards is let go in silence, so an old message cannot pause or resume anything hours later. Switching the part off puts every chat app back |
 | Sharing the assistant through git | Customize → Skills | Writes specialists, procedures and skills (never rules, model choices, memory or secrets) into a workspace folder for you to commit; follows an https repository with a shallow clone that runs no hooks, follows no redirects and asks for no password. Imports follow the market's rules (`bringInShareable`): fingerprints checked, nothing of yours rewritten, new skills off. Updating replaces only what arrived from that repository and is unchanged since |
 | Skill bundles | Customize → Skills | Several skills in one `.branch-skills` file with a fingerprint each; looking installs nothing, bringing in uses the market's rules (`skills.bundle.preview`) |
 | USB devices | Settings → Computer | A task starts when a device you named (vendor and product id, and serial when given) is plugged in; each device starts off and is switched on by you. Read once a minute from `/sys/bus/usb/devices` on Linux or `ioreg -p IOUSB` on a Mac; nothing starts under Lockdown, at most once every ten minutes per device, and the task is held by your approval rules like a trigger's (`usb.devices`) |
@@ -6998,9 +6998,38 @@ part off, nothing of it runs: no polling, no watching, no connection, and its to
 The relay's settings (`/api/reach/relay/settings`) are `address` (https only), `relayId` (the relay's
 own id), `secret` (the name of the pairing secret in Secrets), `platforms` (the chat apps it may bring)
 and `machineId` (this computer's id at the relay, made once and not secret). Video settings are
-`service` (`openai` or `google`), `secret` (empty means `OPENAI_API_KEY` or `GEMINI_API_KEY`), `model`
-and `perDay` (at most this many videos a day, 3 at first); the chat pause keeps `owners` (your own
+`service` (`openai` or `google`), `secret` (empty means `OPENAI_API_KEY` or `GEMINI_API_KEY`), `model`,
+`perDay` (at most this many videos a day, 3 at first) and `pricePerSecond` (your own price for one
+second of video, in dollars; empty uses the figures below); the chat pause keeps `owners` (your own
 accounts) and `paused` (the chat apps paused).
+
+**Which computer a Trunk message really comes from.** A message arriving at `POST /api/reach/trunks/inbox`
+says which computer it is from, but saying so is not proof. Branch believes the short-lived key the
+request came with instead: you pair each of your other computers with the key you gave it, and a message
+whose key is paired with nobody, or with a different computer than the message claims, is refused before
+anything is delivered. The message is then marked with the paired computer's name, not the name it wrote.
+To pair one: make a "run" key for that computer with `branch token create`, note the key's id from
+`branch token list`, and send `POST /api/reach/trunks/keys` with `{ "machine": "<the computer's id>",
+"keyId": "<the key's id>" }`. `GET /api/reach/trunks/keys` lists the pairs (ids only, never keys) and
+`POST /api/reach/trunks/keys/remove` with `{ "keyId": … }` takes one back. Pairing a computer again
+retires its previous key. Both changes are yours alone: a short-lived key cannot pair itself. Until a
+computer is paired, its messages are refused, which is the safe way round.
+
+**What one video costs.** Before a video is asked for, Branch works out what it will cost: the seconds
+you asked for times the price for one second of that model. The prices it knows are $0.10 for `sora-2`,
+$0.50 for `sora-2-pro`, $0.35 for `veo-2.0-generate-001`, $0.75 for `veo-3.0-generate-001` and
+`veo-3.1-generate-preview`, and $0.40 for the two `fast` Veo models. **These are published figures that
+the services change without notice, so treat every one as an estimate rather than a bill.** A model that
+is not in that list is counted at $0.75 a second, which is deliberately higher than any price above; the
+practice run says so in its answer. Put the right figure in yourself under `pricePerSecond` if you know
+it. The figure is written on the task as a spending record the moment the video is asked for — the money
+is gone at the service whether or not the file arrives — so a task's own spending limit (Settings →
+Permissions) counts videos alongside what the model costs, and so does this month's budget on the Usage
+screen. A video that would take the task past its limit, or this month past its dollar budget while
+"pause at budget" is on, is refused before the service is asked, and it does not use up one of the day's
+videos. The daily cap (`perDay`) is unchanged and still checked. One gap worth knowing: this month's
+figure counts finished tasks plus the task asking for the video, so a video another task is making at
+this very moment is not in it yet.
 
 **Who can use these (integration review).** Every reach tool is the owner's alone: a household
 profile, a signed-in person, a short-lived key, and work another assistant or program started
@@ -7032,7 +7061,11 @@ listens on 127.0.0.1, as everywhere: run the container with `--network host` on 
 window, or reach it through chat apps. The flake reads `package-lock.json` directly, so it keeps no
 hash; `nix run github:stabrea/Branch-Agent -- start`. The Termux script installs the release's
 `branch-agent-<version>.tgz` after checking its `.sha256` (Node 24 or newer from `pkg`); `--uninstall`
-removes it. Browser tools and the desktop app are not available on Android.
+removes it, and a missing or wrong checksum stops it before anything is installed. Both files are now
+attached to every version's release by the Package workflow, which builds the `.tgz` on the Linux runner
+and writes the checksum beside it; the release stops rather than ships if the file is missing, if its
+checksum does not match, or if the version in `package.json` does not match the tag. A file already on a
+release is never replaced. Browser tools and the desktop app are not available on Android.
 
 **macOS and Linux.** Background app use, the USB reader and the `ioreg`/`/sys` readers are the only
 parts that differ by system; each takes its program runner as a parameter and is tested with fakes, so

@@ -70,3 +70,34 @@ test("the Termux script checks the download before installing and refuses anywhe
   const wrong = spawnSync("sh", [script, "/etc/passwd"], { env: { PATH: "/usr/bin:/bin", PREFIX: "/data/data/com.termux/files/usr" }, encoding: "utf8" });
   assert.match(wrong.stderr, /not a branch-agent \.tgz/);
 });
+
+// mac7/reach-leftovers: the release now attaches the .tgz with a .sha256 written by `sha256sum`,
+// so the script must read that exact format, and must still refuse when it is missing or wrong.
+test("the Termux script reads the release's own checksum file and refuses a file that does not match", async (t) => {
+  const { mkdtemp, writeFile } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { discardTemp } = await import("./temp-dir.mjs");
+  const dir = await mkdtemp(join(tmpdir(), "branch-termux-"));
+  t.after(() => discardTemp(dir));
+  const script = join(ROOT, termuxScriptPath);
+  const env = { PATH: "/usr/bin:/bin:/sbin:/usr/sbin", PREFIX: "/data/data/com.termux/files/usr" };
+  const tgz = join(dir, "branch-agent-0.17.0.tgz");
+  await writeFile(tgz, "not really a package");
+  const missing = spawnSync("sh", [script, tgz], { env, encoding: "utf8" });
+  assert.equal(missing.status, 1);
+  assert.match(missing.stderr, /\.sha256 is missing/);
+  const sum = spawnSync("sha256sum", [tgz], { encoding: "utf8" });
+  assert.equal(sum.status, 0, "this machine has sha256sum, as Termux does");
+  // The workflow writes exactly this: the digest, two spaces, the bare name.
+  const digest = sum.stdout.split(/\s+/)[0];
+  await writeFile(`${tgz}.sha256`, `${"0".repeat(64)}  branch-agent-0.17.0.tgz\n`);
+  const tampered = spawnSync("sh", [script, tgz], { env, encoding: "utf8" });
+  assert.equal(tampered.status, 1);
+  assert.match(tampered.stderr, /does not match its \.sha256, so nothing was installed/);
+  await writeFile(`${tgz}.sha256`, `${digest}  branch-agent-0.17.0.tgz\n`);
+  // With a matching checksum the script gets past the check and stops at the next step (there is
+  // no Termux `pkg` here), so nothing is ever installed by this test.
+  const matching = spawnSync("sh", [script, tgz], { env, encoding: "utf8" });
+  assert.doesNotMatch(matching.stderr ?? "", /does not match its \.sha256/, "a matching checksum gets past the check");
+  assert.doesNotMatch(matching.stdout ?? "", /is installed/);
+});

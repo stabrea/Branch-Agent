@@ -64,12 +64,18 @@ export interface GateAnswer { reply: string | null }
 
 /**
  * The router's first look at a message (the marked hook in src/channels/router.ts). Null: carry on
- * as usual. Otherwise the message stops here, with a reply for the owner's own command.
+ * as usual. Otherwise the message stops here, with a reply for the owner's own command. A message
+ * that arrived while Branch was closed never carries out the command.
  */
 export function platformGate(store: Store, owner: string, message: InboundMessage): GateAnswer | null {
   if (reachMode(store, owner, "platform-pause") === "off") return null;
   const s = platformSettings(store, owner);
   const command = /^\/platform(?:@[\w.-]+)?(?:\s+(pause|resume|status))?(?:\s+([a-z0-9._-]{1,64}))?\s*$/i.exec(message.text.trim());
+  // mac7/reach-leftovers: a message fetched after a restart (src/channels/catch-up.ts) is old news.
+  // It is let go in silence, exactly as a stranger's caught-up message is, so a `/platform pause`
+  // sent while Branch was closed cannot pause a chat app hours later. Pausing itself still applies
+  // below, so a paused app does not answer its backlog either.
+  if (command && isOwnerAccount(s, message) && message.caughtUp) return { reply: null };
   if (command && isOwnerAccount(s, message)) {
     const word = (command[1] ?? "status").toLowerCase(), channel = command[2] ?? message.channel;
     if (word === "status") return { reply: s.paused.length ? `Paused: ${s.paused.join(", ")}.` : "No chat app is paused." };

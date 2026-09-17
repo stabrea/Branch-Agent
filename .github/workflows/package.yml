@@ -60,6 +60,26 @@ jobs:
         run: |
           rm -f "$RUNNER_TEMP/notary-key.p8" "$RUNNER_TEMP/cert.p12"
           if [ -f "$RUNNER_TEMP/signing.keychain-db" ]; then security delete-keychain "$RUNNER_TEMP/signing.keychain-db"; fi
+      # The phone download: the packed command the Termux script installs, with the checksum that
+      # script insists on. Built on Linux only, so the three runners cannot produce three of it.
+      - name: Build the phone download
+        if: runner.os == 'Linux'
+        shell: bash
+        working-directory: release
+        run: |
+          node ../scripts/pack-cli.mjs . >/dev/null
+          test "$(ls -1 branch-agent-*.tgz | wc -l)" -eq 1
+          name="$(ls -1 branch-agent-*.tgz)"
+          sha256sum "$name" > "$name.sha256"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: runner.os == 'Linux'
+        with:
+          name: download-phone
+          path: |
+            release/branch-agent-*.tgz
+            release/branch-agent-*.tgz.sha256
+          if-no-files-found: error
+          retention-days: 7
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: download-${{ runner.os }}
@@ -83,12 +103,19 @@ jobs:
           merge-multiple: true
       - name: Check every download is there with its checksum
         working-directory: downloads
+        env:
+          TAG: ${{ github.ref_name }}
         run: |
           for name in Branch-Agent-windows-x64.zip Branch-Agent-macos-arm64.zip Branch-Agent-macos-x64.zip Branch-Agent-linux-x64.tar.gz; do
             test -f "$name" && test -f "$name.sha256"
             sha256sum --check "$name.sha256"
           done
           test -f "Install Branch Agent.cmd" && test -f install-branch-agent.sh
+          # The phone download is named after the version in package.json, so a tag that does not
+          # match it stops the release here rather than shipping a file the script cannot check.
+          cli="branch-agent-${TAG#v}.tgz"
+          test -f "$cli" && test -f "$cli.sha256"
+          sha256sum --check "$cli.sha256"
       # A download already on the release is never replaced: an owner may have attached a hand-built
       # one (the Windows zip once was), and it stays together with its own checksum.
       - name: Attach to the release, keeping anything already there
@@ -109,6 +136,13 @@ jobs:
               gh release upload "$TAG" "$name" "$name.sha256"
             fi
           done
+          cli="branch-agent-${TAG#v}.tgz"
+          if on_release "$cli"; then
+            echo "$cli is already on the release; it and its checksum are kept as they are."
+            on_release "$cli.sha256" || echo "::warning::$cli is on the release without $cli.sha256; attach its checksum by hand."
+          else
+            gh release upload "$TAG" "$cli" "$cli.sha256"
+          fi
           for script in "Install Branch Agent.cmd" install-branch-agent.sh; do
             if on_release "$script"; then echo "$script is already on the release; it is kept."; else gh release upload "$TAG" "$script"; fi
           done

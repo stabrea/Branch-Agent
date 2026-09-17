@@ -3,6 +3,9 @@ import { dirname } from "node:path";
 import { z } from "zod";
 import type { WorkspaceFiles } from "../files.js";
 import { readCapped } from "../interop/agent-market.js";
+import { recordedSpend } from "../knobs/apply.js";
+import { readKnobs } from "../knobs/settings.js";
+import { pricingSettings } from "../pricing.js";
 import type { Store } from "../store.js";
 import { reachRecord, requireReach } from "./settings.js";
 
@@ -30,6 +33,8 @@ export const VideoSettingsSchema = z.object({
   model: z.string().trim().max(80).default(""),
   /** Integration review: at most this many videos a day, counted before the service is asked. */
   perDay: z.number().int().min(1).max(50).default(3),
+  /** The owner's own price for one second of video, in dollars; null uses the figures below. */
+  pricePerSecond: z.number().min(0).max(100).nullable().default(null),
 }).strict();
 export type VideoSettings = z.infer<typeof VideoSettingsSchema>;
 const settingsKey = "reach-video-settings";
@@ -39,6 +44,32 @@ const defaults = {
   google: { model: "veo-3.0-generate-001", base: "https://generativelanguage.googleapis.com", secret: "GEMINI_API_KEY" },
 };
 const CountSchema = z.object({ day: z.string().max(10).default(""), count: z.number().int().min(0).default(0) }).strict();
+
+/**
+ * US dollars for one second of finished video, by model, read from the two services' published
+ * pricing pages. They are estimates for the owner's own planning, never a bill, and a model that is
+ * not here is counted at `guessedPricePerSecond`, which is deliberately higher than anything below.
+ */
+export const videoPricePerSecond: Record<string, number> = {
+  "sora-2": 0.1,
+  "sora-2-pro": 0.5,
+  "veo-2.0-generate-001": 0.35,
+  "veo-3.0-generate-001": 0.75,
+  "veo-3.0-fast-generate-001": 0.4,
+  "veo-3.1-generate-preview": 0.75,
+  "veo-3.1-fast-generate-preview": 0.4,
+};
+/** What a model with no price on file is counted at: more than any known one, never less. */
+export const guessedPricePerSecond = 0.75;
+
+/** What one video will cost, in dollars. `estimate` means it was guessed high, not looked up. */
+export function videoPrice(settings: VideoSettings, seconds: number): { dollars: number; estimate: boolean; model: string } {
+  const model = settings.model || defaults[settings.service].model;
+  const own = settings.pricePerSecond;
+  const listed = videoPricePerSecond[model];
+  const perSecond = own ?? listed ?? guessedPricePerSecond;
+  return { dollars: Math.round(perSecond * seconds * 1_000_000) / 1_000_000, estimate: own === null && listed === undefined, model };
+}
 
 export const VideoRequestSchema = z.object({
   prompt: z.string().trim().min(1).max(4000),
@@ -143,6 +174,28 @@ async function googleDownload(job: Job, uri: string | undefined): Promise<Buffer
   return readCapped(answer, maxVideoBytes);
 }
 
+/**
+ * What this video would cost, and why it may not be made: the task's own spending limit, and this
+ * month's budget when the owner asked to pause at it. Both are checked before today's allowance is
+ * used up, so a refusal costs the owner nothing.
+ */
+function priceAndRefusal(store: Store, owner: string, settings: VideoSettings, seconds: number, runId: string | undefined):
+  { dollars: number; estimate: boolean } {
+  const price = videoPrice(settings, seconds);
+  const said = `Making this video would cost about $${price.dollars.toFixed(2)}${price.estimate ? " (an estimate: no price is on file for " + price.model + ")" : ""}`;
+  const cap = readKnobs(store, owner, "limits").spendCapDollars;
+  if (runId && cap !== null && recordedSpend(store, [runId]) + price.dollars >= cap)
+    throw new Error(`${said}, which would take this task past the limit of $${cap.toFixed(2)} for one task. Raise the limit in Settings, Permissions, if it should go further.`);
+  const budget = store.get("settings", owner, "usage_budget")?.data as { maxMonthlyDollars?: number; pauseAtBudget?: boolean } | undefined;
+  if (budget?.pauseAtBudget && budget.maxMonthlyDollars !== undefined) {
+    const month = store.usageStore().getMonthlyStats(undefined, pricingSettings(store, owner).overrides).estimatedCost
+      + (runId ? recordedSpend(store, [runId]) : 0);
+    if (month + price.dollars >= budget.maxMonthlyDollars)
+      throw new Error(`${said}, and this month's budget of $${budget.maxMonthlyDollars.toFixed(2)} is at about $${month.toFixed(2)} already. Visit the Usage screen to raise the budget.`);
+  }
+  return { dollars: price.dollars, estimate: price.estimate };
+}
+
 /** Counts one video against today's allowance, or refuses before the service is asked. */
 function countOne(store: Store, owner: string, perDay: number, now: Date): void {
   const day = now.toISOString().slice(0, 10);
@@ -154,13 +207,18 @@ function countOne(store: Store, owner: string, perDay: number, now: Date): void 
 
 /** Makes one video and writes it into the workspace. A practice run says what it would do and spends nothing. */
 export async function makeVideo(store: Store, owner: string, deps: VideoDeps, input: unknown, signal: AbortSignal,
-  options: { dryRun?: boolean } = {}): Promise<{ path: string; bytes: number; service: string; model: string } | { wouldMake: string; service: string; model: string }> {
+  options: { dryRun?: boolean; runId?: string } = {}): Promise<{ path: string; bytes: number; service: string; model: string } | { wouldMake: string; service: string; model: string }> {
   requireReach(store, owner, "video");
   const request = VideoRequestSchema.parse(input);
   const settings = videoSettings(store, owner);
   const model = settings.model || defaults[settings.service].model;
-  if (options.dryRun) return { wouldMake: `a ${request.seconds}-second video, which costs money at the service`, service: settings.service, model };
+  const price = videoPrice(settings, request.seconds);
+  if (options.dryRun)
+    return { wouldMake: `a ${request.seconds}-second video, which costs about $${price.dollars.toFixed(2)} at the service${price.estimate ? " (an estimate)" : ""}`, service: settings.service, model };
+  const spend = priceAndRefusal(store, owner, settings, request.seconds, options.runId);
   countOne(store, owner, settings.perDay, deps.now?.() ?? new Date());
+  // Written down before the service is asked: the money is gone whether or not the file arrives.
+  if (options.runId) store.event(options.runId, "spend.recorded", { dollars: spend.dollars, what: `a ${request.seconds}-second video (${model})`, estimate: spend.estimate });
   const job: Job = { key: await deps.secret(settings.secret || defaults[settings.service].secret), model, deps, signal };
   const bytes = settings.service === "openai" ? await openaiVideo(job, request) : await googleVideo(job, request);
   if (bytes.length < 12 || !["ftyp", "moov", "mdat", "free"].includes(bytes.toString("latin1", 4, 8)))

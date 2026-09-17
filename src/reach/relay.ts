@@ -15,7 +15,10 @@ import { reachMode, reachRecord, requireReach } from "./settings.js";
  * key derived (HKDF-SHA-256) from a pairing secret kept in the locker, and both ends' ids and the
  * time are bound into the seal. The relay's own storage and anything between see only sealed bytes.
  * A message is refused when it is not addressed to this computer, not from the paired relay, older
- * or newer than five minutes, a repeat, or does not open.
+ * or newer than five minutes, a repeat, or does not open. The ids already taken are written down
+ * (only the ids, never the words), so the same envelope is still a repeat after a restart; they are
+ * forgotten once they are too old to be accepted anyway, and while that list is full nothing new is
+ * taken rather than something old being forgotten.
  *
  * Never an open relay: this computer only ever sends to a chat that first wrote to it through the
  * relay, on a chat app the owner allowed, and it never passes a message on to anywhere a message
@@ -40,6 +43,11 @@ export type RelaySettings = z.infer<typeof RelaySettingsSchema>;
 const settingsKey = "reach-relay-settings";
 const chatsKey = "reach-relay-chats";
 const ChatsSchema = z.object({ chats: z.array(z.string().max(120)).max(500).default([]) }).strict();
+const seenKey = "reach-relay-seen";
+/** mac7/reach-leftovers: the envelope ids already taken, kept so a restart cannot open the door again. */
+const SeenSchema = z.object({ seen: z.array(z.tuple([z.string().max(24), z.number()])).max(20000).default([]) }).strict();
+/** How many unexpired envelope ids are remembered. Full means refusing, never forgetting. */
+export const relaySeenLimit = 5000;
 
 export function relaySettings(store: Store, owner: string): RelaySettings { return reachRecord(store, owner, settingsKey, RelaySettingsSchema); }
 export function saveRelaySettings(store: Store, owner: string, input: unknown): RelaySettings {
@@ -113,10 +121,13 @@ export class RelayAdapter implements ChannelAdapter {
   readonly kind = "relay";
   readonly maxTextLength = 4000;
   private timer: ReturnType<typeof setInterval> | undefined;
-  private readonly seen = new Map<string, number>();
+  /** Read back from the store when this starts, so a restart forgets nothing that still counts. */
+  private readonly seen: Map<string, number>;
   private state: ChannelHealth = { state: "connected" };
   refused = 0;
-  constructor(private readonly deps: RelayDeps) {}
+  constructor(private readonly deps: RelayDeps) {
+    this.seen = new Map(reachRecord(deps.store, deps.owner, seenKey, SeenSchema).seen);
+  }
 
   botName(): string | null { return "Relay"; }
   health(): ChannelHealth { return this.state; }
@@ -163,12 +174,29 @@ export class RelayAdapter implements ChannelAdapter {
 
   private accept(raw: unknown, s: RelaySettings, secret: string): InboundMessage | null {
     try {
-      const m = InboundSchema.parse(openEnvelope(secret, s.machineId, s.relayId, raw, this.seen, this.now()));
+      const now = this.now();
+      if (this.unexpired(now) >= relaySeenLimit)
+        throw new Error("Too many messages are still being remembered, so nothing new is taken for now.");
+      const m = InboundSchema.parse(openEnvelope(secret, s.machineId, s.relayId, raw, this.seen, now));
+      this.rememberSeen();
       if (!s.platforms.includes(m.platform)) throw new Error("A chat app the owner did not allow.");
       this.remember(`${m.platform}:${m.chatId}`);
       return { channel: this.id, chatId: `${m.platform}:${m.chatId}`, chatKind: m.chatKind, senderId: `${m.platform}:${m.senderId}`,
         senderName: m.senderName, text: m.text, addressed: m.addressed, messageId: m.messageId };
     } catch { this.refused++; return null; }
+  }
+
+  /** How many remembered ids are still inside the window an envelope could be accepted in. */
+  private unexpired(now: number): number {
+    let count = 0;
+    for (const [, at] of this.seen) if (now - at <= 2 * skewMs) count++;
+    return count;
+  }
+  /** Writes the ids down at once, before the message is handed on, so a crash cannot lose one. */
+  private rememberSeen(): void {
+    const now = this.now();
+    for (const [nonce, at] of this.seen) if (now - at > 2 * skewMs) this.seen.delete(nonce);
+    this.deps.store.save("settings", this.deps.owner, seenKey, { seen: [...this.seen].slice(-relaySeenLimit) });
   }
 
   private remember(chat: string): void {

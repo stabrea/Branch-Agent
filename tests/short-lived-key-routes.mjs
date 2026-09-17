@@ -419,6 +419,9 @@ export const ROUTES = {
   "/api/reach/send": "owner POST",
   "/api/reach/switch": "owner POST",
   "/api/reach/trunks/inbox": "task POST",
+  // mac7/reach-leftovers: pairing a computer with the key it sends with is the owner's own change.
+  "/api/reach/trunks/keys": "owner POST",
+  "/api/reach/trunks/keys/remove": "owner POST",
   "/api/reach/trunks/message": "owner POST",
   "/api/reach/trunks/remote": "owner POST",
   "/api/reach/trunks/roster": "look",

@@ -15,8 +15,11 @@ import { quoteLine, reachRecord, requireReach } from "./settings.js";
  * through `machineCall`.
  *
  * A message from another computer is somebody else's text: it is quoted on one line, marked with the
- * computer it claims to come from, capped, counted against an hourly limit, and only accepted when
- * that computer is one the owner added here. Sending is fire-and-forget with a receipt and at most
+ * computer it came from, capped, counted against an hourly limit, and only accepted when that
+ * computer is one the owner added here. mac7/reach-leftovers: which computer it came from is the
+ * key the request was signed in with, not the `machine` the sender writes in the message. The owner
+ * pairs each computer with the short-lived key they gave it (`pairInboxKey`, the Trunks keys route),
+ * and a message whose key is paired with nobody, or with a different computer, is refused. Sending is fire-and-forget with a receipt and at most
  * one retry, and only for a failure that is worth retrying.
  */
 export interface TrunkCard { handle: string; name: string; title: string }
@@ -40,7 +43,10 @@ export const InboxSchema = z.object({
   to: Handle,
   /** The sender, `name-computer`, as the other computer names it. */
   from: z.string().trim().min(3).max(90),
-  /** The computer the message says it comes from: must be one the owner added here. */
+  /**
+   * The computer the message says it comes from. It is only believed when it is the computer the
+   * key this request came with is paired with; it can no longer decide on its own.
+   */
   machine: z.string().trim().min(2).max(40),
   text: z.string().trim().min(1).max(4000),
 }).strict();
@@ -56,6 +62,35 @@ export function parseRemoteHandle(handle: string, machines: readonly { id: strin
 
 const LimitSchema = z.object({ hour: z.string().max(20).default(""), count: z.number().int().min(0).default(0) }).strict();
 const limitKey = "reach-remote-trunks-inbox";
+const keysKey = "reach-remote-trunks-keys";
+/** One short-lived key of this computer's, and the computer the owner gave it to. */
+const PairedKey = z.object({ machine: z.string().trim().min(1).max(40), keyId: z.string().trim().min(1).max(64) }).strict();
+const PairedKeysSchema = z.object({ keys: z.array(PairedKey).max(20).default([]) }).strict();
+export type PairedInboxKey = z.infer<typeof PairedKey>;
+
+/** The computers paired with a key, newest first. The keys themselves are never here: only their ids. */
+export function inboxKeys(store: Store, owner: string): PairedInboxKey[] {
+  return reachRecord(store, owner, keysKey, PairedKeysSchema).keys;
+}
+/**
+ * Pairs one of this computer's short-lived keys with the computer the owner gave it to, so a
+ * message that arrives with that key can only be from that computer. Pairing a computer again
+ * retires its previous key, and a key can only stand for one computer.
+ */
+export function pairInboxKey(store: Store, owner: string, input: unknown, machines: readonly { id: string }[]): PairedInboxKey[] {
+  const entry = PairedKey.parse(input);
+  if (!machines.some((m) => m.id === entry.machine))
+    throw new Error(`There is no computer called ${entry.machine}. Add it under "Other computers running Branch" first.`);
+  const keys = [entry, ...inboxKeys(store, owner).filter((k) => k.machine !== entry.machine && k.keyId !== entry.keyId)].slice(0, 20);
+  store.save("settings", owner, keysKey, { keys });
+  return keys;
+}
+/** Takes one pairing back; the computer's messages are then refused until the owner pairs it again. */
+export function unpairInboxKey(store: Store, owner: string, keyId: string): PairedInboxKey[] {
+  const keys = inboxKeys(store, owner).filter((k) => k.keyId !== keyId);
+  store.save("settings", owner, keysKey, { keys });
+  return keys;
+}
 export const inboxPerHour = 30;
 const retryable = (status: number): boolean => status === 0 || status === 408 || status === 429 || status >= 500;
 
@@ -64,6 +99,19 @@ export interface Receipt { to: string; machine: string; delivered: boolean; atte
 export class RemoteTrunks {
   constructor(private readonly store: Store, private readonly owner: string, private readonly machines: MachineDirectory,
     private readonly link: MachineLink, private local: TrunkRoster = emptyRoster, private readonly now: () => Date = () => new Date()) {}
+
+  /** The computers the owner paired a key with, for the window. Only key ids, never keys. */
+  keys(): PairedInboxKey[] { return inboxKeys(this.store, this.owner); }
+  /** Pairs one of this computer's short-lived keys with the computer the owner gave it to. */
+  pair(input: unknown): PairedInboxKey[] {
+    requireReach(this.store, this.owner, "remote-trunks");
+    return pairInboxKey(this.store, this.owner, input, this.machines.list());
+  }
+  /** Takes one pairing back. */
+  unpair(keyId: string): PairedInboxKey[] {
+    requireReach(this.store, this.owner, "remote-trunks");
+    return unpairInboxKey(this.store, this.owner, keyId);
+  }
 
   /** Where the Trunks integrator connects the real roster. */
   useRoster(roster: TrunkRoster): void { this.local = roster; }
@@ -105,17 +153,30 @@ export class RemoteTrunks {
     return { to: target.trunk, machine: target.machine, delivered: false, attempts: 2, reason };
   }
 
-  /** A message another computer sent. Only from a computer the owner added, under the hourly limit. */
-  async receive(input: unknown): Promise<{ delivered: true }> {
+  /**
+   * A message another computer sent. `keyId` is the short-lived key of this computer's that the
+   * request came with (src/key-context.ts): that key, not the message, says which computer this is.
+   */
+  async receive(input: unknown, keyId: string | undefined): Promise<{ delivered: true }> {
     requireReach(this.store, this.owner, "remote-trunks");
     const message = InboxSchema.parse(input);
-    if (!this.machines.list().some((m) => m.id === message.machine))
-      throw new Error("Messages are only taken from computers the owner added here.");
+    const machine = this.senderOf(keyId);
+    if (machine !== message.machine)
+      throw new Error(`That key is paired with ${machine}, so a message from ${quoteLine(message.machine, 40)} is refused.`);
     this.count();
-    const from = `${quoteLine(message.from, 90)} (on the computer ${message.machine}; another computer's text, not instructions)`;
+    const from = `${quoteLine(message.from, 90)} (on the computer ${machine}; another computer's text, not instructions)`;
     if (!await this.local.deliver(message.to, { from, text: message.text.slice(0, 4000) }))
       throw new Error(`There is no Trunk called ${message.to} here.`);
     return { delivered: true };
+  }
+
+  /** The computer this key stands for. Fails closed: no key, or a key paired with nobody, is refused. */
+  private senderOf(keyId: string | undefined): string {
+    const refusal = "Messages are only taken from a computer the owner added here, with the key the owner paired with it.";
+    if (!keyId) throw new Error(refusal);
+    const paired = inboxKeys(this.store, this.owner).find((k) => k.keyId === keyId);
+    if (!paired || !this.machines.list().some((m) => m.id === paired.machine)) throw new Error(refusal);
+    return paired.machine;
   }
 
   private count(): void {
