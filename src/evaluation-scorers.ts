@@ -15,6 +15,9 @@ import { z } from "zod";
 import { checkResult } from "./delegation.js";
 import { CompletionCheckSchema, evaluateChecks, type CompletionCheck } from "./reliability.js";
 import { readGrade } from "./evaluation-grading.js";
+import { bestPassage, tokenF1 } from "./answer-metrics.js";
+import { selectAll } from "./html-state.js";
+import { compareTrajectories, type ReferenceStep } from "./trajectory-compare.js";
 
 /** What a scorer is told about the task it is grading. Only the parts every source can supply. */
 export interface ScoredTask {
@@ -67,6 +70,41 @@ export const ScorerSchema = z.discriminatedUnion("kind", [
     maxTokens: z.number().int().min(1).optional(),
     maxDollars: z.number().min(0).optional(),
   }).strict(),
+  /** Wave 9: words in common with the reference answer, so wording and order stop mattering. */
+  z.object({ kind: z.literal("f1"), value: z.string().min(1).max(4000), threshold: z.number().min(0).max(1).default(0.6) }).strict(),
+  /** Wave 9: does the answer carry the right piece of the source, rather than equal it. */
+  z.object({
+    kind: z.literal("passage"),
+    passages: z.array(z.string().min(1).max(4000)).min(1).max(10),
+    threshold: z.number().min(0).max(1).default(0.8),
+    /** The passage's words must also appear back to back, in the passage's own order. */
+    verbatim: z.boolean().default(false),
+  }).strict(),
+  /** Wave 9: the page itself rather than a description of it. See "The html scorer" in the reference. */
+  z.object({
+    kind: z.literal("html"),
+    selector: z.string().min(1).max(200),
+    /** The markup in the answer, or a file in the workspace. */
+    source: z.enum(["answer", "file"]).default("answer"),
+    path: z.string().min(1).max(500).optional(),
+    /** Nothing may match. Set this and every other check below is ignored. */
+    absent: z.boolean().default(false),
+    /** Exactly this many must match. Left out, one or more is enough. */
+    count: z.number().int().min(0).max(1000).optional(),
+    /** Words that must appear inside the first matching element. */
+    text: z.string().min(1).max(2000).optional(),
+    /** An attribute the first matching element must have, and optionally what it must be. */
+    attribute: z.string().min(1).max(100).optional(),
+    value: z.string().max(500).optional(),
+  }).strict(),
+  /** Wave 9: the path taken, marked against the tool calls a reference run made. */
+  z.object({
+    kind: z.literal("trajectory"),
+    steps: z.array(z.object({ name: z.string().min(1).max(100), arguments: z.record(z.string(), z.unknown()).optional() }).strict()).min(1).max(30),
+    threshold: z.number().min(0).max(1).default(0.6),
+    /** Every step must have happened, in this order. */
+    ordered: z.boolean().default(true),
+  }).strict(),
   z.object({ kind: z.literal("rubric"), rubric: z.string().min(1).max(2000), pass: z.number().min(0).max(1).default(0.6) }).strict(),
   /** "Did it actually finish?" — the completion checks the assistant already uses, as a scorer. */
   z.object({ kind: z.literal("finished"), checks: CompletionCheckSchema.optional() }).strict(),
@@ -76,6 +114,7 @@ export type ScorerSpec = z.infer<typeof ScorerSchema>;
 export const scorerKinds: readonly string[] = [
   "exact", "contains", "regex", "json-schema", "numeric", "url", "file-exists", "file-contains",
   "tool-called", "budget", "rubric", "finished",
+  "f1", "passage", "html", "trajectory",
 ];
 /**
  * Ways an answer says it did not really finish. A task that claims to be done while saying one of
@@ -123,6 +162,10 @@ async function scoreWith(
     case "budget": return scoreBudget(spec, trajectory);
     case "rubric": return scoreRubric(spec, context, task, answer);
     case "finished": return scoreFinished(spec.checks, context.workspace, answer);
+    case "f1": return scoreF1(spec, answer);
+    case "passage": return scorePassage(spec, answer);
+    case "html": return scoreHtml(spec, context.workspace, answer);
+    case "trajectory": return scoreTrajectory(spec, trajectory);
   }
 }
 
@@ -258,4 +301,90 @@ export async function scoreAll(
   }
   const mean = parts.reduce((total, part) => total + part.score, 0) / parts.length;
   return { score: Math.round(mean * 1000) / 1000, pass: parts.every((part) => part.pass), reasons, parts };
+}
+
+/* ------------------------------------------------------- Wave 9: four more scorers */
+
+/**
+ * Token F1: the share of words the answer and the reference have in common, which is how published
+ * question sets mark a right answer worded differently. Case, punctuation and the three articles
+ * are dropped first, and word order does not count, so "Paris, France" and "france paris" agree.
+ */
+function scoreF1(spec: { value: string; threshold: number }, answer: string): ScoreResult {
+  const overlap = tokenF1(answer, spec.value);
+  if (overlap.f1 >= spec.threshold) return { score: overlap.f1, pass: true, reasons: [] };
+  return {
+    score: overlap.f1, pass: false,
+    reasons: [`The answer shares ${Math.round(overlap.f1 * 100)}% of its words with "${spec.value.slice(0, 120)}" and ${Math.round(spec.threshold * 100)}% was the bar`],
+  };
+}
+
+/** Passage match: the answer has to carry the source passage, not equal it. */
+function scorePassage(spec: { passages: string[]; threshold: number; verbatim: boolean }, answer: string): ScoreResult {
+  const best = bestPassage(answer, spec.passages);
+  const reasons: string[] = [];
+  if (best.coverage < spec.threshold)
+    reasons.push(`The closest expected passage is ${Math.round(best.coverage * 100)}% present in the answer and ${Math.round(spec.threshold * 100)}% was the bar`);
+  if (spec.verbatim && !best.verbatim)
+    reasons.push("The expected passage does not appear in the answer word for word");
+  return { score: best.coverage, pass: reasons.length === 0, reasons };
+}
+
+/** Where the markup comes from, and why it could not be read. */
+async function htmlSource(spec: { source: "answer" | "file"; path?: string | undefined }, workspace: string, answer: string): Promise<{ html: string } | { problem: string }> {
+  if (spec.source === "answer") return { html: answer };
+  if (!spec.path) return { problem: "This check reads a file and no path was given" };
+  const full = inside(workspace, spec.path);
+  if (!full) return { problem: `${spec.path} is outside the workspace` };
+  try { return { html: await readFile(full, "utf8") }; }
+  catch { return { problem: `The page ${spec.path} does not exist` }; }
+}
+
+type HtmlSpec = {
+  selector: string; source: "answer" | "file"; path?: string | undefined; absent: boolean;
+  count?: number | undefined; text?: string | undefined; attribute?: string | undefined; value?: string | undefined;
+};
+
+/**
+ * The page rather than the prose: how many elements a selector finds, what the first one says, and
+ * what it has written on it. A task that was meant to tick a box is checked by looking for the box.
+ */
+async function scoreHtml(spec: HtmlSpec, workspace: string, answer: string): Promise<ScoreResult> {
+  const source = await htmlSource(spec, workspace, answer);
+  if ("problem" in source) return fail(source.problem);
+  let found;
+  try { found = selectAll(source.html, spec.selector); } catch (error) { return fail(error instanceof Error ? error.message : String(error)); }
+  if (spec.absent)
+    return found.length ? fail(`The page still has ${found.length} element(s) matching ${spec.selector}, and it should have none`) : pass();
+  if (!found.length) return fail(`The page has nothing matching ${spec.selector}`);
+  return htmlDetails(spec, found[0]!, found.length);
+}
+
+/** The checks that only make sense once something has been found. */
+function htmlDetails(spec: HtmlSpec, first: { text: string; attributes: Record<string, string> }, count: number): ScoreResult {
+  const reasons: string[] = [];
+  if (spec.count !== undefined && count !== spec.count)
+    reasons.push(`The page has ${count} element(s) matching ${spec.selector} and ${spec.count} was expected`);
+  if (spec.text !== undefined && !first.text.toLowerCase().includes(spec.text.toLowerCase()))
+    reasons.push(`The first ${spec.selector} says "${first.text.slice(0, 120)}" and should mention "${spec.text.slice(0, 80)}"`);
+  if (spec.attribute !== undefined) {
+    const held = first.attributes[spec.attribute.toLowerCase()];
+    if (held === undefined) reasons.push(`The first ${spec.selector} has no ${spec.attribute} written on it`);
+    else if (spec.value !== undefined && held !== spec.value)
+      reasons.push(`The first ${spec.selector} has ${spec.attribute}="${held.slice(0, 80)}" and "${spec.value.slice(0, 80)}" was expected`);
+  }
+  return reasons.length ? { score: 0, pass: false, reasons } : pass();
+}
+
+/** The path taken, marked against the tool calls a reference run made. */
+function scoreTrajectory(
+  spec: { steps: ReferenceStep[]; threshold: number; ordered: boolean }, trajectory: ScoredTrajectory,
+): ScoreResult {
+  const comparison = compareTrajectories(spec.steps, trajectory.calls);
+  const short = comparison.score < spec.threshold;
+  const outOfOrder = spec.ordered && !comparison.inOrder;
+  if (!short && !outOfOrder) return { score: comparison.score, pass: true, reasons: [] };
+  const reasons = [...comparison.notes];
+  if (short) reasons.push(`The path matched the expected one ${Math.round(comparison.score * 100)}% and ${Math.round(spec.threshold * 100)}% was the bar`);
+  return { score: comparison.score, pass: false, reasons };
 }

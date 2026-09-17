@@ -50,7 +50,7 @@ test("every built-in scorer decides a right answer and a wrong one", async () =>
     assert.equal(wrong.pass, false, `${spec.kind} should refuse ${bad}`);
     assert.ok(wrong.reasons.length, `${spec.kind} should say why`);
   }
-  assert.equal(scorerKinds.length, 12);
+  assert.equal(scorerKinds.length, 16);
 });
 
 test("the scorers that look at the workspace and the trajectory", async (t) => {
@@ -189,9 +189,9 @@ test("a task's rounds are counted from its record, so a budget on rounds really 
 
 /* ------------------------------------------------------------ E2 adapters */
 
-test("there are five adapters that run and five benchmarks documented as not integrated", () => {
+test("there are six adapters that run and five benchmarks documented as not integrated", () => {
   assert.deepEqual(benchmarkAdapters.map((adapter) => adapter.id).sort(),
-    ["code-tasks", "gaia", "swe-bench", "terminal-bench", "web-tasks"]);
+    ["code-tasks", "gaia", "nexus", "swe-bench", "terminal-bench", "web-tasks"]);
   assert.equal(notIntegratedBenchmarks.length, 5);
   for (const entry of notIntegratedBenchmarks) assert.ok(entry.needs.length > 40, `${entry.id} must say what it would need`);
   assert.throws(() => findBenchmarkAdapter("osworld"), /There is no benchmark called osworld/);
@@ -497,7 +497,7 @@ test("the benchmark and study routes are on the web front door", async (t) => {
     return json;
   };
   const benchmarks = await api("evaluation/benchmarks");
-  assert.equal(benchmarks.adapters.length, 5);
+  assert.equal(benchmarks.adapters.length, 6);
   assert.equal(benchmarks.notIntegrated.length, 5);
   assert.ok(benchmarks.scorers.includes("rubric"));
   await api("studies", { id: "web", name: "From the web", source: { kind: "suite", suite: "cost" }, presets: ["default"] });

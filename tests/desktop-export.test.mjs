@@ -61,7 +61,12 @@ test('native conversation export uses guarded IPC and leaves the blanket downloa
     assert.notEqual(invalid, 'allowed');
     assert.equal(await electron.evaluate(() => globalThis.fixtureExportDialogs.length), 0);
     await page.getByLabel('Your message', { exact: true }).fill('Export the demo conversation');
-    await page.locator('#send').click(); await page.waitForFunction(() => !document.getElementById('send').disabled);
+    await page.locator('#send').click();
+    // Waiting for a whole task to finish, not for the page to paint: the model answers, the reply is
+    // written down and the conversation is saved before Send comes back. Ten seconds is enough on a
+    // desktop and not on a loaded build machine, where this timed out at 32 seconds having done
+    // nothing wrong. The wait is widened here rather than anything in the app being made faster.
+    await page.waitForFunction(() => !document.getElementById('send').disabled, undefined, { timeout: 120000 });
     await page.locator('#saved-conversations summary').click();
     await page.locator('#saved-list').getByRole('button', { name: 'Export JSON', exact: true }).first().click();
     await page.locator('#toast').filter({ hasText: 'Conversation exported.' }).waitFor();

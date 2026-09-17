@@ -60,6 +60,17 @@ const passingRoutes = () => [
   ["Lagos, Nigeria", [say('{"city":"Lagos","population":15000000}')]],
   ["17 multiplied by 23", [say("391")]],
   ["capital city of France", [say("Paris is the capital city of France.")]],
+  // Wave 9: the research suite, which uses the passage, f1 and trajectory scorers.
+  ["when the deposit is returned", [
+    call("files.write", { path: "eval-source-a.txt", content: "The deposit is returned within ten working days." }),
+    call("files.write", { path: "eval-source-b.txt", content: "Keys are handed back at the office." }),
+    call("files.read", { path: "eval-source-a.txt" }),
+    say("The deposit is returned within ten working days, according to eval-source-a.txt."),
+  ]],
+  ["What is the late payment fee?", [say("They do not say.")]],
+  ["sum both of them up in one sentence", [
+    say("The deposit is returned within ten working days and the keys are handed back at the office."),
+  ]],
 ];
 
 async function fixture(t, routes = passingRoutes(), options = {}) {
@@ -88,10 +99,10 @@ async function served(t, routes = passingRoutes()) {
   return { app, root, provider, api, server };
 }
 
-test("the five suites that ship are valid, load from disk, and pass on a scripted model", async (t) => {
+test("the six suites that ship are valid, load from disk, and pass on a scripted model", async (t) => {
   const { app } = await fixture(t);
   const suites = builtInSuites();
-  assert.deepEqual(suites.map((suite) => suite.id).sort(), ["cost", "everyday", "reliability", "safety", "tool-use"]);
+  assert.deepEqual(suites.map((suite) => suite.id).sort(), ["cost", "everyday", "reliability", "research", "safety", "tool-use"]);
   assert.ok(suites.every((suite) => suite.tasks.length >= 2 && suite.name && suite.source === "built-in"));
 
   for (const suite of suites) {
