@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { createServer } from "node:http";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -459,4 +460,44 @@ test("Discord: an edit is a PATCH of the message, cut to Discord's limit", async
   assert.deepEqual(calls.slice(1).map((c) => [c.method, c.url]), [
     ["PUT", `http://discord.invalid/channels/c1/messages/m9/reactions/${encodeURIComponent(statusEmoji.done)}/@me`],
   ], "the same reaction is not taken off first");
+});
+
+test("Telegram end to end: a note sent while a task works reaches it, and the chat shows the work", async (t) => {
+  const { app, model } = await fixture(t, async (request, n, self) => {
+    if (n === 1) {
+      await self.hold(request.signal);
+      return { content: "", toolCalls: [{ id: "c1", name: "files.list", arguments: "{\"path\":\".\"}" }] };
+    }
+    return { content: `Done: ${lastUser(request)}`, toolCalls: [] };
+  });
+  const state = { queue: [], calls: [] };
+  const server = createServer(async (req, res) => {
+    let raw = ""; for await (const part of req) raw += part;
+    const method = req.url.split("/").pop(), body = raw ? JSON.parse(raw) : {};
+    state.calls.push({ method, body });
+    const reply = (result) => { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ ok: true, result })); };
+    if (method === "getMe") return reply({ id: 999, is_bot: true, first_name: "Branch", username: "BranchTestBot" });
+    if (method === "getUpdates") {
+      const pending = state.queue.filter((u) => u.update_id >= (body.offset ?? 0));
+      if (!pending.length) await delay(20);
+      return reply(pending);
+    }
+    if (method === "sendMessage") return reply({ message_id: 5000 + state.calls.length });
+    return reply(true);
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const adapter = new TelegramAdapter({ id: "tg", token: "1:x", apiBase: `http://127.0.0.1:${server.address().port}`, pollTimeoutSeconds: 1 });
+  await app.channels.attach(adapter, { activation: "always", pairing: false, allowlist: ["42"] });
+  t.after(() => app.channels.detachAll());
+  const from = { id: 42, first_name: "Ann" }, chat = { id: 501, type: "private" };
+  state.queue.push({ update_id: 1, message: { message_id: 10, text: "tidy the folder", from, chat } });
+  await until(() => model.requests.length === 1, "task started");
+  state.queue.push({ update_id: 2, message: { message_id: 11, text: "skip the photos", from, chat } });
+  await until(() => state.calls.some((c) => c.method === "setMessageReaction" && c.body.message_id === 11), "the note was marked seen");
+  model.open();
+  await until(() => state.calls.some((c) => c.method === "sendMessage" && /^Done: .*skip the photos/s.test(c.body.text)), "answer that read the note");
+  assert.equal(model.requests.length, 2, "the note did not start a second task");
+  assert.ok(state.calls.some((c) => c.method === "sendChatAction" && c.body.action === "typing"));
+  assert.ok(state.calls.some((c) => c.method === "setMessageReaction" && c.body.message_id === 10));
 });

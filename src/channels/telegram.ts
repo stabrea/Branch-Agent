@@ -98,10 +98,12 @@ export class TelegramAdapter implements ChannelAdapter {
         const updates = z.array(updateSchema).parse(await this.call("getUpdates", { offset: this.offset, timeout: this.pollTimeout, allowed_updates: ["message", "callback_query"] }, true));
         for (const update of updates) {
           this.offset = Math.max(this.offset, update.update_id + 1);
+          // Handed over without waiting: a message sent while a task works is a note for that task,
+          // and it has to be read while the task is still going. The router keeps one task per chat.
           const pressed = update.callback_query && this.fromButton(update.callback_query);
-          if (pressed) { await onMessage(pressed).catch(() => undefined); continue; }
+          if (pressed) { void onMessage(pressed).catch(() => undefined); continue; }
           const message = update.message && this.inbound(update.message);
-          if (message) await onMessage(message).catch(() => undefined);
+          if (message) void onMessage(message).catch(() => undefined);
         }
       } catch (error) {
         if (this.stopping.signal.aborted) return;

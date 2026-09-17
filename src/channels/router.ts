@@ -207,10 +207,9 @@ export class ChannelRouter {
   async attach(adapter: ChannelAdapter, policy: ChannelPolicy): Promise<void> {
     if (this.adapters.has(adapter.id)) throw new Error(`Channel ${adapter.id} is already attached`);
     this.adapters.set(adapter.id, { adapter, policy: ChannelPolicySchema.parse(policy) });
-    // The adapter is not held while a task works: several adapters read their next message only
-    // after this returns, and a note sent to a running task has to get through. One chat still has
-    // one task at a time; see `answer`.
-    await adapter.start(async (message) => { void this.handle(message).catch(() => undefined); });
+    // This resolves once the message has been dealt with. An adapter that reads messages one by one
+    // must not wait for it, or a note sent to a running task could never get through (see telegram.ts).
+    await adapter.start((message) => this.handle(message).then(() => undefined));
     if (!this.pump) { this.pump = setInterval(() => void this.flush(), this.pumpMs); this.pump.unref(); }
     await this.flush();
   }
@@ -595,9 +594,9 @@ export class ChannelRouter {
       .catch((error) => span?.end("error", error instanceof Error ? error.message : String(error)));
   }
   /**
-   * At most `maxChatTasks` chats have a task working at once. The adapters no longer wait for one
-   * message before reading the next (see `attach`), so this is what keeps a burst of messages from
-   * many chats from starting a task for each of them at the same moment. The rest wait their turn.
+   * At most `maxChatTasks` chats have a task working at once. No adapter waits for one message
+   * before reading the next, so this is what keeps a burst of messages from many chats from
+   * starting a task for each of them at the same moment. The rest wait their turn.
    */
   private async withSlot<T>(work: () => Promise<T>): Promise<T> {
     while (this.chatTasks >= this.maxChatTasks) await new Promise<void>((resolve) => this.slotWaiters.push(resolve));

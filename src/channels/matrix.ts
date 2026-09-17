@@ -79,7 +79,8 @@ export class MatrixAdapter implements ChannelAdapter {
         const batch = await this.sync();
         this.state = { state: "connected", ...(this.encryptedSeen ? { reason: `${this.encryptedSeen} message(s) arrived in an encrypted room, which this assistant cannot read` } : {}) };
         attempt = -1;
-        for (const message of batch) { if (this.stopping) return; await onMessage(message).catch(() => undefined); }
+        // Handed over without waiting, so a note can reach a task that is still working (see telegram.ts).
+        for (const message of batch) { if (this.stopping) return; void onMessage(message).catch(() => undefined); }
         continue;
       } catch (error) {
         if (this.stopping) return;
