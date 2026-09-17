@@ -29,7 +29,7 @@ import { ToolUsage } from "./tool-usage.js";
 import { SpanStore } from "./tracing.js";
 
 type Row = Record<string, unknown>;
-export type RecordTable = "memory" | "specialists" | "procedures" | "schedules" | "settings" | "deliveries" | "governance" | "triggers" | "webhooks" | "workflows";
+export type RecordTable = "memory" | "specialists" | "procedures" | "schedules" | "settings" | "deliveries" | "governance" | "triggers" | "webhooks" | "workflows" | "flow_graphs";
 export interface SavedRecord {
   id: string;
   owner: string;
@@ -91,7 +91,7 @@ export class Store {
       CREATE TABLE IF NOT EXISTS compactions(session_id TEXT PRIMARY KEY REFERENCES sessions(id), through_id INTEGER NOT NULL, summary TEXT NOT NULL, created_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS trigger_log(id INTEGER PRIMARY KEY AUTOINCREMENT, trigger_id TEXT NOT NULL, owner TEXT NOT NULL, run_id TEXT, payload_summary TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS delivery_log(id INTEGER PRIMARY KEY AUTOINCREMENT, webhook_id TEXT NOT NULL, owner TEXT NOT NULL, event_type TEXT NOT NULL, status TEXT NOT NULL, attempt INTEGER NOT NULL DEFAULT 1, next_retry_at TEXT, created_at TEXT NOT NULL);`);
-    for (const table of ["memory", "specialists", "procedures", "schedules", "settings", "deliveries", "governance", "triggers", "webhooks", "workflows"])
+    for (const table of ["memory", "specialists", "procedures", "schedules", "settings", "deliveries", "governance", "triggers", "webhooks", "workflows", "flow_graphs"])
       this.db.exec(
         `CREATE TABLE IF NOT EXISTS ${table}(id TEXT NOT NULL,owner TEXT NOT NULL,data TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(id,owner));`,
       );

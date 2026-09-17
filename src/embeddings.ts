@@ -164,7 +164,7 @@ export const noEmbeddingsMessage =
 
 /** A fingerprint of one passage read by one model: the same passage never costs twice. */
 export const textFingerprint = (text: string, model: string): string =>
-  createHash("sha256").update(`${model} ${text}`).digest("hex");
+  createHash("sha256").update(`${model}\u0000${text}`).digest("hex");
 
 /** Every list of numbers already worked out, kept beside everything else on this computer. */
 export class EmbeddingCache {
