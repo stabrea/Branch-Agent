@@ -188,11 +188,22 @@ export function nothingFound(found: FolderFindings): boolean {
  * about that holds nothing for AI assistants. A folder the owner does not trust is always no.
  */
 export async function isFolderTrusted(store: Store, owner: string, path: string): Promise<boolean> {
+  if (folderTrustMode(store, owner) !== "when-needed" || folderTrust(store, owner, path) !== "unknown")
+    return folderAllows(store, owner, path);
+  return folderAllows(store, owner, path, !nothingFound(await discoverFolder(path)));
+}
+
+/**
+ * The same answer without looking at the disk, for a loader that already knows whether the folder
+ * holds something for AI assistants (it usually does: it has just found a file to read). A loader
+ * that is about to read a file from the folder passes nothing and gets the strict answer.
+ */
+export function folderAllows(store: Store, owner: string, path: string, holdsSomething = true): boolean {
   const mode = folderTrustMode(store, owner);
   if (mode === "off") return true;
   const trust = folderTrust(store, owner, path);
   if (trust !== "unknown") return trust === "trusted";
-  return mode === "when-needed" && nothingFound(await discoverFolder(path));
+  return mode === "when-needed" && !holdsSomething;
 }
 
 /** Whether the owner should be asked about a folder now, under the owner's setting. */

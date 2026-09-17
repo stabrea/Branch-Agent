@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
 import {
-  assistantFolderItems, createBranch, decideFolder, discoverFolder, folderContains, folderTrust, folderTrustMode,
+  assistantFolderItems, createBranch, folderAllows, decideFolder, discoverFolder, folderContains, folderTrust, folderTrustMode,
   isFolderTrusted, needsAnswer, nothingFound, presetRules, PolicySchema, saveFolderTrustSettings, trustCappedPolicy,
   workspaceFolder,
 } from "../dist/index.js";
@@ -158,6 +158,11 @@ test("off / on / when needed decide whether a loader may read a folder", async (
   decideFolder(app.store, owner, workspace, { folder: "notes", decision: "trust" });
   assert.equal(await isFolderTrusted(app.store, owner, notes), true);
   assert.equal(await app.runtime.guards.isFolderTrusted(notes), true, "the runtime offers the same check");
+  // Without looking at the disk: a loader that has found a file gets the strict answer.
+  assert.equal(folderAllows(app.store, owner, empty), false);
+  assert.equal(folderAllows(app.store, owner, empty, false), true);
+  assert.equal(folderAllows(app.store, owner, notes), true);
+  assert.equal(folderAllows(app.store, owner, refused, false), false);
   const some = await discoverFolder(join(workspace, "missing"));
   assert.equal(needsAnswer("off", "unknown", some), false);
   assert.equal(needsAnswer("on", "unknown", some), true);
