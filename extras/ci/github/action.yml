@@ -1,0 +1,96 @@
+# Branch in GitHub Actions (mac7/r17-d, R17-038).
+#
+# Runs Branch with no window on the checked-out repository: one request, or a file of them, with the
+# exit code `branch run` has always used (0 finished, 2 stopped to ask, 3 failed, 4 out of budget).
+# Nothing the workflow passes in is pasted into a shell line: every input reaches the step as an
+# environment variable, and the model key is read from the variable you name.
+#
+#   - uses: stabrea/Branch-Agent/extras/ci/github@main
+#     with:
+#       prompt: "Review this pull request and list anything risky."
+#       provider: anthropic
+#       model: claude-sonnet-4-5
+#       endpoint: https://api.anthropic.com/v1
+#       api-key-variable: ANTHROPIC_API_KEY
+#     env:
+#       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+name: Branch Agent
+description: Run Branch Agent with no window on this repository.
+inputs:
+  prompt:
+    description: What to do. Leave empty when a script is given.
+    required: false
+    default: ""
+  script:
+    description: A file in the repository with one request per line.
+    required: false
+    default: ""
+  preset:
+    description: When Branch checks first (read-only, ask-before-changes, workspace or off). Nobody can answer a question in CI, so read-only is the default.
+    required: false
+    default: read-only
+  provider:
+    description: openai or anthropic.
+    required: true
+  model:
+    description: The model identifier.
+    required: true
+  endpoint:
+    description: The model service's full address.
+    required: true
+  api-key-variable:
+    description: The name of the environment variable holding the model key.
+    required: true
+  budget:
+    description: Most tokens the job may use.
+    required: false
+  branch-ref:
+    description: Which version of Branch to run.
+    required: false
+    default: main
+outputs:
+  exit-code:
+    description: 0 finished, 2 stopped to ask, 3 failed, 4 out of budget.
+    value: ${{ steps.run.outputs.exit-code }}
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 24
+    - uses: actions/checkout@v4
+      with:
+        repository: stabrea/Branch-Agent
+        ref: ${{ inputs.branch-ref }}
+        path: .branch-agent-program
+    - name: Build Branch
+      shell: bash
+      # Built, then moved out of the repository so the job cannot change the program it runs.
+      run: |
+        (cd .branch-agent-program && npm ci --no-audit --no-fund --ignore-scripts && npm run build)
+        mv .branch-agent-program "$RUNNER_TEMP/branch-agent-program"
+    - name: Run Branch
+      id: run
+      shell: bash
+      env:
+        BRANCH_PROMPT: ${{ inputs.prompt }}
+        BRANCH_SCRIPT: ${{ inputs.script }}
+        BRANCH_JOB_PRESET: ${{ inputs.preset }}
+        BRANCH_JOB_BUDGET: ${{ inputs.budget }}
+        BRANCH_PROVIDER: ${{ inputs.provider }}
+        BRANCH_MODEL: ${{ inputs.model }}
+        BRANCH_ENDPOINT: ${{ inputs.endpoint }}
+        BRANCH_API_KEY_ENV: ${{ inputs.api-key-variable }}
+        BRANCH_WORKSPACE: ${{ github.workspace }}
+        BRANCH_DATA_DIR: ${{ runner.temp }}/branch-data
+      run: |
+        set +e
+        if ! [[ "$BRANCH_API_KEY_ENV" =~ ^[A-Z][A-Z0-9_]{0,127}$ ]]; then echo "api-key-variable must be a variable name" >&2; exit 3; fi
+        export BRANCH_API_KEY="${!BRANCH_API_KEY_ENV}"
+        args=(headless --json --preset "$BRANCH_JOB_PRESET")
+        if [ -n "$BRANCH_JOB_BUDGET" ]; then args+=(--budget "$BRANCH_JOB_BUDGET"); fi
+        if [ -n "$BRANCH_SCRIPT" ]; then args+=(--script "$BRANCH_SCRIPT"); else args+=("$BRANCH_PROMPT"); fi
+        node "$RUNNER_TEMP/branch-agent-program/dist/cli.js" "${args[@]}" > "$RUNNER_TEMP/branch-job.jsonl"
+        code=$?
+        echo "exit-code=$code" >> "$GITHUB_OUTPUT"
+        exit $code

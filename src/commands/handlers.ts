@@ -12,6 +12,7 @@ import { tokenLines, tokenReport } from "./tokens.js";
 import { runningLines, statusLines, whoamiLines } from "./status.js";
 import { helpText } from "./help-text.js";
 import { promptsCommand } from "./saved.js";
+import { initCommand } from "../coding/commands.js"; // mac7/r17-d
 
 /**
  * What each command does when it is carried out for a surface that has no code of its own for it:
@@ -244,4 +245,5 @@ export const HANDLERS: Record<string, Handler> = {
   version: (call) => say(`Branch Agent ${call.host.version ?? "(version unknown)"}`),
   health,
   prompts: promptsCommand, // bucket 12
+  init: initCommand, // mac7/r17-d
 };

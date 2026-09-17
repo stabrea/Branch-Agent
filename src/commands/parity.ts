@@ -51,7 +51,7 @@ export const PARITY: readonly ParityRow[] = [
   row("Branch or fork a conversation", "/branch (Hermes), /fork (Codex, OpenCode)", "—", "elsewhere", "The window's branch action (session tree); not a typed command yet."),
   row("Show the changes", "/diff (Hermes, Codex, Aider)", "—", "elsewhere", "Receipts in the side pane's Files tab."),
   row("Review the work", "/review (Hermes, Codex)", "—", "elsewhere", "/verify (terminal) and the reviewer switch."),
-  row("Write project instructions", "/init (Hermes, Codex, Gemini, Claude Code)", "—", "elsewhere", "Context files belong to the context-file loader (Legion)."),
+  row("Write project instructions", "/init (Hermes, Codex, Gemini, Claude Code)", "/init", "built", "mac7/r17-d: the model writes AGENTS.md through the context-file loader's writer; follows the \"Writing the project's instruction file\" switch."),
   row("Copy the last answer", "/copy (Hermes, Codex, Gemini, Aider)", "—", "not applicable", "The window has a copy button on each answer; a terminal copies with the mouse."),
   row("Sign in or out", "/login, /logout (Hermes, Codex, OpenClaw), /auth (Gemini)", "—", "not applicable", "Signing in is a Settings screen; a typed command would carry secrets."),
   row("Run a shell command", "/run, /bash, ! (Aider, OpenClaw, Gemini)", "—", "not applicable", "Programs run only as tool calls under the approval rules."),

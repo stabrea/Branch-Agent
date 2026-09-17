@@ -1,4 +1,5 @@
 import { readFile, stat } from 'node:fs/promises';
+import { withLoginPath } from "../coding/shell-snapshot.js"; // mac7/r17-d
 import { channelPosition } from '../never-break/channel-position.js'; // mac3/never-break
 import { channelMark } from '../channels/catch-up.js'; // mac6/bucket-16
 import { z } from 'zod';
@@ -266,6 +267,9 @@ export async function loadIntegrations(registry: ToolRegistry, path?: string, en
     let shell: BranchShell | undefined;
     if (config.shell) {
       hosted.commandsNetless = config.shell.netless === true;
+      // mac7/r17-d: with "Using your own command-line setup" on, commands get the owner's login PATH (src/coding/shell-snapshot.ts).
+      const loginStore = channels?.store as Store | undefined, loginOwner = channels?.context?.('bootstrap').owner;
+      if (loginStore && loginOwner) config.shell = withLoginPath(config.shell, loginStore, loginOwner);
       const created = new BranchShell(config.shell, env, secrets);
       shell = created;
       await created.ready();

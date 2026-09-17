@@ -192,6 +192,8 @@ import { recoverOnStart } from "./never-break/resume.js";
 import { connectGuidedTelegram, saveTelegramSetup, telegramSetupView } from "./never-break/telegram-setup.js";
 import { fileURLToPath } from "node:url";
 import { Asks } from "./asks/index.js"; // mac6/bucket-23: the smaller asks
+import { Coding } from "./coding/index.js"; // mac7/r17-d: coding polish
+import { worktreeScope } from "./coding/worktrees.js"; // mac7/r17-d
 // mac4/bucket-20: talking to other agents and tools.
 import { Interop } from "./interop/index.js";
 // mac3/reflection-skills: looking back over conversations, and skills written from experience.
@@ -259,7 +261,8 @@ export async function createBranch(options: {
   const artifacts = new RunArtifacts(join(dataDir, "artifacts"));
   const browserProfiles = new BrowserProfiles(join(dataDir, "browser-profiles"), lockerKey);
   const registry = new ToolRegistry();
-  files.scope = () => store.projects.active(options.owner ?? "local").folder;
+  // mac7/r17-d: a task working in its own copy of the project (src/coding/worktrees.ts) reads and writes there.
+  files.scope = () => worktreeScope() ?? store.projects.active(options.owner ?? "local").folder;
   const history = store.openWorkspaceHistory(files, options.owner ?? "local");
   let documents: DocumentLibrary | undefined;
   const writeObserver = {
@@ -930,6 +933,10 @@ export async function createBranch(options: {
     telegramInUse: () => channels.summary().channels.some((channel) => channel.kind === "telegram"), version,
     assertHost: (host, port) => web.policy.assertAllowed(new URL(`https://${host}:${port}/`), "mail server address") });
   // ── end mac6/bucket-23 ──
+  // ── mac7/r17-d: coding polish (src/coding/). Every part ships off. ──
+  const coding = new Coding({ runtime, registry, files, servers: languageServers, git, gitRun });
+  runtime.coding = coding;
+  // ── end mac7/r17-d ──
   // ── mac3/security-check: the self-check and the malware check (src/security-audit). Both ship off. ──
   const security = new SecurityService(
     { store, runtime, registry, sessionLock, privacy, web, sessionTokens, plugins, pluginCatalog, people },
@@ -976,6 +983,8 @@ export async function createBranch(options: {
     addOns,
     /** mac6/bucket-23: the smaller asks (src/asks/); every part ships off. */
     asks,
+    /** mac7/r17-d: coding polish (src/coding/); every part ships off. */
+    coding,
     runtime,
     /** mac3/never-break: the task journal, and settling interrupted work after a restart. */
     neverBreak: {

@@ -116,6 +116,9 @@ Inside a conversation there are no homes to add to, only two surfaces with stric
 | Sending requests where they belong, the intent pipeline (`mac6/bucket-23`) | `customize:skills` |
 | Steps for other apps, MCP examples and the app-server door (`mac6/bucket-23`) | `customize:connections` |
 | The browser extension's side panel and the Obsidian plugin (`mac6/bucket-23`) | Outside the window; their instructions are in `extras/`, and the extension's switch stays in `customize:channels` |
+| Coding polish (`mac7/r17-d`): its switches, formatters, shell snapshot, copies, rules, checks and CI lines | `settings:advanced`, one card beside the developer tools |
+| A task's checklist (`mac7/r17-d`) | The side pane's Plan tab, under the to-do list |
+| The `@` picker (`mac7/r17-d`) | The message box, the same menu as `/`, because it changes the next message |
 
 When something new does not fit a row, apply the rule at the top and add a row here in the same
 change.

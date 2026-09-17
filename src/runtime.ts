@@ -36,6 +36,7 @@ import type { WebhookNotifier } from "./webhooks.js";
 import type { HookDecision } from "./hooks.js";
 import { assistantIdentity, identityInstructions } from "./identity.js";
 import { contextFileInstructions } from "./context-files.js";
+import type { CodingHooks, RoundNotes } from "./coding/hooks.js"; // mac7/r17-d
 import { steerMessage, steerNote } from "./steer.js";
 import { supportsImages } from "./providers.js";
 import { pinnedSkillInstructions, skillInstructions } from "./skill-tools.js";
@@ -338,6 +339,8 @@ export class Runtime {
   get provider(): Provider {
     return this.models.default.provider;
   }
+  /** mac7/r17-d: coding polish (src/coding/index.ts) — where a task works, and what it is told each round. */
+  coding?: CodingHooks;
   context(
     options: {
       permissions?: string[];
@@ -742,9 +745,11 @@ ${run.output.slice(0, 6000)}`;
     }, { inbound: options.traceparent ?? null, parentRunId: parent?.runId ?? null });
     let status: Run["status"] = "completed";
     let output: string;
+    // ── mac7/r17-d: a forked conversation or a helper may work in its own copy of the project (src/coding/worktrees.ts). ──
+    const place = this.coding ? await this.coding.placeTask(run, context, parent).catch(() => null) : null;
     try {
       options.onStarted?.(run);
-      output = await this.loop(run, context, instructions, options.onTextDelta, {
+      const work = (working: ToolContext) => this.loop(run, working, instructions, options.onTextDelta, {
         ...(options.model !== undefined ? { preset: options.model } : {}),
         ...(options.reasoning !== undefined ? { reasoning: options.reasoning } : {}),
       }, options.checks, options.images, {
@@ -752,6 +757,7 @@ ${run.output.slice(0, 6000)}`;
         ...(options.verify !== undefined ? { verify: options.verify } : {}),
         ...(context.depth > 0 || context.agent ? { delegated: true } : {}),
       }, options.style);
+      output = place && this.coding ? await this.coding.inPlace(place.scope, () => work({ ...context, workspace: place.workspace })) : await work(context);
     } catch (error) {
       status = this.failureStatus(context, error);
       output = errorText(error);
@@ -760,6 +766,7 @@ ${run.output.slice(0, 6000)}`;
         this.notifyEvent("approval.needed", { runId: run.id, sessionId: run.sessionId, question: error.question });
       }
     }
+    await place?.release().catch(() => undefined); // mac7/r17-d
     if (context.dryRun) this.reportDryRun(run);
     if (status === "completed") await this.advise(run, context, output);
     const settled = await this.settleRun(run, context, status, output);
@@ -1028,7 +1035,10 @@ ${run.output.slice(0, 6000)}`;
       this.journal.turn(run.id, run.sessionId, round + 1); // mac3/never-break
       const everyModel = [plan.choice.presetName ?? "", plan.choice.presetId ?? "", this.provider.name, ...route.candidates.flatMap(namesOf)];
       const preview = onTextDelta && this.holdsPreview(everyModel) ? () => undefined : onTextDelta;
-      const completion = await this.completeWithRetries(run, messages, context, route, preview);
+      // ── mac7/r17-d: @ mentions once, and the task's checklist and folder rules fresh every round (src/coding/). ──
+      const notes = this.coding ? await this.coding.roundNotes(run, context, round).catch((): RoundNotes => ({})) : {} as RoundNotes;
+      if (notes.once) { messages.push(notes.once); ids.push(null); }
+      const completion = await this.completeWithRetries(run, notes.every ? [...messages, notes.every] : messages, context, route, preview);
       const filterModels = [this.provider.name, ...namesOf(route.candidates[route.index])];
       // A think-then-act specialist writes one line of reasoning first. The transcript keeps it, so
       // the model can see its own trail; the owner reads it in the events; the answer never has it.

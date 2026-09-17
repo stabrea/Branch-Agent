@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { Store } from "./store.js";
 import { addOnLabels, addOnMode, addOnTools, type AddOnPart } from "./add-ons/settings.js"; // bucket-15
 import { askToolFeatures } from "./asks/settings.js"; // mac6/bucket-23
+import { codingToolFeatures } from "./coding/settings.js"; // mac7/r17-d
 
 /**
  * The owner's three-way switch for a feature: off, when needed, or on. Every one ships off.
@@ -101,6 +102,8 @@ const toolFeatures: { reason: string; tools: readonly string[]; hideWhenOff: boo
   ...interopToolFeatures.map(([key, reason, tools]) => ({ reason, tools, hideWhenOff: true, mode: (s: Reader, o: string) => savedMode(s, o, key) })),
   // ── mac6/bucket-23: the smaller asks (src/asks/settings.ts keeps these lists). ──
   ...askToolFeatures.map(([key, reason, tools]) => ({ reason, tools, hideWhenOff: true, mode: (s: Reader, o: string) => savedMode(s, o, key) })),
+  // ── mac7/r17-d: coding polish (src/coding/settings.ts keeps these lists). ──
+  ...codingToolFeatures.map(([key, reason, tools]) => ({ reason, tools, hideWhenOff: true, mode: (s: Reader, o: string) => savedMode(s, o, key) })),
   // Bucket 21 hook: tools for people building on Branch (src/sdk-kit.ts).
   { reason: "tools for people building on Branch are switched on", tools: sdkKitToolNames, hideWhenOff: true, mode: (s, o) => savedMode(s, o, "sdk-kit") },
   // ── bucket-15: add-ons other people wrote (src/add-ons/settings.ts keeps these lists). ──

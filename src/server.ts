@@ -109,6 +109,7 @@ import { goalApi } from "./goal-mode.js";
 import { rewindApi } from "./rewind.js";
 import { PreferencesSchema, preferences } from "./preferences.js";
 import { asksApi, AsksHttpError, handlesAsksPath } from "./asks/api.js"; // mac6/bucket-23: the smaller asks
+import { codingApi, CodingHttpError, handlesCodingPath } from "./coding/api.js"; // mac7/r17-d: coding polish
 // mac4/bucket-20: the Agent Protocol, programs lending tools, and the owner's interop routes.
 import { handleInterop, handlesInteropPath, interopOffLimits } from "./interop/api.js";
 import { clientToolsPath, serveClientToolSocket } from "./interop/client-tools.js";
@@ -414,6 +415,7 @@ async function staticFile(
     // Bucket 15: the add-ons card (Customize → Plugins).
     "/add-ons.js": ["add-ons.js", "text/javascript; charset=utf-8"],
     "/asks.js": ["asks.js", "text/javascript; charset=utf-8"], // mac6/bucket-23
+    "/coding.js": ["coding.js", "text/javascript; charset=utf-8"], // mac7/r17-d
     "/usage.js": ["usage.js", "text/javascript; charset=utf-8"],
     "/evaluation.js": ["evaluation.js", "text/javascript; charset=utf-8"],
     // Wave 7: written-down experiments, under the evaluation card.
@@ -2630,6 +2632,19 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
           return;
         }
         // ---- end of the bucket-23 block ----
+        // ---- mac7/r17-d: coding polish under /api/coding (src/coding/api.ts); the owner's alone. ----
+        if (handlesCodingPath(path)) {
+          app.store.profiles.requireOwner("These parts of Branch");
+          const answer = await codingApi({
+            coding: app.coding, runtime: app.runtime, method: request.method ?? "GET",
+            query: new URL(request.url ?? "/", "http://local").searchParams, readBody: () => readBody(request, 131072),
+          }, path).catch((error: unknown) => {
+            throw error instanceof CodingHttpError ? new HttpError(error.status, error.message) : error;
+          });
+          send(response, 200, answer);
+          return;
+        }
+        // ---- end of the r17-d block ----
         if (await rawApi(app, request, response, path)) return;
         if (path.startsWith("/api/deployment")) {
           // bucket 22: `branch quit`, from this computer with the master key only (src/install/quit.ts).
@@ -3166,6 +3181,8 @@ function isExecution(request: IncomingMessage, path: string): boolean {
     || (request.method !== "GET" && handlesInteropPath(path))
     // mac6/bucket-23: every change under /api/asks may start work (an answer, an article, a send).
     || (request.method !== "GET" && handlesAsksPath(path))
+    // mac7/r17-d: every change under /api/coding may start work (a snapshot, the checks, a fork).
+    || (request.method !== "GET" && handlesCodingPath(path))
   );
 }
 function configureLimits(server: Server): void {

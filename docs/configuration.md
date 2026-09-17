@@ -7150,3 +7150,45 @@ without the file and network wall (see above).
   plugins are also installable (`src/add-ons/formats.ts`).
 - **A0602** (a helper that installs and manages an isolated plugin for another agent): built as the write / check /
   remove lifecycle of Branch's own plugin for Codex and Claude Code, in a folder the owner names (`src/add-ons/export.ts`).
+
+## Coding polish (mac7/r17-d)
+
+Eleven parts for work on code, each with the owner's three-way switch (off, on, only when it is
+needed) and all off at first. The switches and their settings are one card in **Settings → Advanced**
+(`public/coding.js`), under `/api/coding/`, owner only. A short-lived "run" key may run the review
+checks and fork a conversation into its own copy (both only start work); it may read the rest except
+the shell snapshot, and change nothing else (`src/short-lived-keys.ts`). Every Branch tool one of
+these parts runs on a task's behalf goes through the one tool gate (`src/tool-gate.ts`) with that
+task's own permissions (`src/coding/gated.ts`); a call the rules would ask about is skipped and
+said so, never asked.
+
+| Part | What it does | Where |
+| --- | --- | --- |
+| Tidying and checking after every change (`format-on-edit`) | After `files.write`, `files.edit` or `files.patch`, the file is tidied with the owner's formatter for its ending and the language servers set up in Settings → Advanced report its errors and warnings in the same answer (`afterEdit`); `code.format` does it by hand | `src/coding/format-on-edit.ts` |
+| Your own command-line setup (`shell-snapshot`) | "Take a snapshot" starts your login shell once (`-l -c`), reads its start-up files, and keeps its PATH, install folders (`*_HOME`, `GOPATH` …), aliases and functions, with anything key-like left out. Commands use that PATH from the next start, unless the shell settings already name a PATH; the aliases and functions are in `<data folder>/shell-snapshot/replay.sh` (only you can read it) for a kept-open command line | `src/coding/shell-snapshot.ts` |
+| `@` mentions and `@imports` (`mentions`) | `@src/app.ts`, `@src/`, `@diff` or `@https://…` in a message is read first (with `files.read`, `files.list`, `git.diff`, `web.fetch`) and handed to the model as material, not instructions; the message box suggests paths as you type `@`. Inside an instruction file, `@docs/style.md` brings that file in (Markdown or text only, inside the same folder, five levels deep, 16 KB together) | `src/coding/mentions.ts`, `src/coding/imports.ts` |
+| Separate copies (`worktrees`) | Forking a conversation at a message gives the new one its own Git worktree in `.branch-worktrees/fork-…` on `branch/fork-…`; its file tools and commands work there. "A copy for each helper" gives every helper a task hands work to its own worktree, removed afterwards only when it has no commits and no unsaved change | `src/coding/worktrees.ts` |
+| `/init` (`init`) | Asks the model to look around and write AGENTS.md with `project.init`, through the instruction-file loader's own writer. An existing instruction file is never replaced; the text comes back as a proposal | `src/coding/init.ts`, `src/coding/commands.ts` |
+| Branch in CI (`ci`) | The GitHub Action `extras/ci/github/action.yml` and the GitLab component `extras/ci/gitlab/branch.yml` run `branch headless` on the checked-out project (read-only by default); the card writes the lines to paste | `src/coding/ci.ts` |
+| A checklist per task (`checklist`) | `checklist.write` / `checklist.read`; the list is in the side pane's Plan tab, where you can tick, add and change steps while the task works. It is sent with every round and never stored in the conversation, so compaction cannot lose it; after your change the model is told your version wins | `src/coding/checklist.ts` |
+| Folder rules and schedule files (`path-rules`) | `.agents/rules/*.md`, each with its own switch: a `paths:` header limits a rule to the files the task is working on (none means always, `paths: []` never). `.agents/schedules/*.md` (`every: 6h` or `daily: "09:00"` with `timezone`, `kind`, `permissions`) become schedules only when you press "Make it a schedule". Nothing is read from a folder you have not trusted | `src/coding/path-rules.ts` |
+| Very long answers kept (`large-output`) | A tool answer over 64 KB, which used to fail the call, is kept (secrets hidden) in `<data folder>/tool-output/`, for a week, and the model reads it in pieces with `output.read` | `src/coding/large-output.ts` |
+| Notebooks (`notebooks`) | `notebook.read` gives a `.ipynb` as numbered cells with their printed output; pictures are named, not carried | `src/coding/notebooks.ts` |
+| Review checks (`review-checks`) | `.agents/checks/*.md` (`name`, optional `paths`, the body says what to look for); `review.checks` hands each check and the current changes to a read-only helper, four at a time | `src/coding/review-checks.ts` |
+
+The runtime asks these parts two things, in marked blocks of `src/runtime.ts`: where a task works (a
+fork's or helper's copy) and what to add to each round (the mentions once; the checklist and folder
+rules every round). The registry asks them after every call (`src/registry.ts`).
+
+Formatters are programs you already have: give each one's full address, its endings and its
+arguments (`{file}` is the file). Branch never installs one, refuses one that sits inside the
+workspace (a task could rewrite it), starts it with an argument array and the clean environment
+(`src/child-env.ts`), behind the wall around programs when the task has one, and never on one of
+Branch's own files (`src/never-break/protected.ts`).
+
+**macOS and Linux.** The shell snapshot is for macOS and Linux (zsh, bash, sh, dash or ksh; your
+login shell unless you name one); on Windows it says so and commands keep their own settings. The
+formatter runs behind macOS's sandbox or bubblewrap when the wall is on. Worktrees, rules, checks,
+notebooks and long answers are plain Node and Git and work the same on all three systems.
+
+**Not built here.** Scripts that call Branch's own tools (a6) belong to bucket R17-G (R17-061).
