@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { Message, ToolContext } from "../contracts.js";
 import type { WorkspaceFiles } from "../files.js";
+import { isReadOnlyPermission } from "../policy.js";
 import type { ToolRegistry } from "../registry.js";
 import type { Store } from "../store.js";
 import { globTest, headerList, headerText, markdownFiles, type MarkdownFile } from "./markdown-files.js";
@@ -34,7 +35,9 @@ const everyUnits: Record<string, number> = { m: 60_000, h: 3_600_000, d: 86_400_
 
 export class PathRules {
   constructor(private readonly store: Store, private readonly owner: string, private readonly files: WorkspaceFiles,
-    private readonly trusted: (folder: string) => boolean) {}
+    private readonly trusted: (folder: string) => boolean,
+    /** The look-only permissions Branch has; a schedule file gets these at most (src/policy.ts). */
+    private readonly lookOnly: () => string[] = () => []) {}
 
   private readable(): boolean { return this.trusted(this.files.base); }
 
@@ -91,11 +94,15 @@ export class PathRules {
     const file = (await this.scheduleFiles()).find((entry) => entry.name === name);
     if (!file) throw new Error("There is no schedule file with that name in .agents/schedules.");
     if (file.problem) throw new Error(file.problem);
+    // A file in the project can only narrow what its schedule may do, never widen it: look-only at most.
+    const permissions = file.permissions ?? this.lookOnly().filter(isReadOnlyPermission);
+    const beyond = permissions.filter((permission) => !isReadOnlyPermission(permission));
+    if (beyond.length) throw new Error(`${file.name} asks for ${beyond.join(", ")}. A schedule kept as a file may only look, so make a schedule that changes things yourself.`);
     return {
       prompt: file.prompt, kind: file.kind, dueAt: now.toISOString(),
       ...(file.every ? { intervalMs: everyMs(file.every) } : {}),
       ...(file.daily ? { dailyAt: file.daily, timezone: file.timezone } : {}),
-      ...(file.permissions ? { permissions: file.permissions } : {}),
+      permissions,
     };
   }
 }

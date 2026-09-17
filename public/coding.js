@@ -133,7 +133,7 @@ async function rulesControls(status) {
     nodes.push(row(on, label));
   }
   for (const file of view.schedules)
-    nodes.push(plain("p", `${file.name}: ${file.problem ?? `${file.every ?? file.daily ?? ""} — ${file.prompt.slice(0, 80)}`}`, "field-note"),
+    nodes.push(plain("p", `${file.name}: ${file.problem ?? `${file.every ?? file.daily ?? ""} — ${file.prompt.slice(0, 80)}${file.permissions ? ` (${file.permissions.join(", ")})` : ""}`}`, "field-note"),
       row(button("coding.rules.bringIn", "Make it a schedule", attempt(status, () => api("coding/rules/schedule", { name: file.name })))));
   return nodes;
 }

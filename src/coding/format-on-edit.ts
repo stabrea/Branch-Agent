@@ -10,6 +10,7 @@ import { protectedTarget, type ProtectedAreas } from "../never-break/protected.j
 import { parsePatch } from "../patch.js";
 import type { ToolRegistry } from "../registry.js";
 import { checkedProgram } from "../stdio-rpc.js";
+import type { WallContext } from "../sandbox.js";
 import type { Store } from "../store.js";
 import { runWalled, type ProgramRunner } from "./runner.js";
 import { codingOn, partSettings, requireCoding, savePartSettings } from "./settings.js";
@@ -54,7 +55,25 @@ export interface DiagnosticsSource {
 export interface FormatDeps {
   store: Store; owner: string; files: WorkspaceFiles; runner: ProgramRunner;
   areas: () => ProtectedAreas; servers: DiagnosticsSource;
+  /**
+   * The wall a formatter runs behind, worked out as for a command the task ran (src/sandbox-wall.ts),
+   * or undefined when there is none. A formatter reads the project's own settings (a `.prettierrc`
+   * can load plugins from the project), so without a wall it is not started at all.
+   */
+  wall: (context: ToolContext, program: string) => WallContext | undefined;
+  /** Folder trust (src/folder-trust.ts): nothing is started for a folder the owner has not trusted. */
+  trusted: (folder: string) => boolean;
+  /** How a program is started behind the wall; src/coding/runner.ts unless a test hands in its own. */
+  walled?: typeof runWalled;
 }
+
+export const unwalledNote = "Not tidied: a formatter reads the project's own settings, so it only runs behind the wall around programs. Switch the wall on in Settings, Computer.";
+export const untrustedNote = "Not tidied: this folder is not trusted, so no program is started for it.";
+
+/** The wall for a formatter: the one a command would get, with no internet (a formatter needs none). */
+export const formatterWall = (runtime: { wallFor(tool: string, args: unknown, context: ToolContext, choice: "no-internet"): { osSandbox?: WallContext } }) =>
+  (context: ToolContext, program: string): WallContext | undefined =>
+    runtime.wallFor("shell.execute", { command: program }, context, "no-internet").osSandbox;
 export interface FileCheck { path: string; formatter: string | null; reformatted: boolean; note?: string; problems?: { line: number; severity: string; message: string }[] }
 
 /** The workspace paths an edit tool changed, from its own arguments. */
@@ -121,11 +140,14 @@ export class EditChecks {
 
   private async format(formatter: FormatSettings["formatters"][string], absolute: string, timeoutMs: number, context: ToolContext, check: FileCheck): Promise<void> {
     if (this.inWorkspace(formatter.path)) { check.note = "Not tidied: the formatter sits inside the workspace."; return; }
+    if (!this.deps.trusted(this.deps.files.base)) { check.note = untrustedNote; return; }
+    const wall = this.deps.wall(context, formatter.path);
+    if (!wall) { check.note = unwalledNote; return; }
     const before = await digest(absolute);
-    const result = await runWalled(this.deps.runner, {
+    const result = await (this.deps.walled ?? runWalled)(this.deps.runner, {
       executable: formatter.path, args: formatter.args.map((arg) => arg.replaceAll("{file}", absolute)),
       cwd: this.deps.files.base, timeoutMs, maxOutputBytes: 65_536, signal: context.signal,
-    }, context.osSandbox, context.workspace);
+    }, wall, context.workspace);
     if (result.timedOut) check.note = "The formatter took too long and was stopped.";
     else if (result.exitCode !== 0) check.note = `The formatter said: ${(result.stderr || result.stdout).trim().slice(0, 300) || `exit code ${result.exitCode}`}`;
     check.reformatted = (await digest(absolute)) !== before;

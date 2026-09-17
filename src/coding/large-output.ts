@@ -19,6 +19,8 @@ export const previewCharacters = 4000;
 export const readPieceLimit = 32_000;
 const keepDays = 7;
 const keepPerOwner = 200;
+/** The most of one answer that is ever kept (about 8 MB); the rest is cut and the note says so. */
+export const maxKeptCharacters = 8_000_000;
 const idPattern = /^[a-f0-9-]{36}$/;
 
 export const OutputReadSchema = z.object({
@@ -40,14 +42,16 @@ export class LargeOutputs {
   /** The replacement answer, or undefined when the part is off and the call should fail as before. */
   keep(tool: string, result: unknown, context: Pick<ToolContext, "owner">): SavedOutput | undefined {
     if (!codingOn(this.store, this.owner, "large-output")) return undefined;
-    const text = this.hide(typeof result === "string" ? result : JSON.stringify(result, null, 1));
+    const whole = this.hide(typeof result === "string" ? result : JSON.stringify(result, null, 1));
+    const cut = whole.length > maxKeptCharacters;
+    const text = cut ? whole.slice(0, maxKeptCharacters) : whole;
     const folder = this.folder(context.owner);
     mkdirSync(folder, { recursive: true, mode: 0o700 });
     this.tidy(folder);
     const id = randomUUID();
     writeFileSync(join(folder, `${id}.txt`), text, { encoding: "utf8", mode: 0o600, flag: "wx" });
     return { savedOutput: id, tool, characters: text.length, preview: text.slice(0, previewCharacters),
-      note: `This answer was too long to show whole. Read the rest with output.read using id ${id}, up to ${readPieceLimit} characters at a time.` };
+      note: `This answer was too long to show whole. Read the rest with output.read using id ${id}, up to ${readPieceLimit} characters at a time.${cut ? ` Only the first ${maxKeptCharacters} of its ${whole.length} characters were kept.` : ""}` };
   }
 
   /** A piece of a kept answer. Only the person whose task kept it can read it. */

@@ -236,7 +236,9 @@ test("R17-040: folder rules apply by path, each has a switch, and schedule files
   assert.equal((await app.coding.rules.roundNote(ctx.runId)).content.includes("Every route"), false);
   assert.deepEqual((await app.registry.execute("rules.for_path", { path: "src/api/x.ts" }, ctx)).rules.map((r) => r.name), ["always.md"]);
   const input = await app.coding.rules.scheduleInput("tidy.md", new Date("2026-09-17T10:00:00Z"));
-  assert.deepEqual(input, { prompt: "Tidy the notes folder.", kind: "task", dueAt: "2026-09-17T10:00:00.000Z", intervalMs: 21_600_000 });
+  const { permissions, ...rest } = input;
+  assert.deepEqual(rest, { prompt: "Tidy the notes folder.", kind: "task", dueAt: "2026-09-17T10:00:00.000Z", intervalMs: 21_600_000 });
+  assert.ok(permissions.includes("files.read") && !permissions.includes("files.write"), "a schedule file looks only, unless it narrows further");
   await assert.rejects(app.coding.rules.scheduleInput("broken.md"), /at least a minute/);
   assert.equal(app.store.list("schedules", app.runtime.owner).length, 0, "a schedule file schedules nothing by itself");
 });
@@ -301,7 +303,10 @@ test("R17-033: after an edit the file is tidied by the owner's formatter and the
   const servers = { enabled: () => true, diagnostics: async ({ path }) => ({ diagnostics: [
     { path, line: 1, character: 1, severity: "error", message: "Cannot find name 'x'.", source: "ts" },
     { path, line: 2, character: 1, severity: "hint", message: "unused", source: "ts" }] }) };
-  const checks = new EditChecks({ store: app.store, owner: app.runtime.owner, files: app.coding["deps"].files, runner, areas: () => app.runtime.protectedAreas, servers });
+  const walls = [];
+  const wall = { network: "none" };
+  const checks = new EditChecks({ store: app.store, owner: app.runtime.owner, files: app.coding["deps"].files, runner, areas: () => app.runtime.protectedAreas, servers,
+    trusted: () => true, wall: () => wall, walled: async (run, start, given) => { walls.push(given); return run(start); } });
   on("format-on-edit");
   await assert.rejects(checks.save({ formatters: { mine: { path: join(workspace, "fmt"), extensions: [".ts"] } } }), /no program|inside the workspace/);
   await writeFile(join(workspace, "fmt"), "#!/bin/sh\n", { mode: 0o755 });
@@ -315,6 +320,7 @@ test("R17-033: after an edit the file is tidied by the owner's formatter and the
   assert.equal(await readFile(join(workspace, "src", "a.ts"), "utf8"), "const a = 1;\n");
   assert.deepEqual(calls[0].args, ["--write", join(workspace, "src", "a.ts")]);
   assert.equal(calls[0].executable, fakeFormatter);
+  assert.equal(walls[0], wall, "the formatter was started behind the wall");
   const md = await app.registry.execute("files.write", { path: "notes.md", content: "x  y" }, context());
   assert.equal(md.afterEdit.files[0].formatter, null, "no formatter for that ending");
   const practice = await app.registry.execute("files.write", { path: "src/b.ts", content: "b" }, context({ dryRun: true }));
@@ -332,7 +338,8 @@ test("R17-033: Branch's own files are never tidied, and the real hook is wired i
   const calls = [];
   const checks = new EditChecks({ store: app.store, owner: app.runtime.owner, files: app.coding["deps"].files,
     runner: async (run) => { calls.push(run); return { exitCode: 0, stdout: "", stderr: "", timedOut: false }; },
-    areas: () => ({ ...app.runtime.protectedAreas, noChange: [join(app.runtime.workspace, "guarded")] }), servers: { enabled: () => false } });
+    areas: () => ({ ...app.runtime.protectedAreas, noChange: [join(app.runtime.workspace, "guarded")] }), servers: { enabled: () => false },
+    trusted: () => true, wall: () => ({ network: "none" }) });
   const check = await checks.check("guarded/x.ts", context());
   assert.match(check.note, /Branch's own files/);
   assert.equal(calls.length, 0);

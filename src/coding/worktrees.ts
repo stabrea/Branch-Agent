@@ -76,10 +76,17 @@ export class WorktreePlaces {
     return { ...fork, path: this.scopeFor(fork.folder, name) };
   }
 
-  /** Forgets a fork and removes its copy (Git refuses to drop a copy with unsaved changes unless told). */
+  /** Forgets a fork and removes its copy, only when the copy holds no unsaved change (its line of work is kept). */
   async remove(sessionId: string, signal: AbortSignal) {
     const fork = this.forks().find((entry) => entry.sessionId === sessionId);
     if (!fork) throw new Error("That conversation has no copy of its own.");
+    // The Git helper removes with --force, so unsaved work is looked for here first and kept.
+    const copy = join(this.deps.root, this.scopeFor(fork.folder, fork.name));
+    if (existsSync(copy)) {
+      const dirty = await this.deps.run(copy, ["status", "--porcelain"], signal).catch(() => null);
+      if (dirty?.status !== "completed" || dirty.exitCode !== 0 || dirty.stdout.trim())
+        throw new Error("That copy holds changes that are not saved yet, so it was kept. Save or undo them first.");
+    }
     await this.deps.git.worktree({ folder: ".", action: "remove", name: fork.name }, signal);
     this.saveForks(this.forks().filter((entry) => entry.sessionId !== sessionId));
     return { removed: fork.name };

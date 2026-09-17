@@ -1,6 +1,7 @@
 import { lstatSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { isSecretEntry } from "../files.js";
+import { ignoreMatcher, type IgnoreMatcher } from "../ignore.js";
 
 /**
  * R17-035: `@path/to/file.md` inside an instruction file brings that file's text in, the way Claude
@@ -21,12 +22,14 @@ export type ImportReader = (path: string) => string | null;
 /** Reads a file inside `root` for an import, or null with nothing read when it is not allowed. */
 export function importReader(root: string): ImportReader {
   const top = realpathSync.native(root);
+  const ignore = branchIgnore(top);
   return (path) => {
     try {
       const real = realpathSync.native(path);
       const rel = relative(top, real);
       if (!rel || rel.startsWith("..") || isAbsolute(rel)) return null;
-      if (isSecretEntry(rel.split(sep).join("/"))) return null;
+      const slashed = rel.split(sep).join("/");
+      if (isSecretEntry(slashed) || hiddenBy(ignore, slashed)) return null;
       const info = lstatSync(real);
       if (!info.isFile() || info.size > maxImportBytes) return null;
       return readFileSync(real, "utf8");
@@ -35,6 +38,22 @@ export function importReader(root: string): ImportReader {
     }
   };
 }
+
+/** The folder's `.branchignore`, read once for this pass; what it hides is never imported. */
+function branchIgnore(top: string): IgnoreMatcher | null {
+  try {
+    const file = resolve(top, ".branchignore");
+    const info = lstatSync(file);
+    return info.isFile() && info.size <= 65536 ? ignoreMatcher(readFileSync(file, "utf8")) : null;
+  } catch {
+    return null;
+  }
+}
+const hiddenBy = (ignore: IgnoreMatcher | null, path: string): boolean => {
+  if (!ignore) return false;
+  const parts = path.split("/");
+  return parts.some((_, index) => ignore.ignores(parts.slice(0, index + 1).join("/"), index < parts.length - 1));
+};
 
 /** Code fences and inline code, which are never read as imports. */
 function codeSpans(text: string): [number, number][] {

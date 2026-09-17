@@ -26,7 +26,7 @@ export function ciSnippet(input: unknown): { file: string; text: string } {
   if (value.kind === "github") {
     return { file: ".github/workflows/branch.yml", text: [
       "name: Branch", "on: [pull_request]", "jobs:", "  branch:", "    runs-on: ubuntu-latest",
-      "    permissions:", "      contents: read", "    steps:", "      - uses: actions/checkout@v4",
+      "    permissions:", "      contents: read", "    steps:", "      - uses: actions/checkout@v4", "        with:", "          persist-credentials: false",
       "      - uses: stabrea/Branch-Agent/extras/ci/github@main", "        with:",
       `          prompt: ${quoted(value.prompt)}`, `          preset: ${value.preset}`,
       `          provider: ${value.provider}`, `          model: ${quoted(value.model)}`, `          endpoint: ${quoted(value.endpoint)}`,

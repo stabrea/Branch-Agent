@@ -1,5 +1,5 @@
 import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
-import { basename, isAbsolute, join } from "node:path";
+import { basename, isAbsolute, join, relative } from "node:path";
 import { z } from "zod";
 import { defaultShellFor, type ShellConfig } from "../integrations/shell-config.js";
 import { findLeaks } from "../leak-guard.js";
@@ -62,8 +62,16 @@ function between(output: string, name: string, next: string): string {
   return start < 0 || end < start ? "" : output.slice(start + part(name).length, end);
 }
 
-const risky = (text: string): boolean =>
-  credentialName.test(text.match(/\$\{?([A-Za-z_][A-Za-z0-9_]*)/g)?.join(" ") ?? "") || findLeaks(text).length > 0;
+/** Names a block reads (`$TOKEN`) or sets (`export DB_PASSWORD=…`, `GH_TOKEN=… gh`). */
+const namesIn = (text: string): string =>
+  [...(text.match(/\$\{?([A-Za-z_][A-Za-z0-9_]*)/g) ?? []), ...[...text.matchAll(/(?:^|[\s;'"(])([A-Za-z_][A-Za-z0-9_]*)\+?=/g)].map((m) => m[1]!)].join(" ");
+const risky = (text: string): boolean => credentialName.test(namesIn(text)) || findLeaks(text).length > 0;
+
+/** A PATH folder commands may use: a full address, not `..`-shaped, and not inside a workspace a task can change. */
+function safeDir(dir: string, workspaces: readonly string[]): boolean {
+  if (!isAbsolute(dir) || dir.split("/").some((part) => part === "." || part === "..")) return false;
+  return !workspaces.some((root) => { const rel = relative(root, dir); return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel)); });
+}
 
 /** Splits alias lines or function bodies into blocks and keeps only those that carry no secret. */
 function safeBlocks(text: string, splitter: RegExp, dropped: string[], label: string): string {
@@ -77,7 +85,7 @@ function safeBlocks(text: string, splitter: RegExp, dropped: string[], label: st
 }
 
 /** What the shell printed, filtered: PATH and install folders kept, anything key-like dropped. */
-export function parseCapture(output: string, shell: string, now: Date): ShellSnapshot {
+export function parseCapture(output: string, shell: string, now: Date, workspaces: readonly string[] = []): ShellSnapshot {
   const dropped: string[] = [];
   const env: Record<string, string> = {};
   let path: string[] = [];
@@ -85,7 +93,7 @@ export function parseCapture(output: string, shell: string, now: Date): ShellSna
     const at = entry.indexOf("=");
     if (at <= 0) continue;
     const name = entry.slice(0, at), value = entry.slice(at + 1);
-    if (name === "PATH") { path = [...new Set(value.split(":").filter((dir) => isAbsolute(dir)))].slice(0, 200); continue; }
+    if (name === "PATH") { path = [...new Set(value.split(":").filter((dir) => safeDir(dir, workspaces)))].slice(0, 200); continue; }
     if (!keptName.test(name)) continue;
     if (credentialName.test(name) || findLeaks(value).length > 0 || /[\n\0]/.test(value)) { dropped.push(`variable ${name}`); continue; }
     env[name] = value;
@@ -95,7 +103,11 @@ export function parseCapture(output: string, shell: string, now: Date): ShellSna
   return { shell, takenAt: now.toISOString(), path, env, aliases, functions, dropped };
 }
 
-export interface SnapshotDeps { runner: ProgramRunner; env: NodeJS.ProcessEnv; platform: NodeJS.Platform; home: string; now?: () => Date }
+export interface SnapshotDeps {
+  runner: ProgramRunner; env: NodeJS.ProcessEnv; platform: NodeJS.Platform; home: string; now?: () => Date;
+  /** Folders a task can write to; a PATH entry inside one is dropped, so a task cannot plant a program there. */
+  workspaces?: readonly string[];
+}
 
 export class ShellSnapshots {
   constructor(private readonly store: Store, private readonly owner: string, private readonly deps: SnapshotDeps) {}
@@ -117,7 +129,7 @@ export class ShellSnapshots {
       timeoutMs: 15_000, env: { HOME: this.deps.home, SHELL: shell, TERM: "dumb" }, maxOutputBytes: 2_000_000 });
     if (result.timedOut) throw new Error("Your shell took longer than 15 seconds to start, so no snapshot was taken.");
     if (!result.stdout.includes(part("end"))) throw new Error("Your shell did not finish reading its start-up files, so no snapshot was taken.");
-    const snapshot = parseCapture(result.stdout, shell, (this.deps.now ?? (() => new Date()))());
+    const snapshot = parseCapture(result.stdout, shell, (this.deps.now ?? (() => new Date()))(), this.deps.workspaces ?? []);
     savePartSettings(this.store, this.owner, "shell-snapshot", SnapshotSettingsSchema, { ...this.settings(), snapshot });
     this.writeReplay(snapshot);
     return snapshot;

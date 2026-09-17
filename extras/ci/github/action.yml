@@ -63,6 +63,8 @@ runs:
         repository: stabrea/Branch-Agent
         ref: ${{ inputs.branch-ref }}
         path: .branch-agent-program
+        # The job's token is not left in the program's Git settings.
+        persist-credentials: false
     - name: Build Branch
       shell: bash
       # Built, then moved out of the repository so the job cannot change the program it runs.

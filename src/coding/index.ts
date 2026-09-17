@@ -7,7 +7,7 @@ import type { LanguageServers } from "../language-server.js";
 import type { ToolRegistry } from "../registry.js";
 import type { Runtime } from "../runtime.js";
 import { Checklists, registerChecklist } from "./checklist.js";
-import { EditChecks, registerFormat } from "./format-on-edit.js";
+import { EditChecks, formatterWall, registerFormat } from "./format-on-edit.js";
 import type { CodingHooks, RoundNotes } from "./hooks.js";
 import { registerInit } from "./init.js";
 import { LargeOutputs, registerLargeOutput } from "./large-output.js";
@@ -49,17 +49,17 @@ export class Coding implements CodingHooks {
     const store = runtime.store, owner = runtime.owner, runner = deps.runner ?? spawnProgram;
     const trusted = (folder: string) => folderAllows(store, owner, folder);
     const host = { runtime, registry };
-    this.edits = new EditChecks({ store, owner, files, runner, areas: () => runtime.protectedAreas,
+    this.edits = new EditChecks({ store, owner, files, runner, areas: () => runtime.protectedAreas, wall: formatterWall(runtime), trusted,
       servers: { enabled: () => deps.servers.settings().enabled, diagnostics: (input, runId) => deps.servers.diagnostics(input, runId) } });
     this.outputs = new LargeOutputs(store, owner, (text) => runtime.hideSecrets(text));
     this.checklists = new Checklists(store, owner);
-    this.rules = new PathRules(store, owner, files, trusted);
+    this.rules = new PathRules(store, owner, files, trusted, () => registry.permissions());
     this.mentions = new Mentions(host, files);
     this.worktrees = new WorktreePlaces({ store, owner, root: files.root, projectFolder: () => store.projects.active(owner).folder,
       git: deps.git, run: deps.gitRun, branchSession: (who, input) => store.branchSession(who, input),
       note: (runId, kind, data) => store.event(runId, kind, data) });
     this.snapshots = new ShellSnapshots(store, owner, { runner, env: deps.env ?? process.env,
-      platform: deps.platform ?? process.platform, home: deps.home ?? homedir() });
+      platform: deps.platform ?? process.platform, home: deps.home ?? homedir(), workspaces: [files.root] });
     this.checks = new ReviewChecks(host, files, store, owner, trusted);
     this.registrars = {
       "format-on-edit": () => registerFormat(registry, this.edits),
