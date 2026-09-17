@@ -1,0 +1,175 @@
+import type { Completion, CompletionRequest, Provider } from "../contracts.js";
+import { currentAccountCall, type AccountCall } from "./context.js";
+import {
+  type AccountState, failureFor, freshState, httpFailure, orderFor, rest, restMs, smartOrder, unavailable,
+} from "./pool.js";
+import type { Account, Pool } from "./settings.js";
+
+/**
+ * One connection answering through several accounts.
+ *
+ * API keys: the key is chosen by the pool's strategy for every request; a key that is refused or
+ * rate limited rests (for as long as the service's Retry-After says) and the next key is tried in
+ * the same request, so the task only moves to another connection once every key is resting.
+ *
+ * Sign-in accounts: the account is the conversation's choice, else the owner's default. When it
+ * reaches its plan limit Branch stops and says so, naming the others; it moves on by itself only
+ * when the owner turned on "share work between accounts" (see docs/configuration.md for why).
+ */
+export interface PoolHooks {
+  owner: string;
+  pool: string;
+  model: string;
+  /** The pool as saved now, or null when this connection has no list of its own. */
+  settings: () => Pool | null;
+  states: Map<string, AccountState>;
+  cursor: { value: number };
+  /** The connection for one account; null means the connection as it was built. */
+  providerFor: (account: string) => Promise<Provider | null>;
+  capReached: (account: Account) => boolean;
+  record: (account: Account, completion: Completion) => void;
+  /** True while someone other than the owner is using Branch on this computer. */
+  personIsNotOwner: () => boolean;
+  sessionChoice: (sessionId: string) => string | null;
+  rememberChoice: (sessionId: string, account: string) => void;
+  now: () => number;
+}
+
+/** A sign-in account reached its plan limit and Branch did not switch by itself. */
+export class AccountLimitError extends Error {
+  override name = "AccountLimitError";
+  constructor(readonly pool: string, readonly account: string, message: string) { super(message); }
+}
+
+/** Refusals that come from a program's own plan limit (see src/providers/cli-agent.ts). */
+const isLimit = (error: unknown): boolean =>
+  httpFailure(error)?.status === 429 || (error instanceof Error && error.name === "ProgramLimitError");
+
+export class AccountPoolProvider {
+  constructor(private readonly original: Provider, private readonly hooks: PoolHooks) {}
+
+  complete = async (request: CompletionRequest): Promise<Completion> => {
+    const pool = this.hooks.settings();
+    if (!pool || pool.accounts.length < 2) return this.original.complete(request);
+    const call = currentAccountCall();
+    const usable = pool.accounts.filter((account) => this.personMayUse(pool, account));
+    if (!usable.length) throw new Error("None of this connection's accounts is shared with you. Ask the owner to share one.");
+    if (pool.kind === "api-key") return this.withKeys(pool, usable, request, call);
+    if (pool.autoSwitch) return this.shared(pool, usable, request, call);
+    return this.single(pool, usable, request, call);
+  };
+
+  private personMayUse(pool: Pool, account: Account): boolean {
+    return !this.hooks.personIsNotOwner() || (pool.kind === "api-key" && account.shared);
+  }
+  private state(id: string): AccountState {
+    let found = this.hooks.states.get(id);
+    if (!found) this.hooks.states.set(id, found = freshState());
+    return found;
+  }
+  private preferred(pool: Pool, call: AccountCall | undefined): string | null {
+    const chosen = call?.sessionId ? this.hooks.sessionChoice(call.sessionId) : null;
+    return chosen ?? pool.defaultAccount;
+  }
+  private why(account: Account): string | null {
+    return unavailable(account, this.state(account.id), this.hooks.model, this.hooks.now(), this.hooks.capReached(account));
+  }
+
+  private async attempt(account: Account, request: CompletionRequest, call: AccountCall | undefined): Promise<Completion> {
+    const state = this.state(account.id);
+    state.lastUsedAt = this.hooks.now();
+    state.uses += 1;
+    const provider = (await this.hooks.providerFor(account.id)) ?? this.original;
+    const completion = await provider.complete(request);
+    state.lastError = null;
+    this.hooks.record(account, completion);
+    call?.note?.("model.account", { pool: this.hooks.pool, account: account.id, label: account.label });
+    return completion;
+  }
+
+  private async withKeys(pool: Pool, usable: Account[], request: CompletionRequest, call: AccountCall | undefined): Promise<Completion> {
+    const ready = usable.filter((account) => this.why(account) === null);
+    const ordered = orderFor(pool.strategy, ready, this.hooks.states, this.hooks.cursor.value++, this.preferred(pool, call));
+    let last: unknown = null;
+    for (const account of ordered) {
+      try { return await this.attempt(account, request, call); } catch (error) {
+        const failure = failureFor(error, this.hooks.now());
+        if (!failure || request.signal.aborted) throw error;
+        rest(this.state(account.id), failure, this.hooks.model);
+        this.state(account.id).lastError = `${failure.reason} (${new Date(failure.untilMs).toISOString()})`;
+        call?.note?.("model.account_resting", { pool: this.hooks.pool, account: account.id, label: account.label, reason: failure.reason, until: new Date(failure.untilMs).toISOString() });
+        last = error;
+      }
+    }
+    if (last) throw last;
+    const reasons = usable.map((account) => `${account.label}: ${this.why(account) ?? "ready"}`).join("; ");
+    throw new Error(`Every key of this connection is resting or switched off (${reasons}).`);
+  }
+
+  private async single(pool: Pool, usable: Account[], request: CompletionRequest, call: AccountCall | undefined): Promise<Completion> {
+    const wanted = this.preferred(pool, call);
+    const account = usable.find((entry) => entry.id === wanted && !entry.disabled)
+      ?? usable.find((entry) => entry.pinned && !entry.disabled) ?? usable.find((entry) => !entry.disabled);
+    if (!account) throw new Error("Every account of this connection is switched off. Switch one on in Settings › Models.");
+    if (this.state(account.id).limitedUntil > this.hooks.now()) throw this.limitError(pool, usable, account);
+    try { return await this.attempt(account, request, call); } catch (error) {
+      if (!isLimit(error) || request.signal.aborted) throw error;
+      this.markLimited(account, error, call);
+      throw this.limitError(pool, usable, account);
+    }
+  }
+
+  private async shared(pool: Pool, usable: Account[], request: CompletionRequest, call: AccountCall | undefined): Promise<Completion> {
+    const sticky = call?.sessionId ? this.hooks.sessionChoice(call.sessionId) : null;
+    const ready = smartOrder(usable.filter((account) => this.why(account) === null), this.hooks.states);
+    const first = ready.findIndex((account) => account.id === sticky);
+    if (first > 0) ready.unshift(...ready.splice(first, 1));
+    for (const account of ready) {
+      try {
+        const completion = await this.attempt(account, request, call);
+        if (call?.sessionId && account.id !== sticky) this.hooks.rememberChoice(call.sessionId, account.id);
+        return completion;
+      } catch (error) {
+        if (!isLimit(error) || request.signal.aborted) throw error;
+        this.markLimited(account, error, call);
+      }
+    }
+    const fallback = usable.find((account) => account.id === sticky) ?? usable[0]!;
+    throw this.limitError(pool, usable, fallback, "Every account of this connection has reached its plan limit.");
+  }
+
+  private markLimited(account: Account, error: unknown, call: AccountCall | undefined): void {
+    const wait = httpFailure(error)?.retryAfterMs;
+    const state = this.state(account.id);
+    state.limitedUntil = this.hooks.now() + (wait ?? restMs.limit);
+    state.lastError = "reached its plan limit";
+    call?.note?.("model.account_limit", { pool: this.hooks.pool, account: account.id, label: account.label, until: new Date(state.limitedUntil).toISOString() });
+  }
+
+  private limitError(pool: Pool, usable: Account[], account: Account, lead?: string): AccountLimitError {
+    const until = new Date(this.state(account.id).limitedUntil).toISOString().slice(11, 16);
+    const others = usable.filter((entry) => entry.id !== account.id && !entry.disabled && this.why(entry) === null).map((entry) => `"${entry.label}"`);
+    const head = lead ?? `The account "${account.label}" has reached its plan limit (until about ${until} UTC).`;
+    const next = others.length
+      ? ` Branch does not switch sign-in accounts by itself. To go on, type /account ${others[0]!.slice(1, -1)} or choose another account in Settings › Models (available: ${others.join(", ")}).`
+      : " No other account of this connection is ready. Wait for the limit to reset, or pick another model.";
+    return new AccountLimitError(pool.pool, account.id, head + next);
+  }
+}
+
+/** The same connection, answering through the pool. Everything but `complete` is the connection's own. */
+export const originalOf = Symbol("branch.accounts.original");
+export function pooled(original: Provider, hooks: PoolHooks): Provider {
+  const pool = new AccountPoolProvider(original, hooks);
+  return new Proxy(original, {
+    get(target, property) {
+      if (property === "complete") return pool.complete;
+      if (property === originalOf) return target;
+      const value: unknown = Reflect.get(target, property, target);
+      return typeof value === "function" ? (value as (...args: unknown[]) => unknown).bind(target) : value;
+    },
+  });
+}
+export function unwrapProvider(provider: Provider): Provider {
+  return ((provider as unknown as Record<symbol, Provider | undefined>)[originalOf]) ?? provider;
+}

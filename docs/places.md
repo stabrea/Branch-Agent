@@ -104,6 +104,7 @@ Inside a conversation there are no homes to add to, only two surfaces with stric
 | Flows written out and read back as YAML files (bucket 21) | `automations:procedures` |
 | Saved prompts, your own commands and the example tool server (bucket 12) | `automations:procedures`, beside saved procedures; the commands themselves live in the message box's `/` menu |
 | Installing and removing skills with a written account, Agent Skills folders (bucket 12) | `customize:skills` |
+| Several accounts per connection (`mac6/accounts`) | `settings:models:connection`, one Accounts card (ChatGPT's list inside the ChatGPT card); the account chip sits in the title bar beside the page name, because it only names and switches what the conversation's model uses |
 | One-click models on this computer (`mac5/local-models`) | `settings:models:local`, inside the existing "Models on this computer" card; each finished setup appears as a connection in `settings:models:connection` |
 
 When something new does not fit a row, apply the rule at the top and add a row here in the same
