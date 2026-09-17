@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { ChannelAdapter, ChannelHealth, InboundMessage } from "./router.js";
+import type { ChannelAdapter, ChannelHealth, InboundMessage, OutgoingFile } from "./router.js"; // R17-C: OutgoingFile
 import { connectWebSocket, reconnectDelay, type WebSocketConnect, type WebSocketConnection } from "./ws-client.js";
 
 /**
@@ -164,6 +164,29 @@ export class SlackAdapter implements ChannelAdapter {
   async edit(chatId: string, messageId: string, text: string): Promise<void> {
     await this.call("chat.update", this.options.token, { channel: chatId, ts: messageId, text: toMrkdwn(text) });
   }
+  // ---- R17-C (R17-022): a file through Slack's external upload (the older files.upload is retired).
+  // 1. files.getUploadURLExternal hands out an address and a file id; 2. the bytes go to that
+  // address; 3. files.completeUploadExternal shares the file in the chat, in the thread if one is named.
+  readonly maxFileBytes = 100 * 1024 * 1024;
+  async sendFile(chatId: string, file: OutgoingFile, replyToMessageId?: string): Promise<string | undefined> {
+    const form = new URLSearchParams({ filename: file.name, length: String(file.bytes.byteLength) });
+    const response = await this.fetch(`${this.base}/files.getUploadURLExternal`, {
+      method: "POST", headers: { authorization: `Bearer ${this.options.token}`, "content-type": "application/x-www-form-urlencoded" },
+      body: form.toString(), signal: AbortSignal.timeout(20000),
+    });
+    const slot = z.object({ ok: z.boolean(), error: z.string().optional(), upload_url: z.string().url().optional(), file_id: z.string().optional() })
+      .passthrough().parse(await response.json());
+    if (!slot.ok || !slot.upload_url || !slot.file_id) throw new Error(`Slack files.getUploadURLExternal failed: ${slot.error ?? response.status}`);
+    const upload = await this.fetch(slot.upload_url, { method: "POST", body: new Blob([new Uint8Array(file.bytes)], { type: file.mediaType }),
+      signal: AbortSignal.timeout(120000) });
+    if (!upload.ok) throw new Error(`Slack would not take the file (${upload.status})`);
+    await this.call("files.completeUploadExternal", this.options.token, {
+      files: [{ id: slot.file_id, title: file.name }], channel_id: chatId,
+      ...(file.caption ? { initial_comment: toMrkdwn(file.caption) } : {}), ...(replyToMessageId ? { thread_ts: replyToMessageId } : {}),
+    });
+    return slot.file_id;
+  }
+  // ---- end R17-C ----
   private async call(method: string, token: string, body: unknown): Promise<unknown> {
     const response = await this.fetch(`${this.base}/${method}`, {
       method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json; charset=utf-8" },

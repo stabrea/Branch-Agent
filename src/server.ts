@@ -109,6 +109,7 @@ import { goalApi } from "./goal-mode.js";
 import { rewindApi } from "./rewind.js";
 import { PreferencesSchema, preferences } from "./preferences.js";
 import { asksApi, AsksHttpError, handlesAsksPath } from "./asks/api.js"; // mac6/bucket-23: the smaller asks
+import { handlesPersonalPath, personalApi, PersonalHttpError } from "./personal/api.js"; // R17-C
 // mac4/bucket-20: the Agent Protocol, programs lending tools, and the owner's interop routes.
 import { handleInterop, handlesInteropPath, interopOffLimits } from "./interop/api.js";
 import { clientToolsPath, serveClientToolSocket } from "./interop/client-tools.js";
@@ -414,6 +415,7 @@ async function staticFile(
     // Bucket 15: the add-ons card (Customize → Plugins).
     "/add-ons.js": ["add-ons.js", "text/javascript; charset=utf-8"],
     "/asks.js": ["asks.js", "text/javascript; charset=utf-8"], // mac6/bucket-23
+    "/personal.js": ["personal.js", "text/javascript; charset=utf-8"], // R17-C
     "/usage.js": ["usage.js", "text/javascript; charset=utf-8"],
     "/evaluation.js": ["evaluation.js", "text/javascript; charset=utf-8"],
     // Wave 7: written-down experiments, under the evaluation card.
@@ -2630,6 +2632,17 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
           return;
         }
         // ---- end of the bucket-23 block ----
+        // ---- R17-C: files, voice, devices and personal connectors under /api/personal (src/personal/api.ts). ----
+        if (handlesPersonalPath(path)) {
+          app.store.profiles.requireOwner("Your personal connectors");
+          const answer = await personalApi({ personal: app.personal, runtime: app.runtime, method: request.method ?? "GET",
+            readBody: () => readBody(request, 4 * 1024 * 1024) }, path).catch((error: unknown) => {
+            throw error instanceof PersonalHttpError ? new HttpError(error.status, error.message) : error;
+          });
+          send(response, 200, answer);
+          return;
+        }
+        // ---- end of the R17-C block ----
         if (await rawApi(app, request, response, path)) return;
         if (path.startsWith("/api/deployment")) {
           // bucket 22: `branch quit`, from this computer with the master key only (src/install/quit.ts).
@@ -2709,6 +2722,7 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
   if (!address || typeof address === "string")
     throw new Error("Failed to bind loopback server");
   url = `http://127.0.0.1:${address.port}`;
+  app.personal.tunnel.localAddress = url; // R17-C: the webhook door passes requests on to this address
   app.scheduler.start();
   // mac3/never-break: a real start settles work a restart cut off (nothing, with the switch off).
   if (options.presence || process.env.BRANCH_GATEWAY_CHILD === "1") {
@@ -3166,6 +3180,8 @@ function isExecution(request: IncomingMessage, path: string): boolean {
     || (request.method !== "GET" && handlesInteropPath(path))
     // mac6/bucket-23: every change under /api/asks may start work (an answer, an article, a send).
     || (request.method !== "GET" && handlesAsksPath(path))
+    // R17-C: every change under /api/personal may reach an outside service or start a program.
+    || (request.method !== "GET" && handlesPersonalPath(path))
   );
 }
 function configureLimits(server: Server): void {

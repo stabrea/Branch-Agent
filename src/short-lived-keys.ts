@@ -88,6 +88,8 @@ const ownerOnlyReads: readonly RegExp[] = [
   /^\/api\/people\/(settings|shares\/export)$/,
   // mac6/bucket-23 (A2240): the live pages' list carries each page's frame address, which opens without a key.
   /^\/api\/asks\/surfaces$/,
+  // R17-C: the owner's mail, calendar, house, sign-ins and public webhook address (src/personal/api.ts).
+  /^\/api\/personal(\/|$)/,
 ];
 
 export const generalShortLivedKeyRefusal =
