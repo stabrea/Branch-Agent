@@ -27,9 +27,12 @@ export type PluginTarget = (typeof pluginTargets)[number];
 export const exportManifest = ".branch-export.json";
 export interface StdioLaunch { command: string; args: string[]; env: Record<string, string> }
 
+/** The only files Branch ever writes into a plugin folder; a record naming anything else is not Branch's. */
+const knownFiles = new Set([".claude-plugin/plugin.json", ".claude-plugin/marketplace.json", ".codex-plugin/plugin.json",
+  ".mcp.json", "skills/branch-agent/SKILL.md"]);
 const ExportRecord = z.object({
-  target: z.enum(pluginTargets), version: z.string(), writtenAt: z.string(),
-  files: z.record(z.string(), z.string().regex(/^[a-f0-9]{64}$/)),
+  target: z.enum(pluginTargets), version: z.string().max(40), writtenAt: z.string().max(40),
+  files: z.record(z.string().refine((name) => knownFiles.has(name)), z.string().regex(/^[a-f0-9]{64}$/)),
 }).strict();
 type ExportRecord = z.infer<typeof ExportRecord>;
 const hash = (text: string): string => createHash("sha256").update(text, "utf8").digest("hex");
@@ -83,7 +86,9 @@ export function branchPluginFiles(target: PluginTarget, version: string, launch:
 async function readRecord(folder: string): Promise<ExportRecord | null> {
   const text = await readFile(join(folder, exportManifest), "utf8").catch(() => null);
   if (text === null) return null;
-  const parsed = ExportRecord.safeParse(JSON.parse(text));
+  let raw: unknown;
+  try { raw = JSON.parse(text); } catch { return null; }
+  const parsed = ExportRecord.safeParse(raw);
   return parsed.success ? parsed.data : null;
 }
 function checkFolder(folder: string): void {

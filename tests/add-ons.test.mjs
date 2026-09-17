@@ -492,3 +492,17 @@ test("the add-ons card: served, placed in Customize → Plugins, every word in E
   assert.equal(served.status, 200);
   assert.match(served.headers.get("content-type"), /javascript/);
 });
+
+test("a folder whose record names files Branch never writes is not Branch's, so nothing outside it can be removed", async (t) => {
+  const root = await temp(t);
+  const victim = join(root, "keep.txt");
+  await writeFile(victim, "precious\n");
+  const folder = join(root, "plugin");
+  await mkdir(folder);
+  await writeFile(join(folder, ".branch-export.json"), JSON.stringify({ target: "codex", version: "1", writtenAt: "now", files: { "../keep.txt": sha("precious\n") } }));
+  const store = { get: () => undefined, save: () => undefined, list: () => [], delete: () => false };
+  const exports = new PluginExports(store, "owner", () => ({ command: "branch", args: ["mcp-serve"], env: {} }));
+  await assert.rejects(exports.remove(folder), /Branch did not write that folder/);
+  assert.equal(await readFile(victim, "utf8"), "precious\n");
+  assert.equal((await exports.status(folder)).written, false);
+});
