@@ -1,13 +1,14 @@
 import { createHash } from "node:crypto";
 import { lstatSync } from "node:fs";
-import { mkdir, rm, stat, writeFile } from "node:fs/promises";
+import { lstat, mkdir, rm, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { z } from "zod";
 import { GitRunner } from "./integrations/git-run.js";
 import type { ToolContext } from "./contracts.js";
 import type { ToolRegistry } from "./registry.js";
 import type { Store } from "./store.js";
-import type { WorkspaceHistory } from "./workspace-history.js";
+import { secretName, type WorkspaceHistory } from "./workspace-history.js";
 
 /**
  * Points you can come back to. A checkpoint keeps the exact bytes of every file the assistant has
@@ -77,7 +78,7 @@ export type GitCall = (args: string[], cwd: string, timeoutMs: number) => Promis
 export function systemGit(runner: GitRunner = new GitRunner()): GitCall {
   return async (args, cwd, timeoutMs) => {
     try {
-      const result = await runner.run({ cwd, args, timeoutMs, maxOutputBytes: 8 * 1024 * 1024 }, AbortSignal.timeout(timeoutMs + 5000));
+      const result = await runner.run({ cwd, args, timeoutMs, maxOutputBytes: 16 * 1024 * 1024 }, AbortSignal.timeout(timeoutMs + 5000));
       return { ok: result.status === "completed", stdout: result.stdout, stderr: result.stderr };
     } catch (error) {
       return { ok: false, stdout: "", stderr: error instanceof Error ? error.message : String(error) };
@@ -86,9 +87,10 @@ export function systemGit(runner: GitRunner = new GitRunner()): GitCall {
 }
 
 /**
- * Never copied into the store. The same names workspace-history.ts skips (its pattern is private to
- * that file, so it is repeated here as ignore lines): a snapshot must not become a second place a
- * password or key is kept. Big generated folders are left out for the same reason they are there.
+ * Never copied into the store: a snapshot must not become a second place a password or key is kept.
+ * These ignore lines are the cheap first filter; `secretName` (workspace-history.ts) is the rule, and
+ * `take` checks every path against it, because a workspace's own .gitignore outranks these lines.
+ * Big generated folders are left out for the same reason they are there.
  */
 export const snapshotExcludes = [
   ".env", ".env.*", ".ssh/", ".aws/", "*credentials*", "*secret*", "*secrets*", "id_rsa*", "id_ed25519*",
@@ -96,6 +98,12 @@ export const snapshotExcludes = [
 ];
 const treeId = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
 const stepMs = 30_000;
+/** A workspace past these is not snapshotted (the per-file copies still work); a bigger file is left out. */
+export const snapshotCaps = { files: 100_000, fileBytes: 50 * 1024 * 1024, totalBytes: 2 * 1024 * 1024 * 1024 };
+/** Bytes are kept exactly as they are: no line-ending or filter conversion, whatever the workspace's .gitattributes say. */
+const exactBytes = "* -text -filter -diff -merge -ident -working-tree-encoding\n";
+/** The owner's own global ignore file is not read, so what a snapshot covers does not depend on it. */
+const NO_EXCLUDES = join(tmpdir(), "branch-excludes-disabled-does-not-exist");
 
 export class SnapshotStore {
   private ready: Promise<boolean> | undefined;
@@ -113,7 +121,7 @@ export class SnapshotStore {
   }
   private call(args: string[]): Promise<GitReply> {
     if (!this.git) return Promise.resolve({ ok: false, stdout: "", stderr: "Git is not installed" });
-    return this.git(["--git-dir", this.gitDir, "--work-tree", this.workTree, ...args], this.workTree, stepMs);
+    return this.git(["-c", `core.excludesFile=${NO_EXCLUDES}`, "--git-dir", this.gitDir, "--work-tree", this.workTree, ...args], this.workTree, stepMs);
   }
   private async prepare(): Promise<boolean> {
     if (!this.git) return false;
@@ -128,17 +136,45 @@ export class SnapshotStore {
       if (!(await this.git(["--git-dir", this.gitDir, "config", key, value], this.folder, stepMs)).ok) return false;
     await mkdir(join(this.gitDir, "info"), { recursive: true });
     await writeFile(join(this.gitDir, "info", "exclude"), snapshotExcludes.join("\n") + "\n");
+    await writeFile(join(this.gitDir, "info", "attributes"), exactBytes);
     return true;
   }
   /** Records every workspace file (except the excluded ones) and returns the snapshot's id. */
   async take(): Promise<string> {
     if (!(await this.available())) throw new Error("Snapshots need Git, which is not installed on this computer.");
-    const added = await this.call(["add", "--all", "--", "."]);
+    const pathspecs = join(this.gitDir, "branch-pathspecs");
+    const skipped = await this.unwanted();
+    await writeFile(pathspecs, [".", ...skipped.map((path) => `:(top,exclude,literal)${path}`)].join("\0") + "\0");
+    const added = await this.call(["add", "--all", `--pathspec-from-file=${pathspecs}`, "--pathspec-file-nul"]);
     const tree = added.ok ? await this.call(["write-tree"]) : added;
     const id = tree.stdout.trim();
     if (tree.ok && treeId.test(id)) return id;
     // A workspace too big to record in time would hold up every task; stop trying for this launch.
-    this.unavailableReason = `Snapshots are off until Branch restarts, because one could not be taken: ${firstLine(tree.stderr)}`;
+    return this.giveUp(firstLine(tree.stderr));
+  }
+  /**
+   * The paths git would record that must not be: a secret-looking name anywhere in the path (whatever
+   * the workspace's own .gitignore says) and a file over the size cap. Too many files, or too many
+   * bytes in all, and no snapshot is taken.
+   */
+  private async unwanted(): Promise<string[]> {
+    const listed = await this.call(["ls-files", "-z", "--cached", "--others", "--exclude-standard"]);
+    if (!listed.ok) return this.giveUp(firstLine(listed.stderr));
+    const paths = [...new Set(listed.stdout.split("\0").filter(Boolean))];
+    if (paths.length > snapshotCaps.files) return this.giveUp(`the workspace has more than ${snapshotCaps.files} files`);
+    const skipped: string[] = [];
+    let total = 0;
+    for (const path of paths) {
+      if (path.split("/").some((part) => secretName.test(part))) { skipped.push(path); continue; }
+      const size = await lstat(join(this.workTree, path)).then((info) => (info.isFile() ? info.size : 0), () => 0);
+      if (size > snapshotCaps.fileBytes) skipped.push(path);
+      else total += size;
+    }
+    if (total > snapshotCaps.totalBytes) return this.giveUp("the workspace holds more than 2 GB");
+    return skipped;
+  }
+  private giveUp(why: string): never {
+    this.unavailableReason = `Snapshots are off until Branch restarts, because one could not be taken: ${why}`;
     throw new Error(this.unavailableReason);
   }
   /**
@@ -151,7 +187,8 @@ export class SnapshotStore {
     const diff = await this.call(["diff-index", "--cached", "--no-renames", "--name-status", "-z", id, "--"]);
     if (!diff.ok) throw new Error(`The snapshot could not be read: ${firstLine(diff.stderr)}`);
     const { changed, added } = parseNameStatus(diff.stdout);
-    for (const path of added) await rm(insideWorkTree(this.workTree, path), { force: true });
+    const doomed = added.map((path) => insideWorkTree(this.workTree, path)); // every path is checked before any is removed
+    for (const target of doomed) await rm(target, { force: true });
     if (!(await this.call(["read-tree", id])).ok) throw new Error("The snapshot is not kept any more");
     const written = await this.call(["checkout-index", "--all", "--force"]);
     if (!written.ok) throw new Error(`The files could not be put back: ${firstLine(written.stderr)}`);

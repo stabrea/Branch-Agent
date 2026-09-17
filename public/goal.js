@@ -135,6 +135,15 @@ async function boot() {
     try { render((await app.api(`sessions/${sessionId}/goal`, { action })).goal, sessionId); }
     catch (error) { app.toast(error.message); }
   };
+  /**
+   * Shows the new messages. Opening a conversation closes the side pane a narrow window floats over
+   * it (public/layout.js), and the strip lives in that pane, so the tab that was open is pressed again.
+   */
+  const reopen = async (sessionId) => {
+    const pressed = document.body.classList.contains("lx-pane-float") ? document.querySelector('.lx-pane-tab[aria-pressed="true"]') : null;
+    await app.openConversation(sessionId);
+    if (pressed && !document.body.classList.contains("lx-pane-float")) pressed.click();
+  };
   const poll = async () => {
     const sessionId = globalThis.branchSessionId?.();
     if (!sessionId || document.visibilityState === "hidden") { if (!sessionId) strip.hidden = true; return; }
@@ -143,7 +152,7 @@ async function boot() {
       render(goal, sessionId);
       // A new round or a changed state means new messages: show them.
       const seen = goal ? `${sessionId}:${goal.round}:${goal.status}` : "";
-      if (goal && seen !== lastSeen && lastSeen.startsWith(sessionId)) await app.openConversation(sessionId);
+      if (goal && seen !== lastSeen && lastSeen.startsWith(sessionId)) await reopen(sessionId);
       lastSeen = seen || lastSeen;
     } catch { /* the next poll tries again */ }
   };

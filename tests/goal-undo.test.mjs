@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
 import {
-  createBranch, SnapshotStore, systemGit, parseNameStatus, insideWorkTree, snapshotExcludes,
+  createBranch, SnapshotStore, systemGit, parseNameStatus, insideWorkTree, snapshotExcludes, snapshotCaps, secretName,
   GoalMode, parseGoalCommand, goalDoneScore, goalStuckRounds, goalUndoSettings, saveGoalUndoSettings,
 } from "../dist/index.js";
 import { locateGit } from "../dist/integrations/git-run.js";
@@ -59,12 +59,23 @@ test("snapshot store: git is called with its own git dir and work tree, never th
   assert.equal(await store.take(), "a".repeat(40));
   assert.deepEqual(calls[0].args, ["init", "--quiet", "--bare", store.gitDir]);
   assert.ok(store.gitDir.startsWith(join(root, "private", "snapshots")));
-  const worked = calls.filter((call) => call.args[0] === "--git-dir" && call.args[2] === "--work-tree");
-  assert.deepEqual(worked.map((call) => call.args.slice(4)), [["add", "--all", "--", "."], ["write-tree"]]);
-  for (const call of worked) assert.deepEqual(call.args.slice(0, 4), ["--git-dir", store.gitDir, "--work-tree", join(root, "workspace")]);
+  const worked = calls.filter((call) => call.args[2] === "--git-dir" && call.args[4] === "--work-tree");
+  const pathspecs = join(store.gitDir, "branch-pathspecs");
+  assert.deepEqual(worked.map((call) => call.args.slice(6)), [
+    ["ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+    ["add", "--all", `--pathspec-from-file=${pathspecs}`, "--pathspec-file-nul"], ["write-tree"]]);
+  for (const call of worked) {
+    assert.equal(call.args[0], "-c");
+    assert.match(call.args[1], /^core\.excludesFile=.*does-not-exist$/, "the owner's global ignore file is not read");
+    assert.deepEqual(call.args.slice(2, 6), ["--git-dir", store.gitDir, "--work-tree", join(root, "workspace")]);
+  }
+  assert.equal(await readFile(pathspecs, "utf8"), ".\0");
+  assert.match(await readFile(join(store.gitDir, "info", "attributes"), "utf8"), /^\* -text -filter /, "bytes are kept exactly");
   const excludes = await readFile(join(store.gitDir, "info", "exclude"), "utf8");
   for (const line of [".env", "*.pem", "id_rsa*", "node_modules/"]) assert.ok(excludes.split("\n").includes(line), line);
   assert.deepEqual(snapshotExcludes.slice(0, 2), [".env", ".env.*"]);
+  for (const name of [".env", ".env.local", ".ssh", ".aws", "aws-credentials.json", "secrets.yaml", "id_rsa", "id_ed25519.pub", "a.pem", "a.key", "a.p12", "a.pfx"])
+    assert.ok(secretName.test(name), `the one rule every snapshot is checked against covers ${name}`);
   await assert.rejects(store.restore("not-a-tree; rm -rf /"), /not valid/);
 });
 
@@ -126,6 +137,46 @@ test("snapshot store with the real git: a plain folder goes back exactly, secret
   assert.equal(await readFile(join(work, ".env"), "utf8"), "TOKEN=changed", "an excluded file is never touched");
   assert.deepEqual(back.removed, ["made.txt"]);
   assert.equal(await exists(join(work, ".git")), false, "nothing is written into the workspace");
+});
+
+test("snapshot store with the real git: a workspace .gitignore cannot bring a secret back in, nor .gitattributes change bytes", noGit, async (t) => {
+  const root = await temp(t, "negate");
+  const work = join(root, "workspace");
+  await mkdir(join(work, "keys"), { recursive: true });
+  await writeFile(join(work, ".gitignore"), "!.env\n!my-secret.txt\n!*.pem\n");
+  await writeFile(join(work, ".gitattributes"), "* text=auto eol=lf\n");
+  await writeFile(join(work, ".env"), "TOKEN=abc");
+  await writeFile(join(work, "my-secret.txt"), "hush");
+  await writeFile(join(work, "keys", "server.pem"), "PEM");
+  await writeFile(join(work, "crlf.txt"), "one\r\ntwo\r\n");
+  const store = new SnapshotStore(join(root, "private"), work, systemGit());
+  const id = await store.take();
+  const listed = await systemGit()(["--git-dir", store.gitDir, "ls-tree", "-r", "--name-only", id], root, 30000);
+  assert.deepEqual(listed.stdout.trim().split("\n").sort(), [".gitattributes", ".gitignore", "crlf.txt"]);
+  const secrets = await systemGit()(["--git-dir", store.gitDir, "grep", "-l", "TOKEN=abc", id], root, 30000);
+  assert.equal(secrets.stdout, "", "the secret's bytes are not in the store at all");
+  await writeFile(join(work, "crlf.txt"), "changed");
+  await store.restore(id);
+  assert.equal(await readFile(join(work, "crlf.txt"), "utf8"), "one\r\ntwo\r\n", "the exact bytes come back");
+  assert.equal(await readFile(join(work, ".env"), "utf8"), "TOKEN=abc", "a secret is left where it is");
+});
+
+test("snapshot store with the real git: a file over the size cap is left out, and too many files stops snapshots", noGit, async (t) => {
+  const root = await temp(t, "caps");
+  const work = join(root, "workspace");
+  await mkdir(work, { recursive: true });
+  await writeFile(join(work, "small.txt"), "ok");
+  await writeFile(join(work, "big.bin"), Buffer.alloc(2048));
+  const saved = { ...snapshotCaps };
+  later(t, () => Object.assign(snapshotCaps, saved));
+  snapshotCaps.fileBytes = 1024;
+  const store = new SnapshotStore(join(root, "private"), work, systemGit());
+  const id = await store.take();
+  const listed = await systemGit()(["--git-dir", store.gitDir, "ls-tree", "-r", "--name-only", id], root, 30000);
+  assert.deepEqual(listed.stdout.trim().split("\n"), ["small.txt"]);
+  snapshotCaps.files = 1;
+  await assert.rejects(store.take(), /Snapshots are off until Branch restarts.*more than 1 files/);
+  assert.equal(await store.available(), false);
 });
 
 test("snapshot store with the real git: the owner's own repository is left exactly as it was", noGit, async (t) => {
