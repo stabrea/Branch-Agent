@@ -6591,6 +6591,42 @@ arguments, no shell, and only what they need from the environment. The stand-in 
 program on macOS and Linux and is skipped on Windows, where the in-process stand-in covers the same
 protocol.
 
+## Trunks: assistants of your own (R17-A)
+
+A Trunk is a named assistant that stays: it has its own conversation, pinned and never swept away by
+the history rule, its own memory, model, instructions, style, tools, picture and routines. It is not a
+person on this computer (those are people, in Settings → General) and not a specialist (a reusable
+set of instructions), though a specialist can be brought across as a Trunk. Branch's answer to Hermes
+Agent's Bots and Grok's bots.
+
+Five parts, each with the three-way switch, all off at first. The card is in Customize → Specialists,
+under "Trunks"; the roster sits in the sidebar above Recents; rooms that asked for you show in
+Inbox → Needs you.
+
+| Part | What it does |
+| --- | --- |
+| Trunks | Make one from three fields (name, what it does, about it); it introduces itself. Edit Trunk opens every field. A message written `@name …` in the message box goes to that Trunk, and `/trunk` lists them or talks to one. |
+| Rooms | Two to six Trunks and you in one conversation. Your message starts at most three rounds and ten replies; only those you @mention answer (nobody mentioned means everyone); a Trunk may pass; `@you` raises "needs you"; a Trunk waiting for your yes is answered in the room. Rooms run inside Branch, not the window, and carry on after a restart. |
+| Messages | `trunk.message` lets a Trunk write to another from its own conversation only. Branch signs the message, it waits until the other is free, the answer comes back later, a failure that a second try can help is tried once more, and a chain stops three messages deep. |
+| Routines | Schedules a Trunk owns (`[Trunk @name]` in Automations). They run as the Trunk and report in its conversation. |
+| Teaching | Watch me, do the job once, Save what I did: the task's steps become a workflow the Trunk owns, optionally repeated every day. |
+
+What a Trunk may reach starts off: no chat apps (a chat linked to its conversation is refused in one
+sentence until the Trunk may answer there), no commands (`shell.execute`, `code.execute`,
+`remote.execute`, `process.manage`), no connected tool servers until named. A Trunk never gets more
+than whoever started its turn; a reviewing style takes away every tool that writes. What it learns is
+saved in its own memory scope (`agent:trunk:<id>`); it never reads your private facts, and reads the
+facts you marked as shared unless you switch that off. Keys are copies of yours; a sign-in is never
+copied. Several accounts per connection (`mac6/accounts`) plug in through `src/trunks/accounts.ts`
+once that work is merged; until then a Trunk uses your own keys and its editor says so. A Trunk saved
+as a file (`branch-trunk/1`) carries who it is and never its conversations, memory, keys or reach.
+
+Everything is under `/api/trunks/`, owner only, except talking to a Trunk and sending to or stopping
+a room, which a short-lived "run" key may do (`src/short-lived-keys.ts`). The picture model is asked
+through the one tool gate (`media.image`).
+
+**macOS and Linux.** Plain Node and the window's own code; it works the same on all three systems.
+
 ## Comments that ask the assistant (A0344)
 
 `branch watch <folder> --ai-comments` watches a folder inside your workspace. A comment written in
@@ -6818,6 +6854,7 @@ the switch is off.
 | `/version` | `/about` | any key | new | new | new | new | new |
 | `/health` | `/doctor` | any key | new | new | new | — | new |
 | `/prompts [name]` | `/procedures`, `/workflows` | any key | new | new | new | new | new |
+| `/trunk [name] [message]` | `/trunks` | a key that may start tasks (on its own: any key) | new | new | new | — | — |
 
 ### Parity with other agents
 

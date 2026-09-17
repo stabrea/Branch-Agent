@@ -163,6 +163,11 @@ export class Scheduler {
   readonly heartbeat: Heartbeat;
   /** Starts a job's check script; tests hand in a fake. */
   gateRunner: GateRunner | undefined;
+  /**
+   * R17-A (Trunks): a schedule a Trunk owns runs as that Trunk, and its result is handed back so it
+   * lands in the Trunk's own conversation (src/trunks/routines.ts). Nothing is changed until connected.
+   */
+  routeRun: (scheduleId: string) => { options: { trunkId: string }; finished: (run: Run) => void } | null = () => null;
   constructor(
     readonly store: Store,
     readonly runtime: Runtime,
@@ -267,12 +272,14 @@ export class Scheduler {
     if (late) Object.assign(entry, { late });
     this.store.save("schedules", record.owner, record.id, { ...data, status: "running", history: [...history, entry] });
     try {
+      const route = this.routeRun(record.id); // R17-A (Trunks)
       const run = data.kind === "reminder" ? this.remind(record) : data.kind === "evaluation" ? await this.evaluateSuite(record) : await this.runtime.run({
-        prompt: this.promptFor(data, payload) + gatePrompt(found), permissions: data.permissions as string[], source: "schedule",
+        prompt: this.promptFor(data, payload) + gatePrompt(found), permissions: data.permissions as string[], source: "schedule", ...route?.options,
         onStarted: (started) => { entry.runId = started.id; if (late) this.store.event(started.id, "schedule.caught_up", { scheduleId: record.id, note: late }); },
         onTextDelta: () => undefined, // stream so a silent model is noticed
       });
       Object.assign(entry, { runId: run.id, status: run.status, finishedAt: new Date().toISOString() });
+      route?.finished(run); // R17-A (Trunks)
       this.runtime.notifyEvent("schedule.fired", { scheduleId: record.id, runId: run.id, status: run.status, trigger });
       const delivery = await this.deliverResult(data, run);
       const kept = run.status === "completed" && !saidNothingNew(run.output);

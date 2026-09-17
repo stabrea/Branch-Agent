@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { readsSharedFacts } from "./trunks/memory-scope.js"; // R17-A (Trunks)
 import { isDeepStrictEqual } from "node:util";
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
@@ -34,7 +35,8 @@ export const MemoryDataSchema = z.object({
 export function visibleTo(record: { data: { scope?: string } }, agent?: string): boolean {
   if (!agent) return true;
   const scope = record.data.scope ?? "private";
-  return scope === "shared" || scope === `agent:${agent}`;
+  if (scope === "shared") return readsSharedFacts(agent); // R17-A: a Trunk may be set to keep to itself
+  return scope === `agent:${agent}`;
 }
 const NewMemoryDataSchema = MemoryDataSchema.extend({
   text: z.string().trim().min(1).max(4000),

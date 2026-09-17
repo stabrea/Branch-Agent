@@ -4,6 +4,7 @@ import { noJournal, type JournalHook } from "./never-break/journal.js"; // mac3/
 import { neverBreakModeSync } from "./never-break/gateway-config.js"; // mac3/never-break
 import { runOrigin, shortLivedKeyMark, startedWithShortLivedKey, underShortLivedKey } from "./key-context.js"; // bucket-18 (A0300), bucket 19
 import { asPerson, currentPerson } from "./people/context.js"; // bucket 19
+import type { TrunkRunShape } from "./trunks/shape.js"; // R17-A (Trunks)
 import {
   Budget,
   BudgetError,
@@ -215,6 +216,8 @@ export interface RunOptions {
    * of an export afterwards. Scrubbed like every other attribute before it is written down.
    */
   traceAttributes?: Record<string, string | number | boolean>;
+  /** R17-A (Trunks): run as this Trunk in a new conversation (a routine it owns). A Trunk Chat needs no id. */
+  trunkId?: string;
 }
 export class Runtime {
   private readonly controllers = new Map<string, AbortController>();
@@ -656,7 +659,10 @@ ${run.output.slice(0, 6000)}`;
     return { waves, tasks: outcomes };
   }
   /** Temporary conversations cannot write long-term memory; nothing from them should persist. */
-  private scopeToSession(run: Run, context: ToolContext): ToolContext {
+  private scopeToSession(run: Run, given: ToolContext, trunk: TrunkRunShape | null = null): ToolContext {
+    // R17-A (Trunks): a Trunk remembers in its own scope, and the task says whose it was.
+    const context = trunk ? { ...given, agent: trunk.agent } : given;
+    if (trunk) this.store.event(run.id, "trunk.turn", { trunkId: trunk.trunkId });
     if (!this.store.sessionTemporary(run.sessionId)) return context;
     this.store.event(run.id, "session.temporary", { memoryWrites: false });
     return { ...context, permissions: new Set([...context.permissions].filter((p) => p !== "memory.write")) };
@@ -694,6 +700,16 @@ ${run.output.slice(0, 6000)}`;
       if (refusal) throw new Error(refusal);
     }
     const budget = parent?.budget ?? new Budget(options.budget);
+    // ── R17-A (Trunks): a Trunk's turn carries its own instructions, memory scope, tools and model. ──
+    const trunk = parent ? null : this.trunkShape(options);
+    if (trunk) {
+      instructions += trunk.instructions;
+      options = { ...options, permissions: trunk.permissions,
+        ...(options.model === undefined && trunk.model ? { model: trunk.model } : {}),
+        ...(options.reasoning === undefined && trunk.reasoning !== undefined ? { reasoning: trunk.reasoning } : {}),
+        ...(options.style === undefined && trunk.style ? { style: trunk.style } : {}) };
+    }
+    // ── end R17-A ──
     // ── bucket-15: the owner's inlet filters see a new message before anything else does. ──
     const inlet = !parent && !options.resumeFrom ? this.filterText("inlet", options.prompt, [options.model ?? "", this.provider.name]) : null;
     if (inlet?.blocked) throw new Error(inlet.blocked);
@@ -718,7 +734,7 @@ ${run.output.slice(0, 6000)}`;
           ...(options.permissions ? { permissions: options.permissions } : {}),
           ...(options.dryRun ? { dryRun: true } : {}),
           ...(options.source ? { source: options.source } : {}),
-        }));
+        }), trunk);
     if (options.resumeFrom) instructions += this.resumeNote(run, options.resumeFrom);
     else this.store.message(run.sessionId, { role: "user", content: options.prompt + picturesNote(options.images) });
     if (!parent) this.store.noteWorking(this.owner, run.sessionId, { goal: options.prompt });
@@ -750,7 +766,7 @@ ${run.output.slice(0, 6000)}`;
       }, options.checks, options.images, {
         ...(options.plan !== undefined ? { plan: options.plan } : {}),
         ...(options.verify !== undefined ? { verify: options.verify } : {}),
-        ...(context.depth > 0 || context.agent ? { delegated: true } : {}),
+        ...(context.depth > 0 || (context.agent && !trunk) ? { delegated: true } : {}), // R17-A: a Trunk's own turn is not delegated
       }, options.style);
     } catch (error) {
       status = this.failureStatus(context, error);
@@ -917,6 +933,11 @@ ${run.output.slice(0, 6000)}`;
     (_stage, text) => ({ text, blocked: null, applied: [] });
   /** bucket-15 integration: true while an outlet filter would see an answer, so its words are not previewed first. */
   holdsPreview: (models: readonly string[]) => boolean = () => false;
+  /**
+   * R17-A (Trunks): what a top-level task runs with when it is a Trunk's (src/trunks/). `createBranch`
+   * connects it; on its own every task is an ordinary one.
+   */
+  trunkShape: (options: RunOptions) => TrunkRunShape | null = () => null;
   private sendSpans(runId: string): void {
     // A runtime that is shutting down refuses new background work, and a send that cannot start is
     // simply not made. Nothing here — refused, failed or off — may reach the task's own result.
