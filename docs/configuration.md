@@ -4196,7 +4196,9 @@ Branch Agent collects nothing about you and sends nothing to the people who made
 "help us improve by sharing anonymous statistics" setting to turn off, because nothing is ever
 collected in the first place. Everything on this page is about *you* choosing to send *your own*
 traces to a tool *you* run. All of it is off until you switch it on, and the address is one you
-type yourself. The diagnostics folder (Settings → Health) is written only when you press the
+type yourself. (One part you control, "Counting how Branch is used", is off, asks first, keeps
+daily counts on this computer for you and sends them only to an address you type; nothing reaches
+the people who made Branch.) The diagnostics folder (Settings → Health) is written only when you press the
 button, it now carries the last 200 steps with their names, timings and outcomes, and every value
 in it has been through the same scrub as the rest of the folder.
 ### Spans: the shape of a task while it runs
@@ -5125,12 +5127,11 @@ These rows of the audit are done, by a feature that exists under another name.
 - **A0098 embedded code editor** — the Documents and "Look inside" screens show code read-only with
   syntax colouring, which is what a desktop assistant needs. A full editor is not: the owner already
   has one, and building a second would be a worse version of it.
-- **A2375 configurable intent pipeline** — skill discovery and dispatch already choose what to do. A
-  pipeline the owner configures would be a second, competing way to decide the same thing.
+- **A2375 configurable intent pipeline** — built later, in wave mac6 (see "The smaller asks").
 - **A1976 personal knowledge base on a graph database** — needs a graph store running alongside; the
   knowledge bases here do the same job on the SQLite file that is already there.
-- **A1749 Gradio interface** and **A1611 side-panel chat** — Gradio is a Python web toolkit; the web
-  app here is the interface. A browser side panel is an extension, not part of a local app.
+- **A1749 Gradio interface** — Gradio is a Python web toolkit; the web app here is the interface.
+  (**A1611 side-panel chat** was built later, in the browser extension; see "The smaller asks".)
 - **A0663 C FFI** — calling native libraries from the assistant would put unsandboxed native code
   inside the app. Anything needing that is a program the owner runs through the shell tools.
 - **A1468 ADB operator** — driving an Android phone over USB is not a local Windows desktop
@@ -6296,78 +6297,107 @@ every row is listed here and that every file named here exists.
 
 ### The smaller asks (bucket 23)
 
-- **A0794** (project bookkeeping) — partly: projects hold instructions, a model, a folder and knowledge
-  bases, each task records its project, and cost adds up per project (`src/projects.ts`,
-  `src/project-ledger.ts`, `tests/projects-locker.test.mjs`, `tests/other-2.test.mjs`). Flows are not
-  filed under a project.
-- **A2334** (artifact versioning) — verified: keeping a file again under the same name makes the next
-  version, each with its checksum (the cap of 20 in `keptLimits` is not tested) (`src/build-artifacts.ts`, `tests/code-ide.test.mjs`).
-  Changing an artifact means keeping the changed file as the next version; there is no editor for it.
-- **A0612** (source sync with a cursor) — not built: nothing copies Telegram, Gmail or GitHub into
-  Branch in the background. The chat channels read new messages as they arrive, and knowledge bases
-  read folders (`src/knowledge-bases.ts`).
-- **A2221** (Hindsight memory) — not applicable: it is an outside memory service. Memory stays in this
-  computer's own database behind the contract in `src/memory-backend.ts` (`tests/docs-memory-2.test.mjs`).
+Wave mac6 built what was missing here; every new part has its own three-way switch and ships off
+(see "The smaller asks" below). Row by row, with the file and the test that asserts it:
+
+- **A0794** (project bookkeeping) — built: flows, schedules and triggers can be put under a project, and
+  a project's board shows them with the tasks done under it (`src/asks/project-board.ts`,
+  `tests/asks.test.mjs` "A0794").
+- **A2334** (artifact file operations) — verified: a kept file gets numbered versions with checksums,
+  a version can be put back byte for byte or let go (`src/build-artifacts.ts`, `src/artifact-versions.ts`,
+  `tests/artifact-versions.test.mjs`, `tests/code-ide.test.mjs`).
+- **A0612** (source sync with a cursor) — built: GitHub issues by update time, a mailbox by UID and a
+  Telegram bot by update id, written into `sources/` (`src/asks/source-sync.ts`, `src/channels/mail-client.ts`
+  `sinceUid`, `tests/asks-integrations.test.mjs` "A0612").
+- **A2221** (Hindsight memory) — built: keep, recall and reflect against the owner's Hindsight server,
+  beside Branch's own memory (`src/asks/hindsight.ts`, `tests/asks-integrations.test.mjs` "A2221").
 - **A1895** (image generation) — verified: `src/media-images.ts` makes and changes pictures through the
-  services that offer it, and says plainly when a model cannot (`tests/media.test.mjs`).
-- **examples** (an MCP example, a Notion MCP example) — partly: connecting an MCP server is shown under
-  "MCP tools" and the app hands out ready-made connection snippets (`src/mcp-server.ts`,
-  `tests/mcp-server.test.mjs`); Notion is shown as an OpenAPI connection (`src/openapi-tools.ts`), not as
-  an MCP server.
-- **integration-blocks** (a catalogue of third-party blocks) — partly: GitHub, GitLab and Linear are built
-  in (`src/integrations/github.ts`, `src/integrations/gitlab.ts`, `src/integrations/linear.ts`) and
-  plugins install from files (`src/plugin-catalog.ts`); there is no online catalogue of blocks.
-- **A0355** (pages that stay shared) — partly: a share link needs its code, works once and expires
-  (`src/conversation-share.ts`, `tests/collab-workflows.test.mjs`); a lasting public page is not offered
-  on purpose, because Branch only listens on this computer and its private address.
-- **A0354** (an answer engine) — verified: `knowledge.ask` answers from a knowledge base and numbers its
-  sources (`src/knowledge-tools.ts`, `src/knowledge-bases.ts`, `tests/rag-vector.test.mjs`).
-- **A2375** (a configurable intent pipeline) — not built: requests are not sorted into intents first; the
-  model picks tools itself, and the one configurable pipeline is for searching
-  (`src/retrieval-pipeline.ts`, `tests/retrieval-2.test.mjs`).
-- **A1012** (a model gateway) — partly: OpenRouter, LiteLLM, Portkey and Cloudflare's gateway are
-  connections in `data/providers.json` (`src/provider-catalog.ts`, `tests/providers-2.test.mjs`); Vercel's
-  AI SDK is a JavaScript library, not a service, so there is nothing to connect to.
-- **A2258** (several agent runtimes) — partly: Claude Code, Codex and the Copilot command line, when
-  installed here, can answer as a model (`src/providers/cli-agent.ts`, `tests/auth-tracing-cli.test.mjs`);
-  they answer in words only, without Branch's tools.
-- **A0032** (an app-server protocol) — partly, in its shared form: `branch acp-serve` speaks the Agent
-  Client Protocol to editors (`src/acp.ts`, `tests/interop-agents.test.mjs`), alongside the OpenAI-shaped
-  way in (`src/openai-compat.ts`, `tests/interop.test.mjs`), the MCP server (`src/mcp-server.ts`) and
-  agent-to-agent (`src/a2a.ts`). Codex's own app-server protocol is not spoken (A0601).
-- **A0601** (Codex's app-server as a backend) — not built: Codex is reached through `codex exec`
-  (`src/providers/cli-agent.ts`). Its app-server protocol is Codex's own and still changing; ACP above is
-  the shared one.
-- **A0464** (desktop conversations that last) — partly: the desktop app (`src/desktop/main.ts`) runs the
-  same app and server, and a conversation coming back after a restart is proven for that shared core
-  (`tests/long-jobs.test.mjs`); no test drives the desktop app itself.
-- **A2043** (computer use) — verified: `computer.look`, `computer.press` and `computer.type` go to a web
-  page or to a window (`src/integrations/computer.ts`, `tests/browser-2.test.mjs`). Window control is
-  Windows-only.
-- **research-pipeline** (STORM-style articles) — partly: research splits the question, reads several
-  pages, compares them and cites them (`src/research.ts`, `tests/data-research.test.mjs`); there are no
-  persona, outline or polishing stages.
-- **gateway** — partly: one local router fronts every chat channel (`src/channels/router.ts`,
-  `tests/channels.test.mjs`); there is no gateway spread over several computers, because Branch runs on one.
-- **A0504** (analytics collected only with consent) and **A1620** (optional analytics) — not applicable:
-  Branch collects nothing, so there is nothing to consent to (see "There is no telemetry, and there never
-  will be"; `tests/tracing-policy.test.mjs` checks the promise is written where the owner reads it). No
-  analytics will be added, with or without a switch.
-- **A1611** (a side-panel chat) — not built: the browser extension (`extras/browser-extension/`) opens a
-  small window from its button. A side panel would need one more browser permission for the same job.
-- **A2240** (live app surfaces inside a reply) — partly: pages from MCP servers and artifacts are shown,
-  but with no scripts, forms or network (`src/mcp-apps.ts`, `tests/mcp-mode.test.mjs`,
-  `tests/artifacts-ui.test.mjs`). Keeping them inert is the safety rule, so "live" is not planned.
-- **A2133** (an Obsidian plugin) — partly: Branch writes to and reads from your notes folder
-  (`src/obsidian.ts`, `tests/obsidian.test.mjs`); nothing is installed inside Obsidian.
-- **A1932** (a browser extension) — partly: `extras/browser-extension/` sends the page or the selection to
-  Branch (`src/embeds.ts`); `tests/embeds-watches.test.mjs` checks its folder, its permissions and that it
-  refuses this computer's own address, but no test drives the popup sending a page.
-- **A1934** (a chat box for other websites) — partly: `public/widget.js` is a small ask box for pages of
-  the owner's own, on sites the owner lists (`src/embeds.ts`, `tests/embeds-watches.test.mjs`); it is not
-  meant for putting in front of the public.
-- **A2367** (Google PaLM) — not applicable: Google retired PaLM. Gemini, its successor, is supported
-  (`src/providers/gemini.ts`, `tests/provider-presets.test.mjs`).
+  services that offer it (`tests/media.test.mjs` "a picture is asked for at /images/generations").
+- **examples** (an MCP example, a Notion MCP example) — built: copyable entries for Notion (program and
+  hosted) and the reference fetch server, each accepted by the integrations file's own schema
+  (`src/asks/mcp-examples.ts`, `tests/asks-integrations.test.mjs` "examples").
+- **integration-blocks** (third-party blocks) — built: fixed steps for Slack, Discord, Telegram, Notion,
+  Google Sheets, Airtable, Todoist and HubSpot, each with the owner's named key (`src/asks/app-blocks.ts`,
+  `tests/asks-integrations.test.mjs` "integration-blocks").
+- **A0355** (pages that stay) — built: answers kept as pages in Library, updated, and handed on as one
+  sealed file (`src/asks/answer-pages.ts`, `tests/asks.test.mjs` "A0355").
+- **A0354** (an answer engine) — built: search, read a few pages, answer with a numbered source after
+  each claim (`src/asks/answer-engine.ts`, `tests/asks.test.mjs` "A0354"); `knowledge.ask` does the same
+  for knowledge bases.
+- **A2375** (a configurable intent pipeline) — built: the owner's intents, and the phrase, word and model
+  stages in the owner's order (`src/asks/intent-pipeline.ts`, `tests/asks.test.mjs` "A2375").
+- **A1012** (a model gateway) — built: the Vercel AI Gateway is a connection, and a model name is
+  spelled `vendor/model` for a gateway and bare for the vendor itself (`data/providers.json`,
+  `src/asks/model-gateway.ts`, `tests/asks-runtimes.test.mjs` "A1012").
+- **A2258** (several agent runtimes) — built: Claude Code, Codex, Copilot, Gemini CLI and Codex over
+  app-server are added as connections, remembered, and follow their switch (`src/asks/runtimes.ts`,
+  `tests/asks-runtimes.test.mjs` "A2258").
+- **A0032** (an app-server protocol) — built: `branch app-server` speaks Codex's app-server protocol
+  (`src/asks/app-server.ts`, `tests/asks-runtimes.test.mjs` "A0032"); `branch acp-serve` still speaks ACP.
+- **A0601** (Codex's app-server as a backend) — built: Codex answers over app-server, read-only, and its
+  approval requests are declined (`src/asks/codex-app-server.ts`, `tests/asks-runtimes.test.mjs` "A0601").
+- **A0464** (desktop conversations that last) — verified: a conversation is listed and continues after
+  the engine the desktop runs is closed and opened again (`src/desktop/main.ts`, `tests/asks-verify.test.mjs`,
+  `tests/long-jobs.test.mjs`).
+- **A2043** (computer use) — verified: on a Mac every screen action goes through one fixed JXA script
+  run by `osascript`, on Linux through `xdotool` (`src/integrations/desktop-script-posix.ts`,
+  `src/integrations/computer.ts`, `tests/posix-desktop-script.test.mjs`).
+- **research-pipeline** (STORM-style articles) — built: personas, sources read per persona, an outline,
+  sections written from the notes with sources, a lead and a tidy (`src/asks/article-writer.ts`,
+  `tests/asks.test.mjs` "research-pipeline").
+- **gateway** (across several computers) — built: other computers running Branch, checked for health,
+  chosen by label and passed over when down or busy (`src/asks/nodes.ts`, `tests/asks-surfaces.test.mjs` "gateway").
+- **A0504** (analytics only with consent) and **A1620** (optional analytics) — built: counts per day of
+  named events, only after a yes, wiped on a no, sent only to an address of the owner's own
+  (`src/asks/analytics.ts`, `tests/asks.test.mjs` "A0504 A1620"). Nothing goes to Branch's makers.
+- **A1611** (a side-panel chat) — built: the extension's side panel keeps one conversation with the
+  paired Branch (`extras/browser-extension/chat.js`, `sidepanel.js`, `tests/asks-surfaces.test.mjs` "A1611").
+- **A2240** (live app surfaces) — built: a tool's page is asked again on a timer through the tool gate
+  and shown in the same sealed frame, reloading itself (`src/asks/live-surfaces.ts`,
+  `tests/asks-surfaces.test.mjs` "A2240").
+- **A2133** (an Obsidian plugin) — built: `extras/obsidian-plugin/` asks Branch about a note with a
+  short-lived key (`tests/asks-surfaces.test.mjs` "A2133"); the notes-folder bridge (`src/obsidian.ts`) stays.
+- **A1932** (a browser extension) — verified: `extras/browser-extension/` is a Manifest V3 folder that
+  refuses this computer's own address (`tests/embeds-watches.test.mjs` "E1", "E2").
+- **A1934** (a chat box for other websites) — verified: `public/widget.js` answers only on sites the
+  owner lists (`src/embeds.ts`, `tests/embeds-watches.test.mjs` "E1", "E2").
+- **A2367** (Google PaLM) — built: PaLM is on the list as retired, with a note pointing at Gemini, and
+  never reaches the network (`data/providers.json`, `tests/asks-runtimes.test.mjs` "A2367").
+
+## The smaller asks
+
+Thirteen small parts, each with the owner's three-way switch (off, on, only when it is needed), all
+off at first. The switches and settings are under `/api/asks/`, owner only; a short-lived key can read
+some of them and change none (`tests/short-lived-key-routes.mjs`). A tool of these parts pressed in the
+window goes through the one tool gate (`src/tool-gate.ts`), and work that runs by itself (live pages)
+is held to what the rules allow outright.
+
+| Part | Where it lives | What it does |
+| --- | --- | --- |
+| Project boards | Settings → General | Flows, schedules and triggers put under a project, and its tasks (`project.board`, `project.assign`) |
+| Quick answers | Library → Made | Search, read, answer with numbered sources (`answer.ask`) |
+| Pages kept | Library → Made | Answers kept, updated and saved as one sealed file (`answer.page`) |
+| Long articles | Library → Made | Personas, outline, cited sections, lead, tidy, into `research/` (`research.article`) |
+| Live tool pages | Library → Made | A tool asked again every so often, its page shown sealed |
+| Intents | Customize → Skills | Named kinds of request and where each goes (`intent.route`) |
+| Bringing items in | Library → Documents | GitHub, mailbox and Telegram, each with a cursor, into `sources/` (`sources.sync`) |
+| Hindsight | Library → Memory | Keep, recall and reflect on your Hindsight server (`hindsight.*`) |
+| Steps for other apps | Customize → Connections | Slack, Discord, Telegram, Notion, Sheets, Airtable, Todoist, HubSpot (`blocks.run`) |
+| App-server | Customize → Connections | `branch app-server` for editors that speak Codex's protocol |
+| Other agents | Settings → Models → Connection | Installed coding agents added as connections |
+| Other computers | Settings → Computer | Health, labels and failover across your Branch computers (`nodes.*`) |
+| Counting use | Settings → Data | Daily counts after a yes; sent only to your own address |
+
+Keys are always named secrets from the locker, filled in at the moment of the call. Every outside
+call follows the network rules; a Hindsight server or another computer on your home network needs
+private addresses allowed there (Tailscale addresses are not private and work as they are).
+
+**macOS and Linux.** Everything here is plain Node and works the same on all three systems. The
+agents found on this computer are looked up on `PATH` (with `PATHEXT` on Windows) without running
+anything; `codex app-server` and the command-line agents are started from their names with fixed
+arguments, no shell, and only what they need from the environment. The stand-in Codex test runs a real
+program on macOS and Linux and is skipped on Windows, where the in-process stand-in covers the same
+protocol.
 
 ## Comments that ask the assistant (A0344)
 

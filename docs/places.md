@@ -101,6 +101,16 @@ Inside a conversation there are no homes to add to, only two surfaces with stric
 | Ways of working (modes) and shared assistants (`mac4/bucket-20`) | `customize:specialists` |
 | A conversation handed over from another device (`#handoff=<id>`) | Opens the conversation itself; no screen of its own |
 | One-click models on this computer (`mac5/local-models`) | `settings:models:local`, inside the existing "Models on this computer" card; each finished setup appears as a connection in `settings:models:connection` |
+| The smaller asks (`mac6/bucket-23`): project boards | `settings:general` |
+| Counting how Branch is used, with consent (`mac6/bucket-23`) | `settings:data` |
+| Other computers running Branch (`mac6/bucket-23`) | `settings:computer` |
+| Other agents answering a conversation (`mac6/bucket-23`) | `settings:models:connection` |
+| Quick answers, pages kept, long articles and live tool pages (`mac6/bucket-23`) | `library:made` |
+| Bringing in new items from GitHub, mail and Telegram (`mac6/bucket-23`) | `library:documents` |
+| A Hindsight memory server (`mac6/bucket-23`) | `library:memory` |
+| Sending requests where they belong, the intent pipeline (`mac6/bucket-23`) | `customize:skills` |
+| Steps for other apps, MCP examples and the app-server door (`mac6/bucket-23`) | `customize:connections` |
+| The browser extension's side panel and the Obsidian plugin (`mac6/bucket-23`) | Outside the window; their instructions are in `extras/`, and the extension's switch stays in `customize:channels` |
 
 When something new does not fit a row, apply the rule at the top and add a row here in the same
 change.
