@@ -22,7 +22,7 @@ test("every word on the learning cards has English and real French, and the scri
   assert.ok(keys.length > 80);
   const en = JSON.parse(await readFile(new URL("locales/en.json", PUBLIC), "utf8"));
   const fr = JSON.parse(await readFile(new URL("locales/fr.json", PUBLIC), "utf8"));
-  for (const status of ["trial", "kept", "dropped"]) keys.push(`lmore.lessons.${status}`);
+  for (const status of ["pending", "trial", "kept", "dropped"]) keys.push(`lmore.lessons.${status}`);
   assert.deepEqual(keys.filter((key) => !en[key] || !fr[key] || en[key] === fr[key]), []);
   assert.equal(/#[0-9a-f]{3,8}\b|rgba?\(/i.test(source), false, "no colour is written down");
   assert.match(await readFile(new URL("index.html", PUBLIC), "utf8"), /<script src="\/learning-more.js" type="module"><\/script>/);

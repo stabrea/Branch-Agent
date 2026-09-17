@@ -1,3 +1,4 @@
+import { chatOwnerOnly, startedFromChat } from "./key-context.js";
 import { z } from "zod";
 import type { Store } from "./store.js";
 import type { Runtime } from "./runtime.js";
@@ -192,6 +193,10 @@ export function registerSkillSync(registry: ToolRegistry, store: Store, files: W
     description: "Keep the installed skills as .md files in a folder in the workspace, so they can be kept in version control. \"out\" writes them into the folder, \"in\" reads the folder back, installing what is new and adding a version where the text has changed. Nothing is ever deleted.",
     parameters: SkillSyncSchema,
     target: (args) => args.folder,
-    execute: async (args, context: ToolContext) => syncSkills(store, context.owner, files, args),
+    execute: async (args, context: ToolContext) => {
+      // Reading the folder back installs skills, which only the owner may approve.
+      if (args.direction !== "out" && startedFromChat(context, store)) throw chatOwnerOnly("Installing skills from a folder");
+      return syncSkills(store, context.owner, files, args);
+    },
   });
 }

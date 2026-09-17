@@ -1,4 +1,5 @@
 import type { Runtime } from "../runtime.js";
+import type { RunSource } from "../policy.js";
 import type { FeatureMode } from "../feature-switches.js";
 import type { Surface } from "./catalog.js";
 import { conversationMarkdown } from "../memory-export.js";
@@ -17,6 +18,7 @@ import { accountCommand } from "./account.js"; // mac6/accounts
 import { BOARD_HANDLERS } from "../flows-boards/commands.js"; // r17-h
 import { AUTONOMY_HANDLERS } from "../autonomy/commands.js"; // r17-b
 import { initCommand } from "../coding/commands.js"; // mac7/r17-d
+import { REACH_HANDLERS } from "../reach/commands.js"; // r17-i
 
 /**
  * What each command does when it is carried out for a surface that has no code of its own for it:
@@ -173,11 +175,13 @@ async function compact(call: Call): Promise<Reply> {
   if (!call.sessionId) return say("There is nothing to fold yet.");
   if (runtime.store.runs(runtime.owner).some((run) => run.sessionId === call.sessionId && run.status === "running"))
     return say("It is still working on something. Try /compact once it has answered.");
-  const folded = await compactConversation(runtime, call.sessionId);
+  const folded = await compactConversation(runtime, call.sessionId, sourceOf(call));
   return say(folded ? `Folded ${folded} earlier messages into a summary. The most recent ones stay as they are.`
     : "This conversation is still short; there is nothing to fold yet.");
 }
-const aside: Handler = async (call) => say(await askAside(call.host.runtime, call.sessionId, call.argument));
+const aside: Handler = async (call) => say(await askAside(call.host.runtime, call.sessionId, call.argument, sourceOf(call)));
+/** A command typed in a chat app starts its side task as the chat's, never as the owner's own. */
+const sourceOf = (call: Call): RunSource | undefined => (call.surface === "chat" ? "channel" : undefined);
 const tokens: Handler = (call) => (call.sessionId ? say(tokenLines(tokenReport(call.host.runtime, call.sessionId)).join("\n")) : say(needSession));
 
 const goalLine = (goal: GoalView): string =>
@@ -218,7 +222,8 @@ async function help(call: Call): Promise<Reply> {
   const question = call.argument.trim();
   if (!question || question === "all" || call.mode === "off") return say(helpText(call.surface, call.mode, question === "all"), { do: "help" });
   return say(await answerFromHandbook(question, async (prompt) => {
-    const run = await runtime.run({ prompt, temporary: true, permissions: [], onTextDelta: () => undefined });
+    const source = sourceOf(call);
+    const run = await runtime.run({ prompt, temporary: true, permissions: [], onTextDelta: () => undefined, ...(source ? { source } : {}) });
     return run.status === "completed" ? run.output : "";
   }));
 }
@@ -255,5 +260,6 @@ export const HANDLERS: Record<string, Handler> = {
   account: accountCommand, // mac6/accounts
   ...AUTONOMY_HANDLERS, // r17-b: /loop, /heartbeat, /subgoal, /bg, /handoff, /suggestions, /blueprint
   init: initCommand, // mac7/r17-d
+  ...REACH_HANDLERS, // r17-i: /platform
   ...BOARD_HANDLERS, // r17-h: /queue, /busy, /focus, /installs
 };

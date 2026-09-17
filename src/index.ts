@@ -203,6 +203,10 @@ import { accountsSettings, saveSessionChoice } from "./accounts/settings.js"; //
 import { Coding } from "./coding/index.js"; // mac7/r17-d: coding polish
 import { worktreeScope } from "./coding/worktrees.js"; // mac7/r17-d
 import { Personal } from "./personal/index.js"; // R17-C: files, voice, devices and personal connectors
+import { Reach } from "./reach/index.js"; // r17-i: reach and platform
+import { platformRunners } from "./reach/host.js"; // r17-i
+import { trunkRoster } from "./reach/trunk-roster.js"; // r17-i
+import { askMode } from "./asks/settings.js"; // r17-i: other computers follow bucket 23's switch
 import { SafetyExtras } from "./safety-extras/index.js"; // mac7/r17-g: the safety extras
 import { assertAddressNotStopped } from "./safety-extras/emergency-stop.js"; // mac7/r17-g
 import { FlowsBoards } from "./flows-boards/index.js"; // r17-h: flows and boards
@@ -1023,6 +1027,13 @@ export async function createBranch(options: {
     lockdownRefusal: () => (lockedDown(store, runtime.owner) ? lockdownRefusal : null) });
   releaseOnLock.push(() => personal.close()); // locking Branch stops the tunnel and forgets spoken answers
   // ── end R17-C ──
+  // ── r17-i: reach and platform (src/reach/). Every part ships off. ──
+  const reachParts = new Reach({ runtime, registry, router: channels, files, policy: web.policy, fetch: web.policy.guard(globalThis.fetch),
+    secret: async (name, purpose) => (await store.secrets.resolve(runtime.owner, store.projects.active(runtime.owner).id, [name], { purpose }))[name]!,
+    machines: { list: () => (askMode(store, runtime.owner, "nodes") === "off" ? [] : asks.nodes.nodes()) }, version, ...platformRunners() });
+  scheduler.onTick.add(() => reachParts.tick());
+  reachParts.remoteTrunks.useRoster(trunkRoster(trunks, runtime, registry, reachParts)); // R17-077 on R17-A's Trunks
+  // ── end r17-i ──
   // ── mac7/r17-g: the safety extras (src/safety-extras/). Every part ships off; the emergency stop is unpressed. ──
   const safetyExtras = new SafetyExtras({ runtime, registry, dataDir });
   web.policy.emergencyStop = (target) => assertAddressNotStopped(store, runtime.owner, target);
@@ -1098,6 +1109,8 @@ export async function createBranch(options: {
     coding,
     /** R17-C: files, voice, devices and personal connectors (src/personal/); every part ships off. */
     personal,
+    /** r17-i: other computers, Trunks across computers, background apps, videos, relay, send and pause, sharing, USB, notes, arena. */
+    reachParts,
     /** mac7/r17-g: tool scripts, WebAssembly add-ons, codes, the emergency stop, scans, the activity chain. */
     safetyExtras,
     /** r17-h: going back in a flow, checked procedures, the shared board, widgets, the waiting line, focus, install requests; every part ships off. */
@@ -1373,6 +1386,7 @@ export async function createBranch(options: {
       await autonomy.close(); // r17-b: nothing more starts by itself, and a turn that is working gets a moment
       await trunks.close(); // R17-A: rooms stop between turns
       await personal.close().catch(() => undefined); // R17-C: the webhook tunnel program stops
+      await reachParts.close(); // r17-i: the relay stops asking
       safetyExtras.close(); // mac7/r17-g
       await mcpConnections.closeAll();
       // Nothing the assistant left running outlives the app.

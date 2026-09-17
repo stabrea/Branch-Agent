@@ -1,3 +1,4 @@
+import { reachKey, reachLabels, reachParts, type ReachPart } from "../reach/settings.js";
 import { savePolicy } from "../policy.js";
 import type { Store } from "../store.js";
 import { saveLoopGuardSettings } from "../loop-guard.js";
@@ -12,6 +13,7 @@ import { audit } from "../audit.js";
 import { saveSafetySwitch, type SafetyPart } from "../safety-extras/settings.js";
 import { writeBoardSwitch, type BoardPart } from "../flows-boards/settings.js"; // r17-h integration review
 import { saveComfort, type ComfortCard } from "../comfort/settings.js";
+import { saveChatPermissionSettings } from "../channels/chat-permissions.js"; // mac7/chat-allowlist
 
 /**
  * R17-S-A (understandable settings): the settings that can be put back to how they started, set
@@ -80,6 +82,13 @@ const sw = (field: string, label: string, t: string, guard: Guard): FieldSpec =>
   ({ field, label, t, kind: { type: "switch" }, initial: "off", guard });
 const yesNo = (field: string, label: string, t: string, guard: Guard, initial = false): FieldSpec =>
   ({ field, label, t, kind: { type: "yes-no" }, initial, guard });
+/** Where each reach card lives (docs/places.md). */
+const reachHomes: Record<ReachPart, string> = {
+  machines: "settings:computer", "remote-trunks": "customize:specialists", "background-screen": "settings:computer",
+  video: "settings:models:media", relay: "customize:channels", send: "customize:channels", "platform-pause": "customize:channels",
+  "agent-git": "customize:skills", "skill-bundles": "customize:skills", usb: "settings:computer", notes: "library:documents",
+  arena: "settings:models:second",
+};
 const one = (key: string, name: string, t: string, home: string, guard: Guard, extra: Partial<SettingSpec> = {}): SettingSpec =>
   ({ key, name, t, home, fields: [sw("mode", "Switch", "settings-kit.field.switch", guard)], ...extra });
 /** r17-h integration review: a flows-and-boards switch, written through the running copy so its tools follow. */
@@ -160,7 +169,19 @@ const reach: SettingSpec[] = [
   one("pull-request-hook", "Pull requests from changes", "settings-kit.name.pull-requests", "settings:advanced", "reach"),
   one("skill-installs", "Installing skills from a file", "settings-kit.name.skill-installs", "customize:skills", "reach"),
   one("workspace-editor", "Code editor", "settings-kit.name.code-editor", "settings:advanced", "reach"),
+  // mac7/chat-allowlist: a chat's task holds a short read-and-answer list; this switch lets the
+  // owner's own lines add to it, so raising it is reaching further. The lines themselves are not a
+  // field here on purpose: nothing brought in from a file or a preset can ever write one.
+  {
+    key: "chat-permissions", name: "What a chat may do beyond talking", t: "settings-kit.name.chat-permissions",
+    home: "customize:channels",
+    fields: [yesNo("extras", "Use my list of what chats may also do", "settings-kit.field.chat-extras", "reach")],
+    write: (store, owner, patch) => { saveChatPermissionSettings(store, owner, patch); },
+  },
   one("sdk-kit", "Tools for building on Branch", "settings-kit.name.sdk-kit", "settings:advanced", "reach"),
+  // r17-i integration review: every reach and platform switch reaches further when raised (src/reach/settings.ts).
+  // src/server.ts saves them through Reach, so the tools and the relay follow the switch at once.
+  ...reachParts.map((part) => one(reachKey(part), reachLabels[part], `reach.part.${part}`, reachHomes[part], "reach")),
   safetyPart("tool-scripts", "Scripts that call several tools at once", "reach"),
   safetyPart("wasm-add-ons", "Add-ons in a sealed WebAssembly box", "reach"),
   // r17-h: checks run tools and scripts, widgets ask tools on a timer, and requests reach the package lists.

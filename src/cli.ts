@@ -57,6 +57,7 @@ import { selfTestCommand } from "./never-break/self-test.js";
 import { manageCommand } from "./install/manage-cli.js";
 import { bringInShareable, shareableSections } from "./interop/agent-market.js";
 // --- end bucket 22 ---
+import { sendCommand } from "./reach/send-cli.js"; // r17-i: branch send
 
 async function configuredApp(options: Parameters<typeof createBranch>[0]) {
   const app = await createBranch(options);
@@ -178,6 +179,7 @@ async function main(): Promise<void> {
     return;
   }
   // --- end mac7/connect ---
+  if (command === "send") return sendCommand(process.argv.slice(3), dataDir); // r17-i
   // --- mac3/never-break: a new version checking itself on a copy of the data before an update ---
   if (command === "start" && process.env.BRANCH_SELF_TEST)
     return selfTestCommand(process.env.BRANCH_SELF_TEST, { dataDir, workspace, version: String(createRequire(import.meta.url)("../package.json").version) });

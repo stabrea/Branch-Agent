@@ -99,6 +99,17 @@ export class UsageStore {
     };
   }
 
+  /** Dollars this task spent on something that is not tokens, from its `spend.recorded` events. */
+  private runSpend(runId: string): number {
+    const rows = this.db.prepare(`SELECT data FROM events WHERE run_id = ? AND kind = 'spend.recorded'`).all(runId) as Array<{ data: string }>;
+    let total = 0;
+    for (const row of rows) {
+      const data = JSON.parse(row.data) as { dollars?: unknown };
+      total += Number(data.dollars ?? 0) || 0;
+    }
+    return total;
+  }
+
   /** Which model answered, how many tools ran, and how many of them failed, from the run's events. */
   private runEvents(runId: string): { presetId: string; model: string; toolCalls: number; failures: number } {
     const events = this.db
@@ -335,6 +346,8 @@ export class UsageStore {
       const amount = model ? estimateCost(model, tokens, overrides).amount : null;
       if (amount === null) unpricedRuns += 1;
       else cost += amount;
+      // mac7/reach-leftovers: what a task spent outside the model's tokens (a video) is money too.
+      cost += this.runSpend(run.id);
     }
 
     const alert80 = maxMonthlyTokens ? total >= maxMonthlyTokens * 0.8 : false;

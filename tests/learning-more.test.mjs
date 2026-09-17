@@ -197,19 +197,34 @@ test("R17-055: conversations found by meaning with role and date filters, key-li
   assert.match(words.results[0].excerpt, /tulip/i);
 });
 
-test("R17-056: a failed evaluation task leaves a lesson, later tasks like it are shown it, and it is offered once it pays off", async (t) => {
-  const { app, api, on, provider, owner } = await fixture(t);
+test("R17-056: a failed evaluation task leaves a lesson that waits for the owner, is tried only once approved, and is offered once it pays off", async (t) => {
+  const { app, api, call, on, provider, owner } = await fixture(t);
   await api("/api/evaluation/suites", { id: "geo", name: "Geography", tasks: [
     { id: "capital", prompt: "What is the capital of Freedonia? Answer in one word.", checks: { mustMention: ["Fredville"], maxRetries: 0 } }] });
   await on("lessons");
   const first = await api("/api/evaluation/run", { suite: "geo" });
   assert.equal(first.summary.passed, 0);
+  await app.runtime.run({ prompt: "anything else" }); // a task start reads the last suite record
+  const [waiting] = (await api("/api/learning-more/lessons")).lessons;
+  assert.equal(waiting.status, "pending", "a new lesson waits for the owner");
+  // Not approved yet: a matching task is never shown it, and no second copy is written.
+  const unapproved = await api("/api/evaluation/run", { suite: "geo" });
+  assert.equal(unapproved.summary.passed, 0, "a lesson waiting for approval is never tried");
+  assert.doesNotMatch(provider.seen.findLast((s) => /Freedonia/.test(s.user)).system, /Lessons from earlier tasks/);
+  assert.deepEqual(app.learningMore.lessons.matching(owner, "What is the capital of Freedonia? Answer in one word."), []);
+  await app.runtime.run({ prompt: "anything else" });
+  assert.equal((await api("/api/learning-more/lessons")).lessons.length, 1);
+  // The owner says yes: it goes on trial.
+  const approved = await api("/api/learning-more/lessons/decide", { id: waiting.id, approve: true });
+  assert.equal(approved.lesson.status, "trial");
+  const again = await call("/api/learning-more/lessons/decide", { id: waiting.id, approve: false });
+  assert.equal(again.status, 400, "a lesson already decided is not decided again");
   const second = await api("/api/evaluation/run", { suite: "geo" });
-  assert.equal(second.summary.passed, 1, "the lesson from the first run was shown and helped");
+  assert.equal(second.summary.passed, 1, "the approved lesson was shown and helped");
   assert.match(provider.seen.findLast((s) => /Freedonia/.test(s.user)).system, /Lessons from earlier tasks[\s\S]*failed its check/);
   const third = await api("/api/evaluation/run", { suite: "geo" });
   assert.equal(third.summary.passed, 1);
-  await app.runtime.run({ prompt: "anything else" }); // a task start reads the last suite record
+  await app.runtime.run({ prompt: "anything else" });
   const [lesson] = (await api("/api/learning-more/lessons")).lessons;
   assert.deepEqual([lesson.status, lesson.passes, lesson.failures], ["kept", 2, 0]);
   const offered = app.store.review.proposals(owner).find((p) => p.id === lesson.proposalId);
@@ -218,6 +233,26 @@ test("R17-056: a failed evaluation task leaves a lesson, later tasks like it are
   await app.runtime.run({ prompt: "Write a haiku about rain" });
   assert.doesNotMatch(provider.seen.at(-1).system, /Lessons from earlier tasks/);
   assert.equal((await api("/api/learning-more/lessons/forget", { confirm: "forget" })).forgotten, 1);
+});
+
+test("R17-056: a lesson the owner turns down is dropped and never tried; deciding needs the part switched on", async (t) => {
+  const { app, api, call, on, provider, owner } = await fixture(t);
+  await api("/api/evaluation/suites", { id: "geo", name: "Geography", tasks: [
+    { id: "capital", prompt: "What is the capital of Freedonia? Answer in one word.", checks: { mustMention: ["Fredville"], maxRetries: 0 } }] });
+  await on("lessons");
+  await api("/api/evaluation/run", { suite: "geo" });
+  await app.runtime.run({ prompt: "anything else" });
+  const [waiting] = (await api("/api/learning-more/lessons")).lessons;
+  await on("lessons", "off");
+  assert.equal((await call("/api/learning-more/lessons/decide", { id: waiting.id, approve: true })).status, 409);
+  await on("lessons");
+  assert.equal((await call("/api/learning-more/lessons/decide", { id: "nope", approve: true })).status, 404);
+  const declined = await api("/api/learning-more/lessons/decide", { id: waiting.id, approve: false });
+  assert.equal(declined.lesson.status, "dropped");
+  const later = await api("/api/evaluation/run", { suite: "geo" });
+  assert.equal(later.summary.passed, 0);
+  assert.doesNotMatch(provider.seen.findLast((s) => /Freedonia/.test(s.user)).system, /Lessons from earlier tasks/);
+  assert.deepEqual(app.learningMore.lessons.matching(owner, "What is the capital of Freedonia? Answer in one word."), []);
 });
 
 async function chatHome(root) {

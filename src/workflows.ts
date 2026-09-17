@@ -1,3 +1,4 @@
+import { chatOwnerOnly, startedFromChat } from "./key-context.js";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { Store, SavedRecord } from "./store.js";
@@ -107,7 +108,7 @@ export class Workflows {
    */
   resumeGraph: ((id: string, within?: readonly string[]) => unknown) | null = null;
   constructor(
-    private readonly store: Store,
+    readonly store: Store,
     private readonly runtime: Runtime,
     private readonly knowledge?: Knowledge,
   ) {
@@ -324,7 +325,8 @@ export class Workflows {
     // mac7/lockdown-fix: under a task's limit, every step holds only the permissions that task holds.
     const allowed = limit ? { permissions: [...this.runtime.context().permissions].filter((p) => limit.includes(p)) } : {};
     if (step.kind === "prompt") {
-      const run = await this.runtime.run({ prompt: step.prompt!, signal, source: "schedule", onTextDelta: () => undefined, ...allowed });
+      // A chat message's workflow asks the model as the chat, never as a schedule the owner made.
+      const run = await this.runtime.run({ prompt: step.prompt!, signal, source: source === "channel" ? "channel" : "schedule", onTextDelta: () => undefined, ...allowed });
       if (run.status !== "completed") throw new Error(`The step did not finish (${run.status})`);
       return { output: run.output, runId: run.id };
     }
@@ -386,7 +388,10 @@ export function registerWorkflows(registry: ToolRegistry, workflows: Workflows):
     description: "Save a list of steps the app can work through on its own: ask the assistant, replay a saved procedure, use one tool, wait for the owner to approve, wait a while, or skip ahead when the last answer did not say what was expected.",
     permission: "workflows.manage",
     parameters: WorkflowSchema,
-    execute: async (value, context) => workflows.create(workflows.forOwner(context.owner), value),
+    execute: async (value, context) => {
+      if (startedFromChat(context, workflows.store)) throw chatOwnerOnly("Saving a workflow");
+      return workflows.create(workflows.forOwner(context.owner), value);
+    },
   });
   registry.register({
     name: "workflows.list",

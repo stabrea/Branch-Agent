@@ -666,11 +666,104 @@ Create a bot with @BotFather, then either save its token as the secret `TELEGRAM
 { "channels": [{ "type": "telegram", "tokenSecret": "TELEGRAM_BOT_TOKEN", "activation": "mention", "pairing": true, "allowlist": [] }] }
 ```
 
-`tokenEnv` names an environment variable instead of a secret. Each chat (direct or group) keeps its own conversation. A sender who is neither on the `allowlist` (Telegram user ids) nor approved receives a six-digit code; approve it in **Settings → Channels** or with `POST /api/channels/pairings/approve {code}`. With `pairing: false`, strangers are told the assistant is private. In groups, `activation: "mention"` answers only messages that mention the bot or reply to it; `"always"` answers everything. Channel tasks run with every tool permission except host command execution. `GET /api/channels` lists connected channels, pending and approved people.
+`tokenEnv` names an environment variable instead of a secret. Each chat (direct or group) keeps its own conversation. A sender who is neither on the `allowlist` (Telegram user ids) nor approved receives a six-digit code; approve it in **Settings → Channels** or with `POST /api/channels/pairings/approve {code}`. With `pairing: false`, strangers are told the assistant is private. In groups, `activation: "mention"` answers only messages that mention the bot or reply to it; `"always"` answers everything. A channel task may only read and answer, and nothing else unless you say so (see **What a chat may do beyond talking** below). `GET /api/channels` lists connected channels, pending and approved people.
 
 ### What every channel shares
 
 `activation`, `pairing` and `allowlist` mean the same on every channel, and every channel uses the same delivery ledger, the same pairing codes and `POST /api/channels/link { channel, chatId, sessionId }`. Every credential is read from an environment variable of that name first, then from a secret of that name in the **default project's** locker; nothing is ever written into the connections file. Every outbound request goes through the network settings in `web`, including the chat sockets (checked as the matching `https://` address) and the mail servers (checked by host name). `GET /api/channels` reports each channel's `health` as `connected`, `reconnecting` or `needs attention` with a plain reason; **Settings → Channels** shows the same line and a **Check the connection** button. A secret never appears in that output, in an error message or in the log.
+
+### Who a chat message's task counts as (mac7/chat-source)
+
+A chat app cannot prove who is typing, even when the sender is you on your own paired account. So a
+task a chat message starts is marked as coming from a chat (`source: "channel"` on the task and in the
+record), and so is everything it starts: a helper it hands work to, a side question (`/btw`, `/compact`,
+`/help <question>`), a prompt step of a workflow it runs, and the same task carried on after a restart
+(with the same tools it had). No setting makes a chat account count as you. The one list of your own
+chat accounts (under reach, for `/platform pause|resume|status`) is used only for that command and
+lends those accounts nothing else. What that means:
+
+- **Your approval rules are held to "Ask before changes"**, as they are for a schedule or another AI
+  tool: your standing yeses do not reach a chat's task, so a change it wants waits for a yes. The chat
+  may still answer that one question (`y` or `n`, or the Yes and No buttons), but it is never offered
+  **Yes always**, and a standing yes sent from a chat is refused.
+- **Never from a chat:** proposing an automation or a standing order, being told your standing orders,
+  changing memory blocks, your other devices, your mail, calendar, files, music and house (refused
+  even if a rule would allow it), being the task a Trunk learns from, saving a workflow, trying out
+  drafted flows, changing the morning brief or sending it to a chat, adding or removing other
+  assistants, adding or removing a service's tools, installing skills from a folder, handing work to
+  your other computers, looking at your other computers, screen, videos or notes (R17-I), and "/learn"
+  (from a chat it is ordinary words). Changing settings, approvals,
+  installs, the `/lockdown` switch and the other owner-only commands was already refused from a chat.
+  Each of these refuses a chat's task by itself, and none of them is on the short list of what a chat's
+  task may use at all (see **What a chat may do beyond talking** below).
+- **Unchanged:** which chats are answered (`allowlist`, pairing), and everything you start in the window,
+  the terminal or with your own key. Answering one approval from a chat (`y` or `n`, or the Yes and No
+  buttons) is answered by the chat itself and is not a tool, so it works as it did — except that a yes
+  about something one of your lines granted now belongs in the window (see below).
+
+A task saved before this change carries only the `channel.inbound` mark; it is read the same way.
+
+### What a chat may do beyond talking
+
+A chat app cannot prove who is typing, so a task a chat message starts is given a short list of what it
+may use, and everything else is refused — including anything added to Branch after this was written. The
+short list is what reading and answering needs, and every one of the four only looks at things:
+
+| It may | Which is |
+|---|---|
+| Ask you a question and wait for your answer | `user.ask` |
+| Read a file in your workspace, and search the files | `files.read` |
+| Read what Branch remembers, and search it | `memory.read` |
+| Read the instructions of a skill you installed | `skills.read` |
+| Look something up on the web | `web.read` |
+
+That is the whole list. A skill is on it because a skill is instructions a task reads, not power it
+gains: every tool the instructions name is still checked against this same list when it is called, so a
+skill can describe running a command and the command is still refused. Writing a file, running code, opening a command line, the screen and keyboard,
+the clipboard, stopping a program, sending to another chat, your other devices, and your mail, calendar,
+files and house are all outside it. So are pushing to a remote and acting on GitHub: a chat's task used
+to be able to change your local copy but never publish it, and now it cannot do either unless a line
+below allows it — unlike commands and your devices, which a line can never allow. This is a change: before, a chat's task was given everything except
+a named few, so anything nobody had thought of was handed over. It is now the other way round.
+
+**Your own paired account is a chat account.** The list above is what your own phone gets too. Nothing
+makes a chat account count as you.
+
+**Allowing more, per app and per person.** The card is **Customize → Chat apps → What a chat may do
+beyond talking** (`POST /api/channels/permissions`, read back from `GET /api/channels` as
+`permissions`). It holds two things:
+
+- `extras` — off on a fresh install. While it is off, the lines below do nothing at all and every chat
+  gets the short list only.
+- `rules` — your own lines. Each names a chat app (`channel`, or `*` for every one), a person on it
+  (`sender`, or `*` for everybody), what they may also do (`allow`, a list of names such as
+  `files.write`), and a `note` in your own words. A line only covers the app and the person it names.
+
+Some names can never be in a line, whatever you write: commands on this computer or another, your other
+devices, your mail, calendar, files, music and house, your other computers running Branch, writing to
+somebody else's chat, the morning brief, the list of other assistants, installing skills or a service's
+tools, and a Trunk's messages. Most of those the tools themselves already refuse
+because the task came from a chat, so a line promising them would be promising something that cannot
+happen; commands are refused because a command can do anything you could.
+
+Those are whole families, not only the names that exist today: anything beginning `shell.`, `remote.`,
+`devices.`, `nodes.`, `personal.`, `home.` or `trunks.` is refused in a line even if it is added to
+Branch tomorrow. `skills.` and `brief.` are not families, because `skills.read` is on the short list
+above and `brief.read` only reads.
+
+**Who says yes.** A line hands a chat something that can change things, and what makes that safe is
+that the change is asked about first. So the yes cannot come from the same chat. Replying `y` in a chat
+answers a question about the short list every chat already has, and nothing else; a question about
+something one of your lines granted is shown in the chat without a Yes button and says it has to be
+approved in the app window. `n` always works from the chat, so nothing is left waiting for ever. `a`
+("yes always") was never offered for a chat's task and still is not.
+
+The lines are deliberately not part of the settings file or the whole-app presets
+(`src/settings-kit/catalogue.ts` holds `extras` alone, marked as reaching further). A settings file
+brought in from somewhere else, or a preset, can turn the switch off, but can never write a line that
+hands a chat something new. The whole thing is `src/channels/chat-permissions.ts`, still reached under
+its old name `chatPermissionsOf` from `src/channels/router.ts`, and asserted in
+`tests/chat-allowlist.test.mjs`.
 
 ### Watching and steering a task from the chat
 
@@ -843,6 +936,14 @@ Use `"type": "instagram"` for Instagram, with the professional account's id as `
 ### Sending without being asked
 
 Two tools send on the assistant's own initiative rather than answering somebody. `channels.broadcast` sends one message to several linked chats at once — leave the list empty to reach every chat that has talked to the assistant — and `channels.digest` sends the morning brief as it stands right now to one chat on any connected service. Both go through the same waiting line every reply uses, so quiet hours, splitting and retries apply unchanged: during quiet hours the message is written down and sent when they end. Both are the owner's alone: somebody else using this computer under their own profile is refused, because the chats belong to the owner. Neither is available to a task started from a chat message, so somebody you have paired cannot make the assistant write to everyone else.
+
+### Who may change the chat apps
+
+**Everything under `/api/channels` is yours alone.** The chats are the owner's, so somebody else signed in on this computer under their own profile is refused every address there, and told so in one sentence: the off / on / when-needed switches for typing, commands, steering and splitting; the More chat apps switches; approving or removing a pairing; pointing a chat at one of your conversations; sending a test message; retrying a message that is waiting; the Slack automations and starting one; what a chat's task may use beyond talking; and the addresses each service posts to, including making a new word for one. Reading is refused with the rest, because the list carries your pairings, the chats that have talked to the assistant and the secret address each service posts to. The catalogue of chat services Branch knows how to talk to carries no secret and is refused with everything else on purpose, so that a chat-app address added later is yours without anybody having to remember to say so.
+
+**The Set up panel next door goes the same way.** `/api/channel-setup` is the guided setup for these same chat apps, so all four of its addresses are yours, reading included: the panel says which apps you have set up and when, and the switch says whether guided setup is offered at all. Saving a token there was already yours; now looking is too.
+
+None of this changes what you can do, and none of it is on the road a chat service posts in on (`/webhooks/...`, which carries its own unguessable word and never the app's key), so pairing from a chat app, the Set up panels and the More chat apps card work exactly as before. A short-lived key from `branch token create` was already refused every change here and the reads that carry a secret; a task started from a chat message was already refused `channels.send`, and the assistant's own `channels.broadcast` and `channels.digest` refuse anybody but you (above). Neighbouring cards that hold your things — Devices, Personal, Reach, Trunks, Accounts, Settings — ask the same question in the same place.
 
 ### Chat services a plugin brings
 
@@ -3013,7 +3114,7 @@ The assistant has these tools, each of which asks first whether the connected pr
 - `media.trim` — cut a stretch of sound, between two times in seconds, out of a **WAV** file. This is done here in plain JavaScript; MP3, M4A, OGG and other squeezed formats need a converter, which is not part of this app, and are turned down in plain words.
 - `media.info` — how long an MP4 video or a WAV sound file runs, what kind it is and how many tracks it carries, read from the file's own headers.
 
-**What is deliberately not here.** The assistant does not make videos, and on its own it cannot pull still frames out of one: that needs a video decoder this app does not ship. With your own ffmpeg and the switch below turned on, it can (see *Watching and saving videos*). `media.info` exists so it can still reason about a video's length and shape. Sound editing is limited to trimming uncompressed WAV.
+**What is deliberately not here.** On its own the assistant does not make videos (switch on *Making videos* under *Reach and platform* to use OpenAI's or Google's video service with your own key), and on its own it cannot pull still frames out of one: that needs a video decoder this app does not ship. With your own ffmpeg and the switch below turned on, it can (see *Watching and saving videos*). `media.info` exists so it can still reason about a video's length and shape. Sound editing is limited to trimming uncompressed WAV.
 
 Reading a file is `media.read` and counts as looking, not changing; making a picture, speaking and trimming are `media.write` and are held to your approval rules like any other change. Each of those tools tells the approval rules the workspace path it would write (`media/poster.png`), so a rule about that folder fires on the path the file really gets rather than the bare name that was asked for. Every result is signed by the ordinary tool receipt, so what was made and where it was saved can be checked afterwards. A practice run reports what it would have made without calling the provider.
 
@@ -4779,7 +4880,8 @@ a yes for this conversation that runs out in an hour, or a standing rule you can
 ### Answering an approval from a chat app
 When a task started from Telegram or Discord stops to ask whether it may go ahead, the question is
 put in that chat with buttons: Yes, Yes always (only for a task you started yourself, the same rule
-the app's own card follows) and No. Telegram uses an inline keyboard, Discord an action row of
+the app's own card follows; a task a chat message started never counts as that, so a chat gets only
+Yes and No) and No. Telegram uses an inline keyboard, Discord an action row of
 message components. Each button carries its answer and the fingerprint of the exact request, so a
 yes cannot be replayed against a different one, and the conversation it belongs to is worked out
 from the chat rather than carried in the button — Telegram allows only 64 bytes there.
@@ -5467,7 +5569,8 @@ computer running Branch (`nodes.run`) and a step that sends something to another
 refused outright in `Runtime.checkPolicy`, whatever a rule says: you are not asked, you are told Lockdown is
 on. This is a change from before, when a command was asked about. A rule saved while Lockdown is on cannot
 let any other tool past without a yes. A task that was already working when Lockdown went on meets the
-refusal at its next tool call. Turning it on closes every open device socket at once, and nothing more is
+refusal at its next tool call. Stopping a running program (`process.stop`) is the one exception: it only
+lowers the risk, so it is never refused while Lockdown is on (starting one still is). Turning it on closes every open device socket at once, and nothing more is
 sent to a device while it is on. The `/lockdown` command in the app, the terminal (`branch lockdown on`)
 and the route all end earlier yeses the same way; only the owner may use any of them (a chat sender, a
 short-lived key and somebody else's profile are refused).
@@ -6972,6 +7075,106 @@ through the one tool gate (`media.image`).
 
 **macOS and Linux.** Plain Node and the window's own code; it works the same on all three systems.
 
+## Reach and platform (r17-i)
+
+Twelve parts, each with the owner's three-way switch (off, on, only when it is needed), all off at
+first. Their switches and settings are under `/api/reach/`, owner only; a short-lived key can read some
+of them and change none, except that another of your computers may hand a Trunk here a message with the
+"run" key you gave it (`POST /api/reach/trunks/inbox`, classified in `src/short-lived-keys.ts`). With a
+part off, nothing of it runs: no polling, no watching, no connection, and its tools are not offered.
+
+| Part | Where it lives | What it does |
+| --- | --- | --- |
+| Other computers side by side | Settings → Computer | The computers added under "Other computers running Branch" (bucket 23), each shown in its own column: health, what is working, conversations; start or stop a task there (`machines.list`, `machines.look`). This computer fills in the other computer's key at the moment of the call; the window never holds it. Only fixed read routes and `/api/run` and `/cancel` are asked for, which a "run" key allows, so nothing here can change another computer's settings |
+| Trunks on other computers | Customize → Specialists | Each computer shares only the names and titles of its Trunks; a Trunk over there is `@name-computer`, and a Trunk here can message it with a receipt and at most one retry (`trunks.remote.roster`, `trunks.remote.message`). An arriving message is taken only from a computer you added **and only with the key you paired with that computer** (see below), quoted as that computer's text, capped at 4,000 characters and 30 an hour. Wired to R17-A's Trunks through `TrunkRoster` (`src/reach/trunk-roster.ts`): only Trunks that are not hidden, only while Trunks and their messages are on here, and an arriving message starts a turn marked as another assistant's task, with narrowed permissions |
+| Using apps in the background | Settings → Computer | Lists windows and their named controls, presses a control or sets a field's text through the accessibility tree, without moving the pointer or the focus (`screen.background`). Mac: one fixed JavaScript for Automation script that never brings an app forward. Linux: one fixed Python script over AT-SPI, and `xdotool type --window` |
+| Making videos | Settings → Models → Media | A 4, 8 or 12 second video from a description, through OpenAI (`/v1/videos`) or Google's Gemini API (Veo, `predictLongRunning`), with a key kept in Secrets; saved under `made/videos/` (`video.generate`). Each video costs money at that service, is priced before it is asked for, and counts against the task's spending limit and this month's budget (see below) |
+| A relay that holds your chat app accounts | Customize → Channels | Branch polls a relay you run over https; every message is sealed with AES-256-GCM under a key derived from a pairing secret in Secrets, bound to both ends' ids and the time. A message not addressed to this computer, not from the paired relay, older than five minutes, repeated (**including after a restart**), or from a chat app you did not allow is dropped. Branch only answers chats that wrote to it through the relay first and never passes a message on, so it cannot be used as an open relay. Arriving messages go through the ordinary sender list and pairing |
+| Sending from a script | Customize → Channels | `branch send <chat app> <chat> [words]`, or pipe the words in. Only to a chat that has already talked to Branch, through the ordinary delivery and outbound check |
+| Pausing a chat app | Customize → Channels | A paused chat app's messages are let go without an answer. Pause in the window, with `/platform pause <chat app>` in the window or terminal, or from a chat app with `/platform pause`, `resume` or `status`, which is taken only from a direct chat with one of the accounts you list as your own (chat app and exact sender id), and **only when it is a message sent while Branch was running**: a `/platform` sent while Branch was closed and fetched afterwards is let go in silence, so an old message cannot pause or resume anything hours later. Switching the part off puts every chat app back |
+| Sharing the assistant through git | Customize → Skills | Writes specialists, procedures and skills (never rules, model choices, memory or secrets) into a workspace folder for you to commit; follows an https repository with a shallow clone that runs no hooks, follows no redirects and asks for no password. Imports follow the market's rules (`bringInShareable`): fingerprints checked, nothing of yours rewritten, new skills off. Updating replaces only what arrived from that repository and is unchanged since |
+| Skill bundles | Customize → Skills | Several skills in one `.branch-skills` file with a fingerprint each; looking installs nothing, bringing in uses the market's rules (`skills.bundle.preview`) |
+| USB devices | Settings → Computer | A task starts when a device you named (vendor and product id, and serial when given) is plugged in; each device starts off and is switched on by you. Read once a minute from `/sys/bus/usb/devices` on Linux or `ioreg -p IOUSB` on a Mac; nothing starts under Lockdown, at most once every ten minutes per device, and the task is held by your approval rules like a trigger's (`usb.devices`) |
+| Notes | Library → Documents | Short notes kept in Branch's database; "Suggest a rewrite" (clearer, shorter, fix, list, formal) returns a suggestion that changes the note only if you keep it (`notes.list`, `notes.rewrite`) |
+| Model arena | Settings → Models → Second opinion | Two connections chosen at random answer the same question as A and B; your pick moves their Elo ratings (1000 to start, K 32) and only then are the names shown. "Both bad" changes nothing |
+
+The relay's settings (`/api/reach/relay/settings`) are `address` (https only), `relayId` (the relay's
+own id), `secret` (the name of the pairing secret in Secrets), `platforms` (the chat apps it may bring)
+and `machineId` (this computer's id at the relay, made once and not secret). Video settings are
+`service` (`openai` or `google`), `secret` (empty means `OPENAI_API_KEY` or `GEMINI_API_KEY`), `model`,
+`perDay` (at most this many videos a day, 3 at first) and `pricePerSecond` (your own price for one
+second of video, in dollars; empty uses the figures below); the chat pause keeps `owners` (your own
+accounts) and `paused` (the chat apps paused).
+
+**Which computer a Trunk message really comes from.** A message arriving at `POST /api/reach/trunks/inbox`
+says which computer it is from, but saying so is not proof. Branch believes the short-lived key the
+request came with instead: you pair each of your other computers with the key you gave it, and a message
+whose key is paired with nobody, or with a different computer than the message claims, is refused before
+anything is delivered. The message is then marked with the paired computer's name, not the name it wrote.
+To pair one: make a "run" key for that computer with `branch token create`, note the key's id from
+`branch token list`, and send `POST /api/reach/trunks/keys` with `{ "machine": "<the computer's id>",
+"keyId": "<the key's id>" }`. `GET /api/reach/trunks/keys` lists the pairs (ids only, never keys) and
+`POST /api/reach/trunks/keys/remove` with `{ "keyId": … }` takes one back. Pairing a computer again
+retires its previous key. Both changes are yours alone: a short-lived key cannot pair itself. Until a
+computer is paired, its messages are refused, which is the safe way round.
+
+**What one video costs.** Before a video is asked for, Branch works out what it will cost: the seconds
+you asked for times the price for one second of that model. The prices it knows are $0.10 for `sora-2`,
+$0.50 for `sora-2-pro`, $0.35 for `veo-2.0-generate-001`, $0.75 for `veo-3.0-generate-001` and
+`veo-3.1-generate-preview`, and $0.40 for the two `fast` Veo models. **These are published figures that
+the services change without notice, so treat every one as an estimate rather than a bill.** A model that
+is not in that list is counted at $0.75 a second, which is deliberately higher than any price above; the
+practice run says so in its answer. Put the right figure in yourself under `pricePerSecond` if you know
+it. The figure is written on the task as a spending record the moment the video is asked for — the money
+is gone at the service whether or not the file arrives — so a task's own spending limit (Settings →
+Permissions) counts videos alongside what the model costs, and so does this month's budget on the Usage
+screen. A video that would take the task past its limit, or this month past its dollar budget while
+"pause at budget" is on, is refused before the service is asked, and it does not use up one of the day's
+videos. The daily cap (`perDay`) is unchanged and still checked. One gap worth knowing: this month's
+figure counts finished tasks plus the task asking for the video, so a video another task is making at
+this very moment is not in it yet.
+
+**Who can use these (integration review).** Every reach tool is the owner's alone: a household
+profile, a signed-in person, a short-lived key, and work another assistant or program started
+(including a Trunk message from another computer) are refused before the tool does anything. Another
+computer's key only travels over https, or plain http on this computer or your Tailscale network.
+Using apps in the background keeps the ordinary screen rules: it only works while "Allow the
+assistant to use my screen and keyboard" is on (so Lockdown stops it), it has the same allowance of
+actions per task, password and sign-in windows are marked off limits and never looked into, pressed or
+typed into, and a saved-password placeholder is never typed. A practice run of `video.generate` spends
+nothing. Changing a USB rule's device or task switches it off again. While Lockdown is on, every change
+under `/api/reach/` is refused except switching a part off, the relay is neither asked nor sent to,
+`branch send` sends nothing, and no USB task starts. Lockdown also answers "off" for the parts that reach
+past this computer (other computers, Trunks elsewhere, background apps, videos, the relay, sending,
+git sharing, bundles, USB) whatever was saved, refuses their tools in the approval check, and stops a
+Trunk message from another computer that is already working. Notes, the arena and pausing a chat app
+are left alone. The twelve switches are in the
+settings catalogue as settings that reach further when raised.
+
+The notes workspace and the arena are ideas from Open WebUI, whose licence allows study only: they were
+written from the idea, and no code or wording was taken. The other parts follow ideas from Hermes Agent
+and PicoClaw (MIT; see `THIRD_PARTY_NOTICES.md`), written afresh.
+
+**Termux, Nix and a container image.** `src/install/container-files.ts` writes
+`packaging/docker/Dockerfile` (with `.dockerignore`), `flake.nix` and
+`packaging/termux/install-branch-termux.sh`; a test keeps the files in the repository equal to it.
+Nothing is built or run here. The image runs `node dist/cli.js start` as a user without rights, keeps
+data in `/data` and the workspace in `/workspace`, and downloads no browser. The engine inside only
+listens on 127.0.0.1, as everywhere: run the container with `--network host` on Linux to open the
+window, or reach it through chat apps. The flake reads `package-lock.json` directly, so it keeps no
+hash; `nix run github:stabrea/Branch-Agent -- start`. The Termux script installs the release's
+`branch-agent-<version>.tgz` after checking its `.sha256` (Node 24 or newer from `pkg`); `--uninstall`
+removes it, and a missing or wrong checksum stops it before anything is installed. Both files are now
+attached to every version's release by the Package workflow, which builds the `.tgz` on the Linux runner
+and writes the checksum beside it; the release stops rather than ships if the file is missing, if its
+checksum does not match, or if the version in `package.json` does not match the tag. A file already on a
+release is never replaced. Browser tools and the desktop app are not available on Android.
+
+**macOS and Linux.** Background app use, the USB reader and the `ioreg`/`/sys` readers are the only
+parts that differ by system; each takes its program runner as a parameter and is tested with fakes, so
+no test asks macOS for a permission. On Windows, background app use and the USB trigger say plainly that
+they are not available. Everything else is plain Node and behaves the same on all three systems.
+
 ## Flows and boards (r17-h)
 
 Seven parts, each with the owner's three-way switch (off, on, only when it is needed), all off at
@@ -6988,6 +7191,12 @@ any of them makes goes through the one tool gate (`src/tool-gate.ts`).
 | The waiting line | Automations → Scheduled | Reword, move or take out the messages waiting in a conversation and the tasks waiting for room (a move never puts automatic work ahead of yours). Only you do this, in the window or your own terminal: a short-lived key or a household person can look with `/queue` but never reword, move or remove, because a waiting message runs as whoever queued it. While a task works, what you type waits (as before), is passed on as the trusted steer note, or stops the task and goes next (`/queue`, `/busy`) |
 | Focus view | Settings → Appearance | Shows only what you asked and the final answers; tool steps and in-between replies are folded away until you switch it off. Kept per browser (`/focus`) |
 | Package and tool server requests | Inbox → Needs you | The assistant or a chat can ask for an npm or PyPI package or a tool server (`install.request`, `/installs request`). The public list of harmful packages (OSV) is asked first, as the malware check does; one named as malware is refused on the spot. Only you answer — in the window or your own terminal, never from a chat app, a short-lived key or a household person — and a request the list could not be asked about needs "approve without the check". Every yes asks the list again, so a package named as malware since it was requested is refused. A yes installs nothing: it comes back with the exact command or server settings to use (`install.requests`) |
+
+**Work a task set going keeps to that task's tools.** A copy made by going back in a flow that a task
+started or carried on keeps that task's limit (the run's `flow-run-limit:<runId>` record is kept while its
+steps are kept), even though you pressed the button. Checks and clean-up of a procedure a task asked for
+(`procedures.replay_checked`) hold only the task's tools, and a step, check or clean-up outside them is
+refused in a plain sentence ("The task that asked for this recipe may not use …") before anything runs.
 
 **macOS and Linux.** Everything here is plain Node and behaves the same on all three systems; a check
 script runs wherever `code.run` runs, under its own sandbox settings. `BRANCH_OSV_ENDPOINT` points the
@@ -7994,7 +8203,7 @@ owner's profile only; a short-lived key may read, and may use the two searches
 | Skill usage and merging | Tasks that used each skill over the last 100 tasks (the report says when that is all it saw); skills whose wording overlaps; a dry run of a merge; the merge itself is two review-queue suggestions (a new, tried version of the kept skill, and setting the other aside). | `skills.usage` |
 | Timeline | Facts saved and changed, skills written, the owner's decisions, the learning core's habits, and kept or dropped lessons, newest first, filterable by kind and date. | `learning.journey` |
 | Meaning search | Conversations compared by meaning through the same embeddings route memory search uses, filtered by who spoke and when the conversation started; word search when no route is connected. Key-like values are hidden before text is sent. Only the owner's own tasks can use it, not a Trunk or specialist. | `history.meaning` |
-| Lessons from failed evaluation tasks | A failed suite task leaves a lesson on trial; a later task whose learning-core situation code overlaps it is shown the lesson, and that task's result is credited. After 2 passes at two thirds or better it is offered as a fact to remember; after 2 failures below half it is dropped. | `lessons.list` |
+| Lessons from failed evaluation tasks | A failed suite task leaves a lesson that waits for your yes on the Lessons card (**Try this lesson** or **Turn it down**, `POST /api/learning-more/lessons/decide { id, approve }`); nothing is shown to any task until you approve it. An approved lesson goes on trial; a later task whose learning-core situation code overlaps it is shown the lesson, and that task's result is credited. After 2 passes at two thirds or better it is offered as a fact to remember; after 2 failures below half it is dropped. | `lessons.list` |
 | Preferences from Claude Code and Codex | Off twice: the switch, and one opt-in per assistant. Reads only `projects/` (Claude Code) and `sessions/` (Codex) in their home folders, only what the owner typed (command output, agent notices and compacted summaries are skipped; at most 256 MB is read per assistant in one look), only preference sentences seen in two chats or more; a sentence holding a key-like value is dropped. The look shows everything; only ticked items are kept, as preferences. | none (owner only) |
 | Expiring memories | Labels and an expiry date on a fact; an expired fact is set aside (restorable) at the start and end of each task, and never reaches a conversation's snapshot. Search by label and by created or changed date. Correcting a fact's words keeps its labels and expiry; a fact the owner puts back after it expired is kept for good. With the switch off, expiry dates already set are ignored: nothing is swept or left out. | `memory.find`, `memory.label` |
 | Note read-back | Edits the owner makes in the `memory/` notes become review-queue suggestions before the notes are written again; the assistant's own file tools still cannot write there. The owner can write tidy instructions; "Tidy now" asks the model once and stages its ideas. | none |

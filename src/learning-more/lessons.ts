@@ -8,7 +8,8 @@ import type { Store } from "../store.js";
 /**
  * R17-056: learning from evaluation tasks that failed — tasks with a known right answer — and
  * keeping only the lessons that pay off later. After a suite run, each failed task leaves a
- * "trial" lesson in words (what went wrong, from the grader). Later tasks that look like it are
+ * "pending" lesson in words (what went wrong, from the grader). Nothing is tried until the owner
+ * approves it (`approve`), which puts it on "trial"; one they turn down is dropped. Later tasks that look like it are
  * shown the lesson (the part "on": at the start of the task; "when needed": through
  * `lessons.list`), and each evaluation result for a task that was shown a lesson is credited to it.
  * A lesson that goes on to pass at least `keepAfter` times, and mostly, is offered to the owner as a
@@ -28,11 +29,12 @@ export const matchOverlap = 0.3;
 export const lessonsShown = 3;
 export const lessonEvent = "learning-more.lessons";
 export interface Lesson {
-  id: string; taskId: string; text: string; status: "trial" | "kept" | "dropped";
+  id: string; taskId: string; text: string; status: "pending" | "trial" | "kept" | "dropped";
   shown: number; passes: number; failures: number; proposalId: string | null; createdAt: string; updatedAt: string;
 }
 interface Outcome { id: string; runId: string | null; passed: boolean; skipped: boolean; problem?: string | null; reason?: string | null }
 export const ListLessonsSchema = z.object({ query: z.string().trim().max(2000).default("") }).strict();
+export const DecideLessonSchema = z.object({ id: z.string().trim().min(1).max(64), approve: z.boolean() }).strict();
 
 const expansions = new Map<string, Expansion>();
 function expansionFor(owner: string): Expansion {
@@ -99,6 +101,20 @@ export class EvaluationLessons {
     return report;
   }
 
+  /**
+   * The owner's answer about a lesson waiting for approval: yes puts it on trial, so matching tasks are
+   * shown it; no drops it. A lesson that is no longer waiting is left as it is.
+   */
+  decide(owner: string, input: unknown): Lesson {
+    const { id, approve } = DecideLessonSchema.parse(input ?? {});
+    const row = this.db.prepare("SELECT * FROM lm_lessons WHERE owner=? AND id=?").get(owner, id);
+    if (!row) throw new Error("That lesson is no longer saved.");
+    if (toLesson(row).status !== "pending") throw new Error("That lesson is not waiting for your answer any more.");
+    this.db.prepare("UPDATE lm_lessons SET status=?, updated_at=? WHERE id=?")
+      .run(approve ? "trial" : "dropped", new Date().toISOString(), id);
+    return toLesson(this.db.prepare("SELECT * FROM lm_lessons WHERE id=?").get(id)!);
+  }
+
   forget(owner: string): number {
     this.db.prepare("DELETE FROM lm_lessons_read WHERE owner=?").run(owner);
     return Number(this.db.prepare("DELETE FROM lm_lessons WHERE owner=?").run(owner).changes);
@@ -126,13 +142,14 @@ export class EvaluationLessons {
     return status;
   }
   private write(owner: string, outcome: Outcome): boolean {
-    if (this.db.prepare("SELECT 1 AS found FROM lm_lessons WHERE owner=? AND task_id=? AND status='trial'").get(owner, outcome.id)) return false;
+    if (this.db.prepare("SELECT 1 AS found FROM lm_lessons WHERE owner=? AND task_id=? AND status IN ('pending','trial')").get(owner, outcome.id)) return false;
     const prompt = this.store.run(outcome.runId!)?.prompt ?? "";
     const why = String(outcome.problem || outcome.reason || "").replace(/\s+/g, " ").trim().slice(0, 300);
     if (!prompt || !why) return false;
     const { text } = redactLeaks(`For a request like "${prompt.replace(/\s+/g, " ").slice(0, 120)}", an earlier answer failed its check: ${why}. Make sure the answer avoids that.`);
     const now = new Date().toISOString();
-    this.db.prepare("INSERT INTO lm_lessons VALUES(?,?,?,?,?,'trial',0,0,0,NULL,?,?)")
+    // Waits for the owner's yes before any task is shown it (matching reads only trial and kept lessons).
+    this.db.prepare("INSERT INTO lm_lessons VALUES(?,?,?,?,?,'pending',0,0,0,NULL,?,?)")
       .run(randomUUID(), owner, outcome.id, JSON.stringify(situationOf(owner, prompt)), text, now, now);
     return true;
   }

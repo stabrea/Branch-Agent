@@ -233,7 +233,7 @@ export interface ToolContext {
   /** Practice run: tools that would change something report what they would have done instead. */
   dryRun?: boolean;
   /** Who started this task; anything but the owner is held to the "Ask before changes" policy. */
-  source?: "owner" | "trigger" | "schedule" | "mcp" | "a2a" | "acp";
+  source?: "owner" | "trigger" | "schedule" | "mcp" | "a2a" | "acp" | "channel";
   /**
    * Where answers already given are remembered when there is no conversation to remember them
    * against: a saved workflow uses its own name here, so a yes given to one of its steps still

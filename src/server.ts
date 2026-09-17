@@ -113,6 +113,8 @@ import { autonomyApi, AutonomyHttpError, handlesAutonomyPath } from "./autonomy/
 import { handlesTrunksPath, trunksApi, TrunksHttpError } from "./trunks/api.js"; // R17-A: Trunks
 import { codingApi, CodingHttpError, handlesCodingPath } from "./coding/api.js"; // mac7/r17-d: coding polish
 import { handlesPersonalPath, personalApi, PersonalHttpError } from "./personal/api.js"; // R17-C
+import { handlesReachPath, reachApi, ReachHttpError } from "./reach/api.js"; // r17-i
+import { reachKey, reachParts } from "./reach/settings.js"; // r17-i integration review
 import { handlesSafetyPath, safetyApi, SafetyHttpError } from "./safety-extras/api.js"; // mac7/r17-g: the safety extras
 import { codesResting, confirmWithCode, restingRefusal } from "./safety-extras/code-approvals.js"; // mac7/r17-g
 import { reservedProjectId } from "./projects.js"; // mac7/r17-g integration review
@@ -450,6 +452,7 @@ async function staticFile(
     "/trunks.js": ["trunks.js", "text/javascript; charset=utf-8"], // R17-A
     "/coding.js": ["coding.js", "text/javascript; charset=utf-8"], // mac7/r17-d
     "/personal.js": ["personal.js", "text/javascript; charset=utf-8"], // R17-C
+    "/reach.js": ["reach.js", "text/javascript; charset=utf-8"], // r17-i
     "/safety-extras.js": ["safety-extras.js", "text/javascript; charset=utf-8"], // mac7/r17-g
     "/flows-boards.js": ["flows-boards.js", "text/javascript; charset=utf-8"], // r17-h
     "/learning-more.js": ["learning-more.js", "text/javascript; charset=utf-8"], // R17-F
@@ -466,6 +469,7 @@ async function staticFile(
     "/second-opinion.js": ["second-opinion.js", "text/javascript; charset=utf-8"],
     // Wave mac2 (chat-live): the chat-app switches card under Customize, Chat apps.
     "/chat-live.js": ["chat-live.js", "text/javascript; charset=utf-8"],
+    "/chat-permissions.js": ["chat-permissions.js", "text/javascript; charset=utf-8"], // mac7/chat-allowlist
     "/skill-revisions.js": ["skill-revisions.js", "text/javascript; charset=utf-8"],
     // Wave mac3 (channels-parity): the switches for the chat services added to match other assistants.
     "/channels-more.js": ["channels-more.js", "text/javascript; charset=utf-8"],
@@ -664,8 +668,8 @@ async function testProvider(body: unknown, policy: NetworkPolicy): Promise<unkno
 
 function providerFailureReason(error: unknown): string {
   const text = errorText(error);
-  if (/(401|403)|invalid.*key|unauthori|forbidden/i.test(text)) return "The key was not accepted. Check it and try again.";
-  if (/404|not found|no such model|does not exist/i.test(text)) return "That model name was not found at this address.";
+  if (/\b(401|403)\b|invalid.*key|unauthori|forbidden/i.test(text)) return "The key was not accepted. Check it and try again.";
+  if (/\b404\b|not found|no such model|does not exist/i.test(text)) return "That model name was not found at this address.";
   if (/ENOTFOUND|ECONNREFUSED|fetch failed|timed? ?out|abort/i.test(text)) return "Could not reach that address. Check the URL and your connection.";
   if (/private|blocked|policy|requires HTTPS/i.test(text)) return "That address is not allowed: " + text.slice(0, 120);
   return "The provider answered with an error: " + text.slice(0, 160);
@@ -938,6 +942,10 @@ async function api(
         "security-check": (patch) => app.security.configure(patch),
         ...Object.fromEntries((["analytics", "answer-engine", "runtimes", "nodes", "project-board"] as const)
           .map((part) => [`asks-${part}`, (patch: Record<string, unknown>) => { app.asks.setMode(part, patch); }])),
+        // r17-i integration review: a reach switch saved through Reach, so its tools and the relay follow at once.
+        ...Object.fromEntries(reachParts.map((part) => [reachKey(part), (patch: Record<string, unknown>) => {
+          void app.reachParts.setMode(part, patch).catch(() => undefined); // the record is saved before the first await
+        }])),
       },
       guard: (target) => protectedTarget({ tool: "files.write", readOnly: false, args: { path: target }, target,
         workspace: app.runtime.workspace }, app.runtime.protectedAreas),
@@ -2025,6 +2033,25 @@ async function webhooksApi(app: Branch, request: IncomingMessage, path: string):
   throw new HttpError(404, "Endpoint not found");
 }
 async function channelsApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
+  // mac7/channels-owner: the chats are the owner's, so the whole of /api/channels is theirs.
+  //
+  // Until now only `/api/channels/permissions` asked who was there (the check inside
+  // `saveChatPermissionSettings`). Everything else — the live switches, the parity switches, the
+  // pairing approvals and removals, the link to a conversation, a test message, the webhook
+  // addresses and their rotation — was open to anybody signed in on this computer under their own
+  // profile. A household person could approve their own pairing code, point a chat at a
+  // conversation, or read the secret address each chat service posts to.
+  //
+  // The check is here, once, before the routes rather than on each of them, so a route added
+  // tomorrow is the owner's without anybody having to remember. The reads are the owner's too: the
+  // summary carries their pairings and chats, the addresses carry a secret, and the waiting Slack
+  // events carry message text. The catalogue of supported services holds no secret and is guarded
+  // with the rest on purpose — one exception here is how the next one gets written.
+  //
+  // This does not change what the owner or the app window can do, and it is not on the path a chat
+  // service posts in on (`/webhooks/...`, answered further up with its own unguessable word), so
+  // pairing, the setup cards and the parity checks work exactly as before.
+  app.store.profiles.requireOwner("Your chat apps");
   const owner = app.runtime.owner;
   // Wave mac3 (channels-parity): the list of added chat services and their off / on / when-needed switches.
   if (path === "/api/channels/parity")
@@ -2048,6 +2075,8 @@ async function channelsApi(app: Branch, request: IncomingMessage, path: string):
   if (request.method === "POST" && path === "/api/channels/link") return app.channels.link(owner, await readBody(request));
   // Wave mac2 (chat-live): the on / off / when-needed switches for typing, commands, steering and splitting.
   if (request.method === "POST" && path === "/api/channels/live") return { live: app.channels.setSwitches(await readBody(request)) };
+  // mac7/chat-allowlist: the switch and the list for what a chat's task may use beyond talking.
+  if (request.method === "POST" && path === "/api/channels/permissions") return { permissions: app.channels.setPermissionSettings(await readBody(request)) };
   if (request.method === "POST" && path === "/api/channels/test") {
     const { channel, chatId } = z.object({ channel: z.string().min(1).max(64), chatId: z.string().min(1).max(64) }).strict().parse(await readBody(request));
     return app.channels.deliver(channel, chatId, "Test message from Branch Agent: this channel is connected and working.", `test:${Date.now()}`);
@@ -2806,6 +2835,21 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
           return;
         }
         // ---- end of the R17-C block ----
+        // ---- r17-i: reach and platform under /api/reach; the owner's alone (one peer route: src/reach/api.ts). ----
+        if (handlesReachPath(path)) {
+          app.store.profiles.requireOwner("Reach and platform");
+          const answer = await reachApi({
+            reach: app.reachParts, method: request.method ?? "GET",
+            query: new URL(request.url ?? "/", "http://local").searchParams, readBody: () => readBody(request, 262144),
+            // mac7/reach-leftovers: which short-lived key this came with, for the Trunks inbox.
+            keyId: shortLivedKeyMark().keyId,
+          }, path).catch((error: unknown) => {
+            throw error instanceof ReachHttpError ? new HttpError(error.status, error.message) : error;
+          });
+          send(response, 200, answer);
+          return;
+        }
+        // ---- end of the r17-i block ----
         // ---- mac7/r17-g: the safety extras under /api/safety-extras (src/safety-extras/api.ts); the owner's alone. ----
         if (handlesSafetyPath(path)) {
           app.store.profiles.requireOwner("The safety extras");
@@ -3421,6 +3465,8 @@ function isExecution(request: IncomingMessage, path: string): boolean {
     || (request.method !== "GET" && handlesCodingPath(path))
     // R17-C: every change under /api/personal may reach an outside service or start a program.
     || (request.method !== "GET" && handlesPersonalPath(path))
+    // r17-i: every change under /api/reach may start work (a task elsewhere, a video, a send, an import).
+    || (request.method !== "GET" && handlesReachPath(path))
     // mac7/r17-g: every change under /api/safety-extras may run something (a WebAssembly add-on).
     || (request.method !== "GET" && handlesSafetyPath(path))
     // r17-h: every change under /api/flows-boards may start work (a flow copy, a procedure, a card's task).

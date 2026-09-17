@@ -93,6 +93,13 @@ Inside a conversation there are no homes to add to, only two surfaces with stric
 | Focus view (`mac7/r17-h`) | `settings:appearance`; `/focus` lives in the message box |
 | Requests for new packages and tool servers (`mac7/r17-h`) | `inbox:needs` |
 | What installed skills need on this computer (`mac7/r17-b`) | `customize:skills` |
+| Other computers side by side, using apps in the background, USB devices (`mac7/r17-i`) | `settings:computer` |
+| Trunks on other computers (`mac7/r17-i`) | `customize:specialists`, beside the Trunks card |
+| Making videos (`mac7/r17-i`) | `settings:models:media` |
+| The chat relay, sending from a script and pausing chat apps (`mac7/r17-i`) | `customize:channels`; `/platform` lives in the message box |
+| Sharing the assistant through git, skill bundles (`mac7/r17-i`) | `customize:skills` |
+| Notes with rewriting (`mac7/r17-i`) | `library:documents` |
+| Model arena (`mac7/r17-i`) | `settings:models:second` |
 | TOOLS.md | `customize:skills` |
 | DREAMS.md and other things the assistant writes for the owner | `library:made` |
 | Cheaper and faster model routing | `settings:models:defaults` |

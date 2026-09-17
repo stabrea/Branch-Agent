@@ -1,0 +1,15 @@
+# Written by src/install/container-files.ts. Nothing private or built goes into the image's build.
+.git
+node_modules
+dist
+coverage
+.env
+.env.*
+.branch
+workspace
+*.log
+.DS_Store
+.claude
+apps
+experiments
+tests

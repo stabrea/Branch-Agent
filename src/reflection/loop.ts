@@ -120,10 +120,11 @@ export class LearningLoop {
   newSkills(): NewSkillDraft[] { return this.drafts.list(); }
 
   /** Called by the runtime once a task of the owner's has settled (src/reflection/hook.ts). */
-  async afterTask(run: Run, ask: Ask): Promise<void> {
+  async afterTask(run: Run, ask: Ask, fromChat = false): Promise<void> {
     if (run.prompt.startsWith(learningTaskPrefix) || this.store.sessionTemporary(run.sessionId)) return;
     const settings = this.settings();
-    const asked = learnCommand.exec(run.prompt.trim());
+    // "/learn" is the owner's word; a chat message cannot prove who is typing, so from a chat it is ordinary text.
+    const asked = fromChat ? null : learnCommand.exec(run.prompt.trim());
     if (asked && settings.newSkills !== "off" && !this.store.events(run.id).some((event) => event.kind === "skill.learn_started")) {
       try { this.learn({ sessionId: run.sessionId, notes: run.prompt.trim().slice(asked[0].length), runId: run.id }); }
       catch (error) { this.jobs.start("Make a conversation into a skill", () => Promise.reject(error)); }

@@ -6,7 +6,7 @@ import type { Knowledge } from "../knowledge.js";
 import type { RunSource } from "../policy.js";
 import type { InputValue } from "../recipes.js";
 import type { Runtime } from "../runtime.js";
-import type { ToolGateMode } from "../tool-gate.js";
+import { outsideRecipeRefusal, type ToolGateMode } from "../tool-gate.js";
 import { boardTools, partRecord, requirePart } from "./settings.js";
 
 /**
@@ -170,8 +170,10 @@ export class RecipeChecker {
     if (startsWork(call.tool)) throw refusal(call.tool, startsWorkRefusal(call.tool));
     // A task never reaches past what it may do itself, whatever the check asks for.
     if (options.permissions && !options.permissions.has(runtime.registry.permissionOf(call.tool)))
-      throw refusal(call.tool, `${call.tool} needs a permission this task does not have`);
-    const run = () => runtime.executeTool(call.tool, call.args, { mode: options.mode, source: options.source, approvalKey: `recipe-checks:${procedureId}`, signal });
+      throw refusal(call.tool, outsideRecipeRefusal(call.tool));
+    // The check itself holds only what the task holds, too.
+    const within = options.permissions ? { within: [...options.permissions] } : {};
+    const run = () => runtime.executeTool(call.tool, call.args, { mode: options.mode, source: options.source, approvalKey: `recipe-checks:${procedureId}`, signal, ...within });
     if (!options.runId) return run();
     // Integration review: the repeated-call guard of the task sees every check; one it refuses ends the run.
     let ran = false;

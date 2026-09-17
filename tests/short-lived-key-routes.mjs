@@ -94,6 +94,7 @@ export const ROUTES = {
   "/api/channels/pairings/approve": "owner POST",
   "/api/channels/pairings/remove": "owner POST",
   "/api/channels/parity": "owner POST",
+  "/api/channels/permissions": "owner POST",
   "/api/channels/slack-automations": "secret-read",
   "/api/channels/slack-automations/run": "task POST",
   "/api/channels/test": "owner POST",
@@ -391,6 +392,46 @@ export const ROUTES = {
   "/api/personal/x": "secret-read",
   "/api/personal/x/search": "other POST",
   // ---- end of the R17-C block ----
+  // ---- r17-i: reach and platform (src/reach/api.ts); every change is the owner's but a Trunk's message from another computer ----
+  "/api/reach": "look",
+  "/api/reach/": "prefix",
+  "/api/reach/arena": "look",
+  "/api/reach/arena/start": "owner POST",
+  "/api/reach/arena/vote": "owner POST",
+  "/api/reach/bundles/install": "owner POST",
+  "/api/reach/bundles/preview": "owner POST",
+  "/api/reach/bundles/write": "owner POST",
+  "/api/reach/git/install": "owner POST",
+  "/api/reach/git/publish": "owner POST",
+  "/api/reach/git/remove": "owner POST",
+  "/api/reach/git/update": "owner POST",
+  "/api/reach/machine-name": "owner POST",
+  "/api/reach/machines": "look",
+  "/api/reach/machines/all": "owner POST",
+  "/api/reach/machines/look": "owner POST",
+  "/api/reach/machines/start": "owner POST",
+  "/api/reach/machines/stop": "owner POST",
+  "/api/reach/notes": "other POST",
+  "/api/reach/notes/remove": "other POST",
+  "/api/reach/notes/rewrite": "other POST",
+  "/api/reach/platforms/owners": "owner POST",
+  "/api/reach/platforms/pause": "owner POST",
+  "/api/reach/relay/settings": "owner POST",
+  "/api/reach/send": "owner POST",
+  "/api/reach/switch": "owner POST",
+  "/api/reach/trunks/inbox": "task POST",
+  // mac7/reach-leftovers: pairing a computer with the key it sends with is the owner's own change.
+  "/api/reach/trunks/keys": "owner POST",
+  "/api/reach/trunks/keys/remove": "owner POST",
+  "/api/reach/trunks/message": "owner POST",
+  "/api/reach/trunks/remote": "owner POST",
+  "/api/reach/trunks/roster": "look",
+  "/api/reach/usb/devices": "owner POST",
+  "/api/reach/usb/enable": "owner POST",
+  "/api/reach/usb/remove": "owner POST",
+  "/api/reach/usb/rules": "owner POST",
+  "/api/reach/video/settings": "owner POST",
+  // ---- end of the r17-i block ----
   // ---- r17-h: flows and boards (src/flows-boards/api.ts); reading is looking, every change is the owner's ----
   "/api/flows-boards": "look",
   "/api/flows-boards/": "prefix",
@@ -436,6 +477,7 @@ export const ROUTES = {
   "/api/learning-more/curator/merge": "owner POST",
   "/api/learning-more/journey": "look",
   "/api/learning-more/lessons": "look",
+  "/api/learning-more/lessons/decide": "owner POST",
   "/api/learning-more/lessons/forget": "owner POST",
   "/api/learning-more/memory/find": "task POST",
   "/api/learning-more/memory/label": "other POST",
@@ -915,6 +957,8 @@ export const OUTBOUND = [
   /^src\/(cli|cli-attach|api-openapi|short-lived-keys)\.ts$/, /^src\/install\//, /^src\/desktop\//,
   /^src\/never-break\/gateway\.ts$/, /^src\/commands\/catalog\.ts$/,
   /^src\/channel-setup\/cli\.ts$/, // mac7/connect: `branch connect` calls the Set up routes of the running Branch
+  // r17-i: callers of other computers' routes and of the relay's, not routes of this one.
+  /^src\/reach\/(machines|remote-trunks|relay)\.ts$/,
 ];
 
 export const SAMPLE_ID = "0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f";

@@ -1,4 +1,5 @@
 import type { Run, ToolContext } from "../contracts.js";
+import { startedFromChat } from "../key-context.js";
 import type { Runtime } from "../runtime.js";
 import type { LearningLoop } from "./loop.js";
 import type { Ask } from "./pass.js";
@@ -17,6 +18,6 @@ export function attachLearningLoop(runtime: Runtime, loop: LearningLoop): void {
 export async function learnAfterTask(runtime: Runtime, run: Run, context: ToolContext, ask: Ask): Promise<void> {
   const loop = attached.get(runtime);
   if (!loop || context.dryRun || context.owner !== loop.owner) return;
-  try { await loop.afterTask(run, ask); }
+  try { await loop.afterTask(run, ask, startedFromChat(context, runtime.store)); }
   catch (error) { runtime.store.event(run.id, "learning.look_back_failed", { error: error instanceof Error ? error.message : String(error) }); }
 }

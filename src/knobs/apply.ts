@@ -47,7 +47,7 @@ export function retryPolicyFor(store: Reader, owner: string, policy: RetryPolicy
  * sub-task it started, so what a sub-task spends counts against the task that started it. A model
  * with no price on file cannot be checked; `unpriced` then says so in one sentence.
  */
-export function spendCapCheck(store: Store, owner: string, runIds: readonly string[], model: string): { refusal: string | null; unpriced: string | null } {
+export function spendCapCheck(store: Store, owner: string, runIds: readonly string[], model: string, extraDollars = 0): { refusal: string | null; unpriced: string | null } {
   const cap = readKnobs(store, owner, "limits").spendCapDollars;
   if (cap === null) return { refusal: null, unpriced: null };
   const used = { input: 0, output: 0 };
@@ -56,11 +56,31 @@ export function spendCapCheck(store: Store, owner: string, runIds: readonly stri
     used.input += usage.reportedInput || usage.estimatedInput || 0;
     used.output += usage.reportedOutput || usage.estimatedOutput || 0;
   }
+  // mac7/reach-leftovers: what the task spent outside the model's tokens (a video, for one) counts too.
+  const apart = recordedSpend(store, runIds) + extraDollars;
   const estimate = estimateCost(model, used, pricingSettings(store, owner).overrides);
+  const over = (amount: number): string =>
+    `This task stopped because it has cost about $${amount.toFixed(2)}, which reaches the limit of $${cap.toFixed(2)} for one task. Raise the limit in Settings, Permissions, if it should go further.`;
   if (estimate.amount === null)
-    return { refusal: null, unpriced: `The spending limit of $${cap.toFixed(2)} cannot be checked for ${model}: there is no price on file for it. Add one on the Usage page.` };
-  if (estimate.amount < cap) return { refusal: null, unpriced: null };
-  return { refusal: `This task stopped because it has cost about ${formatCost(estimate)}, which reaches the limit of $${cap.toFixed(2)} for one task. Raise the limit in Settings, Permissions, if it should go further.`, unpriced: null };
+    return apart >= cap
+      ? { refusal: over(apart), unpriced: null }
+      : { refusal: null, unpriced: `The spending limit of $${cap.toFixed(2)} cannot be checked for ${model}: there is no price on file for it. Add one on the Usage page.` };
+  const total = estimate.amount + apart;
+  if (total < cap) return { refusal: null, unpriced: null };
+  if (apart === 0) return { refusal: `This task stopped because it has cost about ${formatCost(estimate)}, which reaches the limit of $${cap.toFixed(2)} for one task. Raise the limit in Settings, Permissions, if it should go further.`, unpriced: null };
+  return { refusal: over(total), unpriced: null };
+}
+
+/**
+ * mac7/reach-leftovers: dollars a task spent on something that is not model tokens, written down as
+ * `spend.recorded` events by whatever spent them (today: making a video, src/reach/video.ts).
+ */
+export function recordedSpend(store: Pick<Store, "events">, runIds: readonly string[]): number {
+  let total = 0;
+  for (const runId of runIds)
+    for (const event of store.events(runId))
+      if (event.kind === "spend.recorded") total += Number((event.data as { dollars?: unknown }).dollars ?? 0) || 0;
+  return Math.round(total * 1_000_000) / 1_000_000;
 }
 
 /** R17-S10: the longest tool answer the model reads, and the longest a tool call may run. */

@@ -84,6 +84,9 @@ export const shortLivedKeyTaskRoutes: readonly TaskRoute[] = [
   // mac7/r17-d: the project's review checks (read-only helpers) and a conversation forked into its own copy.
   post("/api/coding/checks/run", "runs the project's review checks, each by a helper that may only read"),
   post("/api/coding/worktrees/fork", "carries a conversation on in its own copy of the project"),
+  // r17-i: another of the owner's computers hands a message to a Trunk here with the "run" key it was given;
+  // the message is quoted as that computer's text, capped and limited per hour (src/reach/remote-trunks.ts).
+  post("/api/reach/trunks/inbox", "a message from a Trunk on another of the owner's computers"),
   // mac7/r17-g: the safety extras. Everything else under /api/safety-extras (the switches, letting the
   // emergency stop go, setting up authenticator codes, installing or running WebAssembly add-ons) is
   // refused by the rule above. Reading /api/safety-extras is allowed: it never carries the code key.

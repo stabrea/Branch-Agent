@@ -8,6 +8,7 @@ import { autonomyToolFeatures } from "./autonomy/settings.js"; // r17-b
 import { trunkToolFeatures } from "./trunks/settings.js"; // R17-A
 import { codingToolFeatures } from "./coding/settings.js"; // mac7/r17-d
 import { personalToolFeatures } from "./personal/settings.js"; // R17-C
+import { reachToolFeatures } from "./reach/settings.js"; // r17-i
 import { safetyToolFeatures } from "./safety-extras/settings.js"; // mac7/r17-g
 import { boardToolFeatures } from "./flows-boards/settings.js"; // r17-h
 import { learningToolFeatures } from "./learning-more/settings.js"; // R17-F
@@ -121,6 +122,8 @@ const toolFeatures: { reason: string; tools: readonly string[]; hideWhenOff: boo
   ...codingToolFeatures.map(([key, reason, tools]) => ({ reason, tools, hideWhenOff: true, mode: (s: Reader, o: string) => savedMode(s, o, key) })),
   // ── R17-C: files, voice, devices and personal connectors (src/personal/settings.ts keeps these lists). ──
   ...personalToolFeatures.map(([key, reason, tools]) => ({ reason, tools, hideWhenOff: true, mode: (s: Reader, o: string) => savedMode(s, o, key) })),
+  // ── r17-i: reach and platform (src/reach/settings.ts keeps these lists). ──
+  ...reachToolFeatures.map(([key, reason, tools]) => ({ reason, tools, hideWhenOff: true, mode: (s: Reader, o: string) => savedMode(s, o, key) })),
   // ── mac7/r17-g: the safety extras (src/safety-extras/settings.ts keeps these lists). ──
   ...safetyToolFeatures.map(([key, reason, tools]) => ({ reason, tools, hideWhenOff: true, mode: (s: Reader, o: string) => savedMode(s, o, key) })),
   // ── r17-h: flows and boards (src/flows-boards/settings.ts keeps these lists). ──

@@ -3512,6 +3512,13 @@ The Apache-2.0 sources are used under the Apache License, Version 2.0 (http://ww
 
 The shape of `src/personal/` (R17-C) — files delivered into chat apps as their own attachments, Home Assistant control, X search through xAI's `x_search` tool with the dates checked on this computer first, Spotify, and Google and Microsoft Graph connectors — follows Hermes Agent's `docs/user-guide/features/deliverable-mode.md`, `tools/homeassistant_tool.py`, `tools/x_search_tool.py`, `plugins/spotify/` and `docs/user-guide/skills/google-workspace.md` (https://github.com/NousResearch/hermes-agent, commit 6005aa1, Copyright (c) 2025 Nous Research). The spoken yes bound to one request that runs out after two minutes (`src/personal/voice-approvals.ts`) follows OpenClaw's `src/talk/client-voice-confirmation.ts` (https://github.com/openclaw/openclaw, Copyright (c) 2026 OpenClaw Foundation). Both are under the MIT licence, whose text is given under IronClaw above. Everything was written afresh against the services' own documentation; no code was copied.
 
+### Reach and platform (r17-i; ideas only), MIT
+
+`src/reach/` and `src/install/container-files.ts` were written afresh for Branch after studying these projects; no code was copied from any of them.
+
+- Hermes Agent (https://github.com/NousResearch/hermes-agent, Copyright (c) 2025 Nous Research, MIT): one desktop window with several connections (`docs/user-guide/multi-connection-desktop.md`); bots on other machines (`website/docs/user-guide/bot-mode.md`); background computer use (`tools/computer_use/`); the video generation tool (`tools/video_generation_tool.py`); the relay connector (`docs/user-guide/messaging/relay.md`); `/platform` and piping script output to a chat (`docs/guides/pipe-script-output.md`); the Termux, Nix and Docker guides; profile distribution and skill bundles (`hermes_cli/profile_distribution.py`).
+- PicoClaw (https://github.com/sipeed/picoclaw, Sipeed, MIT): starting work when a USB device appears (`pkg/devices/service.go`).
+
 ### Safety extras (mac7/r17-g): ideas and constants only, MIT and Apache-2.0
 
 The files in `src/safety-extras/` were written for Branch; no code was copied. Ideas and constants came from these projects, each used under the licence named (the MIT and Apache-2.0 texts are given above):

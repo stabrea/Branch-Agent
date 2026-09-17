@@ -176,15 +176,33 @@ function meaningCard(state) {
 /* ---------- Lessons ---------- */
 async function lessonsCard(state) {
   const built = card("lmore-lessons-card", "library:memory", "lessons", state, ["lmore.lessons.title", "Learning from failed evaluation tasks"],
-    ["lmore.lessons.purpose", "A failed evaluation task leaves a lesson on trial. Lessons that help later are offered to remember; the rest are dropped."]);
+    ["lmore.lessons.purpose", "A failed evaluation task leaves a lesson for you to approve. Approved lessons go on trial; those that help later are offered to remember, the rest are dropped."]);
   if (!built.on) return finish(built);
   const { lessons } = await api("learning-more/lessons");
-  built.node.append(lessons.length ? list(lessons, (lesson) => plain("li", `${say(`lmore.lessons.${lesson.status}`, lesson.status)} · ${lesson.passes}/${lesson.passes + lesson.failures} · ${lesson.text}`))
+  const waiting = lessons.filter((lesson) => lesson.status === "pending");
+  if (waiting.length) built.node.append(make("h3", "", "lmore.lessons.waitingTitle", "Waiting for your yes"),
+    make("p", "field-note", "lmore.lessons.waitingNote", "No task is shown a lesson until you approve it."), list(waiting, (lesson) => pendingLesson(lesson, built)));
+  const rest = lessons.filter((lesson) => lesson.status !== "pending");
+  built.node.append(rest.length ? list(rest, (lesson) => plain("li", `${say(`lmore.lessons.${lesson.status}`, lesson.status)} · ${lesson.passes}/${lesson.passes + lesson.failures} · ${lesson.text}`))
     : make("p", "subtle", "lmore.lessons.empty", "No lessons yet. Run an evaluation suite to start."),
   ...button("lmore-lessons-forget", ["lmore.lessons.forget", "Forget every lesson"], ["lmore.lessons.forgetHint", "Removes the lessons on trial and their counts; facts you already kept stay."], async () => {
     try { await api("learning-more/lessons/forget", { confirm: "forget" }); done(built.status); await drawCards(); } catch (error) { tell(built.status, error); }
   }));
   return finish(built);
+}
+
+/** A lesson waiting for the owner: its words, then a yes that puts it on trial and a no that drops it. */
+function pendingLesson(lesson, built) {
+  const item = plain("li", lesson.text);
+  const decide = (approve) => async () => {
+    try { await api("learning-more/lessons/decide", { id: lesson.id, approve }); done(built.status); await drawCards(); } catch (error) { tell(built.status, error); }
+  };
+  item.append(
+    ...button(`lmore-lesson-approve-${lesson.id}`, ["lmore.lessons.approve", "Try this lesson"],
+      ["lmore.lessons.approveHint", "Later evaluation tasks like this one are shown it, and it is kept only if it helps."], decide(true)),
+    ...button(`lmore-lesson-decline-${lesson.id}`, ["lmore.lessons.decline", "Turn it down"],
+      ["lmore.lessons.declineHint", "The lesson is dropped and never shown to a task."], decide(false)));
+  return item;
 }
 
 /* ---------- Preferences from other assistants ---------- */

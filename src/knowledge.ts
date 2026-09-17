@@ -10,7 +10,7 @@ import type { ToolContext, Run } from "./contracts.js";
 import type { Store, SavedRecord } from "./store.js";
 import type { ToolRegistry } from "./registry.js";
 import { argumentFingerprint, type PolicyCheck, type Runtime } from "./runtime.js";
-import { scopeOf } from "./tool-gate.js"; // mac5/manual-actions
+import { outsideRecipeRefusal, outsideTask, scopeOf } from "./tool-gate.js"; // mac5/manual-actions
 import { executeTracedTool, type ToolSource } from "./tool-trace.js";
 import { ApprovalRequiredError, PolicyRefusedError } from "./approvals.js";
 import { SpecialistStyleSchema, styleShape, styledPermissions, type SpecialistStyle } from "./specialist-styles.js";
@@ -207,6 +207,11 @@ export class Knowledge {
     for (const [index, step] of definition.steps.entries()) {
       // The yes is bound to this step's exact arguments, as it is for a tool the model calls itself.
       const fingerprint = argumentFingerprint(JSON.stringify(step.args ?? {}));
+      // A step outside what the asking task may use is refused in words, before any question is put.
+      if (outsideTask(this.registry, step.tool, context)) {
+        this.store.event(context.runId, "policy.denied", { name: step.tool, label: step.tool, source: { ...source, index } });
+        throw Object.assign(new PolicyRefusedError(step.tool, step.tool), { message: outsideRecipeRefusal(step.tool) });
+      }
       const check = this.runtime.checkPolicy(step.tool, step.args, context, fingerprint);
       checks.push(check);
       if (check.decision === "allow") continue;
