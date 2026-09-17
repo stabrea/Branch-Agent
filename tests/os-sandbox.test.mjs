@@ -743,6 +743,24 @@ test("R9 never-break's places stay unchangeable behind the wall too, even inside
   assert.ok(linux.includes("--ro-bind-try /opt/branch /opt/branch"));
 });
 
+test("R10 a command run through the shell tool really goes behind the wall", { skip: process.platform !== "darwin" }, async (t) => {
+  const { BranchShell } = await import("../dist/integrations/shell.js");
+  const root = await mkdtemp(join(tmpdir(), "branch-wall-r10-"));
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data") });
+  const shell = new BranchShell({ executables: { node: { path: process.execPath } } }, { PATH: "/usr/bin" });
+  t.after(async () => { await shell.close(); await app.close(); await discardTemp(root); });
+  // The temporary folder is writable by design, so the refusal checked here is the workspace's own .git.
+  await mkdir(join(app.runtime.workspace, ".git"), { recursive: true });
+  const outside = join(app.runtime.workspace, ".git", "hook"), inside = join(app.runtime.workspace, "inside.txt");
+  const script = `const fs=require("fs");for(const p of ${JSON.stringify([inside, outside])}){try{fs.writeFileSync(p,"x");console.log("written")}catch(e){console.log(e.code)}}`;
+  const context = { ...app.runtime.context({ runId: "wall-run" }), osSandbox: wallFor({ network: "none" }) };
+  const result = await shell.execute({ executable: "node", args: ["-e", script] }, context);
+  assert.deepEqual(result.stdout.trim().split("\n"), ["written", "EPERM"]);
+  assert.equal(await stat(outside).catch(() => null), null, "nothing was written into .git");
+  const plainRun = await shell.execute({ executable: "node", args: ["-e", script] }, app.runtime.context({ runId: "plain-run" }));
+  assert.deepEqual(plainRun.stdout.trim().split("\n"), ["written", "written"], "with the wall off the command runs as before");
+});
+
 /* ------------------------------------------------------------------ the card */
 
 test("W20 the card lives in Settings, Computer, speaks French, fits 400 px and saves", async (t) => {
