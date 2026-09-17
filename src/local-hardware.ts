@@ -125,6 +125,12 @@ function macMemory(text: string | undefined): number | null {
 
 let remembered: Hardware | null = null;
 let asking: Promise<Hardware> | null = null;
+let askGraphics: () => Promise<GraphicsCard | null> = () => readGraphicsCard();
+/** Replaces how the graphics card is asked for, so a test never starts the computer's own tool. */
+export function useGraphicsReader(reader: () => Promise<GraphicsCard | null>): void {
+  askGraphics = reader;
+  forgetHardware();
+}
 /**
  * This computer's memory, cores and graphics card. The slow part is asked once and kept — and two
  * screens opening at the same moment share the one question rather than each starting a program.
@@ -133,7 +139,7 @@ export async function readHardware(options: { refresh?: boolean } = {}): Promise
   if (remembered && !options.refresh) return remembered;
   if (asking && !options.refresh) return asking;
   asking = (async () => {
-    const graphics = await readGraphicsCard();
+    const graphics = await askGraphics();
     return (remembered = describeHardware({ totalMemoryBytes: totalmem(), cores: cpus().length || 1, graphics }));
   })().finally(() => { asking = null; });
   return asking;

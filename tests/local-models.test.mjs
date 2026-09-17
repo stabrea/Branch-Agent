@@ -12,7 +12,7 @@ import {
   localModelSupportsImages,
 } from "../dist/local-models.js";
 import { LocalRuntimes } from "../dist/local-runtimes.js";
-import { describeHardware, gb, parseLspci, parseMacDisplays, parseNvidiaSmi, readGraphicsCard, recommendModels } from "../dist/local-hardware.js";
+import { describeHardware, gb, parseLspci, parseMacDisplays, parseNvidiaSmi, readGraphicsCard, recommendModels, useGraphicsReader } from "../dist/local-hardware.js";
 import { chooseRoute, classifyTask, looksPersonal, routeForTask, routingSettings, saveRoutingSettings } from "../dist/local-routing.js";
 import { ModelRouter } from "../dist/models.js";
 import { Store } from "../dist/store.js";
@@ -374,6 +374,10 @@ test("L5 the health report has a section for models on this computer", async (t)
 });
 
 test("L5 the routes answer: what is here, and a preview of which model would take a task", async (t) => {
+  // The route asks for the graphics card; a stand-in answers so no real system_profiler, nvidia-smi or lspci runs.
+  const asked = [];
+  useGraphicsReader(async () => { asked.push("graphics"); return { name: "Stand-in card", memoryBytes: 4 * 1024 ** 3 }; });
+  t.after(() => useGraphicsReader(() => readGraphicsCard()));
   const root = await scratch("local-routes");
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data") });
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
@@ -385,7 +389,8 @@ test("L5 the routes answer: what is here, and a preview of which model would tak
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
   const view = await (await call("/api/local-models")).json();
-  assert.equal(typeof view.hardware.summary, "string");
+  assert.match(view.hardware.summary, /Stand-in card \(4 GB\)/);
+  assert.deepEqual(asked, ["graphics"]);
   assert.equal(view.recommendations.length, 3);
   assert.equal(view.routing.enabled, false);
   assert.equal(view.ollama.downloadPage, "https://ollama.com/download");

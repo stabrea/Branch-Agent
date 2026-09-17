@@ -95,7 +95,6 @@ function powershellOptionMap(): string {
 function powershellScript(): string {
   return `# Branch Agent completion for PowerShell. Load it with: . .\\branch-completion.ps1
 # ${completionInstallHint("powershell")}
-# ${completionInstallHint("powershell")}
 Register-ArgumentCompleter -Native -CommandName branch -ScriptBlock {
   param($wordToComplete, $commandAst, $cursorPosition)
   $commands = @(${cliCommands.map((command) => `'${command.name}'`).join(", ")})
