@@ -65,6 +65,7 @@ export class Autonomy {
     this.instructions = new Instructions(store, owner, this.ledger, now);
     this.loops = new Loops({ store, owner, runner: this.runner, now, transcript: (id) => this.transcript(id) });
     for (const part of autonomyParts) this.sync(part);
+    this.procedures.recover();
     deps.registry.onRunFinished((context) => this.afterTask(context));
     byRuntime.set(runtime, this);
     registerPromptSource(runtime, this);

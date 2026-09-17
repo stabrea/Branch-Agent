@@ -127,6 +127,18 @@ export class SelfStarting {
     return { removed: true };
   }
 
+  /**
+   * After a restart: a procedure marked running that is not waiting for the owner's answer was cut
+   * off, so it is finished as cancelled rather than left "running" and never started again.
+   */
+  recover(): void {
+    for (const state of this.list()) {
+      if (!state.running) continue;
+      const waiting = this.deps.ledger.pendingCount((e) => e.kind === "step" && e.payload.procedureId === state.id);
+      if (!waiting) this.finish(state.id, "cancelled", "Branch was closed while it was running.");
+    }
+  }
+
   async tick(): Promise<void> {
     for (const state of this.list()) {
       if (state.status !== "active" || !state.nextDueAt || state.nextDueAt > this.now.toISOString()) continue;
