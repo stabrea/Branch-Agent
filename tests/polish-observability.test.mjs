@@ -800,8 +800,8 @@ test("G6 typing /model with the models module blocked still lists the choices", 
   assert.equal(await page.evaluate(() => Boolean(globalThis.branchSlashCommand)), false, "the module really is absent");
   await page.locator("#prompt").fill("/model");
   await page.locator("#chat-form").evaluate((form) => form.requestSubmit());
-  await page.locator("#toast").waitFor({ state: "visible" });
-  assert.match(await page.locator("#toast").textContent(), /Type \/model followed by a name/);
+  /* The welcome toast is still on screen, so "visible" is already true: wait for these words. */
+  await page.locator("#toast").filter({ hasText: "Type /model followed by a name" }).waitFor();
   assert.equal(await page.locator("#prompt").inputValue(), "", "the command is not left in the box");
   assert.equal(await page.locator("#conversation").textContent(), "", "nothing was sent to the model");
 
