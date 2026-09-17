@@ -121,6 +121,17 @@ test("review: the six settings routes found open are closed to a run key, and st
   assert.equal((await call("POST", "/api/restore", keys.run, {})).status, 401);
 });
 
+test("review (bucket 16): the waiting Slack events are not readable with a short-lived key, only with this computer's key", async (t) => {
+  const { server, keys, call } = await served(t);
+  for (const key of [keys.run, keys.read]) {
+    const refused = await call("GET", "/api/channels/slack-automations", key);
+    assert.equal(refused.status, 401);
+    assert.match(refused.body.error, /short-lived key cannot read/);
+  }
+  const owner = await call("GET", "/api/channels/slack-automations", server.token);
+  assert.equal(owner.status, 200, JSON.stringify(owner.body));
+});
+
 test("a run key may still start and answer work, but not make a standing rule while answering", async (t) => {
   const { keys, call } = await served(t);
   const started = await call("POST", "/api/run", keys.run, { prompt: "say hello" });

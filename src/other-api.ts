@@ -5,6 +5,7 @@ import { lockdownState, setLockdown } from "./lockdown.js";
 import { cacheSettings, saveCacheSettings } from "./request-cache.js";
 import { batchSettings, saveBatchSettings, runBatch, supportsBatch, type BatchQuestion } from "./batch-inference.js";
 import { costByProject } from "./project-ledger.js";
+import { chatEngineSettings, saveChatEngineSettings } from "./chat-engine.js"; // w911 (A0847)
 import type { createBranch } from "./index.js";
 
 /**
@@ -20,7 +21,7 @@ const notFound = (): never => { throw new OtherApiError(404, "Endpoint not found
 
 /** Every path this file answers, so the main route file can hand them over in one line. */
 export function handlesOtherPath(path: string): boolean {
-  return /^\/api\/(openapi\.json|lockdown|request-cache|batch)(\/|$)/.test(path)
+  return /^\/api\/(openapi\.json|lockdown|request-cache|batch|chat-engine)(\/|$)/.test(path)
     || path === "/api/projects/costs";
 }
 
@@ -41,6 +42,9 @@ export async function otherApi(
   if (path === "/api/batch") return batchApi(app, request, owner, readBody);
   if (path === "/api/batch/run") return batchRunApi(app, request, owner, readBody);
   if (path === "/api/projects/costs") return costsApi(app, request, owner);
+  // w911 (A0847) hook: making a follow-up whole before the documents are searched.
+  if (path === "/api/chat-engine")
+    return request.method === "POST" ? saveChatEngineSettings(app.store, owner, await readBody(request)) : chatEngineSettings(app.store, owner);
   return notFound();
 }
 

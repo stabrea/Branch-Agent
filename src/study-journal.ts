@@ -29,6 +29,24 @@ export interface JournalInputs {
   benchmarksFolder: string;
   /** The version of Branch Agent that ran it. */
   version: string;
+  /**
+   * w911 (A1082): the version of the task set itself — a hash of what every task that ran says, not
+   * only its id, so a question reworded under the same id is a different dataset. Missing on entries
+   * written before this existed, which keeps their fingerprints as they were.
+   */
+  datasetVersion?: string;
+}
+
+/** Keys in a fixed order at every depth, so the same task always hashes the same. */
+function stable(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stable);
+  if (value && typeof value === "object")
+    return Object.fromEntries(Object.keys(value).sort().map((key) => [key, stable((value as Record<string, unknown>)[key])]));
+  return value;
+}
+/** w911 (A1082): one short string for the exact content of a task set, in the order it ran. */
+export function datasetVersionOf(tasks: readonly unknown[]): string {
+  return createHash("sha256").update(JSON.stringify(tasks.map(stable))).digest("hex").slice(0, 12);
 }
 
 export interface JournalEntry {
@@ -55,6 +73,7 @@ export function fingerprintOf(inputs: JournalInputs): string {
     limit: inputs.study.limit, bestOfN: inputs.study.bestOfN, maxSteps: inputs.study.maxSteps,
     maxTokens: inputs.study.maxTokens, tasks: inputs.tasks, scorerKinds: [...inputs.scorerKinds].sort(),
     benchmarksFolder: inputs.benchmarksFolder, version: inputs.version,
+    ...(inputs.datasetVersion ? { datasetVersion: inputs.datasetVersion } : {}),
   };
   return createHash("sha256").update(JSON.stringify(ordered)).digest("hex").slice(0, 16);
 }
@@ -106,6 +125,7 @@ export function journalDiff(before: JournalEntry, after: JournalEntry): { same: 
   note("Scorers used", list(x.scorerKinds), list(y.scorerKinds));
   note("Benchmarks folder", x.benchmarksFolder || "the workspace only", y.benchmarksFolder || "the workspace only");
   note("Version of Branch Agent", x.version, y.version);
+  note("Version of the tasks", x.datasetVersion ?? "not recorded", y.datasetVersion ?? "not recorded");
   return { same: changes.length === 0, changes };
 }
 

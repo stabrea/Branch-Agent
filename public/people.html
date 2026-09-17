@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="robots" content="noindex, nofollow" />
+    <meta name="referrer" content="no-referrer" />
+    <title>Branch</title>
+    <link rel="icon" href="/assets/keepoak-mark.png" />
+    <link rel="stylesheet" href="/tokens.css" />
+    <link rel="stylesheet" href="/people.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <img class="mark" src="/assets/keepoak-mark.png" alt="" />
+        <h1 id="people-title" data-t="people.page.title">Sign in to Branch</h1>
+      </header>
+
+      <section id="people-signin" class="pane" aria-labelledby="people-signin-title">
+        <h2 id="people-signin-title" data-t="people.signin.title">Who are you?</h2>
+        <p data-t="people.signin.purpose">Type the name the owner gave you on this computer. You will only see your own conversations and what was shared with you.</p>
+        <form id="people-name-form">
+          <label for="people-name" data-t="people.signin.name">Your name</label>
+          <input id="people-name" autocomplete="username" maxlength="40" required />
+          <button type="submit" data-t="people.signin.next">Next</button>
+        </form>
+        <div id="people-steps" hidden>
+          <form id="people-pin-form" hidden>
+            <label for="people-pin" data-t="people.signin.pin">Your PIN</label>
+            <input id="people-pin" inputmode="numeric" autocomplete="current-password" pattern="[0-9]*" maxlength="8" />
+            <button type="submit" data-t="people.signin.check-pin">Check my PIN</button>
+          </form>
+          <button id="people-passkey" type="button" class="quiet" hidden data-t="people.signin.passkey">Use my passkey</button>
+          <div id="people-providers" hidden></div>
+        </div>
+        <details id="people-code">
+          <summary data-t="people.signin.have-code">I have a code from the owner</summary>
+          <form id="people-code-form">
+            <label for="people-code-name" data-t="people.signin.name">Your name</label>
+            <input id="people-code-name" maxlength="40" />
+            <label for="people-code-value" data-t="people.signin.code">The code</label>
+            <input id="people-code-value" maxlength="16" autocomplete="one-time-code" />
+            <button type="submit" class="quiet" data-t="people.signin.use-code">Use the code</button>
+          </form>
+        </details>
+      </section>
+
+      <section id="people-handoff" class="pane" hidden aria-labelledby="people-handoff-title">
+        <h2 id="people-handoff-title" data-t="people.handoff.title">Carry on a conversation</h2>
+        <p data-t="people.handoff.purpose">Paste the key shown on the computer. It opens this one conversation and nothing else.</p>
+        <form id="people-handoff-form">
+          <label for="people-handoff-key" data-t="people.handoff.key">Key from the computer</label>
+          <input id="people-handoff-key" autocomplete="off" maxlength="80" />
+          <button type="submit" data-t="people.handoff.open">Open the conversation</button>
+        </form>
+      </section>
+
+      <section id="people-home" class="pane" hidden aria-labelledby="people-home-title">
+        <h2 id="people-home-title"></h2>
+        <p id="people-home-note" data-t="people.home.purpose">Your own conversations, and the ones the owner shared with you.</p>
+        <div id="people-setup" hidden>
+          <p class="subtle" data-t="people.setup.purpose">Set a new PIN or add a passkey, then sign in again.</p>
+        </div>
+        <nav id="people-list" aria-label="Conversations" data-t-label="people.home.list"></nav>
+        <div class="row">
+          <button id="people-new" type="button" data-t="people.home.new">New conversation</button>
+          <button id="people-sign-out" type="button" class="text" data-t="people.home.sign-out">Sign out</button>
+        </div>
+        <details id="people-security">
+          <summary data-t="people.security.title">My PIN and passkeys</summary>
+          <form id="people-new-pin-form">
+            <label for="people-current-pin" data-t="people.security.current">Current PIN</label>
+            <input id="people-current-pin" inputmode="numeric" autocomplete="current-password" maxlength="8" />
+            <label for="people-new-pin" data-t="people.security.new">New PIN (four to eight digits)</label>
+            <input id="people-new-pin" inputmode="numeric" autocomplete="new-password" maxlength="8" />
+            <button type="submit" class="quiet" data-t="people.security.save-pin">Save the new PIN</button>
+          </form>
+          <ul id="people-passkey-list"></ul>
+          <button id="people-add-passkey" type="button" class="quiet" data-t="people.security.add-passkey">Add a passkey on this device</button>
+        </details>
+      </section>
+
+      <section id="people-conversation" class="pane" hidden aria-labelledby="people-conversation-title">
+        <button id="people-back" type="button" class="text" data-t="people.conversation.back">Back to my conversations</button>
+        <h2 id="people-conversation-title" data-t="people.conversation.title">Conversation</h2>
+        <p id="people-conversation-note" class="subtle"></p>
+        <ol id="people-messages" aria-live="polite"></ol>
+        <form id="people-message-form">
+          <label for="people-message" data-t="people.conversation.message">Your message</label>
+          <textarea id="people-message" rows="3" maxlength="16000"></textarea>
+          <button type="submit" data-t="people.conversation.send">Send</button>
+        </form>
+      </section>
+
+      <p id="people-status" role="status"></p>
+    </main>
+    <script src="/people.js" type="module"></script>
+  </body>
+</html>
