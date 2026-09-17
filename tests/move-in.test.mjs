@@ -408,8 +408,11 @@ test("a context file's text goes to the loader that owns such files, when there 
   const wanted = scan.items.filter((item) => item.kind === "memory" || item.kind === "instructions").map((item) => item.key);
   const receipt = await bringOver(app.store, owner, "claude-code", scan, wanted, new Set(), sink);
   assert.deepEqual(receipt.brought.map((entry) => entry.target).sort(), ["context file CLAUDE.md", "context file MEMORY.md"]);
-  assert.deepEqual(handed.map((file) => [file.name, file.source, file.about, file.project]).sort(),
-    [["CLAUDE.md", "claude-code", undefined, undefined], ["MEMORY.md", "claude-code", "project", "moved-garden-app"]]);
+  assert.deepEqual(handed.map((file) => [file.name, file.home, file.source, file.about, file.project]).sort(),
+    [["CLAUDE.md", "project", "claude-code", undefined, undefined], ["MEMORY.md", "library:memory", "claude-code", "project", "moved-garden-app"]]);
+  const { contextFileHome } = await import("../dist/migrate/types.js");
+  assert.deepEqual(["SOUL.md", "IDENTITY.md", "USER.md", "AGENTS.md", "MEMORY.md"].map(contextFileHome),
+    ["settings:assistant", "settings:assistant", "settings:assistant", "project", "library:memory"]);
   assert.match(handed.find((file) => file.name === "CLAUDE.md").text, /Keep answers short/);
   assert.equal(app.store.exportMemory(owner).records.length, 0, "nothing was kept on a path of this feature's own");
 });
@@ -536,6 +539,15 @@ test("every word the move-in card shows is on file in English and in real French
   assert.ok(!/textContent = "[A-Z]/.test(script), "a word is written into the page without a key");
 });
 
+/**
+ * Opens one place in the window. The only line that knows how the current window is laid out, so
+ * the redesign can swap it for tests/places.mjs.
+ */
+async function openScreen(page, place) {
+  const view = place.split(":")[0];
+  await page.evaluate((name) => document.querySelector(`button.nav[data-view="${name}"]`).click(), view);
+}
+
 test("the move-in card works at 400 pixels wide, with no sideways scroll and no page errors", async (t) => {
   const { chromium } = await import("playwright");
   const made = await fixture(t);
@@ -558,8 +570,7 @@ test("the move-in card works at 400 pixels wide, with no sideways scroll and no 
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.locator("#workspace").waitFor({ state: "visible" });
   // Off by default: the card shows only its switch, and the first-run card offers nothing.
-  const show = (view) => page.evaluate((name) => document.querySelector(`button.nav[data-view="${name}"]`).click(), view);
-  await show("memory");
+  await openScreen(page, "settings:data");
   const choice = page.locator("#move-in-mode");
   await choice.waitFor({ state: "visible" });
   assert.equal(await choice.inputValue(), "off");
@@ -570,12 +581,14 @@ test("the move-in card works at 400 pixels wide, with no sideways scroll and no 
   await page.getByRole("button", { name: "See what is there", exact: true }).waitFor({ state: "visible" });
   assert.equal(await page.locator("#move-in-offer").count(), 0, "when needed never offers on its own");
   await choice.selectOption("on");
-  await show("chat");
+  await openScreen(page, "chat");
   const offer = page.locator("#move-in-offer button");
   await offer.waitFor({ state: "visible" });
   assert.equal(await offer.textContent(), "Bring your chats and memory from Claude Code.");
   await offer.click();
-  await page.locator("#memory").waitFor({ state: "visible" });
+  await page.locator("#settings").waitFor({ state: "visible" });
+  assert.equal(await page.locator("#move-in-card").getAttribute("data-home"), "settings:data");
+  assert.equal(await page.locator("#move-in-card button:not(.quiet-button)").count(), 0, "only the bring button is filled, and it appears with the preview");
   await page.getByRole("button", { name: "See what is there", exact: true }).click();
   const bring = page.getByRole("button", { name: "Bring the ticked things over", exact: true });
   await bring.waitFor({ state: "visible" });

@@ -29,5 +29,5 @@ export function saveMoveInMode(store: Store, owner: string, input: unknown): Mov
 
 /** Whether the owner may look or bring things over at all. */
 export function requireMoveInAllowed(mode: MoveInMode): void {
-  if (mode === "off") throw new Error("Moving in is switched off. Choose \"When needed\" or \"On\" on the Memory screen first.");
+  if (mode === "off") throw new Error("Moving in is switched off. Choose \"When needed\" or \"On\" under Settings first.");
 }

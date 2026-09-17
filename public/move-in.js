@@ -1,5 +1,5 @@
 // Moving in: bring your chats, memory, instructions, skills and tool servers over from another
-// assistant. The first-run card offers it in one sentence; the card under Memory shows a preview
+// assistant. The first-run card offers it in one sentence; the card under Settings shows a preview
 // first, lets you tick what to bring, and says afterwards what came, what did not and why.
 import { t } from "/i18n.js";
 
@@ -83,6 +83,8 @@ function showMode() {
 function buildCard() {
   const card = make("section", "", "card");
   card.id = "move-in-card";
+  // Where the redesigned window places this card: Settings, among the things about your data.
+  card.dataset.home = "settings:data";
   const [pathLabel, path] = field("move-in-path", "field.movein-path");
   path.placeholder = t("memory.movein.path-hint");
   path.dataset.tPlaceholder = "memory.movein.path-hint";
@@ -91,14 +93,14 @@ function buildCard() {
   file.type = "file";
   file.accept = ".zip,.tar,.tgz,.gz";
   const row = make("div", "", "input-row");
-  row.append(path, button("action.movein-look-here", () => preview({ path: path.value.trim() })));
+  row.append(path, button("action.movein-look-here", () => preview({ path: path.value.trim() }), "quiet-button"));
   const status = make("p", "", "subtle");
   status.id = "move-in-status";
   status.setAttribute("role", "status");
   const [sourcesBox, previewBox, broughtBox, body] = ["move-in-sources", "move-in-preview", "move-in-brought", "move-in-body"]
     .map((id) => Object.assign(make("div"), { id }));
   sourcesBox.className = "card-list";
-  const look = button("action.movein-look-for", () => showSources(true).catch((error) => say(error.message)));
+  const look = button("action.movein-look-for", () => showSources(true).catch((error) => say(error.message)), "quiet-button");
   look.id = "move-in-look";
   const modeHint = make("p", "", "subtle");
   modeHint.id = "move-in-mode-hint";
@@ -134,7 +136,7 @@ async function showSources(asked = false) {
     const words = moved ? t("memory.movein.found-moved", { folder: entry.folder, count: moved })
       : t("memory.movein.found", { folder: entry.folder });
     row.append(make("h4", entry.name), make("p", words, "subtle"),
-      button("action.movein-see-what-is-there", () => preview({ source: entry.source })));
+      button("action.movein-see-what-is-there", () => preview({ source: entry.source }), "quiet-button"));
     where.append(row);
   }
   if (!where.children.length) where.append(keyed("p", "memory.movein.none-found", "subtle"));
@@ -253,7 +255,7 @@ function showOffer() {
   const go = make("button", words, "quiet-button");
   go.type = "button";
   go.addEventListener("click", () => {
-    document.querySelector('button.nav[data-view="memory"]')?.click();
+    document.querySelector('button.nav[data-view="settings"]')?.click();
     $("move-in-card")?.scrollIntoView({ block: "start" });
   });
   line.append(go);
@@ -268,9 +270,9 @@ async function refresh() {
 }
 
 async function start() {
-  const memory = $("memory");
-  if (!memory || $("move-in-card")) return;
-  memory.append(buildCard());
+  const settings = $("settings");
+  if (!settings || $("move-in-card")) return;
+  settings.append(buildCard());
   // Words built from values are redrawn when the language changes; keyed ones redraw themselves.
   document.addEventListener("branch-language", () => refresh().catch(() => undefined));
   // Before the owner has signed in the requests are refused, so the card is drawn again each time the
@@ -286,7 +288,7 @@ async function start() {
   const watch = new MutationObserver((changes) => {
     if (changes.some((change) => !change.target.hidden)) redraw();
   });
-  for (const node of [$("workspace"), memory, $("first-run")])
+  for (const node of [$("workspace"), settings, $("first-run")])
     if (node) watch.observe(node, { attributes: true, attributeFilter: ["hidden"] });
   redraw();
 }

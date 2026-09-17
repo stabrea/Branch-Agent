@@ -27,6 +27,15 @@ export interface MovedMessage { role: "user" | "assistant"; content: string }
 export const contextFileNames = ["AGENTS.md", "CLAUDE.md", "GEMINI.md", "SOUL.md", "USER.md", "IDENTITY.md",
   "MEMORY.md", "HEARTBEAT.md", "TOOLS.md", "SOP.md"] as const;
 export type ContextFileName = (typeof contextFileNames)[number];
+/**
+ * Which part of Branch owns each context file once it has come over: the assistant's own identity
+ * (settings), the project it belongs to, or the memory library.
+ */
+export type ContextFileHome = "settings:assistant" | "project" | "library:memory";
+export function contextFileHome(name: ContextFileName): ContextFileHome {
+  if (name === "SOUL.md" || name === "IDENTITY.md" || name === "USER.md") return "settings:assistant";
+  return name === "MEMORY.md" ? "library:memory" : "project";
+}
 export function contextFileOf(origin: string): ContextFileName | undefined {
   const name = origin.split(/[/:#]/).pop() ?? "";
   const plain = name === "AGENTS.override.md" ? "AGENTS.md" : name;

@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { Store } from "../store.js";
 import { projectIdFor, splitForMemory } from "./common.js";
 import { movedIn, rememberMoved } from "./record.js";
-import { clip, sourceNames, type ContextFileName, type FoundItem, type KeyPrompt, type MovedServer, type MoveInSource, type Payload, type ScanResult } from "./types.js";
+import { clip, sourceNames, contextFileHome, type ContextFileHome, type ContextFileName, type FoundItem, type KeyPrompt, type MovedServer, type MoveInSource, type Payload, type ScanResult } from "./types.js";
 
 /**
  * Bringing the ticked things over into Branch's own stores. Each thing is brought over on its own,
@@ -15,7 +15,8 @@ import { clip, sourceNames, type ContextFileName, type FoundItem, type KeyPrompt
  * short description of where the text now lives. Without one, the text becomes saved facts.
  */
 export type ContextFileSink = (file: {
-  name: ContextFileName; text: string; source: MoveInSource; about?: "person" | "world" | "project"; project?: string;
+  name: ContextFileName; home: ContextFileHome; text: string; source: MoveInSource;
+  about?: "person" | "world" | "project"; project?: string;
 }) => Promise<string>;
 
 export interface Receipt {
@@ -76,7 +77,7 @@ async function bringOne(
 ): Promise<string> {
   const payload = await item.load();
   if ((payload.kind === "memory" || payload.kind === "instructions") && payload.contextFile && contextFiles)
-    return contextFiles({ name: payload.contextFile, text: payload.text, source,
+    return contextFiles({ name: payload.contextFile, home: contextFileHome(payload.contextFile), text: payload.text, source,
       ...(payload.kind === "memory" ? { about: payload.about, ...(payload.project ? { project: payload.project } : {}) } : {}) });
   switch (payload.kind) {
     case "chat": {
