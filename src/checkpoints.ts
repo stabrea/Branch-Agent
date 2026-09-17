@@ -1,4 +1,9 @@
+import { createHash } from "node:crypto";
+import { lstatSync } from "node:fs";
+import { mkdir, rm, stat, writeFile } from "node:fs/promises";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { z } from "zod";
+import { GitRunner } from "./integrations/git-run.js";
 import type { ToolContext } from "./contracts.js";
 import type { ToolRegistry } from "./registry.js";
 import type { Store } from "./store.js";
@@ -54,4 +59,131 @@ export function registerCheckpoints(registry: ToolRegistry, store: Store, histor
       return history.redo(session);
     },
   });
+}
+
+/**
+ * Wave mac2: a hidden snapshot store for the whole workspace, so putting files back also covers what
+ * a command changed, and folders that are not git repositories. It is a separate git directory kept
+ * in the private data folder (never inside the workspace), always called with an explicit
+ * `--git-dir` and `--work-tree`, so the owner's own repository, if there is one, is never read from
+ * or written to. Git itself is the one already installed on this computer; without it the caller
+ * falls back to the per-file copies above and says so.
+ */
+export interface GitReply { ok: boolean; stdout: string; stderr: string }
+/** Runs the system git with an argument array. Tests hand in a fake. */
+export type GitCall = (args: string[], cwd: string, timeoutMs: number) => Promise<GitReply>;
+
+/** The system git through the hardened runner: no shell, no hooks, no prompts. */
+export function systemGit(runner: GitRunner = new GitRunner()): GitCall {
+  return async (args, cwd, timeoutMs) => {
+    try {
+      const result = await runner.run({ cwd, args, timeoutMs, maxOutputBytes: 8 * 1024 * 1024 }, AbortSignal.timeout(timeoutMs + 5000));
+      return { ok: result.status === "completed", stdout: result.stdout, stderr: result.stderr };
+    } catch (error) {
+      return { ok: false, stdout: "", stderr: error instanceof Error ? error.message : String(error) };
+    }
+  };
+}
+
+/**
+ * Never copied into the store. The same names workspace-history.ts skips (its pattern is private to
+ * that file, so it is repeated here as ignore lines): a snapshot must not become a second place a
+ * password or key is kept. Big generated folders are left out for the same reason they are there.
+ */
+export const snapshotExcludes = [
+  ".env", ".env.*", ".ssh/", ".aws/", "*credentials*", "*secret*", "*secrets*", "id_rsa*", "id_ed25519*",
+  "*.pem", "*.key", "*.p12", "*.pfx", "node_modules/", "dist/", "release/", ".branch/",
+];
+const treeId = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
+const stepMs = 30_000;
+
+export class SnapshotStore {
+  private ready: Promise<boolean> | undefined;
+  /** Why snapshots were turned off for this launch (a snapshot failed or took too long), or "". */
+  unavailableReason = "";
+  constructor(private readonly folder: string, readonly workTree: string, private readonly git: GitCall | null) {}
+
+  /** One hidden store per workspace folder, named by a hash of its path. */
+  get gitDir(): string {
+    return join(this.folder, createHash("sha256").update(resolve(this.workTree)).digest("hex").slice(0, 16));
+  }
+  /** Whether snapshots can be taken here: git is installed and the store could be set up. */
+  async available(): Promise<boolean> {
+    return !this.unavailableReason && await (this.ready ??= this.prepare());
+  }
+  private call(args: string[]): Promise<GitReply> {
+    if (!this.git) return Promise.resolve({ ok: false, stdout: "", stderr: "Git is not installed" });
+    return this.git(["--git-dir", this.gitDir, "--work-tree", this.workTree, ...args], this.workTree, stepMs);
+  }
+  private async prepare(): Promise<boolean> {
+    if (!this.git) return false;
+    await mkdir(this.folder, { recursive: true, mode: 0o700 });
+    const exists = await stat(join(this.gitDir, "HEAD")).then(() => true, () => false);
+    if (!exists) {
+      const made = await this.git(["init", "--quiet", "--bare", this.gitDir], this.folder, stepMs);
+      if (!made.ok) { this.unavailableReason = `The snapshot store could not be set up: ${firstLine(made.stderr)}`; return false; }
+    }
+    const settings: [string, string][] = [["core.autocrlf", "false"], ["core.symlinks", "true"], ["core.fsmonitor", "false"], ["gc.auto", "0"]];
+    for (const [key, value] of settings)
+      if (!(await this.git(["--git-dir", this.gitDir, "config", key, value], this.folder, stepMs)).ok) return false;
+    await mkdir(join(this.gitDir, "info"), { recursive: true });
+    await writeFile(join(this.gitDir, "info", "exclude"), snapshotExcludes.join("\n") + "\n");
+    return true;
+  }
+  /** Records every workspace file (except the excluded ones) and returns the snapshot's id. */
+  async take(): Promise<string> {
+    if (!(await this.available())) throw new Error("Snapshots need Git, which is not installed on this computer.");
+    const added = await this.call(["add", "--all", "--", "."]);
+    const tree = added.ok ? await this.call(["write-tree"]) : added;
+    const id = tree.stdout.trim();
+    if (tree.ok && treeId.test(id)) return id;
+    // A workspace too big to record in time would hold up every task; stop trying for this launch.
+    this.unavailableReason = `Snapshots are off until Branch restarts, because one could not be taken: ${firstLine(tree.stderr)}`;
+    throw new Error(this.unavailableReason);
+  }
+  /**
+   * Puts the workspace back to a snapshot: every kept file gets its kept bytes, and a file that has
+   * appeared since (and is not excluded) is removed. Take a snapshot first if this should be undoable.
+   */
+  async restore(id: string): Promise<{ changed: string[]; removed: string[] }> {
+    if (!treeId.test(id)) throw new Error("That snapshot id is not valid");
+    await this.take();
+    const diff = await this.call(["diff-index", "--cached", "--no-renames", "--name-status", "-z", id, "--"]);
+    if (!diff.ok) throw new Error(`The snapshot could not be read: ${firstLine(diff.stderr)}`);
+    const { changed, added } = parseNameStatus(diff.stdout);
+    for (const path of added) await rm(insideWorkTree(this.workTree, path), { force: true });
+    if (!(await this.call(["read-tree", id])).ok) throw new Error("The snapshot is not kept any more");
+    const written = await this.call(["checkout-index", "--all", "--force"]);
+    if (!written.ok) throw new Error(`The files could not be put back: ${firstLine(written.stderr)}`);
+    return { changed, removed: added };
+  }
+}
+
+/** Splits `git diff-index --name-status -z` output into every changed path and the added ones. */
+export function parseNameStatus(output: string): { changed: string[]; added: string[] } {
+  const parts = output.split("\0").filter((part) => part !== "");
+  const changed: string[] = [], added: string[] = [];
+  for (let at = 0; at + 1 < parts.length; at += 2) {
+    const status = parts[at]!, path = parts[at + 1]!;
+    changed.push(path);
+    if (status.startsWith("A")) added.push(path);
+  }
+  return { changed, added };
+}
+
+/** A path git reported, resolved inside the work tree; anything that would leave it, or pass through a link, is refused. */
+export function insideWorkTree(root: string, path: string): string {
+  const target = resolve(root, path), rel = relative(resolve(root), target);
+  if (!rel || rel.startsWith("..") || isAbsolute(rel) || path.includes("\0")) throw new Error(`Refused to touch ${path}`);
+  let current = resolve(root);
+  for (const part of rel.split(sep).slice(0, -1)) {
+    current = join(current, part);
+    try { if (lstatSync(current).isSymbolicLink()) throw new Error(`Refused to touch ${path}: it is behind a link`); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+  }
+  return target;
+}
+
+function firstLine(text: string): string {
+  return text.split(/\r?\n/).map((line) => line.replace(/^(fatal|error):\s*/i, "").trim()).find(Boolean)?.slice(0, 200) ?? "git did not say why";
 }

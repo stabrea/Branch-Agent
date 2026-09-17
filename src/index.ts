@@ -146,7 +146,10 @@ import { ProjectMap, registerProjectMap } from "./code-map.js";
 import { LanguageServers } from "./language-server.js";
 import { registerLanguageServers } from "./language-server-tools.js";
 import { DebugAdapters, registerDebug } from "./debug-adapter.js";
-import { registerCheckpoints } from "./checkpoints.js";
+import { registerCheckpoints, SnapshotStore, systemGit, type GitCall } from "./checkpoints.js";
+// Wave mac2 (goal-undo): working toward a goal in rounds, and going back to an earlier message.
+import { GoalMode } from "./goal-mode.js";
+import { Rewinds } from "./rewind.js";
 import { KeptArtifacts, registerKeptArtifacts } from "./build-artifacts.js";
 import { OpenApiTools, registerOpenApiTools } from "./openapi-tools.js";
 
@@ -166,6 +169,8 @@ export async function createBranch(options: {
   retryPolicy?: RetryPolicyInput;
   /** Stall, tool time and context-size limits for ordinary runs. */
   reliability?: ReliabilityInput;
+  /** Wave mac2: how the hidden snapshot store runs git; null means "git is not installed". */
+  snapshotGit?: GitCall | null;
 }) {
   const retryPolicy = parseRetryPolicy(options.retryPolicy);
   const workspace = resolve(options.workspace),
@@ -350,6 +355,13 @@ export async function createBranch(options: {
   registerSessions(registry, store);
   const sessionTree = new SessionTree(store.sqlite);
   registerSessionTree(registry, store, sessionTree);
+  // Wave mac2 (goal-undo): a hidden snapshot of the workspace before each task, kept in the private
+  // data folder, so an earlier message can take back files and conversation together; and goal mode.
+  const snapshots = new SnapshotStore(join(dataDir, "snapshots"), workspace,
+    options.snapshotGit === undefined ? systemGit() : options.snapshotGit);
+  const rewinds = new Rewinds(store.sqlite, runtime.owner, sessionTree, history, snapshots, files);
+  runtime.turnStarted = (run) => rewinds.turnStarted(run);
+  const goals = new GoalMode(runtime, store);
   registerSkills(registry, store);
   documents = new DocumentLibrary(store, runtime.models, files);
   registerDocuments(registry, documents);
@@ -753,6 +765,9 @@ export async function createBranch(options: {
     runtime,
     /** Wave 8: the shape conversations make when one is branched off another, and carrying an answer back. */
     sessionTree,
+    /** Wave mac2: going back to an earlier message, and working toward a goal in rounds. */
+    rewinds,
+    goals,
     files,
     knowledge,
     documents,
@@ -1254,6 +1269,8 @@ export * from "./request-cache.js";
 export * from "./batch-inference.js";
 export * from "./lockdown.js";
 export * from "./session-tree.js";
+export * from "./goal-mode.js";
+export * from "./rewind.js";
 export * from "./project-ledger.js";
 export * from "./watch.js";
 // Batch 20 (wave 8): writing and changing documents, and the rest of what this batch added.

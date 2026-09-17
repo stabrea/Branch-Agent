@@ -24,6 +24,21 @@ export interface TreeNode {
   children: TreeNode[];
 }
 
+/** Messages lifted out of a conversation by a rewind, kept whole so they can go back. */
+export interface CutConversation {
+  fromRowId: number;
+  rows: Record<string, unknown>[];
+  compaction: Record<string, unknown> | null;
+}
+const columnName = /^[a-z_][a-z0-9_]*$/;
+/** Inserts a stored row back with its own columns; column names come from the row itself, checked. */
+function insertRow(db: DatabaseSync, table: "messages" | "compactions", row: Record<string, unknown>): void {
+  const columns = Object.keys(row);
+  if (!columns.length || !columns.every((name) => columnName.test(name))) throw new Error("A kept message is damaged");
+  const values = columns.map((name) => row[name] as string | number | null);
+  db.prepare(`INSERT INTO ${table}(${columns.join(",")}) VALUES(${columns.map(() => "?").join(",")})`).run(...values);
+}
+
 const sessionId = z.string().uuid();
 export const MergeNoteSchema = z.object({
   /** The branch whose last answer is to be carried back. */
@@ -57,6 +72,53 @@ export class SessionTree {
     this.db.prepare("INSERT INTO messages(session_id,body) VALUES(?,?)")
       .run(parentSessionId, JSON.stringify({ role: "user", content: note } satisfies Message));
     return { sessionId: id, parentSessionId, note };
+  }
+
+  /**
+   * Wave mac2: takes a conversation back to just before one of its messages. The message and
+   * everything after it are lifted out whole (every column, so they can be put back with the same
+   * numbers), and a summary of earlier history that already reached past that point is lifted out
+   * with them, so the model is never shown a summary of a future that was taken back.
+   */
+  cutFrom(owner: string, input: string, messageId: number): CutConversation {
+    const id = sessionId.parse(input);
+    this.requireOwner(owner, id);
+    const start = this.db.prepare("SELECT id FROM messages WHERE session_id=? AND source_id=?").get(id, messageId);
+    if (!start) throw new Error("That message is not in this conversation");
+    if (this.db.prepare("SELECT id FROM tasks WHERE session_id=? AND status IN ('running','needs_input')").get(id))
+      throw new Error("Wait for the task that is still working in this conversation, or stop it, first.");
+    const from = Number(start.id);
+    const rows = this.db.prepare("SELECT * FROM messages WHERE session_id=? AND id>=? ORDER BY id").all(id, from) as Record<string, unknown>[];
+    const summary = this.db.prepare("SELECT * FROM compactions WHERE session_id=? AND through_id>=?").get(id, from) as Record<string, unknown> | undefined;
+    this.inTransaction(() => {
+      this.db.prepare("DELETE FROM messages WHERE session_id=? AND id>=?").run(id, from);
+      if (summary) this.db.prepare("DELETE FROM compactions WHERE session_id=?").run(id);
+    });
+    return { fromRowId: from, rows, compaction: summary ?? null };
+  }
+
+  /**
+   * Puts lifted-out messages back where they were. Whatever was said since the cut is lifted out in
+   * its turn and handed back, so nothing is lost silently.
+   */
+  putBack(owner: string, input: string, cut: CutConversation): Record<string, unknown>[] {
+    const id = sessionId.parse(input);
+    this.requireOwner(owner, id);
+    const since = this.db.prepare("SELECT * FROM messages WHERE session_id=? AND id>=? ORDER BY id").all(id, cut.fromRowId) as Record<string, unknown>[];
+    this.inTransaction(() => {
+      this.db.prepare("DELETE FROM messages WHERE session_id=? AND id>=?").run(id, cut.fromRowId);
+      for (const row of cut.rows) insertRow(this.db, "messages", { ...row, session_id: id });
+      if (cut.compaction) {
+        this.db.prepare("DELETE FROM compactions WHERE session_id=?").run(id);
+        insertRow(this.db, "compactions", { ...cut.compaction, session_id: id });
+      }
+    });
+    return since;
+  }
+
+  private inTransaction(work: () => void): void {
+    this.db.exec("BEGIN");
+    try { work(); this.db.exec("COMMIT"); } catch (error) { this.db.exec("ROLLBACK"); throw error; }
   }
 
   /** The last thing the assistant actually said in a conversation, without any tool requests. */

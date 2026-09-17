@@ -1,0 +1,178 @@
+import { randomUUID } from "node:crypto";
+import { rm } from "node:fs/promises";
+import type { DatabaseSync } from "node:sqlite";
+import { z } from "zod";
+import type { Run } from "./contracts.js";
+import type { SnapshotStore } from "./checkpoints.js";
+import type { WorkspaceFiles } from "./files.js";
+import type { CutConversation, SessionTree } from "./session-tree.js";
+import type { WorkspaceHistory } from "./workspace-history.js";
+
+/**
+ * Wave mac2: going back to an earlier message. Before every task the workspace is recorded in the
+ * hidden snapshot store (src/checkpoints.ts), keyed by the message that started the task. Editing an
+ * earlier message can then take back the conversation, the files, or both, to how they were just
+ * before that message; "undo that" puts everything back the way it was before the rewind.
+ *
+ * Undo is a stack per conversation, like workspace.undo: each rewind can be undone once, newest first.
+ * Without git the files come back from the per-file copies the assistant's own file tools keep, and
+ * the answer says plainly that changes made by commands were not covered.
+ */
+export const RewindSchema = z.object({
+  messageId: z.number().int().positive(),
+  restore: z.enum(["conversation", "files", "both"]),
+}).strict();
+export type RewindInput = z.infer<typeof RewindSchema>;
+export type FilesMethod = "snapshot" | "copies" | "none";
+export interface FilesOutcome { method: FilesMethod; changed: number; removed: number; note: string }
+export interface RewindOutcome { id: string; restore: RewindInput["restore"]; messagesRemoved: number; files: FilesOutcome | null }
+
+const copiesOnly = "Only the changes Branch made with its own file tools can be put back.";
+const noGitNote = "Git is not installed, so only the changes Branch made with its own file tools were put back; changes made by commands were not.";
+const sessionIdSchema = z.string().uuid();
+
+export class Rewinds {
+  constructor(
+    private readonly db: DatabaseSync,
+    private readonly owner: string,
+    private readonly tree: SessionTree,
+    private readonly history: WorkspaceHistory,
+    private readonly snapshots: SnapshotStore,
+    private readonly files: WorkspaceFiles,
+  ) {
+    db.exec(`CREATE TABLE IF NOT EXISTS turn_snapshots(row_id INTEGER PRIMARY KEY, session_id TEXT NOT NULL, run_id TEXT NOT NULL,
+        tree TEXT, created_at TEXT NOT NULL);
+      CREATE INDEX IF NOT EXISTS turn_snapshots_session ON turn_snapshots(session_id, row_id);
+      CREATE TABLE IF NOT EXISTS rewinds(id TEXT PRIMARY KEY, owner TEXT NOT NULL, session_id TEXT NOT NULL, restore TEXT NOT NULL,
+        cut TEXT, files_method TEXT NOT NULL, before_tree TEXT, before_copy TEXT, undone INTEGER NOT NULL, created_at TEXT NOT NULL);
+      CREATE INDEX IF NOT EXISTS rewinds_session ON rewinds(owner, session_id, undone, created_at);`);
+  }
+
+  /**
+   * The runtime hook: called once as a task starts, after its message is written. Records which
+   * message started which task and, when git is here, the workspace as it stood. Never fails a task.
+   */
+  async turnStarted(run: Run): Promise<void> {
+    const last = this.db.prepare("SELECT MAX(id) AS id FROM messages WHERE session_id=?").get(run.sessionId);
+    if (!last?.id) return;
+    let tree: string | null = null;
+    try { if (await this.snapshots.available()) tree = await this.snapshots.take(); } catch { tree = null; }
+    this.db.prepare("INSERT OR REPLACE INTO turn_snapshots VALUES(?,?,?,?,?)")
+      .run(Number(last.id), run.sessionId, run.id, tree, new Date().toISOString());
+  }
+
+  /** What can be done in this conversation now: whether files can be covered, and the undo waiting. */
+  async status(owner: string, input: string): Promise<{ method: FilesMethod; note: string; undo: { id: string; restore: string; createdAt: string } | null }> {
+    const id = this.owned(owner, input);
+    const git = await this.snapshots.available();
+    const row = this.lastRewind(owner, id);
+    return {
+      method: git ? "snapshot" : "copies", note: git ? "" : await this.copiesNote(),
+      undo: row ? { id: String(row.id), restore: String(row.restore), createdAt: String(row.created_at) } : null,
+    };
+  }
+
+  /** Takes the conversation, the files, or both back to just before one message. */
+  async rewind(owner: string, input: string, body: unknown): Promise<RewindOutcome> {
+    const id = this.owned(owner, input);
+    const wanted = RewindSchema.parse(body);
+    const start = this.db.prepare("SELECT id FROM messages WHERE session_id=? AND source_id=?").get(id, wanted.messageId);
+    if (!start) throw new Error("That message is not in this conversation");
+    const fromRow = Number(start.id);
+    const record = { id: randomUUID(), cut: null as CutConversation | null, method: "none" as FilesMethod, beforeTree: null as string | null, beforeCopy: null as string | null };
+    this.requireIdle(id);
+    let files: FilesOutcome | null = null;
+    if (wanted.restore !== "conversation") files = await this.restoreFiles(id, fromRow, record);
+    if (wanted.restore !== "files") record.cut = this.tree.cutFrom(owner, id, wanted.messageId);
+    this.db.prepare("INSERT INTO rewinds VALUES(?,?,?,?,?,?,?,?,?,?)").run(record.id, owner, id, wanted.restore,
+      record.cut ? JSON.stringify(record.cut) : null, record.method, record.beforeTree, record.beforeCopy, 0, new Date().toISOString());
+    return { id: record.id, restore: wanted.restore, messagesRemoved: record.cut?.rows.length ?? 0, files };
+  }
+
+  /** "Undo that": puts back the conversation and files as they were before the newest rewind. */
+  async unrevert(owner: string, input: string): Promise<{ id: string; messagesRestored: number; files: FilesOutcome | null }> {
+    const id = this.owned(owner, input);
+    const row = this.lastRewind(owner, id);
+    if (!row) throw new Error("There is no rewind to undo in this conversation.");
+    this.requireIdle(id);
+    let files: FilesOutcome | null = null;
+    const method = String(row.files_method) as FilesMethod;
+    if (method === "snapshot" && row.before_tree) {
+      const back = await this.snapshots.restore(String(row.before_tree));
+      files = { method, changed: back.changed.length, removed: back.removed.length, note: "" };
+    } else if (method === "copies" && row.before_copy) {
+      const back = await this.history.restoreSnapshot(String(row.before_copy));
+      files = { method, changed: back.restored, removed: 0, note: noGitNote };
+    }
+    const cut = row.cut ? JSON.parse(String(row.cut)) as CutConversation : null;
+    if (cut) this.tree.putBack(owner, id, cut);
+    this.db.prepare("UPDATE rewinds SET undone=1 WHERE id=?").run(String(row.id));
+    return { id: String(row.id), messagesRestored: cut?.rows.length ?? 0, files };
+  }
+
+  /**
+   * The files part. With git: record the workspace now (so this can be undone), then put back the
+   * snapshot taken when that message's task started, or the next one after it. Without git: the
+   * per-file copies from before each write in this conversation's later tasks.
+   */
+  private async restoreFiles(sessionId: string, fromRow: number, record: { method: FilesMethod; beforeTree: string | null; beforeCopy: string | null }): Promise<FilesOutcome> {
+    const turn = this.db.prepare("SELECT tree FROM turn_snapshots WHERE session_id=? AND row_id>=? AND tree IS NOT NULL ORDER BY row_id LIMIT 1").get(sessionId, fromRow);
+    if (turn && await this.snapshots.available()) {
+      record.beforeTree = await this.snapshots.take();
+      const back = await this.snapshots.restore(String(turn.tree));
+      record.method = "snapshot";
+      return { method: "snapshot", changed: back.changed.length, removed: back.removed.length, note: "" };
+    }
+    return this.restoreCopies(sessionId, fromRow, record);
+  }
+
+  private async restoreCopies(sessionId: string, fromRow: number, record: { method: FilesMethod; beforeCopy: string | null }): Promise<FilesOutcome> {
+    const since = this.db.prepare("SELECT MIN(created_at) AS at FROM tasks WHERE session_id=? AND id IN (SELECT run_id FROM turn_snapshots WHERE session_id=? AND row_id>=?)").get(sessionId, sessionId, fromRow);
+    const note = await this.copiesNote();
+    if (!since?.at) return { method: "none", changed: 0, removed: 0, note: "No file changes were recorded after that message." };
+    const versions = this.db.prepare(`SELECT id, path, existed FROM file_versions WHERE owner=? AND reason='before write'
+      AND run_id IN (SELECT id FROM tasks WHERE session_id=? AND created_at>=?) ORDER BY created_at, rowid`).all(this.owner, sessionId, String(since.at));
+    const earliest = new Map<string, { id: string; existed: boolean }>();
+    for (const v of versions) if (!earliest.has(String(v.path))) earliest.set(String(v.path), { id: String(v.id), existed: Number(v.existed) === 1 });
+    if (!earliest.size) return { method: "none", changed: 0, removed: 0, note: "No file changes were recorded after that message." };
+    record.beforeCopy = (await this.history.checkpoint(sessionId, "Before going back to an earlier message").catch(() => null))?.id ?? null;
+    record.method = "copies";
+    let changed = 0, removed = 0;
+    for (const [path, version] of earliest) {
+      if (version.existed) { await this.history.restore(version.id); changed++; }
+      else { await rm(await this.files.checked(path), { force: true }); removed++; }
+    }
+    return { method: "copies", changed, removed, note };
+  }
+
+  /** Why the files come back from per-file copies rather than a snapshot, in plain words. */
+  private async copiesNote(): Promise<string> {
+    if (await this.snapshots.available()) return `No snapshot was taken before that message. ${copiesOnly}`;
+    return this.snapshots.unavailableReason ? `${this.snapshots.unavailableReason} ${copiesOnly}` : noGitNote;
+  }
+
+  /** Nothing is taken back underneath a task that is still working. */
+  private requireIdle(id: string): void {
+    if (this.db.prepare("SELECT id FROM tasks WHERE session_id=? AND status IN ('running','needs_input')").get(id))
+      throw new Error("Wait for the task that is still working in this conversation, or stop it, first.");
+  }
+
+  private lastRewind(owner: string, id: string): Record<string, unknown> | undefined {
+    return this.db.prepare("SELECT * FROM rewinds WHERE owner=? AND session_id=? AND undone=0 ORDER BY created_at DESC, rowid DESC LIMIT 1").get(owner, id) as Record<string, unknown> | undefined;
+  }
+  private owned(owner: string, input: string): string {
+    const id = sessionIdSchema.parse(input);
+    if (!this.db.prepare("SELECT id FROM sessions WHERE id=? AND owner=?").get(id, owner)) throw new Error("Conversation not found");
+    return id;
+  }
+}
+
+/** The HTTP side: `/api/sessions/<id>/rewind` (GET status, POST rewind) and `/unrevert` (POST). */
+export async function rewindApi(rewinds: Rewinds, owner: string, method: string, path: string, body: () => Promise<unknown>): Promise<unknown> {
+  const match = /^\/api\/sessions\/([a-f0-9-]{36})\/(rewind|unrevert)$/.exec(path);
+  if (!match) return undefined;
+  if (match[2] === "rewind" && method === "GET") return rewinds.status(owner, match[1]!);
+  if (match[2] === "rewind" && method === "POST") return rewinds.rewind(owner, match[1]!, await body());
+  if (match[2] === "unrevert" && method === "POST") { z.object({}).strict().parse(await body()); return rewinds.unrevert(owner, match[1]!); }
+  return undefined;
+}
