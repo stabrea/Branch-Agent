@@ -29,3 +29,5 @@ does, then the controls. No jargon. Check at 400 px wide with no sideways scroll
 
 Code may only be ported from MIT or Apache-2.0 sources (see `/Users/taofikbishi/Code/agent-refs/INDEX.md`).
 AGPL, GPL or restricted projects are study-only: implement independently, never transliterate.
+**Study-only by name (Legion's licence check): OpenHands, Khoj (AGPL-3.0), AutoGPT (PolyForm Shield inside
+`autogpt_platform`), and Eon's fly-brain (GPL-2.0).** Where a brief points at one of these, take the idea, not the code.
