@@ -148,7 +148,8 @@ export class DesktopBanner {
 /**
  * The runner and the notice screen control uses. On a Mac or Linux the runner is switched on only
  * while the notice is really showing, so no action can reach the screen without a Stop button on it.
- * Windows gets exactly the two it always had.
+ * Windows gets exactly the two it always had. Pass both to `DesktopControl` together: the runner only
+ * knows this banner, so a runner handed in alone refuses every action.
  */
 export function screenControlParts(options: {
   window?: BannerWindowFactory; platform?: string; posix?: Omit<PosixDesktopOptions, 'enabled' | 'platform'>;

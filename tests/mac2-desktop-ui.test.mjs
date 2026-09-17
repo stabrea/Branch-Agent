@@ -16,6 +16,7 @@ import { VoiceService, systemVoiceWords, ttsRouteFor } from "../dist/voice-servi
 import { microphoneHelp, systemVoices, voicePlan, whereAudioGoes } from "../dist/voice-api.js";
 import { VoiceSettingsSchema } from "../dist/voice.js";
 import { keychainApi, permissionsContext } from "../dist/keychain-api.js";
+import { linuxConsent, probeReader } from "../dist/os-permissions.js";
 
 /**
  * Wave mac2: the Stop notice, the voice list and the permission screens on a Mac and on Linux.
@@ -146,6 +147,31 @@ test("a notice that fails, or never shows, keeps the screen untouched", async (t
     assert.equal(f.parts.banner.visible, false);
     if (options.showing === false) assert.equal(windows.made[0].closedBy, "hide", "the half-made notice is closed");
   }
+});
+
+test("a runner paired with another notice refuses, and a missing notice never reads as Linux saying no", async (t) => {
+  const windows = fakeWindowFactory();
+  const { app, closeFirst } = await fixture(t);
+  saveDesktopSettings(app.store, app.runtime.owner, { enabled: true });
+  const fake = fakeMac();
+  const parts = screenControlParts({ platform: "darwin", posix: { exec: fake.exec }, window: windows.factory });
+  // A different notice goes up, but the runner only answers to its own, which is not showing.
+  const other = new DesktopBanner(parts.runner, undefined, { platform: "darwin", window: fakeWindowFactory().factory });
+  const mismatched = new DesktopControl(app.store, { runner: parts.runner, banner: other });
+  closeFirst(() => mismatched.close());
+  const run = await app.runtime.run({ prompt: "list windows" });
+  await assert.rejects(mismatched.windows({ action: "list" }, app.runtime.context({ runId: run.id })), /only uses your screen while its notice/);
+  assert.equal(fake.calls.length, 0, "a runner whose notice is not the one shown does nothing");
+  assert.equal(windows.made.length, 0);
+
+  // Linux on X11 asks the screen by listing windows, which bypasses the notice: that refusal is
+  // "nothing to say", never "this computer said no".
+  const linux = screenControlParts({ platform: "linux", posix: { exec: fake.exec, env: { DISPLAY: ":0" }, locate: () => "/usr/bin/xdotool" } });
+  const control = new DesktopControl(app.store, linux);
+  closeFirst(() => control.close());
+  const read = probeReader(() => control.probe(), linuxConsent({ DISPLAY: ":0" }), "linux");
+  assert.equal(await read("screen"), "unknown");
+  assert.equal(fake.calls.length, 0);
 });
 
 test("Windows keeps the notice it always had", () => {
