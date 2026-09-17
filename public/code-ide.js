@@ -3,6 +3,8 @@
  * and the debuggers already installed on this computer. Nothing is ever downloaded, nothing starts
  * until a switch is on, and a program that is not really there is refused when you save.
  */
+import { t } from "/i18n.js";
+
 const $ = (id) => document.getElementById(id);
 const token = () => sessionStorage.getItem("branch-token") || "";
 
@@ -73,4 +75,26 @@ $("code-ide-save")?.addEventListener("click", save);
 let loaded = false;
 $("code-ide")?.addEventListener("toggle", () => {
   if (!loaded && $("code-ide").open) { loaded = true; void loadCodeIde(); }
+});
+
+// bucket-18 (A0300): the three-way switch for pull requests opened from a task's changes.
+async function loadPullRequests() {
+  try {
+    const settings = await call("pull-requests");
+    $("pull-requests-mode").value = settings.mode || "off";
+  } catch (error) {
+    status("pull-requests-status", error.message);
+  }
+}
+$("pull-requests-save")?.addEventListener("click", async () => {
+  try {
+    await call("pull-requests", { mode: $("pull-requests-mode").value });
+    status("pull-requests-status", t("developer.pull-requests.saved"));
+  } catch (error) {
+    status("pull-requests-status", error.message);
+  }
+});
+let pullRequestsLoaded = false;
+$("pull-requests")?.addEventListener("toggle", () => {
+  if (!pullRequestsLoaded && $("pull-requests").open) { pullRequestsLoaded = true; void loadPullRequests(); }
 });

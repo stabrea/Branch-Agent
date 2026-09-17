@@ -3254,3 +3254,12 @@ The graduated warn / refuse / stop loop guard in `src/loop-guard.ts` — countin
 ### Gemini CLI (Google) loop detection and folder trust (idea only), Apache-2.0
 
 The loop detection in `src/loop-guard.ts` and the trusted folders in `src/folder-trust.ts`, with their read-only listing before a folder is trusted, are ideas from Gemini CLI's `packages/core/src/services/loopDetectionService.ts`, `packages/core/src/utils/trust.ts` and `packages/core/src/services/FolderTrustDiscoveryService.ts` (https://github.com/google-gemini/gemini-cli), Copyright 2025 Google LLC, licensed under the Apache License, Version 2.0 (https://www.apache.org/licenses/LICENSE-2.0). They were written afresh; no code was copied.
+
+### Aider (Aider-AI), repository map and AI comments, Apache-2.0
+
+Two parts of Branch are adapted from Aider (https://github.com/Aider-AI/aider, commit 5dc9490), licensed under the Apache License, Version 2.0 (https://www.apache.org/licenses/LICENSE-2.0); Aider's LICENSE.txt carries no separate copyright line or NOTICE file:
+
+- `src/code-rank.ts` follows `aider/repomap.py`: the graph from files that use a name to files that declare it, the weights given to each name, personalised PageRank, the ranking of declarations by the rank shared out along those edges, and the halving search for the outline that fits a token budget. Branch reads declarations with its own tokenizer (`src/code-tags.ts`) instead of tree-sitter, and computes PageRank itself instead of with networkx.
+- `src/ai-comments.ts` follows `aider/watch.py` and `aider/watch_prompts.py`: the comment pattern (a comment starting with "ai" or ending with "ai", "ai!" or "ai?") and what the resulting task asks for.
+
+Changes: rewritten in TypeScript for Branch; file access goes through Branch's workspace checks.

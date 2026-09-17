@@ -130,6 +130,8 @@ import { KnowledgeManagement } from "./knowledge-manage.js";
 import { KnowledgePictures } from "./knowledge-pictures.js";
 import { registerKnowledgeExtras, type KnowledgeParts } from "./knowledge-more.js";
 import { MemoryMirror, readOnlyRefusal, registerMemoryMirror } from "./memory-mirror.js";
+// bucket-18: memory history (A2317)
+import { MemoryHistory, registerMemoryHistory } from "./memory-git.js";
 import { EphemeralDocuments, EphemeralRetriever, registerEphemeralDocuments } from "./memory-ephemeral.js";
 import { CachedEmbeddings, asEmbeddings } from "./embeddings.js";
 import { MemoryConsolidation } from "./memory-consolidate.js";
@@ -154,6 +156,8 @@ import { registerLanguageServers } from "./language-server-tools.js";
 import { DebugAdapters, registerDebug } from "./debug-adapter.js";
 import { registerCheckpoints } from "./checkpoints.js";
 import { KeptArtifacts, registerKeptArtifacts } from "./build-artifacts.js";
+import { registerArtifactVersions } from "./artifact-versions.js"; // bucket-18 (A1183)
+import { offerPullRequestFromChanges, watchFinishedTasks, type PullRequestDeps } from "./pr-hook.js"; // bucket-18 (A0300)
 import { OpenApiTools, registerOpenApiTools } from "./openapi-tools.js";
 import { redactLeaksIn } from "./leak-guard.js";
 // mac2/fly-core: the learning core switch and its on-demand tool.
@@ -229,6 +233,8 @@ export async function createBranch(options: {
   // Files a task produced that are not text, kept version by version with their checksums.
   const keptArtifacts = new KeptArtifacts(join(dataDir, "kept"));
   registerKeptArtifacts(registry, keptArtifacts, files);
+  // bucket-18 (A1183): put a kept version back, or let one go.
+  registerArtifactVersions(registry, keptArtifacts, files);
   registerCodeSearch(registry, new WorkspaceSearch(files));
   // The project map: built once, then kept up to date file by file, and ordered around a request.
   const projectMap = new ProjectMap(files);
@@ -410,6 +416,21 @@ export async function createBranch(options: {
   // when the connected model has no such service, and keeps what it makes beside the database.
   // A service that describes itself in OpenAPI becomes tools, one per operation the owner allows.
   const openApiTools = new OpenApiTools(registry, { store, policy: web.policy, files });
+  // ---- bucket-18: open pull-request hook (A0300); off until the owner switches it on ----
+  const pullRequestStop = new AbortController();
+  const pullRequestWork = new Set<Promise<unknown>>();
+  const pullRequestDeps: PullRequestDeps = {
+    store, owner: runtime.owner, files, policy: web.policy, registry,
+    git: (options, signal) => gitRunner.run(options, AbortSignal.any([signal, pullRequestStop.signal])),
+    runTool: (name, args) => runtime.executeTool(name, args),
+  };
+  const stopOfferingPullRequests = offerPullRequestFromChanges(pullRequestDeps);
+  const stopPullRequests = watchFinishedTasks(pullRequestDeps, (work) => {
+    const pending = work().catch(() => undefined);
+    pullRequestWork.add(pending);
+    void pending.finally(() => pullRequestWork.delete(pending));
+  });
+  // ---- end of the pull-request hook block ----
   registerOpenApiTools(registry, openApiTools);
   // Batch 20 (wave 8): the services the owner turned into tools are built back from what was
   // written down, so they survive a restart. Nothing is fetched; each key still comes from the
@@ -559,6 +580,14 @@ export async function createBranch(options: {
   const documentAnalysis = new DocumentAnalysis(files, dataTables, runtime.models);
   registerDocumentAnalysis(registry, documentAnalysis);
   const research = new Research(store, web, files, documents, writeObserver);
+  // bucket-18 (A2128): research reads a page built by script with the browser, when one is set up.
+  research.pageFallback = async (url, context) => {
+    const names = registry.names();
+    if (!names.includes("browser.navigate") || !names.includes("browser.snapshot") || !context.permissions.has("browser.read")) return null;
+    await registry.execute("browser.navigate", { url }, context);
+    const snapshot = await registry.execute("browser.snapshot", {}, context) as { url?: string; accessibility?: string };
+    return { url: snapshot.url ?? url, title: snapshot.url ?? url, text: String(snapshot.accessibility ?? "") };
+  };
   registerResearch(registry, research);
   const monitors = new Monitors(store, web, deliverMessage);
   registerMonitors(registry, monitors);
@@ -695,6 +724,9 @@ export async function createBranch(options: {
   files.readOnly = (path) => (memoryMirror.owns(path) ? readOnlyRefusal : "");
   // And a knowledge base never reads those notes back in: they are the assistant's own writing.
   knowledgeBases.skip = (path) => memoryMirror.owns(path);
+  // bucket-18: memory history (A2317): what is remembered, committed to a private repository in the data folder.
+  const memoryHistory = new MemoryHistory(dataDir, store, memoryMirror, (options, signal) => gitRunner.run(options, signal), web.policy);
+  registerMemoryHistory(registry, memoryHistory, runtime.owner);
   // Saved facts are read through the same store of already-read passages, so nothing is sent twice.
   memory.retrieval.wrapEmbedder = (embedder) => new CachedEmbeddings(asEmbeddings(embedder), knowledgeBases.cache);
   const consolidation = new MemoryConsolidation(store, memory.retrieval, memory.hygiene);
@@ -936,6 +968,8 @@ export async function createBranch(options: {
     codeChanges,
     /** The project map, for the screens that show it and for the tests. */
     projectMap,
+    /** bucket-18 (A2317): the history of what is remembered, off until the owner switches it on. */
+    memoryHistory,
     /** Services turned into tools from their own OpenAPI description. */
     openApiTools,
     /** Files a task produced that are not text, kept version by version. */
@@ -997,6 +1031,11 @@ export async function createBranch(options: {
       summary: (limit?: number) => liveScoreSummary(liveScores(store, runtime.owner, limit)),
     },
     close: () => (closing ??= (async () => {
+      // bucket-18 (A0300): nothing is sent to GitHub while the app is closing.
+      stopPullRequests();
+      stopOfferingPullRequests();
+      pullRequestStop.abort(new Error("Branch is closing"));
+      await Promise.allSettled([...pullRequestWork]);
       stopWatchingErrors();
       stopLiveScoring();
       // Wave 8: a connection that stays open must not outlive the app either.
@@ -1116,6 +1155,9 @@ export * from "./tracing-export.js";
 export * from "./metrics.js";
 export * from "./auth-limits.js";
 export * from "./hooks.js";
+// bucket-18: Open pull-request hook (A0300)
+export * from "./pr-hook.js";
+export * from "./key-context.js";
 export * from "./ws.js";
 export * from "./integrations/process-usage.js";
 export * from "./skill-governance.js";
@@ -1174,6 +1216,8 @@ export * from "./integrations/git.js";
 export * from "./integrations/git-run.js";
 export * from "./integrations/git-tools.js";
 export * from "./integrations/github.js";
+// bucket-18: GitHub App (A2227)
+export * from "./integrations/github-app.js";
 export * from "./integrations/gitlab.js";
 export * from "./integrations/desktop.js";
 export * from "./integrations/desktop-tools.js";
@@ -1274,6 +1318,8 @@ export * from "./misc-api.js";
 export * from "./integrations/linear.js";
 export * from "./integrations/issue-context.js";
 export * from "./integrations/issue-tools.js";
+// bucket-18: Issue-tracker context (A0174) - add Jira and GitLab support
+export * from "./integrations/jira.js";
 // Wave 6 (collaboration and workflows).
 export * from "./labels.js";
 export * from "./conversation-share.js";
@@ -1314,6 +1360,10 @@ export * from "./lockdown.js";
 export * from "./session-tree.js";
 export * from "./project-ledger.js";
 export * from "./watch.js";
+// bucket-18: AI comments (A0344)
+export * from "./ai-comments.js";
+// bucket-18: memory history (A2317)
+export * from "./memory-git.js";
 // Batch 20 (wave 8): writing and changing documents, and the rest of what this batch added.
 export * from "./document-package.js";
 export * from "./document-write.js";

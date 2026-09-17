@@ -706,3 +706,15 @@ label > input[type="radio"] {
   overflow-x: auto;
   max-width: 100%;
 }
+
+/* bucket-18 (A0098): the code editor in the Files tab. Tokens only. */
+.wsedit-list { display: flex; flex-direction: column; gap: var(--s1); max-height: 12rem; overflow-y: auto; }
+.wsedit-entry { justify-content: flex-start; text-align: left; overflow-wrap: anywhere; }
+.wsedit-editor { display: flex; flex-direction: column; gap: var(--s2); margin-top: var(--s2); min-width: 0; }
+.wsedit-code { display: flex; min-width: 0; border: 1px solid var(--line); border-radius: var(--r2); background: var(--well); }
+.wsedit-lines { margin: 0; padding: var(--s2) var(--s1); overflow: hidden; max-height: 24rem; color: var(--muted);
+  font: 0.8125rem/1.5 var(--font-mono); text-align: right; user-select: none; border-right: 1px solid var(--line); }
+.wsedit-text { flex: 1; min-width: 0; min-height: 16rem; max-height: 24rem; margin: 0; padding: var(--s2); border: 0;
+  resize: vertical; background: transparent; color: var(--text); font: 0.8125rem/1.5 var(--font-mono); tab-size: 2; overflow: auto; }
+.wsedit-text:focus-visible { outline: 2px solid var(--copper); outline-offset: -2px; }
+#wsedit-unsaved { color: var(--warn); }

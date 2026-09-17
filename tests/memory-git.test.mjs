@@ -1,0 +1,107 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { mkdtemp, mkdir, readdir } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createBranch, locateGit, NetworkPolicy } from "../dist/index.js";
+import { startServer } from "../dist/server.js";
+import { MemoryHistory, describeMemoryChange, MemoryHistorySettingsSchema } from "../dist/memory-git.js";
+import { discardTemp } from "./temp-dir.mjs";
+
+/* bucket-18 (A2317): what is remembered, versioned with Git in the data folder. Real Git, temp folders only. */
+const git = await locateGit();
+const skip = git ? false : "Git is not installed";
+
+async function fixture(t) {
+  const root = await mkdtemp(join(tmpdir(), "branch-memory-history-"));
+  const workspace = join(root, "workspace"), dataDir = join(root, "data");
+  await mkdir(workspace, { recursive: true });
+  const app = await createBranch({ workspace, dataDir, provider: { name: "scripted", async complete() { return { content: "Done.", toolCalls: [] }; } } });
+  t.after(async () => { await app.close(); await discardTemp(root); });
+  return { app, workspace, dataDir, owner: app.runtime.owner };
+}
+const remember = (app, text, kind = "preference") => app.runtime.executeTool("memory.put", { text, source: "a test", kind });
+
+test("A2317 ships off: nothing is written, the tools refuse", { skip }, async (t) => {
+  const { app, dataDir, owner } = await fixture(t);
+  assert.equal(app.memoryHistory.settings(owner).mode, "off");
+  await remember(app, "Likes tea");
+  assert.equal(await app.memoryHistory.record(owner), null);
+  assert.equal(existsSync(join(dataDir, "memory-history")), false);
+  await assert.rejects(app.runtime.executeTool("memory.versions", {}), /switched off/);
+});
+
+test("A2317 on: one version per change, with a plain message, readable at any version, never in the workspace", { skip }, async (t) => {
+  const { app, workspace, owner } = await fixture(t);
+  app.memoryHistory.configure(owner, { mode: "on" });
+  // Saving a fact is itself a small task, and its end records a version; record() waits its turn behind it.
+  await remember(app, "Likes tea");
+  await app.memoryHistory.record(owner);
+  const [first] = await app.memoryHistory.versions();
+  assert.match(first.message, /^Remembered 1 fact: \d+ lines added, 0 removed, in 1 note$/);
+  assert.equal(await app.memoryHistory.record(owner), null, "nothing changed, so no new version");
+
+  await remember(app, "Works on the Branch project", "fact-about-person");
+  await app.memoryHistory.record(owner);
+  const [second] = await app.memoryHistory.versions();
+  assert.match(second.message, /^Remembered 2 facts: \d+ lines added, 0 removed, in 1 note$/);
+
+  const listed = await app.runtime.executeTool("memory.versions", {});
+  assert.deepEqual(listed.versions.map((version) => version.commit), [second.commit, first.commit], "one version per change");
+  assert.equal(listed.versions[1].files, 1);
+  assert.ok(listed.lastRecorded);
+
+  const then = await app.runtime.executeTool("memory.version_note", { version: first.commit, kind: "preference" });
+  assert.match(then.text, /- Likes tea/);
+  await assert.rejects(app.runtime.executeTool("memory.version_note", { version: first.commit, kind: "fact-about-person" }), /no note of that kind/);
+  const now = await app.runtime.executeTool("memory.version_note", { version: second.commit, kind: "fact-about-person" });
+  assert.match(now.text, /Works on the Branch project/);
+
+  assert.deepEqual(await readdir(workspace), [], "the workspace grew nothing, and no repository was made in it");
+});
+
+test("A2317 a finished task records a version by itself", { skip }, async (t) => {
+  const { app, owner } = await fixture(t);
+  app.memoryHistory.configure(owner, { mode: "when-needed" });
+  app.store.save("memory", owner, "fact-1", { text: "Prefers short answers", source: "a test", kind: "preference" });
+  assert.equal((await app.memoryHistory.versions()).length, 0);
+  await app.runtime.run({ prompt: "say hello" });
+  for (let waited = 0; waited < 100 && !(await app.memoryHistory.versions()).length; waited++)
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal((await app.memoryHistory.versions()).length, 1);
+});
+
+test("A2317 a copy goes only where the owner and the network rules allow, and a problem is kept, not hidden", { skip }, async (t) => {
+  assert.equal(MemoryHistorySettingsSchema.safeParse({ remote: "https://user:pw@example.com/x.git" }).success, false);
+  assert.equal(MemoryHistorySettingsSchema.safeParse({ remote: "https://token@example.com/x.git" }).success, false);
+  assert.equal(MemoryHistorySettingsSchema.safeParse({ remote: "file:///tmp/x" }).success, false);
+  assert.equal(MemoryHistorySettingsSchema.safeParse({ remote: "git@github.com:me/memory.git" }).success, true);
+
+  const { app, dataDir, owner } = await fixture(t);
+  const calls = [];
+  const fakeGit = async (options) => {
+    calls.push(options.args);
+    return { status: "completed", stdout: options.args[0] === "diff" ? "3\t0\tpreference.md\n" : "", stderr: "", exitCode: 0, command: "git" };
+  };
+  const blocked = new NetworkPolicy({ allowPrivateAddresses: true, blockedHosts: ["example.com"] });
+  const history = new MemoryHistory(join(dataDir, "other"), app.store, { grouped: () => new Map() }, fakeGit, blocked);
+  history.configure(owner, { mode: "on", remote: "https://example.com/me/memory.git" });
+  await history.record(owner);
+  assert.equal(calls.some((args) => args[0] === "push"), false, "nothing was sent to a blocked address");
+  assert.match(history.status(owner).lastProblem, /blocked list/);
+
+  const server = await startServer(app, { dataDir, port: 0 });
+  t.after(() => server.close());
+  const key = app.sessionTokens.create(owner, { scope: "run", minutes: 5 }).token;
+  const refused = await fetch(`${server.url}/api/memory/history`, {
+    method: "POST", headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
+    body: JSON.stringify({ remote: "https://attacker.example/steal.git" }),
+  });
+  assert.equal(refused.status, 401, "a script's key cannot name where the history goes");
+});
+
+test("A2317 the change message counts lines and facts", () => {
+  const counts = new Map([["preference", 2], ["project-note", 1]]);
+  assert.equal(describeMemoryChange("2\t1\tpreference.md\n1\t0\tproject-note.md\n", counts), "Remembered 3 facts: 3 lines added, 1 removed, in 2 notes");
+});

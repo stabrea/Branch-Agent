@@ -138,7 +138,7 @@ export function registerGitRemote(registry: ToolRegistry, git: GitTools): void {
  */
 async function openPullRequest(
   github: GitHubAccess,
-  input: { repo: string; title: string; body?: string | undefined; base: string; head: string; issue?: string | undefined; changes?: string[] | undefined },
+  input: { repo: string; title: string; body?: string | undefined; base: string; head: string; issue?: string | undefined; changes?: string[] | undefined; draft?: boolean | undefined },
 ): Promise<unknown> {
   const { issue: reference, changes, ...rest } = input;
   if (!reference) return github.openPullRequest(rest);
@@ -153,7 +153,8 @@ async function openPullRequest(
  * Reading how a project on GitHub is doing, and putting a folder on GitHub for the first time.
  * Publishing creates the repository and then sends the work with the Git sign-in this computer
  * already has: no token is written into the repository's settings, and the person is asked first.
- * A GitHub App is deliberately not built — these tools use the owner's own personal access token.
+ * The token is the owner's personal access token, or an installation token from the owner's own
+ * GitHub App when that is switched on (src/integrations/github-app.ts, bucket 18).
  */
 export function registerGitHubProject(registry: ToolRegistry, github: GitHubAccess, git?: GitTools): void {
   registry.register({
@@ -213,6 +214,8 @@ export function registerGitHub(registry: ToolRegistry, github: GitHubAccess, git
       issue: z.string().trim().min(1).max(500).optional(),
       /** One line per thing that changed, for the template's list. */
       changes: z.array(z.string().max(300)).max(20).optional(),
+      /** bucket-18 (A0300): open it as a draft. */
+      draft: z.boolean().optional(),
     }).strict(),
     execute: (input) => openPullRequest(github, input),
   });

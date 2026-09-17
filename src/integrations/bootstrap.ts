@@ -28,10 +28,12 @@ import { HookSchema, type Hooks, type HookRunner } from '../hooks.js';
 import type { ToolContext } from '../contracts.js';
 import type { NetworkPolicy } from '../network-policy.js';
 import type { GitTools } from './git.js';
-import { GitHubAccess, GitHubConfigSchema } from './github.js';
+import { GitHubAccess, GitHubConfigSchema, type TokenSource } from './github.js';
+import { GitHubAppSettingsSchema, chooseGitHubTokenSource } from './github-app.js';
 import { registerGitHub, registerGitRemote } from './git-tools.js';
 import { GitLabAccess, GitLabConfigSchema, registerGitLab } from './gitlab.js';
 import { LinearAccess, LinearConfigSchema } from './linear.js';
+import { JiraAccess, JiraConfigSchema } from './jira.js';
 import { IssueAccess, registerIssues, type IssueTrackers } from './issue-tools.js';
 
 const channelId = z.string().regex(/^[a-z][a-z0-9_-]{0,29}$/);
@@ -175,6 +177,8 @@ export interface ChannelHost { router: ChannelRouter; secret: (name: string) => 
 export const GitConfigSchema = z.object({
   remote: z.boolean().default(false),
   github: GitHubConfigSchema.partial().optional(),
+  /** bucket-18: GitHub App (A2227). Exchange private key for installation tokens instead of personal access token. */
+  githubApp: GitHubAppSettingsSchema.optional(),
   /** Reading issues, releases and pipelines from GitLab; needs its own saved token. */
   gitlab: GitLabConfigSchema.partial().optional(),
 }).strict();
@@ -183,6 +187,9 @@ export const GitConfigSchema = z.object({
 export const IssuesConfigSchema = z.object({
   github: z.boolean().default(false),
   linear: LinearConfigSchema.partial().optional(),
+  // bucket-18 (A0174): read GitLab issues with the GitLab settings under "git", and Jira issues from the owner's site.
+  gitlab: z.boolean().default(false),
+  jira: JiraConfigSchema.optional(),
 }).strict();
 
 const ConfigSchema = z.object({ mcp: z.array(McpConfigSchema).max(8).default([]),
@@ -424,12 +431,17 @@ function enableGit(registry: ToolRegistry, config: z.infer<typeof GitConfigSchem
   if (config.gitlab) enableGitLab(registry, config.gitlab, host, policy);
   if (!config.github) return;
   if (!policy || !host.activeSecret) throw new Error('GitHub needs the network settings and the secrets locker');
-  const secret = host.activeSecret, name = GitHubConfigSchema.parse(config.github).tokenSecret;
-  registerGitHub(registry, new GitHubAccess(config.github, policy, async () => {
-    const value = await secret(name).catch(() => '');
-    if (!value) throw new Error(`Connect GitHub first: save a secret called ${name} in the active project holding a GitHub personal access token.`);
+  const secret = host.activeSecret;
+
+  // bucket-18: GitHub App (A2227): the owner's own app when switched on, the personal token otherwise.
+  const github = GitHubConfigSchema.parse(config.github);
+  const personal: TokenSource = async () => {
+    const value = await secret(github.tokenSecret).catch(() => '');
+    if (!value) throw new Error(`Connect GitHub first: save a secret called ${github.tokenSecret} in the active project holding a GitHub personal access token.`);
     return value;
-  }), host.git);
+  };
+  const tokenSource = chooseGitHubTokenSource(config.githubApp, personal, policy, secret, { apiBase: github.apiBase });
+  registerGitHub(registry, new GitHubAccess(config.github, policy, tokenSource), host.git);
 }
 
 /** Reading from GitLab; the token comes out of the active project's secrets at the moment of a call. */
@@ -467,6 +479,12 @@ function enableIssues(
     const settings = LinearConfigSchema.parse(config.linear);
     trackers.linear = new LinearAccess(settings, policy, held(settings.tokenSecret, 'Linear', 'a Linear API key'));
   }
+  // bucket-18 (A0174): GitLab and Jira, read only, each with its own saved key.
+  if (config.gitlab) {
+    const settings = GitLabConfigSchema.parse(git?.gitlab ?? {});
+    trackers.gitlab = new GitLabAccess(settings, policy, held(settings.tokenSecret, 'GitLab', 'a GitLab personal access token'));
+  }
+  if (config.jira) trackers.jira = new JiraAccess(config.jira, policy, secret);
   const access = new IssueAccess(trackers, host?.web);
   if (access.available().length) registerIssues(registry, access);
   return access;
