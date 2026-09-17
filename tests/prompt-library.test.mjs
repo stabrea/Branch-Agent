@@ -381,3 +381,16 @@ test("integrator: a try is refused once the monthly budget is spent", async (t) 
   assert.match(tried.body.error, /budget/i);
   assert.equal(model.seen.length, 0);
 });
+
+test("integrator: a try stops after two model steps even when the model keeps asking for tools", async (t) => {
+  let calls = 0;
+  const looping = { name: "looping", seen: [], complete: async () => {
+    calls += 1;
+    return { content: "", toolCalls: [{ id: `c${calls}`, name: "workspace_read", arguments: JSON.stringify({ path: "a.txt" }) }] };
+  } };
+  const { store, owner, json } = await fixture(t, looping);
+  on(store, owner);
+  const tried = await json("/api/prompts/try", { body: "Keep going" });
+  assert.equal(tried.status, 200);
+  assert.ok(calls <= 2, `asked the model ${calls} times`);
+});
