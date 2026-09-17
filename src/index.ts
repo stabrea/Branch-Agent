@@ -1491,6 +1491,8 @@ export * from "./plugin-catalog.js";
 export * from "./skill-revisions.js";
 export * from "./media.js";
 export * from "./troubleshoot.js"; // w911 (A0374) hook.
+export * from "./qa-scenarios.js"; // w911 (A1753) hook.
+export * from "./qa-api.js"; // w911 (A1753) hook.
 export * from "./voice.js";
 export * from "./voice-stt.js";
 export * from "./voice-tts.js";

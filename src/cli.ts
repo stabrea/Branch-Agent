@@ -54,6 +54,7 @@ import { selfTestCommand } from "./never-break/self-test.js";
 import { manageCommand } from "./install/manage-cli.js";
 import { bringInShareable, shareableSections } from "./interop/agent-market.js";
 // --- end bucket 22 ---
+import { qaCommand, qaDeps } from "./qa-api.js"; // w911 (A1753) hook.
 
 async function configuredApp(options: Parameters<typeof createBranch>[0]) {
   const app = await createBranch(options);
@@ -240,6 +241,8 @@ async function main(): Promise<void> {
       return;
     }
     if (command === "trace") { traceCommand(app); return; }
+    // w911 (A1753) hook: `branch qa list` and `branch qa run <id>`.
+    if (command === "qa") { process.exitCode = await qaCommand(qaDeps(app), process.argv.slice(3), (line) => console.log(line)); return; }
     if (command === "eval") {
       await runEvaluation(app);
       return;
