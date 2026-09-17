@@ -43,7 +43,7 @@ export const lockdownEffects = [
   "Using your screen and keyboard is off.",
   "Borrowing your browser is off.",
   "Sending messages out and telling other programs what happened are both off.",
-  "Automations that start by themselves, and routines a Trunk owns, are off, whatever they were set to.",
+  "Automations that start by themselves, routines a Trunk owns, your other devices and your personal connectors are off, whatever they were set to.",
 ];
 
 interface SavedLockdown { on: boolean; since: string | null; before: Record<string, Record<string, unknown> | null> }
@@ -82,11 +82,11 @@ export function lockdownActive(store: Reader, owner: string): boolean {
 
 /**
  * The settings records Lockdown switches off: the screen and keyboard, borrowing the browser,
- * running a script, every automation part, and routines a Trunk owns.
- * Devices and personal connectors add their record names here when they are merged.
+ * running a script, every automation part, routines a Trunk owns, the owner's other devices
+ * (src/devices/) and every personal connector (src/personal/).
  */
 const coveredSettings: readonly RegExp[] = [
-  /^desktop-control$/, /^browser-attach$/, /^code-run$/, /^autonomy-/, /^trunks-routines$/,
+  /^desktop-control$/, /^browser-attach$/, /^code-run$/, /^autonomy-/, /^trunks-routines$/, /^devices-book$/, /^personal-/,
 ];
 
 /** True when Lockdown is on and this settings record is one it switches off. */
@@ -97,11 +97,12 @@ export function lockdownOverrides(store: Reader, owner: string, key: string): bo
 /** Kinds of tool refused outright while Lockdown is on, rather than asked about. */
 const refusedPermissions: readonly string[] = [
   "shell.execute", "code.execute", "remote.execute", "process.manage", "desktop.control", "desktop.view", "desktop.clipboard",
+  "devices.read", "devices.capture", "devices.act", "devices.run",
 ];
 const refusedTools: readonly string[] = ["browser.borrow"];
 
 export const lockdownToolRefusalText =
-  "Lockdown is on, so commands, programs, your screen and keyboard, and your own browser are all off. Turn Lockdown off in Settings to allow this again.";
+  "Lockdown is on, so commands, programs, your screen and keyboard, your own browser and your other devices are all off. Turn Lockdown off in Settings to allow this again.";
 
 /** Why this tool is refused while Lockdown is on, or null. Checked in `Runtime.checkPolicy`. */
 export function lockdownToolRefusal(store: Reader, owner: string, tool: string, permission: string): string | null {

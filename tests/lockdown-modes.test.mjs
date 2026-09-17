@@ -18,6 +18,7 @@ import { codeRunSettings, saveCodeRunSettings } from "../dist/code-run.js";
 import { switchedToolTiers } from "../dist/feature-switches.js";
 import { autonomyMode, requirePart, saveAutonomyMode } from "../dist/autonomy/settings.js";
 import { trunkMode } from "../dist/trunks/settings.js";
+import { personalMode, requirePersonal, savePersonalMode } from "../dist/personal/settings.js";
 
 const owner = "local";
 
@@ -139,4 +140,43 @@ test("routines a Trunk owns: fire when on, refused under Lockdown", async (t) =>
   const runs = branch.store.runs(owner).length;
   await assert.rejects(branch.scheduler.trigger(owner, routine.id, null, owner), /did not produce a run/);
   assert.equal(branch.store.runs(owner).length, runs, "nothing ran");
+});
+
+test("your other devices: switched on, then off under Lockdown, and their tools refused", async (t) => {
+  const { branch } = await app(t);
+  allowAll(branch);
+  branch.devices.setMode({ mode: "on" });
+  assert.equal(branch.devices.book.mode(), "on");
+  const listed = await branch.runtime.executeTool("device.list", {}, byHand);
+  assert.ok(listed, "device.list answers while on");
+
+  setLockdown(branch.store, owner, { on: true });
+  allowAll(branch);
+  assert.equal(branch.devices.book.mode(), "off");
+  assert.throws(() => branch.devices.book.requireOn());
+  assert.deepEqual(switchedToolTiers(branch.store, owner, ["device.list"]).hidden, ["device.list"]);
+  // The tools still registered from before are refused by the gate.
+  assert.equal(decision(branch, "device.list"), "deny");
+  await assert.rejects(branch.runtime.executeTool("device.list", {}, byHand), /Lockdown is on/);
+  branch.devices.setMode({ mode: "on" });
+  assert.equal(branch.devices.book.mode(), "off", "a change saved during Lockdown does not switch it on");
+  setLockdown(branch.store, owner, { on: false });
+  assert.equal(branch.devices.book.mode(), "on");
+  assert.ok(await branch.runtime.executeTool("device.list", {}, byHand), "back without a restart");
+});
+
+test("personal connectors: a part switched on is off under Lockdown", async (t) => {
+  const { branch } = await app(t);
+  savePersonalMode(branch.store, owner, "google", { mode: "on" });
+  assert.equal(personalMode(branch.store, owner, "google"), "on");
+  assert.doesNotThrow(() => requirePersonal(branch.store, owner, "google"));
+  assert.equal(switchedToolTiers(branch.store, owner, ["gmail.search"]).preload.length, 1);
+
+  setLockdown(branch.store, owner, { on: true });
+  savePersonalMode(branch.store, owner, "google", { mode: "on" });
+  assert.equal(personalMode(branch.store, owner, "google"), "off");
+  assert.throws(() => requirePersonal(branch.store, owner, "google"), /Lockdown is on, so your Gmail/);
+  assert.deepEqual(switchedToolTiers(branch.store, owner, ["gmail.search"]).hidden, ["gmail.search"]);
+  setLockdown(branch.store, owner, { on: false });
+  assert.equal(personalMode(branch.store, owner, "google"), "on");
 });

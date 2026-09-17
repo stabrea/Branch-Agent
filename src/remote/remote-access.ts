@@ -1,4 +1,5 @@
-import { createServer, type RequestListener, type Server } from "node:http";
+import { createServer, type IncomingMessage, type RequestListener, type Server } from "node:http";
+import type { Duplex } from "node:stream";
 import { Pairing, type PairingView } from "./pairing.js";
 import { encodeQr, type QrMatrix } from "./qr.js";
 import { probeTailscale, isTailnetAddress, type ProbeTailscale, type TailnetAddress } from "./tailscale.js";
@@ -32,6 +33,8 @@ export class RemoteAccess {
   private tailnet: TailnetAddress | null = null;
   private origin: string | null = null;
   readonly pairing: Pairing;
+  /** mac7/nodes: what the paired door does with a WebSocket upgrade; set by the server, refused while unset. */
+  upgrade: ((request: IncomingMessage, socket: Duplex) => void) | null = null;
   constructor(token: string, private readonly probe: ProbeTailscale = probeTailscale) {
     this.pairing = new Pairing(token);
   }
@@ -66,6 +69,12 @@ export class RemoteAccess {
     if (!tailnet.address) throw new Error(tailnet.message);
     assertPrivateAddress(tailnet.address);
     const server = createServer(handler);
+    // ---- mac7/nodes: the paired door had no WebSocket upgrade handler; the server's own checks run in `upgrade`. ----
+    server.on("upgrade", (request: IncomingMessage, socket: Duplex) => {
+      if (this.upgrade) this.upgrade(request, socket);
+      else socket.end("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
+    });
+    // ---- end mac7/nodes ----
     await new Promise<void>((resolve, reject) => {
       server.once("error", reject);
       server.listen(port, tailnet.address!, () => { server.off("error", reject); resolve(); });

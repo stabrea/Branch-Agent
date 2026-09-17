@@ -78,6 +78,9 @@ export const shortLivedKeyTaskRoutes: readonly TaskRoute[] = [
   post("/api/tools/meaning-search", "finds a tool by what it does"),
   post("/api/receipts/verify", "checks a task's receipt"),
   post("/api/security-check/run", "runs the security check, which only reads"),
+  // mac7/r17-d: the project's review checks (read-only helpers) and a conversation forked into its own copy.
+  post("/api/coding/checks/run", "runs the project's review checks, each by a helper that may only read"),
+  post("/api/coding/worktrees/fork", "carries a conversation on in its own copy of the project"),
 ];
 
 /** Reads a short-lived key may not make: what they return is a secret, or everybody's data. */
@@ -91,8 +94,15 @@ const ownerOnlyReads: readonly RegExp[] = [
   /^\/api\/people\/(settings|shares\/export)$/,
   // mac6/bucket-23 (A2240): the live pages' list carries each page's frame address, which opens without a key.
   /^\/api\/asks\/surfaces$/,
+  // mac7/nodes: the owner's devices, their switches and who they are shared with. Changes are refused
+  // by the fail-closed rule above; the device socket and pairing carry their own proof, not a key.
+  /^\/api\/devices(\/.*)?$/,
   // R17-S-A: the settings file outlives the key, and the owner's own files say who they are.
   /^\/api\/settings-kit\/(export|files)(\/.*)?$/,
+  // mac7/r17-d: the shell snapshot holds the owner's PATH, aliases and functions.
+  /^\/api\/coding\/shell$/,
+  // R17-C: the owner's mail, calendar, house, sign-ins and public webhook address (src/personal/api.ts).
+  /^\/api\/personal(\/|$)/,
 ];
 
 /**

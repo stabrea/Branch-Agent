@@ -6,6 +6,7 @@ import { protectedAreas, protectedTarget, cwdOf, type ProtectedAreas } from "./n
 import { noJournal, type JournalHook } from "./never-break/journal.js"; // mac3/never-break
 import { neverBreakModeSync } from "./never-break/gateway-config.js"; // mac3/never-break
 import { runOrigin, shortLivedKeyMark, startedWithShortLivedKey, underShortLivedKey } from "./key-context.js"; // bucket-18 (A0300), bucket 19
+import { personalHold } from "./personal/guard.js"; // R17-C integration review
 import { asPerson, currentPerson } from "./people/context.js"; // bucket 19
 import type { TrunkRunShape } from "./trunks/shape.js"; // R17-A (Trunks)
 import {
@@ -40,6 +41,7 @@ import type { WebhookNotifier } from "./webhooks.js";
 import type { HookDecision } from "./hooks.js";
 import { assistantIdentity, identityInstructions } from "./identity.js";
 import { contextFileInstructions } from "./context-files.js";
+import type { CodingHooks, RoundNotes } from "./coding/hooks.js"; // mac7/r17-d
 import { steerMessage, steerNote } from "./steer.js";
 import { supportsImages } from "./providers.js";
 import { pinnedSkillInstructions, skillInstructions } from "./skill-tools.js";
@@ -352,6 +354,8 @@ export class Runtime {
   get provider(): Provider {
     return this.models.default.provider;
   }
+  /** mac7/r17-d: coding polish (src/coding/index.ts) — where a task works, and what it is told each round. */
+  coding?: CodingHooks;
   context(
     options: {
       permissions?: string[];
@@ -778,9 +782,11 @@ ${run.output.slice(0, 6000)}`;
     }, { inbound: options.traceparent ?? null, parentRunId: parent?.runId ?? null });
     let status: Run["status"] = "completed";
     let output: string;
+    // ── mac7/r17-d: a forked conversation or a helper may work in its own copy of the project (src/coding/worktrees.ts). ──
+    const place = this.coding ? await this.coding.placeTask(run, context, parent).catch(() => null) : null;
     try {
       options.onStarted?.(run);
-      output = await this.loop(run, context, instructions, options.onTextDelta, {
+      const work = (working: ToolContext) => this.loop(run, working, instructions, options.onTextDelta, {
         ...(options.model !== undefined ? { preset: options.model } : {}),
         ...(options.reasoning !== undefined ? { reasoning: options.reasoning } : {}),
       }, options.checks, options.images, {
@@ -789,6 +795,7 @@ ${run.output.slice(0, 6000)}`;
         // R17-A: a Trunk's own turn is not delegated (it gets the planner and reviewer); a room turn is.
         ...(context.depth > 0 || (context.agent && (!trunk || trunk.roomTurn)) ? { delegated: true } : {}),
       }, options.style);
+      output = place && this.coding ? await this.coding.inPlace(place.scope, () => work({ ...context, workspace: place.workspace })) : await work(context);
     } catch (error) {
       status = this.failureStatus(context, error);
       output = errorText(error);
@@ -797,6 +804,7 @@ ${run.output.slice(0, 6000)}`;
         this.notifyEvent("approval.needed", { runId: run.id, sessionId: run.sessionId, question: error.question });
       }
     }
+    await place?.release().catch(() => undefined); // mac7/r17-d
     if (context.dryRun) this.reportDryRun(run);
     if (status === "completed") await this.advise(run, context, output);
     const settled = await this.settleRun(run, context, status, output);
@@ -1102,7 +1110,10 @@ ${run.output.slice(0, 6000)}`;
       // R17-S12: with "show reasoning" off, written-out thinking never reaches the page (and `complete` takes it out of the answer).
       const reasoningShown = knobs.showsReasoning(this.store, this.owner);
       const preview = shown && !reasoningShown ? thinkingFilter(shown) : shown;
-      const completion = await this.completeWithRetries(run, messages, context, route, preview);
+      // ── mac7/r17-d: @ mentions once, and the task's checklist and folder rules fresh every round (src/coding/). ──
+      const notes = this.coding ? await this.coding.roundNotes(run, context, round).catch((): RoundNotes => ({})) : {} as RoundNotes;
+      if (notes.once) { messages.push(notes.once); ids.push(null); }
+      const completion = await this.completeWithRetries(run, notes.every ? [...messages, notes.every] : messages, context, route, preview);
       const filterModels = [this.provider.name, ...namesOf(route.candidates[route.index])];
       // A think-then-act specialist writes one line of reasoning first. The transcript keeps it, so
       // the model can see its own trail; the owner reads it in the events; the answer never has it.
@@ -1874,15 +1885,21 @@ ${run.output.slice(0, 6000)}`;
     // mac2/leak-guard: an address carrying a key or password is asked about even where rules allow it.
     const tightened = this.leakGuard.tighten(evaluatePolicy(this.policy(source), { tool, target, readOnly, resource }), args);
     const { rule, leak } = tightened;
-    const decision = tightened.decision === "allow" && lockdownActive(this.store, this.owner) ? "ask" : tightened.decision;
+    // --- R17-C integration review: the owner's mail, calendar and house (src/personal/guard.ts). Work the
+    // owner did not start is asked about, and a lock or door always is, just this once — whatever the rules say.
+    const hold = personalHold(tool, args, source);
+    const personal = hold && tightened.decision === "allow" ? "ask" : tightened.decision;
+    const decision = personal === "allow" && lockdownActive(this.store, this.owner) ? "ask" : personal; // mac7/lockdown-fix
+    if (hold?.onceOnly && decision === "ask" && fingerprint) this.approvals.holdOnce(fingerprint, hold.reason);
+    // --- end R17-C ---
     // --- end mac7/lockdown-fix ---
     // An answer given earlier stands in for the question, never for a rule that already decided:
     // switching to a stricter setting takes effect at once. The answer is bound to the exact bytes
     // it was given for, so a changed command is asked about again.
     const answered = decision === "ask"
-      ? this.approvals.answer(this.sessionOf(context), tool, target, fingerprint, !!leak) : undefined;
-    return { decision: answered ?? decision, label: leak ? `${label}, and the address carries ${leak}` : label, target, readOnly,
-      remember: source === "owner" ? rule?.remember ?? "session" : "session",
+      ? this.approvals.answer(this.sessionOf(context), tool, target, fingerprint, !!leak || !!hold) : undefined;
+    return { decision: answered ?? decision, label: leak ? `${label}, and the address carries ${leak}` : hold ? `${label}. ${hold.reason}` : label, target, readOnly,
+      remember: hold?.onceOnly ? "never" : source === "owner" ? rule?.remember ?? "session" : "session",
       sandbox: rule?.sandbox ?? null, backend: rule?.backend ?? null, paths: rule?.paths ?? null };
   }
   /**

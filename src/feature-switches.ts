@@ -3,8 +3,11 @@ import type { Store } from "./store.js";
 import { addOnLabels, addOnMode, addOnTools, type AddOnPart } from "./add-ons/settings.js"; // bucket-15
 import { askToolFeatures } from "./asks/settings.js"; // mac6/bucket-23
 import { lockdownOverrides } from "./lockdown.js"; // mac7/lockdown-fix
+import { deviceTools } from "./devices/capabilities.js"; // mac7/nodes
 import { autonomyToolFeatures } from "./autonomy/settings.js"; // r17-b
 import { trunkToolFeatures } from "./trunks/settings.js"; // R17-A
+import { codingToolFeatures } from "./coding/settings.js"; // mac7/r17-d
+import { personalToolFeatures } from "./personal/settings.js"; // R17-C
 
 /**
  * The owner's three-way switch for a feature: off, when needed, or on. Every one ships off.
@@ -105,10 +108,16 @@ const toolFeatures: { reason: string; tools: readonly string[]; hideWhenOff: boo
   ...interopToolFeatures.map(([key, reason, tools]) => ({ reason, tools, hideWhenOff: true, mode: (s: Reader, o: string) => savedMode(s, o, key) })),
   // ── mac6/bucket-23: the smaller asks (src/asks/settings.ts keeps these lists). ──
   ...askToolFeatures.map(([key, reason, tools]) => ({ reason, tools, hideWhenOff: true, mode: (s: Reader, o: string) => savedMode(s, o, key) })),
+  // mac7/nodes: the owner's other devices (src/devices/); the mode is kept in the devices record.
+  { reason: "using your other devices is switched on", tools: deviceTools, hideWhenOff: true, mode: (s, o) => savedMode(s, o, "devices-book") },
   // ── r17-b: suggestions, standing orders, procedures, readiness, instructions (src/autonomy/settings.ts keeps these lists). ──
   ...autonomyToolFeatures.map(([key, reason, tools]) => ({ reason, tools, hideWhenOff: true, mode: (s: Reader, o: string) => savedMode(s, o, key) })),
   // ── R17-A: Trunks (src/trunks/settings.ts keeps these lists). ──
   ...trunkToolFeatures.map(([key, reason, tools]) => ({ reason, tools, hideWhenOff: true, mode: (s: Reader, o: string) => savedMode(s, o, key) })),
+  // ── mac7/r17-d: coding polish (src/coding/settings.ts keeps these lists). ──
+  ...codingToolFeatures.map(([key, reason, tools]) => ({ reason, tools, hideWhenOff: true, mode: (s: Reader, o: string) => savedMode(s, o, key) })),
+  // ── R17-C: files, voice, devices and personal connectors (src/personal/settings.ts keeps these lists). ──
+  ...personalToolFeatures.map(([key, reason, tools]) => ({ reason, tools, hideWhenOff: true, mode: (s: Reader, o: string) => savedMode(s, o, key) })),
   // Bucket 21 hook: tools for people building on Branch (src/sdk-kit.ts).
   { reason: "tools for people building on Branch are switched on", tools: sdkKitToolNames, hideWhenOff: true, mode: (s, o) => savedMode(s, o, "sdk-kit") },
   // ── bucket-15: add-ons other people wrote (src/add-ons/settings.ts keeps these lists). ──
