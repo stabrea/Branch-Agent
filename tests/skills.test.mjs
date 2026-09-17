@@ -14,8 +14,11 @@ async function fixture(t, provider) {
   const root = await mkdtemp(join(scratch, 'branch-skills-'));
   const options = { workspace: join(root, 'workspace'), dataDir: join(root, 'data'), provider };
   const app = await createBranch(options);
-  t.after(async () => { await app.close(); await discardTemp(root); });
-  return { app, options };
+  // Whatever a test opens on top of the app is shut first, in this same hook: separate hooks run in the
+  // order they were added, which closed the app and deleted its folder under a server still using them.
+  const closing = [];
+  t.after(async () => { for (const close of closing.reverse()) await close(); await app.close(); await discardTemp(root); });
+  return { app, options, closing };
 }
 const revision = skill => ({ expectedRevision: skill.revision });
 
@@ -158,8 +161,8 @@ test('tasks without skills.read do not receive metadata and direct tools cannot 
 });
 
 test('skill API requires authorization, exposes metadata only in state and rejects stale or malformed updates', async t => {
-  const { app, options } = await fixture(t);
-  const server = await startServer(app, { dataDir: options.dataDir, port: 0 }); t.after(() => server.close());
+  const { app, options, closing } = await fixture(t);
+  const server = await startServer(app, { dataDir: options.dataDir, port: 0 }); closing.push(() => server.close());
   const headers = { authorization: 'Bearer ' + server.token, 'content-type': 'application/json' };
   const post = (path, value, custom = headers) => fetch(server.url + '/api/skills/' + path, {
     method: 'POST', headers: custom, body: JSON.stringify(value),
