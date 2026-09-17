@@ -910,6 +910,45 @@ Events are filtered by an allow-list of fields, so anything nobody anticipated i
 
 The connector implements tool discovery and invocation. MCP resources, prompts, sampling and other assistants' internal learning or memory are separate capabilities. Newly advertised tools are not automatically granted.
 
+## The dashboard in the browser
+
+One page, served by Branch itself at `/dashboard`, that shows at a glance what Branch is doing (**Now**:
+running or not, the model and connection, the tasks working with a Stop button, what needs you),
+whether its parts are healthy (**Health**: model connections and chat apps, automations as working,
+failing, never run or paused, the background engine and the last update, memory and disk, the last
+week's problems), what it has cost (**Spend**: today and this month by connection and by project,
+with the month's forecast; a task on a model with no price on file is counted apart, never as
+nothing), and what is happening (**Activity**: each step, filtered, with a way into each task). Its
+**Controls** pause every automation, switch Lockdown, restart the engine, and open any Settings
+page. It fits a phone at 400 px and spreads to four columns on a wall screen.
+
+The switch is under Customize → Channels (`dashboard.mode` in the `DashboardSettingsSchema`,
+`src/dashboard-api.ts`) and ships `off`:
+
+- `off` — the page and its files answer 404 and `GET /api/dashboard` refuses.
+- `on` — the page reads `GET /api/dashboard` every ten seconds while it is in view and keeps the
+  live updates of `/api/events/stream` open.
+- `when-needed` — the page is served but reads everything once, when it opens or Refresh is
+  pressed, and keeps nothing open in between.
+
+It sits behind the same key and host rules as the app window, so it is reachable on the paired
+address exactly when the app is. A short-lived key made with `branch token create --scope read`
+gets a page that only looks; `--scope run` may also press Stop (through `POST /api/runs/{id}/cancel`).
+`POST /api/dashboard/automations` with `{ paused }`, `POST /api/dashboard/restart` and
+`POST /api/dashboard/settings` with `{ mode }` need the master key. Pausing sets every waiting
+schedule to paused and switches every trigger off, and remembers which; starting them again brings
+back only those, so anything the owner paused by hand stays paused. Links back into the window use
+`/#open=<place:tab>` (any home in `docs/places.md`) and `/#task=<id>`.
+
+**macOS and Linux.** Restart stops the background engine the way Ctrl+C does, with exit code 75, and
+the sign-in file starts it again: launchd's `KeepAlive` (`SuccessfulExit` false) on a Mac, systemd's
+`Restart=on-failure` on Linux. It is offered only when this copy is the background engine and was
+started by that file (`XPC_SERVICE_NAME` is `com.keepoak.branch-agent`, or systemd set
+`INVOCATION_ID`); a copy started by hand or running in the app window says how to restart it
+instead. On Windows the button explains that Branch is closed from its icon by the clock and opened
+again; nothing on Windows changes. Disk use is read with `statfs` on the data folder, which works the
+same on all three.
+
 ## A conversation that survives a restart
 
 Closing Branch and opening it again does not empty a conversation of what it was carrying. At the end
@@ -1340,13 +1379,93 @@ A recipe (`procedures.propose`) may declare `parameters` (`{ name: { type: "stri
 
 `branch <command>` (or `node dist/cli.js <command>`) is the whole command line; `branch help` lists it. Nothing here needs the web app to be running.
 
-**Talking in the terminal.** `branch chat` opens the full terminal view: a status line that stays put above what you type (which model is answering, how many tokens and how much money this conversation has used, and which approval preset is in force), answers wrapped to the window as they stream, and one short row for each step — `· Writing notes.txt` while it happens, `ok Writing notes.txt` when it is done. Press **Ctrl+E** to show or hide what is behind those rows. **Enter** sends, **Alt+Enter** adds another line to the same message, the **up arrow** brings back a message you already sent, **Ctrl+C** stops the task in hand without closing the terminal, and **Ctrl+D** leaves. It is drawn with Node's own readline and escape sequences; there is no extra package involved.
+**Talking in the terminal.** `branch` on its own, in a terminal, opens the terminal view; `branch chat` opens the same view. (Run with no terminal attached — a launcher, a service, a pipe — `branch` on its own still starts the web app, exactly as before.) The view is the window's design in character cells (`docs/design.md`, `docs/places.md`):
 
-The commands inside it are `/help`, `/model [id]`, `/think <low|medium|high|default>`, `/preset [name]`, `/memory [words]`, `/skills`, `/plan`, `/verify`, `/dry-run`, `/attach <file>`, `/history`, `/export [file]`, `/new` and `/exit`. `/plan`, `/verify` and `/dry-run` switch on and off and apply to every message after that. `/attach` takes a picture (PNG, JPEG, WebP or GIF) as a picture and any other text file as words added to your next message. `/export` writes the conversation to a Markdown file in your workspace.
+- **The head** carries the KeepOak mark and the assistant's name, the page you are on (`Inbox › Needs you`, `Settings › Models › Defaults`), the model that answers, and the Lockdown shield while Lockdown is on. While it is on, a red line under the head says so on every page.
+- **The tab row** holds the five places in the window's order and with the window's names — Conversation, Inbox (with a count of what waits for your yes), Automations, Library, Customize.
+- **The conversation** is one column of messages with the composer floating at its foot: the model chip first, then what the next message carries (the approval preset, attached files, practice run, a plan first). Each step the assistant takes is one short row — `· Writing notes.txt` while it happens, `ok Writing notes.txt` when it is done — and **Ctrl+E** shows what is behind those rows. The **side pane** (Activity, Plan, Files, Memory) opens with **Ctrl+P** or **F2**; under 100 columns it floats over the conversation, as the window's does under 1180 px.
+- **Every other place** reads as the window's places do: its name, one sentence saying what it holds, its tabs, and its rows, each a title and one plain line. An empty tab says what the tab is for and what to do next. The ask box at the foot sends a question straight to the conversation.
+- **Settings** opens as a window over the place you were in, with its twelve pages down the left (in a strip along the top under 86 columns) and the five Models tabs. Appearance, Models › Defaults and Permissions can be changed right there; the other pages say what they hold and where the rest of the page is.
+- **Ctrl+K** (or **/** in an empty composer) opens the palette: every place and tab, every Settings page, the top actions, recent conversations and every slash command. Typing narrows it; Enter goes.
+
+**Keys.** **Enter** sends, **Alt+Enter** adds a line, the **up arrow** brings back a message you sent, **PgUp**/**PgDn** scroll the conversation, **Ctrl+C** stops the task in hand without closing anything, **Ctrl+N** starts a conversation, **Ctrl+L** draws everything again and **Ctrl+D** leaves. **Esc** steps out of the composer without touching what you typed; then **1** to **5** open the places (**Alt+1** to **Alt+5** work from anywhere). In a place, the up and down arrows choose a row, left and right change tab, **Enter** opens a row and **Tab** moves to the ask box; **Esc** goes back to the conversation. In Settings, left and right change page and **Tab** changes the Models tab. **F1**, `/help` or `/keys` lists all of this. A paste arrives whole, line breaks and all, rather than sending half of it. Nothing needs a mouse.
+
+**Three switches, all off.** `/switch mouse`, `/switch sidePane` and `/switch oak` (or Settings › Appearance in the view) each take on, off or when needed, and a fresh install has all three off. *Clicks and the wheel*: on catches them everywhere; when needed only while the palette or Settings is open; off never, so your terminal's own text selection always works. *The side pane opens by itself*: on opens it when the view starts; when needed opens it while a task works and folds it when the task ends; off leaves it to Ctrl+P. *The oak*: the window's pixel oak, drawn on an empty conversation in the season of the year from the theme's own colours; on whenever it fits, when needed only on a terminal of 30 rows or more.
+
+The commands inside it are `/help` (and `/keys`), `/model [id]`, `/think <low|medium|high|default>`, `/preset [name]`, `/memory [words]`, `/skills`, `/plan`, `/verify`, `/dry-run`, `/attach <file>`, `/history`, `/export [file]`, `/new`, `/sessions [id]`, `/go <place>`, `/inbox`, `/automations`, `/library`, `/customize`, `/settings [page]`, `/theme`, `/default <id>`, `/switch`, `/pane`, `/lockdown [on|off]` and `/exit`. They live in one table (`src/terminal-command-table.ts`) that the help, the palette and the parser all read, and several answer to the names Hermes and OpenClaw use (`/reset`, `/clear`, `/models`, `/reasoning`, `/config`, `/tools`, `/cron`, `/skin`, `/pause`, `/quit`). `/plan`, `/verify` and `/dry-run` switch on and off and apply to every message after that. `/attach` takes a picture (PNG, JPEG, WebP or GIF) as a picture and any other text file as words added to your next message. `/export` writes the conversation to a Markdown file in your workspace. `/go` takes any place, tab or Settings page by id, English name or French name: `/go inbox finished`, `/go settings models defaults`, `/go Bibliothèque`.
 
 **When it stops to ask.** If your approval preset makes a task pause, the terminal shows the question with the tool and the exact file or command, and takes **y** (yes, remembered as the rule suggests), **n** (no), **a** (yes, always — written into your approval settings as a rule) or **s** (yes, for this conversation), then Enter. The answer goes through the same route as the app's **Settings → When to check with me** screen, and the task carries straight on.
 
-**When the terminal cannot take it.** `branch chat` falls back to the plain streaming view when stdout is not a terminal, when you pass `--plain`, or when you set `NO_COLOR`. `FORCE_TTY=1` asks for the full view anyway (this is what the tests use), and `FORCE_TTY=0` asks for the plain one. With `NO_COLOR` set, or `TERM=dumb`, nothing writes a single escape sequence: no colour, no cursor movement, no window title and no progress indicator. `COLUMNS` and `LINES` override the window size. On a terminal that takes them, the window title follows the task in hand and Windows Terminal's taskbar progress indicator (OSC 9;4) turns on while a task is working; `BRANCH_TUI_DECORATIONS=0` turns just those two off.
+**When the terminal cannot take it.** `branch chat` falls back to the plain streaming view when stdout is not a terminal or when you pass `--plain`. With `NO_COLOR` set, or `TERM=dumb`, the view prints plain lines and writes not a single escape sequence — no colour, no cursor movement, no window title, no progress indicator — and every slash command, place and Settings page still works, printed as lines. `FORCE_TTY=1` asks for the full view anyway (this is what the tests use), and `FORCE_TTY=0` asks for the plain one. `COLUMNS` and `LINES` override the window size; the view redraws itself when the window changes size and works from 80×24 up. The view is drawn on the terminal's second screen with line wrapping off, so leaving puts back exactly what was there. On a terminal that takes them, the window title names the place you are in and Windows Terminal's taskbar progress indicator (OSC 9;4) turns on while a task is working; `BRANCH_TUI_DECORATIONS=0` turns just those two off.
+
+**Colours: the same 44 themes as the window.** Nothing in the terminal names a colour. It reads the window's own table (`public/theme-catalogue.js`), lays each see-through colour over the theme's ground, and writes the result at the depth the terminal shows: true colour where `COLORTERM` is `truecolor` or `24bit`, in Windows Terminal (`WT_SESSION`), in iTerm, WezTerm, VS Code, Ghostty and Hyper, and in the Windows console from build 14931; the 256-colour table where `TERM` ends in `-256color` or in macOS Terminal; the sixteen colours elsewhere, where the terminal's own background and text colour stand in for the ground and the words so a light theme never writes dark text on a dark terminal. A colour lands on the numbered colour that looks nearest (distance in Lab space). `FORCE_COLOR=0…3` and `BRANCH_COLOR=truecolor|256|16|none` choose the depth by hand. Box lines, the dot and the ellipsis are drawn where they can be shown; `BRANCH_ASCII=1` (or a locale that is not UTF-8, or the Linux console) draws plain ASCII instead.
+
+**One theme, two surfaces.** `branch theme <name>` (or `/theme` in the view, or Settings › Appearance in the view) and Settings › Appearance in the window are the same setting. The theme, the extra contrast and the language are kept with the workspace (`GET`/`POST /api/look`); light or dark stays in the preferences record the window has always saved, and "follow this computer" follows the terminal's own background (`COLORFGBG`) in the terminal. The window reads `/api/look` when it opens and whenever it comes back into view, and picks a theme the terminal chose since it last looked by pressing that theme's own tile (`public/look-sync.js`); a theme picked in the window is saved there for the terminal. Moving through the theme list in the view shows each theme as it is passed, Enter keeps it and Esc puts the saved one back. The words come from the window's language files (`public/locales/*.json`): French when the language is set to French, or set to "same as this computer" on a computer whose `LANG` is French.
+
+**macOS, Linux and Windows.** The view looks and works the same in Windows Terminal, PowerShell and cmd, macOS Terminal and iTerm, and Linux terminals. It uses only what all of them understand: the second screen, cursor placement, colour, bracketed paste and, only when switched on, SGR mouse reports; every row is written whole at its own position, so nothing depends on how a terminal wraps or turns a line break into two. Node reads the Windows console's keys as the same sequences a Mac or Linux terminal sends and writes its text as UTF-16, so the box lines show whatever the console's code page. There is no POSIX-only call anywhere in the view. The tests work out the style for a Windows Terminal environment (`WT_SESSION`, no `COLORTERM`), a Windows console, macOS Terminal, iTerm and Linux terminals, check that a Windows-style frame uses only sequences Windows understands, and compare every view at 80×24 and 120×40 in true colour, 256 colours, 16 colours and none with stored snapshots.
+
+**Every place by name, from the command line.** `branch inbox [needs|finished|history]`, `branch automations [tab]`, `branch library [tab]`, `branch customize [tab]` and `branch settings [page] [tab]` open the view there in a terminal, and print the same rows (one per line, or `--json`) anywhere else. `branch places` lists every home in `docs/places.md` with the command that opens it. `branch setup` opens Settings › Models › Connection. `branch resume [id|latest]` carries on a conversation in the view (and prints it without a terminal), `branch sessions [show <id>]` lists them, `branch model [use <id>]` lists the models or sets the one new conversations start with, `branch theme [name|list|light|dark|follow|contrast|language]` changes the look, `branch lockdown [on|off]` turns Lockdown on or off, `branch permissions [preset]` shows or sets when Branch checks with you, and `branch memory`, `branch skills`, `branch tools`, `branch channels`, `branch mcp`, `branch projects`, `branch usage` and `branch snapshots` print what the window shows. `branch version` (also `--version`) prints the version.
+
+**Hermes Agent and OpenClaw, side by side.** Typing `hermes` gives Hermes Agent's terminal and `openclaw` gives OpenClaw's; `branch` gives Branch's. The table below sets their commands beside Branch's. Only their command names were read (both are MIT); no code was taken. The table is kept as data in `src/terminal-parity.ts`, and a test checks that every Branch command it names exists. The names people bring with them work as they are: `config`, `skin`, `models`, `plugins`, `cron`, `approvals`, `insights`, `checkpoints`, `pause`, `serve`, `dashboard`, `acp`, `kanban`, `tasks`, `webhooks`, `hooks`, `documents`, `specialists`, `connections` and `mcp serve` each run the Branch command they mean.
+
+| What | Hermes Agent | OpenClaw | Branch | Status | Note |
+| --- | --- | --- | --- | --- | --- |
+| Interactive view | `hermes` | `openclaw` | `branch` | built | In a terminal it opens the designed view; anywhere else it runs `branch start` as before. |
+| Conversation | `hermes chat` | `openclaw tui \| terminal \| chat` | `branch chat` | existed | Redrawn in the window's design; `--plain` keeps the streaming view. |
+| One request, printed | `hermes -z \| chat -q` | `openclaw agent` | `branch run` | existed |  |
+| A scripted job | `hermes chat --query-file` | `openclaw agent exec` | `branch headless` | existed |  |
+| Carry on a conversation | `hermes --resume \| -c` | `openclaw resume` | `branch resume [id]` | built | `latest` or the first letters of a conversation's number. |
+| Earlier conversations | `hermes sessions` | `openclaw sessions \| transcripts` | `branch sessions [show <id>]` | built | Removing one lives in Settings › Data & usage. |
+| Which model answers | `hermes model` | `openclaw models list \| set \| status` | `branch model [list \| use <id>]` | built |  |
+| Fallback models | `hermes fallback` | `openclaw models fallbacks` | `branch settings models defaults` | window | settings:models:defaults |
+| Several models together | `hermes moa` | — | `branch settings models second` | window | settings:models:second |
+| Signing in to a model service | `hermes auth \| login \| logout \| portal` | `openclaw models auth \| onboard` | `branch login \| logout` | existed | Keys for other services: settings:models:connection. |
+| Setting up | `hermes setup` | `openclaw setup \| onboard \| configure` | `branch setup` | built | Opens Settings › Models › Connection; prints the health check when not in a terminal. |
+| Settings | `hermes config` | `openclaw config get \| set` | `branch settings [page] (also `config`)` | built | Reads every page; changes are made on the page itself. |
+| Status | `hermes status` | `openclaw status \| health` | `branch status` | existed |  |
+| Checking and repairing | `hermes doctor \| dump \| debug` | `openclaw doctor \| triage` | `branch doctor [--fix]` | existed |  |
+| What a task did | `hermes logs` | `openclaw logs` | `branch logs <task>` | existed |  |
+| Emergency stop | `hermes pause \| resume` | `openclaw gateway suspend \| resume` | `branch lockdown [on \| off] (also `pause`)` | built |  |
+| When to ask first | `hermes approvals` | `openclaw approvals \| exec-policy` | `branch permissions [preset]; branch approve` | built | `approve` already existed. |
+| Schedules | `hermes cron` | `openclaw cron` | `branch schedule (also `cron`); branch trigger` | existed |  |
+| Webhooks and hooks | `hermes webhook \| hooks` | `openclaw hooks \| webhooks` | `branch automations triggers` | built | Listed; edited at automations:triggers. |
+| Skills | `hermes skills \| bundles \| curator \| sync` | `openclaw skills` | `branch skills; branch skill pack \| install` | built | `skill` already existed; the rest is customize:skills. |
+| Plugins | `hermes plugins` | `openclaw plugins` | `branch plugin (also `plugins`)` | existed |  |
+| Tools | `hermes tools` | — | `branch tools` | built | Listed by toolbox; what may run without asking is settings:permissions. |
+| MCP servers | `hermes mcp` | `openclaw mcp` | `branch mcp; branch mcp-serve (also `mcp serve`)` | built | `mcp-serve` already existed. |
+| Code editors (ACP) | `hermes acp` | `openclaw acp` | `branch acp-serve (also `acp`)` | existed |  |
+| Chat apps | `hermes gateway \| whatsapp \| slack \| pairing \| peer` | `openclaw channels \| pairing \| directory` | `branch channels` | built | Listed; connecting and pairing are customize:channels. |
+| Sending a message out | `hermes send` | `openclaw message` | — | not applicable | Messages go out through the running engine's own connections, after Lockdown and approval checks; ask the assistant in the view. |
+| Memory | `hermes memory \| journey` | `openclaw memory \| wiki` | `branch memory [words]` | built |  |
+| Documents | — | — | `branch library documents` | built |  |
+| Backups | `hermes backup \| import` | `openclaw backup` | `branch backup \| restore` | existed |  |
+| Moving in from another assistant | `hermes import-agent \| claw migrate` | `openclaw migrate` | `branch import-agent` | existed | Branch's own file; bringing in other assistants is mac2/move-in at settings:data. |
+| Separate assistants | `hermes profile` | `openclaw agents` | `branch export-agent \| import-agent` | window | People on this computer: settings:general. |
+| Projects | `hermes project` | — | `branch projects` | built |  |
+| Updating | `hermes update` | `openclaw update` | `branch update` | existed |  |
+| Removing | `hermes uninstall` | `openclaw uninstall \| reset` | `branch daemon uninstall` | not applicable | The app itself is removed the way this computer removes any app. |
+| Working with the window closed | `hermes gateway install \| start \| stop` | `openclaw daemon \| gateway \| node` | `branch daemon install \| uninstall \| status` | existed |  |
+| The web app | `hermes dashboard \| serve` | `openclaw dashboard \| gateway run` | `branch start (also `serve`, `dashboard`)` | existed |  |
+| Shell completion | `hermes completion` | `openclaw completion` | `branch completion` | existed |  |
+| Version | `hermes --version` | `openclaw --version` | `branch version (also `--version`, `-v`)` | built |  |
+| Theme | `hermes skin` | — | `branch theme [name \| list \| light \| dark \| follow] (also `skin`)` | built | The same setting as Settings › Appearance. |
+| Usage and cost | `hermes insights` | `openclaw gateway usage-cost` | `branch usage (also `insights`)` | built |  |
+| Checkpoints | `hermes checkpoints` | `openclaw backup git` | `branch snapshots (also `checkpoints`)` | built | Putting one back is settings:data. |
+| Worktrees | `hermes worktree` | `openclaw worktrees` | `branch settings general` | window | A project's line of work is switched at settings:general. |
+| Task board | `hermes kanban` | `openclaw tasks` | `branch inbox [needs \| finished \| history]` | built |  |
+| Security audit | `hermes security audit` | `openclaw security audit` | `branch doctor` | not applicable | Branch installs no packages of its own to audit; `doctor` checks what Branch relies on. |
+| Secrets | `hermes secrets \| vault` | `openclaw secrets` | `branch settings secrets` | window | settings:secrets; values are never printed. |
+| Browser and screen | `hermes browser \| computer-use` | `openclaw browser \| nodes \| sandbox` | `branch settings computer` | window | settings:computer. |
+| Language servers | `hermes lsp` | — | `branch settings advanced` | window | settings:advanced, Help with code. |
+| Network reach | `hermes egress \| proxy` | `openclaw proxy \| dns` | `branch settings computer` | window | settings:computer. |
+| Telemetry | — | `openclaw telemetry` | — | not applicable | Branch sends none. |
+| Pets | `hermes pets` | — | `branch switch oak` | not applicable | Branch has its own oak: `/switch oak` in the view. |
+| Evaluations | — | `openclaw qa` | `branch eval \| study` | existed |  |
+| Short-lived keys | — | `openclaw devices \| gateway auth-token` | `branch token` | existed |  |
+| Pairing a phone | — | `openclaw qr` | `branch customize channels` | window | customize:channels. |
+| Prompt size | `hermes prompt-size` | — | `branch settings advanced` | window | settings:advanced, How the assistant finds its tools. |
+| Help | `hermes --help` | `openclaw docs` | `branch help; branch <command> --help` | existed |  |
+| Every place by name | — | — | `branch places; branch inbox \| automations \| library \| customize` | built | Every home in docs/places.md. |
 
 **For scripts.** `branch run "..."` takes `--json` (every event as one JSON object per line on stdout, human wording on stderr), `--attach <file>` (repeatable), `--plan`, `--verify`, `--dry-run`, `--preset <off|ask-before-changes|workspace|read-only>`, `--save-preset <same names>`, `--budget <tokens>` and `--timeout <milliseconds>`. `--preset` uses that approval setting **for this one task** and puts your saved setting back afterwards, so a script cannot quietly change what you chose; `--save-preset` changes the saved setting and stays changed, and says so on stderr. The exit code is the contract:
 

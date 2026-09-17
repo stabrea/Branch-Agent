@@ -129,3 +129,22 @@ test("API validates malformed and oversized requests", async (t) => {
     413,
   );
 });
+
+test("the shared look needs the token, saves a real theme as the window's, and refuses the rest", async (t) => {
+  const { url, token } = await fixture(t);
+  const call = (method, body) => fetch(url + "/api/look", {
+    method,
+    headers: { authorization: "Bearer " + token, ...(body ? { "content-type": "application/json" } : {}) },
+    ...(body ? { body: JSON.stringify(body) } : {}),
+  });
+  assert.equal((await fetch(url + "/api/look")).status, 401);
+  const saved = await call("POST", { contrast: "more", changedBy: "terminal" });
+  assert.equal(saved.status, 200);
+  const look = await saved.json();
+  assert.equal(look.contrast, "more");
+  assert.equal(look.changedBy, "window");
+  assert.equal((await (await call("GET")).json()).contrast, "more");
+  assert.equal((await call("POST", { theme: "no-such-theme" })).status, 400);
+  assert.equal((await call("POST", { theme: "forest", colour: "#fff" })).status, 400);
+  assert.equal((await call("DELETE")).status, 405);
+});

@@ -1,0 +1,367 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { mkdir, mkdtemp, readFile, readdir } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { chromium } from "playwright";
+import { discardTemp } from "./temp-dir.mjs";
+import { openPlace } from "./places.mjs";
+import { createBranch } from "../dist/index.js";
+import { startServer } from "../dist/server.js";
+import {
+  dashboardApi, dashboardSettings, pauseAutomations, resumeAutomations, saveDashboardSettings,
+} from "../dist/dashboard-api.js";
+import { forecast, restartPlan, scheduleStanding } from "../dist/dashboard-summary.js";
+import { launchdLabel } from "../dist/install/launchd.js";
+
+/* Wave mac3: the owner's control dashboard (src/dashboard-api.ts, public/dashboard/). */
+const PUBLIC = join(import.meta.dirname, "..", "public");
+const DASHBOARD = join(PUBLIC, "dashboard");
+
+async function fixture(t, provider) {
+  const scratch = join(tmpdir(), "Codex-session-files");
+  await mkdir(scratch, { recursive: true });
+  const root = await mkdtemp(join(scratch, "branch-dashboard-"));
+  const app = await createBranch({
+    workspace: join(root, "workspace"), dataDir: join(root, "data"),
+    provider: provider ?? { name: "scripted", async complete() { return { content: "Done.", toolCalls: [] }; } },
+  });
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  t.after(async () => { await server.close(); await app.close(); await discardTemp(root); });
+  const call = (path, key = server.token, body) => fetch(server.url + path, {
+    method: body === undefined ? "GET" : "POST",
+    headers: { authorization: `Bearer ${key}`, ...(body === undefined ? {} : { "content-type": "application/json" }) },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
+  return { app, server, call, owner: app.runtime.owner, root };
+}
+const schedule = (app, id, data) => app.store.save("schedules", app.runtime.owner, id, {
+  prompt: "Check the post", kind: "task", dueAt: new Date(Date.now() + 3600e3).toISOString(), ...data,
+});
+
+test("the dashboard ships off: its page is not served and its summary refuses until the owner switches it on", async (t) => {
+  const f = await fixture(t);
+  assert.equal(dashboardSettings(f.app.store, f.owner).mode, "off");
+  for (const path of ["/dashboard", "/dashboard/dashboard.js", "/dashboard/dashboard.css"])
+    assert.equal((await fetch(f.server.url + path)).status, 404, `${path} is served while the switch is off`);
+  assert.equal((await f.call("/api/dashboard")).status, 404);
+  /* The switch card is part of the window, so it is served either way. */
+  assert.equal((await fetch(f.server.url + "/dashboard-card.js")).status, 200);
+  assert.deepEqual(await (await f.call("/api/dashboard/settings")).json(), { mode: "off", access: "full" });
+
+  const saved = await f.call("/api/dashboard/settings", f.server.token, { mode: "when-needed" });
+  assert.equal(saved.status, 200);
+  assert.equal(dashboardSettings(f.app.store, f.owner).mode, "when-needed");
+  assert.equal((await f.call("/api/dashboard/settings", f.server.token, { mode: "always" })).status, 400);
+  const html = await fetch(f.server.url + "/dashboard");
+  assert.equal(html.status, 200);
+  assert.match(html.headers.get("content-security-policy") ?? "", /default-src 'self'/);
+  /* Nothing is reachable without a key, switched on or not. */
+  assert.equal((await fetch(f.server.url + "/api/dashboard")).status, 401);
+});
+
+test("every file the dashboard loads is served, and nothing it links to is missing", async (t) => {
+  const f = await fixture(t);
+  saveDashboardSettings(f.app.store, f.owner, { mode: "on" });
+  const html = await readFile(join(DASHBOARD, "index.html"), "utf8");
+  const referenced = new Set([...html.matchAll(/(?:src|href)="(\/[^"#]*)"/g)].map((m) => m[1]).filter((path) => path !== "/"));
+  for (const name of (await readdir(DASHBOARD)).filter((file) => file.endsWith(".js"))) {
+    const source = await readFile(join(DASHBOARD, name), "utf8");
+    for (const m of source.matchAll(/^import\s+[^"']*["'](\/[a-z0-9/-]+\.js)["']/gm)) referenced.add(m[1]);
+  }
+  for (const name of await readdir(DASHBOARD))
+    referenced.add(name === "index.html" ? "/dashboard" : name === "card.js" ? "/dashboard-card.js" : `/dashboard/${name}`);
+  const missing = [];
+  for (const path of referenced) {
+    const response = await fetch(f.server.url + path);
+    if (response.status !== 200) missing.push(`${path} → ${response.status}`);
+  }
+  assert.deepEqual(missing, []);
+  const index = await readFile(join(PUBLIC, "index.html"), "utf8");
+  assert.match(index, /<script src="\/dashboard-card\.js" type="module"><\/script>\s*<script src="\/layout\.js"/);
+});
+
+test("the summary answers Now, Health, Spend and Activity from what Branch already keeps", async (t) => {
+  const f = await fixture(t);
+  saveDashboardSettings(f.app.store, f.owner, { mode: "on" });
+  await f.app.runtime.run({ prompt: "Summarise the notes" });
+  schedule(f.app, "11111111-1111-4111-8111-111111111111", { status: "pending" });
+  const trigger = f.app.triggers.create({ owner: f.owner }, { name: "Door bell", prompt: "Someone rang" });
+  const summary = await (await f.call("/api/dashboard")).json();
+  assert.equal(summary.mode, "on");
+  assert.equal(summary.access, "full");
+  assert.equal(summary.now.version, f.app.version);
+  assert.equal(summary.now.where, "window");
+  assert.equal(summary.now.lockdown, false);
+  assert.equal(summary.now.needsYou.total, 0);
+  assert.ok(summary.now.model.name);
+  assert.equal(summary.health.automations.schedules[0].standing, "never");
+  assert.equal(summary.health.engine.restart.possible, false);
+  assert.ok(summary.health.resources.computerMemory.total > 0);
+  assert.ok(summary.health.resources.databaseBytes > 0);
+  assert.ok(Array.isArray(summary.spend.today.byConnection) && Array.isArray(summary.spend.month.byProject));
+  assert.ok(summary.spend.month.unpricedRuns + summary.spend.month.pricedRuns >= 1, "the finished task is counted this month");
+  assert.ok(summary.activity.events.some((event) => event.kind === "run.started"));
+  assert.ok(summary.activity.lastEventId >= summary.activity.events[0].id);
+  /* A trigger's secret never leaves the computer through the dashboard. */
+  assert.ok(trigger.secret && !JSON.stringify(summary).includes(trigger.secret));
+  assert.deepEqual(Object.keys(summary.health.automations.triggers[0]).sort(), ["id", "name", "on"]);
+});
+
+test("a short-lived key only looks, or only stops tasks; the master key alone changes anything", async (t) => {
+  const f = await fixture(t);
+  saveDashboardSettings(f.app.store, f.owner, { mode: "on" });
+  const read = f.app.sessionTokens.create(f.owner, { name: "wall screen", scope: "read" }).token;
+  const run = f.app.sessionTokens.create(f.owner, { name: "phone script", scope: "run" }).token;
+  assert.equal((await (await f.call("/api/dashboard", read)).json()).access, "read");
+  assert.equal((await (await f.call("/api/dashboard", run)).json()).access, "run");
+  /* Working out what the key may do does not count a second use of it. */
+  for (const entry of f.app.sessionTokens.list(f.owner)) assert.equal(entry.uses, 1, `${entry.name} was counted ${entry.uses} times`);
+  for (const key of [read, run]) {
+    for (const [path, body] of [["/api/dashboard/automations", { paused: true }], ["/api/dashboard/restart", {}], ["/api/dashboard/settings", { mode: "off" }]]) {
+      const answer = await f.call(path, key, body);
+      assert.ok([401, 403].includes(answer.status), `${path} let a short-lived key through (${answer.status})`);
+    }
+  }
+  /* Lockdown is not a short-lived key's to switch, either way. */
+  for (const on of [true, false]) assert.equal((await f.call("/api/lockdown", run, { on })).status, 401);
+  assert.equal(dashboardSettings(f.app.store, f.owner).mode, "on");
+  assert.equal((await f.call("/api/dashboard", "branch_" + "0".repeat(48))).status, 401);
+});
+
+test("pausing every automation touches only what was waiting, and resuming brings back only that", async (t) => {
+  const f = await fixture(t);
+  schedule(f.app, "11111111-1111-4111-8111-111111111111", { status: "pending" });
+  schedule(f.app, "22222222-2222-4222-8222-222222222222", { status: "paused" });
+  schedule(f.app, "33333333-3333-4333-8333-333333333333", { status: "completed" });
+  const paused = pauseAutomations(f.app);
+  assert.deepEqual(paused.schedules, ["11111111-1111-4111-8111-111111111111"]);
+  const status = (id) => f.app.store.get("schedules", f.owner, id).data.status;
+  assert.equal(status("11111111-1111-4111-8111-111111111111"), "paused");
+  assert.deepEqual(resumeAutomations(f.app), { schedules: 1, triggers: 0 });
+  assert.equal(status("11111111-1111-4111-8111-111111111111"), "pending");
+  assert.equal(status("22222222-2222-4222-8222-222222222222"), "paused", "the one the owner paused by hand stays paused");
+  assert.equal(status("33333333-3333-4333-8333-333333333333"), "completed");
+
+  saveDashboardSettings(f.app.store, f.owner, { mode: "on" });
+  const answer = await (await f.call("/api/dashboard/automations", f.server.token, { paused: true })).json();
+  assert.equal(answer.paused.schedules.length, 1);
+  assert.equal((await (await f.call("/api/dashboard")).json()).paused.schedules.length, 1);
+  await f.call("/api/dashboard/automations", f.server.token, { paused: false });
+  assert.equal((await (await f.call("/api/dashboard")).json()).paused, null);
+});
+
+test("pausing switches triggers off and back on, and leaves a trigger the owner turned off alone", async (t) => {
+  const f = await fixture(t);
+  const on = f.app.triggers.create({ owner: f.owner }, { name: "On", prompt: "Go" });
+  const off = f.app.triggers.create({ owner: f.owner }, { name: "Off", prompt: "Go" });
+  f.app.triggers.setEnabled(f.owner, off.id, false);
+  pauseAutomations(f.app);
+  const enabled = (id) => f.app.triggers.list(f.owner).find((entry) => entry.id === id).enabled;
+  assert.equal(enabled(on.id), false);
+  assert.deepEqual(resumeAutomations(f.app), { schedules: 0, triggers: 1 });
+  assert.equal(enabled(on.id), true);
+  assert.equal(enabled(off.id), false);
+});
+
+test("a restart is offered only where something starts Branch again, on every platform", () => {
+  const daemon = { mode: "daemon", pid: 42, port: 1, url: "", version: "1", startedAt: new Date().toISOString() };
+  const plan = (platform, env, running = daemon) => restartPlan({ platform, env, pid: 42, running });
+  assert.deepEqual(plan("win32", {}), { possible: false, reason: "restart.windows" });
+  assert.deepEqual(plan("darwin", { XPC_SERVICE_NAME: launchdLabel }), { possible: true, reason: "restart.ready" });
+  assert.deepEqual(plan("darwin", { XPC_SERVICE_NAME: "0" }), { possible: false, reason: "restart.by-hand" });
+  assert.deepEqual(plan("linux", { INVOCATION_ID: "abc" }), { possible: true, reason: "restart.ready" });
+  assert.deepEqual(plan("linux", {}), { possible: false, reason: "restart.by-hand" });
+  assert.deepEqual(plan("darwin", { XPC_SERVICE_NAME: launchdLabel }, { ...daemon, mode: "app" }), { possible: false, reason: "restart.window" });
+  assert.deepEqual(plan("linux", { INVOCATION_ID: "abc" }, { ...daemon, pid: 7 }), { possible: false, reason: "restart.window" });
+  assert.deepEqual(plan("linux", { INVOCATION_ID: "abc" }, null), { possible: false, reason: "restart.window" });
+});
+
+test("restarting stops the engine with exit code 75 so the sign-in file starts it again, and is refused otherwise", async (t) => {
+  const f = await fixture(t);
+  saveDashboardSettings(f.app.store, f.owner, { mode: "on" });
+  const refused = await f.call("/api/dashboard/restart", f.server.token, {});
+  assert.equal(refused.status, 409, "a copy running in a test is not the background engine");
+  assert.match((await refused.json()).error, /window/);
+
+  const sent = [];
+  const request = { method: "POST", headers: {} };
+  const deps = {
+    platform: "linux", env: { INVOCATION_ID: "x" }, pid: 4242,
+    running: async () => ({ mode: "daemon", pid: 4242, port: 1, url: "", version: "1", startedAt: new Date().toISOString() }),
+    signal: (pid, name) => sent.push(["signal", pid, name]),
+    setExitCode: (code) => sent.push(["exit", code]),
+  };
+  const answer = await dashboardApi(f.app, request, "/api/dashboard/restart", { dataDir: join(f.root, "data"), access: "full", readBody: async () => ({}), deps });
+  assert.deepEqual(answer, { restarting: true });
+  await new Promise((resolve) => setTimeout(resolve, 450));
+  assert.deepEqual(sent, [["exit", 75], ["signal", 4242, "SIGTERM"]]);
+  await assert.rejects(dashboardApi(f.app, request, "/api/dashboard/restart", { dataDir: "", access: "run", readBody: async () => ({}), deps }), /key of the computer/);
+});
+
+test("a schedule's standing and the month's forecast are read the way the owner would", () => {
+  assert.equal(scheduleStanding({ status: "pending" }), "never");
+  assert.equal(scheduleStanding({ status: "paused", lastRunAt: "x" }), "paused");
+  assert.equal(scheduleStanding({ status: "running" }), "running");
+  assert.equal(scheduleStanding({ status: "pending", history: [{ status: "completed" }] }), "healthy");
+  assert.equal(scheduleStanding({ status: "pending", history: [{ status: "failed" }] }), "failing");
+  assert.equal(scheduleStanding({ status: "pending", consecutiveFailures: 1, lastRunAt: "x" }), "failing");
+  assert.equal(scheduleStanding({ status: "completed", history: [{ status: "completed" }, { status: "running" }] }), "healthy");
+  const day = (cost, priced) => ({ date: "", estimatedCost: cost, pricedRuns: priced, unpricedRuns: 0, presets: [] });
+  const tenth = new Date(Date.UTC(2026, 8, 10, 12));
+  assert.deepEqual(forecast([day(1, 1), day(2, 3)], tenth), { cost: 3, priced: 4, projected: 9 });
+  assert.equal(forecast([day(0, 0)], tenth).projected, null, "nothing priced means no guess, never zero");
+});
+
+test("the dashboard writes no colour down and says every word in English and real French", async () => {
+  const offenders = [];
+  for (const name of await readdir(DASHBOARD)) {
+    const text = await readFile(join(DASHBOARD, name), "utf8");
+    text.split("\n").forEach((line, index) => {
+      const rule = line.replace(/\/\*.*?\*\//g, "").split("/*")[0].replace(/\/\/.*$/, "");
+      if (/#[0-9a-fA-F]{3,8}\b(?![-\w])|\brgba?\s*\(\s*\d|\bhsla?\s*\(\s*\d/.test(rule) && !/href=|#open=|#task=/.test(rule))
+        offenders.push(`${name}:${index + 1} ${rule.trim().slice(0, 70)}`);
+    });
+  }
+  assert.deepEqual(offenders, [], "every colour belongs in public/tokens.css");
+
+  const english = JSON.parse(await readFile(join(PUBLIC, "locales", "en.json"), "utf8"));
+  const french = JSON.parse(await readFile(join(PUBLIC, "locales", "fr.json"), "utf8"));
+  const keys = new Set();
+  for (const name of await readdir(DASHBOARD)) {
+    const text = await readFile(join(DASHBOARD, name), "utf8");
+    for (const m of text.matchAll(/data-t(?:-label)?="([^"]+)"/g)) keys.add(m[1]);
+    for (const m of text.matchAll(/"((?:dashboard|place|lockdown|activity|field|action|nav|settings)\.[A-Za-z0-9.-]+)"/g))
+      if (!m[1].endsWith(".")) keys.add(m[1]);
+  }
+  for (const kind of ["run.started", "run.finished", "model.started", "model.completed", "tool.started", "tool.completed", "tool.failed", "delivery.failed", "policy.ask", "schedule.fired"])
+    keys.add(`dashboard.kind.${kind}`);
+  for (const filter of ["all", "tasks", "tools", "problems", "questions"]) keys.add(`dashboard.filter.${filter}`);
+  for (const reason of ["ready", "windows", "window", "by-hand"]) keys.add(`dashboard.restart.${reason}`);
+  for (const page of ["general", "assistant", "appearance", "notifications", "models", "voice", "permissions", "computer", "secrets", "data", "advanced", "about"])
+    keys.add(`settings.page.${page}`);
+  assert.ok(keys.size > 150, `only ${keys.size} keys found; the scan is looking in the wrong place`);
+  assert.deepEqual([...keys].filter((key) => !(key in english)), [], "keys with no English words");
+  assert.deepEqual([...keys].filter((key) => !(key in french)), [], "keys with no French words");
+  const shared = new Set(["Actions"]);
+  assert.deepEqual([...keys].filter((key) => key.startsWith("dashboard.") && french[key] === english[key] && !shared.has(english[key])), [],
+    "these dashboard words are still English when French is chosen");
+  /* The glossary (docs/design.md): the dashboard's own words never say these. */
+  for (const key of [...keys].filter((name) => name.startsWith("dashboard."))) assert.doesNotMatch(english[key] ?? "", /\b(SSE|endpoint|payload|tokens?|provider|daemon|launchd|systemd)\b/i, key);
+});
+
+/* ---------- the page itself, in a headless browser ---------- */
+async function openDashboard(browser, server, key, width = 1440) {
+  const page = await browser.newPage({ viewport: { width, height: 900 } });
+  const errors = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.addInitScript((value) => { if (value) sessionStorage.setItem("branch-token", value); }, key);
+  await page.goto(server.url + "/dashboard");
+  await page.locator("body.db-ready").waitFor({ state: "attached" });
+  return { page, errors };
+}
+
+test("the page shows every area, fits 400 px, and a key that may only look gets no controls", async (t) => {
+  const f = await fixture(t);
+  saveDashboardSettings(f.app.store, f.owner, { mode: "on" });
+  await f.app.runtime.run({ prompt: "Summarise the notes" });
+  const browser = await chromium.launch({ headless: true });
+  t.after(() => browser.close());
+  for (const width of [1440, 400]) {
+    const { page, errors } = await openDashboard(browser, f.server, f.server.token, width);
+    await page.locator("#db-grid").waitFor();
+    for (const id of ["db-branch", "db-needs", "db-working", "db-links", "db-automations", "db-engine", "db-computer", "db-errors", "db-today", "db-month", "db-activity", "db-controls", "db-pages"])
+      assert.equal(await page.locator(`#${id} > h2`).count(), 1, `${id} has one title`);
+    assert.deepEqual(await page.locator(".db-map a").allTextContents(),
+      ["Conversation", "Inbox", "Automations", "Library", "Customize", "Settings", "Dashboard"]);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth), 0, `sideways scroll at ${width}`);
+    assert.ok(await page.getByRole("button", { name: "Pause all automations" }).isVisible());
+    assert.equal(await page.locator("#db-controls button:not([hidden])").filter({ hasNotText: /Lockdown|Restart/ }).count(), 1, "one filled button");
+    assert.match(await page.locator("#db-activity").innerText(), /Started a task/);
+    assert.deepEqual(errors, []);
+    await page.close();
+  }
+  const read = f.app.sessionTokens.create(f.owner, { scope: "read" }).token;
+  const { page } = await openDashboard(browser, f.server, read);
+  await page.locator("#db-grid").waitFor();
+  assert.equal(await page.getByRole("button", { name: "Pause all automations" }).count(), 0);
+  assert.match(await page.locator("#db-controls").innerText(), /may only look/);
+  await page.close();
+  const none = await openDashboard(browser, f.server, "");
+  assert.ok(await none.page.locator("#db-signin").isVisible());
+  await none.page.getByLabel("Session token").fill(f.server.token);
+  await none.page.getByRole("button", { name: "Connect" }).click();
+  await none.page.locator("#db-grid").waitFor();
+});
+
+test("Stop ends a working task, Lockdown switches from the page, and when-needed keeps nothing open", async (t) => {
+  let release;
+  const held = new Promise((resolve) => { release = resolve; });
+  const f = await fixture(t, {
+    name: "scripted",
+    async complete(request) {
+      await Promise.race([held, new Promise((resolve, reject) => request.signal?.addEventListener("abort", () => reject(new Error("stopped"))))]);
+      return { content: "Done.", toolCalls: [] };
+    },
+  });
+  t.after(() => release());
+  saveDashboardSettings(f.app.store, f.owner, { mode: "on" });
+  const working = f.app.runtime.run({ prompt: "A long report" }).catch(() => undefined);
+  const browser = await chromium.launch({ headless: true });
+  t.after(() => browser.close());
+  const { page } = await openDashboard(browser, f.server, f.server.token);
+  await page.locator("#db-working .lx-row").waitFor();
+  await page.locator("#db-working").getByRole("button", { name: "Stop" }).click();
+  await working;
+  await page.locator("#db-working .empty-state").waitFor();
+  assert.ok(!f.app.store.runs(f.owner).some((run) => run.status === "running"));
+
+  await page.getByRole("button", { name: "Turn Lockdown on" }).click();
+  await page.locator("#db-lockbanner:not([hidden])").waitFor();
+  assert.equal((await (await f.call("/api/lockdown")).json()).on, true);
+  await page.locator("#db-lock-off").click();
+  await page.locator("#db-lockbanner[hidden]").waitFor({ state: "attached" });
+
+  saveDashboardSettings(f.app.store, f.owner, { mode: "when-needed" });
+  const streams = [];
+  const quiet = await browser.newPage();
+  quiet.on("request", (request) => { if (request.url().includes("/api/events/stream")) streams.push(request.url()); });
+  await quiet.addInitScript((value) => sessionStorage.setItem("branch-token", value), f.server.token);
+  await quiet.goto(f.server.url + "/dashboard");
+  await quiet.locator("body.db-ready").waitFor({ state: "attached" });
+  await quiet.waitForTimeout(500);
+  assert.deepEqual(streams, [], "when-needed opened live updates");
+  assert.match(await quiet.locator("#db-activity").innerText(), /Press Refresh/);
+
+  saveDashboardSettings(f.app.store, f.owner, { mode: "off" });
+  await quiet.getByRole("button", { name: "Refresh" }).click();
+  await quiet.locator("#db-off:not([hidden])").waitFor();
+});
+
+test("the switch lives in Customize → Channels, and the dashboard's links open the right place in the window", async (t) => {
+  const f = await fixture(t);
+  const browser = await chromium.launch({ headless: true });
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  await page.goto(f.server.url + "/#open=settings:data");
+  await page.getByLabel("Session token", { exact: true }).fill(f.server.token);
+  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await page.locator("#workspace").waitFor({ state: "visible" });
+  /* The link waited for the sign-in, then opened Settings → Data & usage and tidied the address. */
+  await page.locator('.lx-settings-link[data-page="data"][aria-current="true"]').waitFor();
+  assert.equal(new URL(page.url()).hash, "");
+
+  await openPlace(page, "customize:channels");
+  const card = page.locator("#lx-slot-customize-channels #dashboard-card");
+  await card.waitFor();
+  assert.equal(await card.locator("h2").innerText(), "Dashboard in the browser");
+  assert.equal(await page.locator("#dashboard-mode").inputValue(), "off");
+  assert.ok(await page.locator("#dashboard-open").isHidden());
+  await page.locator("#dashboard-mode").selectOption("on");
+  await card.getByRole("button", { name: "Save" }).click();
+  await card.getByText("Saved.").waitFor();
+  assert.equal(dashboardSettings(f.app.store, f.owner).mode, "on");
+  await page.locator("#dashboard-open").click();
+  await page.waitForURL(/\/dashboard$/);
+  await page.locator("#db-grid").waitFor();
+});
