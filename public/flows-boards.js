@@ -402,7 +402,8 @@ let busyMode = "queue", waitingAllowed = false;
 /** The message box asks this first; null means "wait its turn", the way it always did. */
 globalThis.branchBusySend = async (sessionId, prompt) => {
   if (!waitingAllowed || busyMode === "queue") return null;
-  return api("flows-boards/busy/send", { sessionId, prompt });
+  // Integration review: steering and stopping are the owner's; a key (the phone) that is refused still has its message queued.
+  try { return await api("flows-boards/busy/send", { sessionId, prompt }); } catch { return null; }
 };
 
 const BUILDERS = [

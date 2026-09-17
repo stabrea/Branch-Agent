@@ -124,6 +124,15 @@ test("the cards sit in their homes with the card anatomy, work from the window, 
 
   assert.equal(await page.evaluate(() => globalThis.branchBusySend("00000000-0000-4000-8000-000000000000", "hi")), null,
     "while the choice is to wait, the message box keeps its own way");
+  // Integration review: a steer the server refuses (a key on the phone, a conversation it cannot find)
+  // hands the message back to the ordinary queue instead of losing it.
+  await openPlace(page, "automations:scheduled");
+  await page.locator("#flows-busy").selectOption("steer");
+  await page.locator("#flows-waiting-card").getByRole("button", { name: "Save", exact: true }).click();
+  for (let i = 0; i < 100 && app.flowsBoards.waiting.busyMode() !== "steer"; i++) await page.waitForTimeout(50);
+  await page.waitForTimeout(200);
+  assert.equal(await page.evaluate(() => globalThis.branchBusySend("00000000-0000-4000-8000-000000000000", "hi")), null,
+    "a refused steer leaves the message to the ordinary queue");
   assert.deepEqual(errors, []);
 });
 
