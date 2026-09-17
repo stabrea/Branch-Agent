@@ -1,11 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { discardTemp } from "./temp-dir.mjs";
+import { startServer } from "../dist/server.js";
 import { createBranch, TelegramAdapter, SlackAdapter, DiscordAdapter } from "../dist/index.js";
 import { chunkText, openFenceAt } from "../dist/channels/deliveries.js";
 import { LiveStatus, renderProgress, statusEmoji } from "../dist/channels/live-status.js";
@@ -578,4 +579,46 @@ test("when needed: careful splitting only for a reply with code in it", () => {
   const code = "Look:\n```js\n" + "let a = 1;\n".repeat(100) + "```";
   assert.deepEqual(chunkText(code, 400, "when-needed"), chunkText(code, 400, "on"));
   assert.notDeepEqual(chunkText(code, 400, "when-needed"), chunkText(code, 400, "off"));
+});
+
+test("the switches are read and changed over the app's own address, and bad values are refused", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-chat-live-"));
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider: scriptedModel(echo) });
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  t.after(async () => { await server.close(); await app.close(); await discardTemp(root); });
+  const call = (path, body) => fetch(server.url + "/api/" + path, {
+    method: body ? "POST" : "GET", body: body && JSON.stringify(body),
+    headers: { authorization: "Bearer " + server.token, origin: server.url, ...(body ? { "content-type": "application/json" } : {}) },
+  });
+  assert.deepEqual((await (await call("channels")).json()).live, { liveStatus: "off", commands: "off", steering: "off", splitting: "off" });
+  const saved = await (await call("channels/live", { steering: "when-needed" })).json();
+  assert.equal(saved.live.steering, "when-needed");
+  assert.equal(saved.live.commands, "off");
+  assert.equal((await call("channels/live", { steering: "always" })).ok, false);
+  assert.equal((await (await call("channels")).json()).live.steering, "when-needed");
+});
+
+/** The one place these tests look for the card; it moves to tests/places.mjs when the redesign lands. */
+async function chatLiveCard() {
+  const html = await readFile(new URL("../public/index.html", import.meta.url), "utf8");
+  const start = html.indexOf('<form id="chat-live-form"');
+  return html.slice(start, html.indexOf("</form>", start));
+}
+
+test("the chat-app card lives under Customize, Chat apps, and every word has English and real French", async () => {
+  const card = await chatLiveCard();
+  assert.match(card, /data-home="customize:channels"/);
+  assert.equal((card.match(/<h2 /g) ?? []).length, 1);
+  assert.equal((card.match(/<button /g) ?? []).length, 1, "one filled button");
+  assert.doesNotMatch(card, /style=|#[0-9a-f]{3,8}\b|rgba?\(/i, "no colours written in the card");
+  const keys = [...card.matchAll(/data-t="([^"]+)"/g)].map((m) => m[1]);
+  const english = JSON.parse(await readFile(new URL("../public/locales/en.json", import.meta.url), "utf8"));
+  const french = JSON.parse(await readFile(new URL("../public/locales/fr.json", import.meta.url), "utf8"));
+  for (const key of [...keys, "settings.chat-live.saved", "settings.chat-live.failed"]) {
+    assert.ok(english[key], `${key} has English words`);
+    assert.ok(french[key] && french[key] !== english[key], `${key} has its own French`);
+  }
+  for (const name of ["liveStatus", "commands", "steering", "splitting"]) assert.match(card, new RegExp(`name="${name}"`));
+  const script = await readFile(new URL("../public/chat-live.js", import.meta.url), "utf8");
+  assert.match(script, /api\("channels\/live", change\)/);
 });
