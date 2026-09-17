@@ -12,6 +12,9 @@ import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 import { newAttention, pairingBody, planShare, readInvitation } from "../apps/mobile/web/rules.js";
 import { discardTemp } from "./temp-dir.mjs";
+import { readFile } from "node:fs/promises";
+import { saveGatewayAuth } from "../dist/remote/gateway-auth.js";
+import { DEVICE_STORAGE_KEY, installDeviceHeaders, keepDevice, readDevice, withDeviceHeaders } from "../public/device-headers.js";
 
 async function pairedDoor(t) {
   const root = await mkdtemp(join(tmpdir(), "branch-mobile-"));
@@ -30,7 +33,7 @@ async function pairedDoor(t) {
     await new Promise((done) => door.close(done));
     await handle.close(); await app.close(); await discardTemp(root);
   });
-  return { handle, base: `http://127.0.0.1:${door.address().port}` };
+  return { app, handle, base: `http://127.0.0.1:${door.address().port}` };
 }
 
 async function pairPhone(handle, base) {
@@ -86,4 +89,52 @@ test("what Send to Branch sends is accepted: a message with a picture, and a doc
   }
   const documents = await (await fetch(`${base}/api/documents`, { headers })).json();
   assert.ok(documents.documents.some((each) => each.name === "note.txt"));
+});
+
+const memoryStorage = () => {
+  const kept = new Map();
+  return { getItem: (key) => kept.get(key) ?? null, setItem: (key, value) => kept.set(key, String(value)) };
+};
+
+test("a phone paired in its browser sends its own secret, so 'this exact phone' does not lock it out", async (t) => {
+  const { app, handle, base } = await pairedDoor(t);
+  saveGatewayAuth(app.store, app.runtime.owner, { chain: ["token", "pairing", "device"] });
+  const offer = handle.remote.pairing.create();
+  const answer = await (await post(base, "/api/pair", { id: offer.id, code: offer.code })).json();
+  const storage = memoryStorage();
+  assert.equal(keepDevice(storage, answer), true);
+  assert.deepEqual(readDevice(storage), { id: answer.deviceId, key: answer.deviceKey });
+  const bearer = { authorization: `Bearer ${answer.token}` };
+  assert.equal((await fetch(`${base}/api/state`, { headers: bearer })).status, 401, "the key alone is refused with the device step on");
+
+  const seen = [];
+  const recording = (input, init) => { seen.push({ url: String(input), headers: new Headers(init?.headers) }); return fetch(input, init); };
+  const here = { href: `${base}/`, origin: base };
+  const deviceFetch = withDeviceHeaders(recording, storage, here);
+  assert.equal((await deviceFetch(`${base}/api/state`, { headers: bearer })).status, 200);
+  assert.equal((await deviceFetch("/api/state", { headers: bearer }).catch(() => null)), null, "node needs a full address; the browser resolves it");
+  assert.equal(seen.at(-1).headers.get("x-branch-device"), answer.deviceId, "a relative address counts as this window's own");
+  assert.equal(seen.at(-1).headers.get("authorization"), bearer.authorization, "the key the caller set is kept");
+  await deviceFetch("http://127.0.0.1:9/elsewhere").catch(() => undefined);
+  assert.equal(seen.at(-1).headers.get("x-branch-device-key"), null, "another address never receives the secret");
+
+  // Nothing is kept on the computer itself, so nothing is added there.
+  const plain = memoryStorage();
+  assert.equal(keepDevice(plain, { token: "t" }), false);
+  await withDeviceHeaders(recording, plain, here)(`${base}/api/state`, { headers: bearer });
+  assert.equal(seen.at(-1).headers.get("x-branch-device"), null);
+  plain.setItem(DEVICE_STORAGE_KEY, "{broken");
+  assert.equal(readDevice(plain), null);
+
+  // Installed once, by public/app.js, and the pairing page keeps the secret under the same name.
+  const scope = { fetch: recording, sessionStorage: storage, location: here };
+  installDeviceHeaders(scope);
+  const installed = scope.fetch;
+  installDeviceHeaders(scope);
+  assert.equal(scope.fetch, installed, "installing twice does not wrap twice");
+  const appScript = await readFile(new URL("../public/app.js", import.meta.url), "utf8");
+  assert.match(appScript, /import \{ installDeviceHeaders \} from "\/device-headers\.js";\ninstallDeviceHeaders\(\);/);
+  const pairScript = await readFile(new URL("../public/pair.js", import.meta.url), "utf8");
+  assert.ok(pairScript.includes(`sessionStorage.setItem(${JSON.stringify(DEVICE_STORAGE_KEY)}, JSON.stringify({ id: body.deviceId, key: body.deviceKey }))`));
+  assert.equal((await fetch(`${base}/device-headers.js`)).status, 200, "the file is on the static allowlist");
 });

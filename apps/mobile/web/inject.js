@@ -1,9 +1,11 @@
 /*
- * Runs at the start of every page the phone app shows from the owner's Branch. It holds no secret:
- * before opening Branch the native side loads one harmless file from the paired address and writes,
- * into that address's own session storage, the key (as public/pair.js does after pairing) and a
- * small `branch-phone` note. Only the paired address has that note, so on any other page this does
- * nothing. With the note it does three small things:
+ * Runs at the start of every page the phone app shows from the owner's Branch. Its text carries no
+ * secret: before opening Branch the native side loads one harmless file from the paired address and
+ * writes, into that address's own session storage, the key (as public/pair.js does after pairing) and
+ * a small `branch-phone` note that holds this phone's own secret. Any script on the paired address can
+ * read both, as in a phone browser; keeping them out of the page would need the native side to add
+ * the headers itself (a later brief). Only the paired address has the note, so on any other page this
+ * does nothing. With the note it does three small things:
  *   1. adds this phone's own secret to the window's requests, for the "this exact phone" step;
  *   2. tells the app which theme and mode the window shows, so the phone's own screens match;
  *   3. puts one button in the title bar that goes back to the phone's own screen, and opens the

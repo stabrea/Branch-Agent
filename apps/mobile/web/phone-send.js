@@ -24,6 +24,8 @@ export async function addFiles(list) {
 }
 
 export async function send() {
+  // A switch that is off refuses, whatever the page shows.
+  if ((await phone.vault.switches()).share === "off") { status("send-status", say("phone.share.off", "Sending from the share sheet is off. Turn it on in Branch, under On this phone."), true); return; }
   const { requests, refused } = planShare(phone.shared, $("send-note").value);
   if (!requests.length) { status("send-status", say("phone.send.nothing", "Add some words, a picture or a file first."), true); return; }
   $("send").disabled = true;
@@ -48,6 +50,7 @@ let recorder = null;
 let startedAt = 0;
 export async function startTalking() {
   if (recorder) return;
+  if ((await phone.vault.switches()).voice === "off") { status("talk-status", say("phone.talk.off", "The talk button is off. Turn it on below, under On this phone."), true); return; }
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     const chunks = [];

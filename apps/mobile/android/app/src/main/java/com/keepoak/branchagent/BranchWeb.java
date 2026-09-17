@@ -15,10 +15,12 @@ import java.util.Set;
 import org.json.JSONObject;
 
 /**
- * Opening the owner's Branch inside the app. The page script (www/inject.js) holds no secret and is
- * allowed on the paired address only; so is the message channel it uses to say "take me home" and
- * which theme is showing. Before the window opens, one harmless file is loaded from that address and
- * the key is written into its own session storage, as public/pair.js does after pairing.
+ * Opening the owner's Branch inside the app. The page script (www/inject.js) carries no secret in its
+ * text and is allowed on the paired address only; so is the message channel it uses to say "take me
+ * home" and which theme is showing. Before the window opens, one harmless file is loaded from that
+ * address and the key and this phone's own secret are written into that address's session storage,
+ * as public/pair.js does after pairing, so the window can send them itself. Any script on the paired
+ * address can therefore read both, exactly as in a phone browser.
  */
 final class BranchWeb {
     private static JSONObject priming;
@@ -26,6 +28,16 @@ final class BranchWeb {
     private static Bridge watched;
 
     private BranchWeb() {}
+
+    /**
+     * True when this phone's web view can keep Capacitor's bridge to the app's own page. Without the
+     * message-listener feature Capacitor falls back to a bridge every page can call, so the owner's
+     * Branch is not opened inside the app at all (it still opens in the browser).
+     */
+    static boolean safeToOpen() {
+        return WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)
+            && WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT);
+    }
 
     /**
      * Points the page script and the message channel at the paired address. Called once, while the

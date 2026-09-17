@@ -104,9 +104,8 @@ final class ShareViewController: UIViewController {
         guard let session = BranchKeychain.load() else { return }
         send.isEnabled = false
         status.text = BranchNative.word("phone.share.sending", "Sending…")
-        let words = ([note.text ?? ""] + texts).filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         do {
-            for request in BranchSharePlan.requests(texts: words, files: files) {
+            for request in BranchSharePlan.requests(note: note.text ?? "", texts: texts, files: files) {
                 let answer = try await BranchClient.send(session, method: "POST", path: request.path, json: request.body)
                 if answer.status >= 400 { throw NSError(domain: "Branch", code: answer.status, userInfo: [NSLocalizedDescriptionKey: (answer.json as? [String: Any])?["error"] as? String ?? "\(answer.status)"]) }
             }

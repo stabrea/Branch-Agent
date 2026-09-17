@@ -71,10 +71,14 @@ test("the five places keep their names and their order", async () => {
 });
 
 test("the phone paints the theme exactly as the window's layout does", async () => {
-  const layout = await readFile(join(PUBLIC, "layout.js"), "utf8");
+  // The window and the phone share one bridge (public/theme-bridge.js); the phone keeps no copy of it.
   const phone = await readFile(join(WEB, "theme.js"), "utf8");
-  const bridge = (text) => /const BRIDGE = (\{[\s\S]*?\});/.exec(text)[1].replace(/\s+/g, "");
-  assert.equal(bridge(phone), bridge(layout));
+  assert.match(phone, /from "\/theme-bridge\.js"/);
+  assert.doesNotMatch(phone, /const BRIDGE\b/);
+  const { REUSED } = await import("../apps/mobile/scripts/build-web.mjs");
+  assert.ok(REUSED.some(([from, to]) => from === "theme-bridge.js" && to === "theme-bridge.js"), "the bridge is copied into the app");
+  const layout = await readFile(join(PUBLIC, "layout.js"), "utf8");
+  assert.match(layout, /from "\/theme-bridge\.js"/);
 });
 
 test("native files are made from the theme table and the language files", async () => {

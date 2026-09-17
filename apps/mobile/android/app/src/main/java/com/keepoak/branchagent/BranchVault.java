@@ -16,7 +16,7 @@ import org.json.JSONObject;
 /**
  * Where the paired Branch's key lives on Android: sealed with an AES key that never leaves the
  * Android Keystore, and kept as ciphertext in the app's private preferences. Nothing here is ever
- * logged, and the web page never receives the key.
+ * logged, and the phone app's own page never receives the key (BranchWeb says where it does go).
  */
 final class BranchVault {
     private static final String KEY_ALIAS = "branch-session";

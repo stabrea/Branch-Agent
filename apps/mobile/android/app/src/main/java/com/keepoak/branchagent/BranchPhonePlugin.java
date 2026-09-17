@@ -23,7 +23,8 @@ import org.json.JSONObject;
 
 /**
  * The phone app's page talks to the phone through this plugin only (apps/mobile/web/vault.js). The
- * key a Branch hands over stays here and in the Keystore-sealed vault; the page never receives it.
+ * key a Branch hands over stays here and in the Keystore-sealed vault; this page never receives it
+ * (opening the owner's Branch hands it to that address's own session storage: see BranchWeb).
  */
 @CapacitorPlugin(name = "BranchPhone", permissions = { @Permission(alias = "notifications", strings = { "android.permission.POST_NOTIFICATIONS" }) })
 public class BranchPhonePlugin extends Plugin {
@@ -201,6 +202,11 @@ public class BranchPhonePlugin extends Plugin {
             call.reject("Not paired");
             return;
         }
+        if (!BranchWeb.safeToOpen()) {
+            getActivity().runOnUiThread(() -> getActivity().startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(session.optString("origin")))));
+            call.resolve();
+            return;
+        }
         getActivity().runOnUiThread(() -> {
             BranchWeb.open(getBridge(), session, call.getString("at", ""));
             call.resolve();
@@ -245,7 +251,7 @@ public class BranchPhonePlugin extends Plugin {
     @Override
     public Boolean shouldOverrideLoad(Uri url) {
         JSONObject session = vault == null ? null : vault.load();
-        if (session != null && BranchRules.sameOrigin(url.toString(), session.optString("origin"))) return false;
+        if (session != null && BranchWeb.safeToOpen() && BranchRules.sameOrigin(url.toString(), session.optString("origin"))) return false;
         return null;
     }
 

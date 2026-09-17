@@ -1,7 +1,7 @@
 /**
  * The page's way to the phone's secure storage (iOS Keychain, Android Keystore). The key a paired
- * Branch hands over never reaches this page: the native side makes the pairing request, keeps what
- * comes back, and adds it to every request itself. What the page can see is only whether a Branch is
+ * Branch hands over never reaches this page (the phone app's own): the native side makes the
+ * pairing request, keeps what comes back, and adds it to every request itself. What the page can see is only whether a Branch is
  * paired and at which address. `plugin` is the native BranchPhone plugin, or a fake in the tests.
  */
 import { checkAddress, pairingBody, readSwitches, refusal } from "./rules.js";

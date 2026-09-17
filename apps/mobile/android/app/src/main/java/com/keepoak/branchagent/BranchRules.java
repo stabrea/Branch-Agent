@@ -9,13 +9,17 @@ import java.util.Locale;
  * network or Tailscale.
  */
 public final class BranchRules {
+    private static final java.util.regex.Pattern HOST_CHARACTERS = java.util.regex.Pattern.compile("[a-z0-9.:\\[\\]-]+");
+
     private BranchRules() {}
 
     static boolean isPrivateHost(String hostname) {
         if (hostname == null) return false;
         String host = hostname.toLowerCase(Locale.ROOT);
         if (host.endsWith(".")) host = host.substring(0, host.length() - 1);
-        if (host.isEmpty()) return false;
+        // Only the characters a real host name or address has: Uri.getHost() decodes "%2F" and keeps a
+        // "\", and the web view would read a different host than this rule did.
+        if (!HOST_CHARACTERS.matcher(host).matches()) return false;
         if (host.equals("localhost")) return true;
         int[] octets = octets(host);
         if (octets != null) return privateIpv4(octets);
@@ -54,7 +58,7 @@ public final class BranchRules {
         Uri uri = Uri.parse(address.trim());
         String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(Locale.ROOT);
         String host = uri.getHost();
-        if (host == null || uri.getUserInfo() != null) return null;
+        if (host == null || uri.getUserInfo() != null || !HOST_CHARACTERS.matcher(host.toLowerCase(Locale.ROOT)).matches()) return null;
         if (!scheme.equals("https") && !(scheme.equals("http") && isPrivateHost(host))) return null;
         String port = uri.getPort() > 0 ? ":" + uri.getPort() : "";
         String shownHost = host.contains(":") && !host.startsWith("[") ? "[" + host + "]" : host;

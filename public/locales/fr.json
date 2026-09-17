@@ -929,6 +929,7 @@
   "phone.talk.intro": "Maintenez le bouton et parlez. Vos paroles sont transcrites sur votre ordinateur et envoyées comme message.",
   "phone.talk.listening": "À l’écoute… relâchez pour envoyer.",
   "phone.talk.noMicrophone": "Impossible d’ouvrir le micro.",
+  "phone.talk.off": "Le bouton pour parler est désactivé. Activez-le ci-dessous, sous Sur ce téléphone.",
   "phone.talk.sent": "Envoyé : « {words} »",
   "phone.talk.title": "Parler à Branch",
   "phone.talk.writing": "Transcription sur votre ordinateur…",
