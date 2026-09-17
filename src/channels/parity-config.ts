@@ -6,6 +6,7 @@ import { connectWebSocket, type WebSocketConnect } from "./ws-client.js";
 import { openSocket, type ParityDeps, type ParityService } from "./parity-common.js";
 import { paritySwitch, SwitchedChannel } from "./parity-switch.js";
 import { parityServices } from "./connectors.js";
+import { channelMark, type ChannelMark } from "./catch-up.js"; // mac6/bucket-16
 
 /**
  * How the chat services added in wave mac3 are written in the connections file and built. The
@@ -76,6 +77,9 @@ export async function buildParityChannel(config: ParityChannelConfig, host: Pari
   const inner = await service.build(settings, deps);
   const store = host.store as Store | undefined;
   const owner = host.owner;
+  // mac6/bucket-16: services that can carry on from a saved place are handed one.
+  const mark = store && owner ? channelMark(store, config.id, owner) : undefined;
+  if (mark && "catchUp" in inner) (inner as { catchUp: ChannelMark | null }).catchUp = mark;
   // Without somewhere to read the switch from, the service stays off, which is how it ships.
   const read = () => (store && owner ? paritySwitch(store, owner, service.kind) : "off" as const);
   return new SwitchedChannel(inner, { read });

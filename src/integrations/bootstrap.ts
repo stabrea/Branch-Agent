@@ -1,5 +1,6 @@
 import { readFile, stat } from 'node:fs/promises';
 import { channelPosition } from '../never-break/channel-position.js'; // mac3/never-break
+import { channelMark } from '../channels/catch-up.js'; // mac6/bucket-16
 import { z } from 'zod';
 import type { ToolRegistry } from '../registry.js';
 import { McpConfigSchema } from './mcp-config.js';
@@ -392,8 +393,10 @@ async function buildChannel(channel: ChannelConfig, env: NodeJS.ProcessEnv, host
       appSecret: await credential(channel.appSecretSecret, env, host), fetch: guardedFetch, ...base });
   if (channel.type === 'matrix') {
     await policy?.assertAllowed(new URL(channel.homeserver), 'Matrix home server');
+    const mark = channelMark(host.store, channel.id, host.context?.('bootstrap').owner); // mac6/bucket-16: catch up after a restart
     return new MatrixAdapter({ id: channel.id, homeserver: channel.homeserver, userId: channel.userId,
-      accessToken: await credential(channel.tokenSecret, env, host), syncTimeoutMs: channel.syncSeconds * 1000, fetch: guardedFetch });
+      accessToken: await credential(channel.tokenSecret, env, host), syncTimeoutMs: channel.syncSeconds * 1000, fetch: guardedFetch,
+      ...(mark ? { mark } : {}) });
   }
   if (channel.type === 'signal') return new SignalAdapter({ id: channel.id, path: channel.path, account: channel.account });
   if (channel.type === 'telegram') {

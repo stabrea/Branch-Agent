@@ -42,6 +42,14 @@ export function parseIrcLine(raw: string): IrcLine | null {
   return { tags, prefix, command, params };
 }
 
+/**
+ * mac6/bucket-16: who sent a line. A sender signed in to the network's accounts (IRCv3 account-tag)
+ * is `account:<name>`, which nobody else can take by changing nick; anyone else is known only by nick.
+ */
+export function ircAccount(tag: string | undefined, nick: string): string {
+  return tag && tag !== "*" && !/[\s\0]/.test(tag) ? `account:${tag}` : nick;
+}
+
 /** A carriage return or newline in user text would start a second command, so both are removed. */
 function clean(value: string): string { return value.replace(/[\r\n\0]/g, " "); }
 
@@ -137,7 +145,11 @@ export class IrcChannel implements ChannelAdapter {
     if (twitch) {
       link.write("CAP REQ :twitch.tv/tags twitch.tv/commands");
       if (password) link.write(`PASS ${password.startsWith("oauth:") ? password : `oauth:${password}`}`);
-    } else if (password) link.write("CAP REQ :sasl");
+    } else {
+      // mac6/bucket-16: IRCv3 account-tag names the signed-in account behind each message.
+      link.write("CAP REQ :account-tag");
+      if (password) link.write("CAP REQ :sasl");
+    }
     link.write(`NICK ${this.nick}`);
     if (!twitch) link.write(`USER ${this.nick} 0 * :${clean(this.options.realname ?? "Branch assistant")}`);
   }
@@ -165,8 +177,11 @@ export class IrcChannel implements ChannelAdapter {
   }
   private onCap(line: IrcLine, link: IrcLink): void {
     const verb = line.params[1]?.toUpperCase();
-    if (this.options.twitch) return;
-    if (verb === "ACK" && /\bsasl\b/i.test(line.params.at(-1) ?? "")) link.write("AUTHENTICATE PLAIN");
+    if (this.options.twitch || (verb !== "ACK" && verb !== "NAK")) return;
+    const caps = (line.params.at(-1) ?? "").toLowerCase().split(/\s+/);
+    // mac6/bucket-16: without a password nothing else is waiting, so the capability talk ends here.
+    if (caps.includes("account-tag")) { if (!this.options.password) link.write("CAP END"); return; }
+    if (verb === "ACK" && caps.includes("sasl")) link.write("AUTHENTICATE PLAIN");
     else if (verb === "NAK") link.write("CAP END");
   }
   private onAuthenticate(line: IrcLine, link: IrcLink): void {
@@ -184,7 +199,7 @@ export class IrcChannel implements ChannelAdapter {
     const lower = text.toLowerCase(), me = this.nick.toLowerCase();
     const named = lower.startsWith(`${me}:`) || lower.startsWith(`${me},`) || lower.startsWith(`@${me}`);
     const words = named ? text.slice(text.search(/[:,\s]/) + 1).trim() : text;
-    const account = line.tags["user-id"] ? `twitch:${line.tags["user-id"]}` : nick;
+    const account = line.tags["user-id"] ? `twitch:${line.tags["user-id"]}` : ircAccount(line.tags.account, nick);
     return {
       channel: this.id, chatId: this.ids.short(direct ? nick : target, "chat"), chatKind: direct ? "direct" : "group",
       ...(direct ? {} : { chatTitle: target }),

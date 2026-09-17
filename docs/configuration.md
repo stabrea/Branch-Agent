@@ -845,7 +845,7 @@ service is switched off its address answers 503 and reads nothing.
 
 ### IRC (`irc`)
 
-`{"type": "irc", "id": "irc", "server": "irc.libera.chat", "port": 6697, "tls": true, "nick": "branch-bot", "channels": ["#my-team"], "passwordSecret": "IRC_PASSWORD"}`. With `passwordSecret` the nick signs in with SASL PLAIN before it joins anything. A channel line is answered when it starts with the nick (`branch-bot: …`); a private message always is. IRC cannot carry a line break, so a reply goes out one line at a time, at most 400 characters each, spaced so the server does not disconnect the assistant for flooding. `allowlist` holds nicks. A nick taken by somebody else gets an underscore added; a refused password shows as "needs attention".
+`{"type": "irc", "id": "irc", "server": "irc.libera.chat", "port": 6697, "tls": true, "nick": "branch-bot", "channels": ["#my-team"], "passwordSecret": "IRC_PASSWORD"}`. With `passwordSecret` the nick signs in with SASL PLAIN before it joins anything. A channel line is answered when it starts with the nick (`branch-bot: …`); a private message always is. IRC cannot carry a line break, so a reply goes out one line at a time, at most 400 characters each, spaced so the server does not disconnect the assistant for flooding. Branch asks the server for IRCv3 `account-tag`, so somebody signed in to the network's accounts is known as `account:<name>` whatever nick they use, and nobody can pass for them by taking their nick; anybody not signed in is known by nick only. `allowlist` holds `account:<name>` entries (recommended) or nicks. A nick taken by somebody else gets an underscore added; a refused password shows as "needs attention".
 
 ### Twitch chat (`twitch`)
 
@@ -1073,7 +1073,7 @@ Register a bot on the QQ open platform (q.qq.com) and save its client secret (Ap
 ```json
 { "type": "guilded", "id": "guilded", "tokenSecret": "GUILDED_BOT_TOKEN" }
 ```
-Create a bot in your Guilded server's settings (Bots), generate an API token and save it as `GUILDED_BOT_TOKEN`. Guilded bots only see server channels, so the assistant answers when it is @mentioned there; there are no direct messages for bots. After a dropped connection Guilded replays what was missed. Replies are cut at 3500 characters (Guilded allows 4000). Limitation: Branch's socket client answers Guilded's pings but does not send its own, so a silently dead connection is only noticed when it closes.
+Create a bot in your Guilded server's settings (Bots), generate an API token and save it as `GUILDED_BOT_TOKEN`. Guilded bots only see server channels, so the assistant answers when it is @mentioned there; there are no direct messages for bots. After a dropped connection Guilded replays what was missed. Replies are cut at 3500 characters (Guilded allows 4000). Branch sends its own ping at the interval Guilded names; one that goes unanswered closes the connection and it is opened again. The last message handled is remembered across restarts, so Guilded also replays what arrived while Branch was closed.
 
 ### Revolt (`revolt`)
 
@@ -1090,6 +1090,18 @@ Create a bot in Revolt's settings (My Bots), invite it to your server and save i
 Branch joins as an ordinary (text-only) user. A private message to it is always answered; in a channel it answers when its username is in the message. Save the server password, if there is one, as the named secret. The server certificate is checked: a server with a certificate from a public authority needs nothing more; for a self-signed server, save its SHA-256 fingerprint as `certificateFingerprint` (pinning, recommended) or set `allowSelfSigned: true`. Voice is not supported. People with a registered account or a client certificate are recognised by it; guests are only known by name, so approve guests with care. Replies are cut at 3500 characters and sent as escaped HTML.
 
 <!-- channels-parity:services-end -->
+
+**Catching up after Branch was closed.** Telegram, Matrix, Mastodon, Bluesky, Discourse, ntfy, VK and
+Guilded remember where they had read up to, in the saved-work database, and after a restart fetch
+what arrived in the meantime and answer it once. The place is saved only after every message before
+it has been answered, so a message cut off by a crash is fetched again. A place older than a day is
+not trusted: the service takes stock from now instead, so a computer that was off for a month does
+not answer a month of messages at once. The services that are posted to (WhatsApp, Messenger, the
+`chat` services, Teams, Webex and the rest) are retried by the service itself while Branch is
+unreachable. The others cannot catch up: IRC, XMPP, MQTT, Mumble, Twitch, Nostr, Revolt, QQ, Discord
+and Slack Socket Mode do not hand a bot messages from before it connected; Reddit, X, Twilio, Twist
+and Nextcloud Talk still take stock from now, because their lists have no place that can be resumed
+safely.
 
 **macOS and Linux.** Every service here works the same on Windows, macOS and Linux except iMessage,
 which exists only on a Mac and is refused by name anywhere else. The programs some services speak

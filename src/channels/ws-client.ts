@@ -15,6 +15,8 @@ export interface WebSocketConnection {
   close(): void;
   /** Resolves when the socket is gone, whichever side ended it. */
   readonly closed: Promise<void>;
+  /** mac6/bucket-16: sends a ping frame; `onPong` runs when the server's pong comes back. */
+  ping?(onPong: () => void): void;
 }
 export interface WebSocketOptions {
   headers?: Record<string, string>;
@@ -76,13 +78,14 @@ function attach(socket: Socket, head: Buffer, onMessage: (text: string) => void)
   let pending = head.length ? Buffer.from(head) : Buffer.alloc(0);
   let message = Buffer.alloc(0);
   let done = () => undefined as void;
+  const pongs: (() => void)[] = []; // mac6/bucket-16
   const closed = new Promise<void>((resolve) => { done = resolve; });
   const drain = () => {
     for (let decoded = readFrame(pending); decoded; decoded = readFrame(pending)) {
       pending = pending.subarray(decoded.consumed);
       if (decoded.opcode === 0x8) { socket.end(maskedFrame(Buffer.alloc(0), 0x8)); return; }
       if (decoded.opcode === 0x9) { socket.write(maskedFrame(decoded.payload, 0xa)); continue; }
-      if (decoded.opcode === 0xa) continue;
+      if (decoded.opcode === 0xa) { for (const pong of pongs.splice(0)) pong(); continue; }
       message = Buffer.concat([message, decoded.payload]);
       if (!decoded.fin) continue;
       const text = message.toString("utf8");
@@ -100,5 +103,7 @@ function attach(socket: Socket, head: Buffer, onMessage: (text: string) => void)
     send: (text) => { if (socket.writable) socket.write(maskedFrame(Buffer.from(text, "utf8"), 0x1)); },
     close: () => { if (socket.writable) socket.end(maskedFrame(Buffer.alloc(0), 0x8)); else socket.destroy(); },
     closed,
+    // mac6/bucket-16: a client-side heartbeat for services that ask for one (Guilded).
+    ping: (onPong) => { if (!socket.writable) return; pongs.push(onPong); socket.write(maskedFrame(Buffer.from("branch"), 0x9)); },
   };
 }
