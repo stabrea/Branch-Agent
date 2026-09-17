@@ -212,6 +212,7 @@ const LAUNCH_FIELDS = [
   { name: "browserSites", kind: "lines", def: [], section: "browser" },
 ];
 function launchFacts(file) {
+  if (file.ownerOnly) return [keyed("p", "knobs.launch.owner-only", "subtle")];
   if (!file.path) return [keyed("p", "knobs.launch.none", "subtle")];
   if (file.problem) return [keyed("p", "knobs.launch.problem", "subtle", { problem: file.problem })];
   const facts = file.facts;

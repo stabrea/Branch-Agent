@@ -2375,6 +2375,7 @@
   "knobs.field.launch-browserSites": "Sites the browser may open (one per line)",
   "knobs.note.launch-browserSites": "Write each as an address without a path, like https://example.com.",
   "knobs.launch.none": "Branch was started without a launch settings file.",
+  "knobs.launch.owner-only": "Only the owner can see what the launch settings file sets up. Switch back to the owner's profile to see it.",
   "knobs.launch.problem": "The launch settings file cannot be read: {problem}",
   "knobs.launch.where": "File: {path}",
   "knobs.launch.counts": "AI tool servers: {servers}. Hooks: {hooks}. Chat apps: {chats}. Programs: {programs}.",

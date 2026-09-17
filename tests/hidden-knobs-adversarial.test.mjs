@@ -217,3 +217,47 @@ test("behind the wall a passed value still reaches the program, and a planted pr
   assert.equal(result.status, "completed", result.stderr);
   assert.deepEqual(JSON.parse(result.stdout), ["north", null, null]);
 });
+
+test("only the owner reads what the launch settings file sets up", async (t) => {
+  const { startServer } = await import("../dist/server.js");
+  const { app, root } = await fixture(t, { name: "p", async complete() { return answer("ok"); } });
+  const launchFile = join(root, "integrations.json");
+  await writeFile(launchFile, JSON.stringify({ shell: { executables: { "secret-deployer": { path: process.execPath } } } }));
+  const before = process.env.BRANCH_INTEGRATIONS;
+  process.env.BRANCH_INTEGRATIONS = launchFile;
+  t.after(() => { if (before === undefined) delete process.env.BRANCH_INTEGRATIONS; else process.env.BRANCH_INTEGRATIONS = before; });
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  t.after(() => server.close());
+  const look = async (token = server.token) => {
+    const response = await fetch(server.url + "/api/knobs/launch-file", { headers: { authorization: `Bearer ${token}` } });
+    return { status: response.status, text: await response.text() };
+  };
+  assert.match((await look()).text, /secret-deployer/, "the owner sees the programs");
+  const key = app.sessionTokens.create(owner, { scope: "run", minutes: 5 });
+  assert.doesNotMatch((await look(key.token)).text, /secret-deployer|integrations\.json/);
+  const person = app.store.profiles.create({ name: "Sam", pin: "4321" });
+  app.store.profiles.switch({ profileId: person.id, pin: "4321" });
+  const household = await look();
+  assert.equal(household.status, 200);
+  assert.doesNotMatch(household.text, /secret-deployer|integrations\.json/);
+  assert.match(JSON.parse(household.text).problem, /owner/);
+  app.store.profiles.switch({ profileId: null });
+});
+
+test("a background sub-task counts against a task that already finished, and nothing is left behind", async (t) => {
+  const provider = { name: "main", async complete(request) {
+    return { ...answer(request.messages.some((m) => m.content === "background child") ? "child done" : "parent done"), usage: { input: 100_000, output: 30_000 } };
+  } };
+  const { app } = await fixture(t, provider, { presets: [{ id: "default", name: "Priced", provider, model: "gpt-4o" }] });
+  const parent = await app.runtime.run({ prompt: "parent" });
+  assert.equal(parent.status, "completed");
+  saveKnobs(app.store, owner, "limits", { spendCapDollars: 0.5 });
+  const { childRunId } = await app.runtime.delegateBackground("background child", app.runtime.context({ runId: parent.id }), [], "");
+  let child;
+  for (let tries = 0; tries < 100 && !["completed", "failed", "cancelled", "budget_exceeded"].includes((child = app.store.run(childRunId))?.status); tries++)
+    await new Promise((done) => setTimeout(done, 50));
+  assert.notEqual(child.status, "completed", child.output);
+  assert.match(child.output, /reaches the limit of \$0\.50/);
+  assert.equal(app.runtime.spendRoot.size, 0);
+  assert.equal(app.runtime.spendMembers.size, 0);
+});

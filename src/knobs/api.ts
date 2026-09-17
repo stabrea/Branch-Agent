@@ -55,6 +55,9 @@ function requireOwnerHere(store: Store, what: string): void {
 /** Whether the one asking is the owner, in the owner's own profile and with the computer's own key. */
 const ownerHere = (store: Store): boolean => !startedWithShortLivedKey() && !currentPerson() && store.profiles.isOwner();
 
+/** What anyone but the owner sees of the launch settings file: nothing it sets up. */
+const launchFileHidden = { path: null, ownerOnly: true, problem: "Only the owner can see what the launch settings file sets up.", facts: null, editable: null };
+
 function view(app: KnobsApp) {
   const { store, runtime } = app;
   const values = allKnobs(store, runtime.owner);
@@ -115,7 +118,7 @@ export async function knobsApi(app: KnobsApp, request: IncomingMessage, path: st
   if (method !== "GET" && method !== "POST") throw new KnobsApiError(405, "Use GET or POST");
   try {
     if (path === "/api/knobs/launch-file") {
-      if (method === "GET") return await launchFileView(integrationsPath());
+      if (method === "GET") return ownerHere(app.store) ? await launchFileView(integrationsPath()) : launchFileHidden;
       requireOwnerHere(app.store, "The launch settings file");
       return await saveLaunchFile(integrationsPath(), await readBody(request));
     }
