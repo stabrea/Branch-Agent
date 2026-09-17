@@ -7824,3 +7824,38 @@ after it opens a picker of the connections.
 
 Nothing here differs by system. Cmd counts as Ctrl for the shortcuts on macOS. The sound is played by the window
 itself, not by a system program.
+
+## Learning, deeper (R17-F)
+
+Nine parts under `src/learning-more/`, each with the owner's three-way switch (off, on, only when it
+is needed), all off at first. "On" loads a part's tools from the first round and, for memory blocks
+and lessons, puts them at the start of each conversation; "only when it is needed" lists the tools for
+the assistant to load (and names the memory blocks in one line); "off" refuses. The cards are in
+Library → Memory, with skill usage in Customize → Skills. Routes are under `/api/learning-more/`, the
+owner's profile only; a short-lived key may read, and may use the two searches
+(`/api/learning-more/search`, `/api/learning-more/memory/find`), and changes nothing.
+
+| Part | What it does | Tools |
+| --- | --- | --- |
+| Memory blocks | Named notes, each with a size budget, kept in front of every conversation; the assistant edits them itself. Each person, and each Trunk or specialist, has its own. A task a chat message started cannot change them. The "about-you" block is the "about you" note from Settings (its size and whether it is shown are set there; this part never shows it twice). Key-like values are hidden on save. | `memory.block_view`, `memory.block_edit` |
+| Skill usage and merging | Tasks that used each skill over the last 100 tasks (the report says when that is all it saw); skills whose wording overlaps; a dry run of a merge; the merge itself is two review-queue suggestions (a new, tried version of the kept skill, and setting the other aside). | `skills.usage` |
+| Timeline | Facts saved and changed, skills written, the owner's decisions, the learning core's habits, and kept or dropped lessons, newest first, filterable by kind and date. | `learning.journey` |
+| Meaning search | Conversations compared by meaning through the same embeddings route memory search uses, filtered by who spoke and when the conversation started; word search when no route is connected. Key-like values are hidden before text is sent. Only the owner's own tasks can use it, not a Trunk or specialist. | `history.meaning` |
+| Lessons from failed evaluation tasks | A failed suite task leaves a lesson on trial; a later task whose learning-core situation code overlaps it is shown the lesson, and that task's result is credited. After 2 passes at two thirds or better it is offered as a fact to remember; after 2 failures below half it is dropped. | `lessons.list` |
+| Preferences from Claude Code and Codex | Off twice: the switch, and one opt-in per assistant. Reads only `projects/` (Claude Code) and `sessions/` (Codex) in their home folders, only what the owner typed (command output, agent notices and compacted summaries are skipped; at most 256 MB is read per assistant in one look), only preference sentences seen in two chats or more; a sentence holding a key-like value is dropped. The look shows everything; only ticked items are kept, as preferences. | none (owner only) |
+| Expiring memories | Labels and an expiry date on a fact; an expired fact is set aside (restorable) at the start and end of each task, and never reaches a conversation's snapshot. Search by label and by created or changed date. Correcting a fact's words keeps its labels and expiry; a fact the owner puts back after it expired is kept for good. With the switch off, expiry dates already set are ignored: nothing is swept or left out. | `memory.find`, `memory.label` |
+| Note read-back | Edits the owner makes in the `memory/` notes become review-queue suggestions before the notes are written again; the assistant's own file tools still cannot write there. The owner can write tidy instructions; "Tidy now" asks the model once and stages its ideas. | none |
+| Outside memory | One of Hindsight (the server set up under the smaller asks, with its own switch), a self-hosted Mem0 server (`POST /memories`, `POST /search`, `X-API-Key`) or Honcho (v2 session messages and the peer "dialectic" chat), none by default. Each person and agent has its own user or peer name with Mem0 and Honcho; Hindsight keeps one bank, so only the owner's own tasks can recall from it or ask it; key-like values are hidden before sending; answers are information. The Mem0 and Honcho routes were written from their public contracts and have not been tried against a live server. | `memory.outside_recall`, `memory.outside_keep`, `memory.outside_ask` |
+
+Settings fields: the switches are `mode` in `learning-more-<part>`; note read-back keeps
+`tidyInstructions` (up to 2,000 characters); the chat preferences keep `claude-code`, `codex` (both
+false) and `minChats` (2 to 20, default 2); outside memory keeps `active` (`none`, `hindsight`, `mem0`,
+`honcho`), `mem0.address`, `mem0.secret`, `mem0.user`, `honcho.address`, `honcho.secret`,
+`honcho.workspace` and `honcho.peer`; `mem0.secret` and `honcho.secret` are the names of keys in the locker (such as `MEM0_KEY`), never a key. A block has `label`, `description`, `limit` (100 to 8,000
+characters), `readOnly` and `value`; a fact's labels are `tags` (up to 12) and `expiresAt`.
+
+### macOS and Linux
+
+Nothing here depends on the platform. The Claude Code and Codex folders follow each assistant's own
+override variable (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`) and otherwise `~/.claude` and `~/.codex` on
+every system (`src/migrate/detect.ts`).
