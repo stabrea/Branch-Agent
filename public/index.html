@@ -1021,6 +1021,31 @@
             <p id="chat-live-state" class="field-note" aria-live="polite"></p>
             <button data-t="action.save-chat-live">Save chat settings</button>
           </form>
+          <!-- mac7/chat-allowlist: what a chat message's task may use. Its home is Customize, Chat apps. -->
+          <form id="chat-permissions-form" class="card" data-home="customize:channels">
+            <h2 data-t="settings.card.chat-permissions">What a chat may do beyond talking</h2>
+            <p data-t="settings.chat-permissions.intro">A message in a chat app cannot prove who is typing, so its task may only read and answer: ask you a question, read a file, read what Branch remembers, and look something up on the web. Everything else is refused until you allow it here.</p>
+            <label class="check-row" for="chat-permissions-extras">
+              <input type="checkbox" id="chat-permissions-extras" aria-describedby="chat-permissions-extras-note" />
+              <span data-t="field.chat-permissions-extras">Use my list of what chats may also do</span>
+            </label>
+            <p id="chat-permissions-extras-note" class="field-note" data-t="settings.chat-permissions.extras-note">Off, the lines below do nothing and every chat gets the short list only. Turning it on lets each line add what it names, for the app and the person it names.</p>
+            <div id="chat-permissions-list" class="card-list" aria-live="polite"></div>
+            <label for="chat-permissions-channel" data-t="field.chat-permissions-channel">Which chat app</label>
+            <input id="chat-permissions-channel" type="text" value="*" maxlength="64" aria-describedby="chat-permissions-channel-note" />
+            <p id="chat-permissions-channel-note" class="field-note" data-t="settings.chat-permissions.channel-note">The name you gave the app in the connections file, or * for every one of them.</p>
+            <label for="chat-permissions-sender" data-t="field.chat-permissions-sender">Which person</label>
+            <input id="chat-permissions-sender" type="text" value="*" maxlength="120" aria-describedby="chat-permissions-sender-note" />
+            <p id="chat-permissions-sender-note" class="field-note" data-t="settings.chat-permissions.sender-note">Their id on that app, as it appears under the people who may message you, or * for everybody on it.</p>
+            <label for="chat-permissions-allow" data-t="field.chat-permissions-allow">What they may also do</label>
+            <input id="chat-permissions-allow" type="text" maxlength="400" aria-describedby="chat-permissions-allow-note" />
+            <p id="chat-permissions-allow-note" class="field-note" data-t="settings.chat-permissions.allow-note">Names separated by commas, such as files.write. Commands on this computer, your other devices, your mail, calendar and house, and writing to other chats are never allowed from here.</p>
+            <label for="chat-permissions-note" data-t="field.chat-permissions-note">Who this is</label>
+            <input id="chat-permissions-note" type="text" maxlength="200" aria-describedby="chat-permissions-note-note" />
+            <p id="chat-permissions-note-note" class="field-note" data-t="settings.chat-permissions.note-note">Your own words, so the line still means something a year from now.</p>
+            <p id="chat-permissions-state" class="field-note" aria-live="polite"></p>
+            <button data-t="action.save-chat-permissions">Save what chats may do</button>
+          </form>
           <form id="second-opinion-form" class="card">
             <h2 data-t="settings.card.second-opinion">A second opinion</h2>
             <p data-t="settings.second-opinion.intro">Have another connection read a finished answer and say whether it stands up. It is shown beside the answer and never written into it, so you read both. Off until you turn it on, and it costs what any other model call costs.</p>
@@ -1834,6 +1859,7 @@
     <script src="/flows.js" type="module"></script>
     <script src="/second-opinion.js" type="module"></script>
     <script src="/chat-live.js" type="module"></script>
+    <script src="/chat-permissions.js" type="module"></script>
     <script src="/heartbeat.js" type="module"></script>
     <!-- Bucket 17: watching videos and speech plug-ins. -->
     <script src="/media-programs.js" type="module"></script>

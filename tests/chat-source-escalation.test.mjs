@@ -60,6 +60,11 @@ test("a schedule a chat's task makes does not launder its work into the owner's"
   const { app, say, owner } = await fixture(t);
   // No approvals at all, so only the chat guards themselves can stop anything here.
   savePolicy(app.store, owner, { preset: "off", rules: [] });
+  // mac7/chat-allowlist: putting work on a timer is not on the short list a chat's task holds, so the
+  // owner allows it on purpose here — what is under test is that the schedule is still marked as the
+  // chat's and its turns stay the chat's, not that the permission was missing.
+  app.channels.setPermissionSettings({ extras: true,
+    rules: [{ channel: "chat", sender: "sam", allow: ["schedules.manage", "workflows.manage", "memory.write"], note: "under test" }] });
   app.learningMore.setMode("blocks", { mode: "on" });
   app.learningMore.blocks.define({ owner, agent: "" }, { label: "goals", value: "Grow tomatoes." });
   // The chat's own model asks for the schedule, through the real chat path.

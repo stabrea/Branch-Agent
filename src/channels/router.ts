@@ -10,6 +10,9 @@ import { decide, readSenderAllowlist } from "./allowlist.js";
 import type { Run } from "../contracts.js";
 import { LiveStatus, defaultLiveTiming, statusEmoji, type LiveTiming } from "./live-status.js";
 import { chatLiveSwitches, saveChatLiveSwitches, type ChatLiveSwitches } from "./chat-live-settings.js";
+// mac7/chat-allowlist: the short list a chat's task may use, and the owner's additions to it.
+import { chatPermissionsOf as chatPermissionsAllowed, chatExtraPermissions, readChatPermissionSettings as chatPermissionSettings,
+  saveChatPermissionSettings, type ChatPermissionSettings } from "./chat-permissions.js";
 import { commandMode } from "../commands/settings.js";
 import { savedLine } from "../commands/saved.js";
 import { chatCommandSpec, parseChatCommand, runChatCommand, usageFooter, usageShown, type ChatCommand, type ChatTurn } from "./chat-commands.js";
@@ -50,20 +53,11 @@ export interface InboundMessage {
 }
 /** What a channel says about itself, in words the owner can act on. */
 /**
- * What a task started from a chat may use, out of everything registered. Integration review
- * (mac7/nodes): a chat cannot prove who is typing, so the owner's other devices (camera, screen,
- * microphone, files, commands) are never lent to a chat sender either.
+ * What a task started from a chat may use, out of everything registered. Kept here under its old
+ * name because that is where the reference points; the list itself lives in chat-permissions.ts,
+ * where it is a short list of what is allowed rather than a list of what is taken away.
  */
-export function chatPermissionsOf(all: readonly string[]): string[] {
-  // R17-C: nor the owner's own mail, calendars, files in other services, or house.
-  const personal = ["personal.read", "personal.write", "home.control"];
-  // mac7/chat-source: nor the owner-only things each of those tools also refuses by source — the morning
-  // brief, the list of other assistants, installing or registering tools and skills, and the owner's
-  // other computers (src/key-context.ts `startedFromChat`).
-  const ownersOwn = ["brief.manage", "agents.manage", "skills.write", "skills.manage", "nodes.read", "nodes.run"];
-  return all.filter((p) => ![...personal, ...ownersOwn, "shell.execute", "remote.execute", "git.remote", "github.manage", "channels.send"].includes(p)
-    && !p.startsWith("devices."));
-}
+export { chatPermissionsOf } from "./chat-permissions.js";
 
 export interface ChannelHealth {
   state: "connected" | "reconnecting" | "needs attention";
@@ -339,6 +333,8 @@ export class ChannelRouter {
       approved: this.pairs(owner).filter((p) => p.status === "approved"),
       chats: this.chats(owner),
       live: this.switches(),
+      // mac7/chat-allowlist: what a chat's task may use beyond talking, for the Chat apps card.
+      permissions: this.permissionSettings(),
     };
   }
   /** Changes the chat extras' switches (chat-live-settings.ts); the ones not named stay as they are. */
@@ -544,12 +540,24 @@ export class ChannelRouter {
     const busy = this.turns.has(chatKey(message));
     return busy && chatCommandSpec(command.name).whileWorking ? command : null;
   }
-  /** What a task started from a chat may use. See `answer` for why each one is left out. */
-  private chatPermissions(): string[] {
-    // A message from a chat app can read and change the local copy, but never publish it, and
-    // never send to somebody else's chat: a paired person in one group must not be able to
-    // make the assistant write to every chat it is linked to.
-    return chatPermissionsOf(this.runtime.registry.permissions());
+  /**
+   * What a task started from a chat may use: the short safe list (src/channels/chat-permissions.ts),
+   * plus whatever the owner has allowed this chat app and this person. Everything else is refused,
+   * including any permission added to Branch later. The owner's own paired account is a chat account
+   * like any other — a chat app cannot prove who is typing — so it gets the same list.
+   */
+  private chatPermissions(from?: { channel: string; senderId: string }): string[] {
+    const settings = chatPermissionSettings(this.store, this.runtime.owner);
+    const extra = from ? chatExtraPermissions(settings, from.channel, from.senderId) : [];
+    return chatPermissionsAllowed(this.runtime.registry.permissions(), extra);
+  }
+  /** The owner's setting for what chats may do beyond talking (src/channels/chat-permissions.ts). */
+  permissionSettings(): ChatPermissionSettings {
+    return chatPermissionSettings(this.store, this.runtime.owner);
+  }
+  /** Changes that setting; whatever is left out keeps the value it has. */
+  setPermissionSettings(input: unknown): ChatPermissionSettings {
+    return saveChatPermissionSettings(this.store, this.runtime.owner, input);
   }
   // ---- chat-live (wave mac2): one task per chat, notes steer it, commands control it ----------
   /** Carries out a chat command and sends its answer back. */
@@ -562,7 +570,7 @@ export class ChannelRouter {
     const asks = command.name === "btw" || command.name === "compact" || question;
     const work = () => runChatCommand(command, {
       runtime: this.runtime, channel, chatId, turn,
-      sessionId: this.sessionFor(channel, chatId), permissions: this.chatPermissions(),
+      sessionId: this.sessionFor(channel, chatId), permissions: this.chatPermissions(message),
       dropWaiting: () => {
         if (!turn || turn.runId) return false;
         turn.dropped = true;
@@ -694,7 +702,7 @@ export class ChannelRouter {
         return "rejected";
       }
       const run = await this.runtime.run({
-        prompt: heard.prompt, ...(sessionId ? { sessionId } : {}), permissions: this.chatPermissions(),
+        prompt: heard.prompt, ...(sessionId ? { sessionId } : {}), permissions: this.chatPermissions(message),
         // A chat cannot prove who is typing, so its task is never the owner's own (see RunSource).
         source: "channel",
         onStarted: (started) => {

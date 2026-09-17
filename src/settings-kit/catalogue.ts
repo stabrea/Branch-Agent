@@ -13,6 +13,7 @@ import { audit } from "../audit.js";
 import { saveSafetySwitch, type SafetyPart } from "../safety-extras/settings.js";
 import { writeBoardSwitch, type BoardPart } from "../flows-boards/settings.js"; // r17-h integration review
 import { saveComfort, type ComfortCard } from "../comfort/settings.js";
+import { saveChatPermissionSettings } from "../channels/chat-permissions.js"; // mac7/chat-allowlist
 
 /**
  * R17-S-A (understandable settings): the settings that can be put back to how they started, set
@@ -168,6 +169,15 @@ const reach: SettingSpec[] = [
   one("pull-request-hook", "Pull requests from changes", "settings-kit.name.pull-requests", "settings:advanced", "reach"),
   one("skill-installs", "Installing skills from a file", "settings-kit.name.skill-installs", "customize:skills", "reach"),
   one("workspace-editor", "Code editor", "settings-kit.name.code-editor", "settings:advanced", "reach"),
+  // mac7/chat-allowlist: a chat's task holds a short read-and-answer list; this switch lets the
+  // owner's own lines add to it, so raising it is reaching further. The lines themselves are not a
+  // field here on purpose: nothing brought in from a file or a preset can ever write one.
+  {
+    key: "chat-permissions", name: "What a chat may do beyond talking", t: "settings-kit.name.chat-permissions",
+    home: "customize:channels",
+    fields: [yesNo("extras", "Use my list of what chats may also do", "settings-kit.field.chat-extras", "reach")],
+    write: (store, owner, patch) => { saveChatPermissionSettings(store, owner, patch); },
+  },
   one("sdk-kit", "Tools for building on Branch", "settings-kit.name.sdk-kit", "settings:advanced", "reach"),
   // r17-i integration review: every reach and platform switch reaches further when raised (src/reach/settings.ts).
   // src/server.ts saves them through Reach, so the tools and the relay follow the switch at once.

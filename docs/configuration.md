@@ -666,7 +666,7 @@ Create a bot with @BotFather, then either save its token as the secret `TELEGRAM
 { "channels": [{ "type": "telegram", "tokenSecret": "TELEGRAM_BOT_TOKEN", "activation": "mention", "pairing": true, "allowlist": [] }] }
 ```
 
-`tokenEnv` names an environment variable instead of a secret. Each chat (direct or group) keeps its own conversation. A sender who is neither on the `allowlist` (Telegram user ids) nor approved receives a six-digit code; approve it in **Settings → Channels** or with `POST /api/channels/pairings/approve {code}`. With `pairing: false`, strangers are told the assistant is private. In groups, `activation: "mention"` answers only messages that mention the bot or reply to it; `"always"` answers everything. Channel tasks run with every tool permission except host command execution. `GET /api/channels` lists connected channels, pending and approved people.
+`tokenEnv` names an environment variable instead of a secret. Each chat (direct or group) keeps its own conversation. A sender who is neither on the `allowlist` (Telegram user ids) nor approved receives a six-digit code; approve it in **Settings → Channels** or with `POST /api/channels/pairings/approve {code}`. With `pairing: false`, strangers are told the assistant is private. In groups, `activation: "mention"` answers only messages that mention the bot or reply to it; `"always"` answers everything. A channel task may only read and answer, and nothing else unless you say so (see **What a chat may do beyond talking** below). `GET /api/channels` lists connected channels, pending and approved people.
 
 ### What every channel shares
 
@@ -694,13 +694,58 @@ lends those accounts nothing else. What that means:
   your other computers, looking at your other computers, screen, videos or notes (R17-I), and "/learn"
   (from a chat it is ordinary words). Changing settings, approvals,
   installs, the `/lockdown` switch and the other owner-only commands was already refused from a chat.
-  Each of these refuses a chat's task by itself, and the tools behind them are also kept out of what a
-  chat's task may use at all (`chatPermissionsOf` in `src/channels/router.ts`, alongside commands, your
-  devices, your personal connectors and sending to other chats).
+  Each of these refuses a chat's task by itself, and none of them is on the short list of what a chat's
+  task may use at all (see **What a chat may do beyond talking** below).
 - **Unchanged:** which chats are answered (`allowlist`, pairing), and everything you start in the window,
-  the terminal or with your own key.
+  the terminal or with your own key. Answering one approval from a chat (`y`, `a` or `n`, or the Yes and
+  No buttons) is answered by the chat itself and is not a tool, so it works exactly as it did.
 
 A task saved before this change carries only the `channel.inbound` mark; it is read the same way.
+
+### What a chat may do beyond talking
+
+A chat app cannot prove who is typing, so a task a chat message starts is given a short list of what it
+may use, and everything else is refused — including anything added to Branch after this was written. The
+short list is what reading and answering needs, and every one of the four only looks at things:
+
+| It may | Which is |
+|---|---|
+| Ask you a question and wait for your answer | `user.ask` |
+| Read a file in your workspace, and search the files | `files.read` |
+| Read what Branch remembers, and search it | `memory.read` |
+| Look something up on the web | `web.read` |
+
+That is the whole list. Writing a file, running code, opening a command line, the screen and keyboard,
+the clipboard, stopping a program, sending to another chat, your other devices, and your mail, calendar,
+files and house are all outside it. This is a change: before, a chat's task was given everything except
+a named few, so anything nobody had thought of was handed over. It is now the other way round.
+
+**Your own paired account is a chat account.** The list above is what your own phone gets too. Nothing
+makes a chat account count as you.
+
+**Allowing more, per app and per person.** The card is **Customize → Chat apps → What a chat may do
+beyond talking** (`POST /api/channels/permissions`, read back from `GET /api/channels` as
+`permissions`). It holds two things:
+
+- `extras` — off on a fresh install. While it is off, the lines below do nothing at all and every chat
+  gets the short list only.
+- `rules` — your own lines. Each names a chat app (`channel`, or `*` for every one), a person on it
+  (`sender`, or `*` for everybody), what they may also do (`allow`, a list of names such as
+  `files.write`), and a `note` in your own words. A line only covers the app and the person it names.
+
+Some names can never be in a line, whatever you write: commands on this computer or another, your other
+devices, your mail, calendar, files, music and house, your other computers running Branch, writing to
+somebody else's chat, the morning brief, the list of other assistants, installing skills or a service's
+tools, and a Trunk's messages. Most of those the tools themselves already refuse
+because the task came from a chat, so a line promising them would be promising something that cannot
+happen; commands are refused because a command can do anything you could.
+
+The lines are deliberately not part of the settings file or the whole-app presets
+(`src/settings-kit/catalogue.ts` holds `extras` alone, marked as reaching further). A settings file
+brought in from somewhere else, or a preset, can turn the switch off, but can never write a line that
+hands a chat something new. The whole thing is `src/channels/chat-permissions.ts`, still reached under
+its old name `chatPermissionsOf` from `src/channels/router.ts`, and asserted in
+`tests/chat-allowlist.test.mjs`.
 
 ### Watching and steering a task from the chat
 

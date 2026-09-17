@@ -469,6 +469,7 @@ async function staticFile(
     "/second-opinion.js": ["second-opinion.js", "text/javascript; charset=utf-8"],
     // Wave mac2 (chat-live): the chat-app switches card under Customize, Chat apps.
     "/chat-live.js": ["chat-live.js", "text/javascript; charset=utf-8"],
+    "/chat-permissions.js": ["chat-permissions.js", "text/javascript; charset=utf-8"], // mac7/chat-allowlist
     "/skill-revisions.js": ["skill-revisions.js", "text/javascript; charset=utf-8"],
     // Wave mac3 (channels-parity): the switches for the chat services added to match other assistants.
     "/channels-more.js": ["channels-more.js", "text/javascript; charset=utf-8"],
@@ -2055,6 +2056,8 @@ async function channelsApi(app: Branch, request: IncomingMessage, path: string):
   if (request.method === "POST" && path === "/api/channels/link") return app.channels.link(owner, await readBody(request));
   // Wave mac2 (chat-live): the on / off / when-needed switches for typing, commands, steering and splitting.
   if (request.method === "POST" && path === "/api/channels/live") return { live: app.channels.setSwitches(await readBody(request)) };
+  // mac7/chat-allowlist: the switch and the list for what a chat's task may use beyond talking.
+  if (request.method === "POST" && path === "/api/channels/permissions") return { permissions: app.channels.setPermissionSettings(await readBody(request)) };
   if (request.method === "POST" && path === "/api/channels/test") {
     const { channel, chatId } = z.object({ channel: z.string().min(1).max(64), chatId: z.string().min(1).max(64) }).strict().parse(await readBody(request));
     return app.channels.deliver(channel, chatId, "Test message from Branch Agent: this channel is connected and working.", `test:${Date.now()}`);
