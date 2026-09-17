@@ -1,4 +1,4 @@
-// Self-check of a packaged build: launch a staged copy with its own home, open every section,
+// Self-check of a packaged build: launch a staged copy with its own home, open every place, tab and settings page,
 // screenshot each one, and collect browser console errors. Usage: node walkthrough.tmp.mjs <installDir> <outDir>
 import { chromium } from "playwright";
 import { spawn, execSync } from "node:child_process";
@@ -24,13 +24,23 @@ await page.setViewportSize({ width: 1280, height: 800 }).catch(() => {});
 const report = [];
 const shot = async (name) => { const file = join(outDir, `${name}.png`); await page.screenshot({ path: file, fullPage: false }); report.push({ name, file, errorsSoFar: errors.length }); };
 await shot("01-home");
-const views = await page.$$eval(".nav[data-view]", (els) => els.map((e) => e.getAttribute("data-view")));
-for (const view of views) {
-  const button = page.locator(`.nav[data-view="${view}"]`).first();
-  if (!(await button.isVisible().catch(() => false))) continue;
-  await button.click(); await delay(700);
-  await shot(`10-${view}`);
+// Every place and tab in the sidebar, then every Settings page (the wave 9 layout, public/layout.js).
+const views = [];
+for (const place of await page.$$eval(".lx-place-link", (els) => els.map((e) => e.dataset.place))) {
+  await page.locator(`.lx-place-link[data-place="${place}"]`).click(); await delay(400);
+  for (const tab of await page.$$eval(`.lx-tab[data-place="${place}"]`, (els) => els.map((e) => e.dataset.tab))) {
+    await page.locator(`.lx-tab[data-place="${place}"][data-tab="${tab}"]`).click(); await delay(700);
+    views.push(`${place}:${tab}`);
+    await shot(`10-${place}-${tab}`);
+  }
 }
+await page.locator(".lx-gear").click();
+for (const name of await page.$$eval(".lx-settings-link", (els) => els.map((e) => e.dataset.page))) {
+  await page.locator(`.lx-settings-link[data-page="${name}"]`).click(); await delay(700);
+  views.push(`settings:${name}`);
+  await shot(`20-settings-${name}`);
+}
+await page.locator(".lx-settings-close").click();
 // Settings sub-areas that shipped recently: sharing, voice, provider dropdown
 for (const id of ["mcp-card", "voice-settings-form", "voice-live-vad", "provider-preset", "documents", "usage"]) {
   const el = page.locator(`#${id}`).first();

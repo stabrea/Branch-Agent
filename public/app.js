@@ -83,6 +83,8 @@ function button(label, handler) {
   return node;
 }
 function displayView(view) {
+  /* Wave 9 redesign: public/layout.js knows where every page now lives. */
+  if (globalThis.branchLayout?.go(view)) return;
   document.querySelectorAll(".view").forEach((node) => {
     node.hidden = node.id !== view;
   });

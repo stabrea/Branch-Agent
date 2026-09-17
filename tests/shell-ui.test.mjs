@@ -7,18 +7,10 @@ import { discardTemp } from "./temp-dir.mjs";
 import { chromium } from "playwright";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
+import { openPlace, openSettingFor } from "./places.mjs";
 
-const SECTIONS = [
-  "Conversation",
-  "Activity",
-  "Usage",
-  "Memory",
-  "Skills",
-  "Specialists",
-  "Procedures",
-  "Schedules",
-  "Settings",
-];
+/* Wave 9 redesign: four places in the sidebar, and Settings behind the gear (public/layout.js). */
+const PLACES = ["Inbox", "Automations", "Library", "Customize"];
 
 async function fixture(t) {
   const scratch = join(tmpdir(), "Codex-session-files");
@@ -71,17 +63,30 @@ async function tabStops(page, count) {
   return stops;
 }
 
-test("every section opens from the icon column in one click, with no drop-down", async (t) => {
+test("every place opens from the sidebar in one click, and every Settings page from the gear", async (t) => {
   const f = await fixture(t);
   assert.equal(
     await f.page.locator("select").filter({ hasText: "Memory" }).count(),
     0,
-    "sections must not live in a drop-down",
+    "places must not live in a drop-down",
   );
-  for (const name of SECTIONS) {
+  for (const name of PLACES) {
     await f.page.getByRole("button", { name, exact: true }).click();
     await f.page.locator("#page-title").filter({ hasText: name }).waitFor();
   }
+  await f.page.getByRole("button", { name: "Conversation", exact: true }).click();
+  await f.page.locator("#page-title").filter({ hasText: "Conversation" }).waitFor();
+  await f.page.getByRole("button", { name: "Settings", exact: true }).click();
+  await f.page.locator("#settings-window").waitFor({ state: "visible" });
+  const pages = f.page.locator(".lx-settings-link");
+  assert.equal(await pages.count(), 12, "Settings has twelve pages");
+  for (let index = 0; index < 12; index += 1) {
+    await pages.nth(index).click();
+    assert.equal(await pages.nth(index).getAttribute("aria-current"), "true");
+    assert.equal(await f.page.locator(".lx-page:not([hidden])").count(), 1, "one page at a time");
+  }
+  await f.page.keyboard.press("Escape");
+  await f.page.locator("#settings-window").waitFor({ state: "hidden" });
   assert.deepEqual(f.errors, []);
 });
 
@@ -91,7 +96,8 @@ test("the command palette jumps to a section and closes on Escape", async (t) =>
   await f.page.locator("#cmd-input").waitFor({ state: "visible" });
   await f.page.locator("#cmd-input").fill("Schedu");
   await f.page.locator(".cmd-item").first().click();
-  assert.match(await f.page.locator("#page-title").innerText(), /Schedules/);
+  assert.match(await f.page.locator("#page-title").innerText(), /Automations/);
+  assert.equal(await f.page.locator('.lx-tab[data-view="schedules"]').getAttribute("aria-selected"), "true");
   await f.page.keyboard.press("Control+k");
   await f.page.locator("#cmd-input").waitFor({ state: "visible" });
   await f.page.keyboard.press("Escape");
@@ -99,11 +105,11 @@ test("the command palette jumps to a section and closes on Escape", async (t) =>
   assert.deepEqual(f.errors, []);
 });
 
-test("all seven appearance controls apply at once and survive a reload", async (t) => {
+test("every appearance control applies at once and survives a reload", async (t) => {
   const f = await fixture(t);
-  await f.page.getByRole("button", { name: "Settings", exact: true }).click();
-  await f.page.getByLabel("Appearance", { exact: true }).selectOption("daylight");
-  await f.page.getByRole("button", { name: "Slate", exact: true }).click();
+  await openSettingFor(f.page, "#appearance");
+  await f.page.getByRole("button", { name: "Light", exact: true }).click();
+  await f.page.getByRole("button", { name: "Cherry", exact: true }).click();
   await f.page.getByRole("button", { name: "Large", exact: true }).click();
   await f.page.getByRole("button", { name: "Compact", exact: true }).click();
   await f.page.getByRole("button", { name: "This computer's lettering", exact: true }).click();
@@ -111,7 +117,8 @@ test("all seven appearance controls apply at once and survive a reload", async (
   await f.page.locator("#appearance-acorn").uncheck();
   const chosen = {
     theme: "daylight",
-    accent: "slate",
+    accent: "copper",
+    palette: "cherry",
     textSize: "large",
     density: "compact",
     font: "system",
@@ -123,7 +130,16 @@ test("all seven appearance controls apply at once and survive a reload", async (
   await f.page.getByRole("button", { name: "Save appearance", exact: true }).click();
   await f.page.reload();
   await f.page.locator("#workspace").waitFor({ state: "visible" });
-  await f.page.waitForFunction(() => document.documentElement.dataset.accent === "slate");
+  await f.page.waitForFunction(() => document.documentElement.dataset.textSize === "large");
+  const accent = await f.page.evaluate(async () => {
+    const { THEMES, TOKEN_NAMES } = await import("/theme-catalogue.js");
+    const cherry = THEMES.find((theme) => theme[0] === "cherry")[3].light;
+    return {
+      shown: getComputedStyle(document.documentElement).getPropertyValue("--copper").trim(),
+      cherry: cherry[TOKEN_NAMES.indexOf("--copper")],
+    };
+  });
+  assert.equal(accent.shown, accent.cherry, "the chosen theme's accent is the one on the page");
   assert.deepEqual(await look(f.page), chosen, "the same look comes back after a reload");
   assert.deepEqual(f.errors, []);
 });
@@ -155,8 +171,8 @@ test("the shell fits a 400 pixel window without sideways scrolling", async (t) =
   );
   /* On a narrow window the rail slides over the page, so it is opened first. */
   await f.page.getByRole("button", { name: "Conversations", exact: true }).click();
-  await f.page.getByRole("button", { name: "Memory", exact: true }).click();
-  assert.match(await f.page.locator("#page-title").innerText(), /Memory/);
+  await f.page.getByRole("button", { name: "Library", exact: true }).click();
+  assert.match(await f.page.locator("#page-title").innerText(), /Library/);
   assert.equal(
     await f.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
     true,
@@ -287,8 +303,8 @@ test("Send keeps its label on one line and the helper note sits under the compos
 test("a Recents row lights up under the pointer in Daylight", async (t) => {
   const f = await fixture(t);
   await f.page.locator("#appearance-shortcut").click();
-  await f.page.getByLabel("Appearance", { exact: true }).selectOption("daylight");
-  await f.page.getByRole("button", { name: "Conversation", exact: true }).click();
+  await f.page.getByRole("button", { name: "Light", exact: true }).click();
+  await f.page.locator(".lx-settings-close").click();
   await f.page.locator("#prompt").fill("Say hello");
   await f.page.getByRole("button", { name: "Send ↗", exact: true }).click();
   await f.page.locator("#conversation .message.assistant").first().waitFor({ timeout: 30000 });
@@ -304,7 +320,9 @@ test("a Recents row lights up under the pointer in Daylight", async (t) => {
   const hovered = await colour();
   assert.notEqual(hovered, resting, "the row takes a background under the pointer");
   /* color-mix serialises as color(srgb r g b / a), so the alpha is the last part. */
-  const alpha = Number.parseFloat(hovered.split("/").pop().replace(")", "").trim());
+  const alpha = hovered.includes("/")
+    ? Number.parseFloat(hovered.split("/").pop().replace(")", "").trim())
+    : Number.parseFloat(hovered.replace(")", "").split(",").pop());
   assert.equal(alpha >= 0.09, true, `the wash is strong enough to see (${hovered})`);
   assert.deepEqual(f.errors, []);
 });
@@ -332,8 +350,8 @@ test("Tab walks the rail first, then the title bar, the messages and the compose
     "app-switcher",
     "cmd-open",
     "appearance-shortcut",
+    "rail-settings",
     "rail-new",
-    "rail-find",
   ]);
   const walk = await tabStops(f.page, 60);
   const at = (id) => walk.indexOf(id);
@@ -353,12 +371,12 @@ test("Escape leaves the message box without throwing away what was typed", async
   assert.deepEqual(f.errors, []);
 });
 
-test("a folded Sections group stays folded, remembered for this workspace", async (t) => {
+test("a folded Projects group stays folded, remembered for this workspace", async (t) => {
   const f = await fixture(t);
-  const head = f.page.locator('.group-head[data-toggle="sections"]');
+  const head = f.page.locator('.group-head[data-toggle="projects"]');
   await head.click();
   assert.equal(await head.getAttribute("aria-expanded"), "false");
-  assert.equal(await f.page.locator("#sections-nav").isVisible(), false);
+  assert.equal(await f.page.locator("#rail-projects").isVisible(), false);
   await f.page.reload();
   await f.page.locator("#workspace").waitFor({ state: "visible" });
   assert.equal(await head.getAttribute("aria-expanded"), "false", "it is still folded after a reload");
@@ -366,7 +384,7 @@ test("a folded Sections group stays folded, remembered for this workspace", asyn
     Object.keys(localStorage).filter((key) => key.startsWith("branch-group-") && localStorage.getItem(key) === "closed"),
   );
   assert.equal(keys.length, 1);
-  assert.match(keys[0], /^branch-group-sections::.+/, "the choice is kept under this workspace's own name");
+  assert.match(keys[0], /^branch-group-projects::.+/, "the choice is kept under this workspace's own name");
   /* A choice made before the workspace answered is still honoured. */
   await f.page.evaluate(() => {
     localStorage.clear();
@@ -387,7 +405,8 @@ test("with nothing connected the context pane offers one thing to do", async (t)
   await f.page.locator("#context-connect").waitFor({ state: "visible" });
   assert.equal(await f.page.locator("#context-change-model").isVisible(), false);
   await f.page.locator("#context-connect").click();
-  assert.match(await f.page.locator("#page-title").innerText(), /Settings/);
+  await f.page.locator("#settings-window").waitFor({ state: "visible" });
+  assert.equal(await f.page.locator('.lx-settings-link[data-page="models"]').getAttribute("aria-current"), "true");
   assert.deepEqual(f.errors, []);
 });
 
@@ -395,18 +414,22 @@ test("with nothing connected the context pane offers one thing to do", async (t)
    Q3 nothing is wider than a 400 px window; Q4 the words on the screens are the words in the
    glossary; Q5 focus can be seen, Escape closes what it opened, and stillness is honoured. */
 
-/** The ten screens the owner can open, as [what it is called, the rail's own name for it]. */
+/** Every screen the owner can open, as [how it is opened, the element that holds it]. */
+const SETTINGS_PAGES = ["general", "assistant", "appearance", "notifications", "models", "voice", "permissions",
+  "computer", "secrets", "data", "advanced", "about"];
 const SCREENS = [
-  ["Conversation", "chat"], ["Activity", "runs"], ["Usage", "usage"], ["Memory", "memory"],
-  ["Skills", "skills"], ["Specialists", "specialists"], ["Procedures", "procedures"],
-  ["Schedules", "schedules"], ["Documents", "documents"], ["Settings", "settings"],
+  ["chat", "chat"], ["runs", "runs"], ["memory", "memory"], ["skills", "skills"], ["specialists", "specialists"],
+  ["procedures", "procedures"], ["schedules", "schedules"], ["documents", "documents"],
+  ["inbox:needs", "lx-slot-inbox-needs"], ["inbox:finished", "lx-slot-inbox-finished"],
+  ["automations:triggers", "lx-slot-automations-triggers"], ["library:made", "lx-slot-library-made"],
+  ["customize:plugins", "lx-slot-customize-plugins"], ["customize:connections", "lx-slot-customize-connections"],
+  ["customize:channels", "lx-slot-customize-channels"],
+  ...SETTINGS_PAGES.map((page) => [`settings:${page}`, `lx-page-${page}`]),
 ];
 
 /** Opens a screen, letting the rail slide over first on a narrow window. */
 async function openScreen(page, view) {
-  const nav = page.locator(`.nav[data-view="${view}"]`).first();
-  if (!(await nav.isVisible())) await page.locator("#rail-toggle").click();
-  await nav.click();
+  await openPlace(page, view);
   await page.evaluate(() => document.body.classList.remove("rail-open"));
   await page.waitForTimeout(350);
 }
@@ -414,14 +437,14 @@ async function openScreen(page, view) {
 test("Q3 at 400 px nothing on any screen is wider than the window", async (t) => {
   const f = await fixture(t);
   await f.page.setViewportSize({ width: 400, height: 800 });
-  for (const [, view] of SCREENS) {
+  for (const [view, holder] of SCREENS) {
     await openScreen(f.page, view);
     const tooWide = await f.page.evaluate((id) => {
       /* Only a scroller INSIDE the reading column excuses a wide box. The column itself
          (#workspace) scrolls up and down, which makes the browser report its sideways
          overflow as "auto" too; walking past it would excuse every element on the page. */
       const scrolls = (node) => {
-        for (let p = node; p && p.id !== "workspace"; p = p.parentElement) {
+        for (let p = node; p && p.id !== "workspace" && !p.classList.contains("lx-settings-body"); p = p.parentElement) {
           const x = getComputedStyle(p).overflowX;
           if (x === "auto" || x === "scroll") return true;
         }
@@ -436,13 +459,13 @@ test("Q3 at 400 px nothing on any screen is wider than the window", async (t) =>
           out.push(`${node.tagName.toLowerCase()}.${node.className.toString().slice(0, 30)} = ${Math.round(box.width)}px`);
       }
       return out;
-    }, view);
+    }, holder);
     assert.deepEqual(tooWide, [], `${view} has something wider than a 400 px window`);
     const sideways = await f.page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     assert.ok(sideways <= 1, `${view} makes the page scroll sideways by ${sideways}px`);
     /* The reading column must not gain a sideways bar of its own either. */
     const inColumn = await f.page.evaluate(() => {
-      const column = document.getElementById("workspace");
+      const column = document.querySelector("#settings-window:not([hidden]) .lx-settings-body") ?? document.getElementById("workspace");
       return column.scrollWidth - column.clientWidth;
     });
     assert.ok(inColumn <= 1, `${view} makes the reading column scroll sideways by ${inColumn}px`);
@@ -452,7 +475,7 @@ test("Q3 at 400 px nothing on any screen is wider than the window", async (t) =>
 
 test("Q4 every control that can be seen can also be named", async (t) => {
   const f = await fixture(t);
-  for (const [, view] of SCREENS) {
+  for (const [view, holder] of SCREENS) {
     await openScreen(f.page, view);
     const nameless = await f.page.evaluate((id) => {
       const out = [];
@@ -464,7 +487,7 @@ test("Q4 every control that can be seen can also be named", async (t) => {
         if (!name) out.push(`${node.tagName.toLowerCase()}#${node.id || "(no id)"}`);
       }
       return out;
-    }, view);
+    }, holder);
     assert.deepEqual(nameless, [], `${view} has a control nothing can read out`);
   }
   assert.deepEqual(f.errors, []);
@@ -472,10 +495,12 @@ test("Q4 every control that can be seen can also be named", async (t) => {
 
 test("Q4 a tick box sits beside its words, in the reading face", async (t) => {
   const f = await fixture(t);
-  await openScreen(f.page, "settings");
-  const wrong = await f.page.evaluate(() => {
+  const wrong = [];
+  for (const page of SETTINGS_PAGES) {
+    await openScreen(f.page, `settings:${page}`);
+    wrong.push(...await f.page.evaluate(() => {
     const out = [];
-    for (const box of document.querySelectorAll('#settings label > input[type="checkbox"]')) {
+    for (const box of document.querySelectorAll('#settings-window label > input[type="checkbox"]')) {
       if (box.offsetParent === null) continue;
       /* Stretched across the column is what used to put the tick on a line of its own. */
       if (box.getBoundingClientRect().width > 40) out.push(`${box.id}: the tick box is stretched`);
@@ -483,7 +508,8 @@ test("Q4 a tick box sits beside its words, in the reading face", async (t) => {
         out.push(`${box.id}: its words are in the label face`);
     }
     return out;
-  });
+    }));
+  }
   assert.deepEqual(wrong, []);
   assert.deepEqual(f.errors, []);
 });
@@ -499,9 +525,9 @@ test("Q4 every screen calls the same thing by the same name", async (t) => {
     [/\bpayload\b/i, "what is sent"],
     [/\bSSE\b/, "live updates"],
   ];
-  for (const [, view] of SCREENS) {
+  for (const [view, holder] of SCREENS) {
     await openScreen(f.page, view);
-    const words = await f.page.evaluate((id) => document.getElementById(id).innerText, view);
+    const words = await f.page.evaluate((id) => document.getElementById(id).innerText, holder);
     for (const [pattern, instead] of banned)
       assert.equal(pattern.test(words), false, `${view} still says ${pattern} where it should say "${instead}"`);
   }
@@ -510,13 +536,19 @@ test("Q4 every screen calls the same thing by the same name", async (t) => {
 
 test("Q4 every section says what it is for, and every card carries a title", async (t) => {
   const f = await fixture(t);
-  for (const [, view] of SCREENS) {
+  for (const [view, holder] of SCREENS) {
     if (view === "chat") continue; /* the conversation opens on its greeting, not an intro */
     await openScreen(f.page, view);
-    assert.ok(await f.page.locator(`#${view} .section-intro`).count(), `${view} never says what it is for`);
+    /* An old section keeps its own intro; a new tab is introduced by its place, a settings page by its own line. */
+    const said = await f.page.evaluate((id) => {
+      const node = document.getElementById(id);
+      return Boolean(node.querySelector(".section-intro") || node.querySelector(".lx-page-intro") ||
+        (!node.classList.contains("view") && node.closest(".lx-place")?.querySelector(".lx-place-intro")));
+    }, holder);
+    assert.ok(said, `${view} never says what it is for`);
     const untitled = await f.page.evaluate((id) => [...document.getElementById(id).querySelectorAll(".card")]
       .filter((card) => card.offsetParent !== null && !card.querySelector("h2, summary"))
-      .map((card) => card.id || card.className), view);
+      .map((card) => card.id || card.className), holder);
     assert.deepEqual(untitled, [], `${view} has a card with no title`);
   }
   assert.deepEqual(f.errors, []);

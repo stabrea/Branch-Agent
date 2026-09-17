@@ -328,6 +328,11 @@ async function staticFile(
     "/tokens.css": ["tokens.css", "text/css; charset=utf-8"],
     "/shell.css": ["shell.css", "text/css; charset=utf-8"],
     "/shell.js": ["shell.js", "text/javascript; charset=utf-8"],
+    // Wave 9 redesign: the five places, the Settings window, the 44 themes' colours and the oak.
+    "/layout.js": ["layout.js", "text/javascript; charset=utf-8"],
+    "/layout.css": ["layout.css", "text/css; charset=utf-8"],
+    "/theme-catalogue.js": ["theme-catalogue.js", "text/javascript; charset=utf-8"],
+    "/grove.js": ["grove.js", "text/javascript; charset=utf-8"],
     "/context-pane.js": ["context-pane.js", "text/javascript; charset=utf-8"],
     // Wave 7: what a conversation is allowed to do right now, and the observability screens.
     "/allowed.js": ["allowed.js", "text/javascript; charset=utf-8"],
