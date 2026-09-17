@@ -13,8 +13,9 @@ const TABS = {
   schedules: ["automations", "schedules"],
 };
 
-/** The window is rebuilt by the last script on the page, which can still be loading when the workspace appears. */
-const ready = (page) => page.locator("body.lx-ready").waitFor({ state: "attached" });
+/** The window is rebuilt by the last script on the page, which can still be loading when the workspace appears
+    (for well over thirty seconds on a busy shared build machine). */
+const ready = (page) => page.locator("body.lx-ready").waitFor({ state: "attached", timeout: 120000 });
 
 /** On a narrow window the sidebar is folded away, so it is slid open before anything in it is used. */
 async function railControl(page, selector) {

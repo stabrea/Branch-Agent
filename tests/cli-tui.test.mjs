@@ -47,8 +47,10 @@ function chat(t, env, extra = {}) {
     raw: () => raw,
     text: () => clean(raw),
     type: (text) => child.stdin.write(text),
+    /* Waits for the words themselves. The deadline is only there so a hang ends with the screen
+       printed; a loaded build machine can take far longer than a laptop to draw the same thing. */
     async until(pattern) {
-      for (let attempt = 0; attempt < 600; attempt++) {
+      for (const end = Date.now() + 60_000; Date.now() < end;) {
         if (pattern.test(view.text())) return;
         await delay(25);
       }
@@ -96,8 +98,10 @@ test("the terminal view asks for a yes with the exact path, and a y carries the 
   await view.until(/when to check with me: Ask before changes/);
   view.type("write the demo file\r");
   await view.until(/Branch needs your yes/);
+  /* The question is drawn a line at a time, so wait for its last line rather than reading the
+     screen the moment the first one appears. */
+  await view.until(/Exactly: branch-demo\.txt/);
   assert.match(view.text(), /Tool: files\.write/);
-  assert.match(view.text(), /Exactly: branch-demo\.txt/);
   view.type("q\r");
   await view.until(/Please answer y, n, a or s/);
   view.type("y\r");

@@ -111,11 +111,28 @@ function detectorHits(text: string, lower: string, detector: Detector): LeakHit[
   return hits;
 }
 
+/**
+ * The encoded part of every `data:…;base64,` address. A megabyte of picture is random letters, and
+ * somewhere in it a run can look like a key (`/AIza` and 35 more is a Google key to the pattern), so
+ * nothing found wholly inside one is a leak: the picture is left whole, as the model needs it.
+ */
+const dataAddress = /\bdata:[\w.+-]{1,64}\/[\w.+-]{1,64}(?:;[\w.+-]{1,64}=[\w.+-]{1,64}){0,8};base64,([A-Za-z0-9+/]+=*)/g;
+function insidePictures(text: string): (hit: LeakHit) => boolean {
+  if (!text.includes(";base64,")) return () => false;
+  const spans = [...text.matchAll(dataAddress)].map((match) => {
+    const end = match.index + match[0].length;
+    return { start: end - match[1]!.length, end };
+  });
+  return (hit) => spans.some((span) => hit.start >= span.start && hit.end <= span.end);
+}
+
 /** Every key-shaped value in the text, in order, overlaps merged into the first one found. */
 export function findLeaks(text: string): LeakHit[] {
   if (text.length < 16) return [];
   const lower = text.toLowerCase();
+  const inPicture = insidePictures(text);
   const all = [...privateKeyHits(text), ...detectors.flatMap((detector) => detectorHits(text, lower, detector))]
+    .filter((hit) => !inPicture(hit))
     .sort((a, b) => a.start - b.start || b.end - a.end);
   const merged: LeakHit[] = [];
   for (const hit of all) {

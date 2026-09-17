@@ -1477,9 +1477,11 @@ $("login-form").addEventListener("submit", async (event) => {
   token = $("token").value.trim();
   try {
     await refresh();
+    /* Kept the moment the workspace shows, before anything else is waited on: a reload in the gap
+       used to find no token and put the sign-in form back over a session that had just connected. */
+    sessionStorage.setItem("branch-token", token);
     // Signing back in is what unlocks the secrets locker again.
     await api("lock/unlock", {}).catch(() => undefined);
-    sessionStorage.setItem("branch-token", token);
     $("token").value = "";
     /* Wave 7: the voice and model-routing cards can only read their settings once you are in. */
     globalThis.branchVoiceReady?.();
