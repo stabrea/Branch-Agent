@@ -29,3 +29,8 @@ Tests: profile/argument generation per platform (pure); a real `sandbox-exec` ru
 outside the workspace is refused and inside is allowed (no window, temp folders only); a real `bwrap` run on
 branch-test-linux (install `bubblewrap` there with apt if missing — allowed for this brief) proving the same and that
 network is cut; proxy tests with a local fake server only.
+
+6. **Keys added at the network edge (GAPS.md top 10 #5):** programs in the sandbox get stand-in tokens (`branch_…`);
+   the per-site proxy swaps in the real locker value only for the site the key belongs to (declared per key), and
+   scans responses for leaks with the merged leak-guard. Study IronClaw `crates/lanes/ironclaw_sandbox/src/sandbox_process/managed_egress.rs`,
+   `crates/substrates/ironclaw_secrets/src/placeholder.rs` (MIT/Apache).

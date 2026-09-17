@@ -28,7 +28,8 @@ const groupPrefixes: readonly (readonly [string, readonly string[]])[] = [
   ["browser", ["browser.", "page."]],
   ["desktop", ["desktop.", "screen.", "apps.", "clipboard.", "windows.", "computer."]],
   // A finished task's own record is history, so "runs." belongs with the rest of what happened.
-  ["memory", ["memory.", "knowledge.", "history.", "sessions.", "scratch.", "templates.", "notes.", "labels.", "projects.", "runs."]],
+  // "learning." is the learning core's one read-only question about what worked before (src/fly-core).
+  ["memory", ["memory.", "knowledge.", "history.", "sessions.", "scratch.", "templates.", "notes.", "labels.", "projects.", "runs.", "learning."]],
   // Wave 8: the to-do list is a box of its own rather than a corner of memory. Filing it under
   // memory reads tidier, but it put three more tools into a box almost every task opens, and the
   // opened-catalog budget in tests/catalog-diet.test.mjs is there to stop exactly that. A box of
