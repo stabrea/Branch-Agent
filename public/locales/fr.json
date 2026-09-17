@@ -335,6 +335,8 @@
   "field.your-google-sign-in-client": "Votre identifiant client de connexion Google",
   "field.your-name-for-a-package": "Votre nom, pour un paquet que vous créez",
   "help.close": "Fermer l'aide",
+  "inspector.advice": "Un deuxième avis",
+  "inspector.advice-note": "Affiché à côté de la réponse, jamais intégré à celle-ci",
   "inspector.answer": "La réponse",
   "inspector.calls": "Outils utilisés",
   "inspector.close": "Fermer",

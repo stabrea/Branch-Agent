@@ -334,6 +334,8 @@
   "field.your-google-sign-in-client": "Your Google sign-in client id",
   "field.your-name-for-a-package": "Your name, for a package you make",
   "help.close": "Close help",
+  "inspector.advice": "A second opinion",
+  "inspector.advice-note": "Shown beside the answer, never written into it",
   "inspector.answer": "The reply",
   "inspector.calls": "Tools it used",
   "inspector.close": "Close",

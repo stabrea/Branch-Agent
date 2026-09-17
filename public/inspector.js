@@ -91,6 +91,8 @@ function draw(view) {
   body.replaceChildren(
     head,
     section("inspector.answer", answer),
+    /* Wave 9: what a second connection made of that answer, beside it and never inside it. */
+    section("inspector.advice", view.advice ? [lineRow(view.advice.line, t("inspector.advice-note"))] : []),
     section("inspector.rounds", view.rounds.map(roundRow)),
     section("inspector.calls", view.calls.map(callRow)),
     // A think-then-act specialist's line of reasoning for each round; never part of the answer.

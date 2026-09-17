@@ -8,6 +8,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
+import { startServer } from "../dist/server.js";
 import {
   createBranch, Budget, declareShape, askInShape, runDebate, readAdvice, adviceLine,
   saveSecondOpinionSettings, secondOpinionSettings, openaiBody, anthropicBody, shapeInstructions,
@@ -84,6 +85,42 @@ test("the advisor runs on the second connection, its cost lands on the task, and
   assert.ok((usage.estimatedInput || 0) > 0 && (usage.estimatedOutput || 0) > 0,
     "the task's own usage figures carry the advisor pass");
   assert.notEqual(before, undefined);
+});
+
+test("the advice is shown beside the answer on the Look inside screen, not inside it", async (t) => {
+  const worker = scripted("worker", () => say("Ship on Friday."));
+  const advisor = scripted("advisor", () =>
+    say('{"stands":"no","why":"Friday leaves nobody to fix it.","check":["who is on call at the weekend"]}'));
+  const { app, root } = await fixture(t, [
+    { id: "worker", name: "Worker", provider: worker, model: "w-1" },
+    { id: "advisor", name: "Advisor", provider: advisor, model: "a-1" },
+  ]);
+  saveSecondOpinionSettings(app.store, "local", { advisor: true, advisorPreset: "advisor" });
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  t.after(() => server.close());
+  const get = async (path) => {
+    const response = await fetch(`${server.url}/api/${path}`,
+      { headers: { authorization: `Bearer ${server.token}`, origin: server.url } });
+    assert.ok(response.ok, `${path} answered ${response.status}`);
+    return response.json();
+  };
+
+  const run = await app.runtime.run({ prompt: "should we ship on Friday" });
+  const view = await get(`runs/${run.id}/inspect`);
+  assert.equal(view.run.output, "Ship on Friday.", "the answer on the screen is the answer that was given");
+  assert.ok(!view.run.output.includes("on call"), "the advice is not part of the answer");
+  assert.equal(view.advice.stands, "no");
+  assert.match(view.advice.line, /Advisor does not think this stands up\. Friday leaves nobody to fix it\./);
+  assert.match(view.advice.line, /It would check: who is on call at the weekend\./);
+
+  const details = await get(`runs/${run.id}`);
+  assert.equal(details.advice.stands, "no");
+  assert.equal(details.run.output, "Ship on Friday.");
+
+  // Turning it off again leaves the next answer with nothing beside it.
+  saveSecondOpinionSettings(app.store, "local", { advisor: false });
+  const second = await app.runtime.run({ prompt: "and Monday" });
+  assert.equal((await get(`runs/${second.id}/inspect`)).advice, null);
 });
 
 test("the advisor never fails a task that has already answered", async (t) => {
