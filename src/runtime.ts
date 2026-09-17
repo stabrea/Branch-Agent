@@ -101,6 +101,10 @@ import { estimateCost, formatCost, pricingSettings } from "./pricing.js";
 import * as knobs from "./knobs/apply.js";
 import { thinkingFilter, withoutThinking } from "./knobs/thinking.js";
 // --- end R17-S-B ---
+// --- R17-E: models, cheaper and smarter (src/model-savings/hook.ts) ---
+import * as savings from "./model-savings/hook.js";
+import { KeepAlive } from "./model-savings/keep-alive.js";
+// --- end R17-E ---
 import { Orchestration, type ConductOptions, type PlanAnswer, type StoredPlan } from "./orchestration.js";
 import { commandDifference, commandWords, correctionLabel, offPlanDifference, relatedCommand } from "./plan-act.js";
 import { type AnswerShape, askInShape, shapeInstructions, type ShapedAnswer } from "./answer-shape.js";
@@ -231,6 +235,9 @@ export interface RunOptions {
 export class Runtime {
   private readonly controllers = new Map<string, AbortController>();
   private readonly children = new Map<string, number>();
+  /** R17-050: keeps a Claude connection's prompt cache warm during a pause, when the owner asked. */
+  private warmCache?: KeepAlive;
+  get keepAlive(): KeepAlive { return (this.warmCache ??= new KeepAlive(this.store)); }
   /** R17-S09: the task each running run's spending counts against, and every run in that task, kept while any of them runs. */
   private readonly spendRoot = new Map<string, string>();
   private readonly spendMembers = new Map<string, Set<string>>();
@@ -841,10 +848,14 @@ ${run.output.slice(0, 6000)}`;
     this.spendRoot.delete(runId);
     if (root && ![...this.spendRoot.values()].includes(root)) this.spendMembers.delete(root);
   }
+  /** R17-S09: every run whose spending counts against the same task as this one. */
+  private spendFamily(runId: string): string[] {
+    const root = this.spendRoot.get(runId);
+    return root ? [...(this.spendMembers.get(root) ?? [runId])] : [runId];
+  }
   /** R17-S09: stops a task whose tree has reached the owner's cap; says once when the cap cannot be checked. */
   private checkSpendCap(run: Run, model: string): void {
-    const root = this.spendRoot.get(run.id);
-    const family = root ? [...(this.spendMembers.get(root) ?? [run.id])] : [run.id];
+    const family = this.spendFamily(run.id);
     const check = knobs.spendCapCheck(this.store, this.owner, family, model);
     if (check.refusal) throw new BudgetError(check.refusal);
     if (check.unpriced && !this.store.events(run.id).some((event) => event.kind === "limits.spend_unpriced"))
@@ -1076,6 +1087,9 @@ ${run.output.slice(0, 6000)}`;
     await this.addDocuments(run, context, messages, ids);
     await this.guards.opening(run.id); // wave mac2 (guards): an undecided folder is noted for the owner
     const catalog = this.openCatalog(run, context, messages, shape.groups);
+    // R17-047: with the difficulty card on, a small model's "easy or hard" picks the connection.
+    override = await savings.byDifficulty(this, run, context.owner, override, (id, system, question) =>
+      this.aside(run, context, { index: 0, reasoning: null, candidates: [this.models.presets.get(id)!] }, [{ role: "system", content: system }, { role: "user", content: question }]));
     const plan = this.planned(run, context.owner, override, Boolean(images?.length));
     this.store.event(run.id, "model.selected", { ...plan.choice });
     if (images?.length) this.attachImages(run, messages, images, plan.candidates[0]!);
@@ -1173,7 +1187,9 @@ ${run.output.slice(0, 6000)}`;
       ...context, permissions: new Set(), budget: new Budget({ maxSteps: 2, maxTokens: 8000 }),
       signal: AbortSignal.any([context.signal, AbortSignal.timeout(60000)]),
     };
-    return (await this.complete(run, messages, scoped, route.candidates[route.index]!, null)).content;
+    const preset = route.candidates[route.index]!;
+    // R17-044: plans are drafted by the owner's planning connection, when one is chosen.
+    return (await this.complete(run, messages, scoped, savings.planPreset(this, this.owner, preset, messages), null)).content;
   }
   /**
    * The advisor pass: a second connection reads the finished answer and says whether it stands up.
@@ -1525,13 +1541,14 @@ ${run.output.slice(0, 6000)}`;
   /** What this round costs and what is left, so compaction can be decided on the conversation alone. */
   private budgetOf(messages: Message[], context: ToolContext): ContextBudget {
     const plain = messages.map(textOnly);
-    return contextBudget({
+    // R17-048: with the card on, the service's own count of the last request can only raise the figure.
+    return savings.withReported(this.store, this.owner, context.runId, contextBudget({
       limit: knobs.contextWindow(this.store, this.owner, contextLimit), // R17-S08
       system: estimateTokens(plain.filter((message) => message.role === "system")),
       catalog: catalogTokens(this.toolsFor(context)),
       messages: estimateTokens(plain),
       reserve: answerReserve,
-    });
+    }));
   }
   /** Keeps the working context under the limit: compaction first, then shrinking older tool results. */
   private async fitContext(run: Run, messages: Message[], ids: (number | null)[], context: ToolContext, route: ModelRoute): Promise<void> {
@@ -1557,6 +1574,7 @@ ${run.output.slice(0, 6000)}`;
     if (before <= budget.threshold && budget.headroom >= 0) return;
     const split = compactionSplit(messages, ids, knobs.keepRecent(this.store, this.owner));
     if (!split) return;
+    this.store.event(run.id, "context.compacting", { estimatedBefore: before, threshold: budget.threshold }); // R17-049
     const preset = this.sideJobPreset(this.owner, run.sessionId, route.candidates[route.index]!); // R17-S11
     const transcript = messages.slice(split.from, split.to).map((m) => `${m.role}: ${m.content}${m.toolCalls ? " [requested tools: " + m.toolCalls.map((c) => c.name).join(", ") + "]" : ""}`).join("\n").slice(0, 60000);
     const previous = messages.slice(1, split.from).filter((m) => m.role === "system").map((m) => m.content).join("\n");
@@ -1732,6 +1750,7 @@ ${run.output.slice(0, 6000)}`;
       // mac2/leak-guard: the copy that is sent has key-shaped values hidden; `messages` stays as it was.
       const request = { messages: this.leakGuard.request(run.id, messages), tools, maxTokens, ...(reasoning ? { reasoning } : {}),
         ...knobs.serviceTierFor(this.store, this.owner), // R17-S12
+        ...savings.requestExtras(this.store, this.owner, preset, !context.permissions.size), // R17-045 / R17-046
         ...(shape ? { responseFormat: { name: shape.name, schema: shape.schema } } : {}) };
       // mac6/accounts: the call carries its conversation, so a connection with several accounts can honour the one chosen for it.
       const raw = await withAccountCall({ owner: run.owner, sessionId: run.sessionId, runId: run.id, note: (kind, data) => this.store.event(run.id, kind, data) }, async () => onTextDelta
@@ -1739,6 +1758,10 @@ ${run.output.slice(0, 6000)}`;
             preset.provider.complete({ ...request, signal, onTextDelta: (text: string) => { touch(); onTextDelta(text); } }))
         : await preset.provider.complete({ ...request, signal: context.signal }));
       const { output, reported } = this.recordCompletion(run, context, raw, input);
+      // R17-048 / R17-050: note the service's own count, and keep its cache warm if the owner asked.
+      savings.afterRound(this, this.keepAlive, { run, owner: this.owner, preset, messages: request.messages, tools, estimatedInput: input, reported,
+        mainRound: context.depth === 0 && context.permissions.size > 0 && !shape,
+        guard: { family: this.spendFamily(run.id), active: () => this.activeSessions.has(run.sessionId), monthly: () => this.monthlyBudgetRefusal() } });
       const completion = CompletionSchema.parse(raw);
       context.signal.throwIfAborted();
       this.store.event(run.id, "model.completed", {
