@@ -303,7 +303,17 @@ A number belongs to the *thing*, not to its place. It is worked out from what th
 
 The labels live in their own box marked as decoration, so they never turn up in `browser.snapshot` or in anything `browser.extract` pulls out. `browser.unmark` takes them off again before a picture or a saved page.
 
-**The honest limits:** only things that are visible and that the page describes in the ordinary way are numbered. A control drawn entirely on a canvas, or inside another page embedded in this one, is invisible to this and to every other browser tool here. And because a number comes from what a thing is and is called, two things that are genuinely alike — the same kind of button, the same words, the same surroundings — share a number, and acting on it acts on the first of them. That is the same rule `browser.click` already follows in asking for a uniquely named button.
+**A number is checked, not trusted.** The number is written onto the thing as an attribute, which
+is something the page itself could also write, so before a number is acted on three things are
+checked: that it was really given out by this task, that exactly one thing on the page is wearing
+it, and that the thing wearing it is still the *same* thing it was given to — worked out again from
+what it is, what it is called and the kinds of boxes it sits inside. A page that quietly moves a
+number from the Save button onto something else gets a plain refusal naming the number, and nothing
+is pressed. The four refusals read: "Number 4 was never given out on this page", "Number 4 is no
+longer on this page", "Number 4 is on more than one thing, so it was not used", and "Number 4 is now
+on a different thing from the one it was given to, so it was not used".
+
+**The honest limits:** only things that are visible and that the page describes in the ordinary way are numbered. A control drawn entirely on a canvas, or inside another page embedded in this one, is invisible to this and to every other browser tool here. And because a number comes from what a thing is and is called, two things that are genuinely alike — the same kind of button, the same words, the same surroundings — end up sharing a number; acting on that number is then **refused** ("Number 4 is on more than one thing"), because taking whichever came first is exactly how a press lands on the wrong thing. Say which one with a selector, or narrow the page first.
 
 ### Data in the shape you asked for
 
@@ -315,7 +325,7 @@ What comes back has already been checked. A field marked `required` that is miss
 
 Websites are rewritten constantly and remembered selectors rot. `browser.act { action: click | fill | check, selector?, name?, mark?, value? }` tries up to four ways in order: the exact selector, the thing's name as a button, the words showing on it, then its number from `browser.annotate`. The result says which way worked (`foundBy`) and how many were tried, and the same goes into the task's trace with `healed: true` when it was not the selector — so a step that keeps healing shows up and can be fixed properly.
 
-It never looks at a different page and never tries more than four ways. A thing that is genuinely gone is reported as gone, naming every way that was tried. Typing into a password box is refused here as everywhere else.
+It never looks at a different page and never tries more than four ways. A thing that is genuinely gone is reported as gone, naming every way that was tried. A number is the one way whose answer comes off something the page could have written itself, so it is the one way that is checked rather than trusted (above); when the check fails, the refusal says which of the four reasons it was, and nothing is pressed. Typing into a password box is refused here as everywhere else.
 
 ### Using the browser you already have open
 
@@ -349,15 +359,113 @@ A recording photographs **every tab in the window it is made in**, so a recordin
 
 Nothing is bypassed: each one goes through the very method the underlying tool uses, so the same limits are counted and the same refusals apply. Reaching a window needs the screen permission **as well**, checked separately, so a task allowed to browse cannot reach your windows through the short way. Whichever half is not configured in this launch says so plainly when it is asked for.
 
+### Skills for the sites you actually use
+
+Most of the trouble with a browser task is one website's habits: the cookie notice that covers
+everything, the table that is drawn a moment after the page says it has loaded, the same three
+columns you pull off it every time. Those belong in a skill about that site, not in Branch.
+
+A skill package may carry a **`site.json`** beside its `SKILL.md`:
+
+```json
+{
+  "site": {
+    "hosts": ["shop.example.com"],
+    "dismiss": ["#cookie-notice .accept"],
+    "waitFor": "#results",
+    "settleMs": 200,
+    "readings": {
+      "basket": {
+        "rows": "tr.line",
+        "fields": {
+          "item": {"selector": ".name", "required": true},
+          "price": {"selector": ".price", "type": "number", "required": true}
+        }
+      }
+    },
+    "notes": "The basket table is drawn after the page loads, so wait for #results first."
+  }
+}
+```
+
+| Field | Default | What it does |
+| --- | --- | --- |
+| `hosts` | required | The websites this skill knows, one to ten. A page on any of them, or under one of them, gets its quirks. |
+| `dismiss` | none | Up to five things to press once when a page opens, such as a cookie notice. One that is not on the page is skipped. |
+| `waitFor` | none | Something to wait up to five seconds for before the page counts as ready. A wait that never comes is reported, not thrown. |
+| `settleMs` | 0 | How long to let the page settle once it has opened, up to five seconds. |
+| `readings` | none | Named readings of this site, each an ordinary `browser.shape` request written down once. |
+| `notes` | empty | What is odd about this site, in plain words, for the person reading the skill. |
+
+With one installed and switched on, `browser.navigate` to that website applies the quirks by itself
+and **says in its answer that it did** — which notice it pressed, whether the wait came, and the
+skill's own note. `browser.site { action: "list" }` says which websites have a skill and what each
+one knows; `browser.site { action: "read", name: "basket" }` reads the page by the name of a
+reading, and refuses by name when there is no such reading.
+
+**Pressing is not reading.** Opening a page is a reading permission and pressing something is not,
+so a task that may only read gets the waiting and the settling but never the pressing: what it
+would have pressed comes back in the answer as `notPressed`, so it can ask for what it needs
+instead of wondering why the notice is still there.
+
+**What a site skill may not do.** It is data and only data: selectors, a wait, a pause and named
+readings. There is deliberately nowhere to put a piece of script, because a skill can arrive from
+anybody and a script in one would run inside the page. The selectors it will press are named in the
+card you read before installing the skill — "presses #cookie-notice .accept when a page opens" —
+because a cookie notice and a confirm-delete button look the same until somebody writes them down.
+And it can never widen anything: it cannot
+add a website to `allowedOrigins`, and a bank, broker, password manager or mailbox is refused as a
+site skill outright, in the same words the browser refuses one everywhere else. A skill that is
+installed but switched off brings no quirks, in the same way it brings no instructions. Site skills
+are read fresh each time, so installing one needs no restart.
+
 ### Browser skills that come with Branch
 
-Three ready-made skills are shipped as ordinary skill packages: **search and summarise the top results**, **fill a form from a document**, and **watch a page for a change** (which tells the assistant to use the existing watcher rather than browse in a loop). They are instructions and nothing else — no web calls, no recipes — and arrive switched off like any other skill.
+Five ready-made skills are shipped as ordinary skill packages: **search and summarise the top
+results**, **fill a form from a document**, **watch a page for a change** (which tells the assistant
+to use the existing watcher rather than browse in a loop), **read several pages of one site** (how
+to follow a site's own links a bounded number of times instead of crawling), and **write a site
+skill** (how to write the `site.json` above). They are instructions and nothing else — no web calls,
+no recipes — and arrive switched off like any other skill.
 
 `GET /api/skills/browser` lists them; `POST /api/skills/browser { "name": "search-and-summarise" }` installs one.
 
-### Not built
+### Not built, and what stands in for it
 
-Remote and cloud browsers — Browserbase and the like — are **not built**. Everything here runs a browser on this computer. There is no Python `browser-use` runtime and no sandboxed remote computer either.
+Remote and cloud browsers — Browserbase and the like — are **not built**. Everything here runs a browser on this computer.
+
+**Three audit rows describe one thing under three project names.** `A2172` (browser-use
+automation), `A2042` (browser-use integration) and `A2019` (browser/computer-use tools) all ask for
+the same capability: an assistant that looks at a page, points at a thing on it and acts. That is
+built, and it is what this whole section describes — `src/integrations/browser.ts` with
+`browser-marks.ts`, `browser-schema.ts`, `browser-heal.ts` and `browser-sites.ts`, asserted in
+`tests/browser-2.test.mjs` and `tests/browser-3.test.mjs`. What is **not** built, and deliberately
+so, is the Python `browser-use` runtime those rows name, and the hosted sandbox backend `A2019`
+names: Branch is TypeScript and drives the browser on this computer, the same reason the
+`hybrid-tooling`, `cloud-compute` and `remote-execution` families are already marked not applicable.
+One implementation satisfies all three rows; none of them needs building again.
+
+**`A0743` (Scrapling page fetch) — not applicable.** It names another project's Python fetching
+library. Fetching a page and reading it out is `web.fetch` (readable text, redirects bounded,
+private addresses refused) and `browser.shape` (the same page in an exact shape) — both built and
+tested. Branch would not gain a capability by adding a Python library, only a dependency.
+
+**`A1452` (web crawling) — not applicable as a crawler; the capability is covered.** It names
+Crawl4AI. Following a site's own links is `web.fetch` or `browser.navigate`, then `browser.shape`
+for the addresses, then reading a bounded handful of them — which is what the shipped
+**read several pages of one site** skill sets out, with the rules that keep it from becoming a
+crawl: the same website only, one level deep, at most five pages, never in a loop. A page to be
+checked again and again is the `monitors` tool's job, not a crawler's. No crawler is built, and a
+task's caps on actions and websites (above) already stop one being improvised.
+
+**The two document rows filed under the browser (`family: doc-processing`, `family:
+document-processing` in #62) are stale.** PDF text extraction and document extraction are both
+built with no extra software: `src/document-pdf.ts` unpacks the streams, reads the text operators
+and applies the file's own character tables; `src/document-readers.ts` routes `pdf` to it alongside
+Word, spreadsheets, PowerPoint, EPUB, RTF, HTML, CSV and JSON. Asserted in
+`tests/docs-memory-2.test.mjs` (compressed streams unpacked, lines in the order they sit on the
+page, a locked PDF refused in one sentence, a PDF of pictures saying so rather than pretending) and
+`tests/docs-3.test.mjs`. Nothing here needs building.
 
 ## Channels (Telegram)
 
@@ -845,7 +953,42 @@ them on a task in a suite file as `"scorers": [...]`:
 you can say a tool must have been used with particular arguments), `budget` (`maxSteps`, `maxMs`,
 `maxTokens`, `maxDollars` — the rounds, time, tokens and money a task may use), `finished` (did it
 actually do the work, or did it say it could not — the completion checks you already use, plus the
-phrases an answer uses when it has quietly given up), and `rubric`.
+phrases an answer uses when it has quietly given up), `f1`, `passage`, `html`, `trajectory`, and
+`rubric`.
+
+**`f1`** — how many words the answer and your reference answer have in common, which is how
+published question sets mark an answer that is right but worded differently. `{"kind": "f1",
+"value": "the Eiffel Tower", "threshold": 0.6}`. Before comparing, both are lower-cased, stripped of
+punctuation, and stripped of the three articles "a", "an" and "the"; word order does not count. So
+"The Eiffel Tower." and "eiffel tower" score 1, and an answer that gets half the words right scores
+about a half. `threshold` is the bar it has to clear, 0.6 unless you say otherwise.
+
+**`passage`** — does the answer *carry* the right piece of a document rather than equal it.
+`{"kind": "passage", "passages": ["the deposit is returned within ten working days"], "threshold":
+0.8, "verbatim": false}`. The score is the share of the passage's words that are in the answer, so
+a sentence with the passage inside it passes. List more than one passage when a question has more
+than one right source; the best one wins. Set `verbatim` when the words must also appear back to
+back, in the passage's own order.
+
+**`html`** — the page itself rather than a description of it, for a task whose result is a changed
+page. `{"kind": "html", "selector": "input#agree", "attribute": "checked"}` says the tick box has to
+be ticked. `source` is `"answer"` (the markup is in the answer, the default) or `"file"` with a
+`path` inside your workspace. Then: `absent` for "there must be none of these", `count` for exactly
+how many, `text` for words the first one must contain, and `attribute` with an optional `value`.
+
+The way an element is named is deliberately small, and that is the whole of it: a tag (`button`),
+an id (`#total`), a class (`.row`), an attribute (`[disabled]`), an attribute with a value
+(`[type=checkbox]`), any of those stuck together for one element (`input.tick[checked]`), and
+spaces between them for "somewhere inside" (`form.order button#send`). Anything else — a comma, a
+`>`, `:first-child` — is refused by name rather than half-understood.
+
+**`trajectory`** — the path taken rather than the answer, for a task where guessing the right answer
+is still wrong. `{"kind": "trajectory", "steps": [{"name": "files.read"}, {"name": "files.write",
+"arguments": {"path": "notes.md"}}], "threshold": 0.6, "ordered": true}`. Only the arguments you
+name are checked. The score is how much of the two paths line up, counting both the steps that did
+not happen and the calls that were not asked for, so one extra call in the middle costs one call
+rather than everything after it. With `ordered` (the default) every named step must also have
+happened in the order you wrote.
 
 `rubric` is the only one that costs money: it asks the model in use to grade a free-text answer
 against words you write. It refuses to guess when no model connection has been chosen, and the same
@@ -905,6 +1048,15 @@ Four rules hold for every benchmark that decides by running something:
 - **Same limits as any other command**: the same time, memory, processor and output ceilings, in a
   job the operating system enforces, with no way out to the internet.
 
+**Nexus** (`nexus`) is the published function-calling set: JSON Lines where each line has the
+question (`Input`, `prompt` or `question`), the functions on offer (`Function`, `functions` or
+`tools`) and the reference call written the way a person writes one, `get_weather(city="Paris")`
+(`Output`, `call` or `reference`). Several spellings are accepted because the sets in the wild
+differ. A question is right when the call actually made has the right function name and every
+argument the reference names; marking looks at the tool calls the task really made first, and falls
+back to a call written out in the answer. Extra arguments are not held against it, because a
+reference call rarely lists the optional ones.
+
 Web tasks are run against pages you have saved next to the dataset. A task that points at a live
 website is refused by name: a score against today's version of a shopping site is not a score
 anybody can repeat. terminal-bench tasks are marked by running their `tests.sh`, which needs a bash
@@ -913,11 +1065,26 @@ on this computer — Git for Windows provides one, or set `BRANCH_BASH` to the o
 ### What is not supported, and why
 
 OSWorld, WindowsAgentArena (and its checkpoint scoring), AndroidWorld, and the live BrowserGym
-environments are **not** integrated. Each needs a separate virtual computer — a Linux desktop, a
+environments — MiniWoB, WebArena and WorkArena — are **not** integrated. Each needs a separate virtual computer — a Linux desktop, a
 throwaway Windows machine, an Android emulator — or a live website whose contents change. Branch
 Agent runs on your computer and cannot make or roll back one, so a number from it would not mean
 what the published numbers mean. They are listed by name in `GET /api/evaluation/benchmarks` with
 what each would need, rather than half-supported.
+
+Two more things in this area are deliberately not built, for the same reason and written down here
+so nobody has to guess:
+
+- **A live browser-benchmark environment.** MiniWoB, WebArena and WorkArena are not datasets; they
+  are servers that have to be running, whose pages change as the agent works and whose scoring reads
+  the server's own state. Branch Agent downloads nothing and starts no server, so what it can do
+  honestly is the `web-tasks` adapter: the same task shapes run against pages you have saved to
+  disk. A task that points at a live site is refused by name.
+- **Generating tests for you.** Branch Agent runs tests; it does not write your test suite for you
+  and then claim the result. What exists is the execution half: `data/tool-evaluations/*.json` is a
+  set of tool checks kept as plain data that anyone can read and add to, run with `POST
+  /api/evaluation/tools`, and suites in `data/evaluation/*.json` are the same idea one level up.
+  Asking the assistant to draft a test is an ordinary task like any other, and its output is yours
+  to read before it becomes a check.
 
 ### Studies
 
@@ -967,7 +1134,74 @@ very likely to be in, worked out by resampling the tasks two thousand times. Whe
 zero, nothing is claimed.
 
 On the command line: `branch study list`, `branch study run <id> [--fresh] [--json]` (JSON is one
-result per line), and `branch study compare <result id> <result id>`.
+result per line), `branch study compare <result id> <result id>`, and `branch study replay <id>`.
+
+### The journal: repeating a study and seeing what changed
+
+A number on its own is not evidence. "78% on twenty GAIA questions" means nothing without which
+twenty, which model choices, how many repeats, which scorers, and which version of Branch Agent —
+and those are exactly the things that drift between one month and the next. So every study run
+writes a **journal entry** beside its result: the study exactly as it was written, the task ids that
+actually ran, the scorer kinds the tasks used, the benchmarks folder, and the version that ran it.
+Those are boiled down to one short fingerprint. Two entries with the same fingerprint measured the
+same thing; two that do not are not comparable until you know why.
+
+`branch study replay <id>` reads the two newest entries for a study and prints, in this order:
+whether they measured the same thing, a table of every input that changed with its before and
+after, the accuracy on each side, and — when the two results share tasks — the same interval
+`compare` works out, so a small win on a handful of tasks is still not read as a real one. When
+something changed it ends with the only advice that helps: change one thing at a time. `--json`
+gives the entry itself, including the study to save and run to repeat it exactly.
+
+### Scoring the real work as it finishes
+
+A suite tells you how the assistant does on questions somebody wrote down. It does not tell you how
+it is doing on the tasks you actually gave it today, which is where a quiet break shows up first.
+Switch this on and every task that finishes is held to a few checks of your choosing.
+
+`GET /api/evaluation/live` gives the settings, the fifty newest verdicts, and "this many of the last
+hundred passed" with the reasons the failures gave. `POST /api/evaluation/live` sets:
+
+- `enabled` — off until you turn it on. Nothing is scored and nothing is written while it is off.
+- `scorers` — the checks, written exactly as a suite writes them, at most four so a task is never
+  slowed down. `rubric` is refused here by name: scoring every ordinary task with a model would put
+  a second bill on your everyday work, and being told that is better than wondering why. A `budget`
+  scorer carrying `maxDollars` is refused for the same reason in reverse: what a finished task cost
+  is worked out where usage is priced, not here, so a money limit set here would be a bar that never
+  applied. `maxSteps`, `maxMs` and `maxTokens` are all real here — the time comes from the task's own
+  timestamps and the tokens from its usage.
+- `keep` — how many verdicts are kept, from 10 to 2000; 200 unless you say otherwise. The oldest are
+  dropped once there are more than that.
+
+A task never waits for its own verdict, and a check that fails to run is the verdict's problem
+rather than the task's.
+
+### Marking a search rather than an answer
+
+`nDCG@k`, `Recall@k`, `Precision@k`, `MRR` and `MAP` are worked out in `src/retrieval-metrics.ts`,
+which also reads the BEIR layout from a folder already on this computer: `corpus.jsonl` (`_id`,
+`title`, `text`), `queries.jsonl` (`_id`, `text`), and `qrels/<split>.tsv` (question, document,
+grade, after a header line). Nothing is downloaded — you put a set in a folder as with every other
+benchmark here. The search itself is handed in, so these mark any search rather than deciding how
+searching is done.
+
+### Reading back what one task actually did
+
+`runs.export` hands back a finished task's whole record. With `"as": "report"` it hands back the
+same record written out for a person instead: what it was asked, the plan it wrote, then every
+action numbered with what it was given and what came back, the rounds that failed, what the
+reviewer said, the tokens, and the answer. Long inputs and outputs are cut short with the number of
+characters dropped said out loud, so it never hides that there was more.
+
+**Working out why a task went wrong.** That report is the first place to look, because it shows the
+action that failed and the error it came back with rather than the assistant's summary of it.
+Around it: a task's own completion checks are retried a set number of times before it gives up
+(`reliability`), a model call that goes quiet is stopped by the stall watchdog rather than hanging,
+a small script is checked before it runs, and a program can be run under a real debugger you
+already have (Settings → debug adapters) to stop it on a line and look at what every name holds.
+What Branch Agent does **not** have is a separate troubleshooting assistant that goes away and
+fixes a failing command on its own; asking it to look at the report and try again is an ordinary
+task, and you see each step.
 
 **Cost warning.** A study multiplies: tasks × model choices × repeats × Best-of-N, and a task graded
 by a rubric asks the model a second question on top. Twenty tasks, two models, three repeats and
@@ -3484,6 +3718,11 @@ would replay whatever that tool does — only plain text answers are. **Nothing 
 or the name of a saved secret is kept at all.** And the kept answers are filed under whoever is using
 the app, so a second person in the household never reads one of the owner's answers back out.
 
+A secret is named as `secret://project/NAME`, and the place it most often appears is not the words of
+a message but the **arguments of a tool call** the model asked for earlier in the same conversation —
+a deploy command, a header, a sign-in. Those arguments are part of the request, so they are read by
+the same rule: a conversation carrying one anywhere is never kept.
+
 A request is only the same request when everything the model was shown is the same: the messages
 (your instructions among them), the model, the effort, and every tool by name *and* by the words
 describing it. Change any of those and the question is asked afresh.
@@ -3501,25 +3740,62 @@ switch the cache off. `POST /api/request-cache/clear` is what throws them away.
 ### A whole set of questions at once (A1351, A1352)
 
 Off until you turn it on. OpenAI and Anthropic will both take a large set of questions at once, work
-through it in their own time and charge about half. Evaluation sets and reading a knowledge base are
-exactly that shape.
+through it in their own time and charge about half. Reading a whole knowledge base is exactly that
+shape: each part of it is summarised on its own before the parts are drawn together, and those parts
+do not depend on each other.
 
 - `GET /api/batch` — the settings, and which of your connections can take a whole set.
-- `POST /api/batch` with `{ "enabled": true, "pollMs": 5000, "maxWaitMs": 600000 }`.
+- `POST /api/batch` with `{ "enabled": true, "pollMs": 5000, "maxWaitMs": 600000, "discount": 0.5 }`.
 - `POST /api/batch/run` with `{ "questions": [{ "id": "q1", "prompt": "…" }] }` hands the set over,
   waits for it, and gives the answers back.
+- `GET /api/batch-sets` — every set handed over, what it cost and what handing it over saved. This
+  is what the **What asking a whole set at once saved** panel on the Usage screen reads.
 
-Anything that goes wrong on that road — the connection cannot do it, the hand-over is refused, the
-set fails or never finishes — falls back to one ordinary call per question rather than losing the
-work, and the answer says in one line why. What the set cost is read from what the service reported,
-never guessed.
+`discount` is how much less a set costs than the same questions asked one at a time. Both services
+charge half at the time of writing, so it is `0.5`. The price tables price a model at its ordinary
+rate, so this is the number that turns that rate into what a set actually cost and into what handing
+it over saved; change it if your agreement with a service says something else.
 
-**Not finished yet.** What is built is the machinery: the optional `batch()` on a connection, the
-submit-poll-collect loop around it, the pricing, and the fallback. **No connection implements it
-yet** — OpenAI's batch endpoint wants a JSONL file uploaded and an output file fetched back, and
-Anthropic's has its own shape, and neither adapter is written. Until one is, `GET /api/batch` shows
-`takesWholeSets: false` for every connection you have and every set falls back to ordinary calls.
-Turning the setting on today changes nothing except the sentence you get back.
+**Which connections can take one.** A set only goes over where the address really is the service
+that offers one: `api.openai.com` and any `*.openai.azure.com` deployment for an OpenAI-shaped
+connection, and `api.anthropic.com` for an Anthropic one. Plenty of services speak the OpenAI shape
+for ordinary questions without having a set endpoint at all, and claiming they do would only make
+every set fail and fall back. `GET /api/batch` says `takesWholeSets` per connection so you can see
+which of yours can.
+
+**The two roads are different underneath.** OpenAI wants the questions uploaded as a file of one
+question per line, then a set created against that file, then the answers fetched back as another
+file — and the questions that failed on their own come back in a second file, which is read too.
+Anthropic takes the questions in the request itself and hands back an address to read the answers
+from; that address is checked against the address you configured before anything is fetched from it,
+so a service that answered with somewhere else cannot make this app fetch from somewhere else. Both
+are reduced to the same three steps, so nothing above has to know which service it is talking to.
+
+**A set that only half works keeps the half that worked.** Whatever came back is collected first,
+even when the service called the whole set failed, and only the questions with no answer are asked
+again one at a time. Nothing already answered is paid for twice. The answer says how many were
+answered in the set, how many had to be asked again, and how many nothing could answer at all — and
+the ids of each, so a caller can say which part of the work is missing rather than quietly dropping
+it. Anything that goes wrong before that — the connection cannot do it, the hand-over is refused,
+nothing at all came back — falls back to one ordinary call per question and says in one line why.
+
+**A set carries words only.** A question with a picture in it would reach the service without the
+picture, which is a different question, so a set containing one is asked one at a time instead and
+says so. Being stopped part-way is not treated as a failure either: a cancelled set stops rather
+than quietly asking every question again on its own.
+
+What a set cost is read from what the service reported, never guessed.
+
+### Chat engines (A0847) — not applicable
+
+This row asks for "chat engines": a way of plugging in different chat back-ends behind one
+interface. Branch already has exactly that and has had since the first release, under a different
+name. `Provider` in `src/contracts.ts` is the interface; `src/providers.ts` and `src/providers/`
+hold the implementations (OpenAI-shaped, Anthropic, Gemini, Azure, Bedrock, Cohere, Ollama, the
+signed-in ChatGPT connection, a command-line agent, and the demo); `src/models.ts` picks between
+them, falls back when one is failing, and keeps a cooldown. Adding a second name for the same idea
+would mean a wrapper with no caller, so nothing was built for this row. If you want to add a chat
+back-end, implement `Provider` and register a preset — that is the whole contract.
 
 ### Lockdown: one switch (A0615)
 
