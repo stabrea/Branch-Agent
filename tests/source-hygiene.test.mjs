@@ -10,6 +10,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const roots = ["src", "public", "tests", "scripts", "docs"];
 const endings = [".ts", ".js", ".mjs", ".cjs", ".json", ".html", ".css", ".md"];
@@ -28,7 +29,7 @@ async function sourceFiles(dir) {
 test("no source file carries a literal NUL byte", async () => {
   const offenders = [];
   for (const root of roots)
-    for (const path of await sourceFiles(new URL("../" + root, import.meta.url).pathname.replace(/^\//, ""))) {
+    for (const path of await sourceFiles(fileURLToPath(new URL("../" + root, import.meta.url)))) {
       const bytes = await readFile(path);
       const at = bytes.indexOf(0);
       if (at !== -1) offenders.push(`${path} at byte ${at}`);
