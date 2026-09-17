@@ -72,6 +72,13 @@ export class OpenAiRealtimeSession extends SocketSession {
     });
     this.send({ type: "response.create" });
   }
+  /** Bucket 17: a picture joins the conversation as an item; the person's next words ask about it. */
+  sendImage(image: { mediaType: string; data: string }): void {
+    this.send({
+      type: "conversation.item.create",
+      item: { type: "message", role: "user", content: [{ type: "input_image", image_url: `data:${image.mediaType};base64,${image.data}` }] },
+    });
+  }
   toolResult(callId: string, _name: string, result: unknown): void {
     this.send({
       type: "conversation.item.create",

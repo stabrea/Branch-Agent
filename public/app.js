@@ -1,6 +1,9 @@
 import { applyAppearance, currentAppearance, initAppearance } from "/appearance.js";
 // Wave 6: replies render as markdown, and any task can be opened with "Look inside".
 import { fillMarkdown, inlineNodes } from "/markdown.js";
+// A phone paired in its browser sends its own secret with every request (src/remote/gateway-auth.ts).
+import { installDeviceHeaders } from "/device-headers.js";
+installDeviceHeaders();
 export const $ = (id) => document.getElementById(id);
 globalThis.toast = (message) => toast(message);
 export function toast(message) {

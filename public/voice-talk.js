@@ -93,6 +93,21 @@ async function ready() {
   }
 }
 
+let lastAnswer = "";
+/** Bucket 17: what a spoken command does. Nothing is sent to the assistant. */
+async function spokenCommand(command) {
+  if (command === "stop") { globalThis.branchStopSpeaking?.(); return; }
+  if (command === "repeat" && lastAnswer) { show("speaking"); await globalThis.branchSpeak(lastAnswer); return; }
+  if (command === "slower" || command === "faster") {
+    const response = await fetch("/api/voice/settings", { headers: { authorization: bearer() } });
+    const current = await response.json();
+    const speechRate = Math.min(2, Math.max(0.5, (current.speechRate ?? 1) + (command === "slower" ? -0.25 : 0.25)));
+    await fetch("/api/voice/settings", {
+      method: "POST", headers: { authorization: bearer(), "content-type": "application/json" }, body: JSON.stringify({ speechRate }),
+    });
+    say(`Speaking speed is now ${speechRate}.`);
+  }
+}
 /** Sends the recording, puts the words in the box, runs them, and reads the answer aloud. */
 async function finish() {
   const blob = new Blob(chunks, { type: "audio/webm" });
@@ -106,9 +121,12 @@ async function finish() {
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "That recording could not be written out");
     if (!data.text?.trim()) throw new Error("Nothing was heard in that recording");
+    // Bucket 17: "stop", "say that again", "slower", "faster" are commands, not messages.
+    if (data.command) { await spokenCommand(data.command); return; }
     $("prompt").value = data.text;
     const answer = await globalThis.branchRunSpoken?.(data.text);
     if (typeof answer === "string" && answer.trim()) {
+      lastAnswer = answer;
       show("speaking");
       await globalThis.branchSpeak(answer);
     }

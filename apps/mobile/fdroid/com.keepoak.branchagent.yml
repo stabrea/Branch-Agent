@@ -1,0 +1,56 @@
+# F-Droid metadata for Branch Agent's Android app, ready to be copied into fdroiddata when the owner
+# submits it (docs/configuration.md, "Phone apps"). Nothing is submitted from this repository.
+Categories:
+  - Internet
+  - Productivity
+License: MIT
+AuthorName: KeepOak
+SourceCode: https://github.com/stabrea/Branch-Agent
+IssueTracker: https://github.com/stabrea/Branch-Agent/issues
+
+AutoName: Branch Agent
+Summary: Your own Branch assistant, from your phone
+Description: |-
+  Branch Agent on Android opens the Branch assistant that runs on your own
+  computer, over your home network or Tailscale. Pair it once by scanning the
+  square code your computer shows, then use the whole window, send words, links,
+  pictures and files from the share sheet, talk to it, and hear when a task needs
+  you. Plain http is refused except to your own network or Tailscale.
+
+  Every extra is off until you turn it on. The app has no trackers and no Google
+  services; it only talks to the Branch you paired.
+
+RepoType: git
+Repo: https://github.com/stabrea/Branch-Agent.git
+
+Builds:
+  - versionName: 0.16.0
+    versionCode: 1600
+    commit: v0.16.0
+    subdir: apps/mobile/android/app
+    sudo:
+      - apt-get update
+      - apt-get install -y -t trixie nodejs npm
+    init: sed -i -e "/branchPush/d" ../build.gradle
+    gradle:
+      - yes
+    rm:
+      - apps/mobile/android/app/src/push
+    prebuild:
+      - cd ../../../..
+      - npm ci --no-audit --no-fund --ignore-scripts
+      - npm run build
+      - cd apps/mobile
+      - npm ci --no-audit --no-fund --ignore-scripts
+      - node scripts/build-web.mjs
+      - node scripts/native-files.mjs
+      - node scripts/icons.mjs
+      - npx cap sync android
+      - node scripts/native-files.mjs
+    scanignore:
+      - apps/mobile/node_modules
+
+AutoUpdateMode: Version
+UpdateCheckMode: Tags ^v[0-9.]+$
+CurrentVersion: 0.16.0
+CurrentVersionCode: 1600

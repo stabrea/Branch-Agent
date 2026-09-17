@@ -88,6 +88,10 @@ import type { ReliabilityInput } from "./reliability.js";
 import { DocumentLibrary, registerDocuments } from "./documents.js";
 import { MediaTools, registerMedia } from "./media.js";
 import { VoiceService, registerVoice } from "./voice-service.js";
+// Bucket 17.
+import { MediaUnderstanding, registerMediaUnderstanding } from "./media-understand.js";
+import { SpeechEngineService } from "./speech-engine-service.js";
+import { builtInSpeech } from "./speech-engines.js";
 import { LiveConversations } from "./realtime-voice.js";
 import { registerModelSwitch } from "./model-switch.js";
 import { GitTools } from "./integrations/git.js";
@@ -174,6 +178,8 @@ import { migrate, storeMigrations } from "./never-break/migrations.js";
 import { recoverOnStart } from "./never-break/resume.js";
 import { connectGuidedTelegram, saveTelegramSetup, telegramSetupView } from "./never-break/telegram-setup.js";
 import { fileURLToPath } from "node:url";
+// mac4/bucket-20: talking to other agents and tools.
+import { Interop } from "./interop/index.js";
 // mac3/reflection-skills: looking back over conversations, and skills written from experience.
 import { LearningLoop } from "./reflection/loop.js";
 import { attachLearningLoop } from "./reflection/hook.js";
@@ -487,6 +493,17 @@ export async function createBranch(options: {
   registerVoice(registry, voice, store);
   registerModelSwitch(registry, store, runtime.models);
   media.voice = voice;
+  // Bucket 17 hook: videos understood through the owner's own ffmpeg and yt-dlp, and speech plug-ins.
+  const understanding = new MediaUnderstanding({ store, media, policy: web.policy });
+  registerMediaUnderstanding(registry, understanding);
+  voice.engines = new SpeechEngineService({
+    store, registry: builtInSpeech(), policy: web.policy, fetch: web.policy.guard(globalThis.fetch),
+    secret: async (owner, name, purpose) =>
+      (await store.secrets.resolve(owner, "default", [name], { purpose }).catch((error: Error) => {
+        if (/is not available/.test(error.message)) return {} as Record<string, string>;
+        throw error;
+      }))[name] ?? null,
+  });
   const channels = new ChannelRouter(store, runtime);
   channels.transcribeVoice = async (clip) => (await voice.transcribe(runtime.owner, clip)).text;
   channels.speakReply = async (text) => {
@@ -817,6 +834,9 @@ export async function createBranch(options: {
   // Short-lived, scoped keys for anything that is not the app window. The master session key is
   // never one of these; see src/session-tokens.ts.
   const sessionTokens = new SessionTokens(store.sqlite, store);
+  // ── mac4/bucket-20: talking to other agents and tools (src/interop/). Every part ships off. ──
+  const interop = new Interop({ runtime, registry, knowledge, teams, flows, remoteAgents,
+    tokens: sessionTokens, files, policy: web.policy, version });
   // ── mac3/security-check: the self-check and the malware check (src/security-audit). Both ship off. ──
   const security = new SecurityService(
     { store, runtime, registry, sessionLock, privacy, web, sessionTokens, plugins, pluginCatalog },
@@ -856,6 +876,8 @@ export async function createBranch(options: {
   return {
     store,
     registry,
+    /** mac4/bucket-20: the Agent Protocol, lent tools, modes, project routing, fleet, handoff, flow search, market. */
+    interop,
     runtime,
     /** mac3/never-break: the task journal, and settling interrupted work after a restart. */
     neverBreak: {
@@ -893,6 +915,8 @@ export async function createBranch(options: {
     media,
     /** Writing speech out and reading text aloud, whichever service does the work. */
     voice,
+    /** Bucket 17: videos and sound understood through the owner's own ffmpeg and yt-dlp. */
+    understanding,
     /** Wave 8: live conversations — talking and being cut off, over a connection that stays open. */
     live,
     /** Finding, tidying and moving saved facts. */
@@ -1455,6 +1479,8 @@ export * from "./providers/cli-agent.js";
 export * from "./cli-attach.js";
 export * from "./cli-completion.js";
 export * from "./cli-run.js";
+// mac4/bucket-20: talking to other agents and tools.
+export { Interop } from "./interop/index.js";
 // Wave mac2 (guards): the loop guard, the folder's own instructions and folder trust.
 export * from "./loop-guard.js";
 export * from "./folder-trust.js";

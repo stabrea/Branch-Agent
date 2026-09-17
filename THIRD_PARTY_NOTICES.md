@@ -3225,9 +3225,21 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ### OpenFang, MIT OR Apache-2.0
 
-The list of address parameters that mark a web fetch as carrying a credential in `src/leak-guard.ts` follows OpenFang's `check_taint_net_fetch` (https://github.com/RightNow-AI/openfang). Used under the MIT licence:
+The list of address parameters that mark a web fetch as carrying a credential in `src/leak-guard.ts` follows OpenFang's `check_taint_net_fetch` (https://github.com/RightNow-AI/openfang). In wave mac3, `src/channels/flock.ts` follows the event shape in `crates/openfang-channels/src/flock.rs`, `src/channels/twist.ts` the polling shape in `twist.rs`, and `src/channels/nextcloud-talk.ts` the long-poll approach in `nextcloud.rs`, `src/channels/mumble.ts` the control-channel framing and message ids in `mumble.rs`, and `src/channels/revolt.ts` the authenticate and ping handling in `revolt.rs`. Used under the MIT licence:
 
 Copyright (c) 2024 OpenFang Contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+### ZeroClaw, MIT OR Apache-2.0
+
+`textFromAttributedBody` in `src/channels/imessage.ts` follows the typed-stream reading in ZeroClaw's iMessage channel (`crates/zeroclaw-channels/src/imessage.rs`, https://github.com/zeroclaw-labs/zeroclaw), and the channel reads the same Messages tables. `src/channels/qq-bot.ts` follows the intent bits and the author fields of the one-to-one and group events in `crates/zeroclaw-channels/src/qq.rs`. Used under the MIT licence:
+
+Copyright (c) 2025 ZeroClaw Labs
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
 
@@ -3268,7 +3280,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ### OpenClaw, MIT
 
-The meters on the dashboard's "This computer" card (`meter()` in `public/dashboard/sections.js`) follow the meter in OpenClaw's Control UI (`ui/src/pages/connection/system-section.ts`, https://github.com/openclaw/openclaw): an accessible `role="meter"` bar that turns to a warning at 75% and to a problem at 92%. The layout of the dashboard as a whole was studied from OpenClaw's Control UI and Hermes Agent's web dashboard; no other code was taken from either. Used under the MIT licence:
+The meters on the dashboard's "This computer" card (`meter()` in `public/dashboard/sections.js`) follow the meter in OpenClaw's Control UI (`ui/src/pages/connection/system-section.ts`, https://github.com/openclaw/openclaw): an accessible `role="meter"` bar that turns to a warning at 75% and to a problem at 92%. The layout of the dashboard as a whole was studied from OpenClaw's Control UI and Hermes Agent's web dashboard; no other code was taken from either. Used under the MIT licence: In wave mac3, `src/channels/synology-chat.ts` follows the outgoing-webhook form fields and the `payload` reply shape in OpenClaw's `extensions/synology-chat`.
 
 Copyright (c) 2026 OpenClaw Foundation
 
@@ -3277,6 +3289,49 @@ Permission is hereby granted, free of charge, to any person obtaining a copy of 
 The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+### Hermes Agent (Nous Research), MIT
+
+`src/channels/simplex.ts` follows the `newChatItems` event shape and reply handling in Hermes Agent's `plugins/platforms/simplex/adapter.py` (https://github.com/NousResearch/hermes-agent). Used under the MIT licence:
+
+Copyright (c) 2025 Nous Research
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+### PicoClaw, MIT
+
+`src/channels/deltachat.ts` follows the JSON-RPC call sequence and message fields in PicoClaw's `pkg/channels/deltachat` (https://github.com/sipeed/picoclaw). Used under the MIT licence:
+
+Copyright (c) 2026 PicoClaw contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+### BIP-340 test vectors, BSD-2-Clause
+
+`tests/channels-parity-sockets.test.mjs` carries test vectors 0–14 from `bip-0340/test-vectors.csv` in the Bitcoin Improvement Proposals repository (https://github.com/bitcoin/bips), by Pieter Wuille, Jonas Nick and Tim Ruffing, as test data. The document and its files are licensed under the 2-clause BSD licence:
+
+Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+### pumble-sdk (CAKE.com), ISC
+
+`src/channels/pumble.ts` was written from the request-signing rule, event envelope and message endpoints described by Pumble's official Node SDK (`pumble-sdk` 1.1.13, https://www.npmjs.com/package/pumble-sdk). No code was copied; the SDK is licensed under ISC:
+
+Permission to use, copy, modify, and/or distribute this software for any purpose with or without fee is hereby granted, provided that the above copyright notice and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 ### OpenFang loop guard (idea only), MIT OR Apache-2.0
 
@@ -3289,6 +3344,19 @@ The loop detection in `src/loop-guard.ts` and the trusted folders in `src/folder
 ### Hermes Agent and OpenClaw gateway recovery (ideas only), MIT
 
 The gateway in `src/never-break/` takes three ideas from other assistants' gateways: chaining restarts by the gap between them and not carrying interrupted work on by itself once the chain trips (Hermes Agent, `gateway/restart_loop_guard.py`), a "running" mark left behind as the sign of an unclean exit (Hermes Agent, `gateway/lifecycle_ledger.py`; https://github.com/NousResearch/hermes-agent, MIT), and promoting a configuration that started cleanly to a last-known-good copy that is restored when the current one fails (OpenClaw, `src/config/io.observe-recovery.ts`; https://github.com/openclaw/openclaw, MIT). They were written afresh; no code was copied.
+
+### OpenClaw (OpenClaw Foundation), MIT
+
+The phone apps (`apps/mobile`) follow OpenClaw's iOS and Android companions (https://github.com/openclaw/openclaw, `apps/ios`, `apps/android`) in what a phone companion does: a share extension that sends straight to the paired assistant, with the key shared through the app group, and the share sheet's activation rule in `apps/mobile/ios/App/ShareExtension/Info.plist`. Used under the MIT licence:
+
+Copyright (c) 2026 OpenClaw Foundation
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
 ### OpenCode command arity table, MIT
 
 The table of how many words name a program's action in `src/command-prefix.ts` (`git status`, `npm run dev`) is copied from OpenCode's `packages/opencode/src/permission/arity.ts` (https://github.com/sst/opencode), together with its longest-prefix lookup. Used under the MIT licence:
@@ -3313,6 +3381,27 @@ Permission is hereby granted, free of charge, to any person obtaining a copy of 
 The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+### Packages inside the phone apps (`apps/mobile/package.json`)
+
+Capacitor 8.5.2 (`@capacitor/core`, `@capacitor/android`, `@capacitor/ios`, `@capacitor/cli`), MIT, Copyright (c) 2017-present Drifty Co. The native shells in `apps/mobile/android` and `apps/mobile/ios` were generated by its command line and changed by hand. Used under the MIT licence:
+
+Copyright (c) 2017-present Drifty Co.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+
+jsQR 1.4.0 (https://github.com/cozmo/jsQR), Apache-2.0, Copyright 2017 Cosmo Wolfe. It reads the pairing code from the camera and ships inside both apps as `vendor/jsqr.js`, with its licence beside it as `vendor/jsqr-LICENSE.txt`. Used under the Apache License, Version 2.0:
+
+Copyright 2017 Cosmo Wolfe
+
+Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License. You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific language governing permissions and limitations under the License.
 
 ### Goose and Codex approval reviewers (idea only), Apache-2.0
 

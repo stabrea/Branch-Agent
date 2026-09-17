@@ -172,6 +172,12 @@ globalThis.branchSayLive = function branchSayLive(text) {
   socket.send(JSON.stringify({ live: "say", text: String(text).slice(0, 4000) }));
   return true;
 };
+/** Bucket 17: a picture shown while talking live; false when no live conversation is open. */
+globalThis.branchShowLive = function branchShowLive(picture) {
+  if (!socket || socket.readyState !== 1) return false;
+  socket.send(JSON.stringify({ live: "picture", mediaType: picture.mediaType, data: picture.data, name: picture.name }));
+  return true;
+};
 globalThis.branchLiveState = () => state;
 
 /* ---------- showing the button at all ---------- */

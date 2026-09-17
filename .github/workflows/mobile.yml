@@ -1,0 +1,93 @@
+name: Phone apps
+# Builds the iPhone and Android apps and keeps the files for seven days. It never publishes: no
+# App Store, TestFlight, Play Store, F-Droid or GitHub release. See docs/configuration.md, "Phone apps".
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'apps/mobile/**'
+      - 'scripts/package-mobile.mjs'
+      - 'tests/mobile*.test.mjs'
+      - 'public/tokens.css'
+      - 'public/theme-catalogue.js'
+      - 'public/locales/**'
+      - '.github/workflows/mobile.yml'
+permissions:
+  contents: read
+jobs:
+  android:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      BRANCH_MOBILE_BUILD: '1'
+      HAS_ANDROID_KEY: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Use the runner's Java 21 (Capacitor 8 needs it)
+        shell: bash
+        run: |
+          java_home="${JAVA_HOME_21_X64:-${JAVA_HOME_21_arm64:-}}"
+          test -n "$java_home"
+          echo "JAVA_HOME=$java_home" >> "$GITHUB_ENV"
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build
+      - run: npm ci --no-audit --no-fund
+        working-directory: apps/mobile
+      # Without the signing secrets the APK is left unsigned; with them it is signed for sideloading.
+      - name: Signing key from the repository secrets, when there is one
+        if: env.HAS_ANDROID_KEY == 'true'
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        shell: bash
+        run: |
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/branch-agent.jks"
+          echo "BRANCH_ANDROID_KEYSTORE=$RUNNER_TEMP/branch-agent.jks" >> "$GITHUB_ENV"
+      - name: Build the Android app
+        env:
+          BRANCH_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: node scripts/package-mobile.mjs --android
+      - name: Check the phone app
+        run: node --test --test-concurrency=1 tests/mobile-rules.test.mjs tests/mobile-shell.test.mjs tests/mobile-contract.test.mjs tests/mobile-build.test.mjs
+      - name: Remove the signing key
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/branch-agent.jks"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: android-${{ runner.os }}
+          path: |
+            release/mobile/Branch-Agent-android.*
+          if-no-files-found: error
+          retention-days: 7
+  ios:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build
+      - run: npm ci --no-audit --no-fund
+        working-directory: apps/mobile
+      - name: Build the iPhone app (unsigned) and the Simulator build
+        run: node scripts/package-mobile.mjs --ios
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ios
+          path: |
+            release/mobile/Branch-Agent-ios*
+          if-no-files-found: error
+          retention-days: 7

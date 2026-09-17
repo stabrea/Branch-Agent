@@ -34,6 +34,8 @@ import { registerGitHub, registerGitRemote } from './git-tools.js';
 import { GitLabAccess, GitLabConfigSchema, registerGitLab } from './gitlab.js';
 import { LinearAccess, LinearConfigSchema } from './linear.js';
 import { IssueAccess, registerIssues, type IssueTrackers } from './issue-tools.js';
+// Wave mac3 (channels-parity): the chat services added to match other assistants, all behind a switch.
+import { ParityChannelSchema, buildParityChannel, isParityChannel, type ParityChannelConfig } from '../channels/parity-config.js';
 
 const channelId = z.string().regex(/^[a-z][a-z0-9_-]{0,29}$/);
 const credentialName = z.string().regex(/^[A-Z][A-Z0-9_]{0,63}$/);
@@ -145,6 +147,8 @@ export const SignalChannelSchema = z.object({
 export const ChannelConfigSchema = z.discriminatedUnion('type', [
   TelegramChannelSchema, DiscordChannelSchema, SlackChannelSchema, WhatsAppChannelSchema, EmailChannelSchema,
   WebhookChatChannelSchema, MessengerChannelSchema, InstagramChannelSchema, MatrixChannelSchema, SignalChannelSchema,
+  // Checked here, but typed as nothing: the launcher never looks inside one, it hands it on whole.
+  ParityChannelSchema as never,
 ]).superRefine((value, context) => {
   if (value.type === 'telegram' && !value.tokenEnv === !value.tokenSecret)
     context.addIssue({ code: 'custom', message: 'Give exactly one of tokenEnv or tokenSecret' });
@@ -368,6 +372,9 @@ function guardedSocket(policy: NetworkPolicy | undefined): WebSocketConnect | un
 
 /** Builds the adapter one configured channel asks for, with its secrets and network guards. */
 async function buildChannel(channel: ChannelConfig, env: NodeJS.ProcessEnv, host: ChannelHost, policy: NetworkPolicy | undefined): Promise<ChannelAdapter> {
+  // Wave mac3 (channels-parity): IRC, XMPP, Mastodon and the rest are built in their own files.
+  if (isParityChannel(channel)) return buildParityChannel(channel as unknown as ParityChannelConfig, { credential: (name) => credential(name, env, host),
+    policy, store: host.store, owner: host.context?.('bootstrap').owner });
   const guardedFetch = policy ? policy.guard(globalThis.fetch) : globalThis.fetch;
   const connect = guardedSocket(policy);
   const base = 'apiBase' in channel && channel.apiBase ? { apiBase: channel.apiBase } : {};

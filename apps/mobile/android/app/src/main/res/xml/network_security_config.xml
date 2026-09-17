@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android cannot list address ranges here, and Tailscale hands out 100.64.0.0/10, so cleartext is
+     allowed at this level. The app's own rule (BranchRules.java, the same as apps/mobile/web/rules.js)
+     refuses plain http to anything but the owner's network or Tailscale, before any request is made,
+     and the web view may only open the one paired address. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

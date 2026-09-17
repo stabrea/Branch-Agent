@@ -48,7 +48,11 @@ const filledArgs = (args: Record<string, unknown>, state: Record<string, unknown
     [key, typeof value === "string" ? fillIn(value, state) : value]));
 
 /** What one box handed back: its patch of the state, its words, and which way out it chose. */
-interface NodeResult { patch: Record<string, unknown>; output: string; matched?: boolean }
+interface NodeResult {
+  patch: Record<string, unknown>; output: string; matched?: boolean;
+  /** Bucket 13: the task a prompt box ran, so the run monitor can count its words against this box. */
+  childRunId?: string;
+}
 
 export class FlowGraphRunner {
   constructor(
@@ -93,7 +97,8 @@ export class FlowGraphRunner {
       if ("stopped" in result) return result.stopped;
       state = { ...state, ...result.patch };
       this.writeNode(runId, seq, node, "done", result.output);
-      this.store.event(runId, "flow.node.finished", { node: node.id, name: node.name, seq, output: result.output.slice(0, 500) });
+      this.store.event(runId, "flow.node.finished", { node: node.id, name: node.name, seq, output: result.output.slice(0, 500),
+        ...(result.childRunId ? { childRunId: result.childRunId } : {}) /* bucket 13: run monitor */ });
       const step = this.chooseNext(node, result, compiled, loops, limit);
       if ("refusal" in step) return this.stop(runId, "failed", step.refusal);
       at = step.to; loops = step.loops;
@@ -170,7 +175,7 @@ export class FlowGraphRunner {
       const run = await this.runtime.run({ prompt: fillIn(node.prompt!, state),
         signal: AbortSignal.timeout(node.timeoutMs), source: "schedule", onTextDelta: () => undefined });
       if (run.status !== "completed") throw new Error(`the assistant stopped (${run.status})`);
-      return { patch: this.asPatch(node, run.output), output: run.output.slice(0, 2000) };
+      return { patch: this.asPatch(node, run.output), output: run.output.slice(0, 2000), childRunId: run.id /* bucket 13: run monitor */ };
     }
     const result = await this.useTool(node, filledArgs(node.args ?? {}, state), options.source ?? "owner");
     return { patch: this.asPatch(node, result), output: jsonOf(result).slice(0, 2000) };

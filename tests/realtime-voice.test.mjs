@@ -787,3 +787,38 @@ test("the Talk live button appears only on a connection that can hold a live con
   assert.equal(await page.evaluate(() => globalThis.branchMicrophoneAsks), 0,
     "and loading the page, connecting and showing the button asked for the microphone not once");
 });
+
+/* ---------- Bucket 17: a picture shown while talking (realtime multimodal) ---------- */
+
+test("a picture shown while talking goes down the same connection, in each service's own shape", async (t) => {
+  const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+  assert.deepEqual(parseCommand(Buffer.from(JSON.stringify({ live: "picture", mediaType: "image/png", data: png, name: "dot.png" }))),
+    { live: "picture", mediaType: "image/png", data: png, name: "dot.png" });
+  assert.equal(parseCommand(Buffer.from(JSON.stringify({ live: "picture", mediaType: "text/html", data: png }))), null, "only pictures");
+  assert.equal(parseCommand(Buffer.from(JSON.stringify({ live: "picture", mediaType: "image/png", data: "" }))), null);
+
+  const service = await fakeSocketService(t);
+  const app = await fixture(t);
+  livePreset(app, "live-openai", "openai", service.endpoint);
+  app.web.policy.configure({ allowPrivateAddresses: true });
+  const live = conversations(app, app.web.policy);
+  const run = liveRun(app);
+  const { conversation } = await live.start(run.id, run.sessionId, collector().out);
+  await settle();
+  conversation.show({ mediaType: "image/png", data: png, name: "dot.png" });
+  const item = await until(() => service.of("conversation.item.create")[0], "the picture item");
+  assert.equal(item.item.content[0].type, "input_image");
+  assert.equal(item.item.content[0].image_url, `data:image/png;base64,${png}`);
+  const said = app.store.messages(run.sessionId).map((m) => m.content);
+  assert.ok(said.includes("[picture shown: dot.png]"), "only the picture's name is written into the conversation");
+  assert.ok(!said.some((text) => text.includes(png)), "the bytes are never kept");
+  live.stop(run.id, "done");
+
+  const gemini = await fakeSocketService(t);
+  const two = new GeminiLiveSession(openPolicy(), shape(), { endpoint: gemini.endpoint, apiKey: "k" });
+  await two.open();
+  two.sendImage({ mediaType: "image/jpeg", data: png });
+  const frame = await until(() => gemini.received.find((m) => m.realtimeInput?.video), "the Gemini video frame");
+  assert.deepEqual(frame.realtimeInput.video, { mimeType: "image/jpeg", data: png });
+  two.close();
+});
