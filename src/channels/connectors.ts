@@ -7,6 +7,7 @@ import type { ParityService } from "./parity-common.js";
 import { gotifyService } from "./gotify.js";
 import { ircService, twitchService } from "./irc.js";
 import { imessageService } from "./imessage.js";
+import { mastodonService } from "./mastodon.js";
 
 /**
  * A plugin may bring a chat service of its own. It exports one or more adapters under
@@ -182,4 +183,5 @@ export function registerChannelTools(registry: ToolRegistry, router: ChannelRout
  */
 export const parityServices: ParityService[] = [
   ircService, twitchService, gotifyService, imessageService,
+  mastodonService,
 ];
