@@ -55,22 +55,22 @@ async function fixtureProvider() {
 }
 
 /**
- * A Linux machine with no keyring (a bare build box) cannot protect a key, and the app refuses to
- * store one rather than falling back to plain text. There the refusal is what is checked. The CI
- * runner starts a real keyring and sets BRANCH_REQUIRE_KEY_STORE, so the whole path is still proved
- * on Linux and a keyring that failed to start fails the run instead of quietly skipping.
+ * On Linux an Electron app started by Playwright can never reach a keyring: Playwright's launcher
+ * always adds --password-store=basic (playwright-core/lib/server/electron/loader.js), and a bare
+ * build box has no keyring anyway. The app then refuses to store a key rather than keeping it in
+ * plain text, and that refusal is what is checked there. The encrypted path is proved on Windows
+ * and macOS, and the storage rules by the unit test above on every system.
  */
 async function refusesWithoutKeyStore(t, page, home) {
   const summary = await page.evaluate(() => window.branchDesktop.modelSettings());
   if (summary.canStoreKey) return false;
-  assert.notEqual(process.env.BRANCH_REQUIRE_KEY_STORE, "1", "this machine was set up with a keyring, but the app cannot use it");
   assert.equal(process.platform, "linux", "only Linux may lack device key protection");
   await page.getByText("Device key protection is unavailable. Configure the provider in the launch environment.").waitFor();
   await page.getByRole("button", { name: "Save model connection", exact: true }).click();
   await page.locator("#toast").filter({ hasText: "Device key storage is unavailable" }).waitFor();
   const disk = await readFile(join(home, "model-settings.json"), "utf8").catch(() => "");
   assert.equal(disk.includes("fixture-device-key-82743"), false);
-  t.skip("no keyring on this machine: checked that the key is refused, not stored");
+  t.skip("no usable keyring under Playwright on Linux: checked that the key is refused, not stored");
   return true;
 }
 

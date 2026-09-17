@@ -23,8 +23,6 @@ export async function desktopOptions() {
       "DISPLAY",
       "XAUTHORITY",
       "DBUS_SESSION_BUS_ADDRESS",
-      // Chromium picks the Linux keyring by desktop; without this it always falls back to plain text.
-      "XDG_CURRENT_DESKTOP",
     ].flatMap((key) => (process.env[key] ? [[key, process.env[key]]] : [])),
   );
   const launch = process.env.BRANCH_PACKAGED_EXECUTABLE
