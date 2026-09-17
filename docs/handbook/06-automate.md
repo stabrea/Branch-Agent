@@ -61,9 +61,17 @@ task. Saving something does not pre-approve it.
 
 ## Flows
 
-A **flow** is a list of steps shown as boxes and arrows, so you can see the shape of a long job rather
-than reading it. Flows survive a restart, other programs can start one, and a note goes out as each
-box finishes. A flow can contain another flow.
+A **flow** is a job drawn as boxes and arrows, so you can see the shape of a long job rather than
+reading it. Each box says what it reads and what it writes, arrows can turn on what the last box
+found, a circle may be gone round only as many times as you allow, and a box can be another whole
+flow. Flows survive a restart, other programs can start one, and a note goes out as each box
+finishes.
+
+Where a flow has got to is written down after every box, so **Carry this flow on** picks it up at
+the box after the last one that finished rather than starting at the top. One thing to know: if the
+app stops in the very moment between a box finishing and that note being written, that box is done
+again when the flow is carried on. Nothing is lost and nothing is muddled — the box simply runs a
+second time — so a box that must not happen twice is worth putting behind an approval.
 
 ## Specialists
 
