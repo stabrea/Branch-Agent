@@ -29,6 +29,7 @@ import {
 import { parseHeadlessArgs, promptsFromScript, runHeadless } from "./headless.js";
 import { serveMcpStdio } from "./mcp-stdio.js";
 import { serveAcpStdio } from "./acp.js";
+import { serveAppServerStdio } from "./asks/app-server.js"; // mac6/bucket-23
 import { healthReport } from "./health.js";
 import { summaryLine } from "./evaluation-runner.js";
 import { runMemoryEvaluation } from "./memory-evaluation.js";
@@ -189,6 +190,10 @@ async function main(): Promise<void> {
       return;
     } else if (command === "acp-serve") {
       await serveAcpStdio(app.runtime, app.store);
+      return;
+    } else if (command === "app-server") {
+      // mac6/bucket-23 (A0032): the app-server protocol on standard input and output, while switched on.
+      await serveAppServerStdio(app.runtime, app.version);
       return;
     }
     // Wave mac3 (terminal): places, Settings pages and the everyday commands, in src/terminal-cli.ts.

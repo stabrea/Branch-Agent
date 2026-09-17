@@ -85,7 +85,7 @@ by hand; edit the data file and run that command.
 
 <!-- providers:start -->
 
-Branch knows 42 model services. Every one of them has been tested against a fake of the
+Branch knows 44 model services. Every one of them has been tested against a fake of the
 service, not against the real one, so treat this as "Branch speaks the right language", not as
 "this was tried on a live account". Addresses and prices were last checked on 2026-09-16.
 
@@ -106,6 +106,7 @@ service, not against the real one, so treat this as "Branch speaks the right lan
 | GitHub Copilot (sign-in) | in the cloud | OpenAI |  | just a key | [None: Branch does not sign in to Copilot itself](https://github.blog/changelog/2026-01-16-github-copilot-now-supports-opencode/) (not offered) |
 | GitHub Models | in the cloud | OpenAI |  | just a key | [GitHub Models inference (ended)](https://github.blog/changelog/2026-07-30-github-models-is-now-retired/) (retired) |
 | Google Gemini | in the cloud | Gemini | conversation, pictures in, tools, fixed format, as it types, compare passages, live conversation | just a key | [Your own Google AI Studio key](https://ai.google.dev/gemini-api/terms) |
+| Google PaLM | in the cloud | Gemini |  | just a key | [PaLM API (ended)](https://ai.google.dev/palm_docs/deprecation) (retired) |
 | Google Vertex AI | in the cloud | Gemini | conversation, pictures in, tools, fixed format, as it types | Your Google Cloud project id; The region your project uses | [Your own Google Cloud project and access token](https://cloud.google.com/terms/service-terms) |
 | Groq | in the cloud | OpenAI | conversation, tools, fixed format, as it types, speech | just a key | [Your own API key](https://groq.com/terms-of-use) |
 | Hugging Face Inference | in the cloud | OpenAI | conversation, tools, as it types | just a key | [Your own access token](https://huggingface.co/terms-of-service) |
@@ -127,6 +128,7 @@ service, not against the real one, so treat this as "Branch speaks the right lan
 | SambaNova | in the cloud | OpenAI | conversation, pictures in, tools, as it types | just a key | [Your own API key](https://sambanova.ai/terms-and-conditions) |
 | Something else that speaks OpenAI's shape | in the cloud | OpenAI | conversation, tools, as it types | The address the service gave you | [An address and key you give](https://github.com/stabrea/Branch-Agent/blob/main/docs/configuration.md) (unofficial) |
 | Together AI | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types, compare passages, pictures out | just a key | [Your own API key](https://www.together.ai/terms-of-service) |
+| Vercel AI Gateway | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types, compare passages | just a key | [Your own AI Gateway key](https://vercel.com/legal/terms) |
 | Voyage AI | in the cloud | OpenAI | compare passages | just a key | [Your own API key](https://www.voyageai.com/tos) |
 | Z.ai (GLM) | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types | just a key | [Your own API key](https://docs.z.ai/legal-agreement/terms-of-use) |
 | Zhipu GLM (China) | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types, compare passages | just a key | [Your own API key](https://open.bigmodel.cn/) |
@@ -146,6 +148,7 @@ Services that need something more than a key, or that do not publish a list of t
 - **Doubao (Volcengine Ark)** — ByteDance's Ark service. The model name is usually an endpoint id you created there. Billed in yuan; Branch keeps no price on file.
 - **GitHub Copilot (sign-in)** — Not offered. Use the GitHub Copilot command line under coding assistants instead: it is GitHub's own program with your own sign-in. GitHub supports Copilot sign-in only in its own tools and in OpenCode, through OpenCode's own sign-in. Reusing another app's sign-in or posing as VS Code has led to abuse warnings, so Branch does neither. Use GitHub's Copilot command line instead.
 - **GitHub Models** — Retired by GitHub on 30 July 2026. A saved connection stays on the list with this note and is never used. GitHub retired GitHub Models on 30 July 2026 and its address now refuses every request. For a model catalogue GitHub points to Microsoft Foundry (use Azure OpenAI here); for GitHub work, use the GitHub Copilot command line under coding assistants.
+- **Google PaLM** — Retired by Google. PaLM's models were replaced by Gemini, which uses the same kind of key: connect Gemini instead. Google turned the PaLM API off and its models (text-bison, chat-bison) no longer answer. The same Google AI Studio key works for Gemini: connect Gemini instead and pick a Gemini model.
 - **Google Vertex AI** — Needs a project id and a region, and a sign-in token rather than an API key. Branch does not fetch that token for you: paste one from `gcloud auth print-access-token`. Tokens expire after about an hour.
 - **MiniMax** — International keys use api.minimax.io (the usual choice); keys from the Chinese platform use api.minimax.cn. Branch keeps no price on file for it.
 - **ModelScope** — Alibaba's model hub in its OpenAI-compatible mode. Branch keeps no price on file for it.

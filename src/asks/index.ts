@@ -12,6 +12,7 @@ import { AppBlocks, registerAppBlocks } from "./app-blocks.js";
 import { Hindsight, registerHindsight } from "./hindsight.js";
 import { IntentPipeline, registerIntentRoute } from "./intent-pipeline.js";
 import { ProjectBoards, registerProjectBoard } from "./project-board.js";
+import { AgentRuntimes } from "./runtimes.js";
 import { registerSourceSync, SourceSync } from "./source-sync.js";
 import { askMode, askParts, askTools, saveAskMode, type AskMode, type AskPart } from "./settings.js";
 
@@ -30,6 +31,7 @@ export interface AsksDeps {
   secret: (name: string, purpose: string) => Promise<string>;
   /** Whether Telegram is connected as a chat channel right now. */
   telegramInUse: () => boolean;
+  version: string;
 }
 
 export class Asks {
@@ -42,6 +44,7 @@ export class Asks {
   readonly sources: SourceSync;
   readonly hindsight: Hindsight;
   readonly blocks: AppBlocks;
+  readonly runtimes: AgentRuntimes;
   private readonly registrars: Partial<Record<AskPart, () => void>>;
 
   constructor(private readonly deps: AsksDeps) {
@@ -59,6 +62,7 @@ export class Asks {
       telegramInUse: deps.telegramInUse });
     this.hindsight = new Hindsight(store, owner, deps.fetch, (name) => deps.secret(name, "the Hindsight memory server"));
     this.blocks = new AppBlocks(store, owner, deps.fetch, (name) => deps.secret(name, "a step for another app"));
+    this.runtimes = new AgentRuntimes(store, owner, runtime.models, deps.version);
     this.registrars = {
       "source-sync": () => registerSourceSync(registry, this.sources),
       hindsight: () => registerHindsight(registry, this.hindsight),
@@ -87,6 +91,7 @@ export class Asks {
   setMode(part: AskPart, input: unknown): AskMode {
     const mode = saveAskMode(this.deps.runtime.store, this.deps.runtime.owner, part, input);
     this.sync(part);
+    if (part === "runtimes") this.runtimes.follow(mode !== "off");
     this.analytics.track("feature.switched");
     return mode;
   }

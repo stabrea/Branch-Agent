@@ -896,7 +896,7 @@ export async function createBranch(options: {
   // ── mac6/bucket-23: the smaller asks (src/asks/). Every part ships off. ──
   const asks = new Asks({ runtime, registry, web, files, flows, fetch: web.policy.guard(globalThis.fetch),
     secret: async (name, purpose) => (await store.secrets.resolve(runtime.owner, store.projects.active(runtime.owner).id, [name], { purpose }))[name]!,
-    telegramInUse: () => channels.summary().channels.some((channel) => channel.kind === "telegram") });
+    telegramInUse: () => channels.summary().channels.some((channel) => channel.kind === "telegram"), version });
   // ── end mac6/bucket-23 ──
   // ── mac3/security-check: the self-check and the malware check (src/security-audit). Both ship off. ──
   const security = new SecurityService(

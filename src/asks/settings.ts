@@ -14,7 +14,7 @@ import type { Store } from "../store.js";
  */
 export const askParts = [
   "project-board", "answer-engine", "answer-pages", "article-writer", "intent-pipeline", "source-sync",
-  "hindsight", "app-blocks", "analytics", "live-surfaces", "nodes", "app-server",
+  "hindsight", "app-blocks", "analytics", "live-surfaces", "nodes", "app-server", "runtimes",
 ] as const;
 export type AskPart = (typeof askParts)[number];
 export const AskPartSchema = z.enum(askParts);
@@ -40,6 +40,7 @@ export const askLabels: Record<AskPart, string> = {
   "live-surfaces": "Pages from tools that keep themselves up to date",
   nodes: "Other computers running Branch",
   "app-server": "Letting an editor drive Branch over the app-server protocol",
+  runtimes: "Other agents answering a conversation (Claude Code, Codex, Copilot, Gemini CLI)",
 };
 
 /** The tools each part owns, so the catalog can leave them out while the part is off. */
@@ -56,6 +57,7 @@ export const askTools: Record<AskPart, readonly string[]> = {
   "live-surfaces": [],
   nodes: ["nodes.status", "nodes.ask"],
   "app-server": [],
+  runtimes: [],
 };
 
 export function askMode(store: Pick<Store, "get">, owner: string, part: AskPart): AskMode {

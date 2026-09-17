@@ -75,6 +75,11 @@ async function integrationsRoute(deps: AsksHttpDeps, path: string): Promise<unkn
     return { keys: asks.blocks.setKey(block, secret) };
   }
   if (path === "/api/asks/blocks/run" && post) return runPartTool(deps, "app-blocks", "blocks.run");
+  if (path === "/api/asks/runtimes") return { runtimes: await asks.runtimes.list() };
+  if (/^\/api\/asks\/runtimes\/(add|remove)$/.test(path) && post) {
+    const { id } = z.object({ id: z.string().trim().min(1).max(64) }).strict().parse(await deps.readBody());
+    return path.endsWith("/add") ? asks.runtimes.add(id) : asks.runtimes.remove(id);
+  }
   if (path === "/api/asks/mcp-examples")
     return { examples: mcpExamples.map((example) => ({ ...example, file: exampleFile(example.id) })) };
   return deps.more?.(path);
