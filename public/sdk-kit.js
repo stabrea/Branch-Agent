@@ -54,11 +54,18 @@ function kitCard() {
   for (const value of ["off", "when-needed", "on"]) mode.append(worded("option", `switch.${value}`, { value }));
   const clients = el("ul", { id: "sdk-kit-clients", className: "subtle" });
   const tools = el("p", { id: "sdk-kit-tools", className: "subtle" });
-  const save = button("action.save-switch", true, async () => { drawKit(await api("sdk-kit", { mode: mode.value })); return t("sdk-kit.saved"); }, id);
+  // A choice not yet saved is kept: a redraw still on its way must not put the old value back.
+  mode.addEventListener("change", () => { mode.dataset.edited = "1"; });
+  const save = button("action.save-switch", true, async () => {
+    const saved = await api("sdk-kit", { mode: mode.value });
+    delete mode.dataset.edited;
+    drawKit(saved);
+    return t("sdk-kit.saved");
+  }, id);
   return card(id, "settings:advanced", "sdk-kit", ...field("field.feature-switch", mode), worded("h3", "sdk-kit.clients"), clients, tools, save);
 }
 function drawKit(view) {
-  $("sdk-kit-mode").value = view.settings.mode;
+  if (!$("sdk-kit-mode").dataset.edited) $("sdk-kit-mode").value = view.settings.mode;
   $("sdk-kit-clients").replaceChildren(...Object.entries(view.packages).map(([language, entry]) =>
     el("li", {}, el("strong", { textContent: t(`sdk-kit.language.${language}`) }), " ", el("code", { textContent: entry.folder }))));
   $("sdk-kit-tools").textContent = t("sdk-kit.tools", { tools: view.tools.join(", ") });
@@ -103,9 +110,7 @@ async function render() {
 // Filled again whenever a place, a tab or a Settings page is opened, so a flow saved a moment ago is
 // in the list; and once now, for a window that is already connected.
 document.addEventListener("click", (event) => {
-  if (event.target instanceof Element && event.target.closest(".lx-gear, .lx-place-link, .lx-tab, .lx-settings-link, .nav")) // The language lines and the tool list are put together here, so they are drawn again in a new language.
-document.addEventListener("branch-language", () => void render());
-void render();
+  if (event.target instanceof Element && event.target.closest(".lx-gear, .lx-place-link, .lx-tab, .lx-settings-link, .nav")) void render();
 });
 // The language lines and the tool list are put together here, so they are drawn again in a new language.
 document.addEventListener("branch-language", () => void render());

@@ -79,3 +79,19 @@ test("Flows as files sits in Procedures, refuses while off, then writes a flow o
   assert.ok(await fitsWidth(page), "no sideways scrolling at 400 px");
   assert.deepEqual(errors, []);
 });
+
+test("integration review: a click outside the navigation draws nothing again, and a language change draws once", async (t) => {
+  const { page, errors } = await fixture(t, 1280);
+  await openSettings(page, "advanced");
+  await page.locator("#sdk-kit-clients li").first().waitFor();
+  await page.waitForTimeout(500);
+  let reads = 0;
+  page.on("request", (request) => { if (new URL(request.url()).pathname === "/api/sdk-kit") reads += 1; });
+  for (let i = 0; i < 3; i += 1) await page.locator("#sdk-kit-tools").click();
+  await page.waitForTimeout(500);
+  assert.equal(reads, 0, "an ordinary click is not a reason to read the switch again");
+  await page.evaluate(() => document.dispatchEvent(new CustomEvent("branch-language", { detail: { language: "en" } })));
+  await page.waitForTimeout(500);
+  assert.equal(reads, 1, "one language change, one redraw (no listener added per click)");
+  assert.deepEqual(errors, []);
+});

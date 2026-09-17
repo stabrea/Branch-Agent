@@ -219,3 +219,53 @@ test("the YAML functions on their own: an id in a file is dropped, and the kind 
   const view = { id: "f1", name: "N", description: "", steps: [{ name: "s", kind: "prompt", prompt: "p" }], status: "idle" };
   assert.match(flowToYaml(view), /kind: steps/);
 });
+
+test("integration review: a hostile flow file is refused, not quietly read", () => {
+  const graph = (extra) => `kind: graph\nname: x\nentry: a\nedges: []\nnodes:\n  - id: a\n    name: A\n    kind: tool\n    tool: files.read\n${extra}`;
+  const hostile = [
+    // Explicit tags the core schema still knows (a Buffer, a set, a date) are not flow data.
+    ["name: !!binary aGVsbG8=\nsteps: []", /tag/i],
+    ["name: x\nsteps: !!set {a, b}", /tag/i],
+    ["name: !!timestamp 2001-12-14\nsteps: []", /tag/i],
+    ["name: !!str x\nsteps: []", /tag/i],
+    // An anchor on its own repeats nothing yet, but a file that uses them is not written by hand.
+    ["name: &x n\nsteps: []", /anchor|alias/i],
+    // Keys that name an object's insides, at the top or deep in a tool box's arguments.
+    [`kind: graph\nname: x\nentry: a\nedges: []\n__proto__: {admin: true}\nnodes: []`, /__proto__/],
+    [graph("    args:\n      __proto__: {polluted: true}\n"), /__proto__/],
+    [graph("    args:\n      constructor: {prototype: {x: 1}}\n"), /constructor/],
+    [graph("    args:\n      deep: {prototype: 1}\n"), /prototype/],
+    // Numbers too large to keep exactly.
+    ["name: x\nsteps: []\n", null],
+    [graph("    timeoutMs: 1e999\n"), /number/i],
+    [graph("    args: {n: 99999999999999999999999}\n"), /number/i],
+    [graph("    args: {n: .nan}\n"), /number/i],
+  ];
+  for (const [yaml, said] of hostile) {
+    if (said === null) { assert.doesNotThrow(() => flowFromYaml(yaml)); continue; }
+    assert.throws(() => flowFromYaml(yaml), (error) => error instanceof FlowYamlError && said.test(error.message), yaml);
+  }
+  assert.equal({}.polluted, undefined);
+});
+
+test("integration review: a file's id never replaces a saved flow, and a short-lived key cannot read one in", async (t) => {
+  const { app, server, call } = await served(t);
+  await call("/api/sdk-kit", { mode: "on" });
+  const saved = (await call("/api/flows", graphFlow)).body;
+  const yaml = (await call(`/api/flows/${saved.id}/yaml`)).body.yaml;
+  const withId = `id: ${saved.id}\n${yaml.replace(/^name: .*$/m, "name: Replaced")}`;
+  const back = await call("/api/flows/yaml", { yaml: withId });
+  assert.equal(back.status, 200, JSON.stringify(back.body));
+  assert.notEqual(back.body.id, saved.id);
+  assert.equal(app.flows.get(saved.id).name, graphFlow.name, "the saved flow is untouched");
+
+  const key = app.sessionTokens.create(app.runtime.owner, { scope: "run", minutes: 5 }).token;
+  const withKey = (path, body) => fetch(`${server.url}${path}`, {
+    method: body === undefined ? "GET" : "POST",
+    headers: { authorization: `Bearer ${key}`, origin: server.url, "content-type": "application/json" },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
+  assert.equal((await withKey("/api/flows/yaml", { yaml })).status, 401, "reading a flow in is refused");
+  assert.equal((await withKey("/api/sdk-kit", { mode: "off" })).status, 401, "the switch is the owner's");
+  assert.equal(app.flows.list().length, 2);
+});

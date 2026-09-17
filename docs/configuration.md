@@ -3566,7 +3566,9 @@ Everything a program of your own needs to use Branch, in one place (bucket 21):
   reads one back as a new flow (never over an existing one); `GET /api/flows/{flowId}/yaml` and
   `POST /api/flows/yaml {"yaml": "..."}` do the same. A file starts with `format: branch-flow/1` and
   `kind: steps` or `kind: graph`, then the flow exactly as the flow editor saves it; a file written by
-  hand may leave both out. Aliases, repeated keys, other formats and files over 512 KB are refused.
+  hand may leave both out. Aliases, anchors, tags (`!!binary`, `!foo`), repeated keys, the names
+  `__proto__`, `constructor` and `prototype`, numbers too large to keep exactly, other formats and files
+  over 512 KB are refused.
   The switch must not be off.
 
 macOS and Linux: nothing here depends on the system. The Go and Python tests are skipped where Go

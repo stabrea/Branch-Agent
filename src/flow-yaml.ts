@@ -1,4 +1,4 @@
-import { parseDocument, stringify } from "yaml";
+import { isNode, parseDocument, stringify, visit, type Document } from "yaml";
 import { z } from "zod";
 import type { FlowView, GraphFlowView } from "./flows.js";
 
@@ -36,19 +36,47 @@ export function flowToYaml(flow: FlowView): string {
   return `# A Branch Agent flow. Read it back in Flows, or with POST /api/flows/yaml.\n${body}`;
 }
 
+/** Integration review: names that reach an object's insides are never a flow's own words. */
+const unsafeKeys = new Set(["__proto__", "constructor", "prototype"]);
+
+/** Refuses an explicit tag (!!binary, !!set, !foo) or an anchor anywhere in the file. */
+function refuseTagsAndAnchors(document: Document): void {
+  visit(document, (_key, node) => {
+    if (!isNode(node)) return;
+    if (node.tag) throw new FlowYamlError(`A flow file may not mark a value with a tag (${node.tag}); write the value plainly.`);
+    if (node.anchor) throw new FlowYamlError("A flow file may not name a part with an anchor (&) or repeat it by reference (YAML aliases).");
+  });
+}
+
+/** Refuses object-insides keys at any depth, and numbers that cannot be kept exactly. */
+function refuseUnsafeValues(value: unknown): void {
+  if (typeof value === "number") {
+    if (!Number.isFinite(value) || Math.abs(value) > Number.MAX_SAFE_INTEGER)
+      throw new FlowYamlError(`A flow file may only hold ordinary numbers; ${String(value)} is too large or not a number.`);
+    return;
+  }
+  if (!value || typeof value !== "object") return;
+  for (const key of Object.getOwnPropertyNames(value)) {
+    if (unsafeKeys.has(key)) throw new FlowYamlError(`A flow file may not use "${key}" as a name.`);
+    refuseUnsafeValues((value as Record<string, unknown>)[key]);
+  }
+}
+
 function readYaml(text: string): Record<string, unknown> {
   if (Buffer.byteLength(text, "utf8") > flowYamlLimit)
     throw new FlowYamlError("That flow file is too large (at most 512 KB).");
-  // No aliases, no duplicate keys, no custom tags: the file is data and is read as nothing more.
-  const document = parseDocument(text, { strict: true, uniqueKeys: true, schema: "core" });
+  // No aliases, no duplicate keys, no tags: the file is data and is read as nothing more.
+  const document = parseDocument(text, { strict: true, uniqueKeys: true, schema: "core", resolveKnownTags: false });
   const problem = document.errors[0] ?? document.warnings[0];
   if (problem) throw new FlowYamlError(`That file is not readable YAML: ${problem.message.split("\n")[0]}`);
+  refuseTagsAndAnchors(document);
   let value: unknown;
   try { value = document.toJS({ maxAliasCount: 0 }); } catch {
     throw new FlowYamlError("A flow file may not repeat a part by reference (YAML aliases); write each part out.");
   }
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new FlowYamlError("A flow file holds one flow: its name, and its steps or its boxes and arrows.");
+  refuseUnsafeValues(value);
   return value as Record<string, unknown>;
 }
 

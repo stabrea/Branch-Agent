@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { inspect } from "node:util";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -39,6 +40,20 @@ test("the client needs an address and a key, and refuses without either", () => 
   assert.throws(() => new BranchClient({ token: "abc" }), /session key/);
   const branch = new BranchClient({ url: "http://127.0.0.1:3210/", token: "abc" });
   assert.equal(branch.url, "http://127.0.0.1:3210", "a trailing slash is not doubled up");
+});
+
+test("integration review: the key goes over plain http only to this computer, and a redirect is not followed", async () => {
+  for (const url of ["http://example.com:3210", "http://192.168.1.4:3210", "ftp://127.0.0.1:3210", "not an address"])
+    assert.throws(() => new BranchClient({ url, token: "abc" }), /https|http:\/\//, url);
+  for (const url of ["http://localhost:3210", "http://[::1]:3210", "http://127.0.0.2:3210", "https://branch.example.com"])
+    assert.doesNotThrow(() => new BranchClient({ url, token: "abc" }), url);
+  const seen = [];
+  const fetch = async (address, options) => { seen.push(options); return new Response("{}", { status: 302, headers: { location: "http://example.com/" } }); };
+  const branch = new BranchClient({ url: "http://127.0.0.1:3210", token: "abc", fetch });
+  await assert.rejects(branch.state(), (error) => error.status === 302);
+  assert.equal(seen[0].redirect, "manual");
+  assert.doesNotMatch(inspect(branch, { depth: 1 }), /abc/, "printing a client never shows the key");
+  assert.deepEqual(Object.keys(branch).filter((key) => key === "token"), []);
 });
 
 test("it reads the address and key an install already wrote, so a script needs no configuration", async (t) => {
