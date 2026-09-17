@@ -71,6 +71,12 @@ export const deviceTools: readonly string[] = ["device.list",
 const askingTools = new Set(Object.values(capabilityInfo)
   .filter((info) => info.kind === "capture" || info.kind === "run").map((info) => info.tool));
 export const asksUnlessRuled = (tool: string): boolean => askingTools.has(tool);
+/**
+ * Integration review: a yes to a picture, a recording or a command is for that one call; it is not
+ * remembered for the conversation unless the owner picks that when answering (or writes a rule).
+ */
+const everyTimeTools = new Set(["device.camera", "device.screen", "device.listen", "device.run"]);
+export const asksEveryTime = (tool: string): boolean => everyTimeTools.has(tool);
 
 /** What a platform can offer at all, before any switch is looked at. */
 export function offeredOn(platform: DevicePlatform): Capability[] {

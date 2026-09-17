@@ -6,7 +6,7 @@ import { sandboxChoices } from "./sandbox.js";
 import { sandboxBackends } from "./sandbox-backends.js";
 import type { Store } from "./store.js";
 import { optionalFields } from "./feature-switches.js";
-import { asksUnlessRuled } from "./devices/capabilities.js"; // mac7/nodes
+import { asksEveryTime, asksUnlessRuled } from "./devices/capabilities.js"; // mac7/nodes
 
 export { globMatches } from "./policy-resources.js";
 
@@ -247,7 +247,8 @@ function unmatched(policy: Policy, request: PolicyRequest): PolicyOutcome {
   // ---- mac7/nodes: a device taking a picture, a sound, a place, a file or running a command asks
   // unless a rule decided (src/devices/capabilities.ts). A yes is remembered for the conversation. ----
   if (asksUnlessRuled(request.tool))
-    return { decision: "ask", rule: { tool: request.tool, match: request.target || "*", applies: "any", decision: "ask", remember: "session" } };
+    return { decision: "ask", rule: { tool: request.tool, match: request.target || "*", applies: "any", decision: "ask",
+      remember: asksEveryTime(request.tool) ? "never" : "session" } };
   // ---- end mac7/nodes ----
   if (request.resource?.kind !== "command" || policy.unmatchedCommands === "allow")
     return { decision: "allow", rule: null };
