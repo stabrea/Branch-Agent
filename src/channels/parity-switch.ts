@@ -80,6 +80,7 @@ export class SwitchedChannel implements ChannelAdapter, PostedChannel {
     this.id = inner.id;
     this.kind = inner.kind;
     if (inner.maxTextLength !== undefined) this.maxTextLength = inner.maxTextLength;
+    this.passThrough();
   }
   get position(): ParitySwitch { return this.options.read(); }
   botName(): string | null { return this.inner.botName(); }
@@ -113,10 +114,26 @@ export class SwitchedChannel implements ChannelAdapter, PostedChannel {
     await this.wake();
     return this.inner.receivePost(raw, headers);
   }
-  /** Chat-live's optional extras, passed through when the real channel has them. */
-  async sendTyping(chatId: string): Promise<void> {
-    const inner = this.inner as { sendTyping?(chatId: string): Promise<void> };
-    if (this.open && inner.sendTyping) await inner.sendTyping(chatId);
+  /**
+   * The optional extras (buttons, voice, and chat-live's typing, edit and react) exist on this
+   * wrapper only when the real channel has them, so the router never offers what it cannot do.
+   * Typing is only shown on an open connection; the others open it the way a send does.
+   */
+  declare sendTyping?: (chatId: string) => Promise<void>;
+  declare edit?: (chatId: string, messageId: string, text: string) => Promise<void>;
+  declare react?: (chatId: string, messageId: string, emoji: string, previous?: string) => Promise<void>;
+  declare sendButtons?: NonNullable<ChannelAdapter["sendButtons"]>;
+  declare sendVoice?: NonNullable<ChannelAdapter["sendVoice"]>;
+  private passThrough(): void {
+    const inner = this.inner as unknown as Record<string, unknown>;
+    const self = this as unknown as Record<string, unknown>;
+    if (typeof inner.sendTyping === "function")
+      self.sendTyping = async (chatId: string) => { if (this.open) await (inner.sendTyping as (id: string) => Promise<void>).call(this.inner, chatId); };
+    for (const name of ["edit", "react", "sendButtons", "sendVoice"] as const) {
+      const method = inner[name];
+      if (typeof method !== "function") continue;
+      self[name] = async (...args: unknown[]) => { await this.wake(); return (method as (...a: unknown[]) => unknown).apply(this.inner, args); };
+    }
   }
   private async wake(): Promise<void> {
     const position = this.position;

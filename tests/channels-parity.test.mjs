@@ -76,6 +76,28 @@ test("off never connects, on connects at once, when needed connects to send and 
   assert.equal(isPostedChannel(channel), false, "a polled service is not offered a web address");
 });
 
+test("the switch only offers the extras the real channel has, and typing never opens a connection", async () => {
+  const plain = new SwitchedChannel(fakeInner(), { read: () => "on" });
+  for (const name of ["sendTyping", "edit", "react", "sendButtons", "sendVoice"])
+    assert.equal(typeof plain[name], "undefined", `${name} is not offered by a channel that lacks it`);
+  const inner = fakeInner();
+  const typed = [];
+  inner.sendTyping = async (chatId) => { typed.push(chatId); };
+  inner.edit = async (chatId, messageId, text) => { inner.sent.push([chatId, `edit ${messageId} ${text}`]); };
+  let position = "when-needed";
+  const rich = new SwitchedChannel(inner, { read: () => position, idleMs: 1000 });
+  await rich.start(async () => undefined);
+  await rich.sendTyping("c");
+  assert.deepEqual(typed, [], "typing is not worth opening a connection for");
+  await rich.edit("c", "m1", "better");
+  assert.equal(inner.starts, 1, "an edit opens the connection like a send");
+  await rich.sendTyping("c");
+  assert.deepEqual(typed, ["c"]);
+  position = "off";
+  await assert.rejects(() => rich.edit("c", "m1", "again"), /switched off/);
+  await rich.stop();
+});
+
 test("the card's switches are saved, listed, and applied to a connected channel at once", async (t) => {
   const context = await fixture(t);
   const { app } = context;
