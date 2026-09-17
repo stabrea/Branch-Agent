@@ -352,6 +352,8 @@ async function repository(app) {
   await run(["config", "user.name", "Test Owner"]);
   await run(["config", "user.email", "owner@example.invalid"]);
   await writeFile(join(app.runtime.workspace, "README.md"), "# Falcon\n");
+  await mkdir(join(app.runtime.workspace, "src"), { recursive: true });
+  await writeFile(join(app.runtime.workspace, "src", "api.ts"), "export const x = 0;\n");
   await run(["add", "."]);
   await run(["commit", "-m", "start"]);
   return run;
@@ -419,10 +421,12 @@ test("R17-043: the project's review checks run as read-only helpers against the 
   await assert.rejects(app.coding.checks.run({ only: [] }, context()), /switched off/);
   on("review-checks");
   const outcome = await app.runtime.executeTool("review.checks", {}, { mode: "owner" });
-  assert.deepEqual(outcome.changed, ["README.md"], "untracked files are not in git diff, tracked changes are");
+  assert.deepEqual(outcome.changed, ["README.md", "src/api.ts"]);
   const byName = Object.fromEntries(outcome.checks.map((c) => [c.title, c]));
-  assert.equal(byName.docs.status, "skipped");
-  assert.equal(byName.tests.status, "skipped", "src/api.ts is new and untracked, so no tracked change touches src/");
+  assert.equal(byName.docs.status, "skipped", "no change under docs/");
+  assert.equal(byName.tests.status, "failed", "a change under src/ ran the tests check, which found something");
+  assert.deepEqual(byName.tests.findings, ["src/api.ts:1 has no test"]);
+  assert.ok(asked.some((call) => /Review check "tests"[\s\S]*export const x = 1/.test(call.prompt)), "the helper was handed the changes");
   assert.equal(byName.logging.status, "passed");
   assert.ok(byName.logging.runId, "the check ran as a helper task of its own");
   assert.ok(asked.every((call) => !call.tools.some((name) => /write|shell|patch|edit/.test(name))), "helpers only read");
