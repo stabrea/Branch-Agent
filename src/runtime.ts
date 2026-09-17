@@ -93,6 +93,10 @@ import type { RunToolEmbedder, ToolEmbedder } from "./tool-index.js";
 import { mcpAppIn } from "./mcp-apps.js";
 import { NoteInputSchema } from "./tool-usage.js";
 import { estimateCost, formatCost, pricingSettings } from "./pricing.js";
+// --- R17-S-B: the owner's knobs, read fresh at each marked hook (src/knobs/apply.ts) ---
+import * as knobs from "./knobs/apply.js";
+import { thinkingFilter, withoutThinking } from "./knobs/thinking.js";
+// --- end R17-S-B ---
 import { Orchestration, type ConductOptions, type PlanAnswer, type StoredPlan } from "./orchestration.js";
 import { commandDifference, commandWords, correctionLabel, offPlanDifference, relatedCommand } from "./plan-act.js";
 import { type AnswerShape, askInShape, shapeInstructions, type ShapedAnswer } from "./answer-shape.js";
@@ -111,7 +115,7 @@ import { boundPictures, markTaken, picturesKeptInView, takenPictureWords } from 
 import { learnAfterTask } from "./reflection/hook.js";
 import { advisedPreload } from "./fly-core/apply.js";
 
-const childConcurrency = 4;
+// R17-S11: sub-tasks at once is the owner's `parallelSubtasks` setting (shipped as 4, src/knobs/settings.ts).
 /** What the approval policy says about one tool call, before anything is done about it. */
 export interface PolicyCheck {
   decision: PolicyDecision;
@@ -165,10 +169,10 @@ export function picturesNote(images?: ImagePart[]): string {
 const summaryMessage = (summary: string): Message => ({ role: "system", content: `Earlier in this conversation (compacted summary):\n${summary}` });
 const compactionInstructions = "Summarize the conversation below for a handoff to yourself. Reply with JSON only: {\"goals\":[\"what we are trying to do\"],\"decisions\":[\"what was settled\"],\"openQuestions\":[\"what is still unanswered\"],\"filesTouched\":[\"paths that were read or changed\"]}. Be concrete, keep identifiers and paths exactly, and use at most eight short entries per list.";
 /** Range of stored, non-system messages to summarise, leaving at least `compactionKeep` recent ones and never splitting a tool exchange. */
-export function compactionSplit(messages: Message[], ids: (number | null)[]): { from: number; to: number } | null {
+export function compactionSplit(messages: Message[], ids: (number | null)[], keep = compactionKeep): { from: number; to: number } | null {
   const from = messages.findIndex((m, i) => m.role !== "system" && ids[i] !== null);
   if (from < 0) return null;
-  let to = messages.length - compactionKeep;
+  let to = messages.length - keep; // R17-S08: `keep` is the owner's "recent messages kept"
   while (to > from && (ids[to] === null || messages[to]!.role !== "user")) to--;
   return to - from >= 2 ? { from, to } : null;
 }
@@ -414,9 +418,10 @@ export class Runtime {
   async delegateBackground(prompt: string, parent: ToolContext, permissions: string[], instructions: string, options: DelegateOptions = {}): Promise<{ childRunId: string; sessionId: string }> {
     if (parent.depth >= 3) throw new Error("Delegation depth limit reached");
     if (permissions.some((p) => !parent.permissions.has(p))) throw new Error("Delegation permission escalation denied");
-    const timeoutMs = options.timeoutMs ?? 120000;
+    const sub = knobs.subtaskLimits(this.store, this.owner); // R17-S11
+    const timeoutMs = options.timeoutMs ?? sub.timeoutMs;
     if (!Number.isInteger(timeoutMs) || timeoutMs < 1000 || timeoutMs > 120000) throw new Error("Child timeout must be 1 to 120 seconds");
-    const context = { ...parent, signal: AbortSignal.timeout(timeoutMs), permissions: new Set(permissions), depth: parent.depth + 1, budget: new Budget(), ...(options.agent ? { agent: options.agent } : {}) };
+    const context = { ...parent, signal: AbortSignal.timeout(timeoutMs), permissions: new Set(permissions), depth: parent.depth + 1, budget: new Budget(knobs.taskBudget(this.store, this.owner)), ...(options.agent ? { agent: options.agent } : {}) };
     let started: Run | undefined;
     const startedAt = new Promise<Run>((resolve) => { started = undefined; void resolve; });
     void startedAt;
@@ -578,10 +583,12 @@ export class Runtime {
     if (parent.depth >= 3) throw new Error("Delegation depth limit reached");
     if (permissions.some((p) => !parent.permissions.has(p)))
       throw new Error("Delegation permission escalation denied");
-    const timeoutMs = options.timeoutMs ?? 120000;
+    // R17-S11: the owner's sub-task timeout and how many run at once; shipped as 120 seconds and 4.
+    const sub = knobs.subtaskLimits(this.store, this.owner), atOnce = sub.atOnce;
+    const timeoutMs = options.timeoutMs ?? sub.timeoutMs;
     if (!Number.isInteger(timeoutMs) || timeoutMs < 1000 || timeoutMs > 120000) throw new Error("Child timeout must be 1 to 120 seconds");
     const running = this.children.get(parent.runId) ?? 0;
-    if (running >= childConcurrency) throw new Error(`Delegation concurrency limit reached (${childConcurrency} children at once)`);
+    if (running >= atOnce) throw new Error(`Delegation concurrency limit reached (${atOnce} children at once)`);
     this.children.set(parent.runId, running + 1);
     const timeout = new AbortController();
     const timer = setTimeout(() => timeout.abort(new Error(`Child stopped: it took longer than ${timeoutMs / 1000} seconds`)), timeoutMs);
@@ -593,7 +600,8 @@ export class Runtime {
       ...(options.agent ? { agent: options.agent } : {}),
     };
     try {
-      return await this.track(() => this.execute({ prompt, signal: context.signal, ...(options.checks ? { checks: options.checks } : {}), ...(options.style ? { style: options.style } : {}) }, context, instructions));
+      const model = knobs.subtaskModel(this.store, this.owner, (id) => this.models.presets.has(id)); // R17-S11
+      return await this.track(() => this.execute({ prompt, signal: context.signal, ...(model ? { model } : {}), ...(options.checks ? { checks: options.checks } : {}), ...(options.style ? { style: options.style } : {}) }, context, instructions));
     } finally {
       clearTimeout(timer);
       const left = (this.children.get(parent.runId) ?? 1) - 1;
@@ -693,7 +701,7 @@ ${run.output.slice(0, 6000)}`;
       const refusal = this.monthlyBudgetRefusal();
       if (refusal) throw new Error(refusal);
     }
-    const budget = parent?.budget ?? new Budget(options.budget);
+    const budget = parent?.budget ?? new Budget(options.budget ?? knobs.taskBudget(this.store, this.owner)); // R17-S09
     // ── bucket-15: the owner's inlet filters see a new message before anything else does. ──
     const inlet = !parent && !options.resumeFrom ? this.filterText("inlet", options.prompt, [options.model ?? "", this.provider.name]) : null;
     if (inlet?.blocked) throw new Error(inlet.blocked);
@@ -780,13 +788,19 @@ ${run.output.slice(0, 6000)}`;
     // asked with no tools, charged to this task, as reviewRun's is; everything it finds waits for
     // the owner. Nothing happens unless its switches are on, and it never fails the task. ──
     if (!parent) void this.track(() => learnAfterTask(this, settled, context, async (system, question) => {
-      const preset = this.models.plan(context.owner, run.sessionId).candidates[0]!;
+      const preset = this.sideJobPreset(this.owner, run.sessionId); // R17-S11
       const scoped: ToolContext = { ...context, permissions: new Set(), budget: new Budget({ maxSteps: 2, maxTokens: 24000 }), signal: AbortSignal.timeout(120000) };
       return (await this.complete(run, [{ role: "system", content: system }, { role: "user", content: question }], scoped, preset, null)).content;
     })).catch(() => undefined);
     if (!parent) { try { this.store.governanceFor(context.owner).recordOutcome(run.id, settled.status, settled.output); } catch { /* governance never fails a task */ } }
     if (!parent) this.drainFollowUps(run.sessionId);
     return settled;
+  }
+  /** R17-S11: the connection side jobs use: the owner's choice when it exists, else the conversation's own. */
+  private sideJobPreset(owner: string, sessionId: string, fallback?: ModelPreset): ModelPreset {
+    const chosen = knobs.sideJobModel(this.store, owner, (id) => this.models.presets.has(id));
+    if (chosen) return this.models.presets.get(chosen)!;
+    return fallback ?? this.models.plan(owner, sessionId).candidates[0]!;
   }
   /** When review is on, asks the model separately, after the task, what is worth remembering; suggestions wait for the owner. */
   private scheduleReview(run: Run, context: ToolContext): void {
@@ -796,7 +810,7 @@ ${run.output.slice(0, 6000)}`;
   private async reviewRun(run: Run, context: ToolContext): Promise<void> {
     const transcript = this.store.messages(run.sessionId).filter((m) => m.role !== "system").slice(-8)
       .map((m) => `${m.role}: ${m.content.slice(0, 1500)}`).join("\n").slice(0, 8000);
-    const preset = this.models.plan(context.owner, run.sessionId).candidates[0]!;
+    const preset = this.sideJobPreset(this.owner, run.sessionId); // R17-S11
     const scoped: ToolContext = { ...context, permissions: new Set(), budget: new Budget({ maxSteps: 2, maxTokens: 8000 }), signal: AbortSignal.timeout(60000) };
     const completion = await this.complete(run, [
       { role: "system", content: reviewInstructions },
@@ -1027,8 +1041,12 @@ ${run.output.slice(0, 6000)}`;
       this.store.event(run.id, "catalog.size", { round: round + 1, ...catalog.stats() });
       this.journal.turn(run.id, run.sessionId, round + 1); // mac3/never-break
       const everyModel = [plan.choice.presetName ?? "", plan.choice.presetId ?? "", this.provider.name, ...route.candidates.flatMap(namesOf)];
-      const preview = onTextDelta && this.holdsPreview(everyModel) ? () => undefined : onTextDelta;
+      const shown = onTextDelta && this.holdsPreview(everyModel) ? () => undefined : onTextDelta;
+      // R17-S12: with "show reasoning" off, written-out thinking never reaches the page or the answer.
+      const reasoningShown = knobs.showsReasoning(this.store, this.owner);
+      const preview = shown && !reasoningShown ? thinkingFilter(shown) : shown;
       const completion = await this.completeWithRetries(run, messages, context, route, preview);
+      if (!reasoningShown) completion.content = withoutThinking(completion.content);
       const filterModels = [this.provider.name, ...namesOf(route.candidates[route.index])];
       // A think-then-act specialist writes one line of reasoning first. The transcript keeps it, so
       // the model can see its own trail; the owner reads it in the events; the answer never has it.
@@ -1229,6 +1247,8 @@ ${run.output.slice(0, 6000)}`;
     // given their own remembered facts and never the owner's.
     const snapshot = this.store.review.sessionSnapshot(memoryScope(this.store, context), run.sessionId, context.agent);
     if (snapshot.count) messages.push({ role: "system", content: `What you remember about the person (snapshot taken when this conversation started; use memory.search for anything newer):\n${snapshot.text}` });
+    const aboutYou = knobs.aboutYouMessage(this.store, memoryScope(this.store, context)); // R17-S13
+    if (aboutYou) messages.push(aboutYou);
     this.store.event(run.id, "memory.snapshot", { count: snapshot.count, reused: snapshot.reused, takenAt: snapshot.takenAt });
     const working = this.store.workingMessages(run.sessionId);
     if (working.summary) messages.push(summaryMessage(working.summary));
@@ -1310,7 +1330,7 @@ ${run.output.slice(0, 6000)}`;
     }
   }
   private clipped(run: Run, call: ToolCall, serialised: string): string {
-    const { text, omitted } = clipToolResult(serialised, this.reliability.toolResultChars);
+    const { text, omitted } = clipToolResult(serialised, knobs.toolLimits(this.store, this.owner, this.reliability).toolResultChars); // R17-S10
     if (omitted) this.store.event(run.id, "tool.result_clipped", { name: call.name, id: call.id, omitted, kept: text.length });
     return text;
   }
@@ -1443,7 +1463,7 @@ ${run.output.slice(0, 6000)}`;
   private budgetOf(messages: Message[], context: ToolContext): ContextBudget {
     const plain = messages.map(textOnly);
     return contextBudget({
-      limit: contextLimit,
+      limit: knobs.contextWindow(this.store, this.owner, contextLimit), // R17-S08
       system: estimateTokens(plain.filter((message) => message.role === "system")),
       catalog: catalogTokens(this.toolsFor(context)),
       messages: estimateTokens(plain),
@@ -1467,10 +1487,14 @@ ${run.output.slice(0, 6000)}`;
    */
   private async maybeCompact(run: Run, messages: Message[], ids: (number | null)[], context: ToolContext, route: ModelRoute, budget: ContextBudget): Promise<void> {
     const before = budget.messages;
+    // R17-S08: the owner may switch folding off, or fold at a share of the room of their own choosing.
+    const threshold = knobs.compactionThresholdFor(this.store, this.owner, budget);
+    if (threshold === null) return;
+    budget = { ...budget, threshold };
     if (before <= budget.threshold && budget.headroom >= 0) return;
-    const split = compactionSplit(messages, ids);
+    const split = compactionSplit(messages, ids, knobs.keepRecent(this.store, this.owner));
     if (!split) return;
-    const preset = route.candidates[route.index]!;
+    const preset = this.sideJobPreset(this.owner, run.sessionId, route.candidates[route.index]!); // R17-S11
     const transcript = messages.slice(split.from, split.to).map((m) => `${m.role}: ${m.content}${m.toolCalls ? " [requested tools: " + m.toolCalls.map((c) => c.name).join(", ") + "]" : ""}`).join("\n").slice(0, 60000);
     const previous = messages.slice(1, split.from).filter((m) => m.role === "system").map((m) => m.content).join("\n");
     const summariser: Message[] = [
@@ -1533,7 +1557,7 @@ ${run.output.slice(0, 6000)}`;
         }
         const retry = observedText
           ? undefined
-          : planRetry(error, retriesUsed, this.retryPolicy);
+          : planRetry(error, retriesUsed, knobs.retryPolicyFor(this.store, this.owner, this.retryPolicy)); // R17-S09
         if (context.signal.aborted) throw error;
         if (!retry) {
           if (observedText || !this.fallBack(run, context, route, error)) throw error;
@@ -1543,7 +1567,7 @@ ${run.output.slice(0, 6000)}`;
         this.checkRetryBudget(messages, context);
         this.store.event(run.id, "model.retry_scheduled", {
           attempt: retriesUsed + 1,
-          maxRetries: this.retryPolicy.maxRetries,
+          maxRetries: knobs.retryPolicyFor(this.store, this.owner, this.retryPolicy).maxRetries,
           delayMs: retry.delayMs,
           status: retry.status,
           provider: this.provider.name,
@@ -1607,9 +1631,12 @@ ${run.output.slice(0, 6000)}`;
     shape?: AnswerShape,
   ): Promise<Completion> {
     context.budget.step(context.signal);
+    // R17-S09: a task that has reached the owner's spending cap for one task stops here.
+    const capped = knobs.spendCapRefusal(this.store, this.owner, run.id, preset.model);
+    if (capped) throw new BudgetError(capped);
     const tools = this.toolsFor(context);
     const input = estimateTokens({ messages, tools });
-    if (input > contextLimit) throw new BudgetError(tooLong);
+    if (input > knobs.contextWindow(this.store, this.owner, contextLimit)) throw new BudgetError(tooLong); // R17-S08
     // The same question asked twice. The kept answer is looked for before anything is charged or
     // written down as an attempt, so a round that never reached the provider really does cost
     // nothing — in the inspector and in the figures alike. The step count still applies, so a task
@@ -1642,6 +1669,7 @@ ${run.output.slice(0, 6000)}`;
       this.models.requests.record(preset.id);
       // mac2/leak-guard: the copy that is sent has key-shaped values hidden; `messages` stays as it was.
       const request = { messages: this.leakGuard.request(run.id, messages), tools, maxTokens, ...(reasoning ? { reasoning } : {}),
+        ...knobs.serviceTierFor(this.store, this.owner), // R17-S12
         ...(shape ? { responseFormat: { name: shape.name, schema: shape.schema } } : {}) };
       const raw = onTextDelta
         ? await withStallWatchdog(context.signal, this.reliability.modelStallMs, (signal, touch) =>
@@ -2215,7 +2243,7 @@ ${run.output.slice(0, 6000)}`;
     await this.pace(context, "tool", this.policy().limits.toolCallsPerMinute);
     const gated = await this.gate(call, args, context);
     if (gated.refusal) return gated.refusal;
-    const limitMs = this.reliability.toolTimeoutMs, timeout = AbortSignal.timeout(limitMs);
+    const limitMs = knobs.toolLimits(this.store, this.owner, this.reliability).toolTimeoutMs, timeout = AbortSignal.timeout(limitMs); // R17-S10
     // How tightly a program this call starts is held travels with the call, so a tool that starts
     // one can honour the owner's rule without knowing anything about the policy.
     // wave mac3 (os-sandbox, integration review): the wall comes only from wallContextFor below, never

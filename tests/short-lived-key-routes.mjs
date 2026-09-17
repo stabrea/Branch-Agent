@@ -236,6 +236,8 @@ export const ROUTES = {
   "/api/issues": "prefix",
   "/api/issues/context": "other POST",
   "/api/keychain/settings": "owner POST",
+  "/api/knobs": "owner POST", // R17-S-B
+  "/api/knobs/launch-file": "owner POST", // R17-S-B
   "/api/knowledge": "other POST",
   "/api/knowledge/:id": "other DELETE",
   "/api/knowledge/ask": "task POST",

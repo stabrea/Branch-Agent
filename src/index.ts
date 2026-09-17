@@ -200,6 +200,9 @@ import { attachLearningLoop } from "./reflection/hook.js";
 // mac2/fly-core-2: advice that acts, the owner's view of what was learned, and skill ideas as drafts.
 import { advisedFacts } from "./fly-core/apply.js";
 import { warmLearningCore } from "./fly-core/hook.js";
+// R17-S-B: the hidden knobs, with plain labels (src/knobs/).
+import { memorySnapshotBudget as knobSnapshotLimits } from "./knobs/apply.js";
+import { leakOptions } from "./knobs/leak-options.js";
 import { skillIdeaDraft } from "./fly-core/skill-idea.js";
 import { forgetLearning, learningCoreView } from "./fly-core-api.js";
 
@@ -423,7 +426,11 @@ export async function createBranch(options: {
   // is happening now, then the job in hand, then everything the assistant knows for good.
   // mac2/fly-core-2: with the learning core "on", the facts that helped in similar tasks go first.
   store.review.orderFacts = (factOwner, agent, sessionId) =>
-    chooseForInjection(advisedFacts(sessionId, memory.retrieval.ranking(factOwner, agent).map((entry) => entry.record)), memorySnapshotLimits).records;
+    chooseForInjection(advisedFacts(sessionId, memory.retrieval.ranking(factOwner, agent).map((entry) => entry.record)), knobSnapshotLimits(store, runtime.owner)).records;
+  // ── R17-S-B: the owner's memory budget and the leak guard's sensitivity, read fresh each time. ──
+  store.review.snapshotLimits = () => knobSnapshotLimits(store, runtime.owner);
+  runtime.leakGuard.options = () => leakOptions(store, runtime.owner);
+  // ── end R17-S-B ──
   registerMemory(registry, store, memory.retrieval);
   registerHistory(registry, store);
   registerSessions(registry, store);
@@ -1607,6 +1614,14 @@ export { Interop } from "./interop/index.js";
 export { AddOns, applyFilters, branchPluginFiles, definePlugin, addOnApiVersion, readOffer, signListEntry, verifyListEntry, pluginWall } from "./add-ons/index.js";
 // Wave mac2 (guards): the loop guard, the folder's own instructions and folder trust.
 export * from "./loop-guard.js";
+// R17-S-B: the hidden knobs, with plain labels.
+export * from "./knobs/settings.js";
+export * from "./knobs/apply.js";
+export * from "./knobs/environment.js";
+export * from "./knobs/thinking.js";
+export * from "./knobs/commands.js";
+export * from "./knobs/leak-options.js";
+export { LaunchFileChangeSchema, launchFileView, saveLaunchFile } from "./knobs/launch-file.js";
 export * from "./folder-trust.js";
 export * from "./run-guards.js";
 // Wave mac3 (tool-safety): "always allow" per subcommand, and the second look before an approval.

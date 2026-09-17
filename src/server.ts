@@ -6,7 +6,7 @@ import {
 } from "node:http";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { readFile, writeFile, lstat } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve as resolvePath } from "node:path"; // R17-S-B: resolvePath
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { quietJobsApi } from "./scheduler.js";
@@ -136,7 +136,7 @@ import { pullRequestHookSettings, savePullRequestHookSettings } from "./pr-hook.
 import { markShortLivedKey, startedWithShortLivedKey } from "./key-context.js";
 import { connectionCheck } from "./local-connection-policy.js"; // mac5/key-sweep: Test this connection
 import type { NetworkPolicy } from "./network-policy.js";
-import { generalShortLivedKeyRefusal, ownerOnlyRead, taskRouteFor } from "./short-lived-keys.js"; // mac5/key-sweep
+import { generalShortLivedKeyRefusal, knobsRefusal, ownerOnlyRead, taskRouteFor } from "./short-lived-keys.js"; // mac5/key-sweep (R17-S-B: knobsRefusal)
 // ---- bucket 19: people signing in from their own device (src/people/). ----
 import { notPeople, PeopleHttpError, peopleApi, peopleSignInRoute } from "./people/api.js";
 import { People } from "./people/index.js";
@@ -180,6 +180,8 @@ import { handlesSandboxRemotePath, sandboxRemoteApi, SandboxRemoteApiError } fro
 import { contextFileSinkFor, defaultMoveInOptions, handlesMoveInPath, moveInApi, MoveInApiError } from "./migrate-api.js";
 // Wave mac2 (guards): which workspace folders are trusted, and the loop guard switch.
 import { guardsApi, handlesGuardsPath } from "./run-guards.js";
+// R17-S-B: the hidden knobs, with plain labels, and the launch settings file as a card.
+import { handlesKnobsPath, knobsApi, KnobsApiError } from "./knobs/api.js";
 // mac3/never-break: the gateway switch and suggested changes (src/never-break/api.ts).
 import { handlesNeverBreakPath, NeverBreakApiError, neverBreakApi } from "./never-break/api.js";
 import { snapshotData } from "./never-break/canary.js";
@@ -442,6 +444,7 @@ async function staticFile(
     "/usage-report.js": ["usage-report.js", "text/javascript; charset=utf-8"], // bucket 14 (A0367)
     // Wave mac2 (guards): the card that asks whether a folder is trusted.
     "/folder-trust.js": ["folder-trust.js", "text/javascript; charset=utf-8"],
+    "/knobs.js": ["knobs.js", "text/javascript; charset=utf-8"], // R17-S-B: the hidden knobs
     // mac3/never-break: the Keep running card and the Telegram setup card.
     "/never-break.js": ["never-break.js", "text/javascript; charset=utf-8"],
     "/telegram-setup.js": ["telegram-setup.js", "text/javascript; charset=utf-8"],
@@ -816,6 +819,10 @@ async function api(
     });
   // Wave mac2 (guards): which workspace folders are trusted, what each carries, and both switches.
   if (handlesGuardsPath(path)) return guardsApi(app, request, path, readBody);
+  // R17-S-B: the hidden knobs. Every change is the owner's (see offLimitsToShortLivedKeys).
+  if (handlesKnobsPath(path))
+    return knobsApi(app, request, path, readBody, () => (process.env.BRANCH_INTEGRATIONS ? resolvePath(process.env.BRANCH_INTEGRATIONS) : null))
+      .catch((error: unknown) => { throw error instanceof KnobsApiError ? new HttpError(error.status, error.message) : error; });
   // mac3/never-break: the gateway switch and the changes the assistant suggested for it.
   if (handlesNeverBreakPath(path))
     return neverBreakApi(dataDir, request, path, readBody, {
@@ -3108,6 +3115,8 @@ export function offLimitsToShortLivedKeys(method: string | undefined, path: stri
     return "A short-lived key cannot change the wall around programs or where scripts run. Do that in the app window.";
   // Wave mac2 (guards): trusting a folder lets what is in it steer the assistant.
   if (handlesGuardsPath(path)) return "A short-lived key cannot change which folders are trusted or how repeated steps are stopped. Do that in the app window.";
+  // R17-S-B: the knobs include which environment variables commands get and how keys are hidden.
+  if (handlesKnobsPath(path)) return knobsRefusal;
   // mac3/never-break: the gateway's settings are the owner's alone.
   if (handlesNeverBreakPath(path)) return "A short-lived key cannot change how Branch keeps itself running. Do that in the app window.";
   // mac3/never-break (integration review): letting a new person reach the assistant is the owner's alone.

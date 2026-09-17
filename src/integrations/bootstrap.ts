@@ -12,6 +12,7 @@ import type { RunArtifacts } from '../artifacts.js';
 import { ShellConfigSchema } from './shell-config.js';
 import { BranchShell, registerShell, type SecretResolver } from './shell.js';
 import { ShellSessions, registerShellSessions } from '../shell-session.js';
+import { commandTuning } from '../knobs/commands.js'; // R17-S10
 import type { Store } from '../store.js';
 import { ChannelPolicySchema, type ChannelAdapter, type ChannelRouter } from '../channels/router.js';
 import { TelegramAdapter } from '../channels/telegram.js';
@@ -206,6 +207,8 @@ const ConfigSchema = z.object({ mcp: z.array(McpConfigSchema).max(8).default([])
   git: GitConfigSchema.optional(),
   issues: IssuesConfigSchema.optional(),
   hooks: z.array(HookSchema).max(16).default([]) }).strict();
+/** R17-S14: the whole launch settings file, so the Settings card can check a change before writing it. */
+export const LaunchFileSchema = ConfigSchema;
 
 export async function loadIntegrations(registry: ToolRegistry, path?: string, env = process.env, secrets?: SecretResolver, channels?: ChannelHost) {
   const closers: (() => Promise<void>)[] = [];
@@ -268,6 +271,9 @@ export async function loadIntegrations(registry: ToolRegistry, path?: string, en
       hosted.commandsNetless = config.shell.netless === true;
       const created = new BranchShell(config.shell, env, secrets);
       shell = created;
+      // R17-S10: the owner's command timeout and extra environment names, read for each command.
+      const tunedStore = channels?.store as Store | undefined, tunedOwner = channels?.context?.('bootstrap').owner;
+      if (tunedStore && tunedOwner) created.tuning = () => commandTuning(tunedStore, tunedOwner, env);
       await created.ready();
       registerShell(registry, created); closers.push(() => created.close());
       // A command line the owner can keep open, from the very same list of programs. It is closed
