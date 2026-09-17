@@ -97,6 +97,8 @@ import { maximumMemoryArchiveBytes } from "./memory.js";
 import { conversationMarkdown, maximumImportBytes } from "./memory-export.js";
 import { assistantIdentity, saveAssistantIdentity } from "./identity.js";
 import { contextFileStatus, saveContextFileSettings, contextFileSettings } from "./context-files.js";
+// mac3/reflection-skills: the learning loop's routes.
+import { reflectionApi } from "./reflection/api.js";
 import { voiceSettings, saveVoiceSettings } from "./voice.js";
 import { voiceApi } from "./voice-api.js";
 import { parseModelCommand } from "./model-switch.js";
@@ -367,6 +369,8 @@ async function staticFile(
     // Wave 9 redesign: the five places, the Settings window, the 44 themes' colours and the oak.
     "/layout.js": ["layout.js", "text/javascript; charset=utf-8"],
     "/context-files.js": ["context-files.js", "text/javascript; charset=utf-8"],
+    // mac3/reflection-skills: looking back (Library, Memory) and skills it wrote (Customize, Skills).
+    "/learning-loop.js": ["learning-loop.js", "text/javascript; charset=utf-8"],
     "/layout.css": ["layout.css", "text/css; charset=utf-8"],
     "/theme-catalogue.js": ["theme-catalogue.js", "text/javascript; charset=utf-8"],
     // Wave mac3: one theme's colours under Branch's token names, for the window and the dashboard.
@@ -777,6 +781,14 @@ async function api(
     };
   if (request.method === "POST" && path === "/api/context-files")
     return saveContextFileSettings(app.store, app.runtime.owner, await readBody(request));
+  // ── mac3/reflection-skills: looking back over conversations and skills written from experience. ──
+  if (path.startsWith("/api/reflection")) {
+    // What the assistant learns is the owner's, so only the owner changes how it learns.
+    if (request.method !== "GET") app.store.profiles.requireOwner("Changing what the assistant learns");
+    const answer = await reflectionApi(app.learningLoop, app.store, request.method ?? "GET", path, () => readBody(request));
+    if (answer === undefined) throw new HttpError(404, "Not found");
+    return app.runtime.hideSecrets(answer);
+  }
   if (request.method === "POST" && path === "/api/models")
     return app.runtime.models.configure(app.runtime.owner, await readBody(request));
   if (request.method === "POST" && path === "/api/models/test") return testModel(app, await readBody(request));
