@@ -24,7 +24,16 @@ export interface GraphRunView {
   state: Record<string, unknown>; error: string | null; question: string | null;
   nodes: GraphNodeState[];
 }
-/** How deep one flow may reach into another. The same cap the older list-shaped flows use. */
+/**
+ * How deep one flow may reach into another: three flows counting the outer one, so a flow inside a
+ * flow inside a flow is the most there can be.
+ *
+ * Careful: this counts differently from `maximumFlowDepth` in `src/workflows.ts` even though the
+ * number and the names match. There the chain is measured from the flow doing the calling, so the
+ * outermost flow is not in it; here the check is `chain.length + 2 > maximumGraphDepth`, which puts
+ * the outermost flow in the count. The two are the same depth in practice; the arithmetic is not
+ * the same, so do not copy one condition into the other.
+ */
 export const maximumGraphDepth = 3;
 const jsonOf = (value: unknown): string => {
   try { return JSON.stringify(value) ?? ""; } catch { return String(value); }
