@@ -3226,7 +3226,7 @@ check, restart, update and remove Branch with one script.
 | The `branch` command | `~/.local/bin/branch` | not written yet |
 | Conversations and files | Mac: `~/Library/Application Support/Branch Agent`. Linux: `~/.config/Branch Agent` | `%APPDATA%\Branch Agent` |
 | What is installed | `branch --version --json` prints `{"version","path","dataDir","running","installed"}` | — |
-| Restart | `branch quit`, then open the app (or `branch start`) | — |
+| Restart | `branch quit`, then open the app (or `branch start`); while the never-break gateway runs the engine, `branch quit` refuses (exit 1) | — |
 | Update | `branch update --yes` | the app's Update button |
 | Remove | `sh install-branch-agent.sh --uninstall [--delete-data]` or `branch uninstall [--delete-data]` | `Uninstall Branch Agent.cmd /quiet [--delete-data]` |
 
