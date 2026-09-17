@@ -1,10 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright";
 import { discardTemp } from "./temp-dir.mjs";
+import { openPlace, openSettingFor } from "./places.mjs";
 import { createBranch, saveDesktopSettings } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 import { NetworkPolicy } from "../dist/network-policy.js";
@@ -20,6 +21,13 @@ import { readDesktopSettings } from "../dist/integrations/desktop-config.js";
 import { readKeychainSettings, saveKeychainSettings } from "../dist/vault-sources.js";
 import { keychainApi, permissionsContext } from "../dist/keychain-api.js";
 import { linuxConsent, probeReader } from "../dist/os-permissions.js";
+import { Store } from "../dist/store.js";
+import { migrateFeatureSwitches, migrationKey } from "../dist/feature-switch-migration.js";
+import { optionalFields } from "../dist/feature-switches.js";
+import { BriefSettingsSchema } from "../dist/brief.js";
+import { meteringSettings, saveMeteringSettings } from "../dist/metering.js";
+import { readAttachSettings, saveAttachSettings } from "../dist/integrations/browser-attach.js";
+import { readPolicy, savePolicy } from "../dist/policy.js";
 
 /**
  * Wave mac2: the Stop notice, the voice list and the permission screens on a Mac and on Linux.
@@ -452,17 +460,6 @@ async function signIn(page, server) {
   await page.locator("#workspace").waitFor({ state: "visible" });
 }
 
-/**
- * Opens Settings the way a person does. The one step to change once the redesign's
- * tests/places.mjs is on this branch: `openPlace(page, home)` with the card's data-home.
- */
-async function openSettingsScreen(page, _home) {
-  const nav = page.locator('.nav[data-view="settings"]').first();
-  if (!(await nav.isVisible())) await page.locator("#rail-toggle").click();
-  await nav.click();
-  await page.evaluate(() => document.body.classList.remove("rail-open"));
-}
-
 const cardIds = ["os-permissions-card", "screen-switch-card", "system-voice-card", "keychain-card"];
 
 test("the cards go to their homes, and a settings link opens only on a click", async (t) => {
@@ -511,8 +508,8 @@ test("the cards go to their homes, and a settings link opens only on a click", a
   assert.deepEqual(await page.evaluate(() => globalThis.opened),
     ["x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"], "only a real settings page is opened");
 
-  // The two switch cards read and save the real settings.
-  await openSettingsScreen(page, "settings:computer");
+  // The two switch cards read and save the real settings, each opened where a person finds it.
+  await openPlace(page, "settings:computer");
   assert.equal(await page.locator("#screen-switch-card-mode").inputValue(), "off");
   assert.deepEqual(await page.locator("#screen-switch-card-mode option").evaluateAll((options) => options.map((o) => o.dataset.t)),
     ["switch.off", "switch.when-needed", "switch.on"]);
@@ -520,6 +517,7 @@ test("the cards go to their homes, and a settings link opens only on a click", a
   await page.locator("#screen-switch-card button").click();
   await page.waitForFunction(() => document.getElementById("screen-switch-card-status").textContent === "Saved.");
   assert.equal(readDesktopSettings(app.store, app.runtime.owner).mode, "on");
+  await openSettingFor(page, "#system-voice-card");
   await page.locator("#system-voice-card-mode").selectOption("when-needed");
   await page.locator("#system-voice-card button").click();
   await page.waitForFunction(() => document.getElementById("system-voice-card-status").textContent === "Saved.");
@@ -527,7 +525,7 @@ test("the cards go to their homes, and a settings link opens only on a click", a
 
   // At 400 px nothing goes sideways.
   await page.setViewportSize({ width: 400, height: 800 });
-  await openSettingsScreen(page, "settings:computer");
+  await openSettingFor(page, "#os-permissions-card");
   await card.scrollIntoViewIfNeeded();
   assert.equal(await card.isVisible(), true);
   const sideways = await page.evaluate((ids) => ids.map((id) => {
@@ -562,4 +560,98 @@ test("on Windows the permissions and Keychain cards stay hidden, and the switche
   assert.equal(await page.locator("#keychain-card").getAttribute("hidden"), "");
   assert.equal(await page.locator("#screen-switch-card").getAttribute("hidden"), null);
   assert.equal(await page.locator("#system-voice-card").getAttribute("hidden"), null);
+});
+
+/* ---------- integration: the switches ship off for new installs only ---------- */
+
+/** A data folder as an older Branch left it: a database with saved settings and no switches. */
+async function olderInstall(t, save) {
+  const root = await mkdtemp(join(tmpdir(), "branch-mac2-old-"));
+  await mkdir(join(root, "data"), { recursive: true });
+  const store = new Store(join(root, "data", "branch.sqlite"));
+  save(store);
+  store.close();
+  const app = await createBranch({
+    workspace: join(root, "workspace"), dataDir: join(root, "data"),
+    provider: { name: "scripted", async complete() { return { content: "ok", toolCalls: [] }; } },
+  });
+  t.after(async () => { await app.close(); await discardTemp(root); });
+  return app;
+}
+
+test("a new install starts with every switch off, and the one-time step is written down", async (t) => {
+  const { app } = await fixture(t);
+  const owner = app.runtime.owner;
+  assert.equal(voiceSettings(app.store, owner).systemVoice, "off");
+  assert.equal(readDesktopSettings(app.store, owner).mode, "off");
+  assert.equal(readKeychainSettings(app.store, owner).mode, "off");
+  assert.equal(app.store.get("settings", owner, migrationKey).data.existingInstall, false);
+  assert.equal((await new VoiceService(app.store, app.runtime.models, new NetworkPolicy({}), fetch,
+    { platform: "win32", runProgram: async () => { throw new Error("nothing may start"); } }).systemVoiceNames(owner)).length, 0);
+});
+
+test("an install from before the switches keeps its voice, screen and Keychain behaviour", async (t) => {
+  const app = await olderInstall(t, (store) => {
+    store.save("settings", "local", "voice", { ttsRoute: "windows", language: "en" });
+    store.save("settings", "local", "desktop-control", { enabled: true, maxActionsPerRun: 12 });
+    store.save("settings", "local", "keychain-entries", { enabled: true, entries: [{ name: "gh", service: "github.com" }] });
+  });
+  const owner = app.runtime.owner;
+  assert.equal(voiceSettings(app.store, owner).systemVoice, "when-needed", "the Windows voice keeps reading aloud");
+  assert.equal(voiceSettings(app.store, owner).ttsRoute, "windows", "the rest of the voice settings are kept");
+  const desktop = readDesktopSettings(app.store, owner);
+  assert.deepEqual([desktop.mode, desktop.enabled, desktop.maxActionsPerRun], ["when-needed", true, 12]);
+  const keychain = readKeychainSettings(app.store, owner);
+  assert.deepEqual([keychain.mode, keychain.entries.length], ["when-needed", 1]);
+  let started = 0;
+  const voice = new VoiceService(app.store, app.runtime.models, new NetworkPolicy({}), fetch,
+    { platform: "win32", runProgram: async () => { started += 1; return "Microsoft David\n"; } });
+  assert.deepEqual(await voice.systemVoiceNames(owner), ["Microsoft David"], "the voice list is still offered");
+  assert.equal(started, 1, "only the stand-in runner was asked");
+  assert.equal(app.store.get("settings", owner, migrationKey).data.existingInstall, true);
+});
+
+test("an older install that never touched voice settings keeps its voice; a switch left off stays off; it runs once", async (t) => {
+  const app = await olderInstall(t, (store) => {
+    store.save("settings", "local", "desktop-control", { enabled: false, maxActionsPerRun: 40 });
+  });
+  const owner = app.runtime.owner;
+  assert.equal(voiceSettings(app.store, owner).systemVoice, "when-needed");
+  assert.equal(readDesktopSettings(app.store, owner).mode, "off", "an unticked switch stays off");
+  assert.equal(readKeychainSettings(app.store, owner).mode, "off", "nothing saved means off");
+  // The owner turns the voice off afterwards; the step never runs again to undo that.
+  saveVoiceSettings(app.store, owner, { systemVoice: "off" });
+  assert.deepEqual(migrateFeatureSwitches(app.store, owner, true), { migrated: [] });
+  assert.equal(voiceSettings(app.store, owner).systemVoice, "off");
+});
+
+/* ---------- integration: saving one field keeps the others ---------- */
+
+test("settings that save one field at a time no longer reset the rest to their defaults", async (t) => {
+  const { app, root, closeFirst } = await fixture(t);
+  const owner = app.runtime.owner;
+  // The morning brief tool: only what the model sent is merged.
+  assert.deepEqual(optionalFields(BriefSettingsSchema).parse({ dailyAt: "08:00" }), { dailyAt: "08:00" });
+  // Metering: changing the folder keeps it switched on.
+  saveMeteringSettings(app.store, owner, { enabled: true, every: "weekly" });
+  const metering = saveMeteringSettings(app.store, owner, { folder: "costs" });
+  assert.deepEqual([metering.enabled, metering.every, metering.folder], [true, "weekly", "costs"]);
+  assert.equal(meteringSettings(app.store, owner).enabled, true);
+  // The owner's own browser: switching it on keeps the owner's extra refused sites.
+  saveAttachSettings(app.store, owner, { extraRefusedHosts: ["bank.example"] });
+  const attach = saveAttachSettings(app.store, owner, { enabled: true, runId: "r1" });
+  assert.deepEqual(attach.extraRefusedHosts, ["bank.example"], "a refused site is never dropped by another save");
+  assert.equal(readAttachSettings(app.store, owner).enabled, true);
+  // Approval limits: setting one limit keeps the other.
+  savePolicy(app.store, owner, { limits: { toolCallsPerMinute: 10, modelRoundsPerMinute: 5 } });
+  assert.deepEqual(savePolicy(app.store, owner, { limits: { toolCallsPerMinute: 20 } }).limits, { toolCallsPerMinute: 20, modelRoundsPerMinute: 5 });
+  assert.deepEqual(readPolicy(app.store, owner).limits, { toolCallsPerMinute: 20, modelRoundsPerMinute: 5 });
+  // Plan or act: choosing how far to go keeps "show me the plan first".
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  closeFirst(() => server.close());
+  const post = async (body) => (await fetch(server.url + "/api/plan-act", { method: "POST",
+    headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" }, body: JSON.stringify(body) })).json();
+  await post({ scope: "project", planMode: "show-plan" });
+  const after = await post({ scope: "project", autonomy: "every-step" });
+  assert.deepEqual([after.project.planMode, after.project.autonomy], ["show-plan", "every-step"]);
 });

@@ -45,6 +45,17 @@ export function sentFields<T extends object>(parsed: T, input: unknown): Partial
   return Object.fromEntries(Object.entries(parsed).filter(([key]) => sent.includes(key))) as Partial<T>;
 }
 
+/**
+ * The same object with every field optional and no defaults, for a form or tool that sends only
+ * what changed. Unlike `.partial()`, which in zod 4 still fills each missing field with its default,
+ * a field that was not sent stays missing, so merging over the saved settings keeps it.
+ */
+export function optionalFields<T extends z.ZodRawShape>(schema: z.ZodObject<T>) {
+  const shape = Object.fromEntries(Object.entries(schema.shape).map(([key, field]) =>
+    [key, (field instanceof z.ZodDefault ? field.unwrap() as z.ZodType : field as z.ZodType).optional()]));
+  return z.object(shape as unknown as { [K in keyof T]: z.ZodOptional<T[K] extends z.ZodDefault<infer I> ? I : T[K]> }).strict();
+}
+
 /* ---------- which tools each switched feature owns ---------- */
 
 /** The screen and keyboard tools (src/integrations/desktop-tools.ts). */

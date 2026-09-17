@@ -109,6 +109,7 @@ import { readFirstStart, recordFirstStart } from "./install/update-backup.js";
 import { readDesktopSettings, saveDesktopSettings } from "./integrations/desktop-config.js";
 import { readCredentialSettings, saveCredentialSettings } from "./credential-cli.js";
 import { keychainApi, keychainSettingsPath, permissionsContext } from "./keychain-api.js";
+import { optionalFields } from "./feature-switches.js";
 import { auditCsvResponse, handlesMiscPath, miscApi, MiscApiError } from "./misc-api.js";
 // Batch 19 (wave 7): spans, sending traces somewhere, the counters page and the rule sentences.
 import { handlesTracingPath, logsResponse, metricsResponse, tracingApi, TracingApiError } from "./tracing-api.js";
@@ -154,7 +155,7 @@ const PlanAnswerSchema = z.object({
   reason: z.string().trim().max(500).optional(),
 }).strict();
 /** Which of the two modes this conversation is in, and how far it may go before checking back. */
-const PlanActChoiceSchema = PlanActSettingsSchema.partial().extend({
+const PlanActChoiceSchema = optionalFields(PlanActSettingsSchema).extend({
   sessionId: z.string().max(64).optional(),
   /** "conversation" sets this one apart; "project" changes what every conversation starts from. */
   scope: z.enum(["conversation", "project"]).default("conversation"),

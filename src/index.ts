@@ -1,4 +1,5 @@
 import { mkdir } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { resolve, join, relative, isAbsolute } from "node:path";
 import { Store } from "./store.js";
 import { ToolRegistry } from "./registry.js";
@@ -107,6 +108,7 @@ import { ScreenWatches, registerScreenWatches } from "./screen-watch.js";
 import { MorningBrief, registerBrief } from "./brief.js";
 import { DesktopControl } from "./integrations/desktop.js";
 import { screenControlParts, type BannerWindowFactory } from "./integrations/desktop-banner.js";
+import { migrateFeatureSwitches } from "./feature-switch-migration.js";
 import { registerDesktop } from "./integrations/desktop-tools.js";
 import { registerComputer, type ComputerLayers } from "./integrations/computer.js";
 import { audit } from "./audit.js";
@@ -188,7 +190,10 @@ export async function createBranch(options: {
   await mkdir(dataDir, { recursive: true, mode: 0o700 });
   const files = new WorkspaceFiles(workspace);
   await files.checked(".", true);
+  // mac2/desktop-ui: whether this is a new install decides whether the three-way switches start off.
+  const existedBefore = existsSync(join(dataDir, "branch.sqlite"));
   const store = new Store(join(dataDir, "branch.sqlite"));
+  migrateFeatureSwitches(store, options.owner ?? "local", existedBefore);
   const lockerKey = options.lockerKey ?? new FileLockerKey(join(dataDir, "locker.key"));
   store.openLocker(lockerKey);
   // One scrubber in front of the whole event log: no saved password or key can be written down.

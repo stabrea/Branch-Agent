@@ -12,6 +12,7 @@ import { audit } from "./audit.js";
 import type { Store } from "./store.js";
 import type { UsageAggregate } from "./usage.js";
 import type { ModelPrice } from "./pricing.js";
+import { optionalFields } from "./feature-switches.js";
 
 export const MeteringSchema = z.object({
   /** Off until the owner asks for it. */
@@ -39,7 +40,7 @@ export function meteringSettings(store: Store, owner: string): MeteringSettings 
 }
 export function saveMeteringSettings(store: Store, owner: string, input: unknown): MeteringSettings {
   const current = meteringSettings(store, owner);
-  const wanted = MeteringSchema.partial().strict().parse(input);
+  const wanted = optionalFields(MeteringSchema).parse(input);
   const next = MeteringSchema.parse({ ...current, ...wanted });
   store.save("settings", owner, settingsKey, next);
   return next;
