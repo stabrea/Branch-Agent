@@ -22,6 +22,12 @@ export const BatchSettingsSchema = z.object({
   maxWaitMs: z.number().int().min(1000).max(86_400_000).default(600_000),
   /** How long to wait between asking. */
   pollMs: z.number().int().min(10).max(600_000).default(5_000),
+  /**
+   * How much less a set costs than the same questions one at a time. Both services charge half at
+   * the time of writing, so 0.5; the price tables price a model at its ordinary rate, so this is
+   * what turns that into what a set actually cost and what handing it over saved.
+   */
+  discount: z.number().min(0).max(0.9).default(0.5),
 }).strict();
 export type BatchSettings = z.infer<typeof BatchSettingsSchema>;
 const settingsKey = "batch-inference";
@@ -49,6 +55,14 @@ export interface BatchOutcome {
   usage: Usage;
   /** What the set cost, from what the service reported. Null when no price is on file. */
   cost: { amount: number | null; display: string };
+  /** What handing the set over saved against asking the same questions one at a time. */
+  saved: { amount: number | null; display: string };
+  /** The questions the set answered, and the ones that had to be asked again one at a time. */
+  counts: { batched: number; askedAgain: number; unanswered: number };
+  /** The ids that had to be asked again after the set only half worked. */
+  askedAgain: string[];
+  /** The ids nothing could answer, so the caller can say so rather than quietly dropping them. */
+  unanswered: string[];
 }
 
 const defaultMaxTokens = 2048;
@@ -61,29 +75,38 @@ export function supportsBatch(provider: Provider): boolean {
  * Hands the set over, waits for it, and collects the answers. Anything that goes wrong on the batch
  * road — no support, a refused hand-over, a set that failed or never finished — falls back to one
  * ordinary call per question rather than losing the work, and says so in `reason`.
+ *
+ * A set that only half worked is the case worth care. Whatever came back is collected first, even
+ * when the service called the set failed, and only the questions with no answer are asked again one
+ * at a time. The ones already answered are neither lost nor paid for twice, and the outcome names
+ * which had to be asked again and which nothing could answer at all.
  */
 export async function runBatch(
   store: Store, owner: string, preset: ModelPreset, questions: BatchQuestion[], signal: AbortSignal,
-  options: { sleep?: (ms: number) => Promise<void> } = {},
+  options: { sleep?: (ms: number) => Promise<void>; runId?: string } = {},
 ): Promise<BatchOutcome> {
   const settings = batchSettings(store, owner);
   const api = settings.enabled ? (() => { try { return preset.provider.batch?.() ?? null; } catch { return null; } })() : null;
   if (!api)
-    return direct(store, owner, preset, questions, signal,
+    return direct(store, owner, preset, questions, signal, options,
       settings.enabled ? "This connection does not take a whole set at once." : "Batch mode is switched off.");
+  let batchId: string | null = null;
   try {
     const requests: BatchRequest[] = questions.map((question) => ({
       id: question.id, messages: question.messages, maxTokens: question.maxTokens ?? defaultMaxTokens,
     }));
-    const { batchId } = await api.submit(requests, signal);
+    ({ batchId } = await api.submit(requests, signal));
     const finished = await waitFor(api, batchId, settings, signal, options.sleep ?? sleep);
-    if (finished.status !== "completed")
-      return direct(store, owner, preset, questions, signal, finished.error ?? "The set did not finish.");
-    const answers = await api.collect(batchId, signal);
-    return settle(store, owner, preset, "batch", batchId, answers, null);
+    const collected = await harvest(api, batchId, signal);
+    if (finished.status === "completed" && collected.answers.length && !collected.error)
+      return await fillGaps(store, owner, preset, questions, signal, options, batchId, collected.answers, null);
+    const reason = finished.error ?? collected.error ?? "The set did not finish.";
+    if (!collected.answers.length)
+      return direct(store, owner, preset, questions, signal, options, reason, batchId);
+    return await fillGaps(store, owner, preset, questions, signal, options, batchId, collected.answers, reason);
   } catch (error) {
-    return direct(store, owner, preset, questions, signal,
-      error instanceof Error ? error.message : String(error));
+    return direct(store, owner, preset, questions, signal, options,
+      error instanceof Error ? error.message : String(error), batchId);
   }
 }
 
@@ -104,10 +127,44 @@ async function waitFor(
   }
 }
 
-/** One ordinary call per question. The answers come back in the same shape either way. */
-async function direct(
-  store: Store, owner: string, preset: ModelPreset, questions: BatchQuestion[], signal: AbortSignal, reason: string,
+/**
+ * Whatever the set managed, asked for even when the service called the set failed. Collecting is
+ * allowed to fail in turn; an empty harvest simply means everything has to be asked again.
+ */
+async function harvest(
+  api: NonNullable<ReturnType<NonNullable<Provider["batch"]>>>, batchId: string, signal: AbortSignal,
+): Promise<{ answers: BatchAnswer[]; error: string | null }> {
+  try {
+    const answers = await api.collect(batchId, signal);
+    return { answers: answers.filter((answer) => !answer.error && answer.content !== undefined), error: null };
+  } catch (error) {
+    return { answers: [], error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+/**
+ * The questions the set did not answer, asked one at a time, and the whole lot put back into the
+ * order they were asked in. Nothing already answered is asked again.
+ */
+async function fillGaps(
+  store: Store, owner: string, preset: ModelPreset, questions: BatchQuestion[], signal: AbortSignal,
+  options: { runId?: string }, batchId: string, fromBatch: BatchAnswer[], reason: string | null,
 ): Promise<BatchOutcome> {
+  const have = new Map(fromBatch.map((answer) => [answer.id, answer]));
+  const missing = questions.filter((question) => !have.has(question.id));
+  const again = missing.length ? await askEach(preset, missing, signal) : [];
+  for (const answer of again) have.set(answer.id, answer);
+  const ordered = questions.map((question) =>
+    have.get(question.id) ?? { id: question.id, content: "", error: "Nothing answered this question." });
+  const note = missing.length && reason
+    ? `${reason} ${missing.length} of ${questions.length} question(s) were asked again one at a time; the rest were kept.`
+    : reason;
+  return settle(store, owner, preset, "batch", batchId, ordered, note, options,
+    { batched: fromBatch.length, askedAgain: missing.map((question) => question.id) });
+}
+
+/** One ordinary call per question. The answers come back in the same shape either way. */
+async function askEach(preset: ModelPreset, questions: BatchQuestion[], signal: AbortSignal): Promise<BatchAnswer[]> {
   const answers: BatchAnswer[] = [];
   for (const question of questions) {
     try {
@@ -119,20 +176,76 @@ async function direct(
       answers.push({ id: question.id, content: "", error: error instanceof Error ? error.message : String(error) });
     }
   }
-  return settle(store, owner, preset, "direct", null, answers, reason);
+  return answers;
 }
 
-/** Adds up what came back and prices it from what the service actually reported. */
+/** Every question asked the ordinary way, because the set road was not open or gave nothing back. */
+async function direct(
+  store: Store, owner: string, preset: ModelPreset, questions: BatchQuestion[], signal: AbortSignal,
+  options: { runId?: string }, reason: string, batchId: string | null = null,
+): Promise<BatchOutcome> {
+  const answers = await askEach(preset, questions, signal);
+  return settle(store, owner, preset, "direct", batchId, answers, reason, options,
+    { batched: 0, askedAgain: [] });
+}
+
+/**
+ * Adds up what came back, prices it from what the service reported, and writes the saving down
+ * where the Usage screen can find it. A set is charged at a fraction of the ordinary rate, so the
+ * ordinary price of the questions the set answered is what handing them over would otherwise have
+ * cost; the difference is the saving, and it is written as an event against the run rather than
+ * only returned, so it is still there tomorrow.
+ */
 function settle(
   store: Store, owner: string, preset: ModelPreset, route: "batch" | "direct",
   batchId: string | null, answers: BatchAnswer[], reason: string | null,
+  options: { runId?: string }, counts: { batched: number; askedAgain: string[] },
 ): BatchOutcome {
-  const usage: Usage = { input: 0, output: 0 };
+  const settings = batchSettings(store, owner);
+  const usage: Usage = { input: 0, output: 0 }, batched: Usage = { input: 0, output: 0 };
+  const done = new Set(answers.filter((answer) => !answer.error).map((answer) => answer.id));
+  const askedAgain = new Set(counts.askedAgain);
   for (const answer of answers) {
     usage.input += answer.usage?.input ?? 0;
     usage.output += answer.usage?.output ?? 0;
+    if (route !== "batch" || askedAgain.has(answer.id) || answer.error) continue;
+    batched.input += answer.usage?.input ?? 0;
+    batched.output += answer.usage?.output ?? 0;
   }
   const { overrides } = pricingSettings(store, owner);
-  const estimate = estimateCost(preset.model, usage, overrides);
-  return { route, reason, batchId, answers, usage, cost: { amount: estimate.amount, display: formatCost(estimate) } };
+  const ordinary = estimateCost(preset.model, usage, overrides);
+  const atBatchRate = estimateCost(preset.model, batched, overrides);
+  const savedAmount = atBatchRate.amount === null ? null : atBatchRate.amount * settings.discount;
+  const amount = ordinary.amount === null || savedAmount === null ? ordinary.amount : ordinary.amount - savedAmount;
+  const unanswered = answers.filter((answer) => answer.error).map((answer) => answer.id);
+  const outcome: BatchOutcome = {
+    route, reason, batchId, answers, usage,
+    cost: { amount, display: formatCost({ ...ordinary, amount }) },
+    saved: { amount: savedAmount, display: formatCost({ ...atBatchRate, amount: savedAmount }) },
+    counts: { batched: counts.batched, askedAgain: counts.askedAgain.length, unanswered: unanswered.length },
+    askedAgain: counts.askedAgain, unanswered,
+  };
+  record(store, preset, outcome, done.size, options.runId);
+  return outcome;
+}
+
+/**
+ * The one line the Usage screen reads. Written for every set, batched or not, so the screen can say
+ * both what handing sets over saved and how often a connection could not take one.
+ */
+function record(
+  store: Store, preset: ModelPreset, outcome: BatchOutcome, answered: number, runId: string | undefined,
+): void {
+  if (!runId) return;
+  try {
+    store.event(runId, "batch.completed", {
+      route: outcome.route, provider: preset.provider.name, model: preset.model, preset: preset.id,
+      batchId: outcome.batchId, questions: outcome.answers.length, answered,
+      batched: outcome.counts.batched, askedAgain: outcome.counts.askedAgain,
+      unanswered: outcome.counts.unanswered,
+      input: outcome.usage.input, output: outcome.usage.output,
+      cost: outcome.cost.amount, saved: outcome.saved.amount,
+      reason: outcome.reason,
+    });
+  } catch { /* A set asked outside any run still gives its answers back; only the figure is lost. */ }
 }

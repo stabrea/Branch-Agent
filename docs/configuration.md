@@ -3398,6 +3398,11 @@ would replay whatever that tool does — only plain text answers are. **Nothing 
 or the name of a saved secret is kept at all.** And the kept answers are filed under whoever is using
 the app, so a second person in the household never reads one of the owner's answers back out.
 
+A secret is named as `secret://project/NAME`, and the place it most often appears is not the words of
+a message but the **arguments of a tool call** the model asked for earlier in the same conversation —
+a deploy command, a header, a sign-in. Those arguments are part of the request, so they are read by
+the same rule: a conversation carrying one anywhere is never kept.
+
 A request is only the same request when everything the model was shown is the same: the messages
 (your instructions among them), the model, the effort, and every tool by name *and* by the words
 describing it. Change any of those and the question is asked afresh.
@@ -3415,25 +3420,57 @@ switch the cache off. `POST /api/request-cache/clear` is what throws them away.
 ### A whole set of questions at once (A1351, A1352)
 
 Off until you turn it on. OpenAI and Anthropic will both take a large set of questions at once, work
-through it in their own time and charge about half. Evaluation sets and reading a knowledge base are
-exactly that shape.
+through it in their own time and charge about half. Reading a whole knowledge base is exactly that
+shape: each part of it is summarised on its own before the parts are drawn together, and those parts
+do not depend on each other.
 
 - `GET /api/batch` — the settings, and which of your connections can take a whole set.
-- `POST /api/batch` with `{ "enabled": true, "pollMs": 5000, "maxWaitMs": 600000 }`.
+- `POST /api/batch` with `{ "enabled": true, "pollMs": 5000, "maxWaitMs": 600000, "discount": 0.5 }`.
 - `POST /api/batch/run` with `{ "questions": [{ "id": "q1", "prompt": "…" }] }` hands the set over,
   waits for it, and gives the answers back.
+- `GET /api/batch-sets` — every set handed over, what it cost and what handing it over saved. This
+  is what the **What asking a whole set at once saved** panel on the Usage screen reads.
 
-Anything that goes wrong on that road — the connection cannot do it, the hand-over is refused, the
-set fails or never finishes — falls back to one ordinary call per question rather than losing the
-work, and the answer says in one line why. What the set cost is read from what the service reported,
-never guessed.
+`discount` is how much less a set costs than the same questions asked one at a time. Both services
+charge half at the time of writing, so it is `0.5`. The price tables price a model at its ordinary
+rate, so this is the number that turns that rate into what a set actually cost and into what handing
+it over saved; change it if your agreement with a service says something else.
 
-**Not finished yet.** What is built is the machinery: the optional `batch()` on a connection, the
-submit-poll-collect loop around it, the pricing, and the fallback. **No connection implements it
-yet** — OpenAI's batch endpoint wants a JSONL file uploaded and an output file fetched back, and
-Anthropic's has its own shape, and neither adapter is written. Until one is, `GET /api/batch` shows
-`takesWholeSets: false` for every connection you have and every set falls back to ordinary calls.
-Turning the setting on today changes nothing except the sentence you get back.
+**Which connections can take one.** A set only goes over where the address really is the service
+that offers one: `api.openai.com` and any `*.openai.azure.com` deployment for an OpenAI-shaped
+connection, and `api.anthropic.com` for an Anthropic one. Plenty of services speak the OpenAI shape
+for ordinary questions without having a set endpoint at all, and claiming they do would only make
+every set fail and fall back. `GET /api/batch` says `takesWholeSets` per connection so you can see
+which of yours can.
+
+**The two roads are different underneath.** OpenAI wants the questions uploaded as a file of one
+question per line, then a set created against that file, then the answers fetched back as another
+file — and the questions that failed on their own come back in a second file, which is read too.
+Anthropic takes the questions in the request itself and hands back an address to read the answers
+from; that address is checked against the address you configured before anything is fetched from it,
+so a service that answered with somewhere else cannot make this app fetch from somewhere else. Both
+are reduced to the same three steps, so nothing above has to know which service it is talking to.
+
+**A set that only half works keeps the half that worked.** Whatever came back is collected first,
+even when the service called the whole set failed, and only the questions with no answer are asked
+again one at a time. Nothing already answered is paid for twice. The answer says how many were
+answered in the set, how many had to be asked again, and how many nothing could answer at all — and
+the ids of each, so a caller can say which part of the work is missing rather than quietly dropping
+it. Anything that goes wrong before that — the connection cannot do it, the hand-over is refused,
+nothing at all came back — falls back to one ordinary call per question and says in one line why.
+
+What a set cost is read from what the service reported, never guessed.
+
+### Chat engines (A0847) — not applicable
+
+This row asks for "chat engines": a way of plugging in different chat back-ends behind one
+interface. Branch already has exactly that and has had since the first release, under a different
+name. `Provider` in `src/contracts.ts` is the interface; `src/providers.ts` and `src/providers/`
+hold the implementations (OpenAI-shaped, Anthropic, Gemini, Azure, Bedrock, Cohere, Ollama, the
+signed-in ChatGPT connection, a command-line agent, and the demo); `src/models.ts` picks between
+them, falls back when one is failing, and keeps a cooldown. Adding a second name for the same idea
+would mean a wrapper with no caller, so nothing was built for this row. If you want to add a chat
+back-end, implement `Provider` and register a preset — that is the whole contract.
 
 ### Lockdown: one switch (A0615)
 
