@@ -1,3 +1,4 @@
+import { parseImages } from "./contracts.js";
 import type { LiveConversation, LiveConversations, LiveOutput } from "./realtime-voice.js";
 import type { RunSocketHooks, RunSocketWriter } from "./ws.js";
 
@@ -17,7 +18,9 @@ export type LiveCommand =
   | { live: "stop" }
   | { live: "interrupt" }
   | { live: "done" }
-  | { live: "say"; text: string };
+  | { live: "say"; text: string }
+  /** Bucket 17: a picture shown while talking, checked like any attached picture. */
+  | { live: "picture"; mediaType: string; data: string; name?: string | undefined };
 
 /** Each chunk of sound going down carries its place in the order, so nothing plays out of turn. */
 export function audioFrame(sequence: number, pcm16: Uint8Array): Buffer {
@@ -40,6 +43,13 @@ export function parseCommand(payload: Buffer): LiveCommand | null {
   if (live === "say") {
     const text = String((value as { text?: unknown }).text ?? "").slice(0, 4000).trim();
     return text ? { live: "say", text } : null;
+  }
+  if (live === "picture") {
+    const { mediaType, data, name } = value as Record<string, unknown>;
+    try {
+      const [picture] = parseImages([{ mediaType, data, ...(typeof name === "string" ? { name: name.slice(0, 200) } : {}) }]);
+      return picture ? { live: "picture", ...picture } : null;
+    } catch { return null; }
   }
   return null;
 }
@@ -68,7 +78,7 @@ export function liveHooks(live: LiveConversations, runId: string, sessionId: str
     if (command.live === "stop") { live.stop(runId, "You ended the conversation"); conversation = undefined; return; }
     if (command.live === "interrupt") { conversation.interrupt(); return; }
     if (command.live === "done") { conversation.done(); return; }
-    try { conversation.say(command.text); }
+    try { if (command.live === "picture") conversation.show(command); else conversation.say(command.text); }
     catch (error) { reply.text(JSON.stringify({ kind: "voice.live.problem", data: { message: (error as Error).message } })); }
   };
   const begin = async (reply: RunSocketWriter): Promise<void> => {

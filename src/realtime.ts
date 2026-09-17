@@ -59,6 +59,8 @@ export interface RealtimeSession {
   commit(): void;
   /** A line typed mid-conversation, which the model answers in the same voice. */
   sendText(text: string): void;
+  /** Bucket 17: a picture shown mid-conversation (a still from a camera, a screenshot). Base64. */
+  sendImage?(image: { mediaType: string; data: string }): void;
   /** What one of Branch's tools did, handed back so the model can carry on. */
   toolResult(callId: string, name: string, result: unknown): void;
   /** Stop talking now: the answer is cancelled and whatever was heard so far is thrown away. */

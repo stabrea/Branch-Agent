@@ -1,5 +1,6 @@
 // The phone's side of "reach Branch from my phone": type the number shown on the computer, and this
-// page asks Branch for the key that lets the app work. Nothing is stored beyond this browser tab.
+// page asks Branch for the key that lets the app work, and this phone's own secret when Branch hands
+// one back. Nothing is stored beyond this browser tab.
 "use strict";
 var form = document.getElementById("pair-form");
 var field = document.getElementById("code");
@@ -32,6 +33,9 @@ form.addEventListener("submit", function (event) {
     .then(function (body) {
       try {
         sessionStorage.setItem("branch-token", body.token);
+        // This phone's own secret, when Branch handed one back; public/device-headers.js sends it.
+        if (typeof body.deviceId === "string" && typeof body.deviceKey === "string")
+          sessionStorage.setItem("branch-device", JSON.stringify({ id: body.deviceId, key: body.deviceKey }));
       } catch (error) {
         say("This browser will not let the page remember anything, so it cannot stay connected.", true);
         return;

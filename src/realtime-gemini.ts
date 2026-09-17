@@ -69,6 +69,10 @@ export class GeminiLiveSession extends SocketSession {
   sendText(text: string): void {
     this.send({ clientContent: { turns: [{ role: "user", parts: [{ text: text.slice(0, 4000) }] }], turnComplete: true } });
   }
+  /** Bucket 17: a picture goes up the same live input as the sound, as one video frame. */
+  sendImage(image: { mediaType: string; data: string }): void {
+    this.send({ realtimeInput: { video: { mimeType: image.mediaType, data: image.data } } });
+  }
   toolResult(callId: string, name: string, result: unknown): void {
     this.send({ toolResponse: { functionResponses: [{ id: callId, name, response: { result } }] } });
   }
