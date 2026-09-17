@@ -50,6 +50,9 @@ import { createRequire } from "node:module";
 import { joinGateway, runGatewayIfSwitchedOn } from "./never-break/worker-link.js";
 import { selfTestCommand } from "./never-break/self-test.js";
 // --- end mac3/never-break ---
+// --- bucket 22: commands a script uses to manage an installed Branch (src/install/manage-cli.ts) ---
+import { manageCommand } from "./install/manage-cli.js";
+// --- end bucket 22 ---
 
 async function configuredApp(options: Parameters<typeof createBranch>[0]) {
   const app = await createBranch(options);
@@ -86,6 +89,7 @@ async function serve(
   dataDir: string,
   close: () => Promise<void>,
 ): Promise<void> {
+  let stopEngine: (() => Promise<void>) | undefined; // bucket 22
   const port = Number(process.env.BRANCH_PORT ?? 3210);
   if (!Number.isInteger(port) || port < 0 || port > 65535)
     throw new Error("Invalid BRANCH_PORT");
@@ -94,6 +98,8 @@ async function serve(
     dataDir, port, ...(link ? {} : { presence: "daemon" as const }),
     executable: process.env.BRANCH_EXECUTABLE ?? null,
     installRoot: process.env.BRANCH_INSTALL_ROOT ?? null,
+    // bucket 22: `branch quit` is the same stop as Ctrl+C (an engine run by the gateway is stopped through the gateway).
+    ...(link ? {} : { quit: () => void stopEngine?.() }),
   });
   console.log(
     `Branch Agent listening at ${server.url}\nProvider: ${app.runtime.provider.name}\nWorkspace: ${app.runtime.workspace}\nLocal session token (paste into browser): ${server.token}`,
@@ -110,6 +116,8 @@ async function serve(
   };
   process.once("SIGINT", () => void stop());
   process.once("SIGTERM", () => void stop());
+  // bucket 22: after a `branch quit`, leave even if something still holds the process open.
+  stopEngine = () => stop().finally(() => { setTimeout(() => process.exit(0), 1000).unref(); });
   // mac3/never-break: tell the gateway where the engine is, and close when it asks or goes away.
   link?.onStop(stop);
   link?.ready(Number(new URL(server.url).port), app.version);
@@ -121,6 +129,16 @@ async function main(): Promise<void> {
   // Branch command they mean; `version` needs nothing opened. See src/terminal-cli.ts.
   const inTerminal = looksInteractive(process.env, process.stdout.isTTY === true && process.stdin.isTTY === true);
   process.argv.splice(2, Infinity, ...terminalArgv(process.argv.slice(2), inTerminal));
+  // ---- bucket 22: `--version --json`, `quit`, `uninstall` and an installed copy's `update` ----
+  if (!asksForHelp(process.argv.slice(3))) {
+    const code = await manageCommand(process.argv.slice(2), {
+      env: process.env, platform: process.platform, print: (line) => console.log(line),
+      version: String(createRequire(import.meta.url)("../package.json").version),
+      packageRoot: dirname(dirname(fileURLToPath(import.meta.url))),
+    });
+    if (code !== null) { process.exitCode = code; return; }
+  }
+  // ---- end of the bucket 22 block
   if (process.argv[2] === "version" && !asksForHelp(process.argv.slice(3))) { console.log(versionText()); return; }
   // ---- end of the terminal block
   const command = process.argv[2] ?? "start";

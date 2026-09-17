@@ -103,7 +103,12 @@ test("the installer script and the Uninstall entry say what they will do", () =>
   assert.match(script2, /Your conversations and files stay in C:\\Data/, "saved work is kept on purpose");
   assert.match(script2, /schtasks\.exe \/Delete/, "the background task goes too");
   assert.match(script2, /reg\.exe delete "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"/);
-  assert.ok(!script2.includes('rmdir /s /q "C:\\Data"'), "it never deletes the data folder");
+  // bucket 22: the data folder goes only when --delete-data was given.
+  const dataRemovals = script2.split("\r\n").filter((line) => line.includes('rmdir /s /q "C:\\Data"'));
+  assert.deepEqual(dataRemovals, ['if defined DELETE_DATA rmdir /s /q "C:\\Data" 2>NUL'], "it deletes the data folder only when asked");
+  assert.match(script2, /for %%A in \(%\*\) do if \/i "%%~A"=="--delete-data" set "DELETE_DATA=1"/);
+  assert.ok(script.split("\r\n").every((line) => !/(^|&\s*)pause\b/.test(line)), "the installer's waits go through %PAUSE%, which /quiet switches off");
+  assert.match(script, /if \/i "%%~A"=="\/quiet" set "PAUSE=type NUL"/);
   assert.match(shortcutScript({ path: "C:\\M\\a.lnk", target: "C:\\App\\x.exe" }), /CreateObject\("WScript\.Shell"\)/);
   assert.ok(defaultInstallRoot({ LOCALAPPDATA: "C:\\L" }).endsWith(join("Programs", "Branch Agent")));
 });

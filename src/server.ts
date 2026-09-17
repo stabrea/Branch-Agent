@@ -148,6 +148,7 @@ import { RemoteAccess } from "./remote/remote-access.js";
 import { cliAgentRows, registerCliAgent } from "./providers/cli-agent.js";
 import { GatewayAuth } from "./remote/gateway-auth.js";
 import { deploymentApi, type DeploymentContext } from "./deployment-api.js";
+import { quitRequest } from "./install/quit.js"; // bucket 22
 import { clearRunning, writeRunning } from "./install/running.js";
 import { readFirstStart, recordFirstStart } from "./install/update-backup.js";
 import { readDesktopSettings, saveDesktopSettings } from "./integrations/desktop-config.js";
@@ -2356,6 +2357,8 @@ export async function startServer(
     presence?: "app" | "daemon";
     /** How many wrong keys a place may try before it waits; the defaults suit a real install. */
     authLimits?: { attempts?: number; lockoutMs?: number; windowMs?: number };
+    /** bucket 22: what `branch quit` does to this launch (src/install/quit.ts); without it, it refuses. */
+    quit?: () => void;
   },
 ) {
   const token = await sessionToken(options.dataDir);
@@ -2501,6 +2504,8 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
         // ---- end of the bucket-20 block ----
         if (await rawApi(app, request, response, path)) return;
         if (path.startsWith("/api/deployment")) {
+          // bucket 22: `branch quit`, from this computer with the master key only (src/install/quit.ts).
+          if (path === "/api/deployment/quit") { send(response, 200, await quitRequest(request, { dataDir: options.dataDir, quit: options.quit })); return; }
           const result = await deploymentApi(app, request, path, deployment(), (r) => readBody(r), remoteHandler);
           if (result !== undefined) { send(response, 200, result); return; }
         }

@@ -3215,6 +3215,57 @@ certificate is bought and a signing step added to the workflow. On Linux the dow
 entry is copied by hand and updates come from Branch's own updater. Checksums (`.sha256`) are
 published for every download on every system.
 
+**Installing and managing Branch from a script (bucket 22).** Every step works without a click and
+answers with exit code 0 only when it did what it says, so a catalogue such as KeepOak's can install,
+check, restart, update and remove Branch with one script.
+
+| | macOS and Linux | Windows |
+|---|---|---|
+| Install | `sh install-branch-agent.sh --quiet` beside the download and its `.sha256` | `"Install Branch Agent.cmd" /quiet` beside the zip |
+| Where it goes | Mac: `~/Applications/Branch Agent.app` (a copy already in `/Applications` is used instead). Linux: `~/.local/share/branch-agent/app`, with `~/.local/share/applications/branch-agent.desktop` | `%LOCALAPPDATA%\Programs\Branch Agent` |
+| The `branch` command | `~/.local/bin/branch` | not written yet |
+| Conversations and files | Mac: `~/Library/Application Support/Branch Agent`. Linux: `~/.config/Branch Agent` | `%APPDATA%\Branch Agent` |
+| What is installed | `branch --version --json` prints `{"version","path","dataDir","running","installed"}` | — |
+| Restart | `branch quit`, then open the app (or `branch start`) | — |
+| Update | `branch update --yes` | the app's Update button |
+| Remove | `sh install-branch-agent.sh --uninstall [--delete-data]` or `branch uninstall [--delete-data]` | `Uninstall Branch Agent.cmd /quiet [--delete-data]` |
+
+Installing a version that is already there does not copy it again: the copy is linked up (the
+`branch` command and menu entry are written again) and `--repair` copies it anyway. Installing a
+different version keeps the one before as `<name>.previous`. `install-branch-agent.sh` refuses a
+download whose `.sha256` is missing or does not match, and never downloads anything itself; it picks the
+download by its full name (`Branch-Agent-macos-arm64.zip`, never just "a zip"), so an Intel copy of the
+shell on Apple silicon still gets the arm64 app. The `branch` command runs the engine inside the app with
+the app's own runtime, on the app's own data folder, so it sees the same conversations as the window
+(a `BRANCH_DATA_DIR` you set still wins).
+
+`branch quit` asks the running Branch, window or background engine, to close the way Quit does (work
+is saved, and the window gives it eight seconds at most), then waits up to twenty seconds for the
+process to go; a background engine that does not answer is stopped its own way. Only a program on this
+computer holding the data folder's own key can ask (`POST /api/deployment/quit`); short-lived keys and the
+phone door cannot. "Not running" counts as done.
+
+`branch update` in an installed copy checks for a newer release and says what it found; `--yes` installs
+it through the same updater as the Update button: the download is checked against its published
+checksum, tried on a copy of the work when that switch is on, a safety copy is written, Branch is closed,
+and the same hand-over script swaps the folders, keeps the version before and writes its log
+(`branch-agent-update/apply-update.log` in the temporary folder). It prints the old and new version.
+The window is opened again only if it was open before. A copy installed from Git keeps `branch update`
+as `git pull`, `npm ci` and a build.
+
+Removing Branch closes it, takes out its "start by itself when you sign in" entry, the app, the version
+before, the `branch` command and the menu entry. Conversations and files stay unless `--delete-data` is
+given. A `branch` command or menu entry the installer did not write is left alone.
+
+A custom distribution is a folder with the download, `install-branch-agent.sh` and an assistant file
+made with `branch export-agent`: `sh install-branch-agent.sh --assistant team.branch-agent` brings its
+specialists, procedures, skills, routing, permissions and memory in on a fresh install, and never over an
+assistant already set up. The square logo for catalogues is `public/assets/icon.svg` on `main`.
+
+The release workflow never uploads over a download that is already attached to the release (a
+hand-built Windows zip once was replaced that way): a download that is there stays, with its own
+checksum, and only the missing ones are added.
+
 **Portable copies.** Put an empty `portable.txt` beside `Branch Agent.exe` and the app keeps its
 state in `Branch Data\state` and its workspace in `Branch Data\workspace`, both next to the
 program. Without the marker it uses the per-person application-data folder as before.
@@ -6275,21 +6326,33 @@ every row is listed here and that every file named here exists.
 
 ### Installing it should be boring (bucket 22)
 
-- **installers** — partly: Windows has a real installer with an uninstall entry
-  (`src/install/installer.ts`); macOS and Linux have downloads you unzip or unpack
-  (`scripts/package-macos.mjs`, `scripts/package-linux.mjs`, `tests/packaging.test.mjs`) and a
-  start-at-sign-in file (`src/install/launchd.ts`, `src/install/systemd.ts`, `tests/service-update.test.mjs`).
-  What is still needed for signed installers is written under "What is still needed for a signed
-  installer on every computer".
+Bucket 22 (wave mac6) built what was missing; how to use it is under "Installing and managing Branch
+from a script".
+
+- **installers** — built: macOS and Linux now have a no-questions installer beside their downloads,
+  `install-branch-agent.sh` (`src/install/unix-bootstrap.ts`), which checks the download against its
+  `.sha256` and hands over to the installer inside the app (`src/install/unix-install.ts`,
+  `src/install/unix-install-cli.ts`): the app in this person's own folders, a `branch` command, a menu
+  entry on Linux, the version before kept, and `--uninstall` that keeps conversations and files unless
+  `--delete-data` is given. Windows keeps its installer (`src/install/installer.ts`), which now takes
+  `/quiet` and whose uninstaller takes `--delete-data`. Tested by `tests/install-boring.test.mjs` and
+  `tests/deployment.test.mjs`. Signing and notarising are written but need the owner's certificates
+  (see "What is still needed for a signed installer on every computer").
 - **desktop-packaging** — verified: `scripts/package-desktop.mjs` builds the download for Windows, macOS
-  (both chips) and Linux, and `.github/workflows/package.yml` builds all four on a version tag.
+  (both chips) and Linux, and `.github/workflows/package.yml` builds all four on a version tag and
+  attaches them without ever replacing one that is already on the release.
   `tests/packaging.test.mjs` checks every name, option, signing step and the menu entry;
-  `tests/service-update.test.mjs` checks the packaging, the workflow and the updater agree.
-- **platform-support** — verified for macOS and Linux: the same downloads and sign-in files
-  (`src/install/launchd.ts`, `src/install/systemd.ts`, `tests/service-update.test.mjs`); WSL is not a target, because on Windows
-  the Windows download is the one to use.
-- **distributions** (custom distributions) — not built: there is no rebranded or trimmed-down build.
-  Portable copies (`portable.txt`) and the settings file cover running one copy differently.
+  `tests/service-update.test.mjs` checks the packaging, the workflow and the updater agree, and that
+  nothing is uploaded over what is there.
+- **platform-support** — verified for macOS and Linux: one script installs, and the same sign-in files
+  keep Branch running (`src/install/unix-install.ts`, `src/install/launchd.ts`, `src/install/systemd.ts`,
+  `tests/install-boring.test.mjs`, `tests/service-update.test.mjs`). Under WSL 2 the Linux download and
+  its script are the ones to use; that has not been tried on a real WSL machine.
+- **distributions** (custom distributions) — built: a folder holding the release download, the installer
+  script and an assistant file made with `branch export-agent` is a custom Branch; `--assistant <file>`
+  brings that assistant in on a fresh install and never replaces one already set up
+  (`src/install/unix-install-cli.ts`, `tests/install-boring.test.mjs`). There is no rebranded build, and
+  Windows has no `--assistant` yet (run `branch import-agent` after installing there).
 
 ### The smaller asks (bucket 23)
 

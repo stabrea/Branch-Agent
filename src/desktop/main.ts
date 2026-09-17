@@ -221,6 +221,7 @@ async function start(): Promise<void> {
       dataDir, port: 0, presence: "app",
       executable: app.isPackaged ? process.execPath : null,
       installRoot: installedAppRoot(app.isPackaged, process.platform, process.execPath),
+      quit: () => app.quit(), // bucket 22: `branch quit` is the same as Quit in the menu (bounded shutdown below)
     });
     serverClose = server.close;
     await createWindow(server.url, server.token, settings, {
