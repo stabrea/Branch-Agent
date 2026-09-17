@@ -1,6 +1,7 @@
 /** The paired screen: the five places, the phone's own switches, and checking for questions. */
 import { newAttention, pollPlan, SWITCH_POSITIONS } from "/rules.js";
 import { $, phone, plugin, say } from "/phone-common.js";
+import { drawConnect } from "/phone-connect.js"; // mac7/connect
 
 export const SWITCHES = [
   ["lock", "Lock with face or fingerprint", "Ask before showing Branch. When needed: only after five minutes away."],
@@ -74,5 +75,6 @@ export async function checkAttention() {
 
 export async function drawHome(session) {
   $("paired-with").textContent = say("phone.home.pairedWith", "Paired with {address}", { address: session.origin });
+  void drawConnect(); // mac7/connect
   return drawSwitches();
 }

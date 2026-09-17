@@ -3465,3 +3465,49 @@ The bubblewrap arguments in `src/sandbox-bwrap.ts` also follow Gemini CLI's `pac
 ### IronClaw (NEAR AI) keys at the network edge (idea only), MIT OR Apache-2.0
 
 The stand-in keys in `src/sandbox-proxy.ts` — a program gets a placeholder and the door swaps in the real key only for the site the key belongs to — are an idea from IronClaw's `crates/substrates/ironclaw_secrets/src/placeholder.rs` and `crates/lanes/ironclaw_sandbox/src/sandbox_process/managed_egress.rs` (https://github.com/nearai/ironclaw, MIT OR Apache-2.0; the MIT notice is above). They were written afresh; no code was copied.
+
+### Automations that suggest and run on their own (r17-b; ideas only), MIT and MIT OR Apache-2.0
+
+`src/autonomy/` was written afresh for Branch after studying these projects; no code was copied from any of them.
+
+- Hermes Agent (https://github.com/NousResearch/hermes-agent, Copyright (c) 2025 Nous Research, MIT): suggestions whose dedup key stays blocked once dismissed, a small cap on waiting suggestions, and blueprints with typed, checked blanks (`cron/suggestions.py`, `cron/blueprint_catalog.py`); the syntax and stop rules of `/loop` and `/heartbeat` (`hermes_cli/loops.py` and their guides); and `/subgoal`, `/bg` and `/handoff` (`website/docs/reference/slash-commands.md`).
+- OpenClaw (https://github.com/openclaw/openclaw, Copyright (c) 2026 OpenClaw Foundation, MIT): the anatomy of a standing order — authority, trigger, approval gate, escalation, what not to do, and "try at most three times, then report" (`docs/automation/standing-orders.md`) — and a skill's declared needs (`src/skills/types.ts`, `src/shared/requirements.ts`).
+- IronClaw (https://github.com/nearai/ironclaw, NEAR AI, MIT OR Apache-2.0): suggestions that must trace to something actually read, started with one press (`crates/product/ironclaw_assistant/src/suggestions.rs`).
+- ZeroClaw (https://github.com/zeroclaw-labs/zeroclaw, MIT OR Apache-2.0): procedures with their own autonomy level, a per-step confirmation that overrides running on their own, coalescing a start while one runs, and the completion rate (`crates/zeroclaw-runtime/src/sop/`).
+- OpenFang (https://github.com/RightNow-AI/openfang, MIT OR Apache-2.0): requirements with install steps per system and a readiness report (`crates/openfang-hands/`).
+- CrewAI (https://github.com/crewAIInc/crewAI, MIT) and Agent Zero (https://github.com/agent0ai/agent-zero, Copyright (c) Agent Zero, s.r.o., MIT): turning feedback into standing instructions given to later tasks (`crew.py` `train`, `plugins/_memory/tools/behaviour_adjustment.py`).
+
+### Hermes Agent (Nous Research) Bot Mode rooms, MIT
+
+The rules for who speaks next in a room of Trunks in `src/trunks/room-plan.ts` — the first round
+scoped by @mentions or everyone, later rounds only for members another member called on, passing,
+and the caps of three rounds and ten messages — are ported from `plan_next_task`,
+`resolve_mentions`, `_unaddressed_member_mentions`, `is_pass_text` and `_build_prompt` in Hermes
+Agent's `gateway/hosted_room_discussion.py` (https://github.com/NousResearch/hermes-agent). The shape of
+Trunks as a whole (three-field create, a permanent chat, routines, direct messages with attribution,
+receipts and one retry, keys copied but sign-ins not) follows `website/docs/user-guide/bot-mode.md`
+in the same project; that part was written afresh. Used under the MIT licence:
+
+Copyright (c) 2025 Nous Research
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+### Coding polish (mac7/r17-d): OpenCode, Hermes Agent (MIT); Codex, Gemini CLI, Cline, Goose, Continue (Apache-2.0)
+
+`src/coding/` follows other agents' designs; everything was written afresh for Branch, and the parts that follow a source's structure closely are named here.
+
+- `src/coding/shell-snapshot.ts`: the capture script's layout (the shell's own start-up files, then `functions`/`declare -f`, `alias -L`/`alias -p` and `env -0`, split by NUL marks) and the `.zshrc`/`.bashrc` start-up lines follow Codex's `codex-rs/shell-command/src/shell_snapshot_capture.rs` and `startup.rs` (https://github.com/openai/codex, Copyright 2025 OpenAI, Apache-2.0).
+- `src/coding/imports.ts`: the order of processing `@file` imports (skip code, follow nested imports, stop on a loop or past a depth) follows Gemini CLI's `packages/core/src/utils/memoryImportProcessor.ts` (https://github.com/google-gemini/gemini-cli, Copyright 2025 Google LLC, Apache-2.0).
+- `src/coding/markdown-files.ts`, `src/coding/path-rules.ts`: splitting a `---` header from the body follows Cline's `cron/specs/cron-spec-parser.ts`, and path-scoped rules (no `paths` means always, `paths: []` means never) follow `core/context/instructions/user-instructions/rule-conditionals.ts` (https://github.com/cline/cline, Copyright 2026 Cline Bot Inc., Apache-2.0). The per-task checklist in `src/coding/checklist.ts` is the idea of Cline's focus chain; `src/coding/notebooks.ts` names pictures instead of carrying them, as Cline's `notebook-utils.ts` does.
+- `src/coding/large-output.ts` follows Goose's `crates/goose/src/agents/large_response_handler.rs`, and `src/coding/review-checks.ts` Goose's `crates/goose/src/checks/mod.rs` (https://github.com/aaif-goose/goose, Apache-2.0) and Continue's `extensions/cli/src/commands/review.ts` (https://github.com/continuedev/continue, Apache-2.0).
+- `src/coding/format-on-edit.ts` follows OpenCode's write tool, `format/formatter.ts` and `lsp/diagnostic.ts` (https://github.com/anomalyco/opencode, Copyright (c) 2025 opencode, MIT); `src/coding/worktrees.ts` follows Hermes Agent's `tools/subagent_worktree.py` and `src/coding/mentions.ts` its `agent/context_references.py` (https://github.com/NousResearch/hermes-agent, Copyright (c) 2025 Nous Research, MIT).
+
+The Apache-2.0 sources are used under the Apache License, Version 2.0 (http://www.apache.org/licenses/LICENSE-2.0); the MIT sources under the MIT licence, whose text is given under IronClaw above. No NOTICE file accompanies the parts used.
+
+### Hermes Agent (Nous Research) and OpenClaw: personal connectors, X search and a spoken yes (ideas only), MIT
+
+The shape of `src/personal/` (R17-C) — files delivered into chat apps as their own attachments, Home Assistant control, X search through xAI's `x_search` tool with the dates checked on this computer first, Spotify, and Google and Microsoft Graph connectors — follows Hermes Agent's `docs/user-guide/features/deliverable-mode.md`, `tools/homeassistant_tool.py`, `tools/x_search_tool.py`, `plugins/spotify/` and `docs/user-guide/skills/google-workspace.md` (https://github.com/NousResearch/hermes-agent, commit 6005aa1, Copyright (c) 2025 Nous Research). The spoken yes bound to one request that runs out after two minutes (`src/personal/voice-approvals.ts`) follows OpenClaw's `src/talk/client-voice-confirmation.ts` (https://github.com/openclaw/openclaw, Copyright (c) 2026 OpenClaw Foundation). Both are under the MIT licence, whose text is given under IronClaw above. Everything was written afresh against the services' own documentation; no code was copied.

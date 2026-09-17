@@ -72,6 +72,8 @@ export interface CompletionRequest {
   maxTokens: number;
   /** Requested reasoning effort; adapters map it to their own parameter or ignore it. */
   reasoning?: "low" | "medium" | "high";
+  /** R17-S12: a faster or cheaper service tier, where the service offers one; absent asks for the usual. */
+  serviceTier?: "priority" | "flex";
   /** Live provider text only; partial text is not a committed completion. */
   onTextDelta?: (text: string) => void;
   /**

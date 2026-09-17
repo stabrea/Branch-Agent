@@ -82,6 +82,11 @@ Inside a conversation there are no homes to add to, only two surfaces with stric
 | MEMORY.md | `library:memory` |
 | HEARTBEAT.md | `automations:scheduled` |
 | SOP.md | `automations:procedures` |
+| Suggested automations, the automation catalogue, standing orders, repeating in conversations and the limits on automatic work (`mac7/r17-b`) | `automations:scheduled`; the `/loop`, `/heartbeat`, `/subgoal`, `/bg`, `/handoff`, `/suggestions` and `/blueprint` commands live in the message box |
+| Procedures that start themselves, with how much each may do on its own (`mac7/r17-b`) | `automations:procedures` |
+| What an automation, a procedure or a standing order waits for your yes on (`mac7/r17-b`) | `inbox:needs` |
+| "From now on" instructions (`mac7/r17-b`) | `settings:assistant` |
+| What installed skills need on this computer (`mac7/r17-b`) | `customize:skills` |
 | TOOLS.md | `customize:skills` |
 | DREAMS.md and other things the assistant writes for the owner | `library:made` |
 | Cheaper and faster model routing | `settings:models:defaults` |
@@ -89,6 +94,7 @@ Inside a conversation there are no homes to add to, only two surfaces with stric
 | Evaluation and studies | `settings:advanced` |
 | Keep running through crashes and updates (`mac3/never-break`) | `settings:general` |
 | Set up Telegram, step by step (`mac3/never-break`) | `customize:channels` |
+| Set up any chat app: the one command, square codes and Check and save (`mac7/connect`) | `customize:channels`; the phone app shows it on its home screen, and the terminal view lists the command under Customize › Channels |
 | Watching and saving videos, ffmpeg and yt-dlp (bucket 17) | `settings:models:media`; a video attachment in the message box |
 | Other speech services and spoken commands (bucket 17) | `settings:voice` |
 | What Branch learns from experience, the learning core (`mac2/fly-core-2`) | `library:memory`; its skill ideas open in `customize:skills` |
@@ -116,7 +122,26 @@ Inside a conversation there are no homes to add to, only two surfaces with stric
 | A Hindsight memory server (`mac6/bucket-23`) | `library:memory` |
 | Sending requests where they belong, the intent pipeline (`mac6/bucket-23`) | `customize:skills` |
 | Steps for other apps, MCP examples and the app-server door (`mac6/bucket-23`) | `customize:connections` |
+| Trunks, named assistants of the owner's own: the switches, the three-field create, Edit Trunk, rooms, bringing one in (R17-A) | `customize:specialists`, a card of its own after the specialist panels |
+| The Trunks roster: each Trunk with its latest line and unread replies, and each room (R17-A) | The sidebar, a group above Recents that shows only while Trunks are switched on |
+| Rooms where a Trunk asked for the owner (R17-A) | `inbox:needs` |
+| A Trunk's routines (R17-A) | `automations:scheduled`, with the rest, their words starting `[Trunk @name]`; each Trunk's own list is in its editor |
+| `@name` in the message box (R17-A) | The message box: the `@` menu, and the message goes to that Trunk's own conversation |
 | The browser extension's side panel and the Obsidian plugin (`mac6/bucket-23`) | Outside the window; their instructions are in `extras/`, and the extension's switch stays in `customize:channels` |
+| Starting from a preset, and putting settings back (R17-S-A) | `settings:general` |
+| Which file does what, with editing of each file (R17-S-A) | `settings:general`, beside "How to work in this project"; each file's switch stays on its own card |
+| Your settings in one file (R17-S-A) | `settings:data`, beside Backup |
+| What to try after first run: say hello, watch me once, suggested automations (R17-S-A) | The conversation, straight under the first-run card; shown once |
+| A description under every Settings control, and the scope chip on every Settings card (R17-S-A) | Every Settings page; added by `public/settings-describe.js`, nothing to place |
+| Limits that used to be hidden (R17-S-B): summarising long conversations, sub-tasks and side jobs, thinking effort and service tier | `settings:models:defaults` |
+| Most steps and most cost for one task, hiding key-like values (R17-S-B) | `settings:permissions` |
+| Trying the model service again, how much a tool may say (R17-S-B) | `settings:advanced` |
+| How commands run, the launch settings file as a card (R17-S-B) | `settings:computer` |
+| Showing a model's thinking (R17-S-B) | `settings:appearance` |
+| How much it remembers at the start, the note about you, where things are remembered (R17-S-B) | `library:memory` |
+| Coding polish (`mac7/r17-d`): its switches, formatters, shell snapshot, copies, rules, checks and CI lines | `settings:advanced`, one card beside the developer tools |
+| A task's checklist (`mac7/r17-d`) | The side pane's Plan tab, under the to-do list |
+| The `@` picker (`mac7/r17-d`) | The message box, the same menu as `/`, because it changes the next message |
 | Keyboard shortcuts and vim keys, files searches skip (R17-S-C) | `settings:general` |
 | The status line and a time on each message (R17-S-C) | `settings:appearance`; the line itself sits in the composer's foot row |
 | Where you are told and the sound (R17-S-C) | `settings:notifications` |
