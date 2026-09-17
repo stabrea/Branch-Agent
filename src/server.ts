@@ -2358,13 +2358,19 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
         send(response, 200, await triggerFire(app, request, triggerFireMatch[1]!));
         return;
       }
+      // Wave mac3 (commands): a read key's command is sent with POST but only looks.
+      let onlyLooking = false;
       authorize(request, url, token, remote.allowedHosts(), {
         limiter: authLimiter,
         onFailure: (from) => noteAuthFailure(authLimiter, app.store, app.runtime.owner, from, "the local key"),
-      }, (supplied) => offLimitsToShortLivedKeys(request.method, path)
-        ?? app.sessionTokens.check(app.runtime.owner, supplied, commandLook(app, request, path, supplied) ?? {
-          method: request.method ?? "GET", executes: isExecution(request, path),
-        }));
+      }, (supplied) => {
+        const look = commandLook(app, request, path, supplied);
+        onlyLooking = look !== null;
+        return offLimitsToShortLivedKeys(request.method, path)
+          ?? app.sessionTokens.check(app.runtime.owner, supplied, look ?? {
+            method: request.method ?? "GET", executes: isExecution(request, path),
+          });
+      });
       // The extra door has its own chain on top of the key: see src/remote/gateway-auth.ts. The
       // window on this computer never goes through it.
       if (viaRemote) {
@@ -2373,7 +2379,7 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
       }
       // Doing something counts as activity; merely looking does not, or the app's own three-second
       // refresh of the screen would keep it awake for ever and it would never lock itself.
-      if (request.method !== "GET" && path !== "/api/lock") app.sessionLock.touch();
+      if (request.method !== "GET" && path !== "/api/lock" && !onlyLooking) app.sessionLock.touch();
       if (await handleMcpRequest(app, request, response)) return;
       // ---- Wave mac3: the owner's dashboard (src/dashboard-api.ts). What this key may do is worked
       // out once here, so the page can show a read-only view to a key that may only look. ----

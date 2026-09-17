@@ -6,6 +6,7 @@ import { CommandRunSchema, commandSettings, listed, available, saveCommandSettin
 import { executeCommand } from "./execute.js";
 import { PARITY } from "./parity.js";
 import type { Access } from "./handlers.js";
+import { dashboardSettings } from "../dashboard-api.js";
 
 /**
  * The commands' routes (wave mac3, commands). The window, the phone and the dashboard read their
@@ -54,14 +55,26 @@ async function run(app: Branch, deps: CommandApiDeps, input: z.infer<typeof RunB
   return outcome ? { handled: true, ...outcome } : { handled: false };
 }
 
+/** The dashboard's commands exist only while the dashboard itself is switched on. */
+function dashboardOpen(app: Branch, surface: string): void {
+  if (surface === "dashboard" && dashboardSettings(app.store, app.runtime.owner).mode === "off")
+    throw new CommandApiError(404, "The dashboard is switched off.");
+}
+
 export async function commandsApi(app: Branch, path: string, deps: CommandApiDeps): Promise<unknown> {
   const { method, url } = deps;
-  if (method === "GET" && path === "/api/commands") return listFor(app, WebSurface.parse(url.searchParams.get("surface") ?? "window"));
+  if (method === "GET" && path === "/api/commands") {
+    const surface = WebSurface.parse(url.searchParams.get("surface") ?? "window");
+    dashboardOpen(app, surface);
+    return listFor(app, surface);
+  }
   if (method === "GET" && path === "/api/commands/table")
     return { surfaces, commands: COMMANDS, parity: PARITY, mode: commandSettings(app.store, app.runtime.owner).mode };
   if (path === "/api/commands/run") {
     if (method !== "POST") throw new CommandApiError(405, "Send commands with POST.");
-    return run(app, deps, RunBody.parse(await deps.readBody()));
+    const input = RunBody.parse(await deps.readBody());
+    dashboardOpen(app, input.surface);
+    return run(app, deps, input);
   }
   if (path === "/api/commands/settings") {
     if (method === "GET") return { ...commandSettings(app.store, app.runtime.owner), access: deps.access };

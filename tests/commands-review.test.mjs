@@ -280,3 +280,31 @@ test("the web API description lists the commands and dashboard routes, and docs/
   const version = /^Version (\S+)\. /m.exec(written)[1];
   assert.equal(written, apiMarkdown(openApiDocument(version)), "docs/api.md is what scripts/write-api-docs.mjs writes");
 });
+
+// ---- 7. looking stays looking ---------------------------------------------------------------------------
+
+test("a key that may only look keeps looking: its commands do not keep the session awake", async (t) => {
+  const f = await fixture(t);
+  on(f.app);
+  let touched = 0;
+  const touch = f.app.sessionLock.touch.bind(f.app.sessionLock);
+  f.app.sessionLock.touch = (...args) => { touched += 1; return touch(...args); };
+  const send = (key) => f.call("/api/commands/run", key, { surface: "window", line: "/status" });
+  assert.equal((await send(f.keys.read)).status, 200);
+  assert.equal(touched, 0, "a wall screen asking /status every few seconds must not stop the lock");
+  assert.equal((await send(f.keys.run)).status, 200);
+  assert.equal(touched, 1, "a key that may act still counts as activity");
+});
+
+test("the dashboard's commands follow the dashboard's own switch", async (t) => {
+  const { saveDashboardSettings } = await import("../dist/dashboard-api.js");
+  const f = await fixture(t);
+  on(f.app);
+  saveDashboardSettings(f.app.store, f.owner, { mode: "off" });
+  assert.equal((await f.call("/api/commands?surface=dashboard")).status, 404);
+  assert.equal((await f.call("/api/commands/run", f.server.token, { surface: "dashboard", line: "/status" })).status, 404);
+  assert.equal((await f.call("/api/commands/run", f.server.token, { surface: "window", line: "/status" })).status, 200);
+  saveDashboardSettings(f.app.store, f.owner, { mode: "on" });
+  assert.equal((await f.call("/api/commands?surface=dashboard")).status, 200);
+  assert.equal((await f.call("/api/commands/run", f.server.token, { surface: "dashboard", line: "/status" })).status, 200);
+});
