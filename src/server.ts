@@ -938,6 +938,12 @@ async function api(
     const comparison = compareStudies(left, right);
     return { comparison, table: comparisonTable(comparison) };
   }
+  // Wave 9: the same scorers held against the real work, so a quiet break shows up on ordinary
+  // tasks rather than only on the test set.
+  if (path === "/api/evaluation/live") {
+    if (request.method === "POST") return { settings: app.liveScoring.configure(await readBody(request)) };
+    return { settings: app.liveScoring.settings(), recent: app.liveScoring.recent(50), summary: app.liveScoring.summary(100) };
+  }
   if (request.method === "POST" && path === "/api/evaluation/tools")
     // The checks really write files and really save facts, so they do it in a project and under a
     // name of their own: nothing they do reaches the owner's folder or the owner's memory.

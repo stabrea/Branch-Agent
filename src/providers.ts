@@ -1,12 +1,14 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import type {
+  BatchApi,
   Completion,
   CompletionRequest,
   Message,
   Provider,
   ToolCall,
 } from "./contracts.js";
+import { anthropicBatchApi, openaiBatchApi } from "./provider-batch.js";
 import { DemoProvider } from "./demo.js";
 import { rejectedHttpResponse } from "./provider-retry.js";
 import { AnthropicStream, OpenAIStream, readEventStream } from "./provider-stream.js";
@@ -113,6 +115,19 @@ function validateOptions(options: ProviderOptions): void {
  * Whether a connection can be shown a picture. Providers say so themselves; anything that does
  * not answer is treated as text only, so a picture is refused in plain words rather than dropped.
  */
+/** The addresses known to take a whole set of questions at once. */
+export const openaiBatchHosts = ["api.openai.com", ".openai.azure.com"];
+export const anthropicBatchHosts = ["api.anthropic.com"];
+/**
+ * Whether this address is one of them. An exact host, or a suffix when the entry begins with a dot,
+ * so one Azure deployment of many matches without every other address matching too.
+ */
+export function offersBatch(endpoint: string, hosts: readonly string[]): boolean {
+  let host: string;
+  try { host = new URL(endpoint).host.toLowerCase(); } catch { return false; }
+  return hosts.some((known) => (known.startsWith(".") ? host.endsWith(known) : host === known));
+}
+
 export function supportsImages(provider: Provider): boolean {
   const said = provider as { supportsImages?: () => boolean; acceptsImages?: boolean };
   if (typeof said.supportsImages === "function") return said.supportsImages.call(provider) === true;
@@ -268,6 +283,14 @@ export class OpenAIProvider implements Provider {
   supportsImages(): boolean {
     return true;
   }
+  /**
+   * A whole set of questions at once, but only where the address really is OpenAI's own or an Azure
+   * deployment of it. Plenty of services speak the OpenAI shape for ordinary questions without
+   * having a set endpoint at all, and saying they do would only make every set fail and fall back.
+   */
+  batch(): BatchApi | null {
+    return offersBatch(this.options.endpoint, openaiBatchHosts) ? openaiBatchApi(this.options) : null;
+  }
   async complete(request: CompletionRequest): Promise<Completion> {
     const body = openaiBody(request, this.options.model);
     if (request.onTextDelta) {
@@ -390,6 +413,10 @@ export class AnthropicProvider implements Provider {
   /** Anthropic messages carry pictures as base64 image blocks, so this connection can be shown one. */
   supportsImages(): boolean {
     return true;
+  }
+  /** A whole set of questions at once, where the address really is Anthropic's own. */
+  batch(): BatchApi | null {
+    return offersBatch(this.options.endpoint, anthropicBatchHosts) ? anthropicBatchApi(this.options) : null;
   }
   async complete(request: CompletionRequest): Promise<Completion> {
     const body = anthropicBody(request, this.options.model);

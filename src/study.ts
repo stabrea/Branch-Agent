@@ -22,6 +22,7 @@ import { readTrajectory, runtimeJudge, scoreTrajectory } from "./evaluation-run.
 import type { ScoredTrajectory } from "./evaluation-scorers.js";
 import { findBenchmarkAdapter } from "./benchmark-adapters.js";
 import type { BenchmarkAdapter, BenchmarkTask } from "./benchmarks.js";
+import { journalEntry, journalReport, journalReplayPlan, type JournalEntry } from "./study-journal.js";
 
 export const StudySchema = z.object({
   id: z.string().regex(/^[a-z0-9][a-z0-9-]{0,39}$/),
@@ -133,7 +134,11 @@ export class StudyRunner {
    * own and waits for one rather than pushing past the limit.
    */
   executions: ExecutionLimit | undefined;
-  constructor(private readonly store: Store, private readonly runtime: Runtime) {}
+  constructor(
+    private readonly store: Store, private readonly runtime: Runtime,
+    /** The version of Branch Agent that is running, written into every journal entry. */
+    private readonly appVersion = "unknown",
+  ) {}
   private get owner(): string { return this.runtime.owner; }
   settings(): StudySettings {
     const saved = StudySettingsSchema.safeParse(this.store.get("settings", this.owner, "studies")?.data ?? {});
@@ -363,8 +368,54 @@ export class StudyRunner {
       presets: study.presets, tasks: tasks.map((task) => task.id), cells, rows, resumed, stoppedEarly,
     };
     this.store.save("governance", this.owner, `study-run:${result.id}`, { ...result });
+    this.record(study, tasks, result);
     return result;
   }
+
+  /** The journal entry for one finished run: what the study was, not only what it found. */
+  private record(study: Study, tasks: StudyTask[], result: StudyRunResult): void {
+    const kinds = new Set<string>();
+    for (const task of tasks)
+      for (const scorer of task.scorers ?? []) {
+        const kind = (scorer as { kind?: unknown }).kind;
+        if (typeof kind === "string") kinds.add(kind);
+      }
+    const entry = journalEntry(result, {
+      study, tasks: tasks.map((task) => task.id), scorerKinds: [...kinds].sort(),
+      benchmarksFolder: this.settings().benchmarksFolder, version: this.appVersion,
+    });
+    this.store.save("governance", this.owner, `study-journal:${result.id}`, { ...entry });
+  }
+
+  /** Every journal entry, newest first, for one study or for all of them. */
+  journals(studyId?: string): JournalEntry[] {
+    return this.store.list("governance", this.owner)
+      .filter((record) => record.id.startsWith("study-journal:"))
+      .map((record) => record.data as unknown as JournalEntry)
+      .filter((entry) => !studyId || entry.studyId === studyId)
+      .sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+  }
+
+  /**
+   * This study run against the one before it: what changed about the experiment first, then what
+   * changed about the answer, with the interval worked out the same way `compareStudies` does it.
+   */
+  replay(studyId: string): { entry: JournalEntry; plan: Study; report: string } {
+    const entries = this.journals(studyId);
+    const latest = entries[0];
+    if (!latest) throw new Error(`No run of ${studyId} has been written down yet, so there is nothing to repeat`);
+    const previous = entries[1];
+    if (!previous) return { entry: latest, plan: journalReplayPlan(latest), report: `This is the first run of ${latest.name}, so there is nothing to compare it with yet.` };
+    const results = this.results(studyId);
+    const before = results.find((one) => one.id === previous.runId), after = results.find((one) => one.id === latest.runId);
+    const comparison = before && after ? tryCompare(before, after) : undefined;
+    return { entry: latest, plan: journalReplayPlan(latest), report: journalReport(previous, latest, comparison) };
+  }
+}
+
+/** Two studies with no task in common cannot be compared; that is a fact to report, not an error. */
+function tryCompare(before: StudyRunResult, after: StudyRunResult): StudyComparison | undefined {
+  try { return compareStudies(before, after); } catch { return undefined; }
 }
 
 /* ------------------------------------------------------------- comparison */

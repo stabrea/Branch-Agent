@@ -12,6 +12,7 @@ import { inspectRun, type PriceRound } from "./inspect.js";
 import { classifyToolEvent } from "./receipts.js";
 import type { Store } from "./store.js";
 import type { ToolRegistry } from "./registry.js";
+import { renderTrajectory, type TrajectoryDocument } from "./trajectory-report.js";
 
 /** The name and number of the shape. A reader checks these before anything else. */
 export const trajectoryFormat = "branch-agent-trajectory";
@@ -86,6 +87,11 @@ export async function receiptOutcomes(store: Store, runId: string): Promise<Traj
 const ExportSchema = z.object({
   /** The task to write out. Leave it out for the task this is happening in. */
   runId: z.string().uuid().optional(),
+  /**
+   * "record" is the whole document; "report" is the same record written out as numbered steps in
+   * plain sentences, for reading rather than for another program.
+   */
+  as: z.enum(["record", "report"]).default("record"),
 }).strict();
 
 /**
@@ -96,18 +102,20 @@ const ExportSchema = z.object({
 export function registerRunExport(registry: ToolRegistry, store: Store, version: string): void {
   registry.register({
     name: "runs.export",
-    description: "Hand back one finished task's full record as JSON: its rounds, tool calls, plan, verdicts, messages and spans.",
+    description: "Hand back one finished task's full record as JSON, or as a readable report of every action and what came back.",
     permission: "history.read",
     parameters: ExportSchema,
     execute: async (input, context) => {
       const runId = input.runId ?? context.runId;
       const run = store.run(runId);
       if (!run || run.owner !== context.owner) throw new Error("There is no task of yours with that number");
-      return buildTrajectory(store, runId, {
+      const document = buildTrajectory(store, runId, {
         receipts: await receiptOutcomes(store, runId),
         timeline: store.usageStore().getRunTimeline(runId),
         cost: null, version,
       });
+      return input.as === "report"
+        ? { runId, report: renderTrajectory(document as unknown as TrajectoryDocument) } : document;
     },
   });
 }
