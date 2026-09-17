@@ -143,6 +143,8 @@ export interface PolicyCheck {
   paths: readonly string[] | null;
   /** Why this was refused, when the reason is something other than the approval rules. */
   reason?: string;
+  /** mac7/r17-g: a yes to this needs a code from the owner's authenticator app, which a hand-pressed tool cannot ask for. */
+  needsCode?: boolean;
 }
 /** What the approval gate decided: what to hand back instead of running, and how to hold the program. */
 interface GateOutcome {
@@ -1918,7 +1920,7 @@ ${run.output.slice(0, 6000)}`;
     const noted = extra.note ? `${label} — ${extra.note}` : label; // mac7/r17-g
     return { decision: answered ?? decision, label: leak ? `${noted}, and the address carries ${leak}` : hold ? `${noted}. ${hold.reason}` : noted, target, readOnly,
       remember: hold?.onceOnly ? "never" : extra.exact ? "session" : source === "owner" ? rule?.remember ?? "session" : "session",
-      sandbox: rule?.sandbox ?? null, backend: rule?.backend ?? null, paths: rule?.paths ?? null };
+      sandbox: rule?.sandbox ?? null, backend: rule?.backend ?? null, paths: rule?.paths ?? null, ...(extra.code ? { needsCode: true } : {}) };
   }
   /**
    * Why the person using this app right now may not have that done, or null. The owner is never

@@ -114,7 +114,8 @@ import { handlesTrunksPath, trunksApi, TrunksHttpError } from "./trunks/api.js";
 import { codingApi, CodingHttpError, handlesCodingPath } from "./coding/api.js"; // mac7/r17-d: coding polish
 import { handlesPersonalPath, personalApi, PersonalHttpError } from "./personal/api.js"; // R17-C
 import { handlesSafetyPath, safetyApi, SafetyHttpError } from "./safety-extras/api.js"; // mac7/r17-g: the safety extras
-import { confirmWithCode } from "./safety-extras/code-approvals.js"; // mac7/r17-g
+import { codesResting, confirmWithCode, restingRefusal } from "./safety-extras/code-approvals.js"; // mac7/r17-g
+import { reservedProjectId } from "./projects.js"; // mac7/r17-g integration review
 // mac4/bucket-20: the Agent Protocol, programs lending tools, and the owner's interop routes.
 import { handleInterop, handlesInteropPath, interopOffLimits } from "./interop/api.js";
 import { clientToolsPath, serveClientToolSocket } from "./interop/client-tools.js";
@@ -1296,7 +1297,7 @@ async function api(
     if (keyRefusal) throw new HttpError(401, keyRefusal);
     // mac7/r17-g: a code typed with the answer is checked first; a wrong one is said plainly.
     if (input.code !== undefined && asked && !(await confirmWithCode(app.store, app.runtime.owner, input.sessionId, asked.fingerprint, input.code)))
-      throw new HttpError(401, "That authenticator code did not match, or it was already used. Wait for the next code.");
+      throw new HttpError(401, codesResting(app.store, app.runtime.owner) ? restingRefusal : "That authenticator code did not match, or it was already used. Wait for the next code.");
     return app.runtime.approve(input.sessionId, input.decision, input.remember, input.fingerprint);
   }
   if (request.method === "GET" && path === "/api/governance")
@@ -1674,6 +1675,8 @@ async function secretsApi(app: Branch, request: IncomingMessage, path: string): 
   }
   const action = /^\/api\/secrets\/([a-z0-9-]{1,40})\/([A-Z][A-Z0-9_]{0,63})\/(remove|rotate)$/.exec(path);
   if (action && request.method === "POST") {
+    // mac7/r17-g integration review: Branch's own locker projects are never changed from the secrets card.
+    if (reservedProjectId(action[1]!)) throw new HttpError(403, "Branch keeps these secrets itself; change them where they are set up.");
     if (action[3] === "remove") {
       z.object({}).strict().parse(await readBody(request));
       return { removed: secrets.remove(owner, action[1]!, action[2]!) };

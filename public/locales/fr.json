@@ -3577,7 +3577,7 @@
   "safety.codes.begin": "Configurer une application",
   "safety.codes.beginHint": "Crée une nouvelle clé ; ajoutez-la à votre application d'authentification",
   "safety.codes.code": "Code de votre application",
-  "safety.codes.codeHint": "Six chiffres ; un nouveau code apparaît toutes les trente secondes.",
+  "safety.codes.codeHint": "Six chiffres ; un nouveau code apparaît toutes les trente secondes. Tant que les codes sont activés, il en faut aussi un pour les modifier ou les retirer.",
   "safety.codes.finish": "Confirmer",
   "safety.codes.finishHint": "Termine la configuration de l'application avec son premier code",
   "safety.codes.remove": "Retirer l'application",

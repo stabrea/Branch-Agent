@@ -14,7 +14,8 @@ import { safetyMode } from "./settings.js";
  */
 type Reader = Pick<Store, "get">;
 export interface CallAbout { tool: string; permission: string; resource: PolicyResource | null; source: string }
-export interface Tightened { decision: Decision; reason: string | null; note: string | null; exact: boolean }
+/** `exact`: only a yes given for these very bytes counts. `code`: that yes needs an authenticator code. */
+export interface Tightened { decision: Decision; reason: string | null; note: string | null; exact: boolean; code: boolean }
 
 /**
  * Called by `Runtime.checkPolicy` on the rules' answer, before an earlier yes is looked up:
@@ -26,8 +27,8 @@ export interface Tightened { decision: Decision; reason: string | null; note: st
  */
 export function tightenCheck(store: Reader, owner: string, call: CallAbout, decision: Decision): Tightened {
   const stopped = stopRefusal(store, owner, call.tool, call.permission, call.resource);
-  if (stopped) return { decision: "deny", reason: stopped, note: null, exact: false };
-  let result: Tightened = { decision, reason: null, note: null, exact: false };
+  if (stopped) return { decision: "deny", reason: stopped, note: null, exact: false, code: false };
+  let result: Tightened = { decision, reason: null, note: null, exact: false, code: false };
   const scan = safetyMode(store, owner, "command-scan");
   if (scan !== "off" && decision !== "deny" && isCommandTool(call.tool) && call.resource?.kind === "command"
     && (scan === "on" || decision === "allow")) {
@@ -35,12 +36,12 @@ export function tightenCheck(store: Reader, owner: string, call: CallAbout, deci
     const tightened = tightenForFindings(decision, findings);
     if (findings.length) {
       const sentence = findingSentence(findings);
-      result = tightened === "deny" ? { decision, reason: sentence, note: null, exact: false } : { ...result, note: sentence };
+      result = tightened === "deny" ? { ...result, reason: sentence } : { ...result, note: sentence };
       result.decision = tightened;
     }
   }
   if (result.decision !== "deny" && needsCode(store, owner, call.tool, call.source))
-    return { ...result, decision: "ask", exact: true, note: [result.note, "needs the code from your authenticator app"].filter(Boolean).join("; ") };
+    return { ...result, decision: "ask", exact: true, code: true, note: [result.note, "needs the code from your authenticator app"].filter(Boolean).join("; ") };
   return result;
 }
 

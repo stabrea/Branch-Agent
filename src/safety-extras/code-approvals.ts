@@ -24,6 +24,9 @@ export const codeProject = "branch-safety";
 export const codeSecretName = "APPROVAL_CODE_KEY";
 const setupKey = "safety-code-approvals-setup";
 const markWindowMs = 5 * 60_000;
+/** Integration review: at most this many wrong codes in a row, then every code waits out the window. */
+export const maxWrongCodes = 5;
+const wrongCodeWindowMs = 5 * 60_000;
 
 export const CodeSetupSchema = z.object({
   /** Tools whose yes needs a code: a name, or a pattern with `*` ("payments.*"). */
@@ -32,20 +35,21 @@ export const CodeSetupSchema = z.object({
   releaseNeedsCode: z.boolean().default(true),
 }).strict();
 export type CodeSetup = z.infer<typeof CodeSetupSchema>;
-interface SavedSetup extends CodeSetup { enrolled: boolean; pending: boolean; lastCounter: number }
+interface SavedSetup extends CodeSetup { enrolled: boolean; pending: boolean; lastCounter: number; wrong: number; wrongSince: number }
 
 type Reader = Pick<Store, "get">;
 function saved(store: Reader, owner: string): SavedSetup {
   const data = (store.get("settings", owner, setupKey)?.data ?? {}) as Partial<SavedSetup>;
   const parsed = CodeSetupSchema.safeParse({ tools: data.tools, releaseNeedsCode: data.releaseNeedsCode });
   const setup = parsed.success ? parsed.data : CodeSetupSchema.parse({});
-  return { ...setup, enrolled: data.enrolled === true, pending: data.pending === true, lastCounter: Number(data.lastCounter ?? -1) };
+  return { ...setup, enrolled: data.enrolled === true, pending: data.pending === true, lastCounter: Number(data.lastCounter ?? -1),
+    wrong: Number(data.wrong ?? 0) || 0, wrongSince: Number(data.wrongSince ?? 0) || 0 };
 }
 const write = (store: Store, owner: string, value: SavedSetup): void => { store.save("settings", owner, setupKey, { ...value }); };
 
 /** What the card shows. The key itself is never part of it. */
-export function codeApprovalsView(store: Reader, owner: string): Omit<SavedSetup, "lastCounter"> & { mode: string } {
-  const { lastCounter: _unused, ...view } = saved(store, owner);
+export function codeApprovalsView(store: Reader, owner: string): Omit<SavedSetup, "lastCounter" | "wrong" | "wrongSince"> & { mode: string } {
+  const { lastCounter: _unused, wrong: _wrong, wrongSince: _since, ...view } = saved(store, owner);
   return { ...view, mode: safetyMode(store, owner, "code-approvals") };
 }
 
@@ -65,16 +69,54 @@ export async function beginCodeSetup(store: Store, owner: string): Promise<{ uri
   return { uri: otpauthUri(key, owner), key };
 }
 
-/** Checks one code against the kept key, once. */
+/** True while too many wrong codes were typed lately: every code, even a right one, waits. */
+export function codesResting(store: Reader, owner: string, now = Date.now()): boolean {
+  const { wrong, wrongSince } = saved(store, owner);
+  return wrong >= maxWrongCodes && now - wrongSince < wrongCodeWindowMs;
+}
+export const restingRefusal = "Too many wrong codes were typed. Wait five minutes, then use the next code from your app.";
+
+function noteWrong(store: Store, owner: string): void {
+  const now = Date.now(), setup = saved(store, owner);
+  const fresh = now - setup.wrongSince >= wrongCodeWindowMs;
+  write(store, owner, { ...setup, wrong: fresh ? 1 : setup.wrong + 1, wrongSince: fresh ? now : setup.wrongSince });
+}
+
+/**
+ * Checks one code against the kept key, once. Integration review: wrong codes are counted (a
+ * missing one is not), five in a row rest every code for five minutes, and the counter is read
+ * again after the key is fetched, so two answers carrying the same code cannot both pass.
+ */
 export async function takeCode(store: Store, owner: string, code: unknown): Promise<boolean> {
   const setup = saved(store, owner);
   if (!setup.enrolled && !setup.pending) return false;
-  if (typeof code !== "string" || !store.locker.exists(owner, codeProject, codeSecretName)) return false;
+  if (typeof code !== "string" || !code.trim() || !store.locker.exists(owner, codeProject, codeSecretName)) return false;
+  if (codesResting(store, owner)) return false;
   const key = (await store.locker.resolve(owner, codeProject, [codeSecretName]))[codeSecretName]!;
   const counter = matchTotp(key, code.trim());
-  if (counter === null || counter <= setup.lastCounter) return false;
-  write(store, owner, { ...saved(store, owner), lastCounter: counter });
+  // Nothing is awaited from here on, so this read and the write below cannot be split by another answer.
+  const now = saved(store, owner);
+  if (counter === null || counter <= now.lastCounter || codesResting(store, owner)) { noteWrong(store, owner); return false; }
+  write(store, owner, { ...now, lastCounter: counter, wrong: 0, wrongSince: 0 });
   return true;
+}
+
+/** True while codes guard this owner's yeses: an app is set up and the switch is not off. */
+export function codesGuarding(store: Reader, owner: string): boolean {
+  return saved(store, owner).enrolled && safetyMode(store, owner, "code-approvals") !== "off";
+}
+export const loosenCodeRefusal =
+  "Changing or removing the authenticator codes needs the six-digit code from your app while they are on. Type it in the code field first.";
+
+/**
+ * Integration review: while codes guard the owner's yeses, taking that guard away (switching it
+ * down, removing or replacing the app, changing the list) needs a good code too; otherwise one
+ * call would undo the protection the code is there for.
+ */
+export async function requireCodeToLoosen(store: Store, owner: string, code: unknown): Promise<void> {
+  if (!codesGuarding(store, owner)) return;
+  if (await takeCode(store, owner, code)) return;
+  throw new Error(codesResting(store, owner) ? restingRefusal : loosenCodeRefusal);
 }
 
 /** The first good code finishes the setup; from then on the listed yeses need one. */
@@ -89,6 +131,8 @@ export async function finishCodeSetup(store: Store, owner: string, code: unknown
 export function removeCodeSetup(store: Store, owner: string): void {
   try { store.locker.remove(owner, codeProject, codeSecretName); } catch { /* no locker in this launch */ }
   write(store, owner, { ...saved(store, owner), enrolled: false, pending: false, lastCounter: -1 });
+  audit(store, owner, { action: "policy.changed", actor: owner, subject: "Authenticator codes for approvals",
+    reason: "The authenticator app was removed; no yes needs a code now", outcome: "saved" });
 }
 
 /** True when releasing the emergency stop needs a code. */

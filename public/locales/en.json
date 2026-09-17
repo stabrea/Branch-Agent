@@ -3574,7 +3574,7 @@
   "safety.codes.begin": "Set up an app",
   "safety.codes.beginHint": "Makes a new key; add it to your authenticator app",
   "safety.codes.code": "Code from your app",
-  "safety.codes.codeHint": "Six digits; a new one appears every thirty seconds.",
+  "safety.codes.codeHint": "Six digits; a new one appears every thirty seconds. While codes are on, changing or removing them needs one too.",
   "safety.codes.finish": "Confirm",
   "safety.codes.finishHint": "Finishes setting up the app with its first code",
   "safety.codes.remove": "Remove the app",

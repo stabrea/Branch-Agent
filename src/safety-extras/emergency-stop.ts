@@ -2,7 +2,7 @@ import { z } from "zod";
 import { audit } from "../audit.js";
 import { globMatches, hostMatches, type PolicyResource } from "../policy-resources.js";
 import type { Store } from "../store.js";
-import { releaseNeedsCode, takeCode } from "./code-approvals.js";
+import { codesResting, releaseNeedsCode, restingRefusal, takeCode } from "./code-approvals.js";
 
 /**
  * mac7/r17-g (R17-063): an emergency stop by level, beside Lockdown (which is all or nothing and
@@ -58,7 +58,8 @@ export const releaseCodeRefusal = "Letting the emergency stop go needs the six-d
 /** Lets every level go. Needs a good code when the owner chose that. */
 export async function releaseStop(store: Store, owner: string, input: unknown): Promise<StopState> {
   const { code } = z.object({ code: z.string().max(12).optional() }).strict().parse(input ?? {});
-  if (releaseNeedsCode(store, owner) && !(await takeCode(store, owner, code ?? ""))) throw new Error(releaseCodeRefusal);
+  if (releaseNeedsCode(store, owner) && !(await takeCode(store, owner, code ?? "")))
+    throw new Error(codesResting(store, owner) ? restingRefusal : releaseCodeRefusal);
   store.save("settings", owner, stateKey, { ...StopLevelsSchema.parse({}), since: null });
   audit(store, owner, { action: "lockdown.changed", actor: owner, subject: "Emergency stop let go",
     reason: "Every level of the emergency stop was released", outcome: "saved" });

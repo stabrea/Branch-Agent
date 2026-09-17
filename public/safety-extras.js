@@ -51,6 +51,8 @@ function button(id, key, english, hintKey, hint, handler, primary = false) {
 }
 const tell = (node, error) => { delete node.dataset.t; node.textContent = error.message ?? String(error); };
 const done = (node) => { node.dataset.t = "safety.saved"; node.textContent = say("safety.saved", "Saved."); };
+/** The code typed on the codes card, for a change that takes the codes' guard away (integration review). */
+const typedCode = () => { const value = $("safety-codes-code")?.value.trim(); return value ? { code: value } : {}; };
 function card(id, titleKey, title, purposeKey, purpose) {
   const node = make("section", "card");
   node.id = id;
@@ -92,7 +94,9 @@ function switchesCard(state) {
       select.append(option);
     }
     select.addEventListener("change", async () => {
-      try { await api("safety-extras/switch", { part, mode: select.value }); done(status); } catch (error) { tell(status, error); }
+      const code = part === "code-approvals" ? typedCode() : {};
+      try { await api("safety-extras/switch", { part, mode: select.value, ...code }); done(status); }
+      catch (error) { select.value = state.modes[part]; tell(status, error); }
     });
     node.append(...described(`safety-switch-${part}`, key, english, hintKey, hint, select));
   }
@@ -155,19 +159,19 @@ function codesCard(state) {
     ...described("safety-codes-tools", "safety.codes.tools", "Tools that need a code", "safety.codes.toolsHint", "One per line; a star matches the rest, as in payments.*.", tools),
     ...described("safety-codes-release", "safety.codes.release", "Letting the emergency stop go needs a code", "safety.codes.releaseHint", "Pressing the stop never needs one.", release),
     button("safety-codes-save", "safety.codes.save", "Save", "safety.codes.saveHint", "Saves the list and the choice above", async () => {
-      try { await api("safety-extras/codes", { tools: tools.value.split("\n").map((line) => line.trim()).filter(Boolean), releaseNeedsCode: release.checked }); done(status); }
+      try { await api("safety-extras/codes", { tools: tools.value.split("\n").map((line) => line.trim()).filter(Boolean), releaseNeedsCode: release.checked, ...typedCode() }); done(status); }
       catch (error) { tell(status, error); }
     }, true),
     button("safety-codes-begin", "safety.codes.begin", "Set up an app", "safety.codes.beginHint", "Makes a new key; add it to your authenticator app", async () => {
-      try { const answer = await api("safety-extras/codes/begin", {}); link.textContent = `${answer.key} · ${answer.uri}`; } catch (error) { tell(status, error); }
+      try { const answer = await api("safety-extras/codes/begin", typedCode()); link.textContent = `${answer.key} · ${answer.uri}`; } catch (error) { tell(status, error); }
     }),
     link,
-    ...described("safety-codes-code", "safety.codes.code", "Code from your app", "safety.codes.codeHint", "Six digits; a new one appears every thirty seconds.", code),
+    ...described("safety-codes-code", "safety.codes.code", "Code from your app", "safety.codes.codeHint", "Six digits; a new one appears every thirty seconds. While codes are on, changing or removing them needs one too.", code),
     button("safety-codes-finish", "safety.codes.finish", "Confirm", "safety.codes.finishHint", "Finishes setting up the app with its first code", async () => {
       try { await api("safety-extras/codes/finish", { code: code.value }); link.textContent = ""; await drawCards(); } catch (error) { tell(status, error); }
     }),
     button("safety-codes-remove", "safety.codes.remove", "Remove the app", "safety.codes.removeHint", "Forgets the key; no yes needs a code afterwards", async () => {
-      try { await api("safety-extras/codes/remove", {}); await drawCards(); } catch (error) { tell(status, error); }
+      try { await api("safety-extras/codes/remove", typedCode()); await drawCards(); } catch (error) { tell(status, error); }
     }),
     status);
   return node;

@@ -54,6 +54,9 @@ export const shortLivedKeyRefusal =
   "Your approval settings ask first about this, and a short-lived key cannot say yes. Do it in the app window.";
 export const leakManualRefusal =
   "This address carries a key or password, so it is not opened by hand without a question. Use \"Try a tool\" to be asked, or take the key out of the address.";
+/** mac7/r17-g integration review: a tool whose yes needs an authenticator code is never run by hand without one. */
+export const codeManualRefusal =
+  "A yes to this needs the six-digit code from your authenticator app, and a tool pressed by hand cannot ask for it. Use \"Try a tool\" or ask Branch in a conversation, where the question card takes the code.";
 export const untrustedManualRefusal =
   "This folder is not trusted, so nothing that changes anything in it is done by hand. Trust the folder in Settings first.";
 
@@ -106,6 +109,7 @@ export function manualVerdict(host: ToolGateHost, tool: string, args: unknown, c
   const held = ownerHold(host, check);
   if (held) return { ...base, decision: "deny", reason: key ? forKey(tool, held) : held };
   if (check.decision === "ask" && key) return { ...base, decision: "deny", reason: shortLivedKeyRefusal };
+  if (check.decision === "ask" && check.needsCode) return { ...base, decision: "deny", reason: codeManualRefusal }; // mac7/r17-g
   return { ...base, decision: check.decision, reason: null };
 }
 
