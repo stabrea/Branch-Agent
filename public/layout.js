@@ -6,12 +6,13 @@
    the forty-odd modules that bind to those ids keep working untouched.
 
    The window wears the 44 KeepOak themes as glass over a pixel oak: theme-catalogue.js holds each
-   theme's finished colours, BRIDGE hands them to Branch's own token names, grove.js paints the oak.
+   theme's finished colours, theme-bridge.js hands them to Branch's own token names, grove.js paints the oak.
    public/app.js calls go() from displayView, so every existing way of opening a page still lands. */
 import { api, displayView, openConversation, titles } from "/app.js";
 import { openPalette } from "/shell.js";
 import { t } from "/i18n.js";
-import { THEMES, THEME_GROUPS, TOKEN_NAMES } from "/theme-catalogue.js";
+import { THEMES, THEME_GROUPS } from "/theme-catalogue.js";
+import { solid, themeById, tokensFor, wearTokens } from "/theme-bridge.js";
 import { paint as paintGrove, seasonToday } from "/grove.js";
 
 const $ = (id) => document.getElementById(id);
@@ -90,35 +91,13 @@ const look = {
 const SEASONS = [["", "look.season.today", "Today"], ["spring", "look.season.spring", "Spring"],
   ["summer", "look.season.summer", "Summer"], ["autumn", "look.season.autumn", "Autumn"], ["winter", "look.season.winter", "Winter"]];
 const QUICK = ["forest", "nocturne", "cherry", "ocean", "lavender", "sepia", "mono"];
-/* Branch's own token names (public/tokens.css), each taken from the KeepOak token that means the same. */
-const BRIDGE = {
-  "--panel": "--glass-2", "--panel-2": "--glass", "--muted": "--text-2", "--faint": "--text-3",
-  "--line-strong": "--line-2", "--selected": "--press", "--good": "--ok", "--good-tint": "--ok-tint",
-  "--danger": "--bad", "--copper-low": "--copper-lo", "--rail-hover": "--press", "--bubble": "--copper-tint",
-  "--composer-bg": "--glass-2", "--step-bg": "--well", "--border": "--line", "--text-dim": "--text-3",
-};
 const modeNow = () => (root.dataset.theme === "daylight" ? "light" : "dark");
-const themeById = (id) => THEMES.find((theme) => theme[0] === id) ?? THEMES[0];
-/** One theme's colours for light or dark, as { "--token": value }. */
-function tokensFor(theme, mode, contrast = "standard") {
-  const values = theme[3][`${mode}${contrast === "more" ? "-more" : ""}`];
-  return Object.fromEntries(TOKEN_NAMES.map((name, index) => [name, values[index]]).filter(([name, value]) => value && name !== "--blur"));
-}
-const rgbOf = (hex) => /^#[0-9a-f]{6}$/i.test(hex) ? [1, 3, 5].map((at) => parseInt(hex.slice(at, at + 2), 16)) : null;
-/** An opaque surface for menus and the settings window, a step off the ground toward the text. */
-function solid(ground, toward, amount) {
-  const from = rgbOf(ground), to = rgbOf(toward);
-  if (!from || !to) return ground;
-  return `rgb(${from.map((value, index) => Math.round(value + (to[index] - value) * amount)).join(", ")})`;
-}
 function applyLook() {
   const family = themeById(look.family), mode = modeNow();
   const tokens = tokensFor(family, mode, look.contrast);
-  for (const [name, value] of Object.entries(tokens)) root.style.setProperty(name, value);
-  for (const [name, from] of Object.entries(BRIDGE)) if (tokens[from]) root.style.setProperty(name, tokens[from]);
+  wearTokens(root, family, tokens);
   const surface = solid(tokens["--ground"], mode === "dark" ? tokens["--text"] : "#ffffff", mode === "dark" ? 0.07 : 0.55);
   root.style.setProperty("--surface", surface);
-  root.dataset.palette = family[0];
   paintGrove({ mode, season: look.season || seasonToday() });
   drawLookControls();
 }
