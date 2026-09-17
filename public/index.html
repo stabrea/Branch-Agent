@@ -10,11 +10,16 @@
     <link rel="stylesheet" href="/shell.css" />
     <!-- Wave 6: rendered markdown, the "Look inside" panel, the live row, the meter, the playground. -->
     <link rel="stylesheet" href="/web-ui.css" />
+    <!-- Wave 9 redesign: glass panes over the oak, the five places and the Settings window (public/layout.js). -->
+    <link rel="stylesheet" href="/layout.css" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" href="/assets/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/assets/icon-192.png" />
   </head>
   <body>
+    <!-- Wave 9 redesign: the pixel oak behind the glass (public/grove.js). -->
+    <canvas id="wall" class="lx-wall" aria-hidden="true"></canvas>
+    <canvas id="wall-fx" class="lx-wall" aria-hidden="true"></canvas>
     <!-- The rail: brand and app switcher, quiet actions, the sections, projects,
          conversations by day, and the owner at the foot. public/shell.js fills it. -->
     <aside class="rail" id="conversation-rail" aria-label="Sidebar">
@@ -1743,5 +1748,7 @@
     <script src="/docs-3.js" type="module"></script>
     <script src="/other.js" type="module"></script>
     <script src="/sandbox-remote.js" type="module"></script>
+    <!-- Wave 9 redesign: last, so every panel it moves already exists. -->
+    <script src="/layout.js" type="module"></script>
   </body>
 </html>

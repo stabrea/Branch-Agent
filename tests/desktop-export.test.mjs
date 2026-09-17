@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { openPlace } from "./places.mjs";
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -85,7 +86,7 @@ test('native conversation export uses guarded IPC and leaves the blanket downloa
 async function exportNativeMemory(electron, page, path) {
   const invalid = await page.evaluate(() => window.branchDesktop.exportMemory('{}').then(() => 'allowed', error => error.message));
   assert.notEqual(invalid, 'allowed');
-  await page.locator('[data-view="memory"]').click();
+  await openPlace(page, 'memory');
   await page.locator('#memory-text').fill('Native exported memory');
   await page.getByRole('button', { name: 'Save memory', exact: true }).click();
   await page.locator('#memory-count').filter({ hasText: '1 of 500' }).waitFor();
