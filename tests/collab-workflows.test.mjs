@@ -49,7 +49,7 @@ async function served(t) {
   };
   return { app, provider, server, headers, call };
 }
-const planted = "Here is the key sk-proj-abcdefghijklmnopqrstuvwx1234 for the deploy and my address ada@example.com.";
+const planted = "Here is the key sk-proj-abcdefghijklmnopqrstuvwx1234 for the deploy and my address ada@example.com.";  // not-a-real-secret: a planted fixture, here to prove it gets blanked out
 
 /* ---- W1: a conversation as a page that can do nothing, with a receipt ---- */
 
@@ -59,7 +59,7 @@ test("the shared page carries no scripts and blanks out a planted key", async (t
   const { html, receipt } = shareHtml({ sessionId: run.sessionId, title: "A chat" }, app.store.messages(run.sessionId));
   assert.ok(!/<script/i.test(html), "the page must carry no scripts at all");
   assert.ok(!/ on[a-z]+=/i.test(html), "the page must carry no inline handlers");
-  assert.ok(!html.includes("sk-proj-abcdefghijklmnopqrstuvwx1234"), "the planted key must not survive");
+  assert.ok(!html.includes("sk-proj-abcdefghijklmnopqrstuvwx1234"), "the planted key must not survive");  // not-a-real-secret: a planted fixture, here to prove it gets blanked out
   assert.ok(html.includes("[removed before sharing]"));
   assert.equal(receipt.secretsRemoved, 1);
   assert.equal(receipt.contactDetailsRemoved, 0, "contact details stay unless the owner asks");
@@ -90,7 +90,7 @@ test("a share link needs its code, works once, and expires", async (t) => {
   const right = await fetch(`${server.url}${made.body.path}?code=${made.body.code}`);
   assert.equal(right.status, 200);
   const page = await right.text();
-  assert.ok(!/<script/i.test(page) && !page.includes("sk-proj-abcdefghijklmnopqrstuvwx1234"));
+  assert.ok(!/<script/i.test(page) && !page.includes("sk-proj-abcdefghijklmnopqrstuvwx1234"));  // not-a-real-secret: a planted fixture, here to prove it gets blanked out
   const again = await fetch(`${server.url}${made.body.path}?code=${made.body.code}`);
   assert.equal(again.status, 403, "the code works once");
   assert.equal((await again.text()).includes("already been used"), true);
@@ -107,7 +107,7 @@ test("the HTML download hands back a receipt of what was shared", async (t) => {
   assert.match(response.headers.get("content-disposition") ?? "", /attachment/);
   const receipt = JSON.parse(response.headers.get("x-branch-share-receipt") ?? "{}");
   assert.equal(receipt.secretsRemoved, 1);
-  assert.ok(!(await response.text()).includes("sk-proj-abcdefghijklmnopqrstuvwx1234"));
+  assert.ok(!(await response.text()).includes("sk-proj-abcdefghijklmnopqrstuvwx1234"));  // not-a-real-secret: a planted fixture, here to prove it gets blanked out
 });
 
 /* ---- W2: labels and project notes ---- */
@@ -565,16 +565,16 @@ test("a profile cannot be added or removed by anyone but the owner", async (t) =
 
 test("chat-app tokens, secret-looking names in a tool result, and contact details are blanked out", async (t) => {
   const { app } = await fixture(t);
-  const telegram = "110201874:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw";
+  const telegram = "110201874:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw";  // not-a-real-secret: a planted fixture, here to prove it gets blanked out
   const run = await app.runtime.run({
-    prompt: `My bot token is ${telegram} and my key is sk-proj-abcdefghijklmnopqrstuvwx1234.`,
+    prompt: `My bot token is ${telegram} and my key is sk-proj-abcdefghijklmnopqrstuvwx1234.`,  // not-a-real-secret: a planted fixture, here to prove it gets blanked out
   });
   app.store.message(run.sessionId, { role: "tool", content:
     "TELEGRAM_BOT_TOKEN=7d9f1a2b3c4d5e6f7a8b9c0d\nwrite to ada@example.com or ring +44 7700 900123" });
   const messages = app.store.messages(run.sessionId);
   const { html, receipt } = shareHtml({ sessionId: run.sessionId }, messages);
   assert.ok(!html.includes(telegram), "a chat-app bot token must not survive");
-  assert.ok(!html.includes("sk-proj-abcdefghijklmnopqrstuvwx1234"), "an API key must not survive");
+  assert.ok(!html.includes("sk-proj-abcdefghijklmnopqrstuvwx1234"), "an API key must not survive");  // not-a-real-secret: a planted fixture, here to prove it gets blanked out
   assert.ok(!html.includes("7d9f1a2b3c4d5e6f7a8b9c0d"), "a value against a secret-looking name must not survive");
   assert.ok(receipt.secretsRemoved >= 3, `three plantings were expected, got ${receipt.secretsRemoved}`);
   assert.ok(html.includes("ada@example.com"), "contact details stay in unless the owner asks for them");

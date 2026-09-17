@@ -13,7 +13,7 @@ import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 
 /** A key that must never survive into a diagnostics folder. */
-const fixtureKey = "sk-testonly0000ZZZZ1111secretvalue";
+const fixtureKey = "sk-testonly0000ZZZZ1111secretvalue";  // not-a-real-secret: a planted fixture, here to prove it gets blanked out
 
 async function scratch(t, label) {
   const base = join(tmpdir(), "Codex-session-files");
