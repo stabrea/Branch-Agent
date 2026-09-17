@@ -481,6 +481,37 @@ Create a bot with @BotFather, then either save its token as the secret `TELEGRAM
 
 `activation`, `pairing` and `allowlist` mean the same on every channel, and every channel uses the same delivery ledger, the same pairing codes and `POST /api/channels/link { channel, chatId, sessionId }`. Every credential is read from an environment variable of that name first, then from a secret of that name in the **default project's** locker; nothing is ever written into the connections file. Every outbound request goes through the network settings in `web`, including the chat sockets (checked as the matching `https://` address) and the mail servers (checked by host name). `GET /api/channels` reports each channel's `health` as `connected`, `reconnecting` or `needs attention` with a plain reason; **Settings → Channels** shows the same line and a **Check the connection** button. A secret never appears in that output, in an error message or in the log.
 
+### Watching and steering a task from the chat
+
+Everything in this section is **off on a fresh install**: chat replies arrive exactly as before until you switch a part on. There are four switches, each `on`, `off` or `when-needed`, read from `GET /api/channels` (`live`) and changed with `POST /api/channels/live { liveStatus?, commands?, steering?, splitting? }` (the ones you leave out keep their value):
+
+| Switch | On | When needed | Off |
+|---|---|---|---|
+| `liveStatus` | Typing, the reaction and the progress message from the start. | Nothing for a quick answer; all three start once a task has worked for about four seconds. | Just the reply. |
+| `commands` | Every command below. | Only `/stop`, `/status`, `/btw` and `/help`, and only while a task works. | A message starting with `/` is an ordinary message. |
+| `steering` | Quick messages are answered as one, and later ones are handed to the running task. | Handed to the running task, without waiting to gather quick messages. | A message for a busy chat waits for the task to finish and is answered on its own. |
+| `splitting` | Paragraph breaks first, and code blocks closed and reopened. | The same, but only for a reply that contains code. | Cut at the last line break or space, as before. |
+
+These are things the chat does, not things the model reads, so "when needed" is decided by the moment (a slow task, a busy chat, code in the reply) rather than by loading a summary into the prompt.
+
+While a task works, the chat shows it. Where the app has them: "typing…" stays on (Telegram, Discord, Matrix); the message you sent gets a reaction that moves from 👀 (seen) to 🤔 (thinking) to 👨‍💻 (using a tool) and ends on 👍 (done) or 😢 (stopped or went wrong) (Telegram, Discord, Slack); and a task still working after about four seconds gets one progress message that lists its steps and then fills in the reply as it is written, edited in place (Telegram, Discord, Slack). When the reply fits, it replaces the progress message instead of arriving a second time; otherwise the progress message ends as "Done (3 steps)." and the reply follows as usual. An app without these (WhatsApp, Signal, email, Messenger, a plugin's chat service) simply gets the reply. Nothing of this is shown during quiet hours or Lockdown, and every word passes the same last look as a reply.
+
+Messages you send within about a second of each other are answered as one. A message sent while a task works is handed to it as a note it reads before its next step, the same as **Steer** in the app, and gets a 👀 (or "Noted." where there are no reactions); a note that arrives as the task is finishing becomes the next message instead of being lost. Only allowed or approved senders reach any of this; a stranger's `/stop` gets the pairing answer. The commands:
+
+| Send | What happens |
+|---|---|
+| `/stop` (or `/cancel`) | Stops the task (or drops a message that has not started). |
+| `/status` | How long it has worked, how many steps, and the latest one. |
+| `/new` (or `/reset`) | The next message starts a new conversation; the old one stays in the app. |
+| `/compact` | Folds the earlier part of the conversation into a summary now; the latest messages and pinned ones stay. |
+| `/usage on` / `/usage off` | Adds a tokens-and-cost line to replies in this chat (estimates are called estimates). |
+| `/btw <question>` | A quick answer on the side, with no tools, in a throwaway conversation; it never joins the task. |
+| `/help` | The list. |
+
+In a group where the bot answers only when mentioned, mention it before the command (`@YourBot /status`). Long replies are split at paragraph breaks first, and a block of code is closed at the end of one message and opened again, with its language, at the start of the next.
+
+**macOS and Linux.** None of this uses anything from the operating system: it is the same code and the same calls to each chat service on Windows, macOS and Linux, and the tests use stand-in services on all three.
+
 ### Channels (Discord)
 
 Create an application at discord.com/developers, add a bot, and turn on **Message Content Intent** — without it Discord delivers empty message text. Save the bot token as `DISCORD_BOT_TOKEN` and add:

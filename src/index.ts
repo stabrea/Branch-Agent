@@ -462,6 +462,8 @@ export async function createBranch(options: {
     lockedDown(store, runtime.owner)
       ? { text: "", blocked: true, reason: lockdownRefusal }
       : privacy.outbound(text);
+  // Wave mac2 (chat-live): typing, reactions and progress messages stop under Lockdown as well.
+  channels.liveAllowed = () => !lockedDown(store, runtime.owner);
   runtime.hideSecrets = (value) => {
     // mac2/leak-guard: key-shaped values nobody looked up are hidden in logs and question cards too.
     const scrubbed = redactLeaksIn(store.secrets.scrubber.deep(value)).value;
