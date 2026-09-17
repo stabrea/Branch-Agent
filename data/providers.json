@@ -87,7 +87,7 @@
       "defaultModel": "claude-sonnet-5",
       "recommendedModels": ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5-20251001", "claude-fable-5-1"],
       "pricingUrl": "https://www.anthropic.com/pricing",
-      "note": "The usual Anthropic account. Nothing extra to fill in.",
+      "note": "Your own Anthropic API key. Nothing extra to fill in. To use a Claude plan instead, add Claude Code under coding assistants; Branch never signs in to Claude.ai itself.",
       "signUp": "https://console.anthropic.com/",
       "terms": { "route": "Your own API key", "url": "https://www.anthropic.com/legal/commercial-terms", "standing": "official" }
     },
@@ -123,7 +123,7 @@
       "defaultModel": "gemini-3.8-flash",
       "recommendedModels": ["gemini-3.8-flash", "gemini-3.1-pro-preview", "gemini-2.5-flash"],
       "pricingUrl": "https://ai.google.dev/pricing",
-      "note": "A Google AI Studio key. The key travels in a header, never in the address.",
+      "note": "A Google AI Studio key. The key travels in a header, never in the address. To use a Google plan instead, add Gemini CLI under coding assistants; Branch never reuses Gemini CLI's sign-in.",
       "signUp": "https://aistudio.google.com/apikey",
       "terms": { "route": "Your own Google AI Studio key", "url": "https://ai.google.dev/gemini-api/terms", "standing": "official" }
     },

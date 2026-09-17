@@ -32,20 +32,68 @@ export const CliAgentRowSchema = z.object({
   jsonField: z.string().trim().max(40).default(""),
   /** Shown beside the row, so nobody thinks Branch is signing in to anything. */
   note: z.string().trim().max(200).default("Uses your installed tool and its own sign-in."),
+  /** The Terms line: which route this is, where the maker's terms are, and anything to know first. */
+  terms: z.object({
+    route: z.string().min(1).max(200),
+    url: z.string().regex(/^https:\/\//).max(2048),
+    standing: z.enum(["official", "unofficial"]),
+    warning: z.string().max(400).optional(),
+  }).strict().optional(),
 }).strict();
 export type CliAgentRow = z.infer<typeof CliAgentRowSchema>;
 
+/** What an owner's own command is told: Branch cannot know its maker's terms. */
+const ownCommandTerms = {
+  route: "A program you named, with its own sign-in",
+  url: "https://github.com/stabrea/Branch-Agent/blob/main/docs/configuration.md",
+  standing: "official" as const,
+  warning: "Branch cannot know this program's terms. Check that its maker allows it to be run by another app.",
+};
+
 /** The coding assistants Branch knows the command line of. Data, not code: correct it and move on. */
 export const cliAgentCatalog: CliAgentRow[] = [
+  // Anthropic lets a person sign in to its unmodified Claude Code program with their own plan, and
+  // forbids other apps from handling Claude.ai sign-ins; Branch only runs the program and never
+  // touches its sign-in (https://code.claude.com/docs/en/legal-and-compliance).
   { id: "claude-code", name: "Claude Code (installed on this computer)", command: "claude",
     args: ["-p", "--output-format", "json"], jsonField: "result",
-    note: "Uses your installed tool and its own sign-in." },
+    note: "Runs Anthropic's own Claude Code with your own sign-in. Branch never sees or keeps that sign-in.",
+    terms: {
+      route: "Anthropic's unmodified claude program, run with -p, signed in by you",
+      url: "https://code.claude.com/docs/en/legal-and-compliance",
+      standing: "official",
+      warning: "Use through claude -p counts against your Claude plan's usage limits (https://support.claude.com/en/articles/15036540-use-the-claude-agent-sdk-with-your-claude-plan). Plan limits assume ordinary individual use.",
+    } },
   { id: "codex", name: "Codex (installed on this computer)", command: "codex",
     args: ["exec", "--json", "-"], jsonField: "",
-    note: "Uses your installed tool and its own sign-in." },
+    note: "Runs OpenAI's own Codex with your own sign-in. Branch never sees or keeps that sign-in.",
+    terms: {
+      route: "OpenAI's codex program, run with exec, signed in by you",
+      url: "https://learn.chatgpt.com/docs/auth",
+      standing: "official",
+      warning: "Use through a ChatGPT plan counts against that plan's limits.",
+    } },
   { id: "copilot", name: "GitHub Copilot CLI (installed on this computer)", command: "copilot",
     args: ["-p"], jsonField: "",
-    note: "Uses your installed tool and its own sign-in." },
+    note: "Runs GitHub's own Copilot command line with your own sign-in. Branch never sees or keeps that sign-in.",
+    terms: {
+      route: "GitHub's copilot program, run with -p, signed in by you",
+      url: "https://docs.github.com/copilot/how-tos/use-copilot-agents/use-copilot-cli",
+      standing: "official",
+      warning: "Requests count against your Copilot plan's premium requests.",
+    } },
+  // Google says using Gemini CLI's sign-in from other software breaks its terms
+  // (https://geminicli.com/docs/resources/tos-privacy/), so Branch runs the program itself in its
+  // documented headless mode (docs/cli/headless.md: JSON output with a "response" field).
+  { id: "gemini-cli", name: "Gemini CLI (installed on this computer)", command: "gemini",
+    args: ["--output-format", "json"], jsonField: "response",
+    note: "Runs Google's own Gemini CLI with your own sign-in. Branch never sees or keeps that sign-in.",
+    terms: {
+      route: "Google's gemini program in its headless mode, signed in by you",
+      url: "https://geminicli.com/docs/resources/tos-privacy/",
+      standing: "official",
+      warning: "Google forbids other apps from reusing Gemini CLI's sign-in, so Branch only runs the program. Use counts against your Google plan's limits.",
+    } },
 ];
 
 /** Only what a program needs to find itself and its own sign-in; nothing else of the owner's. */
@@ -169,7 +217,7 @@ export function rowFor(input: unknown): CliAgentRow {
     throw new Error(`Branch does not know a coding assistant called "${asked.id}". Give the command to run as well.`);
   return CliAgentRowSchema.parse({
     id: asked.id, name: asked.name ?? asked.id, command: asked.command,
-    args: asked.args ?? [], jsonField: asked.jsonField ?? "",
+    args: asked.args ?? [], jsonField: asked.jsonField ?? "", terms: ownCommandTerms,
   });
 }
 
@@ -180,9 +228,9 @@ export function rowFor(input: unknown): CliAgentRow {
 export function registerCliAgent(
   models: { register(preset: { id: string; name: string; provider: Provider; model: string }): void },
   input: unknown, limits: CliAgentLimits = {}, spawnAgent: SpawnAgent = runCliAgent,
-): { id: string; name: string; note: string } {
+): { id: string; name: string; note: string; terms: CliAgentRow["terms"] } {
   const row = rowFor(input);
   const id = `cli-${row.id}`;
   models.register({ id, name: row.name, provider: new CliAgentProvider(row, limits, spawnAgent), model: row.command });
-  return { id, name: row.name, note: row.note };
+  return { id, name: row.name, note: row.note, terms: row.terms };
 }

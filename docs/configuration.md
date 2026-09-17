@@ -184,6 +184,38 @@ every provider's terms line by line, so read them yourself before relying on a r
   officially supported ways are an OpenAI API key (`openai`, `openai-responses`) or OpenAI's own
   `codex` program under coding assistants (`POST /api/providers/cli-agents {"id":"codex"}`).
 
+#### Claude
+
+- **Allowed and built:** an Anthropic API key (`anthropic`), Amazon Bedrock with your own AWS keys
+  (`bedrock`, model names such as `anthropic.claude-sonnet-5`; some regions want a `us.` or
+  `global.` prefix, and Anthropic models need AWS's first-use form), and Google Vertex AI with your
+  own project (`anthropic-vertex`). The Vertex entry posts the Anthropic Messages body to
+  `…/publishers/anthropic/models/{model}:rawPredict` (`:streamRawPredict` when streaming) with
+  `anthropic_version: "vertex-2023-10-16"` in the body and your Google access token in
+  `Authorization`; the location `global` uses `aiplatform.googleapis.com`.
+- **A Claude plan:** only through Anthropic's own, unmodified `claude` program, which you sign in to
+  yourself. Add it under coding assistants (`{"id":"claude-code"}`); Branch runs
+  `claude -p --output-format json` with the prompt on standard input and never reads, stores or
+  forwards the program's sign-in. Anthropic's legal page forbids other apps from offering Claude.ai
+  sign-in or handling its tokens, and allows a person to sign in to the unmodified program with their
+  own plan (<https://code.claude.com/docs/en/legal-and-compliance>). Use this way counts against your
+  plan's limits (<https://support.claude.com/en/articles/15036540-use-the-claude-agent-sdk-with-your-claude-plan>).
+- **Never built:** a Claude.ai sign-in inside Branch, or reusing Claude Code's sign-in or client id.
+  Anthropic blocked other tools that did this in January and April 2026.
+
+#### Google Gemini
+
+- **Allowed and built:** a Google AI Studio key (`gemini`), Vertex AI with your own project
+  (`vertex-ai`), and signing in with Google through **your own** Google Cloud OAuth client
+  (Settings → Models, `src/gemini-signin.ts`), which bills your own project.
+- **A Google plan:** only through Google's own `gemini` program, which you sign in to yourself. Add
+  it under coding assistants (`{"id":"gemini-cli"}`); Branch runs `gemini --output-format json` in
+  its documented headless mode and reads the `response` field.
+- **Never built:** reusing Gemini CLI's or Antigravity's sign-in. Google's Gemini CLI terms call
+  that a violation that may lead to suspension
+  (<https://geminicli.com/docs/resources/tos-privacy/>), and the Gemini CLI team confirmed bans
+  (<https://github.com/google-gemini/gemini-cli/discussions/20632>).
+
 #### Perplexity
 
 Perplexity supports its Sonar chat route only until 27 September 2026

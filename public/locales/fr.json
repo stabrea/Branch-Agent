@@ -1461,5 +1461,6 @@
   "terms.chatgpt.door": "Non officiel, et peut cesser de fonctionner.",
   "terms.chatgpt.route": "Connexion avec un abonnement ChatGPT. Non officielle : OpenAI ne documente cette connexion que pour ses propres applications et n'a donné aucune autorisation écrite aux autres, elle peut donc cesser de fonctionner à tout moment. Elle reste désactivée tant que vous ne vous connectez pas, et une clé d'API est la voie officiellement prise en charge.",
   "terms.chatgpt.sign-in-page": "Documentation de connexion d'OpenAI ↗",
-  "terms.chatgpt.honest": "Branch se présente comme Branch Agent et ne se fait jamais passer pour une autre application."
+  "terms.chatgpt.honest": "Branch se présente comme Branch Agent et ne se fait jamais passer pour une autre application.",
+  "terms.gemini.route": "Connexion Google avec votre propre client Google Cloud, facturée à votre propre projet. Branch ne réutilise jamais la connexion de Gemini CLI, ce que Google interdit ; pour utiliser un abonnement Google, ajoutez Gemini CLI parmi les assistants de programmation."
 }

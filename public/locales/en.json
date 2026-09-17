@@ -1460,5 +1460,6 @@
   "terms.chatgpt.door": "Unofficial, and may stop working.",
   "terms.chatgpt.route": "ChatGPT plan sign-in. Unofficial: OpenAI documents this sign-in only for its own apps and has given no written permission for other apps, so it may stop working at any time. It stays off until you sign in, and an API key is the officially supported way.",
   "terms.chatgpt.sign-in-page": "OpenAI's sign-in documentation ↗",
-  "terms.chatgpt.honest": "Branch identifies itself as Branch Agent and never pretends to be another app."
+  "terms.chatgpt.honest": "Branch identifies itself as Branch Agent and never pretends to be another app.",
+  "terms.gemini.route": "Google sign-in through your own Google Cloud client, billed to your own project. Branch never reuses Gemini CLI's sign-in, which Google forbids; to use a Google plan, add Gemini CLI under coding assistants."
 }
