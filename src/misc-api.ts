@@ -2,6 +2,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { z } from "zod";
 import { audit, auditCsv, AuditQuerySchema } from "./audit.js";
 import { clarifyingQuestions, promptWithAnswers, askFirstSettings, saveAskFirstSettings } from "./ask-first.js";
+import { configureRepositoryContext, repositoryContextSettings } from "./context-providers.js";
 import { decisionsFromRules, mergeCategoryRules } from "./tool-categories.js";
 import { readPolicy, savePolicy } from "./policy.js";
 import { IssueLinkSchema } from "./integrations/issue-context.js";
@@ -114,12 +115,25 @@ async function retrievalApi(
   readBody: (request: IncomingMessage, maximumBytes?: number) => Promise<unknown>,
 ): Promise<unknown> {
   if (path === "/api/retrieval") {
-    if (request.method === "GET") return app.retrieval.view(owner);
+    if (request.method === "GET")
+      return { ...app.retrieval.view(owner), ...repositoryContextSettings(app.store, owner),
+        providers: app.contextProviders.list() };
     if (request.method === "POST") return app.retrieval.configure(owner, await readBody(request));
   }
+  if (path === "/api/retrieval/context" && request.method === "POST")
+    return configureRepositoryContext(app.store, owner, await readBody(request));
+  if (path === "/api/retrieval/pipelines" && request.method === "POST")
+    return app.retrieval.configurePipelines(owner, await readBody(request));
   if (path === "/api/retrieval/search" && request.method === "POST") {
-    const { query } = z.object({ query: z.string().trim().min(1).max(500) }).strict().parse(await readBody(request));
-    return app.retrieval.search(owner, query);
+    const asked = z.object({
+      query: z.string().trim().min(1).max(500),
+      pipeline: z.string().trim().min(1).max(60).optional(),
+      collection: z.string().trim().min(1).max(120).optional(),
+    }).strict().parse(await readBody(request));
+    return app.retrieval.search(owner, asked.query, undefined, {
+      ...(asked.pipeline ? { pipeline: asked.pipeline } : {}),
+      ...(asked.collection ? { collection: asked.collection } : {}),
+    });
   }
   return notFound();
 }

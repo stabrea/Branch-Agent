@@ -5,6 +5,7 @@
  */
 const $ = (id) => document.getElementById(id);
 let view = null;
+let pipelines = { pipelines: [], byCollection: {} };
 
 function el(tag, text, className) {
   const node = document.createElement(tag);
@@ -30,6 +31,7 @@ const when = (value) => (value ? new Date(value).toLocaleString() : "not read ye
 
 export async function loadKnowledge() {
   view = await request("/api/knowledge");
+  pipelines = await request("/api/retrieval").catch(() => pipelines);
   render();
 }
 function render() {
@@ -37,6 +39,9 @@ function render() {
   $("knowledge-meaning").textContent = view.meaningSearch
     ? `Your knowledge bases are matched by wording and by meaning${view.onThisComputer ? ", read by a model on this computer so nothing leaves it" : ` (read by ${view.model})`}.`
     : "Your knowledge bases are matched by the words in them. Connect a model that can compare writing by meaning to also match by meaning.";
+  $("knowledge-vectors-in").value = view.vectorStore?.vectorsIn ?? "database";
+  $("knowledge-vectors-file").value = view.vectorStore?.vectorsFile ?? "";
+  $("knowledge-vectors-status").textContent = view.backendNote || `Your vectors are kept in ${view.backend}.`;
   const list = $("knowledge-list");
   list.replaceChildren();
   if (!view.collections.length) {
@@ -63,9 +68,37 @@ function card(entry) {
     request("/api/knowledge/attach", { body: { collection: entry.id, attached: box.checked } })));
   use.append(box, document.createTextNode(" Use this when answering"));
   node.append(use);
+  node.append(pipelinePicker(entry));
   node.append(button("Read it again", () => request("/api/knowledge/reindex", { body: { collection: entry.id } })));
   node.append(button("Remove", () => request(`/api/knowledge/${entry.id}`, { method: "DELETE" })));
   return node;
+}
+/**
+ * Which named order of retrievers a search aimed at this knowledge base runs. "The usual way" is
+ * every place asked at once, which is what Branch has always done and what it does until an order
+ * is written down in the settings.
+ */
+function pipelinePicker(entry) {
+  const row = el("label", undefined, "check-row");
+  const pick = document.createElement("select");
+  const usual = document.createElement("option");
+  usual.value = "default";
+  usual.textContent = "the usual way";
+  pick.append(usual);
+  for (const named of pipelines.pipelines ?? []) {
+    const option = document.createElement("option");
+    option.value = named.name;
+    option.textContent = named.name;
+    pick.append(option);
+  }
+  pick.value = pipelines.byCollection?.[entry.id] ?? "default";
+  pick.addEventListener("change", () => act(pick, async () => {
+    const byCollection = { ...(pipelines.byCollection ?? {}) };
+    if (pick.value === "default") delete byCollection[entry.id]; else byCollection[entry.id] = pick.value;
+    pipelines = await request("/api/retrieval/pipelines", { body: { byCollection } });
+  }));
+  row.append(document.createTextNode("Look things up "), pick);
+  return row;
 }
 function button(label, run) {
   const node = el("button", label);
@@ -88,12 +121,20 @@ function passage(hit) {
   node.append(el("p", hit.text));
   return node;
 }
+/** What the two boxes under the search row add up to, or nothing when neither was used. */
+function chosenFilter() {
+  const kind = $("knowledge-filter-kind").value, changed = $("knowledge-filter-changed").value;
+  const filter = { ...(kind ? { kinds: [kind] } : {}), ...(changed ? { changedAfter: changed } : {}) };
+  return Object.keys(filter).length ? filter : undefined;
+}
 async function search(query) {
   const results = $("knowledge-results");
   results.replaceChildren();
-  const { results: found } = await request("/api/knowledge/search", { body: { query, limit: 5 } });
-  if (!found.length) { results.append(el("p", "Nothing in your knowledge bases matches that.", "empty")); return; }
-  for (const hit of found) results.append(passage(hit));
+  const filter = chosenFilter();
+  const found = await request("/api/knowledge/search", { body: { query, limit: 5, ...(filter ? { filter } : {}) } });
+  if (found.note) { results.append(el("p", found.note, "empty")); return; }
+  if (!found.results.length) { results.append(el("p", "Nothing in your knowledge bases matches that.", "empty")); return; }
+  for (const hit of found.results) results.append(passage(hit));
 }
 
 function wire() {
@@ -115,6 +156,12 @@ function wire() {
     if (!query) return;
     try { await search(query); say(""); } catch (error) { say(error.message); }
   });
+  $("knowledge-vectors-save")?.addEventListener("click", () => act($("knowledge-vectors-save"), async () => {
+    const answer = await request("/api/knowledge/vectors", {
+      body: { vectorsIn: $("knowledge-vectors-in").value, vectorsFile: $("knowledge-vectors-file").value.trim() },
+    });
+    $("knowledge-vectors-status").textContent = answer.note || `Your vectors are kept in ${answer.backend}.`;
+  }));
   document.querySelector('.nav[data-view="documents"]')
     ?.addEventListener("click", () => { loadKnowledge().catch((error) => say(error.message)); });
 }

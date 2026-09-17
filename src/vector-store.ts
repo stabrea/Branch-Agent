@@ -37,12 +37,27 @@ export interface VectorBackend {
   count(owner: string, collection?: string): Promise<number>;
   /** Which passages of a collection are already read, by fingerprint, so re-reading is free. */
   fingerprints(owner: string, collection: string, model: string): Promise<Map<string, string>>;
+  /**
+   * The same count as `count`, answered without waiting, for the panel that draws its cards in one
+   * pass. A backend that cannot answer without waiting leaves this out and the card simply says
+   * nothing about how many passages are compared by meaning, rather than showing a wrong zero.
+   */
+  countNow?(owner: string, collection: string): number | null;
+  /**
+   * Lets go of whatever the backend was holding — a file handle, a connection. Only a backend that
+   * opened something of its own has one; the shipped one shares Branch's database and must not
+   * close it, so it does nothing unless it was given a file of its own to look after.
+   */
+  close?(): void;
 }
 
 /** The backend that ships: one table in the database Branch already keeps, compared here. */
 export class SqliteVectors implements VectorBackend {
-  readonly name = "this computer";
-  constructor(private readonly db: DatabaseSync) {
+  constructor(
+    private readonly db: DatabaseSync, readonly name = "this computer",
+    /** True only when this object opened the file itself and is the one that must close it. */
+    private readonly ownsDatabase = false,
+  ) {
     this.db.exec(`CREATE TABLE IF NOT EXISTS vectors(owner TEXT NOT NULL, collection TEXT NOT NULL,
       doc_id TEXT NOT NULL, chunk_id TEXT NOT NULL, model TEXT NOT NULL, dims INTEGER NOT NULL,
       blob BLOB NOT NULL, text_hash TEXT NOT NULL, PRIMARY KEY(owner,collection,chunk_id));
@@ -93,6 +108,11 @@ export class SqliteVectors implements VectorBackend {
       ? this.db.prepare("SELECT COUNT(*) AS n FROM vectors WHERE owner=? AND collection=?").get(owner, collection)
       : this.db.prepare("SELECT COUNT(*) AS n FROM vectors WHERE owner=?").get(owner);
     return Number(row?.n ?? 0);
+  }
+  close(): void { if (this.ownsDatabase) try { this.db.close(); } catch { /* already closed */ } }
+  countNow(owner: string, collection: string): number {
+    return Number(this.db.prepare("SELECT COUNT(*) AS n FROM vectors WHERE owner=? AND collection=?")
+      .get(owner, collection)?.n ?? 0);
   }
   async fingerprints(owner: string, collection: string, model: string): Promise<Map<string, string>> {
     return new Map(this.db.prepare("SELECT chunk_id, text_hash FROM vectors WHERE owner=? AND collection=? AND model=?")

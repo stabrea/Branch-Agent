@@ -3,6 +3,9 @@ import { errorText } from "./contracts.js";
 import type { DocumentLibrary } from "./documents.js";
 import type { MemoryRetrieval } from "./memory-retrieval.js";
 import type { ModelRouter } from "./models.js";
+import { mergePassages, noSuchRetriever, orderedStages, pipelineFor, rerankStage,
+  RetrievalPipelineSettingsSchema, type NamedPipeline, type RetrievalPipelineSettings,
+  type StageReport } from "./retrieval-pipeline.js";
 import type { Store } from "./store.js";
 
 /**
@@ -133,6 +136,10 @@ export interface RetrievalResult {
   reranked: RerankSettings["mode"];
   rerankCalls: number;
   note: string;
+  /** Which named order ran. "default" is every retriever at once, the way it has always worked. */
+  pipeline: string;
+  /** One line per step of a named order: what it was allowed, and what it actually brought back. */
+  stages: StageReport[];
 }
 
 /** Every retriever together, with the second pass applied once over their combined answers. */
@@ -151,26 +158,61 @@ export class Retrieval {
     return value;
   }
   view(owner: string) {
-    return { settings: this.settings(owner), retrievers: this.list(), modelRerankReady: Boolean(this.models) };
+    return { settings: this.settings(owner), retrievers: this.list(), modelRerankReady: Boolean(this.models),
+      ...this.pipelineSettings(owner) };
   }
-  /** Asks every retriever, merges what they found, then puts the best first. */
-  async search(owner: string, query: string, signal?: AbortSignal): Promise<RetrievalResult> {
+  /** The orders the owner has written down, and which knowledge base uses which. */
+  pipelineSettings(owner: string): RetrievalPipelineSettings {
+    const saved = RetrievalPipelineSettingsSchema.safeParse(this.store.get("settings", owner, "retrieval-pipelines")?.data ?? {});
+    return saved.success ? saved.data : RetrievalPipelineSettingsSchema.parse({});
+  }
+  configurePipelines(owner: string, input: unknown): RetrievalPipelineSettings {
+    const value = RetrievalPipelineSettingsSchema.parse({ ...this.pipelineSettings(owner), ...(input as object) });
+    this.store.save("settings", owner, "retrieval-pipelines", value);
+    return value;
+  }
+  /**
+   * Asks every retriever, merges what they found, then puts the best first — unless the owner has
+   * written down a named order for this search, in which case the steps run one after another with
+   * the ceiling each was given.
+   */
+  async search(owner: string, query: string, signal?: AbortSignal,
+    wanted: { pipeline?: string; collection?: string } = {}): Promise<RetrievalResult> {
     const settings = this.settings(owner);
+    const chosen = pipelineFor(this.pipelineSettings(owner), wanted);
+    if (chosen) return this.runPipeline(owner, query, chosen, settings, signal);
     const found = await Promise.all(this.retrievers.map((retriever) =>
       retriever.retrieve(owner, query, settings.candidates, signal).catch(() => [] as RetrievedPassage[])));
-    const merged = new Map<string, RetrievedPassage>();
-    for (const passage of found.flat().sort((a, b) => b.score - a.score))
-      if (!merged.has(passage.key)) merged.set(passage.key, passage);
-    const candidates = [...merged.values()].slice(0, settings.candidates);
-    if (!candidates.length) return { passages: [], reranked: settings.mode, rerankCalls: 0, note: "" };
+    const candidates = mergePassages(found.flat(), settings.candidates);
+    if (!candidates.length) return empty(settings.mode);
     return this.rerank(owner, query, candidates, settings, signal);
+  }
+  /** One named order, step by step, each step held to its own ceiling before the next one runs. */
+  private async runPipeline(owner: string, query: string, pipeline: NamedPipeline,
+    settings: RerankSettings, signal?: AbortSignal): Promise<RetrievalResult> {
+    const known = this.retrievers.map((entry) => entry.id);
+    const stages: StageReport[] = [];
+    let gathered: RetrievedPassage[] = [];
+    let keep = settings.keep;
+    for (const stage of orderedStages(pipeline, settings.keep)) {
+      if (stage.retriever === rerankStage) { keep = stage.cap; stages.push({ ...stage, found: Math.min(gathered.length, keep), note: "" }); continue; }
+      const retriever = this.retrievers.find((entry) => entry.id === stage.retriever);
+      if (!retriever) { stages.push({ ...stage, found: 0, note: noSuchRetriever(stage.retriever, known) }); continue; }
+      const found = (await retriever.retrieve(owner, query, stage.cap, signal).catch(() => [] as RetrievedPassage[])).slice(0, stage.cap);
+      stages.push({ ...stage, found: found.length, note: "" });
+      gathered = mergePassages([...gathered, ...found], settings.candidates);
+    }
+    const note = stages.map((stage) => stage.note).filter(Boolean).join(" ");
+    if (!gathered.length) return { ...empty(settings.mode), pipeline: pipeline.name, stages, note };
+    const result = await this.rerank(owner, query, gathered, { ...settings, keep }, signal);
+    return { ...result, pipeline: pipeline.name, stages, note: [result.note, note].filter(Boolean).join(" ") };
   }
   private async rerank(owner: string, query: string, candidates: RetrievedPassage[], settings: RerankSettings, signal?: AbortSignal): Promise<RetrievalResult> {
     if (settings.mode === "model" && this.models) {
       const chosen = await modelRerank(this.models, owner, query, candidates, settings.keep, signal ?? AbortSignal.timeout(20000));
-      return { passages: chosen.passages, reranked: "model", rerankCalls: chosen.calls, note: chosen.note };
+      return { passages: chosen.passages, reranked: "model", rerankCalls: chosen.calls, note: chosen.note, pipeline: "default", stages: [] };
     }
-    return { passages: lexicalRerank(query, candidates, settings.keep), reranked: "words", rerankCalls: 0, note: "" };
+    return { passages: lexicalRerank(query, candidates, settings.keep), reranked: "words", rerankCalls: 0, note: "", pipeline: "default", stages: [] };
   }
   /** Puts an already-found list in the best order, for the libraries that search on their own. */
   async order(owner: string, query: string, passages: RetrievedPassage[], signal?: AbortSignal): Promise<RetrievedPassage[]> {
@@ -181,3 +223,7 @@ export class Retrieval {
   /** The owner this retrieval belongs to, for callers that hold only the façade. */
   get defaultOwner(): string { return this.owner; }
 }
+
+/** Nothing found, in the shape every search answers in. */
+const empty = (mode: RerankSettings["mode"]): RetrievalResult =>
+  ({ passages: [], reranked: mode, rerankCalls: 0, note: "", pipeline: "default", stages: [] });

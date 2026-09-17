@@ -150,6 +150,47 @@ does the same for the last few at once, and tells you what it would cost first.
 When an accepted card is later used to answer something, the answer names the knowledge base it came
 from as well as the card, so you can always tell a thing you told it from a thing it worked out.
 
+### Asking only part of it
+
+Sometimes the right answer is in a small corner of a large collection, and everything else in there
+only gets in the way. Under the search box are two choices: **Only this kind of file** and **Only
+files changed since**. Pick a kind, a date, or both, and the search happens only among the files that
+fit. Two choices together narrow it further, not wider — a spreadsheet changed this year has to be
+both.
+
+If nothing at all fits what you picked, Branch tells you so in a sentence and stops there. It does
+**not** quietly go and look everywhere else instead. That matters: an answer drawn from last year's
+files when you asked about this year's is worse than no answer, because you would have no way of
+knowing.
+
+### Looking in a different order
+
+Branch looks in several places for a passage: your documents, the things it remembers, your knowledge
+bases, the map of names, and any text you pasted in for this one job. Normally it asks all of them at
+once and puts the best answers first, and you never have to think about it.
+
+If you want a particular collection searched in a particular order — the pasted text first, say, and
+only two things from anywhere else — you can write that order down and give it a name. Each knowledge
+base's card then has a **Look things up** box where you pick the named order to use for it. Leave it
+on **the usual way** and nothing changes at all.
+
+### Where the lists of numbers are kept
+
+Matching by what you meant, rather than by the words you typed, works by keeping a long list of
+numbers for every passage. Normally those live in the same place as everything else Branch keeps, and
+you never need to think about them.
+
+If you have a very large library they can grow bigger than everything else put together. **Where your
+vectors are kept**, at the bottom of the Knowledge card, lets you put them in a file of your own
+instead, on any drive — useful when the main drive is small, or when you would rather they were not
+in your everyday backup.
+
+Two things are safe about this. Changing it deletes nothing: what you already had stays where it was,
+and the new place fills up the next time you press **Read it again**. And if the file cannot be
+opened — the drive is unplugged, the folder is one you may not write to — Branch says so on the card
+in one sentence and simply carries on using its own database. It will not sit there broken, and it
+will not fail a search without telling you.
+
 ### What a whole collection says
 
 **Summarise** reads a collection right through and gives you a few lines about what is in it, with a
