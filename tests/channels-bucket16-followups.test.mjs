@@ -137,13 +137,19 @@ test("Matrix: the sync carries on from the saved token after a restart and saves
     return Response.json({ next_batch: `s${asked.length + 1}` });
   };
   const mark = memoryMark("s1");
+  let answeredBeforeSave = null;
+  const save = mark.save;
+  mark.save = (value) => { answeredBeforeSave ??= sent.some((text) => /while you were away/.test(text)); save(value); };
   const channel = new MatrixAdapter({ id: "matrix", homeserver: "https://ex.org", userId: "@branch:ex.org", accessToken: "t",
     fetch: fetchImpl, mark, syncTimeoutMs: 10 });
   await context.app.channels.attach(channel, { activation: "always", pairing: false, allowlist: ["@carol:ex.org"] });
   t.after(() => channel.stop());
   await until(() => sent.some((text) => /while you were away/.test(text)), "the missed message is answered");
   assert.equal(asked[0], "s1", "the first sync starts from the saved token");
-  await until(() => mark.saves.includes("s2"), "the token after it is saved once answered");
+  await until(() => mark.saves.length > 0, "a token is saved once the message is answered");
+  // Later empty syncs may finish first under load; the newest settled token is the one saved.
+  assert.ok(Number(mark.saves[0].slice(1)) >= 2, `the saved token moved on from s1 (${mark.saves[0]})`);
+  assert.ok(answeredBeforeSave, "nothing was saved before the missed message had been answered");
 });
 
 test("Guilded: a restart asks for what was missed, and a ping that goes unanswered reopens the socket", async (t) => {
