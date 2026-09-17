@@ -17,6 +17,7 @@ import { DemoProvider } from "./demo.js";
 import { Knowledge, registerKnowledge } from "./knowledge.js";
 import { registerOrchestration } from "./orchestration-tools.js";
 import { registerOrchestrationModes } from "./orchestration-modes.js";
+import { registerSecondOpinion } from "./second-opinion-tools.js";
 import { registerMemory } from "./memory.js";
 import { MemoryRetrieval } from "./memory-retrieval.js";
 import { MemoryHygiene } from "./memory-hygiene.js";
@@ -352,6 +353,7 @@ export async function createBranch(options: {
   // Batch 26 (wave 8): a supervisor over named workers, a swarm over one shared list, and a router
   // that sorts a request to the one specialist it belongs to.
   registerOrchestrationModes(registry, runtime, knowledge);
+  registerSecondOpinion(registry, runtime);
   const web = new WebAccess(options.web ?? {}, globalThis.fetch, `BranchAgent/${String(createRequire(import.meta.url)("../package.json").version)}`);
   registerWeb(registry, web, (context, info) => { if (context.runId) store.event(context.runId, "content.flagged", info); });
   // A paid search service's key comes out of the locker for the one request and is written down
@@ -1117,6 +1119,8 @@ export * from "./os-permissions.js";
 export * from "./profile-roles.js";
 export * from "./replay.js";
 export * from "./orchestration-modes.js";
+export * from "./answer-shape.js";
+export * from "./second-opinion.js";
 export * from "./flows.js";
 // Wave 8: the to-do list, reports in three forms, and artifacts out of a reply.
 export * from "./todos.js";

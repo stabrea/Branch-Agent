@@ -74,6 +74,12 @@ export interface CompletionRequest {
   reasoning?: "low" | "medium" | "high";
   /** Live provider text only; partial text is not a committed completion. */
   onTextDelta?: (text: string) => void;
+  /**
+   * The exact shape the reply must take. An adapter with a setting of its own for this uses it;
+   * one without simply ignores the field, and whatever asked falls back to saying so in the words
+   * of the question and checking the reply afterwards. See src/answer-shape.ts.
+   */
+  responseFormat?: { name: string; schema: Record<string, unknown> };
 }
 export interface Completion {
   content: string;
