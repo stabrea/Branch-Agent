@@ -272,17 +272,18 @@ test("every place, tab and Settings page in docs/places.md opens from the termin
     if ("settings" in route && route.settings === "models") assert.ok(frame.includes(MODEL_TABS.find((tab) => tab.id === route.sub).english));
   }
   await tui.command("/go chat");
+  tui.lastTab = { customize: "plugins" };
   input.write("\x1b");
   await delay(600);
   input.write("4");
   await settle();
-  assert.equal(homeOf(tui.route), "library:made", "Escape then 4 opens Library, on the tab it was last left on");
-  input.write("\x1b[C\x1b[C");
+  assert.equal(homeOf(tui.route), "library:memory", "Escape then 4 opens Library on its first tab");
+  input.write("\x1b[C\x1b[C\x1b[C");
   await settle();
-  assert.equal(homeOf(tui.route), "library:documents", "the right arrow walks the tabs, round from the last to the first");
+  assert.equal(homeOf(tui.route), "library:memory", "the right arrow walks the tabs, round from the last to the first");
   input.write("\x1b5");
   await settle();
-  assert.equal(homeOf(tui.route), "customize:channels", "Alt+5 opens Customize from anywhere, on its last tab");
+  assert.equal(homeOf(tui.route), "customize:plugins", "Alt+5 opens Customize from anywhere, on the tab it was last left on");
   input.write("\x0b");
   await settle();
   input.write("appear");
@@ -297,7 +298,7 @@ test("every place, tab and Settings page in docs/places.md opens from the termin
   input.write("\x1b");
   await delay(600);
   await settle();
-  assert.equal(homeOf(tui.route), "customize:channels", "Escape closes Settings onto the place it opened over");
+  assert.equal(homeOf(tui.route), "customize:plugins", "Escape closes Settings onto the place it opened over");
 });
 
 test("the theme changed in the terminal is the one saved for the window, and the side pane opens on demand", async (t) => {
