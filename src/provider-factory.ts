@@ -2,7 +2,7 @@ import type { Provider } from "./contracts.js";
 import type { NetworkPolicy } from "./network-policy.js";
 import {
   type CatalogEntry, type Capability,
-  catalogEntry, missingExtras, plainCapability, resolveBaseUrl, supportsCapability,
+  catalogEntry, isRetired, missingExtras, plainCapability, resolveBaseUrl, supportsCapability,
 } from "./provider-catalog.js";
 import { AnthropicProvider, OpenAIProvider } from "./providers.js";
 import { AzureOpenAIProvider } from "./providers/azure-openai.js";
@@ -11,6 +11,10 @@ import { CohereProvider } from "./providers/cohere.js";
 import { GeminiProvider } from "./providers/gemini.js";
 import { OllamaProvider } from "./providers/ollama.js";
 import { OpenAIResponsesProvider } from "./providers/openai-responses.js";
+import { PerplexityAgentProvider } from "./providers/perplexity-agent.js";
+import { AnthropicVertexProvider } from "./providers/anthropic-vertex.js";
+import { RetiredProvider } from "./providers/retired.js";
+import { connectionFetch } from "./local-connection-policy.js";
 
 /**
  * Turning one line of the catalog into a working connection. There is one adapter per wire shape,
@@ -42,6 +46,8 @@ export interface BuiltConnection {
 export function buildConnection(input: ConnectionInput): BuiltConnection {
   const entry = catalogEntry(input.provider);
   if (!entry) throw new Error(`Branch does not know a model service called "${input.provider}"`);
+  // A route the service has ended still builds, so a saved connection shows why instead of vanishing.
+  if (isRetired(entry)) return retiredConnection(entry, input.model);
   const extras = input.extras ?? {};
   const missing = missingExtras(entry, extras);
   if (missing.length) throw new Error(`${entry.name} still needs: ${missing.join(", ")}`);
@@ -51,8 +57,16 @@ export function buildConnection(input: ConnectionInput): BuiltConnection {
   assertAddressAllowed(baseUrl);
   const model = (input.model ?? entry.defaultModel).trim();
   if (!model) throw new Error(`${entry.name} needs the name of a model`);
-  const call = input.policy ? input.policy.guard(input.fetchImpl ?? globalThis.fetch) : input.fetchImpl;
+  // A local program from the catalog may be reached on its own address only; see local-connection-policy.ts.
+  const call = input.policy
+    ? connectionFetch(input.policy, entry, baseUrl, input.fetchImpl ?? globalThis.fetch) : input.fetchImpl;
   return { entry, model, baseUrl, provider: adapterFor(entry, baseUrl, model, input.key, extras, call, input.now) };
+}
+
+function retiredConnection(entry: CatalogEntry, model: string | undefined): BuiltConnection {
+  const why = entry.terms.warning ?? `${entry.name} can no longer be used.`;
+  return { entry, model: (model ?? entry.defaultModel).trim() || entry.defaultModel, baseUrl: entry.baseUrl,
+    provider: new RetiredProvider(entry.id, why) };
 }
 
 /** The same rule every provider address follows: HTTPS, or plain HTTP only on this computer. */
@@ -94,6 +108,10 @@ function adapterFor(
       });
     case "cohere-chat-v2":
       return new CohereProvider({ endpoint: baseUrl, model, apiKey: key, ...(fetchImpl ? { fetchImpl } : {}) });
+    case "perplexity-agent":
+      return new PerplexityAgentProvider({ endpoint: baseUrl, model, apiKey: key, ...(fetchImpl ? { fetchImpl } : {}) });
+    case "anthropic-vertex":
+      return new AnthropicVertexProvider({ endpoint: baseUrl, model, token: key, ...(fetchImpl ? { fetchImpl } : {}) });
     case "ollama":
       return new OllamaProvider({ endpoint: baseUrl, model, ...(fetchImpl ? { fetchImpl } : {}) });
   }
@@ -120,3 +138,16 @@ export function capabilityRefusal(
   return `${entry.name} cannot ${plain}. ${able.map((other) => other.name).join(" or ")} can, so use one of those instead.`;
 }
 export { plainCapability } from "./provider-catalog.js";
+
+/**
+ * For Settings → Test this connection, which builds its provider by header style alone: the
+ * services whose route that guess would get wrong. Returns null for everything the guess handles.
+ * A retired or not-offered service answers with its plain note instead of reaching the network.
+ */
+export function testRouteFor(presetId: string, endpoint: string, model: string, key: string): Provider | null {
+  const entry = catalogEntry(presetId);
+  if (!entry) return null;
+  if (isRetired(entry)) return new RetiredProvider(entry.id, entry.terms.warning ?? `${entry.name} can no longer be used.`);
+  if (entry.shape === "perplexity-agent") return new PerplexityAgentProvider({ endpoint, model, apiKey: key });
+  return null;
+}

@@ -1,7 +1,9 @@
 import type { Provider } from "./contracts.js";
 import type { ModelPreset, ModelRouter } from "./models.js";
 import type { NetworkPolicy } from "./network-policy.js";
-import { type Capability, capabilities, capabilitySentences, catalogEntry } from "./provider-catalog.js";
+import { type Capability, type ProviderTerms, capabilities, capabilitySentences, catalogEntry } from "./provider-catalog.js";
+import { RetiredProvider } from "./providers/retired.js";
+import { connectionCheck } from "./local-connection-policy.js";
 import { providerEmbeddings, supportsImages } from "./providers.js";
 import { geminiAuth } from "./voice-stt.js";
 
@@ -32,6 +34,10 @@ export interface ProviderProbe {
   fix?: string;
   /** True when this connection is using a Google sign-in rather than a key. */
   signedInWithGoogle?: boolean;
+  /** True when the service ended the route this connection used; the summary says so plainly. */
+  retired?: boolean;
+  /** The route this connection uses, where the service's terms are, and whether the route is official. */
+  terms?: ProviderTerms;
 }
 
 /** Exactly what the card says when Google will not take a signed-in person's token. */
@@ -113,13 +119,17 @@ export async function probeProvider(
     can: capabilitiesOf(preset),
     canSaid: capabilitySentences(capabilitiesOf(preset)),
     summary: "",
+    ...termsOf(preset),
   };
+  if (preset.provider instanceof RetiredProvider)
+    return { ...base, retired: true, summary: preset.provider.note, fix: "Remove this connection and pick another one." };
   const target = modelsUrl(preset.provider);
   if (!target)
     return { ...base, summary: `${preset.name} does not offer a list of models, so its key can only be checked by using it.`,
       fix: "Press Test under Settings → Models to send one small request." };
   try {
-    await policy.assertAllowed(new URL(target.url), "model connection check");
+    const entry = preset.catalogId ? catalogEntry(preset.catalogId) : undefined;
+    await connectionCheck(policy, entry, target.url)(new URL(target.url), "model connection check");
     const response = await fetchImpl(target.url, { headers: target.headers, redirect: "error", signal: AbortSignal.timeout(10_000) });
     if (!response.ok) {
       const refused = response.status === 401 || response.status === 403;
@@ -136,6 +146,11 @@ export async function probeProvider(
     return { ...base, summary: `${preset.name} could not be reached: ${(error instanceof Error ? error.message : String(error)).slice(0, 160)}`,
       fix: "Check the address under Settings → Models, and that this computer is online." };
   }
+}
+
+function termsOf(preset: ModelPreset): { terms?: ProviderTerms } {
+  const entry = preset.catalogId ? catalogEntry(preset.catalogId) : undefined;
+  return entry ? { terms: entry.terms } : {};
 }
 
 function describe(name: string, listed: number | null, probe: ProviderProbe): string {

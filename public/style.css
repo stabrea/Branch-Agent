@@ -707,6 +707,13 @@ label > input[type="radio"] {
   max-width: 100%;
 }
 
+/* mac5/providers: the Terms line under a provider. A route that is not official is marked in the
+   warning colour, from tokens only. */
+.terms-line[data-standing="unofficial"] #provider-terms-standing,
+.terms-line[data-standing="retired"] #provider-terms-standing,
+.terms-line[data-standing="not-offered"] #provider-terms-standing { color: var(--warn); }
+.terms-line a { overflow-wrap: anywhere; }
+
 /* Wave mac3 (commands): the "/" menu above the message box, and the list in the commands card. */
 .composer { position: relative; }
 .slash-menu {

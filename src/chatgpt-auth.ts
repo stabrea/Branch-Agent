@@ -3,9 +3,16 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 
 /**
- * ChatGPT account sign-in through OpenAI's device-code flow: the same route Hermes Agent and Goose
- * use. Branch identifies itself honestly with its own originator; it never impersonates Codex.
- * Tokens stay in the vault and are never returned to the interface.
+ * ChatGPT account sign-in through OpenAI's device-code flow, with the client id OpenAI's Codex uses.
+ * Hermes Agent does the same (same client id and device code, its own originator); Goose uses the
+ * same client id with a browser sign-in instead. Branch identifies itself honestly with its own
+ * originator; it never impersonates Codex. Tokens stay in the vault and are never returned to the
+ * interface.
+ *
+ * Terms: UNOFFICIAL. OpenAI documents this sign-in only for its own apps
+ * (https://learn.chatgpt.com/docs/auth) and gives no written permission to other apps, so the route
+ * is opt-in, labelled "unofficial, may stop working" wherever it is shown, and may stop at any time.
+ * See docs/configuration.md, "ChatGPT plan sign-in and OpenAI's terms".
  */
 export const chatgptDefaults = {
   issuer: "https://auth.openai.com",

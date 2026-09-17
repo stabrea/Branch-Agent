@@ -3,6 +3,18 @@ import { ChatGPTProvider, chatgptModels } from "./chatgpt-provider.js";
 import type { ModelRouter } from "./models.js";
 
 export const chatgptPresetPrefix = "chatgpt-";
+
+/**
+ * The Terms line for this route. OpenAI documents ChatGPT sign-in only for its own apps
+ * (https://learn.chatgpt.com/docs/auth) and no written permission for other apps was found, so the
+ * route is labelled unofficial everywhere it is shown. It is only ever used after the owner signs in.
+ */
+export const chatgptTerms = {
+  route: "ChatGPT plan sign-in (OpenAI's device-code sign-in)",
+  url: "https://openai.com/policies/row-terms-of-use/",
+  standing: "unofficial",
+  warning: "Unofficial: OpenAI documents this sign-in only for its own apps, so it may stop working at any time. An API key is the officially supported way.",
+} as const;
 export const chatgptPresetId = (model: string): string => chatgptPresetPrefix + model.replace(/[^a-z0-9.]+/gi, "-");
 
 /**
@@ -17,7 +29,7 @@ export function syncChatGPTPresets(models: ModelRouter, auth: ChatGPTAuth, signe
   return chatgptModels.map((entry) => {
     const id = chatgptPresetId(entry.id);
     models.register({
-      id, name: `ChatGPT · ${entry.label}`, model: entry.id, reasoning: entry.reasoning,
+      id, name: `ChatGPT (unofficial) · ${entry.label}`, model: entry.id, reasoning: entry.reasoning,
       provider: new ChatGPTProvider(auth, { model: entry.id, userAgent }),
     });
     return id;
