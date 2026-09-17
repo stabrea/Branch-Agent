@@ -101,6 +101,7 @@ Inside a conversation there are no homes to add to, only two surfaces with stric
 | Ways of working (modes) and shared assistants (`mac4/bucket-20`) | `customize:specialists` |
 | A conversation handed over from another device (`#handoff=<id>`) | Opens the conversation itself; no screen of its own |
 | Saved prompts, your own commands and the example tool server (bucket 12) | `automations:procedures`, beside saved procedures; the commands themselves live in the message box's `/` menu |
+| Installing and removing skills with a written account, Agent Skills folders (bucket 12) | `customize:skills` |
 | One-click models on this computer (`mac5/local-models`) | `settings:models:local`, inside the existing "Models on this computer" card; each finished setup appears as a connection in `settings:models:connection` |
 
 When something new does not fit a row, apply the rule at the top and add a row here in the same

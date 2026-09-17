@@ -173,8 +173,12 @@ export function zipWrite(entries: ZipEntry[]): Buffer {
 export interface ZipLimits { entries: number; entryBytes: number; totalBytes: number }
 export const defaultZipLimits: ZipLimits = { entries: maxEntries, entryBytes: maxEntryBytes, totalBytes: maxPackageBytes };
 
-/** Reads a small zip; also used to open a plugin someone handed over as one file. */
-export function zipRead(bytes: Buffer, limits: ZipLimits = defaultZipLimits): Map<string, string> {
+const plainEntry = (name: string): boolean => { packageEntryName.parse(name); return true; };
+/**
+ * Reads a small zip; also used to open a plugin someone handed over as one file. `accept` checks
+ * each name and may skip one by answering false (bucket 12 reads Agent Skills folders with it).
+ */
+export function zipRead(bytes: Buffer, limits: ZipLimits = defaultZipLimits, accept: (name: string) => boolean = plainEntry): Map<string, string> {
   let end = bytes.length - 22;
   while (end >= 0 && bytes.readUInt32LE(end) !== 0x06054b50) end--;
   if (end < 0) throw new Error("This file is not a skill package");
@@ -189,7 +193,7 @@ export function zipRead(bytes: Buffer, limits: ZipLimits = defaultZipLimits): Ma
     const name = bytes.toString("utf8", position + 46, position + 46 + nameLength);
     const local = bytes.readUInt32LE(position + 42);
     if (size > limits.entryBytes || (total += size) > limits.totalBytes) throw new Error("The package holds more data than allowed");
-    packageEntryName.parse(name);
+    if (!accept(name)) { position += 46 + nameLength + extra + comment; continue; }
     const start = local + 30 + bytes.readUInt16LE(local + 26) + bytes.readUInt16LE(local + 28);
     const raw = bytes.subarray(start, start + stored);
     const data = method === 8 ? inflateRawSync(raw) : method === 0 ? raw : null;

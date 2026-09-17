@@ -1,6 +1,7 @@
 /**
  * Bucket 12 in the app window, used the way a person uses it: the saved-prompts card in
- * Automations › Procedures, and a saved command typed in the message box. Headless browser only; no window opens.
+ * Automations › Procedures, a saved command typed in the message box, and the install record in
+ * Customize › Skills. Headless browser only; no window opens.
  */
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -11,6 +12,7 @@ import { chromium } from "playwright";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
+import { zipWrite } from "../dist/skill-package.js";
 import { openPlace } from "./places.mjs";
 
 async function fixture(t, viewport = { width: 1280, height: 900 }) {
@@ -64,11 +66,25 @@ test("saved prompts: switched on in Procedures, written, saved, then typed as a 
   assert.deepEqual(errors, []);
 });
 
-test("saved prompts fit a 400 px window", async (t) => {
+test("saved prompts and the install record fit a 400 px window, and a skill folder installs with its steps shown", async (t) => {
   const { page, errors } = await fixture(t, { width: 400, height: 860 });
   await openPlace(page, "automations:procedures");
   await page.getByLabel("Saved prompts", { exact: true }).selectOption("on");
   await page.locator("#prompts-editor").waitFor({ state: "visible" });
   assert.ok(await sideways(page) <= 0, "no sideways scrolling in Procedures");
+
+  await openPlace(page, "customize:skills");
+  const card = page.locator("#skill-installs-card");
+  await card.waitFor({ state: "visible" });
+  await page.getByLabel("Install record", { exact: true }).selectOption("on");
+  await card.locator("#skill-installs-file").waitFor({ state: "visible" });
+  const zip = zipWrite([["tidy-summary/SKILL.md", "---\nname: tidy-summary\ndescription: Tidy summaries.\n---\n\nKeep it short.\n"],
+    ["tidy-summary/scripts/run.sh", "echo never"]]);
+  await card.locator("#skill-installs-file").setInputFiles({ name: "tidy-summary.zip", mimeType: "application/zip", buffer: zip });
+  await card.getByRole("button", { name: "Install it" }).click();
+  await card.locator("details summary").filter({ hasText: "tidy-summary" }).waitFor();
+  await card.locator("details summary").first().click();
+  assert.match(await card.locator("details").first().textContent(), /Left out tidy-summary\/scripts\/run\.sh/);
+  assert.ok(await sideways(page) <= 0, "no sideways scrolling in Skills");
   assert.deepEqual(errors, []);
 });

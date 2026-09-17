@@ -116,6 +116,7 @@ import {
 // Wave mac3 (commands): the one slash-command table's routes.
 import { CommandApiError, commandsApi, handlesCommandsPath } from "./commands/api.js";
 import { handlesPromptsPath, promptsApi } from "./prompt-library-api.js"; // bucket 12
+import { handlesSkillInstallsPath, skillInstallsApi } from "./skill-installs.js"; // bucket 12
 import { PolicyRememberSchema, policyPresets, readPolicy, savePolicy } from "./policy.js";
 import { maximumArchiveBytes } from "./session-library.js";
 import { maximumMemoryArchiveBytes } from "./memory.js";
@@ -445,6 +446,7 @@ async function staticFile(
     "/security-check.js": ["security-check.js", "text/javascript; charset=utf-8"],
     // bucket 12: saved prompts (Automations › Procedures) and the skill install record (Customize › Skills).
     "/prompt-library.js": ["prompt-library.js", "text/javascript; charset=utf-8"],
+    "/skill-installs.js": ["skill-installs.js", "text/javascript; charset=utf-8"],
     // mac2/fly-core-2: the learning core's card.
     "/learning-core.js": ["learning-core.js", "text/javascript; charset=utf-8"],
     "/layout.css": ["layout.css", "text/css; charset=utf-8"],
@@ -2492,9 +2494,10 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
         // ---- end of the commands block ----
         // ---- bucket 12: saved prompts (src/prompt-library-api.ts) and the skill install record
         // (src/skill-installs.ts). Every change there is the owner's; short-lived keys never get this far. ----
-        if (handlesPromptsPath(path)) {
+        if (handlesPromptsPath(path) || handlesSkillInstallsPath(path)) {
           const method = request.method ?? "GET", body = () => readBody(request, 2 * 1024 * 1024);
-          const answer = await promptsApi(app, method, path, body);
+          const answer = handlesPromptsPath(path) ? await promptsApi(app, method, path, body)
+            : await skillInstallsApi(app, method, new URL(request.url ?? "/", "http://local"), body);
           if (answer === undefined) throw new HttpError(404, "Endpoint not found");
           send(response, 200, answer);
           return;

@@ -6694,9 +6694,30 @@ server that ships with Branch: it keeps a few notes in memory while it runs (`ad
 lines to add under `"mcp"` in the integrations file (this Node, this copy's file, both tools, version
 1.0.0); after a restart, the example prompt `/notes-example buy milk` asks a task to use it.
 
+**Installing skills, with a written account** (Customize › Skills, *Install a skill, and what
+happened*; `src/skill-installs.ts`, A2374). Installing from an Agent Skills folder, a Branch package,
+a registry or pasted instructions, and removing a skill, while Branch runs. Each time the steps are
+written down — what was opened, what was checked, what was left out, what it asks to do, how it
+arrived — or the exact reason it stopped; the last thirty are kept. The install is the same code as
+everywhere else, so a skill still arrives switched off and passes the same scan. The card has its own
+three-way switch, shipped off. Routes: `GET /api/skill-installs` (switch, accounts, installed skills),
+`GET /api/skill-installs/export?skill=<id>`, `POST /api/skill-installs/settings | inspect | install |
+remove`.
+
+**Agent Skills folders** (A0776; `src/agent-skills.ts`). The open layout other agents share
+(agentskills.io): `<name>/SKILL.md` with `name` and `description` front matter, and optional
+`references/`, `scripts/` and `assets/`. The front matter must meet that layout's rules (a lowercase
+name with single dashes, at most 64 long, matching its folder; a description up to 1024). Text
+references (`.md`, `.txt`) are kept with the package and added to the instructions under
+*Reference:* headings while they fit, because Branch gives the assistant one document per skill.
+Programs in `scripts/` are never run and files in `assets/` are never unpacked; both are named in the
+account. A version in `metadata.version` becomes the package version. *Save as an Agent Skills
+folder* writes any installed skill back out in the same layout, with its references in their own
+files again, so reading it back gives the same skill.
+
 **Who may do what.** Every change above is the owner's: a short-lived key is refused before it gets
 there (none of these routes is in `src/short-lived-keys.ts`), and the owner's own profile is asked for
-as well. Reading the list needs any key.
+as well. Reading the list and the accounts, and exporting a skill, needs any key.
 
 **macOS and Linux.** Nothing here depends on the operating system. The example tool server is started
 with the same Node that runs Branch, so the snippet the card shows is right for the computer it is
