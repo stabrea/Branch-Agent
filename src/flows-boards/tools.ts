@@ -3,6 +3,7 @@ import type { ToolContext } from "../contracts.js";
 import { InputsSchema } from "../recipes.js";
 import type { ToolRegistry } from "../registry.js";
 import { ownersOwnTask } from "../autonomy/origin.js";
+import { currentPerson } from "../people/context.js";
 import type { FlowsBoards } from "./index.js";
 import { CardInputSchema, HandoffSchema, MoveSchema } from "./kanban.js";
 import { boardWriter, fromChat } from "./origin.js";
@@ -23,11 +24,23 @@ function writer(boards: FlowsBoards, context: ToolContext): void {
     throw new Error("Only the owner's own work can change the board; a chat message, a key or another program cannot.");
 }
 
+/**
+ * Integration review: Branch has one owner's board, widgets, flow runs and requests, whoever's task is
+ * asking. A household person's task never reads them; a chat's task never reads the board, the
+ * widgets or a flow's values (it may still see its own install requests, as /installs shows a chat).
+ */
+function reader(boards: FlowsBoards, context: ToolContext, chatToo = true): void {
+  if (currentPerson() || !boards.store.profiles.isOwner())
+    throw new Error("Only the owner's own work can read this; a household person's task cannot.");
+  if (chatToo && !boardWriter(boards.store, context.runId))
+    throw new Error("Only the owner's own work can read this; a chat message, a key or another program cannot.");
+}
+
 const timeTravel: Registrar = (registry, boards) => {
   registry.register({ name: "flow.steps", permission: "workflows.read",
     description: "Every step of one run of a saved flow, with the values it held after each step. Reading only; going back to a step is the owner's, in Automations.",
     parameters: z.object({ runId: id }).strict(),
-    execute: async (args) => boards.timeTravel.steps(args.runId) });
+    execute: async (args, context) => { reader(boards, context); return boards.timeTravel.steps(args.runId); } });
 };
 
 const recipeChecks: Registrar = (registry, boards) => {
@@ -42,7 +55,7 @@ const kanban: Registrar = (registry, boards) => {
   registry.register({ name: "board.cards", permission: "boards.read",
     description: "The shared board of a project (the active one when none is named): its cards in lanes to do, doing, to check, done and stuck, with who has each.",
     parameters: z.object({ project: z.string().trim().min(1).max(64).optional() }).strict(),
-    execute: async (args) => boards.kanban.view(args.project) });
+    execute: async (args, context) => { reader(boards, context); return boards.kanban.view(args.project); } });
   registry.register({ name: "board.card_add", permission: "boards.write",
     description: "Add a card to \"to do\" on the shared board. It is not worked on until the owner starts it.",
     parameters: CardInputSchema,
@@ -62,7 +75,7 @@ const widgets: Registrar = (registry, boards) => {
     description: "The live widgets on the owner's dashboard, and the widget ideas waiting for an answer.",
     parameters: z.object({}).strict(),
     // Integration review: a frame's address opens without a key, so the model is never handed it.
-    execute: async () => ({ widgets: boards.widgets.list().map(({ frame: _frame, ...widget }) => widget), waiting: boards.widgets.waiting() }) });
+    execute: async (_args, context) => (reader(boards, context), { widgets: boards.widgets.list().map(({ frame: _frame, ...widget }) => widget), waiting: boards.widgets.waiting() }) });
   registry.register({ name: "widgets.propose", permission: "widgets.propose",
     description: "Suggest a live widget: a title, a tool that only looks something up, its arguments, how often to ask again, and why. The owner says yes or no; nothing shows until then.",
     parameters: WidgetSchema,
@@ -83,7 +96,7 @@ const installs: Registrar = (registry, boards) => {
   registry.register({ name: "install.requests", permission: "installs.read",
     description: "The requests for packages and tool servers, and the owner's answers. An approved one says exactly what to run or add; it is not installed.",
     parameters: z.object({}).strict(),
-    execute: async () => ({ requests: boards.installs.list().slice(-30) }) });
+    execute: async (_args, context) => (reader(boards, context, false), { requests: boards.installs.list().slice(-30) }) });
 };
 
 export const registrars: Record<BoardPart, Registrar | null> = {
