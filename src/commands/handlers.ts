@@ -42,6 +42,8 @@ export interface CommandHost {
   version?: string;
   health?: () => Promise<{ ok: boolean; items: { name: string; ok: boolean; summary: string }[] }>;
   goals?: GoalHost;
+  /** The owner's own profile check; throws while someone else's profile is in use. */
+  requireOwner: (what: string) => void;
 }
 export interface Call {
   host: CommandHost;

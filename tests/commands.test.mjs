@@ -18,6 +18,7 @@ import { helpText } from "../dist/commands/help-text.js";
 import { TERMINAL_COMMANDS, terminalCommands, runCommand, helpLines } from "../dist/terminal-command-table.js";
 import { chatCommands, chatCommandsFor, chatCommandHelp, parseChatCommand, runChatCommand } from "../dist/channels/chat-commands.js";
 import { lockdownState } from "../dist/lockdown.js";
+import { policyPresets, readPolicy } from "../dist/policy.js";
 
 /* Wave mac3 (commands): one slash-command table for every surface. Model and chat services are stand-ins. */
 
@@ -249,6 +250,29 @@ test("each key does what its route would let it do, and no more", async (t) => {
   /* A conversation that is not the owner's is not found. */
   const other = await f.call("/api/commands/run", f.server.token, { surface: "window", line: "/tokens", sessionId: "00000000-0000-4000-8000-000000000000" });
   assert.equal(other.status, 404);
+});
+
+test("settings and permissions stay with the owner's own profile in the terminal and the window alike", async (t) => {
+  const f = await fixture(t);
+  on(f.app);
+  const before = readPolicy(f.app.store, f.owner).preset;
+  const target = policyPresets().map((preset) => preset.id).find((id) => id !== before);
+  const sam = f.app.store.profiles.create({ name: "Sam", pin: "4321" });
+  f.app.store.profiles.switch({ profileId: sam.id, pin: "4321" });
+  const said = [];
+  await runCommand(terminalContext(f.app, said), `/preset ${target}`);
+  assert.ok(said.some(([kind, text]) => kind === "bad" && /belongs to the owner/.test(text)), JSON.stringify(said));
+  await runCommand(terminalContext(f.app, said), "/tokens");
+  const refused = await (await f.call("/api/commands/run", f.server.token, { surface: "window", line: `/preset ${target}` })).json();
+  assert.match(refused.text, /belongs to the owner/);
+  const shared = await executeCommand(commandHost(f.app.runtime, f.app), { surface: "terminal", line: "/lockdown on", access: "full" });
+  assert.match(shared.text, /belongs to the owner/);
+  assert.equal(readPolicy(f.app.store, f.owner).preset, before, "nothing changed");
+  assert.equal(lockdownState(f.app.store, f.owner).on, false);
+  f.app.store.profiles.switch({ profileId: null });
+  said.length = 0;
+  await runCommand(terminalContext(f.app, said), `/preset ${target}`);
+  assert.equal(readPolicy(f.app.store, f.owner).preset, target, "the owner may");
 });
 
 test("a chat sender never gets more than the chat allows", async (t) => {

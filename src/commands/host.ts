@@ -17,6 +17,8 @@ export function commandHost(runtime: Runtime, app?: unknown): CommandHost {
   const whole = full?.store && full.runtime && full.channels;
   return {
     runtime, version,
+    // Settings and permissions belong to the owner's own profile, whichever surface asks.
+    requireOwner: (what) => runtime.store.profiles.requireOwner(what),
     ...(whole ? { health: () => healthReport(full as Branch) } : {}),
     ...(full?.goals ? { goals: full.goals } : {}),
   };

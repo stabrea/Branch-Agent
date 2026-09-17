@@ -55,7 +55,6 @@ async function run(app: Branch, deps: CommandApiDeps, input: z.infer<typeof RunB
   }
   const outcome = await executeCommand(host, {
     surface: input.surface, line: input.line, sessionId: input.sessionId, access: deps.access,
-    requireOwner: (what) => app.store.profiles.requireOwner(what),
   });
   return outcome ? { handled: true, ...outcome } : { handled: false };
 }

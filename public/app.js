@@ -1544,12 +1544,15 @@ async function runSlashCommand(typed) {
     toast(slashHelp());
     return true;
   }
-  /* The models module is the handler for "/model" when it is there; the shared commands handle the rest. */
-  if (command.name === "/model" && globalThis.branchSlashCommand) return (await globalThis.branchSlashCommand(typed, sessionId)) !== false;
+  /* "/model" is the models module's when it is there, and this file's own otherwise; the shared
+     commands (public/commands.js) handle the rest. */
+  if (command.name === "/model") {
+    if (globalThis.branchSlashCommand) return (await globalThis.branchSlashCommand(typed, sessionId)) !== false;
+    await switchModelWithoutModule(command.rest);
+    return true;
+  }
   if (globalThis.branchCatalogCommand) return (await globalThis.branchCatalogCommand(typed, sessionId)) !== false;
-  if (command.name !== "/model") return false;
-  await switchModelWithoutModule(command.rest);
-  return true;
+  return false;
 }
 /** The plain fallback for "/model": list the choices, or change this conversation's model. */
 async function switchModelWithoutModule(wanted) {

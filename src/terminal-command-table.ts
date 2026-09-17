@@ -7,7 +7,7 @@ import {
   choosePreset, exportConversation, historyLines, presetLines, readAttachment,
 } from "./terminal-commands.js";
 import type { FeatureMode } from "./feature-switches.js";
-import { lookup, type CatalogCommand } from "./commands/catalog.js";
+import { levelFor, lookup, type CatalogCommand } from "./commands/catalog.js";
 import { available, commandMode, commandsFor } from "./commands/settings.js";
 import { executeCommand } from "./commands/execute.js";
 import { commandHost } from "./commands/host.js";
@@ -189,6 +189,9 @@ export async function runCommand(context: CommandContext, text: string): Promise
   const found = findCommand(name, modeOf(context));
   if (!found) return context.say("warn", `I do not know ${name}. Type /help for the list.`);
   try {
+    // Wave mac3 (commands): settings and permissions stay with the owner's own profile, as in the window.
+    const entry = lookup(found.name)!;
+    if (levelFor(entry, rest.join(" ")) === "owner") context.runtime.store.profiles.requireOwner(`/${found.name}`);
     await found.run(context, rest.join(" "));
   } catch (error) {
     context.say("bad", `[${error instanceof Error ? error.message : String(error)}]`);

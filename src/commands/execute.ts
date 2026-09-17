@@ -18,8 +18,6 @@ export interface Invocation {
   sessionId?: string | undefined;
   access: Access;
   permissions?: string[];
-  /** The owner's own profile check (`store.profiles.requireOwner`); throws when someone else is using the app. */
-  requireOwner?: (what: string) => void;
 }
 export interface Outcome extends Reply { command: string; refused?: true }
 
@@ -55,7 +53,7 @@ export async function executeCommand(host: CommandHost, input: Invocation): Prom
     mode: commandMode(host.runtime.store, host.runtime.owner), ...(input.permissions ? { permissions: input.permissions } : {}),
   };
   try {
-    if (level === "owner") input.requireOwner?.(`/${name}`);
+    if (level === "owner") host.requireOwner(`/${name}`);
     return { command: name, ...(await HANDLERS[name]!(call)) };
   } catch (error) {
     return { command: name, text: host.runtime.hideSecrets(error instanceof Error ? error.message : String(error)) };
