@@ -37,7 +37,8 @@ const fingerprint = (text: string): string => createHash("sha256").update(text).
 /** The embeddings route memory search uses, built the same way (src/memory-retrieval.ts). */
 export function conversationEmbedder(models: ModelRouter, call: () => typeof fetch, model = "text-embedding-3-small"): (owner: string) => Embedder | null {
   return (owner) => {
-    const route = providerEmbeddings(models.plan(owner, "").candidates[0]!.provider);
+    const provider = models.plan(owner, "").candidates[0]?.provider;
+    const route = provider ? providerEmbeddings(provider) : null;
     if (!route) return null;
     const here = localEmbedder(route, model);
     if (here) return here;
@@ -63,7 +64,8 @@ export class ConversationMeaning {
     const rows = this.db.prepare(`SELECT m.id, json_extract(m.body,'$.content') AS content, v.fingerprint FROM messages m
       JOIN sessions s ON s.id=m.session_id LEFT JOIN lm_message_vectors v ON v.owner=? AND v.message_id=m.id AND v.model=?
       WHERE s.owner=? AND s.temporary=0 AND json_extract(m.body,'$.role') IN ('user','assistant') ORDER BY m.id DESC`).all(owner, client.model, owner)
-      .map((row) => ({ id: Number(row.id), text: redactLeaks(String(row.content ?? "").slice(0, 2000)).text, saved: row.fingerprint }))
+      // Hidden first, then cut: a cut through a key would leave a piece the leak guard no longer knows.
+      .map((row) => ({ id: Number(row.id), text: redactLeaks(String(row.content ?? "")).text.slice(0, 2000), saved: row.fingerprint }))
       .filter((row) => row.text.trim() && row.saved !== fingerprint(row.text)).slice(0, perPass);
     const save = this.db.prepare("INSERT OR REPLACE INTO lm_message_vectors VALUES(?,?,?,?,?)");
     for (let at = 0; at < rows.length; at += batch) {

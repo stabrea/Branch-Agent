@@ -228,10 +228,14 @@ export class MemoryFacts {
     const row = this.db.prepare("SELECT * FROM memory_archive WHERE owner=? AND id=?").get(owner, id);
     if (!row) throw new Error("Archived memory not found");
     this.requireRoom(owner, 1);
+    // R17-058 (integration review): the owner putting back a fact that expired keeps it for good,
+    // rather than the next sweep setting it straight aside again.
+    const data = JSON.parse(String(row.data)) as Record<string, unknown>;
+    if (typeof data.expiresAt === "string" && Date.parse(data.expiresAt) <= Date.now()) delete data.expiresAt;
     this.db.exec("BEGIN");
     try {
       this.db.prepare("INSERT INTO memory(id,owner,data,created_at,updated_at,revision) VALUES(?,?,?,?,?,?)")
-        .run(id, owner, String(row.data), String(row.created_at), new Date().toISOString(), Number(row.revision) + 1);
+        .run(id, owner, JSON.stringify(data), String(row.created_at), new Date().toISOString(), Number(row.revision) + 1);
       this.db.prepare("DELETE FROM memory_archive WHERE owner=? AND id=?").run(owner, id);
       this.db.exec("COMMIT");
     } catch (error) { this.db.exec("ROLLBACK"); throw error; }
@@ -313,7 +317,10 @@ export class MemoryFacts {
     const value = UpdateMemorySchema.parse(input), previous = this.get(owner, value.id);
     if (!previous) throw new Error("Memory not found");
     if (previous.revision !== value.expectedRevision) throw new Error("Memory changed since you opened it. Reload it before saving.");
-    return this.save(owner, value.id, { text: value.text, source: value.source, sourceRunId });
+    // R17-058 (integration review): a reworded fact keeps the owner's labels and when it expires.
+    const { tags, expiresAt } = previous.data as { tags?: string[]; expiresAt?: string };
+    return this.save(owner, value.id, { text: value.text, source: value.source, sourceRunId,
+      ...(tags ? { tags } : {}), ...(expiresAt ? { expiresAt } : {}) });
   }
   export(owner: string) {
     if (this.capacity(owner).count > 500) throw new Error("Memory archive exceeds 500 records; reduce legacy memory count before exporting");

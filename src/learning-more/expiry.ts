@@ -11,8 +11,8 @@ import type { Store } from "../store.js";
  * Branch's own. See THIRD_PARTY_NOTICES.md.
  *
  * The labels live on the fact itself (`tags`, `expiresAt` in src/memory.ts). Correcting a fact's
- * words with `memory.update` writes the fact afresh, as it always has (its kind and layer go the
- * same way), so a corrected fact loses its labels and has to be labelled again.
+ * words with `memory.update` keeps both (integration review), and a fact the owner puts back from
+ * the archive after it expired loses its past expiry, so the next sweep does not set it aside again.
  */
 const Tag = z.string().trim().toLowerCase().min(1).max(40).regex(/^[\p{L}\p{N}][\p{L}\p{N} _-]*$/u, "A label is letters, digits, spaces, dashes");
 export const LabelSchema = z.object({

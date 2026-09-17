@@ -43,6 +43,8 @@ export const KeepSchema = z.object({ ids: z.array(z.string().regex(/^[a-f0-9]{16
 export const DeclineSchema = KeepSchema;
 export const chatFilesRead = 200;
 const chatBytes = 16 * 1024 * 1024;
+/** Integration review: the most read from one assistant's chats in one look, all files together. */
+export const scanBytes = 256 * 1024 * 1024;
 /** "[hidden key-like value", the start of what the leak guard leaves where it hid something. */
 const hiddenPrefix = hiddenMarker("").split(":")[0]!;
 const signInName = /(credential|auth\.json|token|secret|\.env|keychain|password)/i;
@@ -74,14 +76,23 @@ async function chatFiles(tree: SourceTree, source: SessionSource): Promise<{ pat
   return files.sort((a, b) => b.modifiedMs - a.modifiedMs).slice(0, chatFilesRead);
 }
 
+/**
+ * Integration review: text the assistant's program put in the owner's turn — command output, agent and
+ * task notices (`<bash-stdout>`, `<task-notification>` and the like) — is cut out, and a summary a chat
+ * was compacted into (`isCompactSummary`) is not the owner's either, so neither can pose as a preference.
+ */
+const withoutTagged = (text: string): string => text.replace(/<([A-Za-z][\w-]*)\b[^>]*>[\s\S]*?<\/\1\s*>/g, " ");
+const withoutSummaries = (text: string): string =>
+  text.split("\n").filter((line) => !/"isCompactSummary"\s*:\s*true/.test(line)).join("\n");
+
 /** The owner's own messages in one chat file, and a title for it. */
 function ownerWords(source: SessionSource, text: string): { title: string; words: string[] } {
   if (source === "claude-code") {
-    const chat = readClaudeChat(text);
-    return { title: chat.title, words: chat.messages.filter((m) => m.role === "user").map((m) => m.content) };
+    const chat = readClaudeChat(withoutSummaries(text));
+    return { title: chat.title, words: chat.messages.filter((m) => m.role === "user").map((m) => withoutTagged(m.content)) };
   }
   const chat = readCodexChat(text);
-  const words = chat.messages.filter((m) => m.role === "user").map((m) => m.content);
+  const words = chat.messages.filter((m) => m.role === "user").map((m) => withoutTagged(m.content));
   return { title: (words[0] ?? "A Codex chat").slice(0, 120), words };
 }
 
@@ -145,9 +156,11 @@ export class SessionLessons {
     const root = this.folders()[source];
     const tree = this.treeFor(root, [source === "claude-code" ? "projects" : "sessions"]);
     const found = new Map<string, { text: string; files: { file: string; title: string }[] }>();
+    let bytes = 0;
     for (const file of await chatFiles(tree, source)) {
-      const text = await tree.read(file.path, chatBytes);
+      const text = await tree.read(file.path, Math.min(chatBytes, scanBytes - bytes));
       if (text === null) continue;
+      bytes += Buffer.byteLength(text);
       read[source] += 1;
       const chat = ownerWords(source, text);
       const seen = new Set<string>();

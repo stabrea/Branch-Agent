@@ -24,10 +24,19 @@ import { learningSettings, saveLearningSettings } from "./settings.js";
  */
 const Address = z.string().url().max(2048).regex(/^https?:\/\//);
 const Name = z.string().trim().min(1).max(64).regex(/^[A-Za-z0-9_-]+$/);
+/**
+ * Integration review: the name of a key in the locker, never the key. A pasted key would sit in the
+ * settings record in plain text, so anything that looks like one, or is not a plain name, is refused.
+ */
+const lockerRefusal = "Give the name of a key in the locker, such as MEM0_KEY, not the key itself.";
+const SecretName = z.string().trim().max(64).regex(/^([A-Z][A-Z0-9_]*)?$/, lockerRefusal) // the locker's own names (src/locker.ts)
+  .refine((name) => redactLeaks(name).kinds.length === 0, lockerRefusal);
+/** The most of an answer read back from an outside service. */
+const answerBytes = 1024 * 1024;
 export const ProvidersSchema = z.object({
   active: z.enum(["none", "hindsight", "mem0", "honcho"]).default("none"),
-  mem0: z.object({ address: Address.nullable().default(null), secret: z.string().trim().max(80).default(""), user: Name.default("branch-owner") }).strict().default({ address: null, secret: "", user: "branch-owner" }),
-  honcho: z.object({ address: Address.nullable().default(null), secret: z.string().trim().max(80).default(""),
+  mem0: z.object({ address: Address.nullable().default(null), secret: SecretName.default(""), user: Name.default("branch-owner") }).strict().default({ address: null, secret: "", user: "branch-owner" }),
+  honcho: z.object({ address: Address.nullable().default(null), secret: SecretName.default(""),
     workspace: Name.default("branch"), peer: Name.default("owner") }).strict().default({ address: null, secret: "", workspace: "branch", peer: "owner" }),
 }).strict();
 export type ProvidersSettings = z.infer<typeof ProvidersSchema>;
@@ -66,7 +75,7 @@ export class OutsideMemory {
     const query = redactLeaks(AskSchema.parse(input).query).text;
     const settings = this.settings();
     let memories: string[];
-    if (settings.active === "hindsight") memories = (await this.hindsightOn().recall({ query })).memories.map((m) => m.text);
+    if (settings.active === "hindsight") memories = (await this.hindsightFor(asker).recall({ query })).memories.map((m) => m.text);
     else if (settings.active === "mem0") {
       const body = await this.post(settings.mem0.address, "/search", settings.mem0.secret, "mem0",
         { query, top_k: 10, filters: { user_id: identity(settings.mem0.user, asker) } });
@@ -80,12 +89,21 @@ export class OutsideMemory {
   async ask(input: unknown, asker: Asker): Promise<{ answer: string; provider: string; note: string }> {
     const query = redactLeaks(AskSchema.parse(input).query).text;
     const settings = this.settings();
-    if (settings.active === "hindsight") return { answer: (await this.hindsightOn().reflect({ query })).answer, provider: "hindsight", note };
+    if (settings.active === "hindsight") return { answer: (await this.hindsightFor(asker).reflect({ query })).answer, provider: "hindsight", note };
     if (settings.active === "honcho") return { answer: await this.honchoAsk(settings.honcho, query, asker), provider: "honcho", note };
     if (settings.active === "mem0") throw new Error("Mem0 keeps and finds memories but does not answer questions about you. Use recall instead.");
     throw new Error(noneChosen);
   }
 
+  /**
+   * Integration review: Hindsight keeps one bank, and its recall and reflect cannot be narrowed to one
+   * person, so another person's task, a Trunk or a specialist is not handed the owner's.
+   */
+  private hindsightFor(asker: Asker): Hindsight {
+    if (asker.scope !== asker.ownerName || asker.agent)
+      throw new Error("The Hindsight server keeps one shared bank, so only the owner's own conversations can read it.");
+    return this.hindsightOn();
+  }
   private hindsightOn(): Hindsight {
     if (askMode(this.store, this.owner, "hindsight") === "off")
       throw new Error("The Hindsight server is switched off. Switch it on under the smaller asks first.");
@@ -113,6 +131,7 @@ export class OutsideMemory {
       { method: "POST", headers, body: JSON.stringify(body), signal: AbortSignal.timeout(30000) });
     if (!response.ok) throw new Error(`${service === "mem0" ? "Mem0" : "Honcho"} answered ${response.status}`);
     const text = await response.text();
+    if (text.length > answerBytes) throw new Error(`${service === "mem0" ? "Mem0" : "Honcho"} answered with more than Branch reads`);
     return text ? JSON.parse(text) : {};
   }
 }
