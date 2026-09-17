@@ -37,7 +37,9 @@ export function decryptWechat(encodingAesKey: string, encrypted: string, receive
   try { plain = Buffer.concat([decipher.update(Buffer.from(encrypted, "base64")), decipher.final()]); }
   catch { throw new Error("The message could not be opened with the saved EncodingAESKey"); }
   const pad = plain.at(-1) ?? 0;
-  if (pad < 1 || pad > 32 || plain.length < 20 + pad) throw new Error("The message could not be opened with the saved EncodingAESKey");
+  // mac6/bucket-16 integration: every padding byte is checked, not only the last one.
+  if (pad < 1 || pad > 32 || plain.length < 20 + pad || !plain.subarray(plain.length - pad).every((byte) => byte === pad))
+    throw new Error("The message could not be opened with the saved EncodingAESKey");
   const body = plain.subarray(16, plain.length - pad);
   const length = body.readUInt32BE(0);
   if (length > body.length - 4) throw new Error("The message could not be opened with the saved EncodingAESKey");
@@ -64,8 +66,10 @@ export function encryptWechat(encodingAesKey: string, message: string, receiveId
  * general XML parser and does not try to be one: the first element of each name wins wherever it sits, and a document that
  * declares a DOCTYPE or an entity is refused outright.
  */
+/** WeChat's posts are a few kilobytes; the cap keeps the reader quick on anything unsigned. */
+export const wechatXmlLimit = 64 * 1024;
 export function xmlFields(xml: string): Record<string, string> {
-  if (xml.length > 256 * 1024 || /<!DOCTYPE|<!ENTITY/i.test(xml)) throw new Error("That message is not the XML WeChat sends");
+  if (xml.length > wechatXmlLimit || /<!DOCTYPE|<!ENTITY/i.test(xml)) throw new Error("That message is not the XML WeChat sends");
   const root = /^\s*(?:<\?xml[^>]*\?>\s*)?<xml>([\s\S]*)<\/xml>\s*$/.exec(xml);
   if (!root) throw new Error("That message is not the XML WeChat sends");
   const fields: Record<string, string> = Object.create(null) as Record<string, string>;

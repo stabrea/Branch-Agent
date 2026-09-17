@@ -1,3 +1,5 @@
+import type { InboundMessage } from "./router.js";
+
 /**
  * mac6/bucket-16: where a chat app's stream was read up to, for the services whose place is a word
  * rather than a number (a Matrix `since` token, a Guilded message id, a Mastodon notification id).
@@ -76,5 +78,36 @@ export class MarkKeeper {
       latest = next.value;
     }
     if (latest) this.mark?.save(latest);
+  }
+}
+
+// ---- mac6/bucket-16 integration: a cap on catching up ------------------------------------------
+/** At most this many messages that arrived while Branch was closed are answered after a restart. */
+export const catchUpLimit = 20;
+
+/**
+ * The first batch fetched from a saved place: every message is marked as caught up (a stranger's is
+ * then let go without a pairing code) and only the last `limit`, in the order the service gave
+ * them, are kept.
+ */
+export function catchUpBatch(batch: InboundMessage[], limit = catchUpLimit): InboundMessage[] {
+  return batch.slice(-limit).map((message) => ({ ...message, caughtUp: true }));
+}
+
+/**
+ * For services that replay missed messages one by one over a socket (Guilded, KOOK): for a short
+ * while after a resumed connection opens, messages count as caught up, and those past the limit
+ * are let go.
+ */
+export class CatchUpWindow {
+  private until = 0;
+  private count = 0;
+  constructor(private readonly limit = catchUpLimit, private readonly ms = 15_000, private readonly now: () => number = Date.now) {}
+  open(): void { this.until = this.now() + this.ms; this.count = 0; }
+  close(): void { this.until = 0; }
+  /** The message as it should be handed on, or null when the cap has been reached. */
+  pass(message: InboundMessage | null): InboundMessage | null {
+    if (!message || !this.until || this.now() > this.until) return message;
+    return ++this.count > this.limit ? null : { ...message, caughtUp: true };
   }
 }

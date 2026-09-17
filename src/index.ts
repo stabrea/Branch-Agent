@@ -629,7 +629,8 @@ export async function createBranch(options: {
   const evaluation = new Evaluation(store, runtime.owner);
   const triggers = new Triggers(store, runtime);
   // mac6/bucket-16: automations started by Slack's own events; off until the owner turns them on.
-  const slackAutomations = new SlackAutomations(store, () => runtime.owner, (id, payload) => triggers.fire(runtime.owner, id, payload));
+  const slackAutomations = new SlackAutomations(store, () => runtime.owner, (id, payload) => triggers.fire(runtime.owner, id, payload),
+    undefined, (channelId, user) => channels.senderAllowed(channelId, user));
   const webhooks = new Webhooks(store, web.policy);
   // One trace crosses the boundary: a delivery and a question to another assistant both carry the
   // traceparent of the task behind them.

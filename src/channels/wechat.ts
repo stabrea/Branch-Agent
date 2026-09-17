@@ -4,6 +4,9 @@ import { callJson, defineService, FreshPosts, secretName, ShortIds } from "./par
 import type { SignedQueryChannel } from "./signed-query.js";
 import { decryptWechat, signatureMatches, xmlFields } from "./wechat-crypto.js";
 
+/** mac6/bucket-16 integration: what WeChat puts in `echostr` (a long run of digits); nothing else is echoed. */
+const plainEcho = /^[A-Za-z0-9_-]{1,128}$/;
+
 /**
  * mac6/bucket-16: WeChat through the two official ways a program may take part in it.
  *
@@ -95,13 +98,23 @@ export class WechatChannel implements ChannelAdapter, SignedQueryChannel {
     const echo = read("echostr");
     if (!echo) throw new Error(`The ${this.flavour.name} address check carries nothing to echo`);
     if (this.kind === "wechat-mp") {
-      if (!signatureMatches(read("signature"), [this.options.token, timestamp, nonce]))
+      // The Official Account signature does not cover `echostr`, so a copied check could be made to
+      // echo anything: only a fresh check is answered, and only with a plain word.
+      if (!plainEcho.test(echo) || !signatureMatches(read("signature"), [this.options.token, timestamp, nonce]))
         throw new Error("The WeChat address check is not signed with the saved token");
+      this.checkFresh(timestamp);
       return echo;
     }
     if (!signatureMatches(read("msg_signature"), [this.options.token, timestamp, nonce, echo]))
       throw new Error("The WeCom address check is not signed with the saved token");
+    this.checkFresh(timestamp);
     return decryptWechat(this.options.encodingAesKey, echo, this.flavour.receiveId);
+  }
+  /** mac6/bucket-16 integration: an address check is answered only within five minutes of being signed. */
+  private checkFresh(timestamp: string): void {
+    const seconds = /^\d{1,12}$/.test(timestamp) ? Number(timestamp) : Number.NaN;
+    if (!(Math.abs(Date.now() / 1000 - seconds) <= 300))
+      throw new Error(`The ${this.flavour.name} address check is too old or has no time on it`);
   }
   private inbound(fields: Record<string, string>): InboundMessage | null {
     if (!this.flavour.accept(fields) || fields.MsgType !== "text") return null;

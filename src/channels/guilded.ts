@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { ChannelAdapter, ChannelHealth, InboundMessage } from "./router.js";
 import { connectWebSocket, reconnectDelay, type WebSocketConnect, type WebSocketConnection } from "./ws-client.js";
 import { callJson, defineService, secretName } from "./parity-common.js";
-import { MarkKeeper, type ChannelMark } from "./catch-up.js"; // mac6/bucket-16
+import { CatchUpWindow, MarkKeeper, type ChannelMark } from "./catch-up.js"; // mac6/bucket-16
 
 /**
  * Guilded, through its official bot API (https://guildedapi.com): messages arrive over the bot
@@ -60,6 +60,8 @@ export class GuildedChannel implements ChannelAdapter {
   catchUp: ChannelMark | null = null;
   private keeper = new MarkKeeper(null);
   private heartbeat: ReturnType<typeof setInterval> | null = null;
+  /** mac6/bucket-16 integration: the replay after a restart is capped. */
+  private replay: CatchUpWindow | null = null;
   constructor(private readonly options: GuildedOptions) {
     this.id = options.id;
     this.api = (options.apiBase ?? "https://www.guilded.gg/api/v1").replace(/\/$/, "");
@@ -81,7 +83,9 @@ export class GuildedChannel implements ChannelAdapter {
   }
   private async run(onMessage: (message: InboundMessage) => Promise<void>): Promise<void> {
     this.keeper = new MarkKeeper(this.catchUp);
-    this.lastMessageId ??= this.keeper.load();
+    const saved = this.keeper.load();
+    if (saved && this.lastMessageId === null) this.replay = new CatchUpWindow();
+    this.lastMessageId ??= saved;
     for (let attempt = 0; !this.stopping; attempt++) {
       try {
         const socket = await (this.options.connect ?? connectWebSocket)(this.options.socketUrl ?? "wss://www.guilded.gg/websocket/v1", {
@@ -91,6 +95,7 @@ export class GuildedChannel implements ChannelAdapter {
         this.socket = socket;
         await socket.closed;
         this.stopHeartbeat();
+        this.replay = null;
         if (this.state.state === "connected") attempt = 0;
         if (!this.stopping) this.state = { state: "reconnecting", reason: "Guilded closed the connection; reconnecting" };
       } catch (error) {
@@ -112,6 +117,7 @@ export class GuildedChannel implements ChannelAdapter {
       if (welcome.lastMessageId) this.lastMessageId = welcome.lastMessageId;
       this.state = { state: "connected" };
       this.startHeartbeat(welcome.heartbeatIntervalMs);
+      this.replay?.open();
       return;
     }
     // An unknown replay point: forget it, so the next connection starts from now.
@@ -120,7 +126,8 @@ export class GuildedChannel implements ChannelAdapter {
     if (payload.s) this.lastMessageId = payload.s;
     if (payload.t !== "ChatMessageCreated") return;
     const parsed = messageSchema.safeParse(payload.d);
-    const inbound = parsed.success ? this.inbound(parsed.data.message) : null;
+    const inbound = this.replay ? this.replay.pass(parsed.success ? this.inbound(parsed.data.message) : null)
+      : parsed.success ? this.inbound(parsed.data.message) : null;
     const handling = inbound ? [onMessage(inbound).catch(() => undefined)] : [];
     void this.keeper.after(payload.s, handling);
   }

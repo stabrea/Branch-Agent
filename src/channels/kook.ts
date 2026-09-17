@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { ChannelAdapter, ChannelHealth, InboundMessage } from "./router.js";
 import { connectWebSocket, reconnectDelay, type WebSocketConnect, type WebSocketConnection } from "./ws-client.js";
 import { callJson, defineService, secretName } from "./parity-common.js";
-import { MarkKeeper, type ChannelMark } from "./catch-up.js";
+import { CatchUpWindow, MarkKeeper, type ChannelMark } from "./catch-up.js";
 
 /**
  * mac6/bucket-16: KOOK (formerly Kaiheila), through its official bot API v3
@@ -61,6 +61,8 @@ export class KookChannel implements ChannelAdapter {
   private loop: Promise<void> | null = null;
   private heartbeat: ReturnType<typeof setInterval> | null = null;
   private keeper = new MarkKeeper(null);
+  /** mac6/bucket-16 integration: what KOOK replays after a restart is capped. */
+  private replay: CatchUpWindow | null = null;
   constructor(private readonly options: KookOptions) {
     this.id = options.id;
     this.api = (options.apiBase ?? officialApi).replace(/\/$/, "");
@@ -75,6 +77,7 @@ export class KookChannel implements ChannelAdapter {
     this.stopping = false;
     this.keeper = new MarkKeeper(this.catchUp);
     this.restore(this.keeper.load());
+    this.replay = this.session ? new CatchUpWindow() : null;
     this.loop = this.run(onMessage);
     await Promise.race([this.loop, new Promise((resolve) => setTimeout(resolve, 50))]);
   }
@@ -99,7 +102,9 @@ export class KookChannel implements ChannelAdapter {
           onMessage: (text) => this.receive(text, onMessage),
         });
         this.socket = socket;
+        this.replay?.open();
         await socket.closed;
+        this.replay = null;
         if (this.state.state === "connected") attempt = 0;
         if (!this.stopping && !this.refused) this.state = { state: "reconnecting", reason: "KOOK closed the connection; reconnecting" };
       } catch (error) {
@@ -153,7 +158,8 @@ export class KookChannel implements ChannelAdapter {
     if (signal.sn <= this.sn && this.sn !== 0) return;
     this.sn = signal.sn;
     const parsed = eventSchema.safeParse(signal.d);
-    const inbound = parsed.success ? this.inbound(parsed.data) : null;
+    const read = parsed.success ? this.inbound(parsed.data) : null;
+    const inbound = this.replay ? this.replay.pass(read) : read;
     const handling = inbound ? [onMessage(inbound).catch(() => undefined)] : [];
     if (this.session) void this.keeper.after(`${this.session}:${signal.sn}`, handling);
   }
@@ -168,7 +174,7 @@ export class KookChannel implements ChannelAdapter {
       this.socket?.close();
       return;
     }
-    if (hello.data.session_id && hello.data.session_id !== this.session) { this.session = hello.data.session_id; this.sn = 0; }
+    if (hello.data.session_id && hello.data.session_id !== this.session) { this.session = hello.data.session_id; this.sn = 0; this.replay = null; }
     this.state = { state: "connected" };
     this.startHeartbeat();
   }

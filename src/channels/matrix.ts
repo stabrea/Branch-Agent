@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { ChannelAdapter, ChannelHealth, InboundMessage } from "./router.js";
 import { handle } from "./email.js";
 import { reconnectDelay } from "./ws-client.js";
-import { MarkKeeper, type ChannelMark } from "./catch-up.js"; // mac6/bucket-16
+import { catchUpBatch, MarkKeeper, type ChannelMark } from "./catch-up.js"; // mac6/bucket-16
 
 /**
  * Matrix, over the ordinary client-server API with an access token. Matrix is not a webhook
@@ -78,10 +78,14 @@ export class MatrixAdapter implements ChannelAdapter {
   /** Asks again and again what has happened, waiting longer each time the server will not answer. */
   private async run(onMessage: (message: InboundMessage) => Promise<void>): Promise<void> {
     const keeper = new MarkKeeper(this.options.mark); // mac6/bucket-16
-    this.since ??= keeper.load() ?? undefined;
+    const saved = keeper.load();
+    let resumed = this.since === undefined && !!saved; // mac6/bucket-16 integration: the first sync is capped
+    this.since ??= saved ?? undefined;
     for (let attempt = 0; !this.stopping; attempt++) {
       try {
-        const batch = await this.sync();
+        const synced = await this.sync();
+        const batch = resumed ? catchUpBatch(synced) : synced;
+        resumed = false;
         this.state = { state: "connected", ...(this.encryptedSeen ? { reason: `${this.encryptedSeen} message(s) arrived in an encrypted room, which this assistant cannot read` } : {}) };
         attempt = -1;
         // Handed over without waiting, so a note can reach a task that is still working (see telegram.ts).

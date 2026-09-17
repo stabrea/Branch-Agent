@@ -5,7 +5,7 @@ import type { Duplex } from "node:stream";
 import type { ChannelAdapter, ChannelHealth, InboundMessage } from "./router.js";
 import { handle } from "./email.js";
 import { reconnectDelay } from "./ws-client.js";
-import { MarkKeeper, type ChannelMark } from "./catch-up.js"; // mac6/bucket-16
+import { catchUpBatch, MarkKeeper, type ChannelMark } from "./catch-up.js"; // mac6/bucket-16
 
 /**
  * Pieces shared by the chat services added in wave mac3: a checked JSON call, a polling loop, a
@@ -106,13 +106,15 @@ export abstract class PollingChannel implements ChannelAdapter {
     this.loop = null;
   }
   private async run(onMessage: (message: InboundMessage) => Promise<void>): Promise<void> {
-    let first = true;
+    let first = true, resumed = false;
     const keeper = new MarkKeeper(this.catchUp); // mac6/bucket-16
     for (let failures = 0; !this.stopping;) {
       try {
-        if (first) { await this.prepare(); if (this.resumeSaved()) first = false; }
-        const batch = await this.poll(first);
+        if (first) { await this.prepare(); resumed = this.resumeSaved(); first = !resumed; }
+        const polled = await this.poll(first);
+        const batch = resumed ? catchUpBatch(polled) : polled; // mac6/bucket-16 integration: capped
         first = false;
+        resumed = false;
         failures = 0;
         this.state = { state: "connected" };
         const handling: Promise<unknown>[] = [];

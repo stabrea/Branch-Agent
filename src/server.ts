@@ -66,6 +66,7 @@ import { WebhookChatAdapter } from "./channels/webhook-chat.js";
 import { isPostedChannel, type PostedChannel } from "./channels/parity-switch.js";
 import { isSignedQueryChannel, readRawBody, type SignedQueryChannel } from "./channels/signed-query.js"; // mac6/bucket-16
 import { saveSlackAutomations } from "./channels/slack-automations.js"; // mac6/bucket-16
+import { wechatXmlLimit } from "./channels/wechat-crypto.js"; // mac6/bucket-16 integration
 import type { ChannelAdapter } from "./channels/router.js";
 import { parityApi } from "./channels/parity-api.js";
 // Batch 20 (wave 8): the unguessable word on the end of every inbound webhook address.
@@ -1721,12 +1722,12 @@ async function signedQueryWebhook(app: Branch, adapter: ChannelAdapter & SignedQ
   if (adapter.accepting?.() === false) throw new HttpError(503, "That chat service is switched off in Customize");
   const query = new URL(request.url ?? "/", "http://127.0.0.1").searchParams;
   const raw = request.method === "POST"
-    ? await readRawBody(request).catch((error: unknown) => { throw new HttpError(/exceeds/.test(errorText(error)) ? 413 : 400, "That message could not be read"); })
+    ? await readRawBody(request, wechatXmlLimit).catch((error: unknown) => { throw new HttpError(/exceeds/.test(errorText(error)) ? 413 : 400, "That message could not be read"); })
     : Buffer.alloc(0);
   const text = await adapter.receiveSigned(request.method, query, raw)
     .catch((error: unknown) => { throw refusedChatPost(app, adapter.id, adapter.kind, error, limit); });
   limit.limiter.succeed(limit.from);
-  response.writeHead(200, { "content-type": "text/plain; charset=utf-8" });
+  response.writeHead(200, { "content-type": "text/plain; charset=utf-8", "x-content-type-options": "nosniff" });
   response.end(text);
   return true;
 }

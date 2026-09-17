@@ -103,6 +103,8 @@ export class IrcChannel implements ChannelAdapter {
   private queue: Promise<void> = Promise.resolve();
   private readonly ids = new ShortIds();
   private counter = 0;
+  /** mac6/bucket-16 integration: account tags are read only after the server agreed to send them. */
+  private accountTags = false;
   constructor(private readonly options: IrcOptions) {
     this.id = options.id;
     this.kind = options.kind ?? "irc";
@@ -142,6 +144,7 @@ export class IrcChannel implements ChannelAdapter {
   /** Introduces the assistant. SASL runs first when there is a password, so no channel sees it unsigned. */
   private greet(link: IrcLink): void {
     const { password, twitch } = this.options;
+    this.accountTags = false;
     if (twitch) {
       link.write("CAP REQ :twitch.tv/tags twitch.tv/commands");
       if (password) link.write(`PASS ${password.startsWith("oauth:") ? password : `oauth:${password}`}`);
@@ -179,6 +182,7 @@ export class IrcChannel implements ChannelAdapter {
     const verb = line.params[1]?.toUpperCase();
     if (this.options.twitch || (verb !== "ACK" && verb !== "NAK")) return;
     const caps = (line.params.at(-1) ?? "").toLowerCase().split(/\s+/);
+    if (verb === "ACK" && caps.includes("account-tag")) this.accountTags = true;
     if (caps.includes("sasl")) { link.write(verb === "ACK" ? "AUTHENTICATE PLAIN" : "CAP END"); return; }
     // mac6/bucket-16: the answer about account-tag; without a password nothing else is waiting.
     if (caps.includes("account-tag")) { if (!this.options.password) link.write("CAP END"); return; }
@@ -199,7 +203,7 @@ export class IrcChannel implements ChannelAdapter {
     const lower = text.toLowerCase(), me = this.nick.toLowerCase();
     const named = lower.startsWith(`${me}:`) || lower.startsWith(`${me},`) || lower.startsWith(`@${me}`);
     const words = named ? text.slice(text.search(/[:,\s]/) + 1).trim() : text;
-    const account = line.tags["user-id"] ? `twitch:${line.tags["user-id"]}` : ircAccount(line.tags.account, nick);
+    const account = line.tags["user-id"] ? `twitch:${line.tags["user-id"]}` : ircAccount(this.accountTags ? line.tags.account : undefined, nick);
     return {
       channel: this.id, chatId: this.ids.short(direct ? nick : target, "chat"), chatKind: direct ? "direct" : "group",
       ...(direct ? {} : { chatTitle: target }),

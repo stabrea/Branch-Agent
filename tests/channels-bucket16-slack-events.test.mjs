@@ -44,7 +44,7 @@ test("off starts nothing, on starts the matching automation with the event in it
 test("when needed, matching events only wait in a list until one is started by hand", async (t) => {
   const { app, provider } = await fixture(t);
   const fired = trigger(app, "Summarise: {{slack_text}}");
-  await save(app, { mode: "when-needed", rules: [{ event: "message", contains: "deploy", trigger: fired.id }] });
+  await save(app, { mode: "when-needed", rules: [{ event: "message", contains: "deploy", users: ["UALICE"], trigger: fired.id }] });
   await app.slackAutomations.handle("slack", { type: "message", user: "UALICE", channel: "C1", text: "please DEPLOY the site", ts: "1.1" }, "UBOT");
   await app.slackAutomations.handle("slack", { type: "message", user: "UALICE", channel: "C1", text: "lunch?", ts: "1.2" }, "UBOT");
   assert.equal(provider.requests.length, 0, "nothing starts by itself");
@@ -52,7 +52,7 @@ test("when needed, matching events only wait in a list until one is started by h
   assert.equal(waiting.length, 1);
   assert.equal(waiting[0].event.text, "please DEPLOY the site");
   await app.slackAutomations.run({ event: waiting[0].id });
-  assert.match(provider.requests.at(-1).messages.at(-1).content, /Summarise: please DEPLOY the site/);
+  assert.match(provider.requests.at(-1).messages.at(-1).content, /Summarise: <slack-message from="UALICE" trust="untrusted">\nplease DEPLOY the site\n/);
   await assert.rejects(() => app.slackAutomations.run({ event: waiting[0].id }), /no longer waiting/, "each waiting event starts once");
   await save(app, { mode: "off" });
   await assert.rejects(() => app.slackAutomations.run({ event: waiting[0].id }), /switched off/);
@@ -70,7 +70,7 @@ test("a rule must name an automation that exists, and settings are strict", asyn
 test("the Slack channel hands every event to the automations as well as answering, without Slack reaching this computer", async (t) => {
   const { app, provider } = await fixture(t);
   const fired = trigger(app);
-  await save(app, { mode: "on", rules: [{ event: "reaction_added", trigger: fired.id }] });
+  await save(app, { mode: "on", rules: [{ event: "reaction_added", users: ["UALICE"], trigger: fired.id }] });
   const socket = await socketService(t, (connection) => connection.send({ type: "hello" }));
   const api = await httpService(t, (call) => {
     if (call.path.endsWith("auth.test")) return { body: { ok: true, user_id: "UBOT", user: "branch" } };
@@ -102,7 +102,7 @@ test("the settings route is the owner's; a script's run key may start a waiting 
   t.after(() => server.close());
   const owner = { authorization: `Bearer ${server.token}`, origin: server.url, "content-type": "application/json" };
   const saved = await fetch(`${server.url}/api/channels/slack-automations`, { method: "POST", headers: owner,
-    body: JSON.stringify({ mode: "when-needed", rules: [{ event: "reaction_added", trigger: fired.id }] }) });
+    body: JSON.stringify({ mode: "when-needed", rules: [{ event: "reaction_added", users: ["UALICE"], trigger: fired.id }] }) });
   assert.equal(saved.status, 200);
   assert.equal((await saved.json()).mode, "when-needed");
   await app.slackAutomations.handle("slack", reaction(), "UBOT");
