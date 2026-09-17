@@ -80,7 +80,7 @@ export async function finishSignIn(
 
 const ClaimsSchema = z.object({
   iss: z.string(), sub: z.string().min(1).max(255), aud: z.union([z.string(), z.array(z.string())]),
-  exp: z.number(), iat: z.number().optional(), nonce: z.string().optional(), azp: z.string().optional(),
+  exp: z.number(), iat: z.number(), nonce: z.string().optional(), azp: z.string().optional(),
   email: z.string().optional(), email_verified: z.union([z.boolean(), z.string()]).optional(), name: z.string().optional(),
 }).passthrough();
 
@@ -114,15 +114,24 @@ function checkClaims(claims: z.infer<typeof ClaimsSchema>, expected: { issuer: s
   if (claims.iss.replace(/\/+$/, "") !== expected.issuer.replace(/\/+$/, "")) throw new Error("The answer came from a different identity service");
   const audiences = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
   if (!audiences.includes(expected.clientId)) throw new Error("The answer was meant for a different app");
-  if (audiences.length > 1 && claims.azp !== expected.clientId) throw new Error("The answer was meant for a different app");
+  if ((audiences.length > 1 || claims.azp !== undefined) && claims.azp !== expected.clientId)
+    throw new Error("The answer was meant for a different app");
   if (claims.exp + skew < now / 1000) throw new Error("The answer has run out. Sign in again.");
-  if (claims.iat !== undefined && claims.iat - skew > now / 1000) throw new Error("The answer is dated in the future");
+  if (claims.iat - skew > now / 1000) throw new Error("The answer is dated in the future");
   if (claims.nonce !== expected.nonce) throw new Error("The answer is for a different sign-in");
 }
 
-/** Whether a checked identity is one the owner linked to this profile. A bare email counts only when verified. */
+/**
+ * Whether a checked identity is one the owner linked to this profile. Integration review: only the
+ * service's own subject id signs somebody in. An email address can be changed at some services, so
+ * a link that names only an email is a suggestion the owner confirms once (see `emailSuggests`).
+ */
 export function linkedTo(links: IdentityLink[], provider: string, profileId: string, identity: VerifiedIdentity): boolean {
-  return links.some((link) => link.provider === provider && link.profileId === profileId
-    && (link.subject ? link.subject === identity.subject
-      : !!link.email && identity.emailVerified && identity.email === link.email.toLowerCase()));
+  return links.some((link) => link.provider === provider && link.profileId === profileId && !!link.subject && link.subject === identity.subject);
+}
+
+/** Whether a verified email matches a link the owner made without a subject yet. */
+export function emailSuggests(links: IdentityLink[], provider: string, profileId: string, identity: VerifiedIdentity): boolean {
+  return identity.emailVerified && !!identity.email && links.some((link) => link.provider === provider
+    && link.profileId === profileId && !link.subject && !!link.email && link.email.toLowerCase() === identity.email);
 }

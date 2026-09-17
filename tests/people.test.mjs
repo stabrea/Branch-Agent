@@ -17,7 +17,7 @@ import { asPerson } from "../dist/people/context.js";
 import { onlyTighter, RoleGrantSchema } from "../dist/profile-roles.js";
 import { keyAnswerRefusal, underShortLivedKey } from "../dist/key-context.js";
 import { verifyAssertion, verifyRegistration, decodeCbor } from "../dist/people/webauthn.js";
-import { verifyIdToken, linkedTo, authorizationUrl } from "../dist/people/oidc.js";
+import { verifyIdToken, linkedTo, emailSuggests, authorizationUrl } from "../dist/people/oidc.js";
 import { SignIns } from "../dist/people/sign-in.js";
 import { boundDoorRefusal, personDoorRefusal } from "../dist/people/access.js";
 
@@ -135,12 +135,10 @@ test("B19-5 people cannot read each other's conversations, and the owner's only 
   assert.deepEqual((await f.call("GET", "/api/people/conversations", { key: bo })).body.own.sessions, []);
   assert.equal((await f.call("GET", "/api/people/conversations", { key: ada })).body.own.sessions.length, 1);
   // While her task runs, her conversation is lent to the assistant and she can still read it.
-  f.app.people.lent.set(made.body.sessionId, f.ada.id);
   f.app.store.reassignSession(made.body.sessionId, f.app.runtime.owner);
   assert.equal((await f.call("GET", `/api/people/conversations/${made.body.sessionId}`, { key: ada })).status, 200);
   assert.equal((await f.call("GET", `/api/people/conversations/${made.body.sessionId}`, { key: bo })).status, 404);
   f.app.store.reassignSession(made.body.sessionId, `profile:${f.ada.id}`);
-  f.app.people.lent.delete(made.body.sessionId);
   // Ada carries on her own conversation; it stays hers.
   assert.equal((await f.call("POST", `/api/people/conversations/${made.body.sessionId}/message`, { key: ada, body: { prompt: "more" } })).status, 200);
   assert.ok(f.app.store.ownsSession(`profile:${f.ada.id}`, made.body.sessionId));
@@ -340,18 +338,18 @@ function authenticator(rpId, origin) {
   };
   return {
     id: b64(id),
-    create(challenge, from = origin) {
+    create(challenge, from = origin, flags) {
       const cose = new Map([[1, 2], [3, -7], [-1, 1], [-2, Buffer.from(jwk.x, "base64url")], [-3, Buffer.from(jwk.y, "base64url")]]);
       const idLength = Buffer.alloc(2);
       idLength.writeUInt16BE(id.length);
       const attested = Buffer.concat([Buffer.alloc(16), idLength, id, cbor(cose)]);
-      const attestationObject = cbor(new Map([["fmt", "none"], ["attStmt", new Map()], ["authData", authData(0x41, attested)]]));
+      const attestationObject = cbor(new Map([["fmt", "none"], ["attStmt", new Map()], ["authData", authData(flags ?? 0x45, attested)]]));
       const clientDataJSON = Buffer.from(JSON.stringify({ type: "webauthn.create", challenge, origin: from }));
       return { id: b64(id), clientDataJSON: b64(clientDataJSON), attestationObject: b64(attestationObject) };
     },
-    get(challenge, { from = origin, bump = 1 } = {}) {
+    get(challenge, { from = origin, bump = 1, flags = 0x05 } = {}) {
       count += bump;
-      const data = authData(0x05);
+      const data = authData(flags);
       const clientDataJSON = Buffer.from(JSON.stringify({ type: "webauthn.get", challenge, origin: from }));
       const signature = signData("sha256", Buffer.concat([data, sha(clientDataJSON)]), privateKey);
       return { id: b64(id), clientDataJSON: b64(clientDataJSON), authenticatorData: b64(data), signature: b64(signature) };
@@ -440,9 +438,12 @@ test("B19-17 an identity service's answer is checked: signature, issuer, audienc
   assert.throws(() => verifyIdToken(other.token(other.claims()), [kit.jwk], expected), /not signed by it/);
   const identity = verifyIdToken(kit.token(kit.claims()), [kit.jwk], expected);
   const link = { provider: "family", profileId: "0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f", email: "ada@example.com" };
-  assert.equal(linkedTo([link], "family", link.profileId, identity), true);
-  assert.equal(linkedTo([link], "family", link.profileId, { ...identity, emailVerified: false }), false, "an unverified email is not enough");
-  assert.equal(linkedTo([link], "other", link.profileId, identity), false);
+  // Integration review: only the subject id signs somebody in; a verified email only suggests the account.
+  assert.equal(linkedTo([link], "family", link.profileId, identity), false, "an email alone never signs anybody in");
+  assert.equal(emailSuggests([link], "family", link.profileId, identity), true);
+  assert.equal(emailSuggests([link], "family", link.profileId, { ...identity, emailVerified: false }), false, "an unverified email is not even a suggestion");
+  assert.equal(linkedTo([{ ...link, subject: "user-42" }], "family", link.profileId, identity), true);
+  assert.equal(linkedTo([{ ...link, subject: "user-42" }], "other", link.profileId, identity), false);
   assert.equal(linkedTo([{ ...link, subject: "user-7" }], "family", link.profileId, identity), false, "a linked subject wins over the email");
 });
 
@@ -476,8 +477,8 @@ test("B19-18 signing in through an identity service, end to end with a stand-in 
   assert.equal(address.searchParams.get("code_challenge_method"), "S256");
   assert.equal(address.searchParams.get("redirect_uri"), where.redirectUri);
   nonce = address.searchParams.get("nonce");
-  assert.equal(signIns.byState(address.searchParams.get("state")), ticket);
-  await signIns.step(ticket, "oidc", "finish", { code: "the-code" }, where);
+  const state = address.searchParams.get("state");
+  await signIns.step(ticket, "oidc", "finish", { code: "the-code", state }, where);
   assert.equal(createHash("sha256").update(sentVerifier).digest("base64url"), address.searchParams.get("code_challenge"));
   assert.equal(signIns.complete(ticket).profileId, profileId);
   // Somebody whose account is not linked to Ada does not get in as Ada.
@@ -485,7 +486,7 @@ test("B19-18 signing in through an identity service, end to end with a stand-in 
   const second = signIns.start("Ada", "test");
   const again = await signIns.step(second.ticket, "oidc", "begin", { provider: "family" }, where);
   nonce = new URL(again.result.url).searchParams.get("nonce");
-  await assert.rejects(signIns.step(second.ticket, "oidc", "finish", { code: "the-code" }, where), /not linked/);
+  await assert.rejects(signIns.step(second.ticket, "oidc", "finish", { code: "the-code", state: new URL(again.result.url).searchParams.get("state") }, where), /not linked/);
   // A discovery document naming another issuer is refused.
   const liar = async (url) => String(url).includes("openid-configuration")
     ? new Response(JSON.stringify({ issuer: "https://evil.example", authorization_endpoint: "https://evil.example/a", token_endpoint: "https://evil.example/t", jwks_uri: "https://evil.example/j" }))
@@ -503,7 +504,324 @@ test("B19-19 the sign-in page refuses a request from another site", async (t) =>
   const page = await fetch(`${f.server.url}/people`);
   assert.equal(page.status, 200);
   assert.match(await page.text(), /Sign in to Branch/);
-  const callback = await f.call("GET", "/api/people/oidc/callback?state=nothing&code=x");
+  const callback = await f.call("GET", "/api/people/oidc/callback?state=nothing");
   assert.equal(callback.status, 302);
   assert.equal(callback.headers.get("location"), "/people#error=signin");
+  const passed = await f.call("GET", "/api/people/oidc/callback?state=s1&code=c%261");
+  assert.equal(passed.headers.get("location"), "/people#oidc=c%261&state=s1", "the answer is only passed on to the page");
+});
+
+/* ---------- integration review (adversarial pass) ---------- */
+
+import { request as httpRequest, createServer as createHttpServer } from "node:http";
+import { coseToJwk } from "../dist/people/webauthn.js";
+import { runOrigin } from "../dist/key-context.js";
+import { recoverAfterRestart } from "../dist/never-break/resume.js";
+import { journalHook } from "../dist/never-break/journal.js";
+import { saveGatewayConfig, GatewayConfigSchema } from "../dist/never-break/gateway-config.js";
+import { collectSnapshot, securityChecks } from "../dist/security-audit/index.js";
+import { readFile } from "node:fs/promises";
+
+/** A stand-in identity service on the served app, reached instead of the network. */
+function standInService(f, kit, provider) {
+  const seen = { nonce: "" };
+  f.app.people.signIns.host.fetch = async (url, init) => {
+    const at = String(url);
+    const json = (value) => new Response(JSON.stringify(value), { headers: { "content-type": "application/json" } });
+    if (at.endsWith("/.well-known/openid-configuration"))
+      return json({ issuer: kit.issuer, authorization_endpoint: `${kit.issuer}/authorize`, token_endpoint: `${kit.issuer}/token`, jwks_uri: `${kit.issuer}/jwks` });
+    if (at.endsWith("/jwks")) return json({ keys: [kit.jwk] });
+    if (at.endsWith("/token")) return json({ id_token: kit.token(kit.claims({ nonce: seen.nonce, ...(seen.claims ?? {}) })) });
+    return new Response("no", { status: 404 });
+  };
+  const begin = async () => {
+    const started = await f.call("POST", "/api/people/sign-in/start", { body: { name: "Ada" } });
+    const begun = await f.call("POST", "/api/people/sign-in/step", { body: { ticket: started.body.ticket, method: "oidc", stage: "begin", provider: provider.id } });
+    assert.equal(begun.status, 200, JSON.stringify(begun.body));
+    const address = new URL(begun.body.result.url);
+    seen.nonce = address.searchParams.get("nonce");
+    return { ticket: started.body.ticket, state: address.searchParams.get("state"), address };
+  };
+  return { seen, begin };
+}
+const familyProvider = (kit) => ({ id: "family", label: "Family", issuer: kit.issuer, clientId: kit.clientId, scopes: ["openid", "email"] });
+
+test("B19-20 an identity service's answer landing in somebody else's browser finishes nobody's sign-in", async (t) => {
+  const f = await served(t);
+  const kit = issuerKit(), provider = familyProvider(kit);
+  await f.owner("POST", "/api/people/settings", { chain: ["oidc"], providers: [provider], links: [{ provider: "family", profileId: f.ada.id, subject: "user-42" }] });
+  const service = standInService(f, kit, provider);
+  // An attacker starts Ada's sign-in and sends Ada the service's address; Ada signs in there.
+  const held = await service.begin();
+  assert.equal(held.address.searchParams.get("redirect_uri"), `${f.server.url}/api/people/oidc/callback`);
+  const back = await f.call("GET", `/api/people/oidc/callback?state=${held.state}&code=the-code`);
+  assert.equal(back.status, 302);
+  assert.doesNotMatch(back.headers.get("location"), /ticket/, "the way back names no sign-in");
+  const stolen = await f.call("POST", "/api/people/sign-in/finish", { body: { ticket: held.ticket } });
+  assert.equal(stolen.status, 400, "the attacker's ticket did not pass the check");
+  assert.equal(stolen.body.key, undefined);
+  // The page that started a sign-in finishes it with the answer and that sign-in's own state.
+  const mine = await service.begin();
+  const wrongState = await f.call("POST", "/api/people/sign-in/step", { body: { ticket: mine.ticket, method: "oidc", stage: "finish", code: "the-code", state: held.state } });
+  assert.equal(wrongState.status, 400, "another sign-in's state is refused");
+  const again = await service.begin();
+  const passed = await f.call("POST", "/api/people/sign-in/step", { body: { ticket: again.ticket, method: "oidc", stage: "finish", code: "the-code", state: again.state } });
+  assert.equal(passed.status, 200, JSON.stringify(passed.body));
+  const done = await f.call("POST", "/api/people/sign-in/finish", { body: { ticket: again.ticket } });
+  assert.match(done.body.key, /^branch_person_/);
+});
+
+test("B19-21 an email address only suggests an account; the owner confirms it once by its id", async (t) => {
+  const f = await served(t);
+  const kit = issuerKit(), provider = familyProvider(kit);
+  await f.owner("POST", "/api/people/settings", { chain: ["oidc"], providers: [provider], links: [{ provider: "family", profileId: f.ada.id, email: "ada@example.com" }] });
+  const service = standInService(f, kit, provider);
+  const first = await service.begin();
+  const refused = await f.call("POST", "/api/people/sign-in/step", { body: { ticket: first.ticket, method: "oidc", stage: "finish", code: "c", state: first.state } });
+  assert.equal(refused.status, 400);
+  assert.match(refused.body.error, /owner has to confirm/);
+  const card = await f.owner("GET", "/api/people/settings");
+  assert.deepEqual(card.body.waiting.map((w) => [w.profileId, w.subject, w.email]), [[f.ada.id, "user-42", "ada@example.com"]]);
+  // Nobody else can confirm it, and a subject that did not sign in cannot be slipped in.
+  const script = f.app.sessionTokens.create(f.app.runtime.owner, { scope: "run", minutes: 5 }).token;
+  assert.equal((await f.call("POST", "/api/people/links/confirm", { key: script, body: { provider: "family", profileId: f.ada.id, subject: "user-42" } })).status, 401);
+  assert.equal((await f.owner("POST", "/api/people/links/confirm", { provider: "family", profileId: f.ada.id, subject: "attacker" })).status, 400);
+  assert.equal((await f.owner("POST", "/api/people/links/confirm", { provider: "family", profileId: f.ada.id, subject: "user-42" })).status, 200);
+  const next = await service.begin();
+  const passed = await f.call("POST", "/api/people/sign-in/step", { body: { ticket: next.ticket, method: "oidc", stage: "finish", code: "c", state: next.state } });
+  assert.equal(passed.status, 200, JSON.stringify(passed.body));
+  // An account with the same verified email but another id is still not Ada.
+  service.seen.claims = { sub: "someone-else" };
+  const other = await service.begin();
+  assert.equal((await f.call("POST", "/api/people/sign-in/step", { body: { ticket: other.ticket, method: "oidc", stage: "finish", code: "c", state: other.state } })).status, 400);
+  // Discovery and the exchange go through the owner's network rules: a private address is refused.
+  await assert.rejects(f.app.people.parts.fetch("https://127.0.0.1/.well-known/openid-configuration"));
+});
+
+test("B19-22 the ID token: a different authorised party, or no issue time, is refused", () => {
+  const kit = issuerKit();
+  const expected = { issuer: kit.issuer, clientId: kit.clientId, nonce: "n1" };
+  assert.throws(() => verifyIdToken(kit.token(kit.claims({ azp: "another-app" })), [kit.jwk], expected), /different app/);
+  assert.equal(verifyIdToken(kit.token(kit.claims({ azp: kit.clientId })), [kit.jwk], expected).subject, "user-42");
+  assert.throws(() => verifyIdToken(kit.token(kit.claims({ iat: undefined })), [kit.jwk], expected));
+  assert.throws(() => verifyIdToken(kit.token(kit.claims(), { alg: "HS256", kid: "k1" }), [kit.jwk], expected), "only RS256 and ES256");
+  assert.throws(() => verifyIdToken(kit.token(kit.claims(), { alg: "RS256", kid: "other" }), [kit.jwk], expected), /did not publish/);
+});
+
+test("B19-23 passkeys: the device must check who holds it, a challenge lasts two minutes, and a short RSA key is refused", async (t) => {
+  const f = await served(t);
+  const host = new URL(f.server.url).host;
+  const origin = `http://${host}`, rpId = new URL(origin).hostname;
+  const device = authenticator(rpId, origin);
+  const key = await f.signIn("Ada", "1234");
+  const begun = await f.call("POST", "/api/people/me/passkeys/begin", { key, body: {} });
+  assert.equal(begun.body.authenticatorSelection.userVerification, "required");
+  const unverified = await f.call("POST", "/api/people/me/passkeys/finish", { key, body: { credential: device.create(begun.body.challenge, origin, 0x41) } });
+  assert.equal(unverified.status, 400, "registered without the device checking who you are");
+  assert.match(unverified.body.error, /checking who you are/);
+  const again = await f.call("POST", "/api/people/me/passkeys/begin", { key, body: {} });
+  assert.equal((await f.call("POST", "/api/people/me/passkeys/finish", { key, body: { credential: device.create(again.body.challenge) } })).status, 200);
+  await f.owner("POST", "/api/people/settings", { chain: ["passkey"] });
+  const started = await f.call("POST", "/api/people/sign-in/start", { body: { name: "Ada" } });
+  const options = await f.call("POST", "/api/people/sign-in/step", { body: { ticket: started.body.ticket, method: "passkey", stage: "begin" } });
+  assert.equal(options.body.result.userVerification, "required");
+  const presenceOnly = await f.call("POST", "/api/people/sign-in/step", { body: { ticket: started.body.ticket, method: "passkey", stage: "finish",
+    credential: device.get(options.body.result.challenge, { flags: 0x01 }) } });
+  assert.equal(presenceOnly.status, 400, "touching the key is not enough");
+  // A challenge is good once, and for two minutes only.
+  const late = await f.call("POST", "/api/people/sign-in/step", { body: { ticket: started.body.ticket, method: "passkey", stage: "begin" } });
+  const realNow = Date.now;
+  Date.now = () => realNow() + 121_000;
+  try {
+    const expired = await f.call("POST", "/api/people/sign-in/step", { body: { ticket: started.body.ticket, method: "passkey", stage: "finish",
+      credential: device.get(late.body.result.challenge) } });
+    assert.equal(expired.status, 400);
+  } finally { Date.now = realNow; }
+  const fresh = await f.call("POST", "/api/people/sign-in/step", { body: { ticket: started.body.ticket, method: "passkey", stage: "begin" } });
+  const answer = device.get(fresh.body.result.challenge);
+  assert.equal((await f.call("POST", "/api/people/sign-in/step", { body: { ticket: started.body.ticket, method: "passkey", stage: "finish", credential: answer } })).status, 200);
+  const replayed = await f.call("POST", "/api/people/sign-in/step", { body: { ticket: started.body.ticket, method: "passkey", stage: "finish", credential: answer } });
+  assert.equal(replayed.status, 400, "the same answer twice");
+  // Keys: nothing but ES256 on P-256 and RS256 of 2048 bits or more.
+  const { publicKey } = generateKeyPairSync("rsa", { modulusLength: 1024 });
+  const short = publicKey.export({ format: "jwk" });
+  assert.throws(() => coseToJwk(new Map([[1, 3], [3, -257], [-1, Buffer.from(short.n, "base64url")], [-2, Buffer.from(short.e, "base64url")]])), /too short/);
+  assert.throws(() => coseToJwk(new Map([[1, 2], [3, -8], [-1, 6]])), /Only ES256 and RS256/);
+  assert.throws(() => coseToJwk(new Map([[1, 2], [3, -7], [-1, 2], [-2, Buffer.alloc(48)], [-3, Buffer.alloc(48)]])), /Only ES256 and RS256/, "P-384 under ES256's number");
+});
+
+test("B19-24 a PIN is scrypt-hashed, and its lockout is per person: a new ticket or another place does not reset it", async (t) => {
+  const f = await served(t);
+  const row = f.app.store.sqlite.prepare("SELECT pin_hash FROM household_profiles WHERE id=?").get(f.ada.id);
+  assert.notDeepEqual(Buffer.from(row.pin_hash), createHash("sha256").update("1234").digest(), "not a plain hash");
+  assert.equal(Buffer.from(row.pin_hash).length, 32);
+  // Straight at the sign-in chain, as if each try came from a different address with a fresh ticket.
+  const signIns = f.app.people.signIns;
+  const where = { origin: "http://localhost", rpId: "localhost", redirectUri: "http://localhost/cb" };
+  for (let i = 0; i < 5; i++) {
+    const { ticket } = signIns.start("Ada", `place ${i}`);
+    await assert.rejects(signIns.step(ticket, "pin", "finish", { pin: "0000" }, where));
+  }
+  const { ticket } = signIns.start("Ada", "another place");
+  await assert.rejects(signIns.step(ticket, "pin", "finish", { pin: "1234" }, where), /Too many wrong PINs/, "the right PIN waits too");
+  // Bo signing in correctly from the same place does not clear Ada's count.
+  await f.signIn("Bo", "5678");
+  const later = signIns.start("Ada", "x");
+  await assert.rejects(signIns.step(later.ticket, "pin", "finish", { pin: "1234" }, where), /Too many wrong PINs/);
+});
+
+test("B19-25 a one-time code lasts fifteen minutes, works once, and is kept only as a hash", async (t) => {
+  const f = await served(t);
+  const codes = f.app.people.resetCodes;
+  const issued = codes.issue(f.ada.id);
+  assert.ok(Math.abs(Date.parse(issued.expiresAt) - Date.now() - 15 * 60_000) < 5000);
+  assert.ok(!JSON.stringify([...codes.pending.values()].map((p) => ({ ...p, hash: p.hash.toString("hex") }))).includes(issued.code));
+  const realNow = codes.now;
+  codes.now = () => realNow() + 15 * 60_000 + 1000;
+  assert.throws(() => codes.redeem(f.ada.id, issued.code), /run out/);
+  codes.now = realNow;
+  const fresh = codes.issue(f.ada.id);
+  codes.redeem(f.ada.id, fresh.code);
+  assert.throws(() => codes.redeem(f.ada.id, fresh.code), /run out/);
+  // Five wrong codes close it.
+  const third = codes.issue(f.ada.id);
+  for (let i = 0; i < 5; i++) assert.throws(() => codes.redeem(f.ada.id, "WRONG000"));
+  assert.throws(() => codes.redeem(f.ada.id, third.code));
+});
+
+test("B19-26 a person's own conversation lent to the assistant is never the owner's to share, nor another person's to read", async (t) => {
+  const f = await served(t);
+  const ada = await f.signIn("Ada", "1234"), bo = await f.signIn("Bo", "5678");
+  const made = await f.call("POST", "/api/people/conversations", { key: ada, body: { prompt: "my diary" } });
+  assert.equal(runOrigin(f.app.store, made.body.runId).lentTo, `profile:${f.ada.id}`);
+  // As while her next task is running:
+  f.app.store.reassignSession(made.body.sessionId, f.app.runtime.owner);
+  const tuple = { object: `conversation:${made.body.sessionId}`, relation: "driver", subject: `profile:${f.bo.id}` };
+  const shared = await f.owner("POST", "/api/people/shares", tuple);
+  assert.equal(shared.status, 400, "the owner cannot share it in that moment");
+  assert.equal((await f.owner("POST", "/api/people/shares/import", { tuples: [{ user: tuple.subject, relation: "driver", object: tuple.object }] })).status, 400);
+  // Even a share written some other way does not open it.
+  f.app.store.save("settings", f.app.runtime.owner, "people-shares", { tuples: [tuple] });
+  assert.equal((await f.call("GET", `/api/people/conversations/${made.body.sessionId}`, { key: bo })).status, 404);
+  assert.equal((await f.call("POST", `/api/people/conversations/${made.body.sessionId}/message`, { key: bo, body: { prompt: "hi" } })).status, 404);
+  assert.equal((await f.call("GET", `/api/people/conversations/${made.body.sessionId}`, { key: ada })).body.access, "own");
+  assert.equal((await f.call("POST", `/api/people/conversations/${made.body.sessionId}/message`, { key: ada, body: { prompt: "again" } })).status, 409, "one message at a time");
+  // A restart caught it lent: it goes back to her when Branch starts.
+  const { returnLentSessions } = await import("../dist/people/lending.js");
+  assert.equal(returnLentSessions(f.app.store, f.app.runtime.owner), 1);
+  assert.ok(f.app.store.ownsSession(`profile:${f.ada.id}`, made.body.sessionId));
+});
+
+test("B19-27 switching signing in off ends every person's key, and a person's key reaches no other door", async (t) => {
+  const f = await served(t);
+  const key = await f.signIn("Ada", "1234");
+  const run = await f.app.runtime.run({ prompt: "owner's" });
+  for (const [method, path] of [["POST", "/mcp"], ["POST", "/a2a"], ["GET", "/ap/v1/agent/tasks"], ["POST", "/v1/chat/completions"], ["GET", "/v1/models"],
+    ["POST", "/api/commands/run"], ["GET", "/api/commands"], ["POST", "/api/tools/try"], ["POST", "/api/action"], ["GET", "/api/dashboard/overview"],
+    ["GET", `/api/runs/${run.id}`], ["GET", `/api/runs/${run.id}/stream`], ["GET", `/api/runs/${run.id}/recording`], ["GET", `/api/runs/${run.id}/timeline`],
+    ["GET", "/api/usage"], ["GET", "/api/memory/facts"], ["GET", "/api/artifacts"], ["GET", `/api/sessions/${run.sessionId}`], ["POST", "/api/profiles/switch"],
+    ["GET", "/api/people/handoff"], ["GET", "/api/people/me/../settings"], ["GET", "/api/people/me/"], ["GET", "/api/people/me%2f..%2fsettings"],
+    ["GET", "/API/people/settings"], ["POST", "/api/interop/handoff"], ["GET", "/api/security-check"]]) {
+    const answer = await f.call(method, path, { key, body: method === "POST" ? {} : undefined });
+    assert.ok([401, 404].includes(answer.status), `${method} ${path} → ${answer.status}`);
+  }
+  // No socket takes a person's key.
+  const socket = await new Promise((resolve) => {
+    const req = httpRequest(`${f.server.url}/api/runs/${run.id}/ws`, { headers: { connection: "Upgrade", upgrade: "websocket",
+      "sec-websocket-key": "dGhlIHNhbXBsZSBub25jZQ==", "sec-websocket-version": "13", "sec-websocket-protocol": `bearer, ${key}` } });
+    req.on("upgrade", (response, s) => { s.destroy(); resolve(response.statusCode); });
+    req.on("response", (response) => resolve(response.statusCode));
+    req.on("error", () => resolve("closed"));
+    req.on("close", () => resolve("closed"));
+    req.end();
+  });
+  assert.notEqual(socket, 101);
+  assert.equal((await f.owner("POST", "/api/people/settings", { mode: "off" })).status, 200);
+  assert.equal((await f.owner("POST", "/api/people/settings", { mode: "on" })).status, 200);
+  assert.equal((await f.call("GET", "/api/people/me", { key })).status, 401, "switching back on does not bring old sign-ins back");
+});
+
+test("B19-28 on the paired door, the identity service's way back passes the door's own checks", async (t) => {
+  const f = await served(t);
+  const host = new URL(f.server.url).host;
+  const door = createHttpServer((request, response) => { request.headers.host = host; f.server.remoteHandler(request, response); });
+  await new Promise((done) => door.listen(0, "127.0.0.1", done));
+  t.after(() => new Promise((done) => { door.closeAllConnections?.(); door.close(done); }));
+  const base = `http://127.0.0.1:${door.address().port}`;
+  const back = await fetch(`${base}/api/people/oidc/callback?state=s&code=c`, { redirect: "manual" });
+  assert.equal(back.status, 401, "an unpaired device gets nothing back");
+  const start = await fetch(`${base}/api/people/sign-in/start`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "Ada" }) });
+  assert.equal(start.status, 401);
+});
+
+test("B19-29 a person's task cut off by a restart carries on as that person, and their conversation stays theirs", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-people-restart-"));
+  t.after(() => discardTemp(root));
+  const dataDir = join(root, "data"), workspace = join(root, "workspace");
+  await saveGatewayConfig(dataDir, GatewayConfigSchema.parse({ mode: "on" }));
+  const quiet = { name: "scripted", async complete() { return { content: "Done.", toolCalls: [] }; } };
+  const first = await createBranch({ workspace, dataDir, provider: quiet });
+  const ada = first.store.profiles.create({ name: "Ada", pin: "1234" });
+  first.runtime.roles.save(ada.id, { role: "child" });
+  // Ada's task, lent to the assistant, when Branch stopped.
+  const run = first.store.createRun(first.runtime.owner, "plan my week");
+  first.store.event(run.id, "run.started", { source: "owner", personProfileId: ada.id, lentTo: `profile:${ada.id}` });
+  first.store.message(run.sessionId, { role: "user", content: "plan my week" });
+  first.store.finish(run.id, "interrupted", "cut off");
+  await first.close();
+
+  let second = null;
+  const seen = [];
+  const provider = { name: "scripted", async complete() {
+    seen.push({ scope: second.store.profiles.scope(), refusal: second.runtime.roleRefusal("files.write", "files.write") });
+    return { content: "Carried on.", toolCalls: [] };
+  } };
+  second = await createBranch({ workspace, dataDir, provider });
+  t.after(() => second.close());
+  assert.ok(second.store.ownsSession(`profile:${ada.id}`, run.sessionId), "handed back to her at start");
+  assert.equal(second.store.profiles.isOwner(), true);
+  const [report] = await second.neverBreak.recoverOnStart(dataDir);
+  assert.equal(report.outcome, "resumed");
+  const resumed = await report.resumed;
+  assert.ok(resumed, "the task carried on");
+  assert.equal(resumed.status, "completed");
+  assert.ok(seen.length > 0);
+  assert.ok(seen.every((s) => s.scope === `profile:${ada.id}`), "it ran as Ada");
+  assert.ok(seen.every((s) => /does not cover/.test(s.refusal ?? "")), "held to her role");
+  assert.equal(runOrigin(second.store, resumed.id).personProfileId, ada.id);
+  assert.ok(second.store.ownsSession(`profile:${ada.id}`, run.sessionId), "and her conversation is hers again after");
+  assert.equal(second.store.profiles.isOwner(), true, "the window was never switched");
+});
+
+test("B19-30 a step redone after a restart is held to the person's role, not the owner's", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-people-redo-"));
+  t.after(() => discardTemp(root));
+  const app = await createBranch({ workspace: join(root, "w"), dataDir: join(root, "d"), provider: { name: "s", async complete() { return { content: "ok", toolCalls: [] }; } } });
+  t.after(() => app.close());
+  const ada = app.store.profiles.create({ name: "Ada", pin: "1234" });
+  app.runtime.roles.save(ada.id, { role: "child" });
+  const run = app.store.createRun(app.runtime.owner, "write it");
+  app.store.event(run.id, "run.started", { source: "owner", personProfileId: ada.id, lentTo: `profile:${ada.id}` });
+  app.neverBreak.journal.turn(run.id, run.sessionId, 1);
+  const call = { id: "w1", name: "files.write", arguments: JSON.stringify({ path: "child.txt", content: "not allowed" }) };
+  const hook = journalHook(app.neverBreak.journal);
+  hook.intend({ runId: run.id, sessionId: run.sessionId, calls: [{ call, permission: app.registry.permissionOf(call.name) }] });
+  app.store.message(run.sessionId, { role: "assistant", content: "", toolCalls: [call] });
+  await hook.around({ runId: run.id, sessionId: run.sessionId, call, permission: app.registry.permissionOf(call.name),
+    workspace: app.runtime.workspace, signal: AbortSignal.abort() }, async () => { throw new Error("cut off"); }).catch(() => undefined);
+  app.store.finish(run.id, "interrupted", "cut off");
+  const [report] = await recoverAfterRestart({ store: app.store, runtime: app.runtime, journal: app.neverBreak.journal, mode: "on" });
+  await report.resumed;
+  await assert.rejects(readFile(join(app.runtime.workspace, "child.txt")), "a child's write was not done as the owner");
+});
+
+test("B19-31 the security self-check knows the sign-in door and its switch", async (t) => {
+  const f = await served(t);
+  const facts = await collectSnapshot(f.app, { dataDir: join(f.app.runtime.workspace, ".."), integrationsPath: null, remoteEnabled: true, home: tmpdir() });
+  assert.deepEqual({ ...facts.people, signedIn: 0 }, { mode: "on", chain: ["pin"], sessionMinutes: 720, signedIn: 0, waiting: 0 });
+  const pinAlone = securityChecks.find((c) => c.id === "people.pin-alone-from-afar");
+  assert.ok(pinAlone.decide(facts), "a PIN alone through the phone door is flagged");
+  assert.equal(pinAlone.decide({ ...facts, remoteEnabled: false }), null);
+  assert.equal(pinAlone.decide({ ...facts, people: { ...facts.people, chain: ["pin", "passkey"] } }), null);
+  assert.equal(pinAlone.decide({ ...facts, people: { ...facts.people, mode: "off" } }), null, "nothing to say while it is off");
 });

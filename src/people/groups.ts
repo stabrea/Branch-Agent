@@ -4,6 +4,7 @@ import { audit } from "../audit.js";
 import { toolCategories } from "../tool-categories.js";
 import type { RoleGrant } from "../profile-roles.js";
 import type { Store } from "../store.js";
+import { lentOwner } from "./lending.js";
 
 /**
  * Bucket 19: groups of people, and what the owner has shared with whom.
@@ -113,7 +114,8 @@ export class PeopleGroups {
   share(input: unknown, known: { profiles: readonly string[] }): ShareTuple {
     const tuple = TupleSchema.parse(input);
     const sessionId = tuple.object.slice("conversation:".length);
-    if (!this.store.ownsSession(this.owner, sessionId)) throw new Error("Only your own conversations can be shared");
+    // Integration review: a person's own conversation, lent while their task runs, is not the owner's to share.
+    if (!this.store.ownsSession(this.owner, sessionId) || lentOwner(this.store, sessionId)) throw new Error("Only your own conversations can be shared");
     const [kind, rest] = tuple.subject.split(":") as [string, string];
     const subjectId = rest.replace(/#member$/, "");
     if (kind === "profile" ? !known.profiles.includes(subjectId) : !this.list().some((group) => group.id === subjectId))

@@ -276,16 +276,23 @@ async function start() {
     return;
   }
   await loadProviders();
-  if (hash.get("ticket")) return resumeTicket(hash.get("ticket"), hash.get("error"));
+  if (hash.get("oidc") || hash.get("error")) return finishProvider(hash.get("oidc"), hash.get("state"));
   if (store.get(PERSON)) await openHome().catch(() => show("people-signin"));
 }
 
-async function resumeTicket(id, error) {
+/** Back from an identity service: this tab holds the sign-in it started, and finishes it with the answer. */
+async function finishProvider(code, state) {
   let saved = {};
   try { saved = JSON.parse(sessionStorage.getItem("branch-person-ticket") || "{}"); sessionStorage.removeItem("branch-person-ticket"); } catch { /* none */ }
-  ticket = id;
-  if (error) { left = saved.left || []; drawSteps(); say(words("people.signin.oidc-failed", "That account did not sign you in here."), true); return; }
-  await afterStep({ left: (saved.left || []).filter((method) => method !== "oidc") });
+  ticket = saved.ticket || "";
+  left = saved.left || [];
+  if (!ticket || !code) { say(words("people.signin.oidc-failed", "That account did not sign you in here."), true); return; }
+  try {
+    await afterStep(await step("oidc", "finish", { code, state }));
+  } catch (error) {
+    if (left.length) drawSteps();
+    say(error.message || words("people.signin.oidc-failed", "That account did not sign you in here."), true);
+  }
 }
 
 start().catch((error) => say(error.message, true));

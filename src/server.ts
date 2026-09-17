@@ -290,7 +290,8 @@ export function hostAllowed(
 ): boolean {
   const hosts = [new URL(url).host, ...extra];
   if (!host || !hosts.includes(host)) return false;
-  return !origin || hosts.some((allowed) => origin === `http://${allowed}`);
+  // bucket 19 (integration review): the same host served over TLS (a paired door behind https) is the same place.
+  return !origin || hosts.some((allowed) => origin === `http://${allowed}` || origin === `https://${allowed}`);
 }
 function authorize(
   request: IncomingMessage, url: string, token: string, extra: readonly string[] = [],
@@ -2480,7 +2481,12 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
       if (path.startsWith("/api/people/sign-in")) {
         if (!hostAllowed(request.headers.host, request.headers.origin, url, remote.allowedHosts()) || request.headers["sec-fetch-site"] === "cross-site")
           throw new HttpError(403, "Origin rejected");
-        if (viaRemote) { const refused = gateway.check(request, true); if (refused) throw new HttpError(401, refused); }
+      }
+      // Integration review: the identity service's way back is a navigation from its own site, so it
+      // has no origin check, but on the paired door it passes the door's chain like the rest.
+      if ((path.startsWith("/api/people/sign-in") || path === "/api/people/oidc/callback") && viaRemote) {
+        const refused = gateway.check(request, true);
+        if (refused) throw new HttpError(401, refused);
       }
       if (await peopleSignInRoute(app, request, response, path, () => readBody(request), (status, value) => send(response, status, value))) return;
       // ---- end bucket 19 ----

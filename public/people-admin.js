@@ -170,8 +170,17 @@ function linkSection(state, act) {
     row.append(quiet("people.admin.remove", "Remove", () => act("people/settings", { links: state.settings.links.filter((x) => x !== link) })));
     return row;
   });
+  // Integration review: an email only suggests an account; the owner confirms it once, by its id at the service.
+  const waiting = (state.waiting ?? []).map((found) => {
+    const who = state.people.find((p) => p.id === found.profileId)?.name ?? "?";
+    const row = el("div", `${who} — ${found.provider}: ${found.email}`, "item");
+    row.append(quiet("people.admin.link.confirm", "Confirm this account", () => act("people/links/confirm",
+      { provider: found.provider, profileId: found.profileId, subject: found.subject })));
+    return row;
+  });
   return [
-    keyed("p", "people.admin.links", "Accounts linked to a person (only a verified email address counts)", "meta"), ...list,
+    keyed("p", "people.admin.links", "Accounts linked to a person. An email address only suggests an account: the first time it is used, confirm it here.", "meta"), ...list,
+    ...(waiting.length ? [keyed("p", "people.admin.link.waiting", "Waiting for you to confirm", "meta"), ...waiting] : []),
     ...field("people-link-person", "people.admin.link.person", "Person", person),
     ...field("people-link-provider", "people.admin.link.provider", "Service", provider),
     ...field("people-link-email", "people.admin.link.email", "Their email address at that service", email),

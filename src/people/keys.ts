@@ -84,6 +84,12 @@ export class PersonKeys {
       .run(this.now().toISOString(), this.owner, profileId).changes);
   }
 
+  /** Signs everybody out (the owner switched signing in from other devices off). */
+  revokeEveryone(): number {
+    return Number(this.db.prepare("UPDATE person_keys SET revoked_at=? WHERE owner=? AND revoked_at IS NULL")
+      .run(this.now().toISOString(), this.owner).changes);
+  }
+
   /** Forgets keys that stopped working more than a month ago. */
   prune(keepDays = 30): number {
     const cutoff = new Date(this.now().getTime() - keepDays * 86_400_000).toISOString();

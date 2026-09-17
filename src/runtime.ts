@@ -196,6 +196,8 @@ export interface RunOptions {
   images?: ImagePart[];
   /** Internal: continue an interrupted run's transcript instead of adding a new prompt. */
   resumeFrom?: string;
+  /** bucket 19 (integration review): whose conversation this is, when a person's own one is lent to the assistant. */
+  lentTo?: string;
   /** Practice run: tools that would change something report what they would have done. */
   dryRun?: boolean;
   /** Who started this task; defaults to the owner's own app or command line. */
@@ -435,11 +437,20 @@ export class Runtime {
    */
   async resume(runId: string): Promise<Run> {
     const previous = this.store.run(runId);
-    if (!previous || previous.owner !== this.owner) throw new Error("Run not found");
+    const origin = previous ? runOrigin(this.store, runId) : null;
+    // bucket 19 (integration review): a person's own task, handed back to them at start, may carry on too.
+    const lentTo = origin?.lentTo ?? null;
+    if (!previous || !origin || (previous.owner !== this.owner && previous.owner !== lentTo)) throw new Error("Run not found");
     if (previous.status !== "interrupted") throw new Error("Only interrupted tasks can be continued");
-    const go = () => this.execute({ prompt: previous.prompt, sessionId: previous.sessionId, resumeFrom: previous.id });
+    const again = { prompt: previous.prompt, sessionId: previous.sessionId, resumeFrom: previous.id };
+    const go = async () => {
+      if (!lentTo) return this.execute(again);
+      // Lent to the assistant for the resumed task, and handed back to the person after it.
+      this.store.reassignSession(previous.sessionId, this.owner);
+      try { return await this.execute({ ...again, lentTo }); } finally { this.store.reassignSession(previous.sessionId, lentTo); }
+    };
     // bucket 19: a task a household person started carries on as that person, after a restart too.
-    const person = runOrigin(this.store, runId).personProfileId;
+    const person = origin.personProfileId;
     return this.track(() => (person && !currentPerson() ? asPerson({ profileId: person, keyId: "resumed" }, go) : go()));
   }
   /** A tool run outside a conversation; `options` says how it is gated (src/tool-gate.ts). */
@@ -660,6 +671,7 @@ ${run.output.slice(0, 6000)}`;
       // bucket 19: which key, so only that key may answer the questions this task asks.
       ...(shortLivedKeyMark().keyId ? { shortLivedKeyId: shortLivedKeyMark().keyId } : {}),
       ...(currentPerson() ? { personProfileId: currentPerson()!.profileId } : {}),
+      ...(options.lentTo ? { lentTo: options.lentTo } : {}),
     };
   }
   private prepareRun(options: RunOptions): Run {

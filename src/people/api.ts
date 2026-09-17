@@ -10,6 +10,7 @@ import { currentPerson } from "./context.js";
 import { oidcPresets, savePeopleSettings, signInMethods } from "./settings.js";
 import type { Where } from "./sign-in.js";
 import { verifyRegistration } from "./webauthn.js";
+import { lentOwner } from "./lending.js";
 
 /**
  * Bucket 19: the web routes for people signing in from their own device, their own page, and the
@@ -29,10 +30,15 @@ export class PeopleHttpError extends Error {
 const idPattern = "[a-f0-9-]{36}";
 const PromptSchema = z.object({ prompt: z.string().trim().min(1).max(16000) }).strict();
 
-/** Where this request came in, for passkeys and identity services. The host was already checked. */
+/**
+ * Where this request came in, for passkeys and identity services. The host was already checked.
+ * Integration review: a door served over TLS is an https origin. Only the socket itself says so; a
+ * header such as X-Forwarded-Proto is written by the caller and would let them pick the origin.
+ */
 export function whereOf(request: IncomingMessage): Where {
   const host = String(request.headers.host ?? "127.0.0.1");
-  const origin = `http://${host}`;
+  const secure = (request.socket as { encrypted?: boolean } | undefined)?.encrypted === true;
+  const origin = `${secure ? "https" : "http"}://${host}`;
   return { origin, rpId: new URL(origin).hostname, redirectUri: `${origin}/api/people/oidc/callback` };
 }
 
@@ -42,6 +48,8 @@ const StartSchema = z.object({ name: z.string().trim().min(1).max(40), device: z
 const StepSchema = z.object({
   ticket: z.string().min(10).max(64), method: z.enum(signInMethods), stage: z.enum(["begin", "finish"]),
   pin: z.string().max(16).optional(), provider: z.string().max(40).optional(), credential: z.unknown().optional(),
+  // An identity service's answer, carried by the page that started the sign-in.
+  code: z.string().max(2048).optional(), state: z.string().max(128).optional(),
 }).strict();
 const CodeSchema = z.object({ name: z.string().trim().min(1).max(40), code: z.string().min(4).max(16), device: z.string().max(120).default("A device") }).strict();
 
@@ -108,17 +116,17 @@ function redeemCode(app: Branch, input: z.infer<typeof CodeSchema>) {
   return issueKey(app, { profileId: profile!.id, method: "setup", device: input.device }, 15);
 }
 
-async function oidcCallback(app: Branch, request: IncomingMessage, response: ServerResponse): Promise<true> {
+/**
+ * The identity service sends the browser back here. Integration review: nothing is finished here.
+ * The answer is passed on, in the part of the address that never leaves the browser, to the page,
+ * and only the page that started this sign-in holds the ticket it belongs to. An answer that lands
+ * in somebody else's browser (a link an attacker sent) therefore finishes nobody's sign-in.
+ */
+async function oidcCallback(_app: Branch, request: IncomingMessage, response: ServerResponse): Promise<true> {
   const url = new URL(request.url ?? "/", "http://local");
-  const state = url.searchParams.get("state") ?? "";
-  const ticket = state ? app.people.signIns.byState(state) : null;
-  let fragment = "error=signin";
-  if (ticket) {
-    try {
-      await app.people.signIns.step(ticket, "oidc", "finish", { code: url.searchParams.get("code") ?? "" }, whereOf(request));
-      fragment = `ticket=${encodeURIComponent(ticket)}`;
-    } catch { fragment = `ticket=${encodeURIComponent(ticket)}&error=oidc`; }
-  }
+  const code = url.searchParams.get("code") ?? "", state = url.searchParams.get("state") ?? "";
+  const fragment = code && state && code.length <= 2048 && state.length <= 128
+    ? `oidc=${encodeURIComponent(code)}&state=${encodeURIComponent(state)}` : "error=signin";
   response.writeHead(302, { location: `/people#${fragment}`, "cache-control": "no-store", "referrer-policy": "no-referrer" }).end();
   return true;
 }
@@ -202,7 +210,9 @@ async function passkeyApi(app: Branch, request: IncomingMessage, path: string, b
     return { challenge, rp: { id: where.rpId, name: "Branch" },
       user: { id: Buffer.from(profile.id).toString("base64url"), name: profile.name, displayName: profile.name },
       pubKeyCredParams: [{ type: "public-key", alg: -7 }, { type: "public-key", alg: -257 }],
-      attestation: "none", excludeCredentials: passkeys.of(person.profileId).map((p) => p.credentialId), timeout: 120000 };
+      attestation: "none", excludeCredentials: passkeys.of(person.profileId).map((p) => p.credentialId), timeout: 120000,
+      // Integration review: the device must check who is holding it, here and at every sign-in.
+      authenticatorSelection: { userVerification: "required", residentKey: "discouraged" } };
   }
   if (path === "/api/people/me/passkeys/finish") {
     const input = RegistrationSchema.parse(await body());
@@ -256,7 +266,7 @@ async function conversationApi(app: Branch, request: IncomingMessage, path: stri
   if (method !== "POST" || !match[2]) throw new PeopleHttpError(404, "Not found");
   const { prompt } = PromptSchema.parse(await body());
   if (access === "viewer") throw new PeopleHttpError(403, "This conversation was shared with you to read. Ask the owner to let you join in.");
-  if (access === "own") return summary(app, await lend(app, person, sessionId, prompt));
+  if (access === "own") return summary(app, await lend(app, sessionId, prompt));
   // A shared conversation stays the owner's; what the person says is marked with their name, and
   // their own role and limits hold for everything the task does.
   const name = app.store.profiles.active()!.name;
@@ -267,7 +277,12 @@ async function conversationApi(app: Branch, request: IncomingMessage, path: stri
 function accessTo(app: Branch, person: Mark, sessionId: string): "own" | "driver" | "viewer" {
   const scope = app.store.profiles.scope();
   if (app.store.ownsSession(scope, sessionId)) return "own";
-  if (app.people.lent.get(sessionId) === person.profileId) return "own";
+  // Integration review: a person's conversation lent to the assistant is theirs alone, never a shared one.
+  const lent = lentOwner(app.store, sessionId);
+  if (lent) {
+    if (lent === scope && app.store.ownsSession(app.runtime.owner, sessionId)) return "own";
+    throw new PeopleHttpError(404, "Conversation not found");
+  }
   if (app.store.ownsSession(app.runtime.owner, sessionId)) {
     if (app.people.groups.check(person.profileId, "driver", sessionId)) return "driver";
     if (app.people.groups.check(person.profileId, "viewer", sessionId)) return "viewer";
@@ -275,9 +290,10 @@ function accessTo(app: Branch, person: Mark, sessionId: string): "own" | "driver
   throw new PeopleHttpError(404, "Conversation not found");
 }
 
-async function lend(app: Branch, person: Mark, sessionId: string, prompt: string) {
-  app.people.lent.set(sessionId, person.profileId);
-  try { return await runForCurrentPerson(app, { sessionId, prompt }); } finally { app.people.lent.delete(sessionId); }
+async function lend(app: Branch, sessionId: string, prompt: string) {
+  // While a task runs the conversation is lent to the assistant; it is already written down as theirs.
+  if (!app.store.ownsSession(app.store.profiles.scope(), sessionId)) throw new PeopleHttpError(409, "Your last message is still being answered. Wait for it, then send this one.");
+  return runForCurrentPerson(app, { sessionId, prompt });
 }
 
 function summary(app: Branch, run: { id: string; sessionId: string; status: string; output?: string | null }): unknown {
@@ -296,7 +312,7 @@ function ownerView(app: Branch): unknown {
         .map((k) => ({ id: k.id, device: k.device, method: k.method, expiresAt: k.expiresAt, lastUsedAt: k.lastUsedAt })),
       grant: app.runtime.roles.effective(profile.id),
     })),
-    groups: people.groups.list(), shares: people.groups.tuples(),
+    groups: people.groups.list(), shares: people.groups.tuples(), waiting: people.suggestions(),
   };
 }
 
@@ -306,7 +322,14 @@ async function ownerApi(app: Branch, request: IncomingMessage, path: string, bod
   if (method === "GET" && path === "/api/people/shares/export") return { tuples: people.groups.exportFga() };
   if (method !== "POST") throw new PeopleHttpError(404, "Not found");
   const input = await body();
-  if (path === "/api/people/settings") { savePeopleSettings(app.store, app.runtime.owner, input); return ownerView(app); }
+  if (path === "/api/people/settings") {
+    const before = people.enabled();
+    savePeopleSettings(app.store, app.runtime.owner, input);
+    // Integration review: switching it off ends every person's sign-in, not only while it stays off.
+    if (before && !people.enabled()) people.keys.revokeEveryone();
+    return ownerView(app);
+  }
+  if (path === "/api/people/links/confirm") { people.confirmSuggestion(input); return ownerView(app); }
   if (path === "/api/people/groups") { people.groups.save(input, known.profiles); return ownerView(app); }
   if (path === "/api/people/shares") { people.groups.share(input, known); return ownerView(app); }
   if (path === "/api/people/shares/remove") { people.groups.unshare(input); return ownerView(app); }

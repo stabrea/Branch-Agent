@@ -3,11 +3,11 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 /**
  * Bucket 19: a one-time code the owner hands a person who forgot their PIN, or who has not set up a
  * passkey yet. The owner reads it off their own screen and tells the person; it works once, for
- * thirty minutes, and closes after five wrong tries. Using it signs the person out everywhere and
+ * fifteen minutes, and closes after five wrong tries. Using it signs the person out everywhere and
  * gives them a short key that may only set a new PIN or register a passkey.
  */
 interface Pending { hash: Buffer; expiresAt: number; tries: number }
-export const resetCodeMs = 30 * 60_000;
+export const resetCodeMs = 15 * 60_000; // integration review: fifteen minutes, as the brief asks
 const digest = (code: string): Buffer => createHash("sha256").update(code.trim().toUpperCase()).digest();
 
 export class ResetCodes {

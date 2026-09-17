@@ -49,6 +49,8 @@ export interface RunOrigin {
   keyIds: string[];
   /** bucket 19: the household person the task was started for, so a resumed task is held to their role. */
   personProfileId: string | null;
+  /** bucket 19 (integration review): whose own conversation it is, when it was lent to the assistant. */
+  lentTo: string | null;
 }
 type EventReader = { events(runId: string): { kind: string; data: Record<string, unknown> }[] };
 const startOf = (store: EventReader, runId: string) => store.events(runId).find((event) => event.kind === "run.started")?.data;
@@ -58,7 +60,7 @@ export function runOrigin(store: EventReader, runId: string): RunOrigin {
   const origin: RunOrigin = {
     shortLivedKey: false, source: typeof own?.source === "string" ? own.source : "owner",
     permissions: Array.isArray(own?.permissions) ? own.permissions.map(String) : null,
-    parentRunId: typeof own?.parentRunId === "string" ? own.parentRunId : null, keyIds: [], personProfileId: null,
+    parentRunId: typeof own?.parentRunId === "string" ? own.parentRunId : null, keyIds: [], personProfileId: null, lentTo: null,
   };
   const seen = new Set<string>();
   const queue = [runId];
@@ -74,7 +76,20 @@ export function runOrigin(store: EventReader, runId: string): RunOrigin {
     if (typeof data.source === "string" && data.source !== "owner") origin.source = data.source;
     for (const next of [data.parentRunId, data.resumedFrom]) if (typeof next === "string") queue.push(next);
   }
+  origin.lentTo = lentAlong(store, runId);
   return origin;
+}
+
+/** The lent conversation's person along a task's own resumptions (never a parent's: a specialist's conversation is not theirs). */
+function lentAlong(store: EventReader, runId: string): string | null {
+  const seen = new Set<string>();
+  for (let id: unknown = runId; typeof id === "string" && !seen.has(id);) {
+    seen.add(id);
+    const data = startOf(store, id);
+    if (typeof data?.lentTo === "string") return data.lentTo;
+    id = data?.resumedFrom;
+  }
+  return null;
 }
 
 export const otherKeysQuestionRefusal =

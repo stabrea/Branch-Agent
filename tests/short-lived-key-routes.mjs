@@ -342,6 +342,7 @@ export const ROUTES = {
   "/api/people/groups/:id/remove": "owner POST",
   "/api/people/handoff": "look",
   "/api/people/keys/revoke": "owner POST",
+  "/api/people/links/confirm": "owner POST",
   "/api/people/me": "look",
   "/api/people/me/passkeys": "look",
   "/api/people/me/passkeys/begin": "other POST",

@@ -110,7 +110,11 @@ export function coseToJwk(cose: Map<Cbor, Cbor>): { jwk: JsonWebKey; alg: -7 | -
     return found.toString("base64url");
   };
   if (kty === 2 && alg === -7 && cose.get(-1) === 1) return { jwk: { kty: "EC", crv: "P-256", x: bytes(-2), y: bytes(-3) }, alg: -7 };
-  if (kty === 3 && alg === -257) return { jwk: { kty: "RSA", n: bytes(-1), e: bytes(-2) }, alg: -257 };
+  if (kty === 3 && alg === -257) {
+    // Integration review: a short RSA key can be broken; 2048 bits is the least any platform makes.
+    if (Buffer.from(bytes(-1), "base64url").length < 256) throw new Error("That passkey's key is too short");
+    return { jwk: { kty: "RSA", n: bytes(-1), e: bytes(-2) }, alg: -257 };
+  }
   throw new Error("Only ES256 and RS256 passkeys are accepted");
 }
 
@@ -129,6 +133,8 @@ function checkClientData(clientDataJSON: string, type: string, expected: Expecte
 function checkRp(auth: AuthData, rpId: string): void {
   if (!same(auth.rpIdHash, sha256(rpId))) throw new Error("The passkey belongs to a different address");
   if (!(auth.flags & 0x01)) throw new Error("The passkey was used without anybody present");
+  // Integration review: the device must also have checked it was its owner (fingerprint, face, PIN).
+  if (!(auth.flags & 0x04)) throw new Error("The passkey was used without the device checking who you are");
 }
 
 /** A new passkey's answer to `navigator.credentials.create`, checked; its public key comes back. */

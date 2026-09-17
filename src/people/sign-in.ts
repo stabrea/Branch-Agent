@@ -1,7 +1,7 @@
-import { createHash, randomBytes, scryptSync } from "node:crypto";
+import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import type { Profiles } from "../profiles.js";
-import { authorizationUrl, discover, finishSignIn, linkedTo, type GuardedFetch } from "./oidc.js";
+import { authorizationUrl, discover, emailSuggests, finishSignIn, linkedTo, type GuardedFetch } from "./oidc.js";
 import type { Passkeys } from "./passkeys.js";
 import { chainFor, type PeopleSettings, type SignInMethodId } from "./settings.js";
 import { verifyAssertion } from "./webauthn.js";
@@ -30,6 +30,8 @@ export interface Ticket {
 export interface MethodHost {
   profiles: Profiles; passkeys: Passkeys; settings: () => PeopleSettings;
   fetch: GuardedFetch; secret: (name: string) => Promise<string | undefined>;
+  /** Integration review: an account whose verified email matches a link, waiting for the owner to confirm it. */
+  suggest?: (found: { provider: string; profileId: string; subject: string; email: string }) => void;
 }
 
 export interface SignInMethod {
@@ -40,8 +42,12 @@ export interface SignInMethod {
 }
 
 export const wrongAnswer = "That did not work. Check it and try again.";
+export const awaitingOwner = "The owner has to confirm this account once before it signs you in. Ask them to look in Settings.";
+const sameText = (a: string, b: string): boolean =>
+  Buffer.byteLength(a) === Buffer.byteLength(b) && timingSafeEqual(Buffer.from(a), Buffer.from(b));
 export const maximumTicketFailures = 5;
 const ticketMs = 10 * 60_000;
+export const passkeyChallengeMs = 120_000;
 
 const pinMethod: SignInMethod = {
   id: "pin",
@@ -66,16 +72,19 @@ const passkeyMethod: SignInMethod = {
   id: "passkey",
   async begin(ticket, _input, where, host) {
     const challenge = randomBytes(32).toString("base64url");
-    ticket.scratch.passkey = { challenge };
+    // Integration review: a sign-in challenge is good once, for two minutes.
+    ticket.scratch.passkey = { challenge, until: String(Date.now() + passkeyChallengeMs) };
     const allow = ticket.profileId ? host.passkeys.of(ticket.profileId).map((each) => each.credentialId) : [];
     // Nobody here, or nobody with a passkey yet, is offered the same made-up one, so the answer
     // does not say which names exist.
     if (!allow.length) allow.push(createHash("sha256").update(`branch-no-passkey:${ticket.name.toLowerCase()}`).digest("base64url"));
-    return { challenge, rpId: where.rpId, allowCredentials: allow, userVerification: "preferred", timeout: 120000 };
+    // Integration review: the device must check it is its owner (fingerprint, face or device PIN).
+    return { challenge, rpId: where.rpId, allowCredentials: allow, userVerification: "required", timeout: passkeyChallengeMs };
   },
   async finish(ticket, input, where, host) {
-    const challenge = ticket.scratch.passkey?.challenge;
+    const open = ticket.scratch.passkey;
     delete ticket.scratch.passkey;
+    const challenge = open && Number(open.until) > Date.now() ? open.challenge : undefined;
     const answer = PasskeyAnswer.safeParse(input.credential);
     if (!challenge || !answer.success || !ticket.profileId) throw new Error(wrongAnswer);
     const stored = host.passkeys.of(ticket.profileId).find((each) => each.credentialId === answer.data.id);
@@ -92,7 +101,9 @@ const oidcMethod: SignInMethod = {
     if (!provider) throw new Error("That identity service is not set up here");
     const doc = await discover(host.fetch, provider);
     const start = authorizationUrl(provider, doc, where.redirectUri);
-    ticket.scratch.oidc = { provider: provider.id, state: start.state, nonce: start.nonce, verifier: start.verifier };
+    // The address the service was told to come back to is kept, so the exchange names the same one.
+    ticket.scratch.oidc = { provider: provider.id, state: start.state, nonce: start.nonce, verifier: start.verifier,
+      redirectUri: where.redirectUri };
     return { url: start.url, state: start.state };
   },
   async finish(ticket, input, where, host) {
@@ -100,15 +111,24 @@ const oidcMethod: SignInMethod = {
     delete ticket.scratch.oidc;
     const settings = host.settings();
     const provider = settings.providers.find((each) => each.id === scratch?.provider);
-    if (!scratch || !provider || typeof input.code !== "string" || !ticket.profileId) throw new Error(wrongAnswer);
+    // Integration review: the answer is finished by the page that started the sign-in (it holds the
+    // ticket) and must carry the state that sign-in was given, so a service's answer landing in
+    // somebody else's browser cannot finish a sign-in an attacker is holding.
+    if (!scratch || !provider || typeof input.code !== "string" || typeof input.state !== "string"
+      || !sameText(input.state, scratch.state!) || !ticket.profileId) throw new Error(wrongAnswer);
     const doc = await discover(host.fetch, provider);
     const clientSecret = provider.clientSecretName ? await host.secret(provider.clientSecretName) : undefined;
     const identity = await finishSignIn(host.fetch, provider, doc, {
-      code: input.code.slice(0, 2048), redirectUri: where.redirectUri, verifier: scratch.verifier!, nonce: scratch.nonce!,
+      code: input.code.slice(0, 2048), redirectUri: scratch.redirectUri ?? where.redirectUri, verifier: scratch.verifier!, nonce: scratch.nonce!,
       ...(clientSecret ? { clientSecret } : {}),
     });
-    if (!linkedTo(settings.links, provider.id, ticket.profileId, identity))
-      throw new Error("That account is not linked to this person here. The owner can link it in Settings.");
+    if (linkedTo(settings.links, provider.id, ticket.profileId, identity)) return;
+    // A verified email the owner named is only a suggestion: the owner confirms that account once.
+    if (emailSuggests(settings.links, provider.id, ticket.profileId, identity)) {
+      host.suggest?.({ provider: provider.id, profileId: ticket.profileId, subject: identity.subject, email: identity.email! });
+      throw new Error(awaitingOwner);
+    }
+    throw new Error("That account is not linked to this person here. The owner can link it in Settings.");
   },
 };
 
@@ -131,12 +151,6 @@ export class SignIns {
       failures: 0, expiresAt: this.now() + ticketMs, device: device.slice(0, 120), scratch: {} };
     this.tickets.set(ticket.id, ticket);
     return { ticket: ticket.id, steps: required };
-  }
-
-  /** The ticket an OpenID Connect answer belongs to, found by the state it carried. */
-  byState(state: string): string | null {
-    for (const ticket of this.tickets.values()) if (ticket.scratch.oidc?.state === state) return ticket.id;
-    return null;
   }
 
   async step(ticketId: string, method: SignInMethodId, stage: "begin" | "finish", input: Record<string, unknown>, where: Where):

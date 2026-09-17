@@ -910,7 +910,7 @@ export async function createBranch(options: {
     tokens: sessionTokens, files, policy: web.policy, version });
   // ── mac3/security-check: the self-check and the malware check (src/security-audit). Both ship off. ──
   const security = new SecurityService(
-    { store, runtime, registry, sessionLock, privacy, web, sessionTokens, plugins, pluginCatalog },
+    { store, runtime, registry, sessionLock, privacy, web, sessionTokens, plugins, pluginCatalog, people },
     { dataDir, ...(options.home ? { home: resolve(options.home) } : {}), integrationsPath: () => (process.env.BRANCH_INTEGRATIONS ? resolve(process.env.BRANCH_INTEGRATIONS) : null),
       ...(process.env.BRANCH_OSV_ENDPOINT ? { osvEndpoint: process.env.BRANCH_OSV_ENDPOINT } : {}) });
   security.start();
