@@ -55,12 +55,12 @@ function requireOwnerHere(store: Store, what: string): void {
 const cardWords: Record<string, string> = { browser: "How carefully the browser acts", network: "The proxy and trusted certificates" };
 const updateWords = "Whether Branch updates itself";
 
-/** Integration review: a change to automatic updates, by a value or by putting the card back, is the owner's. */
+/** Integration review: naming automatic updates at all, or putting a changed card back, is the owner's. */
 function changesUpdates(store: Store, owner: string, input: z.infer<typeof SaveSchema>): boolean {
   if (input.card !== "notify") return false;
   const now = readComfort(store, owner, "notify").autoUpdate;
   if (input.reset) return now !== "off";
-  return !!input.values && "autoUpdate" in input.values && input.values.autoUpdate !== now;
+  return !!input.values && "autoUpdate" in input.values;
 }
 
 function view(app: ComfortApp) {

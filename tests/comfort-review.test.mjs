@@ -75,7 +75,8 @@ test("review: automatic installing is the owner's alone, in the window and in th
   const raised = await call("/api/comfort", { card: "notify", values: { autoUpdate: "install" } });
   assert.equal(raised.status, 403, JSON.stringify(raised.body));
   assert.equal((await call("/api/comfort", { card: "notify", reset: true })).status, 403, "nor put back by someone else");
-  assert.equal((await call("/api/comfort", { card: "notify", values: { sound: "chime", autoUpdate: "check" } })).status, 200, "the sound is anyone's");
+  assert.equal((await call("/api/comfort", { card: "notify", values: { sound: "chime" } })).status, 200, "the sound is anyone's");
+  assert.equal((await call("/api/comfort", { card: "notify", values: { autoUpdate: "check" } })).status, 403, "even the same value is the owner's to send");
   assert.equal((await call("/api/comfort/update-plan", {})).status, 403, "a household profile cannot ask for an install");
   assert.throws(() => switchComfort(branch.store, branch.runtime.owner, "autoUpdate", "install", english));
   assert.equal(branch.store.get("settings", branch.runtime.owner, "comfort-notify").data.autoUpdate, "check", "nothing was changed");
