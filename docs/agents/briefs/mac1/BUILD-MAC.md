@@ -39,7 +39,10 @@ your brief owns and their tests (`grep -l <module> tests/*.mjs`).
   (`sandboxShape`), no secret in a log, network policy on every outbound call, no shell string
   built from user text (use argument arrays).
 - Plain language in anything the owner reads ("starts by itself when you sign in", not "launchd agent").
-- Tests tear down through `tests/temp-dir.mjs` (`discardTemp`), never a bare `rm`.
+- Tests tear down through `tests/temp-dir.mjs` (`discardTemp`), never a bare `rm`. **Close the app before deleting its
+  folder, in one `after` hook** (`t.after(async () => { await app.close(); await discardTemp(root); })`): Node runs
+  `after` hooks in registration order, and Windows refuses to delete a database that is still open, so the wrong order
+  passes on macOS and fails on Windows every time.
 - Never run `tests/desktop*.test.mjs` or `tests/screen-control.test.mjs`, never start Electron with a
   window, never set `BRANCH_SCREEN_TESTS`.
 - Stay inside the files your brief owns. If the real fix is in a file another brief owns, write it
