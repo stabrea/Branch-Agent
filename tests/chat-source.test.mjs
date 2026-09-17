@@ -223,3 +223,25 @@ test("a chat's \"/learn\" is ordinary words, not the owner's request for a skill
   const own = await app.runtime.run({ prompt: "/learn how to water the plants", sessionId: first.sessionId });
   assert.equal(await learned(own.id), true, "the owner's own /learn still works");
 });
+
+test("reach: a chat's task cannot look at the owner's other computers, screen, videos or notes", async (t) => {
+  const { app, say } = await fixture(t);
+  const { reachRefusal } = await import("../dist/reach/tools.js");
+  const run = await say("look at my other computer");
+  assert.match(reachRefusal(app.reachParts, chatContext(app, run)) ?? "", /chat app cannot reach/);
+  assert.match(reachRefusal(app.reachParts, { ...chatContext(app, run), source: undefined }) ?? "", /chat app cannot reach/);
+  const own = await app.runtime.run({ prompt: "my own" });
+  assert.equal(reachRefusal(app.reachParts, app.runtime.context({ runId: own.id })), null);
+});
+
+test("/platform from a chat is taken only from an account the owner named, never from any paired sender", async (t) => {
+  const { app, say, owner } = await fixture(t);
+  const { saveReachMode } = await import("../dist/reach/settings.js");
+  const { saveOwnerAccounts, platformSettings } = await import("../dist/reach/platform.js");
+  saveReachMode(app.store, owner, "platform-pause", { mode: "on" });
+  await say("/platform pause chat");
+  assert.deepEqual(platformSettings(app.store, owner).paused, [], "a paired sender is not the owner");
+  saveOwnerAccounts(app.store, owner, [{ channel: "chat", sender: "sam" }]);
+  await say("/platform pause chat");
+  assert.deepEqual(platformSettings(app.store, owner).paused, ["chat"], "the account the owner named may pause");
+});

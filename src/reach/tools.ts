@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { ToolContext, ToolDefinition } from "../contracts.js";
-import { runOrigin, startedWithShortLivedKey } from "../key-context.js";
+import { runOrigin, startedFromChat, startedWithShortLivedKey } from "../key-context.js";
 import { currentPerson } from "../people/context.js";
 import type { ToolRegistry } from "../registry.js";
 import { BackgroundSchema } from "./background-screen.js";
@@ -20,6 +20,7 @@ import { makeVideo, VideoRequestSchema } from "./video.js";
 type Registrar = (registry: Pick<ToolRegistry, "register">, reach: Reach) => void;
 
 export const reachKeyRefusal = "A short-lived key cannot reach the owner's other computers, screen, videos or notes. Do it in the app window.";
+export const reachChatRefusal = "A message from a chat app cannot reach the owner's other computers, screen, videos or notes. Do it in the app window.";
 export const reachAgentRefusal = "Work another assistant or program started cannot use this. The owner can, in the app window.";
 
 /**
@@ -34,6 +35,8 @@ export function reachRefusal(reach: Reach, context: ToolContext): string | null 
   const origin = context.runId && store.run(context.runId) ? runOrigin(store, context.runId) : null;
   if (startedWithShortLivedKey() || origin?.shortLivedKey) return reachKeyRefusal;
   if (currentPerson() || origin?.personProfileId || origin?.lentTo) return "This belongs to the owner. Switch back to the owner's profile to use it.";
+  // mac7/chat-source: a chat message's task is never the owner's own either.
+  if (startedFromChat(context, store)) return reachChatRefusal;
   if (["mcp", "a2a", "acp"].includes(context.source ?? origin?.source ?? "owner")) return reachAgentRefusal;
   return null;
 }

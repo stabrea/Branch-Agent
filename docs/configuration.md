@@ -678,8 +678,9 @@ A chat app cannot prove who is typing, even when the sender is you on your own p
 task a chat message starts is marked as coming from a chat (`source: "channel"` on the task and in the
 record), and so is everything it starts: a helper it hands work to, a side question (`/btw`, `/compact`,
 `/help <question>`), a prompt step of a workflow it runs, and the same task carried on after a restart
-(with the same tools it had). There is no setting that makes a chat account count as you. What that
-means:
+(with the same tools it had). No setting makes a chat account count as you. The one list of your own
+chat accounts (under reach, for `/platform pause|resume|status`) is used only for that command and
+lends those accounts nothing else. What that means:
 
 - **Your approval rules are held to "Ask before changes"**, as they are for a schedule or another AI
   tool: your standing yeses do not reach a chat's task, so a change it wants waits for a yes. The chat
@@ -690,7 +691,8 @@ means:
   even if a rule would allow it), being the task a Trunk learns from, saving a workflow, trying out
   drafted flows, changing the morning brief or sending it to a chat, adding or removing other
   assistants, adding or removing a service's tools, installing skills from a folder, handing work to
-  your other computers, and "/learn" (from a chat it is ordinary words). Changing settings, approvals,
+  your other computers, looking at your other computers, screen, videos or notes (R17-I), and "/learn"
+  (from a chat it is ordinary words). Changing settings, approvals,
   installs, the `/lockdown` switch and the other owner-only commands was already refused from a chat.
 - **Unchanged:** which chats are answered (`allowlist`, pairing), what tools a chat's task may use, and
   everything you start in the window, the terminal or with your own key.
