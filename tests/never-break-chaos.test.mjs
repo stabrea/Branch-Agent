@@ -123,8 +123,12 @@ test(`the gateway killed at random points in a task comes back and finishes or a
 
     const second = spawn(process.execPath, [gatewayScript, root], { env: env(), stdio: ["ignore", "ignore", "inherit"] });
     t.after(() => { if (second.exitCode === null) second.kill("SIGKILL"); });
-    const resultFile = await until(async () => (await readdir(root)).find((name) => name.startsWith("result-")), "the work to settle", 120000);
-    const result = JSON.parse(await text(join(root, resultFile)));
+    // The file can be seen before it is written in full, so wait until it reads as a whole answer.
+    const result = await until(async () => {
+      const resultFile = (await readdir(root)).find((name) => name.startsWith("result-"));
+      if (!resultFile) return null;
+      try { return JSON.parse(await text(join(root, resultFile))); } catch { return null; }
+    }, "the work to settle", 120000);
     second.kill("SIGTERM");
     await exited(second);
     outcomes.push(`${seed}:${wait}ms:${await checkOutcome(root, result, `seed ${seed}, gateway killed after ${wait} ms`)}`);
