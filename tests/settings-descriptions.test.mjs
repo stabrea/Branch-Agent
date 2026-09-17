@@ -14,8 +14,10 @@ import { openSettings } from "./places.mjs";
  * far it reaches.
  *
  * This walks every Settings page (and every Models tab) the way a person does, and checks each
- * visible input, select and text box inside a card. It covers the Settings window only — the
- * audit row's home is "all Settings" — not the five places.
+ * visible input, select and text box inside a card, as a fresh install shows them. It covers the
+ * Settings window only — the audit row's home is "all Settings" — not the five places, and it does not
+ * reach controls that only appear once something is switched on or unfolded (those still get their
+ * descriptions from the same table, but nothing here proves it).
  *
  * A control passes when `aria-describedby` points at words on the page. That happens when:
  *   - the card writes its own note and links it (`<p class="field-note" id="x-note">`, and

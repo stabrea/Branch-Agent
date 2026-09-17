@@ -90,6 +90,8 @@ export async function settingsKitApi(deps: SettingsKitDeps, method: string, path
   if (method === "GET" && path === "/api/settings-kit/files") return { files: fileMap(deps.store, deps.owner, deps.workspace) };
   const slot = /^\/api\/settings-kit\/files\/([a-z][a-z0-9_-]{0,20})$/.exec(path);
   if (method === "GET" && slot) {
+    // The text of these files says who the owner is, so only the owner reads it here.
+    deps.store.profiles.requireOwner("Reading the files your assistant reads");
     const key = SlotSchema.safeParse(slot[1]);
     if (!key.success) throw new SettingsKitError(404, "There is no such file.");
     return openFile(deps.store, deps.owner, deps.workspace, key.data);
