@@ -1,6 +1,8 @@
 import { describeToolCall } from "../activity.js";
 import type { FeatureMode } from "../feature-switches.js";
 import type { Runtime } from "../runtime.js";
+import { runOrigin } from "../key-context.js"; // bucket 19 (integration review)
+import { asPerson, currentPerson } from "../people/context.js"; // bucket 19 (integration review)
 import { scopeOf } from "../tool-gate.js";
 import type { Store } from "../store.js";
 import { checkEvidence, evidenceFor, type OpenStep, type TaskJournal } from "./journal.js";
@@ -78,6 +80,13 @@ const unknownOutcome = { ok: false, status: "interrupted", outcome: "unknown",
   error: "Branch was restarted while this step ran and it may already have taken effect. The owner has been asked; check the actual state before doing it again." };
 
 async function redo(input: RecoveryInput, runId: string, step: OpenStep): Promise<boolean> {
+  // bucket 19 (integration review): a household person's step is done again as that person, held to their role.
+  const person = runOrigin(input.store, runId).personProfileId;
+  if (person && !currentPerson()) return asPerson({ profileId: person, keyId: "resumed" }, () => redoStep(input, runId, step));
+  return redoStep(input, runId, step);
+}
+
+async function redoStep(input: RecoveryInput, runId: string, step: OpenStep): Promise<boolean> {
   // Arguments with something secret hidden in them are not the ones the model asked for.
   if (step.redacted) return false;
   let args: unknown;

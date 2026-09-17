@@ -58,8 +58,37 @@ export function grantRefusal(
   return null;
 }
 
+/** bucket 19: something that may only narrow a grant further — the groups a person is in. */
+export type GrantNarrower = (profileId: string, grant: RoleGrant) => RoleGrant;
+
+/**
+ * bucket 19: whatever a narrower answers, the result keeps the role and can only lose kinds,
+ * projects and allowance, so a mistake in one can never hand anybody more than they had.
+ */
+export function onlyTighter(before: RoleGrant, after: RoleGrant): RoleGrant {
+  const kinds = grantedCategories(before);
+  const categories = grantedCategories({ ...after, role: before.role }).filter((kind) => kinds.includes(kind));
+  const projects = before.projects.length
+    ? (after.projects.length ? after.projects.filter((p) => before.projects.includes(p)) : before.projects)
+    : after.projects;
+  // A narrowing that leaves no project at all must not read as "every project".
+  const noProject = before.projects.length > 0 && after.projects.length > 0 && projects.length === 0;
+  const limits = [before.dailySpendLimit, after.dailySpendLimit].filter((limit) => limit > 0);
+  return {
+    role: before.role, categories: noProject ? [] : categories,
+    projects: noProject ? before.projects : projects,
+    dailySpendLimit: limits.length ? Math.min(...limits) : 0,
+  };
+}
+
 export class ProfileRoles {
+  /** bucket 19: applied in order by effective(); each may only take away (see src/people/groups.ts). */
+  readonly narrowers: GrantNarrower[] = [];
   constructor(private readonly store: Store, private readonly owner: string) {}
+  /** bucket 19: the grant a task is really held to: the profile's own, narrowed by every narrower. */
+  effective(profileId: string): RoleGrant {
+    return this.narrowers.reduce((grant, narrow) => onlyTighter(grant, narrow(profileId, grant)), this.get(profileId));
+  }
   private key(profileId: string): string { return `profile-role:${profileId}`; }
   /** One profile's grant; an adult with no limits until the owner says otherwise. */
   get(profileId: string): RoleGrant {

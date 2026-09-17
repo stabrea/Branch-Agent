@@ -22,7 +22,7 @@ import { readTrajectory, runtimeJudge, scoreTrajectory } from "./evaluation-run.
 import type { ScoredTrajectory } from "./evaluation-scorers.js";
 import { findBenchmarkAdapter } from "./benchmark-adapters.js";
 import type { BenchmarkAdapter, BenchmarkTask } from "./benchmarks.js";
-import { journalEntry, journalReport, journalReplayPlan, type JournalEntry } from "./study-journal.js";
+import { datasetVersionOf, journalEntry, journalReport, journalReplayPlan, type JournalEntry } from "./study-journal.js";
 
 export const StudySchema = z.object({
   id: z.string().regex(/^[a-z0-9][a-z0-9-]{0,39}$/),
@@ -383,6 +383,7 @@ export class StudyRunner {
     const entry = journalEntry(result, {
       study, tasks: tasks.map((task) => task.id), scorerKinds: [...kinds].sort(),
       benchmarksFolder: this.settings().benchmarksFolder, version: this.appVersion,
+      datasetVersion: datasetVersionOf(tasks.map(({ id, prompt, expected, scorers }) => ({ id, prompt, expected, scorers }))), // w911 (A1082)
     });
     this.store.save("governance", this.owner, `study-journal:${result.id}`, { ...entry });
   }

@@ -1,4 +1,4 @@
-import { approvalChecks, remoteChecks, secretChecks } from "./checks-access.js";
+import { approvalChecks, peopleChecks, remoteChecks, secretChecks } from "./checks-access.js";
 import { fileChecks } from "./checks-files.js";
 import { channelChecks, modelChecks } from "./checks-people.js";
 import { addonChecks, commandChecks, webChecks } from "./checks-tools.js";
@@ -12,7 +12,7 @@ import type { AuditReport, Finding, FixPlan, FixResult, SecurityCheck, SecurityS
  */
 
 export const securityChecks: readonly SecurityCheck[] = [
-  ...fileChecks, ...secretChecks, ...remoteChecks, ...approvalChecks,
+  ...fileChecks, ...secretChecks, ...remoteChecks, ...peopleChecks, ...approvalChecks,
   ...commandChecks, ...webChecks, ...addonChecks, ...modelChecks, ...channelChecks,
 ];
 
