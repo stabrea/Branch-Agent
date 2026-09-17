@@ -84,6 +84,8 @@ import { readServingSettings, saveServingSettings } from "./mcp-server.js";
 import { meaningSearchExplanation, meaningSearchOn, meaningSearchSetting } from "./tool-loading.js";
 import { handleA2a, remoteAgentsApi } from "./a2a-routes.js";
 import type { createBranch } from "./index.js";
+import { goalApi } from "./goal-mode.js";
+import { rewindApi } from "./rewind.js";
 import { PreferencesSchema, preferences } from "./preferences.js";
 import { PolicyRememberSchema, policyPresets, readPolicy, savePolicy } from "./policy.js";
 import { maximumArchiveBytes } from "./session-library.js";
@@ -331,6 +333,9 @@ async function staticFile(
     "/sandbox-remote.js": ["sandbox-remote.js", "text/javascript; charset=utf-8"],
     // Wave mac2 (guards): the card that asks whether a folder is trusted.
     "/folder-trust.js": ["folder-trust.js", "text/javascript; charset=utf-8"],
+    // Wave mac2 (goal-undo): the goal strip, and editing an earlier message to go back to it.
+    "/goal.js": ["goal.js", "text/javascript; charset=utf-8"],
+    "/rewind.js": ["rewind.js", "text/javascript; charset=utf-8"],
     "/providers.js": ["providers.js", "text/javascript; charset=utf-8"],
     "/style.css": ["style.css", "text/css; charset=utf-8"],
     // App shell (wave 2): tokens, layout, appearance.
@@ -690,6 +695,9 @@ async function api(
   // everything else, so a paired phone can pick up what was started at the computer.
   if (request.method === "GET" && path === "/api/sessions")
     return app.store.recentSessions(app.store.profiles.scope(), Number(new URL(request.url ?? "/", "http://x").searchParams.get("limit") ?? 20) || 20);
+  // Wave mac2 (goal-undo): working toward a goal in rounds, and going back to an earlier message.
+  if (path === "/api/goals" || path === "/api/goal-undo/settings" || /^\/api\/sessions\/[a-f0-9-]{36}\/(goal|rewind|unrevert)$/.test(path))
+    return goalUndoApi(app, request, path);
   if (path.startsWith("/api/sessions/")) return sessionApi(app, request, path);
   if (path.startsWith("/api/memory/")) return memoryApi(app, request, path);
   if (path.startsWith("/api/history/")) return historyApi(app, request, path);
@@ -1168,6 +1176,15 @@ async function sessionApi(app: Branch, request: IncomingMessage, path: string): 
     return app.store.duplicateSession(owner, match[1]!);
   }
   throw new HttpError(404, "Endpoint not found");
+}
+/** Wave mac2 (goal-undo): both answer only for conversations of the profile that is switched on. */
+async function goalUndoApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
+  const owner = app.store.profiles.scope(), method = request.method ?? "GET", body = () => readBody(request);
+  const answer = path.endsWith("/goal") || path === "/api/goals" || path === "/api/goal-undo/settings"
+    ? await goalApi(app.goals, (id) => app.store.ownsSession(owner, id), method, path, body)
+    : await rewindApi(app.rewinds, owner, method, path, body);
+  if (answer === undefined) throw new HttpError(404, "Endpoint not found");
+  return answer;
 }
 async function historyApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
   const history = app.store.workspaceHistory;

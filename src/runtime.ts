@@ -253,6 +253,11 @@ export class Runtime {
    * shown to the model. `createBranch` connects the shared scrubber; on its own it changes nothing.
    */
   hideSecrets: <T>(value: T) => T = (value) => value;
+  /**
+   * Wave mac2 (goal-undo): called as each of the owner's own tasks starts, after its message is
+   * written, so the workspace can be recorded for going back to that message (src/rewind.ts).
+   */
+  turnStarted: ((run: Run) => Promise<void>) | undefined;
   // --- mac2/leak-guard: key-shaped values never leave by accident (src/leak-guard.ts) ---
   // Hides them in every tool result and every model request, and puts an address that carries a
   // key or password to the owner first. Used at three marked places below: checkPolicy, complete
@@ -633,6 +638,8 @@ ${run.output.slice(0, 6000)}`;
     if (options.resumeFrom) instructions += this.resumeNote(run, options.resumeFrom);
     else this.store.message(run.sessionId, { role: "user", content: options.prompt + picturesNote(options.images) });
     if (!parent) this.store.noteWorking(this.owner, run.sessionId, { goal: options.prompt });
+    // Wave mac2 (goal-undo): record the workspace before the task touches it; never fails the task.
+    if (!parent && !options.resumeFrom && this.turnStarted) await this.turnStarted(run).catch(() => undefined);
     this.store.event(run.id, "run.started", {
       provider: this.provider.name,
       parentRunId: parent?.runId ?? null,
