@@ -99,6 +99,7 @@ import { LeakGuard } from "./leak-guard.js";
 import { watchTask } from "./fly-core/hook.js";
 // mac3/reflection-skills: looking back over conversations and writing new skills (src/reflection/).
 import { learnAfterTask } from "./reflection/hook.js";
+import { advisedPreload } from "./fly-core/apply.js";
 
 const childConcurrency = 4;
 /** What the approval policy says about one tool call, before anything is done about it. */
@@ -257,6 +258,11 @@ export class Runtime {
    * shown to the model. `createBranch` connects the shared scrubber; on its own it changes nothing.
    */
   hideSecrets: <T>(value: T) => T = (value) => value;
+  /**
+   * Wave mac2 (goal-undo): called as each of the owner's own tasks starts, after its message is
+   * written, so the workspace can be recorded for going back to that message (src/rewind.ts).
+   */
+  turnStarted: ((run: Run) => Promise<void>) | undefined;
   // --- mac2/leak-guard: key-shaped values never leave by accident (src/leak-guard.ts) ---
   // Hides them in every tool result and every model request, and puts an address that carries a
   // key or password to the owner first. Used at three marked places below: checkPolicy, complete
@@ -637,6 +643,8 @@ ${run.output.slice(0, 6000)}`;
     if (options.resumeFrom) instructions += this.resumeNote(run, options.resumeFrom);
     else this.store.message(run.sessionId, { role: "user", content: options.prompt + picturesNote(options.images) });
     if (!parent) this.store.noteWorking(this.owner, run.sessionId, { goal: options.prompt });
+    // Wave mac2 (goal-undo): record the workspace before the task touches it; never fails the task.
+    if (!parent && !options.resumeFrom && this.turnStarted) await this.turnStarted(run).catch(() => undefined);
     this.store.event(run.id, "run.started", {
       provider: this.provider.name,
       parentRunId: parent?.runId ?? null,
@@ -1240,7 +1248,9 @@ ${run.output.slice(0, 6000)}`;
     const switched = switchedToolTiers(this.store, context.owner, tools.map((tool) => tool.name));
     const catalog = new ToolLoader(tools, {
       expanded: [...alwaysOpenGroups, ...guessed, ...opened], signals,
-      preload: [...learned.preload(context.owner, run.prompt), ...switched.preload],
+      // mac2/fly-core-2: with the learning core "on", its top tools join this pre-load (src/fly-core/apply.ts).
+      // A feature the owner switched on is added after it, so the core's guesses never remove it.
+      preload: [...advisedPreload(run.id, learned.preload(context.owner, run.prompt), tools, switched.hidden), ...switched.preload],
       demoted: [...learned.stale(context.owner), ...switched.hidden],
       budgetTokens: this.reliability.toolBudgetTokens,
       groupOf: (name) => this.registry.groupOf(name),

@@ -295,6 +295,13 @@ export class LiveConversation {
     this.deps.store.message(this.sessionId, { role: "user", content: text });
     this.session.sendText(text);
   }
+  /** Bucket 17: a picture shown while talking. Only its name is written into the conversation. */
+  show(picture: { mediaType: string; data: string; name?: string | undefined }): void {
+    if (!this.session) throw new Error("There is no live conversation open");
+    if (!this.session.sendImage) throw new Error("This live service cannot be shown a picture");
+    this.deps.store.message(this.sessionId, { role: "user", content: `[picture shown: ${picture.name ?? "picture"}]` });
+    this.session.sendImage({ mediaType: picture.mediaType, data: picture.data });
+  }
   audio(chunk: Uint8Array): void { this.session?.sendAudio(chunk); }
   done(): void { this.session?.commit(); }
   interrupt(): void {

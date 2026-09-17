@@ -1,5 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
+import { ensureFlyTables, flyTables } from "./fly-core/state.js";
+import { dropIndex } from "./fly-core/fast-index.js";
 
 /**
  * Whole-application backup: every table that holds the person's state, as plain rows, so it can be
@@ -7,7 +9,7 @@ import { z } from "zod";
  * never leaves the device, so a copy would be unreadable elsewhere.
  */
 export const maximumBackupBytes = 64 * 1024 * 1024;
-export const backupTables = [
+const requiredTables = [
   "sessions", "tasks", "messages", "events", "usage", "compactions",
   "memory", "memory_limits", "memory_suppressions", "memory_archive", "memory_versions", "memory_proposals", "memory_checkpoints",
   "specialists", "procedures", "schedules", "settings", "deliveries",
@@ -23,13 +25,22 @@ export const backupTables = [
   // size of a backup for nothing.
   "kb_collections",
 ] as const;
+/**
+ * mac2/fly-core-2: what the learning core has learned, with the wiring seed its weights depend on.
+ * These tables only exist once the core has been switched on, so an archive may leave them out.
+ */
+export const backupTables = [...requiredTables, ...flyTables] as const;
 const RowSchema = z.record(z.string().regex(/^[a-z_]+$/), z.union([z.string(), z.number(), z.null()]));
+const TablesSchema = z.object({
+  ...Object.fromEntries(requiredTables.map((table) => [table, z.array(RowSchema)])) as Record<(typeof requiredTables)[number], z.ZodArray<typeof RowSchema>>,
+  ...Object.fromEntries(flyTables.map((table) => [table, z.array(RowSchema).optional()])) as Record<(typeof flyTables)[number], z.ZodOptional<z.ZodArray<typeof RowSchema>>>,
+}).strict();
 export const BackupArchiveSchema = z.object({
   format: z.literal("branch-agent-backup"),
   version: z.literal(1),
   exportedAt: z.iso.datetime(),
   appVersion: z.string().max(40),
-  tables: z.record(z.enum(backupTables), z.array(RowSchema)),
+  tables: TablesSchema,
 }).strict();
 export type BackupArchive = z.infer<typeof BackupArchiveSchema>;
 
@@ -77,6 +88,7 @@ export function importBackup(db: DatabaseSync, input: unknown, options: RestoreO
     if (options.replaceExisting)
       for (const table of [...backupTables].reverse())
         if (db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(table)) db.exec(`DELETE FROM ${table}`);
+    prepareFlyRestore(db, archive);
     for (const table of backupTables) {
       const list = archive.tables[table];
       if (!list?.length) continue;
@@ -89,7 +101,34 @@ export function importBackup(db: DatabaseSync, input: unknown, options: RestoreO
         rows++;
       }
     }
+    settleFlyRestore(db);
     db.exec("COMMIT");
   } catch (error) { db.exec("ROLLBACK"); throw error; }
+  dropIndex(db);
   return { tables, rows };
+}
+
+/**
+ * mac2/fly-core-2. The core's weights only mean something under the wiring seed they were learned
+ * with, so an owner's learning is restored whole or not at all: whatever this install already holds
+ * for an owner named in the archive's `fly_*` rows is cleared first. The tables are made if this
+ * install never switched the core on.
+ */
+function prepareFlyRestore(db: DatabaseSync, archive: BackupArchive): void {
+  const owners = new Set(flyTables.flatMap((table) => (archive.tables[table] ?? []).map((row) => String(row.owner ?? ""))));
+  if (!owners.size) return;
+  ensureFlyTables(db);
+  for (const owner of owners)
+    for (const table of flyTables) db.prepare(`DELETE FROM ${table} WHERE owner=?`).run(owner);
+}
+/**
+ * No trace may point at a task that is not there or that is someone else's (same owner and same
+ * conversation), and no weight may outlive its wiring seed.
+ */
+function settleFlyRestore(db: DatabaseSync): void {
+  if (!db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='fly_traces'").get()) return;
+  db.exec(`DELETE FROM fly_traces WHERE NOT EXISTS (SELECT 1 FROM tasks
+      WHERE tasks.id = fly_traces.run_id AND tasks.owner = fly_traces.owner AND tasks.session_id = fly_traces.session_id);
+    DELETE FROM fly_traces WHERE owner NOT IN (SELECT owner FROM fly_wiring);
+    DELETE FROM fly_synapses WHERE owner NOT IN (SELECT owner FROM fly_wiring);`);
 }

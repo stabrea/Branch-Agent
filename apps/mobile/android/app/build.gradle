@@ -1,0 +1,76 @@
+apply plugin: 'com.android.application'
+
+android {
+    namespace = "com.keepoak.branchagent"
+    compileSdk = rootProject.ext.compileSdkVersion
+    defaultConfig {
+        applicationId "com.keepoak.branchagent"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode 1600
+        versionName "0.16.0"
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        aaptOptions {
+             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
+             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
+            ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        }
+    }
+    // Release signing comes from the environment only (scripts/package-mobile.mjs reads the password
+    // from the macOS Keychain for the one build); nothing about the key is ever written in this project.
+    def releaseStore = System.getenv('BRANCH_ANDROID_KEYSTORE')
+    signingConfigs {
+        release {
+            if (releaseStore) {
+                storeFile file(releaseStore)
+                storePassword System.getenv('BRANCH_ANDROID_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('BRANCH_ANDROID_KEY_ALIAS') ?: 'branch-agent'
+                keyPassword System.getenv('BRANCH_ANDROID_KEYSTORE_PASSWORD')
+            }
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            if (releaseStore) signingConfig signingConfigs.release
+        }
+    }
+    // Push needs a Firebase project (google-services.json) and is built only with -PbranchPush.
+    // The ordinary build, and the F-Droid one, carry no Google services at all.
+    if (project.hasProperty('branchPush')) {
+        sourceSets.main.java.srcDirs += 'src/push/java'
+        sourceSets.debug.manifest.srcFile 'src/push/AndroidManifest.xml'
+        sourceSets.release.manifest.srcFile 'src/push/AndroidManifest.xml'
+    }
+    dependenciesInfo {
+        includeInApk = false
+        includeInBundle = false
+    }
+}
+
+repositories {
+    flatDir{
+        dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
+    }
+}
+
+dependencies {
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
+    implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    implementation "androidx.webkit:webkit:$androidxWebkitVersion"
+    if (project.hasProperty('branchPush')) implementation "com.google.firebase:firebase-messaging:25.0.1"
+    implementation project(':capacitor-android')
+    testImplementation "junit:junit:$junitVersion"
+    androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
+    androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+    implementation project(':capacitor-cordova-android-plugins')
+}
+
+apply from: 'capacitor.build.gradle'
+
+if (project.hasProperty('branchPush')) {
+    apply plugin: 'com.google.gms.google-services'
+}

@@ -16,7 +16,8 @@ export interface FileVersion { id: string; path: string; bytes: number; existed:
 export interface FileChange { path: string; versionId: string | null; existed: boolean; added: number; removed: number; diff: string }
 export interface Snapshot { id: string; label: string; files: number; bytes: number; createdAt: string }
 const skipDirs = new Set(["node_modules", ".git", "dist", "release", ".branch"]);
-const secretName = /(^\.env($|\.)|^\.ssh$|^\.aws$|credentials|secrets?|^id_rsa|^id_ed25519|\.(pem|key|p12|pfx)$)/i;
+/** A file or folder name that looks like it holds a password or key; such files are never copied. */
+export const secretName = /(^\.env($|\.)|^\.ssh$|^\.aws$|credentials|secrets?|^id_rsa|^id_ed25519|\.(pem|key|p12|pfx)$)/i;
 export const snapshotLimits = { files: 500, fileBytes: 256 * 1024, totalBytes: 16 * 1024 * 1024 };
 const diffLimit = 8000;
 

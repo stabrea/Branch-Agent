@@ -679,6 +679,14 @@ Routes: `GET /api/voice/plan` (which service would do the work, where the sound 
 
 **macOS and Linux.** "The voice that comes with your computer" keeps its saved name (`windows`) but means the system voice wherever Branch runs. On a Mac that is `say`, started with a list of arguments, the words read from a file (`-f`) and the sound written to a WAV file (`--file-format=WAVE --data-format=LEI16@22050 -o …`); the voice list comes from `say -v ?`. On Linux it is `espeak-ng` (`-w <file> -s <words a minute> -f <file>`, voices from `espeak-ng --voices`) when it is installed. `spd-say` can only speak through the loudspeaker and cannot make a sound file, so a computer that has only `spd-say` is told to install `espeak-ng`; with neither, reading aloud says "there is no system voice on this computer" and the voice list is empty. A voice name that starts with a dash is refused. These flags follow each program's own documentation; the tests use stand-ins, so no sound is ever played. Off Windows the Voice screen calls it "your computer's own voice" (Windows keeps "the voice that comes with Windows"), and the voice list shows the computer's own voices above the browser's. `GET /api/voice/voices` answers `{ windows, system, platform, label, microphoneHelp }`, where `system` is the same list as `windows` under a name that fits every computer; the list is only asked for when you open it, never when the page loads. `GET /api/voice/plan` carries `systemVoice: { platform, label, microphoneHelp }`, which starts no program. The computer's own voice has its own switch, `systemVoice` in the voice settings: `off` (the default, on every computer: reading aloud with it refuses in one sentence and its voice list stays empty without asking the computer), `when-needed`, or `on` (the `voice.say` tool also travels with every task). Its card, "Your computer's own voice", has the home `settings:voice`. `POST /api/voice/settings` now merges what it is sent onto what is saved, so a form that sends some fields leaves the rest alone.
 
+### Other speech services and spoken commands (bucket 17)
+
+Speech is pluggable. **Settings → Voice → Other speech services** picks a service for writing speech out and one for reading replies aloud, instead of the usual choices above: **Deepgram** (both), **ElevenLabs** (both), **Azure speech** (both; give the region, and writing out takes WAV only), or **a program on this computer** that reads aloud, such as Piper (name it by its full place and give its arguments one per line, with `{text}` for the file holding the words and `{out}` for the WAV file it must write; the words never travel as an argument). Each service's key stays in **Secrets** (the default project); the card only names the secret (`DEEPGRAM_API_KEY`, `ELEVENLABS_API_KEY`, `AZURE_SPEECH_KEY` by default), and it is taken out at the moment of the call. The switch ships **off**, and while it is off, or while no service is picked, the usual routes do the work exactly as before. "Keep audio on this computer" refuses every cloud service in plain words; only the program on this computer still works. No price is on file for these services, so none is shown. Other code can add its own engine or spoken command through `SpeechRegistry.register` / `addIntent` (`src/speech-engines.ts`).
+
+**Spoken commands.** While the switch is on, saying only "stop", "say that again", "slower" or "faster" (or "arrête", "répète", "plus lentement", "plus vite") into **Talk** is taken as a command rather than sent as a message: it stops reading aloud, reads the last answer again, or changes the speaking speed by a quarter. A longer sentence is always an ordinary message. There is still no wake word. API: `GET|POST /api/voice/engines`, `POST /api/voice/command`, and `POST /api/voice/transcribe` now answers with `command` (null when the phrase is not one, or while the switch is off).
+
+**macOS and Linux.** The cloud services are the same everywhere. For a voice that never leaves the computer beyond `say` and `espeak-ng`, install Piper yourself and name it here.
+
 ### Live conversation (wave 8)
 
 A **live conversation** is the other way of talking to Branch: instead of holding a button, recording, and waiting, you press **Talk live** once and then simply talk. Your voice goes up while you are still saying it, the answer comes back while it is still being said, and pressing the button again cuts it off mid-sentence the way you would interrupt a person. There is still no wake word: nothing listens until you press the button, and pressing it again ends the conversation.
@@ -1703,6 +1711,14 @@ Routes: `GET`/`POST /api/move-in/switch { mode: "off" | "when-needed" | "on" }` 
 
 Every `files.write` keeps the file's previous bytes and records a `file.changed` event with a line diff. Activity shows each change with **Show change** and **Undo this change** (`POST /api/history/restore { versionId }`); `GET /api/history/files?path=` lists kept versions; the model has `files.history` and `files.restore`. Whole-workspace snapshots: `POST /api/history/snapshots { label }`, `GET /api/history/snapshots`, `POST /api/history/snapshots/:id/restore` (Settings → Workspace snapshots, tool `workspace.snapshot`). Limits: 500 files, 256 KiB per file, 16 MB per snapshot; `node_modules`, `.git`, `dist`, `release` and secret-named files are skipped.
 
+**Switches for these two (wave mac2).** Settings → *Working until done, and going back* (next to *Workspace snapshots*) (`GET|POST /api/goal-undo/settings { goal, snapshots }`, each `"off"`, `"on"` or `"when-needed"`, both `"off"` on a fresh install; sending one leaves the other as it was). Goal mode: off refuses to start or resume a goal; on shows a **Goal** button and takes `/goal`; when needed takes `/goal` typed in the message box but shows no button. Snapshots: off records nothing (going back then covers only the changes Branch made with its own file tools, and says so); on records the workspace as each task starts; when needed records it just before a task's first tool call that can change something (a call that only reads records nothing), once per task. A snapshot already kept can still be used after the switch is turned off.
+
+**Going back to an earlier message (wave mac2).** Each of your messages has **Edit**. Change the words and choose what to take back to just before that message: **Conversation and files**, **Conversation only** or **Files only**; the new words are then sent as usual. **Undo that** (the button, or typing `undo that` on its own) puts the conversation and the files back the way they were before you went back; it works newest first, once per going-back, and also after the edited message has been answered (whatever was said since is set aside). To cover changes made by commands too, and folders that are not git repositories, the whole workspace is recorded for each of your tasks (when the snapshot switch above allows it), in a hidden store in the private data folder (`snapshots/`, one per workspace). It is a separate git directory used only with `--git-dir` and `--work-tree`, so your own repository is never read from or written to. It uses the git already on this computer; secret-looking names (`.env`, keys, `*credentials*`, `*secret*`), `node_modules`, `dist`, `release` and `.branch` are never copied — a secret-looking name stays out even if a `.gitignore` in the workspace lists it back in — and otherwise your `.gitignore` is respected. Your own global git settings (such as a global ignore file) are not used, and a `.gitattributes` in the workspace cannot change the bytes: every file comes back exactly as it was. A file over 50 MB is left out; a workspace with more than 100,000 files or more than 2 GB in all is not recorded at all. Going back gives every recorded file its recorded bytes and removes files that appeared since (never an ignored or excluded one). If git is not installed, or a snapshot fails (for example a workspace too large to record in time, after which snapshots stay off until Branch restarts), files come back from the per-file copies above and the answer says that changes made by commands were not covered. Nothing is taken back while a task in that conversation is still working. Routes: `GET|POST /api/sessions/:id/rewind { messageId, restore: "conversation"|"files"|"both" }`, `POST /api/sessions/:id/unrevert {}`.
+
+**Working until a goal is met (wave mac2).** `/goal <what should be true when it is done> [--max n]` in the message box (the **Goal** button beside the conversation's *Still to do* list only fills in `/goal ` for you) keeps the conversation working in rounds. After each round a judge decides: the declared completion checks, if the goal has any (`checks`, the same shape as a run's), and a model grader asked, with no tools, for a score from 0 to 1, what is still missing, and whether it is blocked. A reply along the way does not end it; the next round is asked to carry on with what is missing. It stops when the score reaches 0.8 with no check failing (done), when the model starts its reply with `BLOCKED:` or the grader says it cannot go on, when the score has not improved for two rounds (blocked, so a stuck task does not use up every round), when a round fails or waits for your answer, or after `n` rounds (6 unless you say, at most 20). Each round is an ordinary task with the usual approvals and time limit. A strip at the top of the conversation's *Still to do* list (the Plan tab in the redesigned window) shows the round, the score, what is missing and the time worked (pauses not counted), with **Pause** (the round that is working finishes first), **Resume** and **Stop** (the round is cancelled). A goal that was working when Branch closed shows as paused and can be resumed. Routes: `POST /api/goals { objective, maxRounds?, sessionId?, checks? }`, `GET /api/sessions/:id/goal`, `POST /api/sessions/:id/goal { action: "pause"|"resume"|"stop" }`.
+
+**macOS and Linux.** Both work the same on every computer: git is found on the search path (`which git`) and started with a list of arguments, never through a shell, with hooks switched off and no prompts. Line endings are stored exactly as they are (`core.autocrlf=false`), so a file comes back byte for byte on Windows, macOS and Linux alike; links inside the workspace are recorded as links. Tests run the real git only inside temporary folders.
+
 ## Looking through and changing code
 
 Seven tools work inside the workspace (or the active project's folder), behind the same permissions as the other file tools. They need no settings and add no routes.
@@ -1723,11 +1739,15 @@ Ignored files: put a `.branchignore` in the workspace (or the project folder) an
 
 ### The learning core
 
-Branch's learning core (`src/fly-core/`) is modelled on the fruit fly's mushroom body. It has a three-way switch, saved in `settings/fly-core` as `{ mode }`, and it ships **off**. Off means nothing runs and nothing is stored. With `mode: "when-needed"`, finished tasks are still learned from, and the model is offered one short tool, `learning.suggest`, which it asks only when the work calls for it. With `mode: "on"`, every task also has its suggestions worked out as it starts and written on the task as a `fly.suggested` event (`tools`, `skills`, `memories`, `avoid`). Temporary conversations are never learned from. From code, `app.learningCore.settings()` and `app.learningCore.configure({ mode })` read and change the switch; changing it adds or removes the tool at once. There is no screen or web route for it yet.
+Branch's learning core (`src/fly-core/`) is modelled on the fruit fly's mushroom body. It has a three-way switch, saved in `settings/fly-core` as `{ mode }`, and it ships **off**. Off means nothing runs and nothing is stored, not even an empty table. With `mode: "when-needed"`, finished tasks are still learned from, and the model is offered one short tool, `learning.suggest`, which it asks only when the work calls for it; the tool answers from the switch of the person whose task is asking, so someone who has it off is never read or written for. With `mode: "on"`, every task also has its suggestions worked out as it starts, written on the task as a `fly.suggested` event (`tools`, `skills`, `memories`, `avoid`), and **applied** through what Branch already has: the top tools join the tool loader's pre-load (still inside its hard budget), the top skills are listed first, and the top memories go first in a new conversation's memory snapshot. A tool the core says to avoid is only left out of the pre-load, never hidden, and a tool you switched off (such as the screen and keyboard) is never pre-loaded on its advice. Each piece that was applied is written as a `fly.applied` event and shown on the task's "Look inside" screen as one line ("Chose these tools first because they worked before in similar tasks: …"). Temporary conversations are never learned from.
 
-When a task ends, the core learns from how it went: finished or failed, checks passed or failed, what it cost, and whether your next message in the same conversation corrected it. That is written as `fly.learned`, with the reasons in plain words. When the same steps keep working for the same kind of request, the idea of making them a skill appears in the suggestions queue above. Accepting it only notes it for now. The core gives advice only: it changes nothing else, needs no model call, and keeps no words from your requests, only the names of the tools, skills and memories involved. It lives in the `fly_*` tables of the same database. How well it learns, and how that will be measured on real work, is in `experiments/fly-core/PLAN.md`.
+**Where you set it.** Library → Memory has a card, "What Branch learns from experience", with the switch (it saves as it moves), what Branch has learned in plain words (each tool, skill or note with how many tasks that rests on and whether they mostly went well), and **Forget what it learned**, which asks first and clears every `fly_*` row for you, the wiring seed included. The routes are `GET /api/learning-core`, `POST /api/learning-core/settings { mode }` and `POST /api/learning-core/forget { confirm: "forget" }`. A short-lived key can read the first but not use the other two. From code: `app.learningCore.settings()`, `configure({ mode })`, `view()` and `forget()`.
 
-**macOS and Linux.** The learning core is plain TypeScript over the built-in SQLite and works the same on Windows, macOS and Linux.
+When a task ends, the core learns from how it went: finished or failed, checks passed or failed, what it cost, and whether your next message in the same conversation corrected it (the same openings `src/memory-learning.ts` recognises). That is written as `fly.learned`, with the reasons in plain words. When the same steps keep working for the same kind of request, the idea of making them a skill appears in the suggestions queue above, marked `learned.signal: "learning-core"` with the steps as its evidence. Accepting it opens the skill editor (Customize → Skills) on a draft written from those steps; nothing is installed until you install it. The core needs no model call and keeps no words from your requests, only the names of the tools, skills and memories involved. It lives in the `fly_*` tables of the same database and is part of the backup: restoring replaces a person's learning whole, and never leaves a trace pointing at a task that is not in the backup.
+
+**Limits.** At most 5,000 actions per person, and at most 120 learned synapses on each side of an action (the faintest go first), which keeps the tables under about 10 MB at the cap (measured: 9.97 MB). What a task start needs is kept ready in memory (built once after launch; worked out at about 12 MB at the cap, up to twice that while its lists grow, not measured), so working out the advice takes well under a millisecond of processor time even at the cap. How well it learns, and how that is measured on real work (`experiments/fly-core/real-eval.mjs`), is in `experiments/fly-core/PLAN.md`.
+
+**macOS and Linux.** The learning core is plain TypeScript over the built-in SQLite and works the same on Windows, macOS and Linux; it starts no program and asks the computer for nothing. Its timings are measured as the task's own processor time, because the build machines are shared.
 
 ### Looking back and writing new skills
 
@@ -2146,9 +2166,24 @@ The assistant has these tools, each of which asks first whether the connected pr
 - `media.trim` — cut a stretch of sound, between two times in seconds, out of a **WAV** file. This is done here in plain JavaScript; MP3, M4A, OGG and other squeezed formats need a converter, which is not part of this app, and are turned down in plain words.
 - `media.info` — how long an MP4 video or a WAV sound file runs, what kind it is and how many tracks it carries, read from the file's own headers.
 
-**What is deliberately not here.** The assistant does not make videos, and it cannot pull still frames out of one: that needs a video decoder this app does not ship, and no tool pretends otherwise. `media.info` exists so it can still reason about a video's length and shape. Sound editing is limited to trimming uncompressed WAV.
+**What is deliberately not here.** The assistant does not make videos, and on its own it cannot pull still frames out of one: that needs a video decoder this app does not ship. With your own ffmpeg and the switch below turned on, it can (see *Watching and saving videos*). `media.info` exists so it can still reason about a video's length and shape. Sound editing is limited to trimming uncompressed WAV.
 
 Reading a file is `media.read` and counts as looking, not changing; making a picture, speaking and trimming are `media.write` and are held to your approval rules like any other change. Each of those tools tells the approval rules the workspace path it would write (`media/poster.png`), so a rule about that folder fires on the path the file really gets rather than the bare name that was asked for. Every result is signed by the ordinary tool receipt, so what was made and where it was saved can be checked afterwards. A practice run reports what it would have made without calling the provider.
+
+### Watching and saving videos (bucket 17)
+
+**Settings → Models → Pictures and sound → Watching and saving videos** lets the assistant understand a video rather than only read its headers, using two programs you may already have: **ffmpeg** and **yt-dlp**. Branch never downloads or installs either; leave a place empty and it looks on this computer's search path, or give the full place (for example `/opt/homebrew/bin/ffmpeg`). The card says where each one was found, or why not. The switch has three positions and ships **off**: off (every tool below refuses in one sentence and is not offered to the model), when needed (offered when the work calls for it), or on (offered from the first step). API: `GET|POST /api/media/programs` (a short-lived key cannot change it).
+
+- **Attach a video in the message box.** The picture button now takes video files (up to 32 MB). ffmpeg takes up to four still pictures spread evenly across it (at most 768 pixels wide) and the sound as a small WAV file; the pictures ride with your next message like any attached picture, and what is said is written out through your **Settings → Voice** choices and put in the message box. "Keep audio on this computer" still holds. API: `POST /api/media/understand` with the video as the body.
+- `media.watch` — the same for a video or sound file in your workspace: the pictures and the words go to the connected model, which says what happens and answers your question. What is said or written in a video is treated as untrusted data.
+- `media.frames` — keep up to four still pictures from a video with the task.
+- `media.convert` — turn any video or sound file into WAV or MP3 in the media folder (so `media.trim` can then cut it).
+- `media.download` — save a video, or only its sound, from a web page into the media folder, up to the size limit on the card (200 MB by default).
+- `media.captions` — read what is said in an online video (YouTube and most video sites) from its captions, in the language you name, without saving the video.
+
+Every program is started with a list of arguments, never a shell line. ffmpeg is only allowed its readers for ordinary video and sound files (`-format_whitelist`) and plain files (`-protocol_whitelist file`), and the private copy it reads keeps only a known video or sound ending: a playlist (`.m3u8`) dressed as a video would otherwise make it open other files named inside it. yt-dlp always gets `--ignore-config` (no settings file can add a command to run afterwards), `--no-plugin-dirs` (no plug-in from your home or Python folders is loaded; this needs yt-dlp from February 2025 or later), `--no-remote-components` (no code is fetched from the web), `--no-cache-dir`, `--use-extractors default,-generic` (only yt-dlp's own site readers; a bare link to a video file on an unknown site is turned down with "No suitable extractor") and `--` before the address (an address can never be read as an option). It never gets `--netrc`, cookies or `--exec`. Only `http` and `https` addresses without a name or password are accepted, and the address is checked against the network policy before yt-dlp starts. **What the network policy does not cover:** yt-dlp then makes its own connections — redirects, the site's video servers — and the policy cannot follow those hop by hop, so an allowed or blocked list only governs the address you give. Downloads land in a private temporary folder first; `--max-filesize` only works when the site says the size in advance, so the file is measured again before it is kept, and every program is stopped after five minutes. Tests use a stand-in for both programs; the ffmpeg lists were also run once by hand with ffmpeg 8.1 on the owner's Mac against a generated four-second clip (four pictures, the sound, WAV and MP3 all came out), and every yt-dlp option was checked against yt-dlp 2026.07.04's own help. Nothing was downloaded.
+
+**macOS and Linux.** `brew install ffmpeg yt-dlp` on a Mac, or the distribution's own packages on Linux; Windows looks for `ffmpeg.exe` and `yt-dlp.exe`.
 
 **Documents → Made by the assistant** lists the pictures the assistant has made or captured, newest first, with how big each is and where it is on this computer. API: `GET /api/artifacts?type=image` for the list and `GET /api/artifacts/file?path=…` for one file's bytes; both refuse anything outside the assistant's own artifacts folder.
 
@@ -2623,6 +2658,111 @@ Routes: `GET /api/deployment`, `POST /api/deployment/autostart`, `POST /api/depl
 `POST /api/deployment/backup`, `GET /api/deployment/restore-points`,
 `POST /api/deployment/restore-point`, `POST /api/deployment/close` (macOS and Linux), and `POST /api/pair`. Interface files: `/deployment.js`,
 `/pair` and `/pair.js`.
+## Phone apps
+
+Branch Agent for iPhone and Android is a small native shell around the Branch window you already
+have. It lives in `apps/mobile` (its own `package.json`: Capacitor 8.5.2, MIT, and jsQR 1.4.0,
+Apache-2.0; nothing is added to the main package). Capacitor was chosen because it is the smallest
+way to get one codebase onto both phones while the screens stay Branch's own web pages, so the
+redesign, the 44 themes and every place look the same on the phone. The native parts use only what
+each phone ships (Keychain, `LocalAuthentication`, `BackgroundTasks`; Android Keystore,
+`BiometricPrompt`, `JobScheduler`), so there are no further plugins and no Google services.
+
+**What it does.** The first screen connects to your Branch: switch on reaching Branch from your
+phone on the computer (see above), then scan its square code with the phone's camera (or paste its
+address) and type the six numbers. The phone makes the pairing request itself and keeps the key in
+the iOS Keychain or behind an Android Keystore key; the app's own page never sees it. After that the
+home screen shows the five places in their usual order and *Open Branch*, which opens the full
+window from your computer inside the app. A small KeepOak button in the window's title bar comes
+back to the phone's own screen.
+
+To open the window, the app writes the key and the phone's own secret (for the "this exact phone"
+step) into your Branch address's session storage, exactly as the pairing page does in a phone
+browser, so any script on that address can read them while the window is open. The phone app's
+own plugin answers only its own page: on iPhone every call made while another page is showing is
+refused; on Android the window opens inside the app only when the system web view can keep the app's
+bridge to its own page (otherwise *Open Branch* goes to the phone's browser). A phone paired in its
+browser now keeps its secret too (`public/pair.js`) and sends it with every request
+(`public/device-headers.js`), so turning the "this exact phone" step on no longer locks it out; live
+sockets cannot carry that secret yet.
+
+Addresses are checked twice, in the page (`apps/mobile/web/rules.js`) and natively
+(`BranchRules.swift`, `BranchRules.java`): https is allowed anywhere; plain http only to this
+network (`10/8`, `172.16/12`, `192.168/16`, the phone itself), Tailscale (`100.64.0.0/10`,
+`fd7a:115c:a1e0::/48`, names ending `.ts.net`) and `.local` / `.home.arpa` names. The web view may
+open only the paired address; every other link goes to the phone's browser.
+
+**On this phone.** Five switches, each *off*, *when needed* or *on*, and all off on a new install:
+
+| Switch | When needed | On |
+| --- | --- | --- |
+| Lock with face or fingerprint | asks after five minutes away | asks every time the app opens |
+| Tell me when a task needs me | checks `GET /api/state` every minute while the app is open | also checks in the background about every 15 minutes |
+| Send to Branch from other apps | Branch appears in the share sheet and asks for a note first | sends straight away |
+| Talk button | shows the button | shows the button |
+| Alerts while the app is closed | asks the phone for a push address (see below) | the same |
+
+*Send to Branch* turns words and links into a new conversation (`POST /api/run`): your own note
+comes first, and what the other app shared follows between `<shared>` markers, labelled as untrusted
+content the assistant should read but not obey. Up to four pictures ride along (5 MB each); any
+other file up to 20 MB goes to Library, Documents (`POST /api/documents`). On iPhone a share extension sends directly, reading the key through the
+shared app group; on Android the share target is a switched-off activity alias that the switch
+turns on. *Talk* records while the button is held, has your computer write it out
+(`POST /api/voice/transcribe`) and sends the words. The live-voice route is not used from the phone
+yet: the paired listener has no WebSocket door, so a live conversation cannot reach it.
+
+The splash screen, the icon, the status bar and the native screens take their colours from
+`public/theme-catalogue.js` through `apps/mobile/web/palette.js`, and their words from the
+`phone.*` keys in `public/locales` (English and French). `apps/mobile/scripts/native-files.mjs`
+and `icons.mjs` write those native files before every build; none of them is kept in git.
+
+**Building.** `npm run build`, then `npm ci` in `apps/mobile`, then
+`node scripts/package-mobile.mjs [--android] [--ios]`. Files land in `release/mobile/`, each with a
+`.sha256`:
+
+- `Branch-Agent-android.apk` — signed with a key made once on this Mac in
+  `~/.branch-mobile-keystore/`. Its password is generated and kept in the macOS Keychain (service
+  `branch-mobile-keystore`), handed to the tools only through stdin and the environment, and never
+  printed. On Linux, or on CI without the `ANDROID_KEYSTORE_BASE64` and `ANDROID_KEYSTORE_PASSWORD`
+  secrets, the APK is left unsigned. Needs JDK 21 and an Android SDK (`ANDROID_HOME`).
+- `Branch-Agent-android.aab` — the same app for the Play Store, signed with the same key.
+- `Branch-Agent-ios.ipa` — built without an Apple signing identity (macOS and Xcode only). It
+  carries only a local signature with the app-group entitlement, so the tool that installs it can
+  sign it with your own Apple ID. Without an installed iOS Simulator runtime Xcode cannot compile
+  the asset catalog, so such a build carries the app icons but a plain launch screen; a Mac with a
+  runtime (or the CI runner) builds the full one.
+- `Branch-Agent-ios-simulator.zip` — the same app for the iOS Simulator
+  (`xcrun simctl install booted App.app`).
+
+`.github/workflows/mobile.yml` builds both on pull requests that touch the phone apps and keeps
+the files for seven days. It publishes nothing.
+
+**Putting it on a phone.** Nothing here is uploaded anywhere; each route is a step the owner takes.
+
+- *iPhone, free Apple ID:* open `Branch-Agent-ios.ipa` in Sideloadly or AltStore, sign in with your
+  Apple ID and install. A free ID's apps expire after seven days and need signing again (AltStore
+  can do that on its own). Turn on Developer Mode on the phone when iOS asks.
+- *iPhone, paid Apple Developer account (TestFlight, then the App Store):* in the developer
+  account, register the identifiers `com.keepoak.branchagent` and `com.keepoak.branchagent.share` and
+  the app group `group.com.keepoak.branchagent`; open `apps/mobile/ios/App/App.xcodeproj`, choose the
+  team for both targets, then Product → Archive and Distribute App → App Store Connect. Add testers
+  in TestFlight; submit for review from App Store Connect when ready.
+- *Android, directly:* copy `Branch-Agent-android.apk` to the phone and open it (allow installing
+  from that app when asked), or `adb install Branch-Agent-android.apk`. Keep the key in
+  `~/.branch-mobile-keystore/` and its Keychain entry: every later version must be signed with it.
+- *Google Play:* create the app in the Play Console, enrol in Play App Signing, and upload
+  `Branch-Agent-android.aab` to an internal testing track first.
+- *F-Droid:* `apps/mobile/fdroid/com.keepoak.branchagent.yml` is the metadata to open a merge
+  request with in `fdroiddata` once a `v0.16.0` tag exists; F-Droid builds from source and signs
+  with its own key.
+- *Push (alerts while the app is closed):* needs accounts first. On iPhone, a paid account with the
+  Push Notifications capability and an APNs key; the app already asks for a device token while the
+  switch is not off and keeps it on the phone. On Android, a Firebase project: put its
+  `google-services.json` in `apps/mobile/android/app/` and build with
+  `./gradlew assembleRelease -PbranchPush`, which adds `BranchPushService`. Branch itself has no
+  sender for either yet; until then *Tell me when a task needs me* is the way to hear about
+  questions.
+
 ## Using this computer's screen and keyboard
 Branch can look at what is on this computer's screen and work the windows on it. It is switched
 off, and while it is off every one of these tools answers with one plain sentence instead of
@@ -5536,6 +5676,45 @@ every row is listed here and that every file named here exists.
   meant for putting in front of the public.
 - **A2367** (Google PaLM) — not applicable: Google retired PaLM. Gemini, its successor, is supported
   (`src/providers/gemini.ts`, `tests/provider-presets.test.mjs`).
+
+### Usage report, task counters and logging (A0367, A1751, A1334, A0681)
+
+Bucket 14 of the public list ("what it has cost you, in plain figures"). Each piece ships off.
+
+- **Usage report** (A0367). Settings → Data → *Usage report* writes a page you can keep or hand on:
+  the last 7, 30 or 90 days in a few plain sentences (tasks, tokens, tool calls, what went wrong and
+  the estimated money), each set beside the same number of days before it, then day by day, by model,
+  by where the tasks came from, the tools used most, each person on this computer when more than one
+  used it, and how many moments were written in the record of what the assistant was allowed to do.
+  A task whose model has no price is counted and said so, never shown as costing nothing. It is made
+  by the same writer as "Save as report", so it comes as notes, a page or the print view, and keys are
+  blanked out first. No prompt, answer or file goes into it. `GET`/`POST /api/usage/report/settings`
+  holds `mode` (`off`, `when-needed`, `on`; there is no tool behind it, so the last two both mean
+  "available") and `range`; `POST /api/usage/report` with `range` and `format` makes one. Only the
+  owner may use either. Code: `src/usage-report.ts`, `src/usage-report-api.ts`, `public/usage-report.js`.
+- **Task counters for your own collector** (A1751). Other agents send "anonymous execution
+  statistics" to the people who made them. Branch does not, and the promise above stands. What you can
+  have is the same counters — tasks started, working, failed and waiting, tokens in and out, the
+  month's estimated money, tool calls and failures — sent to **the address you chose for traces**, in
+  OpenTelemetry metrics shape to `/v1/metrics`. Settings → Advanced → *Task counters for your own
+  collector*: *off* sends nothing; *when I press Send* sends only on the button; *after tasks finish*
+  sends when a task ends, at most once every `minutesBetween` minutes (15 unless changed). Nothing goes
+  while sending traces is off. Only numbers go, with no name, words, file or identifier of you or this
+  computer, and every send is written in the record. `GET`/`POST /api/usage/counters`,
+  `POST /api/usage/counters/send`. Code: `src/execution-metrics.ts`.
+- **Logging from a program that embeds Branch** (A1334). `bridgeLogs(store, logger, options)` hands
+  every stored event to a logger with `debug`, `info`, `warn` and `error` — `console`, pino, winston or
+  bunyan all fit — as one line each, cut down to names, counts and outcomes exactly as the diagnostics
+  folder is. Failures are `error`, retries, stalls and limits `warn`, streamed pieces `debug`, the rest
+  `info`. It installs nothing and sends nothing; it does nothing until a program calls it. See the
+  builders' guide. Code: `src/log-bridge.ts`.
+- **Tracing from the start** (A0681). The row comes from an agent whose runtime switches on Rust's
+  tracing when it starts. Branch has no Rust; the same thing in Branch is that tracing starts with the
+  engine: `createBranch` opens the span store, records any uncaught failure as an error span from that
+  moment (`recordUncaughtErrors` in `src/tracing.ts`), and every task, model round and tool call gets a
+  span (`tests/tracing-policy.test.mjs` T1), which the diagnostics folder carries (T4).
+
+macOS and Linux: nothing here depends on the operating system; the tests run the same on all three.
 
 ## Typed commands, the same everywhere (wave mac3)
 
