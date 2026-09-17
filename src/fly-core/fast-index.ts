@@ -8,8 +8,8 @@ import { kenyonCells } from "./sizes.js";
  *
  * `scoreOf` in circuit.ts only ever reads, per active cell, approach minus avoid, whether either
  * side had changed there, and the action's age. This index keeps exactly that for every action as
- * a typed array of cells and one of differences (6 bytes a cell), so ranking marks the task's
- * active cells once and walks each action's cells against the mark. Nothing is decoded and almost
+ * one entry per changed cell (6 bytes, plus 2 to know which cells an action has), filed under the
+ * cell. Ranking reads only the lists of the task's active cells. Nothing is decoded and almost
  * nothing is allocated while a task starts.
  *
  * The ranking is the one `Circuit.rank` gives for every action that shares a changed cell with the
@@ -26,7 +26,6 @@ export interface IndexRow { kind: ActionKind; action: string; approach: string; 
 /** Scratch space shared by every build and every ranking; JavaScript runs one of them at a time. */
 const sums = new Float64Array(kenyonCells);
 const seen = new Uint32Array(kenyonCells);
-const marked = new Uint8Array(kenyonCells);
 let stamp = 0;
 
 /** Adds one side, `sign` times, into the scratch sums, and notes each cell it touches. */
@@ -69,19 +68,70 @@ export function entryOf(state: ActionState): Entry {
 
 const order = (a: Scored, b: Scored): number => b.score - a.score || b.evidence - a.evidence || a.action.localeCompare(b.action);
 
+/** One cell's list of (action slot, approach − avoid), in growable typed arrays. */
+class Postings {
+  slots = new Uint32Array(8);
+  diffs = new Float32Array(8);
+  length = 0;
+  push(slot: number, diff: number): void {
+    if (this.length === this.slots.length) {
+      const slots = new Uint32Array(this.length * 2), diffs = new Float32Array(this.length * 2);
+      slots.set(this.slots); diffs.set(this.diffs);
+      this.slots = slots; this.diffs = diffs;
+    }
+    this.slots[this.length] = slot;
+    this.diffs[this.length] = diff;
+    this.length += 1;
+  }
+  remove(slot: number): void {
+    for (let at = 0; at < this.length; at += 1) {
+      if (this.slots[at] !== slot) continue;
+      this.length -= 1;
+      this.slots[at] = this.slots[this.length]!;
+      this.diffs[at] = this.diffs[this.length]!;
+      return;
+    }
+  }
+}
+interface Slot { action: string; kind: ActionKind; uses: number; updatedAt: number; cells: Uint16Array }
+
+/**
+ * Each action has a slot; each cell lists the slots that changed there. Ranking reads only the
+ * lists of the task's active cells, about a twentieth of what walking every action would read.
+ */
 export class RankIndex {
-  private readonly entries = new Map<string, Entry>();
+  private readonly slotOf = new Map<string, number>();
+  private readonly slots: (Slot | undefined)[] = [];
+  private readonly free: number[] = [];
+  private readonly cells = Array.from({ length: kenyonCells }, () => new Postings());
+  private sums = new Float64Array(0);
+  private touched = new Uint16Array(0);
   constructor(readonly version: number) {}
   putRows(rows: readonly IndexRow[]): void {
-    for (const row of rows) this.entries.set(actionKey(row.kind, row.action), entryOfRow(row));
+    for (const row of rows) this.place(actionKey(row.kind, row.action), entryOfRow(row));
   }
   put(states: readonly ActionState[]): void {
-    for (const state of states) this.entries.set(actionKey(state.kind, state.action), entryOf(state));
+    for (const state of states) this.place(actionKey(state.kind, state.action), entryOf(state));
+  }
+  private place(key: string, entry: Entry): void {
+    this.drop(key);
+    const slot = this.free.pop() ?? this.slots.length;
+    this.slots[slot] = { action: entry.action, kind: entry.kind, uses: entry.uses, updatedAt: entry.updatedAt, cells: entry.cells };
+    this.slotOf.set(key, slot);
+    entry.cells.forEach((cell, at) => this.cells[cell]!.push(slot, entry.diffs[at]!));
+  }
+  private drop(key: string): void {
+    const slot = this.slotOf.get(key);
+    if (slot === undefined) return;
+    for (const cell of this.slots[slot]!.cells) this.cells[cell]!.remove(slot);
+    this.slots[slot] = undefined;
+    this.slotOf.delete(key);
+    this.free.push(slot);
   }
   keep(keys: ReadonlySet<string>): void {
-    for (const key of this.entries.keys()) if (!keys.has(key)) this.entries.delete(key);
+    for (const key of [...this.slotOf.keys()]) if (!keys.has(key)) this.drop(key);
   }
-  get size(): number { return this.entries.size; }
+  get size(): number { return this.slotOf.size; }
   /**
    * Every action that shares a changed cell with this situation and scores at least `least` either
    * way, best first per kind, in the order `Circuit.rank` uses.
@@ -89,24 +139,36 @@ export class RankIndex {
   rank(code: KenyonCode, now: number, least = 0): Record<ActionKind, Scored[]> {
     const out: Record<ActionKind, Scored[]> = { tool: [], skill: [], memory: [] };
     if (!code.length) return out;
-    for (const cell of code) marked[cell] = 1;
-    try {
-      for (const entry of this.entries.values()) this.score(entry, code.length, now, least, out);
-    } finally {
-      for (const cell of code) marked[cell] = 0;
+    if (this.sums.length < this.slots.length) {
+      this.sums = new Float64Array(this.slots.length * 2);
+      this.touched = new Uint16Array(this.slots.length * 2);
+    }
+    const seenSlots: number[] = [];
+    for (const cell of code) this.gatherCell(cell, seenSlots);
+    for (const slot of seenSlots) {
+      this.score(slot, code.length, now, least, out);
+      this.sums[slot] = 0;
+      this.touched[slot] = 0;
     }
     for (const list of Object.values(out)) list.sort(order);
     return out;
   }
-  private score(entry: Entry, active: number, now: number, least: number, out: Record<ActionKind, Scored[]>): void {
-    const { cells, diffs } = entry;
-    let sum = 0, touched = 0;
-    for (let at = 0; at < cells.length; at += 1)
-      if (marked[cells[at]!]) { sum += diffs[at]!; touched += 1; }
-    if (!touched) return;
-    const score = (sum * retention(now - entry.updatedAt)) / active;
+  private gatherCell(cell: number, seenSlots: number[]): void {
+    const list = this.cells[cell];
+    if (!list) return;
+    const { slots, diffs, length } = list;
+    for (let at = 0; at < length; at += 1) {
+      const slot = slots[at]!;
+      if (this.touched[slot] === 0) seenSlots.push(slot);
+      this.touched[slot] = this.touched[slot]! + 1;
+      this.sums[slot] = this.sums[slot]! + diffs[at]!;
+    }
+  }
+  private score(slot: number, active: number, now: number, least: number, out: Record<ActionKind, Scored[]>): void {
+    const entry = this.slots[slot]!;
+    const score = (this.sums[slot]! * retention(now - entry.updatedAt)) / active;
     if (Math.abs(score) < least) return;
-    out[entry.kind].push({ action: entry.action, kind: entry.kind, score, evidence: touched / active, uses: entry.uses });
+    out[entry.kind].push({ action: entry.action, kind: entry.kind, score, evidence: this.touched[slot]! / active, uses: entry.uses });
   }
 }
 

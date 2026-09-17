@@ -76,11 +76,13 @@ the "no cap" column exactly, so the faster code step changed nothing and these d
 the cap alone. They are within the few points the stream moves by on its own; block 7 is the
 largest (3.8 points lower). This is still the synthetic stream and says nothing about real work.
 
-At the cap (5,000 actions, each side full) the `fly_*` tables take 9.97 MB after `VACUUM`, and a
-task start (`tests/fly-core-2.test.mjs` F15) takes a median of 2.7 to 4.0 ms of the thread's own
-processor time on the Mac (the first one after launch, which builds the index, about 75 to 110 ms,
-done in the background at launch when the switch is on). Wall time on the shared Mac was higher
-and uneven because other builders were running.
+At the cap (5,000 actions, each side full) the `fly_*` tables take 9.97 MB after `VACUUM`. A task
+start (`tests/fly-core-2.test.mjs` F15) reads per-cell lists kept in memory: on the Mac the ranking
+took a median of 0.33 ms of the thread's own processor time and the whole start hook 0.80 ms; the
+first one after launch, which builds the index, about 115 ms, done in the background at launch when
+the switch is on. An earlier version that walked every action measured 2.7 to 4.0 ms on the Mac and
+8.0 ms (11.4 ms for the whole hook) on the 2-processor Linux test machine; the list version was not
+run on Linux (the owner stopped Linux runs for this wave).
 
 ## 2. Plan: before and after on Branch's own suites (harness built, not yet run on a real model)
 
