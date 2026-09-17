@@ -1,7 +1,8 @@
-// Settings → "What this computer allows" (macOS and Linux) and "Passwords from your Mac's Keychain"
-// (macOS). Both cards are built here and placed after "Using your screen and keyboard"; on Windows
-// neither appears. The owner's off / when needed / on choice for screen control is added to that
-// card on every computer. Every word goes through a key.
+// This computer's own cards, each placed by its `data-home` (docs/places.md):
+//   settings:computer  what this computer allows (macOS and Linux), and how Branch uses the screen
+//   settings:voice     the computer's own voice: off, when needed or on
+//   settings:secrets   the Keychain entries Branch may read (macOS)
+// Every word goes through a key, and every colour comes from the page's tokens.
 import { t } from "/i18n.js";
 
 const $ = (id) => document.getElementById(id);
@@ -33,38 +34,46 @@ function worded(tag, key, props = {}) {
   node.dataset.t = key;
   return node;
 }
+/** A card in the shape every card has: a title, one sentence, then its controls. */
+function card(id, home, name, ...controls) {
+  const section = el("section", { id, className: "card" },
+    worded("h2", `settings.card.${name}`), worded("p", `settings.intro.${name}`), ...controls,
+    el("p", { id: `${id}-status`, className: "subtle", role: "status" }));
+  section.dataset.home = home;
+  return section;
+}
+const status = (id, text) => { $(`${id}-status`).textContent = text; };
 
 /* ---------- the owner's three-way switch ---------- */
 
 const modes = ["off", "when-needed", "on"];
 
-/** Off / When needed / On, with its label; `save` is called with the mode chosen. */
-function modeSwitch(id, labelKey, save) {
+function modeSelect(id) {
   const select = el("select", { id });
   for (const mode of modes) select.append(worded("option", `switch.${mode}`, { value: mode }));
-  select.addEventListener("change", () => void save(select.value));
-  return [worded("label", labelKey, { htmlFor: id }), select];
+  return [worded("label", "field.feature-switch", { htmlFor: id }), select];
 }
 
-/** The screen-control card keeps its tick box; the three-way choice sits under it. */
-function placeScreenSwitch() {
-  if ($("desktop-mode")) return;
-  const tick = $("desktop-enabled")?.closest("label");
-  if (!tick) return;
-  tick.after(...modeSwitch("desktop-mode", "field.feature-switch", async (mode) => {
+/** A card that is only the switch, and the one button that saves it. */
+function switchCard(id, home, name, save) {
+  const button = worded("button", "action.save-switch", { type: "button" });
+  const section = card(id, home, name, ...modeSelect(`${id}-mode`), button);
+  button.addEventListener("click", async () => {
     try {
-      await api("desktop/settings", { mode });
-      await window.branchScreenControl?.render();
+      await save($(`${id}-mode`).value);
+      status(id, t("keychain.status.saved"));
     } catch (e) {
-      $("desktop-status").textContent = e.message;
+      status(id, e.message);
     }
-  }));
-  $("desktop-enabled").addEventListener("change", () => setTimeout(() => void renderScreenSwitch(), 400));
+  });
+  return section;
 }
 
-async function renderScreenSwitch() {
-  const settings = await api("desktop/settings");
-  if ($("desktop-mode")) $("desktop-mode").value = settings.mode ?? (settings.enabled ? "when-needed" : "off");
+async function renderSwitches() {
+  const screen = await api("desktop/settings");
+  $("screen-switch-card-mode").value = screen.mode ?? (screen.enabled ? "when-needed" : "off");
+  const voice = await api("voice/plan");
+  $("system-voice-card-mode").value = voice.settings?.systemVoice ?? "off";
 }
 
 /* ---------- what this computer allows ---------- */
@@ -78,17 +87,9 @@ function explainKey(platform, capability, session) {
   return `permissions.explain.linux.${capability}`;
 }
 
-function permissionsCard() {
-  return el("section", { id: "os-permissions-card", className: "card", hidden: true },
-    worded("h2", "settings.card.what-this-computer-allows"),
-    worded("p", "settings.intro.what-this-computer-allows", { className: "subtle" }),
-    el("div", { id: "os-permissions-list", className: "card-list" }),
-    el("p", { id: "os-permissions-status", className: "subtle", role: "status" }));
-}
-
 /** Opens one System Settings page, only because the owner pressed the button, through the app's own opener. */
-async function openSettings(link, where) {
-  const say = (text) => { $("os-permissions-status").textContent = text; };
+async function openSystemSettings(link, where) {
+  const say = (text) => status("os-permissions-card", text);
   if (typeof link !== "string" || !link.startsWith(macSettingsPrefix)) return say(t("permissions.status.cannot-open"));
   try {
     if (globalThis.branchDesktop?.openExternal) await globalThis.branchDesktop.openExternal(link);
@@ -105,9 +106,9 @@ function permissionRow(item, platform, session) {
     worded("p", explainKey(platform, item.capability, session), { className: "subtle" }));
   if (!item.allowed && platform === "darwin") row.append(worded("p", "permissions.refused"));
   if (platform === "darwin" && item.settingsLink) {
-    const button = worded("button", "action.open-system-settings", { type: "button" });
+    const button = worded("button", "action.open-system-settings", { type: "button", className: "quiet-button" });
     button.addEventListener("click", () =>
-      void openSettings(item.settingsLink, t("permissions.where", { page: title.textContent })));
+      void openSystemSettings(item.settingsLink, t("permissions.where", { page: title.textContent })));
     row.append(button);
   }
   return row;
@@ -134,22 +135,20 @@ function field(name) {
 }
 
 function keychainCard() {
-  const add = worded("button", "action.add-keychain-entry", { type: "button", id: "keychain-add" });
+  const add = worded("button", "action.add-keychain-entry", { type: "button", id: "keychain-add", className: "quiet-button" });
   const save = worded("button", "action.save-keychain-list", { type: "button", id: "keychain-save" });
   add.addEventListener("click", addEntry);
-  save.addEventListener("click", () => void saveKeychain({ entries: keychain.entries }));
-  return el("section", { id: "keychain-card", className: "card", hidden: true },
-    worded("h2", "settings.card.keychain"),
-    worded("p", "settings.intro.keychain", { className: "subtle" }),
-    ...modeSwitch("keychain-mode", "field.feature-switch", (mode) => saveKeychain({ mode })),
+  save.addEventListener("click", () => void saveKeychain({ mode: $("keychain-card-mode").value, entries: keychain.entries }));
+  const section = card("keychain-card", "settings:secrets", "keychain",
+    ...modeSelect("keychain-card-mode"),
     el("div", { id: "keychain-list", className: "card-list" }),
-    ...keychainFields.flatMap(field),
-    add, save,
-    el("p", { id: "keychain-status", className: "subtle", role: "status" }));
+    ...keychainFields.flatMap(field), add, save);
+  section.hidden = true;
+  return section;
 }
 
 function entryRow(entry, index) {
-  const remove = worded("button", "action.remove-keychain-entry", { type: "button" });
+  const remove = worded("button", "action.remove-keychain-entry", { type: "button", className: "quiet-button" });
   remove.addEventListener("click", () => {
     keychain.entries = keychain.entries.filter((_, at) => at !== index);
     showKeychain();
@@ -162,7 +161,7 @@ function entryRow(entry, index) {
 }
 
 function showKeychain() {
-  $("keychain-mode").value = keychain.mode ?? (keychain.enabled ? "when-needed" : "off");
+  $("keychain-card-mode").value = keychain.mode ?? (keychain.enabled ? "when-needed" : "off");
   const rows = keychain.entries.map(entryRow);
   $("keychain-list").replaceChildren(...(rows.length ? rows : [worded("p", "keychain.empty", { className: "subtle" })]));
 }
@@ -171,23 +170,20 @@ function addEntry() {
   const value = (name) => $(`keychain-${name}`).value.trim();
   const entry = { name: value("name"), service: value("service"), note: value("note") };
   if (value("account")) entry.account = value("account");
-  if (!entry.name || !entry.service) {
-    $("keychain-status").textContent = t("keychain.status.missing");
-    return;
-  }
+  if (!entry.name || !entry.service) return status("keychain-card", t("keychain.status.missing"));
   keychain.entries = [...keychain.entries.filter((one) => one.name !== entry.name), entry];
   for (const name of keychainFields) $(`keychain-${name}`).value = "";
   showKeychain();
-  $("keychain-status").textContent = t("keychain.status.added");
+  status("keychain-card", t("keychain.status.added"));
 }
 
 async function saveKeychain(next) {
   try {
     keychain = await api("keychain/settings", next);
     showKeychain();
-    $("keychain-status").textContent = t(keychain.enabled ? "keychain.status.saved" : "keychain.status.off");
+    status("keychain-card", t(keychain.enabled ? "keychain.status.saved" : "keychain.status.off"));
   } catch (e) {
-    $("keychain-status").textContent = e.message;
+    status("keychain-card", e.message);
   }
 }
 
@@ -199,26 +195,32 @@ async function renderKeychain() {
 
 /* ---------- putting the cards on the page ---------- */
 
+/** The cards are added to the Settings window once; `layout.js` takes each to its home. */
 function place() {
   if ($("os-permissions-card")) return true;
-  const anchor = $("desktop-card");
-  if (!anchor) return false;
-  anchor.after(permissionsCard(), keychainCard());
+  const settings = $("settings");
+  if (!settings) return false;
+  const permissions = card("os-permissions-card", "settings:computer", "what-this-computer-allows",
+    el("div", { id: "os-permissions-list", className: "card-list" }));
+  permissions.hidden = true;
+  settings.append(
+    permissions,
+    switchCard("screen-switch-card", "settings:computer", "screen-switch", (mode) => api("desktop/settings", { mode })),
+    switchCard("system-voice-card", "settings:voice", "system-voice", (mode) => api("voice/settings", { systemVoice: mode })),
+    keychainCard());
   return true;
 }
 
 async function render() {
   if (!place()) return;
-  placeScreenSwitch();
-  $("os-permissions-status").textContent = "";
-  $("keychain-status").textContent = "";
-  await renderPermissions().catch((e) => { $("os-permissions-status").textContent = e.message; });
-  await renderKeychain().catch((e) => { $("keychain-status").textContent = e.message; });
-  await renderScreenSwitch().catch(() => undefined);
+  for (const id of ["os-permissions-card", "screen-switch-card", "system-voice-card", "keychain-card"]) status(id, "");
+  await renderPermissions().catch((e) => status("os-permissions-card", e.message));
+  await renderKeychain().catch((e) => status("keychain-card", e.message));
+  await renderSwitches().catch((e) => status("screen-switch-card", e.message));
 }
 
-// app.js asks the screen-control card to draw itself whenever Settings is drawn; these two cards sit
-// under it, so they are drawn at the same moment.
+// app.js asks the screen-control card to draw itself whenever Settings is drawn; these cards are
+// drawn at the same moment, without touching that card.
 const screenControl = window.branchScreenControl;
 if (screenControl?.render) {
   const drawn = screenControl.render;

@@ -444,8 +444,29 @@ test("the routes answer through the server with the session token only", async (
   assert.match(source, /x-apple\.systempreferences:com\.apple\.preference\.security\?Privacy_/);
 });
 
-test("the cards appear under the screen-control card on a Mac or Linux, and a settings link opens only on a click", async (t) => {
-  const { server, page } = await pageFixture(t);
+/** Signs the page in with the server's token. */
+async function signIn(page, server) {
+  await page.goto(server.url);
+  await page.getByLabel("Session token", { exact: true }).fill(server.token);
+  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await page.locator("#workspace").waitFor({ state: "visible" });
+}
+
+/**
+ * Opens Settings the way a person does. The one step to change once the redesign's
+ * tests/places.mjs is on this branch: `openPlace(page, home)` with the card's data-home.
+ */
+async function openSettingsScreen(page, _home) {
+  const nav = page.locator('.nav[data-view="settings"]').first();
+  if (!(await nav.isVisible())) await page.locator("#rail-toggle").click();
+  await nav.click();
+  await page.evaluate(() => document.body.classList.remove("rail-open"));
+}
+
+const cardIds = ["os-permissions-card", "screen-switch-card", "system-voice-card", "keychain-card"];
+
+test("the cards go to their homes, and a settings link opens only on a click", async (t) => {
+  const { app, server, page } = await pageFixture(t);
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   // The page is told it is a Mac, whatever this computer is, and the app's opener is a recorder.
@@ -458,14 +479,11 @@ test("the cards appear under the screen-control card on a Mac or Linux, and a se
     ],
   } }));
   await page.route("**/api/keychain/settings", (route) => route.fulfill({ json: {
-    enabled: true, available: true, references: {},
+    enabled: true, mode: "when-needed", available: true, references: {},
     entries: [{ name: "a-rather-long-name-for-one-entry-here", service: "registry.example-company-with-a-long-name.com", account: "someone@example.com", note: "" }],
   } }));
-  await page.goto(server.url);
-  await page.getByLabel("Session token", { exact: true }).fill(server.token);
-  await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible" });
-  // Drawn once already at sign-in, under the screen-control card.
+  await signIn(page, server);
+  // Drawn once already at sign-in.
   await page.locator("#os-permissions-card").waitFor({ state: "attached" });
   // Only now is the page given a stand-in for the app's opener, so sign-in is not the desktop app's.
   await page.evaluate(() => {
@@ -473,62 +491,75 @@ test("the cards appear under the screen-control card on a Mac or Linux, and a se
     globalThis.branchDesktop = { openExternal: async (url) => { globalThis.opened.push(url); } };
   });
   await page.evaluate(() => globalThis.branchOsPermissions.render());
+  assert.deepEqual(await page.evaluate((ids) => ids.map((id) => document.getElementById(id).dataset.home), cardIds),
+    ["settings:computer", "settings:computer", "settings:voice", "settings:secrets"]);
+  assert.equal(await page.evaluate(() => document.querySelector("#desktop-card #os-permissions-card, #desktop-card select")), null,
+    "nothing is put inside another card");
   const card = page.locator("#os-permissions-card");
-  await card.waitFor({ state: "attached" });
-  assert.equal(await page.evaluate(() => document.getElementById("desktop-card").nextElementSibling?.id), "os-permissions-card");
   assert.equal(await card.getAttribute("hidden"), null);
-  assert.deepEqual(await page.locator("#desktop-mode option").evaluateAll((options) => options.map((o) => o.dataset.t)),
-    ["switch.off", "switch.when-needed", "switch.on"], "the screen card offers the three-way switch");
-  assert.equal(await page.locator("#desktop-mode").inputValue(), "off");
+  assert.equal(await page.locator("#keychain-card").getAttribute("hidden"), null);
+  assert.equal(await page.locator("#keychain-card-mode").inputValue(), "when-needed");
+  for (const id of cardIds)
+    assert.equal(await page.locator(`#${id} button:not(.quiet-button)`).count() <= 1, true, `${id} has at most one filled button`);
+
   assert.equal(await page.evaluate(() => globalThis.opened.length), 0, "nothing opened by itself");
-  const buttons = card.locator("button", { hasText: "Open System Settings" });
+  const buttons = card.locator("button[data-t='action.open-system-settings']");
   assert.equal(await buttons.count(), 2);
   await buttons.nth(0).evaluate((button) => button.click());
   await buttons.nth(1).evaluate((button) => button.click());
-  await page.waitForFunction(() => document.getElementById("os-permissions-status").textContent.length > 0);
+  await page.waitForFunction(() => document.getElementById("os-permissions-card-status").textContent.length > 0);
   assert.deepEqual(await page.evaluate(() => globalThis.opened),
     ["x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"], "only a real settings page is opened");
-  assert.equal(await page.locator("#keychain-card").getAttribute("hidden"), null);
 
-  // Settings at 400 px: nothing goes sideways, and both cards are really on the screen.
+  // The two switch cards read and save the real settings.
+  await openSettingsScreen(page, "settings:computer");
+  assert.equal(await page.locator("#screen-switch-card-mode").inputValue(), "off");
+  assert.deepEqual(await page.locator("#screen-switch-card-mode option").evaluateAll((options) => options.map((o) => o.dataset.t)),
+    ["switch.off", "switch.when-needed", "switch.on"]);
+  await page.locator("#screen-switch-card-mode").selectOption("on");
+  await page.locator("#screen-switch-card button").click();
+  await page.waitForFunction(() => document.getElementById("screen-switch-card-status").textContent === "Saved.");
+  assert.equal(readDesktopSettings(app.store, app.runtime.owner).mode, "on");
+  await page.locator("#system-voice-card-mode").selectOption("when-needed");
+  await page.locator("#system-voice-card button").click();
+  await page.waitForFunction(() => document.getElementById("system-voice-card-status").textContent === "Saved.");
+  assert.equal(voiceSettings(app.store, app.runtime.owner).systemVoice, "when-needed");
+
+  // At 400 px nothing goes sideways.
   await page.setViewportSize({ width: 400, height: 800 });
-  const nav = page.locator('.nav[data-view="settings"]').first();
-  if (!(await nav.isVisible())) await page.locator("#rail-toggle").click();
-  await nav.click();
-  await page.evaluate(() => document.body.classList.remove("rail-open"));
-  await page.locator("#os-permissions-card").scrollIntoViewIfNeeded();
-  assert.equal(await page.locator("#os-permissions-card").isVisible(), true);
-  const sideways = await page.evaluate(() => ["os-permissions-card", "keychain-card"].map((id) => {
-    const card = document.getElementById(id);
-    return { id, wide: card.scrollWidth - card.clientWidth, page: document.documentElement.scrollWidth - innerWidth };
-  }).filter((one) => one.wide > 0 || one.page > 0));
+  await openSettingsScreen(page, "settings:computer");
+  await card.scrollIntoViewIfNeeded();
+  assert.equal(await card.isVisible(), true);
+  const sideways = await page.evaluate((ids) => ids.map((id) => {
+    const one = document.getElementById(id);
+    return { id, wide: one.scrollWidth - one.clientWidth, page: document.documentElement.scrollWidth - innerWidth };
+  }).filter((one) => one.wide > 0 || one.page > 0), cardIds);
   assert.deepEqual(sideways, []);
 
   // Every word on the cards is behind a key, so French replaces all of them.
   await page.evaluate(async () => { const { setLanguage } = await import("/i18n.js"); await setLanguage("fr"); });
   assert.equal(await page.locator("#os-permissions-card h2").textContent(), "Ce que cet ordinateur autorise");
   assert.equal(await page.locator("#keychain-card h2").textContent(), "Mots de passe du trousseau de votre Mac");
-  assert.equal(await card.locator("button[data-t='action.open-system-settings']").first().textContent(), "Ouvrir les Réglages Système");
+  assert.equal(await page.locator("#system-voice-card button").textContent(), "Enregistrer ce choix");
+  assert.equal(await buttons.first().textContent(), "Ouvrir les Réglages Système");
   assert.equal(await page.locator("#keychain-service").getAttribute("placeholder"), "par exemple api.github.com");
-  const unkeyed = await page.evaluate(() => [...document.querySelectorAll("#os-permissions-card, #keychain-card")]
-    .flatMap((card) => [...card.querySelectorAll("h2, button, label, span, .subtle")])
-    .filter((node) => !node.closest("[data-t]") && !node.querySelector("[data-t]") && node.id !== "os-permissions-status" && node.id !== "keychain-status"
-      && !node.closest(".card-row p.subtle:not([data-t])") && node.textContent.trim())
-    .map((node) => node.textContent.trim()));
-  assert.deepEqual(unkeyed.filter((text) => !text.includes("·") && !text.includes("example")), [], "these words are not behind a key");
+  const unkeyed = await page.evaluate((ids) => ids.flatMap((id) => [...document.getElementById(id).querySelectorAll("h2, p, button, label, option")])
+    .filter((node) => !node.dataset.t && !node.querySelector("[data-t]") && node.getAttribute("role") !== "status"
+      && !node.closest(".card-row:has(> strong:not([data-t]))") && node.textContent.trim())
+    .map((node) => node.textContent.trim()), cardIds);
+  assert.deepEqual(unkeyed, [], "these words are not behind a key");
   await page.evaluate(async () => { const { setLanguage } = await import("/i18n.js"); await setLanguage("en"); });
   assert.deepEqual(errors, []);
 });
 
-test("on Windows neither card is shown", async (t) => {
+test("on Windows the permissions and Keychain cards stay hidden, and the switches are still there", async (t) => {
   const { server, page } = await pageFixture(t);
   await page.route("**/api/os-permissions", (route) => route.fulfill({ json: { platform: "win32", permissions: [] } }));
-  await page.route("**/api/keychain/settings", (route) => route.fulfill({ json: { enabled: false, entries: [], available: false, references: {} } }));
-  await page.goto(server.url);
-  await page.getByLabel("Session token", { exact: true }).fill(server.token);
-  await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("#workspace").waitFor({ state: "visible" });
+  await page.route("**/api/keychain/settings", (route) => route.fulfill({ json: { enabled: false, mode: "off", entries: [], available: false, references: {} } }));
+  await signIn(page, server);
   await page.evaluate(() => globalThis.branchOsPermissions.render());
   assert.equal(await page.locator("#os-permissions-card").getAttribute("hidden"), "");
   assert.equal(await page.locator("#keychain-card").getAttribute("hidden"), "");
+  assert.equal(await page.locator("#screen-switch-card").getAttribute("hidden"), null);
+  assert.equal(await page.locator("#system-voice-card").getAttribute("hidden"), null);
 });
