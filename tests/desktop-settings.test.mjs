@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { createServer } from "node:http";
 import { once } from "node:events";
 import { _electron } from "playwright";
-import { desktopOptions } from "./fixtures/desktop-options.mjs";
+import { connected, desktopOptions } from "./fixtures/desktop-options.mjs";
 import { DesktopSettings } from "../dist/desktop/settings.js";
 
 test("desktop settings reject key reuse across destinations and unavailable encryption", async () => {
@@ -75,7 +75,7 @@ async function refusesWithoutKeyStore(t, page, home) {
 }
 
 test("native settings encrypt a key, keep IPC narrow, and connect after restart", {
-  timeout: 90000,
+  timeout: 360000,
 }, async (t) => {
   const { home, options } = await desktopOptions();
   delete options.env.BRANCH_PROVIDER;
@@ -86,7 +86,7 @@ test("native settings encrypt a key, keep IPC narrow, and connect after restart"
     const firstChild = electron.process();
     const page = await electron.firstWindow();
     page.setDefaultTimeout(10000);
-    await page.getByText("Connected", { exact: true }).waitFor();
+    await connected(page);
     await openSettingFor(page, "#model-provider");
     await page.getByLabel("Provider", { exact: true }).selectOption("openai");
     await page.getByLabel("Web address of the service", { exact: true }).fill(provider.endpoint);
@@ -113,7 +113,7 @@ test("native settings encrypt a key, keep IPC narrow, and connect after restart"
     electron = await _electron.launch(options);
     const restarted = await electron.firstWindow();
     restarted.setDefaultTimeout(10000);
-    await restarted.getByText("Connected", { exact: true }).waitFor();
+    await connected(restarted);
     await restarted.getByLabel("Your message", { exact: true }).fill("Test the saved model connection.");
     await restarted.getByRole("button", { name: "Send ↗", exact: true }).click();
     await restarted.locator(".message.assistant").filter({ hasText: "Saved connection is working." }).waitFor();
@@ -148,7 +148,7 @@ async function verifyOtherWindowDenied(electron, url) {
 }
 
 test("native settings remain usable after a corrupt file or undecryptable key", {
-  timeout: 90000,
+  timeout: 360000,
 }, async () => {
   const { home, options } = await desktopOptions();
   delete options.env.BRANCH_PROVIDER;
@@ -162,7 +162,7 @@ test("native settings remain usable after a corrupt file or undecryptable key", 
     const electron = await _electron.launch(options);
     try {
       const page = await electron.firstWindow();
-      await page.getByText("Connected", { exact: true }).waitFor();
+      await connected(page);
       await openSettingFor(page, "#model-provider");
       await page.locator("#model-settings-note").filter({ hasText: /could not/ }).waitFor();
       await page.getByLabel("Provider", { exact: true }).selectOption("demo");

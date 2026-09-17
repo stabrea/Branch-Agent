@@ -7,7 +7,7 @@ import { createServer } from "node:http";
 import { once } from "node:events";
 import { _electron } from "playwright";
 
-import { desktopOptions } from "./fixtures/desktop-options.mjs";
+import { connected, desktopOptions } from "./fixtures/desktop-options.mjs";
 
 async function appearance(page, value) {
   await openSettingFor(page, "#appearance");
@@ -22,7 +22,7 @@ async function appearance(page, value) {
 }
 
 async function verifyWindow(electron, page, home) {
-  await page.getByText("Connected", { exact: true }).waitFor();
+  await connected(page);
   assert.match(await page.title(), /Branch Agent/);
   const isolation = await electron.evaluate(({ BrowserWindow }) => {
     const p =
@@ -76,7 +76,7 @@ async function verifyNetworkBoundary(electron, page) {
       ({ BrowserWindow }, url) => BrowserWindow.getAllWindows()[0].loadURL(url),
       original,
     );
-    await page.getByText("Connected", { exact: true }).waitFor();
+    await connected(page);
     assert.equal(
       await page.evaluate(() => window.open("https://example.com") === null),
       true,
@@ -95,7 +95,7 @@ async function verifyNetworkBoundary(electron, page) {
 
 test(
   "native desktop authenticates locally, completes work, persists appearance, and hides to tray",
-  { timeout: 90000 },
+  { timeout: 360000 },
   async () => {
     const { home, options } = await desktopOptions();
     const electron = await _electron.launch(options);
@@ -108,7 +108,7 @@ test(
       await verifyNetworkBoundary(electron, page);
       await appearance(page, "daylight");
       await page.reload();
-      await page.getByText("Connected", { exact: true }).waitFor();
+      await connected(page);
       assert.equal(
         await page.locator("html").getAttribute("data-theme"),
         "daylight",
@@ -139,13 +139,13 @@ test(
     const restarted = await _electron.launch(options);
     try {
       const page = await restarted.firstWindow();
-      await page.getByText("Connected", { exact: true }).waitFor();
+      await connected(page);
       assert.equal(
         await page.locator("html").getAttribute("data-theme"),
         "daylight",
       );
       await page.getByRole("link", { name: "Branch Agent home" }).click();
-      await page.getByText("Connected", { exact: true }).waitFor();
+      await connected(page);
     } finally {
       await restarted.close();
     }

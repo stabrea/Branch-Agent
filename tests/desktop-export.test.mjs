@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { discardTemp } from './temp-dir.mjs';
 import { _electron } from 'playwright';
 import { saveConversationExport, saveMemoryExport } from '../dist/desktop/conversation-export.js';
-import { desktopOptions } from './fixtures/desktop-options.mjs';
+import { connected, desktopOptions } from './fixtures/desktop-options.mjs';
 
 const archive = { format: 'branch-agent-conversation', version: 1, exportedAt: '2026-09-15T00:00:00.000Z',
   messages: [{ role: 'user', content: 'Export fixture' }, { role: 'assistant', content: 'Saved response' }] };
@@ -45,12 +45,12 @@ test('native memory export validates archive and raw UTF8 size before opening th
   assert.deepEqual(JSON.parse(await readFile(path, 'utf8')), memoryArchive);
 });
 
-test('native conversation export uses guarded IPC and leaves the blanket download blocker enabled', { timeout: 90000 }, async () => {
+test('native conversation export uses guarded IPC and leaves the blanket download blocker enabled', { timeout: 360000 }, async () => {
   const { home, options } = await desktopOptions(), path = join(home, 'exported-conversation.json');
   const electron = await _electron.launch(options);
   try {
     const page = await electron.firstWindow(); page.setDefaultTimeout(10000);
-    await page.getByText('Connected', { exact: true }).waitFor();
+    await connected(page);
     await electron.evaluate(({ dialog }, path) => {
       globalThis.fixtureExportDialogs = [];
       dialog.showSaveDialog = async (_window, options) => {

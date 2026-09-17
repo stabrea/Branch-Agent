@@ -2,14 +2,14 @@ import test from "node:test";
 import { openSettingFor } from "./places.mjs";
 import assert from "node:assert/strict";
 import { _electron } from "playwright";
-import { desktopOptions } from "./fixtures/desktop-options.mjs";
+import { connected, desktopOptions } from "./fixtures/desktop-options.mjs";
 
-test("native identity settings survive restart and apply to a new task without exposing the local token", { timeout: 90000 }, async () => {
+test("native identity settings survive restart and apply to a new task without exposing the local token", { timeout: 360000 }, async () => {
   const { options } = await desktopOptions();
   const first = await _electron.launch(options);
   try {
     const page = await first.firstWindow();
-    await page.getByText("Connected", { exact: true }).waitFor();
+    await connected(page);
     await openSettingFor(page, "#identity-name");
     await page.getByLabel("Assistant name", { exact: true }).fill("Native Juniper");
     await page.getByLabel("Working instructions", { exact: true }).fill("Keep checked results concise.");
@@ -20,7 +20,7 @@ test("native identity settings survive restart and apply to a new task without e
   const second = await _electron.launch(options);
   try {
     const page = await second.firstWindow();
-    await page.getByText("Connected", { exact: true }).waitFor();
+    await connected(page);
     await openSettingFor(page, "#identity-name");
     assert.equal(await page.getByLabel("Assistant name", { exact: true }).inputValue(), "Native Juniper");
     assert.equal(await page.getByLabel("Working instructions", { exact: true }).inputValue(), "Keep checked results concise.");

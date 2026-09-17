@@ -32,7 +32,7 @@ export async function desktopOptions() {
     home,
     options: {
       ...launch,
-      timeout: 30000,
+      timeout: 120000,
       chromiumSandbox: true,
       env: {
         ...env,
@@ -45,3 +45,11 @@ export async function desktopOptions() {
   };
 }
 
+
+/**
+ * Waits for the window to say it is connected. Starting the whole app (its database, its server and
+ * the page) is quick on a desktop, but a shared Windows build machine running two other test files
+ * at once has taken well over thirty seconds for the same thing, so the allowance is for that.
+ */
+export const STARTUP_MS = 120000;
+export const connected = (page) => page.getByText("Connected", { exact: true }).waitFor({ timeout: STARTUP_MS });

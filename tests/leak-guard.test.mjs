@@ -300,7 +300,12 @@ test("more ordinary text passes untouched: ids, hex logs, keys that are public, 
     "redis://:@localhost:6379 and postgres://localhost:5432/app and https://example.org:8443/x",
   ];
   for (const text of ordinary) assert.deepEqual(findLeaks(text), [], text);
-  // Pictures inside data addresses, many megabytes of them, stay whole.
+  // Pictures inside data addresses, many megabytes of them, stay whole -- even where the random
+  // letters happen to spell a key's shape, which on a CI run once hid part of a picture.
+  const unlucky = `data:image/png;base64,${randomBytes(3000).toString("base64")}/AIzaSyA1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q/AKIAABCDEFGHIJKLMNOP+${randomBytes(3000).toString("base64")}`;
+  assert.equal(redactLeaksIn({ unlucky }).value.unlucky, unlucky);
+  // A real key written beside a picture is still found.
+  assert.equal(findLeaks(`${unlucky} and AIzaSyA1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q`).length, 1);
   for (let i = 0; i < 5; i += 1) {
     const picture = `data:image/png;base64,${randomBytes(750_000).toString("base64")}`;
     assert.equal(redactLeaksIn({ picture }).value.picture, picture);
