@@ -105,6 +105,15 @@ export const COMMANDS: readonly CatalogCommand[] = [
   entry("health", ["doctor"], "", "a quick check of the database, models, chat apps and schedules", [...W, "terminal", "dashboard"], "look"),
   // bucket 12: the owner's saved prompts and procedures; their own commands are laid over this table in saved.ts
   entry("prompts", ["procedures", "workflows"], "[name]", "your saved prompts and procedures; with a name, one of them in the message box", ALL, "look"),
+  // ---- r17-b: repeating in a conversation, sub-goals, background tasks, handing on, suggested automations (src/autonomy/commands.ts) ----
+  entry("loop", ["proactive"], "[every] <10m> <what to do> [--times n] [--until when]", "ask the same thing again in this conversation every so often; status, pause, resume or stop", [...W, "terminal"], "owner", { bareLooks: true }),
+  entry("heartbeat", ["hb"], "every <30m> <what to watch>", "a quiet check on this conversation that speaks up only with news; status, pause, resume or stop", [...W, "terminal"], "owner", { bareLooks: true }),
+  entry("subgoal", [], "[text | remove n | clear]", "more that must be true before this conversation's goal is done", [...W, "terminal"], "run", { bareLooks: true }),
+  entry("bg", ["background"], "<what to do>", "do something in a separate conversation, so this one stays free", [...W, "terminal"], "run"),
+  entry("handoff", [], "<chat app | terminal | assistant name>", "carry this conversation on in a chat app, a terminal or another assistant", [...W, "terminal"], "owner"),
+  entry("suggestions", ["suggest"], "[catalog | accept n | dismiss n]", "automations Branch suggests; a no is never offered again", [...W, "terminal"], "owner", { bareLooks: true }),
+  entry("blueprint", ["bp"], "[name] [blank=value ...]", "the automation catalogue; with a name and its blanks, make one", [...W, "terminal"], "owner", { bareLooks: true }),
+  // ---- end r17-b ----
 ];
 
 const bare = (name: string): string => name.replace(/^\//, "").replace(/@[\w.-]+$/, "").toLowerCase();

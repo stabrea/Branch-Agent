@@ -192,6 +192,7 @@ import { recoverOnStart } from "./never-break/resume.js";
 import { connectGuidedTelegram, saveTelegramSetup, telegramSetupView } from "./never-break/telegram-setup.js";
 import { fileURLToPath } from "node:url";
 import { Asks } from "./asks/index.js"; // mac6/bucket-23: the smaller asks
+import { Autonomy } from "./autonomy/index.js"; // r17-b: it suggests, and runs things on its own
 // mac4/bucket-20: talking to other agents and tools.
 import { Interop } from "./interop/index.js";
 // mac3/reflection-skills: looking back over conversations, and skills written from experience.
@@ -930,6 +931,13 @@ export async function createBranch(options: {
     telegramInUse: () => channels.summary().channels.some((channel) => channel.kind === "telegram"), version,
     assertHost: (host, port) => web.policy.assertAllowed(new URL(`https://${host}:${port}/`), "mail server address") });
   // ── end mac6/bucket-23 ──
+  // ── r17-b: suggestions, standing orders, loops, self-starting procedures (src/autonomy/). Every part ships off. ──
+  const autonomy = new Autonomy({ runtime, registry, scheduler, chats: channels, handoff: interop.handoffParts,
+    hasSecret: (name) => {
+      try { return store.secrets.list(runtime.owner, store.projects.active(runtime.owner).id).some((entry) => entry.name === name); } catch { return false; }
+    } });
+  scheduler.onTick.add(() => autonomy.tick());
+  // ── end r17-b ──
   // ── mac3/security-check: the self-check and the malware check (src/security-audit). Both ship off. ──
   const security = new SecurityService(
     { store, runtime, registry, sessionLock, privacy, web, sessionTokens, plugins, pluginCatalog, people },
@@ -976,6 +984,8 @@ export async function createBranch(options: {
     addOns,
     /** mac6/bucket-23: the smaller asks (src/asks/); every part ships off. */
     asks,
+    /** r17-b: suggested automations, standing orders, loops and self-starting procedures; every part ships off. */
+    autonomy,
     runtime,
     /** mac3/never-break: the task journal, and settling interrupted work after a restart. */
     neverBreak: {
@@ -1239,6 +1249,7 @@ export async function createBranch(options: {
       skillPackages.stop();
       mcpServer.close();
       asks.close(); // mac6/bucket-23: live pages stop asking their tools again
+      await autonomy.close(); // r17-b: nothing more starts by itself, and a turn that is working gets a moment
       await mcpConnections.closeAll();
       // Nothing the assistant left running outlives the app.
       await processes.stopAll().catch(() => undefined);
