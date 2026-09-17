@@ -1,0 +1,195 @@
+import { timingSafeEqual } from "node:crypto";
+import type { IncomingMessage } from "node:http";
+import { z } from "zod";
+import type { createBranch } from "./index.js";
+import type { Store } from "./store.js";
+import { readRunning } from "./install/running.js";
+import { assistantIdentity } from "./identity.js";
+import { preferences } from "./preferences.js";
+import {
+  activitySection, healthSection, nowSection, restartPlan, restartWords, spendSection, type SummaryDeps,
+} from "./dashboard-summary.js";
+
+/**
+ * The owner's control dashboard (wave mac3): a page of its own at /dashboard that shows at a glance
+ * what Branch is doing, whether its parts are healthy, what it has cost, and what is happening now,
+ * with the few controls an owner reaches for from a phone or a screen on the wall. It is served by
+ * Branch itself behind the same key and the same host rules as the app window, so it is reachable over
+ * the paired address exactly when the app is.
+ *
+ * Like every new feature it has the owner's three-way switch and ships off:
+ * - off: the page and its files are not served at all, and the summary refuses;
+ * - on: the page keeps itself up to date — the figures every few seconds and the live updates of
+ *   what is happening;
+ * - when-needed: the page is served but reads everything once, when it is opened or Refresh is
+ *   pressed, and keeps nothing open in between.
+ *
+ * Looking needs any key that may look. Stopping a task goes through the existing route, so a key that
+ * may start tasks may stop them. Everything else here — the switch itself, pausing every automation
+ * and restarting the engine — needs the master key of this computer; a short-lived key never does it.
+ */
+type Branch = Awaited<ReturnType<typeof createBranch>>;
+
+export const DashboardSettingsSchema = z.object({
+  mode: z.enum(["off", "on", "when-needed"]).default("off"),
+}).strict();
+export type DashboardSettings = z.infer<typeof DashboardSettingsSchema>;
+
+const PausedSchema = z.object({
+  at: z.string(),
+  schedules: z.array(z.string()).max(1000),
+  triggers: z.array(z.string()).max(1000),
+}).strict();
+type Paused = z.infer<typeof PausedSchema>;
+
+const SETTINGS_ID = "dashboard";
+const PAUSED_ID = "dashboard-paused";
+
+export function dashboardSettings(store: Store, owner: string): DashboardSettings {
+  const saved = DashboardSettingsSchema.safeParse(store.get("settings", owner, SETTINGS_ID)?.data ?? {});
+  return saved.success ? saved.data : DashboardSettingsSchema.parse({});
+}
+export function saveDashboardSettings(store: Store, owner: string, input: unknown): DashboardSettings {
+  const value = DashboardSettingsSchema.parse(input);
+  store.save("settings", owner, SETTINGS_ID, value);
+  return value;
+}
+
+/** The page and its own files. While the switch is off none of them is served. */
+export function isDashboardFile(path: string): boolean {
+  return path === "/dashboard" || path.startsWith("/dashboard/");
+}
+export function handlesDashboardPath(path: string): boolean {
+  return path === "/api/dashboard" || path.startsWith("/api/dashboard/");
+}
+
+/** What the key on this request may do on the page: everything, start and stop tasks, or only look. */
+export type DashboardAccess = "full" | "run" | "read";
+export function dashboardAccess(
+  request: IncomingMessage, masterKey: string, scoped: (supplied: string) => string | null,
+): DashboardAccess {
+  const supplied = /^Bearer (\S+)$/.exec(String(request.headers.authorization ?? ""))?.[1] ?? "";
+  if (supplied.length === masterKey.length && timingSafeEqual(Buffer.from(supplied), Buffer.from(masterKey))) return "full";
+  return scoped(supplied) === null ? "run" : "read";
+}
+
+export class DashboardApiError extends Error {
+  constructor(readonly status: number, message: string) { super(message); }
+}
+const masterOnly = (access: DashboardAccess, what: string) => {
+  if (access !== "full")
+    throw new DashboardApiError(403, `${what} needs the key of the computer Branch runs on, not a short-lived key.`);
+};
+
+/** Pauses every waiting schedule and switches off every trigger, remembering which, so resuming touches only those. */
+export function pauseAutomations(app: Branch, now = new Date()): Paused {
+  const owner = app.runtime.owner;
+  const earlier = pausedRecord(app.store, owner);
+  const schedules = app.store.list("schedules", owner).filter((record) => record.data.status === "pending");
+  for (const record of schedules) app.store.save("schedules", owner, record.id, { ...record.data, status: "paused" });
+  const triggers = app.triggers.list(owner).filter((trigger) => trigger.enabled);
+  for (const trigger of triggers) app.triggers.setEnabled(owner, trigger.id, false);
+  const paused: Paused = {
+    at: earlier?.at ?? now.toISOString(),
+    schedules: [...new Set([...(earlier?.schedules ?? []), ...schedules.map((record) => record.id)])],
+    triggers: [...new Set([...(earlier?.triggers ?? []), ...triggers.map((trigger) => trigger.id)])],
+  };
+  app.store.save("settings", owner, PAUSED_ID, paused);
+  return paused;
+}
+
+/** Starts again only what the dashboard paused; anything the owner paused by hand stays paused. */
+export function resumeAutomations(app: Branch): { schedules: number; triggers: number } {
+  const owner = app.runtime.owner;
+  const paused = pausedRecord(app.store, owner);
+  let schedules = 0, triggers = 0;
+  for (const id of paused?.schedules ?? []) {
+    const record = app.store.get("schedules", owner, id);
+    if (record?.data.status !== "paused") continue;
+    app.store.save("schedules", owner, id, { ...record.data, status: "pending" });
+    schedules += 1;
+  }
+  for (const id of paused?.triggers ?? []) {
+    const trigger = app.triggers.list(owner).find((entry) => entry.id === id);
+    if (!trigger || trigger.enabled) continue;
+    app.triggers.setEnabled(owner, id, true);
+    triggers += 1;
+  }
+  app.store.delete("settings", owner, PAUSED_ID);
+  return { schedules, triggers };
+}
+
+function pausedRecord(store: Store, owner: string): Paused | null {
+  const parsed = PausedSchema.safeParse(store.get("settings", owner, PAUSED_ID)?.data);
+  return parsed.success ? parsed.data : null;
+}
+
+export interface DashboardDeps extends SummaryDeps {
+  /** Sends a signal to this process; tests hand in a fake so nothing is really stopped. */
+  signal?: (pid: number, name: NodeJS.Signals) => void;
+  setExitCode?: (code: number) => void;
+}
+
+/**
+ * Restarts the engine that works in the background. It stops the way Ctrl+C stops it — work saved,
+ * the address let go — but with exit code 75, so the sign-in file (launchd's KeepAlive on a Mac,
+ * systemd's Restart=on-failure on Linux) starts it again. Anywhere nothing would start it again it
+ * is refused, because a restart that only stops would leave the owner with no Branch at all.
+ */
+async function restartEngine(dataDir: string, deps: DashboardDeps): Promise<unknown> {
+  const pid = deps.pid ?? process.pid;
+  const plan = restartPlan({
+    platform: deps.platform ?? process.platform, env: deps.env ?? process.env, pid,
+    running: await (deps.running ?? readRunning)(dataDir),
+  });
+  if (!plan.possible) throw new DashboardApiError(409, restartWords[plan.reason]);
+  const setExitCode = deps.setExitCode ?? ((code: number) => { process.exitCode = code; });
+  const signal = deps.signal ?? ((target: number, name: NodeJS.Signals) => { process.kill(target, name); });
+  setTimeout(() => { setExitCode(75); signal(pid, "SIGTERM"); }, 300);
+  return { restarting: true };
+}
+
+async function summary(app: Branch, dataDir: string, access: DashboardAccess, deps: DashboardDeps): Promise<unknown> {
+  const owner = app.runtime.owner;
+  return app.runtime.hideSecrets({
+    mode: dashboardSettings(app.store, owner).mode,
+    access,
+    assistant: assistantIdentity(app.store, owner).name,
+    /** Light or dark and the rest of the look, so the page wears what the window wears. */
+    appearance: preferences(app.store, owner),
+    paused: pausedRecord(app.store, owner),
+    now: await nowSection(app, dataDir, deps),
+    health: await healthSection(app, dataDir, deps),
+    spend: spendSection(app, deps),
+    activity: activitySection(app),
+  });
+}
+
+const PauseSchema = z.object({ paused: z.boolean() }).strict();
+
+/** Everything under /api/dashboard. */
+export async function dashboardApi(
+  app: Branch, request: IncomingMessage, path: string,
+  context: { dataDir: string; access: DashboardAccess; readBody: () => Promise<unknown>; deps?: DashboardDeps },
+): Promise<unknown> {
+  const owner = app.runtime.owner, method = request.method ?? "GET", deps = context.deps ?? {};
+  app.store.profiles.requireOwner("The dashboard");
+  if (path === "/api/dashboard/settings") {
+    if (method === "GET") return { ...dashboardSettings(app.store, owner), access: context.access };
+    masterOnly(context.access, "Switching the dashboard");
+    return saveDashboardSettings(app.store, owner, await context.readBody());
+  }
+  if (dashboardSettings(app.store, owner).mode === "off")
+    throw new DashboardApiError(404, "The dashboard is switched off. Turn it on under Customize → Channels.");
+  if (path === "/api/dashboard" && method === "GET") return summary(app, context.dataDir, context.access, deps);
+  if (path === "/api/dashboard/automations" && method === "POST") {
+    masterOnly(context.access, "Pausing every automation");
+    const { paused } = PauseSchema.parse(await context.readBody());
+    return paused ? { paused: pauseAutomations(app) } : { resumed: resumeAutomations(app) };
+  }
+  if (path === "/api/dashboard/restart" && method === "POST") {
+    masterOnly(context.access, "Restarting Branch");
+    return restartEngine(context.dataDir, deps);
+  }
+  throw new DashboardApiError(404, "Not found");
+}

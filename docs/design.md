@@ -122,6 +122,22 @@ to.
 Move up, Move down and Take it out are `.text-button`s on the row they act on; Add a step, Save and
 Run are `.quiet` in a row of their own under the list, because they act on the whole flow.
 
+### The dashboard in the browser (wave mac3)
+
+`/dashboard` (`public/dashboard/`) is a page of its own rather than a sixth place. It is for a phone,
+another computer or a screen on the wall, where the rail, the composer and eighty modules are in the
+way; and it reads across all five places at once, so it belongs to none of them. It wears the window
+exactly: one glass pane over the same oak, the owner's theme, season and contrast from this browser
+and light or dark from the workspace (`public/dashboard/look.js` hands the catalogue's colours to
+Branch's token names the way `layout.js` does, because `layout.js` cannot be loaded without the whole
+app). The head carries the mark, a status chip and Refresh; under it the five places and Settings in
+the window's order and names, each a link back into the window; then the condensed title and one
+sentence. Five areas follow — Now, Health, Spend, Activity, Controls — as `.lx-eyebrow` labels over
+ordinary cards (`<h2>`, a purpose line, one filled button at most), one column under 900 px, two
+under 1400 px, three above and four on a wall. Chips, rows, tabs and buttons are `layout.css`'s own;
+`public/dashboard/dashboard.css` adds only the layout, the meters (good below 75%, warn below 92%,
+bad above) and the spend bars in `--series-N`. Its switch card lives in `customize:channels`.
+
 ## The glossary
 
 One name per idea, across every screen, the rail, the palette and the language files. The words on
