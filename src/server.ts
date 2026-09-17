@@ -664,8 +664,8 @@ async function testProvider(body: unknown, policy: NetworkPolicy): Promise<unkno
 
 function providerFailureReason(error: unknown): string {
   const text = errorText(error);
-  if (/(401|403)|invalid.*key|unauthori|forbidden/i.test(text)) return "The key was not accepted. Check it and try again.";
-  if (/404|not found|no such model|does not exist/i.test(text)) return "That model name was not found at this address.";
+  if (/\b(401|403)\b|invalid.*key|unauthori|forbidden/i.test(text)) return "The key was not accepted. Check it and try again.";
+  if (/\b404\b|not found|no such model|does not exist/i.test(text)) return "That model name was not found at this address.";
   if (/ENOTFOUND|ECONNREFUSED|fetch failed|timed? ?out|abort/i.test(text)) return "Could not reach that address. Check the URL and your connection.";
   if (/private|blocked|policy|requires HTTPS/i.test(text)) return "That address is not allowed: " + text.slice(0, 120);
   return "The provider answered with an error: " + text.slice(0, 160);
