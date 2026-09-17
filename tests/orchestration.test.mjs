@@ -4,6 +4,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
+import { discardTemp } from "./temp-dir.mjs";
 import { createBranch, Budget, looksMultiPart } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 
@@ -27,7 +28,7 @@ async function fixture(t, reply, options = {}) {
   const root = await mkdtemp(join(tmpdir(), "branch-orchestration-"));
   const provider = scripted(reply);
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider, ...options });
-  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await app.close(); await discardTemp(root); });
   return { app, provider, root };
 }
 async function served(t, reply, options = {}) {
@@ -258,7 +259,7 @@ test("a task that goes quiet twice changes strategy instead of trying the same t
   const root = await mkdtemp(join(tmpdir(), "branch-stuck-"));
   const provider = { name: "sleepy", async complete(request) { return hang(request); } };
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider, reliability: { modelStallMs: 5000 } });
-  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await app.close(); await discardTemp(root); });
   app.runtime.reliability.modelStallMs = 120;
   app.runtime.models.register({ id: "spare", name: "Spare", provider: { name: "spare", async complete() { return say("the spare model answered"); } }, model: "y" });
   app.runtime.models.configure("local", { fallbackOrder: ["spare"] });

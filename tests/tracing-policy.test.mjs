@@ -4,6 +4,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "node:http";
+import { discardTemp } from "./temp-dir.mjs";
 import {
   createBranch,
   ApprovalGate,
@@ -59,7 +60,7 @@ async function fixture(t, steps = [say("ok")], options = {}) {
     workspace: join(root, "workspace"), dataDir: join(root, "data"), provider,
     web: { allowPrivateAddresses: true }, ...options,
   });
-  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await app.close(); await discardTemp(root); });
   return { app, root, provider, workspace: join(root, "workspace") };
 }
 
@@ -675,7 +676,7 @@ test("P3: same tool, same target, different bytes — the old yes does not cover
   const root = await mkdtemp(join(tmpdir(), "branch-bytes-"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider });
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
-  t.after(async () => { await server.close(); await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await server.close(); await app.close(); await discardTemp(root); });
   const api = async (method, path, body) => {
     const response = await fetch(server.url + path, {
       method, headers: { authorization: `Bearer ${server.token}`, ...(body ? { "content-type": "application/json" } : {}) },

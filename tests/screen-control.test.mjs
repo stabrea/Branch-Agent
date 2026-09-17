@@ -13,6 +13,7 @@ import { mkdtemp, rm, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
+import { discardTemp } from "./temp-dir.mjs";
 import { chromium } from "playwright";
 import { createBranch, isReadOnlyPermission, savePolicy } from "../dist/index.js";
 import {
@@ -29,7 +30,7 @@ const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 async function fixture(t, provider) {
   const root = await mkdtemp(join(tmpdir(), "branch-screen-"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), ...(provider ? { provider } : {}) });
-  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await app.close(); await discardTemp(root); });
   const run = app.store.createRun("local", "screen control fixture");
   return { app, root, run, context: () => app.runtime.context({ runId: run.id }) };
 }

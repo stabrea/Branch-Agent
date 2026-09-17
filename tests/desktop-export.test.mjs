@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { discardTemp } from './temp-dir.mjs';
 import { _electron } from 'playwright';
 import { saveConversationExport, saveMemoryExport } from '../dist/desktop/conversation-export.js';
 import { desktopOptions } from './fixtures/desktop-options.mjs';
@@ -16,7 +17,7 @@ const memoryArchive = { format: 'branch-agent-memory', version: 1, exportedAt: a
 test('native export validates text before choosing a file and writes only a chosen destination', async (t) => {
   const scratch = join(tmpdir(), 'Codex-session-files'); await mkdir(scratch, { recursive: true });
   const root = await mkdtemp(join(scratch, 'branch-export-')), path = join(root, 'conversation.json');
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => discardTemp(root));
   let dialogs = 0;
   const choose = async () => { dialogs++; return path; };
   for (const value of [archive, '{broken', '{}', '☃'.repeat(1500000), JSON.stringify({ ...archive, path })])
@@ -32,7 +33,7 @@ test('native export validates text before choosing a file and writes only a chos
 test('native memory export validates archive and raw UTF8 size before opening the save dialog', async t => {
   const scratch = join(tmpdir(), 'Codex-session-files'); await mkdir(scratch, { recursive: true });
   const root = await mkdtemp(join(scratch, 'branch-memory-export-')), path = join(root, 'memory.json');
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => discardTemp(root));
   let dialogs = 0; const choose = async () => { dialogs++; return path; };
   for (const value of [memoryArchive, '{}', JSON.stringify(archive), '☃'.repeat(5600000), JSON.stringify({ ...memoryArchive, path })])
     await assert.rejects(saveMemoryExport(value, choose));

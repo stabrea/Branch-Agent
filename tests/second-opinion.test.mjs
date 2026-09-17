@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { discardTemp } from "./temp-dir.mjs";
 import { z } from "zod";
 import { startServer } from "../dist/server.js";
 import {
@@ -30,7 +31,7 @@ function scripted(name, reply) {
 async function fixture(t, presets) {
   const root = await mkdtemp(join(tmpdir(), "branch-second-opinion-"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), presets });
-  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await app.close(); await discardTemp(root); });
   return { app, root };
 }
 const events = (app, runId, kind) => app.store.events(runId).filter((e) => e.kind === kind).map((e) => e.data);

@@ -7,6 +7,7 @@ import { inlineNodes } from "/markdown.js";
 const $ = (id) => document.getElementById(id);
 const sizeLimit = 20 * 1024 * 1024;
 let view = null;
+let context = {};
 
 function el(tag, text, className) {
   const node = document.createElement(tag);
@@ -40,11 +41,14 @@ const stateText = {
 
 export async function loadDocuments() {
   view = await request("/api/documents");
+  // The switch for naming this project's own files lives with the other retrieval settings.
+  context = await request("/api/retrieval").catch(() => context);
   render();
 }
 function render() {
   if (!view) return;
   $("documents-use").checked = view.inAnswers;
+  $("documents-repository").checked = Boolean(context.repositoryContext);
   $("documents-meaning").textContent = view.meaningSearch
     ? "Your documents are matched by wording and by meaning."
     : "Your documents are matched by the words in them. Connect a model that offers comparisons by meaning to also match by meaning.";
@@ -149,6 +153,11 @@ function wire() {
     const query = $("documents-query").value.trim();
     if (!query) return;
     try { await search(query); say(""); } catch (error) { say(error.message); }
+  });
+  $("documents-repository").addEventListener("change", async (event) => {
+    try {
+      context = await request("/api/retrieval/context", { body: { repositoryContext: event.target.checked } });
+    } catch (error) { say(error.message); }
   });
   $("documents-use").addEventListener("change", async (event) => {
     try {

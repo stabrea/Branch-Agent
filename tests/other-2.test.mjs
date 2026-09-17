@@ -4,6 +4,7 @@ import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
+import { discardTemp } from "./temp-dir.mjs";
 import {
   createBranch, openApiDocument, apiMarkdown, apiRoutes,
   saveCacheSettings, requestHash,
@@ -23,7 +24,7 @@ function scripted(steps = []) {
   } };
   return provider;
 }
-const discard = (base) => rm(base, { recursive: true, force: true }).catch(() => undefined);
+const discard = (base) => discardTemp(base).catch(() => undefined);
 
 async function fixture(t, steps) {
   const base = await mkdtemp(join(tmpdir(), "branch-other2-"));

@@ -6,6 +6,7 @@ import { crc32 } from "node:zlib";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { discardTemp } from "./temp-dir.mjs";
 import { createBranch, packSkill, readSkillPackage, signRegistryEntry, skillExamples } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 
@@ -24,7 +25,7 @@ async function fixture(t, steps = [say("ok")], options = {}) {
   const dataDir = join(root, "data");
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir, provider, ...options });
   const server = await startServer(app, { dataDir, port: 0 });
-  t.after(async () => { await server.close(); await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await server.close(); await app.close(); await discardTemp(root); });
   const api = async (path, body) => {
     const response = await fetch(server.url + "/api/" + path, { method: body === undefined ? "GET" : "POST",
       headers: { authorization: "Bearer " + server.token, origin: server.url, "content-type": "application/json" },

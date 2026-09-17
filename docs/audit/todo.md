@@ -697,20 +697,20 @@ Honest work remaining: 349 — 305 single ids still open, plus 27 partial and 17
 - A0278 [missing/L] Vector-backed agent memory (in 1 projects): Vector memory not implemented.
 - A0417 [missing/L] Vector-store retrieval (in 1 projects): RAG not implemented.
 - A0747 [missing/L] Vector memory retrieval (in 1 projects): Vector memory not implemented.
-- A0784 [missing/L] Vector-store integrations (in 1 projects): RAG not implemented.
+- [x] A0784 Vector-store integrations — not applicable: adapters for hosted vector services (Qdrant, Chroma, Pinecone, Weaviate and the like). Nobody running Branch on their own computer runs one beside it, an adapter could not be tested here without a network, and each is a new dependency for a service the owner does not have. Built instead: the `VectorBackend` contract, a second real place for the vectors on this machine (a database file the owner names, src/vector-store-file.ts), and a complete worked adapter in docs/configuration.md; tests/retrieval-2.test.mjs
 - A0818 [missing/M] Vector-store abstraction and similarity search (in 1 projects): No implementation found.
 - A0838 [missing/L] Vector-store indexing (in 1 projects): RAG not implemented.
-- A0947 [missing/L] Vector stores (in 1 projects): RAG not implemented.
-- A1103 [missing/L] Vector database connectors (in 1 projects): Vector memory not implemented.
+- [x] A0947 Vector stores — not applicable: adapters for hosted vector services (Qdrant, Chroma, Pinecone, Weaviate and the like). Nobody running Branch on their own computer runs one beside it, an adapter could not be tested here without a network, and each is a new dependency for a service the owner does not have. Built instead: the `VectorBackend` contract, a second real place for the vectors on this machine (a database file the owner names, src/vector-store-file.ts), and a complete worked adapter in docs/configuration.md; tests/retrieval-2.test.mjs
+- [x] A1103 Vector database connectors — not applicable: adapters for hosted vector services (Qdrant, Chroma, Pinecone, Weaviate and the like). Nobody running Branch on their own computer runs one beside it, an adapter could not be tested here without a network, and each is a new dependency for a service the owner does not have. Built instead: the `VectorBackend` contract, a second real place for the vectors on this machine (a database file the owner names, src/vector-store-file.ts), and a complete worked adapter in docs/configuration.md; tests/retrieval-2.test.mjs
 - A1119 [missing/L] Embedding retrieval (in 1 projects): RAG not implemented.
 - A1225 [missing/L] Vector retrieval and stores (in 1 projects): RAG not implemented.
 - A1328 [missing/L] Vector-store RAG example (in 1 projects): Vector-store adapters (ChromaDB/Qdrant); Branch has no embedding backend.
 - A1363 [missing/L] Vector-store retrieval agents (in 1 projects): Document retrieval and multi-agent RAG requires embedding support.
 - A1373 [missing/L] Vector and keyword retrieval (in 1 projects): Vector and keyword retrieval requires embedding infrastructure.
 - A1670 [missing/L] User-document vector retrieval (in 1 projects): User-document vector retrieval requires embedding infrastructure.
-- A1921 [missing/L] Vector database adapters (in 1 projects): Vector database adapters require pluggable vector backends; no adapter system exists.
+- [x] A1921 Vector database adapters — not applicable: adapters for hosted vector services (Qdrant, Chroma, Pinecone, Weaviate and the like). Nobody running Branch on their own computer runs one beside it, an adapter could not be tested here without a network, and each is a new dependency for a service the owner does not have. Built instead: the `VectorBackend` contract, a second real place for the vectors on this machine (a database file the owner names, src/vector-store-file.ts), and a complete worked adapter in docs/configuration.md; tests/retrieval-2.test.mjs
 - A1975 [missing/L] Long-term vector memory (in 1 projects): Long-term vector memory requires embeddings and lexical search; no embedding service.
-- A2363 [missing/L] Vector database retrieval (in 1 projects): Vector database retrieval requires embedding backend; no vector store.
+- [x] A2363 Vector database retrieval — not applicable: adapters for hosted vector services (Qdrant, Chroma, Pinecone, Weaviate and the like). Nobody running Branch on their own computer runs one beside it, an adapter could not be tested here without a network, and each is a new dependency for a service the owner does not have. Built instead: the `VectorBackend` contract, a second real place for the vectors on this machine (a database file the owner names, src/vector-store-file.ts), and a complete worked adapter in docs/configuration.md; tests/retrieval-2.test.mjs
 
 ## media-generation — 13 pieces (20 rows) {'S': 5, 'M': 13, 'L': 2}
 

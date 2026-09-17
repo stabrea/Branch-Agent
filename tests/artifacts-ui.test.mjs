@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { discardTemp } from "./temp-dir.mjs";
 import { chromium } from "playwright";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
@@ -25,7 +26,7 @@ async function fixture(t, provider) {
   const browser = await chromium.launch({ headless: true });
   t.after(async () => {
     await browser.close(); await server.close(); await app.close();
-    await rm(root, { recursive: true, force: true });
+    await discardTemp(root);
   });
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
   const errors = [];

@@ -4,6 +4,7 @@ import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 
 async function fixture(t, provider) {
@@ -12,7 +13,7 @@ async function fixture(t, provider) {
   const root = await mkdtemp(join(scratch, "branch-history-"));
   const dataDir = join(root, "data"), workspace = join(root, "workspace");
   const app = await createBranch({ dataDir, workspace, provider });
-  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await app.close(); await discardTemp(root); });
   return { app, root, dataDir, workspace };
 }
 function seed(store, owner, content, role = "user") {

@@ -5,6 +5,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
+import { discardTemp } from "./temp-dir.mjs";
 import { createBranch, NetworkPolicy, pathRuleMatches, WebAccess, frame, readFrame, acceptKey } from "../dist/index.js";
 import { ShellProcess } from "../dist/integrations/shell-process.js";
 import { BranchBrowser } from "../dist/integrations/browser.js";
@@ -25,14 +26,14 @@ async function fixture(t, steps = [say("ok")], options = {}) {
   const root = await mkdtemp(join(tmpdir(), "branch-guard-"));
   const provider = scripted(steps);
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider, ...options });
-  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await app.close(); await discardTemp(root); });
   return { app, root, provider };
 }
 const context = (app, extra = {}) => ({ ...app.runtime.context(), ...extra });
 
 test("a command that eats memory or spins the processor is stopped by the sampled limits", { timeout: 60000 }, async (t) => {
   const root = await mkdtemp(join(tmpdir(), "branch-limits-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => discardTemp(root));
   const base = { cwd: root, env: process.env, signal: new AbortController().signal, timeoutMs: 30000, maxOutputBytes: 4096, usageIntervalMs: 300 };
   const hog = new ShellProcess({ ...base, executable: process.execPath, args: ["-e", "const a=[]; for(;;){ a.push(Buffer.alloc(8*1024*1024, 1)); if (a.length > 60) break; } setTimeout(() => {}, 20000);"], maxMemoryMb: 64 });
   const hogResult = await hog.run();

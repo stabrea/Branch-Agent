@@ -5,6 +5,7 @@ import { createHash } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { discardTemp } from "./temp-dir.mjs";
 import { createBranch, standardSuite } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 
@@ -26,7 +27,7 @@ async function fixture(t, steps = [say("ok")], options = {}) {
   const provider = scripted(steps);
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider, ...options });
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
-  t.after(async () => { await server.close(); await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await server.close(); await app.close(); await discardTemp(root); });
   const api = async (path, body) => {
     const response = await fetch(server.url + "/api/" + path, { method: body === undefined ? "GET" : "POST", headers: { authorization: "Bearer " + server.token, origin: server.url, "content-type": "application/json" }, ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
     const json = await response.json(); if (!response.ok) throw new Error(json.error); return json;

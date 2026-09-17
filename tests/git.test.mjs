@@ -5,6 +5,7 @@ import { spawn } from 'node:child_process';
 import { mkdir, mkdtemp, writeFile, rm, readdir, chmod } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { discardTemp } from './temp-dir.mjs';
 import { createBranch } from '../dist/index.js';
 import { GitRunner, locateGit, explainGit } from '../dist/integrations/git-run.js';
 import { GitTools } from '../dist/integrations/git.js';
@@ -31,7 +32,7 @@ async function fixture(t, provider) {
   await mkdir(scratch, { recursive: true });
   const root = await mkdtemp(join(scratch, 'branch-git-'));
   const app = await createBranch({ workspace: join(root, 'workspace'), dataDir: join(root, 'private'), ...(provider ? { provider } : {}) });
-  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await app.close(); await discardTemp(root); });
   const runner = new GitRunner();
   const run = async (args, cwd = app.runtime.workspace) => {
     const outcome = await runner.run({ cwd, args }, AbortSignal.timeout(30000));

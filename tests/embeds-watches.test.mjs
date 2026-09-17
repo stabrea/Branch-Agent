@@ -13,6 +13,7 @@ import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { createServer, request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { discardTemp } from "./temp-dir.mjs";
 import {
   ScreenWatches, createBranch, embedSettings, isLoopback, saveEmbedSettings, saveScreenWatchSettings,
   widgetOrigin,
@@ -23,7 +24,7 @@ const EXTENSION = new URL("../extras/browser-extension/", import.meta.url);
 async function workspace(t) {
   const root = await mkdtemp(join(tmpdir(), "branch-embeds-"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data") });
-  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await app.close(); await discardTemp(root); });
   return app;
 }
 
@@ -190,7 +191,7 @@ test("E2 the paired listener really answers the question a browser asks before t
   t.after(async () => {
     paired.closeAllConnections?.();
     await new Promise((done) => paired.close(done));
-    await handle.close(); await app.close(); await rm(root, { recursive: true, force: true });
+    await handle.close(); await app.close(); await discardTemp(root);
   });
 
   const ask = (origin, onHost = host) => new Promise((resolve, reject) => {

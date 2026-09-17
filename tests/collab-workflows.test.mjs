@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { discardTemp } from "./temp-dir.mjs";
 import {
   createBranch, shareHtml, redactText, dayOffDecision, inQuietHours, quietUntil,
   weeklyReviewWorkflow, RedactionSchema, savePolicy, readPolicy,
@@ -18,7 +19,7 @@ function scripted() {
   } };
   return provider;
 }
-const discard = (base) => rm(base, { recursive: true, force: true }).catch(() => undefined);
+const discard = (base) => discardTemp(base).catch(() => undefined);
 /** One app on its own data folder. Everything is closed before the folder goes, in that order. */
 async function fixture(t, root) {
   const base = root ?? await mkdtemp(join(tmpdir(), "branch-collab-"));
@@ -150,7 +151,7 @@ test("labels and notes travel with the backup", async (t) => {
 
 test("a workflow waits for approval, survives a restart, and carries on", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "branch-collab-restart-"));
-  t.after(() => rm(root, { recursive: true, force: true }).catch(() => undefined));
+  t.after(() => discardTemp(root).catch(() => undefined));
   const first = await fixture(t, root);
   const made = first.app.workflows.create("local", {
     name: "Two halves", steps: [

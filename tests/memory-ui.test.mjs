@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { discardTemp } from './temp-dir.mjs';
 import { chromium } from 'playwright';
 import { createBranch } from '../dist/index.js';
 import { startServer } from '../dist/server.js';
@@ -19,7 +20,7 @@ async function fixture(t, seed = true) {
   if (seed) await app.runtime.executeTool('memory.put', { text: 'Juniper meeting Monday', source: 'Original note' });
   const server = await startServer(app, { dataDir: join(root, 'data'), port: 0 });
   const browser = await chromium.launch({ headless: true });
-  t.after(async () => { await browser.close(); await server.close(); await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await browser.close(); await server.close(); await app.close(); await discardTemp(root); });
   const page = await browser.newPage({ acceptDownloads: true, viewport: { width: 1440, height: 1000 } });
   const errors = []; page.on('pageerror', error => errors.push(error.message));
   await page.goto(server.url); await page.getByLabel('Session token', { exact: true }).fill(server.token);

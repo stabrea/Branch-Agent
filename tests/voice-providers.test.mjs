@@ -4,6 +4,7 @@ import { createServer } from "node:http";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { discardTemp } from "./temp-dir.mjs";
 import { createBranch, GeminiProvider, OpenAIProvider, ToolRegistry } from "../dist/index.js";
 import { NetworkPolicy } from "../dist/network-policy.js";
 import { Transcription, estimateAudioCost, hiddenChildOptions, localSttArgs } from "../dist/voice-stt.js";
@@ -46,7 +47,7 @@ async function fakeService(t, routes) {
 async function fixture(t, presets) {
   const root = await mkdtemp(join(tmpdir(), "branch-voice7-"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), ...(presets ? { presets } : {}) });
-  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await app.close(); await discardTemp(root); });
   return { app, root };
 }
 const scripted = (name, text = "answered") => ({ name, calls: 0, async complete() { this.calls += 1; return { content: `${name} ${text}`, toolCalls: [] }; } });

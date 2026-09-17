@@ -19,6 +19,7 @@ import { Pairing, maximumAttempts } from "../dist/remote/pairing.js";
 import { RemoteAccess, assertPrivateAddress } from "../dist/remote/remote-access.js";
 import { hostAllowed, pairingRequest, startServer } from "../dist/server.js";
 import { Readable } from "node:stream";
+import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { doctorFix, doctorText } from "../dist/doctor-fix.js";
 import { backupsToPrune, writeUpdateBackup, listUpdateBackups, readUpdateBackup, recordFirstStart, readFirstStart, backupFileName } from "../dist/install/update-backup.js";
@@ -29,7 +30,7 @@ const windows = process.platform === "win32";
 
 async function scratch(t, prefix = "branch-deploy-") {
   const root = await mkdtemp(join(tmpdir(), prefix));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => discardTemp(root));
   return root;
 }
 /** A running app whose database is closed before the folder is removed, or Windows holds the file. */
@@ -193,7 +194,7 @@ test("a second launch joins the engine that is already running, and ignores a no
   const root = await mkdtemp(join(tmpdir(), "branch-deploy-"));
   const app = await branchIn(t, root);
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0, presence: "app" });
-  t.after(async () => { await server.close(); await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await server.close(); await app.close(); await discardTemp(root); });
 
   const note = await readRunning(join(root, "data"));
   assert.equal(note.pid, process.pid);
@@ -350,7 +351,7 @@ test("the pairing door is shut on this computer's own address", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "branch-deploy-"));
   const app = await branchIn(t, root);
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
-  t.after(async () => { await server.close(); await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await server.close(); await app.close(); await discardTemp(root); });
   const response = await fetch(`${server.url}/api/pair`, {
     method: "POST", headers: { "content-type": "application/json", origin: server.url },
     body: JSON.stringify({ id: "anything", code: "000000" }),
@@ -431,7 +432,7 @@ test("a version that did not come up cleanly is remembered, so the update screen
 test("putting back a safety copy replaces what is there; an ordinary restore still refuses to", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "branch-deploy-"));
   const app = await branchIn(t, root);
-  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await app.close(); await discardTemp(root); });
   const owner = app.runtime.owner;
   await app.runtime.run({ prompt: "say hello" }); // a real conversation, so this copy is not empty
   app.store.save("settings", owner, "before-update", { kept: true });

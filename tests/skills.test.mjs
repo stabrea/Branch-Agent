@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { discardTemp } from './temp-dir.mjs';
 import { createBranch, parseSkillDocument } from '../dist/index.js';
 import { startServer } from '../dist/server.js';
 
@@ -13,7 +14,7 @@ async function fixture(t, provider) {
   const root = await mkdtemp(join(scratch, 'branch-skills-'));
   const options = { workspace: join(root, 'workspace'), dataDir: join(root, 'data'), provider };
   const app = await createBranch(options);
-  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await app.close(); await discardTemp(root); });
   return { app, options };
 }
 const revision = skill => ({ expectedRevision: skill.revision });

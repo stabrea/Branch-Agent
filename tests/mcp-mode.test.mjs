@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "node:http";
 import { once } from "node:events";
+import { discardTemp } from "./temp-dir.mjs";
 import { z } from "zod";
 import { createBranch, McpConnections, savePolicy, sanitiseApp, appContentSecurityPolicy, signIn } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
@@ -21,7 +22,7 @@ async function fixture(t) {
   t.after(async () => {
     await server.close();
     await app.close();
-    await rm(root, { recursive: true, force: true });
+    await discardTemp(root);
   });
   return { app, ...server };
 }

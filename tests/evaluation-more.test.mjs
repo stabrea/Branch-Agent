@@ -7,6 +7,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { discardTemp } from "./temp-dir.mjs";
 import { createBranch, builtInSuites, readGrade, savePricingSettings } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 
@@ -65,7 +66,7 @@ async function fixture(t, routes = passingRoutes(), options = {}) {
   const root = await mkdtemp(join(tmpdir(), "branch-eval-"));
   const provider = scripted(routes);
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider, ...options });
-  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await app.close(); await discardTemp(root); });
   return { app, root, provider };
 }
 
@@ -186,7 +187,7 @@ test("the same suite runs against two model choices and comes back as one table"
     { id: "careful", name: "Careful", provider, model: "gpt-4o" },
   ];
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), presets });
-  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await app.close(); await discardTemp(root); });
 
   const table = await app.evaluationSuites.compare({ suite: "cost", presets: ["fast", "careful"] });
   assert.equal(table.readOnly, true, "a comparison changes nothing by default");
@@ -209,7 +210,7 @@ test("a suite that writes files is refused the tools that change things when it 
   const root = await mkdtemp(join(tmpdir(), "branch-eval-ro-"));
   const presets = [{ id: "a", name: "A", provider, model: "gpt-4o-mini" }, { id: "b", name: "B", provider, model: "gpt-4o" }];
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), presets });
-  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await app.close(); await discardTemp(root); });
   const table = await app.evaluationSuites.compare({ suite: "everyday", presets: ["a", "b"] });
   assert.ok(table.rows.every((row) => row.accuracy < 1), "writing tasks cannot pass without the tools that write");
   await assert.rejects(readFile(join(root, "workspace", "eval-ready.txt"), "utf8"), /ENOENT/);
@@ -278,7 +279,7 @@ test("a nightly suite runs from the scheduler and a regression reaches a webhook
 
 test("the command line prints a suite as a table and as JSON", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "branch-eval-cli-"));
-  t.after(async () => { await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await discardTemp(root); });
   const cli = resolve("dist/cli.js");
   const env = { ...process.env, BRANCH_PROVIDER: "demo", BRANCH_WORKSPACE: join(root, "workspace"), BRANCH_DATA_DIR: join(root, "data") };
 
@@ -298,7 +299,7 @@ test("the command line prints a suite as a table and as JSON", async (t) => {
 
 test("the command line compares one suite across two model choices", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "branch-eval-cli-compare-"));
-  t.after(async () => { await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await discardTemp(root); });
   const env = {
     ...process.env, BRANCH_WORKSPACE: join(root, "workspace"), BRANCH_DATA_DIR: join(root, "data"),
     BRANCH_MODEL_PRESETS: JSON.stringify([

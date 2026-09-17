@@ -10,6 +10,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
+import { discardTemp } from "./temp-dir.mjs";
 import {
   RequestCounter, Todos, buildReport, cachedAnswers, createBranch, episodeReport, logJsonl,
   readLog, remindAbout, requestAllowances,
@@ -22,7 +23,7 @@ async function workspace(t, provider) {
     workspace: join(root, "workspace"), dataDir: join(root, "data"),
     ...(provider ? { provider } : {}),
   });
-  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await app.close(); await discardTemp(root); });
   return app;
 }
 

@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { EventEmitter } from "node:events";
 import { setTimeout as delay } from "node:timers/promises";
+import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { startTerminal } from "../dist/terminal.js";
 
@@ -30,7 +31,7 @@ async function fixture(t) {
   const done = startTerminal(app.runtime, { input, output, signals, terminal: false, pollIntervalMs: 5 });
   t.after(async () => {
     if (!input.writableEnded) { input.write("/exit\n"); input.end(); }
-    await done; await app.close(); await rm(root, { recursive: true, force: true });
+    await done; await app.close(); await discardTemp(root);
   });
   return { app, alpha, beta, input, text: () => text };
 }

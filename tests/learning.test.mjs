@@ -4,6 +4,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
+import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 
@@ -22,7 +23,7 @@ async function fixture(t, steps, review) {
   const root = await mkdtemp(join(tmpdir(), "branch-learning-"));
   const provider = scripted(steps, review);
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider });
-  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await app.close(); await discardTemp(root); });
   return { app, root, provider };
 }
 async function served(t, app, root) {

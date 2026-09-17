@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { discardTemp } from "./temp-dir.mjs";
 import { chromium } from "playwright";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
@@ -22,7 +23,7 @@ test("browser UI connects, runs demo, saves memory, and fits mobile viewport", a
     await browser.close();
     await server.close();
     await app.close();
-    await rm(root, { recursive: true, force: true });
+    await discardTemp(root);
   });
   const page = await browser.newPage({
       viewport: { width: 1440, height: 1000 },

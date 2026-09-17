@@ -739,6 +739,8 @@
             <h2 data-t="documents.card.answering-from-your-documents">Answering from your documents</h2>
             <p>While this is on, your assistant looks through the documents below before it answers, and says which one it took each line from.</p>
             <label class="check-row"><input type="checkbox" id="documents-use" /> <span data-t="field.use-my-documents-when-answering">Use my documents when answering</span></label>
+            <label class="check-row"><input type="checkbox" id="documents-repository" /> <span data-t="field.also-name-the-files-of">Also name the files of this project that match, when nothing of yours does</span></label>
+            <p class="subtle" data-t="documents.note.naming-project-files-is-off">This is off unless you want it. Most questions are not about code, and a list of file names in front of every question would only get in the way. When it is on, it speaks last: a knowledge base or a document of yours is always preferred.</p>
             <p class="subtle" id="documents-meaning"></p>
           </div>
           <form id="documents-path-form" class="card">
@@ -805,8 +807,34 @@
                 <input id="knowledge-query" type="search" maxlength="500" placeholder="what does the handbook say about holiday?" />
                 <button type="submit" data-t="action.search">Search</button>
               </div>
+              <div class="input-row">
+                <label for="knowledge-filter-kind" data-t="field.only-this-kind-of-file">Only this kind of file</label>
+                <select id="knowledge-filter-kind">
+                  <option value="" data-t="option.any-kind">Any kind</option>
+                  <option value="pdf">PDF</option>
+                  <option value="docx">Word</option>
+                  <option value="xlsx">Spreadsheet</option>
+                  <option value="pptx">Slides</option>
+                  <option value="md">Notes</option>
+                  <option value="csv">Table</option>
+                </select>
+                <label for="knowledge-filter-changed" data-t="field.only-files-changed-since">Only files changed since</label>
+                <input id="knowledge-filter-changed" type="date" data-t-label="field.only-files-changed-since" aria-label="Only files changed since" />
+              </div>
+              <p class="subtle" data-t="documents.note.a-filter-that-matches-nothing">A filter narrows the search before anything is ranked, and two filters narrow it further. If nothing matches, Branch says so rather than answering from everything else you have.</p>
               <div id="knowledge-results" class="card-list"></div>
             </form>
+            <h3 data-t="documents.heading.where-your-vectors-are-kept">Where your vectors are kept</h3>
+            <p class="subtle" data-t="documents.note.vectors-are-kept-in-branchs">Matching by meaning needs a list of numbers for every passage. They are kept in the database Branch already has. If you have a large library you can put them in a database file of your own instead, on any drive. Nothing is deleted by changing this: press Read it again to fill the new place.</p>
+            <div class="input-row">
+              <select id="knowledge-vectors-in">
+                <option value="database" data-t="option.in-branchs-own-database">In Branch's own database</option>
+                <option value="file" data-t="option.in-a-file-i-choose">In a file I choose</option>
+              </select>
+              <input id="knowledge-vectors-file" type="text" maxlength="400" placeholder="D:/branch/vectors.db" data-t-label="field.the-full-path-of-that" aria-label="The full path of that file" />
+              <button id="knowledge-vectors-save" type="button" data-t="action.save">Save</button>
+            </div>
+            <p id="knowledge-vectors-status" role="status" class="meta"></p>
           </div>
           <div class="card" id="docs3-card">
             <h2 data-t="documents.card.write-a-document">Write a document</h2>

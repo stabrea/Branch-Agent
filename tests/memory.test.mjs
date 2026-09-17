@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 import { parseMemoryArchive, maximumMemoryArchiveBytes } from "../dist/memory.js";
@@ -14,7 +15,7 @@ async function fixture(t, provider) {
   const root = await mkdtemp(join(scratch, "branch-memory-"));
   const options = { workspace: join(root, "workspace"), dataDir: join(root, "data"), provider };
   const app = await createBranch(options);
-  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await app.close(); await discardTemp(root); });
   return { app, options };
 }
 const sample = (id = "memory-one", text = "Prefers tea") => ({

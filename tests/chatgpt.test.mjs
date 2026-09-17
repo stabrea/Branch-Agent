@@ -4,6 +4,7 @@ import { createServer } from "node:http";
 import { mkdtemp, rm, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { discardTemp } from "./temp-dir.mjs";
 import {
   createBranch, ChatGPTAuth, FileTokenVault, ChatGPTProvider, ResponsesStream, responsesBody,
   finishChatGPTSignIn, syncChatGPTPresets, chatgptAccountId, chatgptPresetId,
@@ -68,7 +69,7 @@ async function fixture(t, behaviour) {
     issuer: base, verificationUrl: `${base}/codex/device`, sleep: async () => {}, userAgent: "BranchAgent/test",
   });
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), chatgpt: auth });
-  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await app.close(); await discardTemp(root); });
   return { app, auth, base, seen, root, vaultPath };
 }
 /** Point the registered ChatGPT presets at the fake backend. */
@@ -193,7 +194,7 @@ test("replies without a content-type header still parse; a 400 stays a plain pro
 
 test("protected vault round-trips through device key protection", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "branch-vault-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => discardTemp(root));
   const protection = { available: () => true, encrypt: (v) => Buffer.from("x" + v), decrypt: (b) => b.toString().slice(1) };
   const vault = new FileTokenVault(join(root, "auth.json"), protection);
   const tokens = { accessToken: accessToken(1), refreshToken: "r", expiresAt: new Date().toISOString() };
