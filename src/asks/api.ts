@@ -2,6 +2,7 @@ import { z, ZodError } from "zod";
 import { errorText } from "../contracts.js";
 import type { Runtime } from "../runtime.js";
 import type { Asks } from "./index.js";
+import { exampleFile, mcpExamples } from "./mcp-examples.js";
 import { AskOffError, AskPartSchema, askLabels, askParts, requireAsk, type AskPart } from "./settings.js";
 
 /**
@@ -61,6 +62,24 @@ async function analyticsRoute(deps: AsksHttpDeps, path: string): Promise<unknown
   return undefined;
 }
 
+/** Group 2: bringing items in, the Hindsight server, steps for other apps and the MCP examples. */
+async function integrationsRoute(deps: AsksHttpDeps, path: string): Promise<unknown> {
+  const { asks } = deps, post = deps.method === "POST";
+  if (path === "/api/asks/sources") return post ? { sources: asks.sources.save(await deps.readBody()) } : { sources: asks.sources.sources(), status: asks.sources.status() };
+  if (path === "/api/asks/sources/sync" && post) return runPartTool(deps, "source-sync", "sources.sync");
+  if (path === "/api/asks/hindsight") return { hindsight: post ? asks.hindsight.save(await deps.readBody()) : asks.hindsight.settings() };
+  if (path === "/api/asks/hindsight/recall" && post) return runPartTool(deps, "hindsight", "hindsight.recall");
+  if (path === "/api/asks/blocks") return { blocks: asks.blocks.list() };
+  if (path === "/api/asks/blocks/key" && post) {
+    const { block, secret } = z.object({ block: z.string().max(40), secret: z.string().max(80).nullable() }).strict().parse(await deps.readBody());
+    return { keys: asks.blocks.setKey(block, secret) };
+  }
+  if (path === "/api/asks/blocks/run" && post) return runPartTool(deps, "app-blocks", "blocks.run");
+  if (path === "/api/asks/mcp-examples")
+    return { examples: mcpExamples.map((example) => ({ ...example, file: exampleFile(example.id) })) };
+  return deps.more?.(path);
+}
+
 async function route(deps: AsksHttpDeps, path: string): Promise<unknown> {
   const { asks, method } = deps, post = method === "POST";
   if (path === "/api/asks") return { modes: asks.modes(), labels: askLabels, parts: askParts };
@@ -79,7 +98,7 @@ async function route(deps: AsksHttpDeps, path: string): Promise<unknown> {
   if (path === "/api/asks/article" && post) return runPartTool(deps, "article-writer", "research.article");
   if (path.startsWith("/api/asks/pages")) return pagesRoute(deps, path);
   if (path.startsWith("/api/asks/analytics")) return analyticsRoute(deps, path);
-  return deps.more?.(path);
+  return integrationsRoute(deps, path);
 }
 
 /** Answers one request under /api/asks/, or throws an AsksHttpError with a status and a sentence. */
