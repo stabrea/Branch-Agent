@@ -132,10 +132,21 @@ async function retrievalApi(
     }).strict().parse(await readBody(request));
     return app.retrieval.search(owner, asked.query, undefined, {
       ...(asked.pipeline ? { pipeline: asked.pipeline } : {}),
-      ...(asked.collection ? { collection: asked.collection } : {}),
+      ...(asked.collection ? { collection: spellingsOf(app, owner, asked.collection) } : {}),
     });
   }
   return notFound();
+}
+
+/**
+ * Both ways of naming one knowledge base — what the owner called it and the id the panel writes —
+ * so a pipeline chosen on the card is found whichever of the two it was keyed under.
+ */
+function spellingsOf(app: Branch, owner: string, collection: string): string[] {
+  try {
+    const found = app.knowledgeBases.one(owner, collection);
+    return [...new Set([collection, found.id, found.name])];
+  } catch { return [collection]; }
 }
 
 async function providerPluginsApi(

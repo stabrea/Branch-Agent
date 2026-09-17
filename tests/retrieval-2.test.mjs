@@ -415,3 +415,44 @@ test("V12 the switch for naming project files is saved and read back through its
   assert.equal(searched.pipeline, "notes first");
   assert.deepEqual(searched.stages.map((stage) => stage.retriever), ["memory", "rerank"]);
 });
+
+test("V13 a pipeline chosen on a knowledge base's card is found by its id or by its name", async (t) => {
+  const { startServer } = await import("../dist/server.js");
+  const { app, root, collection } = await library(t);
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  t.after(async () => { await server.close(); });
+  const api = async (method, path, body) => {
+    const response = await fetch(server.url + path, {
+      method, headers: { origin: server.url, authorization: `Bearer ${server.token}`,
+        ...(body === undefined ? {} : { "content-type": "application/json" }) },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+    return response.json();
+  };
+  // Exactly what the card writes: keyed by the knowledge base's id, never by its name.
+  await api("POST", "/api/retrieval/pipelines", {
+    pipelines: [{ name: "notes first", stages: [{ retriever: "memory", cap: 2 }, { retriever: "rerank", cap: 2 }] }],
+    byCollection: { [collection]: "notes first" },
+  });
+  assert.equal((await api("POST", "/api/retrieval/search", { query: "invoice", collection })).pipeline,
+    "notes first", "found by the id the card wrote");
+  assert.equal((await api("POST", "/api/retrieval/search", { query: "invoice", collection: "Work" })).pipeline,
+    "notes first", "and by the name the owner uses, which is what the documentation promises");
+  assert.equal((await api("POST", "/api/retrieval/search", { query: "invoice" })).pipeline, "default");
+});
+
+test("V14 a project that names its own knowledge bases cannot silently empty a filtered search", async (t) => {
+  const { app, collection } = await library(t);
+  // The active project is pointed at a knowledge base that is not the one holding the passages, so
+  // the rows survive the filter and are then dropped by the project's own list.
+  const other = app.knowledgeBases.create("local", { name: "Somewhere else", sources: [] });
+  app.store.projects.save("local", { id: "narrow", name: "Narrow", instructions: "", modelPreset: null,
+    repository: "", folder: "", profile: null, knowledgeBases: [other.id] });
+  app.store.projects.setActive("local", { active: "narrow" });
+  const answer = await app.knowledgeBases.searchWithNote("local", {
+    query: "invoice supplier", limit: 10, filter: { kinds: ["csv"] },
+  });
+  assert.deepEqual(answer.hits, []);
+  assert.match(answer.note, /Nothing you have matches that filter/, "an empty filtered answer always says so");
+  assert.ok(collection);
+});

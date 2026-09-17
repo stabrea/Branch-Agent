@@ -514,7 +514,11 @@ export class KnowledgeBases {
     const rows = this.candidateRows(owner, target?.id, query, narrowing);
     if (!rows.length)
       return { hits: [], note: narrowing ? nothingMatchedNote(narrowing, this.collectionWords(owner)) : "" };
-    return { hits: await this.rankRows(owner, rows, { collection, query, limit }, signal), note: "" };
+    const hits = await this.rankRows(owner, rows, { collection, query, limit }, signal);
+    // Passages survived the filter but nothing came through the ranking or the active project's own
+    // list: still an honest nothing, and still not a reason to answer from outside the filter.
+    if (!hits.length && narrowing) return { hits, note: nothingMatchedNote(narrowing, this.collectionWords(owner)) };
+    return { hits, note: "" };
   }
   /** Every name and id a filter may have meant, so an unknown one can be named back to the owner. */
   private collectionWords(owner: string): string[] {

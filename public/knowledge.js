@@ -97,7 +97,7 @@ function pipelinePicker(entry) {
     if (pick.value === "default") delete byCollection[entry.id]; else byCollection[entry.id] = pick.value;
     pipelines = await request("/api/retrieval/pipelines", { body: { byCollection } });
   }));
-  row.append(document.createTextNode("Look things up "), pick);
+  row.append(document.createTextNode("When the assistant looks things up, use "), pick);
   return row;
 }
 function button(label, run) {

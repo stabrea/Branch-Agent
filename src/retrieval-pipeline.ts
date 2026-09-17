@@ -66,10 +66,12 @@ export function mergePassages(gathered: RetrievedPassage[], limit: number): Retr
 
 /** The pipeline a search should use, by explicit name or by the knowledge base it is aimed at. */
 export function pipelineFor(
-  settings: RetrievalPipelineSettings, wanted: { pipeline?: string; collection?: string },
+  settings: RetrievalPipelineSettings, wanted: { pipeline?: string; collection?: string | string[] },
 ): NamedPipeline | null {
-  const name = wanted.pipeline
-    ?? (wanted.collection ? settings.byCollection[wanted.collection] : undefined);
+  // A knowledge base has two spellings — the name the owner gave it and the id the panel writes —
+  // and either may be what `byCollection` was keyed under, so both are tried.
+  const spellings = wanted.collection === undefined ? [] : [wanted.collection].flat();
+  const name = wanted.pipeline ?? spellings.map((key) => settings.byCollection[key]).find(Boolean);
   if (!name || name === "default") return null;
   return settings.pipelines.find((entry) => entry.name === name) ?? null;
 }

@@ -177,7 +177,7 @@ export class Retrieval {
    * the ceiling each was given.
    */
   async search(owner: string, query: string, signal?: AbortSignal,
-    wanted: { pipeline?: string; collection?: string } = {}): Promise<RetrievalResult> {
+    wanted: { pipeline?: string; collection?: string | string[] } = {}): Promise<RetrievalResult> {
     const settings = this.settings(owner);
     const chosen = pipelineFor(this.pipelineSettings(owner), wanted);
     if (chosen) return this.runPipeline(owner, query, chosen, settings, signal);

@@ -2076,6 +2076,9 @@ them are asked at once, their answers merged, and the best put first. That is st
 happens unless you write down something else, and `tests/retrieval-2.test.mjs` asserts that the
 default and the old code give the identical answer.
 
+The picker on each knowledge base's card is what the assistant uses when it looks something up for
+you; the search box on that same card always searches that one knowledge base directly.
+
 A **named pipeline** is an order for those places, with a ceiling on each, and the pass that puts the
 best first at the end. `POST /api/retrieval/pipelines` holds two things. `pipelines` is the list of
 orders you have written, each `{ name, stages: [{ retriever, cap }] }`; `byCollection` says which of
@@ -2172,7 +2175,9 @@ is a real request.
    ```
 
    Then press **Read it again** to fill it. If that drive is not there, the answer's `note` says so
-   and Branch carries on with its own database.
+   and Branch carries on with its own database. One honest edge: deleting a knowledge base clears its
+   vectors from wherever they are kept **now**, so rows left behind in a file you have since switched
+   away from stay in that file until you delete it yourself.
 
 ### What is put in front of a task, and in what order (wave 9)
 
