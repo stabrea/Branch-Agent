@@ -9,6 +9,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { discardTemp } from "./temp-dir.mjs";
 import {
   createBranch, makeScorer, scoreAll, applyGates, normaliseAnswer, scorerKinds,
   benchmarkAdapters, findBenchmarkAdapter, notIntegratedBenchmarks,
@@ -28,7 +29,7 @@ async function fixture(t, routes, options = {}) {
   const root = await mkdtemp(join(tmpdir(), "branch-eval2-"));
   const provider = new ScriptedProvider(routes);
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider, ...options });
-  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await app.close(); await discardTemp(root); });
   return { app, root, provider };
 }
 
@@ -54,7 +55,7 @@ test("every built-in scorer decides a right answer and a wrong one", async () =>
 
 test("the scorers that look at the workspace and the trajectory", async (t) => {
   const workspace = await mkdtemp(join(tmpdir(), "branch-score-"));
-  t.after(async () => { await rm(workspace, { recursive: true, force: true }); });
+  t.after(async () => { await discardTemp(workspace); });
   await writeFile(join(workspace, "page.html"), "<p id=\"hours\">nine to five</p>");
   assert.equal((await scoreOne({ kind: "file-exists", path: "page.html" }, "", emptyTrajectory, workspace)).pass, true);
   assert.equal((await scoreOne({ kind: "file-exists", path: "gone.html" }, "", emptyTrajectory, workspace)).pass, false);
@@ -198,7 +199,7 @@ test("there are five adapters that run and five benchmarks documented as not int
 
 test("GAIA: reads metadata.jsonl, brings the attached file, and marks by normalised exact match", async (t) => {
   const into = await mkdtemp(join(tmpdir(), "branch-gaia-"));
-  t.after(async () => { await rm(into, { recursive: true, force: true }); });
+  t.after(async () => { await discardTemp(into); });
   const adapter = findBenchmarkAdapter("gaia");
   const directory = join(fixtures, "gaia");
   const tasks = await adapter.discover(directory);
@@ -213,7 +214,7 @@ test("GAIA: reads metadata.jsonl, brings the attached file, and marks by normali
 
 test("code tasks: reads the prompt and runs the benchmark's own tests", async (t) => {
   const into = await mkdtemp(join(tmpdir(), "branch-code-"));
-  t.after(async () => { await rm(into, { recursive: true, force: true }); });
+  t.after(async () => { await discardTemp(into); });
   const adapter = findBenchmarkAdapter("code-tasks");
   const directory = join(fixtures, "code-tasks");
   const [one] = await adapter.discover(directory);
@@ -228,7 +229,7 @@ test("code tasks: reads the prompt and runs the benchmark's own tests", async (t
 
 test("SWE-bench: refuses when the repository is not on this computer, and says where to put it", async (t) => {
   const into = await mkdtemp(join(tmpdir(), "branch-swe-"));
-  t.after(async () => { await rm(into, { recursive: true, force: true }); });
+  t.after(async () => { await discardTemp(into); });
   const adapter = findBenchmarkAdapter("swe-bench");
   const directory = join(fixtures, "swe-bench");
   const tasks = await adapter.discover(directory);
@@ -241,7 +242,7 @@ test("SWE-bench: refuses when the repository is not on this computer, and says w
 
 test("SWE-bench: copies the repository, applies the instance's test patch, and runs the tests", async (t) => {
   const into = await mkdtemp(join(tmpdir(), "branch-swe2-"));
-  t.after(async () => { await rm(into, { recursive: true, force: true }); });
+  t.after(async () => { await discardTemp(into); });
   const adapter = findBenchmarkAdapter("swe-bench");
   const directory = join(fixtures, "swe-bench");
   const [one] = await adapter.discover(directory);
@@ -260,7 +261,7 @@ test("SWE-bench: copies the repository, applies the instance's test patch, and r
 
 test("web tasks: a saved page is run, a live-only task is refused by name", async (t) => {
   const into = await mkdtemp(join(tmpdir(), "branch-web-"));
-  t.after(async () => { await rm(into, { recursive: true, force: true }); });
+  t.after(async () => { await discardTemp(into); });
   const adapter = findBenchmarkAdapter("web-tasks");
   const directory = join(fixtures, "web-tasks");
   const tasks = await adapter.discover(directory);
@@ -276,7 +277,7 @@ test("web tasks: a saved page is run, a live-only task is refused by name", asyn
 
 test("terminal-bench: reads task.md, keeps tests.sh out of the workspace, and runs it to decide", async (t) => {
   const into = await mkdtemp(join(tmpdir(), "branch-term-"));
-  t.after(async () => { await rm(into, { recursive: true, force: true }); });
+  t.after(async () => { await discardTemp(into); });
   const adapter = findBenchmarkAdapter("terminal-bench");
   const directory = join(fixtures, "terminal-bench");
   const [one] = await adapter.discover(directory);
@@ -310,7 +311,7 @@ async function studyFixture(t, routes, root) {
   return { app, root, provider };
 }
 /** Removes the folder only once every app that opened it has been closed. */
-const removeLast = (t, root) => t.after(async () => { await rm(root, { recursive: true, force: true }); });
+const removeLast = (t, root) => t.after(async () => { await discardTemp(root); });
 
 const matrixRoutes = () => [
   ["capital city of France", [say("Paris is the capital city of France.")]],
@@ -454,7 +455,7 @@ test("the tool checks that ship run every case against the tools that are instal
 
 test("branch eval --gate stops a release when the bar is not cleared, and passes when it is", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "branch-cli-gate-"));
-  t.after(async () => { await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await discardTemp(root); });
   await mkdir(join(root, "workspace"), { recursive: true });
   const environment = {
     ...process.env, BRANCH_DATA_DIR: join(root, "data"), BRANCH_WORKSPACE: join(root, "workspace"),
@@ -471,7 +472,7 @@ test("branch eval --gate stops a release when the bar is not cleared, and passes
 
 test("branch eval tools and branch study list run from the command line", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "branch-cli-tools-"));
-  t.after(async () => { await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await discardTemp(root); });
   await mkdir(join(root, "workspace"), { recursive: true });
   const environment = { ...process.env, BRANCH_DATA_DIR: join(root, "data"), BRANCH_WORKSPACE: join(root, "workspace"), BRANCH_INTEGRATIONS: "" };
   const checks = await runFile(process.execPath, [resolve("dist/cli.js"), "eval", "tools"], { env: environment });
@@ -526,7 +527,7 @@ test("a benchmark that runs the tests it ships waits for the owner's switch", as
 test("a dataset may not name a file outside its own folder", async (t) => {
   const directory = await mkdtemp(join(tmpdir(), "branch-escape-"));
   const workspace = await mkdtemp(join(tmpdir(), "branch-escape-into-"));
-  t.after(async () => { await rm(directory, { recursive: true, force: true }); await rm(workspace, { recursive: true, force: true }); });
+  t.after(async () => { await discardTemp(directory); await discardTemp(workspace); });
   const record = { task_id: "escape", Question: "Read the file.", "Final answer": "x", file_name: "..\\..\\secret.txt" };
   await writeFile(join(directory, "metadata.jsonl"), JSON.stringify(record) + "\n");
   const gaia = findBenchmarkAdapter("gaia");

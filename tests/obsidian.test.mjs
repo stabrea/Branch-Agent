@@ -10,6 +10,7 @@ import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { discardTemp } from "./temp-dir.mjs";
 import {
   ObsidianBridge, bodyOf, createBranch, hashIn, insideVault, noteFileName, saveObsidianSettings, untouched,
 } from "../dist/index.js";
@@ -21,7 +22,7 @@ async function bridged(t) {
   /* A sibling folder whose name begins the same way, for the confinement test. */
   await mkdir(join(root, "vault-other"), { recursive: true });
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data") });
-  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await app.close(); await discardTemp(root); });
   await saveObsidianSettings(app.store, app.runtime.owner, { enabled: true, vault, folder: "Branch" });
   return { app, root, vault, bridge: new ObsidianBridge(app.store, app.runtime.owner) };
 }
@@ -110,7 +111,7 @@ test("O3 only the notes the owner tagged are read back", async (t) => {
 test("O3 the bridge refuses to do anything until the owner has named a folder", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "branch-obsidian-off-"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data") });
-  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await app.close(); await discardTemp(root); });
   const bridge = new ObsidianBridge(app.store, app.runtime.owner);
   await assert.rejects(bridge.write(NOTE), /not set up/i);
   await assert.rejects(bridge.read(), /not set up/i);

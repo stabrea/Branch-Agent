@@ -4,6 +4,7 @@ import { createServer } from "node:http";
 import { mkdtemp, mkdir, rm, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 import {
@@ -242,7 +243,7 @@ test("L3 routing off changes nothing, and the personal-details test catches what
 test("L3 routing reads the owner's saved rules and picks presets that really exist", async (t) => {
   const root = await scratch("routing");
   const store = new Store(join(root, "branch.sqlite"));
-  t.after(async () => { store.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { store.close(); await discardTemp(root); });
   const local = { name: "openai-compatible", embeddings: () => ({ endpoint: "http://127.0.0.1:11434/v1", apiKey: "local" }), complete: async () => ({ content: "", toolCalls: [] }) };
   const cloud = { name: "anthropic", complete: async () => ({ content: "", toolCalls: [] }) };
   const models = new ModelRouter(store, [
@@ -290,7 +291,7 @@ test("L4 the document library uses the local reader when the connected model run
     workspace: join(root, "workspace"), dataDir: join(root, "data"),
     presets: [{ id: "here", name: "On this computer", provider, model: "llama3.2" }],
   });
-  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await app.close(); await discardTemp(root); });
   assert.equal(app.documents.view("local").meaningSearch, true, "meaning search is available through the local model");
   assert.equal(app.runtime.models.plan("local", "").choice.local, true);
 });
@@ -301,7 +302,7 @@ test("L5 the health report has a section for models on this computer", async (t)
   const root = await scratch("local-health");
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data") });
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
-  t.after(async () => { await server.close(); await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await server.close(); await app.close(); await discardTemp(root); });
   const token = (await readFile(join(root, "data", "session-token"), "utf8")).trim();
   const report = await (await fetch(server.url + "/api/health", { headers: { authorization: `Bearer ${token}`, origin: server.url } })).json();
   const section = report.items.find((entry) => entry.name === "Models on this computer");
@@ -313,7 +314,7 @@ test("L5 the routes answer: what is here, and a preview of which model would tak
   const root = await scratch("local-routes");
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data") });
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
-  t.after(async () => { await server.close(); await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await server.close(); await app.close(); await discardTemp(root); });
   const token = (await readFile(join(root, "data", "session-token"), "utf8")).trim();
   const call = (path, body) => fetch(server.url + path, {
     method: body === undefined ? "GET" : "POST",

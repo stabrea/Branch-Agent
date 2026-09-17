@@ -11,6 +11,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { discardTemp } from "./temp-dir.mjs";
 import { z } from "zod";
 import { createBranch, ToolLoader, toolSearchName, toolDescribeName, toolNoteName, expandToolName, defaultMaxLoaded } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
@@ -18,7 +19,7 @@ import { startServer } from "../dist/server.js";
 async function fixture(t, provider, options = {}) {
   const root = await mkdtemp(join(tmpdir(), "branch-toolq-"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider, ...options });
-  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await app.close(); await discardTemp(root); });
   return { app, root, dataDir: join(root, "data") };
 }
 const groupOf = (app) => (name) => app.registry.groupOf(name);

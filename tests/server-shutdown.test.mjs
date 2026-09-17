@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { connect } from "node:net";
 import { once } from "node:events";
+import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 
@@ -27,6 +28,6 @@ test("shutdown closes browser preconnections after draining runtime work", async
     clearTimeout(timer);
     socket.destroy();
     await app.close();
-    await rm(root, { recursive: true, force: true });
+    await discardTemp(root);
   }
 });

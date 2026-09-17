@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
+import { discardTemp } from "./temp-dir.mjs";
 
 import { requestUpdateBackup, stopBackgroundEngine } from "../dist/install/background-engine.js";
 import { writeRunning, readRunning } from "../dist/install/running.js";
@@ -15,7 +16,7 @@ async function scratch(t) {
   const base = join(tmpdir(), "Codex-session-files");
   await mkdir(base, { recursive: true });
   const root = await mkdtemp(join(base, "branch-daemon-update-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => discardTemp(root));
   return root;
 }
 

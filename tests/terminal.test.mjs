@@ -7,6 +7,7 @@ import { PassThrough } from "node:stream";
 import { EventEmitter } from "node:events";
 import { createServer } from "node:http";
 import { setTimeout as delay } from "node:timers/promises";
+import { discardTemp } from "./temp-dir.mjs";
 import { z } from "zod";
 import { createBranch, OpenAIProvider } from "../dist/index.js";
 import { startTerminal } from "../dist/terminal.js";
@@ -36,7 +37,7 @@ async function fixture(t, provider, terminal = false) {
     if (!input.writableEnded) { input.write("/exit\n"); input.end(); }
     await done;
     await app.close();
-    await rm(root, { recursive: true, force: true });
+    await discardTemp(root);
   });
   return { app, input, output, signals, done, text: () => text };
 }

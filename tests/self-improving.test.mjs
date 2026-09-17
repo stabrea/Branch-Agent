@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 import { namesIn, repeatsNeeded } from "../dist/memory-learning.js";
@@ -22,7 +23,7 @@ function scripted(reply) {
 async function fixture(t, provider = scripted("ok")) {
   const root = await mkdtemp(join(tmpdir(), "branch-self-improving-"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider });
-  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await app.close(); await discardTemp(root); });
   return { app, root, provider, context: app.runtime.context() };
 }
 /** A finished task with the events it left behind, without needing a model to produce them. */

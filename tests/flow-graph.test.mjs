@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { spawn } from "node:child_process";
+import { discardTemp } from "./temp-dir.mjs";
 import { z } from "zod";
 import { createBranch, compileGraph, FlowGraphError, maximumGraphDepth } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
@@ -29,7 +30,7 @@ async function fixture(t, answers = ["ok"]) {
   const root = await mkdtemp(join(tmpdir(), "branch-flow-graph-"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"),
     provider: scripted(answers) });
-  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await app.close(); await discardTemp(root); });
   return { app, root };
 }
 /** A tool a box can use whose answer is entirely predictable. */
@@ -305,7 +306,7 @@ test("G6 a flow interrupted by the app closing is carried on by the next start",
   let opened = null;
   t.after(async () => {
     await opened?.close();
-    await rm(root, { recursive: true, force: true });
+    await discardTemp(root);
   });
   const graph = { ...threeBoxes, nodes: threeBoxes.nodes.map((node) =>
     (node.id === "b" ? { id: "b", name: "Middle", kind: "prompt", prompt: "two",

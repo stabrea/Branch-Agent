@@ -4,6 +4,7 @@ import { createServer } from "node:http";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { discardTemp } from "./temp-dir.mjs";
 import { createBranch, OpenAIProvider, AnthropicProvider, presetsFromEnv, ModelRouter } from "../dist/index.js";
 import { ProviderHttpError } from "../dist/provider-retry.js";
 import { startServer } from "../dist/server.js";
@@ -17,7 +18,7 @@ function scripted(name, behaviour = () => ({ content: `${name} answered`, toolCa
 async function fixture(t, presets, extra = {}) {
   const root = await mkdtemp(join(tmpdir(), "branch-models-"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), presets, ...extra });
-  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await app.close(); await discardTemp(root); });
   return { app, root };
 }
 const kinds = (app, run, kind) => app.store.events(run.id).filter((event) => event.kind === kind).map((event) => event.data);

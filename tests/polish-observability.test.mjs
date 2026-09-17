@@ -9,6 +9,7 @@ import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { discardTemp } from "./temp-dir.mjs";
 import { chromium } from "playwright";
 import { createBranch, modelsUrl, probeProvider, googleRefusedSignIn } from "../dist/index.js";
 import { GeminiProvider } from "../dist/providers/gemini.js";
@@ -25,7 +26,7 @@ export async function served(t, provider) {
     ...(provider ? { provider } : {}),
   });
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
-  t.after(async () => { await server.close(); await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await server.close(); await app.close(); await discardTemp(root); });
   const api = async (method, path, body) => {
     const response = await fetch(server.url + path, {
       method,

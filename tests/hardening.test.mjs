@@ -11,6 +11,7 @@ import { createServer } from "node:http";
 import { spawn } from "node:child_process";
 import { DatabaseSync } from "node:sqlite";
 import { setTimeout as delay } from "node:timers/promises";
+import { discardTemp } from "./temp-dir.mjs";
 import { z } from "zod";
 import { startServer } from "../dist/server.js";
 import { createBranch, inferToolGroup, NetworkPolicy, TelegramAdapter, modelsUrl, GeminiProvider, savePolicy, ToolLoader, readLifecycleSettings, saveLifecycleSettings } from "../dist/index.js";
@@ -27,7 +28,7 @@ async function fixture(t, reply = () => say("done"), options = {}) {
   t.after(async () => {
     await app.processes.stopAll().catch(() => undefined);
     await app.close();
-    await rm(root, { recursive: true, force: true });
+    await discardTemp(root);
   });
   return { app, root };
 }
@@ -235,7 +236,7 @@ test("12 — what a profile's task learns is theirs, and the owner's facts are n
 
 test("10 — a promise nobody caught is written down, and still ends the process as Node would", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "branch-rejection-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => discardTemp(root));
   const database = join(root, "spans.db").replace(/\\/g, "/");
   const dist = new URL("../dist/tracing.js", import.meta.url).href;
   const script = join(root, "crash.mjs");

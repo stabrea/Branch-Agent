@@ -12,6 +12,7 @@ import {
   ChannelConnectors, fillFrom, readPath, Budget,
 } from "../dist/index.js";
 import { readFile } from "node:fs/promises";
+import { discardTemp } from "./temp-dir.mjs";
 import { startServer } from "../dist/server.js";
 
 /** Values that must never turn up anywhere a person or another service can see them. */
@@ -35,7 +36,7 @@ async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), "branch-channels-2-"));
   const provider = scripted();
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider });
-  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await app.close(); await discardTemp(root); });
   return { app, root, provider };
 }
 /** A server that records every request and answers everything with one harmless JSON body. */

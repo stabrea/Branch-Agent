@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 
@@ -18,7 +19,7 @@ async function fixture(t, presets) {
   const options = { workspace: join(root, "workspace"), dataDir: join(root, "data"), presets };
   const app = await createBranch(options);
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
-  t.after(async () => { await server.close(); await app.close().catch(() => undefined); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await server.close(); await app.close().catch(() => undefined); await discardTemp(root); });
   const call = async (path, body) => {
     const response = await fetch(server.url + "/api/" + path, {
       method: body === undefined ? "GET" : "POST",

@@ -4,13 +4,14 @@ import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { discardTemp } from "./temp-dir.mjs";
 import { UsageStore } from "../dist/usage.js";
 
 async function fixture(t) {
   const scratch = join(tmpdir(), "Codex-session-files");
   await mkdir(scratch, { recursive: true });
   const root = await mkdtemp(join(scratch, "branch-usage-test-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => discardTemp(root));
   const dbPath = join(root, "test.db");
   return { root, dbPath };
 }

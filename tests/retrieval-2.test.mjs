@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { Retrieval, lexicalRerank } from "../dist/retrieval.js";
 import { mergePassages, orderedStages, pipelineFor } from "../dist/retrieval-pipeline.js";
@@ -30,7 +31,7 @@ async function fixture(t) {
   const workspace = join(root, "workspace");
   await mkdir(join(workspace, "notes"), { recursive: true });
   const app = await createBranch({ workspace, dataDir: join(root, "data"), provider: scripted() });
-  t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
+  t.after(async () => { await app.close(); await discardTemp(root); });
   return { app, root, workspace };
 }
 

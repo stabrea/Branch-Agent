@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { spawn, execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { setTimeout as delay } from "node:timers/promises";
+import { discardTemp } from "./temp-dir.mjs";
 import {
   completionScript, cliCommands, usageText,
 } from "../dist/cli-completion.js";
@@ -17,7 +18,7 @@ const clean = (text) => stripAnsi(text);
 
 async function workspace(t) {
   const root = await mkdtemp(join(tmpdir(), "branch-cli-tui-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => discardTemp(root));
   return {
     root,
     env: { ...process.env, BRANCH_WORKSPACE: join(root, "ws"), BRANCH_DATA_DIR: join(root, "data"), NO_COLOR: undefined },
