@@ -223,6 +223,8 @@ export const neverTouched: readonly RegExp[] = [
   /^accounts?(-|$)/, /^add-?ons?/, /leak/, /^knobs?/, /env/, /^never-break/, /gateway/, /tunnel/, /launch/,
   // R17-S-C integration review: the proxy and certificates, the browser's care, and updating by itself.
   /^comfort-(network|browser|update)/,
+  // mac7/lockdown-fix: the limit a task put on a flow run it started is never loosened from here.
+  /^flow-run-limit:/,
 ];
 
 /** A field name that sounds like it could hold a secret is refused outright, whatever the catalogue says. */

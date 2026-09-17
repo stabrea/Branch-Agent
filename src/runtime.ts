@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { withAccountCall } from "./accounts/context.js"; // mac6/accounts
+import { currentAccountCall, withAccountCall } from "./accounts/context.js"; // mac6/accounts (currentAccountCall: mac7/lockdown-fix)
 import { lockdownActive, lockdownToolRefusal } from "./lockdown.js"; // mac7/lockdown-fix
 import { isSignInConnection, trunkCandidates, trunkSignInRefusal } from "./accounts/trunk-guard.js"; // mac7/lockdown-fix
 import { protectedAreas, protectedTarget, cwdOf, type ProtectedAreas } from "./never-break/protected.js"; // mac3/never-break
@@ -689,10 +689,21 @@ ${run.output.slice(0, 6000)}`;
     if (parent.runId) this.store.event(parent.runId, "delegation.fanout", { waves, tasks: Object.fromEntries(Object.entries(outcomes).map(([id, o]) => [id, { runId: o.runId, status: o.status, result: o.result.status }])) });
     return { waves, tasks: outcomes };
   }
+  /**
+   * mac7/lockdown-fix: a Trunk's tool runs marked as the Trunk's, so a model call it makes on the side
+   * (a summary, a document read, a flow it starts) never goes through a sign-in account either.
+   */
+  private asTrunk<T>(context: ToolContext, work: () => Promise<T>): Promise<T> {
+    if (!context.trunkKeys || currentAccountCall()?.trunk) return work();
+    const sessionId = this.store.run(context.runId)?.sessionId ?? "";
+    return withAccountCall({ owner: this.owner, sessionId, runId: context.runId, trunk: { keys: context.trunkKeys } }, work);
+  }
   /** Temporary conversations cannot write long-term memory; nothing from them should persist. */
   private scopeToSession(run: Run, given: ToolContext, trunk: TrunkRunShape | null = null): ToolContext {
     // R17-A (Trunks): a Trunk remembers in its own scope, and the task says whose it was.
-    const context = trunk ? { ...given, agent: trunk.agent, trunkKeys: trunk.keys } : given; // mac7/lockdown-fix: trunkKeys
+    // mac7/lockdown-fix: trunkKeys. Work a Trunk set going (a workflow's prompt step, a flow box) is its work too.
+    const inherited = given.trunkKeys ?? currentAccountCall()?.trunk?.keys;
+    const context = trunk ? { ...given, agent: trunk.agent, trunkKeys: trunk.keys } : inherited ? { ...given, trunkKeys: inherited } : given;
     if (trunk) this.store.event(run.id, "trunk.turn", { trunkId: trunk.trunkId });
     if (!this.store.sessionTemporary(run.sessionId)) return context;
     this.store.event(run.id, "session.temporary", { memoryWrites: false });
@@ -1770,6 +1781,7 @@ ${run.output.slice(0, 6000)}`;
       // R17-048 / R17-050: note the service's own count, and keep its cache warm if the owner asked.
       savings.afterRound(this, this.keepAlive, { run, owner: this.owner, preset, messages: request.messages, tools, estimatedInput: input, reported,
         mainRound: context.depth === 0 && context.permissions.size > 0 && !shape,
+        ...(context.trunkKeys ? { trunk: { keys: context.trunkKeys } } : {}), // mac7/lockdown-fix
         guard: { family: this.spendFamily(run.id), active: () => this.activeSessions.has(run.sessionId), monthly: () => this.monthlyBudgetRefusal() } });
       const completion = CompletionSchema.parse(raw);
       context.signal.throwIfAborted();
@@ -2382,7 +2394,7 @@ ${run.output.slice(0, 6000)}`;
       if (!validArgs) throw new Error("Invalid JSON tool arguments");
       // Scrubbing happens before the receipt is signed, so the recorded result and its proof match.
       // mac2/leak-guard: key-shaped values the locker never saw are hidden here too.
-      const result = this.hideSecrets(this.leakGuard.toolResult(context.runId, call.name, await this.registry.execute(call.name, args, scoped)));
+      const result = this.hideSecrets(this.leakGuard.toolResult(context.runId, call.name, await this.asTrunk(context, () => this.registry.execute(call.name, args, scoped))));
       const handedOver = this.noteDeferred(call, context, result);
       if (handedOver) return { ok: true, result: handedOver };
       this.noteApp(call, context, result);

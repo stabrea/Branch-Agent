@@ -5,6 +5,7 @@ import type { Flows } from "../flows.js";
 import type { ToolRegistry } from "../registry.js";
 import type { Runtime } from "../runtime.js";
 import { requireInterop } from "./settings.js";
+import { taskLimitOf } from "../workflows.js"; // mac7/lockdown-fix
 
 /**
  * Finding a better flow automatically. Given a goal and a few worked examples (an input and words
@@ -143,7 +144,9 @@ export function flowSearchParts(runtime: Runtime, flows: Flows, context?: ToolCo
     },
     tryFlow: async (definition, input) => {
       const { runId, compiled } = flows.graphs.begin(definition, input, { source: "schedule" });
-      const view = await flows.graphs.work(runId, compiled, { source: "schedule" });
+      // mac7/lockdown-fix (integration review): a drafted flow keeps to the tools of the task that asked.
+      const within = context ? taskLimitOf(runtime, context) : undefined;
+      const view = await flows.graphs.work(runId, compiled, { source: "schedule", ...(within ? { within } : {}) });
       return { status: view.status, state: view.state };
     },
     save: (definition) => { const { id: _drop, ...rest } = definition; return flows.saveGraph(rest); },

@@ -171,6 +171,9 @@ export class Flows {
   }
   remove(id: string): { removed: boolean } {
     if (this.store.get("flow_graphs", this.mine, id)) {
+      // mac7/lockdown-fix (integration review): the kept task limits of its runs go with it.
+      for (const row of this.store.sqlite.prepare("SELECT run_id FROM flow_graph_runs WHERE owner=? AND flow_id=?").all(this.mine, id))
+        this.graphs.forgetLimit(String((row as { run_id: unknown }).run_id));
       const removed = this.store.delete("flow_graphs", this.mine, id);
       this.publishTools();
       return { removed };

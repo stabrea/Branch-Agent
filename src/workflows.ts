@@ -132,6 +132,8 @@ export class Workflows {
     this.store.save("workflows", owner, id, {
       ...definition, id, status: existing?.status ?? "idle", cursor: Number(existing?.cursor ?? 0),
       waitingUntil: existing?.waitingUntil ?? null, question: null, error: null,
+      // mac7/lockdown-fix (integration review): saving the steps again never drops a task's limit.
+      taskLimit: Array.isArray(existing?.taskLimit) ? existing.taskLimit : null,
     });
     return this.view(owner, id);
   }
@@ -225,8 +227,7 @@ export class Workflows {
    * holds them all (the owner pressing the tool by hand), so the owner's own start is unchanged.
    */
   taskLimit(context: Pick<ToolContext, "permissions">): string[] | undefined {
-    const all = this.runtime.context().permissions;
-    return [...all].every((p) => context.permissions.has(p)) ? undefined : [...context.permissions];
+    return taskLimitOf(this.runtime, context);
   }
   /**
    * mac7/lockdown-fix: the limit this run works under. A task's start narrows it (and is kept with the
@@ -370,6 +371,15 @@ export class Workflows {
 }
 
 /** Tools so a saved workflow can be made, looked at, started, stopped and carried on. */
+/**
+ * mac7/lockdown-fix: the permissions a task holds, or undefined when it holds them all (the owner
+ * pressing a tool by hand). Shared by every tool that sets saved work going.
+ */
+export function taskLimitOf(runtime: Pick<Runtime, "context">, context: Pick<ToolContext, "permissions">): string[] | undefined {
+  const all = runtime.context().permissions;
+  return [...all].every((p) => context.permissions.has(p)) ? undefined : [...context.permissions];
+}
+
 export function registerWorkflows(registry: ToolRegistry, workflows: Workflows): void {
   registry.register({
     name: "workflows.create",

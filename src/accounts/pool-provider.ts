@@ -1,6 +1,6 @@
 import type { Completion, CompletionRequest, Provider } from "../contracts.js";
 import { ProviderHttpError } from "../provider-retry.js";
-import { currentAccountCall, type AccountCall } from "./context.js";
+import { currentAccountCall, trunkSignInRefusal, type AccountCall } from "./context.js";
 import {
   type AccountState, failureFor, freshState, httpFailure, orderFor, rest, restMs, smartOrder, unavailable,
 } from "./pool.js";
@@ -37,8 +37,7 @@ export interface PoolHooks {
 }
 
 /** mac7/lockdown-fix: what a Trunk's call is told when no key may answer it (see trunk-guard.ts). */
-export const trunkSignInRefusal =
-  "A Trunk never answers through a sign-in account, and there is no connection with an API key for it to use. Add a connection with an API key in Settings › Models.";
+export { trunkSignInRefusal };
 export const trunkKeyRefusal = (pool: string): string =>
   `This Trunk does not copy your keys and has no key picked for ${pool}. Pick one for it in Edit Trunk, under Keys.`;
 

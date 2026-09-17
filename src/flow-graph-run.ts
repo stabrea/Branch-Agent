@@ -116,6 +116,8 @@ export class FlowGraphRunner {
       this.save(runId, { next_node: at, state: JSON.stringify(state), loops: JSON.stringify(loops) });
     }
     this.save(runId, { status: "completed", state: JSON.stringify(state) });
+    // mac7/lockdown-fix (integration review): a finished run cannot be carried on, so its limit goes.
+    this.forgetLimit(runId);
     this.store.finish(runId, "completed", `The flow "${compiled.definition.name}" finished.`);
     return this.view(runId);
   }
@@ -235,6 +237,13 @@ export class FlowGraphRunner {
     if (check.decision === "deny") throw new PolicyRefusedError(node.tool!, check.label);
     if (check.decision === "ask") throw new ApprovalRequiredError(node.tool!, check.target, check.label, check.remember, fingerprint);
     return this.runtime.executeTool(node.tool!, args, { mode: "policy", source, approvalKey: `flow:${node.id}`, ...(within ? { within } : {}) }); // mac5/manual-actions
+  }
+  /**
+   * mac7/lockdown-fix: drops a run's kept limit. A failed or waiting run keeps it, because it can still
+   * be carried on; a finished run, or every run of a flow that is removed, has no use for it.
+   */
+  forgetLimit(runId: string): void {
+    this.store.delete("settings", this.owner, limitKey(runId));
   }
   /** mac7/lockdown-fix: the permissions a box holds under a task's limit; nothing to add otherwise. */
   private limited(options: { within?: readonly string[] | undefined }): { permissions?: string[] } {

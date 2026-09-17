@@ -25,3 +25,17 @@ export function withAccountCall<T>(call: AccountCall, work: () => Promise<T>): P
 export function currentAccountCall(): AccountCall | undefined {
   return calls.getStore();
 }
+
+/** mac7/lockdown-fix: what a Trunk's call is told when only a sign-in is left (see trunk-guard.ts). */
+export const trunkSignInRefusal =
+  "A Trunk never answers through a sign-in account, and there is no connection with an API key for it to use. Add a connection with an API key in Settings › Models.";
+
+/**
+ * Integration review (mac7/lockdown-fix): the last check, inside each connection that answers through
+ * somebody's sign-in. A Trunk's work (its turns, the tools and side jobs they start, the workflows and
+ * flows it sets going, a mixture's members, keep-alive pings) is marked, and a sign-in refuses it here
+ * whichever way the call arrived.
+ */
+export function refuseSignInForTrunk(): void {
+  if (calls.getStore()?.trunk) throw new Error(trunkSignInRefusal);
+}
