@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Store } from "./store.js";
+import { FeatureModeSchema, type FeatureMode } from "./feature-switches.js";
 
 /**
  * The terminal wears the same 44 themes as the window. Nothing here writes a colour down: the
@@ -277,8 +278,8 @@ export function lookLanguage(look: Look, env: NodeJS.ProcessEnv): "en" | "fr" {
  * - oak: on draws the oak on an empty conversation whenever it fits at all; when needed only when
  *   the window is tall enough to leave the greeting room; off never.
  */
-export const TerminalSwitchSchema = z.enum(["on", "off", "when-needed"]);
-export type TerminalSwitch = z.infer<typeof TerminalSwitchSchema>;
+export const TerminalSwitchSchema = FeatureModeSchema;
+export type TerminalSwitch = FeatureMode;
 export const TerminalSwitchesSchema = z.object({
   mouse: TerminalSwitchSchema.default("off"),
   sidePane: TerminalSwitchSchema.default("off"),
