@@ -616,3 +616,12 @@ test("a HEARTBEAT.md in a folder the owner has not trusted never sets the check-
   decideFolder(app.store, "local", app.runtime.workspace, { folder: "", decision: "trust" });
   assert.match(await heartbeat.checklist("local"), /delete the backups/, "once trusted, the file is the list");
 });
+
+test("a program left running that finishes tells whoever is listening, once", async () => {
+  const { BackgroundProcesses } = await import("../dist/processes.js");
+  const seen = [];
+  const table = Object.create(BackgroundProcesses.prototype);
+  Object.defineProperty(table, "finished", { value: new Set([(view) => seen.push(view.status)]) });
+  for (const listener of table.finished) listener({ status: "finished" });
+  assert.deepEqual(seen, ["finished"]);
+});

@@ -89,6 +89,7 @@ class Running {
     readonly name: string, readonly program: string, readonly sessionId: string, readonly runId: string,
     private readonly child: ChildProcess, private readonly job: Job | null,
     private readonly bufferBytes: number, maxMinutes: number,
+    private readonly onSettled: (view: ProcessView) => void = () => {},
   ) {
     child.stdout?.on("data", (chunk: Buffer) => this.keep(chunk));
     child.stderr?.on("data", (chunk: Buffer) => this.keep(chunk));
@@ -112,6 +113,7 @@ class Running {
     this.endedAt = new Date().toISOString();
     clearTimeout(this.timer);
     void this.job?.close().catch(() => undefined);
+    try { this.onSettled(this.view()); } catch { /* telling someone must never break a finished program */ }
   }
   /** What it has printed, newest at the end, and whether anything older was dropped. */
   output(limit: number): { text: string; dropped: boolean } {
@@ -151,6 +153,8 @@ export const StartInputSchema = z.object({
 
 export class BackgroundProcesses {
   private readonly running = new Map<string, Running>();
+  /** Told once when a program left running finishes, fails or is stopped (the check-in wakes on it). */
+  readonly finished = new Set<(view: ProcessView) => void>();
   constructor(
     private readonly store: Store, private readonly owner: string, private readonly workspace: string,
     private readonly jobs: JobObjects = defaultJobObjects(),
@@ -183,7 +187,7 @@ export class BackgroundProcesses {
       detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"], env: start.env });
     if (job && child.pid) await job.assign(child.pid).catch(() => false);
     const entry = new Running(input.name, input.program, this.sessionOf(context), context.runId, child, job,
-      settings.bufferBytes, settings.maxMinutes);
+      settings.bufferBytes, settings.maxMinutes, (view) => { for (const listener of this.finished) listener(view); });
     this.running.set(entry.id, entry);
     if (context.runId) this.store.event(context.runId, "process.started", { id: entry.id, name: entry.name, program: entry.program, pid: child.pid ?? null, sandbox: shapeChoice(shape), backend: context.sandboxBackend ?? "job-object" });
     return { ...entry.view(), sandbox: shapeChoice(shape), backend: context.sandboxBackend ?? "job-object" };
