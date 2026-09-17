@@ -37,6 +37,12 @@ const memoryStore = (initial = {}) => {
   };
 };
 const emptyPolicy = { preset: "off", rules: [], limits: { toolCallsPerMinute: 0, modelRoundsPerMinute: 0 }, unmatchedCommands: "allow" };
+/**
+ * These build the wall from this computer's own home and temporary folders, a local socket or a
+ * POSIX error message. The wall is macOS and Linux only (Windows is handed back untouched, see W9),
+ * so on Windows there is nothing real for them to stand in for.
+ */
+const posixWall = { skip: process.platform === "win32" && "the wall around programs is macOS and Linux only" };
 const wallFor = (overrides = {}) => ({
   network: "per-site", keySites: {}, unreadable: [], answer: () => undefined, granted: () => [], spend() {}, ...overrides,
 });
@@ -142,7 +148,7 @@ test("W4 the macOS profile never contains a path, and writes stop at the workspa
   assert.throws(() => seatbeltArgs({ workspace: "relative/path", network: "none" }, { executable: "/bin/ls", args: [] }), /full paths/);
 });
 
-test("W5 behind the door, only the door's ports are reachable", () => {
+test("W5 behind the door, only the door's ports are reachable", posixWall, () => {
   const command = { executable: "/usr/bin/curl", args: [] };
   const door = seatbeltArgs({ workspace: "/w", network: "per-site", proxyPorts: [4100, 4101], temp: [] }, command)[1];
   assert.match(door, /\(allow network-outbound \(remote ip "localhost:4100"\)\)/);
@@ -244,7 +250,7 @@ test("W9 on Windows the start is handed back untouched; elsewhere nothing starts
   await assert.rejects(openWall(wallFor(), start, { workspace: root }, { platform: "linux", locateBwrap: async () => null }), /needs bubblewrap/);
 });
 
-test("W10 macOS: the program sees a stand-in key and only the door; a new site stops the task with a question", async (t) => {
+test("W10 macOS: the program sees a stand-in key and only the door; a new site stops the task with a question", posixWall, async (t) => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "branch-wall-")));
   t.after(() => discardTemp(root));
   const wall = wallFor({ keySites: { TOKEN: "api.example.test" } });
@@ -271,7 +277,7 @@ test("W10 macOS: the program sees a stand-in key and only the door; a new site s
     (error) => error.name === "ApprovalRequiredError" && error.tool === "network.site" && error.target === "new.example.test");
 });
 
-test("W11 a blocked write names the file once, the yes widens exactly that file, and it is used up", async (t) => {
+test("W11 a blocked write names the file once, the yes widens exactly that file, and it is used up", posixWall, async (t) => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "branch-wall-")));
   t.after(() => discardTemp(root));
   const deps = { platform: "darwin", exists: async () => true };
@@ -293,7 +299,7 @@ test("W11 a blocked write names the file once, the yes widens exactly that file,
   assert.match(await offline.finish({ exitCode: 6, stdout: "", stderr: "curl: (6) Could not resolve host: example.com" }), /reaching the internet/);
 });
 
-test("W12 Linux: bwrap through the fixed starter, the filter written, the door bridged, all cleaned up", async (t) => {
+test("W12 Linux: bwrap through the fixed starter, the filter written, the door bridged, all cleaned up", posixWall, async (t) => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "branch-wall-")));
   t.after(() => discardTemp(root));
   const probed = [];
@@ -320,7 +326,7 @@ test("W12 Linux: bwrap through the fixed starter, the filter written, the door b
   assert.equal(await stat(staging).catch(() => null), null, "the door's folder is gone");
 });
 
-test("W13 the plain box puts scripts behind the wall only when the call carries one", async (t) => {
+test("W13 the plain box puts scripts behind the wall only when the call carries one", posixWall, async (t) => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "branch-wall-")));
   t.after(() => discardTemp(root));
   const spawned = [];
@@ -347,7 +353,7 @@ test("W13 the plain box puts scripts behind the wall only when the call carries 
 
 /* ------------------------------------------------------------------ denials */
 
-test("W14 a denial is told apart from an ordinary failure", () => {
+test("W14 a denial is told apart from an ordinary failure", posixWall, () => {
   const options = { network: "open", workspace: "/w", hidden: ["/home/o/.ssh"] };
   assert.equal(explainDenial({ exitCode: 0, stdout: "", stderr: "Operation not permitted" }, options), null);
   assert.equal(explainDenial({ exitCode: 127, stdout: "", stderr: "sandbox: command not found" }, options), null);
@@ -561,7 +567,7 @@ test("R4 odd names, ports and keys are refused without bringing the door down", 
 
 /* ------------------------------------------------------------------ integration review: widening and hidden places */
 
-test("R5 a yes to a write only ever names a real file, never a link, a startup file or a protected place", async (t) => {
+test("R5 a yes to a write only ever names a real file, never a link, a startup file or a protected place", posixWall, async (t) => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "branch-wall-")));
   t.after(() => discardTemp(root));
   const { symlink, writeFile } = await import("node:fs/promises");
