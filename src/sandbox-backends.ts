@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { statSync } from "node:fs";
+import { realpathSync, statSync } from "node:fs";
 import { cp, mkdir, mkdtemp, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
-import { dirname, join, resolve, sep } from "node:path";
+import { basename, dirname, join, resolve, sep } from "node:path";
 import { z } from "zod";
 import { ShellProcess } from "./integrations/shell-process.js";
 import { netlessEnvironment } from "./integrations/shell-config.js";
@@ -493,6 +493,14 @@ async function whichBwrap(): Promise<string | null> {
   for (const dir of ["/usr/bin", "/usr/local/bin", "/bin"]) if (await fileExists(join(dir, "bwrap"))) return join(dir, "bwrap");
   return null;
 }
+/**
+ * The name the system itself uses for a place: links followed and `/var` spelled `/private/var`. A
+ * file that is not there yet is named through its folder.
+ */
+export function canonicalPath(path: string): string {
+  try { return realpathSync(path); } catch { /* not there yet */ }
+  try { return join(realpathSync(dirname(path)), basename(path)); } catch { return path; }
+}
 const passThrough = (start: SandboxStart): OpenedWall => ({ start, finish: async () => null, close: async () => undefined });
 
 /**
@@ -512,10 +520,15 @@ async function planWall(
   const real = deps.realpath ?? realpath;
   const workspace = await real(options.workspace), temp = await real(tmpdir());
   const home = homedir();
-  const hidden = [...secretHomePlaces.map((place) => join(home, place)), ...wall.unreadable, ...(deps.dataDir ? [deps.dataDir] : [])];
-  // A yes given after the wall stopped a write lets that one file through, once.
-  const extraWrites = wall.granted("sandbox.write").filter((path) => widenable(path, { workspace, hidden }));
-  for (const path of extraWrites) wall.spend("sandbox.write", path);
+  const named = [...secretHomePlaces.map((place) => join(home, place)), ...wall.unreadable, ...(deps.dataDir ? [deps.dataDir] : [])];
+  // Each hidden place both as written and as the system names it, so a `/var` or a link cannot slip past.
+  const hidden = [...new Set(named.flatMap((path) => [path, canonicalPath(path)]))];
+  // A yes given after the wall stopped a write lets that one file through, once — the file itself,
+  // never what a link in its place points at.
+  const asked = wall.granted("sandbox.write");
+  for (const path of asked) wall.spend("sandbox.write", path);
+  // The question names the file as the system does, so a yes naming anything else (a link) is not used.
+  const extraWrites = asked.filter((path) => canonicalPath(path) === path && widenable(path, { workspace, hidden }));
   const keys = edgeKeys(wall, options.secrets ?? {});
   // A program left running cannot keep a door open after the call, so it gets no network instead.
   const network = options.proxy === false && (wall.network === "limited" || wall.network === "per-site") ? "none" : wall.network;
@@ -537,9 +550,10 @@ async function macWall(plan: WallPlan, start: SandboxStart): Promise<{ start: Sa
   const door = doorFor(plan);
   const address = door ? await door.start() : null;
   const ports = address ? [address.httpPort!, address.socksPort!] : undefined;
+  // The hidden places go in as the system names them (`/private/var`, not `/var`), or macOS would not match them.
   const args = seatbeltArgs({ workspace: plan.workspace, network: plan.network, proxyPorts: ports, extraWrites: plan.extraWrites,
-    unreadable: plan.wall.unreadable, dataDir: plan.deps.dataDir, temp: [plan.temp, "/private/tmp", "/private/var/tmp"] }, start);
-  const env = { ...start.env, ...keyEnv(plan.keys), ...(address ? proxyEnvironment({ httpPort: address.httpPort!, socksPort: address.socksPort! }) : {}) };
+    unreadable: plan.hidden, temp: [plan.temp, "/private/tmp", "/private/var/tmp"] }, start);
+  const env = { ...start.env, ...keyEnv(plan.keys), ...(address && door ? proxyEnvironment({ httpPort: address.httpPort!, socksPort: address.socksPort! }, door.secret) : {}) };
   return { door, start: { executable: sandboxExecPath, args, cwd: start.cwd, env } };
 }
 
@@ -564,10 +578,10 @@ async function linuxWall(plan: WallPlan, start: SandboxStart): Promise<{ start: 
   const extraWrites = plan.extraWrites.map((path) => (kindOf(path) ? path : dirname(path)))
     .filter((path) => widenable(path, { workspace: plan.workspace, hidden: plan.hidden }));
   const args = bwrapArgs({ workspace: plan.workspace, network: plan.network, doorDir: door ? staging : undefined,
-    extraWrites, unreadable: plan.wall.unreadable, dataDir: plan.deps.dataDir, temp: plan.temp,
+    extraWrites, unreadable: plan.hidden, temp: plan.temp, uid: process.getuid?.(),
     seccompFd: 9, kindOf }, command);
   const wrapped = withSeccomp(found.path, filter, args);
-  const env = { ...start.env, ...keyEnv(plan.keys), ...(door ? proxyEnvironment({ httpPort: insideDoorPorts.http, socksPort: insideDoorPorts.socks }) : {}) };
+  const env = { ...start.env, ...keyEnv(plan.keys), ...(door ? proxyEnvironment({ httpPort: insideDoorPorts.http, socksPort: insideDoorPorts.socks }, door.secret) : {}) };
   return { door, start: { ...wrapped, cwd: start.cwd, env } };
 }
 
@@ -604,7 +618,9 @@ function wallVerdict(plan: WallPlan, door: SandboxProxy | null, result: WallRun)
     : null;
   const denial = explainDenial(result, { network: plan.network, workspace: plan.workspace, hidden: plan.hidden });
   if (!denial) return keysNote;
-  const path = denial.path;
+  const path = denial.path ? canonicalPath(denial.path) : undefined;
+  if (path && !widenable(path, { workspace: plan.workspace, hidden: plan.hidden }))
+    return `The wall around programs stopped this command changing ${path}. That place is always protected, so Branch will not ask to open it.`;
   // Asked once: a file the owner already let through, or refused, is not asked about again.
   if (path && plan.wall.answer("sandbox.write", path) === undefined && !plan.extraWrites.includes(path))
     throw new ApprovalRequiredError("sandbox.write", path, widenQuestion(), "session");

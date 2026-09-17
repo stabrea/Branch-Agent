@@ -8,6 +8,7 @@ import {
   saveSandboxBackendSettings, wallReport,
 } from "./sandbox-backends.js";
 import { saveWallSettings, wallSettings } from "./sandbox.js";
+import { audit } from "./audit.js";
 import { saveSessionLimits, sessionLimits } from "./session-limits.js";
 import { retentionSettings, saveRetentionSettings, sentenceFor } from "./retention.js";
 
@@ -59,7 +60,15 @@ export async function sandboxRemoteApi(
   // Wave mac3 (os-sandbox): the wall around programs — the owner's switch, and whether this computer
   // can build it. Only the app window's own key may change it (see offLimitsToShortLivedKeys).
   if (path === "/api/os-sandbox") {
-    if (post) saveWallSettings(app.store, owner, await readBody(request));
+    if (post) {
+      const before = wallSettings(app.store, owner);
+      const after = saveWallSettings(app.store, owner, await readBody(request));
+      // Integration review: the wall widens or narrows what a program may reach, so every change is written down.
+      audit(app.store, owner, { action: "policy.changed", actor: owner,
+        subject: `Wall around programs: ${after.mode}, network ${after.network}`.slice(0, 300),
+        reason: `Was ${before.mode}, network ${before.network}; ${Object.keys(after.keySites).length} keys tied to sites, ${after.unreadable.length} extra hidden places.`,
+        outcome: "saved" });
+    }
     else if (!get) throw new SandboxRemoteApiError(405, "Only reading and saving are possible here.");
     return { settings: wallSettings(app.store, owner), computer: await wallReport() };
   }

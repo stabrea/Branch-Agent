@@ -33,6 +33,8 @@ export interface BwrapInput {
   home?: string;
   temp?: string;
   dataDir?: string | undefined;
+  /** The owner's user number, for the per-user runtime folder (`/run/user/<uid>`) hidden below. */
+  uid?: number | undefined;
   /** The file descriptor the filter is read from; the starter opens it. */
   seccompFd?: number;
   /** What is at a path to be hidden: a folder, a file, or nothing (then nothing needs hiding). */
@@ -46,7 +48,11 @@ export function bwrapArgs(input: BwrapInput, command: { executable: string; args
   // With no network, or only Branch's door, the program gets a network of its own with nothing in it.
   if (input.network !== "open") args.push("--unshare-net");
   args.push("--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc");
-  args.push("--bind", temp, temp, "--bind", input.workspace, input.workspace);
+  // A private, empty temporary folder: the real one holds other programs' sockets (the ssh agent,
+  // the screen, other runs' doors), and a socket file can be used even on a read-only disk.
+  const temps = [...new Set(["/tmp", temp])];
+  for (const path of temps) args.push("--tmpfs", path);
+  args.push("--bind", input.workspace, input.workspace);
   if (input.doorDir) args.push("--bind", input.doorDir, input.doorDir);
   for (const path of input.extraWrites ?? []) args.push("--bind-try", path, path);
   for (const name of protectedWorkspaceNames) {
@@ -54,7 +60,7 @@ export function bwrapArgs(input: BwrapInput, command: { executable: string; args
     args.push("--ro-bind-try", path, path);
   }
   const hidden = [...secretHomePlaces.map((place) => join(home, place)), ...(input.unreadable ?? []),
-    ...(input.dataDir ? [input.dataDir] : [])];
+    ...(input.dataDir ? [input.dataDir] : []), ...socketPlaces(input.uid)];
   // An empty read-only folder over each folder, an empty file over each file; a missing one needs
   // nothing hidden (and bwrap could not make a place to hide it on a read-only disk anyway).
   const kindOf = input.kindOf ?? (() => "dir" as const);
@@ -66,6 +72,14 @@ export function bwrapArgs(input: BwrapInput, command: { executable: string; args
   if (input.seccompFd !== undefined) args.push("--seccomp", String(input.seccompFd));
   args.push("--chdir", input.workspace, "--", command.executable, ...command.args);
   return args;
+}
+
+/**
+ * Where programs that act outside the wall listen: the desktop session's message bus and keyring
+ * (which can start programs), and Docker. Covered like a hidden place, so nothing can be sent to them.
+ */
+function socketPlaces(uid: number | undefined): string[] {
+  return [...(uid !== undefined ? [`/run/user/${uid}`] : []), "/run/docker.sock", "/var/run/docker.sock", "/run/podman"];
 }
 
 // ------------------------------------------------------------------ the filter

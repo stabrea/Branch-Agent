@@ -149,7 +149,8 @@ test("W5 behind the door, only the door's ports are reachable", () => {
   assert.match(door, /\(allow network-outbound \(remote ip "localhost:4101"\)\)/);
   assert.ok(!/\(allow network-outbound\)\n/.test(door), "not the whole internet");
   const open = seatbeltArgs({ workspace: "/w", network: "open", temp: [] }, command)[1];
-  assert.match(open, /\(allow network-outbound\)\n/);
+  assert.match(open, /\(allow network-outbound \(remote ip "\*:\*"\)\)/);
+  assert.ok(!/\(allow network-outbound\)/.test(open), "open means internet addresses, not every local socket file");
   // A port that is not a real port gives no network at all rather than some network.
   const bad = seatbeltArgs({ workspace: "/w", network: "per-site", proxyPorts: [4100, 70000], temp: [] }, command)[1];
   assert.ok(!bad.includes("network-outbound"));
@@ -165,7 +166,7 @@ test("W6 bubblewrap arguments: read-only disk, writable workspace, protected fol
     extraWrites: ["/home/o/notes"], kindOf: (path) => kinds[path] ?? null }, { executable: "/usr/bin/python3", args: ["-c", "1"] });
   const joined = args.join(" ");
   for (const flag of ["--die-with-parent", "--unshare-user", "--unshare-pid", "--unshare-net", "--proc /proc", "--ro-bind / /",
-    "--bind /tmp /tmp", "--bind /home/o/work /home/o/work", "--bind-try /home/o/notes /home/o/notes",
+    "--tmpfs /tmp", "--bind /home/o/work /home/o/work", "--bind-try /home/o/notes /home/o/notes",
     "--ro-bind-try /home/o/work/.git /home/o/work/.git", "--ro-bind-try /home/o/work/.agents /home/o/work/.agents",
     "--tmpfs /home/o/.ssh --remount-ro /home/o/.ssh", "--ro-bind /dev/null /home/o/.netrc", "--seccomp 9", "--chdir /home/o/work"])
     assert.ok(joined.includes(flag), `missing ${flag}`);
@@ -258,10 +259,11 @@ test("W10 macOS: the program sees a stand-in key and only the door; a new site s
     assert.ok(!JSON.stringify(opened.start).includes(real), "no real key is anywhere in what starts");
   const port = Number(new URL(opened.start.env.HTTP_PROXY).port);
   assert.match(opened.start.args[1], new RegExp(`localhost:${port}`));
-  assert.match(opened.start.env.ALL_PROXY, /^socks5h:\/\/127\.0\.0\.1:\d+$/);
+  assert.match(opened.start.env.ALL_PROXY, /^socks5h:\/\/branch:[a-f0-9]{36}@127\.0\.0\.1:\d+$/);
   // A program tries a site nobody has decided about.
   const refused = await new Promise((resolve) => {
-    const socket = connect(port, "127.0.0.1", () => socket.write("GET http://new.example.test/ HTTP/1.1\r\nHost: new.example.test\r\nConnection: close\r\n\r\n"));
+    const auth = Buffer.from(decodeURIComponent(`${new URL(opened.start.env.HTTP_PROXY).username}:${new URL(opened.start.env.HTTP_PROXY).password}`)).toString("base64");
+    const socket = connect(port, "127.0.0.1", () => socket.write(`GET http://new.example.test/ HTTP/1.1\r\nHost: new.example.test\r\nProxy-Authorization: Basic ${auth}\r\nConnection: close\r\n\r\n`));
     let text = ""; socket.on("data", (chunk) => { text += chunk; }); socket.on("end", () => resolve(text)); socket.on("close", () => resolve(text));
   });
   assert.match(refused, /403/);
@@ -282,7 +284,7 @@ test("W11 a blocked write names the file once, the yes widens exactly that file,
   const second = await openWall(granted, plain(root), { workspace: root }, deps);
   assert.ok(second.start.args.includes("-DGRANTED_0=/Users/o/report.txt"));
   assert.ok(!second.start.args.some((arg) => arg.startsWith("-DGRANTED_1")), "a hidden place is never widened");
-  assert.deepEqual(spent, ["/Users/o/report.txt"]);
+  assert.deepEqual(spent, ["/Users/o/report.txt", join(homedir(), ".ssh", "config")], "every one-time yes is used up, used or not");
   // Still failing after the one retry: a sentence, not another question.
   assert.match(await second.finish(blocked), /stopped this command writing to \/Users\/o\/report\.txt/);
   const answered = await openWall(wallFor({ network: "none", answer: () => "deny" }), plain(root), { workspace: root }, deps);
@@ -308,7 +310,7 @@ test("W12 Linux: bwrap through the fixed starter, the filter written, the door b
   assert.equal(rest[marker + 1], process.execPath, "the door's bridge runs first inside the wall");
   assert.deepEqual([rest[marker + 4], rest[marker + 6], rest[marker + 7]], ["3128", "1080", "--"]);
   assert.deepEqual(rest.slice(-3), ["--", "/usr/bin/printenv", "TOKEN"]);
-  assert.equal(opened.start.env.HTTP_PROXY, "http://127.0.0.1:3128");
+  assert.match(opened.start.env.HTTP_PROXY, /^http:\/\/branch:[a-f0-9]{36}@127\.0\.0\.1:3128$/);
   assert.match(opened.start.env.TOKEN, /^branch_/);
   assert.ok(rest.includes("--unshare-net"));
   const staging = dirname(filter);
@@ -350,7 +352,7 @@ test("W14 a denial is told apart from an ordinary failure", () => {
   assert.equal(explainDenial({ exitCode: 0, stdout: "", stderr: "Operation not permitted" }, options), null);
   assert.equal(explainDenial({ exitCode: 127, stdout: "", stderr: "sandbox: command not found" }, options), null);
   assert.equal(explainDenial({ exitCode: 1, stdout: "", stderr: "error: tests failed" }, options), null);
-  assert.equal(explainDenial({ exitCode: 1, stdout: "", stderr: "OSError: [Errno 30] Read-only file system: '/usr/lib/x.pyc'" }, options).path, "/usr/lib/x.pyc");
+  assert.equal(explainDenial({ exitCode: 1, stdout: "", stderr: "OSError: [Errno 30] Read-only file system: '/opt/lib/x.pyc'" }, options).path, "/opt/lib/x.pyc");
   assert.equal(explainDenial({ exitCode: 1, stdout: "", stderr: "open /w/.git/hooks/pre-commit: operation not permitted" }, options).path, undefined);
   assert.equal(explainDenial({ exitCode: 1, stdout: "", stderr: "Permission denied" }, options).kind, "unknown");
   assert.equal(explainDenial({ exitCode: 6, stdout: "", stderr: "Could not resolve host" }, options), null, "with network allowed, a lookup failure is just a failure");
@@ -374,16 +376,43 @@ async function fakeSite(t) {
   return { seen, port: server.address().port };
 }
 
+/** A public-looking address for every test site; the door refuses private ones. */
+const publicResolve = async () => ["93.184.216.34"];
+const withAuth = (text, secret) => text.replace("\r\n", `\r\nProxy-Authorization: Basic ${Buffer.from(`branch:${secret}`).toString("base64")}\r\n`);
+
 async function door(t, options) {
-  const proxy = new SandboxProxy(options);
+  const proxy = new SandboxProxy({ resolve: publicResolve, ...options });
   const address = await proxy.start();
   t.after(() => proxy.close());
-  const raw = (text) => new Promise((resolve) => {
-    const socket = connect(address.httpPort, "127.0.0.1", () => socket.write(text));
+  const raw = (text, secret = proxy.secret) => rawSend(address.httpPort, secret === null ? text : withAuth(text, secret));
+  const socks = (host, port = 80, credentials = ["branch", proxy.secret]) => socksTry(address.socksPort, host, port, credentials);
+  return { proxy, address, raw, socks };
+}
+function rawSend(port, text) {
+  return new Promise((resolve) => {
+    const socket = connect(port, "127.0.0.1", () => socket.write(text));
     let got = ""; socket.on("data", (chunk) => { got += chunk; }); socket.on("close", () => resolve(got));
+    socket.on("error", () => resolve(got));
     setTimeout(() => socket.end(), 500);
   });
-  return { proxy, address, raw };
+}
+/** A SOCKS5 client: greeting, user name and password, connect, then a plain request. Resolves with every reply. */
+function socksTry(port, host, targetPort, credentials) {
+  return new Promise((resolve) => {
+    const socket = connect(port, "127.0.0.1");
+    const replies = [];
+    const [user, password] = credentials ?? [];
+    socket.on("data", (chunk) => {
+      replies.push(chunk);
+      const step = replies.length;
+      if (step === 1 && chunk[1] === 2) socket.write(Buffer.concat([Buffer.from([1, user.length]), Buffer.from(user), Buffer.from([password.length]), Buffer.from(password)]));
+      else if (step === 2 && chunk[1] === 0) socket.write(Buffer.concat([Buffer.from([5, 1, 0, 3, host.length]), Buffer.from(host), Buffer.from([targetPort >> 8, targetPort & 255])]));
+      else if (step === 3 && chunk[1] === 0) socket.write(`GET / HTTP/1.1\r\nHost: ${host}\r\nConnection: close\r\n\r\n`);
+    });
+    socket.on("error", () => resolve(replies));
+    socket.on("close", () => resolve(replies));
+    socket.write(Buffer.from(credentials ? [5, 1, 2] : [5, 1, 0]));
+  });
 }
 
 test("W15 the door asks about new sites, keeps to reading in limited mode, and follows the owner's rules", async (t) => {
@@ -410,7 +439,7 @@ test("W16 a stand-in becomes the real key only for its own site, and the answer 
     upstream: (target) => { routed.push(target); return { host: "127.0.0.1", port: site.port, secure: false }; } });
   const answer = await raw(`GET http://api.example.test/me HTTP/1.1\r\nHost: api.example.test\r\nAuthorization: Bearer ${keys[0].placeholder}\r\nConnection: close\r\n\r\n`);
   assert.equal(site.seen[0].authorization, "Bearer real-value-1234", "the site got the real key");
-  assert.deepEqual(routed[0], { host: "api.example.test", port: 443, secure: true }, "a real key only ever goes out over a secure connection");
+  assert.deepEqual(routed[0], { host: "api.example.test", address: "93.184.216.34", port: 443, secure: true }, "a real key only ever goes out over a secure connection");
   assert.ok(!answer.includes("real-value-1234"), "the key is taken back out of the answer");
   assert.match(answer, /\[secret TOKEN\]/);
   assert.match(answer, /hidden key-like value/);
@@ -428,25 +457,156 @@ test("W16 a stand-in becomes the real key only for its own site, and the answer 
 
 test("W17 the SOCKS door connects only where the owner said yes", async (t) => {
   const site = await fakeSite(t);
-  const { address } = await door(t, { network: "per-site", decide: (host) => (host === "ok.test" ? "allow" : "ask"),
+  const { socks } = await door(t, { network: "per-site", decide: (host) => (host === "ok.test" ? "allow" : "ask"),
     upstream: () => ({ host: "127.0.0.1", port: site.port, secure: false }) });
-  const socks = (host) => new Promise((resolve) => {
-    const socket = connect(address.socksPort, "127.0.0.1");
-    const replies = [];
-    socket.on("data", (chunk) => {
-      replies.push(chunk);
-      if (replies.length === 1) socket.write(Buffer.concat([Buffer.from([5, 1, 0, 3, host.length]), Buffer.from(host), Buffer.from([0, 80])]));
-      else if (replies.length === 2 && chunk[1] === 0) socket.write(`GET / HTTP/1.1\r\nHost: ${host}\r\nConnection: close\r\n\r\n`);
-    });
-    socket.on("close", () => resolve(replies));
-    socket.write(Buffer.from([5, 1, 0]));
-  });
   const yes = await socks("ok.test");
-  assert.equal(yes[1][1], 0, "connected");
-  assert.match(Buffer.concat(yes.slice(2)).toString(), /200 OK/);
+  assert.equal(yes[2][1], 0, "connected");
+  assert.match(Buffer.concat(yes.slice(3)).toString(), /200 OK/);
   const no = await socks("other.test");
-  assert.equal(no[1][1], 2, "refused");
-  assert.deepEqual(proxyEnvironment({ httpPort: 1, socksPort: 2 }).ALL_PROXY, "socks5h://127.0.0.1:2");
+  assert.equal(no[2][1], 2, "refused");
+  assert.match(proxyEnvironment({ httpPort: 1, socksPort: 2 }, "s3cret").ALL_PROXY, /^socks5h:\/\/branch:s3cret@127\.0\.0\.1:2$/);
+});
+
+/* ------------------------------------------------------------------ integration review: attacks on the door */
+
+async function recordingSite(t) {
+  const seen = [];
+  const server = createServer((request, response) => {
+    seen.push({ host: request.headers.host, proxyAuthorization: request.headers["proxy-authorization"], url: request.url });
+    response.writeHead(200, { "content-type": "text/plain" }).end("ok");
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  return { seen, port: server.address().port };
+}
+const CRLF = "\r\n";
+const get = (host, extra = "", path = "/") => `GET http://${host}${path} HTTP/1.1${CRLF}Host: ${host}${CRLF}${extra}Connection: close${CRLF}${CRLF}`;
+const tunnelTo = (target) => `CONNECT ${target} HTTP/1.1${CRLF}Host: ${target}${CRLF}${CRLF}`;
+
+test("R1 the door turns away any caller without this run's secret, and never passes the secret on", async (t) => {
+  const site = await recordingSite(t);
+  const { proxy, raw, socks } = await door(t, { network: "open", decide: () => "allow",
+    upstream: () => ({ host: "127.0.0.1", port: site.port, secure: false }) });
+  assert.match(await raw(get("ok.test"), null), /^HTTP\/1\.1 407/);
+  assert.match(await raw(get("ok.test"), "0".repeat(36)), /^HTTP\/1\.1 407/);
+  assert.match(await raw(tunnelTo("ok.test:443"), null), /^HTTP\/1\.1 407/);
+  const noAuth = await socks("ok.test", 80, null);
+  assert.deepEqual([...noAuth[0]], [5, 0xff], "SOCKS without a password is refused");
+  const wrong = await socks("ok.test", 80, ["branch", "0".repeat(36)]);
+  assert.deepEqual([...wrong[1]], [1, 1], "a wrong password is refused");
+  assert.equal(site.seen.length, 0, "nothing reached the site");
+  assert.match(await raw(get("ok.test")), /^HTTP\/1\.1 200/);
+  assert.equal(site.seen.length, 1);
+  assert.equal(site.seen[0].proxyAuthorization, undefined, "the door's secret is not passed to the site");
+  assert.equal(proxyEnvironment({ httpPort: 5, socksPort: 6 }, proxy.secret).HTTP_PROXY, `http://branch:${proxy.secret}@127.0.0.1:5`);
+});
+
+test("R2 the door never reaches this computer, the cloud metadata address or a private network", async (t) => {
+  const site = await recordingSite(t);
+  const names = { "inner.test": ["10.0.0.5"], "mixed.test": ["93.184.216.34", "127.0.0.1"], "v6.test": ["::ffff:127.0.0.1"] };
+  const upstream = () => ({ host: "127.0.0.1", port: site.port, secure: false });
+  const { raw, socks, proxy } = await door(t, { network: "open", decide: () => "allow", upstream,
+    resolve: async (host) => names[host] ?? ["93.184.216.34"] });
+  for (const target of ["127.0.0.1:80", "169.254.169.254:80", "[::1]:443", "10.1.2.3:22", "inner.test:443", "mixed.test:443", "v6.test:443"])
+    assert.match(await raw(tunnelTo(target)), /^HTTP\/1\.1 403[\s\S]*(private network|not a site)/, target);
+  assert.match(await raw(get("169.254.169.254", "", "/latest/meta-data/")), /^HTTP\/1\.1 403/);
+  assert.match(await raw(get("inner.test")), /^HTTP\/1\.1 403/);
+  assert.equal((await socks("169.254.169.254"))[2][1], 2, "SOCKS to the metadata address is refused");
+  assert.equal((await socks("inner.test"))[2][1], 2);
+  // The system's own lookup: "localhost" and a number that means 127.0.0.1.
+  const real = await door(t, { network: "open", decide: () => "allow", upstream, resolve: undefined });
+  for (const name of ["localhost", "2130706433"])
+    assert.match(await real.raw(tunnelTo(`${name}:80`)), /^HTTP\/1\.1 403/, name);
+  assert.equal(site.seen.length, 0, "nothing private was reached");
+  assert.ok(proxy.refused.some((reason) => /private network/.test(reason)));
+});
+
+test("R3 the door connects to the address it checked, with the site's own name on the request", async (t) => {
+  const site = await recordingSite(t);
+  const lookups = [], routed = [];
+  // A name that answers a public address first and this computer afterwards (DNS rebinding).
+  const answers = [["93.184.216.34"], ["127.0.0.1"]];
+  const { raw } = await door(t, { network: "open", decide: () => "allow",
+    check: async () => undefined,
+    resolve: async (host) => { lookups.push(host); return answers[Math.min(lookups.length - 1, 1)]; },
+    upstream: (target) => { routed.push(target); return { host: "127.0.0.1", port: site.port, secure: false }; } });
+  const steered = `GET http://rebind.test/x HTTP/1.1${CRLF}Host: evil.test${CRLF}Connection: close${CRLF}${CRLF}`;
+  assert.match(await raw(steered), /^HTTP\/1\.1 200/);
+  assert.deepEqual(lookups, ["rebind.test"], "looked up once");
+  assert.equal(routed[0].address, "93.184.216.34", "the connection goes to the checked address");
+  assert.equal(site.seen[0].host, "rebind.test", "a different Host line cannot steer the request to another site");
+  assert.match(await raw(get("rebind.test", "", "/x")), /^HTTP\/1\.1 403/, "the second lookup says 127.0.0.1, and that is refused");
+});
+
+test("R4 odd names, ports and keys are refused without bringing the door down", async (t) => {
+  const site = await recordingSite(t);
+  const keys = [{ name: "TOKEN", placeholder: `branch_${"d".repeat(32)}`, value: `bad value${CRLF}x`, site: "api.example.test" }];
+  const { raw, socks, proxy } = await door(t, { network: "open", decide: () => "allow", keys,
+    upstream: () => ({ host: "127.0.0.1", port: site.port, secure: false }) });
+  assert.match(await raw(tunnelTo("ok.test:99999")), /^HTTP\/1\.1 403[\s\S]*not a port/);
+  assert.match(await raw(tunnelTo("ok.test:0")), /^HTTP\/1\.1 403/);
+  assert.equal((await socks(`ok.test${String.fromCharCode(0)}.evil.test`))[2][1], 2, "a name with a hidden byte is refused");
+  assert.equal((await socks("ok.test/@evil.test"))[2][1], 2);
+  // A saved key that cannot be sent as it is must not stop the door.
+  await raw(get("api.example.test", "", `/${keys[0].placeholder}`));
+  await raw(get("api.example.test", `X-Key: ${keys[0].placeholder}${CRLF}`));
+  assert.match(await raw(get("ok.test")), /^HTTP\/1\.1 200/, "still answering");
+  // Asking about many sites does not grow without end.
+  const asking = await door(t, { network: "per-site", decide: () => "ask" });
+  for (let index = 0; index < 40; index += 1) await asking.raw(get(`site${index}.test`));
+  assert.equal(asking.proxy.asked.length, 16);
+  assert.equal(asking.proxy.asked[0], "site0.test", "the first site is still the one asked about");
+  assert.ok(proxy.refused.length >= 4);
+});
+
+/* ------------------------------------------------------------------ integration review: widening and hidden places */
+
+test("R5 a yes to a write only ever names a real file, never a link, a startup file or a protected place", async (t) => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "branch-wall-")));
+  t.after(() => discardTemp(root));
+  const { symlink, writeFile } = await import("node:fs/promises");
+  const outside = join(root, "outside.txt"), link = join(root, "work", "link.txt");
+  await mkdir(join(root, "work"));
+  await writeFile(outside, "x");
+  await symlink(outside, link);
+  const home = homedir();
+  const spent = [];
+  const wall = wallFor({ network: "none", spend: (_kind, path) => spent.push(path),
+    granted: () => [link, outside, join(home, "Library", "LaunchAgents", "evil.plist"), join(home, ".zshrc")] });
+  const deps = { platform: "darwin", exists: async () => true };
+  const opened = await openWall(wall, plain(join(root, "work")), { workspace: join(root, "work") }, deps);
+  const granted = opened.start.args.filter((arg) => arg.startsWith("-DGRANTED_")).map((arg) => arg.split(/=(.*)/s)[1]);
+  assert.deepEqual(granted, [outside], "only the real file the owner was asked about");
+  assert.equal(spent.length, 4, "every one-time yes is used up");
+  for (const path of [join(home, "Library", "LaunchAgents", "x.plist"), join(home, ".bashrc"), "/etc/hosts", join(home, ".ssh", "rc")])
+    assert.equal(widenable(path, { workspace: join(root, "work"), hidden: [] }), false, path);
+  // A denial through a link is asked about as the file it really is.
+  const blocked = { exitCode: 1, stdout: "", stderr: `node: ${link}: Operation not permitted` };
+  const again = await openWall(wallFor({ network: "none" }), plain(join(root, "work")), { workspace: join(root, "work") }, deps);
+  await assert.rejects(again.finish(blocked), (error) => error.tool === "sandbox.write" && error.target === outside);
+  const startup = await openWall(wallFor({ network: "none" }), plain(root), { workspace: join(root, "work") }, deps);
+  const agent = join(home, "Library", "LaunchAgents", "a.plist");
+  assert.match(await startup.finish({ exitCode: 1, stdout: "", stderr: `cp: ${agent}: Operation not permitted` }), /always protected/);
+});
+
+test("R6 Linux: a private temporary folder, and the desktop bus and Docker covered", () => {
+  const kinds = { "/run/user/1000": "dir", "/run/docker.sock": "file" };
+  const args = bwrapArgs({ workspace: "/tmp/work", network: "none", home: "/home/o", temp: "/var/tmp/o", uid: 1000,
+    kindOf: (path) => kinds[path] ?? null }, { executable: "/bin/true", args: [] }).join(" ");
+  assert.ok(args.includes("--tmpfs /tmp ") && args.includes("--tmpfs /var/tmp/o"), "both temporary folders are private");
+  assert.ok(!args.includes("--bind /tmp /tmp"), "the real /tmp (ssh agent, screen, other doors) is never shared");
+  assert.ok(args.indexOf("--bind /tmp/work /tmp/work") > args.indexOf("--tmpfs /tmp "), "the workspace is put back after");
+  assert.ok(args.includes("--tmpfs /run/user/1000 --remount-ro /run/user/1000"));
+  assert.ok(args.includes("--ro-bind /dev/null /run/docker.sock"));
+});
+
+test("R7 child programs never get key-like or loader variables", async () => {
+  const { cleanChildEnvironment } = await import("../dist/child-env.js");
+  const risky = ["DYLD_INSERT_LIBRARIES", "DYLD_LIBRARY_PATH", "LD_PRELOAD", "LD_LIBRARY_PATH", "NODE_OPTIONS", "PYTHONPATH",
+    "AWS_ACCESS_KEY_ID", "AWS_SESSION_TOKEN", "BW_SESSION", "BWS_ACCESS_TOKEN", "GH_TOKEN", "SLACK_BOT_TOKEN", "STRIPE_SECRET",
+    "OPENAI_API_KEY", "BRANCH_KEY", "SSH_AUTH_SOCK", "GIT_DIR", "GIT_CONFIG_GLOBAL", "BASH_ENV", "ENV", "PROMPT_COMMAND", "HTTPS_PROXY"];
+  const env = cleanChildEnvironment(Object.fromEntries([...risky, "PATH", "SystemRoot", "ComSpec", "PATHEXT", "TEMP"].map((name) => [name, "v"])));
+  assert.deepEqual(Object.keys(env).sort(), ["ComSpec", "PATH", "PATHEXT", "SystemRoot", "TEMP"].sort(), "Windows programs still find themselves");
 });
 
 /* ------------------------------------------------------------------ the app */
@@ -480,6 +640,11 @@ test("W18 the runtime hands program tools the wall; a short-lived key cannot tak
   const saved = await call("POST", "/api/os-sandbox", { mode: "on", network: "per-site", keySites: { GITHUB_TOKEN: "API.GitHub.com" }, unreadable: [] });
   assert.equal(saved.status, 200);
   assert.deepEqual(saved.body.settings.keySites, { GITHUB_TOKEN: "api.github.com" });
+  const written = app.store.audit.list(app.runtime.owner, { action: "policy.changed" })
+    .filter((entry) => entry.subject.startsWith("Wall around programs"));
+  assert.equal(written.length, 1, "switching the wall is written in the record once; the refused key changed nothing");
+  assert.match(written[0].subject, /on, network per-site/);
+  assert.match(written[0].reason, /Was off, network none/);
 
   const seen = [];
   const registry = app.runtime.registry;
@@ -520,6 +685,38 @@ test("W19 macOS's own sandbox refuses a write outside the workspace and allows o
   assert.equal(result.outside, "EPERM", "a write outside the workspace is refused");
   assert.notEqual(result.keys, "read", "where keys live is not readable");
   assert.equal(await stat(targets.outside).catch(() => null), null, "nothing was written outside");
+});
+
+test("R8 macOS for real: 'anywhere' is internet addresses, not local socket files; hidden places hold through /var", { skip: process.platform !== "darwin" }, async (t) => {
+  const plainTemp = await mkdtemp(join(tmpdir(), "branch-wall-r8-"));
+  const root = await realpath(plainTemp);
+  const unixSite = createServer((_request, response) => response.end("reached"));
+  t.after(async () => { await new Promise((resolve) => unixSite.close(resolve)); await discardTemp(root); });
+  const socketPath = join(root, "s.sock");
+  await new Promise((resolve) => unixSite.listen(socketPath, resolve));
+  const { writeFile } = await import("node:fs/promises");
+  await mkdir(join(root, "work"));
+  await mkdir(join(root, "data"));
+  await writeFile(join(root, "data", "db"), "private");
+  const script = [
+    'const http=require("http"),fs=require("fs");const out={};',
+    `try{out.data=fs.readFileSync(${JSON.stringify(join(root, "data", "db"))},"utf8")}catch(e){out.data=e.code}`,
+    'function done(){console.log(JSON.stringify(out));process.exit(0)}',
+    `function viaSocket(){http.get({socketPath:${JSON.stringify(socketPath)},path:"/"},(u)=>{out.unix=u.statusCode;done()}).on("error",(e)=>{out.unix=e.code;done()})}`,
+    'const site=http.createServer((q,r)=>r.end("tcp")).listen(0,"127.0.0.1",()=>{',
+    'http.get({host:"127.0.0.1",port:site.address().port},(r)=>{out.tcp=r.statusCode;site.close();viaSocket()}).on("error",(e)=>{out.tcp=e.code;viaSocket()})});',
+  ].join("\n");
+  // The hidden place is given the way a person would write it: through /var, not /private/var.
+  const wall = wallFor({ network: "open", unreadable: [join(plainTemp, "data")] });
+  const opened = await openWall(wall, { executable: process.execPath, args: ["-e", script], cwd: join(root, "work"), env: { PATH: "/usr/bin" } },
+    { workspace: join(root, "work") });
+  t.after(() => opened.close());
+  const output = await new Promise((resolve, reject) => execFile(opened.start.executable, opened.start.args,
+    { cwd: join(root, "work"), env: opened.start.env, timeout: 20_000 }, (error, stdout) => (error ? reject(error) : resolve(stdout))));
+  const result = JSON.parse(output.trim());
+  assert.equal(result.tcp, 200, "an internet-style address still works");
+  assert.equal(result.unix, "EPERM", "a local socket file (Docker, the ssh agent) is refused");
+  assert.equal(result.data, "EPERM", "a hidden place written through /var is still hidden");
 });
 
 /* ------------------------------------------------------------------ the card */

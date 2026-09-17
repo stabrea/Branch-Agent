@@ -119,8 +119,11 @@ function readRules(input: SeatbeltInput, params: Param[]): string[] {
 function networkRules(input: SeatbeltInput): string[] {
   if (input.network === "none") return [];
   const ports = input.proxyPorts ?? [];
+  // "Anywhere" means internet addresses and the system's own name lookup, never a local socket
+  // file: those lead to Docker, the ssh agent and other programs that act outside the wall.
   if (input.network === "open" && !ports.length)
-    return ["(allow network-outbound)", "(allow network-inbound)", seatbeltNetworkProfile];
+    return ['(allow network-outbound (remote ip "*:*"))', '(allow network-inbound (local ip "*:*"))',
+      '(allow network-bind (local ip "*:*"))', '(allow network-outbound (literal "/private/var/run/mDNSResponder"))', seatbeltNetworkProfile];
   // Only Branch's own door is reachable; each port is a whole number Branch chose, never user text.
   const valid = ports.filter((port) => Number.isInteger(port) && port >= 1 && port <= 65535);
   if (!valid.length || valid.length !== ports.length) return [];

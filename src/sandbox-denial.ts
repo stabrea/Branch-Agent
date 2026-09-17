@@ -1,4 +1,5 @@
-import { isAbsolute, normalize, resolve, sep } from "node:path";
+import { homedir } from "node:os";
+import { isAbsolute, join, normalize, resolve, sep } from "node:path";
 import { protectedWorkspaceNames } from "./sandbox-seatbelt.js";
 
 /**
@@ -59,15 +60,27 @@ export function explainDenial(
   return { kind: "write", path: blocked, message: `The wall around programs stopped this command writing to ${blocked}.` };
 }
 
+/**
+ * Places that start programs by themselves later (at sign-in, on a timer, in every new terminal).
+ * A program that printed one of these as "blocked" is never offered a way in: one yes would outlive
+ * the wall.
+ */
+export const neverWidened = (home: string): string[] => [
+  "Library/LaunchAgents", "Library/LaunchDaemons", "Library/Application Support/com.apple.backgroundtaskmanagementagent",
+  ".config/autostart", ".config/systemd", ".local/share/systemd", ".config/fish",
+  ".zshrc", ".zshenv", ".zprofile", ".zlogin", ".bashrc", ".bash_profile", ".bash_login", ".profile", ".login",
+  ".ssh", ".gitconfig", ".config/git", ".npmrc", ".pip", ".config/pip",
+].map((place) => join(home, place)).concat(["/Library/LaunchAgents", "/Library/LaunchDaemons", "/etc", "/private/etc", "/usr", "/bin", "/sbin"]);
+
 const inside = (path: string, root: string): boolean => path === root || path.startsWith(root.endsWith(sep) ? root : root + sep);
 
 /** Whether a single file may be offered as a widening at all. */
-export function widenable(path: string, options: { workspace: string; hidden: readonly string[] }): boolean {
+export function widenable(path: string, options: { workspace: string; hidden: readonly string[]; home?: string }): boolean {
   if (!isAbsolute(path) || path.includes("\0") || path.split(sep).includes("..")) return false;
   const full = resolve(path);
   if (full === sep || full.length < 3) return false;
   const kept = protectedWorkspaceNames.map((name) => resolve(options.workspace, name));
-  return ![...kept, ...options.hidden].some((root) => inside(full, resolve(root)));
+  return ![...kept, ...options.hidden, ...neverWidened(options.home ?? homedir())].some((root) => inside(full, resolve(root)));
 }
 
 /** The question the task stops on. */
