@@ -65,6 +65,7 @@ import { WebhookChatAdapter } from "./channels/webhook-chat.js";
 // Wave mac3 (channels-parity).
 import { isPostedChannel, type PostedChannel } from "./channels/parity-switch.js";
 import { isSignedQueryChannel, readRawBody, type SignedQueryChannel } from "./channels/signed-query.js"; // mac6/bucket-16
+import { saveSlackAutomations } from "./channels/slack-automations.js"; // mac6/bucket-16
 import type { ChannelAdapter } from "./channels/router.js";
 import { parityApi } from "./channels/parity-api.js";
 // Batch 20 (wave 8): the unguessable word on the end of every inbound webhook address.
@@ -1881,6 +1882,11 @@ async function channelsApi(app: Branch, request: IncomingMessage, path: string):
   if (path === "/api/channels/parity")
     return parityApi(app.store, owner, app.channels, request.method ?? "GET", request.method === "POST" ? await readBody(request) : undefined);
   if (request.method === "GET" && path === "/api/channels") return { ...app.channels.summary(), outstanding: app.channels.outstanding() };
+  // mac6/bucket-16: automations started by Slack's own events, and starting one that is waiting.
+  if (path === "/api/channels/slack-automations") return request.method === "POST"
+    ? saveSlackAutomations(app.store, owner, await readBody(request), (id) => !!app.triggers.get(owner, id))
+    : app.slackAutomations.list();
+  if (request.method === "POST" && path === "/api/channels/slack-automations/run") return app.slackAutomations.run(await readBody(request));
   // The chat services this copy knows how to talk to, so the Connections card lists them from data
   // rather than from a piece of hand-written page per service. No secret is involved either way.
   if (request.method === "GET" && path === "/api/channels/catalog")

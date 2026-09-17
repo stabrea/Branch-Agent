@@ -693,6 +693,14 @@ Create an app at api.slack.com/apps, turn on **Socket Mode**, and subscribe to `
 
 Socket Mode means Slack never needs to reach this computer. Every envelope is acknowledged immediately and an event id already seen is dropped, so a message Slack sends twice is answered once. Edits, joins and the assistant's own posts are ignored. `slackChannels`, when given, is the only list of Slack channel ids that will be answered; `allowlist` holds Slack user ids. Replies are posted into the thread the question came from, with markdown converted to Slack's own formatting (`**bold**` → `*bold*`, `*italic*` → `_italic_`, links → `<url|text>`, code fences untouched).
 
+**Automations started by Slack's own events.** The same Socket Mode connection can start an automation (an inbound trigger) when something happens in Slack: a reaction, a message with certain words, a new channel. Subscribe the Slack app to the events you want (for example `reaction_added`, `message.channels`, `channel_created`), make the trigger under Automations, then write rules with `POST /api/channels/slack-automations`:
+
+```json
+{ "mode": "on", "rules": [{ "event": "reaction_added", "reaction": "rocket", "channel": "C0123456789", "users": ["U0123456789"], "trigger": "<trigger id>" }] }
+```
+
+A rule matches on the event type and, when given, the Slack channel, the people (`users`), the reaction and words the message must contain (`contains`, ignoring case). The trigger's prompt can use `{{slack_type}}`, `{{slack_user}}`, `{{slack_channel}}`, `{{slack_text}}`, `{{slack_reaction}}`, `{{slack_ts}}`, `{{slack_thread_ts}}` and `{{slack_connection}}`; `{{payload}}` holds all of them. The switch ships **off**: Slack's events start nothing. **When needed** starts nothing by itself: matching events wait in a list (`GET /api/channels/slack-automations`, the last fifty) and one is started with `POST /api/channels/slack-automations/run {"event": "<id>"}`, which a script's run key may also do. **On** starts the automation as the event arrives, within the trigger's own rate limit and log. Events from bots, the assistant's own events and Slack's resends start nothing. Whatever a person writes reaches the automation's prompt as words, so name the `users` whose events may start one. Changing the rules is the owner's alone. Nothing new is opened to the internet: Slack still never reaches this computer.
+
 ### Channels (WhatsApp)
 
 WhatsApp pushes messages to a web address rather than holding a connection open, so Branch must be reachable from the internet. Save the Graph API access token as `WHATSAPP_TOKEN`, the app secret as `WHATSAPP_APP_SECRET`, and a word of your own choosing as `WHATSAPP_VERIFY_TOKEN`:

@@ -157,6 +157,8 @@ export const ChannelConfigSchema = z.discriminatedUnion('type', [
     context.addIssue({ code: 'custom', message: 'Give exactly one of tokenEnv or tokenSecret' });
 });
 export interface ChannelHost { router: ChannelRouter; secret: (name: string) => Promise<string>; web?: WebAccess; hooks?: Hooks; context?: (runId: string) => ToolContext;
+  /** mac6/bucket-16: Slack's own events, for the automations they start. */
+  slackEvents?: (channelId: string, event: unknown, botUserId: string | null) => void;
   /** Version control on this computer, so the remote and GitHub tools can be switched on here. */
   git?: GitTools; activeSecret?: (name: string) => Promise<string>;
   /** The workspace, so the browser can send a file to a website and keep one it sends back. */
@@ -415,7 +417,8 @@ async function buildChannel(channel: ChannelConfig, env: NodeJS.ProcessEnv, host
   if (channel.type === 'slack')
     return new SlackAdapter({ id: channel.id, token: await credential(channel.tokenSecret, env, host),
       appToken: await credential(channel.appTokenSecret, env, host), fetch: guardedFetch,
-      ...(connect ? { connect } : {}), ...(channel.slackChannels.length ? { channels: channel.slackChannels } : {}), ...base });
+      ...(connect ? { connect } : {}), ...(channel.slackChannels.length ? { channels: channel.slackChannels } : {}), ...base,
+      ...(host.slackEvents ? { onEvent: (event: unknown, bot: string | null) => host.slackEvents!(channel.id, event, bot) } : {}) }); // mac6/bucket-16
   if (channel.type === 'whatsapp')
     return new WhatsAppAdapter({ id: channel.id, phoneNumberId: channel.phoneNumberId,
       token: await credential(channel.tokenSecret, env, host), verifyToken: await credential(channel.verifyTokenSecret, env, host),

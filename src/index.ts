@@ -67,6 +67,7 @@ import { WebAccess, registerWeb } from "./integrations/web.js";
 import { Hooks } from "./hooks.js";
 import { Teams } from "./teams.js";
 import { Triggers } from "./triggers.js";
+import { SlackAutomations } from "./channels/slack-automations.js"; // mac6/bucket-16
 import { Webhooks } from "./webhooks.js";
 import { recordUncaughtErrors } from "./tracing.js";
 import { TraceExporter, traceExportSettings } from "./tracing-export.js";
@@ -627,6 +628,8 @@ export async function createBranch(options: {
   const pluginProblems = await plugins.restore();
   const evaluation = new Evaluation(store, runtime.owner);
   const triggers = new Triggers(store, runtime);
+  // mac6/bucket-16: automations started by Slack's own events; off until the owner turns them on.
+  const slackAutomations = new SlackAutomations(store, () => runtime.owner, (id, payload) => triggers.fire(runtime.owner, id, payload));
   const webhooks = new Webhooks(store, web.policy);
   // One trace crosses the boundary: a delivery and a question to another assistant both carry the
   // traceparent of the task behind them.
@@ -1094,6 +1097,7 @@ export async function createBranch(options: {
     studies,
     triggers,
     webhooks,
+    slackAutomations, // mac6/bucket-16
     /** Wave 6: saved workflows, the waiting line for tasks, and days off with quiet hours. */
     workflows,
     runQueue,
@@ -1147,6 +1151,7 @@ export async function createBranch(options: {
       tracer: runtime.tracer,
       onLock: (release: () => Promise<unknown>) => { releaseOnLock.push(release); },
       context: (runId: string) => runtime.context({ runId }),
+      slackEvents: (channelId: string, event: unknown, bot: string | null) => void slackAutomations.handle(channelId, event, bot), // mac6/bucket-16
       // Wave mac2 (guards): hooks and AI tool servers listed in a file inside the workspace are only
       // started when the owner trusts that folder (src/folder-trust.ts). A file elsewhere is theirs.
       configTrusted: (path: string) => integrationsFileTrusted(store, runtime.owner, runtime.workspace, path),
