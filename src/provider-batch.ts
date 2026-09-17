@@ -50,6 +50,9 @@ async function callService(
 ): Promise<string> {
   const call = options.fetchImpl ?? globalThis.fetch;
   const response = await call(url, { ...init, redirect: "error" });
+  const declared = Number(response.headers.get("content-length") ?? 0);
+  if (declared > maximumAnswerBytes)
+    throw new Error(`The service offered ${declared} bytes of answers, which is more than this will read at once.`);
   const text = (await response.text()).slice(0, maximumAnswerBytes);
   if (!response.ok) throw new Error(`${response.status} ${text.slice(0, 300)}`);
   return text;

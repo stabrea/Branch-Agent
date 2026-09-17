@@ -3459,6 +3459,11 @@ the ids of each, so a caller can say which part of the work is missing rather th
 it. Anything that goes wrong before that — the connection cannot do it, the hand-over is refused,
 nothing at all came back — falls back to one ordinary call per question and says in one line why.
 
+**A set carries words only.** A question with a picture in it would reach the service without the
+picture, which is a different question, so a set containing one is asked one at a time instead and
+says so. Being stopped part-way is not treated as a failure either: a cancelled set stops rather
+than quietly asking every question again on its own.
+
 What a set cost is read from what the service reported, never guessed.
 
 ### Chat engines (A0847) — not applicable

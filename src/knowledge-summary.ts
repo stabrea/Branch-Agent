@@ -101,13 +101,13 @@ export class KnowledgeSummaries {
     }));
     const batches: string[] = [];
     for (let at = 0; at < numbered.length; at += batchSize) batches.push(listing(numbered.slice(at, at + batchSize)));
-    const provider = this.models?.plan(owner, "").candidates[0]?.provider;
-    if (!provider)
+    const preset = this.models?.plan(owner, "").candidates[0];
+    const provider = preset?.provider;
+    if (!preset || !provider)
       return { summary: extractive(numbered, citations), citations: citations.list(), batches: batches.length,
         note: "No model is connected, so this is the opening of each passage rather than a written summary." };
     try {
-      const parts: string[] = [];
-      for (const batch of batches) parts.push(await ask(provider, mapInstructions, batch, 500, signal));
+      const parts = await this.mapPass(owner, preset, batches, signal);
       const joined = parts.join("\n");
       const summary = parts.length === 1 ? joined
         : await ask(provider, reduceInstructions, `${focus ? `The person asked about: ${focus}\n\n` : ""}${joined}`, 900, signal);

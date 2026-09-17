@@ -90,6 +90,11 @@ export async function runBatch(
   if (!api)
     return direct(store, owner, preset, questions, signal, options,
       settings.enabled ? "This connection does not take a whole set at once." : "Batch mode is switched off.");
+  // A set carries words only. A question with a picture in it would arrive at the service without
+  // the picture, which is a different question, so the whole set goes the ordinary way instead.
+  if (questions.some((question) => question.messages.some((message) => (message.images?.length ?? 0) > 0)))
+    return direct(store, owner, preset, questions, signal, options,
+      "One of these questions carries a picture, which a whole set cannot, so they were asked one at a time.");
   let batchId: string | null = null;
   try {
     const requests: BatchRequest[] = questions.map((question) => ({
@@ -105,6 +110,9 @@ export async function runBatch(
       return direct(store, owner, preset, questions, signal, options, reason, batchId);
     return await fillGaps(store, owner, preset, questions, signal, options, batchId, collected.answers, reason);
   } catch (error) {
+    // Being stopped is not a reason to fall back: asking every question again one at a time would
+    // ignore the very thing that was asked for.
+    if (signal.aborted) throw error;
     return direct(store, owner, preset, questions, signal, options,
       error instanceof Error ? error.message : String(error), batchId);
   }
@@ -156,8 +164,9 @@ async function fillGaps(
   for (const answer of again) have.set(answer.id, answer);
   const ordered = questions.map((question) =>
     have.get(question.id) ?? { id: question.id, content: "", error: "Nothing answered this question." });
-  const note = missing.length && reason
-    ? `${reason} ${missing.length} of ${questions.length} question(s) were asked again one at a time; the rest were kept.`
+  const note = missing.length
+    ? `${reason ? `${reason} ` : "The set did not answer every question. "}`
+      + `${missing.length} of ${questions.length} question(s) were asked again one at a time; the rest were kept.`
     : reason;
   return settle(store, owner, preset, "batch", batchId, ordered, note, options,
     { batched: fromBatch.length, askedAgain: missing.map((question) => question.id) });
@@ -214,14 +223,14 @@ function settle(
   }
   const { overrides } = pricingSettings(store, owner);
   const ordinary = estimateCost(preset.model, usage, overrides);
-  const atBatchRate = estimateCost(preset.model, batched, overrides);
-  const savedAmount = atBatchRate.amount === null ? null : atBatchRate.amount * settings.discount;
+  const batchedAtFullRate = estimateCost(preset.model, batched, overrides);
+  const savedAmount = batchedAtFullRate.amount === null ? null : batchedAtFullRate.amount * settings.discount;
   const amount = ordinary.amount === null || savedAmount === null ? ordinary.amount : ordinary.amount - savedAmount;
   const unanswered = answers.filter((answer) => answer.error).map((answer) => answer.id);
   const outcome: BatchOutcome = {
     route, reason, batchId, answers, usage,
     cost: { amount, display: formatCost({ ...ordinary, amount }) },
-    saved: { amount: savedAmount, display: formatCost({ ...atBatchRate, amount: savedAmount }) },
+    saved: { amount: savedAmount, display: formatCost({ ...batchedAtFullRate, amount: savedAmount }) },
     counts: { batched: counts.batched, askedAgain: counts.askedAgain.length, unanswered: unanswered.length },
     askedAgain: counts.askedAgain, unanswered,
   };

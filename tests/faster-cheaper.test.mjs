@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
@@ -253,6 +253,9 @@ test("the OpenAI adapter uploads the set, waits, and reads both answer files", a
   // The third failed on its own; it was asked again rather than lost with the rest.
   assert.deepEqual(outcome.askedAgain, ["c"]);
   assert.equal(outcome.counts.batched, 2);
+  assert.ok(service.seen.some((call) => call.url.includes("/files/file-out/content")), "the answers file was read");
+  assert.ok(service.seen.some((call) => call.url.includes("/files/file-err/content")),
+    "and so was the file of the ones that failed on their own");
   assert.ok(service.seen.some((call) => call.url.endsWith("/files") && call.method === "POST"), "the questions went up as a file");
   assert.ok(service.seen.some((call) => call.url.endsWith("/batches") && call.method === "POST"), "a set was created against it");
 });
@@ -380,4 +383,79 @@ test("an answer that asked for a tool is never replayed", async (t) => {
   // The plain answer that follows is kept, and comes back with no tool call on it.
   assert.equal(cache.keep(parts, { content: "Three files.", toolCalls: [] }), true);
   assert.deepEqual(cache.look(parts), { content: "Three files.", toolCalls: [] });
+});
+
+/* ---------- the first real caller: summarising a whole knowledge base ---------- */
+
+/** A folder with enough in it to need more than one part summarised. */
+async function bigFolder(workspace) {
+  await mkdir(join(workspace, "hr"), { recursive: true });
+  for (let file = 0; file < 4; file += 1) {
+    const sections = [];
+    for (let at = 0; at < 10; at += 1)
+      sections.push(`## Rule ${file}.${at}\n\n${"Staff are entitled to the thing described in this rule. ".repeat(20)}\n`);
+    await writeFile(join(workspace, `hr/rules-${file}.md`), `# Rules ${file}\n\n${sections.join("\n")}`);
+  }
+}
+
+/** A connection that answers ordinarily and also takes whole sets, for the summary tests. */
+function summarising() {
+  const calls = { submit: 0, complete: 0 };
+  const provider = {
+    name: "fake", calls, requests: [],
+    async complete(request) {
+      calls.complete += 1;
+      provider.requests.push(request);
+      return { content: "- Staff get twenty days of leave [1]", toolCalls: [], usage: { input: 9, output: 3 } };
+    },
+    batch: () => ({
+      async submit(requests) { calls.submit += 1; provider.sent = requests; return { batchId: "set-1" }; },
+      async poll() { return { status: "completed" }; },
+      async collect() {
+        return provider.sent.map((request) => ({
+          id: request.id, content: "- Staff get twenty days of leave [1]", usage: { input: 10, output: 4 },
+        }));
+      },
+    }),
+  };
+  return provider;
+}
+
+async function knowledgeFixture(t, provider) {
+  const base = await mkdtemp(join(tmpdir(), "branch-faster-kb-"));
+  const workspace = join(base, "workspace");
+  await mkdir(workspace, { recursive: true });
+  const app = await createBranch({ workspace, dataDir: join(base, "data"), provider });
+  t.after(async () => { await app.close().catch(() => undefined); await discard(base); });
+  await bigFolder(workspace);
+  const made = app.knowledgeParts.bases.create(app.runtime.owner, { name: "HR", sources: [{ kind: "folder", path: "hr" }] });
+  await app.knowledgeParts.bases.reindex(app.runtime.owner, made.id);
+  return { app, collection: made.id };
+}
+
+test("summarising a knowledge base sends its parts as one set", async (t) => {
+  const provider = summarising();
+  const { app, collection } = await knowledgeFixture(t, provider);
+  saveBatchSettings(app.store, app.runtime.owner, { enabled: true, pollMs: 10 });
+
+  const summary = await app.knowledgeParts.summaries.summarise(app.runtime.owner, { collection });
+
+  assert.ok(summary.batches > 1, "there was more than one part to summarise");
+  assert.equal(provider.calls.submit, 1, "the parts went over together rather than one after another");
+  assert.equal(provider.calls.complete, 1, "only the final drawing-together was an ordinary call");
+  assert.match(summary.summary, /Sources/);
+  assert.match(summary.summary, /\[1\]/);
+});
+
+test("with sets switched off the same summary is written the ordinary way", async (t) => {
+  const provider = summarising();
+  const { app, collection } = await knowledgeFixture(t, provider);
+
+  const summary = await app.knowledgeParts.summaries.summarise(app.runtime.owner, { collection });
+
+  assert.equal(provider.calls.submit, 0, "nothing is handed over until the owner asks for it");
+  assert.equal(provider.calls.complete, summary.batches + 1, "each part, then the drawing-together");
+  assert.match(summary.summary, /Sources/);
+  // Every part was asked for with the same ceiling the one-at-a-time road always used.
+  assert.ok(provider.requests.every((request) => request.maxTokens === 500 || request.maxTokens === 900));
 });
