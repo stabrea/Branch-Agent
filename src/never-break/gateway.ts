@@ -167,7 +167,9 @@ export class Gateway {
   private async startFailed(): Promise<void> {
     this.failedStarts++;
     if (this.failedStarts < 2 || (await sameAsGood(this.options.dataDir, this.config))) return;
-    const restored = await restoreGood(this.options.dataDir, "The engine would not start with the new gateway settings");
+    const restored = await restoreGood(this.options.dataDir, "The engine would not start with the new gateway settings",
+      // What is on disk now, not what this gateway read at start: the owner may have changed the switch since.
+      (await loadGatewayConfig(this.options.dataDir)).config);
     if (!restored.restored) return;
     this.config = restored.config;
     this.failedStarts = 0;

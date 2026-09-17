@@ -30,6 +30,8 @@ export interface RecoveryInput {
   askOnly?: boolean;
   /** Steps older than this are not carried on; the owner can still continue the task by hand. */
   maxAgeMs?: number;
+  /** Only these tasks (the self-test settles its own made-up task and leaves the owner's alone). */
+  only?: ReadonlySet<string>;
 }
 
 export async function decideStep(step: OpenStep): Promise<StepDecision> {
@@ -55,6 +57,8 @@ const unknownOutcome = { ok: false, status: "interrupted", outcome: "unknown",
   error: "Branch was restarted while this step ran and it may already have taken effect. The owner has been asked; check the actual state before doing it again." };
 
 async function redo(input: RecoveryInput, runId: string, step: OpenStep): Promise<boolean> {
+  // Arguments with something secret hidden in them are not the ones the model asked for.
+  if (step.redacted) return false;
   let args: unknown;
   try { args = JSON.parse(step.arguments); } catch { return false; }
   const context = input.runtime.context({ runId });
@@ -107,12 +111,17 @@ async function recoverRun(input: RecoveryInput, runId: string, steps: OpenStep[]
     for (const step of steps) input.journal.finish(step.id, "abandoned");
     return { runId, outcome: "gone", steps: [] };
   }
-  if (input.store.events(runId).some((event) => event.kind === "channel.inbound")) {
+  const inbound = input.store.events(runId).find((event) => event.kind === "channel.inbound");
+  const reached = inbound ? mayHaveReachedOutside(input.journal, runId) : false;
+  if (inbound && !reached) {
     for (const step of steps) input.journal.finish(step.id, "abandoned");
     input.store.event(runId, "run.left_for_channel", { note: "The chat app sends this message again, and it is answered then." });
     return { runId, outcome: "left-for-chat", steps: [] };
   }
-  const carryOn = input.mode === "on" && !input.askOnly;
+  // A chat task that may already have sent, paid or pushed something is not started afresh when the
+  // chat app sends the message again: that message is held, and the owner decides in the app.
+  if (inbound) holdReplay(input, inbound.data as Record<string, unknown>, runId);
+  const carryOn = input.mode === "on" && !input.askOnly && !inbound;
   const decided: { tool: string; decision: StepDecision }[] = [];
   const asks: OpenStep[] = [];
   for (const step of steps) {
@@ -130,6 +139,31 @@ async function recoverRun(input: RecoveryInput, runId: string, steps: OpenStep[]
   return { runId, outcome: "resumed", steps: decided, resumed };
 }
 
+/** True when a step of this task that could reach the outside world was started, whatever became of it. */
+function mayHaveReachedOutside(journal: TaskJournal, runId: string): boolean {
+  return journal.steps(runId).some((step) => step.kind === "tool" && step.effects !== "none" && step.effects !== "idempotent");
+}
+
+const replayKey = (channel: unknown, chatId: unknown, messageId: unknown): string =>
+  `channel-replay:${String(channel)}:${String(chatId)}:${String(messageId)}`;
+
+function holdReplay(input: RecoveryInput, inbound: Record<string, unknown>, runId: string): void {
+  input.store.save("settings", input.runtime.owner, replayKey(inbound.channel, inbound.chatId, inbound.messageId),
+    { runId, heldAt: new Date().toISOString() });
+}
+
+/**
+ * Asked by the chat router before it starts a task: a message whose earlier task was cut off after
+ * it may have reached the outside world is answered with a sentence instead of being done again.
+ * The hold is used once.
+ */
+export function heldReplay(store: Pick<Store, "get" | "delete">, owner: string, message: { channel: string; chatId: string; messageId: string }): string | null {
+  const key = replayKey(message.channel, message.chatId, message.messageId);
+  if (!store.get("settings", owner, key)) return null;
+  store.delete("settings", owner, key);
+  return "Branch was restarted while it was working on this, and part of it may already have been done (a message sent, for example). So it was not started again. The owner can check and carry it on in the app.";
+}
+
 const settledKinds = new Set(["run.auto_resumed", "run.can_continue", "run.left_for_channel", "attention.needed"]);
 
 /**
@@ -139,12 +173,15 @@ const settledKinds = new Set(["run.auto_resumed", "run.can_continue", "run.left_
  */
 function interruptedRuns(input: RecoveryInput): Map<string, OpenStep[]> {
   const byRun = new Map<string, OpenStep[]>();
-  for (const step of input.journal.open()) byRun.set(step.runId, [...(byRun.get(step.runId) ?? []), step]);
+  for (const step of input.journal.open()) {
+    if (input.only && !input.only.has(step.runId)) continue;
+    byRun.set(step.runId, [...(byRun.get(step.runId) ?? []), step]);
+  }
   const since = new Date(Date.now() - (input.maxAgeMs ?? 86_400_000)).toISOString();
   const rows = input.store.sqlite.prepare("SELECT id FROM tasks WHERE status='interrupted' AND updated_at >= ? ORDER BY created_at").all(since);
   for (const row of rows) {
     const id = String(row.id);
-    if (byRun.has(id) || input.store.events(id).some((event) => settledKinds.has(event.kind))) continue;
+    if ((input.only && !input.only.has(id)) || byRun.has(id) || input.store.events(id).some((event) => settledKinds.has(event.kind))) continue;
     byRun.set(id, []);
   }
   return byRun;
@@ -190,10 +227,10 @@ export function releaseInterruptedSchedules(store: Store, nextTurn: (data: Recor
  * once it is listening: settle interrupted tasks and put cut-off repeating jobs back on the list.
  * With the switch off it does nothing, which is how Branch behaved before.
  */
-export async function recoverOnStart(input: Omit<RecoveryInput, "mode" | "askOnly"> & { mode: FeatureMode; nextTurn: (data: Record<string, unknown>, now: Date) => string }): Promise<RecoveredRun[]> {
+export async function recoverOnStart(input: RecoveryInput & { nextTurn: (data: Record<string, unknown>, now: Date) => string }): Promise<RecoveredRun[]> {
   if (input.mode === "off") return [];
   const released = releaseInterruptedSchedules(input.store, input.nextTurn);
-  const report = await recoverAfterRestart({ ...input, askOnly: process.env.BRANCH_RESUME === "ask" });
+  const report = await recoverAfterRestart({ ...input, askOnly: input.askOnly || process.env.BRANCH_RESUME === "ask" });
   const counts = report.reduce<Record<string, number>>((all, run) => ({ ...all, [run.outcome]: (all[run.outcome] ?? 0) + 1 }), {});
   if (report.length || released)
     console.log(`Picked up after a restart: ${JSON.stringify(counts)}; repeating jobs put back: ${released}.`);

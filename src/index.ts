@@ -169,7 +169,7 @@ import { setFlyCoreMode, syncSuggestTool } from "./fly-core/tool.js";
 // mac3/never-break: the gateway's settings and the one tool that suggests a change to them.
 import { loadGatewayConfig } from "./never-break/gateway-config.js";
 import { gatewayDryRun, registerNeverBreak } from "./never-break/api.js";
-import { journalHook, TaskJournal } from "./never-break/journal.js";
+import { journalHook, openJournal, type TaskJournal } from "./never-break/journal.js";
 import { migrate, storeMigrations } from "./never-break/migrations.js";
 import { recoverOnStart } from "./never-break/resume.js";
 import { connectGuidedTelegram, saveTelegramSetup, telegramSetupView } from "./never-break/telegram-setup.js";
@@ -226,7 +226,8 @@ export async function createBranch(options: {
   const store = new Store(join(dataDir, "branch.sqlite"));
   // --- mac3/never-break: the data format stamp (refuses data newer than this version can read) and
   // the task journal beside the database, flushed before every step.
-  const journal = openNeverBreak(store, dataDir);
+  const { journal, reset: journalReset } = openNeverBreak(store, dataDir);
+  if (journalReset) console.error(journalReset);
   // --- end mac3/never-break ---
   migrateFeatureSwitches(store, options.owner ?? "local", existedBefore);
   const lockerKey = options.lockerKey ?? new FileLockerKey(join(dataDir, "locker.key"));
@@ -364,7 +365,7 @@ export async function createBranch(options: {
     retryPolicy,
     options.reliability,
   );
-  runtime.journal = journalHook(journal); // mac3/never-break
+  runtime.journal = journalHook(journal, (text) => runtime.hideSecrets(text)); // mac3/never-break: nothing secret is written down
   runtime.artifacts = artifacts;
   // Locking the app: after a quiet spell the locker stays shut until the owner unlocks it again.
   const sessionLock = new SessionLock(store, runtime.owner);
@@ -860,7 +861,7 @@ export async function createBranch(options: {
     neverBreak: {
       journal,
       recoverOnStart: async (dataFolder: string) => recoverOnStart({ store, runtime, journal, nextTurn,
-        mode: (await loadGatewayConfig(dataFolder)).config.mode }),
+        mode: (await loadGatewayConfig(dataFolder)).config.mode, askOnly: journalReset !== null }),
       /** The Telegram setup card: its state, saving it, and connecting the bot it set up. */
       telegram: {
         view: () => telegramSetupView(store, runtime.owner, channels),
@@ -1129,11 +1130,12 @@ async function replayNamedRecipe(knowledge: Knowledge, store: Store, runtime: Ru
   if (!match) throw new Error(`No verified recipe called "${recipe}"`);
   await knowledge.replayProcedure(runtime.context({ runId }), match.id);
 }
-/** mac3/never-break: stamps the store's data format and opens the journal; the store is closed if either fails. */
-function openNeverBreak(store: Store, dataDir: string): TaskJournal {
+/** mac3/never-break: stamps the store's data format and opens the journal; the store is closed if the stamp fails. */
+function openNeverBreak(store: Store, dataDir: string): { journal: TaskJournal; reset: string | null } {
   try {
     migrate(store.sqlite, storeMigrations, { backupTo: join(dataDir, "update-backups", `before-format-${Date.now()}.sqlite`) });
-    return new TaskJournal(join(dataDir, "journal.sqlite"));
+    // A journal that cannot be read is put aside rather than stopping Branch from starting.
+    return openJournal(join(dataDir, "journal.sqlite"));
   } catch (error) {
     store.close();
     throw error;

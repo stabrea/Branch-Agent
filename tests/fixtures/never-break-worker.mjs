@@ -12,7 +12,7 @@ import { joinGateway } from "../../dist/never-break/worker-link.js";
 const dataDir = realpathSync(resolve(process.env.BRANCH_DATA_DIR ?? "/"));
 if (!dataDir.startsWith(realpathSync(tmpdir()))) { console.error("refusing: data folder is not temporary"); process.exit(9); }
 const mode = process.env.FAKE_MODE ?? "";
-if (mode === "crash-start" || process.env.BRANCH_FAKE_CRASH === "1") process.exit(3);
+if (mode === "crash-start" || process.env.BRANCH_PROVIDER === "never-break-crash") process.exit(3);
 
 const link = joinGateway();
 let port = 0;

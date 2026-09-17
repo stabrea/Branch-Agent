@@ -32,7 +32,8 @@ async function interruptedTask(app: Branch): Promise<string> {
   app.neverBreak.journal.begin({ runId: run.id, sessionId: run.sessionId, callId: call.id, tool: call.name,
     arguments: call.arguments, key: "self-test", effects: "none", evidence: null });
   app.store.finish(run.id, "interrupted", "self-test");
-  const [report] = await recoverAfterRestart({ store: app.store, runtime: app.runtime, journal: app.neverBreak.journal, mode: "on" });
+  const [report] = await recoverAfterRestart({ store: app.store, runtime: app.runtime, journal: app.neverBreak.journal, mode: "on",
+    only: new Set([run.id]) });
   if (report?.outcome !== "resumed") throw new Error(`the interrupted task was ${report?.outcome ?? "not found"}`);
   await report.resumed;
   const done = app.store.runs(app.runtime.owner).some((one) => one.id !== run.id && one.status === "completed" && one.sessionId === run.sessionId);
@@ -40,7 +41,17 @@ async function interruptedTask(app: Branch): Promise<string> {
   return "an interrupted task carried on and finished";
 }
 
+/**
+ * The copy holds the owner's real schedules, webhooks and interrupted tasks. None of them may act from
+ * here: timed jobs are paused on the copy, and nothing is announced to the owner's webhooks.
+ */
+export function quietCopy(app: Pick<Branch, "store" | "runtime">): void {
+  app.runtime.notifyEvent = () => undefined;
+  app.store.sqlite.prepare("UPDATE schedules SET data=json_set(data,'$.status','paused','$.pausedBecause','self-test') WHERE json_extract(data,'$.status') IN ('pending','running')").run();
+}
+
 async function checksOn(app: Branch, dataDir: string, checks: SelfTestCheck[]): Promise<void> {
+  quietCopy(app);
   await check(checks, "does a task with the offline model", async () => {
     const run = await app.runtime.run({ prompt: "Self-test: say hello.", onTextDelta: () => undefined });
     if (run.status !== "completed") throw new Error(`the task ended ${run.status}: ${run.output.slice(0, 200)}`);

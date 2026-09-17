@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { copyFile, mkdir, readFile, rename, rm, stat } from "node:fs/promises";
-import { join } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 import { gatewayFile, loadGatewayConfig, writeAtomic } from "./gateway-config.js";
@@ -57,8 +57,16 @@ export interface CanaryInput {
 }
 export interface CanaryResult { ok: boolean; detail: string; report: SelfTestReport | null }
 
+/** No gateway, resume or chat-app settings reach the copy: its chat bots would read the owner's real messages. */
 const clean = (env: NodeJS.ProcessEnv): NodeJS.ProcessEnv =>
-  Object.fromEntries(Object.entries(env).filter(([name]) => !/^BRANCH_(GATEWAY|RESUME|SELF_TEST)/.test(name) && name !== "NODE_TEST_CONTEXT"));
+  Object.fromEntries(Object.entries(env).filter(([name]) => !/^BRANCH_(GATEWAY|RESUME|SELF_TEST|INTEGRATIONS)/.test(name) && name !== "NODE_TEST_CONTEXT"));
+
+/** The copy must be one `snapshotData` made, inside the data folder's update area; anything else is refused before it is used or removed. */
+export function isCanaryCopy(dataDir: string, folder: string): boolean {
+  const rel = relative(resolve(dataDir, canaryFolder), resolve(folder));
+  const parts = rel.split(/[\\/]/);
+  return !isAbsolute(rel) && parts.length === 2 && /^canary-[0-9TZ-]+$/.test(parts[0]!) && parts[1] === "data";
+}
 
 /** Starts the new version on the copy and reads its verdict. Nothing of the running install is touched. */
 export async function runCanary(input: CanaryInput): Promise<CanaryResult> {
@@ -110,8 +118,10 @@ export interface UpdateCanaryInput {
 export function updateCanary(input: UpdateCanaryInput): (stagedDir: string, version: string) => Promise<void> {
   return async (stagedDir, version) => {
     if ((await loadGatewayConfig(input.dataDir)).config.mode === "off") return;
+    const dataCopy = await input.snapshot();
+    if (!isCanaryCopy(input.dataDir, dataCopy)) throw new Error("The copy of your work was not where Branch keeps update copies, so it was not used.");
     const result = await runCanary({ engine: stagedEngine(stagedDir, input.platform, input.executableName),
-      dataCopy: await input.snapshot(), ...(input.timeoutMs ? { timeoutMs: input.timeoutMs } : {}) });
+      dataCopy, ...(input.timeoutMs ? { timeoutMs: input.timeoutMs } : {}) });
     if (!result.ok) throw new Error(result.detail);
     const platform = input.platform === "win32" || input.platform === "darwin" ? input.platform : "linux";
     if (input.target) await writeWatch(input.dataDir, { from: input.fromVersion, to: version, target: input.target, platform,

@@ -284,3 +284,44 @@ test("a new version that will not start is rolled back to the previous one", asy
   await delay(1500);
   assert.equal(events.filter((e) => e.kind === "crash").length, 2, "after the way back is started, the new version is not started again");
 });
+
+/* ---------- integration review (17 September) ---------- */
+
+import { isCanaryCopy } from "../dist/never-break/canary.js";
+import { quietCopy } from "../dist/never-break/self-test.js";
+import { recoverAfterRestart } from "../dist/never-break/resume.js";
+
+test("the update only ever uses and removes a copy in its own place", async (t) => {
+  const root = await temp(t);
+  const dataDir = join(root, "data");
+  assert.equal(isCanaryCopy(dataDir, join(dataDir, "updates", "canary-2026-09-17T10-00-00-000Z", "data")), true);
+  for (const wrong of [join(root, "data"), root, join(dataDir, "updates", "..", "..", "x", "data"), join(dataDir, "updates", "canary-x", "data", ".."), "/"])
+    assert.equal(isCanaryCopy(dataDir, wrong), false, wrong);
+  await saveGatewayConfig(dataDir, GatewayConfigSchema.parse({ mode: "on" }));
+  await writeFile(join(root, "keep.txt"), "the owner's");
+  const canary = updateCanary({ dataDir, platform: "linux", executableName: "x", fromVersion: "1", target: null, snapshot: async () => join(root, "elsewhere") });
+  await assert.rejects(canary(join(root, "staged"), "2"), /not where Branch keeps update copies/);
+  assert.equal(await readFile(join(root, "keep.txt"), "utf8"), "the owner's", "nothing outside the copy was removed");
+});
+
+test("the check on a copy leaves the owner's timed jobs, webhooks and interrupted tasks alone", async (t) => {
+  const root = await temp(t);
+  const app = await createBranch({ workspace: join(root, "w"), dataDir: join(root, "d") });
+  t.after(() => app.close());
+  app.store.save("schedules", "local", "s1", { kind: "reminder", prompt: "pay the bill", status: "pending", dueAt: new Date(0).toISOString() });
+  const owners = app.store.createRun("local", "the owner's own cut-off task");
+  app.store.finish(owners.id, "interrupted", "cut off");
+  const announced = [];
+  app.runtime.notifyEvent = (kind) => announced.push(kind);
+  quietCopy(app);
+  await app.scheduler.tick();
+  assert.equal(app.store.get("schedules", "local", "s1").data.status, "paused", "the copy's timed jobs do not fire");
+  await app.runtime.run({ prompt: "hello", onTextDelta: () => undefined });
+  assert.deepEqual(announced, [], "nothing is announced from the copy");
+  const mine = app.store.createRun("local", "self-test task");
+  app.store.finish(mine.id, "interrupted", "self-test");
+  const report = await recoverAfterRestart({ store: app.store, runtime: app.runtime, journal: app.neverBreak.journal, mode: "on", only: new Set([mine.id]) });
+  assert.deepEqual(report.map((r) => r.runId), [mine.id], "only the check's own task is settled");
+  await Promise.all(report.map((r) => r.resumed));
+  assert.equal(app.store.run(owners.id).status, "interrupted");
+});

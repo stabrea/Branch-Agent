@@ -83,7 +83,8 @@ export function registerNeverBreak(registry: ToolRegistry, dataDir: string, dryR
     name: "gateway.propose", permission: "gateway.propose", group: "settings",
     description: "Suggest a change to the settings of Branch's gateway (the part that keeps Branch running). The change is checked and tried on a throwaway copy, then waits for the owner to accept it in Settings. It is never applied by this tool.",
     parameters: z.object({
-      change: optionalFields(GatewayConfigSchema.omit({ mode: true })),
+      // The switch and the engine's settings are the owner's alone; only timings can be suggested.
+      change: optionalFields(GatewayConfigSchema.omit({ mode: true, workerEnv: true })),
       why: z.string().trim().min(1).max(500),
     }).strict(),
     execute: async ({ change, why }) => {
@@ -104,7 +105,9 @@ export function gatewayDryRun(script: string, env: NodeJS.ProcessEnv = process.e
     const root = await mkdtemp(join(tmpdir(), "branch-gateway-try-"));
     try {
       const dataDir = join(root, "data");
-      await saveGatewayConfig(dataDir, { ...config, mode: "on" });
+      // The owner's chat-app settings stay out: a throwaway engine must not read the owner's bots.
+      const { BRANCH_INTEGRATIONS: _left, ...workerEnv } = config.workerEnv;
+      await saveGatewayConfig(dataDir, { ...config, workerEnv, mode: "on" });
       return await tryGateway(script, { ...cleanEnv(env), BRANCH_DATA_DIR: dataDir, BRANCH_WORKSPACE: join(root, "workspace"), BRANCH_PORT: "0" },
         (config.startSeconds + 10) * 1000);
     } finally {
@@ -115,7 +118,7 @@ export function gatewayDryRun(script: string, env: NodeJS.ProcessEnv = process.e
 
 const cleanEnv = (env: NodeJS.ProcessEnv): NodeJS.ProcessEnv => {
   const copy = { ...env };
-  for (const name of ["BRANCH_GATEWAY_CHILD", "BRANCH_GATEWAY_CONTRACT", "NODE_TEST_CONTEXT"]) delete copy[name];
+  for (const name of ["BRANCH_GATEWAY_CHILD", "BRANCH_GATEWAY_CONTRACT", "BRANCH_INTEGRATIONS", "BRANCH_SELF_TEST", "BRANCH_RESUME", "NODE_TEST_CONTEXT"]) delete copy[name];
   return copy;
 };
 

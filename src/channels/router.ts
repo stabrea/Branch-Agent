@@ -1,6 +1,7 @@
 import { randomInt } from "node:crypto";
 import { z } from "zod";
 import type { Store } from "../store.js";
+import { heldReplay } from "../never-break/resume.js"; // mac3/never-break
 import type { Runtime } from "../runtime.js";
 import type { PolicyRemember } from "../policy.js";
 import { Deliveries } from "./deliveries.js";
@@ -613,6 +614,13 @@ export class ChannelRouter {
     const message = turn.messages[0]!, live = turn.live;
     const heard = await this.heardAll(turn.messages);
     if (typeof heard === "string") { live?.cancel(); return this.voiceFailed(message, heard); }
+    // mac3/never-break: a message whose earlier task may already have reached the outside is not done twice.
+    const held = heldReplay(this.store, this.runtime.owner, message);
+    if (held) {
+      live?.cancel();
+      await this.deliver(message.channel, message.chatId, held, `replay-held:${message.channel}:${message.messageId}`, message.messageId).catch(() => undefined);
+      return "ignored";
+    }
     const off = this.store.onEvent((runId, kind, data) => { if (runId === turn.runId) live?.event(kind, data); });
     try {
       const sessionId = this.sessionFor(message.channel, message.chatId);

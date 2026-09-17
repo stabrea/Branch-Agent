@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { chmodSync, renameSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -88,6 +89,8 @@ export class JournalWriteError extends Error {
 export interface OpenStep {
   id: number; runId: string; sessionId: string; callId: string; tool: string; arguments: string;
   key: string; effects: Effects; evidence: Evidence | null; startedAt: string;
+  /** True when something secret-looking was hidden from the stored arguments, so they cannot be used to run the step again. */
+  redacted?: boolean;
 }
 
 const migrations: Migration[] = [
@@ -97,7 +100,39 @@ const migrations: Migration[] = [
       started_at TEXT NOT NULL, finished_at TEXT);
     CREATE INDEX IF NOT EXISTS steps_open ON steps(state, run_id);`),
     down: (db) => db.exec("DROP TABLE IF EXISTS steps") },
+  // Integration review: arguments are kept with keys and passwords hidden; such a step is never re-run from the journal.
+  { version: 2, readableBy: 1, up: (db) => db.exec("ALTER TABLE steps ADD COLUMN redacted INTEGER NOT NULL DEFAULT 0"),
+    down: (db) => db.exec("ALTER TABLE steps DROP COLUMN redacted") },
 ];
+
+const effectKinds = new Set<string>(["none", "idempotent", "external"]);
+function openStep(row: Record<string, unknown>): OpenStep {
+  let evidence: Evidence | null = null;
+  try { evidence = row.evidence ? JSON.parse(String(row.evidence)) as Evidence : null; } catch { evidence = null; }
+  if (evidence && !((evidence.kind === "file" && typeof evidence.path === "string") || (evidence.kind === "git" && typeof evidence.repo === "string"))) evidence = null;
+  const effects = String(row.effects);
+  return {
+    id: Number(row.id), runId: String(row.run_id), sessionId: String(row.session_id), callId: String(row.call_id),
+    tool: String(row.tool), arguments: String(row.arguments ?? "{}"), key: String(row.key),
+    effects: effectKinds.has(effects) ? effects as Effects : "external", evidence, startedAt: String(row.started_at),
+    redacted: Number(row.redacted ?? 0) === 1,
+  };
+}
+
+/**
+ * Opens the journal. A journal that cannot be opened (a damaged file, a format from the future) is
+ * moved aside and a fresh one started, so Branch still starts; `reset` then tells the start-up not to
+ * carry anything on by itself, since what was in flight is no longer known.
+ */
+export function openJournal(path: string): { journal: TaskJournal; reset: string | null } {
+  try { return { journal: new TaskJournal(path), reset: null }; }
+  catch (error) {
+    const aside = `${path}.unreadable-${new Date().toISOString().replace(/[:.]/g, "-")}`;
+    for (const suffix of ["", "-wal", "-shm"]) { try { renameSync(`${path}${suffix}`, `${aside}${suffix}`); } catch { /* not there */ } }
+    const why = error instanceof Error ? error.message : String(error);
+    return { journal: new TaskJournal(path), reset: `The task journal could not be read (${why.slice(0, 200)}); it was put aside as ${aside} and a new one started.` };
+  }
+}
 
 export class TaskJournal {
   private readonly db: DatabaseSync;
@@ -105,8 +140,11 @@ export class TaskJournal {
   failWrites: (() => Error | null) | null = null;
   constructor(readonly path: string) {
     this.db = new DatabaseSync(path);
-    this.db.exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA busy_timeout=2000;");
-    migrate(this.db, migrations, { backupTo: null });
+    try {
+      this.db.exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA busy_timeout=2000;");
+      migrate(this.db, migrations, { backupTo: null });
+      if (process.platform !== "win32") chmodSync(path, 0o600);
+    } catch (error) { this.db.close(); throw error; }
   }
   private write<T>(work: () => T): T {
     try {
@@ -121,21 +159,18 @@ export class TaskJournal {
   }
   begin(step: Omit<OpenStep, "id" | "startedAt">): number {
     return this.write(() => Number(this.db.prepare(
-      "INSERT INTO steps(run_id,session_id,kind,call_id,tool,arguments,key,effects,evidence,state,started_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+      "INSERT INTO steps(run_id,session_id,kind,call_id,tool,arguments,key,effects,evidence,state,started_at,redacted) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
     ).run(step.runId, step.sessionId, "tool", step.callId, step.tool, step.arguments.slice(0, 65536), step.key, step.effects,
-      step.evidence ? JSON.stringify(step.evidence) : null, "started", new Date().toISOString()).lastInsertRowid));
+      step.evidence ? JSON.stringify(step.evidence) : null, "started", new Date().toISOString(), step.redacted ? 1 : 0).lastInsertRowid));
   }
   /** Closing a step is best effort: failing to write "finished" only means it is checked again after a restart. */
   finish(id: number, state: "finished" | "failed" | "redone" | "verified" | "asked" | "abandoned"): void {
     try { this.db.prepare("UPDATE steps SET state=?, finished_at=? WHERE id=?").run(state, new Date().toISOString(), id); }
     catch { /* see above */ }
   }
+  /** Steps still open. A row that cannot be read is treated as the riskiest kind rather than stopping the rest. */
   open(): OpenStep[] {
-    return this.db.prepare("SELECT * FROM steps WHERE state='started' AND kind='tool' ORDER BY id").all().map((row) => ({
-      id: Number(row.id), runId: String(row.run_id), sessionId: String(row.session_id), callId: String(row.call_id),
-      tool: String(row.tool), arguments: String(row.arguments ?? "{}"), key: String(row.key), effects: String(row.effects) as Effects,
-      evidence: row.evidence ? JSON.parse(String(row.evidence)) as Evidence : null, startedAt: String(row.started_at),
-    }));
+    return this.db.prepare("SELECT * FROM steps WHERE state='started' AND kind='tool' ORDER BY id").all().map(openStep);
   }
   steps(runId: string): { kind: string; tool: string; state: string; effects: string | null }[] {
     return this.db.prepare("SELECT kind, tool, state, effects FROM steps WHERE run_id=? ORDER BY id").all(runId)
@@ -158,15 +193,18 @@ export interface JournalHook {
 }
 export const noJournal: JournalHook = { around: (_input, work) => work(), turn: () => undefined };
 
-export function journalHook(journal: TaskJournal): JournalHook {
+/** `hide` takes keys, passwords and other secret-looking values out of text before it is stored. */
+export function journalHook(journal: TaskJournal, hide: (text: string) => string = (text) => text): JournalHook {
   return {
     async around(input, work) {
       let args: unknown = null;
       try { args = JSON.parse(input.call.arguments); } catch { /* the tool refuses it itself */ }
       const effects = effectsOf(input.call.name, input.permission);
       const evidence = effects === "none" ? null : await evidenceFor(input.call.name, args, input.workspace).catch(() => null);
+      let stored: string;
+      try { stored = hide(input.call.arguments); } catch { stored = "{}"; }
       const id = journal.begin({ runId: input.runId, sessionId: input.sessionId, callId: input.call.id, tool: input.call.name,
-        arguments: input.call.arguments, key: idempotencyKey(input.runId, input.call), effects, evidence });
+        arguments: stored, key: idempotencyKey(input.runId, input.call), effects, evidence, redacted: stored !== input.call.arguments });
       try {
         const result = await work();
         journal.finish(id, "finished");

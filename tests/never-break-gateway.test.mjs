@@ -76,7 +76,8 @@ test("settings: missing means defaults, broken means the last good copy, and wri
   assert.deepEqual(JSON.parse(await readFile(join(dataDir, "gateway.json"), "utf8")), good, "the good copy is on disk again");
   await writeAtomic(join(dataDir, "x.json"), "1");
   assert.deepEqual((await readdir(dataDir)).filter((name) => name.endsWith(".tmp")), [], "no half-written file is left");
-  await assert.rejects(saveGatewayConfig(dataDir, { ...good, workerEnv: { BRANCH_DATA_DIR: "/elsewhere" } }), /belongs to the gateway/);
+  for (const name of ["BRANCH_DATA_DIR", "BRANCH_BASH", "BRANCH_GIT", "BRANCH_SELF_TEST", "BRANCH_RESUME", "BRANCH_EXECUTABLE", "PATH"])
+    await assert.rejects(saveGatewayConfig(dataDir, { ...good, workerEnv: { [name]: "/elsewhere" } }), /Only these settings/, name);
 });
 
 test("a suggested change is tried first and applied only when the owner accepts it", async (t) => {
@@ -166,7 +167,7 @@ test("a request waits only so long for a worker that will not come", async (t) =
 test("settings that stop the worker starting are replaced by the last good ones", async (t) => {
   const { gw, events, dataDir } = await gateway(t, { before: async (dataDir) => {
     await promoteGood(dataDir, GatewayConfigSchema.parse({ mode: "on" }));
-    await saveGatewayConfig(dataDir, GatewayConfigSchema.parse({ mode: "on", workerEnv: { BRANCH_FAKE_CRASH: "1" } }));
+    await saveGatewayConfig(dataDir, GatewayConfigSchema.parse({ mode: "on", workerEnv: { BRANCH_PROVIDER: "never-break-crash" } }));
   } });
   await until(() => events.some((e) => e.kind === "ready"), "a worker on the good settings");
   assert.equal(events.filter((e) => e.kind === "crash").length, 2, "two failed starts, then the good settings");
@@ -252,4 +253,50 @@ test("the real engine runs behind the gateway and comes back, database and all, 
   await until(() => child.exitCode !== null, "the gateway to close", 60000);
   await until(() => !alive(second.worker.pid), "the engine to close with it", 30000);
   await assert.rejects(readFile(join(dataDir, "running.json")), "the running note is cleared");
+});
+
+/* ---------- integration review (17 September) ---------- */
+
+import { restoreGood } from "../dist/never-break/gateway-config.js";
+import { registerNeverBreak } from "../dist/never-break/api.js";
+import { ToolRegistry } from "../dist/registry.js";
+
+test("a suggestion can change only timings, and accepting it keeps the owner's switch and engine settings", async (t) => {
+  const { root, dataDir } = await temp(t);
+  t.after(() => discardTemp(root));
+  const passes = async () => ({ ok: true, detail: "started" });
+  await saveGatewayConfig(dataDir, GatewayConfigSchema.parse({ mode: "on", workerEnv: { BRANCH_PROVIDER: "local" } }));
+  const proposal = await proposeConfig(dataDir, { holdSeconds: 7, mode: "off", workerEnv: { BRANCH_INTEGRATIONS: "/tmp/evil.json" } }, "sneaky", passes);
+  assert.equal(proposal.config.mode, "on", "the switch in a suggestion is ignored");
+  assert.deepEqual(proposal.config.workerEnv, { BRANCH_PROVIDER: "local" }, "engine settings in a suggestion are ignored");
+  // The owner turns the switch down and drops the engine setting while the suggestion waits.
+  await saveGatewayConfig(dataDir, GatewayConfigSchema.parse({ mode: "when-needed" }));
+  const accepted = await acceptProposal(dataDir);
+  assert.deepEqual([accepted.mode, accepted.workerEnv, accepted.holdSeconds], ["when-needed", {}, 7]);
+
+  const registry = new ToolRegistry();
+  registerNeverBreak(registry, dataDir, passes);
+  const context = { runId: "r", workspace: root, signal: new AbortController().signal, permissions: new Set(["gateway.propose"]), budget: { step: () => undefined } };
+  await assert.rejects(registry.execute("gateway.propose", { change: { workerEnv: { BRANCH_BASH: "/tmp/x" } }, why: "faster" }, context),
+    /workerEnv|Unrecognized/, "the tool itself does not take engine settings");
+  await assert.rejects(registry.execute("gateway.propose", { change: { mode: "off" }, why: "faster" }, context), /mode|Unrecognized/);
+  const said = await registry.execute("gateway.propose", { change: { holdSeconds: 6 }, why: "faster" }, context);
+  assert.equal(said.waitingForOwner, true);
+});
+
+test("putting the last good settings back never undoes what the owner turned off or removed", async (t) => {
+  const { root, dataDir } = await temp(t);
+  t.after(() => discardTemp(root));
+  const good = GatewayConfigSchema.parse({ mode: "on", startSeconds: 60, workerEnv: { BRANCH_INTEGRATIONS: "/old/integrations.json", BRANCH_PROVIDER: "a" } });
+  await promoteGood(dataDir, good);
+  const current = GatewayConfigSchema.parse({ mode: "off", startSeconds: 3, workerEnv: { BRANCH_PROVIDER: "a", BRANCH_WORKSPACE: "/new" } });
+  await saveGatewayConfig(dataDir, current);
+  const restored = await restoreGood(dataDir, "would not start", current);
+  assert.equal(restored.restored, true);
+  assert.equal(restored.config.mode, "off", "the owner's switch stays");
+  assert.equal(restored.config.startSeconds, 60, "the timing that worked comes back");
+  assert.deepEqual(restored.config.workerEnv, { BRANCH_PROVIDER: "a" }, "nothing the owner removed comes back; only matching settings stay");
+  assert.deepEqual((await loadGatewayConfig(dataDir)).config, restored.config);
+  const again = await restoreGood(dataDir, "would not start", restored.config);
+  assert.equal(again.restored, false, "restoring twice changes nothing more");
 });

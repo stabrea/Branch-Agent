@@ -13,10 +13,15 @@ export const gatewayFile = "gateway.json";
 export const goodFile = "gateway.good.json";
 export const proposedFile = "gateway.proposed.json";
 
-/** Environment names the gateway may pass to its worker; nothing else can be smuggled in. */
-const workerEnvName = z.string().regex(/^BRANCH_[A-Z0-9_]{1,60}$/).refine(
-  (name) => !["BRANCH_DATA_DIR", "BRANCH_GATEWAY_CHILD", "BRANCH_INSTALL_ROOT"].includes(name),
-  "That setting belongs to the gateway itself");
+/**
+ * Environment names the gateway may pass to its worker; nothing else can be smuggled in. Integration
+ * review: an open `BRANCH_*` pattern let a setting name the shell or git program the engine runs
+ * (`BRANCH_BASH`, `BRANCH_GIT`), or a self-test report path it writes to (`BRANCH_SELF_TEST`), so
+ * only these four, which change where things are and never what runs, are allowed.
+ */
+export const workerEnvNames = ["BRANCH_INTEGRATIONS", "BRANCH_WORKSPACE", "BRANCH_PROVIDER", "BRANCH_OSV_ENDPOINT"] as const;
+const workerEnvName = z.string().refine((name) => (workerEnvNames as readonly string[]).includes(name),
+  "Only these settings can be handed to the engine: " + workerEnvNames.join(", "));
 
 export const GatewayConfigSchema = z.object({
   /** Off: `branch start` is the engine alone, as before. When needed / on: the gateway runs it. */
@@ -82,12 +87,24 @@ export async function loadGatewayConfig(dataDir: string): Promise<LoadedConfig> 
   return restoreGood(dataDir, `The gateway's settings could not be used (${current.problem})`);
 }
 
+/**
+ * What going back to the good copy may change when the current settings could still be read: the
+ * owner's switch is kept as it is now, and engine settings can only be taken away, never brought back
+ * or changed, so a restore can never undo something the owner turned off or removed.
+ */
+export function restorable(good: GatewayConfig, current: GatewayConfig): GatewayConfig {
+  const workerEnv = Object.fromEntries(Object.entries(good.workerEnv).filter(([name, value]) => current.workerEnv[name] === value));
+  return { ...good, mode: current.mode, workerEnv };
+}
+
 /** Puts the last good settings back, for a broken file or a worker that will not start with them. */
-export async function restoreGood(dataDir: string, why: string): Promise<LoadedConfig> {
+export async function restoreGood(dataDir: string, why: string, current?: GatewayConfig): Promise<LoadedConfig> {
   const good = await readConfig(join(dataDir, goodFile));
-  if (!good.config) return { config: defaultGatewayConfig(), restored: false, problem: `${why}; there was no earlier good copy, so the defaults are in use.` };
-  await writeAtomic(join(dataDir, gatewayFile), JSON.stringify(good.config, null, 2));
-  return { config: good.config, restored: true, problem: `${why}; the last settings that worked were put back.` };
+  if (!good.config) return { config: current ?? defaultGatewayConfig(), restored: false, problem: `${why}; there was no earlier good copy, so the ${current ? "settings stay as they are" : "defaults are in use"}.` };
+  const config = current ? restorable(good.config, current) : good.config;
+  if (current && JSON.stringify(config) === JSON.stringify(current)) return { config: current, restored: false, problem: `${why}; the last settings that worked are the same as these.` };
+  await writeAtomic(join(dataDir, gatewayFile), JSON.stringify(config, null, 2));
+  return { config, restored: true, problem: `${why}; the last settings that worked were put back.` };
 }
 
 /** Called once a worker has come up healthy: these settings are now known to work. */
@@ -124,7 +141,8 @@ export type DryRun = (config: GatewayConfig) => Promise<{ ok: boolean; detail: s
  * does that.
  */
 export async function proposeConfig(dataDir: string, input: unknown, why: string, dryRun: DryRun): Promise<Proposal> {
-  const merged = GatewayConfigSchema.safeParse({ ...(await loadGatewayConfig(dataDir)).config, ...(input as object) });
+  const { mode: _mode, workerEnv: _env, ...change } = (input && typeof input === "object" ? input : {}) as Record<string, unknown>;
+  const merged = GatewayConfigSchema.safeParse({ ...(await loadGatewayConfig(dataDir)).config, ...change });
   const check = merged.success ? await dryRun(merged.data).catch((error: unknown) => ({ ok: false, detail: String(error).slice(0, 300) }))
     : { ok: false, detail: plainProblem(merged.error) };
   const proposal: Proposal = { config: merged.success ? merged.data : defaultGatewayConfig(), why: why.slice(0, 500),
@@ -143,9 +161,12 @@ export async function acceptProposal(dataDir: string): Promise<GatewayConfig> {
   const proposal = await readProposal(dataDir);
   if (!proposal) throw new Error("There is no suggested change waiting.");
   if (!proposal.check?.ok) throw new Error(`This change did not start cleanly when it was tried, so it cannot be used: ${proposal.check?.detail ?? "it was never tried"}.`);
-  await saveGatewayConfig(dataDir, proposal.config);
+  // Only the timings the assistant may suggest are taken; the owner's switch and engine settings stay as they are now.
+  const { config: current } = await loadGatewayConfig(dataDir);
+  const accepted = { ...proposal.config, mode: current.mode, workerEnv: current.workerEnv };
+  await saveGatewayConfig(dataDir, accepted);
   await rm(join(dataDir, proposedFile), { force: true });
-  return proposal.config;
+  return accepted;
 }
 
 export async function discardProposal(dataDir: string): Promise<void> {

@@ -340,3 +340,108 @@ test("a repeating job cut off by a restart goes back on the list, and a missed t
   const after = app.store.get("schedules", "local", "22222222-2222-4222-8222-222222222222").data;
   assert.ok(Date.parse(after.dueAt) > now.getTime(), "the next turn is in the future, not the missed ones");
 });
+
+/* ---------- integration review (17 September) ---------- */
+
+import { openJournal, journalHook } from "../dist/never-break/journal.js";
+import { heldReplay } from "../dist/never-break/resume.js";
+import { readdir } from "node:fs/promises";
+
+test("a journal that cannot be read is put aside, Branch still starts, and nothing carries on by itself", async (t) => {
+  const root = await temp(t);
+  const dataDir = join(root, "d");
+  await mkdir(dataDir, { recursive: true });
+  await writeFile(join(dataDir, "journal.sqlite"), "this is not a database at all, just rubbish bytes ".repeat(200));
+  const opened = openJournal(join(dataDir, "journal.sqlite"));
+  assert.match(opened.reset ?? "", /could not be read.*put aside/);
+  opened.journal.close();
+  assert.ok((await readdir(dataDir)).some((name) => name.startsWith("journal.sqlite.unreadable-")), "the damaged file is kept for a look");
+
+  await writeFile(join(dataDir, "journal.sqlite"), "rubbish again ".repeat(400));
+  await saveGatewayConfig(dataDir, GatewayConfigSchema.parse({ mode: "on" }));
+  const app = await createBranch({ workspace: join(root, "w"), dataDir, provider: scripted([say("carried on")]) });
+  t.after(() => app.close());
+  const run = app.store.createRun("local", "cut off while thinking");
+  app.store.finish(run.id, "interrupted", "cut off");
+  const [report] = await app.neverBreak.recoverOnStart(dataDir);
+  assert.equal(report.outcome, "offered", "what was in flight is unknown, so the owner decides");
+
+  // A readable journal with a damaged row: that row is treated as the riskiest kind, the rest still settle.
+  app.neverBreak.journal.database.prepare("INSERT INTO steps(run_id,session_id,kind,call_id,tool,arguments,key,effects,evidence,state,started_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)")
+    .run("r", "s", "tool", "c", "x.y", "{", "k", "weird", "{not json", "started", new Date().toISOString());
+  const [step] = app.neverBreak.journal.open();
+  assert.equal(step.effects, "external");
+  assert.equal(step.evidence, null);
+});
+
+test("nothing secret is written to the journal, and a hidden step is never re-run from it", async (t) => {
+  const root = await temp(t);
+  const journal = new TaskJournal(join(root, "journal.sqlite"));
+  t.after(() => journal.close());
+  const hook = journalHook(journal, (text) => text.replace(/sk-[A-Za-z0-9]{20,}/g, "[hidden]"));
+  const key = `sk-${"a".repeat(32)}`;
+  const call = { id: "c1", name: "http.request", arguments: JSON.stringify({ url: "https://example.test", headers: { authorization: `Bearer ${key}` } }) };
+  await assert.rejects(hook.around({ runId: "r1", sessionId: "s1", call, permission: "web.fetch", workspace: root, signal: AbortSignal.abort() },
+    async () => { throw new Error("cut off"); }), /cut off/);
+  const raw = await readFile(join(root, "journal.sqlite")).then((b) => b.toString("latin1")) +
+    await readFile(join(root, "journal.sqlite-wal")).then((b) => b.toString("latin1"), () => "");
+  assert.ok(!raw.includes(key), "the key is not in the journal file");
+  const [open] = journal.open();
+  assert.equal(open.redacted, true);
+  assert.match(open.arguments, /\[hidden\]/);
+  assert.equal(open.key, idempotencyKey("r1", call), "the repeat key still comes from the real call");
+
+  const app = await createBranch({ workspace: join(root, "w"), dataDir: join(root, "d"), provider: scripted([say("x")]) });
+  t.after(() => app.close());
+  const run = app.store.createRun("local", "write with a key in it");
+  const args = { path: "k.txt", content: "[hidden]" };
+  app.store.message(run.sessionId, { role: "assistant", content: "", toolCalls: [{ id: "w1", name: "files.write", arguments: JSON.stringify(args) }] });
+  app.neverBreak.journal.begin({ runId: run.id, sessionId: run.sessionId, callId: "w1", tool: "files.write", arguments: JSON.stringify(args),
+    key: "k", effects: "idempotent", evidence: null, redacted: true });
+  app.store.finish(run.id, "interrupted", "cut off");
+  await recoverAfterRestart({ store: app.store, runtime: app.runtime, journal: app.neverBreak.journal, mode: "on" });
+  await assert.rejects(readFile(join(app.runtime.workspace, "k.txt")), "the hidden text was not written as if it were the content");
+});
+
+/** A chat app that never talks to the network: messages go in by hand, replies are kept. */
+function handChat() {
+  const chat = { id: "hand", kind: "hand", sent: [], deliver: null,
+    botName: () => "hand", start: async (onMessage) => { chat.deliver = onMessage; },
+    send: async (chatId, text) => { chat.sent.push({ chatId, text }); return String(chat.sent.length); }, stop: async () => undefined };
+  return chat;
+}
+const handMessage = (text, messageId) => ({ channel: "hand", chatId: "7", chatKind: "direct", senderId: "owner-1", senderName: "Owner",
+  text, addressed: true, messageId });
+
+test("a chat task that may already have sent something is not done again when the chat app sends the message again", async (t) => {
+  const root = await temp(t);
+  const provider = { name: "scripted", requests: 0, async complete() { provider.requests++; return say("answered"); } };
+  const app = await createBranch({ workspace: join(root, "w"), dataDir: join(root, "d"), provider });
+  t.after(() => app.close());
+  const chat = handChat();
+  await app.channels.attach(chat, { allowlist: ["owner-1"] });
+
+  const run = app.store.createRun("local", "email Sam, then summarise");
+  app.store.event(run.id, "channel.inbound", { channel: "hand", chatId: "7", messageId: "m1" });
+  const done = app.neverBreak.journal.begin({ runId: run.id, sessionId: run.sessionId, callId: "e1", tool: "email.send",
+    arguments: "{}", key: "k", effects: "external", evidence: null });
+  app.neverBreak.journal.finish(done, "finished");
+  app.store.finish(run.id, "interrupted", "cut off while summarising");
+  const [report] = await recoverAfterRestart({ store: app.store, runtime: app.runtime, journal: app.neverBreak.journal, mode: "on" });
+  assert.notEqual(report.outcome, "left-for-chat", "an email already went out");
+  assert.notEqual(report.outcome, "resumed", "a chat task is not carried on by itself in the app");
+
+  await chat.deliver(handMessage("email Sam, then summarise", "m1"));
+  assert.equal(provider.requests, 0, "the task was not started again");
+  assert.match(chat.sent.at(-1).text, /restarted while it was working on this.*not started again/);
+  assert.equal(heldReplay(app.store, "local", { channel: "hand", chatId: "7", messageId: "m1" }), null, "the hold is used once");
+
+  // A chat task that had only looked at things is still simply answered again.
+  const looked = app.store.createRun("local", "what is on my list");
+  app.store.event(looked.id, "channel.inbound", { channel: "hand", chatId: "7", messageId: "m2" });
+  app.store.finish(looked.id, "interrupted", "cut off");
+  const [second] = await recoverAfterRestart({ store: app.store, runtime: app.runtime, journal: app.neverBreak.journal, mode: "on" });
+  assert.equal(second.outcome, "left-for-chat");
+  await chat.deliver(handMessage("what is on my list", "m2"));
+  assert.equal(provider.requests, 1, "answered once, as a fresh task");
+});
