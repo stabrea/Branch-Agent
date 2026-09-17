@@ -7076,7 +7076,7 @@ authors who test their plugin against Branch before shipping it. A tool with `se
   the owner ticks "Run add-on code on Windows without the wall" (`windowsWithoutWall`, ships off); a plugin run
   that way says so instead of claiming a wall. Nothing else on Windows changes.
 - **Hand-placed plugins stay in-process by default (decided).** "Also run plugin files I put in the plugins
-  folder myself in their own walled program" keeps shipping off: those files are the owner's own, the switch
+  folder myself in their own walled program" (`wallEveryPlugin`) keeps shipping off: those files are the owner's own, the switch
   would change how existing plugins behave (Windows included), and a walled plugin loses model connections and
   chat services. Add-ons from a package, list or draft are walled whatever the tick says.
 - **Branch as a plugin.** A `.branch-export.json` file is trusted only for folders Branch remembers writing, so a
