@@ -1007,6 +1007,7 @@ export * from "./channels/ws-client.js";
 export * from "./integrations/web.js";
 export * from "./delegation.js";
 export * from "./orchestration.js";
+export * from "./plan-act.js";
 export * from "./orchestration-tools.js";
 export * from "./reliability.js";
 export * from "./skill-scan.js";

@@ -76,7 +76,8 @@ import type { RunToolEmbedder, ToolEmbedder } from "./tool-index.js";
 import { mcpAppIn } from "./mcp-apps.js";
 import { NoteInputSchema } from "./tool-usage.js";
 import { estimateCost, formatCost, pricingSettings } from "./pricing.js";
-import { Orchestration, type ConductOptions } from "./orchestration.js";
+import { Orchestration, type ConductOptions, type PlanAnswer, type StoredPlan } from "./orchestration.js";
+import { commandDifference, commandWords, correctionLabel, offPlanDifference, relatedCommand } from "./plan-act.js";
 import { styleShape, takeScratch, type SpecialistStyle } from "./specialist-styles.js";
 import { Deferrals, deferredCall } from "./deferred.js";
 import { RequestCache, type CacheKeyParts } from "./request-cache.js";
@@ -200,6 +201,10 @@ export class Runtime {
   /** What each task searched for and called, until it finishes and the lesson is written down. */
   private readonly toolWork = new Map<string, { searched: string[]; called: string[]; failures: Map<string, string>; rounds: number }>();
   private readonly pending = new Set<Promise<unknown>>();
+  /** Per conversation: the last command that did not work, so the next try is offered, not made. */
+  private readonly failedCommands = new Map<string, string[]>();
+  /** Questions already put once in a conversation, so nothing is stopped twice on the same thing. */
+  private readonly askedAside = new Set<string>();
   private accepting = true;
   readonly retryPolicy: RetryPolicy;
   readonly reliability: ReliabilityOptions;
@@ -730,7 +735,7 @@ export class Runtime {
       if ((context.scratchRoot ?? run.id) === run.id) this.orchestration.clearScratch(run.id);
       // A plan that was being carried out by a task that stopped early is not resumed by the next
       // message; one still waiting for the owner's yes stays, because that task stopped to ask.
-      if (status !== "completed") this.orchestration.dropAbandonedPlan(run.sessionId);
+      if (status !== "completed") this.orchestration.dropAbandonedPlan(run.sessionId, status);
     }
     const settled = this.finish(run, status, output);
     this.saveTrace(run.id);
@@ -1551,6 +1556,15 @@ export class Runtime {
     // stricter — it can turn a yes into a question or a refusal, never a refusal into a yes.
     const verdict = ruled === "deny" ? null : await this.askHooks(context.runId, { tool: call.name, target, label, decision: ruled });
     const decision = verdict && verdict.decision !== "allow" ? verdict.decision : ruled;
+    // Wave 9: two things the owner asked to be stopped for even when the rules would let them past
+    // — work the agreed plan did not mention, and a command that already failed being tried again.
+    const aside = decision === "deny" ? null
+      : this.offPlanQuestion(context, { label, target, readOnly }) ?? this.retriedCommandQuestion(call, args, context);
+    if (aside) {
+      this.orchestration.pausePlan(this.sessionOf(context));
+      return this.askApproval(context, { tool: call.name, label: aside, target, source: context.source ?? "owner",
+        remember, sandbox, bytes: this.hideSecrets(call.arguments).slice(0, 2000), fingerprint }, call.id);
+    }
     if (decision === "allow") return { refusal: null, ...held };
     if (decision === "deny") {
       this.store.event(context.runId, "policy.denied", { name: call.name, id: call.id, label, target,
@@ -1563,6 +1577,51 @@ export class Runtime {
       // The exact request, cleaned of any saved password or key, is what the person is shown and
       // what their yes is bound to.
       bytes: this.hideSecrets(call.arguments).slice(0, 2000), fingerprint }, call.id);
+  }
+  /**
+   * Why this call is not what the plan the owner agreed said would happen here, or null when it is.
+   * Put once per conversation, so answering it lets the work carry on rather than asking for ever.
+   */
+  private offPlanQuestion(context: ToolContext, about: { label: string; target: string; readOnly: boolean }): string | null {
+    const sessionId = this.sessionOf(context);
+    const current = this.orchestration.currentStep(sessionId);
+    if (!current) return null;
+    const difference = offPlanDifference(current.step, current.at, about);
+    if (!difference || !this.askOnce(sessionId, `plan:${current.at}:${about.label}:${about.target}`)) return null;
+    this.store.event(context.runId, "plan.off_plan", { step: current.at, title: current.step.title,
+      label: about.label, target: about.target, difference });
+    return difference;
+  }
+  /**
+   * A command that already failed in this conversation being tried again. The owner is shown both
+   * commands and the difference between them rather than the second one simply happening.
+   */
+  private retriedCommandQuestion(call: ToolCall, args: unknown, context: ToolContext): string | null {
+    if (call.name !== "shell.execute") return null;
+    const sessionId = this.sessionOf(context);
+    const failed = this.failedCommands.get(sessionId);
+    const next = commandWords(args);
+    if (!failed || !next.length || !relatedCommand(failed, next)) return null;
+    this.failedCommands.delete(sessionId);
+    this.store.event(context.runId, "command.correction", { failed: failed.join(" "),
+      proposed: next.join(" "), difference: commandDifference(failed, next) });
+    return correctionLabel(failed, next);
+  }
+  /** True the first time a conversation is asked one particular thing, false every time after. */
+  private askOnce(sessionId: string, key: string): boolean {
+    if (this.askedAside.size > 500) this.askedAside.clear();
+    const full = `${sessionId}\u0000${key}`;
+    if (this.askedAside.has(full)) return false;
+    this.askedAside.add(full);
+    return true;
+  }
+  /** Remembers a command that did not work, by its words, for the offer above. */
+  private noteCommandFailure(call: ToolCall, context: ToolContext, args: unknown, result?: unknown): void {
+    if (call.name !== "shell.execute") return;
+    const code = (result as { exitCode?: unknown } | undefined)?.exitCode;
+    if (result !== undefined && (typeof code !== "number" || code === 0)) return;
+    const words = commandWords(args);
+    if (words.length) this.failedCommands.set(this.sessionOf(context), words);
   }
   /** Stops the task and records the question, so the person can say yes once, for now, or for good. */
   private askApproval(
@@ -1672,6 +1731,21 @@ export class Runtime {
       outcome: decision === "allow" ? "allowed" : "refused",
     });
     return { tool: waiting.tool, target: waiting.target, decision, remembered: remember, fingerprint: waiting.fingerprint ?? null };
+  }
+  /**
+   * The owner's answer to a plan waiting for them. Yes — with a step's wording changed, if they
+   * changed one — starts it on their next message. No asks for another plan straight away, with
+   * the reason they gave put in front of the model.
+   */
+  async answerPlan(
+    runId: string,
+    input: PlanAnswer,
+  ): Promise<{ plan: StoredPlan; asked: Run | null }> {
+    const decided = this.orchestration.decidePlan(runId, input);
+    if (input.decision !== "reject") return { plan: decided, asked: null };
+    const asked = await this.run({ prompt: decided.reason || "Plan that again, please.",
+      sessionId: decided.sessionId, plan: true });
+    return { plan: this.orchestration.plan(decided.sessionId) ?? decided, asked };
   }
   /** The questions a conversation has stopped on, for whichever surface is going to put them. */
   waitingApprovals(sessionId?: string) {
@@ -1829,6 +1903,8 @@ export class Runtime {
       this.noteApp(call, context, result);
       const receipt = await this.store.receipts.sign(context.runId, call.id, call.name, result);
       this.store.event(context.runId, "tool.completed", { name: call.name, id: call.id, result, receipt });
+      // A command that ran but came back with a complaint is still a command that did not work.
+      this.noteCommandFailure(call, context, args, result);
       const failure = this.toolWork.get(context.runId)?.failures.get(call.name);
       if (failure !== undefined) { this.toolWork.get(context.runId)!.failures.delete(call.name); this.learnFromRetry(context, call.name, failure); }
       span?.end("ok");
@@ -1848,6 +1924,7 @@ export class Runtime {
       const stalled = timeout.aborted;
       const error = this.hideSecrets(stalled ? `The tool was stopped after ${limitMs / 1000} seconds without finishing` : errorText(e));
       this.store.event(context.runId, stalled ? "tool.stalled" : "tool.failed", { name: call.name, id: call.id, error });
+      this.noteCommandFailure(call, context, args);
       this.toolWork.get(context.runId)?.failures.set(call.name, error);
       span?.end("error", error, { "branch.tool.outcome": stalled ? "stalled" : "failed" });
       return { ok: false, error };

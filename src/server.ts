@@ -15,6 +15,10 @@ import { RunInputSchema, errorText } from "./contracts.js";
 import { CompletionCheckSchema } from "./reliability.js";
 import { liveActivity } from "./activity.js";
 import { PlanStepSchema, orchestrationSettings, saveOrchestrationSettings } from "./orchestration.js";
+import {
+  PlanActSettingsSchema, autonomyWords, planModeWords, projectPlanAct, saveProjectPlanAct,
+  saveSessionPlanAct, sessionPlanAct, clearSessionPlanAct,
+} from "./plan-act.js";
 import { classifyToolEvent } from "./receipts.js";
 import { SkillScanPolicySchema } from "./skill-scan.js";
 import { PackageInstallSchema } from "./skill-packages.js";
@@ -137,6 +141,23 @@ const actionSchema = z
     args: z.record(z.string(), z.unknown()),
   })
   .strict();
+/**
+ * The owner's answer to a plan waiting for them: yes, yes with the wording of a step changed, or
+ * no with the reason. A body with nothing but steps in it is a yes, which is what it always was.
+ */
+const PlanAnswerSchema = z.object({
+  decision: z.enum(["approve", "reject"]).optional(),
+  steps: z.array(PlanStepSchema).min(1).max(8).optional(),
+  reason: z.string().trim().max(500).optional(),
+}).strict();
+/** Which of the two modes this conversation is in, and how far it may go before checking back. */
+const PlanActChoiceSchema = PlanActSettingsSchema.partial().extend({
+  sessionId: z.string().max(64).optional(),
+  /** "conversation" sets this one apart; "project" changes what every conversation starts from. */
+  scope: z.enum(["conversation", "project"]).default("conversation"),
+  /** Puts this conversation back on whatever the project says. */
+  followProject: z.boolean().optional(),
+}).strict();
 /** A monthly limit in tokens, in dollars, or both. Older settings that only set tokens still parse. */
 const budgetSchema = z
   .object({
@@ -327,6 +348,7 @@ async function staticFile(
     "/markdown.js": ["markdown.js", "text/javascript; charset=utf-8"],
     "/inspector.js": ["inspector.js", "text/javascript; charset=utf-8"],
     "/live-run.js": ["live-run.js", "text/javascript; charset=utf-8"],
+    "/plan-act.js": ["plan-act.js", "text/javascript; charset=utf-8"],
     "/token-meter.js": ["token-meter.js", "text/javascript; charset=utf-8"],
     "/playground.js": ["playground.js", "text/javascript; charset=utf-8"],
     "/tool-catalog.js": ["tool-catalog.js", "text/javascript; charset=utf-8"],
@@ -754,8 +776,11 @@ async function api(
     if (request.method === "GET" && match[2] === "plan")
       return { plan: app.runtime.orchestration.plan(run.sessionId) ?? null };
     if (request.method === "POST" && match[2] === "plan") {
-      const body = z.object({ steps: z.array(PlanStepSchema).min(1).max(8).optional() }).strict().parse(await readBody(request));
-      return app.runtime.orchestration.editPlan(run.id, body.steps);
+      const body = PlanAnswerSchema.parse(await readBody(request));
+      // Saying yes answers here and now; saying no asks for another plan, which takes a model turn.
+      if (body.decision !== "reject") return app.runtime.orchestration.decidePlan(run.id, body);
+      const { plan, asked } = await app.runtime.answerPlan(run.id, body);
+      return { ...plan, asked: asked ? { id: asked.id, status: asked.status, output: asked.output } : null };
     }
     if (request.method === "GET" && match[2] === "receipts") return receiptsView(app, run.id);
     if (request.method === "GET" && !match[2])
@@ -773,6 +798,9 @@ async function api(
     return orchestrationSettings(app.store, app.runtime.owner);
   if (request.method === "POST" && path === "/api/orchestration")
     return saveOrchestrationSettings(app.store, app.runtime.owner, await readBody(request));
+  // Wave 9: "Just do it" or "Show me the plan first", per conversation and per project.
+  if (path === "/api/plan-act" && (request.method === "GET" || request.method === "POST"))
+    return planActApi(app, request, await (request.method === "POST" ? readBody(request) : Promise.resolve({})));
   if (request.method === "GET" && path === "/api/health")
     return healthReport(app, { probeProvider: new URL(request.url ?? "/", "http://local").searchParams.get("probe") === "1" });
   if (request.method === "GET" && path === "/api/backup") {
@@ -1638,6 +1666,26 @@ function runCost(app: Branch, runId: string) {
     output: usage.reportedOutput || usage.estimatedOutput || 0,
   }, overrides);
   return { ...estimate, display: formatCost(estimate), model };
+}
+/**
+ * Which of the two modes a conversation is in, and how far it may go before checking back. Reading
+ * gives the project's choice, this conversation's own if it has one, and the words for both; writing
+ * sets either, or puts the conversation back on whatever the project says.
+ */
+function planActApi(app: Branch, request: IncomingMessage, body: unknown): unknown {
+  const owner = app.runtime.owner, projectId = app.store.projects.active(owner).id;
+  const url = new URL(request.url ?? "/", "http://local");
+  const asked = request.method === "POST" ? PlanActChoiceSchema.parse(body ?? {}) : null;
+  const sessionId = asked?.sessionId ?? url.searchParams.get("sessionId") ?? "";
+  const choice = { ...(asked?.planMode ? { planMode: asked.planMode } : {}),
+    ...(asked?.autonomy ? { autonomy: asked.autonomy } : {}) };
+  if (asked?.followProject && sessionId) clearSessionPlanAct(app.store, owner, sessionId);
+  else if (asked && asked.scope === "project") saveProjectPlanAct(app.store, owner, projectId, choice);
+  else if (asked && sessionId) saveSessionPlanAct(app.store, owner, sessionId, projectId, choice);
+  const effective = sessionPlanAct(app.store, owner, sessionId, projectId);
+  return { projectId, project: projectPlanAct(app.store, owner, projectId), effective,
+    words: { planMode: planModeWords, autonomy: autonomyWords },
+    plan: sessionId ? app.runtime.orchestration.plan(sessionId) ?? null : null };
 }
 /** Every tool event of a run with its verified outcome: success with a genuine receipt, or why not. */
 async function receiptsView(app: Branch, runId: string) {

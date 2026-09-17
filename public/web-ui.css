@@ -402,3 +402,58 @@ button.code-copy:hover { background: var(--hover); color: var(--text); }
 }
 .context-help-close:hover { text-decoration: underline; }
 .context-help-close:focus-visible { outline: var(--ring); }
+
+/* ---- Wave 9: the plan, shown before any of it is done ---- */
+.plan-card {
+  border: 1px solid var(--copper);
+  border-radius: 12px;
+  background: var(--panel-2);
+  padding: 0.7rem 0.9rem;
+  margin: 0 0 0.75rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  align-items: center;
+}
+.plan-card[hidden] { display: none; }
+.plan-card h3,
+.plan-card p,
+.plan-steps { flex-basis: 100%; margin: 0; }
+.plan-steps { list-style: none; padding: 0; display: grid; gap: 0.4rem; }
+.plan-step {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 0.6rem;
+  align-items: baseline;
+  border-left: 3px solid var(--line-strong);
+  padding-left: 0.6rem;
+}
+.plan-step[data-status="working"] { border-left-color: var(--copper); }
+.plan-step[data-status="done"] { border-left-color: var(--good); }
+.plan-step[data-status="failed"] { border-left-color: var(--bad); }
+.plan-step-status {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--faint);
+  min-width: 5.5rem;
+}
+.plan-step-title { flex: 1 1 14rem; margin: 0; }
+input.plan-step-title {
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--text);
+  padding: 0.3rem 0.5rem;
+  font: inherit;
+}
+.plan-step-touches { color: var(--faint); font-size: 0.74rem; }
+#plan-reject-reason {
+  flex: 1 1 12rem;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--text);
+  padding: 0.35rem 0.55rem;
+  font: inherit;
+}
