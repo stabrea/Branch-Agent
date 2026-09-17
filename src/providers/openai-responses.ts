@@ -3,7 +3,7 @@ import type { Completion, CompletionRequest, Message, Provider, ToolCall } from 
 import { ProviderStreamError, estimateTokens } from "../contracts.js";
 import { rejectedHttpResponse } from "../provider-retry.js";
 import { readEventStream } from "../provider-stream.js";
-import { readJsonBody, restoreToolNames, wireName } from "../providers.js";
+import { readJsonBody, restoreToolNames, serviceTierPart, wireName } from "../providers.js";
 
 /**
  * OpenAI's newer Responses route. The conversation goes in as a list of items rather than as chat
@@ -91,7 +91,8 @@ export class OpenAIResponsesProvider implements Provider {
   }
   supportsImages(): boolean { return true; }
   async complete(request: CompletionRequest): Promise<Completion> {
-    const plain = responsesBody(request, this.options.model);
+    // R17-S12 (integration review): the faster or cheaper tier, only for OpenAI's own address or Azure.
+    const plain = { ...responsesBody(request, this.options.model), ...serviceTierPart(this.options.endpoint, request.serviceTier) };
     const body = this.options.shapeBody ? this.options.shapeBody(plain) : plain;
     if (request.onTextDelta) return this.stream(request, body);
     const response = await this.post({ ...body, stream: false }, request.signal);

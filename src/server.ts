@@ -197,6 +197,9 @@ import { contextFileSinkFor, defaultMoveInOptions, handlesMoveInPath, moveInApi,
 import { guardsApi, handlesGuardsPath } from "./run-guards.js";
 // R17-S-B: the hidden knobs, with plain labels, and the launch settings file as a card.
 import { handlesKnobsPath, knobsApi, KnobsApiError } from "./knobs/api.js";
+// R17-E: models, cheaper and smarter (src/model-savings/).
+import { handlesSavingsPath, savingsApi, SavingsApiError } from "./model-savings/api.js";
+import { savingsRefusal } from "./short-lived-keys.js";
 // mac3/never-break: the gateway switch and suggested changes (src/never-break/api.ts).
 import { handlesNeverBreakPath, NeverBreakApiError, neverBreakApi } from "./never-break/api.js";
 import { channelSetupApi, handlesChannelSetupPath } from "./channel-setup/api.js"; // mac7/connect
@@ -471,6 +474,8 @@ async function staticFile(
     // Wave mac2 (guards): the card that asks whether a folder is trusted.
     "/folder-trust.js": ["folder-trust.js", "text/javascript; charset=utf-8"],
     "/knobs.js": ["knobs.js", "text/javascript; charset=utf-8"], // R17-S-B: the hidden knobs
+    "/model-savings.js": ["model-savings.js", "text/javascript; charset=utf-8"], // R17-E
+    "/round-chart.js": ["round-chart.js", "text/javascript; charset=utf-8"], // R17-E (R17-049)
     // mac3/never-break: the Keep running card and the Telegram setup card.
     "/never-break.js": ["never-break.js", "text/javascript; charset=utf-8"],
     // mac6/accounts: the Accounts list in each connection's card, and the chip in the conversation header.
@@ -859,6 +864,10 @@ async function api(
   if (handlesKnobsPath(path))
     return knobsApi(app, request, path, readBody, () => (process.env.BRANCH_INTEGRATIONS ? resolvePath(process.env.BRANCH_INTEGRATIONS) : null))
       .catch((error: unknown) => { throw error instanceof KnobsApiError ? new HttpError(error.status, error.message) : error; });
+  // R17-E: how models are chosen and what they may spend; every change is the owner's.
+  if (handlesSavingsPath(path))
+    return savingsApi(app, request, path, new URL(request.url ?? "/", "http://branch.invalid"), readBody)
+      .catch((error: unknown) => { throw error instanceof SavingsApiError ? new HttpError(error.status, error.message) : error; });
   // mac6/accounts: the accounts of each connection, and switching between them.
   if (handlesAccountsPath(path))
     return accountsApi(request, path, {
@@ -3300,6 +3309,7 @@ export function offLimitsToShortLivedKeys(method: string | undefined, path: stri
   if (handlesGuardsPath(path)) return "A short-lived key cannot change which folders are trusted or how repeated steps are stopped. Do that in the app window.";
   // R17-S-B: the knobs include which environment variables commands get and how keys are hidden.
   if (handlesKnobsPath(path)) return knobsRefusal;
+  if (handlesSavingsPath(path)) return savingsRefusal; // R17-E
   // mac3/never-break: the gateway's settings are the owner's alone.
   if (handlesNeverBreakPath(path)) return "A short-lived key cannot change how Branch keeps itself running. Do that in the app window.";
   // mac7/connect: saving a chat app's token or switching setting-up on is the owner's alone.
