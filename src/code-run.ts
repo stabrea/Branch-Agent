@@ -7,6 +7,7 @@ import type { ToolRegistry } from "./registry.js";
 import { WorkspaceFiles } from "./files.js";
 import { defaultJobObjects, jobWithin, type JobObjects } from "./integrations/job-object.js";
 import { sandboxShape, shapeChoice, type SandboxChoice } from "./sandbox.js";
+import type { HeldBySystem } from "./integrations/posix-limits.js";
 import { checkCodeBlock } from "./code-check.js";
 import {
   chooseSandboxBackend, defaultSandboxProbe, defaultSandboxSpawn as defaultSandboxSpawnFor,
@@ -60,6 +61,8 @@ export const CodeRunInputSchema = z.object({
 export interface CodeRunResult {
   language: string; status: string; exitCode: number | null; output: string; errors: string;
   truncated: boolean; durationMs: number; network: boolean; isolation: "job-object" | "sampling";
+  /** macOS and Linux: what the system itself held, when the script ran in a limited process group. */
+  heldBySystem?: HeldBySystem;
   /** How tightly the script was held: the owner's rule for this tool, or the script settings. */
   sandbox: SandboxChoice;
   /** Where it actually ran: this computer, a container, the Linux side, or the throwaway desktop. */
@@ -121,7 +124,8 @@ export class CodeRunner {
           exitCode: result.exitCode, sandbox, backend: backend.name, folder });
       return { language: input.language, status: result.status, exitCode: result.exitCode,
         output: result.stdout, errors: result.stderr, truncated: result.truncated,
-        durationMs: result.durationMs, network: !shape.netless, isolation: result.isolation, sandbox, backend: backend.name, folder };
+        durationMs: result.durationMs, network: !shape.netless, isolation: result.isolation,
+        ...(result.heldBySystem ? { heldBySystem: result.heldBySystem } : {}), sandbox, backend: backend.name, folder };
     } finally {
       await handle.collect(["branch-output.txt"]).catch(() => undefined);
       await handle.dispose().catch(() => undefined);
