@@ -54,8 +54,9 @@ export class GitHubAccess {
     const created = (await this.request("POST", "user/repos", body)) as Record<string, unknown>;
     return { repository: created.full_name, address: created.html_url, private: created.private, defaultBranch: created.default_branch };
   }
-  async openPullRequest(input: { repo: string; title: string; body?: string | undefined; base: string; head: string }): Promise<unknown> {
-    const payload = { title: input.title, body: input.body ?? "", base: input.base, head: input.head };
+  async openPullRequest(input: { repo: string; title: string; body?: string | undefined; base: string; head: string; draft?: boolean | undefined }): Promise<unknown> {
+    // bucket-18 (A0300): a pull request Branch opens by itself is a draft until a person says otherwise.
+    const payload = { title: input.title, body: input.body ?? "", base: input.base, head: input.head, ...(input.draft ? { draft: true } : {}) };
     const opened = (await this.request("POST", `repos/${input.repo}/pulls`, payload)) as Record<string, unknown>;
     return { repository: input.repo, number: opened.number, title: opened.title, address: opened.html_url, state: opened.state };
   }

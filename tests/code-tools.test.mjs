@@ -175,9 +175,16 @@ test("files.validate reports problems as data, not as a failure", async (t) => {
   assert.match(script.problems[0].message, /SyntaxError/);
   assert.equal(script.problems[0].line, 1);
 
+  // bucket-18 (A0537): TypeScript is now read by Node's own type stripper; TSX gets the bracket check only.
   const typed = await app.runtime.executeTool("files.validate", { path: "typed.ts" });
-  assert.equal(typed.checked, false);
-  assert.match(typed.note, /TypeScript compiler/);
+  assert.equal(typed.checked, true);
+  assert.equal(typed.ok, true);
+  await put(workspace, "view.tsx", "export const a = <b />;\n");
+  const tsx = await app.runtime.executeTool("files.validate", { path: "view.tsx" });
+  assert.equal(tsx.checked, true);
+  assert.match(tsx.note, /Only brackets.*TypeScript compiler/);
+  await put(workspace, "notes.txt", "hello\n");
+  assert.equal((await app.runtime.executeTool("files.validate", { path: "notes.txt" })).checked, false);
 });
 
 test("workspace.map shows what each file holds and reads a file again only when it changes", async (t) => {

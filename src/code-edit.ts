@@ -7,6 +7,7 @@ import type { WorkspaceFiles, WriteObserver } from "./files.js";
 import type { ToolContext } from "./contracts.js";
 import type { ToolRegistry } from "./registry.js";
 import { parsePatch, applyHunks } from "./patch.js";
+import { bracketValidation, canCheckBrackets, typeScriptValidation } from "./code-syntax.js";
 
 /**
  * Changing code precisely: applying a unified diff to one or more files, replacing an exact piece
@@ -148,10 +149,12 @@ export async function validateFile(files: WorkspaceFiles, path: string): Promise
   if (!(await stat(absolute)).isFile()) throw new Error(`"${path}" is not a file`);
   if (language === "JSON") return jsonValidation(path, (await files.read(path)).content);
   if (/\.(m|c)?js$/i.test(path)) return scriptValidation(path, absolute);
-  const note = /\.(m|c)?tsx?$/i.test(path)
-    ? "Checking TypeScript needs the TypeScript compiler, which this app does not carry at run time."
-    : `There is no built-in check for ${language} files.`;
-  return { path, language, checked: false, ok: true, problems: [], note };
+  // bucket-18 (A0537): TypeScript through Node's type stripper, other languages by bracket pairing.
+  if (/\.(m|c)?ts$/i.test(path)) return typeScriptValidation(path, (await files.read(path)).content);
+  if (/\.tsx$/i.test(path)) return { ...bracketValidation(path, (await files.read(path)).content, language),
+    note: "Only brackets were checked: a full check of TSX needs the TypeScript compiler, which this app does not carry at run time." };
+  if (canCheckBrackets(path)) return bracketValidation(path, (await files.read(path)).content, language);
+  return { path, language, checked: false, ok: true, problems: [], note: `There is no built-in check for ${language} files.` };
 }
 
 function jsonValidation(path: string, content: string): Validation {

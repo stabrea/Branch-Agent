@@ -2,6 +2,7 @@ import { z } from "zod";
 import { scrubSecrets } from "../locker.js";
 import type { NetworkPolicy } from "../network-policy.js";
 import type { ToolRegistry } from "../registry.js";
+import type { TrackerIssue } from "./issue-context.js";
 
 /**
  * Reading from GitLab: the issues on a project, its releases and how its pipelines went. Only
@@ -26,6 +27,8 @@ export class GitLabAccess {
     this.config = GitLabConfigSchema.parse(input);
   }
   get tokenSecret(): string { return this.config.tokenSecret; }
+  /** bucket-18 (A0174): the server this key belongs to, so an issue address elsewhere is not fetched with it. */
+  get host(): string { return new URL(this.config.apiBase).host.toLowerCase(); }
 
   private async request(path: string): Promise<unknown> {
     const token = await this.token();
@@ -58,6 +61,24 @@ export class GitLabAccess {
       releases: (Array.isArray(list) ? list : []).slice(0, input.limit).map((release) => ({
         tag: String(release.tag_name ?? ""), name: String(release.name ?? "").slice(0, 200),
         at: String(release.released_at ?? ""), notes: String(release.description ?? "").slice(0, 2000),
+      })),
+    };
+  }
+  /** One issue with comments, in the shape every tracker answers in. */
+  async getIssue(input: { project: string; number: number }): Promise<TrackerIssue> {
+    const issue = (await this.request(`projects/${this.id(input.project)}/issues/${input.number}`)) as Record<string, unknown>;
+    const comments = (await this.request(`projects/${this.id(input.project)}/issues/${input.number}/notes?per_page=20`)) as Record<string, unknown>[];
+    return {
+      tracker: "gitlab",
+      reference: `${input.project}#${input.number}`,
+      title: String(issue.title ?? "").slice(0, 300),
+      body: String(issue.description ?? "").slice(0, 20000),
+      state: String(issue.state ?? ""),
+      address: String(issue.web_url ?? ""),
+      comments: (Array.isArray(comments) ? comments : []).slice(0, 20).map((comment) => ({
+        author: String((comment.author as { name?: unknown } | undefined)?.name ?? "someone"),
+        at: String(comment.created_at ?? ""),
+        body: String(comment.body ?? "").slice(0, 4000),
       })),
     };
   }

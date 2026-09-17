@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { protectedAreas, protectedTarget, cwdOf, type ProtectedAreas } from "./never-break/protected.js"; // mac3/never-break
 import { noJournal, type JournalHook } from "./never-break/journal.js"; // mac3/never-break
 import { neverBreakModeSync } from "./never-break/gateway-config.js"; // mac3/never-break
+import { runOrigin, startedWithShortLivedKey, underShortLivedKey } from "./key-context.js"; // bucket-18 (A0300)
 import {
   Budget,
   BudgetError,
@@ -131,7 +132,7 @@ interface GateOutcome {
   backend: SandboxBackendName | null; paths: readonly string[] | null;
 }
 export interface DelegateOptions { timeoutMs?: number; resultSchema?: Record<string, unknown>; /** The shape this task wants back, declared in zod. A reply that misses it is re-asked once. */ shape?: AnswerShape; checks?: CompletionCheck; background?: boolean; /** Specialist id: limits memory reads to shared facts and its own. */ agent?: string; /** The specialist's working style; it changes how the loop runs. */ style?: SpecialistStyle }
-export interface FollowUp { id: string; prompt: string; createdAt: string }
+export interface FollowUp { id: string; prompt: string; createdAt: string; shortLivedKey?: boolean }
 export interface BackgroundResult { childRunId: string; parentRunId: string; status: string; output: string; finishedAt: string }
 export interface FanoutOutcome { waves: string[][]; tasks: Record<string, { runId: string; status: string; output: string; result: ResultCheck }> }
 const reviewInstructions = "You review a finished task. Reply with JSON only: {\"memories\":[{\"text\":\"a durable fact or preference about the person, in one sentence\",\"source\":\"why you believe it\"}],\"skills\":[{\"skillId\":\"id of an installed skill this task used\",\"note\":\"one improvement to its instructions\"}]}. Only include things worth keeping for future tasks; empty arrays are the normal answer.";
@@ -380,7 +381,9 @@ export class Runtime {
   followUp(sessionId: string, prompt: string): { id: string; position: number; queued: number } {
     RunInputSchema.parse({ prompt, sessionId });
     if (!this.store.ownsSession(this.owner, sessionId)) throw new Error("Session not found");
-    const items = [...this.queued(sessionId), { id: randomUUID(), prompt, createdAt: new Date().toISOString() }];
+    // bucket-18 (A0300): a message queued with a short-lived key starts later, so the mark is kept with it.
+    const items = [...this.queued(sessionId), { id: randomUUID(), prompt, createdAt: new Date().toISOString(),
+      ...(startedWithShortLivedKey() ? { shortLivedKey: true } : {}) }];
     this.store.save("settings", this.owner, `followups:${sessionId}`, { items });
     this.drainFollowUps(sessionId);
     const left = this.queued(sessionId);
@@ -391,7 +394,8 @@ export class Runtime {
     const [next, ...rest] = this.queued(sessionId);
     if (!next) return;
     this.store.save("settings", this.owner, `followups:${sessionId}`, { items: rest });
-    void this.track(() => this.execute({ prompt: next.prompt, sessionId, onTextDelta: () => undefined })).catch(() => undefined);
+    const start = () => this.track(() => this.execute({ prompt: next.prompt, sessionId, onTextDelta: () => undefined }));
+    void (next.shortLivedKey ? underShortLivedKey(start) : start()).catch(() => undefined);
   }
   /**
    * Starts a specialist that keeps working after the parent finishes; its result is kept on the
@@ -610,6 +614,15 @@ ${run.output.slice(0, 6000)}`;
     this.store.event(run.id, "session.temporary", { memoryWrites: false });
     return { ...context, permissions: new Set([...context.permissions].filter((p) => p !== "memory.write")) };
   }
+  /** bucket-18 (A0300): who started the task, and whether a short-lived key was behind it or its parent. */
+  private originMarks(options: RunOptions, context: ToolContext, parent?: ToolContext): Record<string, unknown> {
+    const inherited = [parent?.runId, options.resumeFrom].some((id) => !!id && runOrigin(this.store, id).shortLivedKey);
+    return {
+      source: context.source ?? "owner",
+      ...(options.resumeFrom ? { resumedFrom: options.resumeFrom } : {}),
+      ...(startedWithShortLivedKey() || inherited ? { shortLivedKey: true } : {}),
+    };
+  }
   private prepareRun(options: RunOptions): Run {
     RunInputSchema.parse({
       prompt: options.prompt,
@@ -658,6 +671,8 @@ ${run.output.slice(0, 6000)}`;
     this.store.event(run.id, "run.started", {
       provider: this.provider.name,
       parentRunId: parent?.runId ?? null,
+      // bucket-18 (A0300): where the task came from, kept on the task so later work can read it.
+      ...this.originMarks(options, context, parent),
       // What this task was allowed to reach, so "Do this again" can hand it the very same tools.
       permissions: [...context.permissions].sort(),
     });
