@@ -509,4 +509,8 @@ test("each gateway service is built from its settings, checks the right hosts, a
   await assert.rejects(() => buildParityChannel({ type: "revolt", id: "r2", token: "abc", ...base }, host), /token|Unrecognized/i);
   await assert.rejects(() => buildParityChannel({ type: "mumble", id: "m4", server: "voice.example.org", username: "branch", certificateFingerprint: "nope", ...base }, host));
   await assert.rejects(() => buildParityChannel({ type: "qq-bot", id: "q3", appId: "1024", clientSecret: "raw", ...base }, host), /clientSecret|Unrecognized/i);
+  await assert.rejects(() => buildParityChannel({ type: "revolt", id: "r3", tokenSecret: "abc-real-token", ...base }, host));
+  await assert.rejects(() => buildParityChannel({ type: "guilded", id: "g3", tokenSecret: "gapi_real-token", ...base }, host));
+  await assert.rejects(() => buildParityChannel({ type: "qq-bot", id: "q4", appId: "1024", clientSecretSecret: "raw-secret-value", ...base }, host));
+  await assert.rejects(() => buildParityChannel({ type: "mumble", id: "m5", server: "voice.example.org", username: "branch", passwordSecret: "hunter2", ...base }, host));
 });
