@@ -33,6 +33,11 @@ async function branch(env, args) {
     return { code: error.code ?? 1, stdout: error.stdout ?? "", stderr: error.stderr ?? "" };
   }
 }
+/** Reads `branch status --json`, and says what the command printed when it did not succeed. */
+function statusJson(result) {
+  assert.equal(result.code, 0, `status failed: ${result.stderr || "(nothing on stderr)"}`);
+  return JSON.parse(result.stdout);
+}
 /** Drives the terminal view in a child process that believes it has a terminal. */
 function chat(t, env, extra = {}) {
   const child = spawn(process.execPath, ["dist/cli.js", "chat"], {
@@ -200,11 +205,11 @@ test("--preset holds for one task only; --save-preset is the one that keeps the 
   const once = await branch(env, ["run", "write something", "--preset", "ask-before-changes", "--json"]);
   assert.equal(once.code, 2, "the task did stop to ask, so the preset was in force while it ran");
   assert.match(once.stderr, /for this task only/);
-  const after = JSON.parse((await branch(env, ["status", "--json"])).stdout);
+  const after = statusJson(await branch(env, ["status", "--json"]));
   assert.equal(after.approvalPreset, "off", "the owner's saved setting was put back");
   const kept = await branch(env, ["run", "write something", "--save-preset", "ask-before-changes", "--json"]);
   assert.equal(kept.code, 2);
-  const later = JSON.parse((await branch(env, ["status", "--json"])).stdout);
+  const later = statusJson(await branch(env, ["status", "--json"]));
   assert.equal(later.approvalPreset, "ask-before-changes", "--save-preset left the change in place");
 });
 
