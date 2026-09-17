@@ -65,6 +65,12 @@ export function ttsRouteFor(settings: VoiceSettings, provider: Provider | undefi
   return { kind: "openai", provider: audio, reason: "Your connected model offers this" };
 }
 
+/** What reading aloud says while the computer's own voice is switched off. */
+export function systemVoiceOffMessage(platform: string = process.platform): string {
+  const name = platform === "win32" ? "The voice that comes with Windows" : "Your computer's own voice";
+  return `${name} is switched off, so nothing was read aloud. Turn it on under Settings → Voice, or choose your provider's voice there.`;
+}
+
 /** Which computer the voice runs on, and how it starts and finds programs there; all replaced in tests. */
 export interface VoiceSystem {
   platform?: string;
@@ -102,7 +108,13 @@ export class VoiceService {
   /** What would happen if the owner pressed the microphone or Read aloud right now. */
   plan(owner: string): { stt: VoiceRoute<SttRoute>; tts: VoiceRoute<TtsRoute>; settings: VoiceSettings } {
     const settings = this.settings(owner), provider = this.provider(owner);
-    return { stt: sttRouteFor(settings, provider), tts: ttsRouteFor(settings, provider, this.platform), settings };
+    const tts = ttsRouteFor(settings, provider, this.platform);
+    const off = tts.kind === "windows" && settings.systemVoice === "off";
+    return { stt: sttRouteFor(settings, provider), tts: off ? { ...tts, reason: systemVoiceOffMessage(this.platform) } : tts, settings };
+  }
+  /** The computer's own voices, or none without asking the computer while that voice is switched off. */
+  async systemVoiceNames(owner: string): Promise<string[]> {
+    return this.settings(owner).systemVoice === "off" ? [] : this.speech.windowsVoices();
   }
   /** Writes a recording out, using the owner's chosen service and language. */
   async transcribe(owner: string, clip: AudioClip, options: { signal?: AbortSignal } = {}): Promise<TranscriptionResult> {
@@ -122,6 +134,7 @@ export class VoiceService {
   async speak(owner: string, input: SpeakRequest, options: { signal?: AbortSignal } = {}): Promise<SpokenAudio> {
     const settings = this.settings(owner);
     const route = ttsRouteFor(settings, this.provider(owner), this.platform);
+    if (route.kind === "windows" && settings.systemVoice === "off") throw new Error(systemVoiceOffMessage(this.platform));
     const request: SpeakRequest = {
       text: input.text,
       voice: input.voice || (settings.voiceId === "default" ? "" : settings.voiceId),

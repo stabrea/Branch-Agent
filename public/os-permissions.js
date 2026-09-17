@@ -1,6 +1,7 @@
 // Settings → "What this computer allows" (macOS and Linux) and "Passwords from your Mac's Keychain"
-// (macOS). Both cards are built here and placed after "Using your screen and keyboard". On Windows
-// neither appears, so that screen stays exactly as it was. Every word goes through a key.
+// (macOS). Both cards are built here and placed after "Using your screen and keyboard"; on Windows
+// neither appears. The owner's off / when needed / on choice for screen control is added to that
+// card on every computer. Every word goes through a key.
 import { t } from "/i18n.js";
 
 const $ = (id) => document.getElementById(id);
@@ -31,6 +32,39 @@ function worded(tag, key, props = {}) {
   const node = el(tag, { ...props, textContent: t(key) });
   node.dataset.t = key;
   return node;
+}
+
+/* ---------- the owner's three-way switch ---------- */
+
+const modes = ["off", "when-needed", "on"];
+
+/** Off / When needed / On, with its label; `save` is called with the mode chosen. */
+function modeSwitch(id, labelKey, save) {
+  const select = el("select", { id });
+  for (const mode of modes) select.append(worded("option", `switch.${mode}`, { value: mode }));
+  select.addEventListener("change", () => void save(select.value));
+  return [worded("label", labelKey, { htmlFor: id }), select];
+}
+
+/** The screen-control card keeps its tick box; the three-way choice sits under it. */
+function placeScreenSwitch() {
+  if ($("desktop-mode")) return;
+  const tick = $("desktop-enabled")?.closest("label");
+  if (!tick) return;
+  tick.after(...modeSwitch("desktop-mode", "field.feature-switch", async (mode) => {
+    try {
+      await api("desktop/settings", { mode });
+      await window.branchScreenControl?.render();
+    } catch (e) {
+      $("desktop-status").textContent = e.message;
+    }
+  }));
+  $("desktop-enabled").addEventListener("change", () => setTimeout(() => void renderScreenSwitch(), 400));
+}
+
+async function renderScreenSwitch() {
+  const settings = await api("desktop/settings");
+  if ($("desktop-mode")) $("desktop-mode").value = settings.mode ?? (settings.enabled ? "when-needed" : "off");
 }
 
 /* ---------- what this computer allows ---------- */
@@ -100,16 +134,14 @@ function field(name) {
 }
 
 function keychainCard() {
-  const toggle = el("input", { type: "checkbox", id: "keychain-enabled" });
   const add = worded("button", "action.add-keychain-entry", { type: "button", id: "keychain-add" });
   const save = worded("button", "action.save-keychain-list", { type: "button", id: "keychain-save" });
-  toggle.addEventListener("change", () => void saveKeychain({ enabled: toggle.checked }));
   add.addEventListener("click", addEntry);
-  save.addEventListener("click", () => void saveKeychain({ enabled: toggle.checked, entries: keychain.entries }));
+  save.addEventListener("click", () => void saveKeychain({ entries: keychain.entries }));
   return el("section", { id: "keychain-card", className: "card", hidden: true },
     worded("h2", "settings.card.keychain"),
     worded("p", "settings.intro.keychain", { className: "subtle" }),
-    el("label", { className: "check-row" }, toggle, worded("span", "field.let-branch-read-keychain")),
+    ...modeSwitch("keychain-mode", "field.feature-switch", (mode) => saveKeychain({ mode })),
     el("div", { id: "keychain-list", className: "card-list" }),
     ...keychainFields.flatMap(field),
     add, save,
@@ -130,7 +162,7 @@ function entryRow(entry, index) {
 }
 
 function showKeychain() {
-  $("keychain-enabled").checked = Boolean(keychain.enabled);
+  $("keychain-mode").value = keychain.mode ?? (keychain.enabled ? "when-needed" : "off");
   const rows = keychain.entries.map(entryRow);
   $("keychain-list").replaceChildren(...(rows.length ? rows : [worded("p", "keychain.empty", { className: "subtle" })]));
 }
@@ -177,10 +209,12 @@ function place() {
 
 async function render() {
   if (!place()) return;
+  placeScreenSwitch();
   $("os-permissions-status").textContent = "";
   $("keychain-status").textContent = "";
   await renderPermissions().catch((e) => { $("os-permissions-status").textContent = e.message; });
   await renderKeychain().catch((e) => { $("keychain-status").textContent = e.message; });
+  await renderScreenSwitch().catch(() => undefined);
 }
 
 // app.js asks the screen-control card to draw itself whenever Settings is drawn; these two cards sit

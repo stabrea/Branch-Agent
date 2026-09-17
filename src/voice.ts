@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { FeatureModeSchema } from "./feature-switches.js";
 import type { NetworkPolicy } from "./network-policy.js";
 import type { Store } from "./store.js";
 
@@ -22,6 +23,11 @@ export const VoiceSettingsSchema = z
     sttModel: z.string().trim().max(200).default(""),
     /** The speech model to ask for; empty means each route's usual one. */
     ttsModel: z.string().trim().max(200).default(""),
+    /**
+     * mac2: the computer's own voice (Windows voices, `say`, espeak-ng): off, when needed, or on.
+     * Off until the owner turns it on; while off, that route refuses and its voice list stays empty.
+     */
+    systemVoice: FeatureModeSchema.default("off"),
     /** A language code such as "en" to force, or empty to let the service work it out itself. */
     language: z.string().trim().max(20).default(""),
     /** Nothing containing sound may leave this computer; the cloud routes refuse rather than send. */
@@ -61,7 +67,10 @@ export function saveVoiceSettings(
   owner: string,
   settings: unknown,
 ): VoiceSettings {
-  const parsed = VoiceSettingsSchema.parse(settings);
+  // Merged onto what is saved, like every other settings screen, so a form that only knows some of
+  // the fields (the older voice card, or one written before a field existed) cannot reset the rest.
+  const given = settings && typeof settings === "object" && !Array.isArray(settings) ? settings : {};
+  const parsed = VoiceSettingsSchema.parse({ ...voiceSettings(store, owner), ...given });
   store.save("settings", owner, "voice", parsed);
   return parsed;
 }

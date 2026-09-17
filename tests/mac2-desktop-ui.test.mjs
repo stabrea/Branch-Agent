@@ -14,7 +14,10 @@ import { DesktopScriptRunner } from "../dist/integrations/desktop-script.js";
 import { bannerPage, bannerWindowOptions, electronBannerWindow, stopAddress } from "../dist/desktop/banner-window.js";
 import { VoiceService, systemVoiceWords, ttsRouteFor } from "../dist/voice-service.js";
 import { microphoneHelp, systemVoices, voicePlan, whereAudioGoes } from "../dist/voice-api.js";
-import { VoiceSettingsSchema } from "../dist/voice.js";
+import { VoiceSettingsSchema, saveVoiceSettings, voiceSettings } from "../dist/voice.js";
+import { modeOf, sentFields, settleSwitch, switchedToolTiers } from "../dist/feature-switches.js";
+import { readDesktopSettings } from "../dist/integrations/desktop-config.js";
+import { readKeychainSettings, saveKeychainSettings } from "../dist/vault-sources.js";
 import { keychainApi, permissionsContext } from "../dist/keychain-api.js";
 import { linuxConsent, probeReader } from "../dist/os-permissions.js";
 
@@ -273,7 +276,16 @@ test("the voice service is told which computer it is on, and never starts the re
   const voice = new VoiceService(app.store, app.runtime.models, new NetworkPolicy({}), fetch,
     { platform: "darwin", runProgram, locate: (name) => (name === "say" ? "/pretend/say" : null) });
   assert.equal(voice.platform, "darwin");
-  const listed = await systemVoices(voice);
+  // Switched off out of the box: nothing is listed, nothing is asked, and reading aloud says why.
+  const quiet = await systemVoices(voice, "local");
+  assert.deepEqual([quiet.system, quiet.mode], [[], "off"]);
+  await assert.rejects(voice.speak("local", { text: "hello", voice: "", speed: 1 }), /own voice is switched off/);
+  assert.equal(started.length, 0, "nothing was started while it was off");
+  const deps0 = { store: app.store, models: app.runtime.models, owner: "local", voice, policy: new NetworkPolicy({}), fetch };
+  assert.equal(voicePlan(deps0).readAloud.ready, false);
+  saveVoiceSettings(app.store, "local", { systemVoice: "when-needed" });
+  assert.equal(voiceSettings(app.store, "local").autoReadAloud, false, "saving one field kept the others");
+  const listed = await systemVoices(voice, "local");
   assert.deepEqual(listed.windows, ["Albert", "Amélie"]);
   assert.deepEqual(listed.system, listed.windows, "the neutral name carries the same list");
   assert.match(listed.label, /^Your computer's own voice/);
@@ -317,6 +329,59 @@ test("voice.js lists the computer's own voices only when asked, and reads its to
   assert.doesNotMatch(onLoad.replace(/addEventListener\("focus"[^\n]*/g, ""), /void loadSystemVoices\(\)/, "the voices are not asked for when the page opens");
   assert.doesNotMatch(source, /"Bearer " \+ token\b/, "app.js's token is not visible to this classic script");
   assert.doesNotMatch(source, /innerHTML/);
+});
+
+/* ---------- the owner's three-way switch ---------- */
+
+test("every switch is off / when needed / on, ships off, and older yes-no saves keep working", async (t) => {
+  assert.equal(modeOf({}), "off");
+  assert.equal(modeOf({ enabled: true }), "when-needed", "an old yes meant ordinary tiering");
+  assert.deepEqual(settleSwitch({ mode: "on" }, { enabled: false }), { mode: "off", enabled: false });
+  assert.deepEqual(settleSwitch({ mode: "off" }, { enabled: true }), { mode: "when-needed", enabled: true });
+  assert.deepEqual(settleSwitch({ mode: "on" }, { enabled: true }), { mode: "on", enabled: true });
+  assert.deepEqual(settleSwitch({ mode: "when-needed" }, { enabled: false, mode: "on" }), { mode: "on", enabled: true });
+  assert.deepEqual(sentFields({ a: false, b: 2 }, { b: 2 }), { b: 2 });
+
+  const { app } = await fixture(t);
+  const owner = app.runtime.owner;
+  assert.deepEqual([readDesktopSettings(app.store, owner).mode, readKeychainSettings(app.store, owner).mode, voiceSettings(app.store, owner).systemVoice],
+    ["off", "off", "off"], "all three ship off");
+  app.store.save("settings", owner, "desktop-control", { enabled: true, maxActionsPerRun: 40 });
+  assert.equal(readDesktopSettings(app.store, owner).mode, "when-needed");
+  assert.equal(saveDesktopSettings(app.store, owner, { mode: "on" }).enabled, true);
+  const limited = saveDesktopSettings(app.store, owner, { maxActionsPerRun: 5 });
+  assert.deepEqual([limited.mode, limited.enabled, limited.maxActionsPerRun], ["on", true, 5], "saving the limit keeps the switch");
+  assert.equal(saveDesktopSettings(app.store, owner, { enabled: false }).mode, "off");
+  await assert.rejects(async () => saveDesktopSettings(app.store, owner, { mode: "sometimes" }));
+
+  saveKeychainSettings(app.store, owner, { mode: "when-needed", entries: [{ name: "gh", service: "github.com" }] });
+  const kept = saveKeychainSettings(app.store, owner, { timeoutMs: 2000 });
+  assert.deepEqual([kept.mode, kept.enabled, kept.entries.length], ["when-needed", true, 1], "saving one field keeps the switch and the list");
+});
+
+test("on loads a feature's tools from the start, off keeps the screen tools out of the list", async (t) => {
+  const { app } = await fixture(t);
+  const owner = app.runtime.owner;
+  const all = ["desktop.windows", "desktop.click", "voice.say", "files.read"];
+  assert.deepEqual(switchedToolTiers(app.store, owner, all), { preload: [], hidden: ["desktop.windows", "desktop.click"] },
+    "off hides the screen tools, but not voice.say, which also reads with a provider's voice");
+  saveDesktopSettings(app.store, owner, { mode: "when-needed" });
+  assert.deepEqual(switchedToolTiers(app.store, owner, all), { preload: [], hidden: [] }, "when needed is the ordinary tiering");
+  saveDesktopSettings(app.store, owner, { mode: "on" });
+  saveVoiceSettings(app.store, owner, { systemVoice: "on" });
+  assert.deepEqual(switchedToolTiers(app.store, owner, all).preload.map((tool) => tool.name), ["desktop.windows", "desktop.click", "voice.say"]);
+
+  // Through a real task: the first request to the model carries the screen tools only when "on".
+  const seen = [];
+  const root = await mkdtemp(join(tmpdir(), "branch-mac2-tiers-"));
+  const tiered = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"),
+    provider: { name: "scripted", async complete(request) { seen.push(request.tools.map((tool) => tool.name)); return { content: "ok", toolCalls: [] }; } } });
+  t.after(async () => { await tiered.close(); await discardTemp(root); });
+  await tiered.runtime.run({ prompt: "hello there" });
+  assert.ok(!seen.at(-1).some((name) => name.startsWith("desktop.")), "off: no screen tool travels");
+  saveDesktopSettings(tiered.store, tiered.runtime.owner, { mode: "on" });
+  await tiered.runtime.run({ prompt: "hello there" });
+  assert.ok(seen.at(-1).includes("desktop.windows"), `on: the screen tools travel from the first round (${seen.at(-1).join(", ")})`);
 });
 
 /* ---------- the permissions card and the Keychain list ---------- */
@@ -408,6 +473,9 @@ test("the cards appear under the screen-control card on a Mac or Linux, and a se
   await card.waitFor({ state: "attached" });
   assert.equal(await page.evaluate(() => document.getElementById("desktop-card").nextElementSibling?.id), "os-permissions-card");
   assert.equal(await card.getAttribute("hidden"), null);
+  assert.deepEqual(await page.locator("#desktop-mode option").evaluateAll((options) => options.map((o) => o.dataset.t)),
+    ["switch.off", "switch.when-needed", "switch.on"], "the screen card offers the three-way switch");
+  assert.equal(await page.locator("#desktop-mode").inputValue(), "off");
   assert.equal(await page.evaluate(() => globalThis.opened.length), 0, "nothing opened by itself");
   const buttons = card.locator("button", { hasText: "Open System Settings" });
   assert.equal(await buttons.count(), 2);

@@ -276,6 +276,7 @@ async function loadSystemVoiceWords() {
     const plan = await voiceRequest("/api/voice/plan");
     const words = plan && plan.systemVoice;
     if (!words || typeof words.platform !== "string") return;
+    placeSystemVoiceSwitch(plan.settings && plan.settings.systemVoice);
     voicePlatform = words.platform;
     const route = document.querySelector('#voice-tts-route option[value="windows"]');
     if (!route) return;
@@ -283,6 +284,44 @@ async function loadSystemVoiceWords() {
     route.textContent = voiceWord(route.dataset.t, words.label);
   } catch (e) {
     console.warn("The voice wording could not be read:", e instanceof Error ? e.message : e);
+  }
+}
+
+/** Off / When needed / On for the computer's own voice, under "Who reads replies aloud". */
+function placeSystemVoiceSwitch(mode) {
+  let select = $("voice-system-mode");
+  const route = $("voice-tts-route");
+  if (!select && route) {
+    const label = document.createElement("label");
+    label.htmlFor = "voice-system-mode";
+    label.dataset.t = "field.system-voice-switch";
+    label.textContent = voiceWord("field.system-voice-switch", "Your computer's own voice");
+    select = document.createElement("select");
+    select.id = "voice-system-mode";
+    for (const [value, english] of [["off", "Off"], ["when-needed", "When needed"], ["on", "On"]]) {
+      const option = voiceOption(value, voiceWord("switch." + value, english));
+      option.dataset.t = "switch." + value;
+      select.append(option);
+    }
+    select.addEventListener("change", () => void saveSystemVoiceMode(select.value));
+    route.after(label, select);
+  }
+  if (select && mode) select.value = mode;
+}
+
+async function saveSystemVoiceMode(mode) {
+  try {
+    const response = await fetch("/api/voice/settings", {
+      method: "POST",
+      headers: { authorization: "Bearer " + voiceToken(), "content-type": "application/json" },
+      body: JSON.stringify({ systemVoice: mode }),
+    });
+    if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || "Failed to save");
+    systemVoicesAsked = false;
+    systemVoiceNames = [];
+    populateVoices();
+  } catch (e) {
+    console.error("Failed to save the voice switch:", e instanceof Error ? e.message : e);
   }
 }
 

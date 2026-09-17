@@ -40,7 +40,7 @@ export async function voiceApi(
   const { store, models, owner, voice } = deps;
   if (method === "GET" && path === "/api/voice/plan") return voicePlan(deps);
   if (method === "POST" && path === "/api/voice/settings") return saveVoiceSettings(store, owner, await body());
-  if (method === "GET" && path === "/api/voice/voices") return systemVoices(voice);
+  if (method === "GET" && path === "/api/voice/voices") return systemVoices(voice, owner);
   // Wave 8: a live conversation hangs off a task like everything else, so the browser is given one
   // to open a socket on. Nothing reaches outside this computer until the browser says "start" on
   // that socket, and a connection that cannot hold a live conversation is refused here in words.
@@ -88,7 +88,8 @@ export function voicePlan(deps: VoiceApiDeps) {
   return {
     settings: plan.settings,
     speechToText: { route: plan.stt.kind, reason: plan.stt.reason, ready: plan.stt.kind === "local" || plan.stt.provider !== null },
-    readAloud: { route: plan.tts.kind, reason: plan.tts.reason, ready: plan.tts.kind === "windows" || plan.tts.provider !== null },
+    readAloud: { route: plan.tts.kind, reason: plan.tts.reason,
+      ready: plan.tts.kind === "windows" ? plan.settings.systemVoice !== "off" : plan.tts.provider !== null },
     whereAudioGoes: whereAudioGoes(plan.stt.kind, plan.tts.kind, deps.voice.platform),
     // mac2/desktop-ui: the words this computer uses, without asking it for its voices.
     systemVoice: systemVoiceLabels(deps.voice.platform),
@@ -104,9 +105,9 @@ export function voicePlan(deps: VoiceApiDeps) {
  * The voices already on this computer, for the list in Settings → Voice. `windows` is the name older
  * screens ask for and is kept; `system` is the same list under a name that fits every computer.
  */
-export async function systemVoices(voice: VoiceService) {
-  const names = await voice.speech.windowsVoices();
-  return { windows: names, system: names, ...systemVoiceLabels(voice.platform) };
+export async function systemVoices(voice: VoiceService, owner: string) {
+  const names = await voice.systemVoiceNames(owner);
+  return { windows: names, system: names, mode: voice.settings(owner).systemVoice, ...systemVoiceLabels(voice.platform) };
 }
 
 /** The name of the system voice in the route list, and where to allow the microphone. */
