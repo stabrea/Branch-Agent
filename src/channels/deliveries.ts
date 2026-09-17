@@ -32,21 +32,70 @@ export const maxAttempts = 5;
 const keepSentDays = 7;
 
 /**
- * Splits long text at line or space boundaries so every chunk fits a channel message. Channels with
- * a shorter message limit than the default (Discord allows 2000 characters) pass their own limit.
+ * Splits long text so every chunk fits a channel message. Channels with a shorter message limit
+ * than the default (Discord allows 2000 characters) pass their own limit.
+ *
+ * A paragraph break is the first choice, then a line break, then a space. A block of code is never
+ * left open: when a cut has to fall inside one, the chunk closes it and the next chunk opens it
+ * again with the same fence, so each message still shows code as code. Inside code only line
+ * breaks are used, and the indentation of the line that starts the next chunk is kept.
  */
 export function chunkText(text: string, limit = chunkLimit): string[] {
   const chunks: string[] = [];
   let rest = text.trim();
+  // Room for the closing fence a chunk may need. Below 200 characters a reopened fence could eat
+  // the progress a cut makes, so such tiny limits split as plain text.
+  const fences = limit >= 200;
   while (rest.length > limit) {
-    const window = rest.slice(0, limit);
-    const cut = Math.max(window.lastIndexOf("\n"), window.lastIndexOf(" "));
-    const at = cut > limit / 2 ? cut : limit;
-    chunks.push(rest.slice(0, at).trimEnd());
-    rest = rest.slice(at).trimStart();
+    const at = cutAt(rest, fences ? limit - fenceRoom : limit, fences);
+    const open = fences ? openFenceAt(rest, at) : null;
+    if (open) {
+      chunks.push(`${rest.slice(0, at).trimEnd()}\n${open.close}`);
+      rest = `${open.line}\n${rest.slice(at).replace(/^\r?\n/, "")}`;
+    } else {
+      chunks.push(rest.slice(0, at).trimEnd());
+      rest = rest.slice(at).trimStart();
+    }
   }
   if (rest.length || !chunks.length) chunks.push(rest || "(empty message)");
   return chunks;
+}
+/** The longest fence line a split adds to either side: a newline, a marker and a short language. */
+const fenceRoom = 30;
+const fenceLine = /^ {0,3}(`{3,}|~{3,})(.*)$/;
+/** Where to cut `text` so the first piece is at most `limit` long, preferring the gentlest break. */
+function cutAt(text: string, limit: number, fences: boolean): number {
+  const window = text.slice(0, limit);
+  const half = limit / 2;
+  const inCode = (index: number) => fences && openFenceAt(text, index) !== null;
+  const paragraph = window.lastIndexOf("\n\n");
+  if (paragraph > half && !inCode(paragraph)) return paragraph;
+  const line = window.lastIndexOf("\n");
+  if (line > half) return line;
+  const space = window.lastIndexOf(" ");
+  if (space > half && !inCode(space)) return space;
+  return limit;
+}
+/**
+ * The fence still open at `index`, if any: the line to open it again with (marker and language,
+ * kept short) and the marker that closes it. A closing fence uses the same character and is at
+ * least as long as the opening one, as CommonMark has it.
+ */
+export function openFenceAt(text: string, index: number): { line: string; close: string } | null {
+  let open: { marker: string; info: string } | null = null;
+  let position = 0;
+  for (const row of text.split("\n")) {
+    if (position >= index) break;
+    const match = fenceLine.exec(row.replace(/\r$/, ""));
+    position += row.length + 1;
+    if (!match) continue;
+    const marker = match[1]!, info = match[2]!.trim();
+    if (!open) open = { marker, info };
+    else if (!info && marker[0] === open.marker[0] && marker.length >= open.marker.length) open = null;
+  }
+  if (!open) return null;
+  const language = (open.info.split(/\s+/)[0] ?? "").slice(0, Math.max(0, fenceRoom - open.marker.length - 2));
+  return { line: `${open.marker}${language}`, close: open.marker };
 }
 /** Retry delay after `attempts` failures: 5 s, 10 s, 20 s, 40 s ... capped at ten minutes. */
 export function backoffMs(attempts: number): number {
@@ -117,6 +166,18 @@ export class Deliveries {
       if (dead) this.notifyEvent("delivery.failed", { deliveryId: row.id, channel: row.channel, chatId: row.chatId, attempts, error: lastError });
       return dead ? "dead" : "failed";
     }
+  }
+  /**
+   * Writes down a reply that already reached the chat another way (the live progress message was
+   * edited into it), so the ledger still shows it and a repeat of the same key sends nothing.
+   */
+  recordSent(channel: string, chatId: string, text: string, key: string, messageId: string, replyTo?: string): Delivery {
+    const id = `${key}#0`;
+    const existing = this.get(id);
+    if (existing) return existing;
+    const at = this.now().toISOString();
+    return this.save(id, DeliverySchema.parse({ key, channel, chatId, seq: 0, order: this.nextOrder(), text: text.slice(0, 4096) || "(empty message)",
+      replyTo: replyTo ?? null, status: "sent", attempts: 0, nextAt: at, messageId, sentAt: at }));
   }
   /** Puts a dead or waiting chunk back at the front of the line. */
   retry(id: string): Delivery {

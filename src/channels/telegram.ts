@@ -142,6 +142,24 @@ export class TelegramAdapter implements ChannelAdapter {
     const parsed = z.object({ message_id: z.number() }).passthrough().safeParse(result);
     return parsed.success ? String(parsed.data.message_id) : undefined;
   }
+  /** "typing…" for about five seconds; the router asks again while the task works. */
+  async sendTyping(chatId: string): Promise<void> {
+    await this.call("sendChatAction", { chat_id: Number(chatId), action: "typing" });
+  }
+  /** Telegram shows one reaction from a bot and replaces it, so `previous` needs no removing. */
+  async react(chatId: string, messageId: string, emoji: string): Promise<void> {
+    await this.call("setMessageReaction", {
+      chat_id: Number(chatId), message_id: Number(messageId), reaction: [{ type: "emoji", emoji }],
+    });
+  }
+  async edit(chatId: string, messageId: string, text: string): Promise<void> {
+    try {
+      await this.call("editMessageText", { chat_id: Number(chatId), message_id: Number(messageId), text });
+    } catch (error) {
+      // Sending the same words again is refused with this; the message already says them.
+      if (!/message is not modified/i.test(error instanceof Error ? error.message : "")) throw error;
+    }
+  }
   private inbound(message: z.infer<typeof messageSchema>): InboundMessage | null {
     const spoken = message.voice ?? message.audio;
     const written = message.text ?? (spoken ? message.caption ?? "" : undefined);

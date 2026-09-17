@@ -441,6 +441,8 @@ export async function createBranch(options: {
     lockedDown(store, runtime.owner)
       ? { text: "", blocked: true, reason: lockdownRefusal }
       : privacy.outbound(text);
+  // Wave mac2 (chat-live): typing, reactions and progress messages stop under Lockdown as well.
+  channels.liveAllowed = () => !lockedDown(store, runtime.owner);
   runtime.hideSecrets = (value) => {
     const scrubbed = store.secrets.scrubber.deep(value);
     // The privacy settings live in the database; a failure reported while the app is closing
