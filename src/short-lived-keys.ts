@@ -88,6 +88,9 @@ const ownerOnlyReads: readonly RegExp[] = [
   /^\/api\/people\/(settings|shares\/export)$/,
   // mac6/bucket-23 (A2240): the live pages' list carries each page's frame address, which opens without a key.
   /^\/api\/asks\/surfaces$/,
+  // mac7/nodes: the owner's devices, their switches and who they are shared with. Changes are refused
+  // by the fail-closed rule above; the device socket and pairing carry their own proof, not a key.
+  /^\/api\/devices(\/.*)?$/,
 ];
 
 export const generalShortLivedKeyRefusal =

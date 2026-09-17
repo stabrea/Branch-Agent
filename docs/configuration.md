@@ -3448,6 +3448,54 @@ Routes: `GET /api/deployment`, `POST /api/deployment/autostart`, `POST /api/depl
 `POST /api/deployment/backup`, `GET /api/deployment/restore-points`,
 `POST /api/deployment/restore-point`, `POST /api/deployment/close` (macOS and Linux), and `POST /api/pair`. Interface files: `/deployment.js`,
 `/pair` and `/pair.js`.
+## Devices: your other computers and your phone lending Branch a hand
+
+*Customize, Channels, Your devices.* Ships **off**, and so does every capability of every device.
+Another computer (with `branch node`) or the phone app can lend Branch a few abilities: a photo from
+the camera, a picture of the screen, where the device is, a notification, the clipboard, opening a
+web page, reading files in one chosen folder, running a command inside that folder, speaking,
+listening for a few seconds, and showing a page on a phone. The model uses them through `device.list`,
+`device.camera`, `device.screen`, `device.location`, `device.notify`, `device.clipboard`, `device.open`,
+`device.run`, `device.files`, `device.speak`, `device.listen` and `device.canvas`.
+
+**Pairing.** Press *Pair a device*. On the other computer run `branch node pair "<link>" <number>`
+(or scan the square with the phone app). The device makes its own key, which never leaves it; Branch
+keeps only the public half. The request waits in the card until you press *Let it in*. Then run
+`branch node run` on that computer: it dials out to Branch (nothing is opened on the device, so a
+home router is no obstacle) and dials again by itself if the line drops. *Remove this device* stops
+its key working at once.
+
+**What is checked.** Each connection starts with a fresh challenge the device must sign, so a
+recorded answer is useless; wrong device names and failed proofs from one address are limited to
+ten a minute, pairing to five wrong numbers per invitation and twenty tries a minute, and each device
+to thirty requests a minute. The device key opens only the device socket; it is not Branch's key.
+Taking a picture, a sound, a place, a file or the clipboard, and running a command, asks you first
+even when no approval rule says so; a rule you write still decides first. A short-lived key and
+another AI tool (MCP, A2A, ACP) can never use a device; somebody else on this computer can use only a
+device you shared with them. What a device sends back is marked as information, never instructions,
+passes through the leak guard, and pictures and sound (at most 8 MB) are saved in the workspace under
+`device-media/`. The device itself refuses anything not switched on, and `branch node never camera,run`
+refuses things there whatever Branch says.
+
+**On the device.** The operating system's own permission question appears only on the device, at
+the moment you switch that capability on. `device.run` runs behind the device's own wall with no
+network, writing only inside the chosen folder, with the node's key folder unreadable.
+
+**macOS and Linux.** A Mac node uses `screencapture`, `osascript` notifications, `pbcopy`/`pbpaste`,
+`open`, `say`, `ffmpeg` (camera and microphone, only if already installed) and `/usr/bin/sandbox-exec`
+for the wall; it cannot say where it is. A Linux node uses `grim` (Wayland) or `scrot`, `notify-send`,
+`wl-clipboard` or `xclip`, `xdg-open`, `spd-say`, `ffmpeg`, GeoClue's `where-am-i`, and bubblewrap for
+the wall. A Windows node uses PowerShell for the screen, notifications, clipboard, opening pages and
+speech, with the model's words passed in the environment rather than the script; it offers no camera,
+microphone or commands, because Branch has no wall around a program there. Nothing is installed: a
+capability whose program is missing is simply not offered (`branch node status` lists them). The
+paired door (the Tailscale address) now answers WebSocket upgrades with the same host and page checks,
+so a phone or computer on your tailnet can use it; a task's own socket there also passes the door's
+chain. The phone app's device module (`apps/mobile/web/phone-node.js`) needs no new plugin for the
+camera, microphone, location, speech, opening pages and showing a page while the app is open;
+notifications and the clipboard need `@capacitor/local-notifications` and `@capacitor/clipboard`, and
+working while the app is closed needs a native background service, none of which is added yet.
+
 ## Phone apps
 
 Branch Agent for iPhone and Android is a small native shell around the Branch window you already

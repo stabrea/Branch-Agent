@@ -16,6 +16,7 @@ import { startTui } from "./terminal-tui.js";
 import { looksInteractive } from "./terminal-style.js";
 import { runTerminalCommand, terminalArgv, terminalCommandNames, versionText } from "./terminal-cli.js";
 import { asksForHelp, cliCommands, commandHelp, completionScript, usageText } from "./cli-completion.js";
+import { nodeCommand } from "./devices/node/cli.js"; // mac7/nodes
 // Batch 20 (wave 8): short-lived keys, schedules and the attach client for the running engine.
 import { connect, conversations, messagesOf, since, transcriptLines } from "./cli-attach.js";
 import { scopeDescriptions } from "./session-tokens.js";
@@ -150,6 +151,12 @@ async function main(): Promise<void> {
     console.log(commandHelp(command));
     return;
   }
+  // ---- mac7/nodes: `branch node` lends this computer to Branch elsewhere; it opens no workspace or database. ----
+  if (command === "node") {
+    process.exitCode = await nodeCommand({ argv: process.argv.slice(3), env: process.env, platform: process.platform, print: (line) => console.log(line) });
+    return;
+  }
+  // ---- end mac7/nodes ----
   if (command === "update") return updateCheckout();
   if (command === "daemon") return runDaemonCommand();
   // Printing a completion script or the command list needs no workspace, database or integrations.
