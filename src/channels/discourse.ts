@@ -53,6 +53,13 @@ export class DiscourseChannel extends PollingChannel {
       throw error;
     });
   }
+  // mac6/bucket-16: carry on after a restart from the saved place (src/channels/catch-up.ts).
+  protected override placeMark(): string | null { return this.lastId === null ? null : String(this.lastId); }
+  protected override resumeFrom(mark: string): boolean {
+    if (!/^\d{1,15}$/.test(mark)) return false;
+    this.lastId = Number(mark);
+    return true;
+  }
   protected async poll(first: boolean): Promise<InboundMessage[]> {
     const notes = Notes.parse(await this.call("/notifications.json")).notifications;
     this.refused = null;

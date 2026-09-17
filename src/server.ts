@@ -64,6 +64,9 @@ import { WhatsAppAdapter } from "./channels/whatsapp.js";
 import { WebhookChatAdapter } from "./channels/webhook-chat.js";
 // Wave mac3 (channels-parity).
 import { isPostedChannel, type PostedChannel } from "./channels/parity-switch.js";
+import { isSignedQueryChannel, readRawBody, type SignedQueryChannel } from "./channels/signed-query.js"; // mac6/bucket-16
+import { saveSlackAutomations } from "./channels/slack-automations.js"; // mac6/bucket-16
+import { wechatXmlLimit } from "./channels/wechat-crypto.js"; // mac6/bucket-16 integration
 import type { ChannelAdapter } from "./channels/router.js";
 import { parityApi } from "./channels/parity-api.js";
 // Batch 20 (wave 8): the unguessable word on the end of every inbound webhook address.
@@ -1711,6 +1714,8 @@ async function chatWebhook(app: Branch, request: IncomingMessage, response: Serv
   if (wrongAddress) throw new HttpError(404, wrongAddress);
   const adapter = app.channels.adapter(match[1]!);
   if (adapter instanceof MetaMessagingAdapter) return metaWebhook(app, adapter, request, response, { limiter, from });
+  // mac6/bucket-16: WeChat and WeCom check the address with a GET and sign XML posts in the query.
+  if (isSignedQueryChannel(adapter)) return signedQueryWebhook(app, adapter, request, response, { limiter, from });
   // Wave mac3 (channels-parity): services that are posted to and prove the post in their own way.
   if (isPostedChannel(adapter)) return postedChatWebhook(app, adapter, request, response, { limiter, from });
   if (!(adapter instanceof WebhookChatAdapter)) throw new HttpError(404, "No chat service with that name is connected");
@@ -1732,6 +1737,21 @@ async function postedChatWebhook(app: Branch, adapter: ChannelAdapter & PostedCh
     .catch((error: unknown) => { throw refusedChatPost(app, adapter.id, adapter.kind, error, limit); });
   limit.limiter.succeed(limit.from);
   send(response, 200, result.reply ?? { accepted: result.accepted });
+  return true;
+}
+/** mac6/bucket-16: hands a WeChat or WeCom request over whole and answers with the plain text it returns. */
+async function signedQueryWebhook(app: Branch, adapter: ChannelAdapter & SignedQueryChannel, request: IncomingMessage, response: ServerResponse, limit: ChatWebhookLimit): Promise<boolean> {
+  if (request.method !== "POST" && request.method !== "GET") throw new HttpError(404, "Endpoint not found");
+  if (adapter.accepting?.() === false) throw new HttpError(503, "That chat service is switched off in Customize");
+  const query = new URL(request.url ?? "/", "http://127.0.0.1").searchParams;
+  const raw = request.method === "POST"
+    ? await readRawBody(request, wechatXmlLimit).catch((error: unknown) => { throw new HttpError(/exceeds/.test(errorText(error)) ? 413 : 400, "That message could not be read"); })
+    : Buffer.alloc(0);
+  const text = await adapter.receiveSigned(request.method, query, raw)
+    .catch((error: unknown) => { throw refusedChatPost(app, adapter.id, adapter.kind, error, limit); });
+  limit.limiter.succeed(limit.from);
+  response.writeHead(200, { "content-type": "text/plain; charset=utf-8", "x-content-type-options": "nosniff" });
+  response.end(text);
   return true;
 }
 /** Where a post came from, so repeated refusals from one place can be counted and slowed down. */
@@ -1886,6 +1906,11 @@ async function channelsApi(app: Branch, request: IncomingMessage, path: string):
   if (path === "/api/channels/parity")
     return parityApi(app.store, owner, app.channels, request.method ?? "GET", request.method === "POST" ? await readBody(request) : undefined);
   if (request.method === "GET" && path === "/api/channels") return { ...app.channels.summary(), outstanding: app.channels.outstanding() };
+  // mac6/bucket-16: automations started by Slack's own events, and starting one that is waiting.
+  if (path === "/api/channels/slack-automations") return request.method === "POST"
+    ? saveSlackAutomations(app.store, owner, await readBody(request), (id) => !!app.triggers.get(owner, id))
+    : app.slackAutomations.list();
+  if (request.method === "POST" && path === "/api/channels/slack-automations/run") return app.slackAutomations.run(await readBody(request));
   // The chat services this copy knows how to talk to, so the Connections card lists them from data
   // rather than from a piece of hand-written page per service. No secret is involved either way.
   if (request.method === "GET" && path === "/api/channels/catalog")
@@ -1923,7 +1948,8 @@ function channelAddresses(app: Branch, owner: string): {
 } {
   const addresses = app.channels.summary().channels
     .filter((channel) => channel.kind === "whatsapp" || app.channels.adapter(channel.id) instanceof WebhookChatAdapter
-      || app.channels.adapter(channel.id) instanceof MetaMessagingAdapter || isPostedChannel(app.channels.adapter(channel.id)))
+      || app.channels.adapter(channel.id) instanceof MetaMessagingAdapter || isPostedChannel(app.channels.adapter(channel.id))
+      || isSignedQueryChannel(app.channels.adapter(channel.id)))
     .map((channel) => ({
       channel: channel.id, kind: channel.kind,
       address: webhookAddress(channel.kind === "whatsapp" ? "whatsapp" : "chat", channel.id,

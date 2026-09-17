@@ -107,6 +107,13 @@ export class VkChannel extends PollingChannel {
     if (!ok) throw new Error("VK answered with a long-poll server that is not VK's, so it was not used");
   }
   protected override async prepare(): Promise<void> { await this.connect(false); }
+  // mac6/bucket-16: carry on after a restart from the saved place (src/channels/catch-up.ts).
+  protected override placeMark(): string | null { return this.server?.ts ?? null; }
+  protected override resumeFrom(mark: string): boolean {
+    if (!this.server || !/^\d{1,20}$/.test(mark)) return false;
+    this.server.ts = mark;
+    return true;
+  }
   protected async poll(first: boolean): Promise<InboundMessage[]> {
     if (!this.server) await this.connect(false);
     const current = this.server!;

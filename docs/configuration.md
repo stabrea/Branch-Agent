@@ -693,6 +693,14 @@ Create an app at api.slack.com/apps, turn on **Socket Mode**, and subscribe to `
 
 Socket Mode means Slack never needs to reach this computer. Every envelope is acknowledged immediately and an event id already seen is dropped, so a message Slack sends twice is answered once. Edits, joins and the assistant's own posts are ignored. `slackChannels`, when given, is the only list of Slack channel ids that will be answered; `allowlist` holds Slack user ids. Replies are posted into the thread the question came from, with markdown converted to Slack's own formatting (`**bold**` → `*bold*`, `*italic*` → `_italic_`, links → `<url|text>`, code fences untouched).
 
+**Automations started by Slack's own events.** The same Socket Mode connection can start an automation (an inbound trigger) when something happens in Slack: a reaction, a message with certain words, a new channel. Subscribe the Slack app to the events you want (for example `reaction_added`, `message.channels`, `channel_created`), make the trigger under Automations, then write rules with `POST /api/channels/slack-automations`:
+
+```json
+{ "mode": "on", "rules": [{ "event": "reaction_added", "reaction": "rocket", "channel": "C0123456789", "users": ["U0123456789"], "trigger": "<trigger id>" }] }
+```
+
+A rule matches on the event type and, when given, the Slack channel, the people (`users`), the reaction and words the message must contain (`contains`, ignoring case). The trigger's prompt can use `{{slack_type}}`, `{{slack_user}}`, `{{slack_channel}}`, `{{slack_text}}`, `{{slack_reaction}}`, `{{slack_ts}}`, `{{slack_thread_ts}}` and `{{slack_connection}}`; `{{payload}}` holds all of them. The switch ships **off**: Slack's events start nothing. **When needed** starts nothing by itself: matching events wait in a list (`GET /api/channels/slack-automations`, the last fifty) and one is started with `POST /api/channels/slack-automations/run {"event": "<id>"}`, which a script's run key may also do. **On** starts the automation as the event arrives, within the trigger's own rate limit and log. Events from bots, the assistant's own events and Slack's resends start nothing. Whatever a person writes reaches the automation's prompt between `<slack-message trust="untrusted">` markers, with a note that it is data and not instructions. A rule that names its `users` answers only them; a rule that names nobody answers only people who may already use the assistant on that Slack connection (the sender list or an approved pairing), and an event with nobody behind it (a new channel counts its maker) starts nothing. A waiting event whose rule has since changed is not started. Changing the rules is the owner's alone. Nothing new is opened to the internet: Slack still never reaches this computer.
+
 ### Channels (WhatsApp)
 
 WhatsApp pushes messages to a web address rather than holding a connection open, so Branch must be reachable from the internet. Save the Graph API access token as `WHATSAPP_TOKEN`, the app secret as `WHATSAPP_APP_SECRET`, and a word of your own choosing as `WHATSAPP_VERIFY_TOKEN`:
@@ -845,7 +853,7 @@ service is switched off its address answers 503 and reads nothing.
 
 ### IRC (`irc`)
 
-`{"type": "irc", "id": "irc", "server": "irc.libera.chat", "port": 6697, "tls": true, "nick": "branch-bot", "channels": ["#my-team"], "passwordSecret": "IRC_PASSWORD"}`. With `passwordSecret` the nick signs in with SASL PLAIN before it joins anything. A channel line is answered when it starts with the nick (`branch-bot: …`); a private message always is. IRC cannot carry a line break, so a reply goes out one line at a time, at most 400 characters each, spaced so the server does not disconnect the assistant for flooding. `allowlist` holds nicks. A nick taken by somebody else gets an underscore added; a refused password shows as "needs attention".
+`{"type": "irc", "id": "irc", "server": "irc.libera.chat", "port": 6697, "tls": true, "nick": "branch-bot", "channels": ["#my-team"], "passwordSecret": "IRC_PASSWORD"}`. With `passwordSecret` the nick signs in with SASL PLAIN before it joins anything. A channel line is answered when it starts with the nick (`branch-bot: …`); a private message always is. IRC cannot carry a line break, so a reply goes out one line at a time, at most 400 characters each, spaced so the server does not disconnect the assistant for flooding. Branch asks the server for IRCv3 `account-tag`, so somebody signed in to the network's accounts is known as `account:<name>` whatever nick they use, and nobody can pass for them by taking their nick; anybody not signed in is known by nick only. The account tag is only believed when the server agreed to send account tags. `allowlist` holds `account:<name>` entries (recommended) or nicks. A nick taken by somebody else gets an underscore added; a refused password shows as "needs attention".
 
 ### Twitch chat (`twitch`)
 
@@ -1073,7 +1081,7 @@ Register a bot on the QQ open platform (q.qq.com) and save its client secret (Ap
 ```json
 { "type": "guilded", "id": "guilded", "tokenSecret": "GUILDED_BOT_TOKEN" }
 ```
-Create a bot in your Guilded server's settings (Bots), generate an API token and save it as `GUILDED_BOT_TOKEN`. Guilded bots only see server channels, so the assistant answers when it is @mentioned there; there are no direct messages for bots. After a dropped connection Guilded replays what was missed. Replies are cut at 3500 characters (Guilded allows 4000). Limitation: Branch's socket client answers Guilded's pings but does not send its own, so a silently dead connection is only noticed when it closes.
+Create a bot in your Guilded server's settings (Bots), generate an API token and save it as `GUILDED_BOT_TOKEN`. Guilded bots only see server channels, so the assistant answers when it is @mentioned there; there are no direct messages for bots. After a dropped connection Guilded replays what was missed. Replies are cut at 3500 characters (Guilded allows 4000). Branch sends its own ping at the interval Guilded names; one that goes unanswered closes the connection and it is opened again. The last message handled is remembered across restarts, so Guilded also replays what arrived while Branch was closed.
 
 ### Revolt (`revolt`)
 
@@ -1089,7 +1097,42 @@ Create a bot in Revolt's settings (My Bots), invite it to your server and save i
 ```
 Branch joins as an ordinary (text-only) user. A private message to it is always answered; in a channel it answers when its username is in the message. Save the server password, if there is one, as the named secret. The server certificate is checked: a server with a certificate from a public authority needs nothing more; for a self-signed server, save its SHA-256 fingerprint as `certificateFingerprint` (pinning, recommended) or set `allowSelfSigned: true`. Voice is not supported. People with a registered account or a client certificate are recognised by it; guests are only known by name, so approve guests with care. Replies are cut at 3500 characters and sent as escaped HTML.
 
+### KOOK (`kook`)
+
+```json
+{ "type": "kook", "id": "kook", "tokenSecret": "KOOK_BOT_TOKEN" }
+```
+Make a bot application at developer.kookapp.cn, choose the WebSocket connection, invite the bot to your KOOK server, and save its token as `KOOK_BOT_TOKEN`. This is KOOK's official bot API (v3): the token travels as `Authorization: Bot …`, and the socket address KOOK hands back is followed only when it is on `kookapp.cn` or `kaiheila.cn` and is never written into an error, because it carries a key. Direct messages are always answered; in a channel the bot must be @mentioned. Replies are sent as plain text, never KMarkdown, so nothing a model writes can mention everybody. Branch pings every thirty seconds and reconnects when KOOK stops answering; after a drop, or a restart soon after one, it asks KOOK to resume the session and answers what was missed once. People are paired and listed as `kook:<user id>`. Replies are cut at 4000 characters.
+
+### WeChat Official Account (`wechat-mp`)
+
+```json
+{ "type": "wechat-mp", "id": "wechat", "appId": "wx0123456789abcdef" }
+```
+For a **verified** WeChat Official Account (the customer-service message API needs verification). In the account's developer settings, save the AppSecret as `WECHAT_MP_APP_SECRET`, add this computer's public address to the IP allowlist, and under server settings enter the address shown under Connections, a Token (saved as `WECHAT_MP_TOKEN`) and an EncodingAESKey (saved as `WECHAT_MP_AES_KEY`), with the message mode set to **safe mode** (安全模式). Branch answers WeChat's address check only when it is signed and less than five minutes old, and only echoes a plain word, then takes in only encrypted posts whose signature covers the message itself; plain-text and compatible mode are refused, because there WeChat signs only the time and a random word, not the words. A post more than five minutes old is refused, and WeChat's resend of a message it thinks went unanswered is taken in once. Replies go out through the customer-service message API, which WeChat allows for 48 hours after the person last wrote; a later reply waits under **Messages still to send** with "Outside WeChat's reply window". One-to-one only, text only, replies cut at 600 characters (WeChat's limit is 2048 bytes). Personal WeChat accounts are not supported.
+
+### WeCom app (`wecom-app`)
+
+```json
+{ "type": "wecom-app", "id": "wecom", "corpId": "ww0123456789abcdef", "agentId": 1000002 }
+```
+A self-built app (自建应用) in your WeCom admin console, which, unlike the group robot, can be written to. Save the app's Secret as `WECOM_APP_SECRET`, add this computer's public address to the app's trusted IP list, and under "Receive messages" enter the address shown under Connections with a Token (`WECOM_APP_TOKEN`) and an EncodingAESKey (`WECOM_APP_AES_KEY`). Every post is encrypted and signed the same way as WeChat's safe mode, and must be addressed to your CorpID and to this app's AgentId. Replies go out through the app message API with an access token that is renewed when WeCom says it has expired. WeCom only takes the app secret inside the token address; Branch never writes an address into an error or a log. One-to-one text only; replies cut at 600 characters.
+
 <!-- channels-parity:services-end -->
+
+**Catching up after Branch was closed.** Telegram, Matrix, Mastodon, Bluesky, Discourse, ntfy, VK and
+Guilded (and KOOK, for as long as KOOK keeps the session) remember where they had read up to, in the saved-work database, and after a restart fetch
+what arrived in the meantime and answer it once. The place is saved only after every message before
+it has been answered, so a message cut off by a crash is fetched again. A place older than a day is
+not trusted: the service takes stock from now instead, so a computer that was off for a month does
+not answer a month of messages at once. At most 20 missed messages are answered after a restart (the
+rest are let go), and a missed message from somebody who is not yet allowed is let go without a
+pairing code. The services that are posted to (WhatsApp, Messenger, the
+`chat` services, Teams, Webex and the rest) are retried by the service itself while Branch is
+unreachable. The others cannot catch up: IRC, XMPP, MQTT, Mumble, Twitch, Nostr, Revolt, QQ, Discord
+and Slack Socket Mode do not hand a bot messages from before it connected; Reddit, X, Twilio, Twist
+and Nextcloud Talk still take stock from now, because their lists have no place that can be resumed
+safely.
 
 **macOS and Linux.** Every service here works the same on Windows, macOS and Linux except iMessage,
 which exists only on a Mac and is refused by name anywhere else. The programs some services speak
@@ -1160,6 +1203,9 @@ means this wave added it (behind its switch, off); **not built** gives the reaso
 | Guilded | OpenFang | built now (`guilded`) |
 | Revolt (Stoat) | OpenFang | built now (`revolt`) |
 | Mumble text chat | OpenFang | built now (`mumble`); voice is ignored |
+| KOOK (Kaiheila) | audit row A2156 | built now (`kook`), official bot API v3 over its WebSocket gateway |
+| WeChat Official Account (Weixin gateway) | Hermes (`weixin`), audit row A2117 | built now (`wechat-mp`), safe mode only |
+| WeCom self-built app (two-way) | PicoClaw, OpenFang, ZeroClaw (`wecom_ws`) | built now (`wecom-app`); the group robot (`chat` / `wecom`) stays send only |
 | AMQP (RabbitMQ and others) | ZeroClaw | not built: AMQP 0-9-1 is a large binary protocol that would need a client of its own; most brokers also speak MQTT, which is built |
 | LinkedIn messaging | OpenFang | not built: LinkedIn's messaging API is open only to approved partners |
 | Tlon / Urbit | OpenClaw | not built: the chat runs inside an Urbit ship through agents whose interface changes between releases; there is no stable public bot API to write against |
@@ -1169,7 +1215,7 @@ means this wave added it (behind its switch, off); **not built** gives the reaso
 | Yuanbao (Tencent) | Hermes | not built: no public bot API documentation; the reference speaks a private protocol |
 | BlueBubbles, Photon, Linq (iMessage relays) | Hermes, OpenClaw, ZeroClaw | not built: third-party relays for iMessage; Branch drives Messages on your own Mac instead |
 | WhatsApp personal account (WhatsApp Web emulation, Baileys, whatsmeow) | OpenClaw, PicoClaw (`whatsapp_native`), nanobot, ZeroClaw (`whatsapp_web`), Agent Zero | not built: emulates the WhatsApp Web client, which WhatsApp's terms forbid; the official Business API is built |
-| Personal WeChat (iLink, web protocols) | OpenClaw, PicoClaw, nanobot, ZeroClaw, Hermes, IronClaw | not built: signs a personal WeChat account in by QR code rather than through an official bot API; WeCom is built |
+| Personal WeChat (iLink, web protocols) | OpenClaw, PicoClaw, nanobot, ZeroClaw, Hermes, IronClaw | not built: signs a personal WeChat account in by QR code rather than through an official bot API; WeChat Official Accounts and WeCom apps are built |
 | Personal QQ (OneBot, NapCat) | PicoClaw (`onebot`), nanobot (`napcat`) | not built: drives a personal QQ account through an unofficial client; the official QQ bot API is built |
 | Personal Zalo (zca-js) | OpenClaw (`zalouser`) | not built: drives a personal Zalo account through an unofficial client; Zalo Official Account is built |
 | Instagram private API | — | not built: unofficial and against Instagram's terms; Instagram messaging through Meta's Graph API is built |

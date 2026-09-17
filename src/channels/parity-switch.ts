@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { Store } from "../store.js";
 import type { ChannelAdapter, ChannelHealth, InboundMessage } from "./router.js";
+import type { SignedQueryChannel } from "./signed-query.js"; // mac6/bucket-16
 
 /**
  * The owner's switch for each chat service added in wave mac3: on, off, or "when needed". Every one
@@ -113,6 +114,13 @@ export class SwitchedChannel implements ChannelAdapter, PostedChannel {
     if (!isPostedChannel(this.inner)) throw new Error("This chat service is not posted to");
     await this.wake();
     return this.inner.receivePost(raw, headers);
+  }
+  /** mac6/bucket-16: WeChat and WeCom, which sign the address rather than a header (src/channels/signed-query.ts). */
+  async receiveSigned(method: string, query: URLSearchParams, raw: Buffer): Promise<string> {
+    const inner = this.inner as ChannelAdapter & Partial<SignedQueryChannel>;
+    if (typeof inner.receiveSigned !== "function") throw new Error("This chat service is not checked by its address");
+    await this.wake();
+    return inner.receiveSigned(method, query, raw);
   }
   /**
    * The optional extras (buttons, voice, and chat-live's typing, edit and react) exist on this

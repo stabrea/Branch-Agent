@@ -105,6 +105,13 @@ export class NtfyListeningChannel extends PollingChannel {
     return this.publisher.problem ? { state: "needs attention", reason: this.publisher.problem } : super.health();
   }
   private get chatId(): string { return this.ids.short(`topic:${this.listenTopic}`, "topic"); }
+  // mac6/bucket-16: carry on after a restart from the saved place (src/channels/catch-up.ts).
+  protected override placeMark(): string | null { return this.since; }
+  protected override resumeFrom(mark: string): boolean {
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(mark)) return false;
+    this.since = mark;
+    return true;
+  }
   protected async poll(first: boolean): Promise<InboundMessage[]> {
     // The first call only asks for the newest message, to learn where the topic stands.
     const since = first ? "latest" : this.since ?? "all";

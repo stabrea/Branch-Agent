@@ -105,7 +105,7 @@ export class Knowledge {
       )
     )
       throw new Error("Recipes cannot invoke orchestration tools");
-    const undeclared = [...placeholders({ steps: definition.steps, preconditions: definition.preconditions })].filter((name) => !(name in definition.parameters));
+    const undeclared = [...placeholders({ steps: definition.steps, preconditions: definition.preconditions })].filter((name) => !Object.hasOwn(definition.parameters, name));
     if (undeclared.length) throw new Error(`Recipe uses inputs it does not declare: ${undeclared.join(", ")}`);
     const old = this.store.get("procedures", context.owner, id)
       ?.data as unknown as ProcedureState | undefined;

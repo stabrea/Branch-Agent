@@ -90,6 +90,9 @@ export class BlueskyChannel extends PollingChannel {
     this.session = Session.parse(answer.body);
   }
   protected override async prepare(): Promise<void> { await this.signIn(); }
+  // mac6/bucket-16: carry on after a restart from the saved place (src/channels/catch-up.ts).
+  protected override placeMark(): string | null { return this.cursor; }
+  protected override resumeFrom(mark: string): boolean { this.cursor = mark; return true; }
   protected async poll(first: boolean): Promise<InboundMessage[]> {
     if (!this.session) await this.signIn();
     const log = Log.parse(await this.xrpc("chat.bsky.convo.getLog", {
