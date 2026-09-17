@@ -7200,6 +7200,13 @@ owner's profile only; a short-lived key may read, and may use the two searches
 | Note read-back | Edits the owner makes in the `memory/` notes become review-queue suggestions before the notes are written again; the assistant's own file tools still cannot write there. The owner can write tidy instructions; "Tidy now" asks the model once and stages its ideas. | none |
 | Outside memory | One of Hindsight (the server set up under the smaller asks, with its own switch), a self-hosted Mem0 server (`POST /memories`, `POST /search`, `X-API-Key`) or Honcho (v2 session messages and the peer "dialectic" chat), none by default. Each person and agent has its own user or peer name; key-like values are hidden before sending; answers are information. The Mem0 and Honcho routes were written from their public contracts and have not been tried against a live server. | `memory.outside_recall`, `memory.outside_keep`, `memory.outside_ask` |
 
+Settings fields: the switches are `mode` in `learning-more-<part>`; note read-back keeps
+`tidyInstructions` (up to 2,000 characters); the chat preferences keep `claude-code`, `codex` (both
+false) and `minChats` (2 to 20, default 2); outside memory keeps `active` (`none`, `hindsight`, `mem0`,
+`honcho`), `mem0.address`, `mem0.secret`, `mem0.user`, `honcho.address`, `honcho.secret`,
+`honcho.workspace` and `honcho.peer`. A block has `label`, `description`, `limit` (100 to 8,000
+characters), `readOnly` and `value`; a fact's labels are `tags` (up to 12) and `expiresAt`.
+
 ### macOS and Linux
 
 Nothing here depends on the platform. The Claude Code and Codex folders follow each assistant's own

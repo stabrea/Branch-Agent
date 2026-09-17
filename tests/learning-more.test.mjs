@@ -297,6 +297,10 @@ test("R17-058: labels and expiry on facts, search by label and date, expired fac
   assert.equal((await app.runtime.executeTool("memory.find", { query: "oak", from: "2000-01-01T00:00:00.000Z" })).facts[0].id, "oak");
   assert.equal((await api("/api/learning-more/memory/find", { to: "2000-01-01T00:00:00.000Z" })).facts.length, 0);
   await assert.rejects(api("/api/learning-more/memory/label", { id: "oak", expiresAt: "2000-01-01T00:00:00.000Z" }), /future/);
+  // While the owner approves memory changes, the assistant may label a fact but not make it expire.
+  app.store.review.configure(owner, { requireApproval: true });
+  await assert.rejects(app.runtime.executeTool("memory.label", { id: "oak", expiresInDays: 1 }), /only they can set when a fact expires/);
+  app.store.review.configure(owner, { requireApproval: false });
   // Once its moment has come: out of search and out of a new conversation's snapshot, then set aside, restorable.
   const later = Date.now() + 120_000;
   assert.deepEqual(app.learningMore.expiry.find(owner, {}, undefined, later).map((f) => f.id), ["oak"]);
