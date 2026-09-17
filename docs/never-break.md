@@ -64,14 +64,42 @@ Results are from the Mac on 17 September (quick chaos set, 3–6 seeds); the Lin
 
 | # | Threat | Mechanism | Test | Result |
 | --- | --- | --- | --- | --- |
-| 1 | The assistant edits or deletes its own gateway, config, database or updater | `protectedTarget` in `src/never-break/protected.ts`, checked in `Runtime.checkPolicy` beside the role refusal, before any rule, grant, hook, Lockdown or switch; covers file tools and every word of a command; also refuses commands that stop or reinstall Branch's own service | `tests/never-break-deny.test.mjs` | pass: 8 tests (`never-break-deny`), plus approvals and folder-trust suites unchanged |
-| 2 | A bad gateway config (typo, wrong port, junk) | `gateway.json` is validated by schema; a proposed change is checked by a dry-run start of a throwaway gateway on a copy and waits for the owner; `gateway.good.json` is promoted after a healthy start and restored when the current one fails | `tests/never-break-gateway.test.mjs` | pass: settings, proposals, last-good restore with a real crashing worker, 60 rubbish files (`never-break-chaos`) |
-| 3 | A crash in the middle of a tool call (worker or gateway killed) | The gateway restarts the worker with back-off and a restart-loop breaker; `journal.sqlite` records every model turn and tool call (idempotency key, side-effect class) before it runs, fsync'd; on start interrupted tasks are resumed: finished steps are kept, an in-flight step is re-run only if it changes nothing or is idempotent, a step that may have reached the outside is checked (file checksum) or asked about | `tests/never-break-journal.test.mjs`, `tests/never-break-chaos.test.mjs` | pass: kill -9 of the engine and of the gateway at seeded random points, each run finishes or asks, no send twice; real engine killed behind a real gateway comes back |
+| 1 | The assistant edits or deletes its own gateway, config, database or updater | `protectedTarget` in `src/never-break/protected.ts`, checked in `Runtime.checkPolicy` beside the role refusal, before any rule, grant, hook, Lockdown or switch. It covers the whole installed program (the `.app` bundle, the folder beside `resources/app`), the data folder, the sign-in service files and the update scratch folder. Commands are read as a shell reads them (quotes, escapes, known variables, `cd`, wildcards), every string of a call that can change something is searched for each protected place, file paths are followed through links and second names (hard links), and a sweeping command that names something only through an unknown variable is refused. Commands that stop, unload or kill Branch's service or process under other spellings (`pkill node`, `kill -1`, `launchctl bootout gui/501`, a label in a variable, the port) are refused | `tests/never-break-deny.test.mjs` | pass: 13 tests, including paths with spaces, links, wildcards and Windows spellings |
+| 2 | A bad gateway config (typo, wrong port, junk) | `gateway.json` is validated by schema; the engine settings it may pass on are limited to four that change where things are, never what runs; the assistant can suggest only timings, checked by a dry-run start of a throwaway gateway on an empty folder (no chat bots), and the change waits for the owner; accepting it keeps the owner's switch and engine settings as they are then; `gateway.good.json` is promoted after a healthy start and restored when the current one fails, keeping the owner's switch and never bringing back a removed setting | `tests/never-break-gateway.test.mjs` | pass: settings, proposals, last-good restore with a real crashing worker, 60 rubbish files (`never-break-chaos`) |
+| 3 | A crash in the middle of a tool call (worker or gateway killed) | The gateway restarts the worker with back-off and a restart-loop breaker; `journal.sqlite` records every model turn and tool call (idempotency key, side-effect class) before it runs, fsync'd; on start interrupted tasks are resumed: finished steps are kept, an in-flight step is re-run only if it changes nothing or is idempotent (decided by the tool's name and permission, never by the model), a step that may have reached the outside is checked (file checksum) or asked about. Arguments are stored with keys and passwords hidden, and such a step is never re-run from the journal. A chat task that may already have reached the outside is not started afresh when the chat app sends the message again. A journal that cannot be read is put aside and nothing carries on by itself | `tests/never-break-journal.test.mjs`, `tests/never-break-chaos.test.mjs` | pass: kill -9 of the engine and of the gateway at seeded random points, each run finishes or asks, no send twice; real engine killed behind a real gateway comes back |
 | 4 | Power loss | `journal.sqlite` uses `synchronous=FULL`; the store's WAL recovery plus `recoverInterruptedRuns`; chat offsets and schedule claims are in the database; missed schedules run once with a note | `tests/never-break-journal.test.mjs` | pass: journal is flushed first; missed Telegram messages fetched once; missed timed turns run once with a note (flush on real power loss not simulated) |
 | 5 | An update with data the new (or old) version cannot read | Data format stamp (`PRAGMA user_version` + `branch_format` with the oldest reader); versioned migrations run on a backup first, each with a tested down-path (additive columns need none: the older version ignores them); a version refuses, in a sentence, data newer than it can read instead of damaging it | `tests/never-break-journal.test.mjs` | pass: format stamp, up on a copy, tested way back, newer data refused untouched |
 | 6 | An update that does not start | Blue/green: the new version is unpacked beside the old, started as a canary on a copy of the data (migrations applied to the copy) and must pass `branch start` in self-test mode (`BRANCH_SELF_TEST`) before the swap; after the swap the gateway watches the first minutes and rolls back; the last two versions are kept; the gateway/worker contract is versioned both ways | `tests/never-break-update.test.mjs` | pass: canary with the real engine on a copy of real data; failed check stops the update; watch ends or rolls back; contract both ways |
 | 7 | Half-written files (config, swap interrupted) | Every file the gateway writes is written to a temporary name, fsync'd and renamed; an update interrupted at any step is repaired on the next start (`repairSwap`: a missing target is put back from the previous copy, a leftover incoming copy is removed) | `tests/never-break-update.test.mjs`, `tests/never-break-chaos.test.mjs` | pass: hand-over script cut after every line leaves a whole version; atomic writes leave no half file |
 | 8 | A full disk | A journal write that fails stops the task with a plain sentence instead of running a step it could not record; the gateway keeps answering | `tests/never-break-chaos.test.mjs` | pass: full disk after random journal writes never runs an unrecorded step; the next task works |
+
+## What the refusal cannot see (honest limits)
+
+The refusal reads text; it does not run the command. These still get past it, and the file
+permissions and the owner's rules are the only defence against them:
+
+- a path built at run time from pieces inside another language (`python3 -c "shutil.rmtree(home + '/Library/…')"`,
+  where no whole piece names a protected place), encoded or downloaded scripts (`echo … | base64 -d | sh`, `curl … | sh`), and
+  programs that delete by themselves (a script file written first, then run);
+- Windows 8.3 short names (`PROGRA~1`) that do not exist yet, and a junction created by a program
+  the refusal does not recognise; existing ones are followed;
+- a hard link made before Branch started to a file that is not one of the database or key files;
+- `find . -delete`, `git clean` and wildcards in a workspace that contains the data folder are
+  refused, which is stricter than needed; a sweeping `cd ~ && rm -rf …` is read, other ways of
+  changing folder (`pushd` in a script file, `Set-Location` through a variable) are not;
+- `/gateway/health` answers without a key (only on this computer); it shows process ids, versions
+  and the gateway's recent notes.
+
+On the update side: a power cut in the moment between the two renames of the swap leaves the
+program at `<name>.previous`. The gateway's start-up repair puts it back when Branch runs as a
+background service; the app window on its own has nothing to run the repair, so the owner has to
+rename it back. On Windows the swap is a copy (`robocopy /MIR`), not a rename, so a power cut in the
+middle leaves a mixed folder that only the previous-version copy can repair. The canary check pauses
+the copy's timed jobs and silences webhooks, but a tool a resumed self-test task runs could still
+reach the network; the check only resumes its own made-up task, which only lists files.
+
+With the switch off, Branch behaves as before except for what is deliberately not switchable (the
+refusal, the journal, the data format stamp) and one extra copy the updater keeps (`.previous-2`).
 
 ## Tests
 

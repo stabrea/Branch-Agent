@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { protectedAreas, protectedTarget, cwdOf, type ProtectedAreas } from "./never-break/protected.js"; // mac3/never-break
 import { noJournal, type JournalHook } from "./never-break/journal.js"; // mac3/never-break
+import { neverBreakModeSync } from "./never-break/gateway-config.js"; // mac3/never-break
 import {
   Budget,
   BudgetError,
@@ -785,7 +786,7 @@ ${run.output.slice(0, 6000)}`;
   private failureStatus(context: ToolContext, error: unknown): Run["status"] {
     return context.signal.aborted
       // mac3/never-break: a task cut off because Branch is closing is interrupted, so it can be picked up again.
-      ? (this.accepting ? "cancelled" : "interrupted")
+      ? (this.accepting || neverBreakModeSync(this.store.folder) === "off" ? "cancelled" : "interrupted")
       : error instanceof NeedsInputError
         ? "needs_input"
         : error instanceof BudgetError

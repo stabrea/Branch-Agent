@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { mkdir, open, readFile, rename, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { z } from "zod";
@@ -119,6 +120,17 @@ export async function saveGatewayConfig(dataDir: string, config: GatewayConfig):
 export async function sameAsGood(dataDir: string, config: GatewayConfig): Promise<boolean> {
   const good = await readConfig(join(dataDir, goodFile));
   return good.config !== null && JSON.stringify(good.config) === JSON.stringify(config);
+}
+
+/**
+ * The switch as it is on disk, read at once, for the few places in the engine that behave differently
+ * only when it is on. Anything unreadable counts as off, which is how Branch behaved before.
+ */
+export function neverBreakModeSync(dataDir: string): GatewayConfig["mode"] {
+  try {
+    const parsed = FeatureModeSchema.safeParse((JSON.parse(readFileSync(join(dataDir, gatewayFile), "utf8")) as { mode?: unknown }).mode);
+    return parsed.success ? parsed.data : "off";
+  } catch { return "off"; }
 }
 
 /* ---------- a change suggested by the assistant, waiting for the owner ---------- */

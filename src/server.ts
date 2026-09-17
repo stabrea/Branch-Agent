@@ -2768,6 +2768,8 @@ function offLimitsToShortLivedKeys(method: string | undefined, path: string): st
   if (handlesGuardsPath(path)) return "A short-lived key cannot change which folders are trusted or how repeated steps are stopped. Do that in the app window.";
   // mac3/never-break: the gateway's settings are the owner's alone.
   if (handlesNeverBreakPath(path)) return "A short-lived key cannot change how Branch keeps itself running. Do that in the app window.";
+  // mac3/never-break (integration review): letting a new person reach the assistant is the owner's alone.
+  if (path.startsWith("/api/channels/pairings/")) return "A short-lived key cannot let a new person reach the assistant, or remove one. Do that in the app window.";
   // Wave mac3 (tool-safety): the second look decides what gets asked about.
   if (path === "/api/approval-reviewer" && method !== "GET") return "A short-lived key cannot change the safety check before approvals. Do that in the app window.";
   // mac3/security-check: changing who may reach Branch's files, or the check's own switches.

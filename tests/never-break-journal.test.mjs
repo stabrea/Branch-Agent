@@ -331,6 +331,15 @@ test("a repeating job cut off by a restart goes back on the list, and a missed t
   assert.equal(released.status, "pending");
   assert.match(released.lastInterruption.note, /carries on at its next turn/);
 
+  // Switch off: the job still runs once, exactly as before, with no note.
+  app.store.save("schedules", "local", "33333333-3333-4333-8333-333333333333", { kind: "task", prompt: "missed while off", dueAt: threeHoursAgo,
+    intervalMs: 3600_000, status: "pending", permissions: [], history: [] });
+  const offRuns = await new Scheduler(app.store, app.runtime).tick(now);
+  assert.equal(offRuns.length, 1);
+  assert.equal(app.store.events(offRuns[0].id).some((e) => e.kind === "schedule.caught_up"), false, "off means the old behaviour");
+  assert.equal("late" in app.store.get("schedules", "local", "33333333-3333-4333-8333-333333333333").data.history.at(-1), false);
+
+  await saveGatewayConfig(join(root, "d"), GatewayConfigSchema.parse({ mode: "when-needed" }));
   app.store.save("schedules", "local", "22222222-2222-4222-8222-222222222222", { kind: "task", prompt: "missed", dueAt: threeHoursAgo,
     intervalMs: 3600_000, status: "pending", permissions: [], history: [] });
   const runs = await new Scheduler(app.store, app.runtime).tick(now);
@@ -444,4 +453,27 @@ test("a chat task that may already have sent something is not done again when th
   assert.equal(second.outcome, "left-for-chat");
   await chat.deliver(handMessage("what is on my list", "m2"));
   assert.equal(provider.requests, 1, "answered once, as a fresh task");
+});
+
+test("a task cut off by Branch closing is cancelled with the switch off, as before, and interrupted with it on", async (t) => {
+  for (const mode of ["off", "on"]) {
+    const root = await temp(t);
+    await mkdir(join(root, "d"), { recursive: true });
+    await saveGatewayConfig(join(root, "d"), GatewayConfigSchema.parse({ mode }));
+    let started;
+    const waiting = new Promise((resolve) => { started = resolve; });
+    const provider = { name: "slow", complete: (request) => new Promise((_, reject) => {
+      started();
+      request.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+    }) };
+    const app = await createBranch({ workspace: join(root, "w"), dataDir: join(root, "d"), provider });
+    const task = app.runtime.run({ prompt: "think for a long time", onTextDelta: () => undefined }).catch((error) => error);
+    await waiting;
+    await app.close();
+    await task;
+    const reopened = await createBranch({ workspace: join(root, "w"), dataDir: join(root, "d"), provider: scripted([say("x")]) });
+    const [run] = reopened.store.runs("local");
+    await reopened.close();
+    assert.equal(run.status, mode === "off" ? "cancelled" : "interrupted", mode);
+  }
 });

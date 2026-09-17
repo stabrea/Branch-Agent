@@ -171,3 +171,30 @@ test("the Telegram card sits in Customize → Channels, in plain words and in Fr
   assert.deepEqual(wide, []);
   assert.deepEqual(errors, []);
 });
+
+/* ---------- integration review (17 September): pairing the owner's account ---------- */
+
+test("a pairing code works once, only while fresh, never when shared, and not from a short-lived key", async (t) => {
+  const { app, server } = await served(t);
+  const call = (path, body, token = server.token) => fetch(server.url + path, { method: "POST",
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify(body) })
+    .then(async (r) => ({ status: r.status, body: await r.json() }));
+  const pending = (sender, code, minutesAgo = 0) => app.store.save("settings", "local", `channel-pair:telegram:${sender}`,
+    { status: "pending", code, name: sender, requestedAt: new Date(Date.now() - minutesAgo * 60_000).toISOString() });
+  pending("stranger", "111111");
+  const key = app.sessionTokens.create(app.runtime.owner, { scope: "run", minutes: 5 });
+  const byKey = await call("/api/channels/pairings/approve", { code: "111111" }, key.token);
+  assert.equal(byKey.status, 401);
+  assert.match(byKey.body.error, /cannot let a new person reach the assistant/);
+
+  pending("old", "222222", 120);
+  assert.match((await call("/api/channels/pairings/approve", { code: "222222" })).body.error, /No pending request/, "a stale code is not taken");
+  pending("twin-a", "333333"); pending("twin-b", "333333");
+  assert.match((await call("/api/channels/pairings/approve", { code: "333333" })).body.error, /Two requests have that code/);
+  const ok = await call("/api/channels/pairings/approve", { code: "111111" });
+  assert.equal(ok.body.senderId, "stranger");
+  assert.match((await call("/api/channels/pairings/approve", { code: "111111" })).body.error, /No pending request/, "used once");
+  for (let i = 0; i < 9; i++) await call("/api/channels/pairings/approve", { code: String(400000 + i) });
+  pending("late", "555555");
+  assert.match((await call("/api/channels/pairings/approve", { code: "555555" })).body.error, /Too many wrong codes/, "guessing is slowed down");
+});

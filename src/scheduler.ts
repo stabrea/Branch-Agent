@@ -1,5 +1,6 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { lateNote } from "./never-break/resume.js"; // mac3/never-break
+import { neverBreakModeSync } from "./never-break/gateway-config.js"; // mac3/never-break
 import { z } from "zod";
 import type { ToolContext, Run } from "./contracts.js";
 import type { Store, SavedRecord } from "./store.js";
@@ -262,7 +263,7 @@ export class Scheduler {
     const history = (Array.isArray(data.history) ? data.history as HistoryEntry[] : []).slice(-(historyLimit - 1));
     const entry: HistoryEntry = { runId: null, status: "running", startedAt, trigger };
     // mac3/never-break: a turn missed while Branch was not running runs once, and says so.
-    const late = trigger === "schedule" ? lateNote(data.dueAt, now) : null;
+    const late = trigger === "schedule" && neverBreakModeSync(this.store.folder) !== "off" ? lateNote(data.dueAt, now) : null;
     if (late) Object.assign(entry, { late });
     this.store.save("schedules", record.owner, record.id, { ...data, status: "running", history: [...history, entry] });
     try {
