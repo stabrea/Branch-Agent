@@ -43,7 +43,7 @@ The first preset is the default. **Settings → Models** chooses the workspace d
 
 ### ChatGPT plan sign-in
 
-`node dist/cli.js login` (or **Settings → ChatGPT account** in the app) starts OpenAI's device-code sign-in: open the shown page, enter the code, and Branch receives tokens that are stored in `chatgpt-auth.json` inside the data directory, protected with the device key in the desktop app. Signing in registers `ChatGPT · GPT-5.6 Sol (light)`, `GPT-5.6 Terra`, `GPT-5.6 Luna` and `GPT-5.5` presets (models `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, `gpt-5.5`; plain `gpt-5.6` and `gpt-5.4` are refused for a ChatGPT account) and makes ChatGPT the default, with Sol first and the others as fallbacks, when the workspace was still on the offline demonstration. Requests carry the `originator: branch-agent` header and a `BranchAgent/<version>` user agent. Access through a ChatGPT plan is provided by OpenAI for its own tools and may change without notice.
+`node dist/cli.js login` (or **Settings → ChatGPT account** in the app) starts OpenAI's device-code sign-in: open the shown page, enter the code, and Branch receives tokens that are stored in `chatgpt-auth.json` inside the data directory, protected with the device key in the desktop app. Signing in registers `ChatGPT (unofficial) · GPT-5.6 Sol (light)`, `GPT-5.6 Terra`, `GPT-5.6 Luna` and `GPT-5.5` presets (models `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, `gpt-5.5`; plain `gpt-5.6` and `gpt-5.4` are refused for a ChatGPT account) and makes ChatGPT the default, with Sol first and the others as fallbacks, when the workspace was still on the offline demonstration. Requests carry the `originator: branch-agent` header and a `BranchAgent/<version>` user agent. Access through a ChatGPT plan is provided by OpenAI for its own tools and may change without notice. **This route is unofficial**; see [ChatGPT plan sign-in and OpenAI's terms](#chatgpt-plan-sign-in-and-openais-terms).
 
 ### Provider catalog and testing
 
@@ -155,6 +155,82 @@ Services that need something more than a key, or that do not publish a list of t
 - **Zhipu GLM (China)** — Zhipu's platform in mainland China, billed in yuan. Outside China, use Z.ai instead. Branch keeps no price on file for it.
 
 <!-- providers:end -->
+
+### Routes each provider's terms allow (mac5)
+
+Branch reaches each service only through a route that service offers for this kind of use, so that
+no account is put at risk (issue #108). Every provider in Settings → Models shows a **Terms** line:
+the route Branch uses, a link to the service's terms, and a warning where the route is unofficial,
+retired or not offered. The line comes from the `terms` field of each entry in
+`data/providers.json` (`official`, `unofficial`, `retired` or `not-offered`), and the table above
+shows the same thing. Links to terms pages were checked to exist on 2026-09-17; Branch has not read
+every provider's terms line by line, so read them yourself before relying on a route.
+
+#### ChatGPT plan sign-in and OpenAI's terms
+
+- **What Branch does.** Settings → ChatGPT account signs in with OpenAI's device-code sign-in and
+  the client id OpenAI's Codex uses, sending `originator: branch-agent` so it never poses as Codex.
+  Hermes Agent does the same; Goose uses the same client id with a browser sign-in.
+- **Why it is labelled unofficial.** OpenAI documents this sign-in only for its own apps
+  (<https://learn.chatgpt.com/docs/auth>). OpenAI's Terms of Use bar extracting output
+  "automatically or programmatically" (<https://openai.com/policies/row-terms-of-use/>; that page
+  refuses automated reading, so the wording was seen through a search index only). No written
+  permission for other apps was found. The only signals that it is tolerated are informal, and the
+  page that gathers them says so itself
+  (<https://manifest.build/blog/chatgpt-plus-tokens-third-party-harnesses/>). No bans for this route
+  were found as of 2026-09-17, but it may stop working at any time.
+- **How Branch treats it.** It stays off until you sign in, the card and the first-run door say
+  "unofficial, may stop working", and the models it adds are named `ChatGPT (unofficial) · …`. The
+  officially supported ways are an OpenAI API key (`openai`, `openai-responses`) or OpenAI's own
+  `codex` program under coding assistants (`POST /api/providers/cli-agents {"id":"codex"}`).
+
+#### Perplexity
+
+Perplexity supports its Sonar chat route only until 27 September 2026
+(<https://docs.perplexity.ai/docs/agent-api/migrate-from-sonar/overview>). The `perplexity` entry
+now uses the Agent API, `POST https://api.perplexity.ai/v1/agent`, and picks a preset (`fast`,
+`low`, `medium`, `high`, `xhigh`) or a `provider/model` name. Connections saved before this change
+are moved over when Branch starts, with nothing for you to do: `sonar` becomes `fast`, `sonar-pro`
+`low`, `sonar-reasoning-pro` `medium` and `sonar-deep-research` `high`, following Perplexity's own
+table. The move is written to the audit record as `connection.changed` with outcome `moved`.
+
+#### GitHub Models and GitHub Copilot
+
+GitHub retired GitHub Models on 30 July 2026, and its address refuses every request
+(<https://github.blog/changelog/2026-07-30-github-models-is-now-retired/>). A saved `github-models`
+connection stays in the list with that note, never stops Branch from starting, and answers every use
+with the note instead of a network error; new ones are refused. GitHub's own suggestions are
+Microsoft Foundry for a model catalogue (use `azure-openai` or `azure-openai-v1` here) and GitHub
+Copilot for GitHub work.
+
+GitHub supports Copilot plans in other tools only for OpenCode, through OpenCode's own sign-in
+(<https://github.blog/changelog/2026-01-16-github-copilot-now-supports-opencode/>). Reusing that
+sign-in, or posing as VS Code as some agents do, is not sanctioned and has drawn abuse warnings, so
+Branch has no Copilot sign-in of its own: the `github-copilot` entry is marked **not offered** and
+explains why. The allowed way is GitHub's own `copilot` program, run in its documented
+non-interactive mode under coding assistants (`{"id":"copilot"}`,
+<https://docs.github.com/copilot/how-tos/use-copilot-agents/use-copilot-cli>).
+
+#### Moving regions and names
+
+Moonshot (Kimi), Qwen (DashScope) and MiniMax now ask which platform your key is from, with the
+international address first: `api.moonshot.ai` or `api.moonshot.cn`; `dashscope-intl.aliyuncs.com`,
+`dashscope-us.aliyuncs.com` or `dashscope.aliyuncs.com`; `api.minimax.io` or `api.minimax.cn`. Only
+those answers are accepted. A connection saved before the choice existed keeps the mainland China
+address it was using. Z.ai has its own global entry (`zai`, `https://api.z.ai/api/paas/v4`) beside
+`zhipu` for mainland China. DeepSeek's address is now `https://api.deepseek.com` and its models
+`deepseek-flash` and `deepseek-v4-pro`; saved connections keep the model name they had. Alibaba now
+recommends per-workspace addresses (`{WorkspaceId}.<region>.maas.aliyuncs.com`); use "Something
+else" for one of those. The Kimi coding plan, the Z.ai coding plan and Amazon's "Bedrock Mantle"
+address are not offered, because their terms for other tools, or the address itself, could not be
+confirmed from the provider's own pages.
+
+#### macOS and Linux
+
+Nothing in this section depends on the operating system. The coding-assistant rows run the
+program named on your `PATH` with fixed arguments and no shell on every system, and Windows behaves
+exactly as before.
+
 
 ### Two things Branch deliberately does not do
 

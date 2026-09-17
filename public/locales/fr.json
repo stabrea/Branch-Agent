@@ -1455,5 +1455,11 @@
   "voice.microphone.linux": "Le micro n'est pas disponible. Vérifiez vos réglages de son et que le micro n'est pas coupé, puis réessayez.",
   "voice.microphone.win32": "Le micro n'est pas disponible. Autorisez-le pour Branch Agent dans les paramètres Windows, puis réessayez.",
   "voice.route.system-own": "La voix de votre ordinateur (gratuite, fonctionne hors ligne)",
-  "voice.route.system-windows": "La voix fournie avec Windows (gratuite, fonctionne hors ligne)"
+  "voice.route.system-windows": "La voix fournie avec Windows (gratuite, fonctionne hors ligne)",
+  "terms.label": "Conditions :",
+  "terms.read": "Lire les conditions ↗",
+  "terms.chatgpt.door": "Non officiel, et peut cesser de fonctionner.",
+  "terms.chatgpt.route": "Connexion avec un abonnement ChatGPT. Non officielle : OpenAI ne documente cette connexion que pour ses propres applications et n'a donné aucune autorisation écrite aux autres, elle peut donc cesser de fonctionner à tout moment. Elle reste désactivée tant que vous ne vous connectez pas, et une clé d'API est la voie officiellement prise en charge.",
+  "terms.chatgpt.sign-in-page": "Documentation de connexion d'OpenAI ↗",
+  "terms.chatgpt.honest": "Branch se présente comme Branch Agent et ne se fait jamais passer pour une autre application."
 }
