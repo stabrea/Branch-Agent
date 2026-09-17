@@ -1,26 +1,34 @@
 import type { EventEmitter } from "node:events";
 import type { Readable, Writable } from "node:stream";
-import type { Event, ImagePart, Run } from "./contracts.js";
 import type { Runtime } from "./runtime.js";
-import type { Store } from "./store.js";
-// Wave 8: the terminal says what a round used and what it cost, as the web app already does.
-import { estimateCost, formatCost, pricingTableInUse } from "./pricing.js";
-import type { PendingApproval } from "./approvals.js";
-import type { ReasoningEffort } from "./models.js";
-import { LineEditor } from "./terminal-input.js";
+import { lockdownState, setLockdown } from "./lockdown.js";
+import { LineEditor, type MouseEvent } from "./terminal-input.js";
+import { glyphsFor, progressIndicator, resolveStyle, windowTitle, wrap, type TerminalStyle } from "./terminal-style.js";
 import {
-  paint, progressIndicator, resolveStyle, windowTitle, wrap, type TerminalStyle,
-} from "./terminal-style.js";
-import {
-  activeModel, answerLine, attachedText, choosePreset, exportConversation, historyLines, presetLines,
-  readAttachment, runTotals, statusLine, type Attachment,
-} from "./terminal-commands.js";
+  loadThemeCatalogue, lookLanguage, lookMode, paletteFor, readLook, saveLook, saveLookMode, saveTerminalSwitch,
+  terminalSwitches, type Look, type LookMode, type TerminalPalette, type TerminalSwitches, type ThemeCatalogue,
+} from "./terminal-theme.js";
+import { loadWords, type Words } from "./terminal-words.js";
+import { Conversation } from "./terminal-conversation.js";
+import { runCommand, helpLines, type CommandContext } from "./terminal-command-table.js";
+import { PLACE_ROWS, assistantName, needsCount, type PlaceApp, type Row } from "./terminal-place-data.js";
+import { settingsRows } from "./terminal-settings.js";
+import { PLACES, SETTINGS_PAGES, firstTab, homeOf, parseRoute, placeById, type PlaceId, type Route } from "./terminal-places.js";
+import { renderScreen, type Overlay, type ScreenModel } from "./terminal-screen.js";
+import { ScreenWriter } from "./terminal-output.js";
+import type { Hit } from "./terminal-canvas.js";
+import { paletteItems, themeItems } from "./terminal-palette.js";
+import { seasonOf } from "./terminal-oak.js";
+import { routeKey, routeMouse } from "./terminal-keys.js";
+
+export { usageLine, runCost, stepRow } from "./terminal-conversation.js";
 
 /**
- * The full terminal view: a status line that stays put, answers that stream in wrapped to the
- * window, one short row per step the assistant takes, and slash commands. It uses nothing but
- * Node's own readline and escape sequences, and it draws nothing at all when the terminal cannot
- * take it — `branch chat` falls back to the plain streaming view in that case.
+ * `branch` and `branch chat` in a terminal: the window's design in character cells. The five
+ * places sit on a tab row (keys 1 to 5 after Escape, or Alt+1 to Alt+5), the conversation has its
+ * composer and a side pane, every place lists what it holds, Settings opens its twelve pages by name,
+ * and Ctrl+K finds anything. A terminal that cannot be drawn on (NO_COLOR, TERM=dumb) gets the same
+ * commands as plain lines.
  */
 export interface TuiOptions {
   input?: Readable & { setRawMode?: (mode: boolean) => void; isTTY?: boolean };
@@ -28,434 +36,456 @@ export interface TuiOptions {
   env?: NodeJS.ProcessEnv;
   signals?: EventEmitter;
   pollIntervalMs?: number;
+  /** What the places read from; without it they say where to look instead. */
+  app?: PlaceApp;
+  /** Where to open: "inbox", "settings models", and so on. */
+  route?: string;
+  sessionId?: string;
 }
 export function startTui(runtime: Runtime, options: TuiOptions = {}): Promise<void> {
   return new Tui(runtime, options).start();
 }
 
-interface Step { label: string; tool: string; status: "working" | "done" | "failed"; detail: string }
-interface ActiveRun { controller: AbortController; run?: Run; eventId: number; steps: Step[] }
-const safe = (text: string): string => text.replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f]/g, "");
-const helpText = [
-  "/help                 this list",
-  "/model [id]           which model answers; /model on its own lists them",
-  "/preset [name]        when Branch checks with you before doing something",
-  "/memory [words]       facts it has saved",
-  "/skills               skills installed here",
-  "/plan                 turn a short plan first on or off",
-  "/verify               turn a reviewer's check of the answer on or off",
-  "/dry-run              turn practice mode on or off (nothing is really changed)",
-  "/attach <file>        send a file or picture with your next message",
-  "/history              this conversation so far",
-  "/export [file]        save this conversation as a Markdown file",
-  "/new                  start a fresh conversation",
-  "/exit                 leave",
-  "Enter sends · Alt+Enter adds a line · Up recalls · Ctrl+E shows step details · Ctrl+C stops the task · Ctrl+D leaves",
-];
+type Focus = ScreenModel["focus"];
+const CHAT: Route = { place: "chat", tab: "" };
 
-class Tui {
-  private readonly input: TuiOptions["input"] & Readable;
-  private readonly output: Writable & { columns?: number };
-  private readonly signals: EventEmitter;
-  private readonly style: TerminalStyle;
-  private readonly editor: LineEditor;
-  private readonly pollIntervalMs: number;
-  private readonly echo: boolean;
-  private sessionId: string | undefined;
-  private model: string | undefined;
-  private reasoning: ReasoningEffort | null | undefined;
-  private plan = false;
-  private verify = false;
-  private dryRun = false;
-  private details = false;
-  private attachments: Attachment[] = [];
-  private active: ActiveRun | undefined;
-  private awaiting: PendingApproval | undefined;
-  private awaitingPrompt = "";
-  private queue: string[] = [];
-  private busy = false;
+export class Tui {
+  readonly env: NodeJS.ProcessEnv;
+  readonly input: NonNullable<TuiOptions["input"]>;
+  readonly output: NonNullable<TuiOptions["output"]>;
+  readonly signals: EventEmitter;
+  readonly style: TerminalStyle;
+  readonly screen: ScreenWriter | null;
+  readonly conversation: Conversation;
+  readonly editor: LineEditor;
+  readonly app: PlaceApp | undefined;
+  words: Words = loadWords("en");
+  catalogue: ThemeCatalogue | undefined;
+  palette: TerminalPalette | undefined;
+  look!: Look;
+  mode: LookMode | "follow" = "dark";
+  switches!: TerminalSwitches;
+  route: Route = CHAT;
+  behind: Route = CHAT;
+  lastTab: Record<string, string> = {};
+  focus: Focus = "composer";
+  rows: Row[] = [];
+  selected = 0;
+  loading = false;
+  pane = { open: false, tab: "activity", auto: false };
+  overlay: Overlay | undefined;
+  previewTheme: string | undefined;
+  drafts = { composer: "", ask: "" };
+  scroll = 0;
+  hits: Hit[] = [];
+  private frame = 0;
+  private spinner: NodeJS.Timeout | undefined;
+  private toast: string | undefined;
+  private toastTimer: NodeJS.Timeout | undefined;
+  private drawPending = false;
+  private printed = 0;
+  private lookReadAt = 0;
+  private needs = 0;
   private closing = false;
-  private footerLines = 0;
-  private cursorUp = 0;
-  private stream = "";
   private resolveDone: (() => void) | undefined;
 
-  constructor(private readonly runtime: Runtime, options: TuiOptions) {
-    const env = options.env ?? process.env;
-    this.input = (options.input ?? process.stdin) as TuiOptions["input"] & Readable;
+  constructor(readonly runtime: Runtime, private readonly options: TuiOptions) {
+    this.env = options.env ?? process.env;
+    this.input = options.input ?? process.stdin;
     this.output = options.output ?? process.stdout;
     this.signals = options.signals ?? process;
-    this.style = resolveStyle(env, { columns: this.output.columns });
-    this.pollIntervalMs = options.pollIntervalMs ?? 75;
-    this.echo = !this.style.cursor && this.input.isTTY === true;
+    this.app = options.app;
+    this.style = resolveStyle(this.env, { columns: this.output.columns, rows: this.output.rows });
+    this.screen = this.style.cursor ? new ScreenWriter(this.output) : null;
+    this.conversation = new Conversation(runtime, (kind) => this.onConversation(kind), options.pollIntervalMs ?? 75);
     this.editor = new LineEditor({
       submit: (text) => void this.submit(text),
-      interrupt: () => this.interrupt(),
+      interrupt: () => this.conversation.interrupt(),
       quit: () => this.quit(),
       shortcut: (name) => this.shortcut(name),
-      changed: () => this.redraw(),
+      changed: () => this.requestDraw(),
+      key: (str, key) => (this.screen ? routeKey(this, str, key) : false),
     });
+    this.readLook(true);
   }
 
   start(): Promise<void> {
     const done = new Promise<void>((resolve) => { this.resolveDone = resolve; });
-    this.editor.attach(this.input);
+    this.editor.attach(this.input, (event) => this.onMouse(event));
     this.signals.on("SIGINT", this.onSignal);
     this.input.once("end", this.quit);
-    this.write(windowTitle(this.style, "Branch Agent"));
-    this.emit("Branch Agent — type a message and press Enter. /help lists what you can do here.");
-    this.drawFooter();
+    this.output.on?.("resize", this.onResize);
+    void this.boot();
     return done;
   }
-
-  // ---- drawing -------------------------------------------------------------
-  private get width(): number { return Math.max(24, this.style.columns); }
-  private write(text: string): void { if (text) this.output.write(text); }
-  /** Prints lines above the status line and the line being typed, then draws those again. */
-  private emit(text: string): void {
-    this.eraseFooter();
-    for (const line of wrap(safe(text), this.width)) this.output.write(line + "\n");
-    this.drawFooter();
-  }
-  private eraseFooter(): void {
-    if (!this.style.cursor || !this.footerLines) return;
-    if (this.cursorUp > 0) this.write(`\x1b[${this.cursorUp}B`);
-    if (this.footerLines > 1) this.write(`\x1b[${this.footerLines - 1}A`);
-    this.write("\r\x1b[0J");
-    this.footerLines = 0;
-    this.cursorUp = 0;
-  }
-  private promptLines(): string[] {
-    const marker = this.awaiting ? "Answer (y/n/a/s)> " : "You> ";
-    const [first = "", ...rest] = this.editor.text.split("\n");
-    return [marker + first, ...rest.map((line) => "  … " + line)];
-  }
-  private drawFooter(): void {
-    if (!this.style.cursor || this.closing) return;
-    const status = statusLine(this.runtime, this.sessionId, this.model, this.width);
-    const flags = [this.plan && "plan", this.verify && "verify", this.dryRun && "practice"].filter(Boolean).join(" ");
-    const lines = [paint(this.style, "dim", `— ${status}${flags ? " · " + flags : ""} —`), ...this.promptLines()];
-    this.write("\r\x1b[0J" + lines.join("\n"));
-    this.footerLines = lines.length;
-    this.placeCursor(lines.length);
-  }
-  /** Puts the cursor where the person is typing, rather than at the end of the drawn block. */
-  private placeCursor(drawn: number): void {
-    const before = this.editor.text.slice(0, this.editor.at).split("\n");
-    const row = drawn - this.promptLines().length + before.length - 1;
-    const column = (before.length === 1 ? (this.awaiting ? 18 : 5) : 4) + (before.at(-1)?.length ?? 0);
-    this.cursorUp = drawn - 1 - row;
-    if (this.cursorUp > 0) this.write(`\x1b[${this.cursorUp}A`);
-    this.write("\r" + (column > 0 ? `\x1b[${column}C` : ""));
-  }
-  private redraw(): void {
-    if (this.style.cursor) { this.eraseFooter(); this.drawFooter(); return; }
-    if (this.echo) this.write("\r" + this.promptLines().join(" ") + " \x08");
-  }
-  /** Streams model text, wrapped, keeping the unfinished last line back until it is complete. */
-  private streamDelta(text: string): void {
-    this.stream += safe(text);
-    const lines = wrap(this.stream, this.width);
-    while (lines.length > 1) this.emit(lines.shift()!);
-    this.stream = lines[0] ?? "";
-  }
-  private flushStream(): void {
-    if (this.stream) { const text = this.stream; this.stream = ""; this.emit(text); }
+  private async boot(): Promise<void> {
+    this.catalogue = await loadThemeCatalogue().catch(() => undefined);
+    this.readLook(true);
+    if (this.options.sessionId) this.resume(this.options.sessionId);
+    if (this.screen) {
+      this.screen.enter(windowTitle(this.style, "Branch Agent"));
+      this.screen.setMouse(this.switches.mouse === "on");
+      if (this.switches.sidePane === "on") this.pane.open = true;
+    } else this.print("Branch Agent — type a message and press Enter. /help lists what you can do here.");
+    if (this.options.route) this.open(this.options.route);
+    this.requestDraw();
   }
 
-  // ---- keys ----------------------------------------------------------------
-  private onSignal = (): void => this.interrupt();
-  private interrupt(): void {
-    this.queue = [];
-    if (!this.active || this.active.controller.signal.aborted) {
-      this.emit("[nothing is working right now; press Ctrl+D to leave]");
-      return;
-    }
-    this.active.controller.abort(new Error("Cancelled by user"));
-    this.emit("[stopping; waiting for the task to tidy up]");
+  /* ---------- the look, read from the shared settings ---------- */
+  readLook(force = false): void {
+    if (!force && Date.now() - this.lookReadAt < 1000) return;
+    this.lookReadAt = Date.now();
+    const { store, owner } = this.runtime;
+    this.look = readLook(store, owner);
+    this.switches = terminalSwitches(store, owner);
+    const saved = store.get("settings", owner, "preferences")?.data ?? {};
+    this.mode = saved.followSystem === true ? "follow" : saved.appearance === "daylight" ? "light" : "dark";
+    const language = lookLanguage(this.look, this.env);
+    if (language !== this.words.language) this.words = loadWords(language);
+    if (this.catalogue) this.palette = paletteFor(this.catalogue, this.previewTheme ?? this.look.theme, lookMode(store, owner, this.env), this.look.contrast);
+    this.needs = this.app ? needsCount(this.app) : 0;
+    this.screen?.setMouse(this.switches.mouse === "on" || (this.switches.mouse === "when-needed" && (!!this.overlay || "settings" in this.route)));
   }
-  private quit = (): void => {
+  themeName(): string {
+    return this.catalogue?.THEMES.find((theme) => theme[0] === this.look.theme)?.[1] ?? this.look.theme;
+  }
+
+  /* ---------- drawing ---------- */
+  size(): { columns: number; rows: number } {
+    return { columns: this.output.columns ?? this.style.columns, rows: this.output.rows ?? this.style.rows };
+  }
+  requestDraw(): void {
+    if (this.drawPending || this.closing) return;
+    this.drawPending = true;
+    setImmediate(() => { this.drawPending = false; this.draw(); });
+  }
+  private draw(): void {
     if (this.closing) return;
-    this.closing = true;
-    this.queue = [];
-    this.active?.controller.abort(new Error("Cancelled by user"));
-    this.eraseFooter();
-    this.write(progressIndicator(this.style, "none") + windowTitle(this.style, "Branch Agent"));
-    this.output.write("Goodbye.\n");
-    this.finish();
-  };
-  private shortcut(name: string): void {
-    if (name !== "ctrl+e") return;
-    this.details = !this.details;
-    const steps = this.active?.steps ?? this.lastSteps;
-    this.emit(`[step details ${this.details ? "on" : "off"}]`);
-    if (this.details) for (const step of steps) this.emit(`    ${step.tool} — ${step.detail || step.label} (${step.status})`);
+    if (!this.screen) return this.echoPrompt();
+    this.readLook();
+    if (!this.palette) return;
+    const frame = renderScreen(this.model(), this.size(), this.palette, this.style.depth);
+    this.hits = frame.hits;
+    this.screen.draw(frame);
   }
-  private lastSteps: Step[] = [];
+  model(): ScreenModel {
+    const { rows } = this.size();
+    const oak = this.switches.oak === "on" || (this.switches.oak === "when-needed" && rows >= 30);
+    const partial = this.conversation.partial;
+    return {
+      words: this.words, glyphs: glyphsFor(this.style.unicode), assistant: this.app ? assistantName(this.app) : "Branch Agent",
+      model: this.conversation.modelName(), lockdown: lockdownState(this.runtime.store, this.runtime.owner).on,
+      needs: this.needs, working: this.conversation.working, frame: this.frame, route: this.route, behind: this.behind,
+      focus: this.focus, scroll: this.scroll,
+      transcript: partial ? [...this.conversation.transcript, { kind: "assistant", text: partial }] : this.conversation.transcript,
+      composer: {
+        text: this.focus === "ask" ? this.drafts.composer : this.editor.text, cursor: this.focus === "ask" ? 0 : this.editor.at,
+        chips: this.conversation.chips(this.words), ...(this.conversation.awaiting ? { question: "y/n/a/s?" } : {}),
+      },
+      status: this.conversation.status(),
+      pane: { open: this.pane.open, tab: this.pane.tab, rows: this.conversation.paneRows(this.pane.tab, this.words) },
+      oak: { show: oak && this.style.unicode, season: seasonOf(new Date()) },
+      rows: this.rows, selected: this.selected, loading: this.loading,
+      ask: this.focus === "ask" ? this.editor.text : this.drafts.ask, overlay: this.overlay, toast: this.toast,
+    };
+  }
+  say(text: string): void {
+    if (!this.screen) { this.print(text); return; }
+    this.toast = text;
+    clearTimeout(this.toastTimer);
+    this.toastTimer = setTimeout(() => { this.toast = undefined; this.requestDraw(); }, 4000);
+    this.toastTimer.unref?.();
+    this.requestDraw();
+  }
 
-  // ---- input ---------------------------------------------------------------
+  /* ---------- plain lines, for a terminal that cannot be drawn on ---------- */
+  print(text: string): void {
+    for (const line of wrap(text, Math.max(24, this.style.columns))) this.output.write(line + "\n");
+  }
+  private echoPrompt(): void {
+    if (this.input.isTTY !== true || this.closing) return;
+    const marker = this.conversation.awaiting ? "Answer (y/n/a/s)> " : "You> ";
+    this.output.write("\r" + marker + this.editor.text.split("\n").join(" ") + " \x08");
+  }
+  private onConversation(kind: "line" | "work"): void {
+    if (kind === "work") this.onWork();
+    if (this.screen) { this.scroll = 0; this.requestDraw(); return; }
+    const lines = this.conversation.transcript;
+    if (this.printed > lines.length) this.printed = 0;
+    for (; this.printed < lines.length; this.printed++) if (lines[this.printed]!.kind !== "you") this.print(lines[this.printed]!.text);
+  }
+  private onWork(): void {
+    const working = this.conversation.working;
+    this.output.write(progressIndicator(this.style, working ? "working" : "none"));
+    if (working && !this.spinner && this.screen) {
+      this.spinner = setInterval(() => { this.frame++; this.requestDraw(); }, 120);
+      this.spinner.unref?.();
+    }
+    if (!working) { clearInterval(this.spinner); this.spinner = undefined; void this.reload(); }
+    if (this.switches.sidePane === "when-needed" && this.size().columns >= 60) {
+      if (working && !this.pane.open) this.pane = { ...this.pane, open: true, auto: true };
+      if (!working && this.pane.auto) this.pane = { ...this.pane, open: false, auto: false };
+    }
+  }
+
+  /* ---------- where the view is ---------- */
+  open(text: string): void {
+    const route = parseRoute(text.trim(), this.words);
+    if (!route) { this.conversation.say("warn", this.words.t("terminal.noPlace", "There is no place called {name}. Try /go inbox or /settings models.", { name: text.trim() })); return; }
+    this.go(route);
+  }
+  go(route: Route): void {
+    if ("place" in route && route.place !== "chat" && !route.tab) route = { place: route.place, tab: this.lastTab[route.place] ?? firstTab(route.place) };
+    if ("settings" in route && !("settings" in this.route)) this.behind = this.route;
+    if ("place" in route) this.lastTab[route.place] = route.tab;
+    this.leaveAsk();
+    this.route = route;
+    this.selected = 0;
+    this.overlay = undefined;
+    this.focus = "place" in route && route.place === "chat" ? "composer" : "list";
+    this.output.write(windowTitle(this.style, `Branch Agent — ${homeOf(route)}`));
+    void this.reload();
+    if (!this.screen) void this.printPlace();
+    this.readLook(true);
+    this.requestDraw();
+  }
+  closeSettings(): void { this.go(this.behind); }
+  async reload(): Promise<void> {
+    const route = this.route, home = homeOf(route);
+    if ("place" in route && route.place === "chat") { this.rows = []; return; }
+    this.rows = await this.rowsFor(route).catch((error: unknown) => [{ title: String(error instanceof Error ? error.message : error), tone: "bad" as const }]);
+    if (homeOf(this.route) !== home) return;
+    this.loading = false;
+    this.selected = Math.max(0, Math.min(this.selected, this.rows.length - 1));
+    this.requestDraw();
+  }
+  private async rowsFor(route: Route): Promise<Row[]> {
+    if (!this.app) return [{ title: this.words.t("terminal.noApp", "Open Branch to see this."), tone: "muted" }];
+    if ("settings" in route) {
+      const state = { look: this.look, mode: this.mode, themeName: this.themeName(), switches: this.switches };
+      return settingsRows(this.app, this.words, route.settings, route.sub, state);
+    }
+    this.loading = true;
+    return PLACE_ROWS[homeOf(route)]!(this.app, this.words);
+  }
+  private async printPlace(): Promise<void> {
+    const route = this.route;
+    if ("place" in route && route.place === "chat") return this.print(this.words.t("nav.chat", "Conversation"));
+    const rows = await this.rowsFor(route);
+    const title = "place" in route ? placeById(route.place)! : SETTINGS_PAGES.find((page) => page.id === route.settings)!;
+    this.print(`== ${this.words.t(title.key, title.english)} ${"place" in route ? this.tabName(route) : route.sub} ==`);
+    this.print(this.words.t(title.intro[0], title.intro[1]));
+    for (const row of rows) this.print(`- ${row.title}${row.detail ? " — " + row.detail : ""}${row.command ? `  (${row.command})` : ""}`);
+    if ("place" in route) this.print(placeById(route.place)!.tabs.map((tab) => `/${route.place} ${tab.id}`).join(" · "));
+  }
+  private tabName(route: { place: PlaceId; tab: string }): string {
+    const tab = placeById(route.place)?.tabs.find((entry) => entry.id === route.tab);
+    return tab ? `› ${this.words.t(tab.key, tab.english)}` : "";
+  }
+  /** The next or previous tab of a place, or page of Settings. */
+  step(direction: 1 | -1): void {
+    const route = this.route;
+    if ("settings" in route) {
+      const index = SETTINGS_PAGES.findIndex((page) => page.id === route.settings);
+      const next = SETTINGS_PAGES[(index + direction + SETTINGS_PAGES.length) % SETTINGS_PAGES.length]!;
+      return this.go({ settings: next.id, sub: next.id === "models" ? "connection" : "" });
+    }
+    const place = placeById(route.place);
+    if (!place || !place.tabs.length) return;
+    const index = place.tabs.findIndex((tab) => tab.id === route.tab);
+    this.go({ place: route.place, tab: place.tabs[(index + direction + place.tabs.length) % place.tabs.length]!.id });
+  }
+  goPlace(number: number): void {
+    const place = PLACES[number - 1];
+    if (place) this.go({ place: place.id as PlaceId, tab: "" });
+  }
+
+  /* ---------- the ask box and the composer share one line editor ---------- */
+  enterAsk(): void {
+    if (this.focus === "ask") return;
+    this.drafts.composer = this.editor.text;
+    this.swapEditor(this.drafts.ask);
+    this.focus = "ask";
+    this.requestDraw();
+  }
+  leaveAsk(): void {
+    if (this.focus !== "ask") return;
+    this.drafts.ask = this.editor.text;
+    this.swapEditor(this.drafts.composer);
+    this.focus = "list";
+  }
+  private swapEditor(text: string): void {
+    this.editor.clear();
+    if (text) this.editor.insert(text);
+  }
+
+  /* ---------- input ---------- */
   private async submit(text: string): Promise<void> {
     if (this.closing) return;
-    this.redraw();
     const trimmed = text.trim();
+    if (this.focus === "ask") {
+      this.drafts.ask = "";
+      this.focus = "list";
+      this.swapEditor(this.drafts.composer);
+      if (!trimmed) return;
+      this.go(CHAT);
+      return this.conversation.send(trimmed);
+    }
+    this.requestDraw();
     if (!trimmed) return;
-    if (this.awaiting) return this.answerApproval(trimmed);
-    if (trimmed === "/exit") return this.quit();
-    if (trimmed === "/new") {
-      this.sessionId = undefined;
-      this.emit("[new conversation; the next message starts it]");
-      return;
-    }
+    if (this.conversation.awaiting) return this.conversation.send(trimmed);
     if (trimmed.startsWith("/")) return this.command(trimmed);
-    this.queue.push(trimmed);
-    await this.drain();
+    this.scroll = 0;
+    await this.conversation.send(trimmed);
   }
-  private async drain(): Promise<void> {
-    if (this.busy) return;
-    this.busy = true;
-    try {
-      while (this.queue.length && !this.closing) await this.execute(this.queue.shift()!);
-    } finally {
-      this.busy = false;
-      this.drawFooterIfIdle();
-    }
+  async command(text: string): Promise<void> {
+    await runCommand(this.commandContext(), text);
+    this.requestDraw();
   }
-  private drawFooterIfIdle(): void {
-    if (!this.closing && this.style.cursor) { this.eraseFooter(); this.drawFooter(); }
+  private shortcut(name: string): void {
+    if (name === "ctrl+e") {
+      this.conversation.details = !this.conversation.details;
+      this.conversation.say("note", `[step details ${this.conversation.details ? "on" : "off"}]`);
+      if (this.conversation.details) for (const step of this.conversation.steps) this.conversation.say("step", `    ${step.tool} — ${step.detail || step.label} (${step.status})`);
+    }
+    if (name === "ctrl+l") { this.screen?.invalidate(); this.requestDraw(); }
   }
-
-  // ---- slash commands ------------------------------------------------------
-  private async command(text: string): Promise<void> {
-    const [name, ...rest] = text.split(/\s+/);
-    const argument = rest.join(" ");
-    try {
-      if (!(await this.simpleCommand(name!, argument)) && !this.modelCommand(name!, argument))
-        this.emit(`I do not know ${name}. Type /help for the list.`);
-    } catch (error) {
-      this.emit(`[${error instanceof Error ? error.message : String(error)}]`);
-    }
-  }
-  /** The commands that only show something or flip a switch. */
-  private async simpleCommand(name: string, argument: string): Promise<boolean> {
-    if (name === "/help") { for (const line of helpText) this.emit(line); return true; }
-    if (name === "/preset") {
-      if (!argument) for (const line of presetLines(this.runtime)) this.emit(line);
-      else this.emit(choosePreset(this.runtime, argument));
-      return true;
-    }
-    if (name === "/plan" || name === "/verify" || name === "/dry-run") return this.toggle(name, argument);
-    if (name === "/attach") {
-      if (!argument) throw new Error("Name a file: /attach report.pdf");
-      const attachment = await readAttachment(argument);
-      this.attachments.push(attachment);
-      this.emit(`[${attachment.name} goes with your next message]`);
-      return true;
-    }
-    if (name === "/history") { for (const line of historyLines(this.runtime, this.sessionId)) this.emit(line); return true; }
-    if (name === "/export") { this.emit(`[saved to ${await exportConversation(this.runtime, this.sessionId, argument || undefined)}]`); return true; }
-    return this.knowledgeCommand(name, argument);
-  }
-  private toggle(name: string, argument: string): boolean {
-    const on = argument ? argument === "on" : !(name === "/plan" ? this.plan : name === "/verify" ? this.verify : this.dryRun);
-    if (name === "/plan") { this.plan = on; this.emit(`[a short plan first: ${on ? "on" : "off"}]`); }
-    else if (name === "/verify") { this.verify = on; this.emit(`[a reviewer checks the answer: ${on ? "on" : "off"}]`); }
-    else { this.dryRun = on; this.emit(`[practice run: ${on ? "on, nothing is really changed" : "off"}]`); }
-    return true;
-  }
-  private knowledgeCommand(name: string, argument: string): boolean {
-    const owner = this.runtime.owner;
-    if (name === "/skills") {
-      const skills = this.runtime.store.skills.list(owner);
-      if (!skills.length) this.emit("No skills installed. Add SKILL.md documents in the app's Skills view.");
-      for (const skill of skills) this.emit(`${skill.activeVersion ? "*" : " "} ${skill.name} — ${skill.description}`);
-      return true;
-    }
-    if (name === "/memory") {
-      const facts = argument ? this.runtime.store.searchMemory(owner, argument) : this.runtime.store.list("memory", owner).slice(0, 20);
-      if (!facts.length) this.emit(argument ? "No saved facts match that." : "Nothing saved to memory yet.");
-      for (const fact of facts) this.emit(`- ${String(fact.data.text)} (${String(fact.data.source)})`);
-      return true;
-    }
-    return false;
-  }
-  private modelCommand(name: string, argument: string): boolean {
-    const models = this.runtime.models, owner = this.runtime.owner;
-    if (name === "/models" || (name === "/model" && !argument)) {
-      const summary = models.summary(owner), active = this.model ?? summary.activePreset ?? summary.defaultPreset;
-      for (const preset of summary.presets) this.emit(`${preset.id === active ? "*" : " "} ${preset.id} — ${preset.name} · ${preset.model}`);
-      return true;
-    }
-    if (name === "/model") {
-      if (!models.presets.has(argument)) { this.emit(`No model called ${argument}. Use /model to list them.`); return true; }
-      this.model = argument;
-      if (this.sessionId) models.configureSession(owner, this.sessionId, { preset: argument });
-      this.emit(`[model set to ${models.presets.get(argument)!.name} for this conversation]`);
-      return true;
-    }
-    if (name === "/think") {
-      const choice = argument === "default" ? null : argument;
-      if (choice !== null && !["low", "medium", "high"].includes(choice)) { this.emit("Use /think low, medium, high or default."); return true; }
-      this.reasoning = choice as ReasoningEffort | null;
-      if (this.sessionId) models.configureSession(owner, this.sessionId, { reasoning: this.reasoning });
-      this.emit(`[thinking set to ${choice ?? "the model's default"} for this conversation]`);
-      return true;
-    }
-    return false;
+  private onSignal = (): void => this.conversation.interrupt();
+  private onResize = (): void => { this.screen?.invalidate(); this.requestDraw(); };
+  private onMouse(event: MouseEvent): void {
+    if (this.screen) routeMouse(this, event, this.hits);
   }
 
-  // ---- running a task ------------------------------------------------------
-  private async execute(prompt: string): Promise<void> {
-    const active: ActiveRun = { controller: new AbortController(), eventId: 0, steps: [] };
-    this.active = active;
-    const images = this.attachments.map((attachment) => attachment.image).filter((image): image is ImagePart => !!image);
-    const text = prompt + attachedText(this.attachments);
-    this.attachments = [];
-    this.write(windowTitle(this.style, prompt.slice(0, 60)) + progressIndicator(this.style, "working"));
-    const poll = setInterval(() => this.progress(active), this.pollIntervalMs);
-    try {
-      const run = await this.runtime.run({
-        prompt: text, signal: active.controller.signal,
-        ...(this.sessionId ? { sessionId: this.sessionId } : {}),
-        ...(this.model ? { model: this.model } : {}),
-        ...(this.reasoning !== undefined ? { reasoning: this.reasoning } : {}),
-        ...(images.length ? { images } : {}),
-        ...(this.plan ? { plan: true } : {}), ...(this.verify ? { verify: true } : {}),
-        ...(this.dryRun ? { dryRun: true } : {}),
-        onStarted: (started) => { active.run = started; this.progress(active); },
-        onTextDelta: (delta) => { this.progress(active); this.streamDelta(delta); },
-      });
-      this.sessionId = run.sessionId;
-      this.progress(active);
-      this.report(run, prompt);
-    } catch {
-      this.emit("[the task could not start or finish; run `branch logs` on it for details]");
-    } finally {
-      clearInterval(poll);
-      this.lastSteps = active.steps;
-      this.active = undefined;
-      this.flushStream();
-      this.write(progressIndicator(this.style, "none") + windowTitle(this.style, "Branch Agent"));
-    }
+  /* ---------- what the commands can reach ---------- */
+  commandContext(): CommandContext {
+    return {
+      runtime: this.runtime, conversation: this.conversation, words: this.words,
+      say: (kind, text) => this.conversation.say(kind, text),
+      open: (route) => (typeof route === "string" ? this.open(route) : this.go(route)),
+      theme: (argument) => this.theme(argument),
+      togglePane: (tab) => this.togglePane(tab),
+      lockdown: (argument) => this.lockdown(argument),
+      switchSetting: (name, value) => this.switchSetting(name, value),
+      resume: (id) => this.resume(id),
+      sessions: () => this.sessions(),
+      newConversation: () => this.newConversation(),
+      quit: () => this.quit(),
+      keys: () => this.keys(),
+    };
   }
-  /** What the person sees when a task stops, including the question it stopped on. */
-  private report(run: Run, prompt: string): void {
-    this.flushStream();
-    if (run.status === "completed") {
-      this.emit(paint(this.style, "green", "Assistant:"));
-      this.emit(safe(run.output));
-      // What this one answer used and cost, under it. The status line keeps the running totals.
-      const line = answerLine(runTotals(this.runtime, run.id, activeModel(this.runtime, this.model)));
-      if (line) this.emit(paint(this.style, "dim", line));
+  newConversation(): void {
+    this.conversation.reset();
+    this.printed = 0;
+    this.go(CHAT);
+    this.conversation.say("note", "[new conversation; the next message starts it]");
+  }
+  resume(id: string): void {
+    const found = this.runtime.store.recentSessions(this.runtime.owner, 100).sessions.find((entry) => entry.sessionId === id || entry.sessionId.startsWith(id));
+    if (!found) { this.conversation.say("warn", this.words.t("terminal.noConversation", "There is no conversation {id}.", { id })); return; }
+    this.conversation.reset(found.sessionId);
+    this.printed = 0;
+    this.go(CHAT);
+  }
+  sessions(): void {
+    const recent = this.runtime.store.recentSessions(this.runtime.owner, 30).sessions;
+    if (this.screen) {
+      const items = recent.map((entry) => ({ label: (entry.opening || entry.sessionId).replace(/\s+/g, " ").slice(0, 80), section: entry.createdAt.slice(0, 16).replace("T", " "), hint: entry.sessionId.slice(0, 8), run: `/sessions ${entry.sessionId}` }));
+      this.overlay = { kind: "picker", title: this.words.t("rail.recents", "Recents"), items, selected: 0 };
+      this.requestDraw();
       return;
     }
-    const waiting = this.runtime.approvals.waiting(run.sessionId).at(-1);
-    if (run.status === "needs_input" && waiting) return this.askApproval(waiting, prompt);
-    if (run.status === "needs_input") { this.emit(safe(run.output)); return; }
-    this.emit(paint(this.style, "yellow", `[task ${run.status}] ${safe(run.output).slice(0, 500)}`));
+    if (!recent.length) this.print(this.words.t("terminal.noConversations", "No conversations yet."));
+    for (const entry of recent) this.print(`${entry.sessionId.slice(0, 8)}  ${entry.createdAt.slice(0, 16).replace("T", " ")}  ${entry.opening.replace(/\s+/g, " ").slice(0, 60)}`);
   }
-  private askApproval(waiting: PendingApproval, prompt: string): void {
-    this.awaiting = waiting;
-    this.awaitingPrompt = prompt;
-    this.emit(paint(this.style, "yellow", "[Branch needs your yes before it goes on]"));
-    this.emit(`What: ${waiting.label}`);
-    this.emit(`Tool: ${waiting.tool}`);
-    if (waiting.target) this.emit(`Exactly: ${waiting.target}`);
-    this.emit("Answer y (yes), n (no), a (yes, always) or s (yes, for this conversation), then Enter.");
+  togglePane(tab?: string): void {
+    const tabs = ["activity", "plan", "files", "memory"];
+    if (tab && tabs.includes(tab)) this.pane = { open: true, tab, auto: false };
+    else this.pane = { ...this.pane, open: !this.pane.open, auto: false };
+    if (!("place" in this.route && this.route.place === "chat")) this.go(CHAT);
+    if (!this.screen) this.conversation.paneRows(this.pane.tab, this.words).forEach((row) => this.print(`- ${row.title}${row.detail ? " — " + row.detail : ""}`));
+    this.requestDraw();
   }
-  /** y / n / a / s, answered through the same policy route the app's settings screen uses. */
-  private async answerApproval(text: string): Promise<void> {
-    const waiting = this.awaiting!, choice = text.trim().toLowerCase()[0];
-    if (!choice || !"ynas".includes(choice)) { this.emit("Please answer y, n, a or s."); return; }
-    this.awaiting = undefined;
-    const decision = choice === "n" ? "deny" : "allow";
-    const remember = choice === "a" ? "always" : choice === "s" ? "session" : choice === "n" ? "session" : waiting.remember;
-    try {
-      // Bound to the exact request the person was shown, the same as the app's own card.
-      const answered = this.runtime.approve(waiting.sessionId, decision, remember, waiting.fingerprint);
-      this.emit(`[noted: ${answered.decision === "allow" ? "go ahead" : "do not do that"} for ${answered.tool}${answered.target ? " on " + answered.target : ""}]`);
-    } catch (error) {
-      this.emit(`[${error instanceof Error ? error.message : String(error)}]`);
-      return;
-    }
-    this.queue.push(this.awaitingPrompt);
-    await this.drain();
+  lockdown(argument: string): void {
+    const { store, owner } = this.runtime;
+    const on = argument === "on" ? true : argument === "off" ? false : !lockdownState(store, owner).on;
+    setLockdown(store, owner, { on });
+    this.conversation.say(on ? "warn" : "note", on ? this.words.t("lockdown.on", "Lockdown is on. Everything waits for your yes.") : "[Lockdown is off]");
+    void this.reload();
   }
-  /** New events since last time, as one short row each; Ctrl+E shows what is behind them. */
-  private progress(active: ActiveRun): void {
-    if (!active.run) return;
-    for (const event of this.runtime.store.events(active.run.id)) {
-      if (event.id <= active.eventId) continue;
-      active.eventId = event.id;
-      const row = stepRow(event, active.steps);
-      if (row) this.emit(this.details ? `${row} — ${String(event.kind)}` : row);
-    }
+  switchSetting(name: string, value: string): void {
+    const key = name === "pane" ? "sidePane" : name;
+    if (!["mouse", "sidePane", "oak"].includes(key)) { this.conversation.say("warn", "Use /switch mouse, /switch sidePane or /switch oak."); return; }
+    const current = this.switches[key as keyof TerminalSwitches];
+    const next = value || (current === "off" ? "when-needed" : current === "when-needed" ? "on" : "off");
+    this.switches = saveTerminalSwitch(this.runtime.store, this.runtime.owner, key, next);
+    this.say(`${key}: ${next}`);
+    this.readLook(true);
+    void this.reload();
   }
-  private finish(): void {
+  async theme(argument: string): Promise<void> {
+    const { store, owner } = this.runtime;
+    const word = argument.trim();
+    if (!word || word === "list") return this.themeList();
+    if (["light", "dark", "follow"].includes(word)) saveLookMode(store, owner, word as LookMode | "follow");
+    else if (word === "mode") saveLookMode(store, owner, this.mode === "follow" ? "dark" : this.mode === "dark" ? "light" : "follow");
+    else if (word === "contrast") await saveLook(store, owner, { contrast: this.look.contrast === "more" ? "standard" : "more" });
+    else if (word === "language") await saveLook(store, owner, { language: this.look.language === "auto" ? "en" : this.look.language === "en" ? "fr" : "auto" });
+    else await saveLook(store, owner, { theme: word });
+    this.previewTheme = undefined;
+    this.readLook(true);
+    this.say(`${this.words.t("look.theme", "Theme")}: ${this.themeName()} · ${this.mode}`);
+    void this.reload();
+  }
+  private themeList(): void {
+    if (!this.catalogue) return;
+    const items = themeItems(this.catalogue, this.look.theme);
+    if (!this.screen) { for (const item of items) this.print(`${item.label} (${item.hint}) — ${item.section}`); return; }
+    const selected = Math.max(0, this.catalogue.THEMES.findIndex((theme) => theme[0] === this.look.theme));
+    this.overlay = { kind: "picker", title: this.words.t("look.allThemes", "All 44 themes…"), items, selected };
+    this.requestDraw();
+  }
+  keys(): void {
+    const lines = [
+      ...helpLines(this.words),
+      "",
+      this.words.t("terminal.keys.help1", "Esc, then 1-5 (or Alt+1 to Alt+5): Conversation, Inbox, Automations, Library, Customize"),
+      this.words.t("terminal.keys.help2", "Ctrl+K or /: find anything · Ctrl+N: new conversation · Ctrl+P or F2: side pane"),
+      this.words.t("terminal.keys.help3", "In a place: up and down choose, left and right change tab, Enter opens, Tab asks"),
+      this.words.t("terminal.keys.help4", "In Settings: left and right change page, Tab changes the Models tab, Esc closes"),
+      this.words.t("terminal.keys.help5", "PgUp and PgDn scroll the conversation · Ctrl+L draws everything again"),
+    ];
+    if (!this.screen) { lines.forEach((line) => this.print(line)); return; }
+    this.overlay = { kind: "help", lines, offset: 0 };
+    this.requestDraw();
+  }
+  openPalette(query = ""): void {
+    const recent = this.runtime.store.recentSessions(this.runtime.owner, 8).sessions;
+    this.overlay = { kind: "palette", query, items: paletteItems(this.words, recent, query, this.style.unicode ? " › " : " > "), selected: 0 };
+    this.readLook(true);
+    this.requestDraw();
+  }
+  closeOverlay(): void {
+    if (this.previewTheme) { this.previewTheme = undefined; this.readLook(true); }
+    this.overlay = undefined;
+    this.readLook(true);
+    this.requestDraw();
+  }
+
+  quit = (): void => {
+    if (this.closing) return;
+    this.closing = true;
+    this.conversation.stop();
+    clearInterval(this.spinner);
+    clearTimeout(this.toastTimer);
+    const reset = progressIndicator(this.style, "none") + windowTitle(this.style, "Branch Agent");
+    if (this.screen) this.screen.leave(reset);
+    else this.output.write(reset);
+    this.output.write("Goodbye.\n");
     this.editor.detach();
     this.input.removeListener("end", this.quit);
     this.signals.removeListener("SIGINT", this.onSignal);
+    this.output.removeListener?.("resize", this.onResize);
     this.resolveDone?.();
     this.resolveDone = undefined;
-  }
-}
-
-const cleanName = (value: unknown): string => String(value ?? "").replace(/[^a-zA-Z0-9_.:-]/g, "?").slice(0, 100);
-
-/**
- * Wave 8: what a task used, in one line, for the terminal. Reported figures are what the service
- * itself counted; where it counted nothing, the estimate is named as an estimate rather than
- * passed off as the real number. Nothing at all is said when neither is known.
- */
-export function usageLine(store: Store, run: Run): string | null {
-  const used = store.usage(run.id);
-  const at = (name: string): number => used[name] ?? 0;
-  const reported = at("reportedInput") + at("reportedOutput");
-  const estimated = at("estimatedInput") + at("estimatedOutput");
-  if (!reported && !estimated) return null;
-  const words = reported
-    ? `${at("reportedInput")} in, ${at("reportedOutput")} out (counted by the service)`
-    : `about ${at("estimatedInput")} in, about ${at("estimatedOutput")} out (an estimate)`;
-  const cost = runCost(store, run, used);
-  return `[tokens: ${words}${cost ? ` · ${cost}` : ""}]`;
-}
-
-/**
- * What one task cost, priced with whatever model actually answered. Where no price is on file for
- * that model, nothing is said at all rather than a figure nobody can stand behind.
- */
-export function runCost(store: Store, run: Run, used: Record<string, number>): string | null {
-  const model = store.events(run.id)
-    .filter((event) => event.kind === "model.completed" && typeof event.data.model === "string")
-    .map((event) => String(event.data.model)).at(-1);
-  if (!model) return null;
-  const { overrides } = pricingTableInUse(store, run.owner);
-  const estimate = estimateCost(model, {
-    input: used.reportedInput ?? used.estimatedInput ?? 0,
-    output: used.reportedOutput ?? used.estimatedOutput ?? 0,
-  }, overrides);
-  return estimate.amount === null ? null : `${model} · ${formatCost(estimate)}`;
-}
-/**
- * One compact row per step, and nothing at all for events that are only interesting inside. Tool
- * results and error bodies never reach here: only the name of the tool and what it was asked to
- * touch, both of which the person already chose.
- */
-export function stepRow(event: Event, steps: Step[]): string | undefined {
-  const label = typeof event.data.label === "string" ? event.data.label.slice(0, 120) : "";
-  const tool = cleanName(event.data.name);
-  if (event.kind === "tool.started") {
-    steps.push({ label: label || tool, tool, status: "working", detail: String(event.data.target ?? "") });
-    return `  · ${label || tool}`;
-  }
-  if (event.kind === "tool.completed" || event.kind === "tool.failed") {
-    const step = steps.findLast((entry) => entry.tool === tool && entry.status === "working");
-    if (step) step.status = event.kind === "tool.failed" ? "failed" : "done";
-    return `  ${event.kind === "tool.failed" ? "x" : "ok"} ${label || step?.label || tool}`;
-  }
-  if (event.kind === "policy.ask") return `  ? ${label || tool} is waiting for your yes`;
-  if (event.kind === "tool.simulated") return `  ~ ${label || tool} (practice run; nothing was changed)`;
-  if (event.kind === "model.retry_scheduled") return "  · the model is busy; trying again";
-  if (event.kind === "run.steered") return "  · your note was added to the task";
-  if (event.kind === "plan.created") return "  · a plan was written";
-  return undefined;
+  };
 }

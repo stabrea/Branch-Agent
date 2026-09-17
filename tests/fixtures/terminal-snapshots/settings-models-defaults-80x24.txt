@@ -1,0 +1,24 @@
+ ♣ Branch Agent · Settings › Models › Defaults          ● Offline demonstration
+  1 Conversation   2 Inbox 2   3 Automations   4 Library   5 Customize
+ Settings › Models  (5/12)
+ < Notifications   Voice >
+   MODELS
+   Which models your assistant uses, and how it signs in to them.
+
+    Connection   Defaults   On this computer   Second opinion   Pictures & sound
+
+   › ● Offline demonstration
+     demo · demo
+
+
+
+
+
+
+
+
+
+
+
+
+ Left and right change page · Enter chooses · Esc closes

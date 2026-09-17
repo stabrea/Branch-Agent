@@ -990,6 +990,61 @@ Any part of Branch that reads what a folder carries asks `isFolderTrusted(store,
 
 **macOS and Linux.** Both work the same on every system. Folder decisions compare paths with letter case on macOS and Linux and without it on Windows. Note files are listed whatever their letter case, since the usual macOS disk (and Windows) ignores case. A skills or plugin folder that is a link is never looked into.
 
+## Always allow, per command, and a second look before approvals (wave mac3)
+
+**Always allow, per command.** "Yes, always" (and "No, always") to a command is remembered for that
+one action of the program, not for the exact words and not for the whole program: a yes to
+`git status` covers `git status --short`, and `git push` is still asked
+about; `npm run dev` stays separate from `npm install`. How many words name the action comes from
+OpenCode's table (`src/command-prefix.ts`): `git` takes two, `npm run` three, `ls` one. The rule is
+written as `{ match: "*", resource: { kind: "command", pattern: "git status" } }`; for a program on
+another computer the computer stays in `match` (`"tower: *"`). A command is remembered word for word,
+exactly as before, when it is not a plain list of words (`;`, `&`, `|`, `<`, `>`, `$`, a backtick or a
+bracket), when the table does not know the program, when a flag or quote sits where the action should
+be, and when it is a one-word action that can change something (`rm`, `mv`, `chmod`, `env`,
+`source`). A joined command (`git status && rm -rf ~`) is covered by an allow rule only word for word,
+and by an ask or deny rule when any piece of it is, so joining commands can never get past a rule. A
+command sent to a kept-open command line (`shell.session.run`) is judged by the command it sends.
+
+**A second look before approvals.** `GET|POST /api/approval-reviewer { mode, preset, rules, maxTokens }`
+(`ReviewerSettingsSchema`, Settings → Permissions → A second look before approvals). It ships **off**.
+Another model reads a tool call before the approval card and answers two things: whether the call
+only reads, and — against the owner's own rules in plain English (`rules`; empty uses
+`stockReviewRules`) — whether it is fine, should be asked about, or should be refused. The call is
+given to it as untrusted data after a marker, with saved passwords and anything that looks like a key hidden (the leak guard). While it is off the
+saved setting is read once and kept, so a call costs nothing extra.
+*Only reads* is used only for tools that do not say what they do (another AI tool's tools) and only in
+tasks the owner started, and never for a tool whose name says it changes something (`delete`, `send`,
+`write`…); it can only turn a question into a yes (Ask before changes), never a refusal (Read only, or a
+deny rule) and never a rule for everything. *Fine / ask / refuse*
+can only make the answer stricter: "ask" turns a yes into a question, and "refuse" turns the call into
+a question carrying the reason that the owner may allow **only this once** ("Yes, just now";
+`onceOnly: true` on the waiting question). A longer-lasting yes to it is refused with a 400, and
+nothing is written into the rules. The one-time pass is spent on the next identical request in that
+conversation (`policy.overruled`). **When needed** looks at tools that do not say what they do and at
+commands no rule decides about; **On** also looks at every call that would wait for a yes, and at every
+command and unknown tool the rules let through. A yes the owner already gave for that very request is
+never looked at again. `preset` picks the connection (empty: the one answering); each look has its
+own budget (`maxTokens`) and 30 seconds. If it fails, times out or answers in a shape that cannot be
+read, the rules decide exactly as they would with it off, and `policy.review_failed` says why; a look
+that answered writes `policy.reviewed`. Practice runs are never looked at. A short-lived key cannot
+change these settings.
+
+**What a remembered yes never covers** (integration review). A program named with a folder (`./git`,
+`/tmp/git`, `C:\Temp\git`) is not the program a yes was given to: an allow covers it only when the rule
+names that folder too, and a refusal or question naming the bare program still reaches it. A flag that
+makes the action run or load something else (`git grep -O…`, `git fetch --upload-pack=…`,
+`npm run dev --script-shell=…`, `npm exec x --package=…`, `make build SHELL=…`) is covered only word for
+word. Line and page breaks other than a newline, no-break spaces and invisible characters count as shell
+syntax. A refusal or question also looks past quotes, backslashes, `VAR=value` and wrapper programs
+(`sudo`, `env`, `xargs`, `sh -c`, `find -exec`, `npx`). A command is judged whole from its arguments, not
+from its 300-character target. A remembered command with a `*` in it is kept as an exact rule
+(`resource.exact: true`), so `rm -rf *` never covers `rm -rf /`, and an allow that names a command only
+through `match` (`"npm *"`) covers plain commands only. A `*` in any rule now also fits a line break.
+
+**macOS and Linux.** Both work the same on every system. A program's folder is read whether it is
+written with `/` or `\`.
+
 ## Teams, linked chats, registries and evaluation
 
 `POST /api/teams { name, purpose, members: [{ specialistId, role, brief }] }` creates a team with a room; `POST /api/teams/:id/run { prompt }` fans the task out to every member and appends answers to the room (`GET /api/teams/:id/room`). `POST /api/channels/link { channel, chatId, sessionId }` makes a chat continue an existing conversation. `POST /api/registry/browse { url }` and `POST /api/registry/install { url, skillId }` work with a `branch-skill-registry` JSON index; installed skills stay disabled until activated. `POST /api/evaluation` (empty body for the standard suite) or `branch eval` records accuracy, latency and cost; energy is reported unavailable.
@@ -1367,6 +1422,14 @@ The Usage screen shows the experiments you have written down under the card for 
 
 Shell: `maxMemoryMb` (default 1024) and `maxCpuSeconds` (default 60) stop a command whose sampled usage passes the limit (reasons `memory_limit`, `cpu_limit`); results carry `usage.peakMemoryMb` and `usage.cpuSeconds`. Network: the `web` section accepts `allowedHosts`, `blockedHosts`, `allowedPaths` and `blockedPaths` (rules look like `api.github.com/repos/`); the same policy applies to web reading, browser navigation and MCP HTTP requests. Hooks: `hooks: [{ id, event, executable, args, failureThreshold, timeoutMs }]` in the integrations file, where `executable` names a shell alias; `GET /api/hooks`, `POST /api/hooks/:id/enable`. Streams: `GET /api/runs/:id/ws` (WebSocket; send the token as the second subprotocol after `bearer`). Channels: `POST /api/channels/test { channel, chatId }`.
 
+### Security self-check
+
+Settings → Permissions has a **Security check** card, and the command line has `branch security audit [--fix] [--json]` (it exits with 1 while anything urgent is left). It runs 85 named checks, each in plain words, over files and folders (who else can read or change Branch's private folder, the database, the key to saved passwords, the ChatGPT sign-in, the app's own key, the launch settings file, plugins, saved website sign-ins, logs and backups; links; the private folder or workspace inside iCloud, Dropbox, OneDrive or Google Drive or a shared place), secrets, the phone door, short-lived keys, approval rules, the programs the assistant may run, the web and the browser, add-ons, models and chat services. The full list is `securityChecks` in `src/security-audit/audit.ts`. Running it changes nothing. **Fix what Branch can** (`--fix`, `POST /api/security-check/fix { ids? }`) only ever takes other people's access away from Branch's own files: `chmod` to 700 or 600 on macOS and Linux, and on Windows `icacls <path> /inheritance:r /grant:r <you>:(F) *S-1-5-18:(F)` followed by `icacls <path> /remove:g *S-1-1-0 *S-1-5-11 *S-1-5-32-545`. A path that turned into a link is left alone; everything else is described with what to do. `branch doctor --fix` adds one line with the counts. Routes: `GET /api/security-check` (switches, last report, malware check status), `POST /api/security-check/run`, `/fix` and `/settings`; a short-lived key may run the check but not fix or change switches, and neither may a household profile (both stay with the owner).
+
+Two three-way switches, saved in `settings/security-check` and both **off** on a fresh install. `audit`: off runs the check only when asked; `when-needed` also gives the assistant one read-only tool, `settings.security_check` (permission `history.read`); `on` also runs it each time Branch starts. `malware`: before an outside server started with `npx`, `bunx`, `pnpm dlx`, `npm exec`, `uvx`, `uv tool run` or `pipx run` starts, also when wrapped in `cmd /c`, (from the launch settings or from "Try a server"), the package is looked up in OSV (`https://api.osv.dev/v1/query`, through the network policy; `BRANCH_OSV_ENDPOINT` points it elsewhere) and one with a `MAL-` advisory is refused with a plain sentence and a `connection.changed` line in the record. `when-needed` keeps each answer for a week, `on` for an hour. If OSV cannot be reached, answers badly, or the network policy refuses the address, the server starts as it did before and the reason shows on the card.
+
+macOS and Linux: permissions are the file mode bits, a folder is open to others when its group or everyone may read or enter it, and files inside a private folder nobody else can enter are not reported again. The iCloud check also notices "Desktop and Documents" syncing. Windows: access lists are read with `icacls <path>`, and the broad groups are recognised by their English, French and German names.
+
 ## Memory over time, scopes and admission
 
 `memory.put` accepts `entity`, `attribute` and `validFrom`; a newer fact for the same entity and attribute ends the earlier one at that moment. `memory.at { entity, attribute?, at? }` returns the facts true at a moment; `memory.timeline { entity }` lists them in order. Facts carry `scope`: `private` (default), `shared`, or `agent:<specialist id>`; delegated specialists see shared facts and their own only. `GET|POST /api/sessions/:id/memory-policy { remember }` controls whether a conversation may save memory on its own (forgetting a conversation denies it; allowing re-admits it). `POST /api/memory/hygiene { olderThanDays, action: preview | archive | purge }` and `GET /api/memory/archive` back the Tidy up controls in the Memory view.
@@ -1379,13 +1442,93 @@ A recipe (`procedures.propose`) may declare `parameters` (`{ name: { type: "stri
 
 `branch <command>` (or `node dist/cli.js <command>`) is the whole command line; `branch help` lists it. Nothing here needs the web app to be running.
 
-**Talking in the terminal.** `branch chat` opens the full terminal view: a status line that stays put above what you type (which model is answering, how many tokens and how much money this conversation has used, and which approval preset is in force), answers wrapped to the window as they stream, and one short row for each step — `· Writing notes.txt` while it happens, `ok Writing notes.txt` when it is done. Press **Ctrl+E** to show or hide what is behind those rows. **Enter** sends, **Alt+Enter** adds another line to the same message, the **up arrow** brings back a message you already sent, **Ctrl+C** stops the task in hand without closing the terminal, and **Ctrl+D** leaves. It is drawn with Node's own readline and escape sequences; there is no extra package involved.
+**Talking in the terminal.** `branch` on its own, in a terminal, opens the terminal view; `branch chat` opens the same view. (Run with no terminal attached — a launcher, a service, a pipe — `branch` on its own still starts the web app, exactly as before.) The view is the window's design in character cells (`docs/design.md`, `docs/places.md`):
 
-The commands inside it are `/help`, `/model [id]`, `/think <low|medium|high|default>`, `/preset [name]`, `/memory [words]`, `/skills`, `/plan`, `/verify`, `/dry-run`, `/attach <file>`, `/history`, `/export [file]`, `/new` and `/exit`. `/plan`, `/verify` and `/dry-run` switch on and off and apply to every message after that. `/attach` takes a picture (PNG, JPEG, WebP or GIF) as a picture and any other text file as words added to your next message. `/export` writes the conversation to a Markdown file in your workspace.
+- **The head** carries the KeepOak mark and the assistant's name, the page you are on (`Inbox › Needs you`, `Settings › Models › Defaults`), the model that answers, and the Lockdown shield while Lockdown is on. While it is on, a red line under the head says so on every page.
+- **The tab row** holds the five places in the window's order and with the window's names — Conversation, Inbox (with a count of what waits for your yes), Automations, Library, Customize.
+- **The conversation** is one column of messages with the composer floating at its foot: the model chip first, then what the next message carries (the approval preset, attached files, practice run, a plan first). Each step the assistant takes is one short row — `· Writing notes.txt` while it happens, `ok Writing notes.txt` when it is done — and **Ctrl+E** shows what is behind those rows. The **side pane** (Activity, Plan, Files, Memory) opens with **Ctrl+P** or **F2**; under 100 columns it floats over the conversation, as the window's does under 1180 px.
+- **Every other place** reads as the window's places do: its name, one sentence saying what it holds, its tabs, and its rows, each a title and one plain line. An empty tab says what the tab is for and what to do next. The ask box at the foot sends a question straight to the conversation.
+- **Settings** opens as a window over the place you were in, with its twelve pages down the left (in a strip along the top under 86 columns) and the five Models tabs. Appearance, Models › Defaults and Permissions can be changed right there; the other pages say what they hold and where the rest of the page is.
+- **Ctrl+K** (or **/** in an empty composer) opens the palette: every place and tab, every Settings page, the top actions, recent conversations and every slash command. Typing narrows it; Enter goes.
+
+**Keys.** **Enter** sends, **Alt+Enter** adds a line, the **up arrow** brings back a message you sent, **PgUp**/**PgDn** scroll the conversation, **Ctrl+C** stops the task in hand without closing anything, **Ctrl+N** starts a conversation, **Ctrl+L** draws everything again and **Ctrl+D** leaves. **Esc** steps out of the composer without touching what you typed; then **1** to **5** open the places (**Alt+1** to **Alt+5** work from anywhere). In a place, the up and down arrows choose a row, left and right change tab, **Enter** opens a row and **Tab** moves to the ask box; **Esc** goes back to the conversation. In Settings, left and right change page and **Tab** changes the Models tab. **F1**, `/help` or `/keys` lists all of this. A paste arrives whole, line breaks and all, rather than sending half of it. Nothing needs a mouse.
+
+**Three switches, all off.** `/switch mouse`, `/switch sidePane` and `/switch oak` (or Settings › Appearance in the view) each take on, off or when needed, and a fresh install has all three off. *Clicks and the wheel*: on catches them everywhere; when needed only while the palette or Settings is open; off never, so your terminal's own text selection always works. *The side pane opens by itself*: on opens it when the view starts; when needed opens it while a task works and folds it when the task ends; off leaves it to Ctrl+P. *The oak*: the window's pixel oak, drawn on an empty conversation in the season of the year from the theme's own colours; on whenever it fits, when needed only on a terminal of 30 rows or more.
+
+The commands inside it are `/help` (and `/keys`), `/model [id]`, `/think <low|medium|high|default>`, `/preset [name]`, `/memory [words]`, `/skills`, `/plan`, `/verify`, `/dry-run`, `/attach <file>`, `/history`, `/export [file]`, `/new`, `/sessions [id]`, `/go <place>`, `/inbox`, `/automations`, `/library`, `/customize`, `/settings [page]`, `/theme`, `/default <id>`, `/switch`, `/pane`, `/lockdown [on|off]` and `/exit`. They live in one table (`src/terminal-command-table.ts`) that the help, the palette and the parser all read, and several answer to the names Hermes and OpenClaw use (`/reset`, `/clear`, `/models`, `/reasoning`, `/config`, `/tools`, `/cron`, `/skin`, `/pause`, `/quit`). `/plan`, `/verify` and `/dry-run` switch on and off and apply to every message after that. `/attach` takes a picture (PNG, JPEG, WebP or GIF) as a picture and any other text file as words added to your next message. `/export` writes the conversation to a Markdown file in your workspace. `/go` takes any place, tab or Settings page by id, English name or French name: `/go inbox finished`, `/go settings models defaults`, `/go Bibliothèque`.
 
 **When it stops to ask.** If your approval preset makes a task pause, the terminal shows the question with the tool and the exact file or command, and takes **y** (yes, remembered as the rule suggests), **n** (no), **a** (yes, always — written into your approval settings as a rule) or **s** (yes, for this conversation), then Enter. The answer goes through the same route as the app's **Settings → When to check with me** screen, and the task carries straight on.
 
-**When the terminal cannot take it.** `branch chat` falls back to the plain streaming view when stdout is not a terminal, when you pass `--plain`, or when you set `NO_COLOR`. `FORCE_TTY=1` asks for the full view anyway (this is what the tests use), and `FORCE_TTY=0` asks for the plain one. With `NO_COLOR` set, or `TERM=dumb`, nothing writes a single escape sequence: no colour, no cursor movement, no window title and no progress indicator. `COLUMNS` and `LINES` override the window size. On a terminal that takes them, the window title follows the task in hand and Windows Terminal's taskbar progress indicator (OSC 9;4) turns on while a task is working; `BRANCH_TUI_DECORATIONS=0` turns just those two off.
+**When the terminal cannot take it.** `branch chat` falls back to the plain streaming view when stdout is not a terminal or when you pass `--plain`. With `NO_COLOR` set, or `TERM=dumb`, the view prints plain lines and writes not a single escape sequence — no colour, no cursor movement, no window title, no progress indicator — and every slash command, place and Settings page still works, printed as lines. `FORCE_TTY=1` asks for the full view anyway (this is what the tests use), and `FORCE_TTY=0` asks for the plain one. `COLUMNS` and `LINES` override the window size; the view redraws itself when the window changes size and works from 80×24 up. The view is drawn on the terminal's second screen with line wrapping off, so leaving puts back exactly what was there. On a terminal that takes them, the window title names the place you are in and Windows Terminal's taskbar progress indicator (OSC 9;4) turns on while a task is working; `BRANCH_TUI_DECORATIONS=0` turns just those two off.
+
+**Colours: the same 44 themes as the window.** Nothing in the terminal names a colour. It reads the window's own table (`public/theme-catalogue.js`), lays each see-through colour over the theme's ground, and writes the result at the depth the terminal shows: true colour where `COLORTERM` is `truecolor` or `24bit`, in Windows Terminal (`WT_SESSION`), in iTerm, WezTerm, VS Code, Ghostty and Hyper, and in the Windows console from build 14931; the 256-colour table where `TERM` ends in `-256color` or in macOS Terminal; the sixteen colours elsewhere, where the terminal's own background and text colour stand in for the ground and the words so a light theme never writes dark text on a dark terminal. A colour lands on the numbered colour that looks nearest (distance in Lab space). `FORCE_COLOR=0…3` and `BRANCH_COLOR=truecolor|256|16|none` choose the depth by hand. Box lines, the dot and the ellipsis are drawn where they can be shown; `BRANCH_ASCII=1` (or a locale that is not UTF-8, or the Linux console) draws plain ASCII instead.
+
+**One theme, two surfaces.** `branch theme <name>` (or `/theme` in the view, or Settings › Appearance in the view) and Settings › Appearance in the window are the same setting. The theme, the extra contrast and the language are kept with the workspace (`GET`/`POST /api/look`); light or dark stays in the preferences record the window has always saved, and "follow this computer" follows the terminal's own background (`COLORFGBG`) in the terminal. The window reads `/api/look` when it opens and whenever it comes back into view, and picks a theme the terminal chose since it last looked by pressing that theme's own tile (`public/look-sync.js`); a theme picked in the window is saved there for the terminal. Moving through the theme list in the view shows each theme as it is passed, Enter keeps it and Esc puts the saved one back. The words come from the window's language files (`public/locales/*.json`): French when the language is set to French, or set to "same as this computer" on a computer whose `LANG` is French.
+
+**macOS, Linux and Windows.** The view looks and works the same in Windows Terminal, PowerShell and cmd, macOS Terminal and iTerm, and Linux terminals. It uses only what all of them understand: the second screen, cursor placement, colour, bracketed paste and, only when switched on, SGR mouse reports; every row is written whole at its own position, so nothing depends on how a terminal wraps or turns a line break into two. Node reads the Windows console's keys as the same sequences a Mac or Linux terminal sends and writes its text as UTF-16, so the box lines show whatever the console's code page. There is no POSIX-only call anywhere in the view. The tests work out the style for a Windows Terminal environment (`WT_SESSION`, no `COLORTERM`), a Windows console, macOS Terminal, iTerm and Linux terminals, check that a Windows-style frame uses only sequences Windows understands, and compare every view at 80×24 and 120×40 in true colour, 256 colours, 16 colours and none with stored snapshots.
+
+**Every place by name, from the command line.** `branch inbox [needs|finished|history]`, `branch automations [tab]`, `branch library [tab]`, `branch customize [tab]` and `branch settings [page] [tab]` open the view there in a terminal, and print the same rows (one per line, or `--json`) anywhere else. `branch places` lists every home in `docs/places.md` with the command that opens it. `branch setup` opens Settings › Models › Connection. `branch resume [id|latest]` carries on a conversation in the view (and prints it without a terminal), `branch sessions [show <id>]` lists them, `branch model [use <id>]` lists the models or sets the one new conversations start with, `branch theme [name|list|light|dark|follow|contrast|language]` changes the look, `branch lockdown [on|off]` turns Lockdown on or off, `branch permissions [preset]` shows or sets when Branch checks with you, and `branch memory`, `branch skills`, `branch tools`, `branch channels`, `branch mcp`, `branch projects`, `branch usage` and `branch snapshots` print what the window shows. `branch version` (also `--version`) prints the version.
+
+**Hermes Agent and OpenClaw, side by side.** Typing `hermes` gives Hermes Agent's terminal and `openclaw` gives OpenClaw's; `branch` gives Branch's. The table below sets their commands beside Branch's. Only their command names were read (both are MIT); no code was taken. The table is kept as data in `src/terminal-parity.ts`, and a test checks that every Branch command it names exists. The names people bring with them work as they are: `config`, `skin`, `models`, `plugins`, `cron`, `approvals`, `insights`, `checkpoints`, `pause`, `serve`, `dashboard`, `acp`, `kanban`, `tasks`, `webhooks`, `hooks`, `documents`, `specialists`, `connections` and `mcp serve` each run the Branch command they mean.
+
+| What | Hermes Agent | OpenClaw | Branch | Status | Note |
+| --- | --- | --- | --- | --- | --- |
+| Interactive view | `hermes` | `openclaw` | `branch` | built | In a terminal it opens the designed view; anywhere else it runs `branch start` as before. |
+| Conversation | `hermes chat` | `openclaw tui \| terminal \| chat` | `branch chat` | existed | Redrawn in the window's design; `--plain` keeps the streaming view. |
+| One request, printed | `hermes -z \| chat -q` | `openclaw agent` | `branch run` | existed |  |
+| A scripted job | `hermes chat --query-file` | `openclaw agent exec` | `branch headless` | existed |  |
+| Carry on a conversation | `hermes --resume \| -c` | `openclaw resume` | `branch resume [id]` | built | `latest` or the first letters of a conversation's number. |
+| Earlier conversations | `hermes sessions` | `openclaw sessions \| transcripts` | `branch sessions [show <id>]` | built | Removing one lives in Settings › Data & usage. |
+| Which model answers | `hermes model` | `openclaw models list \| set \| status` | `branch model [list \| use <id>]` | built |  |
+| Fallback models | `hermes fallback` | `openclaw models fallbacks` | `branch settings models defaults` | window | settings:models:defaults |
+| Several models together | `hermes moa` | — | `branch settings models second` | window | settings:models:second |
+| Signing in to a model service | `hermes auth \| login \| logout \| portal` | `openclaw models auth \| onboard` | `branch login \| logout` | existed | Keys for other services: settings:models:connection. |
+| Setting up | `hermes setup` | `openclaw setup \| onboard \| configure` | `branch setup` | built | Opens Settings › Models › Connection; prints the health check when not in a terminal. |
+| Settings | `hermes config` | `openclaw config get \| set` | `branch settings [page] (also `config`)` | built | Reads every page; changes are made on the page itself. |
+| Status | `hermes status` | `openclaw status \| health` | `branch status` | existed |  |
+| Checking and repairing | `hermes doctor \| dump \| debug` | `openclaw doctor \| triage` | `branch doctor [--fix]` | existed |  |
+| What a task did | `hermes logs` | `openclaw logs` | `branch logs <task>` | existed |  |
+| Emergency stop | `hermes pause \| resume` | `openclaw gateway suspend \| resume` | `branch lockdown [on \| off] (also `pause`)` | built |  |
+| When to ask first | `hermes approvals` | `openclaw approvals \| exec-policy` | `branch permissions [preset]; branch approve` | built | `approve` already existed. |
+| Schedules | `hermes cron` | `openclaw cron` | `branch schedule (also `cron`); branch trigger` | existed |  |
+| Webhooks and hooks | `hermes webhook \| hooks` | `openclaw hooks \| webhooks` | `branch automations triggers` | built | Listed; edited at automations:triggers. |
+| Skills | `hermes skills \| bundles \| curator \| sync` | `openclaw skills` | `branch skills; branch skill pack \| install` | built | `skill` already existed; the rest is customize:skills. |
+| Plugins | `hermes plugins` | `openclaw plugins` | `branch plugin (also `plugins`)` | existed |  |
+| Tools | `hermes tools` | — | `branch tools` | built | Listed by toolbox; what may run without asking is settings:permissions. |
+| MCP servers | `hermes mcp` | `openclaw mcp` | `branch mcp; branch mcp-serve (also `mcp serve`)` | built | `mcp-serve` already existed. |
+| Code editors (ACP) | `hermes acp` | `openclaw acp` | `branch acp-serve (also `acp`)` | existed |  |
+| Chat apps | `hermes gateway \| whatsapp \| slack \| pairing \| peer` | `openclaw channels \| pairing \| directory` | `branch channels` | built | Listed; connecting and pairing are customize:channels. |
+| Sending a message out | `hermes send` | `openclaw message` | — | not applicable | Messages go out through the running engine's own connections, after Lockdown and approval checks; ask the assistant in the view. |
+| Memory | `hermes memory \| journey` | `openclaw memory \| wiki` | `branch memory [words]` | built |  |
+| Documents | — | — | `branch library documents` | built |  |
+| Backups | `hermes backup \| import` | `openclaw backup` | `branch backup \| restore` | existed |  |
+| Moving in from another assistant | `hermes import-agent \| claw migrate` | `openclaw migrate` | `branch import-agent` | existed | Branch's own file; bringing in other assistants is mac2/move-in at settings:data. |
+| Separate assistants | `hermes profile` | `openclaw agents` | `branch export-agent \| import-agent` | window | People on this computer: settings:general. |
+| Projects | `hermes project` | — | `branch projects` | built |  |
+| Updating | `hermes update` | `openclaw update` | `branch update` | existed |  |
+| Removing | `hermes uninstall` | `openclaw uninstall \| reset` | `branch daemon uninstall` | not applicable | The app itself is removed the way this computer removes any app. |
+| Working with the window closed | `hermes gateway install \| start \| stop` | `openclaw daemon \| gateway \| node` | `branch daemon install \| uninstall \| status` | existed |  |
+| The web app | `hermes dashboard \| serve` | `openclaw dashboard \| gateway run` | `branch start (also `serve`, `dashboard`)` | existed |  |
+| Shell completion | `hermes completion` | `openclaw completion` | `branch completion` | existed |  |
+| Version | `hermes --version` | `openclaw --version` | `branch version (also `--version`, `-v`)` | built |  |
+| Theme | `hermes skin` | — | `branch theme [name \| list \| light \| dark \| follow] (also `skin`)` | built | The same setting as Settings › Appearance. |
+| Usage and cost | `hermes insights` | `openclaw gateway usage-cost` | `branch usage (also `insights`)` | built |  |
+| Checkpoints | `hermes checkpoints` | `openclaw backup git` | `branch snapshots (also `checkpoints`)` | built | Putting one back is settings:data. |
+| Worktrees | `hermes worktree` | `openclaw worktrees` | `branch settings general` | window | A project's line of work is switched at settings:general. |
+| Task board | `hermes kanban` | `openclaw tasks` | `branch inbox [needs \| finished \| history]` | built |  |
+| Security audit | `hermes security audit` | `openclaw security audit` | `branch doctor` | not applicable | Branch installs no packages of its own to audit; `doctor` checks what Branch relies on. |
+| Secrets | `hermes secrets \| vault` | `openclaw secrets` | `branch settings secrets` | window | settings:secrets; values are never printed. |
+| Browser and screen | `hermes browser \| computer-use` | `openclaw browser \| nodes \| sandbox` | `branch settings computer` | window | settings:computer. |
+| Language servers | `hermes lsp` | — | `branch settings advanced` | window | settings:advanced, Help with code. |
+| Network reach | `hermes egress \| proxy` | `openclaw proxy \| dns` | `branch settings computer` | window | settings:computer. |
+| Telemetry | — | `openclaw telemetry` | — | not applicable | Branch sends none. |
+| Pets | `hermes pets` | — | `branch switch oak` | not applicable | Branch has its own oak: `/switch oak` in the view. |
+| Evaluations | — | `openclaw qa` | `branch eval \| study` | existed |  |
+| Short-lived keys | — | `openclaw devices \| gateway auth-token` | `branch token` | existed |  |
+| Pairing a phone | — | `openclaw qr` | `branch customize channels` | window | customize:channels. |
+| Prompt size | `hermes prompt-size` | — | `branch settings advanced` | window | settings:advanced, How the assistant finds its tools. |
+| Help | `hermes --help` | `openclaw docs` | `branch help; branch <command> --help` | existed |  |
+| Every place by name | — | — | `branch places; branch inbox \| automations \| library \| customize` | built | Every home in docs/places.md. |
 
 **For scripts.** `branch run "..."` takes `--json` (every event as one JSON object per line on stdout, human wording on stderr), `--attach <file>` (repeatable), `--plan`, `--verify`, `--dry-run`, `--preset <off|ask-before-changes|workspace|read-only>`, `--save-preset <same names>`, `--budget <tokens>` and `--timeout <milliseconds>`. `--preset` uses that approval setting **for this one task** and puts your saved setting back afterwards, so a script cannot quietly change what you chose; `--save-preset` changes the saved setting and stays changed, and says so on stderr. The exit code is the contract:
 
@@ -1585,6 +1728,17 @@ Branch's learning core (`src/fly-core/`) is modelled on the fruit fly's mushroom
 When a task ends, the core learns from how it went: finished or failed, checks passed or failed, what it cost, and whether your next message in the same conversation corrected it. That is written as `fly.learned`, with the reasons in plain words. When the same steps keep working for the same kind of request, the idea of making them a skill appears in the suggestions queue above. Accepting it only notes it for now. The core gives advice only: it changes nothing else, needs no model call, and keeps no words from your requests, only the names of the tools, skills and memories involved. It lives in the `fly_*` tables of the same database. How well it learns, and how that will be measured on real work, is in `experiments/fly-core/PLAN.md`.
 
 **macOS and Linux.** The learning core is plain TypeScript over the built-in SQLite and works the same on Windows, macOS and Linux.
+
+### Looking back and writing new skills
+
+Two switches, both saved in `settings/reflection` and both shipped **off** (`src/reflection/`). `GET /api/reflection` answers with the switches, the recent looks back, the skills the assistant wrote and the last background outcomes; `POST /api/reflection/settings` changes any of `reflection`, `everyTurns`, `newSkills` and `retireAfterDays`. Only the owner's profile may change them. From code, `app.learningLoop` does the same. The cards are in Library → Memory ("Looking back over conversations") and Customize → Skills ("Skills your assistant wrote").
+
+- `reflection` (`off`, `when-needed`, `on`). With `on`, once `everyTurns` of your turns (5–500, default 25) have passed in a conversation, and whenever a long conversation is shortened, the assistant rereads only the turns since its last look, beside what it remembers and which skills are on, and asks the model once, with no tools, for corrections, merges, facts to set aside and notes on skills. With `when-needed` it looks only when a conversation is shortened, or when you press *Look back now* (`POST /api/reflection/look-back { sessionId? }`). Every answer is a suggestion in the usual queue, grouped as one batch; a suggestion naming a fact or skill it was not shown, or reading like an order slipped in from outside, is dropped. `POST /api/reflection/batches/:id/accept|reject` decides a whole batch. Temporary conversations are never read.
+- `newSkills` (`off`, `when-needed`, `on`). With `when-needed` a skill is drafted only when asked: typing `/learn` (with anything to add after it) in a conversation, `POST /api/reflection/learn { sessionId, notes? }`, or accepting a skill idea from the learning core. The assistant also has one short tool, `skills.learn` (`skills.manage`), for the same request in plain words. With `on` it may also draft after a finished task that used three or more different tools without a skill (once per conversation), and a look back may suggest skill ideas. A draft is installed switched off, tried as a practice run on the task it came from and up to two like it, once without any skill and once with it, and waits: `POST /api/reflection/new-skills/try|accept|reject { skillId }`. Keeping one that was not tried, or did worse, needs `force: true` with the words shown in the app, and is written to the record. Throwing one away removes it, since nothing used it.
+- Accepting a **skill note** in the queue now changes the skill: a note on an installed skill is written into a new, switched-off version, tried on the last tasks that used the skill, and listed under *Suggested better versions* with its diff, where a second yes switches it on. A skill idea with no skill becomes a new-skill draft as above, and is only noted while `newSkills` is `off`.
+- `retireAfterDays` (7–365, default 60). *Look for skills nobody uses* (`POST /api/reflection/retire`) offers to set aside each switched-on skill that no task has read in that time, once. It looks at the last 100 tasks only and says so; when those go back less far than the setting, it offers nothing. A skill a schedule names is left alone. Accepting switches the skill off; it stays installed.
+
+**macOS and Linux.** All of this is plain TypeScript over the built-in SQLite, with no program started, and works the same on Windows, macOS and Linux.
 
 ## Trust
 
@@ -3297,8 +3451,10 @@ these is looked at before the broader rules, so "never write anything under fina
 files is fine". A rule without one covers whatever the tool would touch, which is exactly how every
 rule written before this behaves — nothing you already had changes.
 A folder rule covers everything inside it, so `finance` fits `finance/2026/q1.xlsx`. A website rule
-covers the site and anything under it, so `example.com` fits `shop.example.com`. A command rule is
-about the program being run, so `rm` fits `rm -rf something`. `*` still stands for any text.
+covers the site and anything under it, so `example.com` fits `shop.example.com`. A command rule
+covers the words it names and anything after them, so `rm` fits `rm -rf something` and `git status`
+fits `git status --short` but not `git push` (see "Always allow, per command" below). `*` still
+stands for any text.
 Which kind a call counts as is worked out from what the call says it would touch, not from its
 arguments: a bare website name is a website, and anything else is a folder or file. That means a
 tool that reports what it touches through its own `target()` — as a tool with no plain `path`

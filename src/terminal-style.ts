@@ -1,3 +1,6 @@
+import { release } from "node:os";
+import { detectDepth, detectUnicode, type ColorDepth } from "./terminal-theme.js";
+
 /**
  * What this terminal can be asked to do, and the small pieces of screen drawing that go with it.
  * Everything is behind one switch: when the person sets NO_COLOR, or the terminal is a plain one
@@ -13,6 +16,10 @@ export interface TerminalStyle {
   decorations: boolean;
   columns: number;
   rows: number;
+  /** How many colours the terminal shows; "none" whenever colour is off. */
+  depth: ColorDepth;
+  /** Whether box lines, the dot and the ellipsis show as themselves; otherwise plain ASCII stands in. */
+  unicode: boolean;
 }
 
 const positiveInt = (value: string | undefined, fallback: number): number => {
@@ -34,9 +41,14 @@ export function looksInteractive(env: NodeJS.ProcessEnv, isTTY: boolean | undefi
 export function resolveStyle(
   env: NodeJS.ProcessEnv,
   size: { columns?: number | undefined; rows?: number | undefined } = {},
+  platform: NodeJS.Platform = process.platform,
+  osRelease: string = release(),
 ): TerminalStyle {
   const plain = env.NO_COLOR !== undefined || env.TERM === "dumb" || env.BRANCH_TUI_PLAIN === "1";
+  const depth = plain ? "none" : detectDepth(env, platform, osRelease);
   return {
+    depth: depth === "none" && !plain ? "ansi16" : depth,
+    unicode: detectUnicode(env, platform),
     color: !plain,
     cursor: !plain,
     decorations: !plain && env.BRANCH_TUI_DECORATIONS !== "0",
@@ -92,3 +104,28 @@ export function wrap(text: string, width: number): string[] {
 export function stripAnsi(text: string): string {
   return text.replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, "").replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
 }
+
+/**
+ * The small marks the view draws with, in Unicode and in plain ASCII. The Windows console, macOS
+ * Terminal and Linux terminals all show the Unicode set; ASCII is for a terminal whose locale is not
+ * UTF-8, or for anyone who sets BRANCH_ASCII=1.
+ */
+export interface Glyphs {
+  mark: string; dot: string; dash: string; ellipsis: string; crumb: string; pointer: string;
+  ok: string; fail: string; working: string; waiting: string; live: string; shield: string;
+  h: string; v: string; tl: string; tr: string; bl: string; br: string;
+  upper: string; lower: string; full: string; spinner: string[];
+}
+const UNICODE: Glyphs = {
+  mark: "\u2663", dot: "\u00b7", dash: "\u2014", ellipsis: "\u2026", crumb: "\u203a", pointer: "\u203a",
+  ok: "\u2713", fail: "\u2717", working: "\u25cc", waiting: "\u25cf", live: "\u25cf", shield: "\u25c6",
+  h: "\u2500", v: "\u2502", tl: "\u256d", tr: "\u256e", bl: "\u2570", br: "\u256f",
+  upper: "\u2580", lower: "\u2584", full: "\u2588", spinner: ["\u25dc", "\u25dd", "\u25de", "\u25df"],
+};
+const ASCII: Glyphs = {
+  mark: "*", dot: "-", dash: "--", ellipsis: "...", crumb: ">", pointer: ">",
+  ok: "ok", fail: "x", working: "~", waiting: "!", live: "*", shield: "#",
+  h: "-", v: "|", tl: "+", tr: "+", bl: "+", br: "+",
+  upper: "", lower: "", full: "#", spinner: ["-", "\\", "|", "/"],
+};
+export const glyphsFor = (unicode: boolean): Glyphs => (unicode ? UNICODE : ASCII);
