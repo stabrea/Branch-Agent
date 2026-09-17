@@ -10,11 +10,11 @@ import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
 import {
   createBranch, SnapshotStore, systemGit, parseNameStatus, insideWorkTree, snapshotExcludes,
-  GoalMode, parseGoalCommand, goalDoneScore, goalStuckRounds,
+  GoalMode, parseGoalCommand, goalDoneScore, goalStuckRounds, goalUndoSettings, saveGoalUndoSettings,
 } from "../dist/index.js";
 import { locateGit } from "../dist/integrations/git-run.js";
 import { startServer } from "../dist/server.js";
-import { parseGoalLine, stripModel, formatElapsed } from "../public/goal.js";
+import { parseGoalLine, stripModel, formatElapsed, showsGoalButton, MODES } from "../public/goal.js";
 import { userEntries, isUndoThat, describeRewind } from "../public/rewind.js";
 
 const locale = async (name) => JSON.parse(await readFile(new URL(`../public/locales/${name}.json`, import.meta.url), "utf8"));
@@ -27,9 +27,20 @@ const fr = translator(await locale("fr"));
 const gitPath = await locateGit();
 const noGit = { skip: gitPath ? false : "git is not installed on this machine" };
 
+/** Cleanups run newest first, so an app is closed before its folder is removed (Windows needs that). */
+const cleanups = new WeakMap();
+function later(t, cleanup) {
+  let list = cleanups.get(t);
+  if (!list) {
+    list = [];
+    cleanups.set(t, list);
+    t.after(async () => { for (const step of list.reverse()) await step(); });
+  }
+  list.push(cleanup);
+}
 async function temp(t, name) {
   const root = await mkdtemp(join(tmpdir(), `branch-goal-undo-${name}-`));
-  t.after(() => discardTemp(root));
+  later(t, () => discardTemp(root));
   return root;
 }
 const exists = (path) => stat(path).then(() => true, () => false);
@@ -152,13 +163,15 @@ async function twoTurns(t, name, options = {}) {
   const workspace = join(root, "workspace");
   const steps = { first: async () => writeFile(join(workspace, "notes.txt"), "one"),
     second: async () => { await writeFile(join(workspace, "notes.txt"), "two"); await writeFile(join(workspace, "extra.txt"), "x"); } };
-  const app = await createBranch({ workspace, dataDir: join(root, "private"), ...options,
+  const { snapshots: _mode, ...branchOptions } = options;
+  const app = await createBranch({ workspace, dataDir: join(root, "private"), ...branchOptions,
     provider: { name: "scripted", async complete(request) {
       const said = request.messages.at(-1).content;
       if (!options.skipCommands) await steps[said]?.();
       return { content: `done ${said}`, toolCalls: [] };
     } } });
-  t.after(() => app.close());
+  later(t, () => app.close());
+  saveGoalUndoSettings(app.store, "local", { snapshots: options.snapshots ?? "on" });
   const one = await app.runtime.run({ prompt: "first" });
   const two = await app.runtime.run({ prompt: "second", sessionId: one.sessionId });
   const users = userEntries(app.store.sessionView("local", one.sessionId));
@@ -304,7 +317,8 @@ async function goalApp(t, name, scores, reply = () => "working on it") {
       }
       return { content: reply(request.messages.at(-1).content), toolCalls: [] };
     } } });
-  t.after(() => app.close());
+  later(t, () => app.close());
+  saveGoalUndoSettings(app.store, "local", { goal: "on" });
   return { app, graded };
 }
 async function settled(app, sessionId) {
@@ -389,7 +403,8 @@ function heldRuntime(owner = "local") {
 async function fakeStore(t) {
   const root = await temp(t, "store");
   const app = await createBranch({ workspace: join(root, "w"), dataDir: join(root, "p"), snapshotGit: null });
-  t.after(() => app.close());
+  later(t, () => app.close());
+  saveGoalUndoSettings(app.store, "local", { goal: "when-needed" });
   return app.store;
 }
 const tick = () => new Promise((done) => setTimeout(done, 5));
@@ -445,7 +460,7 @@ test("a goal Branch was closed on shows as paused and can be resumed", async (t)
 test("the goal and rewind routes answer only for the owner's conversations", noGit, async (t) => {
   const { app, root, sessionId, users } = await twoTurns(t, "http");
   const server = await startServer(app, { dataDir: join(root, "private"), port: 0 });
-  t.after(() => server.close());
+  later(t, () => server.close());
   const call = async (path, body) => {
     const response = await fetch(server.url + path, { method: body === undefined ? "GET" : "POST",
       headers: { authorization: `Bearer ${server.token}`, ...(body === undefined ? {} : { "content-type": "application/json" }) },
@@ -453,6 +468,12 @@ test("the goal and rewind routes answer only for the owner's conversations", noG
     return { status: response.status, body: await response.json() };
   };
   assert.deepEqual((await call(`/api/sessions/${sessionId}/goal`)).body, { goal: null });
+  assert.deepEqual((await call("/api/goal-undo/settings")).body, { goal: "off", snapshots: "on" });
+  const refused = await call("/api/goals", { objective: "Say hello" });
+  assert.equal(refused.status, 400);
+  assert.match(refused.body.error, /Goal mode is off/);
+  assert.equal((await call("/api/goal-undo/settings", { goal: "sometimes" })).status, 400);
+  assert.deepEqual((await call("/api/goal-undo/settings", { goal: "on" })).body, { goal: "on", snapshots: "on" });
   assert.equal((await call(`/api/sessions/${sessionId}/rewind`)).body.method, "snapshot");
   const went = await call(`/api/sessions/${sessionId}/rewind`, { messageId: users[1].messageId, restore: "both" });
   assert.equal(went.status, 200);
@@ -469,4 +490,50 @@ test("the goal and rewind routes answer only for the owner's conversations", noG
   const unauthenticated = await fetch(`${server.url}/api/sessions/${sessionId}/rewind`);
   assert.equal(unauthenticated.status, 401);
   await settled(app, started.body.sessionId);
+});
+
+/* ---------- the three-way switches ---------- */
+
+test("switches: everything ships off; off takes no snapshot and refuses a goal", async (t) => {
+  const { app, root, workspace, sessionId, users } = await twoTurns(t, "off", { snapshots: "off" });
+  const fresh = await createBranch({ workspace: join(root, "fresh-w"), dataDir: join(root, "fresh-p"), snapshotGit: null });
+  later(t, () => fresh.close());
+  assert.deepEqual(goalUndoSettings(fresh.store, "local"), { goal: "off", snapshots: "off" }, "a fresh install is off");
+  saveGoalUndoSettings(fresh.store, "local", { goal: "on" });
+  assert.deepEqual(saveGoalUndoSettings(fresh.store, "local", { snapshots: "when-needed" }), { goal: "on", snapshots: "when-needed" },
+    "saving one switch leaves the other as it was");
+  assert.equal(await exists(join(root, "private", "snapshots")), false, "no snapshot store is even set up");
+  const trees = app.store.sqlite.prepare("SELECT tree FROM turn_snapshots WHERE session_id=?").all(sessionId);
+  assert.deepEqual(trees.map((row) => row.tree), [null, null]);
+  const status = await app.rewinds.status("local", sessionId);
+  assert.equal(status.method, "copies");
+  assert.equal(status.snapshots, "off");
+  assert.match(status.note, /switched off/);
+  const result = await app.rewinds.rewind("local", sessionId, { messageId: users[1].messageId, restore: "files" });
+  assert.equal(result.files.method, "none", "the command's change is not covered while snapshots are off");
+  assert.equal(await readFile(join(workspace, "notes.txt"), "utf8"), "two");
+  await assert.rejects(app.goals.start({ objective: "Anything" }), /Goal mode is off/);
+  assert.throws(() => saveGoalUndoSettings(app.store, "local", { snapshots: "always" }));
+  assert.deepEqual(MODES, ["off", "on", "when-needed"]);
+  assert.equal(showsGoalButton({ goal: "on" }), true);
+  assert.equal(showsGoalButton({ goal: "when-needed" }), false);
+  assert.equal(showsGoalButton({ goal: "off" }), false);
+});
+
+test("switches: snapshots when needed are taken just before a task's first change, once", noGit, async (t) => {
+  const { app, workspace, sessionId, users, two } = await twoTurns(t, "needed", { snapshots: "when-needed" });
+  const treeOf = (runId) => app.store.sqlite.prepare("SELECT tree FROM turn_snapshots WHERE run_id=?").get(runId).tree;
+  assert.equal(treeOf(two.id), null, "nothing is recorded when a task starts");
+  await app.runtime.askHooks(two.id, { tool: "files.read" });
+  assert.equal(treeOf(two.id), null, "a call that only reads records nothing");
+  await writeFile(join(workspace, "notes.txt"), "before the change");
+  await Promise.all([app.runtime.askHooks(two.id, { tool: "files.write" }), app.runtime.askHooks(two.id, { tool: "files.write" })]);
+  const first = treeOf(two.id);
+  assert.match(first, /^[0-9a-f]{40}/, "the first call that can change something records the workspace");
+  await writeFile(join(workspace, "notes.txt"), "after the change");
+  await app.runtime.askHooks(two.id, { tool: "files.write" });
+  assert.equal(treeOf(two.id), first, "later calls in the same task record nothing more");
+  const result = await app.rewinds.rewind("local", sessionId, { messageId: users[1].messageId, restore: "files" });
+  assert.equal(result.files.method, "snapshot");
+  assert.equal(await readFile(join(workspace, "notes.txt"), "utf8"), "before the change");
 });

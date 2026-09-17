@@ -21,6 +21,34 @@ export const goalDoneScore = 0.8;
 /** Rounds in a row without a better score before the goal is called stuck rather than burning the rest. */
 export const goalStuckRounds = 2;
 
+/**
+ * The owner's switches for this area. Every feature is off, on, or "when needed", and ships off.
+ * Goal mode: off refuses to start one; on shows the Goal button and takes /goal; when needed takes
+ * /goal but shows no button. Snapshots for going back (src/rewind.ts): off takes none; on records
+ * the workspace as each task starts; when needed records it just before a task first changes something.
+ */
+export const featureModes = ["off", "on", "when-needed"] as const;
+export type FeatureMode = (typeof featureModes)[number];
+export const GoalUndoSettingsSchema = z.object({
+  goal: z.enum(featureModes).default("off"),
+  snapshots: z.enum(featureModes).default("off"),
+}).strict();
+export type GoalUndoSettings = z.infer<typeof GoalUndoSettingsSchema>;
+const settingsKey = "goal-undo";
+
+export function goalUndoSettings(store: Store, owner: string): GoalUndoSettings {
+  const saved = GoalUndoSettingsSchema.safeParse(store.get("settings", owner, settingsKey)?.data ?? {});
+  return saved.success ? saved.data : GoalUndoSettingsSchema.parse({});
+}
+export function saveGoalUndoSettings(store: Store, owner: string, input: unknown): GoalUndoSettings {
+  // Only the switches that were sent change; the others keep their saved value (no defaults here).
+  const sent = z.object({ goal: z.enum(featureModes).optional(), snapshots: z.enum(featureModes).optional() }).strict().parse(input);
+  const next = GoalUndoSettingsSchema.parse({ ...goalUndoSettings(store, owner), ...sent });
+  store.save("settings", owner, settingsKey, { ...next });
+  return next;
+}
+const offNote = "Goal mode is off. Switch it on in Settings, under \"Working until done, and going back\".";
+
 export const GoalStartSchema = z.object({
   objective: z.string().trim().min(1).max(4000),
   maxRounds: z.number().int().min(1).max(goalLimits.maxRounds).default(goalLimits.defaultRounds),
@@ -94,8 +122,13 @@ export class GoalMode {
   constructor(private readonly runtime: GoalRuntime, private readonly store: Store, private readonly now: () => number = Date.now) {}
 
   /** Starts a goal; resolves once its first round has begun, so a new conversation has its id. */
+  /** This area's switches, as saved. */
+  settings(): GoalUndoSettings { return goalUndoSettings(this.store, this.runtime.owner); }
+  saveSettings(input: unknown): GoalUndoSettings { return saveGoalUndoSettings(this.store, this.runtime.owner, input); }
+
   async start(input: GoalStart): Promise<GoalState> {
     const wanted = GoalStartSchema.parse(input);
+    if (this.settings().goal === "off") throw new Error(offNote);
     if (wanted.sessionId && this.live.has(wanted.sessionId)) throw new Error("This conversation is already working on a goal.");
     const state: GoalState = {
       sessionId: wanted.sessionId ?? "", objective: wanted.objective, status: "working", round: 0, maxRounds: wanted.maxRounds,
@@ -136,6 +169,7 @@ export class GoalMode {
       return this.view(stored);
     }
     if (state.status !== "paused") throw new Error("Only a paused goal can be resumed.");
+    if (this.settings().goal === "off") throw new Error(offNote);
     const next: GoalState = { ...state, status: "working", reason: "", activeSince: this.now() };
     if (next.round >= next.maxRounds) next.maxRounds = Math.min(goalLimits.maxRounds, next.round + 1);
     this.save(next);
@@ -286,8 +320,13 @@ function gradeQuestion(state: GoalState, recent: string): string {
     `and set blocked to true only if it cannot go on without the owner.`;
 }
 
-/** The HTTP side: `POST /api/goals` starts one; `/api/sessions/<id>/goal` reads it and pauses, resumes or stops it. */
+/** The HTTP side: `/api/goal-undo/settings` holds the switches; `POST /api/goals` starts one; `/api/sessions/<id>/goal` reads it and pauses, resumes or stops it. */
 export async function goalApi(goals: GoalMode, owns: (sessionId: string) => boolean, method: string, path: string, body: () => Promise<unknown>): Promise<unknown> {
+  if (path === "/api/goal-undo/settings") {
+    if (method === "GET") return goals.settings();
+    if (method === "POST") return goals.saveSettings(await body());
+    return undefined;
+  }
   if (path === "/api/goals" && method === "POST") {
     const wanted = GoalStartSchema.parse(await body());
     if (wanted.sessionId && !owns(wanted.sessionId)) throw new Error("Conversation not found");

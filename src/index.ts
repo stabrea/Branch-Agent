@@ -149,8 +149,9 @@ import { registerLanguageServers } from "./language-server-tools.js";
 import { DebugAdapters, registerDebug } from "./debug-adapter.js";
 import { registerCheckpoints, SnapshotStore, systemGit, type GitCall } from "./checkpoints.js";
 // Wave mac2 (goal-undo): working toward a goal in rounds, and going back to an earlier message.
-import { GoalMode } from "./goal-mode.js";
+import { GoalMode, goalUndoSettings } from "./goal-mode.js";
 import { Rewinds } from "./rewind.js";
+import { isReadOnlyPermission } from "./policy.js";
 import { KeptArtifacts, registerKeptArtifacts } from "./build-artifacts.js";
 import { OpenApiTools, registerOpenApiTools } from "./openapi-tools.js";
 
@@ -360,7 +361,9 @@ export async function createBranch(options: {
   // data folder, so an earlier message can take back files and conversation together; and goal mode.
   const snapshots = new SnapshotStore(join(dataDir, "snapshots"), workspace,
     options.snapshotGit === undefined ? systemGit() : options.snapshotGit);
-  const rewinds = new Rewinds(store.sqlite, runtime.owner, sessionTree, history, snapshots, files);
+  const rewinds = new Rewinds(store.sqlite, runtime.owner, sessionTree, history, snapshots, files,
+    () => goalUndoSettings(store, runtime.owner).snapshots,
+    (tool) => { const permission = registry.permissionOf(tool); return permission !== "" && !isReadOnlyPermission(permission); });
   runtime.turnStarted = (run) => rewinds.turnStarted(run);
   const goals = new GoalMode(runtime, store);
   registerSkills(registry, store);
@@ -524,6 +527,13 @@ export async function createBranch(options: {
   // Batch 26 (wave 8): the owner's own checks get a say before a tool call goes ahead, and may only
   // make the answer stricter — hold it for a yes, or refuse it.
   runtime.askHooks = (runId, about) => hooks.decide(runId, about);
+  // Wave mac2 (goal-undo): with snapshots "when needed", the workspace is recorded just before a
+  // task's first call that can change something, then the owner's own checks are asked as before.
+  const decideHooks = runtime.askHooks;
+  runtime.askHooks = async (runId, about) => {
+    await rewinds.beforeChange(runId, String(about.tool ?? ""));
+    return decideHooks(runId, about);
+  };
   // Batch 26 (wave 8): the owner's own task waits for its window to free up; somebody messaging from
   // outside is told in one sentence and their message is let go. Both are written into the record.
   runtime.sessionCeiling = (sessionId, tokens) =>

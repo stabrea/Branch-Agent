@@ -7,6 +7,7 @@ import type { SnapshotStore } from "./checkpoints.js";
 import type { WorkspaceFiles } from "./files.js";
 import type { CutConversation, SessionTree } from "./session-tree.js";
 import type { WorkspaceHistory } from "./workspace-history.js";
+import type { FeatureMode } from "./goal-mode.js";
 
 /**
  * Wave mac2: going back to an earlier message. Before every task the workspace is recorded in the
@@ -39,6 +40,10 @@ export class Rewinds {
     private readonly history: WorkspaceHistory,
     private readonly snapshots: SnapshotStore,
     private readonly files: WorkspaceFiles,
+    /** The owner's switch for snapshots; off takes none. */
+    private readonly mode: () => FeatureMode = () => "on",
+    /** Whether a tool can change anything, for "when needed". */
+    private readonly changes: (tool: string) => boolean = () => true,
   ) {
     db.exec(`CREATE TABLE IF NOT EXISTS turn_snapshots(row_id INTEGER PRIMARY KEY, session_id TEXT NOT NULL, run_id TEXT NOT NULL,
         tree TEXT, created_at TEXT NOT NULL);
@@ -55,19 +60,46 @@ export class Rewinds {
   async turnStarted(run: Run): Promise<void> {
     const last = this.db.prepare("SELECT MAX(id) AS id FROM messages WHERE session_id=?").get(run.sessionId);
     if (!last?.id) return;
-    let tree: string | null = null;
-    try { if (await this.snapshots.available()) tree = await this.snapshots.take(); } catch { tree = null; }
+    // The row is kept whatever the switch says: it is what ties a message to its task for the copies.
+    const tree = this.mode() === "on" ? await this.snapshotNow() : null;
     this.db.prepare("INSERT OR REPLACE INTO turn_snapshots VALUES(?,?,?,?,?)")
       .run(Number(last.id), run.sessionId, run.id, tree, new Date().toISOString());
   }
 
+  /**
+   * "When needed": called before every tool call. The first call in a task that can change
+   * something records the workspace as it still is; reading calls, and every later call, cost nothing.
+   */
+  async beforeChange(runId: string, tool: string): Promise<void> {
+    if (this.mode() !== "when-needed" || !runId || !this.changes(tool)) return;
+    const row = this.db.prepare("SELECT row_id, tree FROM turn_snapshots WHERE run_id=?").get(runId);
+    if (!row || row.tree !== null) return;
+    let pending = this.taking.get(runId);
+    if (!pending) {
+      pending = this.snapshotNow().then((tree) => {
+        if (tree) this.db.prepare("UPDATE turn_snapshots SET tree=? WHERE row_id=? AND tree IS NULL").run(tree, Number(row.row_id));
+      }).finally(() => this.taking.delete(runId));
+      this.taking.set(runId, pending);
+    }
+    await pending;
+  }
+  private readonly taking = new Map<string, Promise<void>>();
+
+  /** A snapshot, or null when there cannot be one; never throws, because it never fails a task. */
+  private async snapshotNow(): Promise<string | null> {
+    try { return await this.snapshots.available() ? await this.snapshots.take() : null; } catch { return null; }
+  }
+  private async snapshotsReady(): Promise<boolean> {
+    return this.mode() !== "off" && await this.snapshots.available();
+  }
+
   /** What can be done in this conversation now: whether files can be covered, and the undo waiting. */
-  async status(owner: string, input: string): Promise<{ method: FilesMethod; note: string; undo: { id: string; restore: string; createdAt: string } | null }> {
+  async status(owner: string, input: string): Promise<{ method: FilesMethod; snapshots: FeatureMode; note: string; undo: { id: string; restore: string; createdAt: string } | null }> {
     const id = this.owned(owner, input);
-    const git = await this.snapshots.available();
+    const git = await this.snapshotsReady();
     const row = this.lastRewind(owner, id);
     return {
-      method: git ? "snapshot" : "copies", note: git ? "" : await this.copiesNote(),
+      method: git ? "snapshot" : "copies", snapshots: this.mode(), note: git ? "" : await this.copiesNote(),
       undo: row ? { id: String(row.id), restore: String(row.restore), createdAt: String(row.created_at) } : null,
     };
   }
@@ -117,7 +149,7 @@ export class Rewinds {
    */
   private async restoreFiles(sessionId: string, fromRow: number, record: { method: FilesMethod; beforeTree: string | null; beforeCopy: string | null }): Promise<FilesOutcome> {
     const turn = this.db.prepare("SELECT tree FROM turn_snapshots WHERE session_id=? AND row_id>=? AND tree IS NOT NULL ORDER BY row_id LIMIT 1").get(sessionId, fromRow);
-    if (turn && await this.snapshots.available()) {
+    if (turn && await this.snapshots.available()) { // a snapshot already kept can be used even if the switch is off now
       record.beforeTree = await this.snapshots.take();
       const back = await this.snapshots.restore(String(turn.tree));
       record.method = "snapshot";
@@ -147,6 +179,7 @@ export class Rewinds {
 
   /** Why the files come back from per-file copies rather than a snapshot, in plain words. */
   private async copiesNote(): Promise<string> {
+    if (this.mode() === "off") return `Snapshots are switched off in Settings. ${copiesOnly}`;
     if (await this.snapshots.available()) return `No snapshot was taken before that message. ${copiesOnly}`;
     return this.snapshots.unavailableReason ? `${this.snapshots.unavailableReason} ${copiesOnly}` : noGitNote;
   }

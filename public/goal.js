@@ -56,6 +56,10 @@ export function stripModel(goal, t) {
   };
 }
 
+export const MODES = ["off", "on", "when-needed"];
+/** The Goal button is shown only when goal mode is switched fully on. */
+export const showsGoalButton = (settings) => settings?.goal === "on";
+
 const POLL_MS = 2000;
 
 if (typeof document !== "undefined") void boot();
@@ -90,6 +94,10 @@ async function boot() {
     box.focus();
   });
   $("send")?.before(starter);
+  starter.hidden = true;
+  const applySettings = (settings) => { starter.hidden = !showsGoalButton(settings); };
+  app.api("goal-undo/settings").then(applySettings, () => undefined);
+  settingsCard($, el, t, app, applySettings);
 
   let hiddenFor = "", lastSeen = "";
   const render = (goal, sessionId) => {
@@ -160,4 +168,45 @@ async function boot() {
       await app.openConversation(goal.sessionId);
     } catch (error) { app.toast(error.message); }
   };
+}
+
+/** The Settings card: the two switches for this area, each off, on or when needed. */
+function settingsCard($, el, t, app, applied) {
+  const worded = (tag, key, className) => { const node = el(tag, t(key), className); node.dataset.t = key; return node; };
+  const form = el("form", undefined, "card");
+  form.id = "goal-undo-form";
+  const choice = (name, labelKey, hintKey) => {
+    const label = el("label");
+    const select = el("select");
+    select.id = `goal-undo-${name}`;
+    select.name = name;
+    for (const mode of MODES) {
+      const option = worded("option", `goalUndo.mode.${mode}`);
+      option.value = mode;
+      select.append(option);
+    }
+    label.append(worded("span", labelKey), select);
+    return [label, worded("p", hintKey, "meta")];
+  };
+  const status = el("p", undefined, "meta");
+  status.setAttribute("role", "status");
+  form.append(worded("h2", "settings.card.goal-undo"), worded("p", "goalUndo.intro", "subtle"),
+    ...choice("goal", "goalUndo.goalLabel", "goalUndo.goalHint"),
+    ...choice("snapshots", "goalUndo.snapshotsLabel", "goalUndo.snapshotsHint"),
+    worded("button", "goalUndo.save"), status);
+  const show = (settings) => {
+    form.elements.goal.value = settings.goal;
+    form.elements.snapshots.value = settings.snapshots;
+    applied(settings);
+  };
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    try {
+      show(await app.api("goal-undo/settings", { goal: form.elements.goal.value, snapshots: form.elements.snapshots.value }));
+      status.textContent = t("goalUndo.saved");
+    } catch (error) { status.textContent = error.message; }
+  });
+  const after = $("second-opinion-form");
+  if (after) after.after(form); else $("settings")?.append(form);
+  app.api("goal-undo/settings").then(show, () => undefined);
 }
