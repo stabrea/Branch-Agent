@@ -256,3 +256,23 @@ test("the hook with GitHub allowed still opens the pull request", async (t) => {
   assert.equal(opened.pullRequest.head, "branch/task-3");
   assert.equal(d.git.filter((line) => line.startsWith("push")).length, 1);
 });
+
+test("the owner's own press of an address carrying a key is not let past the leak guard", async (t) => {
+  const { branch } = await app(t);
+  const fetched = [];
+  branch.registry.register({ name: "probe.fetch", permission: "web.read", description: "stand-in",
+    parameters: z.object({ url: z.string() }), execute: async (args) => { fetched.push(args.url); return { ok: true }; } });
+  const leaky = { url: "https://example.com/data?api_key=sk-live-0123456789abcdefghijklmnop" };
+  await assert.rejects(branch.runtime.executeTool("probe.fetch", leaky, owner), /carries a key or password/);
+  assert.deepEqual(fetched, [], "nothing was fetched");
+  await branch.runtime.executeTool("probe.fetch", { url: "https://example.com/data" }, owner);
+  assert.equal(fetched.length, 1, "an ordinary address still works");
+});
+
+test("a short-lived key's refusal from the one gate names the key", async (t) => {
+  const { branch } = await app(t);
+  const { underShortLivedKey } = await import("../dist/key-context.js");
+  savePolicy(branch.store, "local", { preset: "custom", rules: [{ tool: "files.write", decision: "deny" }] });
+  await assert.rejects(underShortLivedKey(() => branch.runtime.executeTool("files.write", { path: "k.txt", content: "x" }, owner)),
+    /short-lived key/);
+});

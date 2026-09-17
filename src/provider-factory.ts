@@ -144,10 +144,10 @@ export { plainCapability } from "./provider-catalog.js";
  * services whose route that guess would get wrong. Returns null for everything the guess handles.
  * A retired or not-offered service answers with its plain note instead of reaching the network.
  */
-export function testRouteFor(presetId: string, endpoint: string, model: string, key: string): Provider | null {
+export function testRouteFor(presetId: string, endpoint: string, model: string, key: string, fetchImpl?: typeof fetch): Provider | null {
   const entry = catalogEntry(presetId);
   if (!entry) return null;
   if (isRetired(entry)) return new RetiredProvider(entry.id, entry.terms.warning ?? `${entry.name} can no longer be used.`);
-  if (entry.shape === "perplexity-agent") return new PerplexityAgentProvider({ endpoint, model, apiKey: key });
+  if (entry.shape === "perplexity-agent") return new PerplexityAgentProvider({ endpoint, model, apiKey: key, ...(fetchImpl ? { fetchImpl } : {}) });
   return null;
 }

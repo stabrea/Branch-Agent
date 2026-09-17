@@ -2,6 +2,7 @@ import { ApprovalRequiredError, PolicyRefusedError } from "./approvals.js";
 import type { ToolContext } from "./contracts.js";
 import { folderTrustMode } from "./folder-trust.js";
 import { startedWithShortLivedKey } from "./key-context.js";
+import { credentialInUrl } from "./leak-guard.js";
 import { lockedDown } from "./lockdown.js";
 import type { RunSource } from "./policy.js";
 import type { RunGuards } from "./run-guards.js";
@@ -22,7 +23,11 @@ import type { Store } from "./store.js";
  *   itself is held exactly as a task is — "ask" comes back as `ApprovalRequiredError`, bound to the
  *   exact bytes, for the caller to put to the owner.
  *
- * A short-lived key is not the owner at the window: "ask" is a refusal for it even in "owner" mode.
+ * A short-lived key is not the owner at the window: in "owner" mode it is held to the full rules, so
+ * only "allow" runs and every refusal names the key (mac5/key-sweep, one gate for both).
+ *
+ * The leak guard is not the owner's rule to skip either: an address carrying a key or password stays
+ * a question ("Try a tool" puts it) and, where nothing can put it, a refusal.
  */
 export type ToolGateMode = "owner" | "policy";
 
@@ -47,6 +52,8 @@ export const lockdownManualRefusal =
   "Lockdown is on, so nothing that changes anything is done by hand either. Turn Lockdown off in Settings to allow this again.";
 export const shortLivedKeyRefusal =
   "Your approval settings ask first about this, and a short-lived key cannot say yes. Do it in the app window.";
+export const leakManualRefusal =
+  "This address carries a key or password, so it is not opened by hand without a question. Use \"Try a tool\" to be asked, or take the key out of the address.";
 export const untrustedManualRefusal =
   "This folder is not trusted, so nothing that changes anything in it is done by hand. Trust the folder in Settings first.";
 
@@ -73,6 +80,8 @@ export interface ManualVerdict {
   target: string;
   reason: string | null;
   scope: SandboxScope;
+  /** The call's address carries a key or password (the leak guard's case), so its "ask" is not skipped. */
+  leak: boolean;
 }
 
 /** Where the call runs: the rule's own sandbox choice and the wall, never anything the caller brought. */
@@ -91,12 +100,21 @@ export function scopeOf(host: ToolGateHost, tool: string, args: unknown, context
  */
 export function manualVerdict(host: ToolGateHost, tool: string, args: unknown, context: ToolContext, fingerprint: string): ManualVerdict {
   const check = host.checkPolicy(tool, args, context, fingerprint);
-  const base = { label: check.label, target: check.target, scope: scopeOf(host, tool, args, context, check) };
-  if (check.decision === "deny") return { ...base, decision: "deny", reason: check.reason ?? null };
+  const base = { label: check.label, target: check.target, scope: scopeOf(host, tool, args, context, check), leak: carriesCredential(args) };
+  const key = startedWithShortLivedKey();
+  if (check.decision === "deny") return { ...base, decision: "deny", reason: key ? forKey(tool, check.reason) : check.reason ?? null };
   const held = ownerHold(host, check);
-  if (held) return { ...base, decision: "deny", reason: held };
-  if (check.decision === "ask" && startedWithShortLivedKey()) return { ...base, decision: "deny", reason: shortLivedKeyRefusal };
+  if (held) return { ...base, decision: "deny", reason: key ? forKey(tool, held) : held };
+  if (check.decision === "ask" && key) return { ...base, decision: "deny", reason: shortLivedKeyRefusal };
   return { ...base, decision: check.decision, reason: null };
+}
+
+const forKey = (tool: string, reason: string | undefined): string =>
+  `A short-lived key cannot run ${tool}. ${reason ?? "Your settings do not allow it."}`;
+
+function carriesCredential(args: unknown): boolean {
+  const address = (args as { url?: unknown } | null)?.url;
+  return typeof address === "string" && credentialInUrl(address) !== null;
 }
 
 /**
@@ -109,6 +127,7 @@ export function gateToolUse(host: ToolGateHost, tool: string, args: unknown, con
     // The owner is the one asking, so an "ask first" rule of theirs does not stop it.
     const verdict = manualVerdict(host, tool, args, context, fingerprint);
     if (verdict.decision === "deny") throw refused(tool, verdict.label, verdict.reason ?? undefined);
+    if (verdict.decision === "ask" && verdict.leak) throw refused(tool, verdict.label, leakManualRefusal);
     return verdict.scope;
   }
   const check = host.checkPolicy(tool, args, context, fingerprint);

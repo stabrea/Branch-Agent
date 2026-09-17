@@ -1547,7 +1547,7 @@ The design, the threat list and the test for each threat are in [never-break.md]
 **Telegram from a card.** `customize:channels` has a **Set up Telegram** card (`public/telegram-setup.js`, `src/never-break/telegram-setup.ts`): the BotFather steps in plain words, a password field whose token goes straight into the locker as `TELEGRAM_BOT_TOKEN` in the default project (checked for BotFather's shape, never sent back), the three-way switch (settings key `telegram-setup`, shipped off), and a box for the six-digit code the bot sends a new person, which approves the owner's own account through the ordinary pairing. `GET|POST /api/never-break/telegram { mode?, token? }`. On a real start with the switch not off, Branch connects that bot through the network rules, unless the integrations file already has a Telegram channel. No real token was used to build or test it.
 
 **macOS and Linux.** The gateway is the same program on every system. It starts the engine with the same runtime it runs on (the app's own on an installed copy), with no window on Windows. The sign-in entries (`launchd`, `systemd --user`, the Windows scheduled task) are unchanged: they run `branch start`, which becomes the gateway when the switch is on, so `KeepAlive`/`Restart=on-failure` look after the gateway and the gateway looks after the engine. An engine whose gateway is killed closes itself within seconds, so the database is never left held.
-**Tools run by hand or by a workflow (mac5/manual-actions).** A tool run outside a conversation goes through one gate, `src/tool-gate.ts`, called from `Runtime.executeTool`. Pressed by the owner in the app window (`POST /api/action`, the code editor's save, "Try a tool"), it obeys Branch's own files (above), a refusing rule, the role of a profile that is switched on, and the sandbox and OS wall the matching rule and `settings:computer` give a task's call; with Lockdown on, or in a folder marked untrusted while folder trust is on, anything that changes something is refused with a sentence saying why (looking still works). An "ask first" rule does not stop it, because the owner is the one asking ("Try a tool" still puts its question once); a short-lived key is not the owner at the window, so for it that rule is a refusal. A saved workflow's tool step, a flow box and a live voice call are held to the full rules like a task (`mode: "policy"`, also what a caller that names no mode gets): "ask" stops them for the owner's yes, kept under the workflow's (or flow box's, or call's) own name. The pull-request hook working by itself after a task has nobody there to say yes, so it asks the same gate before it touches Git: a refusal, or an "ask first" rule that covers opening a pull request, leaves nothing made or pushed and is written on the task's record (`pull_request.failed`) with the reason. When a task (or a hand press) uses `github.pull_request_from_changes`, that call was itself gated, so the pull request it opens is not asked about a second time; refusals, Lockdown and folder trust still apply, and are checked before anything is pushed. Another AI tool over MCP, a saved procedure's steps and a step redone after a restart use the same policy check and wall. Windows behaves as before apart from these refusals; the wall there stays the job object.
+**Tools run by hand or by a workflow (mac5/manual-actions).** A tool run outside a conversation goes through one gate, `src/tool-gate.ts`, called from `Runtime.executeTool`. Pressed by the owner in the app window (`POST /api/action`, the code editor's save, "Try a tool"), it obeys Branch's own files (above), a refusing rule, the role of a profile that is switched on, and the sandbox and OS wall the matching rule and `settings:computer` give a task's call; with Lockdown on, or in a folder marked untrusted while folder trust is on, anything that changes something is refused with a sentence saying why (looking still works). An "ask first" rule does not stop it, because the owner is the one asking ("Try a tool" still puts its question once); a short-lived key is not the owner at the window, so the same gate holds it to the full rules: only what the rules allow outright runs, "ask" is a refusal it cannot confirm, and every refusal names the key (HTTP 401; this is the one gate for both, shared with the key sweep). An address carrying a key or password (the leak guard) is never skipped by hand: "Try a tool" puts the question, `/api/action` refuses it. A saved workflow's tool step, a flow box and a live voice call are held to the full rules like a task (`mode: "policy"`, also what a caller that names no mode gets): "ask" stops them for the owner's yes, kept under the workflow's (or flow box's, or call's) own name. The pull-request hook working by itself after a task has nobody there to say yes, so it asks the same gate before it touches Git: a refusal, or an "ask first" rule that covers opening a pull request, leaves nothing made or pushed and is written on the task's record (`pull_request.failed`) with the reason. When a task (or a hand press) uses `github.pull_request_from_changes`, that call was itself gated, so the pull request it opens is not asked about a second time; refusals, Lockdown and folder trust still apply, and are checked before anything is pushed. Another AI tool over MCP, a saved procedure's steps and a step redone after a restart use the same policy check and wall. Windows behaves as before apart from these refusals; the wall there stays the job object.
 
 ## Always allow, per command, and a second look before approvals (wave mac3)
 
@@ -5612,6 +5612,37 @@ branch token revoke <id>
 - The master key is checked **first** on every request, so a mistake in this feature can hold up a
   script and never you. A wrong short-lived key is counted by the same rate limit as a wrong master
   key. See `src/session-tokens.ts` and `authorize` in `src/server.ts`.
+
+**What a short-lived key may change: one rule that fails closed.** A short-lived key never changes
+your settings, permissions or security. Every request that is not a GET is refused to it, unless it
+is on a short list of routes that start, steer, stop or answer a task, or only look something up
+with a long question. That list is `shortLivedKeyTaskRoutes` in `src/short-lived-keys.ts`: starting
+a task (`/api/run`, `/api/action`, `/api/tools/try`, `/api/commands/run`, `/api/goals`,
+`/v1/chat/completions`, `/a2a`, the Agent Protocol's tasks and steps, and tool calls on `/mcp`);
+stopping, resuming, steering, replaying or answering the plan of a task; the next message, the goal
+or the model of one conversation, and `/api/models/switch`; answering a question a task asked
+(`/api/policy/approve`, but only once or for that conversation — "always" would make a standing rule
+and is refused); the waiting line, running a saved flow, workflow or schedule now; speech in and out;
+and the searches. Everything else is the owner's: settings of every kind, permissions and approval
+rules, the locker and sign-ins, the sandbox and network, chat apps and pairing, integrations, add-ons
+and skills, backups and restores, updates and restarts, and profiles. A route added later is refused
+until somebody puts it on the list. Where a part of Branch already had its own sentence ("A
+short-lived key cannot switch Lockdown on or off …") that sentence is kept; everywhere else the answer
+is "A short-lived key can start, steer and stop tasks, but cannot change settings, permissions or
+security. Do that in the app window." A few reads are refused too, because what they give back
+outlives the key: triggers and outgoing webhooks (they carry their secrets), the secret chat-app
+addresses (`/api/channels/addresses`), the full backup (`/api/backup`, everybody's data), and the
+code editor. `tests/short-lived-keys.test.mjs` fails when a route is added anywhere in `src/` without
+being classified in `tests/short-lived-key-routes.mjs`, and tries every owner-only change with a "run"
+key. Windows, macOS and Linux behave the same.
+
+Two more rules came out of the integration review. A tool run by hand with a short-lived key
+(`/api/action`, `/api/tools/try`) goes through the same approval rules a task's tool call meets and
+runs only when they allow it outright: a tool the rules ask about is refused, because the key cannot
+say yes to itself (start it as a task instead). And a working short-lived key that is refused a
+route is not counted as a wrong key, so a script bumping into the owner's routes never makes the
+dashboard or a phone at the same address wait, and nothing is written down as a guessed key. A key
+that is unknown, taken back or run out is still counted.
 
 These are one feature answering two audited rows: A0100 ("session API-key authentication") and
 A1930 ("API keys and temporary auth tokens") describe the same thing from two projects.
