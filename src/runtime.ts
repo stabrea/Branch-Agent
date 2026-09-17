@@ -87,6 +87,7 @@ import { type AnswerShape, askInShape, shapeInstructions, type ShapedAnswer } fr
 import { advisorInstructions, advisorQuestion, adviceLine, readAdvice, secondOpinionSettings, type Advice } from "./second-opinion.js";
 import { styleShape, takeScratch, type SpecialistStyle } from "./specialist-styles.js";
 import { Deferrals, deferredCall } from "./deferred.js";
+import { switchedToolTiers } from "./feature-switches.js";
 import { RequestCache, type CacheKeyParts } from "./request-cache.js";
 import { traceSettings, writeRunTrace } from "./trace.js";
 import { LeakGuard } from "./leak-guard.js";
@@ -1207,9 +1208,12 @@ ${run.output.slice(0, 6000)}`;
     const opened = [...styleGroups, ...(this.carriedToolboxes.get(run.sessionId) ?? [])]
       .filter((group) => available.includes(group));
     const learned = this.store.toolUsage, notes = learned.noteMap(context.owner);
+    // mac2/desktop-ui: the owner's three-way switches — "on" loads a feature's tools, "off" hides them.
+    const switched = switchedToolTiers(this.store, context.owner, tools.map((tool) => tool.name));
     const catalog = new ToolLoader(tools, {
       expanded: [...alwaysOpenGroups, ...guessed, ...opened], signals,
-      preload: learned.preload(context.owner, run.prompt), demoted: learned.stale(context.owner),
+      preload: [...learned.preload(context.owner, run.prompt), ...switched.preload],
+      demoted: [...learned.stale(context.owner), ...switched.hidden],
       budgetTokens: this.reliability.toolBudgetTokens,
       groupOf: (name) => this.registry.groupOf(name),
       external: (name) => this.registry.isExternal(name),
