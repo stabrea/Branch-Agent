@@ -41,7 +41,7 @@ export async function runBenchmarkCommand(
   const result = await new ShellProcess({
     executable, args: [...args], cwd,
     env: {
-      PATH: "", SYSTEMROOT: process.env.SYSTEMROOT ?? "", TEMP: process.env.TEMP ?? "",
+      PATH: benchmarkPath(), SYSTEMROOT: process.env.SYSTEMROOT ?? "", TEMP: process.env.TEMP ?? "",
       ...netlessEnvironment(), ...options.env,
     },
     signal: options.signal ?? new AbortController().signal,
@@ -52,6 +52,15 @@ export async function runBenchmarkCommand(
     status: result.status, exitCode: result.exitCode, stdout: result.stdout,
     stderr: result.stderr, durationMs: result.durationMs,
   };
+}
+
+/**
+ * Git's bash on Windows finds its own tools, so nothing is added there. On macOS and Linux a
+ * `tests.sh` needs `test` and `grep`, so only the system's own folders are searched: nothing a
+ * person or a dataset installed can be picked up by name.
+ */
+export function benchmarkPath(platform: NodeJS.Platform = process.platform): string {
+  return platform === "win32" ? "" : "/usr/bin:/bin";
 }
 
 const bashCandidates = [

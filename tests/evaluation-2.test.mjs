@@ -552,3 +552,10 @@ test("a scripted tool double records what it was called with", async (t) => {
   assert.equal(run.status, "completed");
   assert.deepEqual(doubles.calledWith("double.note"), [{ text: "hello" }]);
 });
+
+test("benchmark scripts see only the system's own tool folders, and nothing on Windows", async () => {
+  const { benchmarkPath } = await import("../dist/benchmark-shell.js");
+  assert.equal(benchmarkPath("win32"), "");
+  assert.equal(benchmarkPath("darwin"), "/usr/bin:/bin");
+  assert.equal(benchmarkPath("linux"), "/usr/bin:/bin");
+});
