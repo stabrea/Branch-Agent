@@ -7,13 +7,16 @@
 #
 # Usage: docs/agents/scripts/verify.sh [commit-ish]        (default: wave2/integration)
 set -e
-MAIN=/c/Users/bishi/Documents/Codex/Branch-build
-VERIFY=/c/Users/bishi/Documents/Codex/Branch-verify
+# Both machines run this, so nothing here is allowed to assume Windows. Override any of the three
+# with an environment variable; the defaults are worked out from where this script itself lives.
+MAIN="${BRANCH_MAIN:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"
+VERIFY="${BRANCH_VERIFY:-$(dirname "$MAIN")/Branch-verify}"
 WHAT="${1:-wave2/integration}"
-LOG="C:/Users/bishi/AppData/Local/Temp/claude-session-files/verify-$(date +%H%M%S).log"
+LOG="${BRANCH_VERIFY_LOG:-${TMPDIR:-/tmp}}/verify-$(date +%H%M%S).log"
 
 cd "$MAIN"
 SHA=$(git rev-parse --short "$WHAT")
+[ -d "$VERIFY" ] || { cd "$MAIN" && git worktree add -f --detach "$VERIFY" "$SHA"; }
 cd "$VERIFY"
 git checkout -q --detach "$SHA"
 git clean -qfd -e node_modules -e dist
