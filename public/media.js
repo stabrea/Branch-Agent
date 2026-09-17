@@ -4,7 +4,7 @@
  */
 const $ = (id) => document.getElementById(id);
 /** The same caps the runtime holds to, so nothing is sent that would only be refused. */
-const limits = { pictures: 4, pictureBytes: 5 * 1024 * 1024, soundBytes: 25 * 1024 * 1024 };
+const limits = { pictures: 4, pictureBytes: 5 * 1024 * 1024, soundBytes: 25 * 1024 * 1024, videoBytes: 32 * 1024 * 1024 };
 const pictureKinds = ["image/png", "image/jpeg", "image/webp", "image/gif"];
 let attached = [];
 
@@ -90,16 +90,48 @@ async function addSound(file) {
   box.focus();
   say(`Wrote out what is said in ${file.name}.`);
 }
+/**
+ * Bucket 17: a video becomes a few still pictures on this message and the words said in it. This
+ * needs "Watching and saving videos" switched on and ffmpeg on this computer; the server says so
+ * plainly when either is missing.
+ */
+async function addVideo(file) {
+  if (file.size > limits.videoBytes) throw new Error(`${file.name} is larger than 32 MB, so it was skipped.`);
+  say(`Watching ${file.name}…`);
+  const response = await fetch("/api/media/understand", {
+    method: "POST",
+    headers: { authorization: "Bearer " + (sessionStorage.getItem("branch-token") || ""), "content-type": file.type },
+    body: file,
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || `${file.name} could not be watched`);
+  const room = limits.pictures - attached.filter((item) => item.kind === "picture").length;
+  data.pictures.slice(0, Math.max(0, room)).forEach((picture, at) =>
+    attached.push({ kind: "picture", name: `${file.name} · ${at + 1}`, mediaType: picture.mediaType, data: picture.data }));
+  renderAttachments();
+  const box = $("prompt");
+  const said = data.transcript ? `\n\n${file.name}, what is said:\n${data.transcript}` : "";
+  if (said) box.value = (box.value ? box.value.trimEnd() : "") + said;
+  box.focus();
+  say([`Watched ${file.name}.`, ...data.notes].join(" "));
+}
 async function addFiles(files) {
   // While a task is working the next message is a follow-up, and a follow-up carries words only.
-  if ($("composer-media")?.disabled)
+  const live = Boolean(globalThis.branchLiveState?.()) && globalThis.branchLiveState() !== "idle";
+  if ($("composer-media")?.disabled && !live)
     throw new Error("Wait until the assistant has finished; a message sent while it is working carries words only.");
   for (const file of files) {
     if (pictureKinds.includes(file.type)) {
       if (attached.filter((item) => item.kind === "picture").length >= limits.pictures)
         throw new Error(`Up to ${limits.pictures} pictures can go with one message.`);
       if (file.size > limits.pictureBytes) throw new Error(`${file.name} is larger than 5 MB, so it was skipped.`);
-      attached.push({ kind: "picture", name: file.name, mediaType: file.type, data: await asBase64(file) });
+      // Bucket 17: during a live conversation a picture is shown straight away instead of waiting for a message.
+      const picture = { mediaType: file.type, data: await asBase64(file), name: file.name };
+      if (live && globalThis.branchShowLive?.(picture)) {
+        say(`Showed ${file.name} in the live conversation.`);
+        continue;
+      }
+      attached.push({ kind: "picture", ...picture });
       renderAttachments();
       continue;
     }
@@ -107,7 +139,11 @@ async function addFiles(files) {
       await addSound(file);
       continue;
     }
-    throw new Error(`${file.name} is not a picture or a sound file. Use the Documents panel for other files.`);
+    if (file.type.startsWith("video/")) {
+      await addVideo(file);
+      continue;
+    }
+    throw new Error(`${file.name} is not a picture, a sound or a video file. Use the Documents panel for other files.`);
   }
 }
 function wireComposer() {

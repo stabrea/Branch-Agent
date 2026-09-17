@@ -19,7 +19,8 @@ export type TtsRoute = "openai" | "gemini" | "windows";
 export interface SpokenAudio {
   bytes: Uint8Array;
   mediaType: string;
-  route: TtsRoute;
+  /** Bucket 17: or `engine:<id>`, a speech plug-in (src/speech-engines.ts). */
+  route: TtsRoute | `engine:${string}`;
   voice: string;
   cost: AudioCostEstimate;
 }

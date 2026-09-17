@@ -25,8 +25,8 @@ export interface AudioClip {
 }
 export interface TranscriptionResult {
   text: string;
-  /** Which route did the work, in plain words for the record. */
-  route: SttRoute;
+  /** Which route did the work, in plain words for the record. Bucket 17: or `engine:<id>`, a speech plug-in. */
+  route: SttRoute | `engine:${string}`;
   /** The language the service reported, when it reported one. */
   language: string | null;
   cost: AudioCostEstimate;

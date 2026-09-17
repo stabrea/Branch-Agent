@@ -67,7 +67,8 @@ export class MediaTools {
   ) {}
 
   /** One workspace file's bytes, refusing links, folders and anything over the size cap. */
-  private async bytesOf(path: string, cap = maximumMediaBytes): Promise<Buffer> {
+  // Bucket 17: bytesOf, keep, artifactStore, seeing and look are shared with src/media-understand.ts.
+  async bytesOf(path: string, cap = maximumMediaBytes): Promise<Buffer> {
     const target = await this.files.checked(path);
     const handle = await open(target, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
     try {
@@ -87,7 +88,7 @@ export class MediaTools {
     return `${mediaSettings(this.store, owner).folder}/${name}`;
   }
   /** Keeps a finished file in the person's own workspace, under the media folder they chose. */
-  private async keep(owner: string, name: string, bytes: Buffer): Promise<{ path: string; bytes: number }> {
+  async keep(owner: string, name: string, bytes: Buffer): Promise<{ path: string; bytes: number }> {
     const where = this.savePath(owner, name);
     const target = await this.files.checked(where);
     await mkdir(dirname(target), { recursive: true });
@@ -106,7 +107,7 @@ export class MediaTools {
     }
     return { path: where, bytes: bytes.byteLength };
   }
-  private artifactStore(): RunArtifacts {
+  artifactStore(): RunArtifacts {
     if (!this.artifacts) throw new Error("Pictures and sounds are switched off because there is nowhere to keep them");
     return this.artifacts;
   }
@@ -158,14 +159,14 @@ export class MediaTools {
     return part;
   }
   /** The connected model, refused before anything is read when it cannot be shown a picture. */
-  private seeing(owner: string) {
+  seeing(owner: string) {
     const preset = this.preset(owner);
     if (!supportsImages(preset.provider))
       throw new Error(`${preset.name} cannot look at pictures. Pick a model that can see images under Settings → Model.`);
     return preset;
   }
   /** Asks the connected model to look at one or two pictures and answer in words only. */
-  private async look(context: ToolContext, question: string, pictures: ImagePart[]): Promise<{ model: string; answer: string }> {
+  async look(context: ToolContext, question: string, pictures: ImagePart[]): Promise<{ model: string; answer: string }> {
     const preset = this.seeing(context.owner);
     const completion = await preset.provider.complete({
       messages: [

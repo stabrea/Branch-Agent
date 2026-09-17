@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { Provider, ToolContext } from "./contracts.js";
 import type { ModelRouter } from "./models.js";
+import type { SpeechEngineService } from "./speech-engine-service.js";
 import type { NetworkPolicy } from "./network-policy.js";
 import type { ToolRegistry } from "./registry.js";
 import type { Store } from "./store.js";
@@ -88,6 +89,8 @@ export class VoiceService {
   readonly speech: Speech;
   /** The kind of computer this is, for the words the voice screens use. */
   readonly platform: string;
+  /** Bucket 17: speech plug-ins the owner picked under Settings → Voice; asked first, null means carry on. */
+  engines: SpeechEngineService | undefined;
   constructor(
     private readonly store: Store,
     private readonly models: ModelRouter,
@@ -122,6 +125,9 @@ export class VoiceService {
   /** Writes a recording out, using the owner's chosen service and language. */
   async transcribe(owner: string, clip: AudioClip, options: { signal?: AbortSignal } = {}): Promise<TranscriptionResult> {
     const settings = this.settings(owner);
+    // Bucket 17 hook: a chosen speech plug-in does the work instead.
+    const byEngine = await this.engines?.listen(owner, clip, settings.keepAudioOnThisComputer, options.signal);
+    if (byEngine) return byEngine;
     const route = sttRouteFor(settings, this.provider(owner));
     return this.transcription.transcribe(clip, {
       kind: route.kind, provider: route.provider,
@@ -136,6 +142,9 @@ export class VoiceService {
   /** Reads text aloud, using the owner's chosen voice and speed. */
   async speak(owner: string, input: SpeakRequest, options: { signal?: AbortSignal } = {}): Promise<SpokenAudio> {
     const settings = this.settings(owner);
+    // Bucket 17 hook: a chosen speech plug-in does the work instead.
+    const byEngine = await this.engines?.speak(owner, input.text, settings.keepAudioOnThisComputer, options.signal);
+    if (byEngine) return byEngine;
     const route = ttsRouteFor(settings, this.provider(owner), this.platform);
     if (route.kind === "windows" && settings.systemVoice === "off")
       throw new Error(systemVoiceOffMessage(this.platform, settings.keepAudioOnThisComputer));
