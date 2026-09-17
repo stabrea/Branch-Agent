@@ -410,6 +410,7 @@ test("Matrix holds a request open, retries with a widening wait, and stops when 
   t.after(() => new Promise((resolve) => server.close(resolve)));
   const adapter = new MatrixAdapter({ id: "matrix", homeserver: `http://127.0.0.1:${server.address().port}`,
     userId: "@branch:example.org", accessToken: TOKEN, syncTimeoutMs: 50, reconnectBaseMs: 5 });
+  app.channels.setSwitches({ liveStatus: "on" });
   await app.channels.attach(adapter, { activation: "mention", pairing: false, allowlist: ["@alice:example.org"] });
 
   await until(() => adapter.health().state === "reconnecting" || syncs.length > 1, "the first failure is retried");

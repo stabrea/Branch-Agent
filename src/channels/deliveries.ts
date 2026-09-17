@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { Store } from "../store.js";
 import type { WebhookNotifier } from "../webhooks.js";
+import type { FeatureSwitch } from "./chat-live-settings.js";
 
 /**
  * The delivery ledger: every outbound channel message is written down before it is sent, split
@@ -35,12 +36,31 @@ const keepSentDays = 7;
  * Splits long text so every chunk fits a channel message. Channels with a shorter message limit
  * than the default (Discord allows 2000 characters) pass their own limit.
  *
- * A paragraph break is the first choice, then a line break, then a space. A block of code is never
- * left open: when a cut has to fall inside one, the chunk closes it and the next chunk opens it
- * again with the same fence, so each message still shows code as code. Inside code only line
- * breaks are used, and the indentation of the line that starts the next chunk is kept.
+ * `splitting` is the owner's switch (see chat-live-settings.ts). Off, text is cut at the last line
+ * break or space, as it always was. On, a paragraph break is the first choice, then a line break,
+ * then a space, and a block of code is never left open: when a cut has to fall inside one, the
+ * chunk closes it and the next chunk opens it again with the same fence, so each message still
+ * shows code as code, keeping the indentation of the line it starts with. "When needed" does that
+ * only for text that contains a code fence.
  */
-export function chunkText(text: string, limit = chunkLimit): string[] {
+export function chunkText(text: string, limit = chunkLimit, splitting: FeatureSwitch = "off"): string[] {
+  const careful = splitting === "on" || (splitting === "when-needed" && /^ {0,3}(```|~~~)/m.test(text));
+  return careful ? chunkCarefully(text, limit) : chunkPlainly(text, limit);
+}
+function chunkPlainly(text: string, limit: number): string[] {
+  const chunks: string[] = [];
+  let rest = text.trim();
+  while (rest.length > limit) {
+    const window = rest.slice(0, limit);
+    const cut = Math.max(window.lastIndexOf("\n"), window.lastIndexOf(" "));
+    const at = cut > limit / 2 ? cut : limit;
+    chunks.push(rest.slice(0, at).trimEnd());
+    rest = rest.slice(at).trimStart();
+  }
+  if (rest.length || !chunks.length) chunks.push(rest || "(empty message)");
+  return chunks;
+}
+function chunkCarefully(text: string, limit: number): string[] {
   const chunks: string[] = [];
   let rest = text.trim();
   // Room for the closing fence a chunk may need. Below 200 characters a reopened fence could eat
@@ -111,6 +131,8 @@ export class Deliveries {
    * wait until then instead of arriving in the night. Nothing is held until it is connected.
    */
   holdUntil: (at: Date) => string | null = () => null;
+  /** The owner's switch for careful splitting; the router connects it. Off until then. */
+  splitting: () => FeatureSwitch = () => "off";
   constructor(private readonly store: Store, private readonly owner: string, public now: () => Date = () => new Date()) {}
   private nextOrder(): number {
     this.next ??= this.list().reduce((max, d) => Math.max(max, d.order + 1), 0);
@@ -118,7 +140,7 @@ export class Deliveries {
   }
   /** Records the chunks of one message; a key seen before is not queued again. */
   enqueue(channel: string, chatId: string, text: string, key: string, replyTo?: string, limit?: number): Delivery[] {
-    const chunks = chunkText(text, Math.min(limit ?? chunkLimit, chunkLimit));
+    const chunks = chunkText(text, Math.min(limit ?? chunkLimit, chunkLimit), this.splitting());
     const rows: Delivery[] = [];
     const held = this.holdUntil(this.now());
     for (const [seq, chunk] of chunks.entries()) {

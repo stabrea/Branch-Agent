@@ -8,6 +8,7 @@ import { audit } from "../audit.js";
 import { decide, readSenderAllowlist } from "./allowlist.js";
 import type { Run } from "../contracts.js";
 import { LiveStatus, defaultLiveTiming, statusEmoji, type LiveTiming } from "./live-status.js";
+import { chatLiveSwitches, saveChatLiveSwitches, type ChatLiveSwitches } from "./chat-live-settings.js";
 import { parseChatCommand, runChatCommand, usageFooter, usageShown, type ChatCommand, type ChatTurn } from "./chat-commands.js";
 
 /**
@@ -203,6 +204,7 @@ export class ChannelRouter {
   private readonly slotWaiters: (() => void)[] = [];
   constructor(private readonly store: Store, private readonly runtime: Runtime, public pumpMs = 10000) {
     this.deliveries = new Deliveries(store, runtime.owner);
+    this.deliveries.splitting = () => this.switches().splitting;
   }
   async attach(adapter: ChannelAdapter, policy: ChannelPolicy): Promise<void> {
     if (this.adapters.has(adapter.id)) throw new Error(`Channel ${adapter.id} is already attached`);
@@ -248,7 +250,12 @@ export class ChannelRouter {
       pending: this.pairs(owner).filter((p) => p.status === "pending"),
       approved: this.pairs(owner).filter((p) => p.status === "approved"),
       chats: this.chats(owner),
+      live: this.switches(),
     };
+  }
+  /** Changes the chat extras' switches (chat-live-settings.ts); the ones not named stay as they are. */
+  setSwitches(input: unknown): ChatLiveSwitches {
+    return saveChatLiveSwitches(this.store, this.runtime.owner, input);
   }
   /**
    * Queues text for a chat and sends it if the channel is up. The key makes a repeat call a no-op,
@@ -372,7 +379,7 @@ export class ChannelRouter {
   }
 
   private async answer(message: InboundMessage): Promise<Outcome> {
-    const command = message.voice ? null : parseChatCommand(message.text);
+    const command = this.commandIn(message);
     if (command) return this.command(message, command);
     // A bare "y", "a" or "n" answers whatever this chat's conversation is waiting on, rather than
     // starting a new task. Anything longer is an ordinary message, whatever it happens to say.
@@ -396,6 +403,20 @@ export class ChannelRouter {
     const turn = this.turns.get(chatKey(message));
     if (turn) return this.joinTurn(turn, message);
     return this.startTurn([message]);
+  }
+  /** The owner's on / off / when-needed switches for the chat extras (chat-live-settings.ts). */
+  switches(): ChatLiveSwitches {
+    return chatLiveSwitches(this.store, this.runtime.owner);
+  }
+  /** The command a message is, if commands are switched on for this moment. */
+  private commandIn(message: InboundMessage): ChatCommand | null {
+    const setting = this.switches().commands;
+    if (setting === "off" || message.voice) return null;
+    const command = parseChatCommand(message.text);
+    if (!command || setting === "on") return command;
+    // "When needed": only the commands for a task that is working, and only while one is.
+    const busy = this.turns.has(chatKey(message));
+    return busy && ["stop", "status", "btw", "help"].includes(command.name) ? command : null;
   }
   /** What a task started from a chat may use. See `answer` for why each one is left out. */
   private chatPermissions(): string[] {
@@ -436,6 +457,13 @@ export class ChannelRouter {
   private async joinTurn(turn: ChatTurnState, message: InboundMessage): Promise<Outcome> {
     // A service that hands over the same message twice gets one answer.
     if ([...turn.messages, ...turn.notes.map((note) => note.message)].some((m) => m.messageId === message.messageId)) return "ignored";
+    const steering = this.switches().steering;
+    if (steering === "off") {
+      // Not steering: the message waits for the task to finish and is then answered on its own.
+      await new Promise<void>((resolve) => turn.waiters.push(() => resolve()));
+      const next = this.turns.get(chatKey(message));
+      return next ? this.joinTurn(next, message) : this.startTurn([message]);
+    }
     if (turn.phase === "gathering" && fitsTurn(turn.messages, message)) {
       turn.messages.push(message);
       return new Promise((resolve) => turn.waiters.push(resolve));
@@ -450,7 +478,7 @@ export class ChannelRouter {
     turn.notes.push({ text: heard, message });
     if (turn.runId) this.passNotes(turn);
     const adapter = this.adapters.get(message.channel)?.adapter;
-    if (adapter?.react && this.liveOn()) await adapter.react(message.chatId, message.reactTo ?? message.messageId, statusEmoji.queued).catch(() => undefined);
+    if (adapter?.react && this.liveOn() && this.switches().liveStatus !== "off") await adapter.react(message.chatId, message.reactTo ?? message.messageId, statusEmoji.queued).catch(() => undefined);
     else await this.deliver(message.channel, message.chatId, "Noted. I will take that into account as I go.",
       `noted:${message.chatId}:${message.messageId}`, message.messageId).catch(() => undefined);
     return "replied";
@@ -488,7 +516,8 @@ export class ChannelRouter {
       messages, notes, waiters: [], live: this.liveFor(first) };
     this.turns.set(key, turn);
     turn.live?.start();
-    if (this.mergeWindowMs > 0) await new Promise((resolve) => setTimeout(resolve, this.mergeWindowMs).unref());
+    if (this.mergeWindowMs > 0 && this.switches().steering === "on")
+      await new Promise((resolve) => setTimeout(resolve, this.mergeWindowMs).unref());
     let outcome: Outcome = "ignored";
     try {
       // A dropped message only gets the "Dropped that" words; nothing more is shown for it.
@@ -613,10 +642,10 @@ export class ChannelRouter {
     return this.liveAllowed() && !this.deliveries.holdUntil(new Date());
   }
   private liveFor(message: InboundMessage): LiveStatus | null {
-    const adapter = this.adapters.get(message.channel)?.adapter;
-    if (!adapter || !this.liveOn() || (!adapter.sendTyping && !adapter.react && !adapter.edit)) return null;
+    const adapter = this.adapters.get(message.channel)?.adapter, setting = this.switches().liveStatus;
+    if (!adapter || setting === "off" || !this.liveOn() || (!adapter.sendTyping && !adapter.react && !adapter.edit)) return null;
     return new LiveStatus({ adapter, chatId: message.chatId, messageId: message.messageId, reactTo: message.reactTo },
-      (text) => this.outboundGuard(text), this.liveTiming);
+      (text) => this.outboundGuard(text), this.liveTiming, setting === "when-needed");
   }
   private access(message: InboundMessage, policy: ChannelPolicy): "allowed" | "pairing" | "rejected" {
     // Batch 20 (wave 8): the one list for every chat app is read first, so "never this person"

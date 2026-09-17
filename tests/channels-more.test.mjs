@@ -91,6 +91,7 @@ test("Discord: a mention is answered in 2000-character pieces, the token never l
   const rest = await jsonService(t, (call) => call.path.endsWith("/messages") ? { body: { id: "msg-" + Date.now() } } : null);
   const adapter = new DiscordAdapter({ id: "discord", token: discordToken, apiBase: rest.base,
     gatewayUrl: gateway.url, heartbeatMs: 30, reconnectBaseMs: 10 });
+  app.channels.setSwitches({ liveStatus: "on" });
   await app.channels.attach(adapter, { activation: "mention", pairing: false, allowlist: ["9001"] });
   const first = await until(() => gateway.connections[0], "gateway connection");
   const identify = await until(() => first.received.find((message) => message.op === 2), "identify");

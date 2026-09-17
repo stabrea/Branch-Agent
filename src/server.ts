@@ -1615,6 +1615,8 @@ async function channelsApi(app: Branch, request: IncomingMessage, path: string):
   if (request.method === "POST" && retry) return app.channels.retryDelivery(decodeURIComponent(retry[1]!));
   if (request.method === "POST" && path === "/api/channels/pairings/approve") return app.channels.approve(owner, await readBody(request));
   if (request.method === "POST" && path === "/api/channels/link") return app.channels.link(owner, await readBody(request));
+  // Wave mac2 (chat-live): the on / off / when-needed switches for typing, commands, steering and splitting.
+  if (request.method === "POST" && path === "/api/channels/live") return { live: app.channels.setSwitches(await readBody(request)) };
   if (request.method === "POST" && path === "/api/channels/test") {
     const { channel, chatId } = z.object({ channel: z.string().min(1).max(64), chatId: z.string().min(1).max(64) }).strict().parse(await readBody(request));
     return app.channels.deliver(channel, chatId, "Test message from Branch Agent: this channel is connected and working.", `test:${Date.now()}`);

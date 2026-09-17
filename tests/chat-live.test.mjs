@@ -60,10 +60,12 @@ async function fixture(t, script = echo, parts, options) {
   t.after(async () => { await app.close(); await discardTemp(root); });
   app.channels.mergeWindowMs = 0;
   app.channels.liveTiming = fast;
+  app.channels.setSwitches(allOn);
   const chat = fakeChat("chat", parts, options);
   await app.channels.attach(chat.adapter, { activation: "always", pairing: true, allowlist: ["owner"] });
   return { app, model, chat, root };
 }
+const allOn = { liveStatus: "on", commands: "on", steering: "on", splitting: "on" };
 let nextId = 1;
 const message = (text, extra = {}) => ({ channel: "chat", chatId: "c1", chatKind: "direct", senderId: "owner",
   senderName: "Sam", text, addressed: true, messageId: `m${nextId++}`, ...extra });
@@ -74,7 +76,7 @@ test("a long reply is split at paragraphs and a code block is closed and reopene
   const prose = "First paragraph. ".repeat(20).trim();
   const code = Array.from({ length: 60 }, (_, i) => `    line_${i} = compute(${i})  # keep indentation`).join("\n");
   const text = `${prose}\n\n\`\`\`python\n${code}\n\`\`\`\n\n${prose}`;
-  const chunks = chunkText(text, 600);
+  const chunks = chunkText(text, 600, "on");
   assert.ok(chunks.length >= 4, "the reply needed several messages");
   for (const chunk of chunks) {
     assert.ok(chunk.length <= 600, `a chunk of ${chunk.length} is over the limit`);
@@ -93,10 +95,10 @@ test("a long reply is split at paragraphs and a code block is closed and reopene
 
 test("text without code splits as before, and tiny limits never loop", () => {
   const words = "word ".repeat(1000).trim();
-  const chunks = chunkText(words, 700);
+  const chunks = chunkText(words, 700, "on");
   assert.ok(chunks.every((chunk) => chunk.length <= 700 && !chunk.startsWith(" ") && !chunk.endsWith(" ")));
   assert.equal(chunks.join(" "), words);
-  const tiny = chunkText("```\n" + "x".repeat(300) + "\n```", 50);
+  const tiny = chunkText("```\n" + "x".repeat(300) + "\n```", 50, "on");
   assert.ok(tiny.every((chunk) => chunk.length <= 50));
   assert.deepEqual(chunkText("   "), ["(empty message)"]);
   // A tilde fence and a longer closing fence are understood too.
@@ -496,8 +498,84 @@ test("Telegram end to end: a note sent while a task works reaches it, and the ch
   state.queue.push({ update_id: 2, message: { message_id: 11, text: "skip the photos", from, chat } });
   await until(() => state.calls.some((c) => c.method === "setMessageReaction" && c.body.message_id === 11), "the note was marked seen");
   model.open();
-  await until(() => state.calls.some((c) => c.method === "sendMessage" && /^Done: .*skip the photos/s.test(c.body.text)), "answer that read the note");
+  // The answer arrives as a message, or as the progress message edited into it.
+  await until(() => state.calls.some((c) => ["sendMessage", "editMessageText"].includes(c.method) && /^Done: .*skip the photos/s.test(c.body.text)),
+    "answer that read the note");
   assert.equal(model.requests.length, 2, "the note did not start a second task");
   assert.ok(state.calls.some((c) => c.method === "sendChatAction" && c.body.action === "typing"));
   assert.ok(state.calls.some((c) => c.method === "setMessageReaction" && c.body.message_id === 10));
+});
+
+// ---- the owner's switches: on / off / when needed, all off on a fresh install ------------------
+
+test("a fresh install has every chat extra switched off and answers exactly as before", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-chat-live-"));
+  const model = scriptedModel(async (request, n, self) => {
+    if (n === 1) await self.hold(request.signal);
+    return echo(request);
+  });
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider: model });
+  t.after(async () => { await app.close(); await discardTemp(root); });
+  app.channels.liveTiming = fast;
+  assert.deepEqual(app.channels.summary().live, { liveStatus: "off", commands: "off", steering: "off", splitting: "off" });
+  const chat = fakeChat();
+  await app.channels.attach(chat.adapter, { activation: "always", pairing: false, allowlist: ["owner"] });
+  const first = app.channels.handle(message("write the plan"));
+  await until(() => model.requests.length === 1, "task started");
+  // Off: "/status" is an ordinary message, and a message for a busy chat waits its turn.
+  const second = app.channels.handle(message("/status"));
+  await delay(80);
+  assert.equal(model.requests.length, 1, "the second message waits for the first task");
+  model.open();
+  assert.deepEqual(await Promise.all([first, second]), ["replied", "replied"]);
+  assert.deepEqual(chat.sent(), ["Echo: write the plan", "Echo: /status"]);
+  assert.deepEqual(chat.calls.map((c) => c.op), ["send", "send"], "no typing, reactions or progress");
+  // Off: long text splits the old way, even with code in it.
+  const code = "```\n" + "a = 1\n".repeat(200) + "```";
+  assert.deepEqual(chunkText(code, 300), chunkText(code, 300, "off"));
+  assert.ok(chunkText(code, 300).some((chunk) => chunk.split("\n").filter((l) => l.startsWith("```")).length % 2 === 1));
+});
+
+test("switches are saved one at a time and refuse anything but on, off and when needed", async (t) => {
+  const { app } = await fixture(t);
+  assert.deepEqual(app.channels.setSwitches({ commands: "when-needed" }),
+    { liveStatus: "on", commands: "when-needed", steering: "on", splitting: "on" });
+  assert.throws(() => app.channels.setSwitches({ commands: "sometimes" }));
+  assert.throws(() => app.channels.setSwitches({ typing: "on" }));
+  assert.equal(app.channels.switches().commands, "when-needed");
+});
+
+test("when needed: commands only while a task works, steering without the wait, status only for a slow task", async (t) => {
+  const { app, chat, model } = await fixture(t, async (request, n, self) => {
+    if (lastUser(request) === "slow") await self.hold(request.signal);
+    return echo(request);
+  });
+  app.channels.mergeWindowMs = 5000; // only "on" waits to gather; this must not be waited for
+  app.channels.setSwitches({ liveStatus: "when-needed", commands: "when-needed", steering: "when-needed" });
+  const steered = [];
+  app.store.onEvent((runId, kind, data) => { if (kind === "run.steered") steered.push(data.note); });
+  // Idle: a command is an ordinary message, and a quick answer shows nothing but the answer.
+  assert.equal(await app.channels.handle(message("/status")), "replied");
+  assert.deepEqual(chat.calls.map((c) => c.op), ["send"]);
+  assert.equal(chat.sent()[0], "Echo: /status");
+  // Busy: /status is read, /new is not, and after a while the chat shows the work.
+  const slow = app.channels.handle(message("slow"));
+  await until(() => model.requests.length === 2, "slow task started");
+  await until(() => chat.calls.some((c) => c.op === "typing"), "typing once the task is slow");
+  await until(() => chat.calls.some((c) => c.op === "react" && c.emoji === statusEmoji.thinking), "the reaction once the task is slow");
+  await app.channels.handle(message("/status"));
+  assert.match(chat.sent().at(-1), /^Working for/);
+  await app.channels.handle(message("/new"));
+  assert.equal(model.requests.length, 2, "while busy, /new is a note to the task, not a new task");
+  model.open();
+  assert.equal(await slow, "replied");
+  assert.ok(steered.some((note) => note === "/new"), "the message was steered into the running task");
+});
+
+test("when needed: careful splitting only for a reply with code in it", () => {
+  const prose = ("word ".repeat(30) + "\n\n").repeat(20);
+  assert.deepEqual(chunkText(prose, 400, "when-needed"), chunkText(prose, 400, "off"));
+  const code = "Look:\n```js\n" + "let a = 1;\n".repeat(100) + "```";
+  assert.deepEqual(chunkText(code, 400, "when-needed"), chunkText(code, 400, "on"));
+  assert.notDeepEqual(chunkText(code, 400, "when-needed"), chunkText(code, 400, "off"));
 });

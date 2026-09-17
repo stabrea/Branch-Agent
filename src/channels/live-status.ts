@@ -83,27 +83,44 @@ export class LiveStatus {
   private reactTimer: ReturnType<typeof setTimeout> | null = null;
   private chain: Promise<unknown> = Promise.resolve();
   private readonly limit: number;
-  constructor(private readonly target: LiveTarget, private readonly guard: OutboundGuard, private readonly timing: LiveTiming = defaultLiveTiming) {
+  /** Shown so far; a patient status stays asleep until the task has worked for a while. */
+  private awake: boolean;
+  /**
+   * `patient` is the "when needed" setting: nothing at all is shown for a quick answer, and typing,
+   * the reaction and the progress message all start together once the task is still working after
+   * `progressAfterMs`.
+   */
+  constructor(private readonly target: LiveTarget, private readonly guard: OutboundGuard,
+    private readonly timing: LiveTiming = defaultLiveTiming, private readonly patient = false) {
     this.limit = Math.min(target.adapter.maxTextLength ?? 3500, 3500);
+    this.awake = !patient;
   }
   /** The message has been taken on: show "seen" and start typing. */
   start(): void {
-    const { adapter } = this.target;
     this.setState("queued", true);
+    if (this.awake) this.keepTyping();
+  }
+  private keepTyping(): void {
     this.typing();
-    if (adapter.sendTyping) {
-      this.typingTimer = setInterval(() => this.typing(), this.timing.typingEveryMs);
-      this.typingTimer.unref();
-    }
+    if (!this.target.adapter.sendTyping || this.typingTimer) return;
+    this.typingTimer = setInterval(() => this.typing(), this.timing.typingEveryMs);
+    this.typingTimer.unref();
   }
   /** The task has started and the model is reading. A task still working after a while gets a progress message. */
   thinking(): void {
     if (this.closed) return;
     this.setState("thinking");
-    if (this.target.adapter.edit && !this.progressPlanned) {
-      this.progressPlanned = true;
-      this.later(() => void this.openProgress(), this.timing.progressAfterMs);
-    }
+    if (this.progressPlanned) return;
+    this.progressPlanned = true;
+    this.later(() => {
+      if (this.closed) return;
+      if (!this.awake) {
+        this.awake = true;
+        this.keepTyping();
+        this.setState(this.wanted ?? "thinking", true);
+      }
+      if (this.target.adapter.edit) void this.openProgress();
+    }, this.timing.progressAfterMs);
   }
   /** One stored event of the task. Tool steps go in the list; a new model round is thinking again. */
   event(kind: string, data: Record<string, unknown>): void {
@@ -140,6 +157,8 @@ export class LiveStatus {
     this.closed = true;
     this.stopTimers();
     this.wanted = outcome;
+    // A patient status that never woke has shown nothing, and ends the same way.
+    if (!this.awake) return null;
     return this.enqueue(async () => {
       await this.applyReaction();
       if (!this.progressId) return null;
@@ -169,6 +188,7 @@ export class LiveStatus {
   private setState(state: LiveState, now = false): void {
     if (this.closed || !this.target.adapter.react) return;
     this.wanted = state;
+    if (!this.awake) return;
     if (now) { void this.enqueue(() => this.applyReaction()); return; }
     if (this.reactTimer) return;
     this.reactTimer = this.later(() => {
