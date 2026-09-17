@@ -18,6 +18,14 @@ export function setSharedFacts(agent: string, reads: boolean): void {
   else keepsToItself.add(agent);
 }
 
+/**
+ * Integrator (R17-A): a Trunk never writes into the shared facts — what it learns is always its own,
+ * so nothing it was told can reach the owner's other Trunks and specialists that way.
+ */
+export function writesSharedFacts(agent: string): boolean {
+  return !agent.startsWith("trunk:");
+}
+
 /** True when this agent may read a fact the owner marked as shared. */
 export function readsSharedFacts(agent: string): boolean {
   return !keepsToItself.has(agent);

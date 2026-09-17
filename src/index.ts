@@ -957,7 +957,7 @@ export async function createBranch(options: {
   channels.trunkReach = (channel, sessionId) => {
     const owned = trunks.trunkForConversation(sessionId);
     const trunk = owned ? trunks.records.find(owned.trunkId) : undefined;
-    return trunk && trunks.mode("trunks") !== "off" && !trunk.reach.channels.includes(channel)
+    return trunk && !trunk.reach.channels.includes(channel) // whatever the switch says, reach only narrows
       ? `${trunk.name} does not answer on ${channel}. The owner can allow it under Customize → Trunks.` : null;
   };
   // ── end R17-A ──

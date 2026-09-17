@@ -23,6 +23,13 @@ import { requireTrunkPart } from "./settings.js";
  * Branch adds a depth limit, so two Trunks cannot keep each other talking for ever.
  */
 export const maxMessageDepth = 3;
+/**
+ * Integrator (R17-A): the depth alone bounds how long a chain gets, not how wide. One task may send
+ * only a few messages, and the whole roster only so many an hour, so a fan-out cannot run up a bill.
+ */
+export const maxMessagesPerTask = 3;
+export const maxMessagesPerHour = 30;
+const depthEvent = "trunk.message.depth";
 const maxReceipts = 100;
 const receiptsKey = "trunk-receipts";
 const transient = /time(d)? ?out|rate.?limit|\b429\b|\b5\d\d\b|overloaded|temporar|unavailable|ECONN|network|socket/i;
@@ -39,6 +46,8 @@ export interface Receipt {
   depth: number;
   attempts: number;
   runId: string | null;
+  /** The task that sent it (for the cap per task). */
+  fromRunId?: string | null;
   reply: string | null;
   error: string | null;
   at: string;
@@ -85,8 +94,9 @@ export class TrunkMessages {
     const depth = this.depthOf(context.runId);
     if (depth >= maxMessageDepth)
       throw new Error(`These Trunks have already passed messages ${maxMessageDepth} deep. Answer in your own words instead of sending another.`);
+    this.checkRate(context.runId);
     const prompt = `Message from ${sender.name} (@${sender.handle}):\n${input.message}`;
-    const receipt = this.deliver("message", sender, target, prompt, depth + 1);
+    const receipt = this.deliver("message", sender, target, prompt, depth + 1, context.runId);
     return { queued: true, receipt: receipt.id, to: `@${target.handle}`,
       note: `Sent. @${target.handle} will read it when it is free, and its answer will arrive in this conversation later. Do not wait for it.` };
   }
@@ -99,13 +109,23 @@ export class TrunkMessages {
       throw new Error("trunk.message works only in a Trunk's own conversation");
     return sender;
   }
-  private depthOf(runId: string): number {
-    return this.receipts().find((r) => r.runId === runId)?.depth ?? 0;
+  private checkRate(runId: string): void {
+    const sent = this.receipts().filter((r) => r.kind === "message");
+    if (sent.filter((r) => r.fromRunId === runId).length >= maxMessagesPerTask)
+      throw new Error(`A Trunk may send at most ${maxMessagesPerTask} messages in one task. Answer with what you have.`);
+    const hourAgo = new Date(Date.now() - 3_600_000).toISOString();
+    if (sent.filter((r) => r.at >= hourAgo).length >= maxMessagesPerHour)
+      throw new Error(`The Trunks have sent ${maxMessagesPerHour} messages to each other in the last hour, which is the most allowed. Answer in your own words instead.`);
   }
-  private deliver(kind: Receipt["kind"], from: Trunk, to: Trunk, prompt: string, depth: number): Receipt {
+  /** The receipt says how deep the task that read it is; the task's own record keeps it once the receipt is gone. */
+  private depthOf(runId: string): number {
+    const kept = this.store.events(runId).find((event) => event.kind === depthEvent)?.data.depth;
+    return this.receipts().find((r) => r.runId === runId)?.depth ?? (typeof kept === "number" ? kept : 0);
+  }
+  private deliver(kind: Receipt["kind"], from: Trunk, to: Trunk, prompt: string, depth: number, fromRunId: string | null = null): Receipt {
     const now = new Date().toISOString();
     const receipt: Receipt = { id: randomUUID(), kind, from: from.id, to: to.id, sessionId: to.chatSessionId, prompt, status: "queued",
-      depth, attempts: 1, runId: null, reply: null, error: null, at: now, updatedAt: now };
+      depth, attempts: 1, runId: null, fromRunId, reply: null, error: null, at: now, updatedAt: now };
     this.save([...this.receipts().reverse(), receipt]);
     this.runtime.followUp(to.chatSessionId, prompt);
     return receipt;
@@ -118,7 +138,9 @@ export class TrunkMessages {
     if (!run) return;
     if (kind === "run.started") {
       const waiting = this.receipts().reverse().find((r) => r.status === "queued" && r.sessionId === run.sessionId && r.prompt === run.prompt);
-      if (waiting) this.update(waiting.id, { status: "delivered", runId });
+      if (!waiting) return;
+      this.update(waiting.id, { status: "delivered", runId });
+      this.store.event(runId, depthEvent, { depth: waiting.depth });
       return;
     }
     const receipt = this.receipts().find((r) => r.runId === runId && r.status === "delivered");

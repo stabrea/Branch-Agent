@@ -9,6 +9,8 @@ import type { Call, Reply } from "./handlers.js";
 const say = (text: string, client?: Reply["client"]): Reply => (client ? { text, client } : { text });
 
 export async function trunkCommand(call: Call): Promise<Reply> {
+  // Integrator (R17-A): Trunks are the owner's, like /account; a household profile is refused outright.
+  call.host.requireOwner("/trunk");
   const trunks = trunksFor(call.host.runtime);
   if (!trunks || trunks.mode("trunks") === "off")
     return say("Trunks are switched off. Switch them on in Customize → Specialists, under Trunks.", { do: "go", home: "customize:specialists" });

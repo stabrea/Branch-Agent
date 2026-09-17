@@ -767,7 +767,8 @@ ${run.output.slice(0, 6000)}`;
       }, options.checks, options.images, {
         ...(options.plan !== undefined ? { plan: options.plan } : {}),
         ...(options.verify !== undefined ? { verify: options.verify } : {}),
-        ...(context.depth > 0 || (context.agent && !trunk) ? { delegated: true } : {}), // R17-A: a Trunk's own turn is not delegated
+        // R17-A: a Trunk's own turn is not delegated (it gets the planner and reviewer); a room turn is.
+        ...(context.depth > 0 || (context.agent && (!trunk || trunk.roomTurn)) ? { delegated: true } : {}),
       }, options.style);
     } catch (error) {
       status = this.failureStatus(context, error);

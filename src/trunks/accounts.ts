@@ -51,7 +51,9 @@ export function keyPlan(keys: { copyFromOwner: boolean; accounts: Record<string,
     const signInOnly = pool.accounts.length > 0 && pool.accounts.every((a) => a.signIn);
     if (!keys.copyFromOwner || signInOnly) {
       choices[pool.id] = null;
-      notes.push(`${pool.label}: pick an account for this Trunk; ${signInOnly ? "a sign-in is never copied from you" : "your keys are not copied"}.`);
+      // Integrator (R17-A): honest about today's limit — the accounts work has no "none" choice yet, so
+      // without a pick the connection's default account still answers for this Trunk.
+      notes.push(`${pool.label}: ${signInOnly ? "a sign-in is never copied" : "your keys are not copied"}, so pick an account for this Trunk; until you do, your default one still answers.`);
     } else choices[pool.id] = null;
   }
   return { choices, notes };

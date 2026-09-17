@@ -49,12 +49,30 @@ export class TrunkTeaching {
   watching(trunkId: string): string | null {
     return ((this.deps.store.get("settings", this.deps.owner, watchKey(trunkId))?.data ?? {}) as { since?: string }).since ?? null;
   }
+  /**
+   * Integrator (R17-A): only what the owner did themselves is a lesson — a task they started, at the
+   * top level, not a Trunk's turn or routine, a schedule, a household person, a short-lived key or a
+   * task lent to another program.
+   */
+  private shownByOwner(runId: string): boolean {
+    const { store, owner } = this.deps;
+    if (store.run(runId)?.owner !== owner) return false;
+    const events = store.events(runId);
+    const started = events.find((event) => event.kind === "run.started")?.data;
+    if (!started || events.some((event) => event.kind === "trunk.turn")) return false;
+    return (started.source ?? "owner") === "owner" && !started.parentRunId && !started.personProfileId
+      && !started.shortLivedKey && !started.lentTo;
+  }
   /** The task to learn from: the one named, or the latest finished since watching started. */
   private lesson(trunkId: string, runId: string | undefined): string {
-    if (runId) return runId;
+    if (runId) {
+      if (!this.shownByOwner(runId)) throw new Error("That task is not something you did yourself, so a Trunk cannot learn from it.");
+      return runId;
+    }
     const since = this.watching(trunkId);
     if (!since) throw new Error('Press "Watch me" first, then do the job once.');
-    const done = this.deps.store.runs(this.deps.owner).find((run) => run.status === "completed" && run.createdAt >= since);
+    const done = this.deps.store.runs(this.deps.owner)
+      .find((run) => run.status === "completed" && run.createdAt >= since && this.shownByOwner(run.id));
     if (!done) throw new Error("Nothing has finished since you pressed Watch me. Do the job once, then save it.");
     return done.id;
   }

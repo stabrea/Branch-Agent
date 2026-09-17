@@ -18,6 +18,11 @@ export interface TrunkRunShape {
   reasoning?: ReasoningEffort | null;
   permissions: string[];
   style?: SpecialistStyle;
+  /**
+   * Integrator (R17-A): a turn in a room is one voice among several, so it runs like a delegated task —
+   * no plan of its own and no reviewer pass — or one message from the owner would multiply model calls.
+   */
+  roomTurn: boolean;
 }
 
 const mcpPermission = /^mcp\.([^.]+)\.[a-f0-9]{16}$/;
@@ -63,9 +68,11 @@ export function trunkInstructions(trunk: Trunk, roster: readonly Trunk[], messag
 
 export function shapeFor(trunk: Trunk, roster: readonly Trunk[], options: {
   available: readonly string[]; caller?: readonly string[] | undefined; messaging: boolean; sessionModel: boolean; agent: string;
+  roomTurn?: boolean;
 }): TrunkRunShape {
   return {
     trunkId: trunk.id,
+    roomTurn: options.roomTurn === true,
     agent: options.agent,
     instructions: trunkInstructions(trunk, roster, options.messaging),
     // A reviewing style takes away everything that writes, exactly as it does for a specialist.

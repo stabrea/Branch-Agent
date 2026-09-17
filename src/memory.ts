@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { readsSharedFacts } from "./trunks/memory-scope.js"; // R17-A (Trunks)
+import { readsSharedFacts, writesSharedFacts } from "./trunks/memory-scope.js"; // R17-A (Trunks)
 import { isDeepStrictEqual } from "node:util";
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
@@ -392,7 +392,7 @@ export function registerMemory(registry: ToolRegistry, store: Store, retrieval?:
       const sessionId = store.run(context.runId)?.sessionId;
       if (sessionId && store.memorySuppressed(owner, sessionId))
         throw new Error("Memory from this conversation was forgotten, so it is not saved again automatically. The owner can save it from the Memory view.");
-      const scope = context.agent ? (value.scope === "shared" ? "shared" : `agent:${context.agent}`) : value.scope;
+      const scope = context.agent ? (value.scope === "shared" && writesSharedFacts(context.agent) ? "shared" : `agent:${context.agent}`) : value.scope;
       const { scope: _requested, ...rest } = value; void _requested;
       // A kind decides how long the fact lasts unless it says otherwise: only a scribble is short-lived.
       const layer = layerForKind(value.kind ?? "fact-about-world");

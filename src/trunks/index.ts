@@ -14,6 +14,7 @@ import { shapeFor, type TrunkRunShape } from "./shape.js";
 import { exportTrunk, importedFields } from "./share.js";
 import { TrunkTeaching, type TeachDeps } from "./teach.js";
 import { z } from "zod";
+import { audit } from "../audit.js";
 
 /**
  * Bucket R17-A (wave mac7): Trunks, Branch's answer to Hermes Bots and Grok Bot. `createBranch` makes
@@ -69,7 +70,7 @@ export class Trunks {
     this.refresh();
     runtime.trunkShape = (options) => this.shapeOf(options);
     byRuntime.set(runtime, this);
-    scheduler.routeRun = (id) => (this.mode("routines") === "off" ? null : this.routines.route(id));
+    scheduler.routeRun = (id) => this.routines.route(id, this.mode("routines") !== "off");
     this.syncTools();
     if (this.mode("rooms") !== "off") this.rooms.resumeAll();
   }
@@ -113,7 +114,8 @@ export class Trunks {
 
   /** The runtime's hook: a task in a Trunk's conversation, or a routine it owns, runs as that Trunk. */
   shapeOf(options: RunOptions): TrunkRunShape | null {
-    if (this.mode("trunks") === "off") return null;
+    // Integrator (R17-A): no switch check here. A Trunk's shape only ever narrows, so a message queued
+    // for it before Trunks were switched off never runs with the owner's whole set afterwards.
     const owned = options.sessionId ? this.owned.get(options.sessionId) : undefined;
     const trunkId = options.trunkId ?? owned?.trunkId;
     const trunk = trunkId ? this.records.find(trunkId) : undefined;
@@ -121,7 +123,8 @@ export class Trunks {
     const { runtime, registry } = this.deps;
     const sessionModel = options.sessionId ? !!runtime.models.session(this.owner, options.sessionId).preset : false;
     return shapeFor(trunk, this.records.list(), { available: registry.permissions(), caller: options.permissions,
-      messaging: owned?.canonical === true && this.mode("messages") !== "off", sessionModel, agent: trunkAgent(trunk.id) });
+      messaging: owned?.canonical === true && this.mode("messages") !== "off", sessionModel, agent: trunkAgent(trunk.id),
+      roomTurn: owned?.canonical === false });
   }
 
   /** R17-007: the roster the rail shows — each Trunk with its latest message, when, and how many are unread. */
@@ -166,11 +169,11 @@ export class Trunks {
     const fields = TrunkSchema.parse({ ...TrunkCreateSchema.parse(input) });
     return this.adopt(fields, extra);
   }
-  private adopt(fields: z.infer<typeof TrunkSchema>, extra: Partial<Trunk>): Trunk {
+  private adopt(fields: z.infer<typeof TrunkSchema>, extra: Partial<Trunk>, speaks = true): Trunk {
     if (this.records.list().length >= 50) throw new Error("You can have at most 50 Trunks");
     const trunk = this.records.put(this.records.build(fields, this.conversation(`Trunk: ${fields.name}`), extra));
     this.refresh();
-    this.introduce(trunk);
+    if (speaks) this.introduce(trunk);
     return trunk;
   }
   private introduce(trunk: Trunk): void {
@@ -252,10 +255,18 @@ export class Trunks {
   }
 
   /** R17-013: the one-file export, and bringing one in (reach off, the owner's keys). */
-  exportFile(id: string) { return exportTrunk(this.records.get(id)); }
+  // Integrator (R17-A): the owner's own words can hold a key; the file goes through the same scrubber as logs.
+  exportFile(id: string) { return this.deps.runtime.hideSecrets(exportTrunk(this.records.get(id))); }
   importFile(input: unknown): Trunk {
     requireTrunkPart(this.store, this.owner, "trunks");
-    return this.adopt(importedFields(input), {});
+    // Integrator (R17-A): like a market import, it arrives switched off and is written down. Nothing runs
+    // on the file's instructions until the owner talks to it.
+    const trunk = this.adopt(importedFields(input, this.deps.registry.permissions()), {}, false);
+    this.store.message(trunk.chatSessionId, { role: "assistant",
+      content: `Hello, I am ${trunk.name}. I was brought in from a file, so I only look, use no tool servers and answer on no chat app until you change that in Edit Trunk.` });
+    audit(this.store, this.owner, { action: "data.imported", actor: this.owner, subject: `Trunk "${trunk.name}" from a file`,
+      reason: "A Trunk brought in from a file only looks, uses no tool server and reaches no chat app", outcome: "saved" });
+    return trunk;
   }
 
   /** R17-005: what the Trunk's key settings come to, and the choices pushed to its conversation. */

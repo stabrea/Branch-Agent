@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { Run } from "../contracts.js";
 import type { Runtime } from "../runtime.js";
-import type { Scheduler } from "../scheduler.js";
+import { nextTurn, type Scheduler } from "../scheduler.js";
 import type { Store } from "../store.js";
 import type { TrunkRecords } from "./record.js";
 import { requireTrunkPart } from "./settings.js";
@@ -25,6 +25,15 @@ export const RoutineSchema = z.object({
 }).strict();
 
 const linksKey = "trunk-routines";
+
+/**
+ * Integrator (R17-A): when a routine without a date first runs — at the time of day it was given, or
+ * one interval from now — so saving one (or teaching one) never sets it going straight away.
+ */
+function firstTurn(value: z.infer<typeof RoutineSchema>, now = new Date()): string {
+  if (value.dailyAt) return nextTurn({ dailyAt: value.dailyAt, timezone: value.timezone ?? "UTC" }, now);
+  return new Date(now.getTime() + (value.intervalMs ?? 60000)).toISOString();
+}
 interface Link { trunkId: string; name: string }
 
 export class TrunkRoutines {
@@ -58,7 +67,7 @@ export class TrunkRoutines {
     const saved = this.scheduler.create(context, {
       ...(extra.length ? { permissions: [...ordinary, ...extra.filter((p) => context.permissions.has(p))] } : {}),
       prompt: `[Trunk @${trunk.handle}] ${value.name}\n${value.prompt}`, kind: "task",
-      dueAt: value.dueAt ?? new Date(Date.now() + 60000).toISOString(),
+      dueAt: value.dueAt ?? firstTurn(value),
       ...(value.intervalMs ? { intervalMs: value.intervalMs } : {}),
       ...(value.dailyAt ? { dailyAt: value.dailyAt, timezone: value.timezone ?? "UTC" } : {}),
     });
@@ -87,11 +96,17 @@ export class TrunkRoutines {
     for (const routine of this.list(trunkId)) this.remove(routine.id);
   }
 
-  /** The scheduler's hook: a linked schedule runs as its Trunk and reports back. */
-  route(scheduleId: string): { options: { trunkId: string }; finished: (run: Run) => void } | null {
+  /**
+   * The scheduler's hook: a linked schedule runs as its Trunk and reports back. One that cannot run
+   * as its Trunk (the part is switched off, or the Trunk is gone) is refused rather than run as the
+   * owner, whose saved set is wider than the Trunk's.
+   */
+  route(scheduleId: string, switchedOn = true): { options: { trunkId: string }; finished: (run: Run) => void } | { refuse: string } | null {
     const link = this.links()[scheduleId];
-    const trunk = link ? this.records.find(link.trunkId) : undefined;
-    if (!link || !trunk) return null;
+    if (!link) return null;
+    const trunk = this.records.find(link.trunkId);
+    if (!trunk) return { refuse: "The Trunk this routine belonged to is gone, so the routine did not run." };
+    if (!switchedOn) return { refuse: "Routines a Trunk owns are switched off, so this routine did not run." };
     return { options: { trunkId: trunk.id }, finished: (run) => this.report(trunk.chatSessionId, `Routine "${link.name}": ${run.status === "completed" ? run.output : `it did not finish (${run.status}). ${run.output}`}`) };
   }
   private report(sessionId: string, text: string): void {

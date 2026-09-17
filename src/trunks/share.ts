@@ -23,8 +23,21 @@ export function exportTrunk(trunk: Trunk): TrunkFile {
   return { format: trunkFileFormat, exportedAt: new Date().toISOString(), trunk: shared };
 }
 
-/** The fields a file brings in, checked, with everything it may not carry set back to off. */
-export function importedFields(input: unknown): TrunkFields {
+/** Reads that reach past this computer or into the owner's other conversations: never given by a file. */
+const notFromAFile = new Set(["web.read", "browser.read", "research.read", "history.read"]);
+
+/**
+ * The fields a file brings in, checked, with everything it may not carry set back to off.
+ *
+ * Integrator (R17-A): a file is somebody else's words, so the Trunk it makes may only look. Its tools
+ * are the file's list cut down to what only reads here (`readable`, from the running Branch), or
+ * all of those when the file names none — never the empty list, which means the owner's whole set.
+ * It uses no connected tool server until the owner names one.
+ */
+export function importedFields(input: unknown, readable: readonly string[]): TrunkFields {
   const file = TrunkFileSchema.parse(input);
-  return TrunkSchema.parse({ ...file.trunk, keys: { copyFromOwner: true, accounts: {} }, reach: { channels: [], commands: false } });
+  const looking = readable.filter((permission) => permission.endsWith(".read") && !notFromAFile.has(permission));
+  const asked = file.trunk.permissions.filter((permission) => looking.includes(permission));
+  return TrunkSchema.parse({ ...file.trunk, permissions: asked.length ? asked : looking, mcpServers: [],
+    keys: { copyFromOwner: true, accounts: {} }, reach: { channels: [], commands: false } });
 }

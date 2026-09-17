@@ -107,10 +107,11 @@ test("a Trunk's turn carries its instructions, its tools and its memory scope, h
   const plain = await app.runtime.run({ prompt: "hello" });
   assert.equal(app.store.events(plain.id).some((e) => e.kind === "trunk.turn"), false);
   assert.doesNotMatch(provider.requests.at(-1).messages[0].content, /You are Bo \(@/);
-  // With Trunks switched off, its conversation is an ordinary one.
+  // With Trunks switched off, its conversation still runs as the Trunk: its shape only ever narrows
+  // (integrator, R17-A; tests/trunks-integrator.test.mjs has the case that mattered).
   app.trunks.setMode("trunks", { mode: "off" });
   const off = await app.runtime.run({ prompt: "hello", sessionId: bo.chatSessionId });
-  assert.equal(app.store.events(off.id).some((e) => e.kind === "trunk.turn"), false);
+  assert.equal(app.store.events(off.id).some((e) => e.kind === "trunk.turn"), true);
 });
 
 test("the permissions a Trunk gets never widen, and tool servers are off unless named", () => {
