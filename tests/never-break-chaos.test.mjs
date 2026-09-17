@@ -72,9 +72,10 @@ async function checkOutcome(root, result, label) {
   const asked = result.runs.some((run) => run.status === "needs_input" && /may already have happened/.test(run.output));
   assert.ok(finished || asked, `${label}: neither finished nor asked: ${JSON.stringify(result.runs)} ${JSON.stringify(result.report)}`);
   if (finished) {
-    assert.deepEqual(outbox, ["sent 2", "sent 4"], `${label}: both sends happened exactly once`);
-    assert.equal(await text(join(root, "workspace", "one.txt")), "first");
-    assert.equal(await text(join(root, "workspace", "two.txt")), "second");
+    const seen = `${JSON.stringify(result.report)} ${JSON.stringify(result.steps)}`;
+    assert.deepEqual(outbox, ["sent 2", "sent 4"], `${label}: both sends happened exactly once: ${seen}`);
+    assert.equal(await text(join(root, "workspace", "one.txt")), "first", `${label}: one.txt was written: ${seen}`);
+    assert.equal(await text(join(root, "workspace", "two.txt")), "second", `${label}: two.txt was written: ${seen}`);
   }
   const how = result.report.map((one) => one.outcome).join("+") || "no-restart-needed";
   return `${finished ? "finished" : "asked"}(${how})`;
