@@ -7,6 +7,7 @@ import { McpConfigSchema } from './mcp-config.js';
 import { connectMcp, openMcp, registerCachedMcp, type LiveMcp, type McpToolCache } from './mcp.js';
 import { BranchBrowser, BrowserConfigSchema, registerBrowser, type WorkspacePaths } from './browser.js';
 import type { BrowserProfiles } from './browser-profiles.js';
+import { BrowserSandbox } from './browser-container.js'; // w911 (A2019) hook: import
 import { siteSkillsFor, type SiteSkillSource } from './browser-sites.js';
 import type { RunArtifacts } from '../artifacts.js';
 import { ShellConfigSchema } from './shell-config.js';
@@ -250,6 +251,8 @@ export async function loadIntegrations(registry: ToolRegistry, path?: string, en
       browser.profiles = channels?.browserProfiles;
       browser.store = channels?.store as never;
       browser.tracer = channels?.tracer as never;
+      // w911 (A2019) hook: the browser sandbox; its settings are read when a task first opens a page.
+      if (channels?.store) { const kept = channels.store as Store; browser.sandbox = new BrowserSandbox(kept, () => kept.secrets); }
       // The quirks of particular websites live in the skills the owner installed, not in the
       // browser tool, so they are read fresh each time: installing a skill needs no restart.
       const skillStore = channels?.store as SiteSkillSource | undefined;

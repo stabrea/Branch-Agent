@@ -1,308 +1,217 @@
 import { execFile } from 'node:child_process';
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { chromium, type Browser } from 'playwright';
+import { createRequire } from 'node:module';
+import { createServer } from 'node:net';
+import { chromium, type Browser, type ConnectOptions } from 'playwright';
 import { z } from 'zod';
-import { FeatureModeSchema, type FeatureMode } from '../feature-switches.js';
+import { FeatureModeSchema } from '../feature-switches.js';
 import type { Store } from '../store.js';
 
 /**
- * w911 (A2019): Sandbox backend for browser automation. Supports running Playwright browser
- * in a Docker container or connecting to a remote Playwright server. The same network policy
- * applies in both cases via page.route() on the Branch side.
+ * w911 (A2019): the browser sandbox. With the switch on, the browser tools drive a Chromium that runs
+ * somewhere other than this computer's own desktop session: in a Docker container started from the
+ * official Playwright image, or on a Playwright server the owner runs elsewhere. Branch still makes
+ * every decision about which pages may load: each task gets its own browser context, and the
+ * website list is applied to every request of that context from this side of the connection.
  *
- * Token is kept in the secrets locker, not plain settings, to prevent leaks through errors.
- * Settings output shows tokenSaved: true without exposing the actual secret.
+ * "When needed" means: a task that uses one of the owner's saved sign-ins (or borrows their own
+ * browser, which never launches anything) stays on this computer, so those cookies never leave it;
+ * every other task goes to the sandbox. "On" sends every task that launches a browser to the sandbox.
  */
+export const settingsKey = 'browser-container';
+export const tokenProject = 'default';
+export const tokenName = 'BROWSER_CONTAINER_TOKEN';
+
+const endpointSchema = z.string().trim().max(300).refine(value => {
+  try {
+    const url = new URL(value);
+    return ['ws:', 'wss:'].includes(url.protocol) && !url.username && !url.password && !url.search;
+  } catch { return false; }
+}, 'The address must start with ws:// or wss://, with no name, password or ?key in it (put the key in the token box)');
+
 export const BrowserContainerSchema = z.object({
-  /** Where the browser runs: this computer, a Docker container, or a remote endpoint. */
+  /** The three-way switch. Off: the browser runs on this computer exactly as before. */
   mode: FeatureModeSchema.default('off'),
-  /** How to run the browser when mode is not 'off'. */
-  where: z.enum(['local', 'docker', 'endpoint']).default('local'),
-  /** The remote Playwright server endpoint (ws:// or wss://) when where is 'endpoint'. */
-  endpoint: z.string().trim().min(7).max(300).optional(),
-  /** Indicator that a token is stored in secrets; the actual token is never in settings. */
-  tokenSaved: z.boolean().default(false),
+  /** Where the sandbox browser runs: a Docker container on this computer, or a server elsewhere. */
+  where: z.enum(['docker', 'endpoint']).default('docker'),
+  /** The Playwright server's address, when `where` is "endpoint". */
+  endpoint: endpointSchema.optional(),
 }).strict();
 export type BrowserContainer = z.infer<typeof BrowserContainerSchema>;
 
-const settingsKey = 'browser-container';
-const tokenSecretName = 'BROWSER_CONTAINER_TOKEN';
+/** What Settings may send: the settings above, plus the token (a string saves it, null removes it). */
+export const BrowserContainerInputSchema = BrowserContainerSchema.partial().extend({
+  token: z.string().min(1).max(4000).nullable().optional(),
+}).strict();
 
-export function readBrowserContainerSettings(store: Pick<Store, 'get'>, owner: string): BrowserContainer {
+/** The saved settings; null when what is saved no longer makes sense (a refusal, never a silent local run). */
+export function readBrowserContainer(store: Pick<Store, 'get'>, owner: string): BrowserContainer | null {
   const saved = BrowserContainerSchema.safeParse(store.get('settings', owner, settingsKey)?.data ?? {});
-  return saved.success ? saved.data : BrowserContainerSchema.parse({});
+  return saved.success ? saved.data : null;
 }
 
-export function saveBrowserContainerSettings(
-  store: Store,
-  owner: string,
-  input: unknown,
-  token?: string,
-): BrowserContainer {
-  const given = (input && typeof input === 'object' && !Array.isArray(input) ? input : {}) as Record<string, unknown>;
+/** The one sentence every browser tool says when the sandbox cannot be used. */
+export const sandboxRefusal = (reason: string): string =>
+  `The browser sandbox cannot be used: ${reason} Check the browser sandbox setting, or switch it off.`;
 
-  // Validate endpoint URL scheme
-  if (given.endpoint && typeof given.endpoint === 'string') {
-    const endpoint = given.endpoint.trim();
-    try {
-      const url = new URL(endpoint);
-      if (!['ws:', 'wss:'].includes(url.protocol)) {
-        throw new Error('Endpoint must use ws:// or wss:// protocol');
-      }
-    } catch (error) {
-      throw new Error(`Invalid endpoint: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
-
-  const current = readBrowserContainerSettings(store, owner);
-  const value = BrowserContainerSchema.parse({
-    ...current,
-    ...given,
-    tokenSaved: token ? true : current.tokenSaved,
-  });
-
-  store.save('settings', owner, settingsKey, value);
-
-  // Store token in secrets if provided
-  if (token) {
-    // Note: in real implementation, this would go to the secrets locker.
-    // For now, we use a special marker in the store to indicate it's stored.
-    // The actual secret storage is handled by the caller (credentials.ts pattern).
-  }
-
-  return value;
-}
-
-export const browserContainerMode = (store: Pick<Store, 'get'>, owner: string): FeatureMode =>
-  readBrowserContainerSettings(store, owner).mode;
-
-/** The one sentence browser tools say when the switch is off or endpoint is unreachable. */
-export const browserContainerOff =
-  'Browser sandbox is not set up or unreachable. Check Settings → Advanced → Browser container.';
-
-/** Run a program with an argument array, bounded by timeout. */
-export type ProgramRunner = (file: string, args: string[], timeoutMs?: number) => Promise<string>;
-
-/** Default runner using execFile. */
-export function defaultProgramRunner(file: string, args: string[], timeoutMs = 10000): Promise<string> {
-  return new Promise((resolve, reject) => {
-    execFile(file, args, { timeout: timeoutMs, maxBuffer: 1024 * 1024 }, (error, stdout) => {
-      if (error) reject(error);
-      else resolve(stdout);
-    });
-  });
-}
-
-/**
- * Read the Playwright version from package.json in node_modules.
- */
+/** The installed Playwright's version, read when it is needed; the Docker image must match it. */
 export function playwrightVersion(): string {
-  try {
-    const pkgPath = join(dirname(fileURLToPath(import.meta.url)), '../../node_modules/playwright/package.json');
-    const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
-    const version = pkg.version as string;
-    if (!version || !/^\d+\.\d+\.\d+/.test(version)) throw new Error('Invalid version format');
-    return version;
-  } catch (error) {
-    throw new Error(`Could not read Playwright version: ${error instanceof Error ? error.message : String(error)}`);
-  }
+  const version = (createRequire(import.meta.url)('playwright/package.json') as { version?: unknown }).version;
+  if (typeof version !== 'string' || !/^\d+\.\d+\.\d+$/.test(version)) throw new Error('the installed Playwright version could not be read.');
+  return version;
+}
+export const dockerImage = (version: string): string => `mcr.microsoft.com/playwright:v${version}-noble`;
+const containerPort = 3000;
+
+/** The exact `docker run` argument list: no folders shared, no privileges, bound to this computer only. */
+export function dockerRunArgs(image: string, version: string, hostPort: number): string[] {
+  return ['run', '-d', '--rm', '--init', '--pull=never',
+    '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
+    '--memory', '2g', '--cpus', '2', '--shm-size', '1g',
+    '-p', `127.0.0.1:${hostPort}:${containerPort}`,
+    '--user', 'pwuser', '--workdir', '/home/pwuser',
+    image, 'npx', '-y', `playwright@${version}`, 'run-server', '--port', String(containerPort), '--host', '0.0.0.0'];
 }
 
-/**
- * Find a free port by binding to port 0 (OS chooses).
- */
-export async function findFreePort(): Promise<number> {
-  const { createServer } = await import('node:net');
+/** Starts a program with an argument list (never a shell line), bounded by a time limit. */
+export type ProgramRunner = (file: string, args: string[], timeoutMs: number) => Promise<string>;
+export const runProgram: ProgramRunner = (file, args, timeoutMs) => new Promise((resolve, reject) => {
+  execFile(file, args, { timeout: timeoutMs, maxBuffer: 1024 * 1024, windowsHide: true },
+    (error, stdout) => error ? reject(error) : resolve(String(stdout)));
+});
+/** True once something answers plain HTTP on the address (a Playwright server says "Running"). */
+export type Prober = (port: number) => Promise<boolean>;
+export const probeHttp: Prober = port => fetch(`http://127.0.0.1:${port}/`, { signal: AbortSignal.timeout(1000) })
+  .then(response => { void response.body?.cancel(); return true; }, () => false);
+export type Connector = (wsEndpoint: string, options: ConnectOptions) => Promise<Browser>;
+
+export function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const server = createServer();
+    server.once('error', reject);
     server.listen(0, '127.0.0.1', () => {
-      const port = (server.address() as { port: number }).port;
+      const { port } = server.address() as { port: number };
       server.close(() => resolve(port));
     });
-    server.on('error', reject);
   });
 }
 
-/**
- * Wait for a server to answer at ws://127.0.0.1:port with bounded retries.
- */
-export async function waitForServer(port: number, maxMs = 30000): Promise<void> {
-  const start = Date.now();
-  while (Date.now() - start < maxMs) {
+export interface DockerDeps {
+  runner: ProgramRunner; probe: Prober; port: () => Promise<number>;
+  version: () => string; waitMs: number; pauseMs: number;
+}
+export interface StartedContainer { wsEndpoint: string; id: string }
+
+/** Checks the image is here, starts the container and waits (bounded) until its server answers. */
+export async function startContainer(deps: DockerDeps): Promise<StartedContainer> {
+  const version = deps.version(), image = dockerImage(version);
+  try { await deps.runner('docker', ['image', 'inspect', image], 15_000); } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new Error(sandboxRefusal('Docker is not installed on this computer.'));
+    throw new Error(sandboxRefusal(`the Playwright image is not on this computer. Run \`docker pull ${image}\` yourself first.`));
+  }
+  const port = await deps.port();
+  let id = '';
+  try { id = (await deps.runner('docker', dockerRunArgs(image, version, port), 30_000)).trim().split('\n').at(-1) ?? ''; }
+  catch { throw new Error(sandboxRefusal('Docker could not start the container.')); }
+  if (!/^[a-f0-9]{12,64}$/.test(id)) throw new Error(sandboxRefusal('Docker did not say which container it started.'));
+  for (const until = Date.now() + deps.waitMs; Date.now() < until;) {
+    if (await deps.probe(port)) return { wsEndpoint: `ws://127.0.0.1:${port}/`, id };
+    await new Promise(resolve => setTimeout(resolve, deps.pauseMs));
+  }
+  await stopContainer(deps.runner, id);
+  throw new Error(sandboxRefusal(`the container did not answer within ${Math.round(deps.waitMs / 1000)} seconds.`));
+}
+export const stopContainer = (runner: ProgramRunner, id: string): Promise<unknown> =>
+  runner('docker', ['stop', id], 30_000).catch(() => undefined);
+
+/** Why a connection failed, in our own words: nothing the other side or the library said is repeated. */
+function connectReason(error: unknown): string {
+  const text = error instanceof Error ? error.message : '';
+  if (/\b(401|403)\b/.test(text)) return 'it turned the token down.';
+  if (/timeout/i.test(text)) return 'it did not answer in time.';
+  if (/ECONNREFUSED|ENOTFOUND|EHOSTUNREACH|ECONNRESET/.test(text)) return 'nothing answered at that address.';
+  return 'the connection failed.';
+}
+const safeAddress = (endpoint: string): string => { const url = new URL(endpoint); return `${url.protocol}//${url.host}`; };
+
+/** Connects, then checks the other side really is a browser by asking its version. */
+export async function connectEndpoint(connect: Connector, endpoint: string, token: string | undefined): Promise<Browser> {
+  const where = safeAddress(endpoint);
+  let browser: Browser;
+  try {
+    browser = await connect(endpoint, { timeout: 15_000, ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}) });
+  } catch (error) { throw new Error(sandboxRefusal(`Branch could not connect to ${where}: ${connectReason(error)}`)); }
+  const version = await Promise.race([Promise.resolve().then(() => browser.version()).catch(() => ''),
+    new Promise<string>(resolve => setTimeout(() => resolve(''), 5000))]);
+  if (typeof version !== 'string' || !version) {
+    await Promise.resolve().then(() => browser.close()).catch(() => undefined);
+    throw new Error(sandboxRefusal(`${where} did not answer as a browser.`));
+  }
+  return browser;
+}
+
+/** The locker, as far as the sandbox needs it. */
+export interface TokenLocker {
+  list(owner: string, project: string): { name: string }[];
+  resolve(owner: string, project: string, names: string[], use: { purpose: string }): Promise<Record<string, string>>;
+}
+interface Running { browser: Browser; containerId: string | null }
+
+/** One sandbox browser per owner, started on first use and closed with the browser tool. */
+export class BrowserSandbox {
+  runner: ProgramRunner = runProgram;
+  probe: Prober = probeHttp;
+  connect: Connector = (endpoint, options) => chromium.connect(endpoint, options);
+  port: () => Promise<number> = freePort;
+  version: () => string = playwrightVersion;
+  waitMs = 90_000;
+  pauseMs = 500;
+  private readonly running = new Map<string, Promise<Running>>();
+  constructor(private readonly store: Pick<Store, 'get'>, private readonly locker: () => TokenLocker) {}
+
+  /** Null when this task runs on this computer as before; otherwise the sandbox browser (or a refusal). */
+  pick(owner: string, usesSignIn: boolean): Promise<Browser> | null {
+    const settings = readBrowserContainer(this.store, owner);
+    if (!settings) return Promise.reject(new Error(sandboxRefusal('the saved setting is damaged; save it again.')));
+    if (settings.mode === 'off' || (settings.mode === 'when-needed' && usesSignIn)) return null;
+    return this.browser(owner, settings);
+  }
+  private async browser(owner: string, settings: BrowserContainer): Promise<Browser> {
+    let started = this.running.get(owner);
+    if (!started) {
+      started = this.start(owner, settings);
+      this.running.set(owner, started);
+      started.catch(() => { if (this.running.get(owner) === started) this.running.delete(owner); });
+    }
+    const { browser } = await started;
+    if (browser.isConnected()) return browser;
+    if (this.running.get(owner) === started) this.running.delete(owner);
+    throw new Error(sandboxRefusal('the connection to the sandbox browser was lost; try again.'));
+  }
+  private async start(owner: string, settings: BrowserContainer): Promise<Running> {
+    if (settings.where === 'endpoint') {
+      if (!settings.endpoint) throw new Error(sandboxRefusal('no server address is saved.'));
+      return { browser: await connectEndpoint(this.connect, settings.endpoint, await this.token(owner)), containerId: null };
+    }
+    const container = await startContainer(this);
+    try { return { browser: await connectEndpoint(this.connect, container.wsEndpoint, undefined), containerId: container.id }; }
+    catch (error) { await stopContainer(this.runner, container.id); throw error; }
+  }
+  private async token(owner: string): Promise<string | undefined> {
     try {
-      const browser = await chromium.connect(`ws://127.0.0.1:${port}`, { timeout: 2000 });
-      await browser.close();
-      return;
-    } catch {
-      // Server not ready yet
-      await new Promise(r => setTimeout(r, 100));
+      const locker = this.locker();
+      if (!locker.list(owner, tokenProject).some(entry => entry.name === tokenName)) return undefined;
+      const found = await locker.resolve(owner, tokenProject, [tokenName], { purpose: 'browser sandbox connection' });
+      return found[tokenName];
+    } catch { throw new Error(sandboxRefusal('the saved token could not be read (is Branch locked?).')); }
+  }
+  /** Closes every sandbox browser and stops every container this launch started. */
+  async close(): Promise<void> {
+    const all = [...this.running.values()];
+    this.running.clear();
+    for (const settled of await Promise.allSettled(all)) {
+      if (settled.status !== 'fulfilled') continue;
+      await settled.value.browser.close().catch(() => undefined);
+      if (settled.value.containerId) await stopContainer(this.runner, settled.value.containerId);
     }
   }
-  throw new Error(`Playwright server on port ${port} did not respond within ${maxMs}ms`);
-}
-
-/**
- * Launch a Playwright browser in a Docker container.
- * The container is stopped when cleanup is called.
- */
-export async function launchDockerBrowser(
-  runner: ProgramRunner = defaultProgramRunner,
-): Promise<{ wsEndpoint: string; cleanup: () => Promise<void> }> {
-  const version = playwrightVersion();
-  const image = `mcr.microsoft.com/playwright:v${version}-noble`;
-  const port = await findFreePort();
-
-  // Check if image exists
-  try {
-    await runner('docker', ['image', 'inspect', image], 5000);
-  } catch {
-    throw new Error(`Docker image ${image} not found. Run: docker pull ${image}`);
-  }
-
-  // Start container
-  let containerId: string;
-  try {
-    const output = await runner('docker', [
-      'run', '-d', '--init',
-      '--pull=never',
-      '--security-opt', 'no-new-privileges',
-      '--cap-drop', 'ALL',
-      `-p`, `127.0.0.1:${port}:3000`,
-      '--memory', '512m',
-      '--cpus', '1',
-      image,
-      'npx', 'playwright', 'run-server', '--port', '3000', '--host', '0.0.0.0',
-    ], 15000);
-    const lines = output.trim().split('\n');
-    const id = lines[0];
-    if (!id || id.length < 12) throw new Error('Invalid container ID');
-    containerId = id;
-  } catch (error) {
-    throw new Error(`Failed to start Docker container: ${error instanceof Error ? error.message : String(error)}`);
-  }
-
-  // Wait for server to answer
-  try {
-    await waitForServer(port);
-  } catch (error) {
-    // Try to kill the container if server never answered
-    await runner('docker', ['kill', containerId], 5000).catch(() => undefined);
-    throw error;
-  }
-
-  return {
-    wsEndpoint: `ws://127.0.0.1:${port}`,
-    cleanup: async () => {
-      if (containerId && containerId.length >= 12) {
-        await runner('docker', ['stop', containerId], 5000).catch(() => undefined);
-      }
-    },
-  };
-}
-
-/**
- * Connect to a remote Playwright server, sending auth token as a header.
- * Validates that it responds as a valid browser.
- */
-export async function connectRemoteBrowser(
-  wsEndpoint: string,
-  token?: string,
-): Promise<Browser> {
-  const connectOptions: { timeout: number; headers?: { [key: string]: string } } = { timeout: 10000 };
-  if (token) {
-    connectOptions.headers = { authorization: `Bearer ${token}` };
-  }
-
-  try {
-    const browser = await chromium.connect(wsEndpoint, connectOptions);
-
-    // Verify it's a valid browser by checking version
-    const version = await browser.version();
-    if (!version) {
-      await browser.close().catch(() => undefined);
-      throw new Error('Remote endpoint did not return a browser version');
-    }
-
-    return browser;
-  } catch (error) {
-    // Scrub any token from error messages
-    const message = error instanceof Error ? error.message : String(error);
-    const scrubbed = message.replace(/Bearer\s+[^\s]+/g, 'Bearer ***');
-    throw new Error(`Could not connect to Playwright server: ${scrubbed}`);
-  }
-}
-
-/**
- * Create a launcher function based on settings. Does NOT throw on bad settings;
- * errors are deferred to when the browser is actually used.
- *
- * For Docker mode, calls onCleanup with a cleanup function that stops the container.
- */
-export async function createBrowserLauncher(
-  settings: BrowserContainer,
-  getToken?: () => Promise<string | undefined>,
-  runner: ProgramRunner = defaultProgramRunner,
-  onCleanup?: (cleanup: () => Promise<void>) => void,
-): Promise<() => Promise<Browser>> {
-  if (settings.mode === 'off' || settings.where === 'local') {
-    // Default behavior: launch locally
-    return () => chromium.launch({ headless: true });
-  }
-
-  if (settings.where === 'docker') {
-    let dockerSession: { wsEndpoint: string; cleanup: () => Promise<void> } | null = null;
-
-    // Register cleanup for Docker container
-    if (onCleanup) {
-      onCleanup(async () => {
-        if (dockerSession) {
-          await dockerSession.cleanup();
-          dockerSession = null;
-        }
-      });
-    }
-
-    return async () => {
-      // Start docker container on first launch
-      if (!dockerSession) {
-        try {
-          dockerSession = await launchDockerBrowser(runner);
-        } catch (error) {
-          throw new Error(`Browser sandbox error: ${error instanceof Error ? error.message : String(error)}`);
-        }
-      }
-      try {
-        return await chromium.connect(dockerSession.wsEndpoint);
-      } catch (error) {
-        // Cleanup on connection failure
-        if (dockerSession) {
-          await dockerSession.cleanup().catch(() => undefined);
-          dockerSession = null;
-        }
-        throw error;
-      }
-    };
-  }
-
-  if (settings.where === 'endpoint') {
-    if (!settings.endpoint) {
-      return () => {
-        throw new Error('Browser sandbox endpoint is not configured');
-      };
-    }
-
-    const endpoint = settings.endpoint;
-    return async () => {
-      try {
-        const token = getToken ? await getToken() : undefined;
-        return await connectRemoteBrowser(endpoint, token);
-      } catch (error) {
-        throw new Error(`Browser sandbox error: ${error instanceof Error ? error.message : String(error)}`);
-      }
-    };
-  }
-
-  throw new Error(`Unknown browser container mode: ${settings.where}`);
 }

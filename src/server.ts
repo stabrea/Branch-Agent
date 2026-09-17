@@ -154,6 +154,7 @@ import { usageReportRoute } from "./usage-report-api.js"; // bucket 14 (A0367)
 import { builtInImagePrices, imagePricedAt, mediaSettings, saveMediaSettings } from "./media-settings.js";
 // Bucket 17.
 import { bucket17Api, handlesBucket17, readMediaBody } from "./media-understand-api.js";
+import { browserContainerApi, handlesBrowserContainer } from "./browser-container-api.js"; // w911 (A2019) hook: import
 import { buildTraceDocument, traceSettings, saveTraceSettings } from "./trace.js";
 import { writeDiagnosticsBundle } from "./diagnostics.js";
 import { toolCatalogReport } from "./tool-report.js";
@@ -924,6 +925,10 @@ async function api(
     return researchApi(app, request, path);
   if (path.startsWith("/api/triggers")) return triggersApi(app, request, path);
   if (path.startsWith("/api/webhooks")) return webhooksApi(app, request, path);
+  // w911 (A2019) hook: where the browser runs (on this computer, in Docker, or on a server elsewhere).
+  if (handlesBrowserContainer(path))
+    return browserContainerApi({ store: app.store, owner: app.runtime.owner, secrets: () => app.store.secrets,
+      requireOwner: (what) => app.store.profiles.requireOwner(what) }, request.method ?? "GET", () => readBody(request));
   if (path.startsWith("/api/browser/")) return browserApi(app, request, path);
   if (request.method === "POST" && path === "/api/identity")
     return saveAssistantIdentity(app.store, app.runtime.owner, await readBody(request));

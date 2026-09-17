@@ -568,27 +568,57 @@ no recipes — and arrive switched off like any other skill.
 
 `GET /api/skills/browser` lists them; `POST /api/skills/browser { "name": "search-and-summarise" }` installs one.
 
-### Browser container and remote endpoints
+### Browser sandbox (w911, A2019)
 
-Everything runs a browser, either on this computer or elsewhere. **Settings → Advanced → Browser
-container** has a three-way switch, off by default.
+The browser tools can drive a Chromium that runs somewhere other than this computer's own session.
+The setting is `browser-container` (`GET`/`POST /api/browser/container`, the owner's alone; a
+short-lived key is refused). It is **off** by default, and off means exactly what it always did:
+Branch launches headless Chromium on this computer. The settings are read the first time a task
+opens a page, not when Branch starts, so a setting that cannot work never stops Branch starting —
+the first browser step says, in one sentence, why the sandbox cannot be used.
 
-- **Off**: the browser runs on this computer, launched by Branch itself (the default).
-- **When needed** or **on**: set how the browser runs — this computer, a Docker container
-  running the official Playwright image, or a remote Playwright server the owner runs
-  elsewhere (their NAS, Tower, or cloud).
+- `mode`: `off`, `when-needed` or `on`. **When needed** means: a task that uses one of your saved
+  sign-ins stays on this computer, so those cookies never leave it, and every other task goes to the
+  sandbox. **On** sends every task that opens a browser to the sandbox, saved sign-ins included.
+  Borrowing your own browser window never starts a browser, so it is unaffected either way.
+- `where: "docker"` (the default): Branch runs `docker image inspect` for
+  `mcr.microsoft.com/playwright:v<installed Playwright version>-noble` first. If the image is not
+  there it refuses and names the `docker pull …` line for you to run; Branch never pulls it. Then it
+  runs `docker run -d --rm --init --pull=never --cap-drop ALL --security-opt no-new-privileges
+  --memory 2g --cpus 2 --shm-size 1g -p 127.0.0.1:<free port>:3000 --user pwuser` with no folder
+  shared, waits up to 90 seconds for the Playwright server inside to answer, and stops the container
+  by its id when the browser tool closes. The container fetches the matching `playwright` package
+  from npm when it starts (`npx -y playwright@<version> run-server`), so it needs internet access.
+- `where: "endpoint"` with `endpoint: "ws://…"` or `"wss://…"`: a Playwright server you run
+  elsewhere (your NAS or a cloud machine). An address with a name, password or `?key` in it is
+  refused. The token goes in the token box (`"token"` in the POST body, `null` removes it); it is kept
+  in the secrets locker as `default/BROWSER_CONTAINER_TOKEN`, never in the settings, and is sent as
+  an `Authorization: Bearer` header. Settings only ever show `tokenSaved`. After connecting, Branch
+  asks the browser its version and refuses if it does not answer. Refusals are written by Branch and
+  name only the server's address, never the token or what the other side said.
 
-w911 (A2019, A2172, A2042): The implementation is `src/integrations/browser.ts` plus
-`src/integrations/browser-container.ts` (sandbox backends, `tests/browser-container.test.mjs`),
-and `tests/browser-2.test.mjs` and `tests/browser-3.test.mjs` for the complete flow.
-`browser-marks.ts`, `browser-schema.ts`, `browser-heal.ts` and `browser-sites.ts` complete the browser
-tool. The same network policy applies to every browser, wherever it runs: pages are routed
-through `BranchBrowser.route()` on the Branch side (`page.route()` per context), so refused
-hosts stay refused whether the browser is local, in Docker, or remote.
+**The same rules apply wherever the browser runs.** Each task gets its own browser context on the
+connected browser, and the website list is applied to every request of that context from Branch's
+side (`context.route`), so a page in the sandbox cannot reach a site the list does not allow.
+Limits: the private-address check on addresses you ask to open is made by this computer, while the
+pages themselves are fetched by the sandbox's network; changing the setting takes effect for the
+next browser Branch starts (after the current sandbox browser is closed or Branch restarts).
+Code: `src/integrations/browser-container.ts`, `src/browser-container-api.ts`; tests in
+`tests/browser-container.test.mjs` (Docker is only ever a fake runner there; the "remote" server
+is Playwright's own `launchServer` on this computer).
 
-What is **not** built is the Python `browser-use` runtime those rows name: Branch is TypeScript
-and its browser tool is one unified implementation, the same reason the `hybrid-tooling`,
-`cloud-compute` and `remote-execution` families are marked not applicable.
+### The browser-use rows (A2172, A2042) — covered by the Playwright runtime
+
+`A2172` (browser-use automation) and `A2042` (browser-use integration) name the Python `browser-use`
+library. Branch does not use that library; the equivalent is Branch's own TypeScript Playwright
+runtime, which does the same job — look at a page, number the things on it, act on one, pull data out
+in a named shape — with the network policy applied per task context:
+`src/integrations/browser.ts` with `browser-session.ts`, `browser-marks.ts`, `browser-schema.ts`,
+`browser-heal.ts` and `browser-sites.ts`, asserted in `tests/browser-2.test.mjs` and
+`tests/browser-3.test.mjs`. The per-context policy on a connected browser is proven in
+`tests/browser-container.test.mjs` by "A2172/A2042: through the endpoint path, a real connected
+Chromium loads an allowed page and refuses every other host" and "A2172/A2042: two tasks on one
+connected browser get two separate contexts, each under the network policy".
 
 **`A0743` (Scrapling page fetch) — not applicable.** It names another project's Python fetching
 library. Fetching a page and reading it out is `web.fetch` (readable text, redirects bounded,
@@ -2378,7 +2408,7 @@ Branch's learning core (`src/fly-core/`) is modelled on the fruit fly's mushroom
 
 When a task ends, the core learns from how it went: finished or failed, checks passed or failed, what it cost, and whether your next message in the same conversation corrected it (the same openings `src/memory-learning.ts` recognises). That is written as `fly.learned`, with the reasons in plain words. When the same steps keep working for the same kind of request, the idea of making them a skill appears in the suggestions queue above, marked `learned.signal: "learning-core"` with the steps as its evidence. Accepting it opens the skill editor (Customize → Skills) on a draft written from those steps; nothing is installed until you install it. The core needs no model call and keeps no words from your requests, only the names of the tools, skills and memories involved. It lives in the `fly_*` tables of the same database and is part of the backup: restoring replaces a person's learning whole, and never leaves a trace pointing at a task that is not in the backup.
 
-**Limits.** At most 5,000 actions per person, and at most 120 learned synapses on each side of an action (the faintest go first), which keeps the tables under about 10 MB at the cap (measured: 9.97 MB). What a task start needs is kept ready in memory (built once after launch; worked out at about 12 MB at the cap, up to twice that while its lists grow, not measured), so working out the advice takes well under a millisecond of processor time even at the cap. How well it learns, and how that is measured on real work (`experiments/fly-core/real-eval.mjs`), is in `experiments/fly-core/PLAN.md`.
+**Limits.** At most 5,000 actions per person, and at most 120 learned synapses on each side of an action (the faintest go first), which keeps the tables under about 10 MB at the cap (measured: 9.97 MB). What a task start needs is kept ready in memory (built once after launch; worked out at about 12 MB at the cap, up to twice that while its lists grow, not measured), so working out the advice takes well under a millisecond of processor time even at the cap. How well it learns, and how that is measured on real work (`experiments/fly-core/real-eval.mjs`), is in `experiments/fly-core/PLAN.md`. Whether one build is better than another, and what stopped working between them, is `experiments/fly-core/proof-report.mjs`, which the coordinator runs on the Tower as `experiments/fly-core/TOWER.md` describes (bucket 11).
 
 **macOS and Linux.** The learning core is plain TypeScript over the built-in SQLite and works the same on Windows, macOS and Linux; it starts no program and asks the computer for nothing. Its timings are measured as the task's own processor time, because the build machines are shared.
 

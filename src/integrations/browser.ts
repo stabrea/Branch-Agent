@@ -17,7 +17,7 @@ import { attach, attachRefusal, attachedAddressRefusal, readAttachSettings, save
 import { clearPasswordValues, startRecording } from './browser-trace.js';
 import type { Store } from '../store.js';
 import { audit } from '../audit.js';
-import { readBrowserContainerSettings, createBrowserLauncher } from './browser-container.js'; // w911 (A2019)
+import type { BrowserSandbox } from './browser-container.js'; // w911 (A2019) hook: import
 
 export const BrowserConfigSchema = z.object({
   allowedOrigins: z.array(z.string().url()).min(1).max(30),
@@ -78,8 +78,6 @@ export class BranchBrowser {
   private readonly sessions = new Map<string, RunEntry>();
   private readonly origins: Set<string>;
   private readonly config: BrowserConfig;
-  private currentOwner: string | undefined;
-  private dockerCleanup: (() => Promise<void>) | undefined;
   constructor(input: unknown) {
     this.config = BrowserConfigSchema.parse(input);
     this.origins = originsOf(this.config.allowedOrigins);
@@ -98,8 +96,8 @@ export class BranchBrowser {
   store: Store | undefined;
   /** Opens a connection to the owner's own browser. Replaced in tests by one they start themselves. */
   connect: typeof attach = attach;
-  /** w911 (A2019) hook: override the browser launcher for container or endpoint modes. */
-  launcher: (() => Promise<Browser>) | undefined;
+  /** w911 (A2019) hook: the browser sandbox (Docker or a remote Playwright server); unset means this computer only. */
+  sandbox: BrowserSandbox | undefined;
   /**
    * The site skills this owner has installed: the quirks of particular websites, kept in the skill
    * that knows about the site rather than in this tool. Left unset, no site has any quirks.
@@ -120,33 +118,6 @@ export class BranchBrowser {
     } catch { await request.abort().catch(() => undefined); }
   }
   private async launch(): Promise<Browser> {
-    // w911 (A2019) hook: read settings at launch time and create launcher if needed.
-    if (!this.launcher && this.store && this.currentOwner) {
-      try {
-        const settings = readBrowserContainerSettings(this.store, this.currentOwner);
-        if (settings.mode !== 'off') {
-          this.launcher = await createBrowserLauncher(settings, undefined, undefined, (cleanup) => {
-            this.dockerCleanup = cleanup;
-          });
-        }
-      } catch (error) {
-        // Settings error should not prevent browser from launching; use default.
-        // Errors will be surfaced when the browser is actually used.
-      }
-    }
-
-    if (this.launcher) {
-      try {
-        const browser = await this.launcher();
-        this.browser = browser;
-        if (this.closed) { await browser.close(); throw new Error('Browser is closed'); }
-        return browser;
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        throw new Error(`Browser sandbox: ${message}`);
-      }
-    }
-
     const env = Object.fromEntries(['PATH', 'SystemRoot', 'LOCALAPPDATA', 'TEMP', 'TMP', 'HOME']
       .flatMap(key => process.env[key] ? [[key, process.env[key]!]] : []));
     const browser = await chromium.launch({ headless: true, env,
@@ -164,9 +135,8 @@ export class BranchBrowser {
     const key = this.key(context), existing = this.sessions.get(key);
     if (existing) return existing;
     if (this.sessions.size >= this.config.maxRuns) throw new Error('Browser active run limit reached');
-    // Track the current owner for launch() to read settings
-    const owner = context.owner;
-    const session = new BrowserSession(() => { this.currentOwner = owner; return this.starting ??= this.launch(); }, route => this.route(route));
+    // w911 (A2019) hook: the sandbox decides per task at first launch; null keeps the local launch below.
+    const session: BrowserSession = new BrowserSession(() => this.sandbox?.pick(context.owner, !!session.options.storageState) ?? (this.starting ??= this.launch()), route => this.route(route));
     session.options.saveDownload = download => this.saveDownload(download);
     const cancel = () => { void this.closeRun(context).catch(() => undefined); };
     context.signal.addEventListener('abort', cancel, { once: true });
@@ -546,12 +516,8 @@ export class BranchBrowser {
     const pending = [...this.sessions.values()].map(entry => { entry.detach(); return entry.session.close(); });
     const results = await Promise.allSettled(pending);
     await this.starting?.catch(() => undefined);
+    await this.sandbox?.close(); // w911 (A2019) hook: closes the sandbox browser and stops its container
     await this.browser?.close();
-    // w911 (A2019) hook: cleanup Docker container if it was started
-    if (this.dockerCleanup) {
-      await this.dockerCleanup().catch(() => undefined);
-      this.dockerCleanup = undefined;
-    }
     this.sessions.clear();
     const failures = results.filter(result => result.status === 'rejected');
     if (failures.length) throw new AggregateError(failures.map(result => result.reason), 'Browser cleanup failed');
