@@ -1883,8 +1883,8 @@ limited form; both are written down here so nobody has to guess:
   no completion checks); for a workspace file at least one `html` scorer must read that very file.
   A reply that fails any of this is refused with the scenario's name and the reason, and nothing is
   kept. A draft that passes is kept **as a draft** and cannot run. `POST /api/qa/scenarios/:id/accept`
-  saves it as one of your own suites (`qa-` plus eight characters), so the ordinary runner —
-  `POST /api/evaluation/run`, the Evaluation screen, `branch eval` — can run it;
+  saves it as one of your own suites (`qa-` plus eight characters), so the ordinary suite runner
+  (`POST /api/evaluation/run`, or `branch eval --suite qa-…`) can run it;
   `POST /api/qa/scenarios/:id/run` runs it the same way. `POST /api/qa/scenarios/:id/reject` deletes
   the scenario, and its suite if it had been accepted. `GET /api/qa/scenarios` lists them. From the
   terminal: `branch qa list`, and `branch qa run <id>`, which exits with 1 when the page test fails.

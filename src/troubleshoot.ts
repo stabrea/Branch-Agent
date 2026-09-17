@@ -253,8 +253,9 @@ export async function troubleshootInTask(runtime: Runtime, context: ToolContext,
       ask: askFor(runtime, context),
       check: (tool, a) => gateAnswer(runtime, tool, a, context),
       run: async (tool, a) => {
-        // The loop is the sanctioned retry, so the "you already tried this" question is not put for it.
-        forgetFailure();
+        // The loop is the sanctioned retry, so the "you already tried this" question is not put for a
+        // command it runs. A file fix leaves the note alone, so the question still guards later tries.
+        if ((commandTools as readonly string[]).includes(tool)) forgetFailure();
         try {
           return await callTool({ id: `${call.id}-ts${++count}`, name: tool, arguments: JSON.stringify(a) }) as CallOutcome;
         } catch (error) {

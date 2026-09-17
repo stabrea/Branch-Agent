@@ -91,6 +91,19 @@ test("A0374: on — a failing command gets a diagnosis, a fix that writes the fi
   assert.equal(record.attempts.length, 1);
 });
 
+test("A0374: a fix that is itself a command runs once through the same path, without the loop starting again inside it", async (t) => {
+  const makeFile = { tool: "shell.execute", arguments: { executable: "node", args: ["-e", "require('fs').writeFileSync('ready.txt', 'y')"] } };
+  const { app, provider, workspace } = await fixture(t, [diagnosis(makeFile)]);
+  const run = await app.runtime.run({ prompt: "check the project is ready" });
+  assert.equal(run.status, "completed", run.output);
+  assert.equal(await exists(join(workspace, "ready.txt")), true);
+  assert.equal(provider.diagnoses, 1);
+  assert.equal(eventsOf(app, run.id, "troubleshoot.started").length, 1, "no loop inside the loop");
+  assert.deepEqual(eventsOf(app, run.id, "tool.started").map((e) => e.name), ["shell.execute", "shell.execute", "shell.execute"]);
+  assert.equal(eventsOf(app, run.id, "command.correction").length, 0, "the sanctioned retry is not put as a question");
+  assert.equal(eventsOf(app, run.id, "troubleshoot.finished")[0].status, "fixed");
+});
+
 test("A0374: the limit on tries is honoured", async (t) => {
   const { app, provider, workspace } = await fixture(t,
     [diagnosis(writeFix("a.txt")), diagnosis(writeFix("b.txt")), diagnosis(writeFix("c.txt"))], { maxTries: 2 });
