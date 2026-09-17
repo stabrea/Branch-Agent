@@ -977,6 +977,15 @@
             <button data-t="appearance.save">Save appearance</button>
           </form>
           <!-- Wave 9: a second pair of eyes on an answer, and two connections arguing a hard question. -->
+          <!-- Wave mac3 (channels-parity): its home is Customize, Chat apps (docs/places.md). -->
+          <form id="channels-more-form" class="card" data-home="customize:channels">
+            <h2 data-t="channels-more.title">More chat apps</h2>
+            <p data-t="channels-more.intro">IRC, Mastodon, Bluesky, iMessage and more, each with its own switch. All of them start off: nothing connects until you switch it on and add it to the connections file.</p>
+            <p class="field-note" data-t="channels-more.switch-note">Off never connects. When needed connects only when there is something to send, and lets go after fifteen quiet minutes. On stays connected.</p>
+            <div id="channels-more-list" class="card-list" aria-live="polite"></div>
+            <p id="channels-more-state" class="field-note" aria-live="polite"></p>
+            <button data-t="action.save-channels-more">Save the chat app switches</button>
+          </form>
           <!-- Wave mac2 (chat-live): its home is Customize, Chat apps (docs/places.md). -->
           <form id="chat-live-form" class="card" data-home="customize:channels">
             <h2 data-t="settings.card.chat-live">While a task works in a chat app</h2>
@@ -1784,6 +1793,7 @@
     <!-- Bucket 17: watching videos and speech plug-ins. -->
     <script src="/media-programs.js" type="module"></script>
     <script src="/skill-revisions.js" type="module"></script>
+    <script src="/channels-more.js" type="module"></script>
     <script src="/specialist-styles.js" type="module"></script>
     <script src="/code-ide.js" type="module"></script>
     <script src="/docs-3.js" type="module"></script>
@@ -1808,6 +1818,10 @@
     <script src="/commands.js" type="module"></script>
     <!-- Wave mac3: the dashboard's switch (Customize → Channels) and the links back in from it. -->
     <script src="/dashboard-card.js" type="module"></script>
+    <!-- Bucket 13 (mac4): watching a task again (Inbox, History) and "is Branch keeping up" (Settings, Advanced). -->
+    <script src="/recordings.js" type="module"></script>
+    <!-- mac4/bucket-20: working with other agents and tools (Customize → Connections, Specialists). -->
+    <script src="/interop.js" type="module"></script>
     <script src="/layout.js" type="module"></script>
   </body>
 </html>

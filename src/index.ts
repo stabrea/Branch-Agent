@@ -170,6 +170,8 @@ import { SecurityService } from "./security-audit/service.js";
 // mac2/fly-core: the learning core switch and its on-demand tool.
 import { flyCoreSettings } from "./fly-core/settings.js";
 import { setFlyCoreMode, syncSuggestTool } from "./fly-core/tool.js";
+// mac4/bucket-20: talking to other agents and tools.
+import { Interop } from "./interop/index.js";
 // mac3/reflection-skills: looking back over conversations, and skills written from experience.
 import { LearningLoop } from "./reflection/loop.js";
 import { attachLearningLoop } from "./reflection/hook.js";
@@ -814,6 +816,9 @@ export async function createBranch(options: {
   // Short-lived, scoped keys for anything that is not the app window. The master session key is
   // never one of these; see src/session-tokens.ts.
   const sessionTokens = new SessionTokens(store.sqlite, store);
+  // ── mac4/bucket-20: talking to other agents and tools (src/interop/). Every part ships off. ──
+  const interop = new Interop({ runtime, registry, knowledge, teams, flows, remoteAgents,
+    tokens: sessionTokens, files, policy: web.policy, version });
   // ── mac3/security-check: the self-check and the malware check (src/security-audit). Both ship off. ──
   const security = new SecurityService(
     { store, runtime, registry, sessionLock, privacy, web, sessionTokens, plugins, pluginCatalog },
@@ -853,6 +858,8 @@ export async function createBranch(options: {
   return {
     store,
     registry,
+    /** mac4/bucket-20: the Agent Protocol, lent tools, modes, project routing, fleet, handoff, flow search, market. */
+    interop,
     runtime,
     /** mac3/security-check: the security self-check, its repairs, and the malware check on add-ons. */
     security,
@@ -1430,6 +1437,8 @@ export * from "./providers/cli-agent.js";
 export * from "./cli-attach.js";
 export * from "./cli-completion.js";
 export * from "./cli-run.js";
+// mac4/bucket-20: talking to other agents and tools.
+export { Interop } from "./interop/index.js";
 // Wave mac2 (guards): the loop guard, the folder's own instructions and folder trust.
 export * from "./loop-guard.js";
 export * from "./folder-trust.js";

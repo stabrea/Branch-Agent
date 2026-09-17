@@ -649,6 +649,375 @@ Two tools send on the assistant's own initiative rather than answering somebody.
 
 A plugin may bring a chat service of its own, the same way it may bring a way of talking to a model. It exports one or more adapters under `plugin.channel.<id>`; each is a factory that is handed what the owner typed, a way to fetch a named secret out of the locker, and a fetch that has already checked the address against your network settings. Registering one only makes it available to connect — a plugin cannot quietly start answering your chats — and switching the plugin off takes its services away again.
 
+## More chat apps
+
+Wave mac3 added the chat services the other assistants reach, each through its own official API or
+open protocol, each in its own file under `src/channels/`. They are written in the connections file
+like every other channel, with `type` set to the service's name, and everything in
+[What every channel shares](#what-every-channel-shares) applies unchanged: pairing codes, the
+`allowlist`, "reply when mentioned", the waiting line with its retries and quiet hours, and the
+`reply y / a / n` answer to a question. Credentials are named, never written in the file: each
+`…Secret` setting names an environment variable or a secret in the **default project's** locker.
+Every web request goes through your network settings; the services that use a plain connection
+(IRC, XMPP, MQTT, Mumble) have their server checked by name first, as the mail servers are.
+
+**Each one has a switch, and every switch starts off.** Customize → Chat apps → **More chat apps**
+lists them with Off, When needed and On (`GET /api/channels/parity`, `POST /api/channels/parity
+{"irc": "on"}`):
+
+- **Off** never connects. A reply meant for that chat waits under **Messages still to send**.
+- **When needed** holds nothing open. The connection is made when the assistant has something to
+  send there, or when the service posts a message to this computer, and let go after fifteen quiet
+  minutes. People can reach the assistant through it only while it is open.
+- **On** connects when Branch starts and stays connected, as the older channels do.
+
+A change applies at once to a channel that is already connected; adding a channel to the connections
+file still needs a restart. The health line says "Switched off" for a service that is off.
+
+The services that are posted to (Microsoft Teams bots, Webex, Synology Chat, Zalo, Flock, Pumble)
+use the same address as the other chat services, `/webhooks/chat/<channel id>/<the word on your
+Connections card>`, and prove every post in their own way before anything in it is read; a post that
+fails is refused, written into the record and slowed down exactly as for the others. While such a
+service is switched off its address answers 503 and reads nothing.
+
+<!-- channels-parity:services -->
+
+### IRC (`irc`)
+
+`{"type": "irc", "id": "irc", "server": "irc.libera.chat", "port": 6697, "tls": true, "nick": "branch-bot", "channels": ["#my-team"], "passwordSecret": "IRC_PASSWORD"}`. With `passwordSecret` the nick signs in with SASL PLAIN before it joins anything. A channel line is answered when it starts with the nick (`branch-bot: …`); a private message always is. IRC cannot carry a line break, so a reply goes out one line at a time, at most 400 characters each, spaced so the server does not disconnect the assistant for flooding. `allowlist` holds nicks. A nick taken by somebody else gets an underscore added; a refused password shows as "needs attention".
+
+### Twitch chat (`twitch`)
+
+`{"type": "twitch", "id": "twitch", "login": "mybot", "channels": ["mystreamer"], "tokenSecret": "TWITCH_CHAT_TOKEN"}`. Twitch chat is IRC inside a secure WebSocket (`wss://irc-ws.chat.twitch.tv:443`). Save a user access token with the `chat:read` and `chat:edit` scopes for the bot's own Twitch account. A message is answered when it mentions the bot's login. People are paired and listed by their Twitch user id (`twitch:12345`), which does not change when they rename themselves. Lines are spaced 1.6 seconds apart, inside Twitch's limit for an account that is not a moderator.
+
+### Gotify (`gotify`)
+
+`{"type": "gotify", "id": "phone", "server": "https://push.example.org", "tokenSecret": "GOTIFY_APP_TOKEN", "title": "Branch", "priority": 5}`. Save an application token made in Gotify. Send only: good for `channels.broadcast`, the morning brief and scheduled results; the chat id is ignored.
+
+### iMessage (`imessage`)
+
+`{"type": "imessage", "id": "imessage", "account": "you@icloud.com"}` (Mac only). Branch reads new messages from `~/Library/Messages/chat.db` every few seconds (`pollSeconds`) and answers through the Messages app with `/usr/bin/osascript`. The script is fixed text and the words travel as its arguments, so nothing anyone writes can become a script. Two permissions are needed, both given by you in System Settings → Privacy & Security: **Full Disk Access** for Branch, to read the messages, and **Automation → Messages**, to send; until then the health line names the one missing. One-to-one chats are always answered (after pairing); a group chat is answered when the message contains the first part of `account`. Messages that were already there when Branch started are not answered, and nothing you send yourself is. Only Apple's own service is involved — no relay such as BlueBubbles or a paid iMessage service.
+
+### Microsoft Teams (bot) (`msteams-bot`)
+
+```json
+{ "type": "msteams-bot", "id": "teams", "appId": "<Microsoft app id>", "appPasswordSecret": "MSTEAMS_APP_PASSWORD", "tenant": "botframework.com" }
+```
+Save the Azure Bot's client secret as `MSTEAMS_APP_PASSWORD`, turn on the Teams channel, and set the bot's messaging endpoint to the address shown under Connections. Every post is checked against Microsoft's published signing keys (issuer, audience, time, service address); replies go only to Microsoft's own service hosts (`*.botframework.com`, `*.trafficmanager.net`, `*.botframework.us`, `*.teams.microsoft.com`) unless you list another in `allowServiceHosts`. Single-tenant apps set `tenant` to their tenant id. Handles one-to-one chats, group chats and channels (in a group or channel only when the bot is @mentioned). Text only: no cards, files or proactive messages to a chat nobody has written in since Branch started.
+
+### Webex (`webex`)
+
+```json
+{ "type": "webex", "id": "webex", "botTokenSecret": "WEBEX_BOT_TOKEN", "webhookSecret": "WEBEX_WEBHOOK_SECRET" }
+```
+Make a bot at developer.webex.com and save its token as `WEBEX_BOT_TOKEN`. Create a webhook (resource `messages`, event `created`) pointing at the address shown under Connections, with a secret you choose, and save that secret as `WEBEX_WEBHOOK_SECRET`. Each post is checked with `X-Spark-Signature` (HMAC-SHA1), then the message is fetched with the bot token. Webex only tells a bot about space messages that mention it; replies stay in the thread. Text only.
+
+### Synology Chat (`synology-chat`)
+
+```json
+{ "type": "synology-chat", "id": "nas", "tokenSecret": "SYNOLOGY_CHAT_TOKEN", "incomingUrlSecret": "SYNOLOGY_CHAT_INCOMING_URL" }
+```
+In Synology Chat, Integration, make a Chatbot. Set its outgoing address to the address shown under Connections, save its token as `SYNOLOGY_CHAT_TOKEN`, and save its incoming address (it contains a key) as `SYNOLOGY_CHAT_INCOMING_URL`. One-to-one with the Chatbot only; replies are cut at 2000 characters. The user id in the outgoing post is used to reply; on some DSM versions this differs from the Chat user id, in which case replies fail and Synology's Chatbot settings need checking. Branch never writes the incoming address into an error or log.
+
+### Zalo Official Account (`zalo`)
+
+```json
+{ "type": "zalo", "id": "zalo", "appId": "<app id>", "oaSecretKeySecret": "ZALO_OA_SECRET_KEY", "appSecretSecret": "ZALO_APP_SECRET", "accessTokenSecret": "ZALO_OA_ACCESS_TOKEN", "refreshTokenSecret": "ZALO_OA_REFRESH_TOKEN" }
+```
+Zalo Official Accounts only (personal Zalo has no official API). Link the OA to an app at developers.zalo.me, set the webhook to the address shown under Connections and turn on the `user_send_text` event. Save the OA secret key, the app secret, and an OA access token with its refresh token. Posts are checked with `X-ZEvent-Signature` (`mac=sha256(app id + body + timestamp + OA secret key)`). When the access token expires Branch renews it once with the refresh token, but Zalo replaces the refresh token each time and Branch cannot rewrite saved secrets, so Connections then asks you to save a fresh pair before the next restart. Replies use the customer-service message API, which Zalo only allows within its reply window after the person wrote; text is cut at 2000 characters.
+
+### Flock (`flock`)
+
+```json
+{ "type": "flock", "id": "flock", "appId": "<app id>", "appSecretSecret": "FLOCK_APP_SECRET", "botTokenSecret": "FLOCK_BOT_TOKEN", "botUserId": "<bot user id>", "botName": "branch" }
+```
+Make an app with a bot at dev.flock.com, set its event callback to the address shown under Connections, and save the app secret as `FLOCK_APP_SECRET` and the bot token as `FLOCK_BOT_TOKEN`. Each post's `X-Flock-Event-Token` (HS256 with the app secret) is checked with its expiry. Only `chat.receiveMessage` is answered; in a group, only a message naming `@botName`. Text only.
+
+### Pumble (`pumble`)
+
+```json
+{ "type": "pumble", "id": "pumble", "botUserId": "<bot user id>", "signingSecretSecret": "PUMBLE_SIGNING_SECRET", "appKeySecret": "PUMBLE_APP_KEY", "botTokenSecret": "PUMBLE_BOT_TOKEN" }
+```
+Make a Pumble app with a bot user and the `NEW_MESSAGE` event, set its event address to the address shown under Connections, and save its signing secret, app key and the bot token from its installation. The signing rule (HMAC-SHA256 of `timestamp:body` in `x-pumble-request-signature`) is taken from Pumble's official Node SDK; Pumble's public web docs do not spell it out, and no freshness window is applied because the SDK does not say what unit the timestamp is in (resent copies are dropped instead). Direct messages are always answered; channel messages only when they mention the bot, and the reply goes in the thread.
+
+### Mastodon (`mastodon`)
+
+```json
+{ "type": "mastodon", "id": "mastodon", "instance": "https://mastodon.social", "tokenSecret": "MASTODON_ACCESS_TOKEN", "maxCharacters": 500, "pollSeconds": 30, "activation": "mention", "pairing": true, "allowlist": [] }
+```
+
+Save an access token (Preferences, Development, New application, read and write scopes) as `MASTODON_ACCESS_TOKEN`. Branch polls the account's mention notifications. A direct mention is a private chat with that person; any other mention is its own group chat (one per status, so a long thread does not share one conversation). Replies start with `@person`, use the same visibility as the mention, answer the status in its thread, and carry an `Idempotency-Key`. Set `maxCharacters` if the server allows more than 500.
+
+### Bluesky (`bluesky`)
+
+```json
+{ "type": "bluesky", "id": "bluesky", "handle": "assistant.bsky.social", "appPasswordSecret": "BLUESKY_APP_PASSWORD", "service": "https://bsky.social", "pollSeconds": 10, "activation": "mention", "pairing": true, "allowlist": [] }
+```
+
+Make an app password with direct-message access (Settings, Privacy and security, App passwords) and save it as `BLUESKY_APP_PASSWORD`. Direct messages only, through the official chat service (`chat.bsky.convo.*` with the `atproto-proxy` header); posts and mentions are not read. Replies are cut at 1000 characters. The session renews itself when the access token runs out.
+
+### Reddit (`reddit`)
+
+```json
+{ "type": "reddit", "id": "reddit", "username": "assistant_bot", "clientId": "the-app-client-id", "clientSecretSecret": "REDDIT_CLIENT_SECRET", "passwordSecret": "REDDIT_PASSWORD", "userAgent": "desktop:branch-agent:1.0 (by /u/assistant_bot)", "pollSeconds": 30, "activation": "mention", "pairing": true, "allowlist": [] }
+```
+
+Make a "script" app at reddit.com/prefs/apps on the assistant's account, put its client id in the settings, and save its secret as `REDDIT_CLIENT_SECRET` and the account password as `REDDIT_PASSWORD` (accounts with two-factor sign-in cannot use the password grant). Branch reads the unread inbox: private messages are direct chats, username mentions and comment replies are group chats in their thread. Each answer is a reply to the exact message or comment; answered items are marked read, and items already unread when Branch starts are left unread and unanswered. `userAgent` defaults to a descriptive one naming the account, as Reddit requires.
+
+### Discourse (`discourse`)
+
+```json
+{ "type": "discourse", "id": "forum", "forum": "https://forum.example.org", "username": "assistant", "apiKeySecret": "DISCOURSE_API_KEY", "pollSeconds": 30, "activation": "mention", "pairing": true, "allowlist": [] }
+```
+
+A forum admin makes an API key for the assistant's user and it is saved as `DISCOURSE_API_KEY`. Branch polls the account's notifications: private messages are direct chats, mentions and replies are group chats in their topic. Answers are new posts in the same topic, replying to the post that asked; notifications are marked read. The forum's own minimum post length and rate limits still apply.
+
+### X (`x-dm`)
+
+```json
+{ "type": "x-dm", "id": "x", "tokenSecret": "X_USER_ACCESS_TOKEN", "pollSeconds": 60, "activation": "mention", "pairing": true, "allowlist": [] }
+```
+
+Needs your own X developer account and an app on a **paid** X API plan: direct messages are not in the free plan. Save an OAuth 2.0 user access token for the assistant's account (scopes `dm.read dm.write tweet.read users.read`) as `X_USER_ACCESS_TOKEN`. User tokens expire (about two hours unless refreshed); when X refuses it the card says so. Branch polls `GET /2/dm_events` (keep `pollSeconds` at 60 or more for the rate limit) and answers in the same conversation. One-to-one conversations are direct; group conversations are answered only when `@assistant` is named. Posts and mentions on the timeline are not read. The kind is `x-dm` (a one-letter kind cannot be switched on).
+
+### Twist (`twist`)
+
+```json
+{ "type": "twist", "id": "twist", "conversations": [123456], "tokenSecret": "TWIST_ACCESS_TOKEN", "pollSeconds": 15, "activation": "mention", "pairing": true, "allowlist": [] }
+```
+
+Save an access token for the assistant's Twist account (from a Twist integration) as `TWIST_ACCESS_TOKEN`, and list the conversation ids (from their web addresses) the assistant should read. A conversation of the assistant and one person is direct; a larger one is answered only when the assistant is mentioned. Channel threads and comments are not read.
+
+### Nextcloud Talk (`nextcloud-talk`)
+
+```json
+{ "type": "nextcloud-talk", "id": "talk", "server": "https://cloud.example.org", "username": "branch", "rooms": ["abcd1234"] }
+```
+Save the app password of the `branch` user as `NEXTCLOUD_TALK_APP_PASSWORD` (or name another secret in `passwordSecret`). `rooms` are conversation tokens, the last part of a conversation's link; add the assistant's user to each. One-to-one conversations are always answered; group conversations only when the assistant is mentioned (`@branch`). Branch checks each conversation every `pollSeconds` (default 3) and lets the server hold each check open for `waitSeconds` (default 2). Messages from before Branch started, system notes and the assistant's own messages are never answered. Answers are posted as replies in the same conversation (Talk's limit is far above Branch's 3500 characters per message).
+
+### Text messages (Twilio) (`sms`)
+
+```json
+{ "type": "sms", "id": "sms", "accountSid": "AC-your-account-sid", "from": "+15557654321" }
+```
+Save the Twilio auth token as `TWILIO_AUTH_TOKEN` (or name another secret in `authTokenSecret`). Every text is a one-to-one chat with the sending phone number, which is also who you approve. Branch lists the number's messages every `pollSeconds` (default 5); texts from before it started are left alone. A text is cut at 1600 characters (Twilio's limit); longer answers are sent in parts. A provider that copies Twilio's API can be used with `apiBase`. Twilio charges per text, and US numbers need A2P 10DLC registration before they can send.
+
+### ntfy (`ntfy`)
+
+```json
+{ "type": "ntfy", "id": "ntfy", "server": "https://ntfy.sh", "topic": "branch-alerts-x7k2", "listenTopic": "ask-branch-x7k2", "tokenSecret": "NTFY_TOKEN" }
+```
+Branch publishes to `topic`. With `listenTopic`, whatever is published there reaches the assistant (checked every `pollSeconds`, default 5) and the answer is published back to it, tagged `branch-assistant` so it is never answered. A topic has no users: anyone who can publish to the listen topic is treated as one person, so protect it with an access token (saved as the secret named in `tokenSecret`, sent as a Bearer header) or use your own server with access control. Without `tokenSecret` no token is sent. Messages are cut to 4000 bytes.
+
+### Pushover (`pushover`)
+
+```json
+{ "type": "pushover", "id": "pushover", "title": "Branch" }
+```
+Save the application's API token as `PUSHOVER_APP_TOKEN` and your user key as `PUSHOVER_USER_KEY` (other names via `appTokenSecret` and `userKeySecret`). Send only: nobody can write back, and the chat id is ignored. A notification is at most 1024 characters; longer answers are sent in parts.
+
+### Threema Gateway (`threema`)
+
+```json
+{ "type": "threema", "id": "threema", "gatewayId": "*BRANCH1" }
+```
+Save the Gateway ID's secret as `THREEMA_GATEWAY_SECRET` (or name another in `gatewaySecret`). Basic mode only, send only: the chat id is the recipient, a Threema ID (8 letters and digits), a phone number with its leading `+`, or an email address linked to Threema. Text is cut to 3500 bytes. Each message uses a Gateway credit (a paid service). End-to-end mode and receiving are not built.
+
+### Home Assistant (`homeassistant`)
+
+```json
+{ "type": "homeassistant", "id": "home", "url": "http://homeassistant.local:8123", "service": "mobile_app_your_phone" }
+```
+Save a long-lived access token (your Home Assistant profile, Security) as `HOMEASSISTANT_TOKEN` (or name another in `tokenSecret`). Send only: Branch calls `notify.<service>`. A chat id made only of lower-case letters, digits and underscores picks that notify service instead; anything else uses `service` (default `notify`).
+
+### XMPP (Jabber) (`xmpp`)
+
+**XMPP (Jabber)** — `receives: socket`.
+
+```json
+{ "type": "xmpp", "id": "jabber", "jid": "assistant@example.org",
+  "rooms": [{ "room": "team@conference.example.org", "nick": "branch" }] }
+```
+
+Save the account password as `XMPP_PASSWORD` (or name another secret with `passwordSecret`). Optional: `server` (when it differs from the address's domain), `port`, `security` (`direct`, TLS from the first byte on port 5223, the default; or `starttls` on port 5222), `resource`. The password is only ever sent inside TLS: a server that offers no encryption is refused. One-to-one messages are always answered; in a room the assistant answers only when its nick is named, and ignores the room's history and its own echoes. Only SASL PLAIN sign-in (inside TLS) is supported; servers that allow only SCRAM or certificate sign-in are not.
+
+### MQTT (`mqtt`)
+
+**MQTT** — `receives: socket` (MQTT 3.1.1).
+
+```json
+{ "type": "mqtt", "id": "home", "host": "broker.example.org", "clientId": "branch",
+  "username": "assistant", "inboundTopic": "branch/in/#", "replyTopic": "branch/out/{chat}" }
+```
+
+Save the broker password as `MQTT_PASSWORD` if `username` is set (or name another secret with `passwordSecret`). Optional: `port` (8883 with TLS, 1883 without), `tls` (default true), `qos` (0 or 1, default 1), `keepAliveSeconds`, `plainTextSender`. Messages on `inboundTopic` are JSON `{"from": "…", "chat": "…", "text": "…"}`; without `chat` (or with `chat` equal to `from`) it is a one-to-one message, otherwise a shared chat where the assistant answers only when the text contains `@<clientId>`. With `plainTextSender`, a payload that is not that JSON is read as plain words from that one sender. Replies go to `replyTopic` with `{chat}` replaced (a chat name containing `+`, `#` or NUL is refused) as `{"from": <clientId>, "chat", "text"}`; messages from `<clientId>` and retained messages are never answered. MQTT itself does not prove who sent a message: anybody allowed to publish on the inbound topic can claim any `from`, so restrict publishing on the broker.
+
+### Keybase (`keybase`)
+
+**Keybase** — `receives: program`.
+
+```json
+{ "type": "keybase", "id": "keybase", "path": "/usr/local/bin/keybase" }
+```
+
+No secret: install Keybase and sign in with the assistant's own account on this computer. Branch runs `keybase whoami`, `keybase chat api-listen` and `keybase chat api -m <json>` with argument lists; it refuses to start if nothing is at `path`. One-to-one conversations are always answered; team channels and group conversations only when the assistant is @mentioned. The assistant's own messages are ignored. The sender is the Keybase user id.
+
+### SimpleX Chat (`simplex`)
+
+**SimpleX Chat** — `receives: socket`.
+
+```json
+{ "type": "simplex", "id": "simplex", "address": "ws://127.0.0.1:5225" }
+```
+
+No secret: run `simplex-chat -p 5225` yourself with a profile for the assistant, and accept contact requests there. Its API has no password, so Branch only connects to this computer unless `allowRemote` is true. Optional: `displayName` (otherwise asked from the program). One-to-one chats are always answered; in groups only when the assistant is mentioned. Replies use `/_send @<contact number>` or `#<group number>` with the words as JSON. The sender is `contact:<number>` or `member:<member id>`. Files and voice notes are not handled.
+
+### Delta Chat (`deltachat`)
+
+**Delta Chat** — `receives: program`.
+
+```json
+{ "type": "deltachat", "id": "deltachat", "path": "/usr/local/bin/deltachat-rpc-server",
+  "accountsPath": "/Users/me/.branch-deltachat" }
+```
+
+No secret in Branch: set up the assistant's account (for example on a chatmail server) in `deltachat-rpc-server` or the Delta Chat app first; Branch says so if no configured account exists. Optional: `accountsPath` (DC_ACCOUNTS_PATH), `accountId` (default: the first account). Branch refuses to start if nothing is at `path`. One-to-one chats are always answered; groups only when `@<display name>` or `@<address local part>` appears. Messages sent before Branch started, info messages, the device chat and the account's own messages are ignored. The sender is their email address. Messages are end-to-end encrypted by Delta Chat itself.
+
+### Nostr (`nostr`)
+
+**Nostr** — `receives: socket` (NIP-01 relays, NIP-04 direct messages).
+
+```json
+{ "type": "nostr", "id": "nostr", "relays": ["wss://relay.damus.io", "wss://nos.lol"] }
+```
+
+Save the assistant's private key (64 hex characters or `nsec1…`) as `NOSTR_PRIVATE_KEY` (or name another secret with `privateKeySecret`). Only kind-4 direct messages sent after Branch started are read; every event's id and BIP-340 signature is checked, and the same event from several relays is handled once. Replies are NIP-04 encrypted, signed and published to every relay. The sender (and allowlist entry) is the person's 64-character hex public key. NIP-04 hides the words but not who is talking to whom or when; NIP-17 / NIP-44 private messages are not supported yet. Public notes and mentions are not read.
+
+### VK (`vk`)
+
+```json
+{ "type": "vk", "id": "vk", "groupId": 123456789, "tokenSecret": "VK_GROUP_TOKEN" }
+```
+Save a community access token with the *messages* right as `VK_GROUP_TOKEN`. In the community's settings, turn on the Long Poll API (version 5.199) and the *incoming message* event, and allow the community to receive messages. Private messages to the community are always answered; in a group chat the community must be mentioned (`@club123456789`). The token only ever travels in the form body. The long-poll address VK hands back carries a session key, so it is never written in an error, and only VK's own servers (vk.com, vk.ru) are followed. Replies are cut at 3500 characters. Uses long polling, so nothing needs to reach this computer.
+
+### QQ (official bot) (`qq-bot`)
+
+```json
+{ "type": "qq-bot", "id": "qq", "appId": "102000000", "clientSecretSecret": "QQ_BOT_CLIENT_SECRET", "sandbox": false }
+```
+Register a bot on the QQ open platform (q.qq.com) and save its client secret (AppSecret) as `QQ_BOT_CLIENT_SECRET`. Branch buys a short-lived access token with it, opens QQ's gateway socket, and answers private (C2C) chats, @mentions in groups, @mentions in guild channels and guild direct messages. This is the official bot API only; personal-account protocols (OneBot, NapCat and the like) are not supported because they break QQ's terms. QQ only allows *passive* replies (to a message just received, within a few minutes), so the assistant cannot start a conversation or send long-running results much later. Public bots are reviewed by Tencent before strangers can reach them; `sandbox: true` uses the sandbox API while testing. Only gateway addresses on qq.com are followed.
+
+### Guilded (`guilded`)
+
+```json
+{ "type": "guilded", "id": "guilded", "tokenSecret": "GUILDED_BOT_TOKEN" }
+```
+Create a bot in your Guilded server's settings (Bots), generate an API token and save it as `GUILDED_BOT_TOKEN`. Guilded bots only see server channels, so the assistant answers when it is @mentioned there; there are no direct messages for bots. After a dropped connection Guilded replays what was missed. Replies are cut at 3500 characters (Guilded allows 4000). Limitation: Branch's socket client answers Guilded's pings but does not send its own, so a silently dead connection is only noticed when it closes.
+
+### Revolt (`revolt`)
+
+```json
+{ "type": "revolt", "id": "revolt", "tokenSecret": "REVOLT_BOT_TOKEN" }
+```
+Create a bot in Revolt's settings (My Bots), invite it to your server and save its token as `REVOLT_BOT_TOKEN`. Direct messages are always answered; in server channels and groups the bot must be @mentioned. A self-hosted instance sets `apiBase` and `socketBase`. The token is sent inside the socket's Authenticate message and in the `x-bot-token` header, never in an address. Replies are cut at 2000 characters, Revolt's limit.
+
+### Mumble (`mumble`)
+
+```json
+{ "type": "mumble", "id": "mumble", "server": "voice.example.org", "port": 64738, "username": "branch", "channel": "Lobby", "passwordSecret": "MUMBLE_PASSWORD", "certificateFingerprint": "AB:CD:..." }
+```
+Branch joins as an ordinary (text-only) user. A private message to it is always answered; in a channel it answers when its username is in the message. Save the server password, if there is one, as the named secret. The server certificate is checked: a server with a certificate from a public authority needs nothing more; for a self-signed server, save its SHA-256 fingerprint as `certificateFingerprint` (pinning, recommended) or set `allowSelfSigned: true`. Voice is not supported. People with a registered account or a client certificate are recognised by it; guests are only known by name, so approve guests with care. Replies are cut at 3500 characters and sent as escaped HTML.
+
+<!-- channels-parity:services-end -->
+
+**macOS and Linux.** Every service here works the same on Windows, macOS and Linux except iMessage,
+which exists only on a Mac and is refused by name anywhere else. The programs some services speak
+through (`keybase`, `simplex-chat`, `deltachat-rpc-server`, `signal-cli`) are looked for at the path
+you give and never installed; their tests, like iMessage's, use stand-ins, so nothing real is run.
+
+### Parity with other assistants
+
+Every chat or notification service found in OpenClaw (`extensions/`), PicoClaw (`pkg/channels/`),
+nanobot (`nanobot/channels/`), OpenFang (`crates/openfang-channels/src/`), ZeroClaw
+(`crates/zeroclaw-channels/src/`), Hermes Agent (`gateway/platforms/`, `plugins/platforms/`),
+Agent Zero (`plugins/`) and IronClaw (`registry/channels/`, `FEATURE_PARITY.md`), as of their
+September 2026 sources. **Had it** means Branch already carried it before wave mac3; **built now**
+means this wave added it (behind its switch, off); **not built** gives the reason.
+
+| Service | Found in | Branch |
+| --- | --- | --- |
+| Telegram (Bot API) | all eight | had it (`telegram`) |
+| Discord | OpenClaw, PicoClaw, nanobot, OpenFang, ZeroClaw, Hermes, IronClaw | had it (`discord`) |
+| Slack | OpenClaw, PicoClaw, nanobot, OpenFang, ZeroClaw, Hermes, IronClaw | had it (`slack`) |
+| WhatsApp Business (Cloud API) | OpenClaw, PicoClaw, nanobot, OpenFang, ZeroClaw, Hermes, IronClaw | had it (`whatsapp`) |
+| Email (IMAP/SMTP) | OpenClaw, nanobot, OpenFang, ZeroClaw, Hermes, Agent Zero | had it (`email`) |
+| Signal (signal-cli) | OpenClaw, nanobot, OpenFang, ZeroClaw, Hermes | had it (`signal`) |
+| Matrix | OpenClaw, PicoClaw, nanobot, OpenFang, ZeroClaw, Hermes | had it (`matrix`); end-to-end encrypted rooms are not read |
+| Messenger | OpenFang | had it (`messenger`) |
+| Instagram (Graph API messaging) | — | had it (`instagram`) |
+| Mattermost | OpenClaw, nanobot, OpenFang, ZeroClaw, Hermes | had it (`chat` / `mattermost`) |
+| Rocket.Chat | OpenFang | had it (`chat` / `rocketchat`) |
+| Google Chat | OpenClaw, OpenFang, Hermes | had it (`chat` / `googlechat`) |
+| Microsoft Teams, incoming/outgoing webhook | PicoClaw (`teams_webhook`), OpenFang | had it (`chat` / `msteams`) |
+| Zulip | OpenFang | had it (`chat` / `zulip`) |
+| Feishu / Lark | OpenClaw, PicoClaw, nanobot, OpenFang, ZeroClaw (`lark`), Hermes, IronClaw | had it (`chat` / `feishu`); the long-connection mode is not built, events come by web address |
+| DingTalk | PicoClaw, nanobot, OpenFang (incl. stream mode), ZeroClaw, Hermes | had it (`chat` / `dingtalk`); stream mode not built, events come by web address |
+| WeCom | PicoClaw, nanobot, OpenFang, ZeroClaw (incl. `wecom_ws`), Hermes, IronClaw | had it (`chat` / `wecom`), group robot, send only |
+| LINE | OpenClaw, PicoClaw, OpenFang, ZeroClaw, Hermes | had it (`chat` / `line`) |
+| Viber | OpenFang | had it (`chat` / `viber`) |
+| Generic webhook, WebSocket, HTTP API, A2A, ACP | all | had it (triggers, webhooks, the Branch API, A2A and ACP) — not chat services |
+| IRC | OpenClaw, PicoClaw, OpenFang, ZeroClaw, Hermes | built now (`irc`) |
+| Twitch chat | OpenClaw, OpenFang, ZeroClaw | built now (`twitch`) |
+| iMessage (Messages on your own Mac) | OpenClaw, ZeroClaw | built now (`imessage`), Mac only |
+| Microsoft Teams bot (Bot Framework) | OpenClaw, nanobot, OpenFang, Hermes (`teams`, `msgraph_webhook`) | built now (`msteams-bot`) |
+| Webex | OpenFang | built now (`webex`) |
+| Synology Chat | OpenClaw | built now (`synology-chat`) |
+| Zalo Official Account | OpenClaw (`zalo`) | built now (`zalo`) |
+| Flock | OpenFang | built now (`flock`) |
+| Pumble | OpenFang | built now (`pumble`) |
+| Mastodon | OpenFang | built now (`mastodon`) |
+| Bluesky (direct messages) | OpenFang, ZeroClaw | built now (`bluesky`) |
+| Reddit | OpenFang, ZeroClaw | built now (`reddit`) |
+| Discourse | OpenFang | built now (`discourse`) |
+| X (direct messages, API v2) | ZeroClaw (`twitter`) | built now (`x-dm`); X sells this API as a paid plan |
+| Twist | OpenFang | built now (`twist`) |
+| Nextcloud Talk | OpenClaw, OpenFang, ZeroClaw | built now (`nextcloud-talk`) |
+| SMS (Twilio and compatible) | OpenClaw, Hermes | built now (`sms`) |
+| ntfy | OpenFang, Hermes | built now (`ntfy`) |
+| Gotify | OpenFang | built now (`gotify`), send only |
+| Pushover | — | built now (`pushover`), send only |
+| Threema Gateway | OpenFang | built now (`threema`), Basic mode, send only; end-to-end mode and receiving not built: they need NaCl (XSalsa20-Poly1305), which Node does not ship |
+| Home Assistant notifications | Hermes | built now (`homeassistant`), send only |
+| XMPP | OpenFang | built now (`xmpp`) |
+| MQTT | PicoClaw, OpenFang | built now (`mqtt`) |
+| Keybase | OpenFang | built now (`keybase`), through your installed `keybase` |
+| SimpleX Chat | Hermes | built now (`simplex`), through your own `simplex-chat` |
+| Delta Chat | PicoClaw | built now (`deltachat`), through your installed `deltachat-rpc-server` |
+| Nostr (NIP-04 direct messages) | OpenClaw, OpenFang, ZeroClaw | built now (`nostr`) |
+| VK (community bots) | PicoClaw | built now (`vk`) |
+| QQ official bot API | PicoClaw, nanobot, ZeroClaw, Hermes (`qqbot`) | built now (`qq-bot`) |
+| Guilded | OpenFang | built now (`guilded`) |
+| Revolt (Stoat) | OpenFang | built now (`revolt`) |
+| Mumble text chat | OpenFang | built now (`mumble`); voice is ignored |
+| AMQP (RabbitMQ and others) | ZeroClaw | not built: AMQP 0-9-1 is a large binary protocol that would need a client of its own; most brokers also speak MQTT, which is built |
+| LinkedIn messaging | OpenFang | not built: LinkedIn's messaging API is open only to approved partners |
+| Tlon / Urbit | OpenClaw | not built: the chat runs inside an Urbit ship through agents whose interface changes between releases; there is no stable public bot API to write against |
+| Buzz | OpenClaw, Hermes | not built: rooms are reached through Block's own `buzz` program on a Nostr relay with its own sign-in; plain Nostr direct messages are built |
+| Mochat | nanobot | not built: no public API documentation could be found for it |
+| ClickClack | OpenClaw | not built: no public API documentation could be found for it |
+| Yuanbao (Tencent) | Hermes | not built: no public bot API documentation; the reference speaks a private protocol |
+| BlueBubbles, Photon, Linq (iMessage relays) | Hermes, OpenClaw, ZeroClaw | not built: third-party relays for iMessage; Branch drives Messages on your own Mac instead |
+| WhatsApp personal account (WhatsApp Web emulation, Baileys, whatsmeow) | OpenClaw, PicoClaw (`whatsapp_native`), nanobot, ZeroClaw (`whatsapp_web`), Agent Zero | not built: emulates the WhatsApp Web client, which WhatsApp's terms forbid; the official Business API is built |
+| Personal WeChat (iLink, web protocols) | OpenClaw, PicoClaw, nanobot, ZeroClaw, Hermes, IronClaw | not built: signs a personal WeChat account in by QR code rather than through an official bot API; WeCom is built |
+| Personal QQ (OneBot, NapCat) | PicoClaw (`onebot`), nanobot (`napcat`) | not built: drives a personal QQ account through an unofficial client; the official QQ bot API is built |
+| Personal Zalo (zca-js) | OpenClaw (`zalouser`) | not built: drives a personal Zalo account through an unofficial client; Zalo Official Account is built |
+| Instagram private API | — | not built: unofficial and against Instagram's terms; Instagram messaging through Meta's Graph API is built |
+| Snapchat | — | not built: there is no official messaging API |
+| Telegram userbot (MTProto as a person) | IronClaw uses MTProto for its bot | not built: Branch uses the official Bot API |
+| Voice calls and meetings (Twilio/Telnyx voice, ClawdTalk, Google Meet, Zoom, Teams meetings) | OpenClaw, ZeroClaw | not built here: these are phone calls and meetings, not chat; Branch's voice lives under Settings, Voice |
+| Their own devices and bridges (PicoClaw `pico`, MaixCam, OpenClaw Raft and Reef, QA channel, device pairing, visitor access) | PicoClaw, OpenClaw | not applicable: parts of those projects rather than chat services; Branch has its own phone pairing and A2A |
+| Notion, Gmail push, file-drop and git "channels" | ZeroClaw | not applicable: not chat services; Branch has documents, email and triggers for these |
+
 ## Voice
 
 **Settings → Voice** configures speech input and output. Record audio messages to transcribe them to text (requires an OpenAI-compatible provider with an API key). Read messages aloud using your browser's built-in voice (free, offline) or the provider's text-to-speech endpoint (optional, higher quality). Voice settings include:
@@ -5677,6 +6046,51 @@ every row is listed here and that every file named here exists.
 - **A2367** (Google PaLM) — not applicable: Google retired PaLM. Gemini, its successor, is supported
   (`src/providers/gemini.ts`, `tests/provider-presets.test.mjs`).
 
+## Seeing what a task did, step by step, afterwards (public list, bucket 13)
+
+Two switches, both off on a fresh install, each with the usual three positions.
+
+**Watch a task again** (Inbox → History, `src/run-recording.ts`, `src/run-recording-page.ts`,
+`src/run-recording-api.ts`, `public/recordings.js`). Pick a finished task and it plays back as frames: the
+question, each round with the model (with the words it used), each action and what came back, each box
+of a flow, each helper it sent off, each picture it looked at, and how it ended. Play, Pause, Step back
+and Step on move through it; "The path it took" draws one box per step, coloured from the theme's own
+tokens. Nothing new is recorded to make this: the task's event log already holds it, and everything
+shown passes through the secret remover first. Off refuses every route in one sentence; "when needed"
+builds a recording only when one is opened; "on" does the same and lists recent tasks straight away.
+
+- **Save as a page** writes one HTML file that plays anywhere. It carries its own copy of
+  `public/tokens.css` and can reach nothing (`default-src 'none'`). Pictures go into it only when
+  "Put the pictures it looked at into saved pages" is ticked, and then only the newest three.
+- **Make a workflow from it** turns the actions that worked into the steps of a saved workflow, with the
+  settings they were given (secrets removed). Saving never runs it, and its steps pass the same checks
+  as any workflow's when it does run.
+- `GET /api/runs/<id>/monitor?after=<event>` is the run monitor: every flow box with its state, what it
+  handed on and the words its own task used; every exchange with the model and every action with how
+  long it took; and totals. Pass the last event number back to be handed only what is new.
+
+**Is Branch keeping up** (Settings → Advanced, `src/event-loop-watch.ts`). Measures how late Branch's own
+work starts and how busy it is, and says in one sentence whether that is fine, slow or stuck. "When
+needed" takes a two-second measurement only when Check now is pressed; "on" watches from launch and
+counts every stall; off measures nothing.
+
+Integration review (mac4/bucket-13): the saved page is written in the window's language (`?lang=`,
+only a language file the app ships), and step names in the player and the page are translated too;
+its content rules also forbid `<base>` and form submission. Action labels and box names pass the
+secret remover like everything else. The event-loop watch is one for the whole app, so only the
+owner's profile can change its switch. A short-lived key cannot change either switch
+(`POST /api/recordings`, `POST /api/event-loop`), and a household profile is told "not found" for
+the owner's tasks. The picture window marks the pictures the task took by the message itself, not
+by its words, so an owner's picture is never thinned out.
+
+A task that takes many pictures now keeps only its newest three in what the model sees
+(`src/visual-window.ts`); each older one is replaced by one sentence, and the owner's own attached
+pictures are never removed. This is a bound rather than a feature, so it has no switch.
+
+macOS and Linux: nothing here depends on the system. The event-loop watch uses Node's own
+`perf_hooks`, and the saved page is plain HTML. Tests: `tests/run-recording.test.mjs`,
+`tests/recordings-ui.test.mjs`.
+
 ### Usage report, task counters and logging (A0367, A1751, A1334, A0681)
 
 Bucket 14 of the public list ("what it has cost you, in plain figures"). Each piece ships off.
@@ -5863,3 +6277,82 @@ The same table is in `src/commands/parity.ts`.
 | Vendor account and billing | /subscription, /topup (Hermes), /upgrade (Gemini) | — | not applicable | Branch has no account of its own. |
 | Report a bug | /bug (Gemini), /feedback (Codex), /debug upload (Hermes) | — | not applicable | Nothing is sent anywhere; Settings › Advanced has diagnostics. |
 | Restart or update | /restart, /update (Hermes, OpenClaw) | — | elsewhere | The dashboard's restart control and Settings › About. |
+
+## Talking to other agents and tools: where each one stands (wave mac4, bucket 20)
+
+The open protocols, so Branch can be one part of somebody else's setup and they can be part of yours.
+Everything new lives in `src/interop/` and is switched in Customize → Connections, card "Working with other
+agents and tools" (`public/interop.js`). Each part has the three-way switch — off, when needed, on — and
+every one ships off: while a part is off its routes answer "switched off" (the Agent Protocol answers 404)
+and its tools are not in the catalog at all; "when needed" makes them a line in the index; "on" loads them
+from the first round (`src/feature-switches.ts`). Switching a part, bringing an assistant in and handing a
+conversation on need the key of this computer; a short-lived key is refused.
+
+**macOS and Linux.** Nothing here depends on the system: the socket, the routes and the files behave the
+same on all three, and the tests run on each.
+
+- **agent-protocol** (A0548, the Agent Protocol task API) — built: `POST /ap/v1/agent/tasks` makes a task,
+  `POST …/{task}/steps` runs a step as an ordinary Branch task in one conversation, held to "Ask before
+  changes" like an A2A task; steps, tasks and artifacts list with the specification's pagination, and
+  every answer is a small `answer-N.md` artifact you can download. Files sent in are refused (415). Tasks are
+  written down, so a restart keeps them (`src/interop/agent-protocol.ts`, `src/interop/api.ts`,
+  `tests/agent-interop.test.mjs`).
+- **client-tools** (A2335, external client tools) — built: a program on this computer opens
+  `ws://127.0.0.1:<port>/api/interop/client-tools/ws` with the key as `Sec-WebSocket-Protocol: bearer, <key>`,
+  says `hello` with up to 16 tools, and those tools join the catalog as `client.<program>.<tool>` until it
+  hangs up. Each call goes down the socket and waits up to a minute; every lent tool needs `client.tools`,
+  which counts as a change, and its description is read as somebody else's text
+  (`src/interop/client-tools.ts`, `tests/agent-interop.test.mjs`).
+- **A0429** (custom agent modes) — built: five modes come built in (Ask, Architect, Code, Debug,
+  Orchestrator); you add your own in Customize → Specialists; a project folder you trust may add more in
+  `.branch/modes.json` (a folder you have not trusted brings none). A mode is a role, instructions, the
+  toolboxes it may open and whether it may change anything, and it only ever narrows what the task could
+  already do (`src/interop/modes.ts`, `tests/agent-interop.test.mjs`, `tests/agent-interop-ui.test.mjs`).
+- **A0428** (boomerang orchestration) — built: `mode.task` sends one piece of work to another mode; that
+  mode works with its own reach and instructions and its summary comes back to the task that sent it, with
+  "sent" and "returned" on the parent's record. The Orchestrator mode does nothing else
+  (`src/interop/modes.ts`, `tests/agent-interop.test.mjs`).
+- **A1857** (agent marketplace) — built: a market is a `market.json` list naming files made by "Export the
+  assistant", each with its fingerprint. Looking installs nothing; bringing one in checks the fingerprint
+  and every part, and takes only specialists, saved procedures and skills — never approval rules, model
+  choices or memory — with new skills switched off, and a specialist or procedure with a name you already use is left out, never replaced. Publishing writes both files into a folder of your
+  workspace for any web server; nothing is uploaded (`src/interop/agent-market.ts`, `src/agent-export.ts`,
+  `tests/agent-interop.test.mjs`).
+- **provider-actions** (A2252, provider effect actions) — verified: a service's own operations become
+  tools once you name them (`tools.from_openapi`), the key is fetched at the call and kept out of the
+  answer, and every one needs `api.call`, which is a change, so "Ask before changes" asks before it acts
+  (`src/openapi-tools.ts`, `tests/code-ide.test.mjs` "a call built from the document fills the path",
+  `tests/agent-interop.test.mjs`).
+- **A0146** (fleet coordination) — built: `fleet.status` shows every working task with the task above it,
+  the teams, the assistants elsewhere and the programs lending tools; `fleet.send` gives one job to several
+  specialists and assistants elsewhere at once; `fleet.stop` stops everything, or everything under one
+  task, and never the task asking or any task above it (`src/interop/fleet.ts`,
+  `tests/agent-interop.test.mjs`).
+- **A0319** (remote handoff) — built: from Customize → Connections a conversation goes to another device as
+  a link that opens it (`#handoff=<id>`) and a key that may look and start tasks for the minutes you choose,
+  shown once; to a terminal as `branch chat --attach --session <id>`; or to an assistant elsewhere with the
+  recent conversation, keys scrubbed. The model can hand on to a terminal or an assistant, never mint a key
+  (`src/interop/handoff.ts`, `src/cli-attach.ts`, `tests/agent-interop.test.mjs`).
+- **A0688** (project routing) — built: each project may carry a few words of its own; a request is scored on
+  those and on the project's name, folder and repository, and the best one is named with the words that
+  decided it. A tie or no match changes nothing, and routing alone never switches — only the owner's
+  window, asking with `switch`, does (`src/interop/project-routing.ts`, `tests/agent-interop.test.mjs`).
+- **A1293** (swarm patterns) — documented: four ways of putting several specialists on one job, all over
+  the same fan-out engine, budget and approval rules. *Supervisor*: one specialist splits the goal between
+  named workers and writes the answer (`delegate.supervise`). *Swarm*: several workers take items off one
+  shared list, and an item nobody finished goes back on it (`delegate.swarm`). *Router*: the one specialist
+  a request belongs to is chosen and sent it (`delegate.route`). *Parallel*: up to six branches share this
+  task's budget (`delegate.parallel`), and *teams* keep a durable room (`src/teams.ts`). Mode boomerangs and
+  fleet commands above sit on the same engine (`src/orchestration-modes.ts`,
+  `src/orchestration-tools.ts`, `tests/reopened.test.mjs` "A0317 a swarm works down one shared list").
+- **A1327** (tool-discovery progressive disclosure) — verified: every round the catalog has three tiers —
+  loaded, a one-line index entry, and deferred until searched for — so a thousand tools cost no more than a
+  dozen, and a tool found by searching stays loaded (`src/tool-loading.ts`, `tests/tool-loading.test.mjs`
+  "a deferred tool is found by searching for it, called, and stays loaded afterwards").
+- **A0421** (AFlow workflow optimisation) — built, bounded: `flow.search` (and `POST /api/interop/flow-search`)
+  asks the model for up to four different flows for a goal, checks each the way the flow editor does, tries
+  each on up to five worked examples, scores the share of answers containing what was expected, shows the
+  best its misses for up to two rounds of improvement, and saves the winner only when you ask in Customize (the model's
+  call cannot save). A drafted flow may only ask and branch — at most eight boxes, no tool, list or other-flow box. It is greedy
+  improvement, not MetaGPT's tree search, and every try is a real run that costs what it costs
+  (`src/interop/flow-search.ts`, `tests/agent-interop.test.mjs`).
