@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Store } from "../store.js";
+import { isSecretEntry } from "../files.js";
 
 /**
  * R17-S15 … R17-S21: the comfort settings. Every default below is exactly what Branch did before the
@@ -89,7 +90,9 @@ export const ComfortNetworkSchema = z.object({
 }).strict();
 
 const ignoreName = z.string().trim().min(1).max(120)
-  .regex(/^[^/\\:*?"<>|]+$/, "Name a file in the workspace's top folder, such as .aiignore");
+  .regex(/^[^/\\:*?"<>|]+$/, "Name a file in the workspace's top folder, such as .aiignore")
+  // Integration review: a file that may hold secrets is never read, not even as a list of names.
+  .refine((name) => !isSecretEntry(name), "That file may hold secrets, so it cannot be used as an ignore file");
 /** R17-S20: which ignore files hide paths from the assistant's searches. */
 export const ComfortFilesSchema = z.object({
   /** Use .gitignore when there is no .branchignore (as always). Off uses .branchignore only. */

@@ -10,7 +10,7 @@ import {
   shortcutDefaults, statusItems, type ComfortCard,
 } from "./settings.js";
 import { checkCertificate, validateNetwork, type OutboundNetwork } from "./network.js";
-import { noteUpdateCheck, updatePlan } from "./auto-update.js";
+import { busyTaskCount, noteUpdateCheck, updatePlan } from "./auto-update.js";
 import { sensitiveBrowserTools } from "./browser-safety.js";
 
 /**
@@ -53,6 +53,15 @@ function requireOwnerHere(store: Store, what: string): void {
   try { store.profiles.requireOwner(what); } catch (error) { throw new ComfortApiError(403, (error as Error).message); }
 }
 const cardWords: Record<string, string> = { browser: "How carefully the browser acts", network: "The proxy and trusted certificates" };
+const updateWords = "Whether Branch updates itself";
+
+/** Integration review: a change to automatic updates, by a value or by putting the card back, is the owner's. */
+function changesUpdates(store: Store, owner: string, input: z.infer<typeof SaveSchema>): boolean {
+  if (input.card !== "notify") return false;
+  const now = readComfort(store, owner, "notify").autoUpdate;
+  if (input.reset) return now !== "off";
+  return !!input.values && "autoUpdate" in input.values && input.values.autoUpdate !== now;
+}
 
 function view(app: ComfortApp) {
   const values = allComfort(app.store, app.runtime.owner);
@@ -72,6 +81,7 @@ function save(app: ComfortApp, body: unknown) {
   const input = SaveSchema.parse(body);
   const { store, runtime: { owner } } = app;
   if (ownerOnlyComfortCards.includes(input.card)) requireOwnerHere(store, cardWords[input.card]!);
+  if (changesUpdates(store, owner, input)) requireOwnerHere(store, updateWords);
   const before = readComfort(store, owner, "browser").confirmSensitive;
   if (input.reset) resetComfort(store, owner, input.card);
   else if (input.values) {
@@ -119,8 +129,10 @@ function forgetYesesWhenConfirming(app: ComfortApp, before: boolean): void {
 function plan(app: ComfortApp, body: unknown) {
   const input = PlanSchema.parse(body ?? {});
   const { store, runtime: { owner } } = app;
+  // Integration review: only the owner's window may be told to install; everyone's tasks count as work.
+  requireOwnerHere(store, updateWords);
   if (input.checked) noteUpdateCheck(store, owner);
-  const busyTasks = store.runs(owner).filter((run) => run.status === "running").length;
+  const busyTasks = busyTaskCount(store);
   return updatePlan(store, owner, { busyTasks, updaterPhase: input.updaterPhase });
 }
 

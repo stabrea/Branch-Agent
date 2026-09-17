@@ -96,7 +96,10 @@ export class BrowserSession {
     page.on('dialog', dialog => {
       this.dialogs.push({ kind: dialog.type(), message: dialog.message().slice(0, 500), at: new Date().toISOString() });
       // R17-S19: the owner may have message boxes accepted (OK) rather than dismissed (Cancel).
-      void (this.options.dialogAnswer?.() === 'accept' ? dialog.accept() : dialog.dismiss()).catch(() => undefined);
+      // Integration review: a box that asks for typing (prompt) is always dismissed, so nothing is ever
+      // typed or confirmed into it; only alert, confirm and "leave this page?" may be accepted.
+      const accept = this.options.dialogAnswer?.() === 'accept' && dialog.type() !== 'prompt';
+      void (accept ? dialog.accept() : dialog.dismiss()).catch(() => undefined);
     });
     page.on('download', download => this.pending.push(this.collect(download)));
     this.pages.push(page);

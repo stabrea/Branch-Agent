@@ -23,8 +23,17 @@ export function noteUpdateCheck(store: Store, owner: string, now = new Date()): 
   store.save("settings", owner, lastKey, { at: now.toISOString() });
 }
 
+/**
+ * Integration review: every task still at work in this house, whoever started it, including one
+ * paused on a question (swapping the program would lose it). Counted in full, not from a recent list.
+ */
+export function busyTaskCount(store: Pick<Store, "sqlite">): number {
+  const row = store.sqlite.prepare("SELECT COUNT(*) AS n FROM tasks WHERE status IN ('running','needs_input')").get();
+  return Number(row?.n ?? 0);
+}
+
 export interface PlanFacts {
-  /** Tasks still working; an install never starts while one is. */
+  /** Tasks still working or waiting for an answer; an install never starts while one is. */
   busyTasks: number;
   /** What the updater last said: "available" means a newer version is known. */
   updaterPhase?: string | undefined;

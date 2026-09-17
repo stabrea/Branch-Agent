@@ -43,7 +43,7 @@ export const comfortControls: readonly Control[] = [
   { name: "gitignore", card: "files", field: "respectGitignore", page: "general", key: "comfort.field.respectGitignore", english: "Searches skip what .gitignore lists", choices: [true, false] },
   { name: "mcpTimeout", card: "mcp", field: "startupTimeoutSeconds", page: "advanced", key: "comfort.field.startupTimeoutSeconds", english: "Seconds a tool server may take to start", choices: [10, 30, 60, 120],
     parse: (word) => Number(word) },
-  { name: "autoUpdate", card: "notify", field: "autoUpdate", page: "about", key: "comfort.field.autoUpdate", english: "Updates", choices: ["off", "check", "install"] },
+  { name: "autoUpdate", card: "notify", field: "autoUpdate", page: "about", key: "comfort.field.autoUpdate", english: "Updates", choices: ["off", "check", "install"], ownerOnly: true },
 ];
 
 const same = (a: Value, b: Value): boolean => JSON.stringify(a) === JSON.stringify(b);

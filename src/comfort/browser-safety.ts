@@ -7,8 +7,25 @@ import { readComfort } from "./settings.js";
  * the browser already do; with every switch at its default nothing here changes anything.
  */
 
-/** The browser steps that type, press, send a file or take over the owner's own browser. */
-export const sensitiveBrowserTools = ["browser.click", "browser.fill", "browser.act", "browser.upload", "browser.borrow"] as const;
+/**
+ * The browser steps that type, press, send a file, sign in as the owner or take over the owner's own
+ * browser. The shared computer tools press and type on the same page, so they count too
+ * (integration review).
+ */
+export const sensitiveBrowserTools = [
+  "browser.click", "browser.fill", "browser.act", "browser.upload", "browser.borrow", "browser.profile",
+  "computer.press", "computer.type",
+] as const;
+
+export const browserConfirmationHold = "Settings asks before every sensitive browser step";
+/**
+ * Integration review: whether this step's question may only be answered "just this once". An
+ * earlier yes kept for the conversation must not stand in for it either, or "every time" would
+ * only mean "the first time".
+ */
+export function holdsBrowserStep(store: Pick<Store, "get">, owner: string, tool: string): boolean {
+  return (sensitiveBrowserTools as readonly string[]).includes(tool) && readComfort(store, owner, "browser").confirmSensitive;
+}
 
 /**
  * With "confirm sensitive actions" on, each of those steps is asked about every time, whatever the

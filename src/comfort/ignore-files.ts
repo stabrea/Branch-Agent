@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { ignoreMatcher } from "../ignore.js";
+import { isSecretEntry } from "../files.js";
 
 /**
  * R17-S20: which ignore files hide paths from the assistant's searches.
@@ -14,7 +15,8 @@ export const ignoreChoiceDefaults: IgnoreChoice = { respectGitignore: true, extr
 type Ignores = (path: string, isDirectory?: boolean) => boolean;
 
 async function matcherFor(base: string, name: string): Promise<Ignores | null> {
-  if (/[/\\]/.test(name) || name === "." || name === "..") return null;
+  // A file that may hold secrets is never read, whatever an older record names (integration review).
+  if (/[/\\]/.test(name) || name === "." || name === ".." || isSecretEntry(name)) return null;
   try { return ignoreMatcher(await readFile(join(base, name), "utf8")).ignores; } catch { return null; }
 }
 

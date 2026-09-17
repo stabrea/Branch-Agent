@@ -52,7 +52,9 @@ const CARDS = [
   { id: "voice", card: "voice", home: "settings:voice", fields: [combo("pushToTalkKey", ""), { name: "maxRecordingSeconds", kind: "number", min: 5, max: 600, def: null }] },
   { id: "browser", card: "browser", home: "settings:computer", warn: "comfort.warn.owner", fields: [
     sw("confirmSensitive", false), sw("blockUploads", false), pick("dialogs", "dismiss", ["dismiss", "accept"])] },
-  { id: "network", card: "network", home: "settings:computer", warn: "comfort.warn.owner", fields: [
+  { id: "network", card: "network", home: "settings:computer", warn: "comfort.warn.owner",
+    // Integration review: what a proxy and an added certificate can see, in plain words, before anything is set.
+    dangers: ["comfort.warn.proxy", "comfort.warn.certificates"], fields: [
     { name: "proxy", kind: "text", def: null }, { name: "noProxy", kind: "lines", def: [] }, { name: "caCertificates", kind: "certs", def: [] }] },
   { id: "mcp", card: "mcp", home: "customize:connections", fields: [{ name: "startupTimeoutSeconds", kind: "number", min: 1, max: 300, def: 10 }] },
 ];
@@ -207,6 +209,7 @@ function buildCard(spec) {
   card.dataset.home = spec.home;
   card.append(keyed("h2", `comfort.${spec.id}.title`), keyed("p", `comfort.${spec.id}.lead`, "subtle"));
   if (spec.warn) card.append(keyed("p", spec.warn, "field-note"));
+  for (const danger of spec.dangers ?? []) card.append(keyed("p", danger, "field-note local-warning"));
   if (spec.id === "network" && view.network.proxy === "needs a newer Node") card.append(keyed("p", "comfort.network.old-node", "field-note"));
   const controls = spec.fields.map((field) => [field, control(field, view.values[spec.card][field.name])]);
   for (const [, c] of controls) card.append(...c.nodes);

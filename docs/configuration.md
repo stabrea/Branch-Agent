@@ -7748,15 +7748,23 @@ settings store (`comfort-<card>` records, `src/comfort/settings.ts`) and are cha
 **Installing by itself** goes through the same path as the Update button: it waits until no task is working, checks
 the download against its published checksum, tries the new version on a copy of your work (never-break's canary) and
 writes a safety copy before anything is swapped. It runs in the app window only; `branch update --yes` is unchanged.
+A task paused on a question, or one somebody else in the house started, also counts as working. Only the owner can
+turn installing on or off (a household profile and a short-lived key are refused, in the window and the terminal).
 
 **The proxy and certificates** apply to every call Branch itself makes, after the network rules have allowed the
 address. A proxy address may not carry a user name or password. A certificate must be a certificate authority, current
 and readable; it is added to the certificates this computer already trusts and never replaces them, and nothing here
 can turn certificate checks off. The proxy needs Node 25 or newer inside Branch; with an older Node it is kept and the
-card says so. Programs the assistant starts are not given the proxy.
+card says so. Programs the assistant starts are not given the proxy. The card says plainly that a proxy passes on
+everything Branch sends, including requests carrying your provider keys, and that an added certificate lets whoever
+holds its private key read and change Branch's secure connections. Presets, "put back" and settings files never
+touch the proxy, the certificates, the browser's care or installing by itself.
 
 **Confirm sensitive browser steps** asks every time, before any standing yes, including a yes for one website; a
-refusal you wrote still decides first.
+refusal you wrote still decides first. It covers pressing and typing through the shared computer tools and using a
+saved sign-in, and each question can only be answered "Yes, just now". **Accept** for message boxes never answers a
+box that asks you to type something; that one is always dismissed. Extra ignore files can only hide more, and a file
+that may hold secrets (such as `.env`) can never be named as one; turning `.gitignore` off never shows a secret file.
 
 **In the terminal** each of these is a row on its Settings page: Enter moves it to the next choice, and
 `/switch <name> <value>` sets it (`vim`, `statusLine`, `timestamps`, `notify`, `sound`, `maxRecording`,
