@@ -80,6 +80,12 @@ export class DeviceBook {
   private readonly listeners = new Set<(deviceId: string, why: "changed" | "removed") => void>();
   /** Twenty pairing tries a minute from anywhere at all, on top of the five per invitation. */
   private readonly tries = new WindowLimit(20, 60_000);
+  /**
+   * Integration review: ten a minute per address as well, so one address cannot use up everybody's
+   * tries. Behind a gateway that forwards from 127.0.0.1 every caller shares one address, so there
+   * the per-invitation limit (five, then it is burned) is what stops guessing.
+   */
+  private readonly triesFrom = new WindowLimit(10, 60_000);
   constructor(private readonly store: Store, private readonly owner: string, private readonly now: () => number = Date.now) {}
 
   private read(): Book {
@@ -145,7 +151,9 @@ export class DeviceBook {
   /** A device answering an invitation. Burns the invitation and leaves a request for the owner. */
   redeem(input: unknown, from = "unknown"): { requestId: string; status: "waiting" } {
     this.requireOn();
-    if (!this.tries.take("all")) throw new Error("Too many pairing tries just now. Wait a minute and try again.");
+    if (this.tries.full("all") || this.triesFrom.full(from)) throw new Error("Too many pairing tries just now. Wait a minute and try again.");
+    this.tries.add("all");
+    this.triesFrom.add(from);
     const body = RedeemSchema.parse(input);
     const offer = this.liveOffer();
     if (!offer || !same(body.offer, offer.id)) throw new Error("That invitation has expired or is not the one on offer. Make a new one on the computer.");

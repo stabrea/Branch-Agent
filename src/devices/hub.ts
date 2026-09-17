@@ -28,6 +28,8 @@ export function claimedDevice(request: Pick<IncomingMessage, "headers" | "url">)
 export const phoneAppOrigins: readonly string[] = ["capacitor://localhost", "https://localhost"];
 const helloWaitMs = 10_000;
 const textLimit = 256 * 1024;
+/** Integration review: what a socket may hold before it has proven itself (OpenClaw allows 64 KiB too). */
+const unprovenLimit = 64 * 1024;
 const badRequest = "HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n";
 
 /** An error in the device's own words, as opposed to Branch's; the tools mark and guard it. */
@@ -48,7 +50,11 @@ export interface HubOptions { invokeTimeoutMs?: number; pingMs?: number; now?: (
 
 export class DeviceHub {
   private readonly links = new Map<string, Link>();
-  /** Wrong device names and failed proofs per address; ten in a minute and that address waits. */
+  /**
+   * Wrong device names per address, and failed proofs per device and address; ten in a minute and
+   * that one waits. Integration review: kept apart, so noise from one address (every device behind
+   * a gateway on 127.0.0.1 shares it) never locks a device that proves itself out.
+   */
   private readonly failures = new WindowLimit(10, 60_000);
   private readonly invokes = new WindowLimit(30, 60_000);
   private readonly stopListening: () => void;
@@ -79,9 +85,18 @@ export class DeviceHub {
     const origin = request.headers.origin;
     if (origin && !originOk && !phoneAppOrigins.includes(origin)) return "Origin rejected";
     if (this.book.mode() === "off") return "Using other devices is switched off";
-    if (this.failures.full(from)) return "Too many tries from this address";
-    if (!this.book.device(claimedDevice(request))) { this.failures.add(from); return "This device is not on the owner's list"; }
-    return null;
+    const claimed = claimedDevice(request);
+    if (!this.book.device(claimed)) {
+      if (this.failures.full(`address:${from}`)) return "Too many tries from this address";
+      this.failures.add(`address:${from}`);
+      return "This device is not on the owner's list";
+    }
+    return this.failures.full(`device:${claimed}:${from}`) ? "Too many wrong proofs for this device" : null;
+  }
+
+  /** Counts a hello that did not prove the device it named. */
+  noteBadProof(device: string, from: string): void {
+    this.failures.add(`device:${device}:${from}`);
   }
 
   /** Completes the handshake. Call only after `refusal` answered null. */
@@ -112,7 +127,7 @@ export class DeviceHub {
     link.send({ type: "challenge", nonce, version: protocolVersion });
     socket.on("data", (chunk: Buffer) => {
       state.pending = Buffer.concat([state.pending, chunk]);
-      if (state.pending.length > mediaLimitBytes + 64) { link.close("A message was too large."); return; }
+      if (state.pending.length > (state.proven ? mediaLimitBytes + 64 : unprovenLimit)) { link.close("A message was too large."); socket.destroy(); return; }
       for (let decoded = readFrame(state.pending); decoded && state.open; decoded = readFrame(state.pending)) {
         state.pending = state.pending.subarray(decoded.consumed);
         this.onFrame(link, state, nonce, decoded, socket, from);
@@ -153,7 +168,7 @@ export class DeviceHub {
     try { parsed = JSON.parse(decoded.payload.toString("utf8")); } catch { link.close("That message is not understood."); return; }
     if (!state.proven) {
       state.proven = this.onHello(link, nonce, parsed);
-      if (!state.proven) this.failures.add(from);
+      if (!state.proven) this.noteBadProof(link.device, from);
       return;
     }
     const message = NodeFrameSchema.safeParse(parsed);
