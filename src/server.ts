@@ -126,6 +126,8 @@ import { handlesSandboxRemotePath, sandboxRemoteApi, SandboxRemoteApiError } fro
 import { contextFileSinkFor, defaultMoveInOptions, handlesMoveInPath, moveInApi, MoveInApiError } from "./migrate-api.js";
 // Wave mac2 (guards): which workspace folders are trusted, and the loop guard switch.
 import { guardsApi, handlesGuardsPath } from "./run-guards.js";
+// Wave mac3 (tool-safety): the second look before an approval.
+import { reviewerView, saveReviewerSettings } from "./approval-reviewer.js";
 import { helpApi } from "./help.js";
 import { AuthLimiter, noteAuthFailure, requestSource } from "./auth-limits.js";
 import { handlesOrchestrationPath, orchestrationApi, OrchestrationApiError } from "./orchestration-api.js";
@@ -354,6 +356,8 @@ async function staticFile(
     "/move-in.js": ["move-in.js", "text/javascript; charset=utf-8"],
     // Wave mac2 (guards): the card that asks whether a folder is trusted.
     "/folder-trust.js": ["folder-trust.js", "text/javascript; charset=utf-8"],
+    // Wave mac3 (tool-safety): the card for the second look before an approval.
+    "/approval-reviewer.js": ["approval-reviewer.js", "text/javascript; charset=utf-8"],
     "/providers.js": ["providers.js", "text/javascript; charset=utf-8"],
     "/style.css": ["style.css", "text/css; charset=utf-8"],
     // App shell (wave 2): tokens, layout, appearance.
@@ -673,6 +677,12 @@ async function api(
     });
   // Wave mac2 (guards): which workspace folders are trusted, what each carries, and both switches.
   if (handlesGuardsPath(path)) return guardsApi(app, request, path, readBody);
+  // Wave mac3 (tool-safety): the second look before an approval — its switch, connection and rules.
+  if (path === "/api/approval-reviewer" && request.method === "GET") return reviewerView(app.store, app.runtime.owner);
+  if (path === "/api/approval-reviewer" && request.method === "POST") {
+    saveReviewerSettings(app.store, app.runtime.owner, await readBody(request));
+    return reviewerView(app.store, app.runtime.owner);
+  }
   // Batch 21 (wave 8): the description of this API, Lockdown, kept answers, whole sets, project cost.
   if (handlesOtherPath(path))
     return otherApi(app, request, path, readBody).catch((error: unknown) => {
@@ -2678,6 +2688,8 @@ function offLimitsToShortLivedKeys(method: string | undefined, path: string): st
     return "A short-lived key cannot switch Lockdown on or off. Do that in the app window or with the key of this computer.";
   // Wave mac2 (guards): trusting a folder lets what is in it steer the assistant.
   if (handlesGuardsPath(path)) return "A short-lived key cannot change which folders are trusted or how repeated steps are stopped. Do that in the app window.";
+  // Wave mac3 (tool-safety): the second look decides what gets asked about.
+  if (path === "/api/approval-reviewer" && method !== "GET") return "A short-lived key cannot change the safety check before approvals. Do that in the app window.";
   return null;
 }
 function isExecution(request: IncomingMessage, path: string): boolean {

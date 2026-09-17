@@ -82,8 +82,11 @@ function askCard(question) {
     [t("live.yesOnce"), "allow", "never"], [t("live.yesSession"), "allow", "session"],
     [t("live.yesAlways"), "allow", "always"], [t("live.no"), "deny", "session"],
   ];
+  // Wave mac3 (tool-safety): a step the safety check advised against can only be allowed this once.
+  if (question.onceOnly) card.append(el("p", t("live.onceOnly"), "meta"));
   for (const [label, decision, remember] of answers) {
     if (remember === "always" && question.source !== "owner") continue;
+    if (question.onceOnly && decision === "allow" && remember !== "never") continue;
     const choice = el("div", undefined, "live-ask-choice");
     choice.append(button(label, decision === "deny" ? "danger" : "", async () => {
       try {
