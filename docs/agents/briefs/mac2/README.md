@@ -29,3 +29,14 @@ does, then the controls. No jargon. Check at 400 px wide with no sideways scroll
 
 Code may only be ported from MIT or Apache-2.0 sources (see `/Users/taofikbishi/Code/agent-refs/INDEX.md`).
 AGPL, GPL or restricted projects are study-only: implement independently, never transliterate.
+**Study-only by name (Legion's licence check): OpenHands, Khoj (AGPL-3.0), AutoGPT (PolyForm Shield inside
+`autogpt_platform`), and Eon's fly-brain (GPL-2.0).** Where a brief points at one of these, take the idea, not the code.
+
+## Owner rules added 2026-09-17 (via Legion)
+
+- **Every feature has a three-way switch — on / off / when needed — and ships OFF.** A fresh install is the model
+  talking and nothing else. "When needed" reuses the tiering in `src/deferred.ts` / `src/tool-loading.ts`: a one-line
+  summary in the prompt, and the full thing fetched only when the work calls for it.
+- **Nothing is decided against any more.** All 40 previously declined rows are open again; reimplement as ours.
+- **Context files belong to Legion's loader** (AGENTS/CLAUDE/GEMINI and aliases, SOUL, USER, IDENTITY, MEMORY,
+  HEARTBEAT, TOOLS, SOP). Do not read those files yourself; accept their text through a parameter.
