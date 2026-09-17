@@ -17,6 +17,7 @@ import { attach, attachRefusal, attachedAddressRefusal, readAttachSettings, save
 import { clearPasswordValues, startRecording } from './browser-trace.js';
 import type { Store } from '../store.js';
 import { audit } from '../audit.js';
+import { readBrowserContainerSettings, createBrowserLauncher } from './browser-container.js'; // w911 (A2019)
 
 export const BrowserConfigSchema = z.object({
   allowedOrigins: z.array(z.string().url()).min(1).max(30),
@@ -77,6 +78,8 @@ export class BranchBrowser {
   private readonly sessions = new Map<string, RunEntry>();
   private readonly origins: Set<string>;
   private readonly config: BrowserConfig;
+  private currentOwner: string | undefined;
+  private dockerCleanup: (() => Promise<void>) | undefined;
   constructor(input: unknown) {
     this.config = BrowserConfigSchema.parse(input);
     this.origins = originsOf(this.config.allowedOrigins);
@@ -117,13 +120,33 @@ export class BranchBrowser {
     } catch { await request.abort().catch(() => undefined); }
   }
   private async launch(): Promise<Browser> {
-    // w911 (A2019) hook: use injected launcher for container/endpoint modes.
-    if (this.launcher) {
-      const browser = await this.launcher();
-      this.browser = browser;
-      if (this.closed) { await browser.close(); throw new Error('Browser is closed'); }
-      return browser;
+    // w911 (A2019) hook: read settings at launch time and create launcher if needed.
+    if (!this.launcher && this.store && this.currentOwner) {
+      try {
+        const settings = readBrowserContainerSettings(this.store, this.currentOwner);
+        if (settings.mode !== 'off') {
+          this.launcher = await createBrowserLauncher(settings, undefined, undefined, (cleanup) => {
+            this.dockerCleanup = cleanup;
+          });
+        }
+      } catch (error) {
+        // Settings error should not prevent browser from launching; use default.
+        // Errors will be surfaced when the browser is actually used.
+      }
     }
+
+    if (this.launcher) {
+      try {
+        const browser = await this.launcher();
+        this.browser = browser;
+        if (this.closed) { await browser.close(); throw new Error('Browser is closed'); }
+        return browser;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`Browser sandbox: ${message}`);
+      }
+    }
+
     const env = Object.fromEntries(['PATH', 'SystemRoot', 'LOCALAPPDATA', 'TEMP', 'TMP', 'HOME']
       .flatMap(key => process.env[key] ? [[key, process.env[key]!]] : []));
     const browser = await chromium.launch({ headless: true, env,
@@ -141,7 +164,9 @@ export class BranchBrowser {
     const key = this.key(context), existing = this.sessions.get(key);
     if (existing) return existing;
     if (this.sessions.size >= this.config.maxRuns) throw new Error('Browser active run limit reached');
-    const session = new BrowserSession(() => this.starting ??= this.launch(), route => this.route(route));
+    // Track the current owner for launch() to read settings
+    const owner = context.owner;
+    const session = new BrowserSession(() => { this.currentOwner = owner; return this.starting ??= this.launch(); }, route => this.route(route));
     session.options.saveDownload = download => this.saveDownload(download);
     const cancel = () => { void this.closeRun(context).catch(() => undefined); };
     context.signal.addEventListener('abort', cancel, { once: true });
@@ -522,6 +547,11 @@ export class BranchBrowser {
     const results = await Promise.allSettled(pending);
     await this.starting?.catch(() => undefined);
     await this.browser?.close();
+    // w911 (A2019) hook: cleanup Docker container if it was started
+    if (this.dockerCleanup) {
+      await this.dockerCleanup().catch(() => undefined);
+      this.dockerCleanup = undefined;
+    }
     this.sessions.clear();
     const failures = results.filter(result => result.status === 'rejected');
     if (failures.length) throw new AggregateError(failures.map(result => result.reason), 'Browser cleanup failed');
