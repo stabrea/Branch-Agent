@@ -7758,7 +7758,9 @@ length and latest fingerprint, the WebAssembly add-ons) and `POST /api/safety-ex
 an authenticator code for a question it may answer (`/codes/confirm`); everything else is refused
 (`src/short-lived-keys.ts`). The code is in `src/safety-extras/`; each place the rest of Branch calls in is one line
 marked `mac7/r17-g` (`src/runtime.ts`, `src/server.ts`, `src/index.ts`, `src/network-policy.ts`, `src/audit.ts`,
-`src/feature-switches.ts`, `src/cli.ts`, `src/cli-completion.ts`).
+`src/feature-switches.ts`, `src/cli.ts`, `src/cli-completion.ts`). In *Settings → presets, reset and a settings
+file* the command check, the progress check, the record and history repair count as guards, scripts and WebAssembly
+add-ons as reach; authenticator codes and the emergency stop are never reached from there.
 
 **Scripts that call several tools (R17-061).** With the switch not off, the model has `tools.script`
 (`{ source, tools, timeoutMs }`): one JavaScript module that calls `await branch.call("files.read", { path })` as
@@ -7769,10 +7771,11 @@ writes only in its throwaway folder. Every call goes through the one gate (`src/
 task's own permissions, source and yeses; a call your rules would ask about is refused inside the script with a
 sentence telling the model to make it on its own. Only the tools the script named in `tools` (at most 16) may be
 called, never `tools.script` itself, at most 50 calls, within 1–120 seconds. On Windows there is no file and network
-wall, so scripts are refused there. Known gap: a script's calls go through the gate and are written to the task's
-events (`script.called`), but they skip the repeated-call guard and the never-break journal, so after a restart in
-the middle of a script there is no journal record of which calls already ran. Scripts also always use the strict
-fallback wall, not your own wall settings.
+wall, so scripts are refused there. Each call a script makes also passes the task's repeated-call guard, is written
+to the never-break journal before it runs (under a `branch-script:` id), and hands back its result with keys hidden
+before the script can reshape it. After a restart in the middle of a script, the script and the call that was in
+flight are put to you; nothing is run again by itself. A script gets no network and no key sites even when the task's
+own wall has them, and Branch's data folder stays unreadable to it.
 
 **WebAssembly add-ons (R17-062).** Beside bucket 15's walled add-on programs, an add-on can be a WebAssembly module
 run with Node's own WebAssembly, no dependency. It may import only `branch.memory`, `branch.input_size`,
@@ -7781,7 +7784,8 @@ run with Node's own WebAssembly, no dependency. It may import only `branch.memor
 network, no clock and no randomness; it runs in a worker thread with a small heap, its memory ceiling (1–256 MB,
 16 by default) and a time limit (0.1–30 s, 5 by default; there is no fuel counter in Node, so time stands in for
 it). Install: `POST /api/safety-extras/wasm { name, description, wasm (base64), maxMemoryMb, timeoutMs }`; the file is
-kept in `<data>/wasm-add-ons/` with its SHA-256, and a changed file is refused. Remove: `POST …/wasm/remove {name}`.
+kept in `<data>/wasm-add-ons/` with its SHA-256, which is also kept in the database, and a file that no longer
+matches both is refused. At most two add-ons run at once. Remove: `POST …/wasm/remove {name}`.
 The model runs one with `wasm.run { name, input }`; the owner presses one with `POST …/wasm/run`.
 
 **Authenticator codes and the emergency stop (R17-063).** *Set up an app* (`POST …/codes/begin`) makes a 20-byte key,
@@ -7793,7 +7797,11 @@ patterns; `shell.execute`, `payments.*`, `email.send`, `channels.send` by defaul
 tools always ask, even where a rule allows them; **when needed**, only for work you did not start at the window
 (schedules, triggers, other AI tools). A yes needs a code typed with it (`code` on `POST /api/policy/approve`, or
 `POST …/codes/confirm { sessionId, fingerprint, code }` first); it counts only for those exact bytes and never
-becomes a standing rule. A tool you press by hand in the app window is not asked. *Remove the app* forgets the key.
+becomes a standing rule. A tool on the list pressed by hand in the app window is refused (a pressed tool cannot ask
+for a code); use *Try a tool* or a conversation. Five wrong codes in a row rest every code for five minutes. While
+codes are on, switching them down, *Remove the app*, setting up a new app and changing the list each need a code too
+(`code` in the body). *Remove the app* forgets the key. The locker projects Branch keeps for itself
+(`branch-safety`, `model-connections`, `acct-…`) cannot be made into projects or changed from the secrets card.
 The **emergency stop** (`POST …/stop { everything, network, sites, tools }`) adds levels to whatever is stopped:
 *every tool*; *everything that reaches past this computer* (web, browser, messages, other AI tools, and programs and
 scripts, which can open connections of their own; your network rules refuse every address too); named *sites*
@@ -7805,8 +7813,11 @@ the record of what the assistant was allowed to do; letting it go needs a code w
 `shell.`/`terminal.` tools, `remote.run`), reading the whole command: a control character, an escape code, a
 right-to-left or invisible mark is **refused** (what you would read is not what would run); a word that mixes
 alphabets, full-width letters, a punycode or non-ASCII address, and a download handed straight to a program that
-runs it (`curl … | sh`, `bash <(wget …)`, `bash -c "$(curl …)"`, `iwr … | iex`) are **asked about**, with the
-reason on the question card. It can only tighten. **On** checks every command; **when needed** only the commands
+runs it (`curl … | sh`, `bash <(wget …)`, `bash -c "$(curl …)"`, `iwr … | iex`, and the same with a decoder such
+as `base64 -d` in place of the download) are **asked about**, with the reason on the question card. The command is
+read the way a shell joins its words (`c''url`, `s\h`, `$IFS`), a shell named by its path or `$SHELL` counts,
+look-alike letters are found by Unicode's compatibility folding, and a program name must be plain ASCII. A question
+it raises is answered only by a yes for those exact bytes. It can only tighten. **On** checks every command; **when needed** only the commands
 your rules would have run without asking. *Check a command* on the card (`POST …/scan {command}`) runs nothing.
 
 **Is this getting anywhere? (R17-065).** Reusing the loop guard (`src/loop-guard.ts`), the same answer three
@@ -7824,7 +7835,9 @@ rest, never arguments or file contents. *Check the record* (`POST …/activity/v
 `branch activity verify [--tip <hash>] [--json]`, exit code 0 unbroken, 1 broken) walks the whole chain and names
 the first entry that is missing, out of order or changed. Someone who can rewrite the whole database can rebuild the
 chain, so write the latest fingerprint down somewhere else and pass it as `tip`: the check then also proves it is
-still there. `GET …/activity?limit=` lists the newest entries.
+still there. The latest entry's number and hash are also written to `<data>/activity-chain.anchor`, outside the
+database, and the check holds the chain to it: entries cut off the end, a record rebuilt from the start, or a missing
+note are reported. `GET …/activity?limit=` lists the newest entries.
 
 **History repair (R17-067).** With the switch not off, the copy of a conversation sent to a model service is tidied
 first; the kept conversation never changes. **When needed** fixes what services refuse: a result with no call
