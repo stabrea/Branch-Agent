@@ -1,3 +1,4 @@
+import { chatOwnerOnly, startedFromChat } from "./key-context.js";
 import { z } from "zod";
 import type { ToolContext } from "./contracts.js";
 import type { ToolRegistry } from "./registry.js";
@@ -251,7 +252,10 @@ export function registerOpenApiTools(registry: ToolRegistry, tools: OpenApiTools
     description: "Turn a service's own OpenAPI description into tools, one for each operation you allow. Say where the description is, which operations may be used, and which saved secret holds the key. Use dryRun first to see what you would get.",
     parameters: FromOpenApiSchema,
     target: (args) => `tools from ${args.url ?? args.file} as api.${args.name}`,
-    execute: (args, context) => tools.add(args, context),
+    execute: async (args, context) => {
+      if (startedFromChat(context)) throw chatOwnerOnly("Adding a service's tools");
+      return tools.add(args, context);
+    },
   });
   registry.register({
     name: "tools.services", permission: "skills.read", group: "skills",
@@ -264,6 +268,9 @@ export function registerOpenApiTools(registry: ToolRegistry, tools: OpenApiTools
     description: "Take one service's tools back out, leaving everything else alone.",
     parameters: z.object({ name: groupName }).strict(),
     target: (args) => `forget api.${args.name}`,
-    execute: async (args, context) => ({ name: args.name, removed: tools.remove(args.name, context.owner) }),
+    execute: async (args, context) => {
+      if (startedFromChat(context)) throw chatOwnerOnly("Taking a service's tools out");
+      return { name: args.name, removed: tools.remove(args.name, context.owner) };
+    },
   });
 }

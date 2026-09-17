@@ -1,3 +1,4 @@
+import { chatOwnerOnly, startedFromChat } from "../key-context.js";
 import { z } from "zod";
 import { errorText, estimateTokens, type ToolContext } from "../contracts.js";
 import { compileGraph, FlowGraphError, type FlowGraphDefinition } from "../flow-graph.js";
@@ -158,6 +159,8 @@ export function registerFlowSearch(registry: ToolRegistry, runtime: Runtime, flo
     parameters: FlowSearchSchema.omit({ save: true }),
     execute: async (args, context) => {
       requireInterop(runtime.store, context.owner, "flow-search");
+      // Trying drafted flows runs their steps with the owner's own tools.
+      if (startedFromChat(context, runtime.store)) throw chatOwnerOnly("Trying out drafted flows");
       return searchFlows(flowSearchParts(runtime, flows, context), { ...args, save: false });
     },
   });

@@ -1,5 +1,5 @@
 import type { ToolContext, ToolDefinition } from "../contracts.js";
-import { runOrigin, startedWithShortLivedKey } from "../key-context.js";
+import { runOrigin, startedFromChat, startedWithShortLivedKey } from "../key-context.js";
 import type { RunSource } from "../policy.js";
 import type { ToolRegistry } from "../registry.js";
 import type { Store } from "../store.js";
@@ -42,6 +42,8 @@ export function personalHold(tool: string, args: unknown, source: RunSource): Pe
   return null;
 }
 
+export const chatPersonalRefusal =
+  "A message from a chat app cannot reach your mail, calendar, files, music or house. Do it in the app window.";
 export const shortLivedPersonalRefusal =
   "A short-lived key cannot reach your mail, calendar, files, music or house. Do it in the app window.";
 
@@ -51,6 +53,7 @@ export function ownerOnlyTools(registry: ToolRegistry, store: Store, requireOwne
     requireOwner("Your mail, calendar, files, music and house");
     const origin = context.runId && store.run(context.runId) ? runOrigin(store, context.runId) : null;
     if (startedWithShortLivedKey() || origin?.shortLivedKey) throw new Error(shortLivedPersonalRefusal);
+    if (startedFromChat(context, store)) throw new Error(chatPersonalRefusal);
   };
   return {
     register<T>(definition: ToolDefinition<T>): void {

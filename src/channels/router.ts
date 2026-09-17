@@ -683,6 +683,8 @@ export class ChannelRouter {
       }
       const run = await this.runtime.run({
         prompt: heard.prompt, ...(sessionId ? { sessionId } : {}), permissions: this.chatPermissions(),
+        // A chat cannot prove who is typing, so its task is never the owner's own (see RunSource).
+        source: "channel",
         onStarted: (started) => {
           // mac3/never-break: a task a chat started is left for the chat app to send again after a restart.
           this.store.event(started.id, "channel.inbound", { channel: message.channel, chatId: message.chatId, messageId: message.messageId });

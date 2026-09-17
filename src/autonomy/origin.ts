@@ -9,22 +9,11 @@ import type { Store } from "../store.js";
  *
  * A chat message's task, a short-lived key's, a household person's, a lent conversation's and anything
  * started by a schedule, trigger or another program are not: their words are somebody else's. A chat
- * task records no source of its own, so the "channel.inbound" mark it writes when it starts is read too.
+ * task carries source "channel" (older ones only the "channel.inbound" mark, which runOrigin reads too).
  */
 export function ownersOwnTask(store: Pick<Store, "events" | "profiles">, runId: string): boolean {
   if (!runId || currentPerson() || !store.profiles.isOwner()) return false;
   const origin = runOrigin(store, runId);
   if (origin.source !== "owner" || origin.shortLivedKey || origin.personProfileId || origin.lentTo || origin.parentRunId) return false;
-  return !cameFromChat(store, runId);
-}
-
-function cameFromChat(store: Pick<Store, "events">, runId: string): boolean {
-  const seen = new Set<string>();
-  for (let id: unknown = runId; typeof id === "string" && !seen.has(id) && seen.size < 20;) {
-    seen.add(id);
-    const events = store.events(id);
-    if (events.some((event) => event.kind === "channel.inbound")) return true;
-    id = events.find((event) => event.kind === "run.started")?.data.resumedFrom;
-  }
-  return false;
+  return true;
 }

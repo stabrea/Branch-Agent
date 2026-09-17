@@ -1,3 +1,4 @@
+import { chatOwnerOnly, startedFromChat } from "./key-context.js";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { Store, SavedRecord } from "./store.js";
@@ -352,7 +353,10 @@ export function registerWorkflows(registry: ToolRegistry, workflows: Workflows):
     description: "Save a list of steps the app can work through on its own: ask the assistant, replay a saved procedure, use one tool, wait for the owner to approve, wait a while, or skip ahead when the last answer did not say what was expected.",
     permission: "workflows.manage",
     parameters: WorkflowSchema,
-    execute: async (value, context) => workflows.create(workflows.forOwner(context.owner), value),
+    execute: async (value, context) => {
+      if (startedFromChat(context)) throw chatOwnerOnly("Saving a workflow");
+      return workflows.create(workflows.forOwner(context.owner), value);
+    },
   });
   registry.register({
     name: "workflows.list",
@@ -368,7 +372,11 @@ export function registerWorkflows(registry: ToolRegistry, workflows: Workflows):
     parameters: z.object({ id: z.string().uuid() }).strict(),
     // The workflow is held to whatever this task is held to: starting one is no way around the
     // approval settings a schedule or another app is kept to.
-    execute: async (value, context) => workflows.run(workflows.forOwner(context.owner), value.id, context.source ?? "owner"),
+    // A workflow's steps use the owner's own tools, so a chat message's task cannot start one at all.
+    execute: async (value, context) => {
+      if (startedFromChat(context)) throw chatOwnerOnly("Starting a saved workflow");
+      return workflows.run(workflows.forOwner(context.owner), value.id, context.source ?? "owner");
+    },
   });
   registry.register({
     name: "workflows.pause",
@@ -383,6 +391,7 @@ export function registerWorkflows(registry: ToolRegistry, workflows: Workflows):
     permission: "workflows.manage",
     parameters: z.object({ id: z.string().uuid() }).strict(),
     execute: async (value, context) => {
+      if (startedFromChat(context)) throw chatOwnerOnly("Carrying on a saved workflow");
       const owner = workflows.forOwner(context.owner);
       // A flow drawn as a graph carries on from its own checkpoint; everything else is a step list.
       return workflows.resumeGraph?.(value.id)

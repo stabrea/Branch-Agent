@@ -68,7 +68,11 @@ export function runOrigin(store: EventReader, runId: string): RunOrigin {
     const id = queue.shift()!;
     if (seen.has(id)) continue;
     seen.add(id);
-    const data = startOf(store, id);
+    // A chat message's task carries source "channel"; one saved before that said "owner" and only carried
+    // the "channel.inbound" mark the chat router writes, so that mark still means "channel".
+    const events = store.events(id);
+    const data = events.find((event) => event.kind === "run.started")?.data;
+    if (origin.source === "owner" && events.some((event) => event.kind === "channel.inbound")) origin.source = "channel";
     if (!data) continue;
     if (data.shortLivedKey === true) origin.shortLivedKey = true;
     if (typeof data.shortLivedKeyId === "string" && !origin.keyIds.includes(data.shortLivedKeyId)) origin.keyIds.push(data.shortLivedKeyId);
@@ -104,4 +108,18 @@ export function keyAnswerRefusal(store: EventReader, runId: string | undefined):
   const { keyId } = shortLivedKeyMark();
   if (!keyId || !runId) return otherKeysQuestionRefusal;
   return runOrigin(store, runId).keyIds.includes(keyId) ? null : otherKeysQuestionRefusal;
+}
+
+/**
+ * Whether a chat message started this work, or started the task it belongs to. A chat cannot prove who
+ * is typing, so such work never gets what only the owner may do. Sub-tasks carry the source on their
+ * context; the record is read too, for a task saved before chat tasks had a source of their own.
+ */
+export function startedFromChat(context: { source?: string | undefined; runId?: string | undefined }, store?: EventReader): boolean {
+  if (context.source === "channel") return true;
+  return !!store && !!context.runId && runOrigin(store, context.runId).source === "channel";
+}
+/** The refusal a chat message's task gets for something only the owner may do. */
+export function chatOwnerOnly(what: string): Error {
+  return new Error(`${what} is for the owner only, and a message from a chat app cannot prove who is typing. Do it in the Branch app.`);
 }

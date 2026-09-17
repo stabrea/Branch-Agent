@@ -383,6 +383,7 @@ export const ROUTES = {
   "/api/learning-more/curator/merge": "owner POST",
   "/api/learning-more/journey": "look",
   "/api/learning-more/lessons": "look",
+  "/api/learning-more/lessons/decide": "owner POST",
   "/api/learning-more/lessons/forget": "owner POST",
   "/api/learning-more/memory/find": "task POST",
   "/api/learning-more/memory/label": "other POST",

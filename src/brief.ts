@@ -1,3 +1,4 @@
+import { chatOwnerOnly, startedFromChat } from "./key-context.js";
 import { z } from "zod";
 import type { Store } from "./store.js";
 import type { ToolRegistry } from "./registry.js";
@@ -156,12 +157,18 @@ export function registerBrief(registry: ToolRegistry, brief: MorningBrief): void
     name: "brief.configure", permission: "brief.manage",
     description: "Turn the morning brief on or off, choose the time of day and timezone, choose which parts it covers, change its wording, and choose the chat it is sent to.",
     parameters: optionalFields(BriefSettingsSchema),
-    execute: async (input, context) => brief.configure(context.owner, input),
+    execute: async (input, context) => {
+      if (startedFromChat(context)) throw chatOwnerOnly("Changing the morning brief");
+      return brief.configure(context.owner, input);
+    },
   });
   registry.register({
     name: "brief.send", permission: "brief.manage",
     description: "Send the morning brief now: it appears in the conversation list and goes to the chosen chat.",
     parameters: z.object({}).strict(),
-    execute: async (_input, context) => brief.send(context.owner),
+    execute: async (_input, context) => {
+      if (startedFromChat(context)) throw chatOwnerOnly("Sending the morning brief to a chat");
+      return brief.send(context.owner);
+    },
   });
 }

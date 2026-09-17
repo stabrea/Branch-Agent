@@ -5,6 +5,7 @@ import type { Embedder } from "../document-embeddings.js";
 import type { WorkspaceFiles } from "../files.js";
 import type { MemoryMirror } from "../memory-mirror.js";
 import { memoryScope, visibleTo, type MemoryRecord } from "../memory.js";
+import { startedFromChat } from "../key-context.js";
 import type { PlaceInput } from "../migrate/detect.js";
 import type { ModelRouter } from "../models.js";
 import type { ToolRegistry } from "../registry.js";
@@ -123,7 +124,7 @@ function registerLearningTools(registry: ToolRegistry, more: LearningMore): void
     ViewBlockSchema, (value, context) => ({ blocks: more.blocks.view(more.who(context), value.label) }));
   tool("blocks", "memory.block_edit", "memory.write", "Change one memory block: replace an exact passage, append a line, or set the whole block. Stays within its size budget.",
     EditBlockSchema, (value, context) => {
-      if (startedByChat(more.deps.store, context.runId))
+      if (startedFromChat(context, more.deps.store))
         throw new Error("Memory blocks are not changed by a task a chat message started. Tell the owner what to change instead.");
       return more.blocks.edit(more.who(context), value, false);
     });
@@ -164,21 +165,3 @@ function registerLearningTools(registry: ToolRegistry, more: LearningMore): void
     AskSchema, (value, context) => more.outside.ask(value, more.asker(context)));
 }
 
-/**
- * Integration review: whether a chat message (src/channels/router.ts writes `channel.inbound`) started
- * this task or any task it was handed down from. Blocks sit in front of every later conversation, so
- * whoever can write to the chat must not be able to rewrite them.
- */
-function startedByChat(store: Store, runId: string): boolean {
-  const seen = new Set<string>();
-  for (const queue = [runId]; queue.length && seen.size < 20;) {
-    const id = queue.shift()!;
-    if (!id || seen.has(id)) continue;
-    seen.add(id);
-    const events = store.events(id);
-    if (events.some((event) => event.kind === "channel.inbound")) return true;
-    const started = events.find((event) => event.kind === "run.started")?.data as { parentRunId?: unknown; resumedFrom?: unknown } | undefined;
-    for (const next of [started?.parentRunId, started?.resumedFrom]) if (typeof next === "string") queue.push(next);
-  }
-  return false;
-}

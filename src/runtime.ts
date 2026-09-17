@@ -468,7 +468,10 @@ export class Runtime {
     const lentTo = origin?.lentTo ?? null;
     if (!previous || !origin || (previous.owner !== this.owner && previous.owner !== lentTo)) throw new Error("Run not found");
     if (previous.status !== "interrupted") throw new Error("Only interrupted tasks can be continued");
-    const again = { prompt: previous.prompt, sessionId: previous.sessionId, resumeFrom: previous.id };
+    // A chat message's task carries on as the chat's, with the same tools, never as the owner's own.
+    const chat = origin.source === "channel"
+      ? { source: "channel" as const, ...(origin.permissions ? { permissions: origin.permissions } : {}) } : {};
+    const again = { prompt: previous.prompt, sessionId: previous.sessionId, resumeFrom: previous.id, ...chat };
     const go = async () => {
       if (!lentTo) return this.execute(again);
       // Lent to the assistant for the resumed task, and handed back to the person after it.
@@ -2416,7 +2419,7 @@ ${run.output.slice(0, 6000)}`;
 export function channelSource(answeredOn: string | undefined): AuditSource | null {
   if (!answeredOn) return null;
   const name = answeredOn.trim().toLowerCase();
-  return (auditSources as readonly string[]).includes(name) && !["owner", "trigger", "schedule", "system"].includes(name)
+  return (auditSources as readonly string[]).includes(name) && !["owner", "trigger", "schedule", "system", "channel"].includes(name)
     ? (name as AuditSource) : "chat";
 }
 

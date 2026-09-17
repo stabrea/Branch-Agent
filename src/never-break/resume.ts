@@ -91,7 +91,10 @@ async function redoStep(input: RecoveryInput, runId: string, step: OpenStep): Pr
   if (step.redacted) return false;
   let args: unknown;
   try { args = JSON.parse(step.arguments); } catch { return false; }
-  const context = input.runtime.context({ runId });
+  // A chat message's step is checked as the chat's, with the chat's tools, never as the owner's own.
+  const origin = runOrigin(input.store, runId);
+  const context = input.runtime.context({ runId, ...(origin.source === "channel"
+    ? { source: "channel" as const, ...(origin.permissions ? { permissions: origin.permissions } : {}) } : {}) });
   const check = input.runtime.checkPolicy(step.tool, args, context);
   if (check.decision !== "allow") return false;
   try {
