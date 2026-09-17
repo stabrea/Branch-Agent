@@ -74,21 +74,26 @@ export interface RunSocketHooks {
 }
 
 /** Completes the handshake and streams the run's events; ends with an "end" message when the run is over. */
-export async function serveRunSocket(store: Store, runId: string, request: IncomingMessage, socket: Duplex, options: { pollMs?: number; maxMs?: number } & RunSocketHooks = {}): Promise<void> {
+/** Integration review (mac7/nodes): the most a run socket holds of a message still arriving. */
+const runSocketBuffer = 4 * 1024 * 1024;
+
+export async function serveRunSocket(store: Store, runId: string, request: IncomingMessage, socket: Duplex, options: { pollMs?: number; maxMs?: number; pingMs?: number; idleMs?: number } & RunSocketHooks = {}): Promise<void> {
   const key = String(request.headers["sec-websocket-key"] ?? "");
   socket.write(["HTTP/1.1 101 Switching Protocols", "Upgrade: websocket", "Connection: Upgrade", `Sec-WebSocket-Accept: ${acceptKey(key)}`, "Sec-WebSocket-Protocol: bearer", "", ""].join("\r\n"));
-  let open = true, pending = Buffer.alloc(0);
+  let open = true, pending = Buffer.alloc(0), heard = Date.now();
   const reply: RunSocketWriter = {
     text: (value) => { if (open) socket.write(frame(value)); },
     binary: (payload) => { if (open) socket.write(binaryFrame(payload)); },
     open: () => open,
   };
   socket.on("data", (chunk: Buffer) => {
+    heard = Date.now();
     pending = Buffer.concat([pending, chunk]);
-    for (let decoded = readFrame(pending); decoded; decoded = readFrame(pending)) {
+    if (pending.length > runSocketBuffer) { shut(); socket.destroy(); return; }
+    for (let decoded = readFrame(pending); decoded && open; decoded = readFrame(pending)) {
       pending = pending.subarray(decoded.consumed);
       if (decoded.opcode === 0x8) { open = false; socket.end(Buffer.from([0x88, 0x00])); }
-      else if (decoded.opcode === 0x9) socket.write(Buffer.concat([Buffer.from([0x8a, decoded.payload.length]), decoded.payload]));
+      else if (decoded.opcode === 0x9) { if (decoded.payload.length <= 125) socket.write(Buffer.concat([Buffer.from([0x8a, decoded.payload.length]), decoded.payload])); }
       // A text or binary frame from the browser: a live conversation's sound, or a line typed while
       // it is talking. Nothing here reads them itself; whoever asked for the hook does.
       else if (decoded.opcode === 0x1 || decoded.opcode === 0x2)
@@ -98,10 +103,29 @@ export async function serveRunSocket(store: Store, runId: string, request: Incom
   const shut = (): void => { if (!open) return; open = false; try { options.onClose?.(); } catch { /* closing */ } };
   socket.on("close", shut);
   socket.on("error", shut);
+  // Integration review (mac7/nodes): a peer that hangs up its half, or goes silent without closing,
+  // used to keep a live conversation's loop running for ever. It is asked with a ping, then let go.
+  socket.once("end", () => { shut(); socket.destroy(); });
+  const pingMs = options.pingMs ?? 20_000, idleMs = options.idleMs ?? 60_000;
+  const ping = setInterval(() => {
+    if (!open) return;
+    if (Date.now() - heard > idleMs) { shut(); socket.destroy(); return; }
+    socket.write(Buffer.from([0x89, 0x00]));
+  }, pingMs);
+  ping.unref();
   options.onOpen?.(reply);
+  try {
+    await pollRun(store, runId, socket, () => open, options);
+  } finally {
+    clearInterval(ping);
+  }
+  if (open) { shut(); socket.end(Buffer.from([0x88, 0x00])); }
+}
+
+async function pollRun(store: Store, runId: string, socket: Duplex, isOpen: () => boolean, options: { pollMs?: number; maxMs?: number } & RunSocketHooks): Promise<void> {
   const deadline = Date.now() + (options.maxMs ?? 150000);
   let last = 0;
-  while (open && (Date.now() < deadline || options.liveOpen?.() === true)) {
+  while (isOpen() && (Date.now() < deadline || options.liveOpen?.() === true)) {
     for (const event of store.events(runId).filter((e) => e.id > last)) {
       socket.write(frame(JSON.stringify({ id: event.id, kind: event.kind, data: event.data, createdAt: event.createdAt })));
       last = event.id;
@@ -113,5 +137,4 @@ export async function serveRunSocket(store: Store, runId: string, request: Incom
     }
     await delay(options.pollMs ?? 250);
   }
-  if (open) { shut(); socket.end(Buffer.from([0x88, 0x00])); }
 }

@@ -193,6 +193,7 @@ import { recoverOnStart } from "./never-break/resume.js";
 import { connectGuidedTelegram, saveTelegramSetup, telegramSetupView } from "./never-break/telegram-setup.js";
 import { fileURLToPath } from "node:url";
 import { Asks } from "./asks/index.js"; // mac6/bucket-23: the smaller asks
+import { Devices } from "./devices/index.js"; // mac7/nodes: the owner's other devices
 import { Autonomy } from "./autonomy/index.js"; // r17-b: it suggests, and runs things on its own
 import { Trunks } from "./trunks/index.js"; // R17-A: Trunks, named long-lived agents
 import { accountsSettings, saveSessionChoice } from "./accounts/settings.js"; // R17-A: a Trunk's account (R17-005)
@@ -953,6 +954,9 @@ export async function createBranch(options: {
     telegramInUse: () => channels.summary().channels.some((channel) => channel.kind === "telegram"), version,
     assertHost: (host, port) => web.policy.assertAllowed(new URL(`https://${host}:${port}/`), "mail server address") });
   // ── end mac6/bucket-23 ──
+  // ── mac7/nodes: the owner's other devices lending Branch a few abilities (src/devices/). Ships off. ──
+  const devices = new Devices({ store, owner: runtime.owner, registry, files });
+  // ── end mac7/nodes ──
   // ── r17-b: suggestions, standing orders, loops, self-starting procedures (src/autonomy/). Every part ships off. ──
   const autonomy = new Autonomy({ runtime, registry, scheduler, chats: channels, handoff: interop.handoffParts,
     hasSecret: (name) => {
@@ -1051,6 +1055,8 @@ export async function createBranch(options: {
     addOns,
     /** mac6/bucket-23: the smaller asks (src/asks/); every part ships off. */
     asks,
+    /** mac7/nodes: paired devices, their switches and the device socket (src/devices/); ships off. */
+    devices,
     /** r17-b: suggested automations, standing orders, loops and self-starting procedures; every part ships off. */
     autonomy,
     /** R17-A: Trunks, named long-lived agents (src/trunks/); every part ships off. */
@@ -1324,6 +1330,7 @@ export async function createBranch(options: {
       skillPackages.stop();
       mcpServer.close();
       asks.close(); // mac6/bucket-23: live pages stop asking their tools again
+      devices.close(); // mac7/nodes: every device socket is closed
       await autonomy.close(); // r17-b: nothing more starts by itself, and a turn that is working gets a moment
       await trunks.close(); // R17-A: rooms stop between turns
       await personal.close().catch(() => undefined); // R17-C: the webhook tunnel program stops

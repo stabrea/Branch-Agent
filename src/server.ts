@@ -169,6 +169,14 @@ import { toolCatalogReport } from "./tool-report.js";
 import { RemoteAccess } from "./remote/remote-access.js";
 import { cliAgentRows, registerCliAgent } from "./providers/cli-agent.js";
 import { GatewayAuth } from "./remote/gateway-auth.js";
+// ---- mac7/nodes: the owner's devices (src/devices/) ----
+import type { Duplex } from "node:stream";
+import { devicesApi, DevicesHttpError, handlesDevicesPath, openDevicePaths, openDevicesApi } from "./devices/api.js";
+import { claimedDevice, refuseUpgrade } from "./devices/hub.js";
+import { decide as allowlistSays, readSenderAllowlist } from "./channels/allowlist.js";
+import { remoteChannel } from "./remote/gateway-auth.js";
+import { socketPath as deviceSocketPath } from "./devices/protocol.js";
+// ---- end mac7/nodes ----
 import { deploymentApi, type DeploymentContext } from "./deployment-api.js";
 import { quitRequest } from "./install/quit.js"; // bucket 22
 import { clearRunning, writeRunning } from "./install/running.js";
@@ -428,6 +436,7 @@ async function staticFile(
     // Bucket 15: the add-ons card (Customize → Plugins).
     "/add-ons.js": ["add-ons.js", "text/javascript; charset=utf-8"],
     "/asks.js": ["asks.js", "text/javascript; charset=utf-8"], // mac6/bucket-23
+    "/devices.js": ["devices.js", "text/javascript; charset=utf-8"], // mac7/nodes
     "/autonomy.js": ["autonomy.js", "text/javascript; charset=utf-8"], // r17-b
     "/trunks.js": ["trunks.js", "text/javascript; charset=utf-8"], // R17-A
     "/coding.js": ["coding.js", "text/javascript; charset=utf-8"], // mac7/r17-d
@@ -2584,6 +2593,18 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
       }
       if (await peopleSignInRoute(app, request, response, path, () => readBody(request), (status, value) => send(response, status, value))) return;
       // ---- end bucket 19 ----
+      // ---- mac7/nodes: a device answering an invitation has no key; its number and its signature are checked. ----
+      if (openDevicePaths.includes(path)) {
+        if (request.headers.origin && !hostAllowed(request.headers.host, request.headers.origin, url, remote.allowedHosts()))
+          throw new HttpError(403, "Origin rejected");
+        const answer = await openDevicesApi({ devices: app.devices, method: request.method ?? "GET", readBody: () => readBody(request, 4096) },
+          path, requestSource(request.socket?.remoteAddress)).catch((error: unknown) => {
+          throw error instanceof DevicesHttpError ? new HttpError(error.status, error.message) : error;
+        });
+        send(response, 200, answer);
+        return;
+      }
+      // ---- end mac7/nodes ----
       // mac6/bucket-23 (A2240): a live page in the same sealed frame, under its own long random name;
       // only on this computer's own listener, since the name does not run out as an artifact's does.
       if (!viaRemote && app.asks.surfaces.serve(request, response, path)) return;
@@ -2690,6 +2711,18 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
           if (answer !== notPeople) { send(response, 200, answer); return; }
         }
         // ---- end bucket 19 ----
+        // ---- mac7/nodes: the Devices card's routes (src/devices/api.ts); the owner's alone. ----
+        if (handlesDevicesPath(path)) {
+          app.store.profiles.requireOwner("Your devices");
+          const answer = await devicesApi({ devices: app.devices, store: app.store, owner: app.runtime.owner, method: request.method ?? "GET",
+            readBody: () => readBody(request, 16384), baseUrl: remote.status().url ?? url }, path).catch((error: unknown) => {
+            throw error instanceof DevicesHttpError ? new HttpError(error.status, error.message) : error;
+          });
+          if (answer === undefined) throw new HttpError(404, "Endpoint not found");
+          send(response, 200, answer);
+          return;
+        }
+        // ---- end mac7/nodes ----
         // ---- mac6/bucket-23: the smaller asks under /api/asks (src/asks/api.ts); the owner's alone. ----
         if (handlesAsksPath(path)) {
           app.store.profiles.requireOwner("These parts of Branch");
@@ -2803,9 +2836,27 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
     dataDir: options.dataDir, workspace: app.runtime.workspace, port: new URL(url).port ? Number(new URL(url).port) : 0,
     executable: options.executable ?? null, installRoot: options.installRoot ?? null, remote,
   });
-  server.on("upgrade", (request, socket) => {
+  // mac7/nodes: one upgrade handler for this computer's door and the paired door (`viaRemote`).
+  const upgrade = (request: IncomingMessage, socket: Duplex, viaRemote: boolean): void => {
     void (async () => {
       const path = new URL(request.url ?? "/", url || "http://127.0.0.1").pathname;
+      // ---- mac7/nodes: a device's socket. Its own signature is the key; never the window's key. ----
+      if (path === deviceSocketPath) {
+        const hosts = remote.allowedHosts();
+        const refused = app.devices.hub.refusal(request, requestSource(request.socket?.remoteAddress),
+          hostAllowed(request.headers.host, undefined, url, hosts), hostAllowed(request.headers.host, request.headers.origin, url, hosts));
+        // Integration review: the door's chain is not run here. Its `token` and `device` steps are the
+        // phone window's key and secret, which a device never holds; the device's own signature over a
+        // fresh challenge stands in for them. The door's one allowlist still holds: "never" wins.
+        const neverOnDoor = viaRemote && allowlistSays(readSenderAllowlist(app.store, app.runtime.owner), remoteChannel, claimedDevice(request)) === "block";
+        if (refused || neverOnDoor) { refuseUpgrade(socket); return; }
+        app.devices.hub.attach(request, socket);
+        return;
+      }
+      // Integration review: the paired door serves the device socket and nothing else. It had no
+      // upgrade handler before this branch, and a task's socket stays on this computer's own door.
+      if (viaRemote) { refuseUpgrade(socket); return; }
+      // ---- end mac7/nodes ----
       // mac4/bucket-20: a program on this computer lending tools, behind the key and while the switch is on.
       if (path === clientToolsPath) {
         // Integration review: "a program on this computer" — the paired address never lends tools.
@@ -2828,7 +2879,9 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
       // one. Nothing is opened until it does, so an ordinary task is unchanged.
       await serveRunSocket(app.store, run.id, request, socket, liveHooks(app.live, run.id, run.sessionId));
     })().catch(() => socket.destroy());
-  });
+  };
+  server.on("upgrade", (request, socket) => upgrade(request, socket, false));
+  remote.upgrade = (request, socket) => upgrade(request, socket, true);
   configureLimits(server);
   startEventLoopWatch(app); // bucket 13: runs from the start only when the owner has it on
   await new Promise<void>((resolve, reject) => {
