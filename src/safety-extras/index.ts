@@ -26,7 +26,7 @@ export class SafetyExtras {
   constructor(private readonly deps: SafetyExtrasDeps) {
     const { runtime, registry } = deps;
     const store = runtime.store, owner = runtime.owner;
-    this.chain = new ActivityChain(store.sqlite);
+    this.chain = new ActivityChain(store.sqlite, join(deps.dataDir, "activity-chain.anchor"));
     this.stopFollowing = followActivity(store, owner, this.chain);
     this.scripts = new ToolScripts({ host: runtime, registry,
       unreadable: () => [...new Set([...wallSettings(store, owner).unreadable, wallEdgeFor(store).dataDir ?? deps.dataDir, deps.dataDir])] });

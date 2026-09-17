@@ -14,6 +14,9 @@ import { startServer } from "../dist/server.js";
 import { totp } from "../dist/safety-extras/totp.js";
 import { takeCode } from "../dist/safety-extras/code-approvals.js";
 import { scanCommand } from "../dist/safety-extras/command-scan.js";
+import { ActivityChain } from "../dist/safety-extras/activity-chain.js";
+import { DatabaseSync } from "node:sqlite";
+import { rm } from "node:fs/promises";
 import { scriptWall, ToolScripts } from "../dist/safety-extras/tool-scripts.js";
 import { spawn } from "node:child_process";
 import { saveGatewayConfig, GatewayConfigSchema } from "../dist/never-break/gateway-config.js";
@@ -276,4 +279,56 @@ test("scan: a question it raises is answered only by a yes for those very bytes"
   assert.equal(app.runtime.checkPolicy("shell.execute", piped, context, "b".repeat(32)).decision, "ask");
   app.runtime.approvals.remember("", "shell.execute", asked.target, "allow", { fingerprint: "b".repeat(32) });
   assert.equal(app.runtime.checkPolicy("shell.execute", piped, context, "b".repeat(32)).decision, "allow");
+});
+
+/* ---------- the activity chain ---------- */
+
+async function anchored(t, count = 5) {
+  const root = await mkdtemp(join(tmpdir(), "branch-safety-chain-"));
+  t.after(() => discardTemp(root));
+  const db = new DatabaseSync(":memory:");
+  const anchor = join(root, "activity-chain.anchor");
+  const chain = new ActivityChain(db, anchor);
+  for (let i = 0; i < count; i++) chain.append("local", { kind: "policy.denied", runId: "r", detail: `step ${i}`, outcome: "denied" });
+  const unguard = () => db.exec("DROP TRIGGER IF EXISTS activity_chain_no_update; DROP TRIGGER IF EXISTS activity_chain_no_delete;");
+  return { db, chain, anchor, unguard };
+}
+
+test("chain: cutting entries off the end is found, not only a gap in the middle", async (t) => {
+  const { db, chain, unguard } = await anchored(t);
+  assert.equal(chain.verify("local").ok, true);
+  unguard();
+  db.exec("DELETE FROM activity_chain WHERE seq >= 3");
+  const cut = chain.verify("local");
+  assert.equal(cut.ok, false, JSON.stringify(cut));
+  assert.match(cut.reason, /removed/);
+});
+
+test("chain: a database rewritten from the start is found by the note kept outside it", async (t) => {
+  const { db, chain, unguard } = await anchored(t);
+  unguard();
+  db.exec("DELETE FROM activity_chain");
+  const forger = new ActivityChain(db); // rebuilds a tidy chain of its own, with no note beside it
+  for (let i = 0; i < 5; i++) forger.append("local", { kind: "policy.denied", runId: "r", detail: `nothing happened ${i}`, outcome: "denied" });
+  assert.equal(forger.verify("local").ok, true, "on its own the rebuilt chain hangs together");
+  const found = chain.verify("local");
+  assert.equal(found.ok, false, JSON.stringify(found));
+  assert.match(found.reason, /rewritten|does not match/);
+});
+
+test("chain: a missing note beside a chain with entries is reported, not trusted", async (t) => {
+  const { chain, anchor } = await anchored(t);
+  await rm(anchor);
+  const check = chain.verify("local");
+  assert.equal(check.ok, false);
+  assert.match(check.reason, /note/);
+});
+
+test("chain: a second writer on the same database never silences the first", async (t) => {
+  const { db, chain, anchor } = await anchored(t, 1);
+  const other = new ActivityChain(db, anchor); // the command line, say, writing while the app runs
+  other.append("local", { kind: "policy.denied", runId: "r", detail: "from the command line", outcome: "denied" });
+  chain.append("local", { kind: "policy.denied", runId: "r", detail: "from the app", outcome: "denied" });
+  assert.deepEqual(chain.list("local").map((entry) => entry.detail), ["from the app", "from the command line", "step 0"]);
+  assert.equal(chain.verify("local").ok, true);
 });
