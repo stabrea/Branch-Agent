@@ -34,6 +34,8 @@ export const auditActions = [
   "limit.reached",
   // Batch 26 (wave 8): old conversations were offered for deletion, exported, or deleted.
   "history.pruned",
+  // Wave mac2 (move-in): chats, memory, skills or settings were brought in from another assistant.
+  "data.imported",
 ] as const;
 export type AuditAction = (typeof auditActions)[number];
 
@@ -106,6 +108,7 @@ const actionLabels: Record<AuditAction, string> = {
   "network.connected": "A connection that stays open was made to a service outside this computer",
   "limit.reached": "Something reached the limit you set for a minute or an hour",
   "history.pruned": "Old conversations were offered for deletion, exported, or deleted",
+  "data.imported": "Chats, memory or settings were brought in from another assistant",
 };
 export const auditLabel = (action: AuditAction): string => actionLabels[action];
 

@@ -26,6 +26,9 @@ import { safeStorage } from "electron";
 import type { DesktopSettings } from "./settings.js";
 import { registerConversationExportIpc } from "./conversation-export-ipc.js";
 import { recordDesktopCrash, type SpanStore } from "../tracing.js";
+// mac2/desktop-ui: the Stop notice for screen control on macOS and Linux is a window of this app's own.
+import { screen } from "electron";
+import { electronBannerWindow } from "./banner-window.js";
 
 let window: BrowserWindow | undefined;
 let tray: Tray | undefined;
@@ -178,6 +181,10 @@ async function start(): Promise<void> {
     workspace,
     presets: [defaultPreset(desktopProvider(settings), settings.summary().model || undefined)],
     chatgpt,
+    bannerWindow: electronBannerWindow({
+      create: (options) => new BrowserWindow(options),
+      workArea: () => screen.getPrimaryDisplay().workArea,
+    }),
   });
   watchDesktopCrashes(branch);
   let integrationClose: (() => Promise<void>) | undefined;

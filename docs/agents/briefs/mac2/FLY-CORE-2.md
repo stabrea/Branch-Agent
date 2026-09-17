@@ -24,3 +24,10 @@ Area `fly-core-2`. Read `docs/agents/briefs/mac2/README.md` and the merged v1 (`
    Tower test container. Include a `--dry-run` that uses the offline demo provider so the harness itself is tested.
 6. **Head-to-head hook:** the same harness can target Hermes Agent's OpenAI-compatible API (URL + key from the
    environment) for the same task set, so both assistants are scored identically. Test with a fake server only.
+
+**Also fix (from the v1 review):** "on" mode loads every action at task start (170–480 ms at the cap) — cache or
+index so task start stays under 10 ms; cap the weights kept per action so storage stays well under 20 MB at the cap;
+the `learning.suggest` tool must read the switch of the owner it was registered for (or register per owner);
+cite Owald et al. 2015 for reward depressing "avoid" synapses and check the Kenyon-cell counts against Schlegel 2024.
+The honest v1 result: before a change the core ≈ a failure-aware counter; its edge is relearning after a change.
+Any real-task claim must come from `real-eval.mjs`, not the synthetic stream.
