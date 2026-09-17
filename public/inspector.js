@@ -76,6 +76,17 @@ const lineRow = (title, meta) => {
   return node;
 };
 
+/* mac2/fly-core-2: one line per piece of learning-core advice the task actually used. */
+const learnedKeys = {
+  tools: "inspector.learned-tools", skills: "inspector.learned-skills",
+  memories: "inspector.learned-memories", "left-out": "inspector.learned-left-out",
+};
+function learnedRow(entry) {
+  const key = learnedKeys[entry.what] ?? "inspector.learned-tools";
+  const names = entry.what === "memories" ? String(entry.names.length) : entry.names.join(", ");
+  return lineRow(t(key, { names, count: entry.names.length }), formatDate(entry.at, { timeStyle: "medium" }));
+}
+
 function draw(view) {
   const body = $("inspect-body");
   const head = el("div", undefined, "inspect-head-lines");
@@ -93,6 +104,8 @@ function draw(view) {
     section("inspector.answer", answer),
     /* Wave 9: what a second connection made of that answer, beside it and never inside it. */
     section("inspector.advice", view.advice ? [lineRow(view.advice.line, t("inspector.advice-note"))] : []),
+    /* mac2/fly-core-2: what the learning core chose first, one plain line each. */
+    section("inspector.learned", (view.learned ?? []).map(learnedRow)),
     section("inspector.rounds", view.rounds.map(roundRow)),
     section("inspector.calls", view.calls.map(callRow)),
     // A think-then-act specialist's line of reasoning for each round; never part of the answer.
