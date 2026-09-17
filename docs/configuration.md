@@ -7216,3 +7216,44 @@ without the file and network wall (see above).
   plugins are also installable (`src/add-ons/formats.ts`).
 - **A0602** (a helper that installs and manages an isolated plugin for another agent): built as the write / check /
   remove lifecycle of Branch's own plugin for Codex and Claude Code, in a folder the owner names (`src/add-ons/export.ts`).
+
+## Understandable settings (R17-S-A)
+
+Every control in Settings has one sentence under it saying what it does and what changing it means,
+and every Settings card has a small chip saying how far it reaches: everything, this project only, or
+this computer only (`public/settings-describe.js`, words in `public/settings-descriptions.js`). A card
+that writes its own `.field-note` and links it with `aria-describedby` needs no row there.
+`tests/settings-descriptions.test.mjs` walks every Settings page and fails, naming the control, when
+one has no description. A card can declare `data-scope="project"`, `"computer"` or `"trunk"`; no card
+uses "trunk" yet, because Trunks are not built.
+
+Settings → General has **Start from a preset** (Private and local, Cheapest, Most capable, Hands-off,
+Careful) and **Put settings back** (one setting or all of them). Settings → Data has **Your settings in
+one file**. All three show every change before anything is written, and only the ticked lines are
+made. A change that makes Branch less careful (a guard turned down, or a switch that reaches further
+turned up) starts unticked and also needs "Yes, make it less careful"; the server refuses it otherwise.
+They reach only the fields listed in `src/settings-kit/catalogue.ts` (switches, yes/no, short choices
+and bounded numbers), never Lockdown, the session lock, connections, keys, people or pairing, so a
+settings file cannot carry or bring in a secret. The list fails closed: a setting or field that is not
+in the catalogue, including any added later, is blocked (`classify`), and accounts, add-ons, the leak
+guard, what is passed on to programs, never-break, tunnels and the launch file are on the never-touched
+list as well. Working until a goal is met and writing new skills count as reaching further; turning off
+the snapshots counts as taking a protection away. Guards are saved through their own module's save
+(the second look, loop guard, folder trust, security check, the wall, Keychain entries, retention, the
+smaller asks), so the change takes effect at once and is recorded. While Lockdown is on, nothing is
+changed from here. Every route is the owner's: a household profile gets 403. A short-lived key may read
+the list of settings but not the file, the owner's own files, or any change (`src/short-lived-keys.ts`).
+
+**Which file does what** (Settings → General) lists SOUL, IDENTITY, USER, AGENTS, TOOLS, SOP, MEMORY
+and HEARTBEAT: what each is for, whether it is kept with your own things or in the project, and whether
+it is read right now. "Change it here" reads the file through the loader in `src/context-files.ts`
+and replaces it whole; a file longer than the loader carries, a link, a file with a second name (hard
+link), or a file in an untrusted project folder is not edited here, and a project's file is checked
+against the never-break guard before it is written.
+
+After first run, a card under the conversation offers Say hello, Watch me once (turns on recording
+each task, "only when it is needed", so the next task can be saved as a workflow from Inbox › History)
+and three suggested automations that only fill in the message box.
+
+macOS and Linux: nothing here depends on the operating system. A file is never written through a
+link: it is checked with `lstat` first, and opened with `O_NOFOLLOW` where the system has it.

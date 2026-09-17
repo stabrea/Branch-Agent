@@ -130,6 +130,7 @@ import { assistantIdentity, saveAssistantIdentity } from "./identity.js";
 import { contextFileStatus, saveContextFileSettings, contextFileSettings } from "./context-files.js";
 // mac3/reflection-skills: the learning loop's routes.
 import { reflectionApi } from "./reflection/api.js";
+import { handlesSettingsKitPath, settingsKitApi, settingsKitBodyBytes, SettingsKitError } from "./settings-kit/api.js"; // R17-S-A
 import { voiceSettings, saveVoiceSettings } from "./voice.js";
 import { voiceApi } from "./voice-api.js";
 // bucket-18: pull requests from changes (A0300), and which requests came with a short-lived key.
@@ -468,6 +469,11 @@ async function staticFile(
     // Wave 9 redesign: the five places, the Settings window, the 44 themes' colours and the oak.
     "/layout.js": ["layout.js", "text/javascript; charset=utf-8"],
     "/context-files.js": ["context-files.js", "text/javascript; charset=utf-8"],
+    // R17-S-A (understandable settings): the settings kit, descriptions on every control, and first-run offers.
+    "/settings-kit.js": ["settings-kit.js", "text/javascript; charset=utf-8"],
+    "/settings-describe.js": ["settings-describe.js", "text/javascript; charset=utf-8"],
+    "/settings-descriptions.js": ["settings-descriptions.js", "text/javascript; charset=utf-8"],
+    "/first-run-next.js": ["first-run-next.js", "text/javascript; charset=utf-8"],
     // mac3/reflection-skills: looking back (Library, Memory) and skills it wrote (Customize, Skills).
     "/learning-loop.js": ["learning-loop.js", "text/javascript; charset=utf-8"],
     // mac3/security-check: the security self-check card.
@@ -861,6 +867,22 @@ async function api(
     return learningCoreApi({ store: app.store, owner: app.runtime.owner, configure: app.learningCore.configure },
       request.method ?? "GET", path, () => readBody(request)).catch((error: unknown) => {
       throw error instanceof LearningCoreApiError ? new HttpError(error.status, error.message) : error;
+    });
+  // ── R17-S-A (understandable settings): presets, putting settings back, one settings file, and the files you write. ──
+  if (handlesSettingsKitPath(path))
+    return settingsKitApi({
+      store: app.store, owner: app.runtime.owner, workspace: app.runtime.workspace, appVersion: app.version,
+      writers: {
+        "fly-core": (patch) => app.learningCore.configure(patch), reflection: (patch) => app.learningLoop.configure(patch),
+        // Integration review: each through its own save, so a tool or a helper comes and goes at once.
+        "security-check": (patch) => app.security.configure(patch),
+        ...Object.fromEntries((["analytics", "answer-engine", "runtimes", "nodes", "project-board"] as const)
+          .map((part) => [`asks-${part}`, (patch: Record<string, unknown>) => { app.asks.setMode(part, patch); }])),
+      },
+      guard: (target) => protectedTarget({ tool: "files.write", readOnly: false, args: { path: target }, target,
+        workspace: app.runtime.workspace }, app.runtime.protectedAreas),
+    }, request.method ?? "GET", path, () => readBody(request, settingsKitBodyBytes)).catch((error: unknown) => {
+      throw error instanceof SettingsKitError ? new HttpError(error.status, error.message) : error;
     });
   if (request.method === "GET" && path === "/api/state") return state(app);
   // Wave 6: sharing, labels and notes, workflows, the waiting line, days off, and profiles.
