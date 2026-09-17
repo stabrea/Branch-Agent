@@ -1051,7 +1051,11 @@ hundred passed" with the reasons the failures gave. `POST /api/evaluation/live` 
 - `enabled` — off until you turn it on. Nothing is scored and nothing is written while it is off.
 - `scorers` — the checks, written exactly as a suite writes them, at most four so a task is never
   slowed down. `rubric` is refused here by name: scoring every ordinary task with a model would put
-  a second bill on your everyday work, and being told that is better than wondering why.
+  a second bill on your everyday work, and being told that is better than wondering why. A `budget`
+  scorer carrying `maxDollars` is refused for the same reason in reverse: what a finished task cost
+  is worked out where usage is priced, not here, so a money limit set here would be a bar that never
+  applied. `maxSteps`, `maxMs` and `maxTokens` are all real here — the time comes from the task's own
+  timestamps and the tokens from its usage.
 - `keep` — how many verdicts are kept, from 10 to 2000; 200 unless you say otherwise. The oldest are
   dropped once there are more than that.
 

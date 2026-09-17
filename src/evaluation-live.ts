@@ -49,6 +49,10 @@ export function saveLiveScoringSettings(store: Store, owner: string, input: unkn
   const value = LiveScoringSettingsSchema.parse({ ...liveScoringSettings(store, owner), ...(input as object) });
   if (value.scorers.some((scorer) => scorer.kind === "rubric"))
     throw new Error("Scoring every finished task with a model would put a second bill on ordinary work. Use checks that decide for themselves.");
+  // What a finished task cost is worked out where usage is priced, not here, so a money limit set
+  // here would be a bar that quietly never applies. Saying so beats letting it always pass.
+  if (value.scorers.some((scorer) => scorer.kind === "budget" && scorer.maxDollars !== undefined))
+    throw new Error("A money limit cannot be checked here, because what a finished task cost is worked out elsewhere. Use maxSteps, maxMs or maxTokens, and a study for the money.");
   store.save("settings", owner, KEY, value);
   return value;
 }
@@ -96,7 +100,10 @@ export async function scoreFinishedRun(
   if (!run || run.owner !== owner) return null;
   const usage = store.usage(runId);
   const trajectory = readTrajectory(store, runId, {
-    ms: 0, tokens: (usage.estimatedInput ?? 0) + (usage.estimatedOutput ?? 0), dollars: null,
+    // How long the task really took, from its own timestamps, so a limit on time is a real limit.
+    ms: Math.max(0, Date.parse(run.updatedAt) - Date.parse(run.createdAt)) || 0,
+    tokens: (usage.estimatedInput ?? 0) + (usage.estimatedOutput ?? 0),
+    dollars: null,
   });
   const scorers = settings.scorers.map((spec: ScorerSpec) => makeScorer(spec, { workspace }));
   const verdict = await scoreAll(scorers, { id: runId, prompt: run.prompt ?? "" }, trajectory, run.output ?? "");

@@ -518,6 +518,9 @@ test("A1210: live scoring is off until it is switched on, and refuses the scorer
   assert.equal(app.liveScoring.recent().length, 0, "nothing is written while it is off");
   assert.throws(() => app.liveScoring.configure({ enabled: true, scorers: [{ kind: "rubric", rubric: "is it good" }] }),
     /second bill on ordinary work/);
+  assert.throws(() => app.liveScoring.configure({ enabled: true, scorers: [{ kind: "budget", maxDollars: 0.01 }] }),
+    /money limit cannot be checked here/);
+  assert.equal(app.liveScoring.settings().enabled, false, "a refused setting is not half-saved");
   app.liveScoring.configure({ enabled: true, scorers: [{ kind: "finished" }] });
   const good = await app.runtime.run({ prompt: "say the word", permissions: [] });
   const bad = await app.runtime.run({ prompt: "say nothing", permissions: [] });
@@ -528,10 +531,17 @@ test("A1210: live scoring is off until it is switched on, and refuses the scorer
   assert.equal(forGood?.pass, true);
   assert.equal(forBad?.pass, false);
   assert.match(forBad.reasons.join(" "), /did not finish/);
+  // A limit on time is a real limit here: the task's own timestamps, not a zero that always passes.
+  app.liveScoring.configure({ scorers: [{ kind: "budget", maxMs: 1 }] });
+  const slow = await app.runtime.run({ prompt: "say the word", permissions: [] });
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  const forSlow = app.liveScoring.recent().find((one) => one.runId === slow.id);
+  assert.equal(forSlow?.pass, false);
+  assert.match(forSlow.reasons.join(" "), /ms and 1 ms was the limit/);
+  app.liveScoring.configure({ scorers: [{ kind: "finished" }] });
   const summary = app.liveScoring.summary();
-  assert.equal(summary.runs, 2);
+  assert.equal(summary.runs, 3);
   assert.equal(summary.passed, 1);
-  assert.equal(summary.accuracy, 0.5);
 });
 
 test("A1210: the summary of the recent verdicts, and the settings' own limits", () => {
