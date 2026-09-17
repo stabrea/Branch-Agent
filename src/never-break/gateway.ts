@@ -1,0 +1,282 @@
+import { spawn, type ChildProcess } from "node:child_process";
+import { createServer, request as httpRequest, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { connect } from "node:net";
+import type { Duplex } from "node:stream";
+import { clearRunning, writeRunning } from "../install/running.js";
+import { contractsMeet, gatewayContract, WorkerReadySchema, type WorkerReady } from "./contract.js";
+import { loadGatewayConfig, promoteGood, restoreGood, sameAsGood, type GatewayConfig } from "./gateway-config.js";
+import { clearCrashes, markExited, markRunning, recordCrash } from "./gateway-state.js";
+
+/**
+ * The gateway: a small process that keeps Branch's public address open and keeps one worker — the
+ * whole engine — running behind it. It holds no database, no model and no tool, so nothing a task
+ * does can take it down. A worker that crashes is replaced; a request that arrives while it is being
+ * replaced waits a little and is then told, in a sentence, to try again. See docs/never-break.md.
+ */
+export type WorkerState = "starting" | "ready" | "stopped" | "waiting";
+export interface GatewayNote { at: string; text: string }
+export interface GatewayOptions {
+  dataDir: string;
+  /** The engine's start script and the arguments that start it. */
+  script: string;
+  args?: string[];
+  env?: NodeJS.ProcessEnv;
+  port: number;
+  /** Write the "already running here" note, so the app window joins this gateway. */
+  presence?: boolean;
+  version: string;
+  /** Starts a worker; tests hand in a fixture. */
+  spawn?: (script: string, args: string[], env: NodeJS.ProcessEnv) => ChildProcess;
+  /** How long a worker must stay up before its settings count as good and its crash chain is cleared. */
+  settleMs?: number;
+  /** Told about every worker that says it is ready, and every crash. */
+  onWorker?: (event: { kind: "ready"; ready: WorkerReady } | { kind: "crash"; code: number | null; signal: string | null; tripped: boolean }) => void;
+}
+
+/** The engine, through this same runtime, with a message channel and no window on Windows. */
+const defaultSpawn = (script: string, args: string[], env: NodeJS.ProcessEnv): ChildProcess =>
+  spawn(process.execPath, [script, ...args], { env, stdio: ["ignore", "inherit", "inherit", "ipc"], windowsHide: true });
+
+interface Worker { child: ChildProcess; state: WorkerState; port: number | null; ready: WorkerReady | null; startedAt: number }
+
+export class Gateway {
+  private server: Server | null = null;
+  private worker: Worker | null = null;
+  private config!: GatewayConfig;
+  private stopping = false;
+  private failedStarts = 0;
+  private tripped = false;
+  private relaunch: NodeJS.Timeout | null = null;
+  private settle: NodeJS.Timeout | null = null;
+  private readonly waiters = new Set<(port: number | null) => void>();
+  /** The address of a worker that refused a connection, so it is not tried again before it is replaced. */
+  private deadPort: number | null = null;
+  /** Connections carried through as upgrades, closed when the gateway stops. */
+  private readonly tunnels = new Set<Duplex>();
+  readonly notes: GatewayNote[] = [];
+  restarts = 0;
+  url = "";
+  constructor(private readonly options: GatewayOptions) {}
+
+  note(text: string): void {
+    this.notes.push({ at: new Date().toISOString(), text });
+    if (this.notes.length > 50) this.notes.shift();
+  }
+
+  async start(): Promise<string> {
+    const loaded = await loadGatewayConfig(this.options.dataDir);
+    this.config = loaded.config;
+    if (loaded.problem) this.note(loaded.problem);
+    const previous = await markRunning(this.options.dataDir);
+    if (previous.uncleanBefore) this.note("Branch did not close properly last time; interrupted work is picked up again.");
+    this.server = createServer((request, response) => { void this.handle(request, response); });
+    this.server.on("upgrade", (request, socket, head) => { void this.upgrade(request, socket, head); });
+    await new Promise<void>((resolve, reject) => {
+      this.server!.once("error", reject);
+      this.server!.listen(this.options.port, "127.0.0.1", () => { this.server!.off("error", reject); resolve(); });
+    });
+    const address = this.server.address();
+    if (!address || typeof address === "string") throw new Error("The gateway could not open its address.");
+    this.url = `http://127.0.0.1:${address.port}`;
+    if (this.options.presence)
+      await writeRunning(this.options.dataDir, { port: address.port, pid: process.pid, url: this.url, mode: "daemon", version: this.options.version }).catch(() => undefined);
+    this.launch();
+    return this.url;
+  }
+
+  /** What the gateway can say about itself without asking the worker. */
+  health(): Record<string, unknown> {
+    const worker = this.worker;
+    return { ok: worker?.state === "ready", gateway: { pid: process.pid, version: this.options.version, contract: gatewayContract.speaks },
+      worker: { state: worker?.state ?? "stopped", pid: worker?.child.pid ?? null, version: worker?.ready?.version ?? null },
+      restarts: this.restarts, slowedDown: this.tripped, notes: this.notes.slice(-10) };
+  }
+
+  /* ---------- the worker ---------- */
+
+  private launch(): void {
+    if (this.stopping) return;
+    const env: NodeJS.ProcessEnv = { ...(this.options.env ?? process.env), ...this.config.workerEnv,
+      BRANCH_DATA_DIR: this.options.dataDir, BRANCH_PORT: "0", BRANCH_GATEWAY_CHILD: "1",
+      BRANCH_GATEWAY_CONTRACT: `${gatewayContract.speaks}:${gatewayContract.accepts.join("-")}`,
+      // A worker that keeps crashing must not carry the same work on by itself and crash again.
+      ...(this.tripped ? { BRANCH_RESUME: "ask" } : {}) };
+    const child = (this.options.spawn ?? defaultSpawn)(this.options.script, this.options.args ?? ["start"], env);
+    const worker: Worker = { child, state: "starting", port: null, ready: null, startedAt: Date.now() };
+    this.worker = worker;
+    const late = setTimeout(() => {
+      if (worker.state !== "starting") return;
+      this.note(`The engine did not say it was ready within ${this.config.startSeconds} seconds, so it was stopped and started again.`);
+      child.kill("SIGKILL");
+    }, this.config.startSeconds * 1000);
+    child.on("message", (message) => this.heard(worker, message));
+    child.once("error", () => undefined);
+    child.once("exit", (code, signal) => { clearTimeout(late); void this.exited(worker, code, signal); });
+  }
+
+  private heard(worker: Worker, message: unknown): void {
+    const ready = WorkerReadySchema.safeParse(message);
+    if (!ready.success || worker !== this.worker) return;
+    if (!contractsMeet(gatewayContract, { speaks: ready.data.contract, accepts: ready.data.accepts })) {
+      this.note(`The engine (version ${ready.data.version}) speaks a gateway language this gateway cannot read, so it was stopped.`);
+      worker.child.kill("SIGKILL");
+      return;
+    }
+    Object.assign(worker, { state: "ready", port: ready.data.port, ready: ready.data });
+    this.deadPort = null;
+    this.failedStarts = 0;
+    for (const wake of this.waiters) wake(ready.data.port);
+    this.waiters.clear();
+    this.options.onWorker?.({ kind: "ready", ready: ready.data });
+    this.settle = setTimeout(() => { void this.settled(worker); }, this.options.settleMs ?? 30_000);
+  }
+
+  private async settled(worker: Worker): Promise<void> {
+    if (worker !== this.worker || worker.state !== "ready") return;
+    this.tripped = false;
+    await clearCrashes(this.options.dataDir);
+    await promoteGood(this.options.dataDir, this.config).catch(() => undefined);
+  }
+
+  private async exited(worker: Worker, code: number | null, signal: NodeJS.Signals | null): Promise<void> {
+    const wasReady = worker.state === "ready";
+    worker.state = "stopped";
+    if (this.settle) clearTimeout(this.settle);
+    if (this.stopping || worker !== this.worker) return;
+    this.restarts++;
+    const verdict = await recordCrash(this.options.dataDir, this.config);
+    this.tripped = this.tripped || verdict.tripped;
+    this.options.onWorker?.({ kind: "crash", code, signal, tripped: verdict.tripped });
+    this.note(`The engine stopped unexpectedly (${signal ?? `code ${code}`}); starting it again${verdict.delayMs ? ` in ${Math.round(verdict.delayMs / 1000)} seconds` : ""}.`);
+    if (!wasReady) await this.startFailed();
+    worker.state = "waiting";
+    this.relaunch = setTimeout(() => { this.relaunch = null; this.launch(); }, verdict.delayMs);
+  }
+
+  /** Two failed starts in a row with settings that were never known to work: put the good ones back. */
+  private async startFailed(): Promise<void> {
+    this.failedStarts++;
+    if (this.failedStarts < 2 || (await sameAsGood(this.options.dataDir, this.config))) return;
+    const restored = await restoreGood(this.options.dataDir, "The engine would not start with the new gateway settings");
+    if (!restored.restored) return;
+    this.config = restored.config;
+    this.failedStarts = 0;
+    this.note(restored.problem ?? "The last settings that worked were put back.");
+  }
+
+  private waitForWorker(ms: number): Promise<number | null> {
+    if (this.worker?.state === "ready" && this.worker.port && this.worker.port !== this.deadPort) return Promise.resolve(this.worker.port);
+    if (this.stopping || ms <= 0) return Promise.resolve(null);
+    return new Promise((resolve) => {
+      const done = (port: number | null) => { clearTimeout(timer); this.waiters.delete(done); resolve(port); };
+      const timer = setTimeout(() => done(null), ms);
+      this.waiters.add(done);
+    });
+  }
+
+  /* ---------- requests ---------- */
+
+  /** Only this computer's own address, exactly as the engine itself insists. */
+  private hostOk(request: IncomingMessage): boolean {
+    const own = new URL(this.url).host;
+    const origin = request.headers.origin;
+    return request.headers.host === own && (!origin || origin === `http://${own}`);
+  }
+  private forwardedHeaders(request: IncomingMessage, port: number): Record<string, string | string[] | undefined> {
+    const headers = { ...request.headers, host: `127.0.0.1:${port}` };
+    if (headers.origin) headers.origin = `http://127.0.0.1:${port}`;
+    return headers;
+  }
+
+  private async handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
+    if (!this.hostOk(request)) return plain(response, 403, "Host rejected");
+    const path = (request.url ?? "/").split("?")[0];
+    if (request.method === "GET" && path === "/gateway/health") return json(response, 200, this.health());
+    await this.forward(request, response, path ?? "/", true);
+  }
+
+  /**
+   * Passes one request to the worker. A worker that has just died refuses the connection before its
+   * exit is noticed; a request with no body is then held for the next worker rather than failed.
+   */
+  private async forward(request: IncomingMessage, response: ServerResponse, path: string, retry: boolean): Promise<void> {
+    const port = await this.waitForWorker(this.config.holdSeconds * 1000);
+    if (port === null) return json(response, 503, { error: "Branch is starting its engine again. Try again in a moment." });
+    const closing = request.method === "POST" && path === "/api/deployment/close";
+    const upstream = httpRequest({ host: "127.0.0.1", port, method: request.method, path: request.url,
+      headers: this.forwardedHeaders(request, port) }, (reply) => {
+      response.writeHead(reply.statusCode ?? 502, reply.headers);
+      reply.pipe(response);
+      if (closing && (reply.statusCode ?? 500) < 300) reply.once("end", () => { void this.stop(); });
+    });
+    upstream.once("error", (error: NodeJS.ErrnoException) => {
+      if (retry && ["ECONNREFUSED", "ECONNRESET"].includes(error.code ?? "") && !response.headersSent && !hasBody(request)) {
+        this.deadPort = port;
+        return void this.forward(request, response, path, false);
+      }
+      if (!response.headersSent) json(response, 503, { error: "Branch's engine stopped while answering. Try again in a moment." });
+      else response.destroy();
+    });
+    if (hasBody(request)) request.pipe(upstream);
+    else upstream.end();
+  }
+
+  private async upgrade(request: IncomingMessage, socket: Duplex, head: Buffer): Promise<void> {
+    socket.on("error", () => undefined);
+    if (!this.hostOk(request)) return void socket.destroy();
+    const port = await this.waitForWorker(this.config.holdSeconds * 1000);
+    if (port === null) return void socket.destroy();
+    const upstream = connect(port, "127.0.0.1", () => {
+      const lines = Object.entries(this.forwardedHeaders(request, port))
+        .flatMap(([name, value]) => (Array.isArray(value) ? value : value === undefined ? [] : [value]).map((one) => `${name}: ${one}`));
+      upstream.write(`${request.method} ${request.url} HTTP/1.1\r\n${lines.join("\r\n")}\r\n\r\n`);
+      if (head.length) upstream.write(head);
+      upstream.pipe(socket);
+      socket.pipe(upstream);
+    });
+    this.tunnels.add(socket);
+    upstream.on("error", () => socket.destroy());
+    upstream.on("close", () => socket.destroy());
+    socket.on("close", () => { upstream.destroy(); this.tunnels.delete(socket); });
+  }
+
+  /* ---------- stopping ---------- */
+
+  async stop(): Promise<void> {
+    if (this.stopping) return;
+    this.stopping = true;
+    if (this.relaunch) clearTimeout(this.relaunch);
+    if (this.settle) clearTimeout(this.settle);
+    for (const wake of this.waiters) wake(null);
+    for (const socket of this.tunnels) socket.destroy();
+    await this.stopWorker();
+    await new Promise<void>((resolve) => { if (!this.server) return resolve(); this.server.close(() => resolve()); this.server.closeAllConnections(); });
+    if (this.options.presence) await clearRunning(this.options.dataDir).catch(() => undefined);
+    await markExited(this.options.dataDir);
+  }
+
+  private async stopWorker(): Promise<void> {
+    const child = this.worker?.child;
+    if (!child || child.exitCode !== null || child.signalCode !== null) return;
+    const gone = new Promise<void>((resolve) => child.once("exit", () => resolve()));
+    const within = (ms: number) => Promise.race([gone.then(() => true), new Promise<boolean>((r) => setTimeout(() => r(false), ms).unref())]);
+    if (child.connected) child.send({ type: "stop" }, () => undefined);
+    if (await within(15_000)) return;
+    child.kill("SIGTERM");
+    if (await within(5_000)) return;
+    child.kill("SIGKILL");
+    await within(5_000);
+  }
+}
+
+const hasBody = (request: IncomingMessage): boolean =>
+  request.headers["transfer-encoding"] !== undefined || Number(request.headers["content-length"] ?? 0) > 0;
+
+function json(response: ServerResponse, status: number, body: unknown): void {
+  response.writeHead(status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+  response.end(JSON.stringify(body));
+}
+function plain(response: ServerResponse, status: number, text: string): void {
+  response.writeHead(status, { "content-type": "text/plain; charset=utf-8" });
+  response.end(text);
+}

@@ -118,6 +118,8 @@ import { handlesTracingPath, logsResponse, metricsResponse, tracingApi, TracingA
 import { handlesSandboxRemotePath, sandboxRemoteApi, SandboxRemoteApiError } from "./sandbox-remote-api.js";
 // Wave mac2 (guards): which workspace folders are trusted, and the loop guard switch.
 import { guardsApi, handlesGuardsPath } from "./run-guards.js";
+// mac3/never-break: the gateway switch and suggested changes (src/never-break/api.ts).
+import { handlesNeverBreakPath, NeverBreakApiError, neverBreakApi } from "./never-break/api.js";
 import { helpApi } from "./help.js";
 import { AuthLimiter, noteAuthFailure, requestSource } from "./auth-limits.js";
 import { handlesOrchestrationPath, orchestrationApi, OrchestrationApiError } from "./orchestration-api.js";
@@ -331,6 +333,8 @@ async function staticFile(
     "/sandbox-remote.js": ["sandbox-remote.js", "text/javascript; charset=utf-8"],
     // Wave mac2 (guards): the card that asks whether a folder is trusted.
     "/folder-trust.js": ["folder-trust.js", "text/javascript; charset=utf-8"],
+    // mac3/never-break: the Keep running card and the Telegram setup card.
+    "/never-break.js": ["never-break.js", "text/javascript; charset=utf-8"],
     "/providers.js": ["providers.js", "text/javascript; charset=utf-8"],
     "/style.css": ["style.css", "text/css; charset=utf-8"],
     // App shell (wave 2): tokens, layout, appearance.
@@ -643,6 +647,11 @@ async function api(
     });
   // Wave mac2 (guards): which workspace folders are trusted, what each carries, and both switches.
   if (handlesGuardsPath(path)) return guardsApi(app, request, path, readBody);
+  // mac3/never-break: the gateway switch and the changes the assistant suggested for it.
+  if (handlesNeverBreakPath(path))
+    return neverBreakApi(dataDir, request, path, readBody).catch((error: unknown) => {
+      throw error instanceof NeverBreakApiError ? new HttpError(error.status, error.message) : error;
+    });
   // Batch 21 (wave 8): the description of this API, Lockdown, kept answers, whole sets, project cost.
   if (handlesOtherPath(path))
     return otherApi(app, request, path, readBody).catch((error: unknown) => {
@@ -2612,6 +2621,8 @@ function offLimitsToShortLivedKeys(method: string | undefined, path: string): st
     return "A short-lived key cannot close Branch. Only the app on this computer can.";
   // Wave mac2 (guards): trusting a folder lets what is in it steer the assistant.
   if (handlesGuardsPath(path)) return "A short-lived key cannot change which folders are trusted or how repeated steps are stopped. Do that in the app window.";
+  // mac3/never-break: the gateway's settings are the owner's alone.
+  if (handlesNeverBreakPath(path)) return "A short-lived key cannot change how Branch keeps itself running. Do that in the app window.";
   return null;
 }
 function isExecution(request: IncomingMessage, path: string): boolean {

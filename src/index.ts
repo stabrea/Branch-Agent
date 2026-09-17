@@ -159,6 +159,10 @@ import { redactLeaksIn } from "./leak-guard.js";
 // mac2/fly-core: the learning core switch and its on-demand tool.
 import { flyCoreSettings } from "./fly-core/settings.js";
 import { setFlyCoreMode, syncSuggestTool } from "./fly-core/tool.js";
+// mac3/never-break: the gateway's settings and the one tool that suggests a change to them.
+import { loadGatewayConfig } from "./never-break/gateway-config.js";
+import { gatewayDryRun, registerNeverBreak } from "./never-break/api.js";
+import { fileURLToPath } from "node:url";
 
 export async function createBranch(options: {
   workspace: string;
@@ -597,6 +601,10 @@ export async function createBranch(options: {
   // items in one place, with a due day handed on to the schedules rather than timed here.
   const todos = new Todos(store.sqlite);
   registerTodos(registry, todos, runtime.owner);
+  // --- mac3/never-break: with the switch on, the assistant may suggest gateway settings (never apply them) ---
+  if ((await loadGatewayConfig(dataDir)).config.mode !== "off")
+    registerNeverBreak(registry, dataDir, gatewayDryRun(fileURLToPath(new URL("./cli.js", import.meta.url))));
+  // --- end mac3/never-break ---
   // Wave 8: the owner's notes folder, written into and read back from. A folder bridge, not an
   // Obsidian plugin: Obsidian keeps ordinary Markdown in an ordinary folder.
   const obsidian = new ObsidianBridge(store, runtime.owner);

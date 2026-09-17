@@ -3242,3 +3242,7 @@ The graduated warn / refuse / stop loop guard in `src/loop-guard.ts` — countin
 ### Gemini CLI (Google) loop detection and folder trust (idea only), Apache-2.0
 
 The loop detection in `src/loop-guard.ts` and the trusted folders in `src/folder-trust.ts`, with their read-only listing before a folder is trusted, are ideas from Gemini CLI's `packages/core/src/services/loopDetectionService.ts`, `packages/core/src/utils/trust.ts` and `packages/core/src/services/FolderTrustDiscoveryService.ts` (https://github.com/google-gemini/gemini-cli), Copyright 2025 Google LLC, licensed under the Apache License, Version 2.0 (https://www.apache.org/licenses/LICENSE-2.0). They were written afresh; no code was copied.
+
+### Hermes Agent and OpenClaw gateway recovery (ideas only), MIT
+
+The gateway in `src/never-break/` takes three ideas from other assistants' gateways: chaining restarts by the gap between them and not carrying interrupted work on by itself once the chain trips (Hermes Agent, `gateway/restart_loop_guard.py`), a "running" mark left behind as the sign of an unclean exit (Hermes Agent, `gateway/lifecycle_ledger.py`; https://github.com/NousResearch/hermes-agent, MIT), and promoting a configuration that started cleanly to a last-known-good copy that is restored when the current one fails (OpenClaw, `src/config/io.observe-recovery.ts`; https://github.com/openclaw/openclaw, MIT). They were written afresh; no code was copied.

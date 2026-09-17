@@ -42,6 +42,10 @@ import { probeAll } from "./provider-probe.js";
 // Wave 7 (a coder's toolbox): handing the whole assistant over as one file.
 import { agentSections, exportAgent, importAgent, openAgent } from "./agent-export.js";
 import { applyPiiGuard } from "./pii.js";
+// --- mac3/never-break: the gateway that keeps the engine running (src/never-break/) ---
+import { createRequire } from "node:module";
+import { joinGateway, runGatewayIfSwitchedOn } from "./never-break/worker-link.js";
+// --- end mac3/never-break ---
 
 async function configuredApp(options: Parameters<typeof createBranch>[0]) {
   const app = await createBranch(options);
@@ -81,27 +85,30 @@ async function serve(
   const port = Number(process.env.BRANCH_PORT ?? 3210);
   if (!Number.isInteger(port) || port < 0 || port > 65535)
     throw new Error("Invalid BRANCH_PORT");
+  const link = joinGateway(); // mac3/never-break: an engine run by the gateway leaves presence to it
   const server = await startServer(app, {
-    dataDir, port, presence: "daemon",
+    dataDir, port, ...(link ? {} : { presence: "daemon" as const }),
     executable: process.env.BRANCH_EXECUTABLE ?? null,
     installRoot: process.env.BRANCH_INSTALL_ROOT ?? null,
   });
   console.log(
     `Branch Agent listening at ${server.url}\nProvider: ${app.runtime.provider.name}\nWorkspace: ${app.runtime.workspace}\nLocal session token (paste into browser): ${server.token}`,
   );
-  let closing = false;
+  let closing: Promise<void> | null = null;
   const stop = () => {
-    if (closing) return;
-    closing = true;
-    void server
+    closing ??= server
       .close()
       .finally(close)
       .catch((error) =>
         console.error(error instanceof Error ? error.message : String(error)),
       );
+    return closing;
   };
-  process.once("SIGINT", stop);
-  process.once("SIGTERM", stop);
+  process.once("SIGINT", () => void stop());
+  process.once("SIGTERM", () => void stop());
+  // mac3/never-break: tell the gateway where the engine is, and close when it asks or goes away.
+  link?.onStop(stop);
+  link?.ready(Number(new URL(server.url).port), app.version);
 }
 
 async function main(): Promise<void> {
@@ -125,6 +132,10 @@ async function main(): Promise<void> {
   // These two talk to the engine that is already running and never start one of their own, so they
   // come before the workspace and the database are opened at all.
   if (command === "schedule") return scheduleCommand(dataDir);
+  // --- mac3/never-break: with the switch on, `start` runs the gateway, which runs the engine ---
+  if (command === "start" && await runGatewayIfSwitchedOn({ dataDir, script: fileURLToPath(import.meta.url),
+    version: String(createRequire(import.meta.url)("../package.json").version), port: Number(process.env.BRANCH_PORT ?? 3210) })) return;
+  // --- end mac3/never-break ---
   if (command === "chat" && process.argv.includes("--attach")) return attachedChat(dataDir);
   const presets = command === "demo" ? [defaultPreset(new DemoProvider())] : presetsFromEnv();
   const chatgpt = new ChatGPTAuth(new FileTokenVault(join(dataDir, "chatgpt-auth.json")), { userAgent: "BranchAgent" });
