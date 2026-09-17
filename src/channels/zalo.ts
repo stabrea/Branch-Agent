@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import type { ChannelAdapter, ChannelHealth, InboundMessage } from "./router.js";
-import { callJson, defineService, headerOf, sameSecret, secretName, ShortIds } from "./parity-common.js";
+import { callJson, defineService, FreshPosts, headerOf, sameSecret, secretName, ShortIds } from "./parity-common.js";
 import type { PostedChannel } from "./parity-switch.js";
 import { SeenMessages } from "./seen.js";
 
@@ -58,6 +58,7 @@ function readJson(raw: Buffer): unknown {
 }
 
 export class ZaloChannel implements ChannelAdapter, PostedChannel {
+  private readonly fresh = new FreshPosts();
   readonly kind = "zalo";
   readonly id: string;
   /** Zalo's customer-service message holds at most 2000 characters. */
@@ -87,6 +88,8 @@ export class ZaloChannel implements ChannelAdapter, PostedChannel {
     const expected = createHash("sha256")
       .update(this.options.appId).update(raw).update(timestamp).update(this.options.oaSecretKey).digest("hex");
     if (!sameSecret(signature, expected)) throw new Error("The Zalo signature did not match");
+    // The signed time must be recent and the post new, so a copied post cannot be replayed later.
+    this.fresh.admit(timestamp, signature, "Zalo");
     // Only now, with the signature proved, is the post itself read.
     const event = EventSchema.safeParse(readJson(raw));
     if (!event.success || event.data.event_name !== "user_send_text" || !this.deliver) return { accepted: 0 };

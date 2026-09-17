@@ -159,8 +159,7 @@ test("Flock through the real web address: 200 when signed, 401 when not, 503 whi
 
 // ---------------------------------------------------------------- Pumble
 
-function pumbleHeaders(raw, secret = PUMBLE_SIGNING) {
-  const timestamp = String(Date.now());
+function pumbleHeaders(raw, secret = PUMBLE_SIGNING, timestamp = String(Date.now())) {
   return { "x-pumble-request-timestamp": timestamp, "x-pumble-request-signature": createHmac("sha256", secret).update(`${timestamp}:${raw}`).digest("hex") };
 }
 const pumbleEvent = (text, { channel = "D1", author = "U1", thread } = {}) => JSON.stringify({
@@ -283,14 +282,16 @@ async function webexSetup(t) {
     return undefined;
   });
   /** Makes Webex hold a message and post its id, signed with `secret`. */
-  const say = (channel, { room = ROOM_DIRECT, roomType = "direct", person = "PERSON1", secret = WEBEX_HOOK } = {}) => (text) => {
+  const say = (channel, { room = ROOM_DIRECT, roomType = "direct", person = "PERSON1", secret = WEBEX_HOOK, age = 0 } = {}) => (text) => {
     const id = `${nextId("wm")}-${"x".repeat(60)}`;
-    messages.set(id, { id, roomId: room, roomType, personId: person, personEmail: `${person}@example.com`, text });
+    messages.set(id, { id, roomId: room, roomType, personId: person, personEmail: `${person}@example.com`, text, created: new Date(Date.now() - age).toISOString() });
     const raw = JSON.stringify({ id: "hook", resource: "messages", event: "created", data: { id, personId: person, roomId: room } });
     return post(channel, raw, { "x-spark-signature": createHmac("sha1", secret).update(raw).digest("hex") });
   };
   const sent = () => service.calls.filter((c) => c.method === "POST").map((c) => c.json.text);
-  return { service, say, sent };
+  /** Posts the same signed body again, as somebody who copied it would. */
+  const again = (channel, raw) => post(channel, raw, { "x-spark-signature": createHmac("sha1", WEBEX_HOOK).update(raw).digest("hex") });
+  return { service, say, sent, again };
 }
 const webexChannel = (base) => new WebexChannel({ id: "webex", botToken: WEBEX_TOKEN, webhookSecret: WEBEX_HOOK, apiBase: base });
 
@@ -341,8 +342,8 @@ function zaloSigned(event, { key = ZALO_KEY, app = ZALO_APP } = {}) {
   const mac = createHash("sha256").update(`${app}${raw}${event.timestamp}${key}`).digest("hex");
   return [raw, { "X-ZEvent-Signature": `mac=${mac}` }];
 }
-const zaloEvent = (text, { user = "ZUSER1", name = "user_send_text" } = {}) => ({
-  app_id: ZALO_APP, user_id_by_app: "x", event_name: name, timestamp: String(Date.now()),
+const zaloEvent = (text, { user = "ZUSER1", name = "user_send_text", age = 0 } = {}) => ({
+  app_id: ZALO_APP, user_id_by_app: "x", event_name: name, timestamp: String(Date.now() - age),
   sender: { id: name === "oa_send_text" ? "OA1" : user }, recipient: { id: name === "oa_send_text" ? user : "OA1" },
   message: { text, msg_id: nextId("zm") },
 });
@@ -406,6 +407,50 @@ test("Zalo OA: wrong and missing signatures are refused, pairing off refuses, an
   assert.equal(stale.health().state, "needs attention");
   assert.match(stale.health().reason, /expired and could not be renewed/);
   await assertNoSecret(context, zaloSecrets);
+});
+
+// ---------------------------------------------------------------- Replayed posts (integration review)
+
+const HOUR = 60 * 60 * 1000;
+test("a copied Zalo, Pumble or Webex post is refused when posted again or when it is old", async (t) => {
+  const context = await fixture(t);
+  const zaloService = await zaloSetup(t);
+  const zalo = zaloChannel(zaloService.base, "GOOD");
+  const pumbleService = await pumbleSetup(t);
+  const pumble = pumbleChannel(pumbleService.base);
+  const webex = await webexSetup(t);
+  const webexCh = webexChannel(webex.service.base);
+  for (const channel of [zalo, pumble, webexCh]) {
+    // The senders are allowed, so a copy that got through would reach the model and be counted.
+    await context.app.channels.attach(channel, { ...policy, pairing: false, allowlist: ["ZUSER1", "U1", "PERSON1"] });
+    t.after(() => channel.stop());
+  }
+  const [zraw, zheaders] = zaloSigned(zaloEvent("first"));
+  assert.deepEqual(await post(zalo, zraw, zheaders), { accepted: 1 });
+  await assert.rejects(() => post(zalo, zraw, zheaders), /already taken in/, "the same Zalo post twice");
+  const [oldRaw, oldHeaders] = zaloSigned(zaloEvent("stale", { age: HOUR }));
+  await assert.rejects(() => post(zalo, oldRaw, oldHeaders), /too old/, "an hour-old Zalo post");
+
+  const praw = pumbleEvent("first");
+  const pheaders = pumbleHeaders(praw);
+  assert.deepEqual(await post(pumble, praw, pheaders), { accepted: 1 });
+  await assert.rejects(() => post(pumble, praw, pheaders), /already taken in/, "the same Pumble post twice");
+  const inSeconds = pumbleHeaders(praw, PUMBLE_SIGNING, String(Math.floor((Date.now() - HOUR) / 1000)));
+  await assert.rejects(() => post(pumble, praw, inSeconds), /too old/, "an hour-old Pumble post, timed in seconds");
+  await assert.rejects(() => post(pumble, praw, pumbleHeaders(praw, PUMBLE_SIGNING, "soon")), /too old|no time/);
+  const fresh = pumbleEvent("timed in seconds");
+  assert.deepEqual(await post(pumble, fresh, pumbleHeaders(fresh, PUMBLE_SIGNING, String(Math.floor(Date.now() / 1000)))), { accepted: 1 });
+
+  assert.deepEqual(await webex.say(webexCh)("first"), { accepted: 1 });
+  const captured = [...webex.service.calls].reverse().find((c) => c.method === "GET" && c.path.startsWith("/v1/messages/"));
+  const id = decodeURIComponent(captured.path.slice(13));
+  const replay = JSON.stringify({ id: "hook", resource: "messages", event: "created", data: { id, personId: "PERSON1" } });
+  await until(() => context.provider.requests.length === 4, "each genuine post reached the model once");
+  const asked = context.provider.requests.length;
+  assert.deepEqual(await webex.again(webexCh, replay), { accepted: 0 }, "the same Webex message twice is not taken in");
+  assert.deepEqual(await webex.say(webexCh, { age: HOUR })("stale"), { accepted: 0 }, "an hour-old Webex message is not taken in");
+  await delay(50);
+  assert.equal(context.provider.requests.length, asked, "no copy reached the model");
 });
 
 // ---------------------------------------------------------------- Microsoft Teams (Bot Framework)

@@ -123,6 +123,24 @@ test("the card's switches are saved, listed, and applied to a connected channel 
   assert.equal(page.status, 200, "the card's script is served");
 });
 
+test("a short-lived key can read the chat app switches but never change them", async (t) => {
+  const context = await fixture(t);
+  const { app } = context;
+  const server = await startServer(app, { dataDir: join(context.root, "data"), port: 0 });
+  t.after(() => server.close());
+  // A "run" key may do things in general, so it is the one this refusal really matters for.
+  for (const scope of ["run", "read"]) {
+    const key = app.sessionTokens.create(app.runtime.owner, { scope, minutes: 5 });
+    const headers = { authorization: `Bearer ${key.token}`, "content-type": "application/json" };
+    const listed = await fetch(`${server.url}/api/channels/parity`, { headers });
+    assert.equal(listed.status, 200, `a ${scope} key may look`);
+    const changed = await fetch(`${server.url}/api/channels/parity`, { method: "POST", headers, body: JSON.stringify({ imessage: "on" }) });
+    assert.equal(changed.status, 401, `a ${scope} key may not switch a chat app on`);
+    assert.match((await changed.json()).error, /short-lived key cannot switch chat apps/);
+  }
+  assert.equal(paritySwitch(app.store, app.runtime.owner, "imessage"), "off", "the switch did not move");
+});
+
 test("the connections file takes a new service by type, checks its settings, and keeps it off", async (t) => {
   const context = await fixture(t);
   const { app, root } = context;
@@ -277,4 +295,33 @@ test("Twitch chat: IRC inside a WebSocket, with the token sent as PASS and user 
   const pending = context.app.channels.summary().approved;
   assert.ok(pending.some((person) => person.senderId === "twitch:12345"), "the Twitch user id, not the changeable name, is who was approved");
   await assertNoSecret(context, [TWITCH_TOKEN]);
+});
+
+test("the More chat apps card lists every service and fits a 400-pixel-wide window", async (t) => {
+  const { chromium } = await import("playwright");
+  const { openPlace } = await import("./places.mjs");
+  const context = await fixture(t);
+  const server = await startServer(context.app, { dataDir: join(context.root, "data"), port: 0 });
+  const browser = await chromium.launch({ headless: true });
+  t.after(async () => { await browser.close(); await server.close(); });
+  const page = await browser.newPage({ viewport: { width: 400, height: 900 } });
+  const errors = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.goto(server.url);
+  await page.getByLabel("Session token", { exact: true }).fill(server.token);
+  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await page.locator("#workspace").waitFor({ state: "visible" });
+  await openPlace(page, "customize:channels");
+  const card = page.locator("#channels-more-form");
+  await card.waitFor({ state: "visible" });
+  await page.locator("#channels-more-list > details").nth(parityServices.length - 1).waitFor({ state: "attached" });
+  assert.equal(await page.locator("#channels-more-list > details").count(), parityServices.length);
+  await page.locator("#channels-more-list > details summary").first().click();
+  const widths = await page.evaluate(() => ({
+    page: document.documentElement.scrollWidth,
+    card: document.getElementById("channels-more-form").getBoundingClientRect().right,
+  }));
+  assert.ok(widths.page <= 400, `the page does not scroll sideways (${widths.page})`);
+  assert.ok(widths.card <= 400, `the card stays inside the window (${widths.card})`);
+  assert.deepEqual(errors, []);
 });

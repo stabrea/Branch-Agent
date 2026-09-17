@@ -220,3 +220,25 @@ export abstract class SendOnlyChannel implements ChannelAdapter {
   async stop(): Promise<void> { /* nothing is held open */ }
   abstract send(chatId: string, text: string, replyToMessageId?: string): Promise<string | undefined>;
 }
+
+/**
+ * Integration review (channels-parity): a signed post can be copied and posted again later. The
+ * already-seen list forgets after two minutes, so a service that signs the time of a post also has
+ * that time checked here, and every post taken in is remembered for as long as its time would still
+ * pass. A signed time in seconds or milliseconds is accepted, since not every service says which.
+ */
+export class FreshPosts {
+  private readonly taken = new Map<string, number>();
+  constructor(private readonly windowMs = 5 * 60_000, private readonly now: () => number = Date.now) {}
+  /** Throws for a post from outside the window, or for a copy of one already taken in. */
+  admit(signedAt: string | number, fingerprint: string, service: string): void {
+    const now = this.now();
+    const value = typeof signedAt === "number" ? signedAt : /^\d{1,20}$/.test(signedAt.trim()) ? Number(signedAt) : Number.NaN;
+    const ms = value < 1e11 ? value * 1000 : value;
+    if (!Number.isFinite(ms) || Math.abs(now - ms) > this.windowMs) throw new Error(`The ${service} post is too old or has no time on it`);
+    for (const [key, until] of this.taken) if (until <= now) this.taken.delete(key);
+    if (this.taken.has(fingerprint)) throw new Error(`The ${service} post was already taken in`);
+    this.taken.set(fingerprint, now + 2 * this.windowMs);
+    if (this.taken.size > 10_000) this.taken.delete(this.taken.keys().next().value!);
+  }
+}

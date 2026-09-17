@@ -1,7 +1,7 @@
 import { createHmac } from "node:crypto";
 import { z } from "zod";
 import type { ChannelAdapter, ChannelHealth, InboundMessage } from "./router.js";
-import { callJson, defineService, headerOf, sameSecret, secretName, ShortIds } from "./parity-common.js";
+import { callJson, defineService, FreshPosts, headerOf, sameSecret, secretName, ShortIds } from "./parity-common.js";
 import type { PostedChannel } from "./parity-switch.js";
 import { SeenMessages } from "./seen.js";
 
@@ -13,8 +13,8 @@ import { SeenMessages } from "./seen.js";
  * `x-pumble-request-timestamp` and `x-pumble-request-signature` carry the hex HMAC-SHA256, made with
  * the app's signing secret, of `<timestamp>:<exact body>`. It is not OpenFang's: OpenFang's
  * crates/openfang-channels/src/pumble.rs checks no signature at all. The SDK does not say what unit
- * the timestamp is in, so no freshness window is applied; a resent copy is dropped by the
- * already-seen list instead.
+ * the timestamp is in, so it is read as seconds or milliseconds and must be within five minutes, and
+ * each signed post is taken in once (FreshPosts in parity-common.ts).
  *
  * An event arrives as `{ messageType: "PUMBLE_EVENT", eventType: "NEW_MESSAGE", body: "<JSON>" }`,
  * with the message itself in short keys: `tx` text, `cId` channel, `aId` author, `mId` message id.
@@ -58,6 +58,7 @@ export class PumbleChannel implements ChannelAdapter, PostedChannel {
   private deliver: ((message: InboundMessage) => Promise<void>) | null = null;
   private readonly ids = new ShortIds();
   private readonly seen = new SeenMessages();
+  private readonly fresh = new FreshPosts();
   /** Whether each channel is a one-to-one chat, asked once per channel. */
   private readonly direct = new Map<string, boolean>();
   /** The thread each group message sits in, so a reply stays in it. */
@@ -78,6 +79,8 @@ export class PumbleChannel implements ChannelAdapter, PostedChannel {
     if (!timestamp || !signature) throw new Error("The post carried no Pumble signature");
     const expected = createHmac("sha256", this.options.signingSecret).update(`${timestamp}:`).update(raw).digest("hex");
     if (!sameSecret(signature.toLowerCase(), expected)) throw new Error("The Pumble signature did not match");
+    // The signed time must be recent (read as seconds or milliseconds) and the post new.
+    this.fresh.admit(timestamp, signature.toLowerCase(), "Pumble");
     // Only now, with the signature proved, is the post itself read.
     const envelope = EnvelopeSchema.safeParse(readJson(raw.toString("utf8")));
     if (!envelope.success || !["PUMBLE_EVENT", "APP_EVENT"].includes(envelope.data.messageType)

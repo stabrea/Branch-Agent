@@ -2770,6 +2770,8 @@ function offLimitsToShortLivedKeys(method: string | undefined, path: string): st
     return "A short-lived key cannot change security settings or file permissions. Do that in the app window.";
   // mac2/fly-core-2 (integration review): the learning core's switch and "forget" are the owner's.
   if (handlesLearningCorePath(path)) return "A short-lived key cannot change the learning core or make it forget. Do that in the app window.";
+  // mac3/channels-parity (integration review): switching a chat app on lets outsiders reach the assistant.
+  if (path === "/api/channels/parity") return "A short-lived key cannot switch chat apps on or off. Do that in the app window.";
   return null;
 }
 /** mac3/security-check: a server tried from Settings is looked up in the malware list before it starts. */

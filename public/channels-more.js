@@ -81,5 +81,9 @@ async function save(event) {
 
 $("channels-more-form")?.addEventListener("submit", save);
 document.addEventListener("branch-language", show);
-/* A card that will not load keeps its empty list; every service is off on a fresh install anyway. */
+/* A card that will not load keeps its empty list; every service is off on a fresh install anyway.
+   On a fresh window the key is not there yet, so the list is loaded again once the owner is in. */
 load().catch(() => {});
+const signedIn = $("workspace");
+if (signedIn) new MutationObserver(() => { if (!signedIn.hidden) load().catch(() => {}); })
+  .observe(signedIn, { attributes: true, attributeFilter: ["hidden"] });

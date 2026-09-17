@@ -1,7 +1,7 @@
 import { createHmac } from "node:crypto";
 import { z } from "zod";
 import type { ChannelAdapter, ChannelHealth, InboundMessage } from "./router.js";
-import { callJson, defineService, headerOf, sameSecret, secretName, ShortIds } from "./parity-common.js";
+import { callJson, defineService, FreshPosts, headerOf, sameSecret, secretName, ShortIds } from "./parity-common.js";
 import type { PostedChannel } from "./parity-switch.js";
 import { SeenMessages } from "./seen.js";
 
@@ -31,7 +31,7 @@ const EventSchema = z.object({
 const MessageSchema = z.object({
   id: z.string().min(1), roomId: z.string().min(1), roomType: z.enum(["direct", "group"]),
   personId: z.string().min(1), personEmail: z.string().optional(), text: z.string().default(""),
-  parentId: z.string().optional(),
+  parentId: z.string().optional(), created: z.string().default(""),
 }).passthrough();
 const MeSchema = z.object({ id: z.string().min(1), displayName: z.string().default("") }).passthrough();
 
@@ -44,6 +44,7 @@ export class WebexChannel implements ChannelAdapter, PostedChannel {
   private me: z.infer<typeof MeSchema> | null = null;
   private readonly ids = new ShortIds();
   private readonly seen = new SeenMessages();
+  private readonly fresh = new FreshPosts();
   /** The thread each message sits in, so a reply stays in it. */
   private readonly threads = new Map<string, string>();
   private readonly fetchImpl: typeof fetch;
@@ -77,7 +78,11 @@ export class WebexChannel implements ChannelAdapter, PostedChannel {
   private async fetchMessage(data: z.infer<typeof EventSchema>["data"]): Promise<InboundMessage | null> {
     const me = await this.whoAmI();
     if (data.personId === me.id) return null;
-    return this.inbound(MessageSchema.parse(await this.call(`/v1/messages/${encodeURIComponent(data.id)}`)), me);
+    const message = MessageSchema.parse(await this.call(`/v1/messages/${encodeURIComponent(data.id)}`));
+    // Webex signs no time, so a copied post is caught by the message's own creation time, as Webex
+    // itself reports it, and by taking each message in only once.
+    this.fresh.admit(Date.parse(message.created), `id:${message.id}`, "Webex");
+    return this.inbound(message, me);
   }
 
   private inbound(message: z.infer<typeof MessageSchema>, me: z.infer<typeof MeSchema>): InboundMessage | null {
