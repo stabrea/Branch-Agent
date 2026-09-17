@@ -15,7 +15,7 @@ import { startServer } from "../dist/server.js";
 import { openPlace, openSettingFor } from "./places.mjs";
 
 const POOL = "openai-ui";
-const KEY = "sk-ui-test-key-000000000";
+const KEY = "sk-ui-test-key-000000000"; // not-a-real-secret
 
 async function fixture(t, width = 1440) {
   const scratch = join(tmpdir(), "branch-session-files");

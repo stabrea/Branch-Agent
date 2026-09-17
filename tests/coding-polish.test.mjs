@@ -251,7 +251,7 @@ test("R17-034: the snapshot reads the login shell once, drops anything key-like,
   assert.equal(snapshotShell("", { SHELL: "/usr/bin/bash" }, "linux"), "/usr/bin/bash");
   assert.throws(() => snapshotShell("/usr/bin/python3", {}, "linux"), /not a shell/);
   const mark = (name) => `\0__BRANCH_${name}__\0`;
-  const output = `${mark("functions")}\nmkcd () {\n\tmkdir -p "$1" && cd "$1"\n}\ndeploy () {\n\tcurl -H "Authorization: $API_TOKEN" x\n}\n${mark("aliases")}\nalias ll='ls -la'\nalias gh-login='echo ghp_abcdefghijklmnopqrstuvwxyz0123456789'\n${mark("env")}\n`
+  const output = `${mark("functions")}\nmkcd () {\n\tmkdir -p "$1" && cd "$1"\n}\ndeploy () {\n\tcurl -H "Authorization: $API_TOKEN" x\n}\n${mark("aliases")}\nalias ll='ls -la'\nalias gh-login='echo ghp_abcdefghijklmnopqrstuvwxyz0123456789'\n${mark("env")}\n` // not-a-real-secret
     + ["PATH=/opt/homebrew/bin:relative/bin:/usr/bin:/opt/homebrew/bin", "PYENV_ROOT=/Users/o/.pyenv", "AWS_SECRET_ACCESS_KEY=abc", "GITHUB_TOKEN_HOME=/x", "HOME=/Users/o", "JAVA_HOME=/Library/Java"].join("\0")
     + `\0${mark("end")}`;
   const snapshot = parseCapture(output, "/bin/zsh", new Date("2026-09-17T00:00:00Z"));

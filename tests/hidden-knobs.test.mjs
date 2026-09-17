@@ -165,7 +165,7 @@ test("R17-S10 environment names that could carry a secret or change code loading
     "JAVA_HOME", "GOPATH", "EDITOR"])
     assert.ok(refusedEnvironmentName(name), `${name} should be refused`);
   for (const name of ["BUILD_MODE", "PHOTO_ALBUM", "MY_PROJECT_REGION"]) assert.equal(refusedEnvironmentName(name), null, name);
-  const source = { BUILD_MODE: "fast", GITHUB_TOKEN: "ghp_x", PHOTO_ALBUM: "ghp_abcdefghijklmnopqrstuvwxyz0123456789" };
+  const source = { BUILD_MODE: "fast", GITHUB_TOKEN: "ghp_x", PHOTO_ALBUM: "ghp_abcdefghijklmnopqrstuvwxyz0123456789" }; // not-a-real-secret
   assert.deepEqual(passedEnvironment(["BUILD_MODE", "GITHUB_TOKEN", "PHOTO_ALBUM", "MISSING"], source), { BUILD_MODE: "fast" },
     "a secret-like name and a key-like value are both left out");
 });
@@ -344,7 +344,7 @@ test("R17-S14 strict sensitivity hides more, and an exception lets one kind thro
   assert.equal(findLeaks(`id ${random}`, { strict: true }).length, 1);
   assert.equal(findLeaks("sha 0123456789abcdef0123456789abcdef", { strict: true }).length, 0, "a lower-case hash still passes");
   const token = "ghp_" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8";
-  const key = "-----BEGIN PRIVATE KEY-----\nMIIabc\n-----END PRIVATE KEY-----";
+  const key = "-----BEGIN PRIVATE KEY-----\nMIIabc\n-----END PRIVATE KEY-----"; // not-a-real-secret
   assert.equal(redactLeaks(token, { except: new Set(["GitHub token"]) }).text, token);
   assert.match(redactLeaks(key, { except: new Set(["private key"]) }).text, /hidden key-like value: private key/);
 

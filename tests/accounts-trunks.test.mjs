@@ -15,7 +15,7 @@ import { accountsServiceFor } from "../dist/accounts/service.js";
 import { addAccount, setMode } from "../dist/accounts/manage.js";
 
 const POOL = "openai-test";
-const SECOND_KEY = "sk-second-key-value-000000";
+const SECOND_KEY = "sk-second-key-value-000000"; // not-a-real-secret
 
 async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), "branch-accounts-trunks-"));

@@ -82,7 +82,7 @@ test("pinned: without options the guard is exactly as strict as before, whatever
   assert.equal(findLeaks(`token ${githubToken}`).length, 1);
   // A record written around the route (an old import, a hand edit) still cannot let a private key through.
   app.store.save("settings", owner, "knobs-leakGuard", { sensitivity: "standard", exceptions: ["private key", "GitHub token"] });
-  const pem = "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQ\n-----END OPENSSH PRIVATE KEY-----";
+  const pem = "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQ\n-----END OPENSSH PRIVATE KEY-----"; // not-a-real-secret
   assert.match(redactLeaks(pem, leakOptions(app.store, owner)).text, /hidden key-like value: private key/);
 });
 

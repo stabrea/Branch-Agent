@@ -74,7 +74,7 @@ test("A2001: the switch ships off and refuses in one sentence; on, prompts are s
   assert.equal(second.id, first.id);
   assert.deepEqual(second.versions.map((v) => v.body), [weekly.body], "the earlier wording is kept");
   assert.deepEqual(promptGroups(listPrompts(store, owner)), [{ name: "Routines", count: 1 }, { name: "", count: 1 }]);
-  assert.throws(() => savePrompt(store, owner, { title: "Key", body: "use sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789" }, takenByCatalog), /not saved/);
+  assert.throws(() => savePrompt(store, owner, { title: "Key", body: "use sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789" }, takenByCatalog), /not saved/); // not-a-real-secret
   assert.throws(() => savePrompt(store, owner, { title: "Slash", body: "/stop now" }, takenByCatalog), /cannot start with \//);
   assert.deepEqual(removePrompt(store, owner, first.id), { removed: true });
   assert.equal(listPrompts(store, owner).length, 1);

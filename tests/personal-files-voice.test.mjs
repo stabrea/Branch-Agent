@@ -60,7 +60,7 @@ test("R17-022: a workspace file goes to a chat that talks to the assistant, with
 
 test("R17-022: nothing is sent to a stranger, from outside the workspace, over the limit, or holding a key", async (t) => {
   const { root, files } = await workspace(t);
-  await writeFile(join(root, "reports", "keys.txt"), "token = sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGH\n");
+  await writeFile(join(root, "reports", "keys.txt"), "token = sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGH\n"); // not-a-real-secret
   await writeFile(join(root, "reports", "known.txt"), "the value is locker-value-123\n");
   await writeFile(join(root, "reports", "big.bin"), Buffer.alloc(2 * 1024 * 1024));
   await writeFile(join(root, "reports", "ok.txt"), "fine\n");
@@ -164,7 +164,7 @@ test("R17-031: search keys are quoted, dates are IMAP dates, and nothing becomes
   assert.equal(searchKeys({ max: 5 }), "ALL");
   assert.equal(imapDate("2026-12-31"), "31-Dec-2026");
   assert.throws(() => imapDate("2026-13-01"), /not a real date/);
-  assert.equal(safeFileName("../../evil .pdf", 1), "_.._evil_.pdf");
+  assert.equal(safeFileName("../../evil\u0000.pdf", 1), "_.._evil_.pdf");
   assert.equal(safeFileName("...", 2), "attachment-2");
 });
 

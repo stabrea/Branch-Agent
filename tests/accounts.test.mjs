@@ -22,7 +22,7 @@ import { lookup } from "../dist/commands/catalog.js";
 import { offLimitsToShortLivedKeys } from "../dist/server.js";
 
 const POOL = "openai-test";
-const SECOND_KEY = "sk-second-key-value-000000";
+const SECOND_KEY = "sk-second-key-value-000000"; // not-a-real-secret
 
 async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), "branch-accounts-"));

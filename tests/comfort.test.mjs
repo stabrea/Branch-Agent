@@ -74,7 +74,7 @@ test("R17-S20: a proxy is plain http(s) with no password, and a certificate must
   assert.throws(() => checkCertificate(LEAF), /not a certificate authority/);
   assert.throws(() => checkCertificate(`${CA}\n${LEAF}`), /exactly one/);
   assert.throws(() => checkCertificate(CA, new Date("2099-01-01")), /expired/);
-  assert.throws(() => checkCertificate(`${CA}\n-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----`), /private key/);
+  assert.throws(() => checkCertificate(`${CA}\n-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----`), /private key/); // not-a-real-secret
   assert.throws(() => validateNetwork({ proxy: null, noProxy: [], caCertificates: [{ name: "a", pem: CA }, { name: "a", pem: CA }] }), /Two certificates/);
 });
 

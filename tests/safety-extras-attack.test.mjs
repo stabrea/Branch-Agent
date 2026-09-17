@@ -148,7 +148,7 @@ async function scripted(t) {
   await api("POST", "/api/safety-extras/switch", { part: "tool-scripts", mode: "on" });
   const looked = [];
   app.registry.register({ name: "notes.lookup", permission: "memory.read", description: "look a note up",
-    parameters: z.object({ q: z.string() }).strict(), execute: async ({ q }) => { looked.push(q); return { note: `about ${q}`, key: "ghp_abcdefghijklmnopqrstuvwxyz0123456789" }; } });
+    parameters: z.object({ q: z.string() }).strict(), execute: async ({ q }) => { looked.push(q); return { note: `about ${q}`, key: "ghp_abcdefghijklmnopqrstuvwxyz0123456789" }; } }); // not-a-real-secret
   const run = app.store.createRun(app.runtime.owner, "script");
   return { ...served_, looked, run, context: app.runtime.context({ runId: run.id }) };
 }
@@ -187,7 +187,7 @@ test("scripts: what a tool hands a script has keys hidden before the script can 
   };`;
   const answer = await unwalled(app).run({ source, tools: ["notes.lookup"], timeoutMs: 30_000 }, context);
   assert.equal(answer.ok, true, JSON.stringify(answer));
-  assert.notEqual(Buffer.from(answer.result, "base64").toString(), "ghp_abcdefghijklmnopqrstuvwxyz0123456789");
+  assert.notEqual(Buffer.from(answer.result, "base64").toString(), "ghp_abcdefghijklmnopqrstuvwxyz0123456789"); // not-a-real-secret
 });
 
 test("scripts: a task's own wall never widens a script's: no network, no key sites, Branch's data stays unreadable", () => {

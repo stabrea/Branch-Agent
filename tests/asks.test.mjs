@@ -235,7 +235,7 @@ test("A0355 an answer kept as a page can be reopened, updated and handed on as a
   const { page } = await api(`/api/asks/pages/${answer.pageId}`);
   assert.equal(page.revision, 1);
   assert.equal(page.sources.length, 2);
-  const updated = await api("/api/asks/pages", { id: page.id, title: "Oak ages", body: "Oaks live long [1]. key sk-abcdefghijklmnopqrstuvwxyz123456 <script>alert(1)</script>", sources: [...page.sources, { number: 3, title: "bad", url: "javascript:alert(1)" }] });
+  const updated = await api("/api/asks/pages", { id: page.id, title: "Oak ages", body: "Oaks live long [1]. key sk-abcdefghijklmnopqrstuvwxyz123456 <script>alert(1)</script>", sources: [...page.sources, { number: 3, title: "bad", url: "javascript:alert(1)" }] }); // not-a-real-secret
   assert.equal(updated.page.revision, 2);
   assert.equal(updated.page.createdAt, page.createdAt);
   assert.deepEqual((await api("/api/asks/pages")).pages.map((p) => p.title), ["Oak ages"]);

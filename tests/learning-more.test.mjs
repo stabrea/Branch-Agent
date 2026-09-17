@@ -21,7 +21,7 @@ import { SessionLessons, preferenceSentences } from "../dist/learning-more/sessi
 import { OutsideMemory } from "../dist/learning-more/providers.js";
 import { folderTree } from "../dist/migrate/source-tree.js";
 
-const canary = "sk-ant-api03-CANARYCANARYCANARYCANARYCANARYCANARY0123456789";
+const canary = "sk-ant-api03-CANARYCANARYCANARYCANARYCANARYCANARY0123456789"; // not-a-real-secret
 
 /** A model that answers by what it is shown, and remembers every request. */
 function scripted() {
@@ -503,7 +503,7 @@ test("review: an outside service's key is a locker name, never the key itself", 
   const store = { get: (_t, _o, id) => (saved.has(id) ? { data: saved.get(id) } : undefined), save: (_t, _o, id, data) => { saved.set(id, data); return { data }; } };
   const outside = new OutsideMemory(store, "local", async () => new Response("{}"), async () => "", {});
   assert.throws(() => outside.configure({ active: "mem0", mem0: { address: "https://mem0.test", secret: canary, user: "me" } }), /name of a key in the locker/);
-  assert.throws(() => outside.configure({ active: "honcho", honcho: { address: "https://honcho.test", secret: "AKIAIOSFODNN7EXAMPLE" } }), /name of a key in the locker/);
+  assert.throws(() => outside.configure({ active: "honcho", honcho: { address: "https://honcho.test", secret: "AKIAIOSFODNN7EXAMPLE" } }), /name of a key in the locker/); // not-a-real-secret
   assert.equal(JSON.stringify([...saved.values()]).includes("CANARY"), false);
   assert.equal(outside.configure({ mem0: { address: "https://mem0.test", secret: "MEM0_KEY", user: "me" } }).mem0.secret, "MEM0_KEY");
 });
