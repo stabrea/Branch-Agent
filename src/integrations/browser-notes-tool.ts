@@ -113,7 +113,8 @@ export function registerPageNotes(registry: ToolRegistry, host: PageNotesHost): 
     execute: async (input, context) => {
       const store = host.store;
       if (!store) throw new Error('Page notes need the settings store, which this launch does not have');
-      requirePageNotes(store, context.owner);
+      // The switch is the owner's, whoever's task this is; notes belong to whoever is using Branch.
+      requirePageNotes(store, store.profiles.ownerName);
       const scope = store.profiles.scope();
       if (input.action === 'list') return { notes: listPageNotes(store, scope, input.conversation) };
       if (input.action === 'resolve') {

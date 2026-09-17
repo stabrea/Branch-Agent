@@ -926,7 +926,7 @@ async function api(
   if (path.startsWith("/api/triggers")) return triggersApi(app, request, path);
   if (path.startsWith("/api/webhooks")) return webhooksApi(app, request, path);
   // w911 (A2144) hook: page notes, before the browser routes read the body.
-  if (handlesPageNotes(path)) return pageNotesApi(app, request.method ?? "GET", path, new URL(request.url ?? "/", "http://local").searchParams, () => readBody(request));
+  if (handlesPageNotes(path)) return pageNotesApi(app, request.method ?? "GET", path, new URL(request.url ?? "/", "http://local").searchParams, () => readBody(request, 262144));
   if (path.startsWith("/api/browser/")) return browserApi(app, request, path);
   if (request.method === "POST" && path === "/api/identity")
     return saveAssistantIdentity(app.store, app.runtime.owner, await readBody(request));

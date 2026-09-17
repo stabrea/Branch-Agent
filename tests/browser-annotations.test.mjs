@@ -115,6 +115,12 @@ test("A2144: the server alone picks id and date, unknown fields are refused, and
     assert.equal(refused.status, 400, `${Object.keys(extra)[0]} was accepted`);
   }
   assert.deepEqual((await call("GET", "/api/browser/notes")).body.notes, [], "nothing refused was kept");
+  // A note at every largest size still fits through the door.
+  const styles = Object.fromEntries(Array.from({ length: 40 }, (_, i) => [`s${i}`.padEnd(64, "x"), "é".repeat(500)]));
+  const largest = note({ outerHTML: `"é`.repeat(10000), text: "é".repeat(2000), note: "é".repeat(2000), styles,
+    selector: "é".repeat(1000), parentChain: Array(20).fill("é".repeat(200)), pageUrl: `https://a.example/${"x".repeat(2000)}` });
+  const kept = await call("POST", "/api/browser/notes", largest);
+  assert.equal(kept.status, 200, JSON.stringify(kept.body).slice(0, 200));
 });
 
 test("A2144: the HTML cleaner holds against odd quoting, order, case and unclosed tags", () => {
@@ -234,6 +240,15 @@ test("A2144: browser.notes is registered once beside the browser tools, hidden a
   assert.equal(on.hidden.includes("browser.notes"), false);
   assert.ok(on.preload.some((entry) => entry.name === "browser.notes"), "loaded from the start when on");
   assert.deepEqual(await app.registry.execute("browser.notes", { action: "list" }, context), { notes: [] });
+  // A household person's task reads the owner's switch too, and sees only that person's notes.
+  await call("POST", "/api/browser/notes", note());
+  const made = await call("POST", "/api/profiles", { name: "Sam", pin: "4321" });
+  await call("POST", "/api/profiles/switch", { profileId: made.body.id, pin: "4321" });
+  const samsRun = app.store.createRun(`profile:${made.body.id}`, "Sam's notes");
+  const samsContext = app.runtime.context({ runId: samsRun.id });
+  assert.deepEqual(await app.registry.execute("browser.notes", { action: "list" }, samsContext), { notes: [] });
+  await call("POST", "/api/profiles/switch", { profileId: null });
+  assert.equal((await app.registry.execute("browser.notes", { action: "list" }, context)).notes.length, 1);
 });
 
 test("A2144: capturing on Branch's own page keeps no field value and no script, is listed, and resolves", { skip: chromiumMissing }, async (t) => {
