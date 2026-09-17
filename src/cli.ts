@@ -475,19 +475,15 @@ async function pluginCommand(app: Awaited<ReturnType<typeof createBranch>>): Pro
  */
 /** bucket-18 (A0344): `branch watch <folder> --ai-comments [--once]`. */
 async function aiCommentsCommand(app: Awaited<ReturnType<typeof configuredApp>>["app"], folder: string): Promise<void> {
-  const { watchAIComments } = await import("./ai-comments.js");
+  const { watchAIComments, aiCommentTaskStarter } = await import("./ai-comments.js");
   const once = process.argv.includes("--once");
   let finished: (() => void) | null = null;
   const done = new Promise<void>((resolve) => { finished = resolve; });
   let tasks = 0;
   const handle = await watchAIComments({
     folder, files: app.files, settleMs: Number(flag("settle") ?? 400),
-    startTask: async (prompt) => {
-      const run = await app.runtime.run({ prompt });
-      const changed = app.store.events(run.id).filter((event) => event.kind === "file.changed")
-        .map((event) => String((event.data as { path?: unknown }).path ?? "")).filter(Boolean);
-      return { runId: run.id, status: run.status, changed };
-    },
+    // Integration review: a comment's task only reads and changes files, and is not the owner's own.
+    startTask: aiCommentTaskStarter(app),
     onTask: (outcome) => {
       tasks += 1;
       console.log(JSON.stringify({ type: "ai-comments", ...outcome }));
