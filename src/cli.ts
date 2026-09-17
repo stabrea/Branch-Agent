@@ -468,14 +468,48 @@ async function pluginCommand(app: Awaited<ReturnType<typeof createBranch>>): Pro
   throw new Error("Usage: node dist/cli.js plugin list | plugin enable <id> | plugin disable <id>");
 }
 /**
- * `branch watch <folder> <procedure-id>`: runs a saved procedure whenever a file under that folder
- * is written. It keeps going until Ctrl+C, and `--once` stops after the first run, which is what a
- * script — or a test — wants. Nothing is watched until the person names a folder.
+ * `branch watch <folder> [<procedure-id>]`: runs a saved procedure whenever a file under that folder
+ * is written. It keeps going until Ctrl+C, and `--once` stops after the first run.
+ * `branch watch <folder> --ai-comments`: watches for AI comments in code and starts a task for them.
+ * Nothing is watched until the person names a folder.
  */
+/** bucket-18 (A0344): `branch watch <folder> --ai-comments [--once]`. */
+async function aiCommentsCommand(app: Awaited<ReturnType<typeof configuredApp>>["app"], folder: string): Promise<void> {
+  const { watchAIComments, aiCommentTaskStarter } = await import("./ai-comments.js");
+  const once = process.argv.includes("--once");
+  let finished: (() => void) | null = null;
+  const done = new Promise<void>((resolve) => { finished = resolve; });
+  let tasks = 0;
+  const handle = await watchAIComments({
+    folder, files: app.files, settleMs: Number(flag("settle") ?? 400),
+    // Integration review: a comment's task only reads and changes files, and is not the owner's own.
+    startTask: aiCommentTaskStarter(app),
+    onTask: (outcome) => {
+      tasks += 1;
+      console.log(JSON.stringify({ type: "ai-comments", ...outcome }));
+      if (once) finished?.();
+    },
+    onError: (error) => console.error(`[watch] ${errorText(error)}`),
+  });
+  console.error(`[watch] watching ${folder} for comments ending in AI! or AI?; Ctrl+C stops it.`);
+  const stop = () => finished?.();
+  process.once("SIGINT", stop);
+  process.once("SIGTERM", stop);
+  await done;
+  await handle.stop();
+  process.off("SIGINT", stop);
+  process.off("SIGTERM", stop);
+  console.error(`[watch] stopped after ${tasks} task(s).`);
+}
 async function watchCommand(app: Awaited<ReturnType<typeof configuredApp>>["app"]): Promise<void> {
-  const folder = process.argv[3], procedureId = process.argv[4];
-  if (!folder || !procedureId)
-    throw new Error("Give a folder and a saved procedure: node dist/cli.js watch <folder> <procedure-id>");
+  const folder = process.argv[3];
+  if (!folder) throw new Error("Give a folder: node dist/cli.js watch <folder> [<procedure-id> | --ai-comments]");
+
+  // bucket-18: AI comments (A0344): comments ending in AI! or AI? become a task.
+  if (process.argv.includes("--ai-comments")) return aiCommentsCommand(app, folder);
+  const procedureId = process.argv[4];
+  if (!procedureId)
+    throw new Error("Give a procedure: node dist/cli.js watch <folder> <procedure-id>");
   const once = process.argv.includes("--once");
   const settle = Number(flag("settle") ?? 400);
   let finished: (() => void) | null = null;

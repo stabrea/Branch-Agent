@@ -1548,6 +1548,32 @@
               <button id="code-ide-save" type="button" data-t="action.save">Save</button>
               <p id="code-ide-status" class="subtle" aria-live="polite"></p>
             </details>
+            <!-- bucket-18 (A0098): the code editor's switch; the editor itself is in the side pane's Files tab -->
+            <details id="wsedit-card">
+              <summary data-t="wsedit.card.title">Code editor</summary>
+              <p class="subtle" data-t="wsedit.card.note">Open and change text files in your workspace from the Files tab of a conversation. Every save can be put back, and a file that changed since you opened it is never overwritten.</p>
+              <label for="wsedit-mode" data-t="wsedit.card.title">Code editor</label>
+              <select id="wsedit-mode">
+                <option value="off" data-t="schedules.switch.off">Off</option>
+                <option value="when-needed" data-t="schedules.switch.when-needed">When needed</option>
+                <option value="on" data-t="schedules.switch.on">On</option>
+              </select>
+              <button id="wsedit-mode-save" type="button" data-t="action.save">Save</button>
+              <p id="wsedit-mode-status" class="subtle" aria-live="polite"></p>
+            </details>
+            <!-- bucket-18 (A0300): pull requests from a task's changes, off by default -->
+            <details id="pull-requests">
+              <summary data-t="developer.pull-requests.title">Pull requests from changes</summary>
+              <p class="subtle" data-t="developer.pull-requests.note">When this is on, a task that changed files can put them on a new branch, send it to GitHub with this computer's own Git sign-in and open a draft pull request. It never sends to a shared branch such as main, and a short-lived key can never use it. GitHub must be connected first.</p>
+              <label for="pull-requests-mode" data-t="developer.pull-requests.mode">Pull requests from changes</label>
+              <select id="pull-requests-mode">
+                <option value="off" data-t="schedules.switch.off">Off</option>
+                <option value="when-needed" data-t="developer.pull-requests.when-needed">When asked</option>
+                <option value="on" data-t="developer.pull-requests.on">After every task that changed files</option>
+              </select>
+              <button id="pull-requests-save" type="button" data-t="action.save">Save</button>
+              <p id="pull-requests-status" class="subtle" aria-live="polite"></p>
+            </details>
             <!-- Wave 7: how the assistant is finding its tools (public/tool-catalog.js). Read-only,
                  apart from the button that deletes what it has learned. -->
             <details id="tool-catalog">
@@ -1709,6 +1735,27 @@
         <h2 class="context-head">Pages to open</h2>
         <div id="context-apps" class="context-rows"></div>
       </div>
+      <!-- bucket-18 (A0098): the code editor (public/code-editor.js), in the Files tab. -->
+      <div class="context-block" data-pane="files">
+        <details id="wsedit">
+          <summary class="context-head" data-t="wsedit.title">Edit a file</summary>
+          <p id="wsedit-off" class="context-empty" data-t="wsedit.off" hidden>The code editor is off. Switch it on in Settings → Advanced → Developer.</p>
+          <div id="wsedit-on" hidden>
+            <p class="meta" id="wsedit-folder"></p>
+            <div id="wsedit-list" class="wsedit-list"></div>
+            <div id="wsedit-editor" class="wsedit-editor" hidden>
+              <p class="meta"><span id="wsedit-path"></span> <span id="wsedit-unsaved" data-t="wsedit.unsaved" hidden>(not saved)</span></p>
+              <div class="wsedit-code">
+                <pre id="wsedit-lines" class="wsedit-lines" aria-hidden="true"></pre>
+                <label class="sr-only" for="wsedit-text" data-t="wsedit.text">The file's text</label>
+                <textarea id="wsedit-text" class="wsedit-text" spellcheck="false" wrap="off"></textarea>
+              </div>
+              <button id="wsedit-save" type="button" data-t="action.save">Save</button>
+            </div>
+          </div>
+          <p id="wsedit-status" class="context-empty" role="status" aria-live="polite"></p>
+        </details>
+      </div>
       <div class="context-block">
         <h2 class="context-head">Saved memory</h2>
         <div id="context-facts" class="context-rows"></div>
@@ -1796,6 +1843,8 @@
     <script src="/channels-more.js" type="module"></script>
     <script src="/specialist-styles.js" type="module"></script>
     <script src="/code-ide.js" type="module"></script>
+    <!-- bucket-18: code editor (A0098) -->
+    <script src="/code-editor.js" type="module"></script>
     <script src="/docs-3.js" type="module"></script>
     <script src="/other.js" type="module"></script>
     <script src="/sandbox-remote.js" type="module"></script>

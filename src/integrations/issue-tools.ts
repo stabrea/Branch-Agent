@@ -4,6 +4,8 @@ import type { ToolRegistry } from "../registry.js";
 import { repositoryPath, type GitHubAccess } from "./github.js";
 import { linearIssueKey, type LinearAccess } from "./linear.js";
 import { issueContext, parseIssueLink, issueLinksIn, type IssueLink, type TrackerIssue } from "./issue-context.js";
+import type { GitLabAccess } from "./gitlab.js";
+import type { JiraAccess } from "./jira.js";
 
 /**
  * The issue tools, one set whichever tracker the issue is in. Searching and reading are behind
@@ -11,7 +13,13 @@ import { issueContext, parseIssueLink, issueLinksIn, type IssueLink, type Tracke
  * says something in the owner's name where other people will see it. A tracker that has not been
  * set up simply is not offered, so the assistant never promises something it cannot do.
  */
-export interface IssueTrackers { github?: GitHubAccess | undefined; linear?: LinearAccess | undefined }
+export interface IssueTrackers {
+  github?: GitHubAccess | undefined;
+  linear?: LinearAccess | undefined;
+  // bucket-18 (A0174): read-only GitLab and Jira issues.
+  gitlab?: GitLabAccess | undefined;
+  jira?: JiraAccess | undefined;
+}
 
 const searchInput = z.object({
   query: z.string().trim().min(1).max(200),
@@ -42,8 +50,8 @@ export class IssueAccess {
     /** The owner's setting for text that reads like instructions; the same one `web.read` obeys. */
     private readonly web?: { readonly injectionPolicy: InjectionPolicy } | undefined,
   ) {}
-  available(): ("github" | "linear")[] {
-    return (["github", "linear"] as const).filter((id) => this.trackers[id]);
+  available(): ("github" | "linear" | "gitlab" | "jira")[] {
+    return (["github", "linear", "gitlab", "jira"] as const).filter((id) => this.trackers[id]);
   }
   private github(): GitHubAccess {
     const access = this.trackers.github;
@@ -56,17 +64,34 @@ export class IssueAccess {
     return access;
   }
   async search(input: z.infer<typeof searchInput>) {
-    const tracker = input.tracker ?? (input.repo ? "github" : this.available()[0]);
+    const tracker = input.tracker ?? (input.repo ? "github" : this.available().find((id) => id === "github" || id === "linear"));
     if (tracker === "linear") return this.linear().search({ query: input.query, limit: input.limit });
     if (!input.repo) throw new Error("Say which repository to search, as owner/name");
     return this.github().searchIssues({ repo: input.repo, query: input.query, limit: input.limit });
   }
   async get(reference: string): Promise<TrackerIssue> {
-    const link = referenceToLink(reference);
-    const issue = await (link.tracker === "github"
-      ? this.github().getIssue({ repo: link.repo, number: link.number })
-      : this.linear().get({ key: link.key }));
-    return this.checked(issue);
+    return this.getLink(this.resolve(referenceToLink(reference)));
+  }
+  /** bucket-18 (A0174): a bare key such as ABC-12 is Jira's when Jira is set up and Linear is not. */
+  private resolve(link: IssueLink): IssueLink {
+    if (link.tracker === "linear" && !this.trackers.linear && this.trackers.jira)
+      return { tracker: "jira", site: this.trackers.jira.site, key: link.key };
+    return link;
+  }
+  private async getLink(link: IssueLink): Promise<TrackerIssue> {
+    if (link.tracker === "github") return this.checked(await this.github().getIssue({ repo: link.repo, number: link.number }));
+    if (link.tracker === "linear") return this.checked(await this.linear().get({ key: link.key }));
+    if (link.tracker === "gitlab") {
+      const gitlab = this.trackers.gitlab;
+      if (!gitlab) throw new Error("GitLab is not set up. Turn it on in the integration settings and save a GitLab token.");
+      // The owner's key only ever goes to the owner's own GitLab.
+      if (link.host !== gitlab.host) throw new Error(`That issue is on ${link.host}, not on your GitLab (${gitlab.host}), so it was not read.`);
+      return this.checked(await gitlab.getIssue({ project: link.project, number: link.number }));
+    }
+    const jira = this.trackers.jira;
+    if (!jira) throw new Error("Jira is not set up. Turn it on in the integration settings and save a Jira API token.");
+    if (link.site !== jira.site) throw new Error(`That issue is on ${link.site}, not on your Jira (${jira.site}), so it was not read.`);
+    return this.checked(await jira.getIssue({ key: link.key }));
   }
   /**
    * An issue is written by other people, so it goes through the same check a web page does: lines
@@ -86,7 +111,9 @@ export class IssueAccess {
     };
   }
   async comment(reference: string, body: string) {
-    const link = referenceToLink(reference);
+    const link = this.resolve(referenceToLink(reference));
+    if (link.tracker === "gitlab" || link.tracker === "jira")
+      throw new Error("Branch only reads GitLab and Jira issues; it does not write on them.");
     return link.tracker === "github"
       ? this.github().commentIssue({ repo: link.repo, number: link.number, body })
       : this.linear().comment({ key: link.key, body });
@@ -97,8 +124,7 @@ export class IssueAccess {
     if (!links.length) return null;
     const issues: TrackerIssue[] = [];
     for (const link of links) {
-      const reference = link.tracker === "github" ? `${link.repo}#${link.number}` : link.key;
-      const issue = await this.get(reference).catch(() => null);
+      const issue = await this.getLink(link).catch(() => null);
       if (issue) issues.push(issue);
     }
     return issueContext(issues);

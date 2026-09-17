@@ -1,0 +1,192 @@
+import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { z } from "zod";
+import { FeatureModeSchema } from "./feature-switches.js";
+import { factKinds, type FactKind } from "./memory-layers.js";
+import { noteFor, type MemoryMirror } from "./memory-mirror.js";
+import { redactLeaks } from "./leak-guard.js";
+import type { GitOutcome, GitRunOptions } from "./integrations/git-run.js";
+import type { NetworkPolicy } from "./network-policy.js";
+import type { ToolRegistry } from "./registry.js";
+import type { Store } from "./store.js";
+
+/**
+ * A history of what the assistant remembers, kept with Git (A2317, after Letta Code's git-backed
+ * memory). The database stays the real store. When the owner switches this on, the same notes the
+ * memory mirror writes (one per kind of fact) are written into a private repository in Branch's
+ * own data folder after each task, and committed when they changed, with a message that says how
+ * many remembered lines came and went. The workspace, and any repository in it, is never touched.
+ *
+ * Off by default. "When needed" and "on" both keep the history; "on" also offers the two reading
+ * tools from the first round. A remote may be named to copy the history to: it must be an https
+ * address the network rules allow, or an ssh address, and never one carrying a password; Git
+ * sends it with this computer's own sign-in. What went wrong the last time is kept and shown.
+ */
+const remoteAddress = z.string().max(300).refine((value) => {
+  if (/^git@[A-Za-z0-9.][A-Za-z0-9.-]*:[A-Za-z0-9._/-]+$/.test(value)) return true;
+  try {
+    const url = new URL(value);
+    // A host starting with "-" would read as an option to ssh.
+    return (url.protocol === "https:" || url.protocol === "ssh:") && !url.password && (url.protocol === "ssh:" || !url.username)
+      && !url.hostname.startsWith("-") && !url.username.startsWith("-");
+  } catch { return false; }
+}, "Use an https or ssh address without a password in it");
+export const MemoryHistorySettingsSchema = z.object({
+  mode: FeatureModeSchema.default("off"),
+  remote: remoteAddress.optional(),
+}).strict();
+/** What the screen sends: the same, where a remote of null means "no copy anywhere". */
+const MemoryHistoryInputSchema = z.object({ mode: FeatureModeSchema.optional(), remote: remoteAddress.nullable().optional() }).strict();
+export type MemoryHistorySettings = z.infer<typeof MemoryHistorySettingsSchema>;
+export interface MemoryHistoryVersion { commit: string; at: string; message: string; files: number }
+export interface MemoryHistoryStatus { lastRecorded?: string; lastProblem?: string }
+
+const SETTINGS = "memory-history", STATUS = "memory-history-status";
+const author = ["-c", "user.name=Branch Agent", "-c", "user.email=branch-agent@localhost", "-c", "commit.gpgsign=false"];
+type GitCall = (options: GitRunOptions, signal: AbortSignal) => Promise<GitOutcome>;
+
+export function memoryHistorySettings(store: Pick<Store, "get">, owner: string): MemoryHistorySettings {
+  const saved = MemoryHistorySettingsSchema.safeParse(store.get("settings", owner, SETTINGS)?.data ?? {});
+  return saved.success ? saved.data : MemoryHistorySettingsSchema.parse({});
+}
+
+export class MemoryHistory {
+  private queue: Promise<unknown> = Promise.resolve();
+  readonly folder: string;
+  constructor(dataDir: string, private readonly store: Store, private readonly mirror: MemoryMirror,
+    private readonly git: GitCall, private readonly policy?: NetworkPolicy) {
+    this.folder = join(dataDir, "memory-history");
+  }
+  settings(owner: string): MemoryHistorySettings { return memoryHistorySettings(this.store, owner); }
+  configure(owner: string, input: unknown): MemoryHistorySettings {
+    const change = MemoryHistoryInputSchema.parse(input ?? {});
+    const merged = { ...this.settings(owner), ...change };
+    if (merged.remote == null) delete merged.remote;
+    const value = MemoryHistorySettingsSchema.parse(merged);
+    this.store.save("settings", owner, SETTINGS, value);
+    return value;
+  }
+  status(owner: string): MemoryHistoryStatus {
+    return (this.store.get("settings", owner, STATUS)?.data ?? {}) as MemoryHistoryStatus;
+  }
+
+  /** Writes the notes and commits them when they changed; one at a time. Never throws: a problem is kept. */
+  record(owner: string, signal: AbortSignal = AbortSignal.timeout(60000)): Promise<MemoryHistoryVersion | null> {
+    const next = this.queue.then(() => this.recordNow(owner, signal)).catch((error: unknown) => {
+      this.note(owner, { lastProblem: error instanceof Error ? error.message.slice(0, 300) : "unknown" });
+      return null;
+    });
+    this.queue = next;
+    return next;
+  }
+  private async recordNow(owner: string, signal: AbortSignal): Promise<MemoryHistoryVersion | null> {
+    const settings = this.settings(owner);
+    if (settings.mode === "off") return null;
+    await this.ensureRepository(signal);
+    const counts = await this.writeNotes(owner);
+    await this.run(["add", "-A", "."], signal);
+    const staged = await this.run(["diff", "--cached", "--numstat"], signal);
+    if (!staged.trim()) return null;
+    const message = describeMemoryChange(staged, counts);
+    await this.run([...author, "commit", "--quiet", "--message", message], signal);
+    const [version] = await this.versions(1, signal);
+    this.note(owner, { lastRecorded: version?.at ?? new Date().toISOString() });
+    if (settings.remote) await this.send(settings.remote, signal);
+    return version ?? null;
+  }
+  private note(owner: string, change: MemoryHistoryStatus): void {
+    const status: MemoryHistoryStatus = { ...this.status(owner), ...change };
+    if ("lastRecorded" in change) delete status.lastProblem;
+    try { this.store.save("settings", owner, STATUS, status as Record<string, unknown>); } catch { /* closing */ }
+  }
+
+  private async run(args: string[], signal: AbortSignal, timeoutMs = 30000): Promise<string> {
+    const outcome = await this.git({ cwd: this.folder, args, timeoutMs }, signal);
+    if (outcome.status !== "completed")
+      throw new Error(`Git could not keep the memory history: ${(outcome.stderr || outcome.stdout).trim().split("\n")[0]?.slice(0, 200) ?? ""}`);
+    return outcome.stdout;
+  }
+  private async ensureRepository(signal: AbortSignal): Promise<void> {
+    await mkdir(this.folder, { recursive: true, mode: 0o700 });
+    const known = await readdir(join(this.folder, ".git")).then(() => true, () => false);
+    if (!known) await this.run(["init", "--quiet", "--initial-branch=memory"], signal);
+  }
+  /** One note per kind of fact, exactly as the mirror writes them; kinds with nothing left are removed. */
+  private async writeNotes(owner: string): Promise<Map<FactKind, number>> {
+    const grouped = this.mirror.grouped(owner);
+    const counts = new Map<FactKind, number>();
+    for (const kind of factKinds) {
+      const path = join(this.folder, `${kind}.md`);
+      const records = grouped.get(kind) ?? [];
+      counts.set(kind, records.length);
+      // Integration review: a key or password someone asked to be remembered is never committed or sent.
+      if (records.length) await writeFile(path, redactLeaks(noteFor(kind, records)).text, { mode: 0o600 });
+      else await rm(path, { force: true });
+    }
+    return counts;
+  }
+  private async send(remote: string, signal: AbortSignal): Promise<void> {
+    const host = remote.startsWith("git@") ? remote.slice(4, remote.indexOf(":")) : new URL(remote).hostname;
+    await this.policy?.assertAllowed(new URL(`https://${host}/`), "memory history copy");
+    await this.run(["push", "--quiet", remote, "HEAD:refs/heads/branch-memory-history"], signal, 120000);
+  }
+
+  /** The recorded versions, newest first. */
+  async versions(limit = 30, signal: AbortSignal = AbortSignal.timeout(15000)): Promise<MemoryHistoryVersion[]> {
+    const known = await readdir(join(this.folder, ".git")).then(() => true, () => false);
+    if (!known) return [];
+    const text = await this.run(["log", `--max-count=${limit}`, "--pretty=format:%H%x1f%aI%x1f%s", "--shortstat"], signal).catch(() => "");
+    const versions: MemoryHistoryVersion[] = [];
+    for (const line of text.split("\n")) {
+      const parts = line.split("\x1f");
+      if (parts.length === 3) versions.push({ commit: parts[0]!.slice(0, 12), at: parts[1]!, message: parts[2]!, files: 0 });
+      else if (versions.length && /file/.test(line)) versions[versions.length - 1]!.files = Number(/(\d+) file/.exec(line)?.[1] ?? 0);
+    }
+    return versions;
+  }
+  /** What one note said at one version. */
+  async noteAt(commit: string, kind: FactKind, signal: AbortSignal = AbortSignal.timeout(15000)): Promise<string> {
+    if (!/^[0-9a-f]{7,40}$/.test(commit)) throw new Error("Name a version by the code the history listed.");
+    return (await this.run(["show", `${commit}:${kind}.md`], signal).catch(() => {
+      throw new Error("That version has no note of that kind.");
+    })).slice(0, 60000);
+  }
+}
+
+/** "Remembered 12 facts: 2 lines added, 1 removed, in 2 notes." */
+export function describeMemoryChange(numstat: string, counts: Map<FactKind, number>): string {
+  let added = 0, removed = 0, notes = 0;
+  for (const line of numstat.split("\n").filter(Boolean)) {
+    const [plus, minus] = line.split("\t");
+    added += Number(plus) || 0;
+    removed += Number(minus) || 0;
+    notes++;
+  }
+  const total = [...counts.values()].reduce((sum, value) => sum + value, 0);
+  return `Remembered ${total} fact${total === 1 ? "" : "s"}: ${added} line${added === 1 ? "" : "s"} added, ${removed} removed, in ${notes} note${notes === 1 ? "" : "s"}`;
+}
+
+export function registerMemoryHistory(registry: ToolRegistry, history: MemoryHistory, owner: string): void {
+  const refuseWhenOff = () => {
+    if (history.settings(owner).mode === "off") throw new Error("The history of what is remembered is switched off. Turn it on in the Memory screen.");
+  };
+  registry.register({
+    name: "memory.versions", permission: "memory.read",
+    description: "The recorded versions of what the assistant remembers, newest first: when, what changed, and how many notes.",
+    parameters: z.object({ limit: z.number().int().min(1).max(100).default(30) }).strict(),
+    execute: async (args) => { refuseWhenOff(); return { versions: await history.versions(args.limit), ...history.status(owner) }; },
+  });
+  registry.register({
+    name: "memory.version_note", permission: "memory.read",
+    description: "What one note of remembered facts said at a recorded version.",
+    parameters: z.object({ version: z.string().regex(/^[0-9a-f]{7,40}$/), kind: z.enum(factKinds) }).strict(),
+    execute: async (args) => { refuseWhenOff(); return { version: args.version, kind: args.kind, text: await history.noteAt(args.version, args.kind) }; },
+  });
+  registry.onRunFinished(async (context) => {
+    if (history.settings(context.owner).mode !== "off") await history.record(context.owner);
+  });
+}
+
+/** The saved text of a note, for tests and the screen. */
+export const readNote = (history: MemoryHistory, kind: FactKind): Promise<string> =>
+  readFile(join(history.folder, `${kind}.md`), "utf8").catch(() => "");

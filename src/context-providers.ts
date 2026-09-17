@@ -78,6 +78,8 @@ export const RepositoryContextSettingsSchema = z.object({
   repositoryContext: z.boolean().default(false),
   /** How many files may be named. */
   repositoryContextFiles: z.number().int().min(1).max(10).default(5),
+  /** bucket-18 (A0334): above zero, put Aider's ranked outline of the project in front instead, within this many tokens. */
+  repositoryOutlineTokens: z.number().int().min(0).max(8000).default(0),
 }).strict();
 export type RepositoryContextSettings = z.infer<typeof RepositoryContextSettingsSchema>;
 
@@ -88,9 +90,11 @@ export class RepositoryContextProvider implements ContextProvider {
     private readonly map: ProjectMap,
     private readonly settingsFor: (owner: string) => RepositoryContextSettings,
   ) {}
+  private outline(prompt: string, budget: number): Promise<ContextBlock | null> { return outlineBlock(this.map, prompt, budget); }
   async provide(owner: string, prompt: string): Promise<ContextBlock | null> {
     const settings = this.settingsFor(owner);
     if (!settings.repositoryContext) return null;
+    if (settings.repositoryOutlineTokens > 0) return this.outline(prompt, settings.repositoryOutlineTokens);
     const ranked = await this.map.rank(prompt, settings.repositoryContextFiles).catch(() => null);
     if (!ranked?.files.length) return null;
     const citations = new Citations();
@@ -105,6 +109,20 @@ export class RepositoryContextProvider implements ContextProvider {
       citations: citations.list(),
     };
   }
+}
+
+/** bucket-18 (A0334): the ranked outline of the project, as one cited block. */
+async function outlineBlock(map: ProjectMap, prompt: string, budget: number): Promise<ContextBlock | null> {
+  const result = await map.outline({ budget, request: prompt }).catch(() => null);
+  if (!result?.outline.trim()) return null;
+  const files = result.outline.split("\n").filter((line) => /^[^│⋮\s].*$/.test(line)).map((line) => line.replace(/:$/, ""));
+  const citations = new Citations();
+  for (const file of files) citations.add({ url: `file:${file}`, title: file, quote: "Named in the project outline." });
+  return {
+    text: `The most important declarations of this project, ranked by who uses whose names (${result.declarations} shown):\n\n${result.outline}`,
+    sources: files,
+    citations: citations.list(),
+  };
 }
 
 /** The owner's answer on whether the files of the project may be named in front of a task. */

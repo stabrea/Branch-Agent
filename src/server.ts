@@ -118,6 +118,12 @@ import { contextFileStatus, saveContextFileSettings, contextFileSettings } from 
 import { reflectionApi } from "./reflection/api.js";
 import { voiceSettings, saveVoiceSettings } from "./voice.js";
 import { voiceApi } from "./voice-api.js";
+// bucket-18: pull requests from changes (A0300), and which requests came with a short-lived key.
+import { pullRequestHookSettings, savePullRequestHookSettings } from "./pr-hook.js";
+import { markShortLivedKey } from "./key-context.js";
+// bucket-18: code editor (A0098)
+import { handlesWorkspaceEditorPath, workspaceEditorApi, WorkspaceEditorApiError } from "./workspace-editor-api.js";
+import { protectedTarget } from "./never-break/protected.js"; // bucket-18 integration review
 import { parseModelCommand } from "./model-switch.js";
 import { pricingSettings, savePricingSettings, pricingTableInUse, estimateCost, formatCost } from "./pricing.js";
 import { usageReportRoute } from "./usage-report-api.js"; // bucket 14 (A0367)
@@ -385,6 +391,7 @@ async function staticFile(
     "/specialist-styles.js": ["specialist-styles.js", "text/javascript; charset=utf-8"],
     // Wave 7 (a coder's toolbox): the two Developer switches for language servers and debuggers.
     "/code-ide.js": ["code-ide.js", "text/javascript; charset=utf-8"],
+    "/code-editor.js": ["code-editor.js", "text/javascript; charset=utf-8"], // bucket-18 (A0098)
     // Wave 8: the Lockdown switch and the shape branched conversations make.
     "/other.js": ["other.js", "text/javascript; charset=utf-8"],
     "/sandbox-remote.js": ["sandbox-remote.js", "text/javascript; charset=utf-8"],
@@ -703,6 +710,17 @@ async function api(
   if (handlesMiscPath(path))
     return miscApi(app, request, path, readBody).catch((error: unknown) => {
       throw error instanceof MiscApiError ? new HttpError(error.status, error.message) : error;
+    });
+  // bucket-18: code editor (A0098)
+  if (handlesWorkspaceEditorPath(path))
+    return workspaceEditorApi({
+      files: app.files, store: app.store, owner: app.runtime.owner, readBody,
+      runTool: (name, args) => app.runtime.executeTool(name, args),
+      // Integration review: Branch's own program, settings and saved work stay out of reach here too.
+      guard: (target, readOnly) => protectedTarget({ tool: readOnly ? "files.read" : "files.write", readOnly, args: { path: target },
+        target, workspace: app.files.base }, app.runtime.protectedAreas),
+    }, request, path, new URL(request.url ?? "/", "http://local")).catch((error: unknown) => {
+      throw error instanceof WorkspaceEditorApiError ? new HttpError(error.status, error.message) : error;
     });
   // Batch 19 (wave 7): spans, sending traces out, and the approval rules read as sentences.
   if (handlesTracingPath(path))
@@ -1342,12 +1360,22 @@ async function developerApi(app: Branch, request: IncomingMessage, path: string)
       : debugSettings(app.store, owner);
   if (path === "/api/developer/running" && request.method === "GET")
     return { languageServers: app.languageServers.list(), services: app.openApiTools.list() };
+  // bucket-18 (A0300): pull requests from a task's changes; off until the owner says otherwise.
+  if (path === "/api/developer/pull-requests")
+    return request.method === "POST"
+      ? savePullRequestHookSettings(app.store, owner, await readBody(request))
+      : pullRequestHookSettings(app.store, owner);
   throw new HttpError(404, "Endpoint not found");
 }
 
 async function memoryApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
   // Wave 6: saved facts belong to whoever's profile is switched on, not always to the owner.
   const owner = app.store.profiles.scope();
+  // bucket-18 (A2317): the history of what is remembered; the owner's switch and the versions so far.
+  if (path === "/api/memory/history")
+    return request.method === "POST"
+      ? app.memoryHistory.configure(app.runtime.owner, await readBody(request))
+      : { ...app.memoryHistory.settings(app.runtime.owner), ...app.memoryHistory.status(app.runtime.owner), versions: await app.memoryHistory.versions(30) };
   if (request.method === "GET" && path === "/api/memory/export") {
     audit(app.store, owner, { action: "data.exported", actor: owner, subject: "your saved notes",
       reason: "The facts the assistant remembers were written out", outcome: "saved" });
@@ -2366,10 +2394,13 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
       }, (supplied) => {
         const look = commandLook(app, request, path, supplied);
         onlyLooking = look !== null;
-        return offLimitsToShortLivedKeys(request.method, path)
+        const refusal = offLimitsToShortLivedKeys(request.method, path)
           ?? app.sessionTokens.check(app.runtime.owner, supplied, look ?? {
             method: request.method ?? "GET", executes: isExecution(request, path),
           });
+        // bucket-18 (A0300): everything this request starts knows it came with a short-lived key.
+        if (refusal === null) markShortLivedKey();
+        return refusal;
       });
       // The extra door has its own chain on top of the key: see src/remote/gateway-auth.ts. The
       // window on this computer never goes through it.
@@ -2863,6 +2894,10 @@ function commandLook(app: Branch, request: IncomingMessage, path: string, suppli
 }
 
 export function offLimitsToShortLivedKeys(method: string | undefined, path: string): string | null {
+  // bucket-18 (A0098): the code editor, its switch included, is the owner's alone: a script's key may
+  // neither read files through it nor save over them, so this comes before reading is let through.
+  if (handlesWorkspaceEditorPath(path))
+    return "A short-lived key cannot use the code editor. Do that in the app window.";
   if (method === "GET") return null;
   // Wave mac3 (commands, integration review): when Branch checks with you, which model every new
   // conversation starts with (and the model services behind it), and which commands are offered
@@ -2880,6 +2915,12 @@ export function offLimitsToShortLivedKeys(method: string | undefined, path: stri
   // Lockdown is exactly that; without this a script's key could switch Lockdown off.
   if (path === "/api/lockdown")
     return "A short-lived key cannot switch Lockdown on or off. Do that in the app window or with the key of this computer.";
+  // bucket-18 (A2317): a copy of what is remembered may be sent to a remote; only the owner names it.
+  if (path === "/api/memory/history")
+    return "A short-lived key cannot change where the history of what is remembered is kept. Do that in the app window.";
+  // bucket-18 (A0300): where work is sent on GitHub is the owner's to decide.
+  if (path === "/api/developer/pull-requests")
+    return "A short-lived key cannot change how work is sent to GitHub. Do that in the app window.";
   // Wave mac2 (guards): trusting a folder lets what is in it steer the assistant.
   if (handlesGuardsPath(path)) return "A short-lived key cannot change which folders are trusted or how repeated steps are stopped. Do that in the app window.";
   // mac3/never-break: the gateway's settings are the owner's alone.

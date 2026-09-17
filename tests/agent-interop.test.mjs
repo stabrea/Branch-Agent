@@ -327,7 +327,9 @@ test("the owner's routes: switches, the list of parts, and what a short-lived ke
   assert.equal(modes.modes.length, 5);
   assert.equal((await f.http("/interop.js")).status, 200);
   const index = await readFile(join(import.meta.dirname, "..", "public", "index.html"), "utf8");
-  assert.match(index, /<script src="\/interop\.js" type="module"><\/script>\s*<script src="\/layout\.js"/);
+  // interop.js comes just before layout.js, apart from the dashboard card, which tests/dashboard.test.mjs
+  // requires to be the very last script before layout.js (and its one-line comment).
+  assert.match(index, /<script src="\/interop\.js" type="module"><\/script>\s*(?:<!--[^\n]*-->\s*)?(?:<script src="\/dashboard-card\.js" type="module"><\/script>\s*)?<script src="\/layout\.js"/);
 });
 
 test("every word on the two cards has a key, in English and in real French", async () => {

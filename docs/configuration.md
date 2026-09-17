@@ -467,6 +467,29 @@ Word, spreadsheets, PowerPoint, EPUB, RTF, HTML, CSV and JSON. Asserted in
 page, a locked PDF refused in one sentence, a PDF of pictures saying so rather than pretending) and
 `tests/docs-3.test.mjs`. Nothing here needs building.
 
+## Code editor (A0098)
+
+**Settings → Advanced → Developer → Code editor** has the three-way switch, off by default. When it is
+"when needed" or "on", a conversation's **Files** tab gets **Edit a file**: a list of the workspace's
+folders, a plain text editor with line numbers, Save (or Ctrl/Cmd+S) and Tab for two spaces.
+
+- Every path goes through the same checks as the assistant's own file tools: nothing outside the
+  workspace, no secret-looking names (`.env`, keys, credentials are not even listed), nothing
+  `.branchignore` hides, and no link that leads out of the workspace.
+- The memory folder opens read-only. A file that is not text, or is larger than 32 KiB, is refused.
+- Saving is the assistant's own `files.write`, so the bytes before are kept and the change can be put
+  back with `files.history` / `files.restore` like any other.
+- A save says which version of the file it was opened from. If the file changed on disk since then
+  (another program, the assistant), the save is refused and says so; nothing is overwritten.
+- A short-lived key (`branch token create`) cannot use the editor at all: not its switch, not the
+  list, not opening a file and not saving one.
+- Branch's own program, settings and saved work stay out of reach here as everywhere else
+  (`src/never-break/protected.ts`): a save there is refused whatever the switch says.
+
+Routes: `GET/POST /api/workspace-editor/settings`, `GET /api/workspace-editor/list?path=`,
+`GET /api/workspace-editor/read?path=`, `POST /api/workspace-editor/save`. Asserted in
+`tests/code-editor.test.mjs`. Works the same on Windows, macOS and Linux.
+
 ## Channels (Telegram)
 
 Create a bot with @BotFather, then either save its token as the secret `TELEGRAM_BOT_TOKEN` in the default project or export it as an environment variable, and add to the integrations file:
@@ -2340,7 +2363,7 @@ Routes: `GET /api/documents` (the library, the switch and the size limit), `POST
 
 ## Looking a question up properly
 
-`research.run` takes a question, a depth (`quick`, `standard` or `deep`) and optionally the addresses to read. Quick runs one search and reads up to two pages; standard three searches and six pages; deep six and twelve. Each page is fetched under the same network policy as the rest of web reading, and page text is treated as information, never instructions. The sentences that speak to the question are kept with the address and title they came from.
+`research.run` takes a question, a depth (`quick`, `standard` or `deep`) and optionally the addresses to read. Quick runs one search and reads up to two pages; standard three searches and six pages; deep six and twelve. Each page is fetched under the same network policy as the rest of web reading, and page text is treated as information, never instructions. The sentences that speak to the question are kept with the address and title they came from. When a page cannot be read that way, or comes back almost empty because a script builds it, and a browser is set up that this task may use (`browser.read`), the page is opened in that browser and its text is read instead (`research.browser` in the log). The browser keeps its own list of allowed sites and the same network rules, so this reaches nothing a browser task could not (A2128).
 
 From `standard` upwards, sentences from different pages that are about the same thing are compared: a claim two or more sources state with the same figures is listed under **What the sources agree on**, and one where their figures differ is listed under **Where the sources disagree**, with each side quoted and numbered. If your document library has something about the question it is read too and cited as one of your own documents.
 
@@ -2623,7 +2646,81 @@ That registers `github.create_repo` (private unless you say otherwise), `github.
 { "git": { "gitlab": { "tokenSecret": "GITLAB_TOKEN" } } }
 ```
 
-That registers `gitlab.issues`, `gitlab.releases` and `gitlab.pipelines` behind `gitlab.read`. Reading only: GitLab's endpoints for changing things are shaped differently enough from GitHub's that offering half of them would mislead you about what Branch can actually do. The token is read from whichever project is active at the moment of the call, is sent only in the request header, is never written into a web address, and is scrubbed out of anything reported back — it cannot appear in Activity, in a receipt, or in an error message. Every GitHub address goes through the same network policy as web reading, so an address that is blocked there is refused here too. There is no GitHub App and nothing is installed on your account.
+That registers `gitlab.issues`, `gitlab.releases` and `gitlab.pipelines` behind `gitlab.read`. Reading only: GitLab's endpoints for changing things are shaped differently enough from GitHub's that offering half of them would mislead you about what Branch can actually do. The token is read from whichever project is active at the moment of the call, is sent only in the request header, is never written into a web address, and is scrubbed out of anything reported back — it cannot appear in Activity, in a receipt, or in an error message. Every GitHub address goes through the same network policy as web reading, so an address that is blocked there is refused here too. Nothing is installed on your account; your own GitHub App can be used instead of a token (below).
+
+**Your own GitHub App instead of a personal token (A2227).** Save the app's private key (the `.pem`
+GitHub gave you) in your secrets, then name it, the app number and the installation number:
+
+```json
+{ "git": { "github": {}, "githubApp": { "mode": "on", "appId": "123456", "privateKeySecret": "GITHUB_APP_PRIVATE_KEY", "installationId": "7890" } } }
+```
+
+- `"off"` (the default) uses the personal token exactly as before.
+- `"when-needed"` uses the app when all three details are saved, and the personal token otherwise.
+- `"on"` always uses the app, and says plainly when a detail is missing.
+
+When the app is in use, Branch signs a short-lived app token with the key (valid nine minutes) and
+exchanges it at `<apiBase>/app/installations/<id>/access_tokens` for an installation token. That
+token is kept in memory until five minutes before it expires. The key is read from the locker only
+at that moment. It is never written into the settings, a log or an error, and an error from GitHub
+is scrubbed of both the key and the signed token. The exchange goes through the same network rules
+as everything else. If the app fails, Branch says why instead of quietly using your personal token.
+
+**Issues from GitLab and Jira (A0174).** Pasting a GitLab issue address
+(`https://gitlab.example.org/group/project/-/issues/12`) or a Jira one
+(`https://acme.atlassian.net/browse/SHOP-12`) now brings that issue in, the same way a GitHub or
+Linear address does. You get the title, the description and up to 20 comments, quoted with a note
+that other people wrote them, and put through the same instruction check as a web page. Both are
+read only and off until named:
+
+```json
+{ "git": { "gitlab": { "apiBase": "https://gitlab.example.org/api/v4", "tokenSecret": "GITLAB_TOKEN" } },
+  "issues": { "gitlab": true, "jira": { "site": "acme", "emailSecret": "JIRA_EMAIL", "tokenSecret": "JIRA_API_TOKEN" } } }
+```
+
+- Your GitLab key is only ever sent to your own GitLab (the host of `apiBase`), and your Jira
+  sign-in only to your own site. An address on any other server is not read.
+- The Jira sign-in is an email and an API token from the locker, sent only in the request header.
+- `issues.get` also takes a bare key such as `SHOP-12`. It is Jira's when Jira is set up and Linear
+  is not.
+- In ordinary text, only full addresses count, so words such as `UTF-8` are never taken for issues.
+
+**A pull request from a task's changes (A0300).** **Settings → Advanced → Developer → Pull requests
+from changes** has the three-way switch, off by default:
+
+- **When asked** offers `github.pull_request_from_changes` while GitHub is set up. The tool puts the
+  changed files on a new branch called `branch/<name>`, sends that branch with this computer's own
+  Git sign-in, and opens a **draft** pull request. An issue named in the summary is linked.
+- **After every task that changed files** does the same by itself when a task finishes well. It
+  takes only the files that task changed, on `branch/task-<id>`. Tools you press by hand and saves
+  from the code editor do not count as tasks.
+
+It never sends anywhere else:
+
+- The branch is always a new `branch/…` one. It is never the base, never the remote's default branch,
+  and never a name such as main, master, develop, trunk or release/…. The push names that one branch
+  explicitly.
+- The remote must be on GitHub, and an address that carries a password or token is refused.
+- The repository address is checked against the network rules before anything is sent.
+- The pull request is opened through the saved GitHub tools, whose token comes from the locker at
+  the moment of the call.
+- A short-lived key can neither use the tool nor change the switch. A task started with one is never
+  sent (the task's log says so).
+- Every attempt that stops is written to the task's log as `pull_request.failed` with the reason. A
+  success is written as `pull_request.opened`.
+- The workspace is left on the new branch afterwards.
+
+Integration review (mac4/bucket-18): each file goes through the same checks as the assistant's own
+file tools before it is sent: secret-looking names (`.env`, keys), anything `.branchignore` hides,
+links, folders and Branch's own saved work and keys are left out. Names are taken literally (`*` is
+a file called `*`), and only the named files are committed, whatever else was already staged. Every
+push address of the remote must be the same GitHub repository. A task records where it came from
+when it starts, so "after every task" only sends the owner's own tasks that were allowed to
+publish: never a task a short-lived key started (nor its follow-ups, queued tasks, specialists or a
+continued task), never a schedule's, a trigger's or another program's, never a chat app's, and
+never a specialist's part on its own.
+
+Routes: `GET/POST /api/developer/pull-requests`. Asserted in `tests/pr-hook.test.mjs`.
 
 **Hiding files from the assistant: `.branchignore`.** Put a file called `.branchignore` in the workspace root and list anything you would rather the assistant did not read, using the same syntax as `.gitignore` (one pattern per line, `#` for a comment, a trailing `/` for folders only, `!` to un-hide, `*` and `?` inside one name, `**` across folders). Files it hides disappear from `files.read`, `files.list` and `files.search`, a hidden folder can no longer be used as the working folder of a host command, and the Git tools respect it too: hidden files are left out of `git.status`, out of `git.diff`, and are never staged by `git.commit`.
 
@@ -2640,11 +2737,41 @@ TypeScript, JavaScript, Python, Go, Rust, Java, C# and Markdown headings each ha
 their own, and relative TypeScript, JavaScript and Python imports are resolved into real paths, so
 the map carries a picture of how the project hangs together and not just a list.
 
-Say plainly what this is: **the names are found by pattern, not by a parser.** Each reader is a
-small regular expression that looks at what a line looks like. A name written inside a comment or a
-string can be picked up, and something spread over several lines can be missed. That is the trade
-for needing no build step and no extra program. When you need certainty rather than a map, use a
-language server (below).
+Say plainly what this is: **the names are found by a light reader, not a parser** (`src/code-tags.ts`).
+It sets comments and strings aside first, so a name inside a comment or a string does not count and
+a declaration spread over lines keeps its line number. It then recognises declarations line by line,
+including methods and what they sit inside, for TypeScript, JavaScript, Python, Ruby, Go, Rust,
+Java, C#, Kotlin, Swift, Scala, PHP, C and C++, and counts every other name as a use. It cannot
+understand a computed name or tell two things with the same name apart. When you need certainty
+rather than a map, use a language server (below).
+
+**A ranked outline in a token budget (A0334), the way Aider's repository map works.** Give
+`code.map` a `tokens` budget (100 to 16,000) and you get an outline instead of a list: file names,
+then the lines that declare the project's most important names, each under the class or block it
+sits in, with `⋮` where lines were skipped.
+
+- **How "important" is decided.** Every file that uses a name another file declares points at that
+  file. Long, specific names count ten times, a name the request spelled out counts ten times, and
+  names starting with `_` or declared in more than five files count a tenth. A personalised
+  PageRank over those links, started from the files the request is about, decides which files
+  matter. Each file's share then goes to the names it uses.
+- **Fitting the budget.** The longest run of that order that fits is found by halving.
+- **Files you already have.** Name them in `focus`: they steer the ranking and are left out.
+- **Always first.** A project's README, `package.json` and similar files are named first.
+- **Without a request.** The same ranking now also orders the plain `request` answer, so files
+  joined only by use, such as Go or Java files with no import lines to follow, are lifted together.
+- **In front of a task.** Set `repositoryOutlineTokens` (with `repositoryContext` on) and the
+  project context puts this outline in front of a task instead of the list of file names.
+
+This needs nothing installed: Aider uses tree-sitter grammars (native or WebAssembly packages for
+each language), and Branch keeps to its no-new-dependency rule.
+
+**Checking a file still reads (A0537).** `files.validate` now also checks TypeScript with Node's
+own type reader. A missing brace or a broken type is reported with its line, without the TypeScript
+compiler. The few forms that reader does not cover (enums, namespaces) and TSX get the bracket check
+and say so. Python, Go, Rust, Java, C#, C, C++, Ruby, Kotlin, Swift, Scala and PHP get a bracket
+check that ignores comments and strings: every `(`, `[` and `{` must be closed in order, and the
+first ones that are not are named with their lines. JSON and JavaScript are checked as before.
 
 Give `code.map` a `request` — what you are actually looking for, in your own words — and the answer
 comes back ordered: the files whose path or declared names match come first, and a file those files
@@ -2698,7 +2825,10 @@ alongside whole-workspace snapshots, each with a button that puts the whole poin
 **Keeping what a build produced.** `artifacts.keep` files a picture, a zip or a built program beside
 the run artifacts under a name you choose; keeping the same name again makes the next version
 rather than replacing the last, and each version records its size and its sha256 checksum.
-`artifacts.list` reads that back, so "is this the same build I had yesterday?" has an answer.
+`artifacts.list` reads that back, so "is this the same build I had yesterday?" has an answer. `artifacts.restore` puts a kept version back into the workspace byte for
+byte, after checking its checksum; it will not overwrite an existing file unless you say `replace`,
+and it never writes through a link. `artifacts.forget` lets one version go; the others keep their
+numbers (A1183).
 
 **Tools from a service's own description (`tools.from_openapi`).** Point it at an OpenAPI 3
 document — an address, or a file in your workspace — list the operations you are willing to allow,
@@ -6062,6 +6192,54 @@ every row is listed here and that every file named here exists.
   meant for putting in front of the public.
 - **A2367** (Google PaLM) — not applicable: Google retired PaLM. Gemini, its successor, is supported
   (`src/providers/gemini.ts`, `tests/provider-presets.test.mjs`).
+
+## Comments that ask the assistant (A0344)
+
+`branch watch <folder> --ai-comments` watches a folder inside your workspace. A comment written in
+`#`, `//`, `--` or `;` style that ends (or starts) with **AI!** asks for a change, and one with
+**AI?** asks a question. A comment that starts with the word **AI** or ends with it only adds
+context. This is Aider's rule.
+
+- Each burst of saves that holds an AI! or AI? comment becomes one task. The task names the file
+  and line, shows the lines around each comment, and asks for the comments to be removed afterwards.
+- Plain AI comments go along as context, but never start anything on their own.
+- The files the assistant changed while answering are marked as seen, so its own edits never start
+  another task. A file whose text has not changed is not looked at again.
+- Comments are only read through the workspace's checks: secret-looking names and anything
+  `.branchignore` hides are skipped, and a folder outside the workspace is refused.
+- `--once` stops after the first task, and `--settle <ms>` sets how long a burst is.
+- Nothing runs unless you start the command, and only for the folder you name.
+- A comment can come from anyone whose file lands in the folder (a pulled branch, a downloaded
+  project), so its task is not treated as yours: it is a trigger's task, held to the approval rules
+  for work you did not start, and it may only read and change files. It cannot run commands or
+  code, reach the internet, send messages, or send anything to Git or GitHub. The task is also told
+  that the comments are requests about those files only.
+
+Asserted in `tests/ai-comments.test.mjs`.
+
+## A history of what is remembered (A2317)
+
+The database stays the real store of what the assistant remembers. The history is a Git record of
+it, off by default. Switch it with `POST /api/memory/history` and `{ "mode": "on" }` (or
+`"when-needed"`, or `"off"`).
+
+- **What is recorded.** After every task, the same notes the memory mirror writes (one per kind of
+  fact) are written into a private repository in Branch's data folder, `memory-history/`. They are
+  committed when they changed, with a message such as "Remembered 12 facts: 2 lines added,
+  1 removed, in 2 notes".
+- **What is never touched.** Your workspace, and any repository in it.
+- **Reading it.** `memory.versions` lists the versions, and `memory.version_note` shows what one
+  note said at one of them. `GET /api/memory/history` shows the switch, when the last version was
+  kept, and the last problem if there was one.
+- **A copy elsewhere (optional).** Name a remote address in `remote`: https or ssh, never with a
+  password in it. Each new version is pushed there as `branch-memory-history`, with this
+  computer's own Git sign-in, after the network rules allow the host.
+- **Who decides.** Only the app window or the computer's own key can change the switch or the
+  remote. A short-lived key cannot. `{ "remote": null }` stops the copy.
+- **No keys in it.** Anything in a remembered fact that looks like a key or password is replaced
+  before the note is written, so it is never committed or copied.
+
+Asserted in `tests/memory-git.test.mjs`. Needs Git installed.
 
 ## Seeing what a task did, step by step, afterwards (public list, bucket 13)
 
