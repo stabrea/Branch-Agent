@@ -100,6 +100,10 @@ export async function testSkill(store: Store, owner: string, runtime: Runtime, s
 export const learningTaskPrefix = "Learning: ";
 export function learningTask(store: Store, owner: string, prompt: string, runtime: Runtime, practice = false) {
   const parent = store.createRun(owner, (learningTaskPrefix + prompt).slice(0, 300));
+  // Marked as nobody's own request, so the daily look over finished tasks (MemoryReview.consolidate)
+  // passes it by the same way it passes a handed-off sub-task: the learning passes never learn from
+  // their own work.
+  store.event(parent.id, "run.started", { parentRunId: "learning", source: "learning" });
   return { parent, context: practice ? runtime.context({ runId: parent.id, dryRun: true }) : runtime.context({ runId: parent.id, permissions: [] }) };
 }
 const unfence = (text: string): string => text.trim().replace(/^```[a-z]*\r?\n?|\r?\n?```$/g, "").trim();
@@ -204,7 +208,10 @@ export async function trialNewSkill(store: Store, owner: string, runtime: Runtim
   const instructions = { baseline: "No skill is being tried. Do the task as you normally would.", candidate: `The skill being tried:\n${skill.document}` };
   for (const task of tasks) for (const side of ["baseline", "candidate"] as const) {
     const started = Date.now();
-    const run = await runtime.delegate(task.prompt, context, [...context.permissions], instructions[side], { timeoutMs: 120000 }).catch(() => null);
+    // A model wrote this skill from conversation turns, so it is tried without the tools that reach
+    // outside, as testSkill does, even though a practice run only says what a change would do.
+    const permissions = [...context.permissions].filter((p) => !["shell.execute", "remote.execute", "git.remote", "github.manage"].includes(p));
+    const run = await runtime.delegate(task.prompt, context, permissions, instructions[side], { timeoutMs: 120000 }).catch(() => null);
     const usage = run ? store.usage(run.id) as { estimatedInput?: number; estimatedOutput?: number } : {};
     sides[side].finished += run?.status === "completed" ? 1 : 0;
     sides[side].ms += Date.now() - started;

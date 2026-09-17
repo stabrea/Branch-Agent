@@ -216,6 +216,12 @@ test("a look back the owner asks for goes through a task of its own, and is refu
   assert.equal(provider.seen.lookBack.length, 1);
   assert.match(app.store.run(batch.runId).prompt, /^Learning: Look back/);
   assert.deepEqual(await api("reflection/look-back", { sessionId: run.sessionId }), { batch: null }, "nothing new the second time");
+  /* The daily look over finished tasks never reads the learning passes' own work. */
+  let digest = "";
+  app.runtime.delegate = async (prompt) => { digest = prompt; return { id: "x", status: "failed", output: "" }; };
+  await app.store.review.consolidate(app.runtime, "local");
+  assert.match(digest, /my cat Miso/);
+  assert.doesNotMatch(digest, /Learning: /);
 });
 
 test("/learn drafts a switched-off skill from the turns before it, tries it without and with, and waits for a yes", async (t) => {
