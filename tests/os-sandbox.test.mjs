@@ -662,6 +662,8 @@ test("W18 the runtime hands program tools the wall; a short-lived key cannot tak
     assert.deepEqual(seen[0].keySites, { GITHUB_TOKEN: "api.github.com" });
     assert.ok(seen[0].unreadable.some((place) => place.endsWith("data")), "Branch's own data folder is hidden");
     assert.equal(typeof seen[0].siteCheck, "function", "the door asks the owner's network rules");
+    for (const place of app.runtime.protectedAreas.noChange) assert.ok(seen[0].readOnly.includes(place), `${place} is read-only behind the wall`);
+    for (const place of app.runtime.protectedAreas.noRead) assert.ok(seen[0].unreadable.includes(place), `${place} is hidden behind the wall`);
   }
 });
 
@@ -717,6 +719,28 @@ test("R8 macOS for real: 'anywhere' is internet addresses, not local socket file
   assert.equal(result.tcp, 200, "an internet-style address still works");
   assert.equal(result.unix, "EPERM", "a local socket file (Docker, the ssh agent) is refused");
   assert.equal(result.data, "EPERM", "a hidden place written through /var is still hidden");
+});
+
+test("R9 never-break's places stay unchangeable behind the wall too, even inside the workspace", { skip: process.platform !== "darwin" }, async (t) => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "branch-wall-r9-")));
+  t.after(() => discardTemp(root));
+  const { writeFile } = await import("node:fs/promises");
+  const workspace = join(root, "work");
+  await mkdir(join(workspace, "dist"), { recursive: true });
+  await writeFile(join(workspace, "dist", "index.js"), "original");
+  const targets = { program: join(workspace, "dist", "index.js"), fresh: join(workspace, "dist", "new.js"), work: join(workspace, "notes.txt") };
+  const script = `const fs=require("fs");const out={};for(const [k,p] of Object.entries(${JSON.stringify(targets)})){try{fs.writeFileSync(p,"x");out[k]="written"}catch(e){out[k]=e.code}}console.log(JSON.stringify(out))`;
+  const wall = wallFor({ network: "none", readOnly: [join(workspace, "dist")] });
+  const opened = await openWall(wall, { executable: process.execPath, args: ["-e", script], cwd: workspace, env: { PATH: "/usr/bin" } }, { workspace });
+  t.after(() => opened.close());
+  const output = await new Promise((resolve, reject) => execFile(opened.start.executable, opened.start.args,
+    { cwd: workspace, env: opened.start.env, timeout: 20_000 }, (error, stdout) => (error ? reject(error) : resolve(stdout))));
+  assert.deepEqual(JSON.parse(output.trim()), { program: "EPERM", fresh: "EPERM", work: "written" });
+  assert.equal(await readFile(targets.program, "utf8"), "original");
+  // Never offered as a widening either.
+  assert.match(await opened.finish({ exitCode: 1, stdout: "", stderr: `${targets.program}: Operation not permitted` }), /always protected/);
+  const linux = bwrapArgs({ workspace, network: "none", readOnly: ["/opt/branch"], kindOf: () => null }, { executable: "/bin/true", args: [] }).join(" ");
+  assert.ok(linux.includes("--ro-bind-try /opt/branch /opt/branch"));
 });
 
 /* ------------------------------------------------------------------ the card */

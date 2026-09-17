@@ -33,6 +33,8 @@ export interface BwrapInput {
   home?: string;
   temp?: string;
   dataDir?: string | undefined;
+  /** Places a program may read but never change (Branch's own program and updater). */
+  readOnly?: readonly string[];
   /** The owner's user number, for the per-user runtime folder (`/run/user/<uid>`) hidden below. */
   uid?: number | undefined;
   /** The file descriptor the filter is read from; the starter opens it. */
@@ -55,10 +57,8 @@ export function bwrapArgs(input: BwrapInput, command: { executable: string; args
   args.push("--bind", input.workspace, input.workspace);
   if (input.doorDir) args.push("--bind", input.doorDir, input.doorDir);
   for (const path of input.extraWrites ?? []) args.push("--bind-try", path, path);
-  for (const name of protectedWorkspaceNames) {
-    const path = join(input.workspace, name);
+  for (const path of [...protectedWorkspaceNames.map((name) => join(input.workspace, name)), ...(input.readOnly ?? [])])
     args.push("--ro-bind-try", path, path);
-  }
   const hidden = [...secretHomePlaces.map((place) => join(home, place)), ...(input.unreadable ?? []),
     ...(input.dataDir ? [input.dataDir] : []), ...socketPlaces(input.uid)];
   // An empty read-only folder over each folder, an empty file over each file; a missing one needs

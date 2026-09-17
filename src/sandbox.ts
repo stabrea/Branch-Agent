@@ -126,6 +126,8 @@ export interface WallContext {
   network: WallNetwork;
   keySites: Readonly<Record<string, string>>;
   unreadable: readonly string[];
+  /** Places a program may read but never change: Branch's own program, gateway and updater (src/never-break). */
+  readOnly?: readonly string[];
   /** An answer already given to "may programs reach this site" or "may it write here". */
   answer(kind: WallQuestion, target: string): "allow" | "deny" | undefined;
   /** Every place the owner has let a program write to after the wall blocked it. */

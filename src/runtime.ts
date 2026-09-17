@@ -2126,7 +2126,7 @@ ${run.output.slice(0, 6000)}`;
       // wave mac3 (os-sandbox): the wall around programs, from the owner's switch; see src/sandbox-wall.ts.
       ...wallContextFor({ store: this.store, owner: this.owner, policy: this.policy(context.source ?? "owner"),
         approvals: this.approvals, context, tool: call.name, permission: this.registry.permissionOf(call.name),
-        target: this.registry.targetOf(call.name, args, context), args, choice: gated.sandbox }) };
+        target: this.registry.targetOf(call.name, args, context), args, choice: gated.sandbox, untouchable: this.protectedAreas }) };
     const span = this.tracer.start(context.runId, "tool", `tool ${call.name}`, {
       "branch.tool.name": call.name, "branch.tool.call_id": call.id,
       "branch.tool.permission": this.registry.permissionOf(call.name),

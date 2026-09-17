@@ -477,7 +477,7 @@ export interface OpenedWall {
   close(): Promise<void>;
 }
 interface WallPlan {
-  wall: WallContext; network: WallNetwork; workspace: string; temp: string; hidden: string[];
+  wall: WallContext; network: WallNetwork; workspace: string; temp: string; hidden: string[]; readOnly: string[];
   extraWrites: string[]; keys: EdgeKey[]; deps: WallDeps;
   /** Linux only: a private folder for the filter and the door, made when the wall is built. */
   staging?: string;
@@ -523,16 +523,17 @@ async function planWall(
   const named = [...secretHomePlaces.map((place) => join(home, place)), ...wall.unreadable, ...(deps.dataDir ? [deps.dataDir] : [])];
   // Each hidden place both as written and as the system names it, so a `/var` or a link cannot slip past.
   const hidden = [...new Set(named.flatMap((path) => [path, canonicalPath(path)]))];
+  const readOnly = [...new Set((wall.readOnly ?? []).flatMap((path) => [path, canonicalPath(path)]))];
   // A yes given after the wall stopped a write lets that one file through, once — the file itself,
   // never what a link in its place points at.
   const asked = wall.granted("sandbox.write");
   for (const path of asked) wall.spend("sandbox.write", path);
   // The question names the file as the system does, so a yes naming anything else (a link) is not used.
-  const extraWrites = asked.filter((path) => canonicalPath(path) === path && widenable(path, { workspace, hidden }));
+  const extraWrites = asked.filter((path) => canonicalPath(path) === path && widenable(path, { workspace, hidden: [...hidden, ...readOnly] }));
   const keys = edgeKeys(wall, options.secrets ?? {});
   // A program left running cannot keep a door open after the call, so it gets no network instead.
   const network = options.proxy === false && (wall.network === "limited" || wall.network === "per-site") ? "none" : wall.network;
-  return { wall, network, workspace, temp, hidden, extraWrites, keys, deps, doorless: options.proxy === false };
+  return { wall, network, workspace, temp, hidden, readOnly, extraWrites, keys, deps, doorless: options.proxy === false };
 }
 
 function doorFor(plan: WallPlan, paths?: { http: string; socks: string }): SandboxProxy | null {
@@ -552,7 +553,7 @@ async function macWall(plan: WallPlan, start: SandboxStart): Promise<{ start: Sa
   const ports = address ? [address.httpPort!, address.socksPort!] : undefined;
   // The hidden places go in as the system names them (`/private/var`, not `/var`), or macOS would not match them.
   const args = seatbeltArgs({ workspace: plan.workspace, network: plan.network, proxyPorts: ports, extraWrites: plan.extraWrites,
-    unreadable: plan.hidden, temp: [plan.temp, "/private/tmp", "/private/var/tmp"] }, start);
+    unreadable: plan.hidden, readOnly: plan.readOnly, temp: [plan.temp, "/private/tmp", "/private/var/tmp"] }, start);
   const env = { ...start.env, ...keyEnv(plan.keys), ...(address && door ? proxyEnvironment({ httpPort: address.httpPort!, socksPort: address.socksPort! }, door.secret) : {}) };
   return { door, start: { executable: sandboxExecPath, args, cwd: start.cwd, env } };
 }
@@ -576,9 +577,9 @@ async function linuxWall(plan: WallPlan, start: SandboxStart): Promise<{ start: 
   const kindOf = plan.deps.kindOf ?? kindOnDisk;
   // A file that is not there yet can only be let through by its folder, the narrowest bwrap can bind.
   const extraWrites = plan.extraWrites.map((path) => (kindOf(path) ? path : dirname(path)))
-    .filter((path) => widenable(path, { workspace: plan.workspace, hidden: plan.hidden }));
+    .filter((path) => widenable(path, { workspace: plan.workspace, hidden: [...plan.hidden, ...plan.readOnly] }));
   const args = bwrapArgs({ workspace: plan.workspace, network: plan.network, doorDir: door ? staging : undefined,
-    extraWrites, unreadable: plan.hidden, temp: plan.temp, uid: process.getuid?.(),
+    extraWrites, unreadable: plan.hidden, readOnly: plan.readOnly, temp: plan.temp, uid: process.getuid?.(),
     seccompFd: 9, kindOf }, command);
   const wrapped = withSeccomp(found.path, filter, args);
   const env = { ...start.env, ...keyEnv(plan.keys), ...(door ? proxyEnvironment({ httpPort: insideDoorPorts.http, socksPort: insideDoorPorts.socks }, door.secret) : {}) };
@@ -616,10 +617,10 @@ function wallVerdict(plan: WallPlan, door: SandboxProxy | null, result: WallRun)
   const keysNote = siteless.length && result.exitCode !== 0
     ? `Behind the wall, ${siteless.join(", ")} reached the program only as a stand-in, because no site is set for ${siteless.length === 1 ? "it" : "them"} in Settings, Computer.`
     : null;
-  const denial = explainDenial(result, { network: plan.network, workspace: plan.workspace, hidden: plan.hidden });
+  const denial = explainDenial(result, { network: plan.network, workspace: plan.workspace, hidden: [...plan.hidden, ...plan.readOnly] });
   if (!denial) return keysNote;
   const path = denial.path ? canonicalPath(denial.path) : undefined;
-  if (path && !widenable(path, { workspace: plan.workspace, hidden: plan.hidden }))
+  if (path && !widenable(path, { workspace: plan.workspace, hidden: [...plan.hidden, ...plan.readOnly] }))
     return `The wall around programs stopped this command changing ${path}. That place is always protected, so Branch will not ask to open it.`;
   // Asked once: a file the owner already let through, or refused, is not asked about again.
   if (path && plan.wall.answer("sandbox.write", path) === undefined && !plan.extraWrites.includes(path))

@@ -29,6 +29,8 @@ export interface WallCall {
   permission: string;
   target: string;
   args: unknown;
+  /** mac3/never-break's places: the wall makes the system itself refuse them too. */
+  untouchable?: { noChange: readonly string[]; noRead: readonly string[] } | undefined;
   /** How tightly the matching rule wanted the program held, when it said. */
   choice: SandboxChoice | null;
 }
@@ -71,7 +73,9 @@ export function wallContextFor(call: WallCall): { osSandbox?: WallContext } {
   };
   return { osSandbox: {
     network: wallNetworkFor(settings.network, call.choice),
-    keySites: settings.keySites, unreadable: [...settings.unreadable, ...(edge.dataDir ? [edge.dataDir] : [])],
+    keySites: settings.keySites,
+    unreadable: [...settings.unreadable, ...(edge.dataDir ? [edge.dataDir] : []), ...(call.untouchable?.noRead ?? [])],
+    readOnly: [...(call.untouchable?.noChange ?? [])],
     answer, granted, spend: (kind, target) => { approvals.revoke(sessionId, kind, target); },
     ...(edge.siteCheck ? { siteCheck: edge.siteCheck } : {}),
   } };

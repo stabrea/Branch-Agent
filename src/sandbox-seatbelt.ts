@@ -81,6 +81,8 @@ export interface SeatbeltInput {
   unreadable?: readonly string[];
   home?: string;
   temp?: readonly string[];
+  /** Places a program may read but never change (Branch's own program and updater). */
+  readOnly?: readonly string[];
   /** Branch's own data folder: never readable, whatever else is allowed. */
   dataDir?: string | undefined;
 }
@@ -99,8 +101,9 @@ function writeRules(input: SeatbeltInput, params: Param[]): string[] {
     params.push([`GRANTED_${index}`, path]);
     rules.push(`(allow file-write* (literal (param "GRANTED_${index}")))`);
   });
-  protectedWorkspaceNames.forEach((name, index) => {
-    params.push([`KEEP_${index}`, join(input.workspace, name)]);
+  const kept = [...protectedWorkspaceNames.map((name) => join(input.workspace, name)), ...(input.readOnly ?? [])];
+  kept.forEach((path, index) => {
+    params.push([`KEEP_${index}`, path]);
     rules.push(`(deny file-write* (literal (param "KEEP_${index}")) (subpath (param "KEEP_${index}")))`);
   });
   return rules;
