@@ -267,7 +267,7 @@
       "baseUrl": "https://api.perplexity.ai/v1",
       "auth": "bearer",
       "modelsPath": null,
-      "capabilities": ["chat", "tools", "streaming"],
+      "capabilities": ["chat", "vision", "tools", "streaming"],
       "defaultModel": "fast",
       "recommendedModels": ["fast", "low", "medium", "high", "xhigh"],
       "pricingUrl": "https://docs.perplexity.ai/docs/getting-started/pricing",

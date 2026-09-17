@@ -71,6 +71,11 @@ export interface CapabilityPlan extends ModelPlan {
   refusal: string | null;
 }
 
+/** mac5/providers: true for a saved connection whose service has ended the route it used. */
+function isRetiredConnection(preset: ModelPreset | undefined): boolean {
+  return (preset?.provider as { retired?: unknown } | undefined)?.retired === true;
+}
+
 export class ModelRouter {
   private readonly registry = new Map<string, ModelPreset>();
   private readonly cooldowns = new Map<string, number>();
@@ -157,7 +162,8 @@ export class ModelRouter {
     const first = this.presets.get(chosen ?? projectPreset ?? owned.activePreset ?? this.default.id) ?? this.default;
     const effort = override.reasoning !== undefined ? override.reasoning : (scoped.reasoning ?? owned.reasoning ?? first.reasoning ?? null);
     const fallbacks = owned.fallbackOrder
-      .filter(id => id !== first.id && !this.coolingDown(id))
+      // mac5/providers: a connection whose service ended its route is never a fallback.
+      .filter(id => id !== first.id && !this.coolingDown(id) && !isRetiredConnection(this.presets.get(id)))
       .map(id => this.presets.get(id)!);
     if (this.coolingDown(first.id) && fallbacks.length) {
       const why = fallbackReason(this.health, [first.id], fallbacks[0]!.id);

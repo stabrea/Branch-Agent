@@ -117,7 +117,7 @@ service, not against the real one, so treat this as "Branch speaks the right lan
 | OpenAI | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types, compare passages, speech, pictures out, live conversation | just a key | [Your own API key](https://openai.com/policies/services-agreement/) |
 | OpenAI (Responses API) | in the cloud | OpenAI Responses | conversation, pictures in, tools, fixed format, as it types | just a key | [Your own API key (Responses route)](https://openai.com/policies/services-agreement/) |
 | OpenRouter | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types | just a key | [Your own API key](https://openrouter.ai/terms) |
-| Perplexity | in the cloud | Perplexity Agent | conversation, tools, as it types | just a key | [Your own API key, Agent API](https://www.perplexity.ai/hub/legal/perplexity-api-terms-of-service) |
+| Perplexity | in the cloud | Perplexity Agent | conversation, pictures in, tools, as it types | just a key | [Your own API key, Agent API](https://www.perplexity.ai/hub/legal/perplexity-api-terms-of-service) |
 | Portkey | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types | just a key | [Your own API key](https://portkey.ai/terms) |
 | Qwen (Alibaba DashScope) | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types, compare passages | just a key | [Your own API key](https://www.alibabacloud.com/help/en/legal/latest/alibaba-cloud-international-website-product-terms-of-service) |
 | SambaNova | in the cloud | OpenAI | conversation, pictures in, tools, as it types | just a key | [Your own API key](https://sambanova.ai/terms-and-conditions) |

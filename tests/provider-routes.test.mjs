@@ -224,3 +224,14 @@ test("the provider picker has a Terms line, in both languages, coloured only thr
   const block = css.slice(css.indexOf("mac5/providers"));
   assert.doesNotMatch(block, /#[0-9a-f]{3,8}\b|rgba?\(/i, "no literal colour in the Terms style");
 });
+
+test("a retired connection is never picked as a fallback", (t) => {
+  const store = new Store(":memory:");
+  t.after(() => store.close?.());
+  const models = routerFor(store);
+  const retired = buildConnection({ provider: "github-models", key: "x" });
+  models.register({ id: "gh", name: "GitHub Models", provider: retired.provider, model: retired.model, catalogId: "github-models" });
+  models.configure("owner", { activePreset: "demo", fallbackOrder: ["gh"] });
+  const plan = models.plan("owner", "s1");
+  assert.deepEqual(plan.candidates.map((c) => c.id), ["demo"]);
+});
