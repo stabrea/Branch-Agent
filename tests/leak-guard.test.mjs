@@ -132,6 +132,8 @@ test("the request copy is cleaned and the conversation itself is left alone", ()
   assert.deepEqual(leaked(sent[0].content + sent[1].toolCalls[0].arguments), []);
   assert.equal(sent[0].images[0], picture, "pictures are sent as they are");
   assert.equal(sent[2].toolCallId, "1");
+  assert.equal(JSON.parse(sent[1].toolCalls[0].arguments).env, "[hidden key-like value: AWS access key]",
+    "tool call arguments are still valid JSON for the provider");
   assert.deepEqual([...kinds].sort(), ["AWS access key", "OpenAI key"]);
 });
 
@@ -165,7 +167,8 @@ function scripted(steps) {
     name: "scripted", requests: [],
     async complete(request) {
       provider.requests.push(structuredClone({ messages: request.messages }));
-      return steps[Math.min(provider.requests.length - 1, steps.length - 1)];
+      const script = provider.steps ?? steps;
+      return script[Math.min(provider.requests.length - 1, script.length - 1)];
     },
     reset() { provider.requests.length = 0; },
   };
@@ -218,6 +221,7 @@ test("a key the owner pasted is hidden from the model service and noted once", a
 test("a web fetch whose address carries a key waits for the owner's yes", async (t) => {
   const address = "https://api.example.org/data?api_key=abc123def456";
   const fetched = [];
+  const other = "https://api.example.org/data?api_key=zzz999zzz999";
   const { app, provider } = await fixture(t, [call("web.fetch", { url: address }), say("done")]);
   app.registry.unregister("web.fetch");
   app.registry.register({ name: "web.fetch", permission: "web.read", description: "stand-in fetch",
@@ -234,6 +238,12 @@ test("a web fetch whose address carries a key waits for the owner's yes", async 
   const second = await app.runtime.run({ prompt: "get the data", sessionId: paused.sessionId });
   assert.equal(second.status, "completed", second.output);
   assert.deepEqual(fetched, [address], "the owner's yes lets that exact address through");
+  // The website is the same, the key is not: that is a new question, not something the yes covers.
+  provider.reset();
+  provider.steps = [call("web.fetch", { url: other }, "c3"), say("done")];
+  const third = await app.runtime.run({ prompt: "get the other data", sessionId: paused.sessionId });
+  assert.equal(third.status, "needs_input");
+  assert.deepEqual(fetched, [address]);
 });
 
 test("a web fetch with an ordinary address is not asked about", async (t) => {
