@@ -3,6 +3,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
 import { ShellProcess } from "../integrations/shell-process.js";
+import { posixEnvironment } from "../integrations/shell-config.js";
 import { audit } from "../audit.js";
 import type { Store } from "../store.js";
 import type { ToolContext } from "../contracts.js";
@@ -53,21 +54,26 @@ export interface SshRun {
 export function sshRunner(timeoutMs = 60_000): SshRun {
   return async (executable, args, signal) => {
     const result = await new ShellProcess({
-      executable: `${executable}${process.platform === "win32" ? ".exe" : ""}`, args,
+      executable: sshProgram(executable), args,
       cwd: tmpdir(), env: sshEnvironment(), signal, timeoutMs,
       maxOutputBytes: 65536, maxMemoryMb: 512, maxCpuSeconds: 120,
     }).run();
     return { status: result.status, stdout: result.stdout, stderr: result.stderr, exitCode: result.exitCode };
   };
 }
+/** The OpenSSH program's name: with `.exe` on Windows, as it is on macOS and Linux. */
+export const sshProgram = (name: string, platform: NodeJS.Platform = process.platform): string =>
+  `${name}${platform === "win32" ? ".exe" : ""}`;
 /** The little ssh needs from this computer: where it is, and where the owner's keys are. */
-function sshEnvironment(): NodeJS.ProcessEnv {
+export function sshEnvironment(source: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): NodeJS.ProcessEnv {
   const keep = ["PATH", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "HOME", "USERPROFILE", "HOMEDRIVE", "HOMEPATH", "APPDATA"];
   const env: NodeJS.ProcessEnv = {};
   for (const key of keep) {
-    const entry = Object.entries(process.env).find(([name]) => name.toUpperCase() === key);
+    const entry = Object.entries(source).find(([name]) => name.toUpperCase() === key);
     if (entry?.[1]) env[key] = entry[1];
   }
+  // macOS and Linux keep unlocked keys in an agent; ssh finds it through SSH_AUTH_SOCK.
+  Object.assign(env, posixEnvironment(["SSH_AUTH_SOCK", "USER", "LOGNAME", "TMPDIR"], source, platform));
   return { ...env, SSH_ASKPASS: "", DISPLAY: "" };
 }
 
