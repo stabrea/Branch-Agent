@@ -3235,6 +3235,17 @@ The above copyright notice and this permission notice shall be included in all c
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+### OpenAI Codex CLI, Apache-2.0
+
+The way `src/terminal-theme.ts` picks the 256-colour or 16-colour entry nearest a theme colour — the distance between two colours measured in Lab space (CIE76) rather than in red, green and blue — follows `codex-rs/tui/src/color.rs` in Codex CLI (https://github.com/openai/codex). The terminal view's drawing, its colour depths and its escape sequences were written for Branch after studying `codex-rs/tui`. Used under the Apache License, Version 2.0 (https://www.apache.org/licenses/LICENSE-2.0). Codex's NOTICE reads:
+
+OpenAI Codex
+Copyright 2025 OpenAI
+
+### Hermes Agent (Nous Research) and OpenClaw, MIT
+
+The command names `branch` answers to beside its own (`config`, `skin`, `cron`, `pause`, `insights`, `checkpoints`, `kanban` and the rest, listed in `src/terminal-parity.ts` and `docs/configuration.md`) were chosen after reading the command lists of Hermes Agent (https://github.com/NousResearch/hermes-agent, Copyright (c) 2025 Nous Research) and OpenClaw (https://github.com/openclaw/openclaw, Copyright (c) 2026 OpenClaw Foundation). No code was taken from either; both are under the MIT licence, whose text is given under IronClaw above.
+
 ### OpenClaw, MIT
 
 The meters on the dashboard's "This computer" card (`meter()` in `public/dashboard/sections.js`) follow the meter in OpenClaw's Control UI (`ui/src/pages/connection/system-section.ts`, https://github.com/openclaw/openclaw): an accessible `role="meter"` bar that turns to a warning at 75% and to a problem at 92%. The layout of the dashboard as a whole was studied from OpenClaw's Control UI and Hermes Agent's web dashboard; no other code was taken from either. Used under the MIT licence:

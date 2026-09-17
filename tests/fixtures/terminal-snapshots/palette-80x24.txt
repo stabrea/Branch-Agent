@@ -1,0 +1,24 @@
+ ♣ Branch Agent · Conversation                          ● Offline demonstration
+  1 Conversation   2 Inbox 2   3 Automations   4 Library   5 Customize
+    ╭─ Find anything ──────────────────────────────────────────────────────╮
+    │ › mod                                                                │
+    │                                                                      │
+    │   Settings › Models › Connection                                     │
+    │   Settings                                                           │
+    │ › Settings › Models › Defaults                                       │
+    │   Settings                                                           │
+    │   Settings › Models › On this computer                               │
+    │   Settings                                                           │
+    │   Settings › Models › Second opinion                                 │
+    │   Settings                                                           │
+    │   Settings › Models › Pictures & sound                               │
+    │   Settings                                                           │
+    │   /model [id]                                                        │
+    │   Commands · which model answers; /model on its own lists them       │
+    │   /think <low|medium|high|default>                                   │
+    │   Commands · how hard the model thinks in this conversation          │
+    ╰──────────────────────────────────────────────────────────────────7/9─╯
+ ╭─ Offline demonstration ─ Ask before changes ───────────────────────────────╮
+ │ › Describe what you want to do… (Enter sends, Alt+Enter adds a line)       │
+ ╰────────────────────────────────────────────────────────────────────────────╯
+ Up and down move · Enter chooses · Esc closes
