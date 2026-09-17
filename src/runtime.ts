@@ -111,6 +111,7 @@ import { boundPictures, markTaken, picturesKeptInView, takenPictureWords } from 
 // mac3/reflection-skills: looking back over conversations and writing new skills (src/reflection/).
 import { learnAfterTask } from "./reflection/hook.js";
 import { advisedPreload } from "./fly-core/apply.js";
+import { learningOpening } from "./learning-more/hook.js"; // R17-F: memory blocks and lessons
 
 const childConcurrency = 4;
 /** What the approval policy says about one tool call, before anything is done about it. */
@@ -1231,6 +1232,7 @@ ${run.output.slice(0, 6000)}`;
     const snapshot = this.store.review.sessionSnapshot(memoryScope(this.store, context), run.sessionId, context.agent);
     if (snapshot.count) messages.push({ role: "system", content: `What you remember about the person (snapshot taken when this conversation started; use memory.search for anything newer):\n${snapshot.text}` });
     this.store.event(run.id, "memory.snapshot", { count: snapshot.count, reused: snapshot.reused, takenAt: snapshot.takenAt });
+    messages.push(...learningOpening(run, context)); // R17-F (src/learning-more/hook.ts); adds nothing while its parts are off
     const working = this.store.workingMessages(run.sessionId);
     if (working.summary) messages.push(summaryMessage(working.summary));
     const ids: (number | null)[] = messages.map(() => null);

@@ -193,6 +193,9 @@ import { recoverOnStart } from "./never-break/resume.js";
 import { connectGuidedTelegram, saveTelegramSetup, telegramSetupView } from "./never-break/telegram-setup.js";
 import { fileURLToPath } from "node:url";
 import { Asks } from "./asks/index.js"; // mac6/bucket-23: the smaller asks
+// R17-F: learning, deeper (src/learning-more/).
+import { homedir as learningHome } from "node:os";
+import { LearningMore } from "./learning-more/index.js";
 // mac4/bucket-20: talking to other agents and tools.
 import { Interop } from "./interop/index.js";
 // mac3/reflection-skills: looking back over conversations, and skills written from experience.
@@ -937,6 +940,15 @@ export async function createBranch(options: {
     telegramInUse: () => channels.summary().channels.some((channel) => channel.kind === "telegram"), version,
     assertHost: (host, port) => web.policy.assertAllowed(new URL(`https://${host}:${port}/`), "mail server address") });
   // ── end mac6/bucket-23 ──
+  // ── R17-F: learning, deeper (src/learning-more/). Every part ships off. ──
+  const learningMore = new LearningMore({ store, registry, owner: runtime.owner, models: runtime.models,
+    fetch: () => web.policy.guard(globalThis.fetch), hindsight: asks.hindsight, mirror: memoryMirror, files,
+    secret: async (name, purpose) => (await store.secrets.resolve(runtime.owner, store.projects.active(runtime.owner).id, [name], { purpose }))[name]!,
+    // A home folder given to createBranch is where to look, so the assistants' own override variables are not read then.
+    place: () => (options.home ? { platform: process.platform, env: {}, home: resolve(options.home) } : { platform: process.platform, env: process.env, home: learningHome() }),
+    provider: () => runtime.models.plan(runtime.owner, "").candidates[0]?.provider,
+    wrapEmbedder: (embedder) => new CachedEmbeddings(asEmbeddings(embedder), knowledgeBases.cache) });
+  // ── end R17-F ──
   // ── mac3/security-check: the self-check and the malware check (src/security-audit). Both ship off. ──
   const security = new SecurityService(
     { store, runtime, registry, sessionLock, privacy, web, sessionTokens, plugins, pluginCatalog, people },
@@ -983,6 +995,8 @@ export async function createBranch(options: {
     addOns,
     /** mac6/bucket-23: the smaller asks (src/asks/); every part ships off. */
     asks,
+    /** R17-F: learning, deeper (src/learning-more/); every part ships off. */
+    learningMore,
     runtime,
     /** mac3/never-break: the task journal, and settling interrupted work after a restart. */
     neverBreak: {

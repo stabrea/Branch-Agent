@@ -29,6 +29,10 @@ export const MemoryDataSchema = z.object({
   project: z.string().trim().min(1).max(120).optional(),
   /** Set when the owner asked for a scribble to be kept, so ending the job no longer clears it. */
   promoted: z.boolean().optional(),
+  // ── R17-058 (src/learning-more/expiry.ts): the owner's labels, and when a fact stops being kept. ──
+  tags: z.array(z.string().trim().min(1).max(40)).max(12).optional(),
+  expiresAt: z.iso.datetime().optional(),
+  // ── end R17-058 ──
 }).strict();
 /** Scopes a reader may see: everything for the owner, shared plus its own for a delegated specialist. */
 export function visibleTo(record: { data: { scope?: string } }, agent?: string): boolean {

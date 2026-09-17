@@ -73,6 +73,9 @@ export const shortLivedKeyTaskRoutes: readonly TaskRoute[] = [
   post("/api/knowledge/ask", "asks the knowledge bases"),
   post("/api/retrieval/search", "searches passages"),
   post("/api/tools/meaning-search", "finds a tool by what it does"),
+  // R17-F (src/learning-more/api.ts): finding past conversations by meaning, and facts by label and date.
+  post("/api/learning-more/search", "searches conversations by meaning"),
+  post("/api/learning-more/memory/find", "searches what is remembered by label and date"),
   post("/api/receipts/verify", "checks a task's receipt"),
   post("/api/security-check/run", "runs the security check, which only reads"),
 ];
