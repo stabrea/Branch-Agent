@@ -176,3 +176,25 @@ test("A1351 and A1352: the whole-set switch has three positions, and when needed
   assert.equal(saveBatchSettings(app.store, owner, { pollMs: 50 }).mode, "on", "saving a limit leaves the switch alone");
   assert.equal(saveBatchSettings(app.store, owner, { enabled: false }).mode, "off");
 });
+
+/* w911 (A1082): a dataset has a version of its own, from what its tasks say. */
+import { datasetVersionOf, fingerprintOf, journalDiff } from "../dist/study-journal.js";
+
+test("A1082: a task reworded under the same id is a new dataset version, and older entries keep their fingerprint", () => {
+  const one = [{ id: "a", prompt: "Capital of France?", scorers: [{ kind: "contains", value: "Paris" }] }];
+  const reordered = [{ scorers: [{ value: "Paris", kind: "contains" }], prompt: "Capital of France?", id: "a" }];
+  const reworded = [{ id: "a", prompt: "Capital city of France?", scorers: [{ kind: "contains", value: "Paris" }] }];
+  assert.equal(datasetVersionOf(one), datasetVersionOf(reordered), "key order does not move the version");
+  assert.notEqual(datasetVersionOf(one), datasetVersionOf(reworded));
+  const study = { id: "s", name: "S", source: { kind: "suite", suite: "cost" }, presets: ["default"], repeats: 1, limit: 1, bestOfN: 1, maxSteps: 5, maxTokens: 100 };
+  const base = { study, tasks: ["a"], scorerKinds: ["contains"], benchmarksFolder: "", version: "1" };
+  const old = fingerprintOf(base);
+  assert.equal(old, fingerprintOf({ ...base }), "an entry with no dataset version hashes as before");
+  const v1 = { ...base, datasetVersion: datasetVersionOf(one) };
+  const v2 = { ...base, datasetVersion: datasetVersionOf(reworded) };
+  assert.notEqual(fingerprintOf(v1), fingerprintOf(v2), "same ids, different words: not the same experiment");
+  const entry = (inputs) => ({ inputs });
+  const diff = journalDiff(entry(v1), entry(v2));
+  assert.equal(diff.same, false);
+  assert.deepEqual(diff.changes.map((c) => c.what), ["Version of the tasks"]);
+});

@@ -1924,6 +1924,12 @@ after, the accuracy on each side, and — when the two results share tasks — t
 something changed it ends with the only advice that helps: change one thing at a time. `--json`
 gives the entry itself, including the study to save and run to repeat it exactly.
 
+**The version of the tasks.** Each entry also records a short version of the task set itself: a hash
+of what every task that ran says (its question, reference answer and scorers), not only its id. A
+question reworded under the same id is a different dataset, so the two runs get different
+fingerprints and replay lists "Version of the tasks" among the changes. Entries written before this
+have no dataset version and keep the fingerprint they had. (A1082; `tests/chat-engine.test.mjs`.)
+
 ### Scoring the real work as it finishes
 
 A suite tells you how the assistant does on questions somebody wrote down. It does not tell you how
