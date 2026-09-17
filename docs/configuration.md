@@ -5380,3 +5380,39 @@ every row is listed here and that every file named here exists.
   meant for putting in front of the public.
 - **A2367** (Google PaLM) — not applicable: Google retired PaLM. Gemini, its successor, is supported
   (`src/providers/gemini.ts`, `tests/provider-presets.test.mjs`).
+
+## Seeing what a task did, step by step, afterwards (public list, bucket 13)
+
+Two switches, both off on a fresh install, each with the usual three positions.
+
+**Watch a task again** (Inbox → History, `src/run-recording.ts`, `src/run-recording-page.ts`,
+`src/run-recording-api.ts`, `public/recordings.js`). Pick a finished task and it plays back as frames: the
+question, each round with the model (with the words it used), each action and what came back, each box
+of a flow, each helper it sent off, each picture it looked at, and how it ended. Play, Pause, Step back
+and Step on move through it; "The path it took" draws one box per step, coloured from the theme's own
+tokens. Nothing new is recorded to make this: the task's event log already holds it, and everything
+shown passes through the secret remover first. Off refuses every route in one sentence; "when needed"
+builds a recording only when one is opened; "on" does the same and lists recent tasks straight away.
+
+- **Save as a page** writes one HTML file that plays anywhere. It carries its own copy of
+  `public/tokens.css` and can reach nothing (`default-src 'none'`). Pictures go into it only when
+  "Put the pictures it looked at into saved pages" is ticked, and then only the newest three.
+- **Make a workflow from it** turns the actions that worked into the steps of a saved workflow, with the
+  settings they were given (secrets removed). Saving never runs it, and its steps pass the same checks
+  as any workflow's when it does run.
+- `GET /api/runs/<id>/monitor?after=<event>` is the run monitor: every flow box with its state, what it
+  handed on and the words its own task used; every exchange with the model and every action with how
+  long it took; and totals. Pass the last event number back to be handed only what is new.
+
+**Is Branch keeping up** (Settings → Advanced, `src/event-loop-watch.ts`). Measures how late Branch's own
+work starts and how busy it is, and says in one sentence whether that is fine, slow or stuck. "When
+needed" takes a two-second measurement only when Check now is pressed; "on" watches from launch and
+counts every stall; off measures nothing.
+
+A task that takes many pictures now keeps only its newest three in what the model sees
+(`src/visual-window.ts`); each older one is replaced by one sentence, and the owner's own attached
+pictures are never removed. This is a bound rather than a feature, so it has no switch.
+
+macOS and Linux: nothing here depends on the system. The event-loop watch uses Node's own
+`perf_hooks`, and the saved page is plain HTML. Tests: `tests/run-recording.test.mjs`,
+`tests/recordings-ui.test.mjs`.

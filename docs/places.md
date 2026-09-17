@@ -88,6 +88,8 @@ Inside a conversation there are no homes to add to, only two surfaces with stric
 | Site skills for the browser | `customize:skills`, with browser access itself in `settings:computer` |
 | Evaluation and studies | `settings:advanced` |
 | The dashboard in the browser (`mac3/web-dashboard`) | A page of its own at `/dashboard`, not a place; its switch in `customize:channels` |
+| Watching a task again: its recording, the path it took, saving it as a page or a workflow (bucket 13) | `inbox:history` |
+| Whether Branch itself is keeping up, the event-loop watch (bucket 13) | `settings:advanced` |
 
 When something new does not fit a row, apply the rule at the top and add a row here in the same
 change.

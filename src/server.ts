@@ -47,6 +47,8 @@ import { meteringFolder, meteringSettings, saveMeteringSettings, writeMeteringFi
 import { TryToolSchema, toolForms, tryTool } from "./playground.js";
 import { exportTemplate, importTemplate } from "./templates.js";
 import { serveRunSocket, tokenFromProtocol } from "./ws.js";
+// Bucket 13 (mac4): seeing what a task did, step by step, afterwards.
+import { handlesRecordingPath, recordingApi, startEventLoopWatch } from "./run-recording-api.js";
 import { liveHooks } from "./realtime-socket.js";
 import { readBodyWithRaw } from "./triggers.js";
 import { knowledgeApi } from "./knowledge-tools.js";
@@ -328,6 +330,8 @@ async function staticFile(
     "/dashboard/feed.js": ["dashboard/feed.js", "text/javascript; charset=utf-8"],
     "/dashboard/look.js": ["dashboard/look.js", "text/javascript; charset=utf-8"],
     "/dashboard-card.js": ["dashboard/card.js", "text/javascript; charset=utf-8"],
+    // Bucket 13 (mac4): the task recordings card and the "is Branch keeping up" card.
+    "/recordings.js": ["recordings.js", "text/javascript; charset=utf-8"],
     "/usage.js": ["usage.js", "text/javascript; charset=utf-8"],
     "/evaluation.js": ["evaluation.js", "text/javascript; charset=utf-8"],
     // Wave 7: written-down experiments, under the evaluation card.
@@ -2307,6 +2311,7 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
     })().catch(() => socket.destroy());
   });
   configureLimits(server);
+  startEventLoopWatch(app); // bucket 13: runs from the start only when the owner has it on
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
     server.listen(options.port ?? 3210, "127.0.0.1", () => {
@@ -2347,6 +2352,13 @@ async function noteFirstStart(app: Branch, dataDir: string): Promise<void> {
 }
 /** Endpoints that write the response themselves (streams and the OpenAI-style chat). */
 async function rawApi(app: Branch, request: IncomingMessage, response: ServerResponse, path: string): Promise<boolean> {
+  // ---- bucket 13 (mac4): recordings of a task, the path it took, the run monitor and the event-loop
+  // watch (src/run-recording-api.ts). It answers errors itself. ----
+  if (handlesRecordingPath(path)) {
+    await recordingApi(app, request, response, path, { readBody: () => readBody(request) });
+    return true;
+  }
+  // ---- end of the bucket 13 block ----
   // Batch 19 (wave 7): the counters, as the plain text a monitoring tool reads rather than JSON.
   if (request.method === "GET" && path === "/api/metrics") { metricsResponse(app, response); return true; }
   // Batch 20 (wave 8): what every task wrote down, as one JSON object per line, for a log shipper.
