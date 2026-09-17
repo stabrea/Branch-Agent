@@ -66,8 +66,9 @@ test("E2 the extension folder is a real Manifest V3 folder with install steps", 
   assert.ok(manifest.name && manifest.version && manifest.description);
   assert.ok(manifest.action?.default_popup, "the extension has no popup, so there is nothing to press");
   /* Manifest V3 has no background page and no broad host permission here. */
-  assert.equal(manifest.background, undefined, "a Manifest V2 background page survived");
-  assert.deepEqual(manifest.permissions.sort(), ["activeTab", "scripting", "storage"]);
+  // w911 (A2144): the right-click page notes add a Manifest V3 service worker and the context menu.
+  assert.deepEqual(manifest.background, { service_worker: "background.js", type: "module" }, "a Manifest V2 background page survived");
+  assert.deepEqual(manifest.permissions.sort(), ["activeTab", "contextMenus", "scripting", "storage"]);
   assert.equal(manifest.host_permissions, undefined, "the extension asks for every site");
   /* It asks for nothing up front, and for one address at the moment the owner names it. Without
      this the popup's own fetch is blocked by Chrome and the extension can reach no listener at all. */
@@ -77,7 +78,7 @@ test("E2 the extension folder is a real Manifest V3 folder with install steps", 
     "the popup never asks Chrome for the address the owner typed");
 
   const files = (await readdir(EXTENSION)).sort();
-  assert.deepEqual(files, ["README.md", "manifest.json", "popup.html", "popup.js"]);
+  assert.deepEqual(files, ["README.md", "address.js", "background.js", "content.js", "manifest.json", "popup.html", "popup.js"]); // w911 (A2144)
   assert.match(await readFile(new URL("README.md", EXTENSION), "utf8"), /Load unpacked/,
     "the README never says how to install it");
 });

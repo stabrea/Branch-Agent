@@ -68,8 +68,8 @@ export const systemVoiceTools = ["voice.say"] as const;
 export const sdkKitToolNames = ["sdk.routes", "sdk.route", "sdk.starter"] as const;
 /** Bucket 17: watching and saving videos with the owner's own ffmpeg and yt-dlp (src/media-understand.ts). */
 export const videoProgramTools = ["media.watch", "media.frames", "media.convert", "media.download", "media.captions"] as const;
-/** A2144: capturing annotations from the pages the owner is looking at (src/browser-annotations.ts). */
-export const pageNotesTools = ["browser.annotate", "browser.note.list", "browser.note.resolve"] as const;
+/** w911 (A2144): page notes, the owner pointing at one thing on a page (src/integrations/browser-notes-tool.ts). */
+export const pageNotesTools = ["browser.notes"] as const;
 
 type Reader = Pick<Store, "get">;
 /** mac4/bucket-20: each interop part with tools — its settings record, why it is loaded, and its tools. */
@@ -98,8 +98,8 @@ const toolFeatures: { reason: string; tools: readonly string[]; hideWhenOff: boo
   { reason: "your computer's own voice is switched on", tools: systemVoiceTools, hideWhenOff: false, mode: (s, o) => savedMode(s, o, "voice", "systemVoice") },
   // Bucket 17 hook.
   { reason: "watching and saving videos is switched on", tools: videoProgramTools, hideWhenOff: true, mode: (s, o) => savedMode(s, o, "media-programs") },
-  // w911 (A2144) hook: annotations of pages and elements.
-  { reason: "annotating page elements is switched on", tools: pageNotesTools, hideWhenOff: true, mode: (s, o) => savedMode(s, o, "page-notes") },
+  // w911 (A2144) hook: page notes.
+  { reason: "page notes are switched on", tools: pageNotesTools, hideWhenOff: true, mode: (s, o) => savedMode(s, o, "page-notes") },
   // ── mac4/bucket-20: talking to other agents and tools (src/interop/settings.ts keeps these lists). ──
   ...interopToolFeatures.map(([key, reason, tools]) => ({ reason, tools, hideWhenOff: true, mode: (s: Reader, o: string) => savedMode(s, o, key) })),
   // Bucket 21 hook: tools for people building on Branch (src/sdk-kit.ts).

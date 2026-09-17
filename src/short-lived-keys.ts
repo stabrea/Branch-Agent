@@ -75,9 +75,9 @@ export const shortLivedKeyTaskRoutes: readonly TaskRoute[] = [
   post("/api/tools/meaning-search", "finds a tool by what it does"),
   post("/api/receipts/verify", "checks a task's receipt"),
   post("/api/security-check/run", "runs the security check, which only reads"),
-  // w911 (A2144): annotating page elements.
-  post("/api/browser/notes", "captures or lists DOM element annotations"),
-  post(new RegExp(`^/api/browser/notes/[a-f0-9-]{36}$`), "resolves a noted element"),
+  // w911 (A2144) hook: a page note is work for a task, and a dealt-with one is taken off the list.
+  post("/api/browser/notes", "points a task at one thing on a web page"),
+  post(new RegExp(`^/api/browser/notes/${id}/resolve$`), "marks a page note as dealt with"),
 ];
 
 /** Reads a short-lived key may not make: what they return is a secret, or everybody's data. */

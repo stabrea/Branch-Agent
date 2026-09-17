@@ -1,65 +1,64 @@
 /**
- * w911 (A2144): Content script for capturing right-clicked element information.
- * Runs in page context and records element details for annotation.
+ * w911 (A2144): remembers the last thing you right-clicked, and — only when you pick one of the
+ * "Branch:" menu entries — hands back a cleaned copy of it.
+ *
+ * Everything is read from a copy of the element with scripts, styles, templates and text box
+ * contents taken out and every value attribute dropped. It never asks a field what it holds, so a
+ * password you typed is never read. The page address loses any sign-in name, password and fragment.
  */
-
-// Store the last right-clicked element information
-window.__lastClickedElement = null;
+let branchNoteTarget = null;
 
 document.addEventListener("contextmenu", (event) => {
-  const target = event.target;
-  if (!target) return;
+  branchNoteTarget = event.target instanceof Element ? event.target : null;
+}, true);
 
-  const tag = target.tagName.toLowerCase();
-  const text = ((target).innerText ?? target.textContent ?? "").trim().slice(0, 200);
-
-  // Build a cleaned outerHTML without password values or scripts
-  let html = target.outerHTML;
-  html = html.replace(/<script[^>]*>.*?<\/script>/gs, "");
-  html = html.replace(/type\s*=\s*["']?password["']?[^>]*value\s*=\s*["'][^"']*["']/gi, "");
-  html = html.replace(/\s+value\s*=\s*["'][^"']*["']/gi, "");
-  html = html.slice(0, 1000);
-
-  // Extract some computed styles
-  const computed = window.getComputedStyle(target);
-  const styles = {};
-  for (const prop of ["display", "visibility", "color", "backgroundColor"]) {
-    const val = computed.getPropertyValue(prop);
-    if (val) styles[prop] = val.slice(0, 100);
+/** A short CSS path that finds the element again. */
+function branchNotePath(element) {
+  const path = [];
+  for (let node = element; node && node !== document.documentElement && path.length < 6; node = node.parentElement) {
+    if (node.id) { path.unshift(`#${CSS.escape(node.id)}`); break; }
+    const same = node.parentElement ? [...node.parentElement.children].filter((child) => child.tagName === node.tagName) : [node];
+    path.unshift(`${node.tagName.toLowerCase()}:nth-of-type(${same.indexOf(node) + 1})`);
   }
+  return path.join(" > ").slice(0, 1000);
+}
 
-  // Build parent chain
-  const chain = [];
-  for (let node = target.parentElement; node && chain.length < 10; node = node.parentElement) {
-    chain.push(node.tagName.toLowerCase());
+/** The cleaned copy of one element, in the shape Branch accepts. */
+function captureNoteTarget(element) {
+  const copy = element.cloneNode(true);
+  for (const node of [...copy.querySelectorAll("script, style, noscript, template, textarea")]) {
+    if (node.tagName.toLowerCase() === "textarea") node.textContent = "";
+    else node.remove();
   }
-
-  // Build a selector
-  let selector = tag;
-  if (target.id) selector = `#${target.id}`;
-  else if (target.className) selector = `.${target.className.split(" ")[0]}`;
-
-  // Strip credentials from page URL
-  let pageUrl = location.href;
-  try {
-    const url = new URL(pageUrl);
-    url.username = "";
-    url.password = "";
-    pageUrl = url.toString();
-  } catch {
-    pageUrl = location.href.replace(/https?:\/\/[^:@/]*(?::[^@/]*)?@/, "https://");
-  }
-
-  // Store for the service worker to access
-  window.__lastClickedElement = {
-    kind: "inspect",
-    pageUrl,
-    selector,
-    tag,
-    text,
-    outerHTML: html,
-    styles,
-    parentChain: chain,
-    note: "",
+  for (const node of [copy, ...copy.querySelectorAll("*")]) node.removeAttribute("value");
+  const describe = (node) => (node.tagName.toLowerCase() + (node.id ? `#${node.id}` : "")
+    + (node.classList.length ? `.${[...node.classList].slice(0, 2).join(".")}` : "")).slice(0, 200);
+  const parentChain = [];
+  for (let node = element.parentElement; node && parentChain.length < 10; node = node.parentElement) parentChain.push(describe(node));
+  const computed = getComputedStyle(element), styles = {};
+  for (const name of ["display", "visibility", "color", "background-color", "font-size", "width", "height"])
+    styles[name] = computed.getPropertyValue(name).slice(0, 200);
+  const address = new URL(location.href);
+  address.username = ""; address.password = ""; address.hash = "";
+  return {
+    pageUrl: address.toString().slice(0, 2048), selector: branchNotePath(element), tag: element.tagName.toLowerCase(),
+    text: (copy.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 2000),
+    outerHTML: copy.outerHTML.slice(0, 20000), styles, parentChain,
   };
-});
+}
+
+const branchNoteQuestion = {
+  change: "What should Branch change about this?",
+  lift: "What should Branch do with this once it has lifted it out? (optional)",
+  comment: "Your comment for Branch:",
+};
+
+if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
+  chrome.runtime.onMessage.addListener((message, _sender, reply) => {
+    if (message?.type !== "branch-note" || !branchNoteTarget) { reply(null); return; }
+    const question = branchNoteQuestion[message.kind];
+    const note = question ? window.prompt(question, "") : "";
+    if (note === null) { reply(null); return; }
+    reply({ ...captureNoteTarget(branchNoteTarget), kind: message.kind, note: note.slice(0, 2000) });
+  });
+}

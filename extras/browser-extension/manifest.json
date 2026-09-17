@@ -2,17 +2,31 @@
   "manifest_version": 3,
   "name": "Send to Branch",
   "version": "1.0.0",
-  "description": "Send the page you are looking at, or what you have selected on it, to your own Branch Agent as a task. Right-click to annotate page elements.",
-  "permissions": ["activeTab", "scripting", "storage", "contextMenus"],
-  "optional_host_permissions": ["http://*/*", "https://*/*"],
+  "description": "Send the page you are looking at, or what you have selected on it, to your own Branch Agent as a task, or right-click one thing on a page to leave Branch a note about it.",
+  "permissions": [
+    "activeTab",
+    "contextMenus",
+    "scripting",
+    "storage"
+  ],
+  "optional_host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ],
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "background.js",
+    "type": "module"
   },
   "content_scripts": [
     {
-      "matches": ["http://*/*", "https://*/*"],
-      "js": ["content.js"],
-      "run_at": "document_start"
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
     }
   ],
   "action": {

@@ -60,9 +60,10 @@ export const ROUTES = {
   "/api/browser": "prefix",
   "/api/browser/": "prefix",
   "/api/browser/attach": "owner POST",
-  "/api/browser/notes": "task POST",
-  "/api/browser/notes/:id": "task POST",
-  "/api/browser/notes/settings": "owner POST",
+  "/api/browser/notes": "task POST", // w911 (A2144)
+  "/api/browser/notes/": "prefix", // w911 (A2144)
+  "/api/browser/notes/:id/resolve": "task POST", // w911 (A2144)
+  "/api/browser/notes/settings": "owner POST", // w911 (A2144)
   "/api/browser/profiles": "owner POST",
   "/api/browser/profiles/remove": "owner POST",
   "/api/browser/signin": "owner POST",
