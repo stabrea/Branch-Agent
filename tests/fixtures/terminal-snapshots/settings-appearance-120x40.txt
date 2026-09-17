@@ -1,0 +1,40 @@
+ ♣ Branch Agent · Settings › Appearance                                                         ● Offline demonstration
+  1 Conversation   2 Inbox 2   3 Automations   4 Library   5 Customize                             Ctrl+K Find anything
+
+  ╭─ Settings ───────────────────────────────────────────────────────────────────────────────────────────────────────╮
+  │   General                APPEARANCE                                                                              │
+  │   Assistant              Every KeepOak theme, light or dark. Changes show in this terminal and in the window.    │
+  │ › Appearance                                                                                                     │
+  │   Notifications            Theme: Forest                                                                         │
+  │   Models                   All 44 themes, shared with the window.                                                │
+  │   Voice                  › Light and dark: Dark                                                                  │
+  │   Permissions                                                                                                    │
+  │   Computer & browser                                                                                             │
+  │   Secrets                                                                                                        │
+  │   Data & usage                                                                                                   │
+  │   Advanced                                                                                                       │
+  │   Updates & about                                                                                                │
+  │                                                                                                                  │
+  │                                                                                                                  │
+  │                                                                                                                  │
+  │                                                                                                                  │
+  │                                                                                                                  │
+  │                                                                                                                  │
+  │                                                                                                                  │
+  │                                                                                                                  │
+  │                                                                                                                  │
+  │                                                                                                                  │
+  │                                                                                                                  │
+  │                                                                                                                  │
+  │                                                                                                                  │
+  │                                                                                                                  │
+  │                                                                                                                  │
+  │                                                                                                                  │
+  │                                                                                                                  │
+  │                                                                                                                  │
+  │                                                                                                                  │
+  │                                                                                                                  │
+  │                                                                                                                  │
+  ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+ Left and right change page · Enter chooses · Esc closes

@@ -1,0 +1,50 @@
+import { z } from "zod";
+import type { Store } from "../store.js";
+
+/**
+ * The owner's two switches for memory and skills that keep themselves in shape. Both ship off.
+ *
+ * Looking back (`reflection`):
+ * - `off`: nothing runs.
+ * - `when-needed`: a conversation is looked back over only when it is about to be shortened (the
+ *   moment older turns would otherwise be summarised away), or when the owner asks.
+ * - `on`: also every `everyTurns` turns of a conversation.
+ *
+ * Writing new skills (`newSkills`):
+ * - `off`: nothing is drafted, and asking for one says the switch is off.
+ * - `when-needed`: a skill is drafted only when asked — "make this into a skill", the button, or
+ *   accepting a skill idea — and the assistant sees one short tool for the first of those.
+ * - `on`: also after a finished task that looked like a repeatable procedure, and a look back may
+ *   suggest one.
+ *
+ * Whatever the positions, nothing is written or switched on without the owner saying yes.
+ *
+ * The trigger model (off / every N steps / on compaction, default 25) follows Letta Code's
+ * `reflection-settings.ts` (Apache-2.0); see THIRD_PARTY_NOTICES.md.
+ */
+export const SwitchSchema = z.enum(["off", "when-needed", "on"]);
+export type SwitchPosition = z.infer<typeof SwitchSchema>;
+export const ReflectionSettingsSchema = z.object({
+  reflection: SwitchSchema.default("off"),
+  /** With looking back on, how many of the owner's turns pass between two looks at a conversation. */
+  everyTurns: z.number().int().min(5).max(500).default(25),
+  newSkills: SwitchSchema.default("off"),
+  /** A skill nobody has used for this many days is offered for setting aside (never removed). */
+  retireAfterDays: z.number().int().min(7).max(365).default(60),
+}).strict();
+export type ReflectionSettings = z.infer<typeof ReflectionSettingsSchema>;
+
+const settingsKey = "reflection";
+
+export function reflectionSettings(store: Store, owner: string): ReflectionSettings {
+  const saved = ReflectionSettingsSchema.safeParse(store.get("settings", owner, settingsKey)?.data ?? {});
+  return saved.success ? saved.data : ReflectionSettingsSchema.parse({});
+}
+
+/** Saves the switches; a field left out keeps its saved value. */
+export function saveReflectionSettings(store: Store, owner: string, input: unknown): ReflectionSettings {
+  const patch = ReflectionSettingsSchema.partial().strict().parse(input ?? {});
+  const value = ReflectionSettingsSchema.parse({ ...reflectionSettings(store, owner), ...patch });
+  store.save("settings", owner, settingsKey, { ...value });
+  return value;
+}

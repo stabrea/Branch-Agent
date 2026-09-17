@@ -24,6 +24,7 @@ import {
   presetRules,
   prometheusText,
   readPolicy,
+  resourceMatches,
   resourceOf,
   ruleSentence,
   savePolicy,
@@ -502,8 +503,13 @@ test("P1: a rule can be about a folder, a website or a command, and says so as a
     { kind: "path", value: "finance/a.txt" });
   assert.deepEqual(resourceOf("browser.click", "browser.interact", "shop.example.com", { name: "Buy" }),
     { kind: "host", value: "shop.example.com" });
+  // Wave mac3 (tool-safety): the whole command is kept, so a rule can name the program or one of its actions.
   assert.deepEqual(resourceOf("shell.execute", "shell.execute", "rm -rf build", { executable: "rm" }),
-    { kind: "command", value: "rm" }, "a command rule is about the program being run");
+    { kind: "command", value: "rm -rf build" }, "a command rule is about the command being run");
+  assert.equal(resourceMatches({ kind: "command", pattern: "rm" }, resourceOf("shell.execute", "shell.execute", "/bin/rm -rf build", {}), "deny"), true,
+    "a refusal naming the program still covers it, from any folder");
+  // Integration review (mac3/tool-safety): an allow does not, since `/tmp/rm` is not the program said yes to.
+  assert.equal(resourceMatches({ kind: "command", pattern: "rm" }, resourceOf("shell.execute", "shell.execute", "/tmp/rm -rf build", {})), false);
   assert.equal(resourceOf("files.write", "files.write", "", {}), null, "nothing to be about is not a resource");
   // A tool that says what it touches through its own target() has no top-level path, and is still
   // covered by a folder rule: the target's shape decides, not the arguments.

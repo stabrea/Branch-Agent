@@ -87,6 +87,7 @@ Inside a conversation there are no homes to add to, only two surfaces with stric
 | Cheaper and faster model routing | `settings:models:defaults` |
 | Site skills for the browser | `customize:skills`, with browser access itself in `settings:computer` |
 | Evaluation and studies | `settings:advanced` |
+| What Branch learns from experience, the learning core (`mac2/fly-core-2`) | `library:memory`; its skill ideas open in `customize:skills` |
 | The dashboard in the browser (`mac3/web-dashboard`) | A page of its own at `/dashboard`, not a place; its switch in `customize:channels` |
 | Working with other agents and tools: Agent Protocol, lent tools, fleet, handoff, project routing, flow search (`mac4/bucket-20`) | `customize:connections` |
 | Ways of working (modes) and shared assistants (`mac4/bucket-20`) | `customize:specialists` |
