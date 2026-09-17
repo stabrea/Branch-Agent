@@ -170,3 +170,41 @@ test("a refused token saves nothing and says why; an unknown app lists the real 
   assert.match(unknown.printed[0], /Usage: branch connect <chat app>\nChat apps: telegram, discord, slack/);
   assert.equal(connectUsage().split(", ").length, 55);
 });
+
+/* ---------- integration review (adversarial pass) ---------- */
+
+test("integration review: a failed save never prints what was pasted, whatever the error says", async () => {
+  const { io, printed } = fakeIo({ answers: ["n", "n", "", "n", "on"], hidden: [token] });
+  const { backend } = fakeBackend({ fail: `the service refused ${token} (and ${encodeURIComponent(token)})` });
+  assert.equal(await runConnect("telegram", io, backend), 1);
+  const said = printed.join("\n");
+  assert.match(said, /Nothing was saved: the service refused …/);
+  assert.ok(!said.includes(token) && !said.includes(encodeURIComponent(token)), "the token is taken out of the error");
+});
+
+test("integration review: the wait for an app is bounded by the clock, even when each look is slow", async () => {
+  let clock = 0, looks = 0;
+  const { io, printed } = fakeIo({ platform: "win32", programs: ["winget"], answers: ["y", "", "n", ""], hidden: ["discord-token-123456"] });
+  io.waitMs = 60_000;
+  io.now = () => clock;
+  io.sleep = async (ms) => { clock += ms; };
+  io.runner.run = async (command, args) => {
+    if (command === "winget" && args[0] === "list") { looks += 1; clock += 30_000; } // each look takes its full 30 seconds
+    return { code: 0, stdout: "" };
+  };
+  const { backend, calls } = fakeBackend();
+  assert.equal(await runConnect("discord", io, backend), 0);
+  assert.match(printed.join("\n"), /It is not there yet/);
+  assert.ok(clock <= 60_000 + 3 * 35_000, `waited ${clock / 1000} s against a 60 s limit`);
+  assert.ok(looks <= 5, `looked ${looks} times`);
+  assert.equal(calls.saves.length, 1, "the command carries on after the wait");
+});
+
+test("integration review: a server address that cannot be opened is said, not thrown", async () => {
+  const { io, printed, ran } = fakeIo({ platform: "linux", answers: ["https://social.example/it's", "y", ""], hidden: ["mastodon-token-123"] });
+  const { backend, calls } = fakeBackend();
+  assert.equal(await runConnect("mastodon", io, backend), 0);
+  assert.deepEqual(ran.filter((run) => run.command === "xdg-open"), [], "nothing is opened");
+  assert.match(printed.join("\n"), /only opens official https and app links/);
+  assert.equal(calls.saves.length, 1);
+});

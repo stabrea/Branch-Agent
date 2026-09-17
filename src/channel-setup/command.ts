@@ -1,5 +1,5 @@
 import type { FeatureMode } from "../feature-switches.js";
-import { cleanServer } from "./check.js";
+import { cleanServer, scrub } from "./check.js";
 import { createLink, recipeFor, recipes, type Recipe } from "./recipes.js";
 import { isInstalled, managerName, openCommand, planInstall, planLine, type Probe, type Runner } from "./platform.js";
 
@@ -23,6 +23,8 @@ export interface ConnectIo {
   sleep(ms: number): Promise<void>;
   /** How long to wait for an app to finish installing. */
   waitMs?: number;
+  /** The clock the wait is measured against (tests hand in their own). */
+  now?(): number;
 }
 export interface ConnectBackend {
   mode(): Promise<FeatureMode>;
@@ -39,8 +41,11 @@ export interface SaveAnswer {
 const yes = (answer: string): boolean => /^\s*(y|yes|o|oui)\s*$/i.test(answer);
 
 async function open(io: ConnectIo, url: string): Promise<void> {
-  const { command, args } = openCommand(url, io.platform);
-  await io.runner.run(command, args, { timeoutMs: 15_000 }).catch(() => undefined);
+  let opener: { command: string; args: string[] };
+  // A link that is not a plain official one (an odd server address) is said, never opened.
+  try { opener = openCommand(url, io.platform); }
+  catch (error) { io.write(error instanceof Error ? error.message : String(error)); return; }
+  await io.runner.run(opener.command, opener.args, { timeoutMs: 15_000 }).catch(() => undefined);
 }
 
 async function switchedOn(io: ConnectIo, backend: ConnectBackend): Promise<boolean> {
@@ -71,17 +76,24 @@ async function getTheApp(io: ConnectIo, recipe: Recipe): Promise<boolean | null>
   return waitForApp(io, recipe);
 }
 
-/** Waits a bounded time for the app to appear; when this computer cannot tell, asks instead. */
+/**
+ * Waits a bounded time for the app to appear; when this computer cannot tell, asks instead. The limit
+ * holds by the clock as well as by the pauses, since each look (winget list) can itself take 30 seconds.
+ */
 async function waitForApp(io: ConnectIo, recipe: Recipe): Promise<boolean | null> {
   const limit = io.waitMs ?? 10 * 60_000;
+  const now = io.now ?? Date.now;
+  const started = now();
   const first = await isInstalled(recipe, io.platform, io.probe, io.runner);
   if (first === null) { await io.ask(`Press Enter once ${recipe.app!.name} is installed.`); return null; }
-  if (!first) io.write(`Waiting for ${recipe.app!.name} to finish installing (up to ${Math.round(limit / 60_000)} minutes).`);
-  for (let waited = 0; ; waited += 5_000) {
-    if (await isInstalled(recipe, io.platform, io.probe, io.runner)) return true;
-    if (waited >= limit) { io.write("It is not there yet. Carry on once it is."); return false; }
+  if (first) return true;
+  io.write(`Waiting for ${recipe.app!.name} to finish installing (up to ${Math.round(limit / 60_000)} minutes).`);
+  for (let waited = 0; waited < limit && now() - started < limit; waited += 5_000) {
     await io.sleep(5_000);
+    if (await isInstalled(recipe, io.platform, io.probe, io.runner)) return true;
   }
+  io.write("It is not there yet. Carry on once it is.");
+  return false;
 }
 
 async function askFields(io: ConnectIo, recipe: Recipe): Promise<Record<string, string>> {
@@ -165,9 +177,10 @@ export async function runConnect(id: string | undefined, io: ConnectIo, backend:
   const pasted = await askPasted(io, recipe);
   if (pasted === null) return 1;
   const enable = await askEnable(io, recipe);
+  const values = { ...fields, ...pasted };
   let answer: SaveAnswer;
-  try { answer = await backend.save(recipe.id, { ...fields, ...pasted }, enable); }
-  catch (error) { io.write(`Nothing was saved: ${error instanceof Error ? error.message : String(error)}`); return 1; }
+  try { answer = await backend.save(recipe.id, values, enable); }
+  catch (error) { io.write(scrub(`Nothing was saved: ${error instanceof Error ? error.message : String(error)}`, values)); return 1; }
   report(io, recipe, answer);
   await pair(io, backend, answer);
   return 0;

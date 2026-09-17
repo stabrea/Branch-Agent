@@ -1326,8 +1326,10 @@ sh install-branch-agent.sh --quiet && ~/.local/bin/branch connect telegram
 ```
 
 Nothing is piped from the internet. On Windows the installer does not write a `branch` command yet, so
-it is two steps: `"Install Branch Agent.cmd" /quiet`, then Customize → Chat apps → Set up a chat app in
-the window that opens (or `node dist\cli.js connect telegram` in a copy from Git).
+it is two steps. First, in the folder with the download, install it: in Command Prompt: `"Install Branch Agent.cmd" /quiet`;
+in PowerShell: `& '.\Install Branch Agent.cmd' /quiet` (PowerShell needs the `&` and the `.\` to run a quoted file).
+Then use Customize → Chat apps → Set up a chat app in the window that opens (or `node dist\cli.js connect telegram`
+in a copy from Git, which is the same line in both).
 
 **Official means only.** Branch uses each app's official bot or app API and the vendor's own pages.
 It never signs in as you, never drives BotFather or any other app through your personal account, and

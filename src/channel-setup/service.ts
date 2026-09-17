@@ -109,7 +109,10 @@ export async function saveSetup(host: SetupHost, id: string, input: SaveInput): 
   const secrets = Object.keys(values).filter((name) => /^[A-Z]/.test(name));
   for (const name of secrets)
     if (recipe.turnOn !== "guided") await host.store.secrets.put(host.owner, "default", name, values[name]!, { expiresInDays: 0 });
-  const connectNote = await switchOn(host, recipe, values, input.enable);
+  let connectNote: string | null;
+  // Whatever a save or connect throws is said without what was pasted (a Telegram address carries the token).
+  try { connectNote = await switchOn(host, recipe, values, input.enable); }
+  catch (error) { throw new SetupRefusal(500, scrub(`Saving or switching on failed: ${error instanceof Error ? error.message : String(error)}`, values)); }
   const record = { savedAt: new Date().toISOString(), checked: checked.ok, switched: input.enable ?? null };
   host.store.save("settings", host.owner, doneKey, { ...(host.store.get("settings", host.owner, doneKey)?.data ?? {}), [recipe.id]: record });
   return {

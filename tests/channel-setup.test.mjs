@@ -405,3 +405,27 @@ test("the setup table in the docs is the one the recipes write (node scripts/cha
   assert.equal(replaceSetupTable(docs, renderSetupTable(book)), docs, "run node scripts/channel-setup-table.mjs");
   assert.equal(renderSetupTable(book).split("\n").length, 2 + 55);
 });
+
+/* ---------- integration review (adversarial pass) ---------- */
+
+test("integration review: a save or switch that fails says why without the token", async (t) => {
+  const { app } = await freshApp(t);
+  const owner = app.runtime.owner;
+  saveSetupMode(app.store, owner, { mode: "on" });
+  const leaky = (where) => async () => { throw new Error(`${where} failed for https://api.telegram.org/bot${telegramToken}/getMe and ${telegramToken}`); };
+  for (const telegram of [{ save: leaky("save") }, { save: async () => undefined, connect: leaky("connect") }]) {
+    const service = fakeService(Response.json({ ok: true, result: { username: "owner_helper_bot" } }));
+    const host = { store: app.store, owner, fetch: service.fetch, telegram };
+    await assert.rejects(saveSetup(host, "telegram", { values: { TELEGRAM_BOT_TOKEN: telegramToken }, enable: "on" }),
+      (error) => typeof error.status === "number" && /failed/.test(error.message) && !error.message.includes(telegramToken)
+        && !error.message.includes(telegramToken.split(":")[1]));
+  }
+});
+
+test("integration review: the Windows install line is written for both Command Prompt and PowerShell", async () => {
+  const docs = await readFile(join(root, "docs", "configuration.md"), "utf8");
+  const paragraph = docs.slice(docs.indexOf("Nothing is piped from the internet."), docs.indexOf("**Official means only.**"));
+  assert.match(paragraph, /Command Prompt: `"Install Branch Agent\.cmd" \/quiet`/);
+  // PowerShell only runs a quoted path with the call operator, and never from the current folder without .\
+  assert.match(paragraph, /PowerShell: `& '\.\\Install Branch Agent\.cmd' \/quiet`/);
+});
