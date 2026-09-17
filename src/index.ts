@@ -1308,3 +1308,7 @@ export * from "./providers/cli-agent.js";
 export * from "./cli-attach.js";
 export * from "./cli-completion.js";
 export * from "./cli-run.js";
+// Wave mac2 (guards): the loop guard, the folder's own instructions and folder trust.
+export * from "./loop-guard.js";
+export * from "./folder-trust.js";
+export * from "./run-guards.js";

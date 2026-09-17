@@ -3234,3 +3234,11 @@ Permission is hereby granted, free of charge, to any person obtaining a copy of 
 The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+### OpenFang loop guard, MIT OR Apache-2.0
+
+The graduated warn / refuse / stop loop guard in `src/loop-guard.ts` — counting identical calls and identical results, noticing calls that go back and forth, and gentler limits for tools meant to be polled — follows OpenFang's `crates/openfang-runtime/src/loop_guard.rs` (https://github.com/RightNow-AI/openfang). It was written afresh; no code was copied. Used under the MIT licence quoted above for OpenFang.
+
+### Gemini CLI (Google), Apache-2.0
+
+The loop detection in `src/loop-guard.ts` and the trusted folders in `src/folder-trust.ts`, with their read-only listing before a folder is trusted, follow Gemini CLI's `packages/core/src/services/loopDetectionService.ts`, `packages/core/src/utils/trust.ts` and `packages/core/src/services/FolderTrustDiscoveryService.ts` (https://github.com/google-gemini/gemini-cli), Copyright 2025 Google LLC, licensed under the Apache License, Version 2.0 (https://www.apache.org/licenses/LICENSE-2.0). They were written afresh; no code was copied.
