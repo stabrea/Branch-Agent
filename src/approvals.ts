@@ -124,11 +124,13 @@ export class ApprovalGate {
    * is supplied and the kept answer was given for a different one, there is no answer: the exact
    * bytes changed, so the person is asked again.
    */
-  answer(sessionId: string, tool: string, target: string, fingerprint?: string): "allow" | "deny" | undefined {
+  answer(sessionId: string, tool: string, target: string, fingerprint?: string, exact = false): "allow" | "deny" | undefined {
     const key = answerKey(tool, target);
     const grant = this.answers.get(sessionId)?.get(key);
     if (!grant) return undefined;
     if (Date.parse(grant.expiresAt) <= Date.now()) { this.answers.get(sessionId)?.delete(key); return undefined; }
+    // `exact`: only a yes given for these very bytes counts (an address carrying a key or password).
+    if (exact && (!grant.fingerprint || grant.fingerprint !== fingerprint)) return undefined;
     if (grant.fingerprint && fingerprint !== undefined && grant.fingerprint !== fingerprint) return undefined;
     return grant.decision;
   }
