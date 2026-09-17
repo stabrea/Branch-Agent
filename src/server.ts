@@ -729,7 +729,7 @@ async function api(
   if (handlesWorkspaceEditorPath(path))
     return workspaceEditorApi({
       files: app.files, store: app.store, owner: app.runtime.owner, readBody,
-      runTool: (name, args) => app.runtime.executeTool(name, args),
+      runTool: (name, args) => app.runtime.executeTool(name, args, { mode: "owner" }), // mac5/manual-actions
       // Integration review: Branch's own program, settings and saved work stay out of reach here too.
       guard: (target, readOnly) => protectedTarget({ tool: readOnly ? "files.read" : "files.write", readOnly, args: { path: target },
         target, workspace: app.files.base }, app.runtime.protectedAreas),
@@ -1173,7 +1173,8 @@ async function api(
   }
   if (request.method === "POST" && path === "/api/action") {
     const action = actionSchema.parse(await readBody(request));
-    return app.runtime.executeTool(action.tool, action.args);
+    // mac5/manual-actions: the owner pressed it in the app window (src/tool-gate.ts).
+    return app.runtime.executeTool(action.tool, action.args, { mode: "owner" });
   }
   // Usage and observability routes
   if (request.method === "GET" && path === "/api/usage") {

@@ -15,8 +15,11 @@ import {
   savePolicy, saveWallSettings, setLockdown,
 } from "../dist/index.js";
 import { tryTool } from "../dist/playground.js";
+import { startServer } from "../dist/server.js";
 import { manualVerdict } from "../dist/tool-gate.js";
 import { argumentFingerprint } from "../dist/runtime.js";
+
+const owner = { mode: "owner" };
 
 async function app(t) {
   const root = await mkdtemp(join(tmpdir(), "branch-manual-gate-"));
@@ -39,7 +42,7 @@ const denials = (branch) => branch.store.runs("local")
 test("a manual action may not write Branch's data folder, whatever the rules say", async (t) => {
   const { branch, root } = await app(t);
   savePolicy(branch.store, "local", { preset: "custom", rules: [{ tool: "*", decision: "allow", remember: "always" }] });
-  await assert.rejects(branch.runtime.executeTool("files.write", { path: "../data/gateway.json", content: "{}" }),
+  await assert.rejects(branch.runtime.executeTool("files.write", { path: "../data/gateway.json", content: "{}" }, owner),
     (error) => error instanceof PolicyRefusedError && /never lets a task/.test(error.message));
   await assert.rejects(access(join(root, "data", "gateway.json")), "nothing was written");
   assert.ok(denials(branch).length >= 1, "the refusal is on the record");
@@ -47,7 +50,7 @@ test("a manual action may not write Branch's data folder, whatever the rules say
 
 test("a manual action may not rm -rf Branch's data folder", async (t) => {
   const { branch, root, ran } = await app(t);
-  await assert.rejects(branch.runtime.executeTool("shell.execute", { executable: "rm", args: ["-rf", join(root, "data")] }),
+  await assert.rejects(branch.runtime.executeTool("shell.execute", { executable: "rm", args: ["-rf", join(root, "data")] }, owner),
     /never lets a task/);
   assert.equal(ran.length, 0, "the command never started");
 });
@@ -55,19 +58,19 @@ test("a manual action may not rm -rf Branch's data folder", async (t) => {
 test("under Lockdown a changing manual action is refused, and looking still works", async (t) => {
   const { branch, root } = await app(t);
   setLockdown(branch.store, "local", { on: true });
-  await assert.rejects(branch.runtime.executeTool("files.write", { path: "note.txt", content: "x" }), /Lockdown is on/);
+  await assert.rejects(branch.runtime.executeTool("files.write", { path: "note.txt", content: "x" }, owner), /Lockdown is on/);
   await assert.rejects(access(join(root, "workspace", "note.txt")));
   setLockdown(branch.store, "local", { on: false });
-  await branch.runtime.executeTool("files.write", { path: "note.txt", content: "x" });
+  await branch.runtime.executeTool("files.write", { path: "note.txt", content: "x" }, owner);
   setLockdown(branch.store, "local", { on: true });
-  const read = await branch.runtime.executeTool("files.read", { path: "note.txt" });
+  const read = await branch.runtime.executeTool("files.read", { path: "note.txt" }, owner);
   assert.match(JSON.stringify(read), /x/, "a look is not a change");
 });
 
 test("a deny rule refuses a manual action", async (t) => {
   const { branch, root } = await app(t);
   savePolicy(branch.store, "local", { preset: "custom", rules: [{ tool: "files.write", decision: "deny" }] });
-  await assert.rejects(branch.runtime.executeTool("files.write", { path: "note.txt", content: "x" }),
+  await assert.rejects(branch.runtime.executeTool("files.write", { path: "note.txt", content: "x" }, owner),
     (error) => error instanceof PolicyRefusedError);
   await assert.rejects(access(join(root, "workspace", "note.txt")));
 });
@@ -76,19 +79,19 @@ test("an untrusted folder refuses a changing manual action", async (t) => {
   const { branch, root } = await app(t);
   saveFolderTrustSettings(branch.store, "local", { mode: "on" });
   decideFolder(branch.store, "local", join(root, "workspace"), { folder: "", decision: "distrust" });
-  await assert.rejects(branch.runtime.executeTool("files.write", { path: "note.txt", content: "x" }), /not trusted/);
+  await assert.rejects(branch.runtime.executeTool("files.write", { path: "note.txt", content: "x" }, owner), /not trusted/);
 });
 
 test("the owner's own 'ask first' rule does not stop what the owner pressed", async (t) => {
   const { branch, root } = await app(t);
   savePolicy(branch.store, "local", { preset: "ask-before-changes" });
-  await branch.runtime.executeTool("files.write", { path: "note.txt", content: "mine" });
+  await branch.runtime.executeTool("files.write", { path: "note.txt", content: "mine" }, owner);
   assert.equal(await readFile(join(root, "workspace", "note.txt"), "utf8"), "mine");
 });
 
 test("an ordinary allowed manual action still works", async (t) => {
   const { branch, root } = await app(t);
-  await branch.runtime.executeTool("files.write", { path: "ok.txt", content: "fine" });
+  await branch.runtime.executeTool("files.write", { path: "ok.txt", content: "fine" }, owner);
   assert.equal(await readFile(join(root, "workspace", "ok.txt"), "utf8"), "fine");
   assert.equal(denials(branch).length, 0);
 });
@@ -97,7 +100,7 @@ test("a manual command runs behind the owner's wall, and a rule only tightens it
   const { branch, ran } = await app(t);
   saveWallSettings(branch.store, "local", { mode: "on", network: "open" });
   savePolicy(branch.store, "local", { preset: "custom", rules: [{ tool: "shell.execute", decision: "allow", sandbox: "no-internet" }] });
-  await branch.runtime.executeTool("shell.execute", { executable: "echo", args: ["hi"] });
+  await branch.runtime.executeTool("shell.execute", { executable: "echo", args: ["hi"] }, owner);
   const wall = ran[0].context.osSandbox;
   assert.ok(wall, "the wall came with the call");
   assert.equal(wall.network, "none", "the rule's 'no internet' tightened the owner's open network");
@@ -157,4 +160,40 @@ test("Try a tool keeps its question but obeys Branch's own files and Lockdown", 
   const locked = await attempt({ name: "files.write", arguments: { path: "t.txt", content: "q" }, confirm: true });
   assert.equal(locked.status, "refused");
   await assert.rejects(access(join(root, "workspace", "t.txt")));
+});
+
+test("left without a mode, a tool run is held to the full rules", async (t) => {
+  const { branch, root } = await app(t);
+  savePolicy(branch.store, "local", { preset: "ask-before-changes" });
+  await assert.rejects(branch.runtime.executeTool("files.write", { path: "d.txt", content: "a" }),
+    (error) => error instanceof ApprovalRequiredError);
+  await assert.rejects(access(join(root, "workspace", "d.txt")));
+});
+
+test("over HTTP: the app's key runs a hand-pressed action, a short-lived key cannot skip the question", async (t) => {
+  const { branch, root } = await app(t);
+  const server = await startServer(branch, { dataDir: join(root, "data"), port: 0 });
+  t.after(() => server.close());
+  const post = (token, body) => fetch(`${server.url}/api/action`, {
+    method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify(body),
+  });
+  savePolicy(branch.store, "local", { preset: "ask-before-changes" });
+  const mine = await post(server.token, { tool: "files.write", args: { path: "http.txt", content: "owner" } });
+  assert.equal(mine.status, 200, JSON.stringify(await mine.clone().json()));
+  const key = branch.sessionTokens.create("local", { name: "script", scope: "run", minutes: 5 }).token;
+  const scripted = await post(key, { tool: "files.write", args: { path: "script.txt", content: "no" } });
+  assert.notEqual(scripted.status, 200);
+  assert.match(JSON.stringify(await scripted.json()), /short-lived key cannot say yes/);
+  await assert.rejects(access(join(root, "workspace", "script.txt")));
+  const guarded = await post(server.token, { tool: "files.write", args: { path: "../data/gateway.json", content: "{}" } });
+  assert.notEqual(guarded.status, 200);
+  assert.match(JSON.stringify(await guarded.json()), /never lets a task/);
+});
+
+test("a profile whose role covers the kind still meets the workflow tool's own owner check", async (t) => {
+  const { branch } = await app(t);
+  const person = branch.store.profiles.create({ name: "Kim", pin: "1357" });
+  branch.runtime.roles.save(person.id, { role: "owner" });
+  branch.store.profiles.switch({ profileId: person.id, pin: "1357" });
+  await assert.rejects(branch.runtime.executeTool("workflows.list", {}, owner), /belongs to the owner/);
 });

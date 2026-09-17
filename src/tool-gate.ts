@@ -1,6 +1,7 @@
 import { ApprovalRequiredError, PolicyRefusedError } from "./approvals.js";
 import type { ToolContext } from "./contracts.js";
 import { folderTrustMode } from "./folder-trust.js";
+import { startedWithShortLivedKey } from "./key-context.js";
 import { lockedDown } from "./lockdown.js";
 import type { RunSource } from "./policy.js";
 import type { RunGuards } from "./run-guards.js";
@@ -17,8 +18,11 @@ import type { Store } from "./store.js";
  *   "ask first" rule they wrote does not stop it. Everything else still does: a refusing rule,
  *   Branch's own files (never-break), Lockdown and an untrusted folder for anything that changes
  *   something, and the sandbox a rule asks for.
- * - "policy": work that runs by itself is held exactly as a task is — "ask" comes back as
- *   `ApprovalRequiredError`, bound to the exact bytes, for the caller to put to the owner.
+ * - "policy" (the default, so a caller that forgets is held, not let through): work that runs by
+ *   itself is held exactly as a task is — "ask" comes back as `ApprovalRequiredError`, bound to the
+ *   exact bytes, for the caller to put to the owner.
+ *
+ * A short-lived key is not the owner at the window: "ask" is a refusal for it even in "owner" mode.
  */
 export type ToolGateMode = "owner" | "policy";
 
@@ -41,6 +45,8 @@ export interface ToolGateHost {
 
 export const lockdownManualRefusal =
   "Lockdown is on, so nothing that changes anything is done by hand either. Turn Lockdown off in Settings to allow this again.";
+export const shortLivedKeyRefusal =
+  "Your approval settings ask first about this, and a short-lived key cannot say yes. Do it in the app window.";
 export const untrustedManualRefusal =
   "This folder is not trusted, so nothing that changes anything in it is done by hand. Trust the folder in Settings first.";
 
@@ -89,6 +95,7 @@ export function manualVerdict(host: ToolGateHost, tool: string, args: unknown, c
   if (check.decision === "deny") return { ...base, decision: "deny", reason: check.reason ?? null };
   const held = ownerHold(host, check);
   if (held) return { ...base, decision: "deny", reason: held };
+  if (check.decision === "ask" && startedWithShortLivedKey()) return { ...base, decision: "deny", reason: shortLivedKeyRefusal };
   return { ...base, decision: check.decision, reason: null };
 }
 
@@ -97,7 +104,7 @@ export function manualVerdict(host: ToolGateHost, tool: string, args: unknown, c
  * the sandbox the matching rule wants, to be put on the context the tool runs with.
  */
 export function gateToolUse(host: ToolGateHost, tool: string, args: unknown, context: ToolContext,
-  fingerprint: string, mode: ToolGateMode = "owner"): SandboxScope {
+  fingerprint: string, mode: ToolGateMode = "policy"): SandboxScope {
   if (mode === "owner") {
     // The owner is the one asking, so an "ask first" rule of theirs does not stop it.
     const verdict = manualVerdict(host, tool, args, context, fingerprint);
