@@ -34,8 +34,10 @@ export const handlesInteropPath = (path: string): boolean =>
 /** Changes a short-lived key may not make here: they widen what Branch may do or who may reach it. */
 export function interopOffLimits(method: string | undefined, path: string): string | null {
   if (method === "GET" || !path.startsWith("/api/interop")) return null;
-  if (/^\/api\/interop\/(switch|handoff|market|modes|routes)(\/|$)/.test(path))
-    return "A short-lived key cannot change how Branch works with other agents, bring an assistant in, or hand a conversation on. Do that in the app window.";
+  // Integration review: "route" can switch the active project, "flow-search" can save a flow, and
+  // "fleet" can stop every task; all three are the owner's too.
+  if (/^\/api\/interop\/(switch|handoff|market|modes|routes|route|flow-search|fleet)(\/|$)/.test(path))
+    return "A short-lived key cannot change how Branch works with other agents, switch the project, save a flow, stop tasks, bring an assistant in, or hand a conversation on. Do that in the app window.";
   return null;
 }
 

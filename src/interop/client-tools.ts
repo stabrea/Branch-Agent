@@ -29,6 +29,8 @@ import { interopMode } from "./settings.js";
 export const clientToolPermission = "client.tools";
 export const clientToolsPath = "/api/interop/client-tools/ws";
 const maxTools = 16;
+/** How many programs may lend tools at once, so the catalog cannot be flooded. */
+const maxPrograms = 8;
 const maxFrameBytes = 256 * 1024;
 const maxOutputChars = 16000;
 const callTimeoutMs = 60000;
@@ -138,6 +140,7 @@ export class ClientToolHub {
   claim(connection: ClientConnection, client: string): string | null {
     if (!this.enabled()) return "Tools lent by a connected program are switched off.";
     if (this.connections.has(client)) return `A program called ${client} is already connected.`;
+    if (this.connections.size >= maxPrograms) return `At most ${maxPrograms} programs may lend tools at once.`;
     this.connections.set(client, connection);
     audit(this.store, this.owner, { action: "connection.changed", actor: client, subject: `${client} lent tools over a socket`,
       reason: "A program on this computer offered tools to the assistant", outcome: "connected" });
@@ -187,6 +190,8 @@ export function serveClientToolSocket(hub: ClientToolHub, request: IncomingMessa
     for (let decoded = readFrame(pending); decoded; decoded = readFrame(pending)) {
       pending = pending.subarray(decoded.consumed);
       if (decoded.opcode === 0x8) link.close();
+      // A control frame carries at most 125 bytes; anything longer is not a real ping.
+      else if (decoded.opcode === 0x9 && decoded.payload.length > 125) link.close();
       else if (decoded.opcode === 0x9) socket.write(Buffer.concat([Buffer.from([0x8a, decoded.payload.length]), decoded.payload]));
       else if (decoded.opcode === 0x1 && decoded.fin) connection.receive(decoded.payload.toString("utf8"));
     }

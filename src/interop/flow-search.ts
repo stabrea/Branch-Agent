@@ -60,6 +60,21 @@ export function readFlows(text: string): unknown[] {
   } catch { return []; }
 }
 
+/** A drafted flow may only ask the model and branch on what it said: no tools, lists or other flows. */
+const draftKinds = new Set(["prompt", "condition"]);
+const maxDraftBoxes = 8;
+export function draftProblems(draft: unknown): string[] {
+  const nodes = (draft as { nodes?: unknown } | null)?.nodes;
+  if (!Array.isArray(nodes)) return [];
+  const problems: string[] = [];
+  if (nodes.length > maxDraftBoxes) problems.push(`A drafted flow may have at most ${maxDraftBoxes} boxes; this one has ${nodes.length}.`);
+  for (const node of nodes) {
+    const kind = String((node as { kind?: unknown } | null)?.kind ?? "");
+    if (!draftKinds.has(kind)) problems.push(`A drafted flow may only ask and branch; the "${kind}" box would use a tool or another flow, so it was not tried.`);
+  }
+  return problems;
+}
+
 const answerOf = (state: Record<string, unknown>): string => {
   const value = state.answer;
   return typeof value === "string" ? value : JSON.stringify(value ?? "");
@@ -68,6 +83,8 @@ const answerOf = (state: Record<string, unknown>): string => {
 /** Checks one draft and tries it on every example. A draft that fails the check scores nothing. */
 export async function scoreDraft(parts: FlowSearchParts, draft: unknown, examples: z.infer<typeof FlowSearchSchema>["examples"]): Promise<Scored> {
   const name = String((draft as { name?: unknown } | null)?.name ?? "unnamed").slice(0, 80);
+  const refused = draftProblems(draft);
+  if (refused.length) return { name, score: 0, definition: null, misses: [], problems: refused };
   let definition: FlowGraphDefinition;
   try { definition = compileGraph(draft).definition; }
   catch (error) {
@@ -137,10 +154,11 @@ export function registerFlowSearch(registry: ToolRegistry, runtime: Runtime, flo
   registry.register({
     name: "flow.search", group: "schedules", permission: "workflows.manage",
     description: "Draft several flows for a goal, try each on worked examples, improve the best, and report the scores.",
-    parameters: FlowSearchSchema,
+    // Saving is the owner's: the model's call has no "save", so a winner is only ever reported.
+    parameters: FlowSearchSchema.omit({ save: true }),
     execute: async (args, context) => {
       requireInterop(runtime.store, context.owner, "flow-search");
-      return searchFlows(flowSearchParts(runtime, flows, context), args);
+      return searchFlows(flowSearchParts(runtime, flows, context), { ...args, save: false });
     },
   });
 }

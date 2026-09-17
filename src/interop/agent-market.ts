@@ -71,6 +71,46 @@ export function shareablePackage(bytes: Buffer, sections: readonly Shareable[]):
   return zipWrite([[agentManifestEntry, JSON.stringify(manifest, null, 1)], ...kept.map((s): [string, string] => [s.file, opened.files.get(s.file)!])]);
 }
 
+const tooMuch = (): Error => new Error("The market sent more than an assistant file may be");
+
+/** Reads a response body, stopping as soon as it passes `limit` rather than after holding all of it. */
+export async function readCapped(response: Response, limit: number): Promise<Buffer> {
+  if (Number(response.headers.get("content-length") ?? 0) > limit) throw tooMuch();
+  const reader = response.body?.getReader();
+  if (!reader) return Buffer.alloc(0);
+  const chunks: Buffer[] = [];
+  let total = 0;
+  for (let part = await reader.read(); !part.done; part = await reader.read()) {
+    total += part.value.byteLength;
+    if (total > limit) { await reader.cancel().catch(() => undefined); throw tooMuch(); }
+    chunks.push(Buffer.from(part.value));
+  }
+  return Buffer.concat(chunks);
+}
+
+/**
+ * The opened file with every specialist and saved procedure whose id is already one of yours taken
+ * out, so a market adds to what you have and never quietly rewrites it. Returns how many were kept.
+ */
+function withoutYours(store: Store, owner: string, opened: OpenedAgent): { opened: OpenedAgent; kept: number } {
+  const files = new Map(opened.files);
+  let kept = 0;
+  for (const section of opened.manifest.sections) {
+    const table = section.name;
+    if (table !== "specialists" && table !== "procedures") continue;
+    const rows = JSON.parse(files.get(section.file) ?? "[]") as unknown;
+    if (!Array.isArray(rows)) continue;
+    const fresh = rows.filter((row) => {
+      const id = (row as { id?: unknown } | null)?.id;
+      const mine = typeof id === "string" && store.get(table, owner, id) !== undefined;
+      if (mine) kept++;
+      return !mine;
+    });
+    files.set(section.file, JSON.stringify(fresh));
+  }
+  return { opened: { ...opened, files }, kept };
+}
+
 export class AgentMarket {
   constructor(private readonly store: Store, private readonly owner: string, private readonly policy: NetworkPolicy,
     private readonly files: WorkspaceFiles, private readonly appVersion: string,
@@ -92,9 +132,7 @@ export class AgentMarket {
     await this.policy.assertAllowed(target, "market address");
     const response = await this.fetchImpl(target, { redirect: "error", signal: AbortSignal.timeout(30000) });
     if (!response.ok) throw new Error(`The market did not answer (HTTP ${response.status})`);
-    const bytes = Buffer.from(await response.arrayBuffer());
-    if (bytes.byteLength > limit) throw new Error("The market sent more than an assistant file may be");
-    return bytes;
+    return readCapped(response, limit);
   }
   /** What a market offers. Nothing is installed by looking. */
   async browse(url: string): Promise<MarketIndex> {
@@ -119,7 +157,9 @@ export class AgentMarket {
     const sections = z.array(z.enum(shareableSections)).min(1).max(3).parse(chosen);
     const { entry, opened } = await this.open(url, id);
     const before = new Set(this.store.skills.list(this.owner).map((s) => s.id));
-    const reports = importAgent(this.store, this.owner, opened, sections);
+    const trimmed = withoutYours(this.store, this.owner, opened);
+    const reports = importAgent(this.store, this.owner, trimmed.opened, sections);
+    if (trimmed.kept) reports.push({ section: "specialists", brought: 0, note: `kept yours: ${trimmed.kept} with a name you already use were left out` });
     for (const skill of this.store.skills.list(this.owner))
       if (!before.has(skill.id) && skill.activeVersion !== null)
         this.store.skills.disable(this.owner, skill.id, { expectedRevision: skill.revision });

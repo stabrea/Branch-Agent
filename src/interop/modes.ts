@@ -1,5 +1,5 @@
-import { readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { readFileSync, realpathSync, statSync } from "node:fs";
+import { join, relative, isAbsolute } from "node:path";
 import { z } from "zod";
 import { errorText, type ToolContext } from "../contracts.js";
 import { integrationsFileTrusted } from "../folder-trust.js";
@@ -72,6 +72,10 @@ export class Modes {
     const file = join(this.workspace, modesFile);
     try {
       if (statSync(file).size > 64 * 1024) return [];
+      // A `.branch` that links out of the folder is not the folder's own file, and the trust check
+      // below treats a file outside the workspace as the owner's, so it must not get that far.
+      const inside = relative(realpathSync(this.workspace), realpathSync(file));
+      if (!inside || inside.startsWith("..") || isAbsolute(inside)) return [];
       if (!integrationsFileTrusted(this.store, this.owner, this.workspace, file)) return [];
       const parsed = FileSchema.safeParse(JSON.parse(readFileSync(file, "utf8")));
       return parsed.success ? parsed.data.modes : [];

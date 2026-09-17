@@ -2381,7 +2381,8 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
       const path = new URL(request.url ?? "/", url || "http://127.0.0.1").pathname;
       // mac4/bucket-20: a program on this computer lending tools, behind the key and while the switch is on.
       if (path === clientToolsPath) {
-        const sameHost = hostAllowed(request.headers.host, request.headers.origin, url, remote.allowedHosts());
+        // Integration review: "a program on this computer" — the paired address never lends tools.
+        const sameHost = hostAllowed(request.headers.host, request.headers.origin, url);
         if (!sameHost || !tokenFromProtocol(request, token) || !app.interop.clients.enabled()) {
           socket.end("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
           return;

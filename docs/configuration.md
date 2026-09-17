@@ -5586,7 +5586,7 @@ same on all three, and the tests run on each.
 - **A1857** (agent marketplace) — built: a market is a `market.json` list naming files made by "Export the
   assistant", each with its fingerprint. Looking installs nothing; bringing one in checks the fingerprint
   and every part, and takes only specialists, saved procedures and skills — never approval rules, model
-  choices or memory — with new skills switched off. Publishing writes both files into a folder of your
+  choices or memory — with new skills switched off, and a specialist or procedure with a name you already use is left out, never replaced. Publishing writes both files into a folder of your
   workspace for any web server; nothing is uploaded (`src/interop/agent-market.ts`, `src/agent-export.ts`,
   `tests/agent-interop.test.mjs`).
 - **provider-actions** (A2252, provider effect actions) — verified: a service's own operations become
@@ -5623,6 +5623,7 @@ same on all three, and the tests run on each.
 - **A0421** (AFlow workflow optimisation) — built, bounded: `flow.search` (and `POST /api/interop/flow-search`)
   asks the model for up to four different flows for a goal, checks each the way the flow editor does, tries
   each on up to five worked examples, scores the share of answers containing what was expected, shows the
-  best its misses for up to two rounds of improvement, and saves the winner only when asked. It is greedy
+  best its misses for up to two rounds of improvement, and saves the winner only when you ask in Customize (the model's
+  call cannot save). A drafted flow may only ask and branch — at most eight boxes, no tool, list or other-flow box. It is greedy
   improvement, not MetaGPT's tree search, and every try is a real run that costs what it costs
   (`src/interop/flow-search.ts`, `tests/agent-interop.test.mjs`).
