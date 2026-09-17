@@ -3476,3 +3476,13 @@ The stand-in keys in `src/sandbox-proxy.ts` — a program gets a placeholder and
 - ZeroClaw (https://github.com/zeroclaw-labs/zeroclaw, MIT OR Apache-2.0): procedures with their own autonomy level, a per-step confirmation that overrides running on their own, coalescing a start while one runs, and the completion rate (`crates/zeroclaw-runtime/src/sop/`).
 - OpenFang (https://github.com/RightNow-AI/openfang, MIT OR Apache-2.0): requirements with install steps per system and a readiness report (`crates/openfang-hands/`).
 - CrewAI (https://github.com/crewAIInc/crewAI, MIT) and Agent Zero (https://github.com/agent0ai/agent-zero, Copyright (c) Agent Zero, s.r.o., MIT): turning feedback into standing instructions given to later tasks (`crew.py` `train`, `plugins/_memory/tools/behaviour_adjustment.py`).
+
+### Flows and boards (r17-h; ideas only), MIT and Apache-2.0
+
+`src/flows-boards/` was written afresh for Branch after studying these projects; no code was copied from any of them.
+
+- LangGraph (https://github.com/langchain-ai/langgraph, Copyright (c) 2024 LangChain, MIT): going back to a checkpoint, changing the state and running a fork from there (`libs/langgraph/langgraph/pregel/main.py`).
+- Goose (https://github.com/aaif-goose/goose, formerly block/goose, Copyright (c) Block, Inc., Apache-2.0): checks that run after a recipe, clean-up on failure, time limits and a retry count (`crates/goose/src/agents/retry.rs`).
+- Hermes Agent (https://github.com/NousResearch/hermes-agent, Copyright (c) 2025 Nous Research, MIT): the shared kanban board with lanes, hand-offs and a circuit breaker (`hermes_cli/kanban*.py`), and `/queue`, `/busy` and `/focus`.
+- OpenClaw (https://github.com/openclaw/openclaw, Copyright (c) 2026 OpenClaw Foundation, MIT): widgets the assistant builds that stay current (`src/canvas/widget-tool.ts`).
+- NanoClaw (https://github.com/nanocoai/nanoclaw, Copyright (c) 2026 Gavriel, MIT): the agent asking for packages and tool servers, and the owner approving from chat (`src/modules/self-mod/`).

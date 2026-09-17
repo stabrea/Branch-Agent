@@ -6657,6 +6657,27 @@ readiness check splits `PATH` with `:` on macOS and Linux and `;` on Windows (tr
 and `.bat` there), checks the file can be run, and suggests `brew` on macOS and Linux, `apt` on Linux
 and `winget` on Windows.
 
+## Flows and boards (r17-h)
+
+Seven parts, each with the owner's three-way switch (off, on, only when it is needed), all off at
+first. Their switches and settings are under `/api/flows-boards/`, owner only; a short-lived key can
+read and change nothing there except by looking (`tests/short-lived-key-routes.mjs`). Every tool call
+any of them makes goes through the one tool gate (`src/tool-gate.ts`).
+
+| Part | Where it lives | What it does |
+| --- | --- | --- |
+| Going back in a flow | Automations → Procedures | While it is on, a graph flow keeps its values after every step. Pick a step, change a value (checked against what the flow says each value is), and run a copy from the next step. The run you came from never changes; the copy is a task of its own whose recording starts with the copied steps (`flow.steps`) |
+| Checks for procedures | Automations → Procedures | After a verified procedure runs: checks (a tool call whose answer must contain some words, or a small script through `code.run` that must end with 0), clean-up calls after each failed try, a time limit per try and per call, and 0–5 more tries. A question or a refusal from your approval rules stops it at once and is never retried. A task's own call never reaches past its permissions, and a check cannot start procedures, schedules, specialists or flows (`procedures.replay_checked`) |
+| Shared board | Automations → Scheduled | Cards in To do, Doing, To check, Done and Stuck for the active project, laid over bucket 23's project board. The assistant may add cards, move them among the first three and hand them on with a note — only from your own work, never from a chat, a key, a household person or another program. Only you start work on a card (an ordinary task), finish, reset or remove one. A card whose work fails 3 times in a row (1–10) stops in Stuck until you reset it (`board.cards`, `board.card_add`, `board.card_move`, `board.card_handoff`) |
+| Widgets the assistant built | Library → Made | The assistant suggests a widget — a look-only tool, its settings and how often to ask again — only from your own conversation; at most ten wait, and a no is never asked again. A yes makes it one of bucket 23's live pages (which must be on), shown in the same sealed frame and asked again only as your rules allow unattended work (`widgets.list`, `widgets.propose`) |
+| The waiting line | Automations → Scheduled | Reword, move or take out the messages waiting in a conversation and the tasks waiting for room (a move never puts automatic work ahead of yours). While a task works, what you type waits (as before), is passed on as the trusted steer note, or stops the task and goes next (`/queue`, `/busy`) |
+| Focus view | Settings → Appearance | Shows only what you asked and the final answers; tool steps and in-between replies are folded away until you switch it off. Kept per browser (`/focus`) |
+| Package and tool server requests | Inbox → Needs you | The assistant or a chat can ask for an npm or PyPI package or a tool server (`install.request`, `/installs request`). The public list of harmful packages (OSV) is asked first, as the malware check does; one named as malware is refused on the spot. Only you answer — in the window or your own terminal, never from a chat app, a short-lived key or a household person — and a request the list could not be asked about needs "approve without the check". A yes installs nothing: it comes back with the exact command or server settings to use (`install.requests`) |
+
+**macOS and Linux.** Everything here is plain Node and behaves the same on all three systems; a check
+script runs wherever `code.run` runs, under its own sandbox settings. `BRANCH_OSV_ENDPOINT` points the
+request check at another copy of the list, as it does for the malware check.
+
 ## Comments that ask the assistant (A0344)
 
 `branch watch <folder> --ai-comments` watches a folder inside your workspace. A comment written in

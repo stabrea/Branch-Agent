@@ -194,6 +194,7 @@ import { connectGuidedTelegram, saveTelegramSetup, telegramSetupView } from "./n
 import { fileURLToPath } from "node:url";
 import { Asks } from "./asks/index.js"; // mac6/bucket-23: the smaller asks
 import { Autonomy } from "./autonomy/index.js"; // r17-b: it suggests, and runs things on its own
+import { FlowsBoards } from "./flows-boards/index.js"; // r17-h: flows and boards
 // mac4/bucket-20: talking to other agents and tools.
 import { Interop } from "./interop/index.js";
 // mac3/reflection-skills: looking back over conversations, and skills written from experience.
@@ -952,6 +953,10 @@ export async function createBranch(options: {
     } });
   scheduler.onTick.add(() => autonomy.tick());
   // ── end r17-b ──
+  // ── r17-h: flows and boards (src/flows-boards/). Every part ships off. ──
+  const flowsBoards = new FlowsBoards({ runtime, registry, flows, knowledge, queue: runQueue, asks,
+    fetch: () => web.policy.guard(globalThis.fetch), ...(process.env.BRANCH_OSV_ENDPOINT ? { osvEndpoint: process.env.BRANCH_OSV_ENDPOINT } : {}) });
+  // ── end r17-h ──
   // ── mac3/security-check: the self-check and the malware check (src/security-audit). Both ship off. ──
   const security = new SecurityService(
     { store, runtime, registry, sessionLock, privacy, web, sessionTokens, plugins, pluginCatalog, people },
@@ -1000,6 +1005,8 @@ export async function createBranch(options: {
     asks,
     /** r17-b: suggested automations, standing orders, loops and self-starting procedures; every part ships off. */
     autonomy,
+    /** r17-h: going back in a flow, checked procedures, the shared board, widgets, the waiting line, focus, install requests; every part ships off. */
+    flowsBoards,
     runtime,
     /** mac3/never-break: the task journal, and settling interrupted work after a restart. */
     neverBreak: {

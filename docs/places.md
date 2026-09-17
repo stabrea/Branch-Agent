@@ -86,6 +86,12 @@ Inside a conversation there are no homes to add to, only two surfaces with stric
 | Procedures that start themselves, with how much each may do on its own (`mac7/r17-b`) | `automations:procedures` |
 | What an automation, a procedure or a standing order waits for your yes on (`mac7/r17-b`) | `inbox:needs` |
 | "From now on" instructions (`mac7/r17-b`) | `settings:assistant` |
+| Going back to an earlier step of a flow, and checks for saved procedures (`mac7/r17-h`) | `automations:procedures` |
+| The shared board of cards (`mac7/r17-h`) | `automations:scheduled`, beside the waiting line: it is work waiting to be done (bucket 23's project board stays in `settings:general`, and the shared board lays its lanes over it) |
+| Changing the waiting line, and what typing does while a task works (`mac7/r17-h`) | `automations:scheduled`; `/queue` and `/busy` live in the message box |
+| Widgets the assistant built (`mac7/r17-h`) | `library:made`, beside the live tool pages they are made from |
+| Focus view (`mac7/r17-h`) | `settings:appearance`; `/focus` lives in the message box |
+| Requests for new packages and tool servers (`mac7/r17-h`) | `inbox:needs` |
 | What installed skills need on this computer (`mac7/r17-b`) | `customize:skills` |
 | TOOLS.md | `customize:skills` |
 | DREAMS.md and other things the assistant writes for the owner | `library:made` |

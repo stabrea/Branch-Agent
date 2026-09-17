@@ -116,6 +116,12 @@ export const COMMANDS: readonly CatalogCommand[] = [
   entry("suggestions", ["suggest"], "[catalog | accept n | dismiss n]", "automations Branch suggests; a no is never offered again", [...W, "terminal"], "owner", { bareLooks: true }),
   entry("blueprint", ["bp"], "[name] [blank=value ...]", "the automation catalogue; with a name and its blanks, make one", [...W, "terminal"], "owner", { bareLooks: true }),
   // ---- end r17-b ----
+  // ---- r17-h: the waiting line, typing while it works, focus view, asking for packages (src/flows-boards/commands.ts) ----
+  entry("queue", ["waiting"], "[edit n <words> | move n up|down|first|last | remove n]", "the messages waiting in this conversation; reword, move or take one out", [...W, "terminal"], "run", { bareLooks: true, whileWorking: true }),
+  entry("busy", [], "[queue|steer|interrupt]", "what happens when you type while a task works: wait, pass it on, or stop and go next", [...W, "terminal"], "owner", { bareLooks: true }),
+  entry("focus", [], "[on|off]", "show only what you asked and the final answers", W, "look"),
+  entry("installs", ["install"], "[request npm|pypi <name> [why] | approve n | decline n]", "requests for new packages and tool servers; only the owner answers, and nothing installs itself", ALL, "look", { withArgument: "run" }),
+  // ---- end r17-h ----
 ];
 
 const bare = (name: string): string => name.replace(/^\//, "").replace(/@[\w.-]+$/, "").toLowerCase();
