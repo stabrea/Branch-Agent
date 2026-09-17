@@ -50,6 +50,7 @@ async function updaterFor(root, name, extra = {}) {
       await writeFile(join(into, "app", "Branch Agent.exe"), "new");
     },
     backup: async () => {},
+    platform: "win32",
     ...extra,
   });
 }
