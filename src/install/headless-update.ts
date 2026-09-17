@@ -97,9 +97,9 @@ function makeUpdater(input: HeadlessUpdateInput, note: RunningInstance | null, s
     canary: updateCanary({ dataDir: input.dataDir, platform, executableName, fromVersion: input.version,
       target: input.installRoot, snapshot: deps.snapshot ?? defaultSnapshot(input.dataDir, note) }),
     stopDaemon: async () => {
-      // A Branch that would not close is still named, so the hand-over script ends it before the swap.
+      // A Branch that would not close stops the update below; it is never ended mid-work to make room.
       stopped.report = await (deps.quit ?? quitRunning)(input.dataDir);
-      return stopped.report.pid;
+      return stopped.report.stopped ? stopped.report.pid : null;
     },
   });
 }
@@ -124,6 +124,10 @@ export async function headlessUpdate(input: HeadlessUpdateInput): Promise<number
     return { script: null };
   });
   if (!script) return 1;
+  if (stopped.report && !stopped.report.stopped) {
+    input.print(`${stopped.report.message} Nothing was changed; the update can be run again once Branch has closed.`);
+    return 1;
+  }
   // The stop already happened (and was waited for) in the updater, so the script waits for nothing.
   const reopen = stopped.report?.wasRunning === true && note?.mode === "app";
   const code = (deps.runScript ?? runSh)(script, [String(stopped.report?.pid ?? endedPid()), ...(reopen ? [] : ["stay"])]);

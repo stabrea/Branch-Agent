@@ -3248,8 +3248,9 @@ phone door cannot. "Not running" counts as done.
 `branch update` in an installed copy checks for a newer release and says what it found; `--yes` installs
 it through the same updater as the Update button: the download is checked against its published
 checksum, tried on a copy of the work when that switch is on, a safety copy is written, Branch is closed,
-and the same hand-over script swaps the folders, keeps the version before and writes its log
-(`branch-agent-update/apply-update.log` in the temporary folder). It prints the old and new version.
+and the same hand-over script swaps the folders, keeps the version before and writes its log. If Branch
+will not close, the update stops there and nothing is changed; it is never ended mid-work to make room. The log is
+`branch-agent-update/apply-update.log` in the temporary folder. It prints the old and new version.
 The window is opened again only if it was open before. A copy installed from Git keeps `branch update`
 as `git pull`, `npm ci` and a build.
 

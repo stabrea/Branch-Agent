@@ -434,6 +434,12 @@ test("`branch update --yes` reopens a window that was open, and refuses a downlo
   assert.equal(await headlessUpdate({ ...s.input, deps: { ...s.deps, fetch: server.fetch, running, quit } }), 0);
   assert.deepEqual(s.events.at(-1)[2], ["4242"], "the window comes back after the swap");
 
+  const stubborn = async () => ({ stopped: false, wasRunning: true, pid: 4242, message: "Branch Agent did not close. Quit it from its window or menu, then try again." });
+  const beforeStubborn = s.events.length;
+  assert.equal(await headlessUpdate({ ...s.input, deps: { ...s.deps, fetch: server.fetch, running, quit: stubborn } }), 1);
+  assert.ok(!s.events.slice(beforeStubborn).some((event) => event[0] === "script"), "a Branch that would not close is never ended to make room");
+  assert.match(s.lines.at(-1), /did not close.*Nothing was changed/);
+
   const bad = releaseServer(s.archive, "0".repeat(64));
   const before = s.events.length;
   assert.equal(await headlessUpdate({ ...s.input, deps: { ...s.deps, fetch: bad.fetch } }), 1);
