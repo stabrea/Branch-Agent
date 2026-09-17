@@ -356,6 +356,8 @@ export class ChannelRouter {
         // make the assistant write to every chat it is linked to.
         permissions: this.runtime.registry.permissions().filter((p) => !["shell.execute", "remote.execute", "git.remote", "github.manage", "channels.send"].includes(p)),
         onTextDelta: () => undefined, // stream so a silent model is noticed
+        // mac3/never-break: a task a chat started is left for the chat app to send again after a restart.
+        onStarted: (started) => { this.store.event(started.id, "channel.inbound", { channel: message.channel, chatId: message.chatId, messageId: message.messageId }); },
       });
       this.store.save("settings", owner, key, { sessionId: run.sessionId, channel: message.channel, chatId: message.chatId,
         title: message.chatKind === "group" ? (message.chatTitle ?? message.chatId) : message.senderName, updatedAt: run.updatedAt });

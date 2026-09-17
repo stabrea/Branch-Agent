@@ -28,7 +28,7 @@ import { memorySnapshotLimits } from "./memory-review.js";
 import { catalogHealthTick } from "./tool-usage.js";
 import { MemoryTransfer } from "./memory-export.js";
 import { SqliteMemoryBackend } from "./memory-backend.js";
-import { Scheduler, registerSchedules } from "./scheduler.js";
+import { Scheduler, registerSchedules, nextTurn } from "./scheduler.js";
 import { registerHistory } from "./history.js";
 import { registerRunExport } from "./trajectory.js";
 import { meteringTick } from "./metering.js";
@@ -162,6 +162,9 @@ import { setFlyCoreMode, syncSuggestTool } from "./fly-core/tool.js";
 // mac3/never-break: the gateway's settings and the one tool that suggests a change to them.
 import { loadGatewayConfig } from "./never-break/gateway-config.js";
 import { gatewayDryRun, registerNeverBreak } from "./never-break/api.js";
+import { journalHook, TaskJournal } from "./never-break/journal.js";
+import { migrate, storeMigrations } from "./never-break/migrations.js";
+import { recoverOnStart } from "./never-break/resume.js";
 import { fileURLToPath } from "node:url";
 
 export async function createBranch(options: {
@@ -201,6 +204,10 @@ export async function createBranch(options: {
   // mac2/desktop-ui: whether this is a new install decides whether the three-way switches start off.
   const existedBefore = existsSync(join(dataDir, "branch.sqlite"));
   const store = new Store(join(dataDir, "branch.sqlite"));
+  // --- mac3/never-break: the data format stamp (refuses data newer than this version can read) and
+  // the task journal beside the database, flushed before every step.
+  const journal = openNeverBreak(store, dataDir);
+  // --- end mac3/never-break ---
   migrateFeatureSwitches(store, options.owner ?? "local", existedBefore);
   const lockerKey = options.lockerKey ?? new FileLockerKey(join(dataDir, "locker.key"));
   store.openLocker(lockerKey);
@@ -334,6 +341,7 @@ export async function createBranch(options: {
     retryPolicy,
     options.reliability,
   );
+  runtime.journal = journalHook(journal); // mac3/never-break
   runtime.artifacts = artifacts;
   // Locking the app: after a quiet spell the locker stays shut until the owner unlocks it again.
   const sessionLock = new SessionLock(store, runtime.owner);
@@ -784,6 +792,12 @@ export async function createBranch(options: {
     store,
     registry,
     runtime,
+    /** mac3/never-break: the task journal, and settling interrupted work after a restart. */
+    neverBreak: {
+      journal,
+      recoverOnStart: async (dataFolder: string) => recoverOnStart({ store, runtime, journal, nextTurn,
+        mode: (await loadGatewayConfig(dataFolder)).config.mode }),
+    },
     /** mac2/fly-core: the learning core's three-way switch (off, when-needed, on); it ships off. */
     learningCore: {
       settings: () => flyCoreSettings(store, options.owner ?? "local"),
@@ -1016,6 +1030,7 @@ export async function createBranch(options: {
       try {
         await closeBranch(scheduler, runtime, store, channels, desktop);
       } finally {
+        journal.close(); // mac3/never-break
         oauth.closeAll();
       }
     })()),
@@ -1029,6 +1044,16 @@ async function replayNamedRecipe(knowledge: Knowledge, store: Store, runtime: Ru
   });
   if (!match) throw new Error(`No verified recipe called "${recipe}"`);
   await knowledge.replayProcedure(runtime.context({ runId }), match.id);
+}
+/** mac3/never-break: stamps the store's data format and opens the journal; the store is closed if either fails. */
+function openNeverBreak(store: Store, dataDir: string): TaskJournal {
+  try {
+    migrate(store.sqlite, storeMigrations, { backupTo: join(dataDir, "update-backups", `before-format-${Date.now()}.sqlite`) });
+    return new TaskJournal(join(dataDir, "journal.sqlite"));
+  } catch (error) {
+    store.close();
+    throw error;
+  }
 }
 async function closeBranch(
   scheduler: Scheduler,

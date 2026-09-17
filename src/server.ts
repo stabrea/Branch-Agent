@@ -2274,6 +2274,9 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
     throw new Error("Failed to bind loopback server");
   url = `http://127.0.0.1:${address.port}`;
   app.scheduler.start();
+  // mac3/never-break: a real start settles work a restart cut off (nothing, with the switch off).
+  if (options.presence || process.env.BRANCH_GATEWAY_CHILD === "1")
+    void app.neverBreak.recoverOnStart(options.dataDir).catch((error: unknown) => console.error(`Could not pick up interrupted work: ${errorText(error)}`));
   if (options.presence) {
     await writeRunning(options.dataDir, { port: address.port, pid: process.pid, url, mode: options.presence, version: app.version }).catch(() => undefined);
     await noteFirstStart(app, options.dataDir).catch(() => undefined);
