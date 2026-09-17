@@ -61,8 +61,8 @@ They go out in order, and never twice.
 **Knowledge base.** A named collection of whole folders of your work, read once and searchable by
 words and by meaning, with every answer citing file, heading and page.
 
-**Lockdown.** One switch that makes every tool wait for your yes and turns off everything that reaches
-past the app. Turning it off puts back exactly the settings you had.
+**Lockdown.** One switch that refuses commands and everything that reaches past the app without
+asking, and makes every other tool wait for your yes. Turning it off puts back exactly the settings you had.
 
 **Locker.** Where secrets live. A value goes in and never comes out again in readable form.
 

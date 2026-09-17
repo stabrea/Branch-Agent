@@ -786,7 +786,7 @@ function buildLockdown(shield) {
   banner.setAttribute("role", "status");
   const off = button("lx-button", "lockdown.turnOff", "Turn it off");
   off.addEventListener("click", () => $("lockdown-panel").querySelector("button")?.click());
-  banner.append(icon("shield"), worded("span", "", "lockdown.on", "Lockdown is on. Everything waits for your yes."), off);
+  banner.append(icon("shield"), worded("span", "", "lockdown.on", "Lockdown is on. Commands are refused; all else asks you."), off);
   document.querySelector("main > header").after(banner);
   const sync = () => {
     const on = $("lockdown-panel").querySelector("button")?.getAttribute("aria-pressed") === "true";

@@ -66,7 +66,7 @@ function pageRows(app: PlaceApp, words: Words, page: string, sub: string, state:
     case "models": return models(app, words, sub || "connection");
     case "permissions": {
       const lock = lockdownState(app.store, owner).on;
-      return [...permissionRows(app), { title: `${words.t("lockdown.label", "Lockdown")}: ${switchWord(words, lock ? "on" : "off")}`, detail: words.t("lockdown.on", "Lockdown is on. Everything waits for your yes."), command: `/lockdown ${lock ? "off" : "on"}`, tone: lock ? "bad" : undefined }];
+      return [...permissionRows(app), { title: `${words.t("lockdown.label", "Lockdown")}: ${switchWord(words, lock ? "on" : "off")}`, detail: words.t("lockdown.on", "Lockdown is on. Commands are refused; all else asks you."), command: `/lockdown ${lock ? "off" : "on"}`, tone: lock ? "bad" : undefined }];
     }
     case "general": return [
       ...app.store.projects.list(owner).map((project) => ({ title: project.name, detail: project.id === app.store.projects.active(owner).id ? words.t("terminal.settings.activeProject", "the project in use") : project.id })),

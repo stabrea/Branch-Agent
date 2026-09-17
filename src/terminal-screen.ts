@@ -127,7 +127,7 @@ function drawTabs(canvas: Canvas, model: ScreenModel, y: number): number {
 }
 function drawLockdown(canvas: Canvas, model: ScreenModel, y: number): number {
   bar(canvas, y, "bad");
-  const words = `${t(model, "lockdown.on", "Lockdown is on. Everything waits for your yes.")}  /lockdown off`;
+  const words = `${t(model, "lockdown.on", "Lockdown is on. Commands are refused; all else asks you.")}  /lockdown off`;
   canvas.text(1, y, fitText(words, canvas.columns - 2, model.glyphs.ellipsis), { fg: "ground", bg: "bad", bold: true });
   return y + 1;
 }
