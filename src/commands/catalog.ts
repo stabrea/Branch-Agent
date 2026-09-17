@@ -118,6 +118,8 @@ export const COMMANDS: readonly CatalogCommand[] = [
   entry("suggestions", ["suggest"], "[catalog | accept n | dismiss n]", "automations Branch suggests; a no is never offered again", [...W, "terminal"], "owner", { bareLooks: true }),
   entry("blueprint", ["bp"], "[name] [blank=value ...]", "the automation catalogue; with a name and its blanks, make one", [...W, "terminal"], "owner", { bareLooks: true }),
   // ---- end r17-b ----
+  // mac7/r17-d: the project's instruction file, written by the model (src/coding/init.ts); follows that part's switch
+  entry("init", [], "", "look around this project and write its instruction file (AGENTS.md)", W, "run"),
 ];
 
 const bare = (name: string): string => name.replace(/^\//, "").replace(/@[\w.-]+$/, "").toLowerCase();
