@@ -41,7 +41,7 @@ export const troubleshootMode = (store: Pick<Store, "get">, owner: string): Feat
   troubleshootSettings(store, owner).mode;
 
 export const troubleshootOff =
-  "Fixing failed commands is switched off. Turn it on under Settings → Tools → Fixing failed commands.";
+  "Fixing failed commands is switched off. The owner can turn it on with the troubleshoot setting (GET or POST /api/troubleshoot).";
 export const troubleshootToolNames = ["troubleshoot.run"] as const;
 /** The commands the loop looks at. */
 export const commandTools = ["shell.execute", "code.run"] as const;
