@@ -2769,6 +2769,10 @@ function offLimitsToShortLivedKeys(method: string | undefined, path: string): st
   // mac4/bucket-14 (integration review): the report shows every person's tasks, and the counters go out to the trace address.
   if (path.startsWith("/api/usage/report") || path.startsWith("/api/usage/counters"))
     return "A short-lived key cannot make the usage report, change it, or send the task counters. Do that in the app window.";
+  // mac4/bucket-13 (integration review): the recordings switch (and whether saved pages carry
+  // pictures) and the event-loop watch are the owner's settings.
+  if (path === "/api/recordings" || path === "/api/event-loop")
+    return "A short-lived key cannot change task recordings or the check on whether Branch is keeping up. Do that in the app window.";
   return null;
 }
 /** mac3/security-check: a server tried from Settings is looked up in the malware list before it starts. */

@@ -68,6 +68,8 @@ export interface RecordingFrame {
   tokens?: { input: number; output: number };
   /** The picture's file name; `data` only when the owner asked for pictures in recordings. */
   picture?: { name: string; data?: string; mediaType?: string };
+  /** The fixed part of `label` as a key in public/locales, so the player can say it in the owner's language. */
+  words?: { key: string; values?: Record<string, string> };
 }
 export interface RunRecording {
   format: typeof recordingFormat;
@@ -103,7 +105,7 @@ export function buildRecording(store: Store, runId: string, options: RecordingOp
   const scrub = options.scrub ?? (<T>(value: T) => value);
   const limit = options.maxFrames ?? 400;
   const reader = new FrameReader(time(run.createdAt), options.clip ?? 240);
-  reader.push({ at: 0, kind: "asked", status: "info", label: "Asked", detail: clipText(scrub(run.prompt), 600), ref: "", seconds: null });
+  reader.push({ at: 0, kind: "asked", status: "info", label: "Asked", detail: clipText(scrub(run.prompt), 600), ref: "", seconds: null, words: { key: "recording.frame.asked" } });
   for (const event of store.events(runId)) reader.read(event, scrub);
   const frames = reader.frames;
   const truncated = frames.length > limit;
@@ -136,11 +138,14 @@ const ended: Record<string, FrameStatus> = {
   completed: "done", failed: "failed", cancelled: "stopped", interrupted: "stopped", needs_input: "waiting",
 };
 
+const stepWords = (name: string): RecordingFrame["words"] => ({ key: "recording.frame.step", values: { name } });
+
 /** Turns events into frames, pairing each start with its finish so a frame knows how long it took. */
 class FrameReader {
   readonly frames: RecordingFrame[] = [];
   private readonly open = new Map<string, RecordingFrame>();
   private modelStarted: number | null = null;
+  private scrub: <T>(value: T) => T = (value) => value;
   constructor(private readonly start: number, private readonly clip: number) {}
 
   push(frame: RecordingFrame): void { this.frames.push(frame); }
@@ -148,25 +153,30 @@ class FrameReader {
   read(event: Event, scrub: <T>(value: T) => T): void {
     const at = Math.max(0, time(event.createdAt) - this.start);
     const data = event.data as Record<string, unknown>;
+    this.scrub = scrub;
     if (event.kind === "tool.started") return this.begin(`tool:${String(data.id ?? event.id)}`, at, "tool", String(data.label ?? data.name ?? "An action"));
     if (toolEnd[event.kind]) return this.finish(`tool:${String(data.id ?? event.id)}`, at, toolEnd[event.kind]!, scrub(data.result ?? data.error), "tool", String(data.name ?? "An action"));
-    if (event.kind === "flow.node.started") return this.begin(`step:${String(data.node)}:${String(data.seq)}`, at, "step", `Step: ${String(data.name ?? data.node)}`);
-    if (stepEnd[event.kind]) return this.finish(`step:${String(data.node)}:${String(data.seq)}`, at, stepEnd[event.kind]!, scrub(data.output ?? data.error), "step", `Step: ${String(data.name ?? data.node)}`);
+    const step = String(data.name ?? data.node);
+    if (event.kind === "flow.node.started") return this.begin(`step:${String(data.node)}:${String(data.seq)}`, at, "step", `Step: ${step}`, stepWords(this.said(step)));
+    if (stepEnd[event.kind]) return this.finish(`step:${String(data.node)}:${String(data.seq)}`, at, stepEnd[event.kind]!, scrub(data.output ?? data.error), "step", `Step: ${step}`, stepWords(this.said(step)));
     if (event.kind === "model.started") { this.modelStarted = at; return; }
     if (modelEnd[event.kind]) return this.round(event.kind, at, data, scrub);
     this.other(event, at, data, scrub);
   }
 
-  private begin(ref: string, at: number, kind: FrameKind, label: string): void {
-    const frame: RecordingFrame = { at, kind, status: "working", label: clipText(label, 120), detail: "", ref, seconds: null };
+  /** Words that came from the task (an action's settings, a box's name) never leave with a secret in them. */
+  private said(text: string): string { return clipText(this.scrub(text), 120); }
+
+  private begin(ref: string, at: number, kind: FrameKind, label: string, words?: RecordingFrame["words"]): void {
+    const frame: RecordingFrame = { at, kind, status: "working", label: this.said(label), detail: "", ref, seconds: null, ...(words ? { words } : {}) };
     this.open.set(ref, frame);
     this.push(frame);
   }
 
-  private finish(ref: string, at: number, status: FrameStatus, detail: unknown, kind: FrameKind, label: string): void {
+  private finish(ref: string, at: number, status: FrameStatus, detail: unknown, kind: FrameKind, label: string, words?: RecordingFrame["words"]): void {
     const frame = this.open.get(ref);
     this.open.delete(ref);
-    if (!frame) return this.push({ at, kind, status, label: clipText(label, 120), detail: clipText(detail, this.clip), ref, seconds: null });
+    if (!frame) return this.push({ at, kind, status, label: this.said(label), detail: clipText(detail, this.clip), ref, seconds: null, ...(words ? { words } : {}) });
     frame.status = status;
     frame.detail = clipText(detail, this.clip);
     frame.seconds = Math.round((at - frame.at) / 100) / 10;
@@ -177,30 +187,33 @@ class FrameReader {
     this.modelStarted = null;
     const reported = (data.reported ?? null) as { input?: number; output?: number } | null;
     const tokens = { input: Number(reported?.input ?? data.estimatedInput ?? 0) || 0, output: Number(reported?.output ?? data.estimatedOutput ?? 0) || 0 };
-    const model = String(data.model ?? "the model");
+    const model = this.said(String(data.model ?? "the model"));
     const calls = Number(data.toolCalls ?? 0);
     const detail = kind === "model.completed"
       ? (data.cached ? "Answered from a kept answer; nothing was sent." : calls ? `Asked for ${calls} action${calls === 1 ? "" : "s"}.` : "Wrote the answer.")
       : clipText(scrub(data.error ?? kind), this.clip);
-    this.push({ at: began, kind: "model", status: modelEnd[kind]!, label: `Thought with ${model}`, detail, ref: "", seconds: Math.round((at - began) / 100) / 10, tokens });
+    this.push({ at: began, kind: "model", status: modelEnd[kind]!, label: `Thought with ${model}`, detail, ref: "", seconds: Math.round((at - began) / 100) / 10, tokens,
+      words: { key: "recording.frame.model", values: { model } } });
   }
 
   private other(event: Event, at: number, data: Record<string, unknown>, scrub: <T>(value: T) => T): void {
-    const note = (label: string, detail: unknown = "", status: FrameStatus = "info") =>
-      this.push({ at, kind: "note", status, label, detail: clipText(scrub(detail), this.clip), ref: "", seconds: null });
+    const note = (label: string, key: string, detail: unknown = "", status: FrameStatus = "info") =>
+      this.push({ at, kind: "note", status, label, detail: clipText(scrub(detail), this.clip), ref: "", seconds: null, words: { key: `recording.frame.${key}` } });
     if (event.kind === "image.attached") {
       const path = String(data.path ?? "");
-      this.push({ at, kind: "picture", status: "info", label: "Looked at a picture", detail: "", ref: path, seconds: null, picture: { name: basename(path) } });
+      this.push({ at, kind: "picture", status: "info", label: "Looked at a picture", detail: "", ref: path, seconds: null, picture: { name: basename(path) }, words: { key: "recording.frame.picture" } });
     } else if (event.kind === "delegation.background_started") {
-      this.push({ at, kind: "helper", status: "working", label: "Sent a helper off", detail: clipText(scrub(data.prompt), this.clip), ref: String(data.childRunId ?? ""), seconds: null });
-    } else if (event.kind === "delegation.fanout") note("Sent several helpers at once", Object.keys((data.tasks ?? {}) as object).join(", "));
-    else if (event.kind === "plan.created") note("Wrote a plan", (data.steps as unknown[] | undefined)?.join("; "));
-    else if (event.kind === "run.steered" || event.kind === "run.steer_applied") note("You steered it", data.text ?? data.note);
-    else if (event.kind === "verify.verdict") note("Checked its own work", `${String(data.verdict ?? "")} ${String(data.reason ?? "")}`);
-    else if (event.kind === "attention.needed") note("Stopped to ask you", data.question, "waiting");
+      this.push({ at, kind: "helper", status: "working", label: "Sent a helper off", detail: clipText(scrub(data.prompt), this.clip), ref: String(data.childRunId ?? ""), seconds: null, words: { key: "recording.frame.helper" } });
+    } else if (event.kind === "delegation.fanout") note("Sent several helpers at once", "helpers", Object.keys((data.tasks ?? {}) as object).join(", "));
+    else if (event.kind === "plan.created") note("Wrote a plan", "plan", (data.steps as unknown[] | undefined)?.join("; "));
+    else if (event.kind === "run.steered" || event.kind === "run.steer_applied") note("You steered it", "steered", data.text ?? data.note);
+    else if (event.kind === "verify.verdict") note("Checked its own work", "checked", `${String(data.verdict ?? "")} ${String(data.reason ?? "")}`);
+    else if (event.kind === "attention.needed") note("Stopped to ask you", "asked-you", data.question, "waiting");
     else if (event.kind === "run.finished") {
       const status = ended[String(data.status)] ?? "info";
-      this.push({ at, kind: "ended", status, label: status === "waiting" ? "Stopped to wait for you" : "Finished", detail: clipText(scrub(data.output ?? ""), this.clip), ref: "", seconds: null });
+      const waiting = status === "waiting";
+      this.push({ at, kind: "ended", status, label: waiting ? "Stopped to wait for you" : "Finished", detail: clipText(scrub(data.output ?? ""), this.clip),
+        ref: "", seconds: null, words: { key: waiting ? "recording.frame.waiting" : "recording.frame.finished" } });
     }
   }
 }

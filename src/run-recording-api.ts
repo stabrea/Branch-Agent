@@ -88,7 +88,7 @@ async function route(app: RecordingApp, request: IncomingMessage, response: Serv
   const recording = shareable(buildRecording(app.store, run.id, { scrub }));
   if (part === "recording") return recording;
   if (part === "recording/path") return { runId: run.id, svg: pathPicture(recording) };
-  await sendPage(app, response, run.id, options);
+  await sendPage(app, response, run.id, options, pageLanguage(request));
   return undefined;
 }
 
@@ -100,7 +100,14 @@ function shareable(recording: RunRecording): RunRecording {
 
 const pictureTypes: Record<string, string> = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".gif": "image/gif" };
 
-async function sendPage(app: RecordingApp, response: ServerResponse, runId: string, options: RecordingApiOptions): Promise<void> {
+/** The language the window asked the page to be written in; only a language file the app ships. */
+const pageLanguages = new Set(["en", "fr"]);
+function pageLanguage(request: IncomingMessage): string {
+  const asked = new URL(request.url ?? "/", "http://local").searchParams.get("lang") ?? "en";
+  return pageLanguages.has(asked) ? asked : "en";
+}
+
+async function sendPage(app: RecordingApp, response: ServerResponse, runId: string, options: RecordingApiOptions, language: string): Promise<void> {
   const owner = app.store.profiles.scope();
   const settings = recordingSettings(app.store, owner);
   let recording = buildRecording(app.store, runId, { scrub: app.runtime.hideSecrets });
@@ -113,10 +120,10 @@ async function sendPage(app: RecordingApp, response: ServerResponse, runId: stri
       return { bytes: await artifacts.read(path), mediaType };
     });
   const readPublic = options.readPublic ?? defaultReadPublic;
-  const words = await localeWords(readPublic);
+  const words = await localeWords(readPublic, language);
   const html = recordingPage({
     recording: shareable(recording), tokensCss: await readPublic("tokens.css"),
-    theme: preferences(app.store, owner).appearance, t: (key) => words[key] ?? key,
+    theme: preferences(app.store, owner).appearance, t: (key) => words[key] ?? key, language,
   });
   // A saved page leaves the app with what the task did in it, so it is written into the record (A1931).
   audit(app.store, owner, { action: "data.exported", actor: owner, runId, subject: "a recording of one task",
@@ -128,10 +135,13 @@ async function sendPage(app: RecordingApp, response: ServerResponse, runId: stri
   response.end(html);
 }
 
-/** The page's fixed words, from the English language file (the file a saved page is written in). */
-async function localeWords(readPublic: (name: string) => Promise<string>): Promise<Record<string, string>> {
-  const all = JSON.parse(await readPublic("locales/en.json").catch(() => "{}")) as Record<string, unknown>;
-  return Object.fromEntries(pageWordKeys.map((key) => [key, typeof all[key] === "string" ? all[key] as string : key]));
+/** The page's fixed words, in the window's language, with English behind any word not yet translated. */
+async function localeWords(readPublic: (name: string) => Promise<string>, language: string): Promise<Record<string, string>> {
+  const load = async (code: string) => JSON.parse(await readPublic(`locales/${code}.json`).catch(() => "{}")) as Record<string, unknown>;
+  const english = await load("en");
+  const chosen = language === "en" ? english : await load(language);
+  const pick = (key: string) => [chosen[key], english[key]].find((word) => typeof word === "string") as string | undefined;
+  return Object.fromEntries(pageWordKeys.map((key) => [key, pick(key) ?? key]));
 }
 
 async function flow(app: RecordingApp, method: string, runId: string, options: RecordingApiOptions): Promise<unknown> {
@@ -149,8 +159,14 @@ async function flow(app: RecordingApp, method: string, runId: string, options: R
  * measures only when the reading is asked for (`?read`), so opening Settings never costs a pause.
  */
 async function eventLoop(app: RecordingApp, method: string, options: RecordingApiOptions, asked: boolean): Promise<unknown> {
-  const owner = app.store.profiles.scope();
-  if (method === "POST") eventLoopWatch.follow(saveEventLoopSettings(app.store, owner, await options.readBody()));
+  // The watch is one for the whole app, so its switch is the owner's alone: a household profile
+  // cannot turn it off under the owner, and every profile reads the owner's setting.
+  const owner = app.runtime.owner;
+  if (method === "POST") {
+    if (!app.store.profiles.isOwner())
+      throw Object.assign(new Error("The check on whether Branch is keeping up belongs to the owner. Switch back to the owner's profile to change it."), { status: 403 });
+    eventLoopWatch.follow(saveEventLoopSettings(app.store, owner, await options.readBody()));
+  }
   const settings = eventLoopSettings(app.store, owner);
   if (settings.mode === "off") {
     if (asked) await eventLoopWatch.reading(settings);

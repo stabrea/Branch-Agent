@@ -9,7 +9,7 @@
 
    Every word is behind a key; every colour comes from the page's tokens. */
 import { api } from "/app.js";
-import { t, formatNumber } from "/i18n.js";
+import { t, formatNumber, language } from "/i18n.js";
 
 const $ = (id) => document.getElementById(id);
 const say = (key, english, values) => { const word = t(key, values); return word === key ? english : word; };
@@ -26,6 +26,8 @@ function plain(tag, text, className) {
   node.style.overflowWrap = "anywhere";
   return node;
 }
+/* A step's fixed words come with their own key (the server's English stays behind them). */
+const frameLabel = (frame) => (frame.words ? say(frame.words.key, frame.label, frame.words.values) : frame.label);
 function button(key, english, className, handler) {
   const node = make("button", className, key, english);
   node.type = "button";
@@ -130,7 +132,7 @@ function player(recording) {
   const list = document.createElement("ol");
   list.className = "recording-steps";
   const items = frames.map((frame, n) => {
-    const item = plain("li", `${frame.label} — ${(frame.at / 1000).toFixed(1)}s`);
+    const item = plain("li", `${frameLabel(frame)} — ${formatNumber(frame.at / 1000, { minimumFractionDigits: 1, maximumFractionDigits: 1 })} s`);
     item.tabIndex = 0;
     item.addEventListener("click", () => { stop(); show(n); });
     list.append(item);
@@ -142,7 +144,7 @@ function player(recording) {
       if (i === index) item.setAttribute("aria-current", "step"); else item.removeAttribute("aria-current");
       item.style.background = i === index ? "var(--selected)" : "";
     });
-    now.replaceChildren(plain("strong", frames[index].label), plain("p", frames[index].detail, "subtle"));
+    now.replaceChildren(plain("strong", frameLabel(frames[index])), plain("p", frames[index].detail, "subtle"));
   };
   const play = button("recordings.play", "Play", "quiet-button", () => {
     if (timer) return stop();
@@ -207,7 +209,7 @@ function keepers(runId) {
 }
 
 async function downloadPage(runId) {
-  const response = await fetch(`/api/runs/${runId}/recording/page`, {
+  const response = await fetch(`/api/runs/${runId}/recording/page?lang=${encodeURIComponent(language())}`, {
     headers: { authorization: "Bearer " + (sessionStorage.getItem("branch-token") || "") },
   });
   if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || "Request failed");

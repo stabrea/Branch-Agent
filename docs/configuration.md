@@ -5577,6 +5577,15 @@ work starts and how busy it is, and says in one sentence whether that is fine, s
 needed" takes a two-second measurement only when Check now is pressed; "on" watches from launch and
 counts every stall; off measures nothing.
 
+Integration review (mac4/bucket-13): the saved page is written in the window's language (`?lang=`,
+only a language file the app ships), and step names in the player and the page are translated too;
+its content rules also forbid `<base>` and form submission. Action labels and box names pass the
+secret remover like everything else. The event-loop watch is one for the whole app, so only the
+owner's profile can change its switch. A short-lived key cannot change either switch
+(`POST /api/recordings`, `POST /api/event-loop`), and a household profile is told "not found" for
+the owner's tasks. The picture window marks the pictures the task took by the message itself, not
+by its words, so an owner's picture is never thinned out.
+
 A task that takes many pictures now keeps only its newest three in what the model sees
 (`src/visual-window.ts`); each older one is replaced by one sentence, and the owner's own attached
 pictures are never removed. This is a bound rather than a feature, so it has no switch.

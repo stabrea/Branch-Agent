@@ -60,6 +60,8 @@ export interface PageInput {
   theme: "forest" | "daylight";
   /** The owner's words for the page's fixed labels, by locale key. */
   t: (key: string) => string;
+  /** The language the fixed words are in, for the page's `lang`. */
+  language?: string;
 }
 
 /** The fixed labels the page uses; each is a key in public/locales. */
@@ -67,7 +69,18 @@ export const pageWordKeys = [
   "recording.page.title", "recording.page.purpose", "recording.page.play", "recording.page.pause",
   "recording.page.back", "recording.page.next", "recording.page.speed", "recording.page.path",
   "recording.page.steps", "recording.page.position",
+  ...["asked", "model", "step", "picture", "helper", "helpers", "plan", "steered", "checked", "asked-you", "waiting", "finished"]
+    .map((name) => `recording.frame.${name}`),
 ] as const;
+
+/** A frame's label in the page's language: its fixed words from the language file, the task's own words filled in. */
+function inPageWords(frame: RecordingFrame, t: (key: string) => string): RecordingFrame {
+  if (!frame.words) return frame;
+  const words = t(frame.words.key);
+  if (words === frame.words.key) return frame;
+  const values = frame.words.values ?? {};
+  return { ...frame, label: words.replace(/\{(\w+)\}/g, (whole, name: string) => values[name] ?? whole) };
+}
 
 const layoutCss = `
 body{margin:0;background:var(--ground);color:var(--text);font:15px/1.5 system-ui,sans-serif}
@@ -120,13 +133,16 @@ show(0);
 
 /** The saved page. Everything inside it is escaped; the recording travels as JSON a script cannot break out of. */
 export function recordingPage(input: PageInput): string {
-  const { recording, t } = input;
+  const { t } = input;
+  const recording = { ...input.recording, frames: input.recording.frames.map((frame) => inPageWords(frame, t)) };
   const esc = (key: string) => escapeXml(t(key));
   const json = JSON.stringify(recording).replace(/</g, "\\u003c");
   const list = recording.frames.map((frame) =>
     `<li>${escapeXml(frame.label)}<span class="detail"> — ${escapeXml(`${(frame.at / 1000).toFixed(1)}s`)}${frame.status === "info" ? "" : `, ${escapeXml(statusWords[frame.status])}`}</span></li>`).join("");
-  const csp = "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:";
-  return `<!doctype html><html lang="en" data-theme="${input.theme === "daylight" ? "daylight" : "forest"}"><head><meta charset="utf-8">
+  // Nothing may be fetched, sent, framed or submitted; a stray <base> or <form> would change nothing.
+  const csp = "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'";
+  const lang = input.language === "fr" ? "fr" : "en";
+  return `<!doctype html><html lang="${lang}" data-theme="${input.theme === "daylight" ? "daylight" : "forest"}"><head><meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="${csp}">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc("recording.page.title")}</title>

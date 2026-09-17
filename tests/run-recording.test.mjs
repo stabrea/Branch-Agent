@@ -5,7 +5,7 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp } from "node:fs/promises";
+import { access, mkdir, mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
@@ -14,7 +14,7 @@ import { startServer } from "../dist/server.js";
 import { buildRecording, isRecording, recordingSettings } from "../dist/run-recording.js";
 import { pathPicture, recordingPage } from "../dist/run-recording-page.js";
 import { runMonitor } from "../dist/run-monitor.js";
-import { boundPictures, droppedPictureWords, takenPictureWords } from "../dist/visual-window.js";
+import { boundPictures, droppedPictureWords, markTaken, takenPictureWords } from "../dist/visual-window.js";
 import { EventLoopWatch, judge } from "../dist/event-loop-watch.js";
 
 const hostile = "</script><script>alert(1)</script> hunter2";
@@ -50,7 +50,15 @@ async function served(t, provider) {
     try { json = JSON.parse(text); } catch { /* a page */ }
     return { status: response.status, body: json, text, headers: response.headers };
   };
-  return { app, call };
+  return { app, call, server, root };
+}
+
+async function asKey(server, token, method, path, body) {
+  const response = await fetch(server.url + path, {
+    method, headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
+  return { status: response.status, body: await response.json().catch(() => null) };
 }
 
 test("recordings ship off, and every task route refuses in plain words until switched on", async (t) => {
@@ -283,4 +291,118 @@ test("A1637 the live run socket refuses a missing or wrong key, and a task that 
   assert.equal(await socketAnswer(server.url, run.id, server.token), "HTTP/1.1 401 Unauthorized", "the key must be offered as bearer");
   assert.equal(await socketAnswer(server.url, "00000000-0000-4000-8000-000000000000", `bearer, ${server.token}`), "HTTP/1.1 401 Unauthorized");
   assert.equal(await socketAnswer(server.url, run.id, `bearer, ${server.token}`), "HTTP/1.1 101 Switching Protocols");
+});
+
+test("integration: another household profile cannot see or play the owner's task, nor switch the app's own watch", async (t) => {
+  const { app, call } = await served(t, writesAFile("mine.txt"));
+  const run = (await call("POST", "/api/run", { prompt: "the owner's task" })).body;
+  await call("POST", "/api/recordings", { mode: "on" });
+  const sam = app.store.profiles.create({ name: "Sam", pin: "1234" });
+  app.store.profiles.switch({ profileId: sam.id, pin: "1234" });
+  t.after(() => app.store.profiles.switch({ profileId: null }));
+  await call("POST", "/api/recordings", { mode: "on" });
+  const listed = (await call("GET", "/api/recordings")).body;
+  assert.ok(!listed.tasks.some((task) => task.id === run.id), "the owner's task is not offered to Sam");
+  for (const part of ["recording", "recording/page", "recording/path", "recording/flow", "monitor"]) {
+    const answer = await call("GET", `/api/runs/${run.id}/${part}`);
+    assert.equal(answer.status, 404, part);
+    assert.doesNotMatch(answer.text, /the owner's task/);
+  }
+  assert.equal((await call("POST", "/api/event-loop", { mode: "on" })).status, 403, "the app-wide watch is the owner's switch");
+});
+
+test("integration: a short-lived key cannot change the recording or watch switches; a read key cannot make a workflow", async (t) => {
+  const { app, call, server } = await served(t, writesAFile("keyed.txt"));
+  const run = (await call("POST", "/api/run", { prompt: "keyed" })).body;
+  await call("POST", "/api/recordings", { mode: "on" });
+  const owner = app.runtime.owner;
+  const runKey = app.sessionTokens.create(owner, { scope: "run", minutes: 5 }).token;
+  const readKey = app.sessionTokens.create(owner, { scope: "read", minutes: 5 }).token;
+  assert.equal((await asKey(server, runKey, "POST", "/api/recordings", { mode: "off", pictures: true })).status, 401);
+  assert.equal((await asKey(server, runKey, "POST", "/api/event-loop", { mode: "on" })).status, 401);
+  assert.equal(recordingSettings(app.store, owner).pictures, false, "nothing changed");
+  assert.equal((await asKey(server, readKey, "POST", `/api/runs/${run.id}/recording/flow`, {})).status, 401);
+  assert.equal((await asKey(server, readKey, "GET", `/api/runs/${run.id}/recording`)).status, 200, "looking is allowed");
+});
+
+test("integration: pictures go into a saved page only when ticked, only the task's own, and never with a path", async (t) => {
+  const { app, call } = await served(t, writesAFile("pic.txt"));
+  const run = (await call("POST", "/api/run", { prompt: "look" })).body;
+  const other = (await call("POST", "/api/run", { prompt: "another" })).body;
+  const artifacts = app.runtime.artifacts;
+  const mine = await artifacts.write(run.id, "shot.png", "image/png", Buffer.from("MINEPICTURE"));
+  const theirs = await artifacts.write(other.id, "theirs.png", "image/png", Buffer.from("OTHERPICTURE"));
+  app.store.event(run.id, "image.attached", { path: mine.path, bytes: 11 });
+  app.store.event(run.id, "image.attached", { path: theirs.path, bytes: 12 });
+  const encoded = (text) => Buffer.from(text).toString("base64");
+  await call("POST", "/api/recordings", { mode: "on" });
+  const plainPage = (await call("GET", `/api/runs/${run.id}/recording/page`)).text;
+  assert.ok(!plainPage.includes(encoded("MINEPICTURE")), "not ticked: no picture");
+  assert.ok(plainPage.includes("shot.png"), "the picture is still named");
+  const json = (await call("GET", `/api/runs/${run.id}/recording`)).text;
+  assert.ok(!json.includes(artifacts.root) && !json.includes(encoded("MINEPICTURE")), "the JSON never carries a path or bytes");
+  await call("POST", "/api/recordings", { pictures: true });
+  const withPictures = (await call("GET", `/api/runs/${run.id}/recording/page`)).text;
+  assert.ok(withPictures.includes(encoded("MINEPICTURE")), "ticked: the task's own picture is carried");
+  assert.ok(!withPictures.includes(encoded("OTHERPICTURE")), "another task's picture is never read");
+  assert.ok(!withPictures.includes(artifacts.root), "no folder on this computer is written into the page");
+});
+
+test("integration: secrets in an action's settings and hostile words are taken out of playback, the path and the page", async (t) => {
+  const { app, call } = await served(t, writesAFile("hunter2-</script><svg onload=alert(1)>.txt"));
+  app.runtime.hideSecrets = (value) => JSON.parse(JSON.stringify(value).replaceAll("hunter2", "[hidden]"));
+  const run = (await call("POST", "/api/run", { prompt: "[link](javascript:alert(1)) <img src=x onerror=alert(2)>" })).body;
+  app.store.event(run.id, "flow.node.started", { node: "n", name: "box hunter2", kind: "tool", seq: 1 });
+  app.store.event(run.id, "flow.node.finished", { node: "n", name: "box hunter2", seq: 1, output: "ok" });
+  await call("POST", "/api/recordings", { mode: "on" });
+  for (const part of ["recording", "recording/path", "recording/page", "monitor"])
+    assert.ok(!(await call("GET", `/api/runs/${run.id}/${part}`)).text.includes("hunter2"), part);
+  const page = (await call("GET", `/api/runs/${run.id}/recording/page`)).text;
+  assert.match(page, /base-uri 'none'; form-action 'none'/);
+  assert.doesNotMatch(page, /<svg onload|<img src=x|href=|<a /i, "nothing from the task becomes markup or a link");
+  assert.equal(page.match(/<script/g).length, 2);
+  const body = page.slice(page.indexOf("</style>")).replaceAll("http://www.w3.org/2000/svg", "");
+  assert.doesNotMatch(body, /https?:\/\//, "past the tokens, the page names no address it could reach");
+});
+
+test("integration: the saved page and the player's step names follow the window's language", async (t) => {
+  const { call } = await served(t, writesAFile("fr.txt"));
+  const run = (await call("POST", "/api/run", { prompt: "en français" })).body;
+  await call("POST", "/api/recordings", { mode: "on" });
+  const recording = (await call("GET", `/api/runs/${run.id}/recording`)).body;
+  assert.deepEqual(recording.frames.map((frame) => frame.words?.key ?? null),
+    ["recording.frame.asked", "recording.frame.model", null, "recording.frame.model", "recording.frame.finished"]);
+  const page = (await call("GET", `/api/runs/${run.id}/recording/page?lang=fr`)).text;
+  assert.match(page, /<html lang="fr"/);
+  assert.match(page, /Une tâche, étape par étape/);
+  assert.match(page, /<li>Demande</);
+  assert.match(page, /Réflexion avec /);
+  const unknown = (await call("GET", `/api/runs/${run.id}/recording/page?lang=../../x`)).text;
+  assert.match(unknown, /<html lang="en"/);
+  assert.match(unknown, /A task, step by step/);
+});
+
+test("integration: a workflow made from a recording runs nothing on save and still meets Lockdown when run", async (t) => {
+  const { app, call, root } = await served(t, writesAFile("replayed.txt"));
+  const run = (await call("POST", "/api/run", { prompt: "write it" })).body;
+  const written = join(root, "workspace", "replayed.txt");
+  const { rm } = await import("node:fs/promises");
+  await rm(written, { force: true });
+  await call("POST", "/api/recordings", { mode: "on" });
+  const saved = (await call("POST", `/api/runs/${run.id}/recording/flow`, {})).body;
+  await assert.rejects(access(written), "saving did not write the file again");
+  assert.equal((await call("POST", "/api/lockdown", { on: true })).status, 200);
+  const after = await app.workflows.run(app.runtime.owner, saved.workflow.id).catch((error) => ({ status: "refused", error }));
+  assert.notEqual(after.status, "completed", "Lockdown still stands between the step and the file");
+  await assert.rejects(access(written), "the step did not write the file under Lockdown");
+});
+
+test("integration: a picture the owner attached is never thinned out, even with the taken-picture sentence", () => {
+  const taken = () => markTaken({ role: "user", content: takenPictureWords, images: [{ mediaType: "image/png", data: "AA==" }] });
+  const owners = { role: "user", content: takenPictureWords, images: [{ mediaType: "image/png", data: "AA==" }] };
+  const messages = [owners, taken(), taken(), taken(), taken()];
+  assert.equal(boundPictures(messages, 3), 1);
+  assert.ok(owners.images, "the owner's picture stays although its words match");
+  assert.equal(messages[1].images, undefined);
+  assert.equal(messages.filter((one) => one.images).length, 4);
 });

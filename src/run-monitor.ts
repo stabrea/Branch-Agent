@@ -54,7 +54,7 @@ export function vertices(store: Store, events: readonly Event[], scrub: <T>(valu
     const key = `${String(data.node)}:${String(data.seq)}`;
     if (event.kind === "flow.node.started") {
       byKey.set(key, {
-        node: String(data.node), name: String(data.name ?? data.node), kind: String(data.kind ?? ""), seq: Number(data.seq ?? 0),
+        node: String(data.node), name: String(scrub(String(data.name ?? data.node))).slice(0, 120), kind: String(data.kind ?? ""), seq: Number(data.seq ?? 0),
         status: "running", startedAt: event.createdAt, endedAt: null, seconds: null, message: "", childRunId: null, tokens: { input: 0, output: 0 },
       });
       continue;
