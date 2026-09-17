@@ -92,10 +92,10 @@ const fileNames = {
   identity: ["field.file-identity", "Its name — IDENTITY.md"],
   user: ["field.file-user", "Who you are — USER.md"],
   agents: ["field.file-agents", "AGENTS.md in the project folder"],
-  memory: ["field.file-memory", "MEMORY.md"],
-  heartbeat: ["field.file-heartbeat", "HEARTBEAT.md"],
-  sop: ["field.file-sop", "SOP.md"],
-  tools: ["field.file-tools", "TOOLS.md"],
+  memory: ["field.file-memory", "What you wrote down — MEMORY.md"],
+  heartbeat: ["field.file-heartbeat", "The list it reads — HEARTBEAT.md"],
+  sop: ["field.file-sop", "The steps — SOP.md"],
+  tools: ["field.file-tools", "Your notes — TOOLS.md"],
 };
 
 /**
