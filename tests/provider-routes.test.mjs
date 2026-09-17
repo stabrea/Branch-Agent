@@ -235,3 +235,77 @@ test("a retired connection is never picked as a fallback", (t) => {
   const plan = models.plan("owner", "s1");
   assert.deepEqual(plan.candidates.map((c) => c.id), ["demo"]);
 });
+
+// ------------------------------------------------------------------ integrator (mac5/providers)
+
+test("a new region connection keeps the address it was made with after a restart", async (t) => {
+  const { origin } = await fake(t, (_req, res) => json(res, { data: [{ id: "kimi-k2.6" }] }));
+  const store = new Store(":memory:");
+  t.after(() => store.close?.());
+  const models = routerFor(store);
+  const locker = { set: async () => undefined, exists: () => true,
+    resolve: async (_o, _p, names) => Object.fromEntries(names.map((n) => [n, "k"])) };
+  const deps = { models, locker, owner: "owner", policy: new NetworkPolicy({ allowPrivateAddresses: true }), store,
+    fetchImpl: (url, init) => fetch(String(url).replace("https://api.moonshot.ai", origin), init) };
+  await connectFromPreset(deps, { provider: "moonshot", key: "intl-key", extras: {} });
+  assert.equal(savedConnections(store, "owner")[0].extras.host, "api.moonshot.ai", "the default the key was checked against is written down");
+  assert.deepEqual(migrateSavedConnections(store, "owner"), [], "a connection made today is not moved to the mainland address");
+  assert.equal(savedConnections(store, "owner")[0].extras.host, "api.moonshot.ai");
+});
+
+test("moving a saved connection keeps a copy of what it was and records old and new, never a key", (t) => {
+  const store = new Store(":memory:");
+  t.after(() => store.close?.());
+  const before = [{ id: "perplexity", name: "P", catalogId: "perplexity", model: "sonar-pro", extras: {} },
+    { id: "minimax", name: "M", catalogId: "minimax", model: "abab6.5s-chat", extras: {} }];
+  store.save("settings", "owner", connectionsSetting, { connections: before });
+  assert.deepEqual(migrateSavedConnections(store, "owner"), ["perplexity", "minimax"]);
+  const copy = store.get("settings", "owner", "model-connections-before-move")?.data;
+  assert.deepEqual(copy.connections, before, "the records as they were are kept beside the new ones");
+  const entry = store.audit.list("owner").find((row) => row.action === "connection.changed");
+  assert.match(entry.reason, /sonar-pro → low/);
+  assert.match(entry.reason, /api\.minimax\.cn/);
+  assert.doesNotMatch(JSON.stringify(entry), /KEY|secret/i);
+  // Running again neither moves nor overwrites the first copy.
+  assert.deepEqual(migrateSavedConnections(store, "owner"), []);
+  assert.deepEqual(store.get("settings", "owner", "model-connections-before-move").data.connections, before);
+});
+
+test("a Sonar name Perplexity gave no replacement for is refused in plain words, not sent", () => {
+  assert.equal(agentModelFor("sonar-reasoning"), "sonar-reasoning", "no replacement is invented");
+  assert.throws(() => perplexityBody({ model: "sonar-reasoning", input: "hi" }), /sonar-reasoning.*fast, low, medium, high, xhigh/s);
+  assert.deepEqual(perplexityBody({ model: "openai/gpt-5.6-sol", input: "hi" }).model, "openai/gpt-5.6-sol");
+});
+
+test("a local program from the catalog is reachable on its own port only, with the owner's rules kept", async (t) => {
+  const { origin, seen } = await fake(t, (_req, res) => json(res, { data: [{ id: "llama3" }] }));
+  const original = providerCatalog();
+  useCatalog({ ...original, services: original.services.map((s) => (s.id === "ollama" ? { ...s, baseUrl: `${origin}/v1` } : s)) });
+  t.after(() => useCatalog(original));
+  const store = new Store(":memory:");
+  t.after(() => store.close?.());
+  const models = routerFor(store);
+  const locker = { set: async () => undefined };
+  const deps = { models, locker, owner: "owner", policy: new NetworkPolicy({}), store };
+  const made = await connectFromPreset(deps, { provider: "ollama", key: "" });
+  assert.equal(made.modelsFound, 1, "the default rules do not refuse the program's own address");
+  assert.ok(seen.length >= 1);
+  const { connectionCheck } = await import("../dist/local-connection-policy.js");
+  const check = connectionCheck(new NetworkPolicy({}), catalogEntry("ollama"), `${origin}/v1`);
+  await check(new URL(`${origin}/v1/chat/completions`));
+  await assert.rejects(check(new URL("http://127.0.0.1:1/v1/models")), /private or local/, "another port stays closed");
+  await assert.rejects(check(new URL("http://10.0.0.5/v1/models")), /private or local/);
+  const blocked = connectionCheck(new NetworkPolicy({ blockedHosts: ["127.0.0.1"] }), catalogEntry("ollama"), `${origin}/v1`);
+  await assert.rejects(blocked(new URL(`${origin}/v1/models`)), /blocked/, "the owner's block still wins");
+  // A cloud entry pointed at this computer gets no such allowance.
+  const cloud = connectionCheck(new NetworkPolicy({}), catalogEntry("openai"), `${origin}/v1`);
+  await assert.rejects(cloud(new URL(`${origin}/v1/models`)), /private or local/);
+});
+
+test("the Vertex token goes to no route but the conversation one, and no coding assistant gets the prompt as an argument", async () => {
+  const call = vertexFetch("claude-sonnet-5", "tok", () => { throw new Error("must not be called"); });
+  await assert.rejects(call("https://us-east5-aiplatform.googleapis.com/v1/projects/p/locations/us-east5/publishers/anthropic/models", {}), /only hold conversations/);
+  const { cliAgentCatalog } = await import("../dist/providers/cli-agent.js");
+  assert.deepEqual(cliAgentCatalog.find((row) => row.id === "copilot").args, [], "the question is piped in, never put after -p");
+  assert.ok(cliAgentCatalog.every((row) => !row.args.includes("-p") || row.id === "claude-code"), "claude -p reads the question from standard input");
+});

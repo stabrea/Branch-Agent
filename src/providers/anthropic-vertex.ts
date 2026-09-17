@@ -35,7 +35,9 @@ function vertexModel(model: string): string {
 export function vertexFetch(model: string, token: string, next: Fetch): Fetch {
   return async (input, init) => {
     const url = new URL(String(input instanceof Request ? input.url : input));
-    if (!url.pathname.endsWith("/messages") || typeof init?.body !== "string") return next(input, init);
+    // Vertex has only the one route here; nothing else is sent anywhere with the owner's token.
+    if (!url.pathname.endsWith("/messages") || typeof init?.body !== "string")
+      throw new Error("Claude on Vertex can only hold conversations in Branch");
     const body = JSON.parse(init.body) as Record<string, unknown>;
     const { model: _named, ...rest } = body;
     const verb = rest.stream === true ? "streamRawPredict" : "rawPredict";

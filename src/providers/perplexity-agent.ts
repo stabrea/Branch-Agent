@@ -37,9 +37,19 @@ function plainAssistant(item: unknown): unknown {
   return { ...message, content: message.content.map((part) => part.text ?? "").join("\n") };
 }
 
+/**
+ * A Sonar name Perplexity's migration guide gives no replacement for (for example `sonar-reasoning`)
+ * is refused before anything is sent, rather than guessed at or sent to a route that will not know it.
+ */
+function assertNotRetiredSonar(model: string): void {
+  if (/^sonar(\b|-)/.test(model))
+    throw new Error(`Perplexity no longer offers "${model}". Pick one of its presets instead (${perplexityPresets.join(", ")}) under Settings → Models.`);
+}
+
 export function perplexityBody(body: Record<string, unknown>): Record<string, unknown> {
   const { model, input, ...rest } = body;
   const chosen = agentModelFor(String(model ?? ""));
+  assertNotRetiredSonar(chosen);
   return {
     ...(isPreset(chosen) ? { preset: chosen } : { model: chosen }),
     ...rest,

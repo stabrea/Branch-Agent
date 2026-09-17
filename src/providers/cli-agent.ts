@@ -46,7 +46,7 @@ export type CliAgentRow = z.infer<typeof CliAgentRowSchema>;
 const ownCommandTerms = {
   route: "A program you named, with its own sign-in",
   url: "https://github.com/stabrea/Branch-Agent/blob/main/docs/configuration.md",
-  standing: "official" as const,
+  standing: "unofficial" as const,
   warning: "Branch cannot know this program's terms. Check that its maker allows it to be run by another app.",
 };
 
@@ -73,11 +73,14 @@ export const cliAgentCatalog: CliAgentRow[] = [
       standing: "official",
       warning: "Use through a ChatGPT plan counts against that plan's limits.",
     } },
+  // `copilot -p` takes the prompt as its value, which would put the whole conversation on the
+  // command line where any program can read it; Copilot also accepts the prompt piped in on
+  // standard input (github/copilot-cli changelog), which is how every row here is given it.
   { id: "copilot", name: "GitHub Copilot CLI (installed on this computer)", command: "copilot",
-    args: ["-p"], jsonField: "",
+    args: [], jsonField: "",
     note: "Runs GitHub's own Copilot command line with your own sign-in. Branch never sees or keeps that sign-in.",
     terms: {
-      route: "GitHub's copilot program, run with -p, signed in by you",
+      route: "GitHub's copilot program, with the question piped in, signed in by you",
       url: "https://docs.github.com/copilot/how-tos/use-copilot-agents/use-copilot-cli",
       standing: "official",
       warning: "Requests count against your Copilot plan's premium requests.",

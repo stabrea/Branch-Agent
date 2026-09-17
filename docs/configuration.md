@@ -53,6 +53,10 @@ The first preset is the default. **Settings → Models** chooses the workspace d
 
 `GET /api/providers/local` probes for Ollama at `127.0.0.1:11434` and LM Studio at `127.0.0.1:1234`, lists available models for any local runtime that responds, and returns an empty list if neither is running. The probe uses a short timeout and does not go through the network policy (local detection must succeed even when private addresses are otherwise blocked).
 
+A connection added from the catalog for a program on this computer (Ollama, LM Studio, vLLM, llama.cpp, LocalAI, Jan, LiteLLM) may reach exactly its own `127.0.0.1` address and port, and only for its own model calls, even though the network rules otherwise refuse local addresses. Every other rule you set (blocked hosts and paths, an allowed list) still applies, and every other local or private address, including another port on this computer, stays refused (`src/local-connection-policy.ts`).
+
+When a service moves (Perplexity to its Agent API, Moonshot, Qwen and MiniMax gaining a region choice), Branch moves the saved connection when it starts. The connection's name and its key stay as they were; the records as they were are copied once to the `model-connections-before-move` setting, and the record of what Branch did lists each old and new model or address. A Sonar model Perplexity named no replacement for (such as `sonar-reasoning`) is not guessed at: using it says to pick a preset. These moves change a value inside a setting, not the database's shape, so they need no new data format number.
+
 ### Which model services work (wave 7)
 
 Every model service Branch knows about is written down in `data/providers.json`, not in code. Each
@@ -121,7 +125,7 @@ service, not against the real one, so treat this as "Branch speaks the right lan
 | Portkey | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types | just a key | [Your own API key](https://portkey.ai/terms) |
 | Qwen (Alibaba DashScope) | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types, compare passages | just a key | [Your own API key](https://www.alibabacloud.com/help/en/legal/latest/alibaba-cloud-international-website-product-terms-of-service) |
 | SambaNova | in the cloud | OpenAI | conversation, pictures in, tools, as it types | just a key | [Your own API key](https://sambanova.ai/terms-and-conditions) |
-| Something else that speaks OpenAI's shape | in the cloud | OpenAI | conversation, tools, as it types | The address the service gave you | [An address and key you give](https://github.com/stabrea/Branch-Agent/blob/main/docs/configuration.md) |
+| Something else that speaks OpenAI's shape | in the cloud | OpenAI | conversation, tools, as it types | The address the service gave you | [An address and key you give](https://github.com/stabrea/Branch-Agent/blob/main/docs/configuration.md) (unofficial) |
 | Together AI | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types, compare passages, pictures out | just a key | [Your own API key](https://www.together.ai/terms-of-service) |
 | Voyage AI | in the cloud | OpenAI | compare passages | just a key | [Your own API key](https://www.voyageai.com/tos) |
 | Z.ai (GLM) | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types | just a key | [Your own API key](https://docs.z.ai/legal-agreement/terms-of-use) |

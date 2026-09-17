@@ -754,7 +754,7 @@
       ],
       "note": "For a service Branch does not know about yet. Paste its address; it must be an https address, or a plain http one on this computer.",
       "signUp": "",
-      "terms": { "route": "An address and key you give", "url": "https://github.com/stabrea/Branch-Agent/blob/main/docs/configuration.md", "standing": "official", "warning": "Branch cannot know this service's terms. Read them before you connect." }
+      "terms": { "route": "An address and key you give", "url": "https://github.com/stabrea/Branch-Agent/blob/main/docs/configuration.md", "standing": "unofficial", "warning": "Branch cannot know this service's terms. Read them before you connect." }
     }
   ]
 }

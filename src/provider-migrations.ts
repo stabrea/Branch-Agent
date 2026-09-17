@@ -45,6 +45,21 @@ export function migrateRecord<T extends MigratableRecord>(record: T): T {
   return rules.reduce((current, rule) => rule(current) as T, record);
 }
 
+/**
+ * What changed, in words for the record: the service, the old and new model or address. Only
+ * catalog ids, model names and host names appear here; a key never does, since records hold none.
+ */
+export function describeMove(before: MigratableRecord[], after: MigratableRecord[]): string[] {
+  return after.flatMap((record, index) => {
+    const old = before[index];
+    if (!old || JSON.stringify(old) === JSON.stringify(record)) return [];
+    const said: string[] = [];
+    if (old.model !== record.model) said.push(`model ${old.model} → ${record.model}`);
+    if (old.extras.host !== record.extras.host) said.push(`address kept at ${record.extras.host ?? "the default"}`);
+    return [`${record.id} (${record.catalogId}): ${said.join(", ")}`];
+  });
+}
+
 /** The whole list, with the ids of the records that changed so the caller can write it back once. */
 export function migrateRecords<T extends MigratableRecord>(records: T[]): { records: T[]; changed: string[] } {
   const changed: string[] = [];

@@ -3,6 +3,7 @@ import type { ModelPreset, ModelRouter } from "./models.js";
 import type { NetworkPolicy } from "./network-policy.js";
 import { type Capability, type ProviderTerms, capabilities, capabilitySentences, catalogEntry } from "./provider-catalog.js";
 import { RetiredProvider } from "./providers/retired.js";
+import { connectionCheck } from "./local-connection-policy.js";
 import { providerEmbeddings, supportsImages } from "./providers.js";
 import { geminiAuth } from "./voice-stt.js";
 
@@ -127,7 +128,8 @@ export async function probeProvider(
     return { ...base, summary: `${preset.name} does not offer a list of models, so its key can only be checked by using it.`,
       fix: "Press Test under Settings → Models to send one small request." };
   try {
-    await policy.assertAllowed(new URL(target.url), "model connection check");
+    const entry = preset.catalogId ? catalogEntry(preset.catalogId) : undefined;
+    await connectionCheck(policy, entry, target.url)(new URL(target.url), "model connection check");
     const response = await fetchImpl(target.url, { headers: target.headers, redirect: "error", signal: AbortSignal.timeout(10_000) });
     if (!response.ok) {
       const refused = response.status === 401 || response.status === 403;
