@@ -1,6 +1,7 @@
 import { randomUUID, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
+import { currentPerson } from "./people/context.js"; // bucket 19
 
 /**
  * Profiles for a household. Someone else who uses this computer can be given their own named
@@ -60,22 +61,48 @@ export class Profiles {
   }
   /** Switches to a profile after checking its PIN, or back to the owner with no PIN needed. */
   switch(input: unknown): { active: Profile | null; scope: string } {
+    // bucket 19: a person signed in on their own device cannot switch the window's profile.
+    if (currentPerson()) throw new Error("Switching who uses this computer is done at the computer itself.");
     const value = SwitchSchema.parse(input);
     if (value.profileId === null) { this.current = null; return { active: null, scope: this.owner }; }
     const row = this.db.prepare("SELECT * FROM household_profiles WHERE owner=? AND id=?").get(this.owner, value.profileId);
     if (!row) throw new Error("No profile with that name");
-    this.checkNotLockedOut(value.profileId);
-    const supplied = hash(value.pin ?? "", String(row.salt));
-    const stored = Buffer.from(row.pin_hash as Uint8Array);
-    if (supplied.length !== stored.length || !timingSafeEqual(supplied, stored)) {
-      this.countWrongPin(value.profileId);
-      throw new Error("That PIN is not right");
-    }
-    this.wrongPins.delete(value.profileId);
-    const at = new Date().toISOString();
-    this.db.prepare("UPDATE household_profiles SET last_used_at=? WHERE id=?").run(at, value.profileId);
+    const at = this.verifyPin(value.profileId, value.pin ?? "");
     this.current = value.profileId;
     return { active: { id: value.profileId, name: String(row.name), createdAt: String(row.created_at), lastUsedAt: at }, scope: this.scope() };
+  }
+  /**
+   * bucket 19: checks one profile's PIN without switching the window, counting wrong ones exactly as
+   * a switch does (the same lockout), and answers when it was last used. Throws on a wrong PIN.
+   */
+  verifyPin(profileId: string, pin: string): string {
+    const row = this.db.prepare("SELECT * FROM household_profiles WHERE owner=? AND id=?").get(this.owner, profileId);
+    if (!row) throw new Error("That PIN is not right");
+    this.checkNotLockedOut(profileId);
+    const supplied = hash(pin, String(row.salt));
+    const stored = Buffer.from(row.pin_hash as Uint8Array);
+    if (supplied.length !== stored.length || !timingSafeEqual(supplied, stored)) {
+      this.countWrongPin(profileId);
+      throw new Error("That PIN is not right");
+    }
+    this.wrongPins.delete(profileId);
+    const at = new Date().toISOString();
+    this.db.prepare("UPDATE household_profiles SET last_used_at=? WHERE id=?").run(at, profileId);
+    return at;
+  }
+  /** bucket 19: a new PIN for one profile, after a reset the owner started or the person's own change. */
+  setPin(profileId: string, pin: string): void {
+    const value = ProfileSchema.shape.pin.parse(pin);
+    const salt = randomBytes(16).toString("hex");
+    const changed = this.db.prepare("UPDATE household_profiles SET salt=?, pin_hash=? WHERE owner=? AND id=?")
+      .run(salt, hash(value, salt), this.owner, profileId).changes;
+    if (!changed) throw new Error("No profile with that name");
+    this.wrongPins.delete(profileId);
+  }
+  /** bucket 19: the profile a typed name belongs to, ignoring case; null when nobody here has it. */
+  byName(name: string): Profile | null {
+    const wanted = name.trim().toLowerCase();
+    return this.list().find((profile) => profile.name.toLowerCase() === wanted) ?? null;
   }
   /** Refuses a switch while a profile is still waiting out its run of wrong PINs. */
   private checkNotLockedOut(profileId: string): void {
@@ -91,22 +118,32 @@ export class Profiles {
   }
   /** Who is using the app right now: a profile, or the owner. */
   active(): Profile | null {
-    return this.current ? this.list().find((profile) => profile.id === this.current) ?? null : null;
+    const id = this.who();
+    if (!id) return null;
+    const found = this.list().find((profile) => profile.id === id) ?? null;
+    // bucket 19: a person's key whose profile was removed is nobody, and never falls back to the owner.
+    if (!found && currentPerson()) throw new Error("That person is no longer on this computer.");
+    return found;
+  }
+  /** bucket 19: a signed-in person's request answers for them; otherwise the window's switch does. */
+  private who(): string | null {
+    return currentPerson()?.profileId ?? this.current;
   }
   /** The name records are saved under for whoever is using the app: separate per profile. */
   scope(): string {
-    return this.current ? `profile:${this.current}` : this.owner;
+    const id = this.who();
+    return id ? `profile:${id}` : this.owner;
   }
   /** The owner's own name, so a caller can tell the owner's records apart from a profile's. */
   get ownerName(): string {
     return this.owner;
   }
   isOwner(): boolean {
-    return this.current === null;
+    return this.who() === null;
   }
   /** Refuses anything only the owner may reach: their secrets, their projects, their settings. */
   requireOwner(what = "This"): void {
-    if (this.current !== null)
+    if (this.who() !== null)
       throw new Error(`${what} belongs to the owner. Switch back to the owner's profile to use it.`);
   }
 }

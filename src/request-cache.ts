@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 import type { Store } from "./store.js";
 import type { Completion, Message } from "./contracts.js";
+import { FeatureModeSchema, optionalFields, type FeatureMode } from "./feature-switches.js";
 
 /**
  * Asking the same thing twice. When this is switched on, the exact request that went to the model —
@@ -17,6 +18,13 @@ import type { Completion, Message } from "./contracts.js";
 export const CacheSettingsSchema = z.object({
   /** Off until the owner turns it on: the same question can have a new answer. */
   enabled: z.boolean().default(false),
+  /**
+   * w911: the three-way switch. "when-needed" keeps only the answers to Branch's own side questions —
+   * the ones asked with no tools on offer, such as a summary or a rewritten search question — so an
+   * ordinary turn of a conversation is always asked afresh. "on" keeps every plain answer. A save from
+   * before this switch had only `enabled`, and a yes there kept every plain answer, so it reads as "on".
+   */
+  mode: FeatureModeSchema.optional(),
   /** How long a kept answer counts, in minutes. */
   ttlMinutes: z.number().int().min(1).max(10080).default(60),
   /** How many answers to keep before the oldest are let go. */
@@ -30,9 +38,24 @@ export function cacheSettings(store: Store, owner: string): CacheSettings {
   return saved.success ? saved.data : CacheSettingsSchema.parse({});
 }
 export function saveCacheSettings(store: Store, owner: string, input: unknown): CacheSettings {
-  const next = CacheSettingsSchema.parse({ ...cacheSettings(store, owner), ...(input as object ?? {}) });
+  const current = cacheSettings(store, owner);
+  const given = optionalFields(CacheSettingsSchema).parse(input ?? {});
+  const merged = CacheSettingsSchema.parse({ ...current, ...given });
+  // A bare yes turns it back on as it was, or fully on: that is what a yes meant before the three-way switch.
+  const was = cacheMode(current);
+  const mode = given.mode ?? (given.enabled === false ? "off" : given.enabled === true ? (was === "off" ? "on" : was) : was);
+  const next = { ...merged, mode, enabled: mode !== "off" };
   store.save("settings", owner, settingsKey, next);
   return next;
+}
+/** The mode a saved record stands for; an older yes meant every plain answer was kept, so it is "on". */
+export function cacheMode(settings: Pick<CacheSettings, "enabled" | "mode">): FeatureMode {
+  return settings.mode ?? (settings.enabled ? "on" : "off");
+}
+/** Whether this request may be answered from, or written to, the kept answers under this mode. */
+export function cacheApplies(mode: FeatureMode, parts: CacheKeyParts): boolean {
+  if (mode === "off" || neverKeep(parts)) return false;
+  return mode === "on" || parts.tools.length === 0;
 }
 
 /** What identifies one request: everything the model was actually shown, and nothing else. */
@@ -108,7 +131,7 @@ export class RequestCache {
   /** The kept answer for this request, or null: switched off, never seen, or too old. */
   look(parts: CacheKeyParts): Completion | null {
     const settings = this.settings;
-    if (!settings.enabled || neverKeep(parts)) return null;
+    if (!cacheApplies(cacheMode(settings), parts)) return null;
     const hash = requestHash(parts);
     const record = this.store.get("settings", this.scope, this.key(hash));
     if (!record) return null;
@@ -126,7 +149,7 @@ export class RequestCache {
    */
   keep(parts: CacheKeyParts, completion: Completion): boolean {
     const settings = this.settings;
-    if (!settings.enabled || neverKeep(parts)) return false;
+    if (!cacheApplies(cacheMode(settings), parts)) return false;
     if (completion.toolCalls?.length) return false;
     this.store.save("settings", this.scope, this.key(requestHash(parts)),
       { completion: { content: completion.content, toolCalls: [] }, savedAt: new Date(this.now()).toISOString() });
@@ -135,9 +158,9 @@ export class RequestCache {
   }
 
   /** How many answers are kept, and when the oldest was kept. */
-  summary(): { enabled: boolean; entries: number; ttlMinutes: number } {
+  summary(): { enabled: boolean; mode: FeatureMode; entries: number; ttlMinutes: number } {
     const settings = this.settings;
-    return { enabled: settings.enabled, entries: this.rows().length, ttlMinutes: settings.ttlMinutes };
+    return { enabled: cacheMode(settings) !== "off", mode: cacheMode(settings), entries: this.rows().length, ttlMinutes: settings.ttlMinutes };
   }
 
   /** Throws every kept answer away. */

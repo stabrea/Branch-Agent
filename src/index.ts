@@ -54,6 +54,7 @@ import { z } from "zod";
 import { ModelRouter, type ModelPreset } from "./models.js";
 import type { ChatGPTAuth } from "./chatgpt-auth.js";
 import { syncChatGPTPresets } from "./chatgpt-presets.js";
+import { People } from "./people/index.js"; // bucket 19
 import { FileLockerKey, type LockerKeySource } from "./locker.js";
 import { SessionLock } from "./session-lock.js";
 import { Moderation } from "./moderation.js";
@@ -109,6 +110,7 @@ import { jsonWriteProblem } from "./approvals.js";
 import { Flows, registerFlows } from "./flows.js";
 import { registerSdkKit } from "./sdk-kit.js"; // bucket 21
 import { PluginCatalog } from "./plugin-catalog.js";
+import { AddOns } from "./add-ons/index.js"; // bucket-15: add-ons other people wrote
 import { SkillRevisions, registerSkillSync } from "./skill-revisions.js";
 import { DataTables, registerData } from "./data-tools.js";
 import { DocumentAnalysis, registerDocumentAnalysis } from "./document-analysis.js";
@@ -619,6 +621,17 @@ export async function createBranch(options: {
   // Where plugins come from: a folder or one file on this computer, shown in full before it is
   // copied in, with its fingerprint kept so a file that changes later is noticed.
   const pluginCatalog = new PluginCatalog(store, runtime.owner, join(dataDir, "plugins"));
+  // ── bucket-15: add-ons other people wrote (src/add-ons/). Every part ships off; a plugin from a
+  // package runs walled, so this has to be set before the plugins the owner chose are loaded back. ──
+  // The malware check lives in the security service, made further down; until it is there, a look
+  // at a package is refused in a sentence rather than reaching a name that does not exist yet.
+  let vetAddOn: (command: string, args: readonly string[]) => Promise<void> = async () => {
+    throw new Error("Branch is still starting, so the malware check is not ready. Try again in a moment.");
+  };
+  const addOns = new AddOns({ store, runtime, registry, plugins, dataDir, policy: web.policy,
+    vet: (command, args) => vetAddOn(command, args),
+    secret: async (name) => (await store.secrets.resolve(runtime.owner, "default", [name], { purpose: "pipelines" }).catch(() => ({} as Record<string, string>)))[name] ?? null });
+  // ── end bucket-15 ──
   // Drafts of better versions of a skill, tried against real tasks as a practice run first.
   const skillRevisions = new SkillRevisions(store, runtime.owner);
   registerSkillSync(registry, store, files);
@@ -896,15 +909,27 @@ export async function createBranch(options: {
   // Short-lived, scoped keys for anything that is not the app window. The master session key is
   // never one of these; see src/session-tokens.ts.
   const sessionTokens = new SessionTokens(store.sqlite, store);
+  // ── bucket 19: people signing in from their own device, groups and sharing (src/people/). Ships off. ──
+  const people = new People({ store, owner: runtime.owner, db: store.sqlite, roles: runtime.roles, tokens: sessionTokens,
+    fetch: web.policy.guard(globalThis.fetch),
+    secret: async (name: string) => {
+      const project = store.projects.active(runtime.owner).id;
+      const value = (await store.secrets.resolve(runtime.owner, project, [name], { purpose: "signing a person in" }))[name];
+      audit(store, runtime.owner, { action: "secret.used", actor: "an identity service you set up", subject: `${name} (project ${project})`,
+        reason: "Signing a person in needed it", outcome: "handed over" });
+      return value;
+    } });
+  // ── end bucket 19 ──
   // ── mac4/bucket-20: talking to other agents and tools (src/interop/). Every part ships off. ──
   const interop = new Interop({ runtime, registry, knowledge, teams, flows, remoteAgents,
     tokens: sessionTokens, files, policy: web.policy, version });
   // ── mac3/security-check: the self-check and the malware check (src/security-audit). Both ship off. ──
   const security = new SecurityService(
-    { store, runtime, registry, sessionLock, privacy, web, sessionTokens, plugins, pluginCatalog },
+    { store, runtime, registry, sessionLock, privacy, web, sessionTokens, plugins, pluginCatalog, people },
     { dataDir, ...(options.home ? { home: resolve(options.home) } : {}), integrationsPath: () => (process.env.BRANCH_INTEGRATIONS ? resolve(process.env.BRANCH_INTEGRATIONS) : null),
       ...(process.env.BRANCH_OSV_ENDPOINT ? { osvEndpoint: process.env.BRANCH_OSV_ENDPOINT } : {}) });
   security.start();
+  vetAddOn = (command, args) => security.malware.vet(command, args); // bucket-15: the add-ons' malware check is ready now
   // ── end mac3/security-check ──
   const stopWatchingErrors = recordUncaughtErrors(store.spans, runtime.owner, (value) => runtime.hideSecrets(value));
   // A finished task's spans go out on their own once sending is on; the exporter itself does
@@ -940,6 +965,8 @@ export async function createBranch(options: {
     registry,
     /** mac4/bucket-20: the Agent Protocol, lent tools, modes, project routing, fleet, handoff, flow search, market. */
     interop,
+    /** bucket-15: add-on packages, lists, filters, Pipelines, drafts, search sources, Branch as a plugin. */
+    addOns,
     runtime,
     /** mac3/never-break: the task journal, and settling interrupted work after a restart. */
     neverBreak: {
@@ -1178,6 +1205,8 @@ export async function createBranch(options: {
     traceExport,
     /** Batch 20 (wave 8): short-lived keys for a script, an extension or the SDK. */
     sessionTokens,
+    /** bucket 19: people signing in from their own device, groups and sharing; ships off. */
+    people,
     /** Wave 9: scoring the real work as it finishes, and the recent verdicts. */
     liveScoring: {
       settings: () => liveScoringSettings(store, runtime.owner),
@@ -1526,6 +1555,7 @@ export * from "./api-openapi.js";
 export * from "./help.js";
 export * from "./request-cache.js";
 export * from "./batch-inference.js";
+export * from "./chat-engine.js"; // w911 (A0847)
 export * from "./provider-batch.js";
 export * from "./lockdown.js";
 export * from "./session-tree.js";
@@ -1564,6 +1594,8 @@ export * from "./cli-completion.js";
 export * from "./cli-run.js";
 // mac4/bucket-20: talking to other agents and tools.
 export { Interop } from "./interop/index.js";
+// bucket-15: add-ons other people wrote.
+export { AddOns, applyFilters, branchPluginFiles, definePlugin, addOnApiVersion, readOffer, signListEntry, verifyListEntry, pluginWall } from "./add-ons/index.js";
 // Wave mac2 (guards): the loop guard, the folder's own instructions and folder trust.
 export * from "./loop-guard.js";
 export * from "./folder-trust.js";

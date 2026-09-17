@@ -11,8 +11,9 @@ import { requireInterop } from "./settings.js";
  * address, or another computer's browser), in a terminal, or with another assistant.
  *
  * - Another device gets a link that opens this very conversation and a short-lived key that may
- *   look and start tasks, and stops working at the minute shown. The key is shown to the owner once
- *   and never given to the model: only the owner's own window can ask for it.
+ *   look and start tasks in that conversation only (bucket 19), and stops working at the minute
+ *   shown. The key is shown to the owner once and never given to the model: only the owner's own
+ *   window can ask for it.
  * - A terminal gets the one command that joins the running engine's conversation.
  * - Another assistant (an A2A one the owner added) is sent the recent conversation, with keys and
  *   saved passwords scrubbed out, and asked to carry on; its answer comes back here.
@@ -67,8 +68,10 @@ export async function handOff(parts: HandoffParts, input: HandoffInput, base: st
     note(parts.store, value.sessionId, `Handed to ${answer.agent}, which answered: ${answer.answer.slice(0, 1000)}`);
     return { to: "assistant", agent: answer.agent, state: answer.state, answer: answer.answer };
   }
-  const issued = parts.tokens.create(parts.owner, { name: `Carry on a conversation (${value.sessionId.slice(0, 8)})`, scope: "run", minutes: value.minutes });
-  const link = `${base.replace(/\/+$/, "")}/#handoff=${value.sessionId}`;
+  // bucket 19: the key reaches this one conversation and nothing else of the owner's.
+  const issued = parts.tokens.create(parts.owner, { name: `Carry on a conversation (${value.sessionId.slice(0, 8)})`, scope: "run",
+    minutes: value.minutes, sessionId: value.sessionId });
+  const link = `${base.replace(/\/+$/, "")}/people#handoff=${value.sessionId}`; // bucket 19: the one-conversation page
   note(parts.store, value.sessionId, `Handed to another device until ${clock(issued.entry.expiresAt)} (UTC).`);
   return {
     to: "device", link, key: issued.token, keyId: issued.entry.id, expiresAt: issued.entry.expiresAt,

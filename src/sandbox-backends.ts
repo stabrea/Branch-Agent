@@ -468,6 +468,8 @@ export interface WallDeps {
   dataDir?: string | undefined;
   /** Where a request really goes; tests only. */
   upstream?: ProxyOptions["upstream"];
+  /** How a site name becomes addresses; tests only (bucket-15 integration: passed through to the door). */
+  resolve?: ProxyOptions["resolve"];
 }
 export interface WallRun { exitCode: number | null; stdout: string; stderr: string }
 export interface OpenedWall {
@@ -539,7 +541,8 @@ async function planWall(
 function doorFor(plan: WallPlan, paths?: { http: string; socks: string }): SandboxProxy | null {
   const { network, keys, wall } = plan;
   if (plan.doorless || network === "none" || (network === "open" && !keys.length)) return null;
-  return new SandboxProxy({ network, keys, check: wall.siteCheck, upstream: plan.deps.upstream, ...(paths ? { paths } : {}),
+  return new SandboxProxy({ network, keys, check: wall.siteCheck, upstream: plan.deps.upstream,
+    ...(plan.deps.resolve ? { resolve: plan.deps.resolve } : {}), ...(paths ? { paths } : {}),
     decide: (host) => wall.answer("network.site", host) ?? (network === "open" ? "allow" : "ask") });
 }
 
