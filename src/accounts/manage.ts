@@ -5,8 +5,10 @@ import { FeatureModeSchema } from "../feature-switches.js";
 import type { AccountsService } from "./service.js";
 import {
   type AccountKind, type AccountsSettings, type Pool, AccountSchema, keyName, keyProject, maxAccounts,
-  newAccountId, poolOf, primaryAccount, saveAccountsSettings, saveSessionChoice, sessionChoice, strategies,
+  newAccountId, poolId, poolOf, primaryAccount, programSignInLine, saveAccountsSettings, saveSessionChoice, sessionChoice,
+  strategies,
 } from "./settings.js";
+import { accountHomeVariables, rowFor } from "../providers/cli-agent.js";
 import { accountTerms } from "./terms.js";
 
 /**
@@ -14,7 +16,7 @@ import { accountTerms } from "./terms.js";
  * change here is the owner's alone: the server refuses these routes to short-lived keys and to
  * household profiles. Nothing here ever returns a key or a token.
  */
-const poolName = z.string().min(1).max(64);
+const poolName = poolId;
 const accountName = z.string().regex(/^(primary|[a-f0-9]{8})$/);
 export const AddSchema = z.object({
   pool: poolName,
@@ -90,9 +92,11 @@ export async function addAccount(service: AccountsService, input: unknown) {
   if (kind === "api-key" && !asked.key) throw new Error("Paste the key for this account.");
   if (kind !== "api-key" && asked.key) throw new Error("This connection signs in; it does not take a key.");
   const id = newAccountId();
+  const address = kind === "api-key" ? service.addressOf(asked.pool) : null;
+  if (kind === "api-key" && !address) throw new Error(`The connection "${asked.pool}" has no address Branch can tie a key to.`);
   if (asked.key) await service.deps.store.locker.set(service.deps.owner, keyProject(asked.pool), keyName(id), asked.key);
   if (kind === "cli") await mkdir(service.homeOf(asked.pool, id), { recursive: true, mode: 0o700 });
-  pool.accounts.push(AccountSchema.parse({ id, label: asked.label, createdAt: new Date(service.now()).toISOString() }));
+  pool.accounts.push(AccountSchema.parse({ id, label: asked.label, ...(address ? { address } : {}), createdAt: new Date(service.now()).toISOString() }));
   save(service, settings);
   service.rewrap();
   note(service, `${asked.label} (${asked.pool})`, "An account was added to a connection", "added");
@@ -206,16 +210,21 @@ export function viewPool(service: AccountsService, pool: Pool) {
         ...(others ? { monthlyCapUsd: null } : {}),
         usage: others ? { requests: 0, input: 0, output: 0, costUsd: 0, lastUsedAt: null }
           : service.ledger.month(service.deps.owner, pool.pool, account.id, new Date(now)),
-        capReached: service.capReached(pool.pool, account),
+        capReached: others ? false : service.capReached(pool.pool, account),
         restingUntil: state.restUntil > now ? new Date(state.restUntil).toISOString() : null,
         limitedUntil: state.limitedUntil > now ? new Date(state.limitedUntil).toISOString() : null,
         remaining: state.remaining,
         lastUsedAt: state.lastUsedAt ? new Date(state.lastUsedAt).toISOString() : null,
         lastError: state.lastError,
-        ...(pool.kind === "cli" ? { home: service.homeOf(pool.pool, account.id) } : {}),
+        ...(pool.kind === "cli" ? programHome(service, pool.pool, account.id) : {}),
       };
     }),
   };
+}
+
+function programHome(service: AccountsService, pool: string, account: string) {
+  const home = service.homeOf(pool, account), variable = accountHomeVariables[pool.slice(4)];
+  return { home, ...(variable ? { signInLine: programSignInLine(variable, home, rowFor({ id: pool.slice(4) }).command) } : {}) };
 }
 
 /** Every connection that can have several accounts, with its list (a list of one until more are added). */

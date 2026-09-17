@@ -166,9 +166,9 @@ function capBlock(pool, account) {
   return box;
 }
 function programHelp(pool, account) {
-  const variable = { "cli-claude-code": "CLAUDE_CONFIG_DIR", "cli-codex": "CODEX_HOME", "cli-gemini-cli": "GEMINI_CLI_HOME", "cli-copilot": "COPILOT_HOME" }[pool.pool];
   const box = node("div", "field-note");
-  box.append(worded("p", "accounts.program.sign-in"), data("code", `${variable}="${account.home}"`));
+  // Written by the server for this computer's own shell (PowerShell on Windows).
+  box.append(worded("p", "accounts.program.sign-in"), data("code", account.signInLine || account.home));
   return box;
 }
 

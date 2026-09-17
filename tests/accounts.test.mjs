@@ -342,3 +342,97 @@ test("A11 a damaged or missing list reads as switched off", async (t) => {
   saveAccountsSettings(fx.app.store, fx.owner, AccountsSettingsSchema.parse({}));
   assert.equal(fx.service.on(), false);
 });
+
+/* ---------- integrator (adversarial) checks ---------- */
+
+test("I1 an extra key only ever goes to the address it was added for", async (t) => {
+  const fx = await fixture(t);
+  const { app, owner, service } = fx;
+  const save = (baseUrl) => app.store.save("settings", owner, "model-connections", { connections: [{ id: "custom", name: "Mine", catalogId: "custom", model: "m1", extras: { baseUrl } }] });
+  save("https://a.example/v1");
+  const provider = { name: "openai-chat", complete: async () => ({ content: "first", toolCalls: [] }) };
+  app.runtime.models.register({ id: "custom", name: "Mine", model: "m1", catalogId: "custom", provider });
+  app.runtime.models.configure(owner, { activePreset: "custom" });
+  const hosts = [];
+  service.deps.fetchImpl = async (url) => {
+    hosts.push(new URL(String(url)).host);
+    return new Response(JSON.stringify({ choices: [{ message: { role: "assistant", content: "from the second key" } }] }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  await turnOn(service);
+  const { addAccount, updateAccount } = await import("../dist/accounts/manage.js");
+  const second = (await addAccount(service, { pool: "custom", label: "Second", key: SECOND_KEY })).accounts.find((a) => a.label === "Second").id;
+  await updateAccount(service, { pool: "custom", account: "primary", disabled: true });
+  assert.equal((await app.runtime.run({ prompt: "hello" })).output, "from the second key");
+  assert.deepEqual(hosts, ["a.example"]);
+  // The connection is taken away and added again under the same name, pointing somewhere else.
+  save("https://b.example/v1");
+  app.runtime.models.register({ id: "custom", name: "Mine", model: "m1", catalogId: "custom", provider });
+  const moved = await app.runtime.run({ prompt: "hello" });
+  assert.equal(moved.status, "failed");
+  assert.match(moved.output, /added for a different address/);
+  assert.deepEqual(hosts, ["a.example"], "the key never reached the new address");
+  assert.ok(second);
+});
+
+test("I2 a ChatGPT sign-in too long for the locker fails in a sentence and writes nothing", async (t) => {
+  const fx = await fixture(t);
+  const vault = new LockerTokenVault(fx.app.store.locker, fx.owner, "abcdef12");
+  const before = { accessToken: "old-access", refreshToken: "old-refresh", expiresAt: "2026-09-18T00:00:00.000Z" };
+  await vault.write(before);
+  const long = { accessToken: "a".repeat(100), refreshToken: "r".repeat(9000), expiresAt: "2026-09-19T00:00:00.000Z" };
+  await assert.rejects(vault.write(long), (error) => {
+    assert.match(error.message, /^This ChatGPT sign-in is longer than the locker can hold/);
+    assert.ok(!error.message.includes("rrrr"), "the token is not in the message");
+    return true;
+  });
+  assert.deepEqual(await vault.read(), before, "nothing was half-written or cut short");
+});
+
+test("I4 people never learn whether the owner's cap was reached, and /account is refused for them", async (t) => {
+  const fx = await fixture(t);
+  const { app, owner, service } = fx;
+  apiConnection(fx, () => ({ content: "first", toolCalls: [] }));
+  saveCommandSettings(app.store, owner, { mode: "on" });
+  await turnOn(service);
+  const second = await addKey(service);
+  const { updateAccount, viewAll } = await import("../dist/accounts/manage.js");
+  await updateAccount(service, { pool: POOL, account: second, shared: true, monthlyCapUsd: 1 });
+  service.ledger.record(owner, POOL, second, { input: 1, output: 1, costUsd: 5 }, new Date(service.now()));
+  assert.equal((await viewAll(service)).pools.find((p) => p.pool === POOL).accounts.find((a) => a.id === second).capReached, true);
+  const person = app.store.profiles.create({ name: "Sam", pin: "1234" });
+  app.store.profiles.switch({ profileId: person.id, pin: "1234" });
+  t.after(() => app.store.profiles.switch({ profileId: null }));
+  const seen = (await viewAll(service)).pools.find((p) => p.pool === POOL).accounts;
+  assert.equal(seen.find((a) => a.id === second).capReached, false, "the cap stays the owner's business");
+  const host = { runtime: app.runtime, requireOwner: (what) => app.store.profiles.requireOwner(what) };
+  const listed = await executeCommand(host, { surface: "window", line: "/account", access: "full" });
+  assert.match(listed.text, /belongs to the owner/);
+  assert.ok(!listed.text.includes("Second"));
+});
+
+test("I5 account lists are named like connections: no path pieces", async (t) => {
+  const fx = await fixture(t);
+  apiConnection(fx, () => ({ content: "first", toolCalls: [] }));
+  await turnOn(fx.service);
+  const { addAccount, updatePool } = await import("../dist/accounts/manage.js");
+  for (const pool of ["../../evil", "cli-claude-code/../x", "a\\b"]) {
+    await assert.rejects(addAccount(fx.service, { pool, label: "x" }), { name: "ZodError" }, pool);
+    assert.throws(() => updatePool(fx.service, { pool, strategy: "priority" }), { name: "ZodError" }, pool);
+  }
+});
+
+test("I6 the sign-in line for a program's folder is written for the computer it runs on", async () => {
+  const { programSignInLine } = await import("../dist/accounts/settings.js");
+  assert.equal(programSignInLine("CLAUDE_CONFIG_DIR", "/Volumes/My Disk/data/accounts/cli-claude-code/abcd1234", "claude", "darwin"),
+    "CLAUDE_CONFIG_DIR='/Volumes/My Disk/data/accounts/cli-claude-code/abcd1234' claude");
+  assert.equal(programSignInLine("CODEX_HOME", "/home/o'neil/data/accounts/cli-codex/abcd1234", "codex", "linux"),
+    "CODEX_HOME='/home/o'\\''neil/data/accounts/cli-codex/abcd1234' codex");
+  assert.equal(programSignInLine("COPILOT_HOME", "C:\\Users\\O'Neil\\Branch\\accounts\\cli-copilot\\abcd1234", "copilot", "win32"),
+    "$env:COPILOT_HOME='C:\\Users\\O''Neil\\Branch\\accounts\\cli-copilot\\abcd1234'; copilot");
+});
+
+test("I7 the accounts source is plain text", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const text = await readFile(new URL("../src/accounts/service.ts", import.meta.url), "utf8");
+  assert.ok(!/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(text), "no raw control characters in the source");
+});

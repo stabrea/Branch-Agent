@@ -24,7 +24,7 @@ export type Strategy = (typeof strategies)[number];
 export const primaryAccount = "primary";
 export const maxAccounts = 50;
 const accountId = z.string().regex(/^(primary|[a-f0-9]{8})$/);
-const poolId = z.string().min(1).max(64).regex(/^[a-z0-9]+(?:[-_.][a-z0-9]+)*$/i);
+export const poolId = z.string().min(1).max(64).regex(/^[a-z0-9]+(?:[-_.][a-z0-9]+)*$/i);
 
 export const AccountSchema = z.object({
   id: accountId,
@@ -35,6 +35,8 @@ export const AccountSchema = z.object({
   monthlyCapUsd: z.number().min(0).max(100_000).nullable().default(null),
   /** Whether people sharing this computer may use it. Only an API key can be shared. */
   shared: z.boolean().default(false),
+  /** Extra API keys only: the address (scheme, host, port) the key was added for; it is sent nowhere else. */
+  address: z.string().max(300).optional(),
   createdAt: z.string().max(40),
 }).strict();
 export type Account = z.infer<typeof AccountSchema>;
@@ -97,6 +99,16 @@ export function keyProject(pool: string): string {
 export const keyName = (account: string): string => `KEY_${account.toUpperCase()}`;
 /** Each ChatGPT account's tokens sit in a locker project of their own. */
 export const tokenProject = (account: string): string => `acct-chatgpt-${account}`;
+
+/**
+ * The line the owner types once to sign a program in to one account's folder, written for the
+ * computer's own shell: PowerShell on Windows, a POSIX shell elsewhere. Quoted so spaces and
+ * apostrophes in the path are kept as they are.
+ */
+export function programSignInLine(variable: string, path: string, command: string, platform: NodeJS.Platform = process.platform): string {
+  if (platform === "win32") return `$env:${variable}='${path.replace(/'/g, "''")}'; ${command}`;
+  return `${variable}='${path.replace(/'/g, "'\\''")}' ${command}`;
+}
 
 /* ---------- the account a conversation chose ---------- */
 

@@ -8,6 +8,8 @@ import { tokenProject } from "./settings.js";
  * had, which stays where it always was. The sign-in itself is the same device-code route as
  * `src/chatgpt-auth.ts`, labelled unofficial in the same words.
  */
+/** The longest value the locker keeps (src/locker.ts). */
+export const lockerValueLimit = 8192;
 const parts = { accessToken: "ACCESS_TOKEN", refreshToken: "REFRESH_TOKEN", idToken: "ID_TOKEN", expiresAt: "EXPIRES_AT" } as const;
 
 export class LockerTokenVault implements TokenVault {
@@ -25,6 +27,10 @@ export class LockerTokenVault implements TokenVault {
     };
   }
   async write(tokens: ChatGPTTokens): Promise<void> {
+    // All or nothing: a part the locker cannot hold is refused before anything is written, never cut short.
+    const values = [tokens.accessToken, tokens.refreshToken, tokens.expiresAt, tokens.idToken ?? ""];
+    if (values.some((value) => value.length > lockerValueLimit))
+      throw new Error(`This ChatGPT sign-in is longer than the locker can hold (${lockerValueLimit} characters per part), so it was not kept. The first ChatGPT account can still sign in.`);
     await this.locker.set(this.owner, this.project, parts.accessToken, tokens.accessToken);
     await this.locker.set(this.owner, this.project, parts.refreshToken, tokens.refreshToken);
     await this.locker.set(this.owner, this.project, parts.expiresAt, tokens.expiresAt);

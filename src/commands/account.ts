@@ -8,6 +8,8 @@ import type { Call, Reply } from "./handlers.js";
  * changes what new work uses. Switching is the owner's own, like the Settings screen.
  */
 export function accountCommand(call: Call): Reply {
+  // Even the list is the owner's: a household profile or a signed-in person is refused outright.
+  call.host.requireOwner("/account");
   const service = accountsServiceFor(call.host.runtime.models);
   if (!service || !service.on())
     return { text: "Several accounts per connection is switched off. Turn it on in Settings › Models." };
