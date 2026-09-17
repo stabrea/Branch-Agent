@@ -85,6 +85,10 @@ import { VoiceService, registerVoice } from "./voice-service.js";
 import { LiveConversations } from "./realtime-voice.js";
 import { registerModelSwitch } from "./model-switch.js";
 import { GitTools } from "./integrations/git.js";
+import { GitCheckpoints, GitWorkspaces, type GitRun } from "./git-checkpoint.js";
+import { RemoteWorkspaces, registerRemoteWorkspaces, sshRunner } from "./remote/ssh-workspace.js";
+import { SessionLimiter } from "./session-limits.js";
+import { ConversationRetention } from "./retention.js";
 import { GitRunner } from "./integrations/git-run.js";
 import { registerGit } from "./integrations/git-tools.js";
 import { jsonWriteProblem } from "./approvals.js";
@@ -107,6 +111,16 @@ import { DocumentRetriever, MemoryRetriever, Retrieval } from "./retrieval.js";
 import { KnowledgeBases } from "./knowledge-bases.js";
 import { KnowledgeRetriever, registerKnowledgeBases } from "./knowledge-tools.js";
 import { KnowledgeCards, registerKnowledgeCards } from "./knowledge-cards.js";
+// Batch 20 (wave 8): writing Office files, a map of what a knowledge base mentions, summaries,
+// pictures described in words, a Markdown mirror of what is remembered, and text held for one job.
+import { DocumentAuthoring, registerDocumentAuthoring } from "./document-authoring.js";
+import { GraphRetriever, KnowledgeGraph } from "./knowledge-graph.js";
+import { KnowledgeSummaries } from "./knowledge-summary.js";
+import { KnowledgeManagement } from "./knowledge-manage.js";
+import { KnowledgePictures } from "./knowledge-pictures.js";
+import { registerKnowledgeExtras, type KnowledgeParts } from "./knowledge-more.js";
+import { MemoryMirror, readOnlyRefusal, registerMemoryMirror } from "./memory-mirror.js";
+import { EphemeralDocuments, EphemeralRetriever, registerEphemeralDocuments } from "./memory-ephemeral.js";
 import { CachedEmbeddings, asEmbeddings } from "./embeddings.js";
 import { MemoryConsolidation } from "./memory-consolidate.js";
 import { PracticeWorkspace } from "./practice-workspace.js";
@@ -244,8 +258,30 @@ export async function createBranch(options: {
   });
   registerCodeRun(registry, new CodeRunner(store, options.owner ?? "local", workspace));
   // Version control on this computer only; sending work to a server is switched on separately.
-  const git = new GitTools(files, new GitRunner());
+  const gitRunner = new GitRunner();
+  const git = new GitTools(files, gitRunner);
   registerGit(registry, git);
+  // Batch 26 (wave 8): a way back to before a set of changes was written, a project that carries
+  // its own line of work, and folders on other computers reached with the OpenSSH client Windows
+  // already has. All three are the owner's own tools, borrowed rather than installed.
+  const gitRun: GitRun = async (cwd, args, signal) => {
+    const out = await gitRunner.run({ cwd, args }, signal);
+    return { status: out.status, stdout: out.stdout, stderr: out.stderr, exitCode: out.exitCode };
+  };
+  const checkpoints = new GitCheckpoints(store, options.owner ?? "local", gitRun);
+  codeChanges.checkpoints = checkpoints;
+  const gitWorkspaces = new GitWorkspaces(checkpoints, gitRun);
+  store.projects.onSwitched((owner, project) => {
+    if (!project.branch) return;
+    void gitWorkspaces.switchTo(join(workspace, project.folder), project.branch, AbortSignal.timeout(30_000))
+      .catch(() => undefined);
+  });
+  const remotes = new RemoteWorkspaces(store, options.owner ?? "local", sshRunner());
+  registerRemoteWorkspaces(registry, remotes);
+  // Batch 26 (wave 8): how much one conversation, or one person messaging from outside, may ask for
+  // in a minute and in an hour; and letting conversations older than the owner's cut-off go.
+  const sessionLimiter = new SessionLimiter(store, options.owner ?? "local");
+  const retention = new ConversationRetention(store, options.owner ?? "local");
   // This computer's screen and keyboard. The tools are always here so they can explain themselves,
   // but every one of them refuses until the owner turns the switch on in Settings.
   const desktop = new DesktopControl(store, { artifacts });
@@ -465,12 +501,21 @@ export async function createBranch(options: {
   // Batch 26 (wave 8): the owner's own checks get a say before a tool call goes ahead, and may only
   // make the answer stricter — hold it for a yes, or refuse it.
   runtime.askHooks = (runId, about) => hooks.decide(runId, about);
+  // Batch 26 (wave 8): the owner's own task waits for its window to free up; somebody messaging from
+  // outside is told in one sentence and their message is let go. Both are written into the record.
+  runtime.sessionCeiling = (sessionId, tokens) =>
+    sessionLimiter.check({ scope: "conversation", id: sessionId, tokens }, "owner");
+  channels.senderCeiling = (channel, senderId) =>
+    sessionLimiter.check({ scope: "sender", id: `${channel}:${senderId}` }, "stranger");
   const scheduler = new Scheduler(store, runtime, (channel, chatId, text, key) => channels.deliver(channel, chatId, text, key));
   registerSchedules(registry, scheduler);
   // Figures, looking things up properly, watching pages, and the one message first thing.
   const deliverMessage = (channel: string, chatId: string, text: string, key: string) => channels.deliver(channel, chatId, text, key);
   const dataTables = new DataTables(files, web, writeObserver);
   registerData(registry, dataTables, artifacts);
+  // Writing Word, spreadsheet, slide, Markdown and web-page files, and changing Word and
+  // spreadsheet files in place with every untouched part kept byte for byte.
+  registerDocumentAuthoring(registry, new DocumentAuthoring(files, dataTables, artifacts, writeObserver));
   // Asking a question of one document, and holding two up against each other. Tables inside a
   // document are opened as figures, so the spreadsheet tools above can be pointed straight at them.
   const documentAnalysis = new DocumentAnalysis(files, dataTables, runtime.models);
@@ -574,6 +619,28 @@ export async function createBranch(options: {
   store.review.acceptCard = (cardOwner, card) => knowledgeBases.addCard(cardOwner, card.collection,
     { title: card.title, body: card.body, source: card.sourceTurn });
   retrieval.add(new KnowledgeRetriever(knowledgeBases));
+  // A summary of a whole knowledge base, a map of the names it mentions, pictures described in
+  // words, and the housekeeping: renaming, merging, splitting, saving out and bringing back.
+  const knowledgeGraph = new KnowledgeGraph(store, knowledgeBases, runtime.models);
+  const knowledgeSummaries = new KnowledgeSummaries(store, knowledgeBases, runtime.models);
+  const knowledgeManagement = new KnowledgeManagement(store, knowledgeBases, knowledgeSummaries);
+  const knowledgePictures = new KnowledgePictures(store, knowledgeBases, files, runtime.models);
+  const knowledgeParts: KnowledgeParts = { bases: knowledgeBases, graph: knowledgeGraph,
+    summaries: knowledgeSummaries, management: knowledgeManagement, pictures: knowledgePictures,
+    cards: new KnowledgeCards(store, knowledgeBases, runtime.models) };
+  registerKnowledgeExtras(registry, knowledgeParts, store);
+  // One hop through that map is another way of finding passages, beside words and meaning.
+  retrieval.add(new GraphRetriever(knowledgeGraph, knowledgeBases));
+  // Text pasted in for one job: searchable while the job runs, gone the moment it ends.
+  const taskText = new EphemeralDocuments();
+  registerEphemeralDocuments(registry, taskText);
+  retrieval.add(new EphemeralRetriever(taskText));
+  // What the assistant remembers, mirrored into the workspace as Markdown it may read but not change.
+  const memoryMirror = new MemoryMirror(store, files);
+  registerMemoryMirror(registry, memoryMirror);
+  files.readOnly = (path) => (memoryMirror.owns(path) ? readOnlyRefusal : "");
+  // And a knowledge base never reads those notes back in: they are the assistant's own writing.
+  knowledgeBases.skip = (path) => memoryMirror.owns(path);
   // Saved facts are read through the same store of already-read passages, so nothing is sent twice.
   memory.retrieval.wrapEmbedder = (embedder) => new CachedEmbeddings(asEmbeddings(embedder), knowledgeBases.cache);
   const consolidation = new MemoryConsolidation(store, memory.retrieval, memory.hygiene);
@@ -669,6 +736,12 @@ export async function createBranch(options: {
     retrieval,
     /** Named sets of folders and files, read into passages and searched by words and by meaning. */
     knowledgeBases,
+    /** Wave 8: summaries, the map of names, pictures in words, and knowledge-base housekeeping. */
+    knowledgeParts,
+    /** Wave 8: what the assistant remembers, written into the workspace as Markdown. */
+    memoryMirror,
+    /** Wave 8: text held for one job only. */
+    taskText,
     /** The nightly pass that gives new facts a comparison by meaning and suggests merges. */
     consolidation,
     /** The practice workspace: made-up files to try tools on safely. */
@@ -699,12 +772,29 @@ export async function createBranch(options: {
     desktop,
     /** What Windows itself allows: the microphone, the camera and taking hold of windows. */
     osPermissions,
+    /** Folders on the owner's other computers, reached with the OpenSSH client Windows already has. */
+    remotes,
+    /** A way back to how a folder was just before a set of changes was written. */
+    checkpoints,
+    /** Switching a folder to the line of work a project names. */
+    gitWorkspaces,
+    /** How much one conversation, or one person messaging from outside, may ask for. */
+    sessionLimiter,
+    /** Letting conversations older than the owner's cut-off go, with a saved copy first. */
+    retention,
     browserProfiles,
     /**
      * The live browser, once the launcher has loaded the integration settings, so Settings can
      * offer the sign-in-once window. It stays null when no browser is configured.
      */
     browser: null as null | { signIn(owner: string, name: string, url: string, timeoutMs?: number): Promise<{ name: string; cookies: number; sites: number }> },
+    /**
+     * Batch 26 (wave 8): what the firewall card needs that only the launch knows — the sites the
+     * browser may open at all, and whether commands on this computer are pointed at a dead address.
+     * Filled in by the launcher; the defaults say "no browser, and commands can reach out", which is
+     * what a launch with no integrations file actually is.
+     */
+    reach: { browserOrigins: [] as string[], commandsMayReachInternet: true },
     /** Secrets for host commands: only the active project's, never returned to the model. */
     secretsFor: async (context: ToolContext, names: string[]) => {
       const project = store.projects.active(context.owner).id;
@@ -1113,6 +1203,21 @@ export * from "./lockdown.js";
 export * from "./session-tree.js";
 export * from "./project-ledger.js";
 export * from "./watch.js";
+// Batch 20 (wave 8): writing and changing documents, and the rest of what this batch added.
+export * from "./document-package.js";
+export * from "./document-write.js";
+export * from "./document-docx.js";
+export * from "./document-xlsx.js";
+export * from "./document-pptx.js";
+export * from "./document-edit.js";
+export * from "./document-authoring.js";
+export * from "./knowledge-graph.js";
+export * from "./knowledge-summary.js";
+export * from "./knowledge-manage.js";
+export * from "./knowledge-pictures.js";
+export * from "./knowledge-more.js";
+export * from "./memory-mirror.js";
+export * from "./memory-ephemeral.js";
 // Batch 20 (wave 8): short-lived keys, the sources a saved password can come from, one list of who
 // may message the assistant, the chain a phone must satisfy, and coding assistants as a model.
 export * from "./session-tokens.js";

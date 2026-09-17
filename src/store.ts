@@ -165,6 +165,20 @@ export class Store {
   exportSession(owner: string, sessionId: string) {
     return this.library.export(owner, sessionId);
   }
+  /** What a retention rule would sweep up, so the owner sees the list before anything is deleted. */
+  prunableSessions(owner: string, days: number, megabytes: number, now = Date.now()) {
+    return this.library.prunable(owner, days, megabytes, now);
+  }
+  /**
+   * Batch 26 (wave 8): removes one conversation for good, whether it was temporary or not. Only the
+   * owner of it may, and never while a task of its own is still running.
+   */
+  forgetSession(owner: string, sessionId: string): { discarded: boolean; messages: number } {
+    if (!this.ownsSession(owner, sessionId)) throw new Error("Conversation not found");
+    if (this.db.prepare("SELECT id FROM tasks WHERE session_id=? AND status='running'").get(sessionId))
+      throw new Error("Wait for the active task before deleting this conversation");
+    return this.purgeSession(sessionId);
+  }
   importSession(owner: string, input: unknown) {
     return this.library.import(owner, input);
   }

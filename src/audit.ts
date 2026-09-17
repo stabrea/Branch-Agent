@@ -29,6 +29,11 @@ export const auditActions = [
   // Wave 8: a connection that stays open — a live voice conversation — reaches outside this
   // computer for as long as it lasts, so every one is written down: which host, and how it ended.
   "network.connected",
+  // Batch 26 (wave 8): a conversation, or one person messaging from outside, reached the ceiling
+  // the owner set for a minute or an hour, and was held back or turned away.
+  "limit.reached",
+  // Batch 26 (wave 8): old conversations were offered for deletion, exported, or deleted.
+  "history.pruned",
 ] as const;
 export type AuditAction = (typeof auditActions)[number];
 
@@ -99,6 +104,8 @@ const actionLabels: Record<AuditAction, string> = {
   "lockdown.changed": "Everything was locked down, or let go again",
   "browser.borrowed": "Branch borrowed your own browser window, or gave it back",
   "network.connected": "A connection that stays open was made to a service outside this computer",
+  "limit.reached": "Something reached the limit you set for a minute or an hour",
+  "history.pruned": "Old conversations were offered for deletion, exported, or deleted",
 };
 export const auditLabel = (action: AuditAction): string => actionLabels[action];
 

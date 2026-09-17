@@ -76,6 +76,11 @@ export class CodeChanges {
     private readonly workspace: string,
     private readonly jobs: JobObjects = defaultJobObjects(),
   ) {}
+  /**
+   * Where a way back to before a change set is kept, when the folder is a repository. Set by the
+   * app; left alone, changes are written exactly as they were before this existed.
+   */
+  checkpoints: { before(folder: string, label: string, signal: AbortSignal): Promise<{ id: string } | null> } | undefined;
   /** Applies a unified diff to the workspace, all of it or none of it. */
   async patch(input: z.infer<typeof PatchInputSchema>, context: ToolContext) {
     const planned = await this.editor.planPatch(input.patch);
@@ -129,10 +134,17 @@ export class CodeChanges {
     if (dryRun)
       return { applied: false, dryRun: true, files: this.editor.preview(planned),
         note: "Nothing was written. Send the same change again without dryRun to apply it." };
+    // Batch 26 (wave 8): before anything is written, a way back. When the folder is kept in Git a
+    // real commit is made of how it is right now, on a ref of Branch's own, and the inspector can
+    // put it back. A folder that is not kept in Git simply has no mark, and is told so.
+    const mark = await this.checkpoints?.before(this.workspace, fileList(planned.map((item) => item.path)), context.signal)
+      .catch(() => null) ?? null;
     const files = await this.editor.writeAll(planned, context);
     const check = await this.runCheck(context);
-    if (context.runId) this.store.event(context.runId, "code.changed", { files: files.map((f) => f.path), check: check.ran ? check.ok : null });
-    return { applied: true, dryRun: false, files, check };
+    if (context.runId) this.store.event(context.runId, "code.changed", { files: files.map((f) => f.path), check: check.ran ? check.ok : null, undo: mark?.id ?? "" });
+    return { applied: true, dryRun: false, files, check,
+      undo: mark ? { id: mark.id, note: "Ask to undo this, and the files go back to how they were just before." }
+        : { id: "", note: "This folder is not kept in Git, so there is no way back to before the change." } };
   }
   /** Runs the project's own check and reports it; a check that fails is news, not a failure. */
   async runCheck(context: ToolContext): Promise<CheckOutcome> {

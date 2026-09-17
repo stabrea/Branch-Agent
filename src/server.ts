@@ -44,6 +44,7 @@ import { serveRunSocket, tokenFromProtocol } from "./ws.js";
 import { liveHooks } from "./realtime-socket.js";
 import { readBodyWithRaw } from "./triggers.js";
 import { knowledgeApi } from "./knowledge-tools.js";
+import { knowledgeExtrasApi } from "./knowledge-more.js";
 import { WhatsAppAdapter } from "./channels/whatsapp.js";
 import { WebhookChatAdapter } from "./channels/webhook-chat.js";
 // Batch 20 (wave 8): the unguessable word on the end of every inbound webhook address.
@@ -104,6 +105,9 @@ import { readCredentialSettings, saveCredentialSettings } from "./credential-cli
 import { auditCsvResponse, handlesMiscPath, miscApi, MiscApiError } from "./misc-api.js";
 // Batch 19 (wave 7): spans, sending traces somewhere, the counters page and the rule sentences.
 import { handlesTracingPath, logsResponse, metricsResponse, tracingApi, TracingApiError } from "./tracing-api.js";
+// Batch 26 (wave 8): where scripts run, what may reach the internet, how much one person may ask
+// for, the owner's other computers, marks, and how long conversations are kept.
+import { handlesSandboxRemotePath, sandboxRemoteApi, SandboxRemoteApiError } from "./sandbox-remote-api.js";
 import { helpApi } from "./help.js";
 import { AuthLimiter, noteAuthFailure, requestSource } from "./auth-limits.js";
 import { handlesOrchestrationPath, orchestrationApi, OrchestrationApiError } from "./orchestration-api.js";
@@ -257,6 +261,8 @@ async function staticFile(
     "/media.js": ["media.js", "text/javascript; charset=utf-8"],
     "/memory-tidy.js": ["memory-tidy.js", "text/javascript; charset=utf-8"],
     "/docs-memory-2.js": ["docs-memory-2.js", "text/javascript; charset=utf-8"],
+    // Batch 27 (wave 8): writing documents, summaries, the map of names and knowledge housekeeping.
+    "/docs-3.js": ["docs-3.js", "text/javascript; charset=utf-8"],
     "/skills-extra.js": ["skills-extra.js", "text/javascript; charset=utf-8"],
     "/local-models.js": ["local-models.js", "text/javascript; charset=utf-8"],
     // Wave 6: sharing, labels and notes, workflows, the waiting line, days off and people.
@@ -289,6 +295,7 @@ async function staticFile(
     "/code-ide.js": ["code-ide.js", "text/javascript; charset=utf-8"],
     // Wave 8: the Lockdown switch and the shape branched conversations make.
     "/other.js": ["other.js", "text/javascript; charset=utf-8"],
+    "/sandbox-remote.js": ["sandbox-remote.js", "text/javascript; charset=utf-8"],
     "/providers.js": ["providers.js", "text/javascript; charset=utf-8"],
     "/style.css": ["style.css", "text/css; charset=utf-8"],
     // App shell (wave 2): tokens, layout, appearance.
@@ -585,6 +592,12 @@ async function api(
     return orchestrationApi(app, request, path, readBody).catch((error: unknown) => {
       throw error instanceof OrchestrationApiError ? new HttpError(error.status, error.message) : error;
     });
+  // Batch 26 (wave 8): sandboxes, the firewall card, per-person ceilings, other computers, marks,
+  // and how long conversations are kept.
+  if (handlesSandboxRemotePath(path))
+    return sandboxRemoteApi(app, request, path, readBody).catch((error: unknown) => {
+      throw error instanceof SandboxRemoteApiError ? new HttpError(error.status, error.message) : error;
+    });
   // Batch 21 (wave 8): the description of this API, Lockdown, kept answers, whole sets, project cost.
   if (handlesOtherPath(path))
     return otherApi(app, request, path, readBody).catch((error: unknown) => {
@@ -651,6 +664,10 @@ async function api(
     const answer = await knowledgeApi(app.knowledgeBases, app.runtime.models, app.runtime.owner,
       request.method ?? "GET", path, () => readBody(request));
     if (answer !== undefined) return app.runtime.hideSecrets(answer);
+    // Batch 20 (wave 8): summaries, the map of names, pictures in words, housekeeping and limits.
+    const more = await knowledgeExtrasApi(app.knowledgeParts, app.store, app.runtime.owner,
+      request.method ?? "GET", path, () => readBody(request));
+    if (more !== undefined) return app.runtime.hideSecrets(more);
     throw new HttpError(404, "Not found");
   }
   if (path.startsWith("/api/research") || path.startsWith("/api/monitors") || path.startsWith("/api/brief"))
@@ -818,9 +835,15 @@ async function api(
   }
   if (request.method === "GET" && path === "/api/plugins") return { plugins: await app.plugins.list(), problems: app.pluginProblems };
   const plugin = /^\/api\/plugins\/([a-z][a-z0-9-]{0,39})\/(inspect|enable|disable)$/.exec(path);
-  if (plugin && request.method === "POST")
-    return plugin[2] === "inspect" ? app.plugins.inspect(plugin[1]!)
-      : plugin[2] === "enable" ? app.plugins.enable(plugin[1]!) : app.plugins.disable(plugin[1]!);
+  if (plugin && request.method === "POST") {
+    if (plugin[2] === "inspect") return app.plugins.inspect(plugin[1]!);
+    if (plugin[2] === "disable") return app.plugins.disable(plugin[1]!);
+    // Batch 26 (wave 8): the permissions the owner ticked. Left out, the plugin gets everything its
+    // own manifest declared, exactly as switching one on did before.
+    const body = z.object({ allow: z.array(z.string().trim().max(64)).max(20).optional() })
+      .strict().parse((await readBody(request).catch(() => ({}))) ?? {});
+    return app.plugins.enable(plugin[1]!, body.allow);
+  }
   if (request.method === "GET" && path === "/api/evaluation") return { results: app.evaluation.list(), standard: standardSuite };
   if (request.method === "POST" && path === "/api/evaluation") { const body = await readBody(request) as Record<string, unknown>; return app.evaluation.run(app.runtime, Object.keys(body).length ? body : undefined); }
   // Suites kept as data: the five that ship, the owner's own, their history and model comparison.
@@ -1156,6 +1179,10 @@ async function memoryApi(app: Branch, request: IncomingMessage, path: string): P
   if (request.method === "GET" && path === "/api/memory/settings") return app.store.review.settings(owner);
   if (request.method === "POST" && path === "/api/memory/settings") return app.store.review.configure(owner, await readBody(request));
   if (request.method === "GET" && path === "/api/memory/proposals") return { proposals: app.store.review.proposals(owner) };
+  // Batch 27 (wave 8): write the Markdown mirror of what is remembered by hand. It also writes
+  // itself after every task, so this is for the owner who wants it now.
+  if (request.method === "POST" && path === "/api/memory/mirror")
+    return app.memoryMirror.regenerate(owner, await readBody(request));
   const decide = /^\/api\/memory\/proposals\/([a-f0-9-]{36})\/(accept|reject)$/.exec(path);
   if (decide && request.method === "POST") return app.store.review.decide(owner, decide[1]!, decide[2] === "accept");
   if (request.method === "GET" && path === "/api/memory/versions")
@@ -1629,7 +1656,7 @@ async function skillsApi(app: Branch, request: IncomingMessage, path: string): P
   if (request.method === "POST" && (path === "/api/skills/package/inspect" || path === "/api/skills/package/install")) {
     const body = PackageInstallSchema.parse(await readBody(request, 2 * 1024 * 1024));
     const bytes = Buffer.from(body.file, "base64");
-    return path.endsWith("inspect") ? app.skillPackages.inspect(bytes) : app.skillPackages.install(bytes, body.approve);
+    return path.endsWith("inspect") ? app.skillPackages.inspect(bytes) : app.skillPackages.install(bytes, body.approve, body.allow);
   }
   // Wave 7: the three browser skills that come with Branch. Listing shows what they are; installing
   // puts one in as an ordinary skill package, switched off until the owner turns it on.
@@ -2480,7 +2507,7 @@ function offLimitsToShortLivedKeys(method: string | undefined, path: string): st
 }
 function isExecution(request: IncomingMessage, path: string): boolean {
   return (
-    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore", "/api/deployment/restore-point", "/a2a", "/api/tools/try", "/api/tools/forget", "/api/tools/meaning-search"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins|local-models|connections|monitors|brief|ask-first|retrieval|issues|practice|workflows|queue|profiles|labels|shares|calendar|knowledge|tracing|rules|flows|deferred|processes|skill-revisions|plugin-catalog|developer|studies|batch|artifacts|reports|todos|obsidian|log)(\/|$)/.test(path) || /^\/api\/mcp\/(try|signin)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/api\/runs\/[a-f0-9-]{36}\/replay$/.test(path) || /^\/webhooks\/(whatsapp|chat)\//.test(path))
+    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore", "/api/deployment/restore-point", "/a2a", "/api/tools/try", "/api/tools/forget", "/api/tools/meaning-search", "/api/firewall/test", "/api/sandboxes", "/api/limits"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins|local-models|connections|monitors|brief|ask-first|retrieval|issues|practice|workflows|queue|profiles|labels|shares|calendar|knowledge|tracing|rules|flows|deferred|processes|skill-revisions|plugin-catalog|developer|studies|batch|artifacts|reports|todos|obsidian|log|remotes|marks|retention)(\/|$)/.test(path) || /^\/api\/mcp\/(try|signin)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/api\/runs\/[a-f0-9-]{36}\/replay$/.test(path) || /^\/webhooks\/(whatsapp|chat)\//.test(path))
   );
 }
 function configureLimits(server: Server): void {

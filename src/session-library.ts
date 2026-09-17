@@ -130,6 +130,36 @@ export class SessionLibrary {
     return parseConversationArchive({ format: "branch-agent-conversation", version: 1,
       exportedAt: new Date().toISOString(), messages });
   }
+  /**
+   * Batch 26 (wave 8): the conversations a retention rule would sweep up — the ones older than the
+   * owner's cut-off, and, when the whole history is bigger than the ceiling they set, the oldest
+   * ones until it fits again. Nothing is deleted here: this only says what would be, so the owner
+   * can be shown the list before anything happens.
+   */
+  prunable(owner: string, days: number, megabytes: number, now = Date.now()) {
+    const rows = this.db.prepare(`SELECT s.id, s.created_at,
+      (SELECT COUNT(*) FROM messages m WHERE m.session_id=s.id) AS message_count,
+      (SELECT COALESCE(SUM(length(CAST(m.body AS BLOB))),0) FROM messages m WHERE m.session_id=s.id) AS bytes
+      FROM sessions s WHERE s.owner=? AND s.temporary=0 ORDER BY s.created_at ASC, s.id ASC`).all(owner);
+    const all = rows.map((row) => ({ sessionId: String(row.id), createdAt: String(row.created_at),
+      messageCount: Number(row.message_count), bytes: Number(row.bytes), why: "" }));
+    const cutoff = days > 0 ? now - days * 86_400_000 : null;
+    const wanted = new Map<string, { sessionId: string; createdAt: string; messageCount: number; bytes: number; why: string }>();
+    for (const entry of all)
+      if (cutoff !== null && Date.parse(entry.createdAt) < cutoff)
+        wanted.set(entry.sessionId, { ...entry, why: `older than ${days} day${days === 1 ? "" : "s"}` });
+    let total = all.reduce((sum, entry) => sum + entry.bytes, 0);
+    const ceiling = megabytes > 0 ? megabytes * 1_048_576 : null;
+    for (const entry of wanted.values()) total -= entry.bytes;
+    if (ceiling !== null)
+      for (const entry of all) {
+        if (total <= ceiling) break;
+        if (wanted.has(entry.sessionId)) continue;
+        wanted.set(entry.sessionId, { ...entry, why: `the whole history is over ${megabytes} MB` });
+        total -= entry.bytes;
+      }
+    return { conversations: [...wanted.values()], bytes: all.reduce((sum, entry) => sum + entry.bytes, 0) };
+  }
   import(owner: string, input: unknown) {
     return this.copy(owner, parseConversationArchive(input), true);
   }

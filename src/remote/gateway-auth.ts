@@ -2,6 +2,7 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import type { IncomingMessage } from "node:http";
 import { z } from "zod";
 import { audit } from "../audit.js";
+import { decide, readSenderAllowlist } from "../channels/allowlist.js";
 import type { Store } from "../store.js";
 
 /**
@@ -73,6 +74,14 @@ const fingerprintOf = (secret: string): string => createHash("sha256").update(se
 const sameText = (a: string, b: string): boolean =>
   a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
 
+/**
+ * Batch 26 (wave 8): the name the one allowlist knows a paired phone by. Until this existed the
+ * allowlist covered the chat apps and nothing else, so "never this device" had to be said by
+ * un-pairing the phone. A rule on `remote` now covers the door that faces the private network too,
+ * in exactly the shape every chat app already uses: see src/channels/allowlist.ts.
+ */
+export const remoteChannel = "remote";
+
 export class GatewayAuth {
   constructor(private readonly store: Store, private readonly owner: string) {}
   settings(): GatewayAuthSettings { return readGatewayAuth(this.store, this.owner); }
@@ -114,11 +123,32 @@ export class GatewayAuth {
    * passed. `tokenOk` is what the ordinary key check already decided, passed in rather than redone.
    */
   check(request: Pick<IncomingMessage, "headers">, tokenOk: boolean): string | null {
+    // The one allowlist is asked first and cannot be left out of the chain: a rule that says "never
+    // this phone" must hold whatever the chain is configured to check, or it would not be a rule.
+    const refusedByList = this.allowlistRefusal(request);
+    if (refusedByList) return refusedByList;
     for (const step of this.settings().chain) {
       const refusal = this.step(step, request, tokenOk);
       if (refusal) return refusal;
     }
     return null;
+  }
+
+  /**
+   * What the one allowlist says about the phone making this request. Only a "never" is acted on
+   * here: a phone that has already been let in stays let in unless the owner writes a rule against
+   * it, so switching the list on never quietly locks the owner's own phone out.
+   */
+  private allowlistRefusal(request: Pick<IncomingMessage, "headers">): string | null {
+    const id = String(request.headers[deviceHeader] ?? "");
+    if (!id) return null;
+    const list = readSenderAllowlist(this.store, this.owner);
+    if (decide(list, remoteChannel, id) !== "block") return null;
+    audit(this.store, this.owner, {
+      action: "auth.refused", actor: id, subject: "a phone on the never list",
+      reason: "The owner's list of who may reach Branch says never for this phone", outcome: "refused",
+    });
+    return "This phone is on your list of devices that may never reach Branch. Take it off that list on the computer first.";
   }
 
   private step(step: GatewayStep, request: Pick<IncomingMessage, "headers">, tokenOk: boolean): string | null {

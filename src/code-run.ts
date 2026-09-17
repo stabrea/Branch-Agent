@@ -5,10 +5,14 @@ import type { Store } from "./store.js";
 import type { ToolContext } from "./contracts.js";
 import type { ToolRegistry } from "./registry.js";
 import { WorkspaceFiles } from "./files.js";
-import { ShellProcess } from "./integrations/shell-process.js";
-import { netlessEnvironment } from "./integrations/shell-config.js";
 import { defaultJobObjects, jobWithin, type JobObjects } from "./integrations/job-object.js";
 import { sandboxShape, shapeChoice, type SandboxChoice } from "./sandbox.js";
+import { checkCodeBlock } from "./code-check.js";
+import {
+  chooseSandboxBackend, defaultSandboxProbe, defaultSandboxSpawn as defaultSandboxSpawnFor,
+  sandboxBackendSet, sliceFor, SandboxBackendSettingsSchema,
+  type SandboxBackend, type SandboxBackendName, type SandboxProbe, type SandboxSpawn,
+} from "./sandbox-backends.js";
 
 /**
  * Running a small script the assistant just wrote: a sum, a bit of reshaping, a quick check. It runs
@@ -58,41 +62,70 @@ export interface CodeRunResult {
   truncated: boolean; durationMs: number; network: boolean; isolation: "job-object" | "sampling";
   /** How tightly the script was held: the owner's rule for this tool, or the script settings. */
   sandbox: SandboxChoice;
+  /** Where it actually ran: this computer, a container, the Linux side, or the throwaway desktop. */
+  backend: SandboxBackendName;
+  /** The folder it could see, relative to the workspace; "." when it could see the whole thing. */
+  folder: string;
 }
 
 export class CodeRunner {
   constructor(
     private readonly store: Store, private readonly owner: string, private readonly workspace: string,
     private readonly jobs: JobObjects = defaultJobObjects(),
+    /** How a backend is looked for, and how one is started. Both replaced in tests, so no
+     * container, distribution or throwaway desktop is ever really started. */
+    private readonly probe: SandboxProbe = defaultSandboxProbe(),
+    private readonly spawn?: SandboxSpawn,
   ) {}
+  /** Every backend, built from the owner's settings at the moment of the call. */
+  private backends(): Record<SandboxBackendName, SandboxBackend> {
+    const settings = SandboxBackendSettingsSchema.parse(this.store.get("settings", this.owner, "sandbox-backends")?.data ?? {});
+    return sandboxBackendSet({ settings, probe: this.probe, spawn: this.spawn ?? defaultSandboxSpawnFor(this.jobs) });
+  }
+  /**
+   * What starts the script. On this computer that is the owner's own Node or Python; inside a
+   * container or on the Linux side it is whatever that place calls them, because this computer's
+   * program is not there and its address would mean nothing.
+   */
+  private program(language: "javascript" | "python", backend: SandboxBackendName, python: string): string {
+    const elsewhere = backend === "docker" || backend === "wsl";
+    if (language === "python") return elsewhere ? "python3" : python;
+    return elsewhere ? "node" : process.execPath;
+  }
   async run(input: z.infer<typeof CodeRunInputSchema>, context: ToolContext): Promise<CodeRunResult> {
     const settings = codeRunSettings(this.store, this.owner);
     if (!settings.enabled)
       throw new Error("Running small scripts is switched off. The owner turns it on in Settings, where they also choose whether a script may reach the internet.");
-    if (input.language === "python" && !settings.python)
-      throw new Error("No Python is set up on this computer. The owner points at theirs in Settings, or ask for JavaScript instead.");
-    const executable = input.language === "python" ? settings.python : process.execPath;
-    const args = input.language === "python" ? ["-c", input.source] : ["--input-type=module", "--eval", input.source];
-    const cwd = await new WorkspaceFiles(this.workspace).checked(".", true);
-    // An approval rule may say how tightly this is held; without one the script settings decide,
-    // exactly as they did before rules could say anything about it.
+    // An approval rule may say how tightly this is held and where it runs; without one the script
+    // settings decide, exactly as they did before rules could say anything about it.
     const shape = sandboxShape(context.sandbox, { job: true, netless: !settings.network });
-    const job = shape.job
-      ? await jobWithin(this.jobs, { maxMemoryMb: settings.maxMemoryMb, maxCpuSeconds: settings.maxCpuSeconds }, 1500)
-      : null;
-    const result = await new ShellProcess({
-      executable, args, cwd,
-      env: { PATH: "", SYSTEMROOT: process.env.SYSTEMROOT ?? "", TEMP: process.env.TEMP ?? "",
-        ...(shape.netless ? netlessEnvironment() : {}) },
-      signal: context.signal, timeoutMs: settings.timeoutMs, maxOutputBytes: settings.maxOutputBytes,
-      maxMemoryMb: settings.maxMemoryMb, maxCpuSeconds: settings.maxCpuSeconds, ...(job ? { job } : {}),
-    }).run();
-    const sandbox = shapeChoice(shape);
-    if (context.runId)
-      this.store.event(context.runId, "code.ran", { language: input.language, status: result.status, exitCode: result.exitCode, sandbox });
-    return { language: input.language, status: result.status, exitCode: result.exitCode,
-      output: result.stdout, errors: result.stderr, truncated: result.truncated,
-      durationMs: result.durationMs, network: !shape.netless, isolation: result.isolation, sandbox };
+    // The script is read before anything at all is started, so an obvious mistake costs nothing.
+    const verdict = checkCodeBlock(input.source, { language: input.language, network: !shape.netless });
+    if (!verdict.ok) throw new Error(verdict.reason);
+    const backend = await chooseSandboxBackend(this.backends(), context.sandboxBackend);
+    if (input.language === "python" && !settings.python && backend.name !== "docker" && backend.name !== "wsl")
+      throw new Error("No Python is set up on this computer. The owner points at theirs in Settings, or ask for JavaScript instead.");
+    const folder = context.sandboxPaths?.[0] ?? ".";
+    const root = await new WorkspaceFiles(this.workspace).checked(".", true);
+    const handle = await backend.prepare(await sliceFor(root, context.sandboxPaths ?? []));
+    const limits = { timeoutMs: settings.timeoutMs, maxMemoryMb: settings.maxMemoryMb,
+      maxCpuSeconds: settings.maxCpuSeconds, maxOutputBytes: settings.maxOutputBytes,
+      network: !shape.netless, job: shape.job };
+    const executable = this.program(input.language, backend.name, settings.python);
+    const args = input.language === "python" ? ["-c", input.source] : ["--input-type=module", "--eval", input.source];
+    try {
+      const result = await handle.run({ executable, args }, limits, context.signal);
+      const sandbox = shapeChoice(shape);
+      if (context.runId)
+        this.store.event(context.runId, "code.ran", { language: input.language, status: result.status,
+          exitCode: result.exitCode, sandbox, backend: backend.name, folder });
+      return { language: input.language, status: result.status, exitCode: result.exitCode,
+        output: result.stdout, errors: result.stderr, truncated: result.truncated,
+        durationMs: result.durationMs, network: !shape.netless, isolation: result.isolation, sandbox, backend: backend.name, folder };
+    } finally {
+      await handle.collect(["branch-output.txt"]).catch(() => undefined);
+      await handle.dispose().catch(() => undefined);
+    }
   }
 }
 

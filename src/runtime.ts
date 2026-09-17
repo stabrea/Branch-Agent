@@ -56,6 +56,7 @@ import { ProfileRoles, grantRefusal } from "./profile-roles.js";
 import { Handoffs } from "./orchestration-modes.js";
 import { categoryOf } from "./tool-categories.js";
 import type { SandboxChoice } from "./sandbox.js";
+import type { SandboxBackendName } from "./sandbox-backends.js";
 import { Tracer } from "./tracing.js";
 import { audit, auditSources, type AuditSource } from "./audit.js";
 import {
@@ -94,11 +95,17 @@ export interface PolicyCheck {
   remember: PolicyRemember;
   /** How tightly the rule that matched wants a program held; null when it did not say. */
   sandbox: SandboxChoice | null;
+  /** Where the rule that matched wants the program to run, and what it may see; null when it did not say. */
+  backend: SandboxBackendName | null;
+  paths: readonly string[] | null;
   /** Why this was refused, when the reason is something other than the approval rules. */
   reason?: string;
 }
 /** What the approval gate decided: what to hand back instead of running, and how to hold the program. */
-interface GateOutcome { refusal: unknown | null; sandbox: SandboxChoice | null }
+interface GateOutcome {
+  refusal: unknown | null; sandbox: SandboxChoice | null;
+  backend: SandboxBackendName | null; paths: readonly string[] | null;
+}
 export interface DelegateOptions { timeoutMs?: number; resultSchema?: Record<string, unknown>; checks?: CompletionCheck; background?: boolean; /** Specialist id: limits memory reads to shared facts and its own. */ agent?: string; /** The specialist's working style; it changes how the loop runs. */ style?: SpecialistStyle }
 export interface FollowUp { id: string; prompt: string; createdAt: string }
 export interface BackgroundResult { childRunId: string; parentRunId: string; status: string; output: string; finishedAt: string }
@@ -212,6 +219,13 @@ export class Runtime {
    * lifecycle hooks; on its own nobody has an opinion and every call goes as the policy said.
    */
   askHooks: (runId: string, about: Record<string, unknown>) => Promise<HookDecision | null> = async () => null;
+  /**
+   * Batch 26 (wave 8): the ceiling the owner set for one conversation — so many questions a minute,
+   * so much thinking an hour. Set by the app; left alone, nothing is limited and this behaves
+   * exactly as it did before. Reaching it is not a failure: the owner's own task waits.
+   */
+  sessionCeiling: ((sessionId: string, tokens: number) => { ok: boolean; waitMs: number }) | undefined;
+  private readonly tokensCharged = new Map<string, number>();
   /**
    * Takes saved passwords and keys back out of a tool's answer before it is signed, written down or
    * shown to the model. `createBranch` connects the shared scrubber; on its own it changes nothing.
@@ -828,6 +842,7 @@ export class Runtime {
       catalog.nextRound();
       if (this.registry.version !== knownTools) { knownTools = this.registry.version; this.reindex(run, context, catalog); }
       this.applySteers(run, messages, ids);
+      await this.ceiling(context);
       await this.pace(context, "round", this.policy().limits.modelRoundsPerMinute);
       await this.fitContext(run, messages, ids, context, route);
       this.store.event(run.id, "catalog.size", { round: round + 1, ...catalog.stats() });
@@ -1427,7 +1442,7 @@ export class Runtime {
     // Somebody else in the house, working under their own profile, is held to their role first.
     // A role can only refuse; it never lets anything through that the rules would have stopped.
     const refusal = this.roleRefusal(tool, permission);
-    if (refusal) return { decision: "deny", label, target, readOnly, remember: "session", sandbox: null, reason: refusal };
+    if (refusal) return { decision: "deny", label, target, readOnly, remember: "session", sandbox: null, backend: null, paths: null, reason: refusal };
     const { decision, rule } = evaluatePolicy(this.policy(source), { tool, target, readOnly, resource });
     // An answer given earlier stands in for the question, never for a rule that already decided:
     // switching to a stricter setting takes effect at once. The answer is bound to the exact bytes
@@ -1436,7 +1451,7 @@ export class Runtime {
       ? this.approvals.answer(this.sessionOf(context), tool, target, fingerprint) : undefined;
     return { decision: answered ?? decision, label, target, readOnly,
       remember: source === "owner" ? rule?.remember ?? "session" : "session",
-      sandbox: rule?.sandbox ?? null };
+      sandbox: rule?.sandbox ?? null, backend: rule?.backend ?? null, paths: rule?.paths ?? null };
   }
   /**
    * Why the person using this app right now may not have that done, or null. The owner is never
@@ -1487,6 +1502,24 @@ export class Runtime {
    * Keeps one conversation inside its per-minute limits. Reaching a limit is not a failure: the task
    * waits for the window to free up and then carries on.
    */
+  /**
+   * Holds the owner's own conversation to the ceiling they set in Settings. What has been spent
+   * since the last round is charged against the hour's allowance, so a long answer counts for what
+   * it cost. Waiting is the whole behaviour: nothing is refused and nothing is lost.
+   */
+  private async ceiling(context: ToolContext): Promise<void> {
+    if (!this.sessionCeiling) return;
+    const session = this.sessionOf(context);
+    const spent = context.budget.tokens - (this.tokensCharged.get(context.runId) ?? 0);
+    this.tokensCharged.set(context.runId, context.budget.tokens);
+    const verdict = this.sessionCeiling(session, Math.max(0, spent));
+    if (verdict.ok) return;
+    const wait = Math.min(Math.max(verdict.waitMs, 0), 60_000);
+    this.store.event(context.runId, "rate.paused", { kind: "session", waitMs: wait,
+      message: `Pausing for ${Math.ceil(wait / 1000)} second(s): this conversation has reached the limit you set in Settings.` });
+    await sleepFor(wait, context.signal);
+    this.store.event(context.runId, "rate.resumed", { kind: "session" });
+  }
   private async pace(context: ToolContext, kind: "tool" | "round", limit: number): Promise<void> {
     if (!limit) return;
     const key = kind + ":" + this.sessionOf(context);
@@ -1508,20 +1541,21 @@ export class Runtime {
     // The exact bytes the model asked for. A yes is bound to them, so a command that changes by one
     // character is a new question rather than something an earlier yes covers.
     const fingerprint = argumentFingerprint(call.arguments);
-    const { decision: ruled, label, target, readOnly, remember, sandbox, reason } = this.checkPolicy(call.name, args, context, fingerprint);
+    const { decision: ruled, label, target, readOnly, remember, sandbox, backend, paths, reason } = this.checkPolicy(call.name, args, context, fingerprint);
+    const held = { sandbox, backend, paths };
     if (context.dryRun && !readOnly) {
       this.store.event(context.runId, "tool.simulated", { name: call.name, id: call.id, label, target, decision: ruled });
-      return { refusal: simulatedResult(label), sandbox };
+      return { refusal: simulatedResult(label), ...held };
     }
     // The owner's own checks get a say before the call goes ahead. A check may only make the answer
     // stricter — it can turn a yes into a question or a refusal, never a refusal into a yes.
     const verdict = ruled === "deny" ? null : await this.askHooks(context.runId, { tool: call.name, target, label, decision: ruled });
     const decision = verdict && verdict.decision !== "allow" ? verdict.decision : ruled;
-    if (decision === "allow") return { refusal: null, sandbox };
+    if (decision === "allow") return { refusal: null, ...held };
     if (decision === "deny") {
       this.store.event(context.runId, "policy.denied", { name: call.name, id: call.id, label, target,
         ...(verdict ? { hook: verdict.hook } : {}), ...(reason ? { reason } : {}) });
-      return { refusal: { ok: false, error: reason || verdict?.reason || refusedByPolicy(label) }, sandbox };
+      return { refusal: { ok: false, error: reason || verdict?.reason || refusedByPolicy(label) }, ...held };
     }
     const source: RunSource = context.source ?? "owner";
     const asked = verdict?.reason ? `${label} — ${verdict.reason}` : label;
@@ -1775,7 +1809,9 @@ export class Runtime {
     // How tightly a program this call starts is held travels with the call, so a tool that starts
     // one can honour the owner's rule without knowing anything about the policy.
     const scoped: ToolContext = { ...context, signal: AbortSignal.any([context.signal, timeout]),
-      ...(gated.sandbox ? { sandbox: gated.sandbox } : {}) };
+      ...(gated.sandbox ? { sandbox: gated.sandbox } : {}),
+      ...(gated.backend ? { sandboxBackend: gated.backend } : {}),
+      ...(gated.paths?.length ? { sandboxPaths: gated.paths } : {}) };
     const span = this.tracer.start(context.runId, "tool", `tool ${call.name}`, {
       "branch.tool.name": call.name, "branch.tool.call_id": call.id,
       "branch.tool.permission": this.registry.permissionOf(call.name),

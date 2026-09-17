@@ -3210,6 +3210,210 @@ These rows of the audit are done, by a feature that exists under another name.
 - **A1141 LiteLLM** — a Python proxy in front of many providers. The provider catalog and the
   OpenAI-shaped adapter reach the same services directly, with no extra process to run.
 
+## Writing documents, and a knowledge base that knows what is in it (batch 27, wave 8)
+
+Branch could already read a Word file, a spreadsheet, a slide deck, a PDF and an e-book. This batch
+is the other half of that: writing them, changing them, and knowing what a whole knowledge base
+holds rather than only which passage answers one question. Nothing new was installed to do any of
+it — an Office file is a folder of XML inside a zip, and Node already packs and unpacks zips.
+
+### Writing a document (A2145, A2263)
+
+`documents.write` saves a file into your workspace: `.docx` for Word, `.xlsx` for a spreadsheet,
+`.pptx` for slides, or `.md` and `.html` for a note and a web page. You describe what goes in it in
+pieces — a heading, a paragraph, a list, a table; sheets of figures for a spreadsheet; a title and
+bullet points for a slide, with a picture the assistant made earlier able to take a slide of its
+own. Figures in a spreadsheet stay figures, so you can add them up, and a cell the assistant worked
+out is written as the sum it stands for with the answer beside it, so the spreadsheet recalculates
+the moment you change a figure. Columns can be shown as plain numbers, money, a percentage or a
+date. A sheet can be filled straight from a table the task already opened with `data.load`.
+
+`documents.edit` changes a Word or spreadsheet file that already exists: replace some wording, add a
+section at the end, replace a table, or add or replace a sheet. The promise it keeps is narrow and
+worth stating: every part of the file the change did not touch comes back as the very same bytes,
+not as a re-saved copy that happens to say the same thing. A Word file with your company template, a
+footer and a picture in it still has all of those, untouched, after one sentence in it is changed.
+The one case that cannot be silent is a phrase spread across differently formatted pieces — half of
+it bold, say: that paragraph is rewritten as one piece and the answer says so, so you can look.
+
+Both are under the same permission as any other change to your files, and both go through the same
+before-and-after the ordinary file tools use, so a document the assistant wrote can be undone like
+anything else it did.
+
+**What this is not.** There is no live document that two people type in at once. Branch writes a
+file, or changes one, and hands it back. It does not know what anybody else is doing in that file
+while it is open in front of them, and it says so in every answer it gives.
+
+### Pictures as documents (A0946)
+
+A photograph of a meter, a screenshot of an error, a scan of a receipt: these used to be listed as
+files that could not be read, because there are no words in them to lift out. `knowledge.pictures`
+asks a model that can see to describe each one in plain words — including any words, numbers and
+readings visible in it, which is what makes a screenshot or a scan worth having — and indexes that
+description beside the picture, so a search finds it and the answer cites the picture itself.
+
+Each picture is described once and once only: the description is kept against a fingerprint of the
+picture's own bytes, so the same picture in two knowledge bases, or the same folder read again next
+month, costs nothing. Ask with `estimateOnly` first and it says how many pictures would be sent and
+to which model, and sends nothing. When none of your connected models can look at a picture it says
+so in one sentence and sends nothing at all.
+
+### Summing up a knowledge base (A1668, A2362)
+
+`knowledge.summarise` writes a short account of everything in one knowledge base, or of one subject
+in it. A knowledge base does not fit in one request, so each batch of passages is summarised on its
+own and the batches are then drawn together; every point carries the number of the passage it came
+from, and the sources are listed underneath. The answer is kept against a fingerprint of the
+collection's passages, so asking twice costs nothing and one changed file is enough to make it be
+written again. With nothing connected, or when the model cannot be reached, it still answers — with
+the opening of each passage and its number — and says why it reads as it does.
+
+### Looking after a knowledge base (A1867, A2036)
+
+`knowledge.manage` renames one, merges one into another, or splits one folder out into a knowledge
+base of its own. The passages move; nothing is read again and nothing is charged. The Documents
+panel can save a whole knowledge base out as a plain zip of Markdown with a small list of facts
+beside it, and bring one back from that zip as a new knowledge base — which is a backup, and also
+how you move one between computers. The panel shows what each holds and what reading it has cost.
+
+`knowledge.refresh` reads your last few conversations and suggests fact cards for one knowledge
+base. It adds nothing: each card waits in the Memory screen until you accept it, exactly as with
+everything else the assistant proposes to remember. Accepting one indexes it like a passage from a
+file, so a search finds it and can cite it.
+
+### A light map of what a knowledge base mentions (A0994)
+
+`knowledge.map` builds a map of the names a knowledge base talks about and which of them are
+mentioned together; `knowledge.graph` answers for one name with everything linked to it, one or two
+hops out. It answers the question a passage search is bad at — "everything you know about this
+supplier", where the answer is spread over eight files that never use the same words twice — and one
+hop through it is another way of finding passages, beside words and meaning. The Documents panel
+draws the neighbourhood as a simple read-only picture with the file behind each link named under it.
+
+**The limits, said plainly.** The map is built from names as they are written in the files, not from
+understanding. Two spellings of one company are two entries. A name that is also an ordinary word
+shows up as both. With nothing connected, "mentioned together in the same passage" is the only link
+it can find, and that does not say how the two are related — which the answer states every time.
+Where a model is connected and you allow it, the model names the relations properly instead. Either
+way, every link carries the passage it came from, so nothing here has to be taken on trust.
+
+### Age and size limits for knowledge
+
+You can set how long a knowledge base may keep files and how large it may get. Nothing is removed by
+a limit: each knowledge base over one becomes a suggestion in the Memory screen that says to save it
+out first. A knowledge base built over months should never quietly shrink because a number was
+crossed while nobody was looking. These are the same two figures the conversation-retention setting
+uses — how long, and how much — so there is one idea in the product rather than two; that setting had
+not landed when this was written, so this keeps the minimal shape and will read from it when it does.
+
+The three figures (`src/knowledge-manage.ts`, `RetentionSchema`, saved under the settings key
+`knowledge-retention`, read and written through `POST /api/knowledge/retention`): `keepDays` is how
+many days a file may go unread before it is suggested for removal, `maximumDocuments` how many files
+one collection may hold, and `maximumChunks` how many passages. **Zero means no limit**, and all
+three are zero until you set them, so nothing is suggested until you ask for it.
+
+### What the assistant remembers, as Markdown in your workspace (A2185)
+
+Everything the assistant remembers is written into a `memory/` folder in your workspace as ordinary
+Markdown: one note per kind of fact, rewritten from scratch each time. The database stays the real
+store; this is a window onto it, which makes what the assistant knows readable in any editor,
+searchable with any tool, and — because it is a folder of Markdown — usable by a notes app such as
+Obsidian pointed at the same workspace.
+
+The folder is read-only to the assistant's own file tools. A change made in it would be undone the
+next time the mirror is written, and a change nobody can keep is worse than a plain refusal, so
+`files.write` refuses it in one sentence that says where to change the fact instead.
+
+For the same reason **there is no tool that writes the mirror**: giving the assistant a second way
+into the one folder it may not edit would take the refusal back. Instead:
+
+- The folder does not appear until you ask for it. `POST /api/memory/mirror` — the button on the
+  Memory screen — writes it the first time. Nobody's workspace grows a folder they never asked for.
+- After that it keeps itself up to date: every task that finishes writes the notes again if what is
+  remembered has changed, and skips the writing when it has not.
+- Deleting the folder is how you stop it. Nothing puts it back until you ask again.
+- Send `{"force": true}` to write the notes even when nothing has changed.
+
+A knowledge base never reads these notes back in. A collection pointed at your whole workspace skips
+the mirror folder (`KnowledgeBases.skip`, wired in `src/index.ts`), because otherwise the assistant
+would end up quoting its own notes back to you as though they were a document of yours.
+
+This is *not* the [notes-folder bridge](#your-notes-folder-the-obsidian-bridge-batch-22-wave-8).
+That bridge writes tagged notes into a vault folder you name, through `insideVault`; the mirror
+writes into your workspace, through the ordinary workspace checks, and never resolves a vault path.
+One caution if you use both: if you point the notes folder at your workspace and call its folder
+`memory`, the bridge writes straight to disk and does not go through the read-only rule above, so a
+note it syncs there would be wiped the next time the mirror is written. Give the bridge a folder of
+its own.
+
+### Text pasted in for one job (A1117)
+
+`scratch.text.add` holds a piece of pasted text for one job only: it is cut into passages,
+searchable while the job runs, and dropped the moment the job ends. Nothing is written to the
+database and nothing is sent anywhere to be compared by meaning. It is for the three pages of a
+contract you want to ask four questions about and then be done with — which does not belong in the
+document library, where it would sit for good, nor in the conversation, where it would fill the
+space in front of every later turn with text that stopped mattering an hour ago.
+
+### Worked examples: finding the right passage (A1144)
+
+Three whole runs through, from nothing to a cited answer. Everything here is on this computer unless
+a step says otherwise.
+
+**A folder of your own work.** Put the files in `workspace/house`. `POST /api/knowledge` with
+`{"name":"House","sources":[{"kind":"folder","path":"house"}]}` makes the collection;
+`POST /api/knowledge/reindex` with `{"collection":"<id>"}` reads it once, cutting each file into
+passages that keep their
+headings, sheets, slides and pages. Then `knowledge.search` with `{"query":"who services the boiler"}`
+searches by words and, where comparing by meaning is switched on, by meaning as well, and returns
+passages each naming its file and heading. `knowledge.ask` does the same and writes the answer, with
+`[1]`-style marks and the numbered list of sources underneath. Reading the folder again compares each
+file by its contents, so only the changed ones are read a second time, and files that look like
+secrets are never read in at all.
+
+**Something said in a conversation.** With review switched on, a finished task is read back by the
+model and anything worth keeping becomes a *suggestion*, never a saved fact. Accepting a knowledge
+card (`POST /api/memory/proposals/{id}/accept`) puts it into the collection named on the card through
+`KnowledgeBases.putDocument`, cut and stored exactly like a file. A later question finds it through
+the same search, with the knowledge base named as where it came from — that whole round trip is
+`tests/docs-3.test.mjs` D18.
+
+**Three pages you will not need tomorrow.** `scratch.text.add` with `{"name":"Contract","text":"…"}`
+holds it for this job: `scratch.text.search` finds passages in it, the common retriever offers them
+beside every other source, and when the job ends the store is dropped on `onRunFinished`. Nothing
+reaches the database and nothing is sent away to be compared by meaning.
+
+Which retriever answered is always on the passage, in `from`: `knowledge`, `documents`, `memory`,
+`knowledge-graph` for one hop through the map, or `task-text` for the third example. They all sit
+behind the one `Retriever` interface in `src/retrieval.ts`.
+
+### Routes
+
+`POST /api/knowledge/summarise`, `/api/knowledge/graph`, `/api/knowledge/map`,
+`/api/knowledge/pictures`, `/api/knowledge/manage`, `/api/knowledge/refresh`,
+`/api/knowledge/export`, `/api/knowledge/import`, `/api/knowledge/retention`,
+`/api/knowledge/retention/check`, and `GET /api/knowledge/extras` for the panel.
+`POST /api/memory/mirror` writes the Markdown mirror of what is remembered.
+
+### Already covered, and not applicable
+
+- **A1013 pluggable storage domains** — VERIFIED as already built: `src/vector-store.ts` defines the
+  `VectorBackend` contract and `src/memory-backend.ts` the memory one, both with the shipped SQLite
+  backend behind them, and `src/retrieval.ts` puts every way of finding passages behind one
+  `Retriever` interface that this batch adds two more to.
+- **A2264 PDF processing** — VERIFIED as already built in wave 7: `src/document-pdf.ts` lifts text
+  out of a PDF, marks its pages, and says plainly when a PDF is pictures of text rather than text.
+  This batch adds the other half of that sentence: pictures can now be described.
+- **A1144 worked examples of finding the right passage** — this section, with the examples above.
+- **A1426 RAGFlow knowledge search** and **A2343 embedded knowledge base** — not applicable: both are
+  external services to run alongside. The knowledge bases here do the same job on the SQLite file
+  that is already there, with nothing else to install or keep running.
+- **A2168 long-term memory with QMD retrieval** — not applicable, for the same reason: it needs an
+  external retrieval service. Memory here is searched by words, by meaning and now through the map,
+  all on this computer.
+- **A1425 pluggable memory backends** and **A1475 pluggable session storage** — already documented;
+  the contracts exist and one backend is shipped.
+
 ## What Branch is not (batch 22, wave 8)
 
 Some rows of the audit describe a *demonstration written for one Python or Rust toolkit*, not a
@@ -3649,6 +3853,188 @@ because it writes outside this folder.
 - **FAMILY custom-commands (#72)** — the owner's own saved procedures and skills are their custom
   commands; the terminal view's slash commands stay fixed on purpose, so a mistyped one can never
   become a task. Still open.
+
+## Sandboxes: where a script actually runs (batch 26, wave 8)
+
+"How tightly a program is held" above is about the ceilings on a program. This is about *where* it
+runs. Nothing here is ever installed: each one is looked for on this computer and offered only if it
+is already there. **Settings → Approvals → Where scripts run** shows all four with a plain sentence
+each, and says what to install for any that is missing.
+
+| Where | What it protects you from | What it does **not** do |
+| --- | --- | --- |
+| **On this computer** (`job-object`) | A runaway script using all the memory or the processor. Always available; it is what everything did before. | It does not stop the script reading your files. |
+| **In a container** (`docker`) | Your files and your programs: nothing of this computer is visible inside except the one folder it is given. | Needs Docker Desktop or Podman already installed. Branch installs neither. |
+| **On the Linux side** (`wsl`) | The original folder: the script works on a copy, and only the files you name come back. | Needs Windows Subsystem for Linux already set up. |
+| **In Windows' throwaway desktop** (`windows-sandbox`) | Everything: a fresh Windows that is deleted when it closes. | **It opens a window on your screen**, so it is never chosen for you — you switch it on yourself. |
+
+A rule picks one with `backend`, next to `sandbox` and `paths`. A backend that is not on this
+computer is a plain refusal naming what to install; it never quietly falls back to something weaker,
+because that would be the opposite of what the rule asked for. `paths` on the rule is the only part
+of your workspace a sandboxed script can see — one folder, given relative to the workspace.
+
+Before anything is started at all, the script itself is read: a forbidden call for its language, a
+size over the cap, or an import that would reach the network when the rule does not allow it, is
+refused before any container, distribution or desktop is prepared.
+
+`GET /api/sandboxes` answers the settings and what this computer can offer; `POST /api/sandboxes`
+saves them. The settings are `SandboxBackendSettingsSchema` (`src/sandbox-backends.ts`):
+
+| Setting | What it is |
+| --- | --- |
+| `image` | The container image a script runs in. Nothing is ever pulled; it must already be on this computer. |
+| `distro` | Which Linux this computer already has, by name. Empty means the default one. |
+| `windowsSandbox` | Let Branch use Windows' throwaway desktop. Off, because it opens a window on your screen. |
+| `pulled` | Whether Branch has confirmed the image is already here. Branch writes this; it is not for you to set. |
+
+## Remote computers over SSH (batch 26, wave 8)
+
+A project's work can live on another computer — a machine in the cupboard, a server at work — and
+Branch reaches it with the OpenSSH client Windows already ships. Nothing is installed and **no
+password is ever handled**.
+
+Two things have to be true before a computer can be added, and both are read from files that are
+yours, not Branch's:
+
+1. Its short name must already be a `Host` in your own `~/.ssh/config`. You cannot type a hostname
+   here; if it is not in your config, Branch has no way to reach it and says so.
+2. Its key must already be in your own `known_hosts`. A computer Branch has never seen is refused,
+   not trusted: connect to it once yourself, look at the key it shows you, and then add it here.
+   Branch never passes `StrictHostKeyChecking=no`, and forces `BatchMode=yes`,
+   `PasswordAuthentication=no` and `NumberOfPasswordPrompts=0` on every call.
+
+A computer starts able to hold files and **nothing else**. You add the programs it may run one at a
+time; anything else is refused by name. Paths are kept inside that computer's own folder exactly as
+they are inside your workspace: `..`, a path starting at `/`, and a drive letter are all refused
+before anything is sent. The approval card names the computer, so a yes is never given blind.
+
+`ssh` itself is the boundary here. Every byte goes through the child process, so nothing on a remote
+computer can be used to reach an address the web rules refuse — but equally, the web rules do not
+see inside that connection. That is the trade, said out loud.
+
+The tools are `remote.list`, `remote.files`, `remote.read` and `remote.run` (their own toolbox,
+`remote`, because everything in it is somewhere else). `remote.run` has a permission of its own,
+`remote.execute`: allowing commands on *this* computer must never quietly allow them on another, and
+the "ask before changes" rules ask about it every time whatever the rule for commands here says. The screen is **Settings → Remote computers**:
+`GET /api/remotes` lists them, `POST /api/remotes` adds one, `POST /api/remotes/remove` takes one
+off. Each computer is `RemoteComputerSchema` (`src/remote/ssh-workspace.ts`): `alias` the short name
+from your SSH config, `root` the folder on that computer everything is kept inside, `label` a name
+you will recognise, `executables` the programs it may run, and `addedAt` when you added it.
+
+## A way back to before a change (batch 26, wave 8)
+
+Before Branch writes a set of changes, it makes a mark of how the folder is right now — but only
+when the folder is kept in Git. The mark is a real commit, made with `git stash create`, which builds
+a commit object without touching your working folder, your index, or the shared stash list. It is
+kept on a ref of Branch's own under `refs/branch/checkpoints/`, so nothing else trips over it, and
+the twenty most recent are kept.
+
+The answer to a change now carries an `undo` you can ask for: "Ask to undo this, and the files go
+back to how they were just before." A folder that is not kept in Git simply has no mark and says so
+plainly; the change is still written. `GET /api/marks` lists them, `POST /api/marks/undo` puts one
+back, `POST /api/marks/forget` lets one go.
+
+A project may also name a **line of work** (`branch` on the project, in `src/projects.ts`). Switching
+to that project switches the folder to it. Work you have not saved yet stops the switch rather than
+being carried across — Branch says so and leaves the folder exactly as it was.
+
+## Firewall: what can reach outside this computer (batch 26, wave 8)
+
+The network rules have been enforced for a long time; what was missing was anywhere to read them
+back. **Settings → Approvals → What can reach out** says them in sentences — "Branch may only reach
+example.com and docs.rs, and nowhere else on the internet", "Scripts cannot reach the internet: they
+are pointed at an address that goes nowhere", "The browser may visit https://example.com. Any other
+address is refused before the page opens."
+
+The card is only a reading of the rules; nothing in it decides anything, so it cannot say one thing
+while the app does another. The **test** button asks the same check every real request asks, so
+pressing it cannot reach the address you asked about — and when an address is on Branch's list but
+not on the browser's, it says both halves.
+
+`GET /api/firewall` is the card; `POST /api/firewall/test` takes `{"address": "https://…"}`.
+
+## How much one person may ask for (batch 26, wave 8)
+
+A fixed window, deliberately, because "twenty a minute" is something you can reason about and watch
+reset. **Settings → Approvals → Ceilings** sets four numbers (`SessionLimitsSchema`,
+`src/session-limits.ts`; 0 means no limit):
+
+| Setting | What it is |
+| --- | --- |
+| `requestsPerMinute` | Most questions one conversation may ask in a minute. |
+| `tokensPerHour` | Most thinking one conversation may spend in an hour. |
+| `senderRequestsPerMinute` | The same per minute, for one person messaging Branch through a chat app. |
+| `senderTokensPerHour` | The same per hour, for one person messaging Branch through a chat app. |
+
+Reaching a ceiling means two different things on purpose. **Your own** task waits for the window to
+free up and then carries on — nothing is refused and nothing is lost. **Somebody messaging from
+outside** is told in one sentence ("That is as much as Branch will do for one person right now…")
+and their message is let go rather than queued behind everybody else's, because a stranger waiting
+silently for a minute looks exactly like Branch being broken. Both are written into the record as
+"Something reached the limit you set for a minute or an hour".
+
+`GET /api/limits` reads them, `POST /api/limits` saves them.
+
+## Carrying a sign-in to another computer (batch 26, wave 8)
+
+"Sign in once" already kept a browser profile per project. A saved sign-in can now be exported as a
+single sealed file and read back somewhere else: it is encrypted with a passphrase you choose, and
+the cookies inside are nowhere in the bytes that leave this computer. The wrong passphrase, and a
+file that is not one of ours, both refuse plainly. The alternative, if you would rather not move a
+sign-in at all, is to borrow your own browser window for the task instead.
+
+## Letting old conversations go (batch 26, wave 8)
+
+Nothing was ever deleted unless you deleted it one conversation at a time. **Settings → Retention**
+sets a rule, and the rule never acts on its own: Branch works out what it would sweep up, shows you
+the list, and only a plain yes deletes anything. Every conversation is handed back as a saved copy
+first, so nothing is lost to a rule you set months ago and forgot; one that cannot be copied is not
+deleted. Every sweep is written into the record as "Old conversations were offered for deletion,
+exported, or deleted".
+
+`RetentionSettingsSchema` (`src/retention.ts`):
+
+| Setting | What it is |
+| --- | --- |
+| `enabled` | Off until you ask for it. Off means nothing is ever proposed. |
+| `keepDays` | Conversations older than this many days are proposed. 0 means age is not a reason. The same name a knowledge base uses for the same idea (`RetentionSchema`, `src/knowledge-manage.ts`), so there is one vocabulary for "how long is this kept". |
+| `megabytes` | When everything together is bigger than this, the oldest are proposed until it fits. 0 means size is not a reason. |
+| `exportBeforeDeleting` | Hand back a saved copy of everything before it goes. On, and it is meant to stay on. |
+
+`GET /api/retention` is the rule and what it would sweep up; `POST /api/retention` saves the rule;
+`POST /api/retention/prune` takes `{"approve": true}` and, optionally, the exact conversations.
+
+A knowledge base has a retention rule of its own, counted in documents and passages rather than in
+megabytes, and it proposes rather than deletes in exactly the same way. The two share `keepDays`.
+
+## What an add-on asked for, and what holds it to that (batch 26, wave 8)
+
+A skill package and a plugin both declare the permissions they need, and you see that list before
+anything is switched on. What the list now *does*: the tools are narrowed to what you allowed. A tool
+asking for a permission you did not grant is never registered at all — it is not in the catalog, so
+nothing can call it, and you are told which ones were left out and why.
+
+A skill package also declares every web address it will call, worked out from the package itself. You
+see them by name before installing, and they are held to at the moment of each call, not only when
+the package was read: a declared address can carry a value from the request, so an address outside
+the manifest is refused there and then.
+
+`POST /api/skills/package/install` takes `allow` — the permissions you ticked — alongside `approve`;
+`POST /api/plugins/<id>/enable` takes the same `allow`. Leave it out and the add-on gets exactly what
+its own manifest declared, as switching one on always did. Naming a permission the add-on never asked
+for grants nothing.
+
+## One list of who may reach Branch, phones included (batch 26, wave 8)
+
+The one allowlist (`src/channels/allowlist.ts`) already covered every chat app: a rule names a
+channel — or `*` for all of them — and a sender, and says `allow` or `block`, with `block` winning.
+It now covers a paired phone too, under the channel name `remote` with the device's id as the sender.
+
+A rule that says never is asked **first**, before the door's own chain of checks, so it holds whatever
+that chain is set to. Only a "never" is acted on for a phone: one that has already been let in stays
+let in unless you write a rule against it, so switching the list on never quietly locks your own
+phone out. A phone turned away this way is still paired — it is the rule stopping it, and taking the
+rule off lets it straight back in. Each refusal is written into the record.
 
 ## Every setting named, so nothing is only in the code (batch 26, wave 8)
 

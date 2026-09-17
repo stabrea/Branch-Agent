@@ -2,6 +2,7 @@ import { z } from "zod";
 import { audit } from "./audit.js";
 import { globMatches, ResourceMatcherSchema, resourceMatches, type PolicyResource } from "./policy-resources.js";
 import { sandboxChoices } from "./sandbox.js";
+import { sandboxBackends } from "./sandbox-backends.js";
 import type { Store } from "./store.js";
 
 export { globMatches } from "./policy-resources.js";
@@ -38,6 +39,17 @@ export const PolicyRuleSchema = z
      * a box, or with no box. Left out, the tool does exactly what it did before rules could say.
      */
     sandbox: z.enum(sandboxChoices).optional(),
+    /**
+     * Where a program this rule covers actually runs: on this computer, in a container, on the
+     * Linux side, or in Windows' own throwaway desktop (see src/sandbox-backends.ts). Left out it
+     * runs on this computer, which is what everything did before rules could say otherwise.
+     */
+    backend: z.enum(sandboxBackends).optional(),
+    /**
+     * The folders of the workspace a program this rule covers may see. Empty means the whole
+     * workspace, which is what every rule written before this behaves as.
+     */
+    paths: z.array(z.string().trim().min(1).max(200)).max(8).optional(),
   })
   .strict();
 export type PolicyRule = z.infer<typeof PolicyRuleSchema>;
@@ -102,6 +114,9 @@ const presetDefinitions: Record<Exclude<PolicyPresetName, "custom">, PresetDefin
     description: "Writing files in your workspace is fine. Running commands and clicking or typing on web pages wait for your yes, and a new website is checked with you once.",
     rules: [
       { tool: "shell.execute", decision: "ask", remember: "session" },
+      // Batch 26 (wave 8): a program on somebody else's computer always asks, whatever the rule
+      // for commands here says. It is a different computer.
+      { tool: "remote.run", decision: "ask", remember: "session" },
       { tool: "browser.click", decision: "ask", remember: "session" },
       { tool: "browser.fill", decision: "ask", remember: "session" },
       // Sending one of your own files to a website is always worth a question, whatever site it is.

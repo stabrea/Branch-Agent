@@ -130,6 +130,13 @@ export class ChannelRouter {
   outboundGuard: (text: string) => Promise<{ text: string; blocked: boolean; reason?: string }> =
     async (text) => ({ text, blocked: false });
   /**
+   * Batch 26 (wave 8): the ceiling the owner set for one person messaging from outside. `createBranch`
+   * connects the real counter; on its own nothing is limited. Somebody who reaches it is told so in
+   * one sentence and their message is let go rather than queued behind everybody else's, because a
+   * stranger waiting silently for a minute looks exactly like Branch being broken.
+   */
+  senderCeiling: ((channel: string, senderId: string) => { ok: boolean; reason: string }) | undefined;
+  /**
    * Turns a voice note into words. `createBranch` connects the real voice service; on its own this
    * says plainly that nothing is set up, so a voice note is never silently dropped.
    */
@@ -347,7 +354,7 @@ export class ChannelRouter {
         // A message from a chat app can read and change the local copy, but never publish it, and
         // never send to somebody else's chat: a paired person in one group must not be able to
         // make the assistant write to every chat it is linked to.
-        permissions: this.runtime.registry.permissions().filter((p) => !["shell.execute", "git.remote", "github.manage", "channels.send"].includes(p)),
+        permissions: this.runtime.registry.permissions().filter((p) => !["shell.execute", "remote.execute", "git.remote", "github.manage", "channels.send"].includes(p)),
         onTextDelta: () => undefined, // stream so a silent model is noticed
       });
       this.store.save("settings", owner, key, { sessionId: run.sessionId, channel: message.channel, chatId: message.chatId,
