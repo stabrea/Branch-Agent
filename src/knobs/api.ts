@@ -4,6 +4,7 @@ import type { Store } from "../store.js";
 import { leakKinds } from "../leak-guard.js";
 import { currentPerson } from "../people/context.js";
 import { startedWithShortLivedKey } from "../key-context.js";
+import { knobsRoutes } from "../short-lived-keys.js";
 import { allKnobs, knobCardNames, readKnobs, resetKnobs, saveKnobs, type KnobCard } from "./settings.js";
 import { memoryProvider, saveMemoryProvider } from "./apply.js";
 import { refusedEnvironmentName } from "./environment.js";
@@ -32,7 +33,8 @@ export interface KnobsApp {
     retryPolicy: { maxRetries: number };
   };
 }
-export const handlesKnobsPath = (path: string): boolean => path === "/api/knobs" || path === "/api/knobs/launch-file";
+/** The routes are listed, and classified for short-lived keys, in src/short-lived-keys.ts. */
+export const handlesKnobsPath = (path: string): boolean => knobsRoutes.includes(path);
 
 const SaveSchema = z.object({
   card: z.enum(knobCardNames as [KnobCard, ...KnobCard[]]),

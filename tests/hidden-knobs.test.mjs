@@ -190,6 +190,25 @@ test("R17-S10 a command gets the owner's extra variables and the owner's time li
   assert.ok(slow.durationMs < 10000, `stopped after about a second (${slow.durationMs} ms)`);
 });
 
+test("R17-S10 the launch connects the owner's command settings to the real command tool", async (t) => {
+  const { loadIntegrations } = await import("../dist/integrations/bootstrap.js");
+  const { app, root } = await fixture(t);
+  await mkdir(app.runtime.workspace, { recursive: true });
+  const configPath = join(root, "integrations.json");
+  await writeFile(configPath, JSON.stringify({ shell: { executables: { node: { path: process.execPath } } } }));
+  const env = { ...process.env, R17_REGION: "south" };
+  const launched = await loadIntegrations(app.registry, configPath, env, app.secretsFor, app.channelHost);
+  t.after(() => launched.close());
+  saveKnobs(app.store, owner, "commands", { commandTimeoutSeconds: 1, passEnvironment: ["R17_REGION"] });
+  const context = app.runtime.context({ runId: "launched-run" });
+  const region = await app.registry.execute("shell.execute", { executable: "node", args: ["-e", "console.log(process.env.R17_REGION)"] }, context);
+  assert.equal(region.stdout.trim(), "south");
+  const started = Date.now();
+  const slow = await app.registry.execute("shell.execute", { executable: "node", args: ["-e", "setTimeout(() => {}, 20000)"] }, context);
+  assert.notEqual(slow.status, "completed");
+  assert.ok(Date.now() - started < 10000, "the owner's one-second limit applied");
+});
+
 test("R17-S10 kept-open command lines can be switched off", async (t) => {
   const { app } = await fixture(t);
   await mkdir(app.runtime.workspace, { recursive: true });
