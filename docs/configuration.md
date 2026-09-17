@@ -109,7 +109,7 @@ by hand; edit the data file and run that command.
 
 <!-- providers:start -->
 
-Branch knows 42 model services. Every one of them has been tested against a fake of the
+Branch knows 44 model services. Every one of them has been tested against a fake of the
 service, not against the real one, so treat this as "Branch speaks the right language", not as
 "this was tried on a live account". Addresses and prices were last checked on 2026-09-16.
 
@@ -130,6 +130,7 @@ service, not against the real one, so treat this as "Branch speaks the right lan
 | GitHub Copilot (sign-in) | in the cloud | OpenAI |  | just a key | [None: Branch does not sign in to Copilot itself](https://github.blog/changelog/2026-01-16-github-copilot-now-supports-opencode/) (not offered) |
 | GitHub Models | in the cloud | OpenAI |  | just a key | [GitHub Models inference (ended)](https://github.blog/changelog/2026-07-30-github-models-is-now-retired/) (retired) |
 | Google Gemini | in the cloud | Gemini | conversation, pictures in, tools, fixed format, as it types, compare passages, live conversation | just a key | [Your own Google AI Studio key](https://ai.google.dev/gemini-api/terms) |
+| Google PaLM | in the cloud | Gemini |  | just a key | [PaLM API (ended)](https://ai.google.dev/palm_docs/deprecation) (retired) |
 | Google Vertex AI | in the cloud | Gemini | conversation, pictures in, tools, fixed format, as it types | Your Google Cloud project id; The region your project uses | [Your own Google Cloud project and access token](https://cloud.google.com/terms/service-terms) |
 | Groq | in the cloud | OpenAI | conversation, tools, fixed format, as it types, speech | just a key | [Your own API key](https://groq.com/terms-of-use) |
 | Hugging Face Inference | in the cloud | OpenAI | conversation, tools, as it types | just a key | [Your own access token](https://huggingface.co/terms-of-service) |
@@ -151,6 +152,7 @@ service, not against the real one, so treat this as "Branch speaks the right lan
 | SambaNova | in the cloud | OpenAI | conversation, pictures in, tools, as it types | just a key | [Your own API key](https://sambanova.ai/terms-and-conditions) |
 | Something else that speaks OpenAI's shape | in the cloud | OpenAI | conversation, tools, as it types | The address the service gave you | [An address and key you give](https://github.com/stabrea/Branch-Agent/blob/main/docs/configuration.md) (unofficial) |
 | Together AI | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types, compare passages, pictures out | just a key | [Your own API key](https://www.together.ai/terms-of-service) |
+| Vercel AI Gateway | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types, compare passages | just a key | [Your own AI Gateway key](https://vercel.com/legal/terms) |
 | Voyage AI | in the cloud | OpenAI | compare passages | just a key | [Your own API key](https://www.voyageai.com/tos) |
 | Z.ai (GLM) | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types | just a key | [Your own API key](https://docs.z.ai/legal-agreement/terms-of-use) |
 | Zhipu GLM (China) | in the cloud | OpenAI | conversation, pictures in, tools, fixed format, as it types, compare passages | just a key | [Your own API key](https://open.bigmodel.cn/) |
@@ -170,6 +172,7 @@ Services that need something more than a key, or that do not publish a list of t
 - **Doubao (Volcengine Ark)** — ByteDance's Ark service. The model name is usually an endpoint id you created there. Billed in yuan; Branch keeps no price on file.
 - **GitHub Copilot (sign-in)** — Not offered. Use the GitHub Copilot command line under coding assistants instead: it is GitHub's own program with your own sign-in. GitHub supports Copilot sign-in only in its own tools and in OpenCode, through OpenCode's own sign-in. Reusing another app's sign-in or posing as VS Code has led to abuse warnings, so Branch does neither. Use GitHub's Copilot command line instead.
 - **GitHub Models** — Retired by GitHub on 30 July 2026. A saved connection stays on the list with this note and is never used. GitHub retired GitHub Models on 30 July 2026 and its address now refuses every request. For a model catalogue GitHub points to Microsoft Foundry (use Azure OpenAI here); for GitHub work, use the GitHub Copilot command line under coding assistants.
+- **Google PaLM** — Retired by Google. PaLM's models were replaced by Gemini, which uses the same kind of key: connect Gemini instead. Google turned the PaLM API off and its models (text-bison, chat-bison) no longer answer. The same Google AI Studio key works for Gemini: connect Gemini instead and pick a Gemini model.
 - **Google Vertex AI** — Needs a project id and a region, and a sign-in token rather than an API key. Branch does not fetch that token for you: paste one from `gcloud auth print-access-token`. Tokens expire after about an hour.
 - **MiniMax** — International keys use api.minimax.io (the usual choice); keys from the Chinese platform use api.minimax.cn. Branch keeps no price on file for it.
 - **ModelScope** — Alibaba's model hub in its OpenAI-compatible mode. Branch keeps no price on file for it.
@@ -1363,6 +1366,29 @@ Branch Agent can sign in to a service the ordinary way, without ever seeing your
 
 `POST /api/connections/oauth/start` takes `{ id, label, authorizeUrl, tokenUrl, clientId, clientSecret?, scopes?, extra? }` and returns the address to open. `GET /api/connections/oauth/:id` says whether that connection is signed in and when its key runs out; `POST /api/connections/oauth/:id/cancel` abandons a sign-in that is still waiting. An answer that does not match the sign-in that was started is refused, which is what stops someone else finishing it for you. A key that has run out is renewed automatically before it is used. Nothing is provider-specific yet: there are no Google or Slack buttons in the app, only this flow underneath them.
 
+## People on this computer, from their own device (bucket 19)
+
+Somebody the owner added under **People on this computer** (`settings:general`) can reach their own conversations from their own phone or laptop. The switch is on the **Signing in from other devices** card, beside the people list, and ships **off**; while it is off the sign-in page answers 404 and no person's key works, and switching it off signs everybody out (switching it back on does not bring old sign-ins back). "When needed" and "on" behave the same here: the feature has no tools for the model.
+
+- **The page.** A person opens this computer's address followed by `/people` (on the phone, through the paired address). They type their name, then pass every check the owner chose: **their PIN**, **a passkey** on their device, or **an identity service** the owner linked (OpenID Connect: a family or company service, or Google, Microsoft or GitLab from the presets). The chain is all of them, never one of them; the owner may add extra checks for one person, never take any away. A name nobody here has is asked the same checks and fails in the same words. Five wrong answers from one place and that place waits five minutes; the owner's window is counted separately and is never held up.
+- **What a person's key reaches.** Only their own page: who they are, their PIN and passkeys, their own conversations, and what the owner shared with them (`src/people/access.ts`, a list that fails closed). Every other address answers 401 before any route runs, reads included. While a request is a person's, the profile switch answers for that person and never for the owner, whatever the window is switched to (`src/people/context.ts`); a person cannot switch the window's profile. Their tasks run under their role, narrowed by every group they are in. A removed profile's keys stop at once.
+- **Forgotten PIN, first passkey.** The owner presses **Make a one-time code** beside the person and tells them the code. It works once, for 15 minutes, is kept only as a hash, closes after five wrong tries, signs the person out everywhere, and gives a 15-minute sign-in that can only set a new PIN or register a passkey. An ordinary sign-in must say the old PIN to change it.
+- **Groups.** A group has members and limits (which kinds of thing, which projects, a daily allowance). Being in a group can only take things away: `ProfileRoles.effective` applies every group and then `onlyTighter`, which refuses any narrower that would change the role or add a kind, a project or money.
+- **A person's own conversation while their task runs.** It is lent to the assistant and back (`src/people/lending.ts`); every such task writes down whose it is (`run.started.lentTo`), so in that moment the owner cannot share it and nobody else's key reaches it. If Branch stops mid-task, the conversation is handed back to the person when it starts again, and carrying the task on (by hand or by the never-break switch) runs as that person, under their role, steps redone after the restart included.
+- **Sharing a conversation.** The owner shares one of their own conversations with a person or a group, to read (**viewer**) or also to write in (**driver**). A driver's message goes into the owner's conversation as "Name: …" and runs under the driver's role; a viewer's page updates by itself every three seconds. Shares are relation tuples in OpenFGA's shape (`conversation:<id>`, `viewer`/`driver`, `profile:<id>` or `group:<id>#member`); `GET /api/people/shares/export` and `POST /api/people/shares/import` carry them to and from such a service.
+- **Passkeys.** Checked with Node's own crypto (ES256 on P-256, and RS256 of 2048 bits or more; no attestation asked for). The device must check who is holding it (fingerprint, face or device PIN: `userVerification: "required"`, checked on the server too), and a sign-in challenge works once, for two minutes. A passkey only works on the address it was registered on (an `https` origin when the door itself is served over TLS; a forwarded-protocol header is never believed), and browsers only allow passkeys on `localhost` or a named host, never on a bare IP address such as `127.0.0.1`. A signature count that did not go up is refused as a possible copy.
+- **Identity services.** Authorization code with PKCE, a state and a nonce; the ID token's signature (RS256 or ES256, never "none"), issuer, audience, expiry and nonce are checked here, and the discovery document must name the issuer that was set up. The service only proves who somebody is for a profile the owner linked by the service's subject id. A link that names only an email address is a suggestion: the first time an account with that address (verified by the service) signs in, it is refused and waits on the card until the owner presses **Confirm this account**, which writes its subject id into the link. The service sends the browser back to `/api/people/oidc/callback`, which finishes nothing: it passes the answer to the page in the address fragment, and only the page that started that sign-in (it holds the ticket) finishes it, with the sign-in's own state; an answer that lands in somebody else's browser signs nobody in. On the paired door the way back passes the door's checks like the rest. Register `http://<this address>/api/people/oidc/callback` with the service. Every call goes through the network rules, so a service on the home network needs "private addresses" allowed. A client secret, when the service needs one, is named from the locker and handed over only for the exchange.
+
+Settings (`POST /api/people/settings`, only the fields sent change): `mode` (`off`, `when-needed`, `on`), `chain` (one or more of `pin`, `passkey`, `oidc`), `extra` (profile id → more checks for that person), `sessionMinutes` (how long a sign-in lasts, 5 minutes to a week; 12 hours by default), `providers` (`id`, `label`, `issuer`, `clientId`, `clientSecretName`, `scopes`) and `links` (`provider`, `profileId`, `subject` or `email`).
+
+Routes: `GET /api/people/sign-in`, `POST /api/people/sign-in/start|step|finish|code`, `GET /api/people/oidc/callback` (no key); `GET /api/people/me`, `POST /api/people/me/sign-out|pin`, `GET|POST /api/people/me/passkeys[/begin|/finish|/remove]`, `GET|POST /api/people/conversations[/<id>[/message]]` (a person's key); `GET|POST /api/people/settings`, `POST /api/people/groups`, `POST /api/people/groups/<id>/remove`, `POST /api/people/shares[/remove|/import]`, `GET /api/people/shares/export`, `POST /api/people/<profile>/reset-code|sign-out|forget`, `POST /api/people/keys/revoke`, `POST /api/people/links/confirm` (the owner's window only; a short-lived key is refused).
+
+**Keys handed to another device, and answering questions.** A key made by "Carry on a conversation on another device" is now held to that one conversation: its own `/api/sessions/<id>` addresses, the tasks in it, `GET /api/people/handoff`, and starting a task or answering a question in it. The link opens `/people#handoff=<id>`, a page that shows only that conversation. Separately, any short-lived key may answer only the questions of tasks it started itself (or their specialists); each task writes down which key started it (`run.started.shortLivedKeyId`). A question from the owner's own task is answered in the app window.
+
+**The security self-check** (`src/security-audit/`) looks at this door too: a PIN alone while the phone door is open (`people.pin-alone-from-afar`), a sign-in that lasts more than a day (`people.long-sign-in`), and accounts waiting to be confirmed (`people.accounts-waiting`).
+
+**macOS and Linux.** Nothing here depends on the operating system: the keys, passkeys and identity checks use Node's own crypto and SQLite on all three.
+
 ## Personal details and the content check
 
 **Going out.** Every message Branch Agent sends to a chat or a mailbox is looked at first. Email addresses, phone numbers, payment card numbers (checked with the same arithmetic a shop uses, so a lookalike number is left alone), bank account numbers (IBAN, likewise checked) and national id numbers are replaced with a plain note such as `[card number hidden]`. You can choose to be warned instead, to have the message held back altogether, or to switch the check off.
@@ -1506,7 +1532,7 @@ Routes: `GET`/`POST /api/trace/settings` with `{ "enabled": boolean, "folder": s
 
 ### Diagnostics
 
-**Branch sends no usage data to anyone.** There is no telemetry client, no analytics, no crash reporting and no opt-out to configure, because nothing is collected in the first place. Settings → Diagnostics says so on the screen.
+**Branch sends no usage data to its makers.** There is no telemetry client and no crash reporting. The only counters that can leave the computer are the optional ones described under the usage report and the smaller asks, which ship off and go only to an address you type in yourself. Settings → Diagnostics says so on the screen.
 
 When you want help with a problem, **Save a diagnostics folder** (`POST /api/diagnostics/bundle`) writes a timestamped folder under `diagnostics/` in the private data directory — plain files, no archive — so you can read it and pass it on by hand:
 
@@ -4352,7 +4378,9 @@ Branch Agent collects nothing about you and sends nothing to the people who made
 "help us improve by sharing anonymous statistics" setting to turn off, because nothing is ever
 collected in the first place. Everything on this page is about *you* choosing to send *your own*
 traces to a tool *you* run. All of it is off until you switch it on, and the address is one you
-type yourself. The diagnostics folder (Settings → Health) is written only when you press the
+type yourself. (One part you control, "Counting how Branch is used", is off, asks first, keeps
+daily counts on this computer for you and sends them only to an address you type; nothing reaches
+the people who made Branch.) The diagnostics folder (Settings → Health) is written only when you press the
 button, it now carries the last 200 steps with their names, timings and outcomes, and every value
 in it has been through the same scrub as the rest of the folder.
 ### Spans: the shape of a task while it runs
@@ -5282,12 +5310,11 @@ These rows of the audit are done, by a feature that exists under another name.
 - **A0098 embedded code editor** — the Documents and "Look inside" screens show code read-only with
   syntax colouring, which is what a desktop assistant needs. A full editor is not: the owner already
   has one, and building a second would be a worse version of it.
-- **A2375 configurable intent pipeline** — skill discovery and dispatch already choose what to do. A
-  pipeline the owner configures would be a second, competing way to decide the same thing.
+- **A2375 configurable intent pipeline** — built later, in wave mac6 (see "The smaller asks").
 - **A1976 personal knowledge base on a graph database** — needs a graph store running alongside; the
   knowledge bases here do the same job on the SQLite file that is already there.
-- **A1749 Gradio interface** and **A1611 side-panel chat** — Gradio is a Python web toolkit; the web
-  app here is the interface. A browser side panel is an extension, not part of a local app.
+- **A1749 Gradio interface** — Gradio is a Python web toolkit; the web app here is the interface.
+  (**A1611 side-panel chat** was built later, in the browser extension; see "The smaller asks".)
 - **A0663 C FFI** — calling native libraries from the assistant would put unsandboxed native code
   inside the app. Anything needing that is a program the owner runs through the shell tools.
 - **A1468 ADB operator** — driving an Android phone over USB is not a local Windows desktop
@@ -6478,78 +6505,115 @@ rules, model choices or memory) and never replaces one already set up
 
 ### The smaller asks (bucket 23)
 
-- **A0794** (project bookkeeping) — partly: projects hold instructions, a model, a folder and knowledge
-  bases, each task records its project, and cost adds up per project (`src/projects.ts`,
-  `src/project-ledger.ts`, `tests/projects-locker.test.mjs`, `tests/other-2.test.mjs`). Flows are not
-  filed under a project.
-- **A2334** (artifact versioning) — verified: keeping a file again under the same name makes the next
-  version, each with its checksum (the cap of 20 in `keptLimits` is not tested) (`src/build-artifacts.ts`, `tests/code-ide.test.mjs`).
-  Changing an artifact means keeping the changed file as the next version; there is no editor for it.
-- **A0612** (source sync with a cursor) — not built: nothing copies Telegram, Gmail or GitHub into
-  Branch in the background. The chat channels read new messages as they arrive, and knowledge bases
-  read folders (`src/knowledge-bases.ts`).
-- **A2221** (Hindsight memory) — not applicable: it is an outside memory service. Memory stays in this
-  computer's own database behind the contract in `src/memory-backend.ts` (`tests/docs-memory-2.test.mjs`).
+Wave mac6 built what was missing here; every new part has its own three-way switch and ships off
+(see "The smaller asks" below). Row by row, with the file and the test that asserts it:
+
+- **A0794** (project bookkeeping) — built: flows, schedules and triggers can be put under a project, and
+  a project's board shows them with the tasks done under it (`src/asks/project-board.ts`,
+  `tests/asks.test.mjs` "A0794").
+- **A2334** (artifact file operations) — verified: a kept file gets numbered versions with checksums,
+  a version can be put back byte for byte or let go (`src/build-artifacts.ts`, `src/artifact-versions.ts`,
+  `tests/artifact-versions.test.mjs`, `tests/code-ide.test.mjs`).
+- **A0612** (source sync with a cursor) — built: GitHub issues by update time, a mailbox by UID and a
+  Telegram bot by update id, written into `sources/` (`src/asks/source-sync.ts`, `src/channels/mail-client.ts`
+  `sinceUid`, `tests/asks-integrations.test.mjs` "A0612").
+- **A2221** (Hindsight memory) — built: keep, recall and reflect against the owner's Hindsight server,
+  beside Branch's own memory (`src/asks/hindsight.ts`, `tests/asks-integrations.test.mjs` "A2221").
 - **A1895** (image generation) — verified: `src/media-images.ts` makes and changes pictures through the
-  services that offer it, and says plainly when a model cannot (`tests/media.test.mjs`).
-- **examples** (an MCP example, a Notion MCP example) — partly: connecting an MCP server is shown under
-  "MCP tools" and the app hands out ready-made connection snippets (`src/mcp-server.ts`,
-  `tests/mcp-server.test.mjs`); Notion is shown as an OpenAPI connection (`src/openapi-tools.ts`), not as
-  an MCP server.
-- **integration-blocks** (a catalogue of third-party blocks) — partly: GitHub, GitLab and Linear are built
-  in (`src/integrations/github.ts`, `src/integrations/gitlab.ts`, `src/integrations/linear.ts`) and
-  plugins install from files (`src/plugin-catalog.ts`); there is no online catalogue of blocks.
-- **A0355** (pages that stay shared) — partly: a share link needs its code, works once and expires
-  (`src/conversation-share.ts`, `tests/collab-workflows.test.mjs`); a lasting public page is not offered
-  on purpose, because Branch only listens on this computer and its private address.
-- **A0354** (an answer engine) — verified: `knowledge.ask` answers from a knowledge base and numbers its
-  sources (`src/knowledge-tools.ts`, `src/knowledge-bases.ts`, `tests/rag-vector.test.mjs`).
-- **A2375** (a configurable intent pipeline) — not built: requests are not sorted into intents first; the
-  model picks tools itself, and the one configurable pipeline is for searching
-  (`src/retrieval-pipeline.ts`, `tests/retrieval-2.test.mjs`).
-- **A1012** (a model gateway) — partly: OpenRouter, LiteLLM, Portkey and Cloudflare's gateway are
-  connections in `data/providers.json` (`src/provider-catalog.ts`, `tests/providers-2.test.mjs`); Vercel's
-  AI SDK is a JavaScript library, not a service, so there is nothing to connect to.
-- **A2258** (several agent runtimes) — partly: Claude Code, Codex and the Copilot command line, when
-  installed here, can answer as a model (`src/providers/cli-agent.ts`, `tests/auth-tracing-cli.test.mjs`);
-  they answer in words only, without Branch's tools.
-- **A0032** (an app-server protocol) — partly, in its shared form: `branch acp-serve` speaks the Agent
-  Client Protocol to editors (`src/acp.ts`, `tests/interop-agents.test.mjs`), alongside the OpenAI-shaped
-  way in (`src/openai-compat.ts`, `tests/interop.test.mjs`), the MCP server (`src/mcp-server.ts`) and
-  agent-to-agent (`src/a2a.ts`). Codex's own app-server protocol is not spoken (A0601).
-- **A0601** (Codex's app-server as a backend) — not built: Codex is reached through `codex exec`
-  (`src/providers/cli-agent.ts`). Its app-server protocol is Codex's own and still changing; ACP above is
-  the shared one.
-- **A0464** (desktop conversations that last) — partly: the desktop app (`src/desktop/main.ts`) runs the
-  same app and server, and a conversation coming back after a restart is proven for that shared core
-  (`tests/long-jobs.test.mjs`); no test drives the desktop app itself.
-- **A2043** (computer use) — verified: `computer.look`, `computer.press` and `computer.type` go to a web
-  page or to a window (`src/integrations/computer.ts`, `tests/browser-2.test.mjs`). Window control is
-  Windows-only.
-- **research-pipeline** (STORM-style articles) — partly: research splits the question, reads several
-  pages, compares them and cites them (`src/research.ts`, `tests/data-research.test.mjs`); there are no
-  persona, outline or polishing stages.
-- **gateway** — partly: one local router fronts every chat channel (`src/channels/router.ts`,
-  `tests/channels.test.mjs`); there is no gateway spread over several computers, because Branch runs on one.
-- **A0504** (analytics collected only with consent) and **A1620** (optional analytics) — not applicable:
-  Branch collects nothing, so there is nothing to consent to (see "There is no telemetry, and there never
-  will be"; `tests/tracing-policy.test.mjs` checks the promise is written where the owner reads it). No
-  analytics will be added, with or without a switch.
-- **A1611** (a side-panel chat) — not built: the browser extension (`extras/browser-extension/`) opens a
-  small window from its button. A side panel would need one more browser permission for the same job.
-- **A2240** (live app surfaces inside a reply) — partly: pages from MCP servers and artifacts are shown,
-  but with no scripts, forms or network (`src/mcp-apps.ts`, `tests/mcp-mode.test.mjs`,
-  `tests/artifacts-ui.test.mjs`). Keeping them inert is the safety rule, so "live" is not planned.
-- **A2133** (an Obsidian plugin) — partly: Branch writes to and reads from your notes folder
-  (`src/obsidian.ts`, `tests/obsidian.test.mjs`); nothing is installed inside Obsidian.
-- **A1932** (a browser extension) — partly: `extras/browser-extension/` sends the page or the selection to
-  Branch (`src/embeds.ts`); `tests/embeds-watches.test.mjs` checks its folder, its permissions and that it
-  refuses this computer's own address, but no test drives the popup sending a page.
-- **A1934** (a chat box for other websites) — partly: `public/widget.js` is a small ask box for pages of
-  the owner's own, on sites the owner lists (`src/embeds.ts`, `tests/embeds-watches.test.mjs`); it is not
-  meant for putting in front of the public.
-- **A2367** (Google PaLM) — not applicable: Google retired PaLM. Gemini, its successor, is supported
-  (`src/providers/gemini.ts`, `tests/provider-presets.test.mjs`).
+  services that offer it (`tests/media.test.mjs` "a picture is asked for at /images/generations").
+- **examples** (an MCP example, a Notion MCP example) — built: copyable entries for Notion (program and
+  hosted) and the reference fetch server, each accepted by the integrations file's own schema
+  (`src/asks/mcp-examples.ts`, `tests/asks-integrations.test.mjs` "examples").
+- **integration-blocks** (third-party blocks) — built: fixed steps for Slack, Discord, Telegram, Notion,
+  Google Sheets, Airtable, Todoist and HubSpot, each with the owner's named key (`src/asks/app-blocks.ts`,
+  `tests/asks-integrations.test.mjs` "integration-blocks").
+- **A0355** (pages that stay) — built: answers kept as pages in Library, updated, and handed on as one
+  sealed file (`src/asks/answer-pages.ts`, `tests/asks.test.mjs` "A0355").
+- **A0354** (an answer engine) — built: search, read a few pages, answer with a numbered source after
+  each claim (`src/asks/answer-engine.ts`, `tests/asks.test.mjs` "A0354"); `knowledge.ask` does the same
+  for knowledge bases.
+- **A2375** (a configurable intent pipeline) — built: the owner's intents, and the phrase, word and model
+  stages in the owner's order (`src/asks/intent-pipeline.ts`, `tests/asks.test.mjs` "A2375").
+- **A1012** (a model gateway) — built: the Vercel AI Gateway is a connection, and a model name is
+  spelled `vendor/model` for a gateway and bare for the vendor itself (`data/providers.json`,
+  `src/asks/model-gateway.ts`, `tests/asks-runtimes.test.mjs` "A1012").
+- **A2258** (several agent runtimes) — built: Claude Code, Codex, Copilot, Gemini CLI and Codex over
+  app-server are added as connections, remembered, and follow their switch (`src/asks/runtimes.ts`,
+  `tests/asks-runtimes.test.mjs` "A2258").
+- **A0032** (an app-server protocol) — built: `branch app-server` speaks Codex's app-server protocol
+  (`src/asks/app-server.ts`, `tests/asks-runtimes.test.mjs` "A0032"); `branch acp-serve` still speaks ACP.
+- **A0601** (Codex's app-server as a backend) — built: Codex answers over app-server, read-only, and its
+  approval requests are declined (`src/asks/codex-app-server.ts`, `tests/asks-runtimes.test.mjs` "A0601").
+- **A0464** (desktop conversations that last) — verified: a conversation is listed and continues after
+  the engine the desktop runs is closed and opened again (`src/desktop/main.ts`, `tests/asks-verify.test.mjs`,
+  `tests/long-jobs.test.mjs`).
+- **A2043** (computer use) — verified: on a Mac every screen action goes through one fixed JXA script
+  run by `osascript`, on Linux through `xdotool` (`src/integrations/desktop-script-posix.ts`,
+  `src/integrations/computer.ts`; `tests/asks-verify.test.mjs` drives `computer.look`, `computer.press`
+  and `computer.type` to a stand-in `osascript`, `tests/posix-desktop-script.test.mjs` the script itself).
+- **research-pipeline** (STORM-style articles) — built: personas, sources read per persona, an outline,
+  sections written from the notes with sources, a lead and a tidy (`src/asks/article-writer.ts`,
+  `tests/asks.test.mjs` "research-pipeline").
+- **gateway** (across several computers) — built: other computers running Branch, checked for health,
+  chosen by label and passed over when down or busy (`src/asks/nodes.ts`, `tests/asks-surfaces.test.mjs` "gateway").
+- **A0504** (analytics only with consent) and **A1620** (optional analytics) — built: counts per day of
+  named events, only after a yes (the time of that answer is kept as `decidedAt`), wiped on a no, sent
+  only to an https address of the owner's own (`sendTo`, empty by default) (`src/asks/analytics.ts`, `tests/asks.test.mjs` "A0504 A1620"). Nothing goes to Branch's makers.
+- **A1611** (a side-panel chat) — built: the extension's side panel keeps one conversation with the
+  paired Branch (`extras/browser-extension/chat.js`, `sidepanel.js`, `tests/asks-surfaces.test.mjs` "A1611").
+- **A2240** (live app surfaces) — built: a tool's page is asked again on a timer through the tool gate
+  and shown in the same sealed frame, reloading itself (`src/asks/live-surfaces.ts`,
+  `tests/asks-surfaces.test.mjs` "A2240").
+- **A2133** (an Obsidian plugin) — built: `extras/obsidian-plugin/` asks Branch about a note with a
+  short-lived key, and only to Branch on the same computer (`tests/asks-surfaces.test.mjs` "A2133",
+  `tests/asks-hardening.test.mjs`); the notes-folder bridge (`src/obsidian.ts`) stays.
+- **A1932** (a browser extension) — verified: `extras/browser-extension/` is a Manifest V3 folder that
+  refuses this computer's own address (`tests/embeds-watches.test.mjs` "E1", "E2").
+- **A1934** (a chat box for other websites) — verified: `public/widget.js` answers only on sites the
+  owner lists (`src/embeds.ts`, `tests/embeds-watches.test.mjs` "E1", "E2").
+- **A2367** (Google PaLM) — built: PaLM is on the list as retired, with a note pointing at Gemini, and
+  never reaches the network (`data/providers.json`, `tests/asks-runtimes.test.mjs` "A2367").
+
+## The smaller asks
+
+Thirteen small parts, each with the owner's three-way switch (off, on, only when it is needed), all
+off at first. "On" loads a part's tools into every task from the start; "only when it is needed"
+lists them for the assistant to load; "off" leaves them out, and the timer that refreshes live pages
+does not run. The switches and settings are under `/api/asks/`, owner only; a short-lived key can read
+some of them and change none (`tests/short-lived-key-routes.mjs`). A tool of these parts pressed in the
+window goes through the one tool gate (`src/tool-gate.ts`), and work that runs by itself (live pages)
+is held to what the rules allow outright. A live page whose tool fails or is held waits twice as long
+before the next try each time (up to 64 times its interval, at most a day), one refresh round never
+overlaps another, and pressing Refresh again within ten seconds asks nothing. A mailbox source checks
+the owner's network rules before it connects, like every other outgoing call here, so a mail server
+on the home network needs private addresses allowed.
+
+| Part | Where it lives | What it does |
+| --- | --- | --- |
+| Project boards | Settings → General | Flows, schedules and triggers put under a project, and its tasks (`project.board`, `project.assign`) |
+| Quick answers | Library → Made | Search, read, answer with numbered sources (`answer.ask`) |
+| Pages kept | Library → Made | Answers kept, updated and saved as one sealed file (`answer.page`) |
+| Long articles | Library → Made | Personas, outline, cited sections, lead, tidy, into `research/` (`research.article`) |
+| Live tool pages | Library → Made | A tool asked again every so often, its page shown sealed |
+| Intents | Customize → Skills | Named kinds of request and where each goes (`intent.route`) |
+| Bringing items in | Library → Documents | GitHub, mailbox and Telegram, each with a cursor, into `sources/` (`sources.sync`) |
+| Hindsight | Library → Memory | Keep, recall and reflect on your Hindsight server (`hindsight.*`) |
+| Steps for other apps | Customize → Connections | Slack, Discord, Telegram, Notion, Sheets, Airtable, Todoist, HubSpot (`blocks.run`) |
+| App-server | Customize → Connections | `branch app-server` for editors that speak Codex's protocol |
+| Other agents | Settings → Models → Connection | Installed coding agents added as connections |
+| Other computers | Settings → Computer | Health, labels and failover across your Branch computers (`nodes.*`) |
+| Counting use | Settings → Data | Daily counts after a yes; sent only to your own address |
+
+Keys are always named secrets from the locker, filled in at the moment of the call. Every outside
+call follows the network rules; a Hindsight server or another computer on your home network needs
+private addresses allowed there (Tailscale addresses are not private and work as they are).
+
+**macOS and Linux.** Everything here is plain Node and works the same on all three systems. The
+agents found on this computer are looked up on `PATH` (with `PATHEXT` on Windows) without running
+anything; `codex app-server` and the command-line agents are started from their names with fixed
+arguments, no shell, and only what they need from the environment. The stand-in Codex test runs a real
+program on macOS and Linux and is skipped on Windows, where the in-process stand-in covers the same
+protocol.
 
 ## Comments that ask the assistant (A0344)
 
@@ -6984,3 +7048,129 @@ same on all three, and the tests run on each.
   call cannot save). A drafted flow may only ask and branch — at most eight boxes, no tool, list or other-flow box. It is greedy
   improvement, not MetaGPT's tree search, and every try is a real run that costs what it costs
   (`src/interop/flow-search.ts`, `tests/agent-interop.test.mjs`).
+
+## Add-ons other people wrote (bucket 15)
+
+Customize → Plugins has a card, **Add-ons other people wrote**, with the three-way switch for each part.
+Every part ships off; while a part is off its routes refuse in one sentence and its tools are not in the
+catalog. Switching an add-on off and removing one always work, whatever the switches say.
+
+| Part | What it does |
+| --- | --- |
+| Installing add-on packages | Reads a package in Branch's own layout (`branch-addon.json`), as a Claude Code plugin (`.claude-plugin/plugin.json`), a Codex plugin (`.codex-plugin/plugin.json` or an Agent Plugins `plugin.json`) or a Gemini CLI extension (`gemini-extension.json`). |
+| Add-on lists you name | A signed web list (`branch-addon-list`, whose entries are flat Branch packages in one zip file) or a folder holding a Claude Code / Codex marketplace. |
+| Your own filters | Rules on what goes in to the model and what comes out. |
+| Reading a Pipelines server | Whether an address is a Pipelines server, its pipelines, their settings. Read only. |
+| Letting the assistant draft an add-on | The `addon.draft` tool saves a plugin as a draft for you to review. |
+| Search sources that plugins bring | The `addon.search` tool searches every source your switched-on plugins bring. |
+| Branch as a plugin for Claude Code and Codex | Writes Branch's own plugin into a folder you name. |
+
+**Looking, installing and switching on are three separate presses.** Looking (`POST /api/plugin-catalog/add-ons/look`)
+reads the files — nothing is run; Claude Code, Codex and Gemini CLI packages are read from a folder, and one zip file
+holds only a flat Branch package — and lists in plain words everything the package would add and need, what
+was left out and why, and its fingerprint. Each outside server it names is looked up in the malware list
+first (the security check's "Check add-ons for malware"); a listed one stops the package. Installing copies the
+files with a fingerprint for each, and switches nothing on. Switching on adds its skills (scanned like any
+skill), puts its plugin file in the plugins list, and adds its filters switched off. Its outside servers are
+**never connected**: they come back as drafts to try under Connections. Shell hooks, scripts, tool
+allowances (`allowed-tools`), themes and "tools to hide" lists are left out, and the look says so. A package
+whose files changed since it was installed is refused, and nothing is updated by itself — a list only offers
+a newer version, and taking it installs the new version switched off.
+
+**A plugin that came from a package, a list or a draft runs walled.** It is never imported into Branch: each
+question ("what are you", one tool call, one event for a hook) starts the plugin as its own program behind the
+same wall as any program Branch starts, in a throwaway folder, with none of Branch's environment, no saved
+key, and limits on time (30 s), memory (512 MB) and output (1 MB). The code is checked against its install
+fingerprint before every run. A walled plugin gets tools, hooks and search sources; model connections and
+chat services need Branch's own process and are left out, with a sentence. The owner's yes can only narrow
+what the package asked for: a permission the package did not list is never granted, and a tool needing one is
+not registered. Plugin files a developer puts in the plugins folder by hand keep running inside Branch as
+before, unless "Also run plugin files I put in the plugins folder myself in their own walled program" is ticked.
+
+**Filters** (`POST /api/plugin-catalog/add-ons/filters`) look for plain words (or a pattern; one that could hang
+is refused) and take them out, stop the message, or add a note, in order of priority, only for the models they
+name. They run on a new message before it is stored or sent, and on an answer before it is kept — including
+the words a model says beside its tool calls (a stop there only empties those words). A stopped message never
+reaches the model. A filter never grants anything, and a stop is final. While an outlet filter applies to the
+model answering, the live preview stays empty and the filtered answer arrives whole, so filtered words never
+reach the page; if the filters cannot be read, the preview is held back too.
+
+**Pipelines.** Branch reads `GET <address>/models`, `/pipelines` and `/<id>/valves`, with a saved secret as the
+key, through the network rules. Values whose names look like keys are shown as "(hidden)". Uploading Python
+files, adding pipelines from an address and changing valves are deliberately not built: that would make Branch
+install code on another computer. Talk to a Pipelines server as an OpenAI-compatible connection in Settings,
+Models.
+
+**Branch as a plugin.** `POST /api/plugin-catalog/add-ons/export` writes `.claude-plugin/` (or `.codex-plugin/`),
+`.mcp.json` (starting `branch mcp-serve`) and one skill into an empty folder you name, with a fingerprint list.
+`export/status` says whether the folder is Branch's, for which tool and version, and what changed; `export/remove`
+takes out only the files Branch wrote and nobody changed. Branch never writes into another tool's settings; add
+the folder there yourself. The same plugin is in the repository at `integrations/agent-plugin/`.
+
+**The add-on that comes with Branch.** `data/add-ons/branch-starter` (copied to `dist/bundled-add-ons`) is offered
+while packages are switched on and installed only on a press: a word counter, a "Branch words" search source, a
+skill, and a filter that takes out card numbers.
+
+**Writing an add-on.** A plugin's default export is a plain object, `{ id, name, apiVersion: 1, permissions, tools, hooks }`
+(see `data/add-ons/branch-starter/branch-starter.mjs`). A walled plugin runs alone in its folder and cannot import
+Branch, so it must not import anything but Node's own modules; `definePlugin`, exported by the package, is for
+authors who test their plugin against Branch before shipping it. A tool with `search: { label }` is a search source and takes
+`{ query }`. A plugin written for a newer interface than this copy offers is refused in a sentence.
+
+### Integration review (adversarial pass)
+
+- **Installing names what you were shown.** `install`, `bundled/install`, `drafts/install` and `lists/install`
+  all require the fingerprint from the look (or, for a web list, the package fingerprint shown when browsing).
+  A package, draft or list entry that changed after the owner looked is refused, so the assistant cannot
+  rewrite a draft between the look and the yes.
+- **Signed lists.** Only Ed25519 signatures count. The list's signing key is remembered the first time the
+  owner looks at it; a list whose key later changes (or disappears) offers nothing until the owner forgets it
+  and looks again. A list that publishes a key must sign every entry: an entry whose signature was taken off
+  cannot be installed. An unsigned entry must be kept on the list's own site. The list must be looked at before
+  anything is installed from it, and answers are cut off as soon as they are larger than allowed.
+- **Updates** are offered and taken only when the version is later (`1.10.0` after `1.9.2`), never a rollback,
+  and an add-on installed from a signed entry is never replaced by an unsigned one. A newer version that asks for
+  more permissions arrives switched off with those permissions named on the card (`grew`), and no earlier yes
+  carries over.
+- **Walled plugins** are cut back to the permissions their package listed, even when their code describes
+  more; a tool that needs one it did not list is left out with a sentence. A plugin may name only sites by
+  their names: this computer, numbers and private-network names (`localhost`, `.local`, `.lan`, `.internal`,
+  `.home.arpa`) are refused in the package. A hand-placed plugin walled by the tick is pinned to the code it
+  had when it was loaded. One question to a plugin is at most 1 MB, and at most 4 plugin runs go at once.
+- **Windows.** Windows has no file and network wall, only a job object, so add-on code is refused there unless
+  the owner ticks "Run add-on code on Windows without the wall" (`windowsWithoutWall`, ships off); a plugin run
+  that way says so instead of claiming a wall. Nothing else on Windows changes.
+- **Hand-placed plugins stay in-process by default (decided).** "Also run plugin files I put in the plugins
+  folder myself in their own walled program" (`wallEveryPlugin`) keeps shipping off: those files are the owner's own, the switch
+  would change how existing plugins behave (Windows included), and a walled plugin loses model connections and
+  chat services. Add-ons from a package, list or draft are walled whatever the tick says.
+- **Branch as a plugin.** A `.branch-export.json` file is trusted only for folders Branch remembers writing, so a
+  record planted in a folder cannot make Branch remove or overwrite the owner's files. A folder with a file the
+  owner changed stays Branch's until everything it wrote is gone.
+- **Start-up order.** The malware check belongs to the security service, which is made after add-ons; until it is
+  connected, a look at a package is refused in a sentence instead of reaching a name that does not exist yet.
+
+### macOS and Linux
+
+The wall around a walled plugin is macOS's own sandbox (`/usr/bin/sandbox-exec`) on macOS and bubblewrap on Linux,
+exactly as for any program Branch starts: the plugin may read the disk except where keys, passwords and Branch's
+data live, may write only in the temporary folders, and reaches no network unless its package named web addresses —
+then only those, through Branch's door, and never an address on this computer or a private network. Where the wall
+cannot be built (no `sandbox-exec`, no bubblewrap) the plugin is not run and the reason is given. On Windows add-on
+code is refused unless the owner chose to run it as its own program inside a job object with the same limits,
+without the file and network wall (see above).
+
+### Where each audit row stands
+
+- **extensions** — A2130 (search plugins): built, `src/add-ons/search.ts`; A2150 (plugin and extension hooks):
+  verified and extended, hooks fire in-process and walled (`src/plugins.ts`, `src/add-ons/walled-plugin.ts`);
+  A2274 (extension SDK): built, `src/add-ons/sdk.ts`; A2275 (bundled extensions): built, `data/add-ons/`;
+  A2322 (mods): built, `src/add-ons/drafts.ts`. Tests: `tests/add-ons.test.mjs`, `tests/add-ons-walled.test.mjs`.
+- **plugin-marketplace** — A0022, A2045: built as lists the owner names, `src/add-ons/lists.ts`.
+- **extension-packages** — A0045: built, `src/add-ons/formats.ts`, `src/add-ons/package-shelf.ts`.
+- **filter-system** — A1891: built, `src/add-ons/filters.ts` and the marked hook in `src/runtime.ts`.
+- **pipeline-integration** — A1890: built, read side only, `src/add-ons/pipelines.ts`.
+- **claude-integration** — A1333, A1567: built, `src/add-ons/export.ts`, `integrations/agent-plugin/`; Claude Code
+  plugins are also installable (`src/add-ons/formats.ts`).
+- **A0602** (a helper that installs and manages an isolated plugin for another agent): built as the write / check /
+  remove lifecycle of Branch's own plugin for Codex and Claude Code, in a folder the owner names (`src/add-ons/export.ts`).

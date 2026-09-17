@@ -1490,6 +1490,7 @@ $("login-form").addEventListener("submit", async (event) => {
     /* mac3/security-check: the security check card reads its switches once you are in. */
     globalThis.branchSecurityCheckReady?.();
     globalThis.branchLearningCoreReady?.(); // mac2/fly-core-2
+    globalThis.branchPeopleReady?.(); // bucket 19: who may sign in from other devices
   } catch (e) {
     toast(e.message);
   }

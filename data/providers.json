@@ -564,6 +564,38 @@
       "terms": { "route": "Your own API key", "url": "https://portkey.ai/terms", "standing": "official" }
     },
     {
+      "id": "vercel-ai-gateway",
+      "name": "Vercel AI Gateway",
+      "shape": "openai-chat",
+      "kind": "cloud",
+      "baseUrl": "https://ai-gateway.vercel.sh/v1",
+      "auth": "bearer",
+      "modelsPath": "/models",
+      "capabilities": ["chat", "vision", "tools", "json-mode", "streaming", "embeddings"],
+      "defaultModel": "anthropic/claude-sonnet-4",
+      "recommendedModels": ["anthropic/claude-sonnet-4", "openai/gpt-5", "google/gemini-2.5-pro"],
+      "pricingUrl": "https://vercel.com/docs/ai-gateway/pricing",
+      "note": "The gateway the AI SDK talks to: one key reaches many services, and models are named vendor/model. A bare name such as claude-sonnet-4 is given its vendor for you.",
+      "signUp": "https://vercel.com/ai-gateway",
+      "terms": { "route": "Your own AI Gateway key", "url": "https://vercel.com/legal/terms", "standing": "official" }
+    },
+    {
+      "id": "google-palm",
+      "name": "Google PaLM",
+      "shape": "gemini",
+      "kind": "cloud",
+      "baseUrl": "https://generativelanguage.googleapis.com/v1beta2",
+      "auth": "google-key",
+      "modelsPath": null,
+      "capabilities": [],
+      "defaultModel": "text-bison-001",
+      "recommendedModels": ["text-bison-001", "chat-bison-001"],
+      "pricingUrl": "https://ai.google.dev/pricing",
+      "note": "Retired by Google. PaLM's models were replaced by Gemini, which uses the same kind of key: connect Gemini instead.",
+      "signUp": "https://aistudio.google.com/apikey",
+      "terms": { "route": "PaLM API (ended)", "url": "https://ai.google.dev/palm_docs/deprecation", "standing": "retired", "warning": "Google turned the PaLM API off and its models (text-bison, chat-bison) no longer answer. The same Google AI Studio key works for Gemini: connect Gemini instead and pick a Gemini model." }
+    },
+    {
       "id": "moonshot",
       "name": "Moonshot (Kimi)",
       "shape": "openai-chat",

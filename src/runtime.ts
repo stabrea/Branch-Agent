@@ -3,7 +3,8 @@ import { withAccountCall } from "./accounts/context.js"; // mac6/accounts
 import { protectedAreas, protectedTarget, cwdOf, type ProtectedAreas } from "./never-break/protected.js"; // mac3/never-break
 import { noJournal, type JournalHook } from "./never-break/journal.js"; // mac3/never-break
 import { neverBreakModeSync } from "./never-break/gateway-config.js"; // mac3/never-break
-import { runOrigin, startedWithShortLivedKey, underShortLivedKey } from "./key-context.js"; // bucket-18 (A0300)
+import { runOrigin, shortLivedKeyMark, startedWithShortLivedKey, underShortLivedKey } from "./key-context.js"; // bucket-18 (A0300), bucket 19
+import { asPerson, currentPerson } from "./people/context.js"; // bucket 19
 import {
   Budget,
   BudgetError,
@@ -136,7 +137,7 @@ interface GateOutcome {
   backend: SandboxBackendName | null; paths: readonly string[] | null;
 }
 export interface DelegateOptions { timeoutMs?: number; resultSchema?: Record<string, unknown>; /** The shape this task wants back, declared in zod. A reply that misses it is re-asked once. */ shape?: AnswerShape; checks?: CompletionCheck; background?: boolean; /** Specialist id: limits memory reads to shared facts and its own. */ agent?: string; /** The specialist's working style; it changes how the loop runs. */ style?: SpecialistStyle }
-export interface FollowUp { id: string; prompt: string; createdAt: string; shortLivedKey?: boolean }
+export interface FollowUp { id: string; prompt: string; createdAt: string; shortLivedKey?: boolean; shortLivedKeyId?: string; personProfileId?: string }
 export interface BackgroundResult { childRunId: string; parentRunId: string; status: string; output: string; finishedAt: string }
 export interface FanoutOutcome { waves: string[][]; tasks: Record<string, { runId: string; status: string; output: string; result: ResultCheck }> }
 const reviewInstructions = "You review a finished task. Reply with JSON only: {\"memories\":[{\"text\":\"a durable fact or preference about the person, in one sentence\",\"source\":\"why you believe it\"}],\"skills\":[{\"skillId\":\"id of an installed skill this task used\",\"note\":\"one improvement to its instructions\"}]}. Only include things worth keeping for future tasks; empty arrays are the normal answer.";
@@ -196,6 +197,8 @@ export interface RunOptions {
   images?: ImagePart[];
   /** Internal: continue an interrupted run's transcript instead of adding a new prompt. */
   resumeFrom?: string;
+  /** bucket 19 (integration review): whose conversation this is, when a person's own one is lent to the assistant. */
+  lentTo?: string;
   /** Practice run: tools that would change something report what they would have done. */
   dryRun?: boolean;
   /** Who started this task; defaults to the owner's own app or command line. */
@@ -387,7 +390,9 @@ export class Runtime {
     if (!this.store.ownsSession(this.owner, sessionId)) throw new Error("Session not found");
     // bucket-18 (A0300): a message queued with a short-lived key starts later, so the mark is kept with it.
     const items = [...this.queued(sessionId), { id: randomUUID(), prompt, createdAt: new Date().toISOString(),
-      ...(startedWithShortLivedKey() ? { shortLivedKey: true } : {}) }];
+      ...(startedWithShortLivedKey() ? { shortLivedKey: true } : {}),
+      ...(shortLivedKeyMark().keyId ? { shortLivedKeyId: shortLivedKeyMark().keyId } : {}),
+      ...(currentPerson() ? { personProfileId: currentPerson()!.profileId } : {}) }];
     this.store.save("settings", this.owner, `followups:${sessionId}`, { items });
     this.drainFollowUps(sessionId);
     const left = this.queued(sessionId);
@@ -399,7 +404,9 @@ export class Runtime {
     if (!next) return;
     this.store.save("settings", this.owner, `followups:${sessionId}`, { items: rest });
     const start = () => this.track(() => this.execute({ prompt: next.prompt, sessionId, onTextDelta: () => undefined }));
-    void (next.shortLivedKey ? underShortLivedKey(start) : start()).catch(() => undefined);
+    const marked = () => (next.shortLivedKey ? underShortLivedKey(start, next.shortLivedKeyId ? { keyId: next.shortLivedKeyId } : {}) : start());
+    // bucket 19: a message a household person queued runs as that person, held to their role.
+    void (next.personProfileId ? asPerson({ profileId: next.personProfileId, keyId: "queued" }, marked) : marked()).catch(() => undefined);
   }
   /**
    * Starts a specialist that keeps working after the parent finishes; its result is kept on the
@@ -431,9 +438,21 @@ export class Runtime {
    */
   async resume(runId: string): Promise<Run> {
     const previous = this.store.run(runId);
-    if (!previous || previous.owner !== this.owner) throw new Error("Run not found");
+    const origin = previous ? runOrigin(this.store, runId) : null;
+    // bucket 19 (integration review): a person's own task, handed back to them at start, may carry on too.
+    const lentTo = origin?.lentTo ?? null;
+    if (!previous || !origin || (previous.owner !== this.owner && previous.owner !== lentTo)) throw new Error("Run not found");
     if (previous.status !== "interrupted") throw new Error("Only interrupted tasks can be continued");
-    return this.track(() => this.execute({ prompt: previous.prompt, sessionId: previous.sessionId, resumeFrom: previous.id }));
+    const again = { prompt: previous.prompt, sessionId: previous.sessionId, resumeFrom: previous.id };
+    const go = async () => {
+      if (!lentTo) return this.execute(again);
+      // Lent to the assistant for the resumed task, and handed back to the person after it.
+      this.store.reassignSession(previous.sessionId, this.owner);
+      try { return await this.execute({ ...again, lentTo }); } finally { this.store.reassignSession(previous.sessionId, lentTo); }
+    };
+    // bucket 19: a task a household person started carries on as that person, after a restart too.
+    const person = origin.personProfileId;
+    return this.track(() => (person && !currentPerson() ? asPerson({ profileId: person, keyId: "resumed" }, go) : go()));
   }
   /** A tool run outside a conversation; `options` says how it is gated (src/tool-gate.ts). */
   async executeTool(name: string, args: unknown, options: ToolGateOptions = {}): Promise<unknown> {
@@ -650,6 +669,10 @@ ${run.output.slice(0, 6000)}`;
       source: context.source ?? "owner",
       ...(options.resumeFrom ? { resumedFrom: options.resumeFrom } : {}),
       ...(startedWithShortLivedKey() || inherited ? { shortLivedKey: true } : {}),
+      // bucket 19: which key, so only that key may answer the questions this task asks.
+      ...(shortLivedKeyMark().keyId ? { shortLivedKeyId: shortLivedKeyMark().keyId } : {}),
+      ...(currentPerson() ? { personProfileId: currentPerson()!.profileId } : {}),
+      ...(options.lentTo ? { lentTo: options.lentTo } : {}),
     };
   }
   private prepareRun(options: RunOptions): Run {
@@ -672,7 +695,12 @@ ${run.output.slice(0, 6000)}`;
       if (refusal) throw new Error(refusal);
     }
     const budget = parent?.budget ?? new Budget(options.budget);
+    // ── bucket-15: the owner's inlet filters see a new message before anything else does. ──
+    const inlet = !parent && !options.resumeFrom ? this.filterText("inlet", options.prompt, [options.model ?? "", this.provider.name]) : null;
+    if (inlet?.blocked) throw new Error(inlet.blocked);
+    if (inlet?.applied.length) options = { ...options, prompt: inlet.text };
     const run = this.prepareRun(options);
+    if (inlet?.applied.length) this.store.event(run.id, "filter.applied", { stage: "inlet", filters: inlet.applied });
     const controller = new AbortController();
     this.controllers.set(run.id, controller);
     this.activeSessions.add(run.sessionId);
@@ -881,6 +909,15 @@ ${run.output.slice(0, 6000)}`;
    * noted. `createBranch` connects it; on its own nothing is sent anywhere.
    */
   exportSpans: (runId: string) => Promise<void> = async () => undefined;
+  /**
+   * bucket-15: the owner's own filters on what goes in and what comes out (src/add-ons/filters.ts).
+   * `createBranch` connects it; on its own it changes nothing. A filter only takes words out, stops a
+   * message, or adds a note — it never grants anything.
+   */
+  filterText: (stage: "inlet" | "outlet", text: string, models: readonly string[]) => { text: string; blocked: string | null; applied: string[] } =
+    (_stage, text) => ({ text, blocked: null, applied: [] });
+  /** bucket-15 integration: true while an outlet filter would see an answer, so its words are not previewed first. */
+  holdsPreview: (models: readonly string[]) => boolean = () => false;
   private sendSpans(runId: string): void {
     // A runtime that is shutting down refuses new background work, and a send that cannot start is
     // simply not made. Nothing here — refused, failed or off — may reach the task's own result.
@@ -977,6 +1014,10 @@ ${run.output.slice(0, 6000)}`;
     this.add(run, messages, ids, await conductor.start());
     let checkFailures = 0;
     let knownTools = this.registry.version;
+    // ── bucket-15: the owner's filters are asked about the connection that answers. The preview is held
+    // back (the stall watch still runs) while an outlet filter applies to any connection this round may
+    // fall back to, so filtered words never reach the page before the whole answer is filtered. ──
+    const namesOf = (preset: ModelPreset | undefined): string[] => preset ? [preset.name, preset.id, preset.model, preset.provider.name] : [];
     for (let round = 0; round < conductor.maxRounds(12); round++) {
       catalog.nextRound();
       if (this.registry.version !== knownTools) { knownTools = this.registry.version; this.reindex(run, context, catalog); }
@@ -986,12 +1027,24 @@ ${run.output.slice(0, 6000)}`;
       await this.fitContext(run, messages, ids, context, route);
       this.store.event(run.id, "catalog.size", { round: round + 1, ...catalog.stats() });
       this.journal.turn(run.id, run.sessionId, round + 1); // mac3/never-break
-      const completion = await this.completeWithRetries(run, messages, context, route, onTextDelta);
+      const everyModel = [plan.choice.presetName ?? "", plan.choice.presetId ?? "", this.provider.name, ...route.candidates.flatMap(namesOf)];
+      const preview = onTextDelta && this.holdsPreview(everyModel) ? () => undefined : onTextDelta;
+      const completion = await this.completeWithRetries(run, messages, context, route, preview);
+      const filterModels = [this.provider.name, ...namesOf(route.candidates[route.index])];
       // A think-then-act specialist writes one line of reasoning first. The transcript keeps it, so
       // the model can see its own trail; the owner reads it in the events; the answer never has it.
       const scratch = shape.scratch ? takeScratch(completion.content) : null;
       if (scratch) this.store.event(run.id, "react.scratch", { round: round + 1, text: scratch.line });
-      const spoken = scratch ? scratch.rest : completion.content;
+      let spoken = scratch ? scratch.rest : completion.content;
+      // ── bucket-15: the owner's outlet filters see an answer before it is kept. ──
+      // Words said beside tool calls are filtered too; a stop there only empties them, the calls go on.
+      const outlet = completion.content ? this.filterText("outlet", completion.content, filterModels) : null;
+      if (outlet?.applied.length) {
+        this.store.event(run.id, "filter.applied", { stage: "outlet", filters: outlet.applied });
+        const calling = completion.toolCalls.length > 0;
+        completion.content = outlet.blocked ? (calling ? "" : outlet.blocked) : outlet.text;
+        spoken = outlet.blocked ? completion.content : (scratch ? this.filterText("outlet", scratch.rest, filterModels).text : completion.content);
+      }
       const assistant: Message = {
         role: "assistant",
         content: completion.content,
@@ -1746,7 +1799,7 @@ ${run.output.slice(0, 6000)}`;
   roleRefusal(tool: string, permission: string): string | null {
     const profile = this.store.profiles.active();
     if (!profile) return null;
-    const grant = this.roles.get(profile.id);
+    const grant = this.roles.effective(profile.id); // bucket 19: narrowed by the person's groups
     const spentToday = grant.dailySpendLimit > 0
       ? this.roles.spentToday(this.store.profiles.scope(), this.models.presets.get(this.models.summary(this.owner).defaultPreset)?.model ?? "")
       : 0;

@@ -29,6 +29,8 @@ export const TokenRequestSchema = z.object({
   scope: z.enum(tokenScopes).default("read"),
   /** How long it works for. A key with no end is not offered at all. */
   minutes: z.number().int().min(1).max(60 * 24 * 30).default(60),
+  /** bucket 19: the one conversation this key is held to (a conversation handed to another device). */
+  sessionId: z.string().uuid().optional(),
 }).strict();
 export type TokenRequest = z.input<typeof TokenRequestSchema>;
 
@@ -41,6 +43,8 @@ export interface TokenEntry {
   revokedAt: string | null;
   lastUsedAt: string | null;
   uses: number;
+  /** bucket 19: the one conversation this key may reach, or null for a key that is not held to one. */
+  sessionId: string | null;
 }
 /** A key exists in full exactly once: here, on the way back to whoever asked for it. */
 export interface IssuedToken { entry: TokenEntry; token: string }
@@ -50,14 +54,25 @@ const digest = (token: string): Buffer => createHash("sha256").update(token).dig
 const sameHash = (a: Buffer, b: Buffer): boolean => a.length === b.length && timingSafeEqual(a, b);
 
 /** What a request wants to do, so a "read" key can be told apart from one that starts work. */
-export interface TokenUse { method: string; executes: boolean }
+export interface TokenUse {
+  method: string; executes: boolean;
+  /** bucket 19: the address asked for, so a key held to one conversation can be kept to it. */
+  path?: string;
+}
+/** bucket 19: why a key held to `sessionId` may not use this address, or null (src/people/access.ts). */
+export type BoundKeyCheck = (sessionId: string, method: string, path: string) => string | null;
 
 export class SessionTokens {
+  /** bucket 19: set by the app; with none set, a key held to a conversation is refused everywhere. */
+  boundCheck: BoundKeyCheck = () => "This key only reaches the conversation it was made for.";
   constructor(private readonly db: DatabaseSync, private readonly store: Store) {
     db.exec(`CREATE TABLE IF NOT EXISTS session_tokens(id TEXT PRIMARY KEY, owner TEXT NOT NULL, name TEXT NOT NULL,
       scope TEXT NOT NULL, hash BLOB NOT NULL, created_at TEXT NOT NULL, expires_at TEXT NOT NULL,
       revoked_at TEXT, last_used_at TEXT, uses INTEGER NOT NULL DEFAULT 0);
       CREATE INDEX IF NOT EXISTS session_tokens_owner ON session_tokens(owner, expires_at)`);
+    // bucket 19: a key may be held to one conversation.
+    if (!db.prepare("PRAGMA table_info(session_tokens)").all().some((row) => row.name === "session_id"))
+      db.exec("ALTER TABLE session_tokens ADD COLUMN session_id TEXT");
   }
 
   /** Makes one key. The text is handed back once and never stored; only its hash is kept. */
@@ -68,10 +83,10 @@ export class SessionTokens {
     const entry: TokenEntry = {
       id, name: value.name, scope: value.scope, createdAt: now.toISOString(),
       expiresAt: new Date(now.getTime() + value.minutes * 60_000).toISOString(),
-      revokedAt: null, lastUsedAt: null, uses: 0,
+      revokedAt: null, lastUsedAt: null, uses: 0, sessionId: value.sessionId ?? null,
     };
-    this.db.prepare("INSERT INTO session_tokens(id,owner,name,scope,hash,created_at,expires_at) VALUES(?,?,?,?,?,?,?)")
-      .run(id, owner, entry.name, entry.scope, digest(token), entry.createdAt, entry.expiresAt);
+    this.db.prepare("INSERT INTO session_tokens(id,owner,name,scope,hash,created_at,expires_at,session_id) VALUES(?,?,?,?,?,?,?,?)")
+      .run(id, owner, entry.name, entry.scope, digest(token), entry.createdAt, entry.expiresAt, entry.sessionId);
     audit(this.store, owner, {
       action: "token.issued", actor: owner, subject: `${entry.name} (${entry.scope}, ${value.minutes} minute(s))`,
       reason: "A short-lived key was made for something outside the app window", outcome: "issued",
@@ -110,7 +125,8 @@ export class SessionTokens {
   check(owner: string, supplied: string, use: TokenUse, now = new Date()): string | null {
     const found = this.working(owner, supplied, now);
     if (typeof found === "string") return found;
-    const refusal = scopeRefusal(found.scope, use);
+    const refusal = scopeRefusal(found.scope, use)
+      ?? (found.sessionId ? this.boundCheck(found.sessionId, use.method, use.path ?? "") : null);
     if (refusal) return refusal;
     this.db.prepare("UPDATE session_tokens SET uses=uses+1, last_used_at=? WHERE id=?").run(now.toISOString(), found.id);
     return null;
@@ -123,6 +139,13 @@ export class SessionTokens {
   scopeOf(owner: string, supplied: string, now = new Date()): TokenScope | null {
     const found = this.working(owner, supplied, now);
     return typeof found === "string" ? null : found.scope;
+  }
+
+  /** bucket 19: the working key's id and the conversation it is held to, counting nothing; null if it is not one. */
+  markOf(owner: string, supplied: string, now = new Date()): { keyId: string; sessionId?: string } | null {
+    const found = this.working(owner, supplied, now);
+    if (typeof found === "string") return null;
+    return { keyId: found.id, ...(found.sessionId ? { sessionId: found.sessionId } : {}) };
   }
 
   /** The entry for a key that is known, not taken back and not run out; otherwise why not. */
@@ -158,5 +181,6 @@ function toEntry(row: Record<string, unknown>): TokenEntry {
     revokedAt: row.revoked_at === null ? null : String(row.revoked_at),
     lastUsedAt: row.last_used_at === null ? null : String(row.last_used_at),
     uses: Number(row.uses ?? 0),
+    sessionId: typeof row.session_id === "string" ? row.session_id : null,
   };
 }

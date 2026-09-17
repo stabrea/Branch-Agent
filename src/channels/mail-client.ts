@@ -131,6 +131,21 @@ export class ImapClient {
     }
     return messages;
   }
+  /**
+   * mac6/bucket-23 (A0612): the messages after a known UID, oldest first, without marking them read.
+   * UIDs only grow within a mailbox, so the highest one seen is a cursor that never repeats an item.
+   */
+  async sinceUid(uid: number, limit = 20): Promise<(MailMessage & { uid: number })[]> {
+    const search = await this.command(`UID SEARCH UID ${Math.max(1, Math.floor(uid) + 1)}:*`);
+    const uids = (/^\* SEARCH([\d ]*)/m.exec(search)?.[1] ?? "").trim().split(/\s+/).filter(Boolean).map(Number)
+      .filter((found) => found > uid).sort((a, b) => a - b).slice(0, limit);
+    const messages: (MailMessage & { uid: number })[] = [];
+    for (const found of uids) {
+      const raw = await this.command(`UID FETCH ${found} (BODY.PEEK[HEADER] BODY.PEEK[TEXT])`);
+      messages.push({ ...parseFetched(0, raw), uid: found });
+    }
+    return messages;
+  }
   async close(): Promise<void> {
     try { await this.command("LOGOUT"); } catch { /* the server may hang up first, which is fine */ }
     this.socket?.close();

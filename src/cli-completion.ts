@@ -32,6 +32,7 @@ export const cliCommands: { name: string; summary: string; options: string[] }[]
   { name: "study", summary: "Run a written-down experiment: study list | run <id> | compare <a> <b> | replay <id>", options: ["--fresh", "--json"] },
   { name: "mcp-serve", summary: "Offer Branch's tools to another AI tool", options: [] },
   { name: "acp-serve", summary: "Let a code editor talk to Branch", options: [] },
+  { name: "app-server", summary: "Let an editor drive Branch over the app-server protocol (switch it on first)", options: [] },
   { name: "skill", summary: "Pack a skill folder, or install a skill file: skill pack | skill install", options: ["--author", "--package-version", "--approve"] },
   { name: "plugin", summary: "See and switch plugins on or off: plugin list | enable | disable", options: [] },
   { name: "update", summary: "Update a copy installed from Git, or check an installed copy and install the newest release with --yes", options: ["--yes"] },
