@@ -3,7 +3,7 @@
   "name": "Send to Branch",
   "version": "1.0.0",
   "description": "Send the page you are looking at, or what you have selected on it, to your own Branch Agent as a task.",
-  "permissions": ["activeTab", "scripting", "storage"],
+  "permissions": ["activeTab", "scripting", "storage", "contextMenus"],
   "optional_host_permissions": ["http://*/*", "https://*/*"],
   "action": {
     "default_title": "Send to Branch",

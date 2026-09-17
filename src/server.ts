@@ -2886,6 +2886,27 @@ async function browserApi(app: Branch, request: IncomingMessage, path: string): 
     if (!app.browser) throw new HttpError(400, "The browser is not switched on in this launch's integration settings");
     return { signedIn: await app.browser.signIn(owner, name, String(body.url ?? ""), 240000) };
   }
+  // w911 (A2144): browser element annotations
+  const notesMatch = /^\/api\/browser\/notes(?:\/([a-f0-9-]{36}))?$/.exec(path);
+  if (notesMatch) {
+    if (request.method === "GET") {
+      const { getDirectives } = await import("./browser-annotations.js");
+      const conversationId = new URL(request.url ?? "/", "http://local").searchParams.get("conversation");
+      return { directives: getDirectives(app.store, owner, conversationId || undefined) };
+    }
+    if (request.method === "POST" && !notesMatch[1]) {
+      const { BrowserDirectiveSchema, saveDirective } = await import("./browser-annotations.js");
+      const directive = BrowserDirectiveSchema.parse(await readBody(request));
+      saveDirective(app.store, owner, directive);
+      return { id: directive.id };
+    }
+    if (request.method === "POST" && notesMatch[1]) {
+      const { resolveDirective } = await import("./browser-annotations.js");
+      const conversationId = new URL(request.url ?? "/", "http://local").searchParams.get("conversation");
+      resolveDirective(app.store, owner, notesMatch[1]!, conversationId || undefined);
+      return { resolved: true };
+    }
+  }
   throw new HttpError(404, "Not found");
 }
 /**

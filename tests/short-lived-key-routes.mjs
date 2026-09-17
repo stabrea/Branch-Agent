@@ -60,6 +60,8 @@ export const ROUTES = {
   "/api/browser": "prefix",
   "/api/browser/": "prefix",
   "/api/browser/attach": "owner POST",
+  "/api/browser/notes": "task POST",
+  "/api/browser/notes/:id": "task POST",
   "/api/browser/profiles": "owner POST",
   "/api/browser/profiles/remove": "owner POST",
   "/api/browser/signin": "owner POST",

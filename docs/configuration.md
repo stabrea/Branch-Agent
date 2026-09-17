@@ -453,6 +453,16 @@ on a different thing from the one it was given to, so it was not used".
 
 **The honest limits:** only things that are visible and that the page describes in the ordinary way are numbered. A control drawn entirely on a canvas, or inside another page embedded in this one, is invisible to this and to every other browser tool here. And because a number comes from what a thing is and is called, two things that are genuinely alike — the same kind of button, the same words, the same surroundings — end up sharing a number; acting on that number is then **refused** ("Number 4 is on more than one thing"), because taking whichever came first is exactly how a press lands on the wrong thing. Say which one with a selector, or narrow the page first.
 
+### Pointing at a thing on a page
+
+**Settings → Browser → Pointing at a thing on a page** turns on the ability to capture information about a specific element you are looking at, either in Branch's own headless browser or using your own browser's right-click context menu.
+
+When on, right-clicking an element in your browser opens a "Note this for Branch" menu item. It captures the element's tag, visible text, a cleaned outerHTML (password fields stripped), computed styles, and the parent chain up to the root. The page URL has any username or password removed. This captured information is stored as a directive and becomes work for the assistant: either queued as a follow-up message or kept in a list the assistant can read.
+
+Directives are stored per conversation and per owner. One profile cannot read another's notes. Password input values are never captured; script contents are removed from HTML. All directives are validated for size: URLs up to 2048 characters, selectors up to 500, outerHTML up to 1000, and notes up to 1000 characters.
+
+The feature is off by default. Turn it on under **Settings → Browser → Pointing at a thing on a page**.
+
 ### Data in the shape you asked for
 
 `browser.shape { rows?, fields, limit? }` reads the page into an exact shape. Each field says where to read it (`selector`, or `attribute` for something like a link's address), and what kind of thing it is: `text`, `number`, `boolean`, `date` or `url`. `rows` names the repeated block — a table row, a card — and without it the page is read once.
