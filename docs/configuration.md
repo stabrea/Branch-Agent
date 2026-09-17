@@ -568,20 +568,27 @@ no recipes — and arrive switched off like any other skill.
 
 `GET /api/skills/browser` lists them; `POST /api/skills/browser { "name": "search-and-summarise" }` installs one.
 
-### Not built, and what stands in for it
+### Browser container and remote endpoints
 
-Remote and cloud browsers — Browserbase and the like — are **not built**. Everything here runs a browser on this computer.
+Everything runs a browser, either on this computer or elsewhere. **Settings → Advanced → Browser
+container** has a three-way switch, off by default.
 
-**Three audit rows describe one thing under three project names.** `A2172` (browser-use
-automation), `A2042` (browser-use integration) and `A2019` (browser/computer-use tools) all ask for
-the same capability: an assistant that looks at a page, points at a thing on it and acts. That is
-built, and it is what this whole section describes — `src/integrations/browser.ts` with
-`browser-marks.ts`, `browser-schema.ts`, `browser-heal.ts` and `browser-sites.ts`, asserted in
-`tests/browser-2.test.mjs` and `tests/browser-3.test.mjs`. What is **not** built, and deliberately
-so, is the Python `browser-use` runtime those rows name, and the hosted sandbox backend `A2019`
-names: Branch is TypeScript and drives the browser on this computer, the same reason the
-`hybrid-tooling`, `cloud-compute` and `remote-execution` families are already marked not applicable.
-One implementation satisfies all three rows; none of them needs building again.
+- **Off**: the browser runs on this computer, launched by Branch itself (the default).
+- **When needed** or **on**: set how the browser runs — this computer, a Docker container
+  running the official Playwright image, or a remote Playwright server the owner runs
+  elsewhere (their NAS, Tower, or cloud).
+
+w911 (A2019, A2172, A2042): The implementation is `src/integrations/browser.ts` plus
+`src/integrations/browser-container.ts` (sandbox backends, `tests/browser-container.test.mjs`),
+and `tests/browser-2.test.mjs` and `tests/browser-3.test.mjs` for the complete flow.
+`browser-marks.ts`, `browser-schema.ts`, `browser-heal.ts` and `browser-sites.ts` complete the browser
+tool. The same network policy applies to every browser, wherever it runs: pages are routed
+through `BranchBrowser.route()` on the Branch side (`page.route()` per context), so refused
+hosts stay refused whether the browser is local, in Docker, or remote.
+
+What is **not** built is the Python `browser-use` runtime those rows name: Branch is TypeScript
+and its browser tool is one unified implementation, the same reason the `hybrid-tooling`,
+`cloud-compute` and `remote-execution` families are marked not applicable.
 
 **`A0743` (Scrapling page fetch) — not applicable.** It names another project's Python fetching
 library. Fetching a page and reading it out is `web.fetch` (readable text, redirects bounded,

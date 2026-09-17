@@ -95,6 +95,8 @@ export class BranchBrowser {
   store: Store | undefined;
   /** Opens a connection to the owner's own browser. Replaced in tests by one they start themselves. */
   connect: typeof attach = attach;
+  /** w911 (A2019) hook: override the browser launcher for container or endpoint modes. */
+  launcher: (() => Promise<Browser>) | undefined;
   /**
    * The site skills this owner has installed: the quirks of particular websites, kept in the skill
    * that knows about the site rather than in this tool. Left unset, no site has any quirks.
@@ -115,6 +117,13 @@ export class BranchBrowser {
     } catch { await request.abort().catch(() => undefined); }
   }
   private async launch(): Promise<Browser> {
+    // w911 (A2019) hook: use injected launcher for container/endpoint modes.
+    if (this.launcher) {
+      const browser = await this.launcher();
+      this.browser = browser;
+      if (this.closed) { await browser.close(); throw new Error('Browser is closed'); }
+      return browser;
+    }
     const env = Object.fromEntries(['PATH', 'SystemRoot', 'LOCALAPPDATA', 'TEMP', 'TMP', 'HOME']
       .flatMap(key => process.env[key] ? [[key, process.env[key]!]] : []));
     const browser = await chromium.launch({ headless: true, env,
