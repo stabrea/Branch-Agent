@@ -52,7 +52,7 @@ async function renderLockdown() {
   });
   host.append(button, el("p", state.on
     ? state.effects.join(" ")
-    : "One switch: everything waits for your yes, and nothing reaches your computer, your screen or the outside world.",
+    : "One switch: commands, programs and your screen are refused without asking, everything else waits for your yes, and nothing is sent out.",
     "muted"));
 }
 

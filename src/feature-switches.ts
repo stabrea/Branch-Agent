@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { Store } from "./store.js";
 import { addOnLabels, addOnMode, addOnTools, type AddOnPart } from "./add-ons/settings.js"; // bucket-15
 import { askToolFeatures } from "./asks/settings.js"; // mac6/bucket-23
+import { lockdownOverrides } from "./lockdown.js"; // mac7/lockdown-fix
 import { deviceTools } from "./devices/capabilities.js"; // mac7/nodes
 import { autonomyToolFeatures } from "./autonomy/settings.js"; // r17-b
 import { trunkToolFeatures } from "./trunks/settings.js"; // R17-A
@@ -89,6 +90,7 @@ export const interopToolFeatures: readonly (readonly [string, string, readonly s
   ["interop-agent-market", "sharing assistants is switched on", ["assistant.market"]],
 ];
 const savedMode = (store: Reader, owner: string, key: string, field: "mode" | "systemVoice" = "mode"): FeatureMode => {
+  if (lockdownOverrides(store, owner, key)) return "off"; // mac7/lockdown-fix: Lockdown wins over a saved mode
   const data = (store.get("settings", owner, key)?.data ?? {}) as Record<string, unknown>;
   const mode = FeatureModeSchema.safeParse(data[field]);
   if (mode.success) return mode.data;

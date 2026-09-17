@@ -426,7 +426,7 @@ export class Tui {
     setLockdown(store, owner, { on });
     // As the Lockdown route does: turning it on also ends the yeses already given (wave mac3, commands).
     if (on) this.runtime.approvals.forgetAll();
-    this.conversation.say(on ? "warn" : "note", on ? this.words.t("lockdown.on", "Lockdown is on. Everything waits for your yes.") : "[Lockdown is off]");
+    this.conversation.say(on ? "warn" : "note", on ? this.words.t("lockdown.on", "Lockdown is on. Commands are refused; all else asks you.") : "[Lockdown is off]");
     void this.reload();
   }
   switchSetting(name: string, value: string): void {

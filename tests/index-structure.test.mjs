@@ -14,3 +14,11 @@ test("every settings form in the page is closed before the next one opens", asyn
   }
   assert.equal(open, null, `form ${open} is never closed`);
 });
+
+/* The merge helper once kept both sides of a script-tag conflict that already shared lines, loading scripts twice. */
+test("every script in the page is listed once", async () => {
+  const html = await readFile(new URL("../public/index.html", import.meta.url), "utf8");
+  const sources = [...html.replace(/<!--[\s\S]*?-->/g, "").matchAll(/<script\b[^>]*\bsrc="([^"]+)"/g)].map((m) => m[1]);
+  const twice = sources.filter((src, i) => sources.indexOf(src) !== i);
+  assert.deepEqual(twice, [], `listed more than once: ${twice.join(", ")}`);
+});

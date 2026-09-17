@@ -128,12 +128,12 @@ function defaultModel(call: Call): Reply {
 }
 function lockdown(call: Call): Reply {
   const { store, owner } = call.host.runtime, wanted = onOff(call.argument);
-  if (!call.argument) return say(lockdownState(store, owner).on ? "Lockdown is on. Everything waits for your yes." : "Lockdown is off.");
+  if (!call.argument) return say(lockdownState(store, owner).on ? "Lockdown is on. Commands are refused; all else asks you." : "Lockdown is off.");
   if (wanted === null) return say("Send /lockdown on or /lockdown off.");
   const state = setLockdown(store, owner, { on: wanted });
   // As the route does: turning it on also ends the yeses already given.
   if (state.on) call.host.runtime.approvals.forgetAll();
-  return say(state.on ? "Lockdown is on. Everything waits for your yes." : "Lockdown is off.");
+  return say(state.on ? "Lockdown is on. Commands are refused; all else asks you." : "Lockdown is off.");
 }
 function toggle(what: "plan" | "temporary"): Handler {
   return (call) => say(`Changing ${what === "plan" ? "plan first" : "temporary"}.`, { do: "toggle", what, on: onOff(call.argument) });

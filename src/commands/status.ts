@@ -39,7 +39,7 @@ export function statusLines(call: Call): string[] {
   const waiting = runtime.approvals.waiting().length;
   if (waiting) lines.push(`${waiting} ${waiting === 1 ? "question waits" : "questions wait"} for your yes in Inbox.`);
   lines.push(`When to check with you: ${policyPresets().find((entry) => entry.id === policy.preset)?.label ?? "Rules you set yourself"}.`);
-  if (lockdownState(store, owner).on) lines.push("Lockdown is on: everything waits for your yes.");
+  if (lockdownState(store, owner).on) lines.push("Lockdown is on: commands are refused and everything else waits for your yes.");
   return lines;
 }
 

@@ -180,8 +180,11 @@ test("keys: copied from the owner by default, a sign-in never copied, and a pick
   const plan = keyPlan({ copyFromOwner: true, accounts: {} }, pools);
   assert.deepEqual(plan.choices, { openai: null, chatgpt: null });
   assert.equal(plan.notes.length, 1);
-  assert.match(plan.notes[0], /ChatGPT: .*never copied/);
-  assert.deepEqual(keyPlan({ copyFromOwner: false, accounts: { chatgpt: "me" } }, pools).choices, { openai: null, chatgpt: "me" });
+  assert.match(plan.notes[0], /ChatGPT: .*never used for a Trunk/);
+  // mac7/lockdown-fix: a sign-in is not taken even when picked, and uncopied keys say so.
+  const picked = keyPlan({ copyFromOwner: false, accounts: { chatgpt: "me" } }, pools);
+  assert.deepEqual(picked.choices, { openai: null, chatgpt: null });
+  assert.match(picked.notes.join(" "), /OpenAI: your keys are not copied.*does not answer/);
   const { app } = await fixture(t);
   on(app);
   const ed = app.trunks.create({ name: "Ed" });
@@ -196,7 +199,7 @@ test("keys: copied from the owner by default, a sign-in never copied, and a pick
   const live = app.trunks.keys(ed.id);
   assert.equal(live.connected, true);
   assert.equal(live.note, null);
-  assert.match(live.plan.notes.join(" "), /chatgpt: .*never copied/);
+  assert.match(live.plan.notes.join(" "), /chatgpt: .*never used for a Trunk/);
   app.trunks.edit(ed.id, { keys: { copyFromOwner: true, accounts: { openai: "0a0b0c0d" } } });
   assert.deepEqual(sessionChoice(app.store, app.runtime.owner, ed.chatSessionId), { openai: "0a0b0c0d" });
   app.trunks.edit(ed.id, { keys: { copyFromOwner: true, accounts: {} } });

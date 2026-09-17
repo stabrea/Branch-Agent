@@ -88,7 +88,7 @@ export const TERMINAL_CLI_COMMANDS: { name: string; summary: string; options: st
   { name: "channels", summary: "Chat apps connected to Branch", options: ["--json"] },
   { name: "mcp", summary: "Other programs' tools Branch can use; mcp serve offers Branch's own", options: ["--json"] },
   { name: "projects", summary: "Your projects, with the one in use marked", options: ["--json"] },
-  { name: "lockdown", summary: "The one switch that makes everything wait for your yes: lockdown [on|off]", options: [] },
+  { name: "lockdown", summary: "The one switch that refuses commands and makes everything else wait for your yes: lockdown [on|off]", options: [] },
   { name: "permissions", summary: "When Branch checks with you: permissions [preset]", options: [] },
   { name: "usage", summary: "What this month has used and cost", options: ["--json"] },
   { name: "snapshots", summary: "Kept points the workspace can be put back to", options: ["--json"] },
