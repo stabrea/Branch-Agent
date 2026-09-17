@@ -334,6 +334,8 @@ async function drawLabelChips() {
   if (!host) return;
   host.replaceChildren(labelChips(labelCatalog, chosenLabels, async (next) => {
     chosenLabels = next;
+    /* The chip shows the new choice at once, before the filtered list and the counts come back. */
+    await drawLabelChips();
     await loadRail();
   }));
   host.hidden = labelCatalog.length === 0;
@@ -488,6 +490,8 @@ async function drawPaletteLabels() {
   labelCatalog = await conversationLabels();
   host.replaceChildren(labelChips(labelCatalog, chosenLabels, async (next) => {
     chosenLabels = next;
+    /* The chip shows the new choice at once, before the filtered list and the counts come back. */
+    await drawLabelChips();
     await loadRail();
     await drawPaletteLabels();
     drawPalette(palette.querySelector("input").value);
