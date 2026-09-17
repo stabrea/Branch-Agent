@@ -152,7 +152,7 @@ test("S5 the refresh says what it would cost before it reads anything", async (t
   assert.equal(provider.requests.length, 0, "working out the cost sends nothing anywhere");
   assert.match(refreshSummary({ conversations: 2, turns: 6, characters: 400, units: 100 }), /2 recent conversations/);
 
-  const refreshed = await app.knowledgeCards.refresh("local", { collection: base.id });
+  const refreshed = await app.registry.execute("knowledge.refresh", { collection: base.id }, app.runtime.context());
   assert.equal(refreshed.staged.length, 1, "the refresh suggests a card");
   assert.equal(refreshed.cost.conversations, 1, "and reports the cost it actually incurred");
   assert.equal(app.knowledgeBases.one("local", base.id).documents, 0, "nothing was added on its own");

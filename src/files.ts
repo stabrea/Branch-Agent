@@ -12,7 +12,20 @@ const secret =
 export class WorkspaceFiles {
   /** A subfolder of the workspace that all paths resolve inside (the active project's folder), or "" for the whole workspace. */
   scope: () => string = () => "";
+  /**
+   * Folders the assistant may read but never change, with the sentence to refuse with. Set once at
+   * start-up. This exists for folders the assistant itself writes from something else — the mirror
+   * of what it remembers — where a change made here would be silently undone the next time that
+   * folder is written, and a change nobody can keep is worse than a plain refusal.
+   */
+  readOnly: (path: string) => string = () => "";
   constructor(readonly root: string) {}
+  /** The same checks as `checked`, and then a refusal for a folder the assistant may only read. */
+  async checkedForWrite(path: string): Promise<string> {
+    const refusal = this.readOnly(path.replace(/^\.\//, "").replace(/\\/g, "/"));
+    if (refusal) throw new Error(refusal);
+    return this.checked(path);
+  }
   /** The folder paths currently resolve against: the workspace or the active project's folder inside it. */
   get base(): string {
     const folder = this.scope();
@@ -107,7 +120,7 @@ export class WorkspaceFiles {
   ): Promise<{ path: string; bytes: number }> {
     if (Buffer.byteLength(content) > 32768)
       throw new Error("File exceeds 32 KiB");
-    const target = await this.checked(path);
+    const target = await this.checkedForWrite(path);
     await mkdir(dirname(target), { recursive: true });
     await this.checked(path);
     signal.throwIfAborted();

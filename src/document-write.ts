@@ -1,0 +1,129 @@
+import { z } from "zod";
+
+/**
+ * Writing a document, which is the other half of reading one. The assistant describes what it wants
+ * in plain pieces — a heading, a paragraph, a list, a table, a sheet of figures, a slide — and this
+ * turns that into a real Word, spreadsheet, slide, Markdown or web-page file the person can open in
+ * the program they already use. Nothing new was installed to do it: an Office file is a folder of
+ * XML inside a zip, and the same parts of Node that unpack one pack one back up.
+ *
+ * What this deliberately is not: two people typing in the same document at the same time. Branch
+ * writes a file and hands it over; it does not sit in a document while somebody else edits it, and
+ * it has no idea what they are doing in there. See docs/configuration.md.
+ */
+export const maximumBlocks = 500;
+export const maximumRows = 5000;
+export const maximumColumns = 64;
+export const maximumSlides = 200;
+
+export const BlockSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("heading"), level: z.number().int().min(1).max(6).default(1), text: z.string().max(2000) }).strict(),
+  z.object({ kind: z.literal("paragraph"), text: z.string().max(20000) }).strict(),
+  z.object({
+    kind: z.literal("list"), ordered: z.boolean().default(false),
+    items: z.array(z.string().max(2000)).min(1).max(200),
+  }).strict(),
+  z.object({
+    kind: z.literal("table"), name: z.string().max(120).default(""),
+    grid: z.array(z.array(z.string().max(500)).max(maximumColumns)).min(1).max(500),
+  }).strict(),
+]);
+export type DocBlock = z.infer<typeof BlockSchema>;
+
+/** A cell of a sheet. A formula is kept as written, beside the value it last worked out. */
+export const CellSchema = z.union([
+  z.string().max(500), z.number(), z.boolean(), z.null(),
+  z.object({ formula: z.string().min(1).max(500), value: z.union([z.string().max(200), z.number()]).default(0) }).strict(),
+]);
+export type SheetCell = z.infer<typeof CellSchema>;
+/** The shapes a column of figures can be shown in, named the way a person would say them. */
+export const numberFormats = ["plain", "number", "money", "percent", "date"] as const;
+export type NumberFormat = (typeof numberFormats)[number];
+export const SheetSchema = z.object({
+  name: z.string().trim().min(1).max(31),
+  /** The first row is the headings when `headings` is left on. */
+  rows: z.array(z.array(CellSchema).max(maximumColumns)).max(maximumRows).default([]),
+  /** A saved `data.*` table to fill this sheet from instead of giving rows. */
+  table: z.string().trim().max(120).default(""),
+  headings: z.boolean().default(true),
+  /** One shape per column, in column order; anything not named is left plain. */
+  formats: z.array(z.enum(numberFormats)).max(maximumColumns).default([]),
+}).strict();
+export type SheetSpec = z.infer<typeof SheetSchema>;
+
+export const SlideSchema = z.object({
+  title: z.string().max(300).default(""),
+  bullets: z.array(z.string().max(500)).max(20).default([]),
+  /** A picture made earlier in this task, named by its artifact file name. */
+  picture: z.string().max(200).default(""),
+  notes: z.string().max(4000).default(""),
+}).strict();
+export type SlideSpec = z.infer<typeof SlideSchema>;
+
+export const documentFormats = ["docx", "xlsx", "pptx", "md", "html"] as const;
+export type WriteFormat = (typeof documentFormats)[number];
+export const WriteDocumentSchema = z.object({
+  /** Where to save it in the workspace. The kind is taken from the name unless `format` says. */
+  path: z.string().trim().min(1).max(500),
+  format: z.enum(documentFormats).optional(),
+  title: z.string().trim().max(300).default(""),
+  blocks: z.array(BlockSchema).max(maximumBlocks).default([]),
+  sheets: z.array(SheetSchema).max(40).default([]),
+  slides: z.array(SlideSchema).max(maximumSlides).default([]),
+}).strict();
+export type WriteDocumentInput = z.infer<typeof WriteDocumentSchema>;
+
+/** The kind a file name asks for, so the owner never has to say it twice. */
+export function formatOf(path: string, given?: WriteFormat): WriteFormat {
+  if (given) return given;
+  const extension = path.toLowerCase().split(".").pop() ?? "";
+  const known = (documentFormats as readonly string[]).includes(extension);
+  if (!known) throw new Error("Name the file .docx, .xlsx, .pptx, .md or .html so I know what to write");
+  return extension as WriteFormat;
+}
+/** What a saved file of each kind is, so a browser and the workspace both label it correctly. */
+export const mediaTypes: Record<WriteFormat, string> = {
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  md: "text/markdown", html: "text/html",
+};
+
+export const xmlEscape = (value: string): string =>
+  value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+/** Characters XML forbids outright, dropped so one stray control character cannot spoil a file. */
+export const xmlSafe = (value: string): string => xmlEscape(value.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, ""));
+
+/** The blocks as Markdown, which is also what the reader gives back for every other kind. */
+export function blocksToMarkdown(blocks: DocBlock[], title = ""): string {
+  const lines = title ? [`# ${title}`] : [];
+  for (const block of blocks) lines.push(markdownBlock(block));
+  return lines.join("\n\n").trim() + "\n";
+}
+function markdownBlock(block: DocBlock): string {
+  if (block.kind === "heading") return `${"#".repeat(block.level)} ${block.text}`;
+  if (block.kind === "paragraph") return block.text;
+  if (block.kind === "list")
+    return block.items.map((item, at) => `${block.ordered ? `${at + 1}.` : "-"} ${item}`).join("\n");
+  const [head = [], ...rest] = block.grid;
+  const separator = head.map(() => "---");
+  return [head, separator, ...rest].map((row) => `| ${row.join(" | ")} |`).join("\n");
+}
+
+/** The blocks as a plain web page: no styling of its own, so it prints and reads the same anywhere. */
+export function blocksToHtml(blocks: DocBlock[], title = ""): string {
+  const body = blocks.map(htmlBlock).join("\n");
+  return `<!doctype html>\n<html lang="en">\n<head><meta charset="utf-8"><title>${xmlSafe(title || "Document")}</title></head>\n`
+    + `<body>\n${title ? `<h1>${xmlSafe(title)}</h1>\n` : ""}${body}\n</body>\n</html>\n`;
+}
+function htmlBlock(block: DocBlock): string {
+  if (block.kind === "heading") return `<h${block.level}>${xmlSafe(block.text)}</h${block.level}>`;
+  if (block.kind === "paragraph") return `<p>${xmlSafe(block.text)}</p>`;
+  if (block.kind === "list") {
+    const tag = block.ordered ? "ol" : "ul";
+    return `<${tag}>\n${block.items.map((item) => `  <li>${xmlSafe(item)}</li>`).join("\n")}\n</${tag}>`;
+  }
+  const rows = block.grid.map((row, at) =>
+    `  <tr>${row.map((cell) => `<${at ? "td" : "th"}>${xmlSafe(cell)}</${at ? "td" : "th"}>`).join("")}</tr>`);
+  return `<table>\n${rows.join("\n")}\n</table>`;
+}

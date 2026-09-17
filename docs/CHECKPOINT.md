@@ -2079,6 +2079,64 @@ is the composer's live variant, and it only appears when the connection in use c
 Tried against local stand-ins speaking both documented shapes (`tests/realtime-voice.test.mjs`, 23
 tests). Live sound against the real OpenAI or Gemini is explicitly **not** proved.
 
+## Batch 27 (wave 8) — documents and memory, third pass: writing Office files, a light map, summaries, pictures
+
+The readers from wave 7 gained their other half. `src/document-package.ts` is a zip writer beside the
+existing reader, plus the piece the whole batch turns on: `unpackRaw` hands back each part of a
+container *still packed*, so an edit copies every untouched part's bytes, method and checksum across
+verbatim instead of re-squeezing it. `src/document-docx.ts`, `src/document-xlsx.ts` and
+`src/document-pptx.ts` write the three Office kinds — styles, numbering, a master and a theme
+included, so the files open in Word and PowerPoint and not only in this build's reader — and
+`src/document-write.ts` holds the block model plus Markdown and HTML. `src/document-edit.ts` does the
+five changes (replace wording, append a section, update a table, add or replace a sheet);
+`src/document-authoring.ts` registers `documents.write` and `documents.edit`, saving through the same
+before-and-after the ordinary file tools use. No new dependency: Node's deflate and crc32 are enough.
+
+Knowledge bases gained four things, each in its own file. `src/knowledge-summary.ts` summarises
+map-reduce over the passages with a numbered source per point, cached against a fingerprint derived
+from the passages' own `text_hash` values — so a changed file invalidates it with no version column
+anywhere. `src/knowledge-graph.ts` extracts entities and relations into `kb_entities`/`kb_relations`,
+model-named where allowed and noun-phrase co-occurrence otherwise, answers `knowledge.graph` for one
+name with a citation on every link, and joins wave 6's `Retriever` interface as a graph hop.
+`src/knowledge-manage.ts` does rename, merge, split-by-folder, export/import as a zip of Markdown,
+size and cost figures, and the age/size limits, which propose into the review queue and never remove.
+`src/knowledge-pictures.ts` describes images with a vision model, cached by the picture's own bytes
+and refused in one sentence when `supportsImages` says no. All five are registered from
+`src/knowledge-more.ts`, so `knowledge-tools.ts` was left alone for other branches.
+
+Memory gained `src/memory-mirror.ts` — a regenerated Markdown mirror under `memory/`, one note per
+fact kind — and the enforcement that makes "read-only by the model" real: `WorkspaceFiles` grew
+`readOnly` and `checkedForWrite`, and `files.write` now goes through it. There is deliberately **no
+tool** for the mirror: a second way for the model to write the one folder it may not edit would take
+that refusal back. Instead `POST /api/memory/mirror` writes the folder the first time and
+`onRunFinished` keeps it up to date only once it exists (the fingerprint makes an unchanged store
+free) — writing it unasked put a `memory/` folder into every workspace and had a collection over the
+workspace index the assistant's own notes and cite them as the owner's document, which
+`tests/rag-vector.test.mjs` R6 caught; `KnowledgeBases.skip` now keeps those notes out of every
+collection. It writes through `WorkspaceFiles.checked`
+and never resolves a vault path, so `insideVault` does not come into it; the one gap, recorded in
+`docs/configuration.md`, is an owner who points the notes-folder bridge at the workspace and names its
+folder `memory`. `src/memory-ephemeral.ts` is the per-task store for pasted text, dropped on
+`onRunFinished`; its three tools declare the **documents** toolbox, not memory — the memory box is for
+what lasts, and nothing in that store does. `KnowledgeBases` gained one narrow public method,
+`putDocument`, shared by import and by picture descriptions.
+
+A note for whoever lands next in these toolboxes. `tests/catalog-diet.test.mjs` caps
+`expand(["files","memory","agents"])` at 8,000 characters; staging alone is at 7,977 and this branch
+leaves it at 7,973. The margin is 27 characters, so the next tool registered in any of those three
+groups breaks that suite, and no amount of description trimming will buy the room back. The durable
+fix belongs to the catalog: capping the descriptions in the *expand listing* alone (they are a finding
+aid — the full text arrives with the schemas in the catalog itself) gives 8,029 at 100 characters and
+7,806 at 90. That is `wave6/catalog-diet`'s file, so it is left to that branch rather than done here.
+
+`tests/docs-3.test.mjs`, 22 tests. The load-bearing ones: a written file of each kind read back by
+the existing readers; an edit that leaves five parts byte-identical (asserted by comparing packed
+bytes and CRCs, not by reading); a picture described once and cached on the second copy; a summary
+that is cached until a file changes; merge/split/export/import round-tripping through search; and a
+conversation fact retrieved later with the knowledge base named as its source. RAGFlow (A1426),
+embedded knowledge bases (A2343) and QMD (A2168) are documented as not applicable — all three are
+external services to run alongside.
+
 ## The audit rows that were already done under another name
 
 ### Already covered elsewhere

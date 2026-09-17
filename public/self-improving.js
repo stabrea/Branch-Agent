@@ -60,7 +60,7 @@ async function runRefresh() {
   if (!collection) { toast("Name the knowledge base the cards would go in."); return; }
   $("memory-refresh-run").disabled = true;
   try {
-    const done = await api("memory/refresh", { collection });
+    const done = await api("knowledge/refresh", { collection });
     $("memory-refresh-status").textContent = done.staged.length
       ? `${done.staged.length} card${done.staged.length === 1 ? "" : "s"} suggested. Accept them under "What it learns". ${done.reason}`.trim()
       : `Nothing was suggested. ${done.reason}`.trim();

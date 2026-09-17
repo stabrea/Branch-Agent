@@ -351,7 +351,9 @@ test("documents and saved notes are searched through one interface and reordered
   app.store.save("memory", owner, "fact-1", { text: "The Northgate invoice is due on Friday", entity: "Northgate" });
 
   const view = await api("GET", "/api/retrieval");
-  assert.deepEqual(view.body.retrievers.map((row) => row.id), ["documents", "memory", "knowledge"]);
+  // Batch 27 (wave 8) added one hop through the map of names and the text held for one job.
+  assert.deepEqual(view.body.retrievers.map((row) => row.id),
+    ["documents", "memory", "knowledge", "knowledge-graph", "task-text"]);
   assert.equal(view.body.settings.mode, "words");
 
   const found = await api("POST", "/api/retrieval/search", { query: "Northgate invoice" });
