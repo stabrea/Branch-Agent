@@ -5571,3 +5571,42 @@ every row is listed here and that every file named here exists.
   meant for putting in front of the public.
 - **A2367** (Google PaLM) — not applicable: Google retired PaLM. Gemini, its successor, is supported
   (`src/providers/gemini.ts`, `tests/provider-presets.test.mjs`).
+
+### Usage report, task counters and logging (A0367, A1751, A1334, A0681)
+
+Bucket 14 of the public list ("what it has cost you, in plain figures"). Each piece ships off.
+
+- **Usage report** (A0367). Settings → Data → *Usage report* writes a page you can keep or hand on:
+  the last 7, 30 or 90 days in a few plain sentences (tasks, tokens, tool calls, what went wrong and
+  the estimated money), each set beside the same number of days before it, then day by day, by model,
+  by where the tasks came from, the tools used most, each person on this computer when more than one
+  used it, and how many moments were written in the record of what the assistant was allowed to do.
+  A task whose model has no price is counted and said so, never shown as costing nothing. It is made
+  by the same writer as "Save as report", so it comes as notes, a page or the print view, and keys are
+  blanked out first. No prompt, answer or file goes into it. `GET`/`POST /api/usage/report/settings`
+  holds `mode` (`off`, `when-needed`, `on`; there is no tool behind it, so the last two both mean
+  "available") and `range`; `POST /api/usage/report` with `range` and `format` makes one. Only the
+  owner may use either. Code: `src/usage-report.ts`, `src/usage-report-api.ts`, `public/usage-report.js`.
+- **Task counters for your own collector** (A1751). Other agents send "anonymous execution
+  statistics" to the people who made them. Branch does not, and the promise above stands. What you can
+  have is the same counters — tasks started, working, failed and waiting, tokens in and out, the
+  month's estimated money, tool calls and failures — sent to **the address you chose for traces**, in
+  OpenTelemetry metrics shape to `/v1/metrics`. Settings → Advanced → *Task counters for your own
+  collector*: *off* sends nothing; *when I press Send* sends only on the button; *after tasks finish*
+  sends when a task ends, at most once every `minutesBetween` minutes (15 unless changed). Nothing goes
+  while sending traces is off. Only numbers go, with no name, words, file or identifier of you or this
+  computer, and every send is written in the record. `GET`/`POST /api/usage/counters`,
+  `POST /api/usage/counters/send`. Code: `src/execution-metrics.ts`.
+- **Logging from a program that embeds Branch** (A1334). `bridgeLogs(store, logger, options)` hands
+  every stored event to a logger with `debug`, `info`, `warn` and `error` — `console`, pino, winston or
+  bunyan all fit — as one line each, cut down to names, counts and outcomes exactly as the diagnostics
+  folder is. Failures are `error`, retries, stalls and limits `warn`, streamed pieces `debug`, the rest
+  `info`. It installs nothing and sends nothing; it does nothing until a program calls it. See the
+  builders' guide. Code: `src/log-bridge.ts`.
+- **Tracing from the start** (A0681). The row comes from an agent whose runtime switches on Rust's
+  tracing when it starts. Branch has no Rust; the same thing in Branch is that tracing starts with the
+  engine: `createBranch` opens the span store, records any uncaught failure as an error span from that
+  moment (`recordUncaughtErrors` in `src/tracing.ts`), and every task, model round and tool call gets a
+  span (`tests/tracing-policy.test.mjs` T1), which the diagnostics folder carries (T4).
+
+macOS and Linux: nothing here depends on the operating system; the tests run the same on all three.

@@ -104,9 +104,11 @@ export class UsageStore {
     const events = this.db
       .prepare(`SELECT kind, data FROM events WHERE run_id = ? ORDER BY id`)
       .all(runId) as Array<{ kind: string; data: string }>;
-    let presetId = "", model = "", toolCalls = 0, failures = 0;
+    let presetId = "", model = "", started = 0, finished = 0, failures = 0;
     for (const event of events) {
-      if (event.kind === "tool.completed" || event.kind === "tool.started") toolCalls += 1;
+      // One call writes a start and an end; counting both made every call count twice (bucket 14).
+      if (event.kind === "tool.started") started += 1;
+      if (event.kind === "tool.completed" || event.kind === "tool.failed") finished += 1;
       if (event.kind === "tool.failed") failures += 1;
       // model.started also names the model, so tasks recorded before model.completed carried it
       // are still attributed correctly.
@@ -116,7 +118,7 @@ export class UsageStore {
       if (data.preset !== undefined) presetId = String(data.preset);
       if (data.model !== undefined) model = String(data.model);
     }
-    return { presetId, model, toolCalls, failures };
+    return { presetId, model, toolCalls: Math.max(started, finished), failures };
   }
 
   /**
