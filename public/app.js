@@ -1473,6 +1473,8 @@ $("login-form").addEventListener("submit", async (event) => {
     $("token").value = "";
     /* Wave 7: the voice and model-routing cards can only read their settings once you are in. */
     globalThis.branchVoiceReady?.();
+    /* Wave 9: the owner's own instruction files can only be read once you are in, same as above. */
+    globalThis.branchContextFilesReady?.();
   } catch (e) {
     toast(e.message);
   }
