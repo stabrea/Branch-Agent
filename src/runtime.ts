@@ -847,10 +847,14 @@ ${run.output.slice(0, 6000)}`;
     this.spendRoot.delete(runId);
     if (root && ![...this.spendRoot.values()].includes(root)) this.spendMembers.delete(root);
   }
+  /** R17-S09: every run whose spending counts against the same task as this one. */
+  private spendFamily(runId: string): string[] {
+    const root = this.spendRoot.get(runId);
+    return root ? [...(this.spendMembers.get(root) ?? [runId])] : [runId];
+  }
   /** R17-S09: stops a task whose tree has reached the owner's cap; says once when the cap cannot be checked. */
   private checkSpendCap(run: Run, model: string): void {
-    const root = this.spendRoot.get(run.id);
-    const family = root ? [...(this.spendMembers.get(root) ?? [run.id])] : [run.id];
+    const family = this.spendFamily(run.id);
     const check = knobs.spendCapCheck(this.store, this.owner, family, model);
     if (check.refusal) throw new BudgetError(check.refusal);
     if (check.unpriced && !this.store.events(run.id).some((event) => event.kind === "limits.spend_unpriced"))
@@ -1754,7 +1758,8 @@ ${run.output.slice(0, 6000)}`;
       const { output, reported } = this.recordCompletion(run, context, raw, input);
       // R17-048 / R17-050: note the service's own count, and keep its cache warm if the owner asked.
       savings.afterRound(this, this.keepAlive, { run, owner: this.owner, preset, messages: request.messages, tools, estimatedInput: input, reported,
-        mainRound: context.depth === 0 && context.permissions.size > 0 && !shape });
+        mainRound: context.depth === 0 && context.permissions.size > 0 && !shape,
+        guard: { family: this.spendFamily(run.id), active: () => this.activeSessions.has(run.sessionId), monthly: () => this.monthlyBudgetRefusal() } });
       const completion = CompletionSchema.parse(raw);
       context.signal.throwIfAborted();
       this.store.event(run.id, "model.completed", {

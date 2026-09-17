@@ -1,4 +1,5 @@
 import type { Completion, CompletionRequest, Message, ToolDescription, Usage } from "../contracts.js";
+import { UsageSchema } from "../contracts.js";
 import type { ModelPreset, ModelRouter, RunModelOverride } from "../models.js";
 import type { Store } from "../store.js";
 import { estimateCost, pricingSettings } from "../pricing.js";
@@ -9,6 +10,8 @@ import { KeepAlive } from "./keep-alive.js";
 import { openRouterRouting } from "./openrouter.js";
 import { noteReported } from "./reported.js";
 import { readSavings } from "./settings.js";
+import { lockedDown } from "../lockdown.js";
+import { spendCapCheck } from "../knobs/apply.js";
 
 /**
  * R17-E: what the runtime asks at each marked hook (search src/runtime.ts for "R17-E"). Each one
@@ -89,23 +92,49 @@ export interface AnsweredRound {
   reported: Usage | undefined;
   /** True for the task's own rounds (not side questions or sub-tasks). */
   mainRound: boolean;
+  /** The runtime's own checks, asked again before each ping (see `pingRefusal`). */
+  guard?: Pick<PingGuard, "family" | "active" | "monthly">;
+}
+
+export interface PingGuard {
+  sessionId: string;
+  /** Every task whose spending counts against the same per-task limit. */
+  family: readonly string[];
+  model: string;
+  /** True while a task of this conversation is working (its own rounds re-arm the pause). */
+  active: () => boolean;
+  /** The monthly budget's refusal, or null. */
+  monthly: () => string | null;
+}
+
+/** Why a cache ping must not be sent now, or null. Each ping is money the owner did not ask for this minute. */
+export function pingRefusal(store: Store, owner: string, guard: PingGuard): string | null {
+  if (lockedDown(store, owner)) return "Lockdown is on";
+  if (!store.ownsSession(owner, guard.sessionId)) return "the conversation is gone";
+  if (guard.active()) return "the conversation is working again";
+  return guard.monthly() ?? spendCapCheck(store, owner, guard.family, guard.model).refusal;
 }
 
 /** R17-048 and R17-050: after each answered round. */
 export function afterRound(runtime: SavingsRuntime, keepAlive: KeepAlive, round: AnsweredRound): void {
-  noteReported(round.run.id, round.estimatedInput, round.reported);
+  noteReported(runtime.store, round.run.id, round.estimatedInput, round.reported);
   if (!round.mainRound) return;
   const { store } = runtime;
   const { preset, run } = round;
-  const priced = estimateCost(preset.model, { input: round.estimatedInput, output: 1 }, pricingSettings(store, round.owner).overrides).amount;
+  // Priced at the larger of Branch's estimate and the service's own count, so the cap is never kept on too low a figure.
+  const size = Math.max(round.estimatedInput, round.reported?.input ?? 0);
+  const priced = estimateCost(preset.model, { input: size, output: 1 }, pricingSettings(store, round.owner).overrides).amount;
+  const guard = round.guard ?? { family: [run.id], active: () => false, monthly: () => null };
   const messages = round.messages.slice(), tools = round.tools.slice();
   keepAlive.arm(round.owner, run.sessionId, preset.provider.name, {
     runId: run.id, price: priced,
+    refusal: () => pingRefusal(store, round.owner, { ...guard, sessionId: run.sessionId, model: preset.model }),
     send: async () => {
       // The same account wrapper as every other call, so a connection with several accounts bills the chosen one.
       const answer: Completion = await withAccountCall({ owner: run.owner, sessionId: run.sessionId, runId: run.id, note: (kind, data) => store.event(run.id, kind, data) },
         () => preset.provider.complete({ messages, tools, maxTokens: 1, signal: AbortSignal.timeout(60_000) }));
-      store.addUsage(run.id, round.estimatedInput, 0, answer.usage);
+      const usage = UsageSchema.safeParse(answer.usage);
+      store.addUsage(run.id, round.estimatedInput, 0, usage.success ? usage.data : undefined);
     },
   });
 }

@@ -613,6 +613,7 @@ export async function createBranch(options: {
     live.closeAll("Branch was locked");
     for (const release of releaseOnLock) void release().catch(() => undefined);
   };
+  releaseOnLock.push(async () => runtime.keepAlive.stop()); // R17-050 (integration review): locking Branch stops cache pings
   // Signing in to outside services the ordinary way, with the answer coming back to this computer.
   const oauth = new OAuthConnections(runtime.owner, store.secrets, web.policy, web.policy.guard(globalThis.fetch));
   const hooks = new Hooks(store, runtime.owner);

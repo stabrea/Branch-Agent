@@ -55,6 +55,18 @@ export const builtInPrices: Record<string, ModelPrice> = {
   "claude-3-5-haiku": { input: 0.8, output: 4, cached: 0.08 },
   "claude-3-sonnet": { input: 3, output: 15 },
   "claude-opus-4-1": { input: 15, output: 75, cached: 1.5 },
+  // Read from platform.claude.com/docs/en/about-claude/pricing on 2026-09-17 (cached = cache hits).
+  "claude-opus-4": { input: 15, output: 75, cached: 1.5 },
+  "claude-opus-4-5": { input: 5, output: 25, cached: 0.5 },
+  "claude-opus-4-6": { input: 5, output: 25, cached: 0.5 },
+  "claude-opus-4-7": { input: 5, output: 25, cached: 0.5 },
+  "claude-opus-4-8": { input: 5, output: 25, cached: 0.5 },
+  "claude-opus-5": { input: 5, output: 25, cached: 0.5 },
+  "claude-sonnet-4": { input: 3, output: 15, cached: 0.3 },
+  "claude-sonnet-4-5": { input: 3, output: 15, cached: 0.3 },
+  "claude-sonnet-4-6": { input: 3, output: 15, cached: 0.3 },
+  "claude-sonnet-5": { input: 2, output: 10, cached: 0.2 },
+  "claude-haiku-4-5": { input: 1, output: 5, cached: 0.1 },
   // Google Gemini
   "gemini-1.5-pro": { input: 1.25, output: 5 },
   "gemini-1.5-flash": { input: 0.075, output: 0.3 },

@@ -20,6 +20,11 @@ export interface KeepAlivePing {
   price: number | null;
   /** Sends the ping and counts what it used in the task's usage. */
   send: () => Promise<void>;
+  /**
+   * Asked just before each ping: a reason to stop (Lockdown, the conversation gone or working again,
+   * the monthly budget or the task's spending limit reached), or null to go on.
+   */
+  refusal?: () => string | null;
 }
 export interface KeepAliveTimers {
   set: (run: () => Promise<void>, ms: number) => unknown;
@@ -60,7 +65,9 @@ export class KeepAlive {
   private async fire(owner: string, sessionId: string, pause: Pause, ping: KeepAlivePing): Promise<void> {
     if (this.pauses.get(sessionId) !== pause) return;
     const card = readSavings(this.store, owner, "keepAlive");
+    const refused = ping.refusal?.() ?? null;
     const stop = card.mode !== "on" ? "switched off"
+      : refused ? `was refused: ${refused}`
       : pause.pings >= card.maxPings ? "reached its number of pings"
         : ping.price === null ? "has no price on file for this model, so its spending cap could not be kept"
           : pause.spent + ping.price > card.spendCapDollars ? "would have gone past its spending cap" : null;

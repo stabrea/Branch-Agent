@@ -11,19 +11,31 @@ import { readSavings } from "./settings.js";
  * off by accident. A ratio (rather than the raw figure) keeps being right after a fold shrinks
  * the conversation, with nothing to reset.
  */
-const ratios = new Map<string, number>();
+const ratiosByApp = new WeakMap<object, Map<string, number>>();
 const most = 4;
+const keptRatios = 500;
+function ratiosFor(scope: object): Map<string, number> {
+  let ratios = ratiosByApp.get(scope);
+  if (!ratios) ratiosByApp.set(scope, (ratios = new Map()));
+  return ratios;
+}
 
-/** Called after each answered round with what was estimated and what the service reported. */
-export function noteReported(runId: string, estimatedInput: number, reported: Usage | undefined): void {
-  if (!reported || estimatedInput <= 0 || reported.input <= 0) return;
-  if (ratios.size > 500) ratios.delete(ratios.keys().next().value!);
+/**
+ * Called after each answered round with what was estimated and what the service reported. `scope`
+ * is the app's store, so two copies of Branch in one process never read each other's figures.
+ * A figure that is not a finite positive number is ignored, and the ratio never passes four.
+ */
+export function noteReported(scope: object, runId: string, estimatedInput: number, reported: Usage | undefined): void {
+  if (!reported || !(estimatedInput > 0) || !Number.isFinite(reported.input) || !(reported.input > 0)) return;
+  const ratios = ratiosFor(scope);
+  ratios.delete(runId);
+  while (ratios.size >= keptRatios) ratios.delete(ratios.keys().next().value!);
   ratios.set(runId, Math.min(most, reported.input / estimatedInput));
 }
 
 /** The latest ratio for one task, or null when the service has not said. */
-export function reportedRatio(runId: string): number | null {
-  return ratios.get(runId) ?? null;
+export function reportedRatio(scope: object, runId: string): number | null {
+  return ratiosByApp.get(scope)?.get(runId) ?? null;
 }
 
 /**
@@ -34,7 +46,7 @@ export function reportedRatio(runId: string): number | null {
  */
 export function withReported(store: Pick<Store, "get">, owner: string, runId: string, budget: ContextBudget): ContextBudget {
   if (readSavings(store, owner, "reportedTokens").mode !== "on") return budget;
-  const ratio = reportedRatio(runId);
+  const ratio = reportedRatio(store, runId);
   if (ratio === null || ratio <= 1) return budget;
   return { ...budget, messages: Math.ceil(budget.messages * ratio) };
 }

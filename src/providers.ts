@@ -129,6 +129,14 @@ export function offersBatch(endpoint: string, hosts: readonly string[]): boolean
   return hosts.some((known) => (known.startsWith(".") ? host.endsWith(known) : host === known));
 }
 
+/**
+ * R17-S12 / R17-045 (integration review): `service_tier` is OpenAI's own field. Only OpenAI's
+ * address and Azure deployments of it are sent one; every other OpenAI-shaped service is not.
+ */
+export function serviceTierPart(endpoint: string, tier: CompletionRequest["serviceTier"]): { service_tier?: "priority" | "flex" } {
+  return tier && offersBatch(endpoint, openaiBatchHosts) ? { service_tier: tier } : {};
+}
+
 export function supportsImages(provider: Provider): boolean {
   const said = provider as { supportsImages?: () => boolean; acceptsImages?: boolean };
   if (typeof said.supportsImages === "function") return said.supportsImages.call(provider) === true;
@@ -294,7 +302,10 @@ export class OpenAIProvider implements Provider {
   }
   async complete(request: CompletionRequest): Promise<Completion> {
     // R17-046: OpenRouter company preferences, added only when this address is openrouter.ai.
-    const body = { ...openaiBody(request, this.options.model), ...openRouterBodyPart(this.options.endpoint, request.providerRouting) };
+    // R17-S12 (integration review): the tier goes only to OpenAI's own address or Azure.
+    const { service_tier: _tier, ...plain } = openaiBody(request, this.options.model);
+    const body = { ...plain, ...serviceTierPart(this.options.endpoint, request.serviceTier),
+      ...openRouterBodyPart(this.options.endpoint, request.providerRouting) };
     if (request.onTextDelta) {
       const stream = new OpenAIStream(request.onTextDelta);
       try {
@@ -503,6 +514,8 @@ export function anthropicBody(request: CompletionRequest, model: string): Record
     max_tokens: request.maxTokens,
     ...anthropicThinking(request),
     // R17-S12: Claude's own word for "use the faster tier when there is room"; it has no flex tier.
+    // "auto" is also Anthropic's documented default (platform.claude.com/docs/en/api/service-tiers,
+    // read 2026-09-17), so this never asks for more than an unmarked request would.
     ...(request.serviceTier === "priority" ? { service_tier: "auto" } : {}),
     tools,
     ...(shape ? { tool_choice: { type: "tool", name: shape.name } } : {}),

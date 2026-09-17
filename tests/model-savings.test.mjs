@@ -66,7 +66,7 @@ test("every card ships off, and a fresh install sends and registers nothing extr
   assert.deepEqual([...app.runtime.models.presets.keys()], ["main"], "no mixture is added");
   assert.equal(events(app, run.id, "model.routed").length, 0);
   const budget = contextBudget({ limit: 20000, system: 10, catalog: 100, messages: 5000 });
-  noteReported("r-off", 1000, { input: 3000, output: 1 });
+  noteReported(app.store, "r-off", 1000, { input: 3000, output: 1 });
   assert.equal(withReported(app.store, owner, "r-off", budget), budget, "the service's count is not used until switched on");
 });
 
@@ -237,9 +237,9 @@ test("R17-048 with the card on, the service's larger count folds a conversation 
 
   const budget = contextBudget({ limit: 20000, system: 10, catalog: 100, messages: 5000 });
   const store = { get: () => ({ data: { mode: "on" } }) };
-  noteReported("r-down", 1000, { input: 500, output: 1 });
+  noteReported(store, "r-down", 1000, { input: 500, output: 1 });
   assert.equal(withReported(store, owner, "r-down", budget), budget, "a smaller count never delays a fold");
-  noteReported("r-up", 1000, { input: 100000, output: 1 });
+  noteReported(store, "r-up", 1000, { input: 100000, output: 1 });
   const raised = withReported(store, owner, "r-up", budget);
   assert.equal(raised.messages, 20000, "the ratio is capped at four");
   assert.equal(raised.threshold, budget.threshold);
@@ -403,4 +403,134 @@ test("the route: owner changes only, short-lived keys refused, rounds readable, 
   assert.match(refused.body.error, /short-lived key cannot change how models are chosen/);
   assert.equal(readSavings(app.store, owner, "keepAlive").mode, "off", "nothing was switched on");
   assert.equal((await call(`model-savings/rounds?session=${run.sessionId}`, undefined, runKey)).status, 200, "reading the rounds is a look");
+});
+
+// ── Integration review (integrate/mac7-r17-e): the holes the adversarial pass found. ──
+
+test("review: difficulty.ts holds no raw NUL bytes, and its kept answers are per app and bounded", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const source = await readFile(new URL("../src/model-savings/difficulty.ts", import.meta.url));
+  assert.equal(source.includes(0), false, "a raw NUL byte makes the file binary to git and to reviewers");
+  const card = { data: { mode: "on", easyModel: "e", hardModel: "h" } };
+  const first = { get: () => card }, second = { get: () => card };
+  let asked = 0;
+  const ask = async () => { asked++; return "EASY"; };
+  const input = (prompt, now = 1) => ({ prompt, toolCount: 3, known: () => true, ask, now });
+  await chooseByDifficulty(first, owner, input("same words"));
+  await chooseByDifficulty(second, owner, input("same words"));
+  assert.equal(asked, 2, "another app never reuses this app's answer");
+  await chooseByDifficulty(first, owner, input("same words"));
+  assert.equal(asked, 2, "the same app does");
+  for (let n = 0; n < 300; n++) await chooseByDifficulty(first, owner, input(`task ${n}`));
+  asked = 0;
+  await chooseByDifficulty(first, owner, input("task 299"));
+  assert.equal(asked, 0, "recent answers are kept");
+  await chooseByDifficulty(first, owner, input("task 0"));
+  assert.equal(asked, 1, "the oldest are dropped, so memory stays bounded");
+});
+
+test("review: reported counts are per app, ignore nonsense, and stay capped at four", () => {
+  const on = { get: () => ({ data: { mode: "on" } }) };
+  const other = { get: () => ({ data: { mode: "on" } }) };
+  const budget = contextBudget({ limit: 20000, system: 10, catalog: 100, messages: 5000 });
+  noteReported(on, "shared-id", 1000, { input: 1e12, output: 1 });
+  assert.equal(withReported(on, owner, "shared-id", budget).messages, 20000, "an absurd count is still capped at four");
+  assert.equal(withReported(other, owner, "shared-id", budget), budget, "another app's count is never used");
+  noteReported(other, "nan", 1000, { input: Number.NaN, output: 1 });
+  noteReported(other, "inf", 1000, { input: Number.POSITIVE_INFINITY, output: 1 });
+  assert.equal(withReported(other, owner, "nan", budget), budget);
+  assert.equal(withReported(other, owner, "inf", budget), budget);
+});
+
+test("review: cache pings stop on Lockdown, a gone conversation, a spent budget, and when Branch is locked", async (t) => {
+  const timers = [];
+  const fakeTimers = { set: (run, ms) => { const handle = { run, ms, cleared: false }; timers.push(handle); return handle; }, clear: (handle) => { if (handle) handle.cleared = true; } };
+  const logged = [];
+  const store = { get: () => ({ data: { mode: "on", everyMinutes: 4, maxPings: 5, spendCapDollars: 5 } }), event: (runId, kind, data) => logged.push({ kind, data }) };
+  const keep = new KeepAlive(store, fakeTimers);
+  let sent = 0, refusal = null;
+  keep.arm(owner, "s1", "anthropic", { runId: "r1", price: 0.001, send: async () => { sent++; }, refusal: () => refusal });
+  await timers.at(-1).run();
+  assert.equal(sent, 1);
+  refusal = "Lockdown is on";
+  await timers.at(-1).run();
+  assert.equal(sent, 1, "a refusal found at ping time stops the pings");
+  assert.match(logged.at(-1).data.reason, /Lockdown is on/);
+  assert.equal(keep.waiting, 0);
+
+  const claude = scripted("anthropic", () => answer("hi", [], { input: 1000, output: 3 }));
+  const { app } = await fixture(t, [preset("claude", claude, "claude-3-5-sonnet-latest")]);
+  saveSavings(app.store, owner, "keepAlive", { mode: "on" });
+  const { pingRefusal } = await import("../dist/model-savings/hook.js");
+  const run = await app.runtime.run({ prompt: "hello" });
+  assert.equal(app.runtime.keepAlive.waiting, 1);
+  const check = (active = false) => pingRefusal(app.store, owner, { sessionId: run.sessionId, family: [run.id], model: "claude-3-5-sonnet-latest", active: () => active, monthly: () => null });
+  assert.equal(check(), null);
+  assert.match(check(true), /conversation is working/);
+  app.store.addUsage(run.id, 0, 0, { input: 10000, output: 0 });
+  saveKnobs(app.store, owner, "limits", { spendCapDollars: 0.01 });
+  assert.match(check(), /limit/);
+  saveKnobs(app.store, owner, "limits", { spendCapDollars: null });
+  assert.match(pingRefusal(app.store, owner, { sessionId: "gone", family: [run.id], model: "m", active: () => false, monthly: () => null }), /conversation is gone/);
+  assert.match(pingRefusal(app.store, owner, { sessionId: run.sessionId, family: [run.id], model: "m", active: () => false, monthly: () => "Monthly budget reached." }), /Monthly budget/);
+  app.store.save("settings", owner, "lockdown", { on: true, since: null, before: {} });
+  assert.match(check(), /Lockdown/);
+  app.store.save("settings", owner, "lockdown", { on: false, since: null, before: {} });
+  app.sessionLock.lock();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(app.runtime.keepAlive.waiting, 0, "locking Branch stops the pings");
+});
+
+test("review: a household person cannot read the owner's rounds", async (t) => {
+  const { app } = await fixture(t, [preset("main", scripted("main"))]);
+  const run = await app.runtime.run({ prompt: "hello" });
+  const { savingsApi } = await import("../dist/model-savings/api.js");
+  const { asPerson } = await import("../dist/people/context.js");
+  const url = new URL(`http://branch.invalid/api/model-savings/rounds?session=${run.sessionId}`);
+  const read = () => savingsApi(app, { method: "GET" }, "/api/model-savings/rounds", url, async () => ({}));
+  assert.equal((await read()).rounds.length, 1);
+  await assert.rejects(asPerson({ profileId: "p1", keyId: "k1" }, read), (error) => error.status === 403);
+});
+
+test("review: service_tier goes only to OpenAI's own address or Azure, on both OpenAI routes", async (t) => {
+  const { serviceTierPart } = await import("../dist/providers.js");
+  const { OpenAIResponsesProvider } = await import("../dist/providers/openai-responses.js");
+  assert.deepEqual(serviceTierPart("https://api.openai.com/v1", "flex"), { service_tier: "flex" });
+  assert.deepEqual(serviceTierPart("https://mine.openai.azure.com/openai", "priority"), { service_tier: "priority" });
+  assert.deepEqual(serviceTierPart("https://openrouter.ai/api/v1", "flex"), {});
+  assert.deepEqual(serviceTierPart("https://api.openai.com.evil.example/v1", "flex"), {});
+  assert.deepEqual(serviceTierPart("https://api.openai.com/v1", undefined), {});
+
+  const bodies = [];
+  const server = createServer((request, response) => {
+    let text = "";
+    request.on("data", (chunk) => { text += chunk; });
+    request.on("end", () => {
+      bodies.push(JSON.parse(text));
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ choices: [{ message: { content: "ok" } }], output: [] }));
+    });
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  t.after(() => server.close());
+  const local = `http://127.0.0.1:${server.address().port}`;
+  const request = { messages: [{ role: "user", content: "hi" }], tools: [], signal: new AbortController().signal, maxTokens: 8, serviceTier: "flex" };
+  await new OpenAIProvider({ endpoint: local, model: "m", apiKey: "k" }).complete(request);
+  assert.equal(bodies.at(-1).service_tier, undefined, "another OpenAI-shaped service never sees the tier");
+
+  const sent = [];
+  const fetchImpl = async (url, init) => { sent.push({ url, body: JSON.parse(init.body) }); return new Response(JSON.stringify({ output: [] }), { status: 200, headers: { "content-type": "application/json" } }); };
+  await new OpenAIResponsesProvider({ endpoint: "https://api.openai.com/v1", model: "m", apiKey: "k", fetchImpl }).complete(request);
+  assert.equal(sent.at(-1).body.service_tier, "flex", "the Responses route carries the tier to OpenAI");
+  await new OpenAIResponsesProvider({ endpoint: local, model: "m", apiKey: "k", fetchImpl }).complete(request);
+  assert.equal(sent.at(-1).body.service_tier, undefined, "and nowhere else");
+});
+
+test("review: current Claude models have prices, so a Claude cache ping can keep its cap", async () => {
+  const { tablePrice } = await import("../dist/pricing.js");
+  assert.deepEqual(tablePrice("claude-opus-5"), { input: 5, output: 25, cached: 0.5 });
+  assert.deepEqual(tablePrice("claude-sonnet-4-5-20250929"), { input: 3, output: 15, cached: 0.3 });
+  assert.deepEqual(tablePrice("claude-haiku-4-5"), { input: 1, output: 5, cached: 0.1 });
+  assert.deepEqual(tablePrice("claude-sonnet-5"), { input: 2, output: 10, cached: 0.2 });
 });

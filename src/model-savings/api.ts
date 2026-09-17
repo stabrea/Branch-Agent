@@ -91,6 +91,8 @@ export async function savingsApi(app: SavingsApp, request: IncomingMessage, path
   try {
     if (path === "/api/model-savings/rounds") {
       if (method !== "GET") throw new SavingsApiError(405, "Use GET");
+      // A household person's key reads nothing of the owner's conversations (integration review).
+      if (currentPerson()) throw new SavingsApiError(403, "Only the owner can see a conversation's rounds.");
       const session = url.searchParams.get("session") ?? "";
       if (!session) throw new SavingsApiError(400, "Say which conversation.");
       return roundsOf(app.store, app.runtime.owner, session);
