@@ -7177,3 +7177,50 @@ without the file and network wall (see above).
   plugins are also installable (`src/add-ons/formats.ts`).
 - **A0602** (a helper that installs and manages an isolated plugin for another agent): built as the write / check /
   remove lifecycle of Branch's own plugin for Codex and Claude Code, in a folder the owner names (`src/add-ons/export.ts`).
+
+## Comfort: shortcuts, status line, notifications, voice keys, the browser's care, proxy and certificates (R17-S-C)
+
+Every setting here ships as Branch has always behaved; nothing changes until you change it. The values live in the
+settings store (`comfort-<card>` records, `src/comfort/settings.ts`) and are changed from the window's cards
+(`public/comfort.js`), from the terminal's Settings pages, or with `POST /api/comfort` `{ card, values }` /
+`{ card, reset: true }`. A short-lived key can read them but never change them.
+
+| Setting | Where | Ships as |
+| --- | --- | --- |
+| Keys for Find anything, New conversation, Appearance settings, Fold the side pane | Settings › General | Ctrl+K, Ctrl+N, Ctrl+,, Ctrl+Shift+K (Cmd works as Ctrl on macOS) |
+| Vim keys in the message box (Esc to move: h j k l, w b, 0 $, x, dd; i a I A o O to type) | Settings › General | off |
+| Skip what `.gitignore` lists; more ignore files (such as `.aiignore`) | Settings › General | on; none. `.branchignore`, when there is one, is still used instead of `.gitignore` |
+| Status line: model, room used, folder, cost so far, time — in the window and the terminal | Settings › Appearance | as always |
+| A time on every message (from each task's start and end) | Settings › Appearance | off |
+| Where you are told: your computer and the banner, or this window only | Settings › Notifications | your computer and the banner |
+| Sound when Branch needs you: off, chime, knock | Settings › Notifications | off |
+| Updating by itself: off, look daily and tell me, look daily and install safely | Settings › Updates & about | off |
+| Push-to-talk key; longest recording in seconds | Settings › Voice | none; no limit |
+| Ask before the browser types, presses, sends a file or borrows your browser | Settings › Computer & browser (owner only) | off |
+| Never send files to websites | Settings › Computer & browser (owner only) | off |
+| A website's message boxes: dismiss or accept | Settings › Computer & browser (owner only) | dismiss |
+| Proxy address, hosts reached without it, extra trusted certificates | Settings › Computer & browser (owner only) | none |
+| Seconds a tool server may take to start | Customize › Connections | 10 |
+
+**Installing by itself** goes through the same path as the Update button: it waits until no task is working, checks
+the download against its published checksum, tries the new version on a copy of your work (never-break's canary) and
+writes a safety copy before anything is swapped. It runs in the app window only; `branch update --yes` is unchanged.
+
+**The proxy and certificates** apply to every call Branch itself makes, after the network rules have allowed the
+address. A proxy address may not carry a user name or password. A certificate must be a certificate authority, current
+and readable; it is added to the certificates this computer already trusts and never replaces them, and nothing here
+can turn certificate checks off. The proxy needs Node 25 or newer inside Branch; with an older Node it is kept and the
+card says so. Programs the assistant starts are not given the proxy.
+
+**Confirm sensitive browser steps** asks every time, before any standing yes, including a yes for one website; a
+refusal you wrote still decides first.
+
+**In the terminal** each of these is a row on its Settings page: Enter moves it to the next choice, and
+`/switch <name> <value>` sets it (`vim`, `statusLine`, `timestamps`, `notify`, `sound`, `maxRecording`,
+`confirmBrowser`, `blockUploads`, `dialogs`, `proxy`, `gitignore`, `mcpTimeout`, `autoUpdate`). `/model` with nothing
+after it opens a picker of the connections.
+
+### macOS and Linux
+
+Nothing here differs by system. Cmd counts as Ctrl for the shortcuts on macOS. The sound is played by the window
+itself, not by a system program.

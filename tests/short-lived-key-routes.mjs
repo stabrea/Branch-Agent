@@ -100,6 +100,9 @@ export const ROUTES = {
   "/api/code-check": "owner POST",
   "/api/code-run": "owner POST",
   "/api/collab": "look",
+  "/api/comfort": "owner POST", // R17-S-C
+  "/api/comfort/status": "look", // R17-S-C
+  "/api/comfort/update-plan": "owner POST", // R17-S-C
   "/api/commands": "look",
   "/api/commands/": "prefix",
   "/api/commands/run": "task POST",

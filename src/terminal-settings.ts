@@ -1,4 +1,5 @@
 import { assistantIdentity } from "./identity.js";
+import { comfortRows } from "./comfort/terminal.js"; // R17-S21
 import { lockdownState } from "./lockdown.js";
 import { permissionRows, type PlaceApp, type Row } from "./terminal-place-data.js";
 import type { Look, LookMode, TerminalSwitches } from "./terminal-theme.js";
@@ -51,6 +52,13 @@ function models(app: PlaceApp, words: Words, sub: string): Row[] {
 
 /** The rows of one Settings page (and Models tab). */
 export function settingsRows(app: PlaceApp, words: Words, page: string, sub: string, state: SettingsState): Row[] {
+  // R17-S21: the comfort settings on each page are real controls (src/comfort/terminal.ts), put
+  // before the page's own rows and its pointer to the window.
+  const comfort = comfortRows(app.store, app.runtime.owner, words, page);
+  const rows = pageRows(app, words, page, sub, state);
+  return comfort.length ? [...comfort, ...rows] : rows;
+}
+function pageRows(app: PlaceApp, words: Words, page: string, sub: string, state: SettingsState): Row[] {
   const name = (id: string, english: string): string => words.t(`settings.page.${id}`, english);
   const owner = app.runtime.owner;
   switch (page) {

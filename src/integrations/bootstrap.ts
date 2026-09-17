@@ -321,7 +321,7 @@ async function startMcp(
   // With no checker this adds nothing.
   const vet = () => vetLaunch(server, host);
   await vet();
-  const connect = () => connectMcp(registry, server, env, guard, host?.cache);
+  const connect = () => connectMcp(registry, server, env, guard, host?.cache, host?.startupTimeoutMs?.()); // R17-S20
   if (!host || host.connectWhen() !== 'on-demand') {
     const connection = await connect();
     return connection.close;
@@ -329,7 +329,7 @@ async function startMcp(
   const id = McpConfigSchema.parse(server).id;
   // Opening it puts nothing in the tool list — the tools are already there — so `openMcp`, not
   // `connectMcp`: the same connection, without a second registration to collide with the first.
-  host.connections.register(id, () => vet().then(() => openMcp(server, env, guard, host.cache)));
+  host.connections.register(id, () => vet().then(() => openMcp(server, env, guard, host.cache, host.startupTimeoutMs?.()))); // R17-S20
   const names = registerCachedMcp(registry, server, host.cache.read(id), async () => {
     // Opened through the manager, so keep-warm, the cap and the retries all apply to it. What it
     // says its tools are NOW, and the credentials it was opened with, travel back with it: the
@@ -356,6 +356,8 @@ export interface McpHost {
   /** mac3/security-check: throws a plain sentence for a package listed as malware. */
   vetLaunch?: (command: string, args: readonly string[]) => Promise<void>;
   cache: McpToolCache;
+  /** R17-S20: how long a server may take to start, in milliseconds; unset keeps 10 seconds. */
+  startupTimeoutMs?: () => number;
   connections: { register(id: string, opener: () => Promise<{ close(): Promise<void> }>): void;
     acquire(runId: string, id: string): Promise<{ close(): Promise<void> }> };
 }

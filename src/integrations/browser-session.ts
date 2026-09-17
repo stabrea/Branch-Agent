@@ -24,6 +24,8 @@ export interface SessionOptions {
    * the owner's browser, not only to addresses it was asked to open. Returns why, or null.
    */
   guardUrl?: ((url: string) => string | null) | undefined;
+  /** R17-S19: what a website's message box is answered with; unset dismisses it, as always. */
+  dialogAnswer?: (() => 'dismiss' | 'accept') | undefined;
 }
 
 export class BrowserSession {
@@ -93,7 +95,8 @@ export class BrowserSession {
     });
     page.on('dialog', dialog => {
       this.dialogs.push({ kind: dialog.type(), message: dialog.message().slice(0, 500), at: new Date().toISOString() });
-      void dialog.dismiss().catch(() => undefined);
+      // R17-S19: the owner may have message boxes accepted (OK) rather than dismissed (Cancel).
+      void (this.options.dialogAnswer?.() === 'accept' ? dialog.accept() : dialog.dismiss()).catch(() => undefined);
     });
     page.on('download', download => this.pending.push(this.collect(download)));
     this.pages.push(page);

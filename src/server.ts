@@ -180,6 +180,9 @@ import { handlesSandboxRemotePath, sandboxRemoteApi, SandboxRemoteApiError } fro
 import { contextFileSinkFor, defaultMoveInOptions, handlesMoveInPath, moveInApi, MoveInApiError } from "./migrate-api.js";
 // Wave mac2 (guards): which workspace folders are trusted, and the loop guard switch.
 import { guardsApi, handlesGuardsPath } from "./run-guards.js";
+// R17-S-C: the comfort settings (src/comfort/); every change is the owner's.
+import { ComfortApiError, comfortApi, handlesComfortPath } from "./comfort/api.js";
+import { comfortRefusal } from "./short-lived-keys.js";
 // mac3/never-break: the gateway switch and suggested changes (src/never-break/api.ts).
 import { handlesNeverBreakPath, NeverBreakApiError, neverBreakApi } from "./never-break/api.js";
 // mac6/accounts: several accounts per connection (src/accounts/api.ts).
@@ -445,6 +448,7 @@ async function staticFile(
     "/usage-report.js": ["usage-report.js", "text/javascript; charset=utf-8"], // bucket 14 (A0367)
     // Wave mac2 (guards): the card that asks whether a folder is trusted.
     "/folder-trust.js": ["folder-trust.js", "text/javascript; charset=utf-8"],
+    "/comfort.js": ["comfort.js", "text/javascript; charset=utf-8"], // R17-S-C
     // mac3/never-break: the Keep running card and the Telegram setup card.
     "/never-break.js": ["never-break.js", "text/javascript; charset=utf-8"],
     // mac6/accounts: the Accounts list in each connection's card, and the chip in the conversation header.
@@ -821,6 +825,10 @@ async function api(
     });
   // Wave mac2 (guards): which workspace folders are trusted, what each carries, and both switches.
   if (handlesGuardsPath(path)) return guardsApi(app, request, path, readBody);
+  // R17-S-C: shortcuts, status line, notifications, voice keys, browser care, proxy and certificates.
+  if (handlesComfortPath(path))
+    return comfortApi({ store: app.store, runtime: app.runtime, outbound: app.comfort.outbound }, request, path, readBody)
+      .catch((error: unknown) => { throw error instanceof ComfortApiError ? new HttpError(error.status, error.message) : error; });
   // mac6/accounts: the accounts of each connection, and switching between them.
   if (handlesAccountsPath(path))
     return accountsApi(request, path, {
@@ -3126,6 +3134,8 @@ export function offLimitsToShortLivedKeys(method: string | undefined, path: stri
     return "A short-lived key cannot change the wall around programs or where scripts run. Do that in the app window.";
   // Wave mac2 (guards): trusting a folder lets what is in it steer the assistant.
   if (handlesGuardsPath(path)) return "A short-lived key cannot change which folders are trusted or how repeated steps are stopped. Do that in the app window.";
+  // R17-S-C: the proxy, certificates, browser care and automatic updates are the owner's.
+  if (handlesComfortPath(path)) return comfortRefusal;
   // mac3/never-break: the gateway's settings are the owner's alone.
   if (handlesNeverBreakPath(path)) return "A short-lived key cannot change how Branch keeps itself running. Do that in the app window.";
   // mac3/never-break (integration review): letting a new person reach the assistant is the owner's alone.

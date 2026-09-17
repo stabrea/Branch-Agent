@@ -45,6 +45,7 @@ import { checkResult, fanoutWaves, type FanoutTask, type ResultCheck } from "./d
 import { describeToolCall, filePathOf } from "./activity.js";
 // Wave mac2 (guards): loop guard and folder trust; see src/run-guards.ts.
 import { RunGuards } from "./run-guards.js";
+import { withBrowserConfirmation } from "./comfort/browser-safety.js"; // R17-S19
 // mac5/manual-actions: the gate for tools run outside a conversation.
 import { gateToolUse, type ToolGateOptions } from "./tool-gate.js";
 // Wave mac3 (tool-safety): the second look before an approval.
@@ -1744,7 +1745,8 @@ ${run.output.slice(0, 6000)}`;
   /** The owner's saved approval policy, held to "Ask before changes" for tasks they did not start. */
   policy(source: RunSource = "owner"): Policy {
     // Wave mac2 (guards): with folder trust on, a task in a folder the owner does not trust asks first.
-    return this.guards.policy(cappedPolicy(readPolicy(this.store, this.owner), source));
+    // R17-S19: with "confirm sensitive browser steps" on, those steps ask every time (src/comfort/browser-safety.ts).
+    return withBrowserConfirmation(this.guards.policy(cappedPolicy(readPolicy(this.store, this.owner), source)), this.store, this.owner);
   }
   /**
    * Where answers already given are remembered for this piece of work: the conversation, or the

@@ -90,6 +90,15 @@ const ownerOnlyReads: readonly RegExp[] = [
   /^\/api\/asks\/surfaces$/,
 ];
 
+/**
+ * R17-S-C: the comfort settings (`/api/comfort`, `/api/comfort/update-plan`, src/comfort/api.ts) are
+ * the owner's alone. Reading them is a look (a proxy address and public certificates are not
+ * secrets); every change is refused to a short-lived key, because the cards include the proxy, the
+ * trusted certificates, how carefully the browser acts and whether Branch installs updates.
+ */
+export const comfortRefusal =
+  "A short-lived key cannot change shortcuts, notifications, updates, the browser's care, the proxy or certificates. Do that in the app window.";
+
 export const generalShortLivedKeyRefusal =
   "A short-lived key can start, steer and stop tasks, but cannot change settings, permissions or security. Do that in the app window.";
 export const ownerOnlyReadRefusal =
