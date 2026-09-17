@@ -1,0 +1,63 @@
+/**
+ * Wave mac2, quiet-jobs: the three cards in a real (headless) browser. Each says where it lives,
+ * has one heading, one sentence and one filled button, and fits 400 px without sideways scrolling.
+ * Screens are opened through `openQuietCards` only, so it can become `openPlace` from
+ * tests/places.mjs when the window redesign lands.
+ */
+import test from "node:test";
+import assert from "node:assert/strict";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { chromium } from "playwright";
+import { discardTemp } from "./temp-dir.mjs";
+import { createBranch } from "../dist/index.js";
+import { startServer } from "../dist/server.js";
+
+const cards = { "quiet-checkin": "automations:scheduled", "quiet-health": "automations:scheduled", "quiet-interruptions": "settings:notifications" };
+
+/** The one way these tests reach the cards. Today: sign in and open Schedules. */
+async function openQuietCards(page, server) {
+  await page.goto(server.url);
+  await page.getByLabel("Session token", { exact: true }).fill(server.token);
+  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await page.locator("#workspace").waitFor({ state: "visible" });
+  await page.evaluate(() => document.querySelector("[data-view='schedules']")?.click());
+  await page.locator("#quiet-checkin h2").waitFor({ state: "attached" });
+}
+
+test("the quiet-jobs cards name their homes, keep to the card anatomy and fit 400 px", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-quiet-ui-"));
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data") });
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  const browser = await chromium.launch({ headless: true });
+  t.after(async () => { await browser.close(); await server.close(); await app.close(); await discardTemp(root); });
+  const page = await browser.newPage({ viewport: { width: 400, height: 900 } });
+  const errors = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await openQuietCards(page, server);
+  for (const [id, home] of Object.entries(cards)) {
+    const shape = await page.evaluate((cardId) => {
+      const card = document.getElementById(cardId);
+      const filled = [...card.querySelectorAll("button")].filter((b) => !b.classList.contains("quiet-button") && !b.classList.contains("text-button"));
+      const unnamed = [...card.querySelectorAll("input, select, textarea")].filter((c) => !c.labels?.length);
+      return { home: card.dataset.home, tag: card.tagName, headings: card.querySelectorAll("h2").length,
+        sentence: card.querySelector("h2 + p.subtle")?.textContent ?? "", filled: filled.length, unnamed: unnamed.length,
+        keyless: [...card.querySelectorAll("h2, label, button")].filter((n) => !n.dataset.t).length };
+    }, id);
+    assert.equal(shape.home, home, id);
+    assert.equal(shape.tag, "SECTION");
+    assert.equal(shape.headings, 1);
+    assert.ok(shape.sentence.length > 10, `${id} says what it is for`);
+    assert.equal(shape.filled, 1, `${id} has one filled button`);
+    assert.equal(shape.unnamed, 0, `${id}: every control can be named`);
+    assert.equal(shape.keyless, 0, `${id}: every word goes through a key`);
+  }
+  const wide = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  assert.ok(wide <= 0, `no sideways scrolling at 400 px (${wide} px over)`);
+  await page.locator("#quiet-interruptions select").selectOption("when-needed");
+  await page.locator("#quiet-interruptions button").click();
+  await page.waitForFunction(() => document.querySelector("#quiet-interruptions select")?.value === "when-needed");
+  assert.equal((await app.scheduler.overview("local")).switches.notifyGate, "when-needed");
+  assert.deepEqual(errors, []);
+});

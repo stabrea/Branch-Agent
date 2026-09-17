@@ -1,14 +1,13 @@
 /**
  * Quiet background work, in the Schedules view: the check-in card (how often, which hours, the
  * checklist), how each schedule is doing at a glance, and the owner's yes to a job's check script.
- * It only reads and writes /api/heartbeat and /api/schedules/<id>/gate, and builds its own box so
- * nothing else on the page has to know about it. Every word goes through a key.
+ * It only reads and writes /api/heartbeat and /api/schedules/<id>/gate. Each card names its home
+ * (docs/places.md) and nothing else on the page has to know about it. Every word goes through a key.
  */
 import { api, toast } from "/app.js";
 import { t } from "/i18n.js";
 
 const healthKeys = { healthy: "schedules.health.healthy", failing: "schedules.health.failing", "never-run": "schedules.health.never-run", held: "schedules.health.held" };
-const switchNames = { checkIn: "schedules.switch.check-in", scriptGates: "schedules.switch.scripts", notifyGate: "schedules.switch.news-only" };
 const modeKeys = { off: "schedules.switch.off", on: "schedules.switch.on", "when-needed": "schedules.switch.when-needed" };
 let latest = null;
 
@@ -43,8 +42,8 @@ function control(id, type, value) {
   }
   return made;
 }
-function button(key, handler) {
-  const made = node("button", key);
+function button(key, handler, className) {
+  const made = node("button", key, className);
   made.type = "button";
   made.addEventListener("click", async () => {
     made.disabled = true;
@@ -68,14 +67,14 @@ function badge(health) {
   return made;
 }
 
-function checkInFields(settings) {
+function checkInFields(settings, mode) {
   const fields = {
+    mode: modeSelect("heartbeat-mode", mode),
     every: control("heartbeat-every", "number", settings.everyMinutes),
     from: control("heartbeat-from", "time", settings.activeHours?.from ?? ""),
     to: control("heartbeat-to", "time", settings.activeHours?.to ?? ""),
     zone: control("heartbeat-zone", "text", settings.timezone),
     list: control("heartbeat-list", "textarea", settings.checklist),
-    second: control("heartbeat-second", "checkbox", settings.secondOpinion),
   };
   fields.every.min = "5";
   fields.list.rows = 6;
@@ -85,29 +84,6 @@ function lastWords(state) {
   if (state.lastReason) return state.lastReason;
   return state.lastOutcome ? t("schedules.checkin.last", { outcome: state.lastOutcome }) : t("schedules.checkin.none-yet");
 }
-
-function checkInCard({ settings, state, health }) {
-  const card = node("form", undefined, "card");
-  const fields = checkInFields(settings);
-  card.append(node("h2", "schedules.checkin.title"), node("p", "schedules.checkin.intro", "subtle"),
-    field("schedules.checkin.every", fields.every),
-    field("schedules.checkin.from", fields.from), field("schedules.checkin.to", fields.to),
-    field("schedules.checkin.zone", fields.zone), field("schedules.checkin.list", fields.list),
-    field("schedules.checkin.second", fields.second), badge(health), plain("p", lastWords(state), "subtle"));
-  card.append(button("action.save-check-in", async () => {
-    const hours = fields.from.value && fields.to.value ? { from: fields.from.value, to: fields.to.value } : null;
-    await api("heartbeat", { everyMinutes: Number(fields.every.value), activeHours: hours,
-      timezone: fields.zone.value, checklist: fields.list.value, secondOpinion: fields.second.checked, deliverTo: settings.deliverTo });
-    toast(t("schedules.checkin.saved"));
-    await load();
-  }), button("action.check-in-now", async () => {
-    const { outcome } = await api("heartbeat/check", {});
-    toast(outcome === "notified" ? t("schedules.checkin.needs-you") : t("schedules.checkin.finished", { outcome }));
-    await load();
-  }));
-  return card;
-}
-
 function modeSelect(id, value) {
   const select = document.createElement("select");
   select.id = id;
@@ -119,20 +95,27 @@ function modeSelect(id, value) {
   select.value = value;
   return select;
 }
-function switchesCard(switches) {
-  const card = node("form", undefined, "card");
-  card.append(node("h2", "schedules.switch.title"), node("p", "schedules.switch.intro", "subtle"));
-  const selects = {};
-  for (const [name, key] of Object.entries(switchNames)) {
-    selects[name] = modeSelect(`quiet-switch-${name}`, switches[name]);
-    card.append(field(key, selects[name]));
-  }
-  card.append(button("action.save-quiet-switches", async () => {
-    await api("heartbeat/switches", Object.fromEntries(Object.entries(selects).map(([name, select]) => [name, select.value])));
-    toast(t("schedules.switch.saved"));
+
+/* automations:scheduled — the check-in itself. */
+function fillCheckIn(card, { settings, mode, state, health }, switches) {
+  const fields = checkInFields(settings, switches.checkIn ?? mode);
+  card.replaceChildren(node("h2", "schedules.checkin.title"), node("p", "schedules.checkin.intro", "subtle"),
+    field("schedules.switch.check-in", fields.mode), field("schedules.checkin.every", fields.every),
+    field("schedules.checkin.from", fields.from), field("schedules.checkin.to", fields.to),
+    field("schedules.checkin.zone", fields.zone), field("schedules.checkin.list", fields.list),
+    badge(health), plain("p", lastWords(state), "subtle"));
+  card.append(button("action.save-check-in", async () => {
+    const hours = fields.from.value && fields.to.value ? { from: fields.from.value, to: fields.to.value } : null;
+    await api("heartbeat/switches", { checkIn: fields.mode.value });
+    await api("heartbeat", { ...settings, everyMinutes: Number(fields.every.value), activeHours: hours,
+      timezone: fields.zone.value, checklist: fields.list.value });
+    toast(t("schedules.checkin.saved"));
     await load();
-  }));
-  return card;
+  }), button("action.check-in-now", async () => {
+    const { outcome } = await api("heartbeat/check", {});
+    toast(outcome === "notified" ? t("schedules.checkin.needs-you") : t("schedules.checkin.finished", { outcome }));
+    await load();
+  }, "quiet-button"));
 }
 
 function scriptRow(item, row) {
@@ -143,39 +126,76 @@ function scriptRow(item, row) {
   row.append(button(gate.approved ? "action.withdraw-script-approval" : "action.approve-check-script", async () => {
     await api(`schedules/${item.id}/gate`, { approve: !gate.approved });
     await load();
-  }));
+  }, "text-button"));
 }
 function scheduleRow(item) {
   const row = document.createElement("div");
-  row.className = "card";
   row.append(plain("p", item.prompt), badge(item.health));
   if (item.pausedBecause && item.status === "paused") row.append(plain("p", item.pausedBecause, "subtle"));
   if (item.gate) scriptRow(item, row);
   return row;
 }
+/* automations:scheduled — how each schedule is doing, and whether check scripts may run. */
+function fillHealth(card, schedules, switches) {
+  const scripts = modeSelect("quiet-switch-scripts", switches.scriptGates);
+  card.replaceChildren(node("h2", "schedules.health.title"), node("p", "schedules.health.intro", "subtle"),
+    field("schedules.switch.scripts", scripts));
+  if (!schedules.length) card.append(node("p", "schedules.health.empty", "subtle"));
+  for (const item of schedules) card.append(scheduleRow(item));
+  card.append(button("action.save", async () => {
+    await api("heartbeat/switches", { scriptGates: scripts.value });
+    toast(t("schedules.switch.saved"));
+    await load();
+  }));
+}
+/* settings:notifications — when background work may interrupt the owner. */
+function fillInterruptions(card, settings, switches) {
+  const gate = modeSelect("quiet-switch-news", switches.notifyGate);
+  const second = control("heartbeat-second", "checkbox", settings.secondOpinion);
+  card.replaceChildren(node("h2", "schedules.switch.title"), node("p", "schedules.switch.intro", "subtle"),
+    field("schedules.switch.news-only", gate), field("schedules.checkin.second", second));
+  card.append(button("action.save", async () => {
+    await api("heartbeat/switches", { notifyGate: gate.value });
+    await api("heartbeat", { ...settings, secondOpinion: second.checked });
+    toast(t("schedules.switch.saved"));
+    await load();
+  }));
+}
 
-function render() {
+/**
+ * A card that says where it lives (docs/places.md). The window's layout moves it home; until that
+ * layout is on the page it sits with the schedules, where these used to be.
+ */
+function homedCard(id, home) {
+  const found = document.getElementById(id);
+  if (found) return found;
+  const card = document.createElement("section");
+  card.id = id;
+  card.className = "card";
+  card.dataset.home = home;
   const list = document.getElementById("schedules-list");
-  if (!list || !latest) return;
-  let box = document.getElementById("quiet-jobs-container");
-  if (!box) {
-    box = document.createElement("div");
-    box.id = "quiet-jobs-container";
-    list.after(box);
-  }
-  const health = node("div", undefined, "card");
-  health.append(node("h2", "schedules.health.title"), node("p", "schedules.health.intro", "subtle"));
-  if (!latest.schedules.length) health.append(node("p", "schedules.health.empty", "subtle"));
-  for (const item of latest.schedules) health.append(scheduleRow(item));
-  box.replaceChildren(switchesCard(latest.switches), checkInCard(latest.heartbeat), health);
+  const after = { "quiet-checkin": "schedules-list", "quiet-health": "quiet-checkin", "quiet-interruptions": "quiet-health" }[id];
+  if (list) (document.getElementById(after) ?? list).after(card);
+  else document.body.append(card);
+  return card;
+}
+function render() {
+  if (!latest) return;
+  const { switches, heartbeat, schedules } = latest;
+  fillCheckIn(homedCard("quiet-checkin", "automations:scheduled"), heartbeat, switches);
+  fillHealth(homedCard("quiet-health", "automations:scheduled"), schedules, switches);
+  fillInterruptions(homedCard("quiet-interruptions", "settings:notifications"), heartbeat.settings, switches);
 }
 async function load() {
-  if (!document.getElementById("schedules-list")) return;
   latest = await api("heartbeat");
   render();
 }
 
 /* Words with numbers in them are written again when the language changes. */
 document.addEventListener("branch-language", render);
-/* A box that will not load leaves the rest of the page as it is. */
+/* A box that will not load leaves the rest of the page as it is. Before signing in there is nothing
+   to read, so the cards are filled again whenever the owner opens Schedules. */
 load().catch(() => {});
+document.addEventListener("click", (event) => {
+  if (event.target instanceof Element && event.target.closest("[data-view='schedules']")) load().catch(() => {});
+});
