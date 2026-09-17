@@ -7,7 +7,7 @@ import { ActivityChain, followActivity } from "./activity-chain.js";
 import { registerToolScripts, ToolScripts } from "./tool-scripts.js";
 import { registerWasmAddOns, WasmAddOns } from "./wasm-add-ons.js";
 import { audit } from "../audit.js";
-import { safetyLabels, safetyMode, safetyParts, safetyTools, saveSafetyMode, type SafetyMode, type SafetyPart } from "./settings.js";
+import { followSafetySwitches, safetyLabels, safetyMode, safetyParts, safetyTools, saveSafetyMode, type SafetyMode, type SafetyPart } from "./settings.js";
 
 /**
  * mac7/r17-g: the safety extras (docs/configuration.md, "Safety extras"). `createBranch` makes one;
@@ -21,6 +21,7 @@ export class SafetyExtras {
   readonly scripts: ToolScripts;
   readonly wasm: WasmAddOns;
   private readonly stopFollowing: () => void;
+  private readonly stopSwitching: () => void;
   private readonly registrars: Partial<Record<SafetyPart, () => void>>;
 
   constructor(private readonly deps: SafetyExtrasDeps) {
@@ -36,9 +37,10 @@ export class SafetyExtras {
       "wasm-add-ons": () => registerWasmAddOns(registry, this.wasm),
     };
     for (const part of safetyParts) this.sync(part);
+    this.stopSwitching = followSafetySwitches(store, (part, mode) => { this.setMode(part, { mode }); });
   }
 
-  close(): void { this.stopFollowing(); }
+  close(): void { this.stopFollowing(); this.stopSwitching(); }
 
   private sync(part: SafetyPart): void {
     for (const name of safetyTools[part]) this.deps.registry.unregister(name);

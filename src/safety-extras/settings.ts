@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Store } from "../store.js";
+import { audit } from "../audit.js";
 
 /**
  * mac7/r17-g: the safety extras (re-audit rows R17-061 … R17-067). Each part has the owner's
@@ -67,6 +68,25 @@ export function saveSafetyMode(store: Store, owner: string, part: SafetyPart, in
   const { mode } = RecordSchema.parse(input);
   store.save("settings", owner, safetyKey(part), { mode });
   return mode;
+}
+
+/**
+ * Integration review: the settings kit (src/settings-kit/catalogue.ts) saves a switch through the
+ * app's own SafetyExtras, so a part's tools come and go with it and the change is written in the
+ * record. Without a running app (a file read before start), the record is saved and noted directly.
+ */
+const liveSwitches = new WeakMap<object, (part: SafetyPart, mode: SafetyMode) => void>();
+export function followSafetySwitches(store: object, apply: (part: SafetyPart, mode: SafetyMode) => void): () => void {
+  liveSwitches.set(store, apply);
+  return () => { if (liveSwitches.get(store) === apply) liveSwitches.delete(store); };
+}
+export function saveSafetySwitch(store: Store, owner: string, part: SafetyPart, input: unknown): void {
+  const { mode } = RecordSchema.parse({ mode: (input as { mode?: unknown } | null)?.mode ?? safetyMode(store, owner, part) });
+  const live = liveSwitches.get(store);
+  if (live) { live(part, mode); return; }
+  saveSafetyMode(store, owner, part, { mode });
+  audit(store, owner, { action: "policy.changed", actor: owner, subject: `${safetyLabels[part]}: ${mode}`,
+    reason: "Changed from Settings: presets, reset or a settings file", outcome: "saved" });
 }
 
 export class SafetyOffError extends Error {

@@ -9,6 +9,7 @@ import { saveKeychainSettings } from "../vault-sources.js";
 import { retentionSettings, saveRetentionSettings } from "../retention.js";
 import { eventLoopSettings, eventLoopWatch, saveEventLoopSettings } from "../event-loop-watch.js";
 import { audit } from "../audit.js";
+import { saveSafetySwitch, type SafetyPart } from "../safety-extras/settings.js";
 
 /**
  * R17-S-A (understandable settings): the settings that can be put back to how they started, set
@@ -85,6 +86,11 @@ const saveWall = (store: Store, owner: string, patch: Record<string, unknown>): 
     reason: "Changed from Settings: presets, reset or a settings file", outcome: "saved" });
 };
 
+/** mac7/r17-g: a safety extra's switch, saved through the app so its tools come and go with it. */
+const safetyPart = (part: SafetyPart, name: string, guard: Guard): SettingSpec =>
+  one(`safety-${part}`, name, `settings-kit.name.safety-${part}`, "settings:permissions", guard,
+    { write: (store, owner, patch) => { saveSafetySwitch(store, owner, part, patch); } });
+
 const safety: SettingSpec[] = [
   {
     key: "policy", name: "When to check with me", t: "settings-kit.name.policy", home: "settings:permissions",
@@ -118,6 +124,11 @@ const safety: SettingSpec[] = [
     write: saveWall,
     read: (store, owner) => ({ ...wallSettings(store, owner) }),
   },
+  // mac7/r17-g integration review: the checks that only tighten are guards. Authenticator codes and the
+  // emergency stop are never reached from here (see neverTouched): each needs the owner at its own card.
+  safetyPart("command-scan", "Checking commands for tricks", "guard"),
+  safetyPart("progress-judge", "Asking whether a long task is getting anywhere", "guard"),
+  safetyPart("activity-chain", "A tamper-evident record", "guard"),
 ];
 
 const reach: SettingSpec[] = [
@@ -144,6 +155,8 @@ const reach: SettingSpec[] = [
   one("skill-installs", "Installing skills from a file", "settings-kit.name.skill-installs", "customize:skills", "reach"),
   one("workspace-editor", "Code editor", "settings-kit.name.code-editor", "settings:advanced", "reach"),
   one("sdk-kit", "Tools for building on Branch", "settings-kit.name.sdk-kit", "settings:advanced", "reach"),
+  safetyPart("tool-scripts", "Scripts that call several tools at once", "reach"),
+  safetyPart("wasm-add-ons", "Add-ons in a sealed WebAssembly box", "reach"),
 ];
 
 const comfort: SettingSpec[] = [
@@ -156,6 +169,7 @@ const comfort: SettingSpec[] = [
   one("command-catalog", "The shared commands", "settings-kit.name.commands", "settings:general", "plain"),
   one("asks-project-board", "Project boards", "settings-kit.name.project-board", "settings:general", "plain"),
   one("fly-core", "What Branch learns from experience", "settings-kit.name.fly-core", "library:memory", "plain"),
+  safetyPart("history-repair", "Tidying a conversation before it is sent", "guard"), // "repair" reads as safety-shaped (pair), so it is a guard
   {
     key: "goal-undo", name: "Goals and going back", t: "settings-kit.name.goal-undo", home: "settings:data",
     // Working on until a goal is met is the assistant acting on its own; the snapshots are what lets you go back.
@@ -194,6 +208,8 @@ export const neverTouched: readonly RegExp[] = [
   // Integration review: accounts, add-on lists and their wall, the leak guard, what is passed on to
   // programs, never-break and its gateway, tunnels and the launch file are never reached from here.
   /^accounts?(-|$)/, /^add-?ons?/, /leak/, /^knobs?/, /env/, /^never-break/, /gateway/, /tunnel/, /launch/,
+  // mac7/r17-g integration review: authenticator codes (loosening them needs a code) and the emergency stop.
+  /^safety-code-approvals/, /^safety-emergency-stop/,
 ];
 
 /** A field name that sounds like it could hold a secret is refused outright, whatever the catalogue says. */
