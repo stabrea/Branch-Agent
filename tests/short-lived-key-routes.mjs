@@ -65,6 +65,11 @@ export const ROUTES = {
   "/api/browser/signin": "owner POST",
   "/api/cached-answers": "look",
   "/api/calendar": "owner POST",
+  // mac7/connect: the Set up panel for each chat app; looking is open, saving a token is the owner's.
+  "/api/channel-setup": "owner POST",
+  "/api/channel-setup/": "prefix",
+  "/api/channel-setup/sample": "look",
+  "/api/channel-setup/sample/check": "owner POST",
   "/api/channels": "look",
   "/api/channels/addresses": "secret-read",
   "/api/channels/addresses/rotate": "owner POST",
@@ -685,6 +690,7 @@ export const OUTBOUND = [
   // Callers of our own routes, and the route description, rather than the routes themselves.
   /^src\/(cli|cli-attach|api-openapi|short-lived-keys)\.ts$/, /^src\/install\//, /^src\/desktop\//,
   /^src\/never-break\/gateway\.ts$/, /^src\/commands\/catalog\.ts$/,
+  /^src\/channel-setup\/cli\.ts$/, // mac7/connect: `branch connect` calls the Set up routes of the running Branch
 ];
 
 export const SAMPLE_ID = "0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f";

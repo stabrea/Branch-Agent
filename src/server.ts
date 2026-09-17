@@ -182,6 +182,8 @@ import { contextFileSinkFor, defaultMoveInOptions, handlesMoveInPath, moveInApi,
 import { guardsApi, handlesGuardsPath } from "./run-guards.js";
 // mac3/never-break: the gateway switch and suggested changes (src/never-break/api.ts).
 import { handlesNeverBreakPath, NeverBreakApiError, neverBreakApi } from "./never-break/api.js";
+import { channelSetupApi, handlesChannelSetupPath } from "./channel-setup/api.js"; // mac7/connect
+import { SetupRefusal } from "./channel-setup/check.js"; // mac7/connect
 import { snapshotData } from "./never-break/canary.js";
 // Wave mac3 (tool-safety): the second look before an approval.
 import { reviewerView, saveReviewerSettings } from "./approval-reviewer.js";
@@ -445,6 +447,9 @@ async function staticFile(
     // mac3/never-break: the Keep running card and the Telegram setup card.
     "/never-break.js": ["never-break.js", "text/javascript; charset=utf-8"],
     "/telegram-setup.js": ["telegram-setup.js", "text/javascript; charset=utf-8"],
+    // mac7/connect: the Set up panel for each chat app.
+    "/channel-setup.js": ["channel-setup.js", "text/javascript; charset=utf-8"],
+    "/channel-setup.css": ["channel-setup.css", "text/css; charset=utf-8"],
     // Wave mac2 (goal-undo): the goal strip, and editing an earlier message to go back to it.
     "/goal.js": ["goal.js", "text/javascript; charset=utf-8"],
     "/rewind.js": ["rewind.js", "text/javascript; charset=utf-8"],
@@ -824,6 +829,14 @@ async function api(
     }).catch((error: unknown) => {
       throw error instanceof NeverBreakApiError ? new HttpError(error.status, error.message) : error;
     });
+  // --- mac7/connect: the Set up panel for each chat app (src/channel-setup/) ---
+  if (handlesChannelSetupPath(path))
+    return channelSetupApi({ store: app.store, owner: app.runtime.owner, fetch: app.web.policy.guard(globalThis.fetch),
+      telegram: app.neverBreak.telegram, requireOwner: (what) => app.store.profiles.requireOwner(what) },
+    request.method ?? "GET", path, () => readBody(request)).catch((error: unknown) => {
+      throw error instanceof SetupRefusal ? new HttpError(error.status, error.message) : error;
+    });
+  // --- end mac7/connect ---
   // Wave mac3 (tool-safety): the second look before an approval — its switch, connection and rules.
   if (path === "/api/approval-reviewer" && request.method === "GET") return reviewerView(app.store, app.runtime.owner);
   if (path === "/api/approval-reviewer" && request.method === "POST") {
@@ -3110,6 +3123,8 @@ export function offLimitsToShortLivedKeys(method: string | undefined, path: stri
   if (handlesGuardsPath(path)) return "A short-lived key cannot change which folders are trusted or how repeated steps are stopped. Do that in the app window.";
   // mac3/never-break: the gateway's settings are the owner's alone.
   if (handlesNeverBreakPath(path)) return "A short-lived key cannot change how Branch keeps itself running. Do that in the app window.";
+  // mac7/connect: saving a chat app's token or switching setting-up on is the owner's alone.
+  if (handlesChannelSetupPath(path)) return "A short-lived key cannot save a chat app's token or change how chat apps are set up. Do that in the app window.";
   // mac3/never-break (integration review): letting a new person reach the assistant is the owner's alone.
   if (path.startsWith("/api/channels/pairings/")) return "A short-lived key cannot let a new person reach the assistant, or remove one. Do that in the app window.";
   // Bucket 17: naming a program for Branch to run (ffmpeg, yt-dlp, a reading-aloud program) is the owner's step.

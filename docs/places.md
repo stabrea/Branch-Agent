@@ -89,6 +89,7 @@ Inside a conversation there are no homes to add to, only two surfaces with stric
 | Evaluation and studies | `settings:advanced` |
 | Keep running through crashes and updates (`mac3/never-break`) | `settings:general` |
 | Set up Telegram, step by step (`mac3/never-break`) | `customize:channels` |
+| Set up any chat app: the one command, square codes and Check and save (`mac7/connect`) | `customize:channels`; the phone app shows it on its home screen, and the terminal view lists the command under Customize › Channels |
 | Watching and saving videos, ffmpeg and yt-dlp (bucket 17) | `settings:models:media`; a video attachment in the message box |
 | Other speech services and spoken commands (bucket 17) | `settings:voice` |
 | What Branch learns from experience, the learning core (`mac2/fly-core-2`) | `library:memory`; its skill ideas open in `customize:skills` |

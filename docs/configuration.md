@@ -1228,6 +1228,198 @@ means this wave added it (behind its switch, off); **not built** gives the reaso
 | Their own devices and bridges (PicoClaw `pico`, MaixCam, OpenClaw Raft and Reef, QA channel, device pairing, visitor access) | PicoClaw, OpenClaw | not applicable: parts of those projects rather than chat services; Branch has its own phone pairing and A2A |
 | Notion, Gmail push, file-drop and git "channels" | ZeroClaw | not applicable: not chat services; Branch has documents, email and triggers for these |
 
+## Setting up a chat app in one command
+
+*mac7/connect.* For every chat app Branch supports (55 of them, counted from the code: the nine with a
+type of their own, the ten team-chat services in `data/channels.json`, and the 36 wave mac3 services in
+`src/channels/connectors.ts`), one command gets the official app, opens the page that makes the bot,
+takes the token without showing it, checks it with the app's own service, keeps it in the locker, and
+switches the app on if you say so:
+
+```sh
+branch connect telegram
+```
+
+It is the same line in zsh, bash, PowerShell and cmd, wherever the `branch` command exists. It:
+
+1. looks for the system's own package manager (winget on Windows, Homebrew casks on a Mac, Flatpak from
+   Flathub or Snap on Linux), says exactly what it would run, and asks. Nothing is installed without a
+   typed yes; Snap is the only one that uses `sudo`, and the command says so before asking. Only
+   vendor-verified Flathub apps and Snap packages from verified publishers are offered, never a
+   community repackage. With no package manager, or no official package, it offers to open the
+   vendor's own download page instead. An app that is already installed is left alone;
+2. waits (ten minutes at most) until the app is there, when the computer can tell (`/Applications` on a
+   Mac, `winget list`, `flatpak info`, `snap list`), and otherwise asks you to press Enter;
+3. asks you to sign in, asks for your own server when the app is self-hosted, and opens the page that
+   makes the bot, in the app when it is installed and the app has its own link;
+4. asks for the token with nothing shown on screen. A terminal that cannot hide what is typed gets a
+   one-time page on `127.0.0.1` instead (a long random address, one form, closed after use or fifteen
+   minutes; the token travels in the form, never in an address);
+5. checks it with the app's own read-only "who am I" request, through your network settings;
+6. keeps it in the locker, switches the app on only if you answer `on` or `when-needed`, and, for
+   Telegram with Branch running, takes the six-digit code the bot sends and pairs your account.
+
+When Branch is running, the command goes through the same door as the window (the data folder's own
+key), so a Telegram bot connects at once. Otherwise it opens the saved work itself, and the bot connects
+the next time Branch starts.
+
+**One command or two.** Every app is one command. Telegram and the wave mac3 services are switched on by
+it. The nine older connections (Discord, Slack, WhatsApp, email, Messenger, Instagram, Matrix, Signal
+and the ten team-chat services) are switched on by a line in the connections file, which Branch does not
+rewrite for you (it may sit in a folder you have not trusted, and holds at most eight channels), so the
+command prints that line with your settings filled in, and you add it and restart. That is the second
+step, and the only one.
+
+**The switch.** *Setting up from here and from the terminal* ships **off**. Off, the panel still shows
+the command, the links and the codes; it only refuses to save a token or switch anything on. The first
+`branch connect` asks whether to switch it to *when needed*. *On* and *when needed* behave the same here.
+`GET /api/channel-setup` (the switch and the list), `POST /api/channel-setup {"mode": …}`,
+`GET /api/channel-setup/<app>` (one app's panel), `POST /api/channel-setup/<app>/check
+{"values": {…}, "enable": "on"}`. Looking needs only the app's key; saving and the switch are the
+owner's, and a short-lived key is refused.
+
+**In the window.** Customize → Chat apps → **Set up a chat app**: the command for this computer with a
+Copy button, the app's package or download page, three square codes (the app on iPhone, the app on
+Android, the page that makes the bot), the steps, a paste box and **Check and save**. Each row of **More
+chat apps** has a **Set up** button that opens this card on that app, and the Telegram card has the same
+panel folded inside it (there is still one Telegram card, and it keeps its own token field). The codes
+are drawn on this computer from `src/remote/qr.ts`; nothing is fetched. A phone cannot reach this
+computer, so the store code is two codes (iPhone and Android) rather than one page that guesses the
+phone. Slack's filled-in page is too long for a code, so its code opens Slack's plain new-app page.
+The phone app shows the same panel as links: the store page for that phone, and the page that makes the
+bot. The terminal view lists the command under Customize › Channels; the interactive steps run in an
+ordinary terminal (leave the view with Ctrl+D).
+
+**Starting from nothing.** On a Mac or Linux, beside the download, its `.sha256` and
+`install-branch-agent.sh` (bucket 22), one line installs Branch, checked against its checksum, and sets
+up Telegram:
+
+```sh
+sh install-branch-agent.sh --quiet && ~/.local/bin/branch connect telegram
+```
+
+Nothing is piped from the internet. On Windows the installer does not write a `branch` command yet, so
+it is two steps: `"Install Branch Agent.cmd" /quiet`, then Customize → Chat apps → Set up a chat app in
+the window that opens (or `node dist\cli.js connect telegram` in a copy from Git).
+
+**Official means only.** Branch uses each app's official bot or app API and the vendor's own pages.
+It never signs in as you, never drives BotFather or any other app through your personal account, and
+never installs a userbot: Telegram bans accounts that automate BotFather that way. For Telegram the
+most that is officially possible is a link that opens BotFather with `/newbot` already typed:
+`https://t.me/BotFather?text=%2Fnewbot` (and `tg://resolve?domain=BotFather&text=%2Fnewbot` in the
+app), using the `text` draft parameter that Telegram documents for every public username link
+(core.telegram.org/api/links, "Public username links"). You press Send, then give a name and a
+username. What was checked and not used:
+
+- `?start=` on `t.me/BotFather` and `tg://resolve?…&start=` are documented, but only as a start
+  parameter handed to a bot's own code; BotFather does not document any that start `/newbot`.
+- `tg://msg?to=…&text=…` is not a documented link; the documented share links (`t.me/share`,
+  `tg://msg_url`) ask which chat to share into.
+- **Managed bots** (`t.me/newbot/<manager>/<username>?name=<name>`, `tg://newbot?manager=…`,
+  core.telegram.org/api/links and core.telegram.org/bots/features) create a bot with the name filled in,
+  but only on behalf of a *manager bot* that already exists and has Bot Management Mode switched on in
+  BotFather, and the new token goes to that manager bot (`getManagedBotToken`). A first bot therefore
+  cannot be made this way, and Branch runs no central manager bot that would receive your tokens.
+
+Slack's page arrives filled in with Branch's settings (`api.slack.com/apps?new_app=1&manifest_json=…`,
+documented in docs.slack.dev, "Configuring apps with app manifests"): Socket Mode on, the bot scopes
+and events Branch reads. Discord's link (`discord.com/developers/applications?new_application=true`,
+from Discord's own getting-started guide) opens the create dialog. Mastodon, Home Assistant,
+Nextcloud, Discourse, Gotify and Zulip open the right page on your own server. No other vendor
+documents a filled-in create link; those open the official page named below.
+
+**The recipes** are data, `data/channel-setup.json`, checked on 17 September 2026: every package id
+against formulae.brew.sh, microsoft/winget-pkgs, Flathub's verification record and Snapcraft's publisher
+record; every store link by loading it and matching the app's name; every create and check link against
+the vendor's documentation. What could not be confirmed was left out, and the recipe says why in words.
+A check is only a read-only "who am I" request, and a token only ever sits in an address where the
+vendor's API requires it (Telegram's `getMe`); where the only check would put a secret in an address
+(Meta, WeChat, WeCom, Threema) or post a message (incoming webhooks), there is no check, and the panel
+says so.
+
+<!-- channel-setup-table:start -->
+
+| Channel | One command? | Install source per OS | Bot or app page | What is pasted back | Check |
+| --- | --- | --- | --- | --- | --- |
+| Telegram (`telegram`) | yes, and switched on from it | Windows: winget `Telegram.TelegramDesktop`; Mac: cask `telegram`; Linux: Flathub `org.telegram.desktop` or Snap `telegram-desktop` | `https://t.me/BotFather?text=%2Fnewbot` (pre-filled) | `TELEGRAM_BOT_TOKEN` | GET `https://api.telegram.org/bot<token>/getMe` |
+| Discord (`discord`) | yes; then one line in the connections file | Windows: winget `Discord.Discord`; Mac: cask `discord`; Linux: Flathub `com.discordapp.Discord` | `https://discord.com/developers/applications?new_application=true` | `DISCORD_BOT_TOKEN` | GET `https://discord.com/api/v10/users/@me` |
+| Slack (`slack`) | yes; then one line in the connections file | Windows: winget `SlackTechnologies.Slack`; Mac: cask `slack`; Linux: Snap `slack` | `https://api.slack.com/apps?new_app=1&manifest_json=…` (pre-filled) | `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN` | POST `https://slack.com/api/auth.test` |
+| WhatsApp Business (`whatsapp`) | yes; then one line in the connections file | Windows: download page; Mac: cask `whatsapp`; Linux: download page | `https://developers.facebook.com/docs/whatsapp/cloud-api/get-started` | `WHATSAPP_TOKEN`, `WHATSAPP_APP_SECRET`, `WHATSAPP_VERIFY_TOKEN`; plus phoneNumberId | none |
+| Email (`email`) | yes; then one line in the connections file | nothing to install | none (plain steps) | `EMAIL_PASSWORD` | none |
+| Facebook Messenger (`messenger`) | yes; then one line in the connections file | nothing to install | `https://developers.facebook.com/docs/messenger-platform/getting-started/quick-start` | `META_PAGE_TOKEN`, `META_APP_SECRET`, `META_VERIFY_TOKEN`; plus pageId | none |
+| Instagram (`instagram`) | yes; then one line in the connections file | nothing to install | `https://developers.facebook.com/docs/instagram-platform/instagram-api-with-instagram-login/messaging-api` | `META_PAGE_TOKEN`, `META_APP_SECRET`, `META_VERIFY_TOKEN`; plus pageId | none |
+| Matrix (Element) (`matrix`) | yes; then one line in the connections file | Windows: winget `Element.Element`; Mac: cask `element`; Linux: download page | `https://app.element.io/#/register` | `MATRIX_ACCESS_TOKEN`; plus server, userId | GET `<server>/_matrix/client/v3/account/whoami` |
+| Signal (`signal`) | yes; then one line in the connections file | Windows: winget `OpenWhisperSystems.Signal`; Mac: cask `signal`; Linux: download page | none (plain steps) | nothing; plus path, account | none |
+| Mattermost (`mattermost`) | yes; then one line in the connections file | Windows: winget `Mattermost.MattermostDesktop`; Mac: cask `mattermost`; Linux: download page | `https://docs.mattermost.com/integrations-guide/incoming-webhooks.html` | `MATTERMOST_WEBHOOK_URL`, `MATTERMOST_TOKEN` (optional); plus server | none |
+| Rocket.Chat (`rocketchat`) | yes; then one line in the connections file | Windows: winget `RocketChat.RocketChat`; Mac: cask `rocket-chat`; Linux: Snap `rocketchat-desktop` | `https://docs.rocket.chat/docs/integrations` | `ROCKETCHAT_WEBHOOK_URL`, `ROCKETCHAT_TOKEN` (optional); plus server | none |
+| Google Chat (`googlechat`) | yes; then one line in the connections file | nothing to install | `https://developers.google.com/workspace/chat/quickstart/webhooks` | `GOOGLECHAT_WEBHOOK_URL`, `GOOGLECHAT_TOKEN` (optional) | none |
+| Microsoft Teams (webhook) (`msteams`) | yes; then one line in the connections file | Windows: winget `Microsoft.Teams`; Mac: cask `microsoft-teams`; Linux: download page | `https://learn.microsoft.com/microsoftteams/platform/webhooks-and-connectors/how-to/add-incoming-webhook` | `MSTEAMS_WEBHOOK_URL`, `MSTEAMS_SECRET` (optional) | none |
+| Zulip (`zulip`) | yes; then one line in the connections file | Windows: winget `Zulip.Zulip`; Mac: cask `zulip`; Linux: Flathub `org.zulip.Zulip` | `<server>/#settings/your-bots` | `ZULIP_BOT_API_KEY`; plus server | none |
+| Feishu / Lark (`feishu`) | yes; then one line in the connections file | Windows: winget `ByteDance.Feishu`; Mac: cask `feishu`; Linux: download page | `https://open.feishu.cn/document/client-docs/bot-v3/add-custom-bot` | `FEISHU_WEBHOOK_URL`, `FEISHU_SECRET` (optional) | none |
+| DingTalk (`dingtalk`) | yes; then one line in the connections file | Windows: winget `Alibaba.DingTalk`; Mac: cask `dingtalk`; Linux: download page | `https://open.dingtalk.com/document/robots/custom-robot-access` | `DINGTALK_WEBHOOK_URL`, `DINGTALK_SECRET` (optional) | none |
+| WeCom (group robot) (`wecom`) | yes; then one line in the connections file | Windows: winget `Tencent.WeCom`; Mac: download page; Linux: download page | `https://developer.work.weixin.qq.com/document/path/91770` | `WECOM_WEBHOOK_URL` | none |
+| LINE (`line`) | yes; then one line in the connections file | Windows: download page; Mac: download page; Linux: download page | `https://developers.line.biz/console/` | `LINE_CHANNEL_ACCESS_TOKEN`, `LINE_CHANNEL_SECRET` | GET `https://api.line.me/v2/bot/info` |
+| Viber (`viber`) | yes; then one line in the connections file | Windows: winget `Rakuten.Viber`; Mac: cask `viber`; Linux: download page | `https://developers.viber.com/docs/api/rest-bot-api/` | `VIBER_AUTH_TOKEN` | POST `https://chatapi.viber.com/pa/get_account_info` |
+| IRC (`irc`) | yes; switched on from it | nothing to install | none (plain steps) | `IRC_PASSWORD` (optional); plus server, nick | none |
+| Twitch chat (`twitch`) | yes; switched on from it | nothing to install | `https://dev.twitch.tv/console/apps/create` | `TWITCH_CHAT_TOKEN`; plus login, channel | GET `https://id.twitch.tv/oauth2/validate` |
+| Gotify (`gotify`) | yes; switched on from it | nothing to install | `<server>/#/applications` | `GOTIFY_APP_TOKEN`; plus server | none |
+| iMessage (`imessage`) | yes; switched on from it | nothing to install | none (plain steps) | nothing | none |
+| Microsoft Teams (bot) (`msteams-bot`) | yes; switched on from it | Windows: winget `Microsoft.Teams`; Mac: cask `microsoft-teams`; Linux: download page | `https://dev.teams.microsoft.com/bots` | `MSTEAMS_APP_PASSWORD`; plus appId | POST `https://login.microsoftonline.com/botframework.com/oauth2/v2.0/token` |
+| Webex (`webex`) | yes; switched on from it | Windows: winget `Cisco.Webex`; Mac: cask `webex`; Linux: download page | `https://developer.webex.com/docs/bots` | `WEBEX_BOT_TOKEN`, `WEBEX_WEBHOOK_SECRET` | GET `https://webexapis.com/v1/people/me` |
+| Synology Chat (`synology-chat`) | yes; switched on from it | Windows: winget `Synology.ChatClient`; Mac: download page; Linux: download page | `https://kb.synology.com/en-global/DSM/help/Chat/chat_integration` | `SYNOLOGY_CHAT_INCOMING_URL`, `SYNOLOGY_CHAT_TOKEN`; plus server | none |
+| Zalo Official Account (`zalo`) | yes; switched on from it | Windows: winget `VNGCorp.Zalo`; Mac: cask `zalo`; Linux: download page | `https://developers.zalo.me/` | `ZALO_APP_SECRET`, `ZALO_OA_SECRET_KEY`, `ZALO_OA_ACCESS_TOKEN`, `ZALO_OA_REFRESH_TOKEN`; plus appId | none |
+| Flock (`flock`) | yes; switched on from it | Windows: download page; Mac: download page; Linux: download page | `https://dev.flock.com/` | `FLOCK_APP_SECRET`, `FLOCK_BOT_TOKEN` | none |
+| Pumble (`pumble`) | yes; switched on from it | Windows: download page; Mac: download page; Linux: download page | `https://pumble.com/help/integrations/add-pumble-apps/` | `PUMBLE_APP_KEY`, `PUMBLE_BOT_TOKEN`, `PUMBLE_SIGNING_SECRET`; plus botUserId | none |
+| Mastodon (`mastodon`) | yes; switched on from it | nothing to install | `<server>/settings/applications/new` | `MASTODON_ACCESS_TOKEN`; plus server | GET `<server>/api/v1/accounts/verify_credentials` |
+| Bluesky (`bluesky`) | yes; switched on from it | nothing to install | `https://bsky.app/settings/app-passwords` | `BLUESKY_APP_PASSWORD`; plus handle | none |
+| Reddit (`reddit`) | yes; switched on from it | nothing to install | `https://www.reddit.com/prefs/apps` | `REDDIT_CLIENT_SECRET`, `REDDIT_PASSWORD`; plus username, clientId | none |
+| Discourse (`discourse`) | yes; switched on from it | nothing to install | `<server>/admin/api/keys/new` | `DISCOURSE_API_KEY`; plus server, username | GET `<server>/session/current.json` |
+| X direct messages (`x-dm`) | yes; switched on from it | nothing to install | `https://developer.x.com/en/portal/dashboard` | `X_USER_ACCESS_TOKEN` | GET `https://api.x.com/2/users/me` |
+| Twist (`twist`) | yes; switched on from it | Windows: download page; Mac: cask `twist`; Linux: download page | `https://developer.twist.com/v3/` | `TWIST_ACCESS_TOKEN`; plus conversation | none |
+| Nextcloud Talk (`nextcloud-talk`) | yes; switched on from it | Windows: winget `Nextcloud.Talk`; Mac: cask `nextcloud-talk`; Linux: download page | `<server>/settings/user/security` | `NEXTCLOUD_TALK_APP_PASSWORD`; plus server, username, room | GET `<server>/ocs/v2.php/cloud/user?format=json` |
+| Text messages (Twilio) (`sms`) | yes; switched on from it | nothing to install | `https://console.twilio.com/` | `TWILIO_AUTH_TOKEN`; plus accountSid, from | GET `https://api.twilio.com/2010-04-01/Accounts/{{accountSid}}.json` |
+| ntfy (`ntfy`) | yes; switched on from it | nothing to install | none (plain steps) | `NTFY_ACCESS_TOKEN` (optional); plus topic | none |
+| Pushover (`pushover`) | yes; switched on from it | nothing to install | `https://pushover.net/apps/build` | `PUSHOVER_APP_TOKEN`, `PUSHOVER_USER_KEY` | POST `https://api.pushover.net/1/users/validate.json` |
+| Threema Gateway (`threema`) | yes; switched on from it | Windows: winget `Threema.Threema`; Mac: cask `threema`; Linux: download page | `https://gateway.threema.ch/` | `THREEMA_GATEWAY_SECRET`; plus gatewayId | none |
+| Home Assistant (`homeassistant`) | yes; switched on from it | Windows: download page; Mac: cask `home-assistant`; Linux: download page | `<server>/profile/security` | `HOMEASSISTANT_TOKEN`; plus server | GET `<server>/api/` |
+| XMPP (Jabber) (`xmpp`) | yes; switched on from it | nothing to install | none (plain steps) | `XMPP_PASSWORD`; plus jid | none |
+| MQTT (`mqtt`) | yes; switched on from it | nothing to install | none (plain steps) | `MQTT_PASSWORD` (optional); plus host, inboundTopic, replyTopic | none |
+| Keybase (`keybase`) | yes; switched on from it | Windows: winget `Keybase.Keybase`; Mac: cask `keybase`; Linux: download page | none (plain steps) | nothing; plus path | none |
+| SimpleX Chat (`simplex`) | yes; switched on from it | Windows: download page; Mac: cask `simplex`; Linux: Flathub `chat.simplex.simplex` | none (plain steps) | nothing | none |
+| Delta Chat (`deltachat`) | yes; switched on from it | Windows: winget `DeltaChat.DeltaChat`; Mac: cask `deltachat`; Linux: Flathub `chat.delta.desktop` | none (plain steps) | nothing; plus path | none |
+| Nostr (`nostr`) | yes; switched on from it | nothing to install | none (plain steps) | `NOSTR_PRIVATE_KEY`; plus relay | none |
+| VK (`vk`) | yes; switched on from it | nothing to install | `https://dev.vk.com/en/api/bots/getting-started` | `VK_GROUP_TOKEN`; plus groupId | POST `https://api.vk.com/method/groups.getById` |
+| QQ (official bot) (`qq-bot`) | yes; switched on from it | Windows: winget `Tencent.QQ.NT`; Mac: cask `qq`; Linux: download page | `https://q.qq.com/` | `QQ_BOT_CLIENT_SECRET`; plus appId | POST `https://bots.qq.com/app/getAppAccessToken` |
+| Guilded (`guilded`) | yes; switched on from it | Windows: winget `Guilded.Guilded`; Mac: cask `guilded`; Linux: download page | `https://www.guilded.gg/` | `GUILDED_BOT_TOKEN` | GET `https://www.guilded.gg/api/v1/users/@me` |
+| Revolt (Stoat) (`revolt`) | yes; switched on from it | Windows: download page; Mac: download page; Linux: download page | `https://app.revolt.chat/settings/bots` | `REVOLT_BOT_TOKEN` | GET `https://api.revolt.chat/users/@me` |
+| Mumble (`mumble`) | yes; switched on from it | Windows: winget `Mumble.Mumble.Client`; Mac: download page; Linux: Flathub `info.mumble.Mumble` | none (plain steps) | `MUMBLE_PASSWORD` (optional); plus server, username | none |
+| KOOK (`kook`) | yes; switched on from it | Windows: download page; Mac: download page; Linux: download page | `https://developer.kookapp.cn/app/index` | `KOOK_BOT_TOKEN` | GET `https://www.kookapp.cn/api/v3/user/me` |
+| WeChat Official Account (`wechat-mp`) | yes; switched on from it | Windows: winget `Tencent.WeChat`; Mac: cask `wechat`; Linux: download page | `https://mp.weixin.qq.com/` | `WECHAT_MP_APP_SECRET`, `WECHAT_MP_TOKEN`, `WECHAT_MP_AES_KEY`; plus appId | none |
+| WeCom app (`wecom-app`) | yes; switched on from it | Windows: winget `Tencent.WeCom`; Mac: download page; Linux: download page | `https://work.weixin.qq.com/wework_admin/frame#apps` | `WECOM_APP_SECRET`, `WECOM_APP_TOKEN`, `WECOM_APP_AES_KEY`; plus corpId, agentId | none |
+
+<!-- channel-setup-table:end -->
+
+**What is not possible, and why.**
+
+- *Creating the bot for you.* No vendor offers an official way to make a bot on a person's behalf
+  without them confirming in their own account; the pre-filled links above are the closest.
+- *One install source for everything.* LINE, Flock, Pumble, KOOK and Stoat (Revolt) publish no package
+  a package manager can install on any system, and most apps have no vendor-verified Linux package; the
+  download page opens instead. WhatsApp's desktop app is only in the Microsoft Store on Windows, which
+  Branch does not drive, and Homebrew's Mumble cask is disabled.
+- *Store links for every phone.* No store page could be found for Twist or Guilded; VK and Stoat have
+  no iPhone link that could be confirmed, and KOOK and Flock no Play link. Those codes are left out.
+- *Signal, SimpleX and Delta Chat programs.* Branch talks through `signal-cli`, `simplex-chat` and
+  `deltachat-rpc-server`, which you install yourself; `signal-cli` is not made by Signal. The command
+  installs the chat app for you to talk from, never those programs.
+- *A connections line written for you.* See "One command or two" above.
+
+**macOS and Linux.** The command is the same on all three systems and each system's branch is tested
+with stand-ins (`tests/channel-setup.test.mjs`, `tests/channel-setup-command.test.mjs`): Homebrew casks
+and `open` on a Mac; Flatpak (`--user`, Flathub) then Snap (with `sudo`, said first) and `xdg-open` on
+Linux; winget (`--exact --source winget`) and `rundll32 url.dll,FileProtocolHandler` on Windows. Only
+`https://` and `tg://` links from a recipe are ever opened, always as an argument, never through a shell.
+
 ## Voice
 
 **Settings → Voice** configures speech input and output. Record audio messages to transcribe them to text (requires an OpenAI-compatible provider with an API key). Read messages aloud using your browser's built-in voice (free, offline) or the provider's text-to-speech endpoint (optional, higher quality). Voice settings include:
