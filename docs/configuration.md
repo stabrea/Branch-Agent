@@ -1796,6 +1796,7 @@ else — a run can have a failing task and still exit 0 when the bar it was give
 | GAIA | `metadata.jsonl` | `<folder>/metadata.jsonl`, with any attached files beside it |
 | Code tasks (APPS, MBPP, HumanEval) | a JSONL of prompt, entry point and tests | `<folder>/*.jsonl` |
 | Web tasks (WebVoyager, BrowserGym) | a JSONL of questions and answers | `<folder>/*.jsonl`, with each saved page at `<folder>/pages/<name>.html` |
+| MiniWoB++ (local) | individual HTML task pages | `<folder>/html/miniwob/*.html` |
 | terminal-bench | one folder per task | `<folder>/<task>/task.md` and `<folder>/<task>/tests.sh` |
 
 SWE-bench never clones anything from the internet. If the repository an instance names is not
@@ -1836,11 +1837,14 @@ on this computer — Git for Windows provides one, or set `BRANCH_BASH` to the o
 ### What is not supported, and why
 
 OSWorld, WindowsAgentArena (and its checkpoint scoring), AndroidWorld, and the live BrowserGym
-environments — MiniWoB, WebArena and WorkArena — are **not** integrated. Each needs a separate virtual computer — a Linux desktop, a
-throwaway Windows machine, an Android emulator — or a live website whose contents change. Branch
+environments — WebArena and WorkArena — are **not** integrated. Each needs a separate virtual computer — a Linux desktop, a
+throwaway Windows machine, or an Android emulator — or a live website whose contents change. Branch
 Agent runs on your computer and cannot make or roll back one, so a number from it would not mean
-what the published numbers mean. They are listed by name in `GET /api/evaluation/benchmarks` with
-what each would need, rather than half-supported.
+what the published numbers mean.
+
+MiniWoB++ is supported as local, static HTML files (see the table above); it does not require a
+live server. WebArena and WorkArena do, and are listed by name in `GET /api/evaluation/benchmarks`
+with what each would need, rather than half-supported.
 
 Two more things in this area are deliberately not built, for the same reason and written down here
 so nobody has to guess:

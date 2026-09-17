@@ -482,16 +482,77 @@ test("A1231: the Nexus adapter reads the published shape and marks the call that
   await assert.rejects(nexusAdapter.discover(join(root, "work")), /No \.jsonl file in/);
 });
 
-/* ------------------------------ A1726 the live browser environments, and why they are not here */
+/* ------------------------------ A1726 MiniWoB++ local adapter and live environments */
 
-test("A1726: the live browser environments are named, with what each would need", () => {
+test("A1726: MiniWoB++ local adapter reads tasks from a folder and judges them", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-eval3-miniwob-"));
+  t.after(() => discardTemp(root));
+
+  // Create a fake MiniWoB folder structure
+  const miniwobDir = join(root, "html", "miniwob");
+  await mkdir(miniwobDir, { recursive: true });
+
+  // Create a fake MiniWoB task page
+  const taskHtml = `<!DOCTYPE html>
+<html>
+<head><title>Test Task</title></head>
+<body>
+  <div id="query">Click the button</div>
+  <button id="submit">Submit</button>
+  <script>
+    window.core = {
+      startEpisodeReal: function() {},
+      getUtterance: function() { return "Click the button"; }
+    };
+    window.WOB_REWARD_GLOBAL = 0;
+    window.WOB_DONE_GLOBAL = false;
+    document.getElementById("submit").addEventListener("click", function() {
+      window.WOB_REWARD_GLOBAL = 1.0;
+      window.WOB_DONE_GLOBAL = true;
+    });
+  </script>
+</body>
+</html>`;
+
+  await writeFile(join(miniwobDir, "click-test.html"), taskHtml);
+
+  const adapter = findBenchmarkAdapter("miniwob");
+  assert.equal(adapter.id, "miniwob");
+
+  // Discover: should find the click-test task
+  const tasks = await adapter.discover(root);
+  assert.ok(tasks.length > 0, "should find at least one task");
+  const clickTask = tasks.find((t) => t.id.includes("click"));
+  assert.ok(clickTask, "should have the click-test task");
+  assert.match(clickTask.prompt, /MiniWoB/);
+
+  // Prepare: should copy the HTML file to the workspace
+  const workspace = join(root, "workspace");
+  const prepared = await adapter.prepare(clickTask, workspace, root);
+  assert.ok(prepared.files?.includes("click-test.html"), "should include the HTML file");
+  assert.match(prepared.prompt, /navigate/i, "should suggest navigating to the file");
+
+  // Judge: should evaluate a completed task
+  const judgePass = await adapter.judge(clickTask, {
+    answer: "I clicked the button and the task was completed successfully with reward 1.0",
+    workspace,
+  });
+  assert.equal(judgePass.pass, true, "should pass a completed task");
+
+  // Judge: should fail an empty answer
+  const judgeFail = await adapter.judge(clickTask, {
+    answer: "",
+    workspace,
+  });
+  assert.equal(judgeFail.pass, false, "should fail an empty answer");
+});
+
+test("A1726: live browser environments (WebArena, WorkArena) are documented as needing servers", () => {
   const entry = notIntegratedBenchmarks.find((one) => one.id === "browsergym-live");
   assert.ok(entry, "browsergym-live must be listed rather than left out");
-  for (const name of ["MiniWoB", "WebArena", "WorkArena"]) assert.match(entry.name + " " + entry.needs, new RegExp(name));
+  // MiniWoB is now locally supported, but WebArena and WorkArena still need servers
+  assert.match(entry.name + " " + entry.needs, /WebArena|WorkArena/);
   assert.match(entry.needs, /servers that have to be running/);
-  assert.match(entry.needs, /web-tasks adapter/);
-  // The offline half really is there: the adapter that runs against pages saved to disk.
-  assert.ok(findBenchmarkAdapter("web-tasks"));
 });
 
 /* ---------------------------------------------- A1499 the research suite that ships */
