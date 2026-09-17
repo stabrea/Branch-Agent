@@ -37,6 +37,7 @@ import { registerSessions } from "./sessions.js";
 import { SessionTree, registerSessionTree } from "./session-tree.js";
 import { lockedDown, lockdownRefusal } from "./lockdown.js";
 import { registerSkills } from "./skill-tools.js";
+import { registerContextFiles } from "./context-files.js";
 import { startMcpServer } from "./mcp-server.js";
 // Wave 7: opening other AI tools' servers only while a task needs them, and the two look-only
 // tools that report what a call would do and how those connections are faring.
@@ -352,6 +353,7 @@ export async function createBranch(options: {
   const sessionTree = new SessionTree(store.sqlite);
   registerSessionTree(registry, store, sessionTree);
   registerSkills(registry, store);
+  registerContextFiles(registry, store);
   documents = new DocumentLibrary(store, runtime.models, files);
   registerDocuments(registry, documents);
   runtime.documents = documents;
@@ -1021,6 +1023,7 @@ export * from "./providers.js";
 export * from "./knowledge.js";
 export * from "./memory.js";
 export * from "./identity.js";
+export * from "./context-files.js";
 export * from "./skills.js";
 export * from "./models.js";
 export * from "./chatgpt-auth.js";

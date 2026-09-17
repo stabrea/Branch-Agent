@@ -300,8 +300,13 @@ test("a Recents row lights up under the pointer in Daylight", async (t) => {
   const colour = () => row.evaluate((node) => getComputedStyle(node).backgroundColor);
   const resting = await colour();
   await row.hover();
-  await f.page.waitForTimeout(150);
-  const hovered = await colour();
+  /* The wash arrives through a CSS transition, so wait for the colour rather than for a stopwatch:
+     a build machine under load paints later than a quiet laptop, and 150ms is a guess either way. */
+  let hovered = resting;
+  for (const deadline = Date.now() + 5000; Date.now() < deadline && hovered === resting; ) {
+    await f.page.waitForTimeout(25);
+    hovered = await colour();
+  }
   assert.notEqual(hovered, resting, "the row takes a background under the pointer");
   /* color-mix serialises as color(srgb r g b / a), so the alpha is the last part. */
   const alpha = Number.parseFloat(hovered.split("/").pop().replace(")", "").trim());
