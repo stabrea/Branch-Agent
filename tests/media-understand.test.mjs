@@ -12,8 +12,11 @@ import { NetworkPolicy } from "../dist/network-policy.js";
 import { switchedToolTiers } from "../dist/feature-switches.js";
 import {
   captionArgs, convertArgs, downloadArgs, frameArgs, locateProgram, mediaProgramsOff, MediaProgramsSchema,
-  parseVtt, saveMediaProgramsSettings, soundTrackArgs, webAddress,
+  parseVtt, safeReaders, saveMediaProgramsSettings, scratchEnding, soundTrackArgs, webAddress,
 } from "../dist/media-programs.js";
+import { execFileSync } from "node:child_process";
+import { readdir, readFile, mkdir } from "node:fs/promises";
+import { findOnPath } from "../dist/voice-tts.js";
 import { MediaUnderstanding, registerMediaUnderstanding, mediaProgramTools } from "../dist/media-understand.js";
 
 /**
@@ -74,11 +77,12 @@ function understanding(app, media, programs, policy = quietPolicy()) {
 }
 
 test("the ffmpeg and yt-dlp argument lists are exact, and no address can become an option", () => {
+  const readers = ["-format_whitelist", safeReaders, "-protocol_whitelist", "file"];
   assert.deepEqual(frameArgs("/t/in.mp4", "/t", 4, 20), ["-hide_banner", "-loglevel", "error", "-nostdin", "-y",
-    "-i", "/t/in.mp4", "-vf", "fps=0.200000,scale='min(768,iw)':-2", "-frames:v", "4", "-q:v", "4", join("/t", "frame-%02d.jpg")]);
-  assert.match(frameArgs("/t/in.mkv", "/t", 2, null)[8], /^fps=0\.100000,/, "an unknown length takes one picture every ten seconds");
-  assert.deepEqual(soundTrackArgs("/t/in.mp4", "/t/s.wav").slice(5), ["-i", "/t/in.mp4", "-vn", "-ac", "1", "-ar", "16000", "-f", "wav", "/t/s.wav"]);
-  assert.deepEqual(convertArgs("/t/a.m4a", "/t/o.mp3", "mp3").slice(8), ["-codec:a", "libmp3lame", "-q:a", "4", "-f", "mp3", "/t/o.mp3"]);
+    ...readers, "-i", "/t/in.mp4", "-vf", "fps=0.200000,scale='min(768,iw)':-2", "-frames:v", "4", "-q:v", "4", join("/t", "frame-%02d.jpg")]);
+  assert.match(frameArgs("/t/in.mkv", "/t", 2, null)[12], /^fps=0\.100000,/, "an unknown length takes one picture every ten seconds");
+  assert.deepEqual(soundTrackArgs("/t/in.mp4", "/t/s.wav").slice(5), [...readers, "-i", "/t/in.mp4", "-vn", "-ac", "1", "-ar", "16000", "-f", "wav", "/t/s.wav"]);
+  assert.deepEqual(convertArgs("/t/a.m4a", "/t/o.mp3", "mp3").slice(12), ["-codec:a", "libmp3lame", "-q:a", "4", "-f", "mp3", "/t/o.mp3"]);
   const download = downloadArgs("https://example.com/v?id=1", "/t", { soundOnly: true, maxMb: 50, ffmpeg: "/bin/ffmpeg" });
   assert.equal(download[0], "--ignore-config", "no settings file on this computer can add a command");
   assert.deepEqual(download.slice(-2), ["--", "https://example.com/v?id=1"]);
@@ -89,6 +93,48 @@ test("the ffmpeg and yt-dlp argument lists are exact, and no address can become 
   assert.throws(() => webAddress("file:///etc/passwd"), /Only http and https/);
   assert.throws(() => webAddress("https://me:pw@example.com/"), /name or password/);
   assert.throws(() => webAddress("--exec=rm"), /not a web address/);
+});
+
+test("integrator: ffmpeg only reads ordinary video files, and yt-dlp loads no plug-in, remote code or catch-all reader", async (t) => {
+  for (const args of [frameArgs("/t/a", "/t", 1, 1), soundTrackArgs("/t/a", "/t/o.wav"), convertArgs("/t/a", "/t/o.wav", "wav")]) {
+    const input = args.indexOf("-i");
+    assert.deepEqual(args.slice(input - 4, input), ["-format_whitelist", safeReaders, "-protocol_whitelist", "file"]);
+    assert.ok(!/hls|concat|dash|image2/.test(safeReaders), "no reader that opens other files named inside one");
+  }
+  assert.equal(scratchEnding("films/clip.m3u8"), ".bin", "a playlist never keeps its own ending");
+  assert.equal(scratchEnding("x.MP4"), ".mp4");
+  assert.equal(scratchEnding("x.vnd.apple.mpegurl"), ".bin");
+  for (const args of [downloadArgs("https://e.com/v", "/t", { soundOnly: false, maxMb: 5, ffmpeg: null }), captionArgs("https://e.com/v", "/t", "en")]) {
+    for (const flag of ["--ignore-config", "--no-plugin-dirs", "--no-remote-components", "--no-cache-dir"]) assert.ok(args.includes(flag), flag);
+    assert.equal(args[args.indexOf("--use-extractors") + 1], "default,-generic");
+    assert.ok(!args.some((arg) => /^--(exec|netrc|cookies|config-location|plugin-dirs$)/.test(arg)));
+  }
+  const { app } = await fixture(t);
+  saveMediaProgramsSettings(app.store, "local", { mode: "on" });
+  const programs = fakePrograms();
+  const tools = understanding(app, fakeMedia(app, { "list.m3u8": Buffer.from("#EXTM3U\nfile:///etc/hosts\n") }, { heard: [], looked: [], kept: [] }), programs);
+  await tools.keepFrames({ path: "list.m3u8", count: 1 }, context(app));
+  const input = programs.ran[0].args[programs.ran[0].args.indexOf("-i") + 1];
+  assert.match(input, /input\.bin$/);
+});
+
+test("integrator: a playlist dressed as a video cannot make the real ffmpeg read another file", { skip: process.platform === "win32" || !findOnPath("ffmpeg") }, async (t) => {
+  const ffmpeg = findOnPath("ffmpeg");
+  const root = await mkdtemp(join(tmpdir(), "branch-b17-hls-"));
+  t.after(() => discardTemp(root));
+  await mkdir(join(root, "private"));
+  const secret = join(root, "private", "secret.mp4");
+  execFileSync(ffmpeg, ["-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-f", "lavfi", "-i", "sine=duration=1", "-f", "mp4", secret]);
+  const playlist = join(root, "input.m3u8");
+  await writeFile(playlist, `#EXTM3U\n#EXT-X-TARGETDURATION:10\n#EXTINF:1,\nfile://${secret}\n#EXT-X-ENDLIST\n`);
+  const plain = join(root, "plain.wav");
+  execFileSync(ffmpeg, ["-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-i", playlist, "-vn", "-f", "wav", plain], { stdio: "ignore" });
+  assert.ok((await readFile(plain)).length > 100, "without the guard the playlist really does read the other file");
+  const out = join(root, "guarded.wav");
+  assert.throws(() => execFileSync(ffmpeg, soundTrackArgs(playlist, out), { stdio: "pipe" }), /whitelist/i);
+  assert.ok(!(await readdir(root)).includes("guarded.wav"));
+  execFileSync(ffmpeg, soundTrackArgs(secret, out));
+  assert.ok((await readFile(out)).length > 100, "an ordinary file still works");
 });
 
 test("captions are read line by line, with rolling repeats and tags removed", () => {

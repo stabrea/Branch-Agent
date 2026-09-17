@@ -78,6 +78,22 @@ export async function locateProgram(
 /* ---------- argument lists, pure ---------- */
 
 const quiet = ["-hide_banner", "-loglevel", "error", "-nostdin", "-y"];
+/**
+ * Integrator fix: ffmpeg picks its reader from the file's contents, and a playlist (`.m3u8`) or a
+ * similar list file makes it open other files named inside it — any video on this computer. Only
+ * readers for ordinary video and sound files are allowed, and only plain files, before every `-i`.
+ */
+export const safeReaders = "mov,matroska,avi,wav,mp3,ogg,flac,aac,mpegts,mpeg,flv,asf,aiff,caf,amr";
+const reading = (input: string): string[] =>
+  ["-format_whitelist", safeReaders, "-protocol_whitelist", "file", "-i", input];
+const knownEndings = new Set([".mp4", ".m4v", ".m4a", ".mov", ".3gp", ".webm", ".mkv", ".avi", ".wav", ".mp3",
+  ".ogg", ".oga", ".ogv", ".opus", ".flac", ".aac", ".ts", ".mpg", ".mpeg", ".flv", ".wmv", ".wma", ".aif", ".aiff", ".caf", ".amr"]);
+/** The ending the private copy of a file gets: a known video or sound ending, or `.bin`. */
+export function scratchEnding(name: string): string {
+  const dot = name.lastIndexOf(".");
+  const ending = dot >= 0 ? name.slice(dot).toLowerCase() : "";
+  return knownEndings.has(ending) ? ending : ".bin";
+}
 
 /**
  * Still pictures spread evenly across a video. With a known length the pictures are one every
@@ -86,33 +102,38 @@ const quiet = ["-hide_banner", "-loglevel", "error", "-nostdin", "-y"];
 export function frameArgs(input: string, outDir: string, count: number, seconds: number | null): string[] {
   const every = seconds && seconds > 0 ? seconds / count : 10;
   const rate = (1 / every).toFixed(6);
-  return [...quiet, "-i", input, "-vf", `fps=${rate},scale='min(768,iw)':-2`, "-frames:v", String(count),
+  return [...quiet, ...reading(input), "-vf", `fps=${rate},scale='min(768,iw)':-2`, "-frames:v", String(count),
     "-q:v", "4", join(outDir, "frame-%02d.jpg")];
 }
 /** The sound of a video as a small WAV file a speech service can read. */
 export function soundTrackArgs(input: string, output: string): string[] {
-  return [...quiet, "-i", input, "-vn", "-ac", "1", "-ar", "16000", "-f", "wav", output];
+  return [...quiet, ...reading(input), "-vn", "-ac", "1", "-ar", "16000", "-f", "wav", output];
 }
 /** Any sound or video turned into a WAV or MP3 sound file. */
 export function convertArgs(input: string, output: string, to: "wav" | "mp3"): string[] {
   const codec = to === "mp3" ? ["-codec:a", "libmp3lame", "-q:a", "4"] : ["-codec:a", "pcm_s16le"];
-  return [...quiet, "-i", input, "-vn", ...codec, "-f", to, output];
+  return [...quiet, ...reading(input), "-vn", ...codec, "-f", to, output];
 }
 
 /**
- * yt-dlp saving one video (or only its sound). `--ignore-config` means no settings file on this
- * computer can add a command to run afterwards, and `--` means the address can never be read as
- * an option.
+ * What every yt-dlp call starts with. `--ignore-config`: no settings file on this computer can add
+ * a command to run afterwards. `--no-plugin-dirs`: no plug-in from the owner's home or Python
+ * folders is loaded. `--no-remote-components`: no code is fetched from the web. `--no-cache-dir`:
+ * nothing is written outside the private folder. `default,-generic`: only the site readers yt-dlp
+ * ships, never the catch-all that follows any page to wherever it points. (Integrator fix.)
  */
+const ytDlpBase = ["--ignore-config", "--no-plugin-dirs", "--no-remote-components", "--no-cache-dir",
+  "--use-extractors", "default,-generic", "--no-playlist", "--no-progress"];
+/** yt-dlp saving one video (or only its sound). `--` means the address can never be read as an option. */
 export function downloadArgs(url: string, outDir: string, options: { soundOnly: boolean; maxMb: number; ffmpeg: string | null }): string[] {
   const shape = options.soundOnly ? ["-x", "--audio-format", "mp3"] : ["-f", "mp4/best[ext=mp4]/best"];
-  return ["--ignore-config", "--no-playlist", "--no-progress", "--restrict-filenames",
+  return [...ytDlpBase, "--restrict-filenames",
     "--max-filesize", `${options.maxMb}M`, "-P", outDir, "-o", "%(title).60s-%(id)s.%(ext)s",
     ...(options.ffmpeg ? ["--ffmpeg-location", options.ffmpeg] : []), ...shape, "--", url];
 }
 /** yt-dlp saving only the captions of a video, written or made by the site, in one language. */
 export function captionArgs(url: string, outDir: string, language: string): string[] {
-  return ["--ignore-config", "--no-playlist", "--no-progress", "--skip-download", "--write-subs",
+  return [...ytDlpBase, "--skip-download", "--write-subs",
     "--write-auto-subs", "--sub-langs", `${language}.*,${language}`, "--sub-format", "vtt",
     "-P", outDir, "-o", "captions", "--", url];
 }

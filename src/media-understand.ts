@@ -9,7 +9,7 @@ import { kindOf, maximumMediaBytes, type MediaTools } from "./media.js";
 import { mediaInfo } from "./media-video.js";
 import {
   captionArgs, convertArgs, downloadArgs, frameArgs, locateProgram, mediaProgramsOff, mediaProgramsSettings,
-  parseVtt, soundTrackArgs, webAddress, type MediaPrograms, type ProgramFinder, type ProgramRunner,
+  parseVtt, scratchEnding, soundTrackArgs, webAddress, type MediaPrograms, type ProgramFinder, type ProgramRunner,
 } from "./media-programs.js";
 import type { NetworkPolicy } from "./network-policy.js";
 import type { ToolRegistry } from "./registry.js";
@@ -78,7 +78,7 @@ export class MediaUnderstanding {
     let seconds: number | null = null;
     try { seconds = mediaInfo(bytes).seconds; } catch { /* not a file whose headers this app reads */ }
     return this.scratch(async (dir) => {
-      const input = join(dir, `input${extname(`x.${mediaType.split("/")[1] ?? "bin"}`).slice(0, 12)}`);
+      const input = join(dir, `input${scratchEnding(`x.${mediaType.split("/")[1] ?? "bin"}`)}`);
       await writeFile(input, bytes, { mode: 0o600 });
       const notes: string[] = [];
       const pictures = mediaType.startsWith("audio/") ? [] : await this.frames(ffmpeg, input, dir, settings.frames, seconds, signal, notes);
@@ -150,7 +150,7 @@ export class MediaUnderstanding {
     let seconds: number | null = null;
     try { seconds = mediaInfo(bytes).seconds; } catch { /* length unknown */ }
     return this.scratch(async (dir) => {
-      const source = join(dir, `input${extname(input.path).slice(0, 12)}`);
+      const source = join(dir, `input${scratchEnding(input.path)}`);
       await writeFile(source, bytes, { mode: 0o600 });
       const notes: string[] = [];
       const pictures = await this.frames(ffmpeg, source, dir, input.count, seconds, context.signal, notes);
@@ -168,7 +168,7 @@ export class MediaUnderstanding {
     if (context.dryRun) return { wouldConvert: input.path, into: this.deps.media.savePath(context.owner, input.save) };
     const ffmpeg = await this.locate("ffmpeg", settings);
     return this.scratch(async (dir) => {
-      const source = join(dir, `input${extname(input.path).slice(0, 12)}`), output = join(dir, `output.${to}`);
+      const source = join(dir, `input${scratchEnding(input.path)}`), output = join(dir, `output.${to}`);
       await writeFile(source, bytes, { mode: 0o600 });
       await this.run(ffmpeg, convertArgs(source, output, to), context.signal);
       const made = await readFile(output);
