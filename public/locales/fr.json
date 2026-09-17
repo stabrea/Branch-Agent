@@ -610,7 +610,7 @@
   "runs.intro.every-task-your-assistant-has": "Toutes les tâches que votre assistant a effectuées, la plus récente en premier. Ouvrez-en une pour voir chaque étape suivie, ce qui est revenu, ce qui s'est mal passé, et ce qu'elle a coûté.",
   "schedules.card.set-up-a-task": "Créer une tâche",
   "schedules.checkin.every": "Toutes les (minutes)",
-  "schedules.checkin.file": "Lire la liste dans HEARTBEAT.md",
+  "schedules.checkin.file-link": "Choisir d’où vient la liste",
   "schedules.checkin.file-found": "La liste est lue dans {name} de l'espace de travail ; celle ci-dessous n'est pas utilisée.",
   "schedules.checkin.file-missing": "Il n'y a pas encore de HEARTBEAT.md dans l'espace de travail, alors chaque point passe en revue ce qui est en place.",
   "schedules.checkin.file-off": "La liste ci-dessous est utilisée.",

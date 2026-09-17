@@ -61,3 +61,34 @@ test("the quiet-jobs cards name their homes, keep to the card anatomy and fit 40
   assert.equal((await app.scheduler.overview("local")).switches.notifyGate, "when-needed");
   assert.deepEqual(errors, []);
 });
+
+test("HEARTBEAT.md has one switch: Legion's card, which the check-in card points to and reads back", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-quiet-ui-"));
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data") });
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  const browser = await chromium.launch({ headless: true });
+  t.after(async () => { await browser.close(); await server.close(); await app.close(); await discardTemp(root); });
+  const page = await browser.newPage({ viewport: { width: 400, height: 900 } });
+  await signIn(page, server);
+  await openPlace(page, "automations:scheduled");
+  await page.locator("#quiet-checkin h2").waitFor({ state: "visible" });
+  await page.locator("#context-heartbeat h2").waitFor({ state: "visible" });
+  const found = await page.evaluate(() => ({
+    switches: document.querySelectorAll("select[id*='heartbeat-file'], select#context-switch-heartbeat").length,
+    inCheckIn: [...document.querySelectorAll("#quiet-checkin select")].map((s) => s.id),
+    link: document.querySelector("#quiet-checkin a[href='#context-heartbeat']")?.dataset.t ?? null,
+    sameHome: document.getElementById("context-heartbeat").dataset.home === document.getElementById("quiet-checkin").dataset.home,
+  }));
+  assert.equal(found.switches, 1, "exactly one control decides whether HEARTBEAT.md is read");
+  assert.deepEqual(found.inCheckIn, ["heartbeat-mode"], "the check-in card only carries its own on/off/when-needed");
+  assert.equal(found.link, "schedules.checkin.file-link");
+  assert.ok(found.sameHome);
+  await page.locator("#quiet-checkin a[href='#context-heartbeat']").click();
+  await page.waitForFunction(() => document.activeElement?.id === "context-switch-heartbeat");
+  await page.locator("#context-switch-heartbeat").selectOption("on");
+  await page.locator("#context-heartbeat button").click();
+  await page.waitForFunction(() => /HEARTBEAT\.md/.test(document.querySelector("#quiet-checkin p.subtle a")?.parentElement?.textContent ?? ""));
+  const { switchFor, contextFileSettings } = await import("../dist/context-files.js");
+  assert.equal(switchFor(contextFileSettings(app.store, "local"), "heartbeat"), "on", "the check-in reads what that card saved");
+  assert.equal(await app.scheduler.heartbeat.checklist("local"), null, "switched on with no file yet: the file is the source, not the typed list");
+});

@@ -609,7 +609,7 @@
   "runs.intro.every-task-your-assistant-has": "Every task your assistant has done, newest first. Open one to see each step it took, what came back, anything that went wrong, and what it cost.",
   "schedules.card.set-up-a-task": "Set up a task",
   "schedules.checkin.every": "Every (minutes)",
-  "schedules.checkin.file": "Read the checklist from HEARTBEAT.md",
+  "schedules.checkin.file-link": "Change where the list comes from",
   "schedules.checkin.file-found": "The checklist is read from {name} in the workspace; the list below is not used.",
   "schedules.checkin.file-missing": "There is no HEARTBEAT.md in the workspace yet, so check-ins look over what is set up.",
   "schedules.checkin.file-off": "The checklist below is used.",

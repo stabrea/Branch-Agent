@@ -68,10 +68,9 @@ function badge(health) {
   return made;
 }
 
-function checkInFields(settings, mode, file) {
+function checkInFields(settings, mode) {
   const fields = {
     mode: modeSelect("heartbeat-mode", mode),
-    file: modeSelect("heartbeat-file", file?.setting ?? "off"),
     every: control("heartbeat-every", "number", settings.everyMinutes),
     from: control("heartbeat-from", "time", settings.activeHours?.from ?? ""),
     to: control("heartbeat-to", "time", settings.activeHours?.to ?? ""),
@@ -98,24 +97,40 @@ function modeSelect(id, value) {
   return select;
 }
 
-/** Where the checklist comes from: HEARTBEAT.md in the workspace, or the list typed here. */
+/**
+ * Where the checklist comes from: HEARTBEAT.md in the workspace, or the list typed here. The one
+ * switch for that file is Legion's "What to check when it wakes" card (#context-heartbeat), in the
+ * same place; this card only says what it chose and points there.
+ */
+function fileLink() {
+  const link = node("a", "schedules.checkin.file-link");
+  link.href = "#context-heartbeat";
+  link.addEventListener("click", (event) => {
+    const target = document.getElementById("context-heartbeat");
+    if (!target) return;
+    event.preventDefault();
+    target.scrollIntoView({ block: "nearest" });
+    document.getElementById("context-switch-heartbeat")?.focus();
+  });
+  return link;
+}
 function fileWords(file) {
   if (!file || file.setting === "off") return t("schedules.checkin.file-off");
   return file.name ? t("schedules.checkin.file-found", { name: file.name }) : t("schedules.checkin.file-missing");
 }
-/* automations:scheduled — the check-in itself, beside the HEARTBEAT.md switch it reads from. */
+/* automations:scheduled — the check-in itself, beside the HEARTBEAT.md switch it reads from (not a second copy of it). */
 function fillCheckIn(card, { settings, mode, state, health }, switches, file) {
-  const fields = checkInFields(settings, switches.checkIn ?? mode, file);
+  const fields = checkInFields(settings, switches.checkIn ?? mode);
+  const source = plain("p", fileWords(file), "subtle");
+  source.append(" ", fileLink());
   card.replaceChildren(node("h2", "schedules.checkin.title"), node("p", "schedules.checkin.intro", "subtle"),
     field("schedules.switch.check-in", fields.mode), field("schedules.checkin.every", fields.every),
     field("schedules.checkin.from", fields.from), field("schedules.checkin.to", fields.to),
-    field("schedules.checkin.zone", fields.zone), field("schedules.checkin.file", fields.file),
-    plain("p", fileWords(file), "subtle"), field("schedules.checkin.list", fields.list),
+    field("schedules.checkin.zone", fields.zone), source, field("schedules.checkin.list", fields.list),
     badge(health), plain("p", lastWords(state), "subtle"));
   card.append(button("action.save-check-in", async () => {
     const hours = fields.from.value && fields.to.value ? { from: fields.from.value, to: fields.to.value } : null;
     await api("heartbeat/switches", { checkIn: fields.mode.value });
-    await api("context-files", { files: { heartbeat: fields.file.value } });
     await api("heartbeat", { ...settings, everyMinutes: Number(fields.every.value), activeHours: hours,
       timezone: fields.zone.value, checklist: fields.list.value });
     toast(t("schedules.checkin.saved"));
@@ -215,5 +230,8 @@ document.addEventListener("branch-language", render);
 const homes = "[data-view='schedules'], [data-place='automations'], .lx-gear, .lx-settings-link[data-page='notifications']";
 load().catch(() => {});
 document.addEventListener("click", (event) => {
-  if (event.target instanceof Element && event.target.closest(homes)) load().catch(() => {});
+  if (!(event.target instanceof Element)) return;
+  if (event.target.closest(homes)) load().catch(() => {});
+  /* The HEARTBEAT.md switch is saved by its own card; read back what it chose once that save is done. */
+  if (event.target.closest("#context-heartbeat button")) setTimeout(() => load().catch(() => {}), 500);
 });

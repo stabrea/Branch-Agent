@@ -1380,15 +1380,19 @@ the assistant works through your `checklist`. With `checkIn` set to when needed,
 A check-in runs only when you press "Check in now" or something wakes it, and a wake still keeps to the
 hours. With `checkIn` off, "Check in now" is refused. The checklist is read through one provider. When
 the `heartbeat` context file (HEARTBEAT.md in the workspace) is switched on or set to when needed, that
-file is the checklist; otherwise the text you keep here is used. Both switches sit on the same card. If there is no checklist file, the check-in still runs. If the
+file is the checklist; otherwise the text you keep here is used. That file has one switch, on the "What to
+check when it wakes" card beside the check-in; the check-in card says which list it is using and links to it. If there is no checklist file, the check-in still runs. If the
 checklist has only blank lines, headings, comments or empty boxes, the model is not asked at all. The
 assistant answers with the `heartbeat.respond` tool. That tool sits in the schedules toolbox, so ordinary
-tasks do not carry it, and a check-in is told to load it. `notify: false` sends nothing. `notify: true`
+tasks do not carry it, and a check-in is told to load it. It has its own permission, `heartbeat.respond`,
+which counts as look-only, so a check-in answers without asking even under "Ask before changes" or "Read only". `notify: false` sends nothing. `notify: true`
 sends its text to `deliverTo` (a chat) or to the activity list. If the tool is not used, a reply of
 exactly `NOTHING_NEW` counts as quiet, and any other reply is sent as the news.
 With `secondOpinion` on, one short extra question decides whether the news is worth interrupting you;
 if that question cannot be asked or read, the news is sent. Each check-in is recorded (quiet, notified,
-held back, failed) in the setting `heartbeat-state`.
+held back, failed) in the setting `heartbeat-state`. News from a check-in is announced to webhooks
+listening for `heartbeat.notify` (`runId`, `via`, `delivered`; the words themselves are not sent). A
+short-lived key may read `/api/heartbeat` but not change, switch or start the check-in.
 
 **Check scripts.** A task or check schedule may carry `gate: { executable, args, timeoutMs, maxMemoryMb,
 maxCpuSeconds, network }`. The program must be named in full and is started with a list of arguments,
@@ -1401,7 +1405,9 @@ job with a script starts paused until you approve the script in Schedules (`POST
 /api/schedules/:id/gate { approve }`, the app window only; a short-lived key is refused). The approval
 covers that exact program, arguments and limits, so changing any of them asks again. A script that fails
 waits 2, 4, 8, 16 minutes (at most an hour, never sooner than the job's own next turn) and after five
-failures in a row the job is paused with the reason. "Run now" and webhooks skip the script.
+failures in a row the job is paused with the reason. Each failure is announced to webhooks listening for
+`schedule.script_failed` (`scheduleId`, `failures`, `paused`, `retryAt`; what the script printed stays in
+the app). A saved script that cannot be read pauses the job instead of running. "Run now" and webhooks skip the script.
 
 **Checks send news only.** With `notifyGate` on, a `check` schedule sends its result only when it is
 new. A reply that is exactly `NOTHING_NEW` after trimming (capital letters count), or the same result as

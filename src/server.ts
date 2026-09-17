@@ -2607,6 +2607,9 @@ function offLimitsToShortLivedKeys(method: string | undefined, path: string): st
     return "A short-lived key cannot name a program for Branch to run, add a model service, or change the locker. Do that in the app window.";
   if (path === "/api/deployment/close")
     return "A short-lived key cannot close Branch. Only the app on this computer can.";
+  // Wave mac2 (quiet-jobs): the check-in's switches, hours and where its news goes are the owner's.
+  if (path === "/api/heartbeat" || path.startsWith("/api/heartbeat/"))
+    return "A short-lived key cannot change the check-in or start one. Do that in the app window.";
   return null;
 }
 function isExecution(request: IncomingMessage, path: string): boolean {

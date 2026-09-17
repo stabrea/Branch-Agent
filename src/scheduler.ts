@@ -5,7 +5,7 @@ import type { Store, SavedRecord } from "./store.js";
 import type { Runtime } from "./runtime.js";
 import type { ToolRegistry } from "./registry.js";
 import type { SuiteRunner } from "./evaluation-runner.js";
-import { GateScriptSchema, afterGateFailure, checkGateProgram, gateFingerprint, gatePrompt, runGate, type GateRunner } from "./job-gate.js";
+import { GateScriptSchema, afterGateFailure, checkGateProgram, gateFingerprint, gatePrompt, runGate, type GateRunner, type GateScript } from "./job-gate.js";
 import { Heartbeat, automationHealth, quietSwitches, quietWord, saveQuietSwitches, registerHeartbeat, type Health, type QuietMode } from "./heartbeat.js";
 
 const timezone = z.string().min(1).max(64).refine((zone) => {
@@ -60,7 +60,18 @@ const nextTurn = (data: Record<string, unknown>, now: Date): string =>
 export const nothingNew = quietWord;
 const awaitingApproval = "This job runs a check script first, and waits until you approve the script in Schedules.";
 const scriptsOff = "Check scripts are switched off, so this job is waiting. Turn them on in Schedules to let it run.";
+const unreadableGate = "The check script saved with this job cannot be read, so the job has been paused. Remove it and add it again.";
 const saidNothingNew = (output: string): boolean => output.trim() === nothingNew;
+/** The job's saved check script, or null when what is stored is not a valid one (it is never run then). */
+function storedGate(data: Record<string, unknown>): GateScript | null {
+  const parsed = GateScriptSchema.safeParse(data.gate);
+  return parsed.success ? parsed.data : null;
+}
+/** Whether the owner's yes covers exactly the script that is saved now. */
+function gateIsApproved(data: Record<string, unknown>): boolean {
+  const script = storedGate(data);
+  return script !== null && typeof data.gateApproved === "string" && data.gateApproved === gateFingerprint(script);
+}
 const dayMs = 86_400_000;
 /**
  * Whether only news is sent. Off: every result, as before. A schedule's own `notify` wins otherwise;
@@ -299,8 +310,12 @@ export class Scheduler {
    * should be woken; otherwise the turn is written down (quiet, or failed with backoff) and null.
    */
   private async passGate(record: SavedRecord, now: Date): Promise<{ data: unknown } | null> {
-    const data = record.data, script = GateScriptSchema.parse(data.gate);
+    const data = record.data, script = storedGate(data);
     const save = (changes: Record<string, unknown>) => this.store.save("schedules", record.owner, record.id, { ...data, ...changes });
+    if (!script) {
+      save({ status: "paused", gateApproved: null, pausedBecause: unreadableGate });
+      return null;
+    }
     if (data.gateApproved !== gateFingerprint(script)) {
       save({ status: "paused", gateApproved: null, pausedBecause: awaitingApproval });
       return null;
@@ -321,6 +336,8 @@ export class Scheduler {
     }
     const failures = Number(data.gateFailures ?? 0) + 1;
     const after = afterGateFailure(failures, now, outcome.reason, next);
+    // The reason can quote what the script printed, so it stays in the app; the endpoint hears the facts.
+    this.runtime.notifyEvent("schedule.script_failed", { scheduleId: record.id, failures, paused: after.paused, retryAt: after.dueAt });
     save({ lastGate, gateFailures: failures, history: [...history, entry], dueAt: after.dueAt,
       status: after.paused ? "paused" : "pending", ...(after.paused ? { pausedBecause: after.pausedBecause } : {}) });
     return null;
@@ -333,7 +350,8 @@ export class Scheduler {
     const record = this.store.get("schedules", owner, id);
     if (!record?.data.gate) throw new Error("That schedule has no check script");
     if (record.data.status === "running") throw new Error("This schedule is running right now");
-    const script = GateScriptSchema.parse(record.data.gate);
+    const script = storedGate(record.data);
+    if (!script) throw new Error(unreadableGate);
     if (!approve)
       return this.store.save("schedules", owner, id, { ...record.data, gateApproved: null, status: "paused", pausedBecause: awaitingApproval });
     await checkGateProgram(script.executable);
@@ -348,7 +366,7 @@ export class Scheduler {
     const schedules = this.store.list("schedules", owner).map((record) => ({
       id: record.id, prompt: String(record.data.prompt).slice(0, 200), kind: record.data.kind, status: record.data.status,
       pausedBecause: record.data.pausedBecause ?? null, health: scheduleHealth(record.data),
-      gate: record.data.gate ? { ...(record.data.gate as object), approved: typeof record.data.gateApproved === "string" && record.data.gateApproved === gateFingerprint(GateScriptSchema.parse(record.data.gate)), last: record.data.lastGate ?? null } : null,
+      gate: storedGate(record.data) ? { ...storedGate(record.data), approved: gateIsApproved(record.data), last: record.data.lastGate ?? null } : null,
     }));
     return { switches: quietSwitches(this.store, owner), heartbeat: this.heartbeat.overview(owner), schedules };
   }
@@ -407,7 +425,7 @@ export class Scheduler {
       throw new Error(
         "Only pending or paused schedules may be paused or resumed",
       );
-    if (!paused && record.data.gate && record.data.gateApproved !== gateFingerprint(GateScriptSchema.parse(record.data.gate)))
+    if (!paused && record.data.gate && !gateIsApproved(record.data))
       throw new Error("Approve this job's check script in Schedules before starting it");
     return this.store.save("schedules", context.owner, id, {
       ...record.data,

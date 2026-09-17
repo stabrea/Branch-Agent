@@ -170,6 +170,8 @@ const readOnlyPermissions = new Set([
   "process.read",
   // GitLab is read-only here: issues, releases and how the checks went.
   "gitlab.read",
+  // A check-in writing down its own answer (src/heartbeat.ts); the news goes out afterwards, by Branch.
+  "heartbeat.respond",
 ]);
 export const isReadOnlyPermission = (permission: string): boolean => readOnlyPermissions.has(permission);
 

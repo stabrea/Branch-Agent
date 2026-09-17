@@ -266,7 +266,10 @@ export class Heartbeat {
       this.store.event(run.id, "heartbeat.second_opinion", verdict);
       if (!verdict.notify) return { outcome: "held", reason: verdict.reason || "The second opinion thought this could wait." };
     }
-    return { outcome: "notified", reason: await this.send(run, answer.text, settings) };
+    const reason = await this.send(run, answer.text, settings);
+    // Only that there was news, where it went and the task behind it: the words stay on this computer.
+    this.runtime.notifyEvent("heartbeat.notify", { runId: run.id, via: settings.deliverTo?.channel ?? "activity", delivered: reason === null });
+    return { outcome: "notified", reason };
   }
   private answerOf(runId: string): Response | null {
     const said = this.store.events(runId).filter((event) => event.kind === "heartbeat.responded").at(-1);
@@ -291,7 +294,7 @@ export class Heartbeat {
   /** What a scheduled job may use, plus the one tool a check-in answers with. */
   private permissions(): string[] {
     const all = [...this.runtime.context().permissions];
-    return [...new Set([...all.filter((p) => !p.startsWith("schedules.") && !p.endsWith(".manage")), "schedules.read"])];
+    return [...new Set([...all.filter((p) => !p.startsWith("schedules.") && !p.endsWith(".manage")), "schedules.read", respondPermission])];
   }
   private async askSecondOpinion(run: Run, text: string, checklist: string): Promise<{ notify: boolean; reason: string }> {
     const preset = this.runtime.models.plan(run.owner, run.sessionId).candidates[0];
@@ -326,12 +329,17 @@ export function readVerdict(reply: string): { notify: boolean; reason: string } 
   return { notify: true, reason: "The second opinion's reply could not be read, so the news was sent." };
 }
 
+/**
+ * The check-in's answer has a permission of its own, so a rule can name it. It is look-only in
+ * src/policy.ts: it only writes down the answer, so a scheduled check-in (held to "ask before
+ * changes") calls it without waiting for anybody.
+ */
+export const respondPermission = "heartbeat.respond";
 export function registerHeartbeat(registry: ToolRegistry, heartbeat: Heartbeat): void {
   registry.register({
     name: "heartbeat.respond",
     description: "Only in a scheduled check-in: notify=false stays quiet; notify=true sends text to the owner.",
-    // It changes nothing outside the check-in, so it is held like the other look-only schedule tools.
-    permission: "schedules.read",
+    permission: respondPermission,
     // With the other clockwork, so ordinary tasks do not carry it; a check-in is told to load it.
     group: "schedules",
     parameters: RespondSchema,
