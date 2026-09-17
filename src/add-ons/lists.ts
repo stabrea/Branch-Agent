@@ -6,7 +6,7 @@ import { z } from "zod";
 import type { NetworkPolicy } from "../network-policy.js";
 import type { Store } from "../store.js";
 import type { AddOnRecord, AddOnShelf } from "./package-shelf.js";
-import { slug } from "./formats.js";
+import { readOffer, readPackageFolder, slug } from "./formats.js";
 
 /**
  * Bucket 15 (A0022, A2045): add-on lists — the "marketplace", as the owner's own choice of where
@@ -48,6 +48,8 @@ export interface ListedAddOn {
   /** "checked" (signed with the list's key), "unsigned", "invalid", or "local" for a folder. */
   signed: "checked" | "unsigned" | "invalid" | "local";
   installable: boolean; note: string;
+  /** The fingerprint the owner is shown; installing must name the same one. */
+  sha256: string | null;
 }
 const maxIndexBytes = 512 * 1024, maxPackageBytes = 1024 * 1024;
 const localIndexes = [".claude-plugin/marketplace.json", ".agents/plugins/marketplace.json", "marketplace.json"];
@@ -58,12 +60,38 @@ export function listSigningPayload(listName: string, entry: Pick<AddOnListEntry,
 export function signListEntry(privateKey: KeyObject, listName: string, entry: Pick<AddOnListEntry, "id" | "version" | "sha256">): string {
   return signBytes(null, listSigningPayload(listName, entry), privateKey).toString("base64");
 }
+/**
+ * "checked" only for an Ed25519 signature made with the list's key. A list that publishes a key must
+ * sign every entry: an entry whose signature was taken off is "invalid", not "unsigned".
+ */
 export function verifyListEntry(list: AddOnList, entry: AddOnListEntry): "checked" | "unsigned" | "invalid" {
-  if (!list.publicKey || !entry.signature) return "unsigned";
+  if (!list.publicKey) return entry.signature ? "invalid" : "unsigned";
+  if (!entry.signature) return "invalid";
   try {
     const key = createPublicKey({ key: Buffer.from(list.publicKey, "base64"), format: "der", type: "spki" });
+    if (key.asymmetricKeyType !== "ed25519") return "invalid";
     return verifyBytes(null, listSigningPayload(list.name, entry), key, Buffer.from(entry.signature, "base64")) ? "checked" : "invalid";
   } catch { return "invalid"; }
+}
+
+/** Whether `next` is a later version than `current` ("1.10.0" is later than "1.9.2"). */
+export function laterVersion(next: string, current: string): boolean {
+  return next.localeCompare(current, "en", { numeric: true, sensitivity: "base" }) > 0;
+}
+
+/** Reads a response body, stopping as soon as it is larger than `limit`. */
+async function boundedBody(response: Response, limit: number): Promise<Buffer> {
+  const declared = Number(response.headers.get("content-length") ?? "0");
+  const tooLarge = "The answer is larger than an add-on list may send.";
+  if (declared > limit) { await response.body?.cancel().catch(() => undefined); throw new Error(tooLarge); }
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of (response.body ?? []) as AsyncIterable<Uint8Array>) {
+    size += chunk.byteLength;
+    if (size > limit) { await response.body?.cancel().catch(() => undefined); throw new Error(tooLarge); }
+    chunks.push(Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks);
 }
 
 interface LocalEntry { name: string; description: string; version: string; folder: string | null; note: string }
@@ -105,7 +133,11 @@ export class AddOnLists {
   /** The lists the owner has looked at. */
   saved(): { address: string; name: string }[] {
     return this.store.list("settings", this.owner).filter((row) => row.id.startsWith("add-on-list:"))
-      .map((row) => row.data as { address: string; name: string });
+      .map((row) => { const { address, name } = row.data as { address: string; name: string }; return { address, name }; });
+  }
+  /** The signing key the list had when the owner first looked at it ("" for a list without one). */
+  private pinnedKey(address: string): string | undefined {
+    return (this.store.get("settings", this.owner, this.key(address))?.data as { publicKey?: string } | undefined)?.publicKey;
   }
   forget(address: string): { removed: boolean } { return { removed: this.store.delete("settings", this.owner, this.key(address)) }; }
 
@@ -115,12 +147,20 @@ export class AddOnLists {
     await this.policy.assertAllowed(target, "add-on list address");
     const response = await this.fetchImpl(target, { redirect: "error", signal: AbortSignal.timeout(20000) });
     if (!response.ok) throw new Error(`The list did not answer (HTTP ${response.status}).`);
-    const bytes = Buffer.from(await response.arrayBuffer());
-    if (bytes.length > limit) throw new Error("The answer is larger than an add-on list may send.");
-    return bytes;
+    return boundedBody(response, limit);
   }
+  /** The list, refused when its signing key is not the one it had the first time the owner looked. */
   private async remote(address: string): Promise<AddOnList> {
-    return AddOnListSchema.parse(JSON.parse((await this.fetchText(address, maxIndexBytes)).toString("utf8")));
+    const list = AddOnListSchema.parse(JSON.parse((await this.fetchText(address, maxIndexBytes)).toString("utf8")));
+    const pinned = this.pinnedKey(address);
+    if (pinned !== undefined && pinned !== (list.publicKey ?? ""))
+      throw new Error("This list's signing key is not the one it had when you first looked at it, so nothing from it is offered. Forget the list and look again only if you trust the change.");
+    return list;
+  }
+  /** Whether a web entry may be fetched from where it says: its own list's site, or anywhere when signed. */
+  private static placeNote(address: string, entry: AddOnListEntry, signed: string): string | null {
+    if (signed === "checked" || new URL(entry.url).origin === new URL(address).origin) return null;
+    return "It is not signed and is kept on another site than the list, so it cannot be installed.";
   }
 
   /** What a list offers. Nothing is installed by looking. */
@@ -130,49 +170,64 @@ export class AddOnLists {
     if (isAbsolute(address)) {
       const local = await readLocalList(address);
       name = local.name;
-      addOns = local.entries.map((entry) => ({ id: entry.name, name: entry.name, description: entry.description, version: entry.version,
-        signed: "local", installable: entry.folder !== null && !installed.has(slug(entry.name)), note: entry.note }));
+      addOns = [];
+      for (const entry of local.entries)
+        addOns.push({ id: entry.name, name: entry.name, description: entry.description, version: entry.version,
+          signed: "local", installable: entry.folder !== null && !installed.has(slug(entry.name)), note: entry.note,
+          sha256: entry.folder ? await localFingerprint(entry.folder) : null });
+      this.store.save("settings", this.owner, this.key(address), { address, name });
     } else {
       const list = await this.remote(address);
       name = list.name;
       addOns = list.addOns.map((entry) => {
         const signed = verifyListEntry(list, entry);
-        return { id: entry.id, name: entry.name, description: entry.description, version: entry.version, signed,
-          installable: signed !== "invalid" && !installed.has(entry.id),
-          note: signed === "invalid" ? "Its signature does not match the list's key, so it cannot be installed." : signed === "unsigned" ? "It is not signed." : "" };
+        const place = signed === "invalid" ? null : AddOnLists.placeNote(address, entry, signed);
+        return { id: entry.id, name: entry.name, description: entry.description, version: entry.version, signed, sha256: entry.sha256,
+          installable: signed !== "invalid" && !place && !installed.has(entry.id),
+          note: signed === "invalid" ? "Its signature does not match the list's key, so it cannot be installed." : place ?? (signed === "unsigned" ? "It is not signed." : "") };
       });
+      const pinned = this.pinnedKey(address);
+      this.store.save("settings", this.owner, this.key(address), { address, name, publicKey: pinned ?? list.publicKey ?? "" });
     }
-    this.store.save("settings", this.owner, this.key(address), { address, name });
     return { name, address, addOns };
   }
 
   /** Fetches and checks one entry, leaving it in a folder or file the shelf can read. */
-  private async prepare(address: string, entryId: string): Promise<{ source: string; origin: NonNullable<AddOnRecord["origin"]>; done: () => Promise<void> }> {
+  private async prepare(address: string, entryId: string, expected?: string): Promise<Prepared> {
     if (isAbsolute(address)) {
       const local = await readLocalList(address);
       const entry = local.entries.find((candidate) => candidate.name === entryId);
       if (!entry?.folder) throw new Error(entry ? entry.note : `The list has no add-on called ${entryId}.`);
-      return { source: entry.folder, origin: { list: address, entry: entryId, version: entry.version }, done: async () => undefined };
+      return { source: entry.folder, origin: { list: address, entry: entryId, version: entry.version, signed: "local" },
+        ...(expected ? { expectSha256: expected } : {}), done: async () => undefined };
     }
+    if (this.pinnedKey(address) === undefined) throw new Error("Look at the list first, so its signing key is remembered.");
     const list = await this.remote(address);
     const entry = list.addOns.find((candidate) => candidate.id === entryId);
     if (!entry) throw new Error(`The list "${list.name}" has no add-on called ${entryId}.`);
-    if (verifyListEntry(list, entry) === "invalid") throw new Error("The list's signature for this add-on does not match its key, so it was not installed.");
+    const signed = verifyListEntry(list, entry);
+    if (signed === "invalid") throw new Error("The list's signature for this add-on does not match its key, so it was not installed.");
+    const place = AddOnLists.placeNote(address, entry, signed);
+    if (place) throw new Error(place);
+    if (expected && expected !== entry.sha256) throw new Error("The list now offers a different package than the one you were shown, so it was not installed.");
     const bytes = await this.fetchText(entry.url, maxPackageBytes);
     if (createHash("sha256").update(bytes).digest("hex") !== entry.sha256)
       throw new Error("The package does not match the fingerprint the list published, so it was not installed.");
     const staging = await mkdtemp(join(tmpdir(), "branch-addon-list-"));
     const source = join(staging, "package.zip");
     await writeFile(source, bytes);
-    return { source, origin: { list: address, entry: entryId, version: entry.version },
+    return { source, origin: { list: address, entry: entryId, version: entry.version, signed },
       done: () => rm(staging, { recursive: true, force: true }) };
   }
 
-  /** Installs one entry, switched off, through the shelf. */
-  async install(address: string, entryId: string, expectSha256?: string): Promise<AddOnRecord> {
-    const prepared = await this.prepare(address, entryId);
+  /**
+   * Installs one entry, switched off, through the shelf. `expected` is the fingerprint the owner was
+   * shown when browsing: the package file's for a web list, the package's own for a folder.
+   */
+  async install(address: string, entryId: string, expected?: string): Promise<AddOnRecord> {
+    const prepared = await this.prepare(address, entryId, expected);
     try {
-      return await this.shelf.install(prepared.source, { origin: prepared.origin, ...(expectSha256 ? { expectSha256 } : {}) });
+      return await this.shelf.install(prepared.source, { origin: prepared.origin, ...(prepared.expectSha256 ? { expectSha256: prepared.expectSha256 } : {}) });
     } finally { await prepared.done(); }
   }
 
@@ -183,7 +238,7 @@ export class AddOnLists {
       if (!record.origin) continue;
       const listed = await this.browse(record.origin.list).catch(() => null);
       const entry = listed?.addOns.find((candidate) => candidate.id === record.origin!.entry);
-      if (entry && entry.signed !== "invalid" && entry.version !== record.origin.version)
+      if (entry && entry.signed !== "invalid" && laterVersion(entry.version, record.origin.version) && !signatureDropped(record, entry.signed))
         found.push({ id: record.id, from: record.origin.version, to: entry.version, list: listed!.name });
     }
     return found;
@@ -195,12 +250,30 @@ export class AddOnLists {
     if (!record?.origin) throw new Error("This add-on did not come from a list.");
     const prepared = await this.prepare(record.origin.list, record.origin.entry);
     try {
+      if (!laterVersion(prepared.origin.version, record.origin.version))
+        throw new Error(`The list offers ${prepared.origin.version}, which is not later than ${record.origin.version}, so nothing was changed.`);
+      if (signatureDropped(record, prepared.origin.signed))
+        throw new Error("The version you have was signed and this one is not, so nothing was changed.");
       const look = await this.shelf.look(prepared.source);
       if (look.offer.id !== id) throw new Error("The newer version calls itself something else, so nothing was changed.");
       const malware = look.malware.find((verdict) => verdict.refused);
       if (malware) throw new Error(malware.refused!);
+      const before = record.plugin?.permissions ?? [];
+      const grew = (look.offer.plugin?.permissions ?? []).filter((permission) => !before.includes(permission));
       await this.shelf.remove(id);
-      return await this.shelf.install(prepared.source, { origin: prepared.origin });
+      const installed = await this.shelf.install(prepared.source, { origin: prepared.origin });
+      return grew.length ? this.shelf.note(id, { grew }) : installed;
     } finally { await prepared.done(); }
   }
+}
+
+interface Prepared { source: string; origin: NonNullable<AddOnRecord["origin"]>; expectSha256?: string; done: () => Promise<void> }
+
+/** An add-on installed from a signed entry is never replaced by an unsigned one. */
+function signatureDropped(record: AddOnRecord, now: string | undefined): boolean {
+  return record.origin?.signed === "checked" && now !== "checked";
+}
+
+async function localFingerprint(folder: string): Promise<string | null> {
+  try { return readOffer(await readPackageFolder(folder)).sha256; } catch { return null; }
 }

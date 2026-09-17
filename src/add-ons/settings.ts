@@ -24,6 +24,8 @@ export const AddOnSettingsSchema = z.object({
   modes: z.object(Object.fromEntries(addOnParts.map((part) => [part, ModeSchema.default("off")])) as Record<AddOnPart, z.ZodDefault<typeof ModeSchema>>).strict().prefault({}),
   /** Also run hand-placed plugin files in their own walled program. */
   wallEveryPlugin: z.boolean().default(false),
+  /** Windows only: run add-on code as its own program even though Windows has no file and network wall. */
+  windowsWithoutWall: z.boolean().default(false),
 }).strict();
 export type AddOnSettings = z.infer<typeof AddOnSettingsSchema>;
 
@@ -61,12 +63,14 @@ export function saveAddOnSettings(store: Pick<Store, "get" | "save">, owner: str
   const change = z.object({
     modes: z.object(Object.fromEntries(addOnParts.map((part) => [part, ModeSchema.optional()]))).strict().optional(),
     wallEveryPlugin: z.boolean().optional(),
+    windowsWithoutWall: z.boolean().optional(),
   }).strict().parse(input ?? {});
   const current = addOnSettings(store, owner);
   const sent = Object.fromEntries(Object.entries(change.modes ?? {}).filter(([, mode]) => mode !== undefined));
   const next = AddOnSettingsSchema.parse({
     modes: { ...current.modes, ...sent },
     wallEveryPlugin: change.wallEveryPlugin ?? current.wallEveryPlugin,
+    windowsWithoutWall: change.windowsWithoutWall ?? current.windowsWithoutWall,
   });
   store.save("settings", owner, addOnSettingsKey, next);
   return next;

@@ -55,7 +55,8 @@ const groupPrefixes: readonly (readonly [string, readonly string[]])[] = [
   // mac4/bucket-20: tools a connected program lends over its socket; a box of their own, since
   // they are somebody else's and come and go with the program.
   ["client", ["client."]],
-  ["skills", ["skills.", "plugins.", "recipes.", "mcp."]],
+  // bucket-15: drafting an add-on and searching what plugins bring sit with the rest of what extends Branch.
+  ["skills", ["skills.", "plugins.", "recipes.", "mcp.", "addon."]],
   // The owner's own instruction files (AGENTS.md, SOUL.md and the rest) are part of how Branch is
   // set up, so they file under settings rather than opening a box of their own for two tools.
   ["settings", ["settings.", "preferences.", "policy.", "secrets.", "locker.", "usage.", "costs.", "models.", "context."]],

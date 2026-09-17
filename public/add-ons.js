@@ -92,6 +92,17 @@ function switches(state) {
   const label = document.createElement("label");
   label.append(wall, make("span", "", "addons.wallEvery", "Also run plugin files I put in the plugins folder myself in their own walled program"));
   nodes.push(label);
+  if (state.windows) {
+    const weak = document.createElement("input");
+    weak.type = "checkbox";
+    weak.checked = state.settings.windowsWithoutWall;
+    weak.addEventListener("change", async () => {
+      try { await call("/settings", { windowsWithoutWall: weak.checked }); tell(say("addons.saved", "Saved.")); } catch (error) { tell(error.message); }
+    });
+    const weakLabel = document.createElement("label");
+    weakLabel.append(weak, make("span", "", "addons.windowsWithoutWall", "Run add-on code on Windows without the wall (Windows cannot keep it from your files and the internet)"));
+    nodes.push(weakLabel);
+  }
   return nodes;
 }
 
@@ -133,6 +144,10 @@ function installedBlock(state) {
     item.append(plain("strong", `${record.name} ${record.version}`),
       make("p", "meta", record.enabled ? "addons.installed.on" : "addons.installed.off", record.enabled ? "On." : "Off. Nothing from it is in use."));
     if (!record.unchanged) item.append(make("p", "field-note", "addons.installed.changed", "Its files changed after you installed it, so it cannot be switched on."));
+    if (record.plugin) item.append(make("p", "meta", "addons.installed.reach", "It may reach:"),
+      plain("p", record.plugin.hosts.length ? record.plugin.hosts.join(", ") : say("addons.installed.noReach", "no web address"), "meta"));
+    if (record.grew?.length) item.append(make("p", "field-note", "addons.installed.grew", "This version asks for more than the one before. Read the ticks before switching it on:"),
+      plain("p", record.grew.join(", "), "field-note"));
     const allowed = new Set(record.plugin?.permissions ?? []);
     for (const permission of record.plugin?.permissions ?? []) {
       const tick = document.createElement("input");
@@ -163,8 +178,8 @@ function listsBlock() {
       const list = await call("/lists/browse", { address: address.value });
       shown.replaceChildren(plain("strong", list.name));
       for (const entry of list.addOns) {
-        const line = row(plain("span", `${entry.name} ${entry.version} (${entry.signed}) ${entry.note}`));
-        if (entry.installable) line.append(button("addons.lists.install", "Install, switched off", async () => { await call("/lists/install", { address: list.address, id: entry.id }); await draw(); }));
+        const line = row(plain("span", `${entry.name} ${entry.version} (${entry.signed}) ${entry.note}${entry.sha256 ? ` ${say("addons.look.fingerprint", "Fingerprint")}: ${entry.sha256.slice(0, 16)}…` : ""}`));
+        if (entry.installable && entry.sha256) line.append(button("addons.lists.install", "Install, switched off", async () => { await call("/lists/install", { address: list.address, id: entry.id, sha256: entry.sha256 }); await draw(); }));
         shown.append(line);
       }
     }), button("addons.lists.updates", "Check for newer versions", async () => {

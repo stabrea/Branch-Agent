@@ -100,6 +100,9 @@ export class PluginExports {
   constructor(private readonly store: Pick<Store, "get" | "save" | "list" | "delete">, private readonly owner: string,
     private readonly launch: () => StdioLaunch) {}
   private key(folder: string): string { return `add-on-export:${hash(folder).slice(0, 16)}`; }
+  private known(folder: string): boolean {
+    return (this.store.get("settings", this.owner, this.key(folder))?.data as { folder?: string } | undefined)?.folder === folder;
+  }
   saved(): { folder: string; target: PluginTarget }[] {
     return this.store.list("settings", this.owner).filter((row) => row.id.startsWith("add-on-export:"))
       .map((row) => row.data as { folder: string; target: PluginTarget });
@@ -130,7 +133,8 @@ export class PluginExports {
   /** Whether Branch wrote this folder, for which tool and version, and which files changed since. */
   async status(folder: string): Promise<{ written: boolean; target: PluginTarget | null; version: string | null; current: boolean; changed: string[]; missing: string[] }> {
     checkFolder(folder);
-    const record = await readRecord(folder);
+    // A record file alone proves nothing (anybody can write one); Branch also remembers the folders it wrote.
+    const record = this.known(folder) ? await readRecord(folder) : null;
     if (!record) return { written: false, target: null, version: null, current: false, changed: [], missing: [] };
     const changed: string[] = [], missing: string[] = [];
     for (const [name, fingerprint] of Object.entries(record.files)) {
@@ -146,7 +150,7 @@ export class PluginExports {
   /** Takes out the files Branch wrote and nobody changed; anything else stays. */
   async remove(folder: string): Promise<{ removed: string[]; kept: string[] }> {
     checkFolder(folder);
-    const record = await readRecord(folder);
+    const record = this.known(folder) ? await readRecord(folder) : null;
     if (!record) throw new Error("Branch did not write that folder, so nothing was removed.");
     const removed: string[] = [], kept: string[] = [];
     for (const [name, fingerprint] of Object.entries(record.files)) {
@@ -160,8 +164,11 @@ export class PluginExports {
       for (let dir = dirname(path); dir !== folder && dir.startsWith(folder + sep); dir = dirname(dir))
         if (!(await rmdir(dir).then(() => true, () => false))) break;
     }
-    if (!kept.length) await rm(join(folder, exportManifest), { force: true });
-    this.store.delete("settings", this.owner, this.key(folder));
+    // While a changed file stays, the folder is still Branch's to check and to remove again later.
+    if (!kept.length) {
+      await rm(join(folder, exportManifest), { force: true });
+      this.store.delete("settings", this.owner, this.key(folder));
+    }
     return { removed, kept };
   }
 }

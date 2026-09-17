@@ -14,7 +14,11 @@ import { FilterRuleSchema } from "./filters.js";
 export class AddOnsApiError extends Error {
   constructor(readonly status: number, message: string) { super(message); }
 }
-const source = z.object({ source: z.string().min(1).max(1000), sha256: z.string().regex(/^[a-f0-9]{64}$/).optional() }).strict();
+const lookFirst = "Look at the add-on first: installing names the fingerprint you were shown.";
+const fingerprint = z.string({ error: lookFirst }).regex(/^[a-f0-9]{64}$/, lookFirst);
+const source = z.object({ source: z.string().min(1).max(1000), sha256: fingerprint.optional() }).strict();
+/** Installing always names what the owner was shown, so a package changed after the look is refused. */
+const shown = z.object({ source: source.shape.source, sha256: fingerprint }).strict();
 const idOnly = z.object({ id: z.string().regex(/^[a-z][a-z0-9-]{0,39}$/) }).strict();
 const address = z.object({ address: z.string().min(1).max(1000) }).strict();
 const folder = z.object({ folder: z.string().min(2).max(1000) }).strict();
@@ -28,8 +32,8 @@ const posts: Record<string, { part: AddOnPart | null; handler: Handler }> = {
   "/api/plugin-catalog/add-ons/settings": always(async (a, body) => a.save(await body())),
   "/api/plugin-catalog/add-ons/look": part("packages", async (a, body) => a.shelf.look(source.parse(await body()).source)),
   "/api/plugin-catalog/add-ons/install": part("packages", async (a, body) => {
-    const input = source.parse(await body());
-    return a.shelf.install(input.source, input.sha256 ? { expectSha256: input.sha256 } : {});
+    const input = shown.parse(await body());
+    return a.shelf.install(input.source, { expectSha256: input.sha256 });
   }),
   "/api/plugin-catalog/add-ons/switch": always(async (a, body) => {
     const input = z.object({ id: idOnly.shape.id, on: z.boolean(), allow: z.array(z.string().max(64)).max(20).optional() }).strict().parse(await body());
@@ -39,12 +43,12 @@ const posts: Record<string, { part: AddOnPart | null; handler: Handler }> = {
   }),
   "/api/plugin-catalog/add-ons/remove": always(async (a, body) => a.shelf.remove(idOnly.parse(await body()).id)),
   "/api/plugin-catalog/add-ons/bundled/install": part("packages", async (a, body) => {
-    const input = z.object({ id: idOnly.shape.id, sha256: source.shape.sha256 }).strict().parse(await body());
+    const input = z.object({ id: idOnly.shape.id, sha256: fingerprint }).strict().parse(await body());
     return a.shelf.installBundled(input.id, input.sha256);
   }),
   "/api/plugin-catalog/add-ons/lists/browse": part("lists", async (a, body) => a.lists.browse(address.parse(await body()).address)),
   "/api/plugin-catalog/add-ons/lists/install": part("lists", async (a, body) => {
-    const input = z.object({ address: address.shape.address, id: z.string().min(1).max(80), sha256: source.shape.sha256 }).strict().parse(await body());
+    const input = z.object({ address: address.shape.address, id: z.string().min(1).max(80), sha256: fingerprint }).strict().parse(await body());
     return a.lists.install(input.address, input.id, input.sha256);
   }),
   "/api/plugin-catalog/add-ons/lists/forget": always(async (a, body) => a.lists.forget(address.parse(await body()).address)),
@@ -71,9 +75,9 @@ const posts: Record<string, { part: AddOnPart | null; handler: Handler }> = {
   "/api/plugin-catalog/add-ons/export/status": always(async (a, body) => a.exports.status(folder.parse(await body()).folder)),
   "/api/plugin-catalog/add-ons/export/remove": always(async (a, body) => a.exports.remove(folder.parse(await body()).folder)),
   "/api/plugin-catalog/add-ons/drafts/install": part("drafts", async (a, body) => {
-    const input = z.object({ id: idOnly.shape.id, sha256: source.shape.sha256 }).strict().parse(await body());
     requirePart(a.storeReader, a.owner, "packages");
-    return a.shelf.install(a.drafts.path(input.id), input.sha256 ? { expectSha256: input.sha256 } : {});
+    const input = z.object({ id: idOnly.shape.id, sha256: fingerprint }).strict().parse(await body());
+    return a.shelf.install(a.drafts.path(input.id), { expectSha256: input.sha256 });
   }),
   "/api/plugin-catalog/add-ons/drafts/look": part("drafts", async (a, body) => a.shelf.look(a.drafts.path(idOnly.parse(await body()).id))),
   "/api/plugin-catalog/add-ons/drafts/discard": always(async (a, body) => a.drafts.discard(idOnly.parse(await body()).id)),
@@ -85,6 +89,8 @@ async function overview(addOns: AddOns): Promise<unknown> {
   for (const record of addOns.shelf.list()) installed.push({ ...record, unchanged: await addOns.shelf.unchanged(record) });
   return {
     settings: addOns.settings(),
+    /** On Windows the card offers the owner's choice to run add-on code without the wall. */
+    windows: process.platform === "win32",
     parts: addOnParts.map((name) => ({ part: name, label: addOnLabels[name] })),
     installed,
     bundled: addOns.mode("packages") === "off" ? [] : await addOns.shelf.bundled(),

@@ -210,7 +210,8 @@ test("a package is looked at, installed switched off, switched on and taken back
   const installed = await call("plugin-catalog/add-ons/install", { source: folder, sha256: look.offer.sha256 });
   assert.equal(installed.enabled, false);
   assert.equal(app.store.skills.list(app.runtime.owner).length, 0, "installing adds no skill yet");
-  await assert.rejects(call("plugin-catalog/add-ons/install", { source: folder }), /already installed/);
+  await assert.rejects(call("plugin-catalog/add-ons/install", { source: folder }), /Look at the add-on first/, "installing always names what was shown");
+  await assert.rejects(call("plugin-catalog/add-ons/install", { source: folder, sha256: look.offer.sha256 }), /already installed/);
 
   const on = await call("plugin-catalog/add-ons/switch", { id: "review-kit", on: true });
   assert.equal(on.record.enabled, true);
@@ -231,7 +232,8 @@ test("a package is looked at, installed switched off, switched on and taken back
   const evil = await writeTree(join(root, "evil"), { ".claude-plugin/plugin.json": JSON.stringify({ name: "evil" }),
     ".mcp.json": JSON.stringify({ bad: { command: "npx", args: ["evil-mcp"] } }) });
   assert.match((await call("plugin-catalog/add-ons/look", { source: evil })).refused, /names it as malware/);
-  await assert.rejects(call("plugin-catalog/add-ons/install", { source: evil }), /names it as malware/);
+  await assert.rejects(call("plugin-catalog/add-ons/install", { source: evil, sha256: "0".repeat(64) }), /names it as malware|not the one you were shown/);
+  await assert.rejects(app.addOns.shelf.install(evil), /names it as malware/);
   assert.equal(app.addOns.shelf.record("evil"), null);
 });
 
@@ -246,7 +248,7 @@ export default { id: "narrow", name: "Narrow", permissions: ["files.read", "memo
 ] };\n`;
   const folder = await writeTree(join(root, "narrow"), { "narrow.mjs": code, "branch-addon.json": JSON.stringify({
     format: "branch-addon", id: "narrow", name: "Narrow", plugin: "narrow.mjs", permissions: ["files.read", "memory.read"] }) });
-  await call("plugin-catalog/add-ons/install", { source: folder });
+  await call("plugin-catalog/add-ons/install", { source: folder, sha256: (await call("plugin-catalog/add-ons/look", { source: folder })).offer.sha256 });
   assert.ok((await app.plugins.list()).some((entry) => entry.id === "narrow" && !entry.enabled), "it is in the plugins list, switched off");
   // Stand in for the walled program: record what it was asked, answer as the plugin would.
   const asked = [];
@@ -382,11 +384,13 @@ test("lists: a folder marketplace and a signed web list are browsed without inst
   entries = () => [entryFor(true, "f".repeat(64))];
   await assert.rejects(web.install(address, "weather"), /does not match the fingerprint the list published/);
   entries = () => [entryFor(false)];
-  assert.equal((await web.browse(address)).addOns[0].signed, "unsigned");
-  const weather = await web.install(address, "weather");
+  assert.equal((await web.browse(address)).addOns[0].signed, "invalid", "a list with a key must sign every entry");
+  entries = () => [entryFor(true)];
+  const weather = await web.install(address, "weather", zipSha);
   assert.deepEqual([weather.enabled, weather.plugin.hosts], [false, ["api.weather.example"]]);
   assert.deepEqual(await web.updates(), [], "nothing newer yet");
   version = "1.1.0";
+  entries = () => [entryFor(true)];
   assert.deepEqual(await web.updates(), [{ id: "weather", from: "1.0.0", to: "1.1.0", list: "Good list" }]);
   assert.equal(app.addOns.shelf.record("weather").origin.version, "1.0.0", "an update is only offered");
   const updated = await web.update("weather");

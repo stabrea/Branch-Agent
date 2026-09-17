@@ -113,6 +113,14 @@ export class FilterBook {
   }
   /** Takes out what an add-on brought, when it is removed. */
   forget(from: string): void { this.write(this.list().filter((rule) => rule.from !== from)); }
+  /**
+   * Whether an answer's words must be held back from the live preview until the outlet filters have
+   * seen them. Fails closed: filters that cannot be read hold the preview back too.
+   */
+  holdsPreview(models: readonly string[]): boolean {
+    try { return this.list().some((rule) => applies(rule, "outlet", models)); }
+    catch { return true; }
+  }
   /** Fails closed: if the filters cannot be run, the message is stopped rather than let through unfiltered. */
   run(stage: FilterStage, text: string, models: readonly string[]): FilterResult {
     try {

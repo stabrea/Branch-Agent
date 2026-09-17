@@ -892,6 +892,8 @@ ${run.output.slice(0, 6000)}`;
    */
   filterText: (stage: "inlet" | "outlet", text: string, models: readonly string[]) => { text: string; blocked: string | null; applied: string[] } =
     (_stage, text) => ({ text, blocked: null, applied: [] });
+  /** bucket-15 integration: true while an outlet filter would see an answer, so its words are not previewed first. */
+  holdsPreview: (models: readonly string[]) => boolean = () => false;
   private sendSpans(runId: string): void {
     // A runtime that is shutting down refuses new background work, and a send that cannot start is
     // simply not made. Nothing here — refused, failed or off — may reach the task's own result.
@@ -988,6 +990,10 @@ ${run.output.slice(0, 6000)}`;
     this.add(run, messages, ids, await conductor.start());
     let checkFailures = 0;
     let knownTools = this.registry.version;
+    // ── bucket-15: which models the owner's filters are asked about; while an outlet filter applies,
+    // the live preview gets nothing (the stall watch still runs) and the filtered answer arrives whole. ──
+    const filterModels = [plan.choice.presetName ?? "", plan.choice.presetId ?? "", this.provider.name];
+    const preview = onTextDelta && this.holdsPreview(filterModels) ? () => undefined : onTextDelta;
     for (let round = 0; round < conductor.maxRounds(12); round++) {
       catalog.nextRound();
       if (this.registry.version !== knownTools) { knownTools = this.registry.version; this.reindex(run, context, catalog); }
@@ -997,19 +1003,20 @@ ${run.output.slice(0, 6000)}`;
       await this.fitContext(run, messages, ids, context, route);
       this.store.event(run.id, "catalog.size", { round: round + 1, ...catalog.stats() });
       this.journal.turn(run.id, run.sessionId, round + 1); // mac3/never-break
-      const completion = await this.completeWithRetries(run, messages, context, route, onTextDelta);
+      const completion = await this.completeWithRetries(run, messages, context, route, preview);
       // A think-then-act specialist writes one line of reasoning first. The transcript keeps it, so
       // the model can see its own trail; the owner reads it in the events; the answer never has it.
       const scratch = shape.scratch ? takeScratch(completion.content) : null;
       if (scratch) this.store.event(run.id, "react.scratch", { round: round + 1, text: scratch.line });
       let spoken = scratch ? scratch.rest : completion.content;
       // ── bucket-15: the owner's outlet filters see an answer before it is kept. ──
-      const filterModels = [plan.choice.presetName ?? "", plan.choice.presetId ?? "", this.provider.name];
-      const outlet = completion.toolCalls.length ? null : this.filterText("outlet", completion.content, filterModels);
+      // Words said beside tool calls are filtered too; a stop there only empties them, the calls go on.
+      const outlet = completion.content ? this.filterText("outlet", completion.content, filterModels) : null;
       if (outlet?.applied.length) {
         this.store.event(run.id, "filter.applied", { stage: "outlet", filters: outlet.applied });
-        completion.content = outlet.blocked ?? outlet.text;
-        spoken = outlet.blocked ?? (scratch ? this.filterText("outlet", scratch.rest, filterModels).text : completion.content);
+        const calling = completion.toolCalls.length > 0;
+        completion.content = outlet.blocked ? (calling ? "" : outlet.blocked) : outlet.text;
+        spoken = outlet.blocked ? completion.content : (scratch ? this.filterText("outlet", scratch.rest, filterModels).text : completion.content);
       }
       const assistant: Message = {
         role: "assistant",

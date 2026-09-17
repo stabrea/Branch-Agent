@@ -34,7 +34,9 @@ export interface AddOnRecord {
   filters: string[];
   leftOut: string[];
   /** Where it came from when it was installed from a list (src/add-ons/lists.ts). */
-  origin?: { list: string; entry: string; version: string };
+  origin?: { list: string; entry: string; version: string; signed?: "checked" | "unsigned" | "local" };
+  /** Permissions a newer version asked for that the one before did not; shown before switching on. */
+  grew?: string[];
   bundled?: boolean;
 }
 export interface MalwareVerdict { server: string; refused: string | null }
@@ -153,6 +155,13 @@ export class AddOnShelf {
     // The plugin catalog's record, so the security check sees a fingerprinted plugin.
     this.store.save("settings", this.owner, `plugin-catalog:${offer.id}`, { id: offer.id, name: offer.name, description: offer.description,
       version: offer.version, permissions: plugin.permissions, sha256: sha256(plugin.code), source, installedAt: new Date().toISOString() });
+  }
+
+  /** Adds what the owner should read before switching an add-on on (bucket-15 integration review). */
+  note(id: string, extra: Pick<AddOnRecord, "grew">): AddOnRecord {
+    const record = this.record(id);
+    if (!record) throw new Error(`There is no add-on called ${id}.`);
+    return this.save({ ...record, ...extra });
   }
 
   /** Whether a package's copied files are still what was installed. */

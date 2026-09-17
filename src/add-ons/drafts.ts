@@ -2,7 +2,7 @@ import { lstat, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises
 import { join } from "node:path";
 import { z } from "zod";
 import type { ToolRegistry } from "../registry.js";
-import { addOnManifestName, sha256 } from "./formats.js";
+import { PluginHostSchema, addOnManifestName, sha256 } from "./formats.js";
 import { addOnApiVersion } from "./sdk.js";
 
 /**
@@ -20,7 +20,7 @@ export const DraftSchema = z.object({
   description: z.string().trim().max(500).default(""),
   code: z.string().min(1).max(64_000),
   permissions: z.array(z.string().regex(/^[a-z][a-z0-9_.]{0,63}$/)).max(20).default([]),
-  hosts: z.array(z.string().trim().toLowerCase().regex(/^[a-z0-9.-]{1,200}$/)).max(16).default([]),
+  hosts: z.array(PluginHostSchema).max(16).default([]),
 }).strict();
 export type Draft = z.infer<typeof DraftSchema>;
 

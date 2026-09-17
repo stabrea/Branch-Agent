@@ -158,6 +158,8 @@ function folderSkills(files: ReadonlyMap<string, string>, leftOut: string[]): Ad
     const made = toSkill(body, name.replaceAll("/", "-"), path, kind === "command" ? `The /${name} command from this add-on.` : "");
     if (made) skills.push(made);
     else leftOut.push(`${path} was left out: it has no instructions Branch can use.`);
+    if (made && /^\uFEFF?---\r?\n(?:(?!---)[\s\S])*?^allowed-tools\s*:/m.test(body))
+      leftOut.push(`The tool allowance in ${path} was left out: Branch's own approval rules decide what tools may do.`);
   }
   return skills;
 }
@@ -217,6 +219,16 @@ function gemini(files: ReadonlyMap<string, string>): Omit<AddOnOffer, "files" | 
     author: "", skills, servers: mcpServers(manifest.mcpServers, leftOut), plugin: null, filters: [], leftOut };
 }
 
+/**
+ * A web address a plugin may reach, named by the site's own name. Numbers, this computer and names
+ * that only mean something on a private network are refused, so a plugin can never be pointed back
+ * at Branch or at the owner's own devices (the door refuses those too; this says so up front).
+ */
+export const PluginHostSchema = z.string().trim().toLowerCase().regex(/^[a-z0-9.-]{1,200}$/)
+  .refine((host) => /[a-z]/.test(host.split(".").at(-1) ?? ""), "Name a site by its name, not by numbers.")
+  .refine((host) => !/(^|\.)(localhost|local|internal|lan|home|localdomain|home\.arpa)$/.test(host) && host.includes("."),
+    "A plugin may not be pointed at this computer or a private network.");
+
 export const BranchAddOnManifestSchema = z.object({
   format: z.literal("branch-addon"),
   apiVersion: z.number().int().min(1).default(1),
@@ -228,7 +240,7 @@ export const BranchAddOnManifestSchema = z.object({
   skills: z.array(z.string().max(120)).max(16).default([]),
   plugin: z.string().max(120).optional(),
   permissions: z.array(z.string().regex(/^[a-z][a-z0-9_.]{0,63}$/)).max(20).default([]),
-  hosts: z.array(z.string().trim().toLowerCase().regex(/^[a-z0-9.-]{1,200}$/)).max(16).default([]),
+  hosts: z.array(PluginHostSchema).max(16).default([]),
   servers: z.record(z.string(), z.record(z.string(), z.unknown())).default({}),
   filters: z.array(z.unknown()).max(16).default([]),
   /** A fingerprint for each file; when given, a file that differs or is not listed stops the read. */

@@ -28,7 +28,10 @@ export interface AddOnDeps {
   plugins: Plugins;
   dataDir: string;
   policy: NetworkPolicy;
-  /** The malware check (src/security-audit/malware-check.ts), asked lazily. */
+  /**
+   * The malware check (src/security-audit/malware-check.ts), asked lazily: the security service is
+   * made later in createBranch, so this must never be called while add-ons are being set up.
+   */
   vet: (command: string, args: readonly string[]) => Promise<void>;
   secret: (name: string) => Promise<string | null>;
   fetchImpl?: typeof fetch;
@@ -58,16 +61,18 @@ export class AddOns {
       policy: (id) => this.pluginPolicy(id),
       unreadable: () => [...wallSettings(store, owner).unreadable, dataDir],
       siteCheck: (target) => deps.policy.assertAllowed(target, "a walled plugin"),
+      weakWallAllowed: () => addOnSettings(store, owner).windowsWithoutWall,
     });
     plugins.isolation = this.walled;
     runtime.filterText = (stage, text, models) => this.filters.run(stage, text, models);
+    runtime.holdsPreview = (models) => this.filters.holdsPreview(models);
     this.sync();
   }
 
   /** A plugin from a package always runs walled; a hand-placed one only when the owner asked. */
   private pluginPolicy(id: string): WalledPolicy | null {
     const installed = this.shelf.record(id)?.plugin;
-    if (installed) return { walled: true, hosts: installed.hosts, sha256: installed.sha256 };
+    if (installed) return { walled: true, hosts: installed.hosts, sha256: installed.sha256, permissions: installed.permissions };
     if (!addOnSettings(this.deps.store, this.deps.runtime.owner).wallEveryPlugin) return null;
     const catalog = this.deps.store.get("settings", this.deps.runtime.owner, `plugin-catalog:${id}`)?.data as { sha256?: string } | undefined;
     return { walled: true, hosts: [], sha256: catalog?.sha256 };

@@ -620,8 +620,13 @@ export async function createBranch(options: {
   const pluginCatalog = new PluginCatalog(store, runtime.owner, join(dataDir, "plugins"));
   // ── bucket-15: add-ons other people wrote (src/add-ons/). Every part ships off; a plugin from a
   // package runs walled, so this has to be set before the plugins the owner chose are loaded back. ──
+  // The malware check lives in the security service, made further down; until it is there, a look
+  // at a package is refused in a sentence rather than reaching a name that does not exist yet.
+  let vetAddOn: (command: string, args: readonly string[]) => Promise<void> = async () => {
+    throw new Error("Branch is still starting, so the malware check is not ready. Try again in a moment.");
+  };
   const addOns = new AddOns({ store, runtime, registry, plugins, dataDir, policy: web.policy,
-    vet: (command, args) => security.malware.vet(command, args),
+    vet: (command, args) => vetAddOn(command, args),
     secret: async (name) => (await store.secrets.resolve(runtime.owner, "default", [name], { purpose: "pipelines" }).catch(() => ({} as Record<string, string>)))[name] ?? null });
   // ── end bucket-15 ──
   // Drafts of better versions of a skill, tried against real tasks as a practice run first.
@@ -905,6 +910,7 @@ export async function createBranch(options: {
     { dataDir, ...(options.home ? { home: resolve(options.home) } : {}), integrationsPath: () => (process.env.BRANCH_INTEGRATIONS ? resolve(process.env.BRANCH_INTEGRATIONS) : null),
       ...(process.env.BRANCH_OSV_ENDPOINT ? { osvEndpoint: process.env.BRANCH_OSV_ENDPOINT } : {}) });
   security.start();
+  vetAddOn = (command, args) => security.malware.vet(command, args); // bucket-15: the add-ons' malware check is ready now
   // ── end mac3/security-check ──
   const stopWatchingErrors = recordUncaughtErrors(store.spans, runtime.owner, (value) => runtime.hideSecrets(value));
   // A finished task's spans go out on their own once sending is on; the exporter itself does

@@ -33,6 +33,11 @@ export interface WalledPluginOptions {
   spawn?: SandboxSpawn;
   wallDeps?: WallDeps;
   timeoutMs?: number;
+  /**
+   * Windows has no file and network wall, only a job object. Add-on code is refused there unless
+   * the owner chose to run it anyway (bucket-15 integration review).
+   */
+  weakWallAllowed?: () => boolean;
 }
 
 export interface WalledPolicy {
@@ -40,7 +45,15 @@ export interface WalledPolicy {
   hosts: readonly string[];
   /** The fingerprint the code had when the owner installed it; other code is refused. */
   sha256?: string | undefined;
+  /** What the owner saw the package ask for; a plugin that describes more is cut back to this. */
+  permissions?: readonly string[] | undefined;
 }
+
+/** How large one question to a plugin may be, and how many may run at once. */
+export const maxRequestBytes = 1_000_000;
+export const maxRunsAtOnce = 4;
+export const weakWallRefusal = "On Windows Branch cannot wall add-on code off from your files and the internet, so it was not run. "
+  + "Tick \"Run add-on code on Windows without the wall\" in Customize, Plugins, to run it anyway as its own program with limits.";
 
 const ToolShape = z.object({
   name: z.string().max(80), description: z.string().max(2000).default(""), permission: z.string().max(64),
@@ -78,19 +91,33 @@ export function readAnswer(stdout: string): z.infer<typeof Answer> {
 
 export class WalledPlugins implements PluginIsolation {
   private hooksRunning = 0;
+  private runsGoing = 0;
+  /** The fingerprint a plugin had when it was loaded, for one whose install gave none. */
+  private readonly pinned = new Map<string, string>();
   constructor(private readonly options: WalledPluginOptions) {}
 
   holds(id: string): boolean { return this.options.policy(id)?.walled === true; }
 
   /** Asks the program once what it brings, and hands back a plugin whose every part calls it again. */
   async load(id: string, file: string): Promise<BranchPlugin> {
+    this.pinned.delete(id);
     const { code, policy } = await this.code(id, file);
+    if (!policy.sha256) this.pinned.set(id, fingerprint(code));
     const answer = await this.ask(code, policy.hosts, { kind: "describe" });
     const described = DescribeShape.parse(answer.plugin);
+    // A plugin may describe more permissions than its package listed; only the listed ones count.
     const notes: string[] = [];
+    if (policy.permissions) {
+      const listed = new Set(policy.permissions);
+      described.permissions = described.permissions.filter((name) => listed.has(name));
+      const beyond = described.tools.filter((tool) => !listed.has(tool.permission));
+      if (beyond.length) notes.push(`${beyond.map((tool) => tool.name).join(", ")} ${beyond.length === 1 ? "was" : "were"} left out: ${beyond.length === 1 ? "it needs" : "they need"} a permission the package did not list.`);
+      described.tools = described.tools.filter((tool) => listed.has(tool.permission));
+    }
     if (described.providers) notes.push("Its model connections were left out: they need Branch's own process, and this plugin runs walled.");
     if (described.channels) notes.push("Its chat services were left out: they need Branch's own process, and this plugin runs walled.");
-    notes.push(policy.hosts.length ? `It runs walled and may reach only ${policy.hosts.join(", ")}.` : "It runs walled, with no internet.");
+    if (this.platform() === "win32") notes.push("On Windows it runs as its own program with limits, but without the wall around your files and the internet.");
+    else notes.push(policy.hosts.length ? `It runs walled and may reach only ${policy.hosts.join(", ")}.` : "It runs walled, with no internet.");
     return {
       id: described.id, name: described.name, description: described.description, permissions: described.permissions,
       ...(described.apiVersion !== undefined ? { apiVersion: described.apiVersion } : {}), notes,
@@ -108,7 +135,8 @@ export class WalledPlugins implements PluginIsolation {
     const policy = this.options.policy(id);
     if (!policy?.walled) throw new Error(`${id} is no longer set up to run walled.`);
     const code = await readFile(file, "utf8");
-    if (policy.sha256 && createHash("sha256").update(code, "utf8").digest("hex") !== policy.sha256)
+    const expected = policy.sha256 ?? this.pinned.get(id);
+    if (expected && fingerprint(code) !== expected)
       throw new Error(`The code of ${id} is not what it was when you installed it, so it was not run. Remove it and install it again.`);
     return { code, policy };
   }
@@ -127,13 +155,25 @@ export class WalledPlugins implements PluginIsolation {
     finally { this.hooksRunning -= 1; }
   }
 
-  /** One run of the plugin's program behind the wall. */
+  private platform(): NodeJS.Platform { return this.options.wallDeps?.platform ?? process.platform; }
+
+  /** One run of the plugin's program behind the wall, refused when it is too large, too many, or unwalled. */
   async ask(code: string, hosts: readonly string[], request: Record<string, unknown>): Promise<z.infer<typeof Answer>> {
+    const body = JSON.stringify(request);
+    if (Buffer.byteLength(body) > maxRequestBytes) throw new Error("That is more than Branch hands a plugin in one go, so it was not sent.");
+    if (this.platform() === "win32" && !this.options.weakWallAllowed?.()) throw new Error(weakWallRefusal);
+    if (this.runsGoing >= maxRunsAtOnce) throw new Error(`${maxRunsAtOnce} plugin runs are already going. Try again when one has finished.`);
+    this.runsGoing += 1;
+    try { return await this.run(code, hosts, body); }
+    finally { this.runsGoing -= 1; }
+  }
+
+  private async run(code: string, hosts: readonly string[], body: string): Promise<z.infer<typeof Answer>> {
     const staging = await mkdtemp(join(tmpdir(), "branch-addon-"));
     try {
       await writeFile(join(staging, "plugin.mjs"), code, { mode: 0o600 });
       await writeFile(join(staging, "host.mjs"), hostSource, { mode: 0o600 });
-      await writeFile(join(staging, "request.json"), JSON.stringify(request), { mode: 0o600 });
+      await writeFile(join(staging, "request.json"), body, { mode: 0o600 });
       const wall = pluginWall(hosts, this.options.unreadable(), this.options.siteCheck);
       const env: NodeJS.ProcessEnv = { PATH: "/usr/bin:/bin", HOME: staging, TMPDIR: staging, NODE_USE_ENV_PROXY: "1",
         ...(process.versions.electron ? { ELECTRON_RUN_AS_NODE: "1" } : {}) };
@@ -151,6 +191,8 @@ export class WalledPlugins implements PluginIsolation {
     } finally { await rm(staging, { recursive: true, force: true }).catch(() => undefined); }
   }
 }
+
+const fingerprint = (code: string): string => createHash("sha256").update(code, "utf8").digest("hex");
 
 function readAnswerOr(stdout: string, why: string): z.infer<typeof Answer> {
   try { return readAnswer(stdout); }
