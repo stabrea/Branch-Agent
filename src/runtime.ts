@@ -671,7 +671,12 @@ ${run.output.slice(0, 6000)}`;
       if (refusal) throw new Error(refusal);
     }
     const budget = parent?.budget ?? new Budget(options.budget);
+    // ── bucket-15: the owner's inlet filters see a new message before anything else does. ──
+    const inlet = !parent && !options.resumeFrom ? this.filterText("inlet", options.prompt, [options.model ?? "", this.provider.name]) : null;
+    if (inlet?.blocked) throw new Error(inlet.blocked);
+    if (inlet?.applied.length) options = { ...options, prompt: inlet.text };
     const run = this.prepareRun(options);
+    if (inlet?.applied.length) this.store.event(run.id, "filter.applied", { stage: "inlet", filters: inlet.applied });
     const controller = new AbortController();
     this.controllers.set(run.id, controller);
     this.activeSessions.add(run.sessionId);
@@ -880,6 +885,13 @@ ${run.output.slice(0, 6000)}`;
    * noted. `createBranch` connects it; on its own nothing is sent anywhere.
    */
   exportSpans: (runId: string) => Promise<void> = async () => undefined;
+  /**
+   * bucket-15: the owner's own filters on what goes in and what comes out (src/add-ons/filters.ts).
+   * `createBranch` connects it; on its own it changes nothing. A filter only takes words out, stops a
+   * message, or adds a note — it never grants anything.
+   */
+  filterText: (stage: "inlet" | "outlet", text: string, models: readonly string[]) => { text: string; blocked: string | null; applied: string[] } =
+    (_stage, text) => ({ text, blocked: null, applied: [] });
   private sendSpans(runId: string): void {
     // A runtime that is shutting down refuses new background work, and a send that cannot start is
     // simply not made. Nothing here — refused, failed or off — may reach the task's own result.
@@ -990,7 +1002,15 @@ ${run.output.slice(0, 6000)}`;
       // the model can see its own trail; the owner reads it in the events; the answer never has it.
       const scratch = shape.scratch ? takeScratch(completion.content) : null;
       if (scratch) this.store.event(run.id, "react.scratch", { round: round + 1, text: scratch.line });
-      const spoken = scratch ? scratch.rest : completion.content;
+      let spoken = scratch ? scratch.rest : completion.content;
+      // ── bucket-15: the owner's outlet filters see an answer before it is kept. ──
+      const filterModels = [plan.choice.presetName ?? "", plan.choice.presetId ?? "", this.provider.name];
+      const outlet = completion.toolCalls.length ? null : this.filterText("outlet", completion.content, filterModels);
+      if (outlet?.applied.length) {
+        this.store.event(run.id, "filter.applied", { stage: "outlet", filters: outlet.applied });
+        completion.content = outlet.blocked ?? outlet.text;
+        spoken = outlet.blocked ?? (scratch ? this.filterText("outlet", scratch.rest, filterModels).text : completion.content);
+      }
       const assistant: Message = {
         role: "assistant",
         content: completion.content,

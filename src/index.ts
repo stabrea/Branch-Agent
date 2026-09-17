@@ -107,6 +107,7 @@ import { registerGit } from "./integrations/git-tools.js";
 import { jsonWriteProblem } from "./approvals.js";
 import { Flows, registerFlows } from "./flows.js";
 import { PluginCatalog } from "./plugin-catalog.js";
+import { AddOns } from "./add-ons/index.js"; // bucket-15: add-ons other people wrote
 import { SkillRevisions, registerSkillSync } from "./skill-revisions.js";
 import { DataTables, registerData } from "./data-tools.js";
 import { DocumentAnalysis, registerDocumentAnalysis } from "./document-analysis.js";
@@ -617,6 +618,12 @@ export async function createBranch(options: {
   // Where plugins come from: a folder or one file on this computer, shown in full before it is
   // copied in, with its fingerprint kept so a file that changes later is noticed.
   const pluginCatalog = new PluginCatalog(store, runtime.owner, join(dataDir, "plugins"));
+  // ── bucket-15: add-ons other people wrote (src/add-ons/). Every part ships off; a plugin from a
+  // package runs walled, so this has to be set before the plugins the owner chose are loaded back. ──
+  const addOns = new AddOns({ store, runtime, registry, plugins, dataDir, policy: web.policy,
+    vet: (command, args) => security.malware.vet(command, args),
+    secret: async (name) => (await store.secrets.resolve(runtime.owner, "default", [name], { purpose: "pipelines" }).catch(() => ({} as Record<string, string>)))[name] ?? null });
+  // ── end bucket-15 ──
   // Drafts of better versions of a skill, tried against real tasks as a practice run first.
   const skillRevisions = new SkillRevisions(store, runtime.owner);
   registerSkillSync(registry, store, files);
@@ -933,6 +940,8 @@ export async function createBranch(options: {
     registry,
     /** mac4/bucket-20: the Agent Protocol, lent tools, modes, project routing, fleet, handoff, flow search, market. */
     interop,
+    /** bucket-15: add-on packages, lists, filters, Pipelines, drafts, search sources, Branch as a plugin. */
+    addOns,
     runtime,
     /** mac3/never-break: the task journal, and settling interrupted work after a restart. */
     neverBreak: {
@@ -1555,6 +1564,8 @@ export * from "./cli-completion.js";
 export * from "./cli-run.js";
 // mac4/bucket-20: talking to other agents and tools.
 export { Interop } from "./interop/index.js";
+// bucket-15: add-ons other people wrote.
+export { AddOns, applyFilters, branchPluginFiles, definePlugin, addOnApiVersion, readOffer, signListEntry, verifyListEntry, pluginWall } from "./add-ons/index.js";
 // Wave mac2 (guards): the loop guard, the folder's own instructions and folder trust.
 export * from "./loop-guard.js";
 export * from "./folder-trust.js";

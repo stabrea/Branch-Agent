@@ -1,0 +1,32 @@
+{
+  "format": "branch-addon",
+  "apiVersion": 1,
+  "id": "branch-starter",
+  "name": "Branch starter",
+  "version": "1.0.0",
+  "description": "An example add-on that comes with Branch: a word counter, a search source for Branch's own words, a skill, and a filter that takes out card numbers.",
+  "author": "Branch Agent",
+  "skills": [
+    "branch-words.md"
+  ],
+  "plugin": "branch-starter.mjs",
+  "permissions": [
+    "text.read"
+  ],
+  "hosts": [],
+  "filters": [
+    {
+      "id": "starter-card-numbers",
+      "name": "Take out card numbers",
+      "stage": "both",
+      "match": "\\b\\d(?:[ -]?\\d){12,15}\\b",
+      "pattern": true,
+      "action": "redact",
+      "text": "[card number taken out]"
+    }
+  ],
+  "files": {
+    "branch-starter.mjs": "3c227111fdfaa358aecf32fe1cc48d76d6a0f8a9bb809cbf5df669586969a8d3",
+    "branch-words.md": "31ab2cb931373831f6775ac4f88d4bddb0203a07f85523e838ff481384bd1972"
+  }
+}

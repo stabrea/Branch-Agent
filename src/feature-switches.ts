@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Store } from "./store.js";
+import { addOnLabels, addOnMode, addOnTools, type AddOnPart } from "./add-ons/settings.js"; // bucket-15
 
 /**
  * The owner's three-way switch for a feature: off, when needed, or on. Every one ships off.
@@ -95,6 +96,9 @@ const toolFeatures: { reason: string; tools: readonly string[]; hideWhenOff: boo
   { reason: "watching and saving videos is switched on", tools: videoProgramTools, hideWhenOff: true, mode: (s, o) => savedMode(s, o, "media-programs") },
   // ── mac4/bucket-20: talking to other agents and tools (src/interop/settings.ts keeps these lists). ──
   ...interopToolFeatures.map(([key, reason, tools]) => ({ reason, tools, hideWhenOff: true, mode: (s: Reader, o: string) => savedMode(s, o, key) })),
+  // ── bucket-15: add-ons other people wrote (src/add-ons/settings.ts keeps these lists). ──
+  ...(Object.entries(addOnTools) as [AddOnPart, readonly string[]][]).map(([part, tools]) => ({
+    reason: `${addOnLabels[part]} is switched on`, tools, hideWhenOff: true, mode: (s: Reader, o: string) => addOnMode(s, o, part) })),
 ];
 
 /**
