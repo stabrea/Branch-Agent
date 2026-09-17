@@ -54,6 +54,7 @@ import { z } from "zod";
 import { ModelRouter, type ModelPreset } from "./models.js";
 import type { ChatGPTAuth } from "./chatgpt-auth.js";
 import { syncChatGPTPresets } from "./chatgpt-presets.js";
+import { People } from "./people/index.js"; // bucket 19
 import { FileLockerKey, type LockerKeySource } from "./locker.js";
 import { SessionLock } from "./session-lock.js";
 import { Moderation } from "./moderation.js";
@@ -896,12 +897,23 @@ export async function createBranch(options: {
   // Short-lived, scoped keys for anything that is not the app window. The master session key is
   // never one of these; see src/session-tokens.ts.
   const sessionTokens = new SessionTokens(store.sqlite, store);
+  // ── bucket 19: people signing in from their own device, groups and sharing (src/people/). Ships off. ──
+  const people = new People({ store, owner: runtime.owner, db: store.sqlite, roles: runtime.roles, tokens: sessionTokens,
+    fetch: web.policy.guard(globalThis.fetch),
+    secret: async (name: string) => {
+      const project = store.projects.active(runtime.owner).id;
+      const value = (await store.secrets.resolve(runtime.owner, project, [name], { purpose: "signing a person in" }))[name];
+      audit(store, runtime.owner, { action: "secret.used", actor: "an identity service you set up", subject: `${name} (project ${project})`,
+        reason: "Signing a person in needed it", outcome: "handed over" });
+      return value;
+    } });
+  // ── end bucket 19 ──
   // ── mac4/bucket-20: talking to other agents and tools (src/interop/). Every part ships off. ──
   const interop = new Interop({ runtime, registry, knowledge, teams, flows, remoteAgents,
     tokens: sessionTokens, files, policy: web.policy, version });
   // ── mac3/security-check: the self-check and the malware check (src/security-audit). Both ship off. ──
   const security = new SecurityService(
-    { store, runtime, registry, sessionLock, privacy, web, sessionTokens, plugins, pluginCatalog },
+    { store, runtime, registry, sessionLock, privacy, web, sessionTokens, plugins, pluginCatalog, people },
     { dataDir, ...(options.home ? { home: resolve(options.home) } : {}), integrationsPath: () => (process.env.BRANCH_INTEGRATIONS ? resolve(process.env.BRANCH_INTEGRATIONS) : null),
       ...(process.env.BRANCH_OSV_ENDPOINT ? { osvEndpoint: process.env.BRANCH_OSV_ENDPOINT } : {}) });
   security.start();
@@ -1178,6 +1190,8 @@ export async function createBranch(options: {
     traceExport,
     /** Batch 20 (wave 8): short-lived keys for a script, an extension or the SDK. */
     sessionTokens,
+    /** bucket 19: people signing in from their own device, groups and sharing; ships off. */
+    people,
     /** Wave 9: scoring the real work as it finishes, and the recent verdicts. */
     liveScoring: {
       settings: () => liveScoringSettings(store, runtime.owner),

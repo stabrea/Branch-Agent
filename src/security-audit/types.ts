@@ -143,6 +143,8 @@ export interface SecuritySnapshot {
   remoteEnabled: boolean | null;
   gatewayChain: string[];
   knownDevices: number;
+  /** bucket 19 (integration review): people signing in from their own device; null when this check cannot know. */
+  people?: { mode: string; chain: string[]; sessionMinutes: number; signedIn: number; waiting: number } | null;
   sessionLock: { idleMinutes: number; secretsWhileLocked: boolean };
   privacy: { outbound: string; moderation: boolean };
   /** The network policy Branch is running with right now; authoritative over integrations.web. */

@@ -108,7 +108,9 @@ test("the settings route is the owner's; a script's run key may start a waiting 
   await app.slackAutomations.handle("slack", reaction(), "UBOT");
   const key = app.sessionTokens.create(app.runtime.owner, { scope: "run", minutes: 5 });
   const script = { authorization: `Bearer ${key.token}`, "content-type": "application/json" };
-  const listed = await fetch(`${server.url}/api/channels/slack-automations`, { headers: script }).then((r) => r.json());
+  // Integration review (bucket 19 merge): the waiting events carry Slack text, so only the owner lists them.
+  assert.equal((await fetch(`${server.url}/api/channels/slack-automations`, { headers: script })).status, 401, "a run key cannot read the waiting events");
+  const listed = await fetch(`${server.url}/api/channels/slack-automations`, { headers: owner }).then((r) => r.json());
   assert.equal(listed.waiting.length, 1);
   const changed = await fetch(`${server.url}/api/channels/slack-automations`, { method: "POST", headers: script, body: JSON.stringify({ mode: "on" }) });
   assert.equal(changed.status, 401, "a run key cannot change the rules");
