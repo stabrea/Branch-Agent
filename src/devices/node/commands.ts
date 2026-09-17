@@ -16,6 +16,8 @@ export interface OsCommand {
   input?: string;
   /** The file the program writes its picture or sound to, when it makes one. */
   output?: string;
+  /** Integration review: `env` is the whole environment (a walled `device.run`), not additions to the node's own. */
+  exactEnv?: boolean;
 }
 
 const ps = (script: string, env: Record<string, string> = {}): OsCommand =>

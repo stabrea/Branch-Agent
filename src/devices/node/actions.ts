@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { constants } from "node:fs";
 import { access, mkdtemp, readdir, readFile, realpath, rm, stat } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { delimiter, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { WallDeps } from "../../sandbox-backends.js";
 import { parseDeviceArgs } from "../args.js";
@@ -11,6 +11,8 @@ import {
   openCommand, screenCommand, speakCommand, type NodeOs, type OsCommand,
 } from "./commands.js";
 import { walledCommand } from "./wall.js";
+import { secretHomePlaces } from "../../sandbox-seatbelt.js";
+import { installedProgram, programRoot } from "../../never-break/protected.js";
 
 /**
  * mac7/nodes: a Branch node doing one switched-on thing. Every program goes through `runner`, so
@@ -30,6 +32,8 @@ export interface ActionDeps {
   /** The node's own folder (its key), which a walled command can never read. */
   identityDir: string;
   wall?: WallDeps;
+  /** The node user's home folder; tests hand in a temporary one. */
+  home?: string;
 }
 
 const mimeByExt: Record<string, string> = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
@@ -37,10 +41,18 @@ const mimeByExt: Record<string, string> = { ".png": "image/png", ".jpg": "image/
   ".csv": "text/csv", ".html": "text/html", ".mp4": "video/mp4" };
 const mimeOf = (path: string): string => mimeByExt[extname(path).toLowerCase()] ?? "application/octet-stream";
 
+/**
+ * The environment a program starts with. Integration review: a walled `device.run` gets exactly the
+ * clean one the wall built; before, the node's whole environment was spread underneath it.
+ */
+export function childEnvironment(command: OsCommand): NodeJS.ProcessEnv {
+  return command.exactEnv ? { ...command.env } : { ...process.env, ...command.env };
+}
+
 /** Starts a program without a shell and collects at most `maxBytes` of what it prints. */
 export const spawnRunner: Runner = (command, options) => new Promise((done, fail) => {
   const child = spawn(command.executable, command.args, { cwd: options.cwd, shell: false, windowsHide: true,
-    env: { ...process.env, ...command.env }, stdio: ["pipe", "pipe", "pipe"] });
+    env: childEnvironment(command), stdio: ["pipe", "pipe", "pipe"] });
   const chunks: Buffer[] = [];
   let size = 0, stderr = "";
   const timer = setTimeout(() => child.kill("SIGKILL"), options.timeoutMs);
@@ -104,10 +116,17 @@ export class NodeActions {
       case "clipboard-write": return this.simple(clipboardWriteCommand(os, String(args.text), this.env), "copied");
       case "open-url": return this.simple(openCommand(os, String(args.url)), "opened");
       case "speak": return this.simple(speakCommand(os, String(args.text)), "spoken");
-      case "files": return this.files(needFolder(folder), String(args.action), String(args.path ?? ""));
-      case "run": return this.run(needFolder(folder), args as { executable: string; args: string[]; timeoutSeconds: number });
+      case "files": return this.files(await this.usableFolder(folder), String(args.action), String(args.path ?? ""));
+      case "run": return this.run(await this.usableFolder(folder), args as { executable: string; args: string[]; timeoutSeconds: number });
       default: throw new Error("This device does not do that.");
     }
+  }
+
+  /** The chosen folder, refused when it would expose this node's key, its secrets or too much of the disk. */
+  private async usableFolder(folder: string | null): Promise<string> {
+    const chosen = needFolder(folder);
+    await refuseUnsafeFolder(chosen, { home: this.deps.home ?? homedir(), identityDir: this.deps.identityDir });
+    return chosen;
   }
 
   private async simple(command: OsCommand, done: string): Promise<ActionResult> {
@@ -165,7 +184,7 @@ export class NodeActions {
     const opened = await walledCommand(this.deps.os, folder, args,
       { hidden: [this.deps.identityDir], env: this.env, ...(this.deps.wall ? { deps: this.deps.wall } : {}) });
     try {
-      const out = await this.runner({ executable: opened.start.executable, args: opened.start.args, env: stringEnv(opened.start.env) },
+      const out = await this.runner({ executable: opened.start.executable, args: opened.start.args, env: stringEnv(opened.start.env), exactEnv: true },
         { cwd: folder, timeoutMs: args.timeoutSeconds * 1000, maxBytes: textLimitBytes });
       const note = await opened.finish({ exitCode: out.code ?? -1, stdout: out.stdout.toString("utf8"), stderr: out.stderr });
       return { value: { exitCode: out.code, stdout: out.stdout.toString("utf8"), stderr: out.stderr, ...(note ? { wall: note } : {}) } };
@@ -181,6 +200,26 @@ const stringEnv = (env: NodeJS.ProcessEnv): Record<string, string> =>
 function needFolder(folder: string | null): string {
   if (!folder) throw new Error("No folder has been chosen for this device. The owner chooses one in Customize, Channels, Devices.");
   return folder;
+}
+
+const real = async (path: string): Promise<string> => realpath(path).catch(() => resolve(path));
+const within = (child: string, parent: string): boolean => {
+  const rel = relative(parent, child);
+  return rel === "" || (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
+};
+
+/**
+ * Integration review (never-break on the node): the folder Branch names must not be the whole disk,
+ * the home folder or anything above it, and must neither hold nor sit inside this node's key folder,
+ * a place that keeps secrets (`.ssh`, `.aws`, the keychain…) or this Branch program. A hub that was
+ * taken over, or a hasty choice, cannot turn `device.files` or `device.run` into a way to read them.
+ */
+export async function refuseUnsafeFolder(folder: string, where: { home: string; identityDir: string }): Promise<void> {
+  const chosen = await real(folder), home = await real(where.home);
+  const guarded = [where.identityDir, ...secretHomePlaces.map((place) => join(where.home, place)), installedProgram(programRoot())];
+  const hits = within(home, chosen) || (await Promise.all(guarded.map(real)))
+    .some((place) => within(place, chosen) || within(chosen, place));
+  if (hits) throw new Error(`The folder ${folder} cannot be used on this device: it is the whole disk, the home folder, or it holds this device's key or other secrets. Choose a project folder instead.`);
 }
 
 /** The real place `path` names, refused unless it is inside `folder` (links included). */

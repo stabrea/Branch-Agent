@@ -5,6 +5,7 @@ import type { Socket } from "node:net";
 import { maskedFrame } from "../../channels/ws-client.js";
 import { acceptKey, readFrame } from "../../ws.js";
 import { mediaLimitBytes } from "../capabilities.js";
+import { isTailnetAddress } from "../../remote/tailscale.js";
 import { socketPath } from "../protocol.js";
 
 /**
@@ -28,11 +29,25 @@ export class RefusedError extends Error {
   constructor(readonly status: number) { super(`Branch refused the connection (${status}).`); }
 }
 
+/**
+ * Integration review: the node cannot tell Branch from an impostor on the line, so plain http is
+ * only used where the line itself is private — this computer, or Tailscale (which encrypts and
+ * checks both ends). Anywhere else Branch must be reached over https.
+ */
+export function checkHubAddress(hub: string): URL {
+  const url = new URL(hub);
+  if (url.protocol === "https:") return url;
+  const host = url.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  const privateLine = host === "localhost" || host === "::1" || /^127\.\d+\.\d+\.\d+$/.test(host)
+    || isTailnetAddress(host) || /^fd7a:115c:a1e0:/.test(host) || host.endsWith(".ts.net");
+  if (url.protocol !== "http:" || !privateLine)
+    throw new Error("Branch must be reached over https, unless it is on this computer or on your Tailscale network.");
+  return url;
+}
+
 /** `http://host:port` → `ws://host:port/api/devices/socket`. */
 export function socketAddress(hub: string): URL {
-  const url = new URL(hub);
-  if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("The Branch address must start with http:// or https://");
-  return new URL(socketPath, url);
+  return new URL(socketPath, checkHubAddress(hub));
 }
 
 export const dialNode: DialNode = (hub, deviceId, events) => new Promise((resolve, reject) => {

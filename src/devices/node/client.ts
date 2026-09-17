@@ -7,7 +7,8 @@ import { reconnectDelay } from "../../channels/ws-client.js";
 import { capabilities, CapabilitySchema, mediaLimitBytes, type Capability, type DevicePlatform } from "../capabilities.js";
 import { helloText, mediaFrame, pairText, protocolVersion, WindowLimit } from "../protocol.js";
 import type { NodeActions } from "./actions.js";
-import { dialNode, RefusedError, type DialNode, type NodeSocket } from "./socket.js";
+import { checkHubAddress, dialNode, RefusedError, type DialNode, type NodeSocket } from "./socket.js";
+export { checkHubAddress };
 
 /**
  * mac7/nodes: `branch node` — this computer lending a few switched-on abilities to the owner's
@@ -53,6 +54,7 @@ export function parsePairLink(link: string): { hub: string; offer: string } {
   const url = new URL(link);
   const offer = url.searchParams.get("offer") ?? "";
   if (!/^[a-f0-9]{32}$/.test(offer) || !/^https?:$/.test(url.protocol)) throw new Error("That is not a pairing link from Branch's Devices card.");
+  checkHubAddress(url.origin);
   return { hub: url.origin, offer };
 }
 
