@@ -1,0 +1,14 @@
+{
+  "name": "branch-agent",
+  "owner": {
+    "name": "Branch Agent"
+  },
+  "plugins": [
+    {
+      "name": "branch-agent",
+      "source": "./",
+      "description": "Hand work to Branch Agent, your own assistant on this computer, through the tools you shared with it.",
+      "version": "0.17.0"
+    }
+  ]
+}
