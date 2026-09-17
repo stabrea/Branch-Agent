@@ -34,7 +34,10 @@ export const cliCommands: { name: string; summary: string; options: string[] }[]
   { name: "acp-serve", summary: "Let a code editor talk to Branch", options: [] },
   { name: "skill", summary: "Pack a skill folder, or install a skill file: skill pack | skill install", options: ["--author", "--package-version", "--approve"] },
   { name: "plugin", summary: "See and switch plugins on or off: plugin list | enable | disable", options: [] },
-  { name: "update", summary: "Update a copy installed from Git", options: [] },
+  { name: "update", summary: "Update a copy installed from Git, or check an installed copy and install the newest release with --yes", options: ["--yes"] },
+  // bucket 22: closing and removing an installed Branch from a script (src/install/manage-cli.ts).
+  { name: "quit", summary: "Close the running Branch and wait until it has gone", options: [] },
+  { name: "uninstall", summary: "Remove the installed Branch; conversations and files stay unless --delete-data", options: ["--delete-data"] },
   // Batch 20 (wave 8): short-lived keys, schedules over the running engine, and one task's trace.
   { name: "token", summary: "Short-lived keys for a script: token create | list | revoke <id>", options: ["--scope", "--minutes", "--name", "--json"] },
   { name: "schedule", summary: "Schedules on the engine already running: schedule add | list | remove <id>", options: ["--prompt", "--at", "--every", "--kind", "--json"] },

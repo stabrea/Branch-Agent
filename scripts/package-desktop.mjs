@@ -139,6 +139,14 @@ async function macIcon() {
   return icns;
 }
 
+/** bucket 22: the no-questions installer for macOS and Linux, published beside their downloads. */
+async function writeUnixInstaller() {
+  const { unixBootstrapperName, unixBootstrapperScript } = await import("../dist/install/unix-bootstrap.js");
+  const script = join(RELEASE, unixBootstrapperName);
+  await writeFile(script, unixBootstrapperScript(), { encoding: "utf8", mode: 0o755 });
+  console.log(script);
+}
+
 async function packageMac({ arch }) {
   const [out] = await runPackager(packagerOptions("darwin", arch, await macIcon()));
   const app = join(out, `${mac.MAC_APP_NAME}.app`);
@@ -150,6 +158,7 @@ async function packageMac({ arch }) {
   const plan = mac.macFinishPlan({ app, zip, nested, entitlements, env: process.env });
   for (const command of plan.commands) runCommand(command);
   await writeChecksum(zip);
+  await writeUnixInstaller();
   console.log(app);
   console.log(mac.macSigningNotice(plan));
 }
@@ -167,6 +176,7 @@ async function packageLinux({ arch }) {
   await finishArchive(archive, linux.tarCommand({ releaseDir: RELEASE, folder: linux.LINUX_FOLDER, archive }), {
     env: { ...process.env, COPYFILE_DISABLE: "1" },
   });
+  await writeUnixInstaller();
   console.log(folder);
 }
 

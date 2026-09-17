@@ -64,6 +64,8 @@ export const screenTools = ["desktop.screenshot", "desktop.windows", "desktop.re
   "desktop.type", "desktop.key", "desktop.open", "desktop.clipboard"] as const;
 /** Reading aloud with the computer's own voice (src/voice-service.ts). */
 export const systemVoiceTools = ["voice.say"] as const;
+/** Bucket 21: the app-builder tools (src/sdk-kit.ts registers them). */
+export const sdkKitToolNames = ["sdk.routes", "sdk.route", "sdk.starter"] as const;
 /** Bucket 17: watching and saving videos with the owner's own ffmpeg and yt-dlp (src/media-understand.ts). */
 export const videoProgramTools = ["media.watch", "media.frames", "media.convert", "media.download", "media.captions"] as const;
 
@@ -98,6 +100,8 @@ const toolFeatures: { reason: string; tools: readonly string[]; hideWhenOff: boo
   ...interopToolFeatures.map(([key, reason, tools]) => ({ reason, tools, hideWhenOff: true, mode: (s: Reader, o: string) => savedMode(s, o, key) })),
   // ── mac6/bucket-23: the smaller asks (src/asks/settings.ts keeps these lists). ──
   ...askToolFeatures.map(([key, reason, tools]) => ({ reason, tools, hideWhenOff: true, mode: (s: Reader, o: string) => savedMode(s, o, key) })),
+  // Bucket 21 hook: tools for people building on Branch (src/sdk-kit.ts).
+  { reason: "tools for people building on Branch are switched on", tools: sdkKitToolNames, hideWhenOff: true, mode: (s, o) => savedMode(s, o, "sdk-kit") },
 ];
 
 /**

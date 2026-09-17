@@ -22,6 +22,8 @@ export interface SlackOptions {
   fetch?: typeof fetch;
   connect?: WebSocketConnect;
   reconnectBaseMs?: number;
+  /** mac6/bucket-16: every event Slack sends, for Slack-started automations (src/channels/slack-automations.ts). */
+  onEvent?: (event: unknown, botUserId: string | null) => void;
 }
 const eventSchema = z.object({
   type: z.string(), channel: z.string().optional(), user: z.string().optional(), text: z.string().optional(),
@@ -117,6 +119,7 @@ export class SlackAdapter implements ChannelAdapter {
     const eventId = payload?.event_id;
     if (!payload?.event || (eventId && this.seen.has(eventId))) return;
     if (eventId) { this.seen.add(eventId); if (this.seen.size > 500) this.seen.delete(this.seen.values().next().value!); }
+    try { this.options.onEvent?.(payload.event, this.user?.id ?? null); } catch { /* an automation never stops a reply */ } // mac6/bucket-16
     const inbound = this.inbound(payload.event);
     if (inbound) void onMessage(inbound).catch(() => undefined);
   }

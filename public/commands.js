@@ -64,6 +64,9 @@ const CLIENT = {
     else displayView("settings:appearance");
   },
   help: () => undefined,
+  /* Bucket 12: a saved prompt. The message box is emptied once the command returns, so the text goes in just after. */
+  send: (action) => setTimeout(() => { $("prompt").value = action.text; $("chat-form")?.requestSubmit(); }, 0),
+  fill: (action) => setTimeout(() => { $("prompt").value = action.text; $("prompt").focus(); }, 0),
 };
 
 /** Every key sends with POST, so what was typed never lands in an address; the server says what the key may do. */
@@ -127,7 +130,8 @@ async function update() {
   if (!/^\/[\w?-]*$/.test(typed)) { closeMenu(); return; }
   await loadSlashCommands();
   const mode = SLASH_COMMANDS.find(([, , details]) => details)?.[2]?.mode ?? "off";
-  if (mode === "off") { closeMenu(); return; }
+  /* Bucket 12: the owner's saved commands come with their own switch, so they open the menu too. */
+  if (mode === "off" && !SLASH_COMMANDS.some(([, , details]) => details?.saved && details.listed)) { closeMenu(); return; }
   const word = typed.slice(1).toLowerCase();
   const shown = SLASH_COMMANDS.filter(([, , details]) => !details || details.listed);
   /* A name that starts with what was typed comes before a command found by one of its other names. */

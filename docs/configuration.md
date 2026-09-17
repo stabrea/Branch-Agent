@@ -696,6 +696,14 @@ Create an app at api.slack.com/apps, turn on **Socket Mode**, and subscribe to `
 
 Socket Mode means Slack never needs to reach this computer. Every envelope is acknowledged immediately and an event id already seen is dropped, so a message Slack sends twice is answered once. Edits, joins and the assistant's own posts are ignored. `slackChannels`, when given, is the only list of Slack channel ids that will be answered; `allowlist` holds Slack user ids. Replies are posted into the thread the question came from, with markdown converted to Slack's own formatting (`**bold**` → `*bold*`, `*italic*` → `_italic_`, links → `<url|text>`, code fences untouched).
 
+**Automations started by Slack's own events.** The same Socket Mode connection can start an automation (an inbound trigger) when something happens in Slack: a reaction, a message with certain words, a new channel. Subscribe the Slack app to the events you want (for example `reaction_added`, `message.channels`, `channel_created`), make the trigger under Automations, then write rules with `POST /api/channels/slack-automations`:
+
+```json
+{ "mode": "on", "rules": [{ "event": "reaction_added", "reaction": "rocket", "channel": "C0123456789", "users": ["U0123456789"], "trigger": "<trigger id>" }] }
+```
+
+A rule matches on the event type and, when given, the Slack channel, the people (`users`), the reaction and words the message must contain (`contains`, ignoring case). The trigger's prompt can use `{{slack_type}}`, `{{slack_user}}`, `{{slack_channel}}`, `{{slack_text}}`, `{{slack_reaction}}`, `{{slack_ts}}`, `{{slack_thread_ts}}` and `{{slack_connection}}`; `{{payload}}` holds all of them. The switch ships **off**: Slack's events start nothing. **When needed** starts nothing by itself: matching events wait in a list (`GET /api/channels/slack-automations`, the last fifty) and one is started with `POST /api/channels/slack-automations/run {"event": "<id>"}`, which a script's run key may also do. **On** starts the automation as the event arrives, within the trigger's own rate limit and log. Events from bots, the assistant's own events and Slack's resends start nothing. Whatever a person writes reaches the automation's prompt between `<slack-message trust="untrusted">` markers, with a note that it is data and not instructions. A rule that names its `users` answers only them; a rule that names nobody answers only people who may already use the assistant on that Slack connection (the sender list or an approved pairing), and an event with nobody behind it (a new channel counts its maker) starts nothing. A waiting event whose rule has since changed is not started. Changing the rules is the owner's alone. Nothing new is opened to the internet: Slack still never reaches this computer.
+
 ### Channels (WhatsApp)
 
 WhatsApp pushes messages to a web address rather than holding a connection open, so Branch must be reachable from the internet. Save the Graph API access token as `WHATSAPP_TOKEN`, the app secret as `WHATSAPP_APP_SECRET`, and a word of your own choosing as `WHATSAPP_VERIFY_TOKEN`:
@@ -848,7 +856,7 @@ service is switched off its address answers 503 and reads nothing.
 
 ### IRC (`irc`)
 
-`{"type": "irc", "id": "irc", "server": "irc.libera.chat", "port": 6697, "tls": true, "nick": "branch-bot", "channels": ["#my-team"], "passwordSecret": "IRC_PASSWORD"}`. With `passwordSecret` the nick signs in with SASL PLAIN before it joins anything. A channel line is answered when it starts with the nick (`branch-bot: …`); a private message always is. IRC cannot carry a line break, so a reply goes out one line at a time, at most 400 characters each, spaced so the server does not disconnect the assistant for flooding. `allowlist` holds nicks. A nick taken by somebody else gets an underscore added; a refused password shows as "needs attention".
+`{"type": "irc", "id": "irc", "server": "irc.libera.chat", "port": 6697, "tls": true, "nick": "branch-bot", "channels": ["#my-team"], "passwordSecret": "IRC_PASSWORD"}`. With `passwordSecret` the nick signs in with SASL PLAIN before it joins anything. A channel line is answered when it starts with the nick (`branch-bot: …`); a private message always is. IRC cannot carry a line break, so a reply goes out one line at a time, at most 400 characters each, spaced so the server does not disconnect the assistant for flooding. Branch asks the server for IRCv3 `account-tag`, so somebody signed in to the network's accounts is known as `account:<name>` whatever nick they use, and nobody can pass for them by taking their nick; anybody not signed in is known by nick only. The account tag is only believed when the server agreed to send account tags. `allowlist` holds `account:<name>` entries (recommended) or nicks. A nick taken by somebody else gets an underscore added; a refused password shows as "needs attention".
 
 ### Twitch chat (`twitch`)
 
@@ -1076,7 +1084,7 @@ Register a bot on the QQ open platform (q.qq.com) and save its client secret (Ap
 ```json
 { "type": "guilded", "id": "guilded", "tokenSecret": "GUILDED_BOT_TOKEN" }
 ```
-Create a bot in your Guilded server's settings (Bots), generate an API token and save it as `GUILDED_BOT_TOKEN`. Guilded bots only see server channels, so the assistant answers when it is @mentioned there; there are no direct messages for bots. After a dropped connection Guilded replays what was missed. Replies are cut at 3500 characters (Guilded allows 4000). Limitation: Branch's socket client answers Guilded's pings but does not send its own, so a silently dead connection is only noticed when it closes.
+Create a bot in your Guilded server's settings (Bots), generate an API token and save it as `GUILDED_BOT_TOKEN`. Guilded bots only see server channels, so the assistant answers when it is @mentioned there; there are no direct messages for bots. After a dropped connection Guilded replays what was missed. Replies are cut at 3500 characters (Guilded allows 4000). Branch sends its own ping at the interval Guilded names; one that goes unanswered closes the connection and it is opened again. The last message handled is remembered across restarts, so Guilded also replays what arrived while Branch was closed.
 
 ### Revolt (`revolt`)
 
@@ -1092,7 +1100,42 @@ Create a bot in Revolt's settings (My Bots), invite it to your server and save i
 ```
 Branch joins as an ordinary (text-only) user. A private message to it is always answered; in a channel it answers when its username is in the message. Save the server password, if there is one, as the named secret. The server certificate is checked: a server with a certificate from a public authority needs nothing more; for a self-signed server, save its SHA-256 fingerprint as `certificateFingerprint` (pinning, recommended) or set `allowSelfSigned: true`. Voice is not supported. People with a registered account or a client certificate are recognised by it; guests are only known by name, so approve guests with care. Replies are cut at 3500 characters and sent as escaped HTML.
 
+### KOOK (`kook`)
+
+```json
+{ "type": "kook", "id": "kook", "tokenSecret": "KOOK_BOT_TOKEN" }
+```
+Make a bot application at developer.kookapp.cn, choose the WebSocket connection, invite the bot to your KOOK server, and save its token as `KOOK_BOT_TOKEN`. This is KOOK's official bot API (v3): the token travels as `Authorization: Bot …`, and the socket address KOOK hands back is followed only when it is on `kookapp.cn` or `kaiheila.cn` and is never written into an error, because it carries a key. Direct messages are always answered; in a channel the bot must be @mentioned. Replies are sent as plain text, never KMarkdown, so nothing a model writes can mention everybody. Branch pings every thirty seconds and reconnects when KOOK stops answering; after a drop, or a restart soon after one, it asks KOOK to resume the session and answers what was missed once. People are paired and listed as `kook:<user id>`. Replies are cut at 4000 characters.
+
+### WeChat Official Account (`wechat-mp`)
+
+```json
+{ "type": "wechat-mp", "id": "wechat", "appId": "wx0123456789abcdef" }
+```
+For a **verified** WeChat Official Account (the customer-service message API needs verification). In the account's developer settings, save the AppSecret as `WECHAT_MP_APP_SECRET`, add this computer's public address to the IP allowlist, and under server settings enter the address shown under Connections, a Token (saved as `WECHAT_MP_TOKEN`) and an EncodingAESKey (saved as `WECHAT_MP_AES_KEY`), with the message mode set to **safe mode** (安全模式). Branch answers WeChat's address check only when it is signed and less than five minutes old, and only echoes a plain word, then takes in only encrypted posts whose signature covers the message itself; plain-text and compatible mode are refused, because there WeChat signs only the time and a random word, not the words. A post more than five minutes old is refused, and WeChat's resend of a message it thinks went unanswered is taken in once. Replies go out through the customer-service message API, which WeChat allows for 48 hours after the person last wrote; a later reply waits under **Messages still to send** with "Outside WeChat's reply window". One-to-one only, text only, replies cut at 600 characters (WeChat's limit is 2048 bytes). Personal WeChat accounts are not supported.
+
+### WeCom app (`wecom-app`)
+
+```json
+{ "type": "wecom-app", "id": "wecom", "corpId": "ww0123456789abcdef", "agentId": 1000002 }
+```
+A self-built app (自建应用) in your WeCom admin console, which, unlike the group robot, can be written to. Save the app's Secret as `WECOM_APP_SECRET`, add this computer's public address to the app's trusted IP list, and under "Receive messages" enter the address shown under Connections with a Token (`WECOM_APP_TOKEN`) and an EncodingAESKey (`WECOM_APP_AES_KEY`). Every post is encrypted and signed the same way as WeChat's safe mode, and must be addressed to your CorpID and to this app's AgentId. Replies go out through the app message API with an access token that is renewed when WeCom says it has expired. WeCom only takes the app secret inside the token address; Branch never writes an address into an error or a log. One-to-one text only; replies cut at 600 characters.
+
 <!-- channels-parity:services-end -->
+
+**Catching up after Branch was closed.** Telegram, Matrix, Mastodon, Bluesky, Discourse, ntfy, VK and
+Guilded (and KOOK, for as long as KOOK keeps the session) remember where they had read up to, in the saved-work database, and after a restart fetch
+what arrived in the meantime and answer it once. The place is saved only after every message before
+it has been answered, so a message cut off by a crash is fetched again. A place older than a day is
+not trusted: the service takes stock from now instead, so a computer that was off for a month does
+not answer a month of messages at once. At most 20 missed messages are answered after a restart (the
+rest are let go), and a missed message from somebody who is not yet allowed is let go without a
+pairing code. The services that are posted to (WhatsApp, Messenger, the
+`chat` services, Teams, Webex and the rest) are retried by the service itself while Branch is
+unreachable. The others cannot catch up: IRC, XMPP, MQTT, Mumble, Twitch, Nostr, Revolt, QQ, Discord
+and Slack Socket Mode do not hand a bot messages from before it connected; Reddit, X, Twilio, Twist
+and Nextcloud Talk still take stock from now, because their lists have no place that can be resumed
+safely.
 
 **macOS and Linux.** Every service here works the same on Windows, macOS and Linux except iMessage,
 which exists only on a Mac and is refused by name anywhere else. The programs some services speak
@@ -1163,6 +1206,9 @@ means this wave added it (behind its switch, off); **not built** gives the reaso
 | Guilded | OpenFang | built now (`guilded`) |
 | Revolt (Stoat) | OpenFang | built now (`revolt`) |
 | Mumble text chat | OpenFang | built now (`mumble`); voice is ignored |
+| KOOK (Kaiheila) | audit row A2156 | built now (`kook`), official bot API v3 over its WebSocket gateway |
+| WeChat Official Account (Weixin gateway) | Hermes (`weixin`), audit row A2117 | built now (`wechat-mp`), safe mode only |
+| WeCom self-built app (two-way) | PicoClaw, OpenFang, ZeroClaw (`wecom_ws`) | built now (`wecom-app`); the group robot (`chat` / `wecom`) stays send only |
 | AMQP (RabbitMQ and others) | ZeroClaw | not built: AMQP 0-9-1 is a large binary protocol that would need a client of its own; most brokers also speak MQTT, which is built |
 | LinkedIn messaging | OpenFang | not built: LinkedIn's messaging API is open only to approved partners |
 | Tlon / Urbit | OpenClaw | not built: the chat runs inside an Urbit ship through agents whose interface changes between releases; there is no stable public bot API to write against |
@@ -1172,7 +1218,7 @@ means this wave added it (behind its switch, off); **not built** gives the reaso
 | Yuanbao (Tencent) | Hermes | not built: no public bot API documentation; the reference speaks a private protocol |
 | BlueBubbles, Photon, Linq (iMessage relays) | Hermes, OpenClaw, ZeroClaw | not built: third-party relays for iMessage; Branch drives Messages on your own Mac instead |
 | WhatsApp personal account (WhatsApp Web emulation, Baileys, whatsmeow) | OpenClaw, PicoClaw (`whatsapp_native`), nanobot, ZeroClaw (`whatsapp_web`), Agent Zero | not built: emulates the WhatsApp Web client, which WhatsApp's terms forbid; the official Business API is built |
-| Personal WeChat (iLink, web protocols) | OpenClaw, PicoClaw, nanobot, ZeroClaw, Hermes, IronClaw | not built: signs a personal WeChat account in by QR code rather than through an official bot API; WeCom is built |
+| Personal WeChat (iLink, web protocols) | OpenClaw, PicoClaw, nanobot, ZeroClaw, Hermes, IronClaw | not built: signs a personal WeChat account in by QR code rather than through an official bot API; WeChat Official Accounts and WeCom apps are built |
 | Personal QQ (OneBot, NapCat) | PicoClaw (`onebot`), nanobot (`napcat`) | not built: drives a personal QQ account through an unofficial client; the official QQ bot API is built |
 | Personal Zalo (zca-js) | OpenClaw (`zalouser`) | not built: drives a personal Zalo account through an unofficial client; Zalo Official Account is built |
 | Instagram private API | — | not built: unofficial and against Instagram's terms; Instagram messaging through Meta's Graph API is built |
@@ -3218,6 +3264,66 @@ certificate is bought and a signing step added to the workflow. On Linux the dow
 entry is copied by hand and updates come from Branch's own updater. Checksums (`.sha256`) are
 published for every download on every system.
 
+**Installing and managing Branch from a script (bucket 22).** Every step works without a click and
+answers with exit code 0 only when it did what it says, so a catalogue such as KeepOak's can install,
+check, restart, update and remove Branch with one script.
+
+| | macOS and Linux | Windows |
+|---|---|---|
+| Install | `sh install-branch-agent.sh --quiet` beside the download and its `.sha256` | `"Install Branch Agent.cmd" /quiet` beside the zip |
+| Where it goes | Mac: `~/Applications/Branch Agent.app` (a copy already in `/Applications` is linked up instead, and never written to or removed). Linux: `~/.local/share/branch-agent/app`, with `~/.local/share/applications/branch-agent.desktop` | `%LOCALAPPDATA%\Programs\Branch Agent` |
+| The `branch` command | `~/.local/bin/branch` | not written yet |
+| Conversations and files | Mac: `~/Library/Application Support/Branch Agent`. Linux: `~/.config/Branch Agent` | `%APPDATA%\Branch Agent` |
+| What is installed | `branch --version --json` prints `{"version","path","dataDir","running","installed"}` | — |
+| Restart | `branch quit`, then open the app (or `branch start`); while the never-break gateway runs the engine, `branch quit` refuses (exit 1) | — |
+| Update | `branch update --yes` | the app's Update button |
+| Remove | `sh install-branch-agent.sh --uninstall [--delete-data]` or `branch uninstall [--delete-data]` | `Uninstall Branch Agent.cmd /quiet [--delete-data]` |
+
+Installing a version that is already there does not copy it again: the copy is linked up (the
+`branch` command and menu entry are written again) and `--repair` copies it anyway. Installing a
+different version keeps the one before as `<name>.previous`. `install-branch-agent.sh` refuses a
+download whose `.sha256` is missing or does not match, and never downloads anything itself; it picks the
+download by its full name (`Branch-Agent-macos-arm64.zip`, never just "a zip"), so an Intel copy of the
+shell on Apple silicon still gets the arm64 app. The `branch` command runs the engine inside the app with
+the app's own runtime, on the app's own data folder, so it sees the same conversations as the window
+(a `BRANCH_DATA_DIR` you set still wins).
+
+`branch quit` asks the running Branch, window or background engine, to close the way Quit does (work
+is saved, and the window gives it eight seconds at most), then waits up to twenty seconds for the
+process to go; a background engine that does not answer is stopped its own way. Only a program on this
+computer holding the data folder's own key can ask (`POST /api/deployment/quit`); short-lived keys, the
+phone door, a web page (Origin and cross-site checks) and an engine run by the never-break gateway cannot. "Not running" counts as done.
+
+`branch update` in an installed copy checks for a newer release and says what it found; `--yes` installs
+it through the same updater as the Update button: the download is checked against its published
+checksum, tried on a copy of the work when that switch is on, a safety copy is written, Branch is closed,
+and the same hand-over script swaps the folders, keeps the version before and writes its log. If Branch
+will not close (or closing it fails outright), the update stops there and nothing is changed; it is never
+ended mid-work to make room. A release older than the installed copy is never installed. The log is
+`branch-agent-update/apply-update.log` in the temporary folder. It prints the old and new version.
+The window is opened again only if it was open before. A copy installed from Git keeps `branch update`
+as `git pull`, `npm ci` and a build.
+
+Removing Branch closes it, takes out its "start by itself when you sign in" entry, the app, the version
+before, the `branch` command and the menu entry. Conversations and files stay unless `--delete-data` is
+given. A `branch` command or menu entry the installer did not write (or a link in its place) is left
+alone, and installing refuses to write over another program's `branch`. A copy in the Mac's shared
+`/Applications` is not the installer's and is left; `branch uninstall` names it.
+`install-branch-agent.sh --uninstall` only runs a `branch` command the installer wrote. The script uses
+the system's own tools whatever `PATH` says, checks and unpacks a private copy of the download (so it
+cannot be swapped in between), and refuses a download that names files outside its own folder.
+
+A custom distribution is a folder with the download, `install-branch-agent.sh` and an assistant file
+made with `branch export-agent`: `sh install-branch-agent.sh --assistant team.branch-agent` brings its
+specialists, procedures and skills in on a fresh install, and never over an assistant already set up. It
+follows the same rules as bringing an assistant in from a market: every part is checked against its
+fingerprint, approval rules, model choices and memory never come in this way, and new skills arrive
+switched off. The square logo for catalogues is `public/assets/icon.svg` on `main`.
+
+The release workflow never uploads over a download that is already attached to the release (a
+hand-built Windows zip once was replaced that way): a download that is there stays, with its own
+checksum, and only the missing ones are added.
+
 **Portable copies.** Put an empty `portable.txt` beside `Branch Agent.exe` and the app keeps its
 state in `Branch Data\state` and its workspace in `Branch Data\workspace`, both next to the
 program. Without the marker it uses the per-person application-data folder as before.
@@ -3547,6 +3653,35 @@ copy of the source). Its tests run against a fake server
 (`python3 -m unittest discover -s packages/sdk-python/tests`); `tests/sdk-python.test.mjs` runs them as
 part of `npm test` and also drives a real Branch Agent with it, and is skipped where no Python is
 installed. See `packages/sdk-python/README.md`.
+### Building on Branch
+Everything a program of your own needs to use Branch, in one place (bucket 21):
+
+- **Clients.** JavaScript and TypeScript (`packages/sdk`), Python (`packages/sdk-python`), Go
+  (`packages/sdk-go`, standard library only, Go 1.23 or later) and React hooks (`packages/sdk-react`,
+  around the JavaScript client, React being your page's own). They cover the same groups, keep the
+  session key to this computer's own address or `https`, and are not published to any package index:
+  each README says how to use it from a copy of the source. Branch refuses any web page on another
+  address, so the React hooks run in a desktop app, React Native, a server-rendered page, or behind
+  a development proxy.
+- **The switch.** Settings → Advanced → **Building on Branch**: off (the default), when needed, or on.
+  `GET`/`POST /api/sdk-kit` with `{"mode": "off" | "when-needed" | "on"}` does the same; only the owner
+  may change it, and a short-lived key may not.
+- **Tools for an AI coding tool.** With the switch not off, `sdk.routes` lists the web routes (by group
+  or by words), `sdk.route` gives one route's body and the call in Python, TypeScript, Go and React,
+  and `sdk.starter` gives a small working program in one language. They only read. Share them under
+  Customize → Connections and an editor connected to Branch's MCP server can ask them while it writes
+  your program. Off, they are not advertised and refuse in one sentence.
+- **Flows as files.** Automations → Procedures → **Flows as files** writes a saved flow out as YAML and
+  reads one back as a new flow (never over an existing one); `GET /api/flows/{flowId}/yaml` and
+  `POST /api/flows/yaml {"yaml": "..."}` do the same. A file starts with `format: branch-flow/1` and
+  `kind: steps` or `kind: graph`, then the flow exactly as the flow editor saves it; a file written by
+  hand may leave both out. Aliases, anchors, tags (`!!binary`, `!foo`), repeated keys, the names
+  `__proto__`, `constructor` and `prototype`, numbers too large to keep exactly, other formats and files
+  over 512 KB are refused.
+  The switch must not be off.
+
+macOS and Linux: nothing here depends on the system. The Go and Python tests are skipped where Go
+1.23+ or Python 3.9+ is not installed.
 ### Issues as context
 `{"issues": {"github": true, "linear": {"tokenSecret": "LINEAR_API_KEY"}}}` in the integration
 settings file switches on `issues.search`, `issues.get` (both behind `issues.read`) and
@@ -5108,8 +5243,9 @@ These rows of the audit are done, by a feature that exists under another name.
 - **A1979 self-evolution** — skill governance drafts a better version of a skill from a task that went
   well, benchmarks it against the old one and keeps the owner's answer (`src/skill-governance.ts`,
   `src/skill-revisions.ts`). Unbounded self-modification is deliberately not offered.
-- **A2001 prompt library** — saved procedures with named inputs (`src/recipes.ts`) and templates that
-  carry one between installs (`src/templates.ts`).
+- **A2001 prompt library** — built in bucket 12: saved prompts in groups, with blanks, earlier
+  wordings and a command each (`src/prompt-library.ts`; see *Your saved prompts, your own commands
+  and installing skills* below).
 - **A2243 background terminal sessions** — programs left running (`src/processes.ts`), with the owner
   naming which programs may be left running at all.
 - **A2315 headless mode** — `branch run --json` prints one JSON object per line and exits with a code
@@ -5358,8 +5494,8 @@ recorded here as deliberately out of scope rather than left open for ever.
 - **A0419 Chainlit UI example** — the same, for Chainlit: a Python chat front end for a Python agent.
 - **A1435 Next.js web chat** — a React/Next.js chat app is a second front end to keep in step with
   this one. The web app here is plain modules served by the app itself, with no build step.
-- **sdk-react (React SDK)** — likewise a front-end library for somebody else's page. The TypeScript
-  client in `packages/sdk` and the OpenAPI description are what an outside page talks to.
+- **sdk-react (React SDK)** — re-opened and built in wave mac6: `packages/sdk-react` (see "Building on
+  Branch").
 - **A1905 Interactive terminal coding agent** — Branch's terminal interface is `src/terminal-tui.ts`
   in the same Node process as everything else. A Rust TUI would be a second program to ship, sign
   and update for no new behaviour.
@@ -5811,9 +5947,10 @@ because it writes outside this folder.
   answer for this tree.
 - **A1519, A1841 (Bitwarden and 1Password)** are built on another branch of this wave and land
   separately; `secret://cmd/<name>` above is the general form of the same idea.
-- **FAMILY custom-commands (#72)** — the owner's own saved procedures and skills are their custom
-  commands; the terminal view's slash commands stay fixed on purpose, so a mistyped one can never
-  become a task. Still open.
+- **FAMILY custom-commands (#72)** — built in bucket 12: a saved prompt can have a command of its
+  own, laid over the shipped table on every surface with a message box (see *Your saved prompts, your
+  own commands and installing skills* below). A mistyped name still never becomes a task: only a
+  saved command the owner wrote is read, and a shipped name can never be taken.
 
 ## Sandboxes: where a script actually runs (batch 26, wave 8)
 
@@ -6256,44 +6393,68 @@ every row is listed here and that every file named here exists.
 
 ### A library other people can build on (bucket 21)
 
-- **sdk-python** — built: `packages/sdk-python/branch_agent/client.py`, tested by
-  `packages/sdk-python/tests/test_client.py` and `tests/sdk-python.test.mjs` (see "A client for Python programs").
-- **framework-adapters** (Python API SDK) — built: the same Python client.
-- **A1509** (TypeScript, Python and Go clients) — partly: the TypeScript client is `packages/sdk/client.mjs`
-  (`packages/sdk/test/sdk.test.mjs`) and the Python one is above. There is no Go client; the OpenAPI
-  description below is what a Go program would generate one from.
+Re-opened in wave mac6 (every declined row came back); each row is now built or verified. See
+"Building on Branch" for how the pieces fit.
+
+- **sdk-python** — verified: `packages/sdk-python/branch_agent/client.py`, tested by
+  `packages/sdk-python/tests/test_client.py` and `tests/sdk-python.test.mjs` (see "A client for Python
+  programs"); it now also has `flows` (list, get, save, run, export_yaml, import_yaml).
+- **framework-adapters** (Python API SDK) — verified: the same Python client,
+  `packages/sdk-python/branch_agent/client.py`, tested by `tests/sdk-python.test.mjs`.
+- **A1509** (TypeScript, Python and Go clients) — built: the Go client is `packages/sdk-go/branch/client.go`
+  (standard library only), tested by `packages/sdk-go/branch/client_test.go` and `tests/sdk-go.test.mjs`,
+  which also drives a real Branch Agent with it and compiles every Go snippet the app hands out. The
+  TypeScript client is `packages/sdk/client.mjs` (`packages/sdk/test/sdk.test.mjs`).
 - **A2353** (REST API) and **A0758** (HTTP API) — verified: `src/server.ts` serves it and
   `src/api-openapi.ts` describes it at `GET /api/openapi.json`, with `docs/api.md` written from the same
   description. `tests/other-2.test.mjs` checks the description is well formed, that every route it
-  promises is really served, and that `docs/api.md` matches; `tests/sdk-python.test.mjs` checks the routes
-  the Python client calls are in it.
-- **sdk-react** — not applicable: a front-end library for somebody else's page (see "What Branch is not").
-  An outside page uses `packages/sdk/client.mjs` or the OpenAPI description.
-- **app-building** (an MCP server for building apps with an SDK) — not built: Branch's own MCP server
-  (`src/mcp-server.ts`) offers Branch's tools to other programs; a server for writing somebody else's
-  app is a different product.
-- **serialization** (pipelines written as YAML) — partly: skills are YAML (`src/skill-document.ts`),
-  flows are JSON (`src/flows.ts`), and a whole assistant goes out and back as one file
-  (`src/agent-export.ts`, `tests/code-ide.test.mjs`). Flows are not written as YAML because JSON is what
-  the flow editor saves and reads; a second format would be a second thing to keep in step.
+  promises is really served, and that `docs/api.md` matches; `tests/sdk-python.test.mjs` and
+  `tests/sdk-go.test.mjs` check the routes each client calls are in it.
+- **sdk-react** — built: `packages/sdk-react/hooks.mjs` (`BranchProvider`, `useBranch`, `useBranchGet`,
+  `useBranchRun`), with no dependency of its own (React is the page's own), tested by
+  `tests/sdk-react.test.mjs` with a small stand-in React and against a real Branch Agent.
+- **app-building** (an MCP server for building apps with an SDK) — built: `src/sdk-kit.ts` adds
+  `sdk.routes`, `sdk.route` and `sdk.starter`, made from the same route list as the OpenAPI description
+  (`src/sdk-starters.ts`). Shared under Customize → Connections, they make Branch's own MCP server
+  (`src/mcp-server.ts`) the server an AI coding tool asks while writing a program on Branch. Behind a
+  three-way switch that ships off; `tests/sdk-kit.test.mjs` checks the switch, the answers and the
+  MCP calls.
+- **serialization** (pipelines written as YAML) — built: `src/flow-yaml.ts` writes a saved flow (a
+  list of steps or a graph) out as YAML and reads one back as a new flow, through
+  `GET /api/flows/{flowId}/yaml` and `POST /api/flows/yaml`; `tests/sdk-kit.test.mjs` checks
+  YAML → flow → YAML is stable and that a bad file is refused in plain words. Skills were already
+  YAML (`src/skill-document.ts`).
 
 ### Installing it should be boring (bucket 22)
 
-- **installers** — partly: Windows has a real installer with an uninstall entry
-  (`src/install/installer.ts`); macOS and Linux have downloads you unzip or unpack
-  (`scripts/package-macos.mjs`, `scripts/package-linux.mjs`, `tests/packaging.test.mjs`) and a
-  start-at-sign-in file (`src/install/launchd.ts`, `src/install/systemd.ts`, `tests/service-update.test.mjs`).
-  What is still needed for signed installers is written under "What is still needed for a signed
-  installer on every computer".
+Bucket 22 (wave mac6) built what was missing; how to use it is under "Installing and managing Branch
+from a script".
+
+- **installers** — built: macOS and Linux now have a no-questions installer beside their downloads,
+  `install-branch-agent.sh` (`src/install/unix-bootstrap.ts`), which checks the download against its
+  `.sha256` and hands over to the installer inside the app (`src/install/unix-install.ts`,
+  `src/install/unix-install-cli.ts`): the app in this person's own folders, a `branch` command, a menu
+  entry on Linux, the version before kept, and `--uninstall` that keeps conversations and files unless
+  `--delete-data` is given. Windows keeps its installer (`src/install/installer.ts`), which now takes
+  `/quiet` and whose uninstaller takes `--delete-data`. Tested by `tests/install-boring.test.mjs` and
+  `tests/deployment.test.mjs`. Signing and notarising are written but need the owner's certificates
+  (see "What is still needed for a signed installer on every computer").
 - **desktop-packaging** — verified: `scripts/package-desktop.mjs` builds the download for Windows, macOS
-  (both chips) and Linux, and `.github/workflows/package.yml` builds all four on a version tag.
+  (both chips) and Linux, and `.github/workflows/package.yml` builds all four on a version tag and
+  attaches them without ever replacing one that is already on the release.
   `tests/packaging.test.mjs` checks every name, option, signing step and the menu entry;
-  `tests/service-update.test.mjs` checks the packaging, the workflow and the updater agree.
-- **platform-support** — verified for macOS and Linux: the same downloads and sign-in files
-  (`src/install/launchd.ts`, `src/install/systemd.ts`, `tests/service-update.test.mjs`); WSL is not a target, because on Windows
-  the Windows download is the one to use.
-- **distributions** (custom distributions) — not built: there is no rebranded or trimmed-down build.
-  Portable copies (`portable.txt`) and the settings file cover running one copy differently.
+  `tests/service-update.test.mjs` checks the packaging, the workflow and the updater agree, and that
+  nothing is uploaded over what is there.
+- **platform-support** — verified for macOS and Linux: one script installs, and the same sign-in files
+  keep Branch running (`src/install/unix-install.ts`, `src/install/launchd.ts`, `src/install/systemd.ts`,
+  `tests/install-boring.test.mjs`, `tests/service-update.test.mjs`). Under WSL 2 the Linux download and
+  its script are the ones to use; that has not been tried on a real WSL machine.
+- **distributions** (custom distributions) — built: a folder holding the release download, the installer
+  script and an assistant file made with `branch export-agent` is a custom Branch; `--assistant <file>`
+  brings its specialists, procedures and skills in on a fresh install (market rules: skills off, no approval
+rules, model choices or memory) and never replaces one already set up
+  (`src/install/unix-install-cli.ts`, `tests/install-boring.test.mjs`). There is no rebranded build, and
+  Windows has no `--assistant` yet (run `branch import-agent` after installing there).
 
 ### The smaller asks (bucket 23)
 
@@ -6628,6 +6789,7 @@ the switch is off.
 | `/whoami` | `/id` | any key | new | new | new | new | new |
 | `/version` | `/about` | any key | new | new | new | new | new |
 | `/health` | `/doctor` | any key | new | new | new | — | new |
+| `/prompts [name]` | `/procedures`, `/workflows` | any key | new | new | new | new | new |
 
 ### Parity with other agents
 
@@ -6681,7 +6843,80 @@ The same table is in `src/commands/parity.ts`.
 | Mascots and pets | /pet, /hatch (Hermes), /pets (Codex), /corgi (Gemini) | — | not applicable | Branch draws its own oak instead. |
 | Vendor account and billing | /subscription, /topup (Hermes), /upgrade (Gemini) | — | not applicable | Branch has no account of its own. |
 | Report a bug | /bug (Gemini), /feedback (Codex), /debug upload (Hermes) | — | not applicable | Nothing is sent anywhere; Settings › Advanced has diagnostics. |
+| Your own commands | custom commands (Claude Code, Gemini CLI, OpenCode, Kilo Code), prompt groups with a command (LibreChat) | `/prompts` | built | Saved prompts with a command of their own, on every surface with a message box; /prompts lists them and the saved procedures. |
 | Restart or update | /restart, /update (Hermes, OpenClaw) | — | elsewhere | The dashboard's restart control and Settings › About. |
+
+## Your saved prompts, your own commands and installing skills (public list, bucket 12)
+
+**Saved prompts** (Automations › Procedures, *Your saved prompts*; `src/prompt-library.ts`). The
+things you ask for often, kept in groups. Each has a name, an optional group, an optional command
+(`weekly` becomes `/weekly`), a line saying what it is for, and the text. Write `{{name}}` where a word
+should be filled in when it is used; `{{input}}` takes whatever follows the command and `{{today}}` is
+the date. Saving a new wording keeps the last ten, and *Put this wording back* restores one. A prompt
+carrying something that looks like a key is refused, and so is one starting with `/`. At most 200.
+
+*Try it* (the prompt editor, A1882) asks one model, or two side by side, with the blanks filled in —
+with no tools at all and in a conversation that is not kept (`POST /api/prompts/try`). *Add the
+examples* adds four starter prompts in the group *Examples*; nothing is added by itself. *Save all as
+a file* and *Add prompts from a file* carry the library to another computer
+(`branch-prompt-library` version 1); a prompt whose name is already there is skipped, and a command
+already taken arrives without it.
+
+**Your own commands** (family custom-commands; `src/commands/saved.ts`). A saved prompt with a command
+answers to it wherever the shipped commands are read: the window and the phone (`/` menu and
+`POST /api/commands/run`), both terminal views and the chat apps. Using one only ever turns it into
+the text of an ordinary message, sent the way typing it would send it, so it asks of the key exactly
+what starting a task asks and a key that may only look is refused. `/weekly day=monday more words`
+fills `{{day}}` and hands the rest to `{{input}}` (or to the prompt's only other blank); a blank left
+empty stops it with the list of what is missing, and nothing is sent. A shipped name or any of its
+other names can never be given to a saved prompt, so `/stop` or `/lockdown` always mean what they
+say. The dashboard has no message box and does not offer them. In a chat app they are read only
+while that chat reads commands at all. `/prompts` (also `/procedures`, `/workflows`, A0147) is a
+shipped command; it answers while either the *Typed commands* switch or this one is not off: on its own it lists the saved prompts by group
+and the saved procedures with their status, steps and inputs; with a name it shows that one and puts
+it in the message box without sending it — for a procedure, the sentence that asks for it with its
+inputs to fill in. A procedure still runs only once it is verified, through the usual approval rules.
+
+**The switch** is on the card and ships **off** (`GET /api/prompts`, `POST /api/prompts/settings
+{ mode }`). Off: nothing is saved, tried or offered, and a typed `/weekly` is what it always was.
+When needed: your commands work when typed, but no `/` menu lists them (`/prompts` does). On: they
+work and the menus list them. It is separate from the *Typed commands* switch, so turning the shipped
+commands on never turns yours on.
+
+**The example tool server** (family examples, A1282; `src/examples/mcp-notes-server.ts`). A small MCP
+server that ships with Branch: it keeps a few notes in memory while it runs (`add_note`,
+`list_notes`), reads no files, opens no network connection and needs no key. The card shows the exact
+lines to add under `"mcp"` in the integrations file (this Node, this copy's file, both tools, version
+1.0.0); after a restart, the example prompt `/notes-example buy milk` asks a task to use it.
+
+**Installing skills, with a written account** (Customize › Skills, *Install a skill, and what
+happened*; `src/skill-installs.ts`, A2374). Installing from an Agent Skills folder, a Branch package,
+a registry or pasted instructions, and removing a skill, while Branch runs. Each time the steps are
+written down — what was opened, what was checked, what was left out, what it asks to do, how it
+arrived — or the exact reason it stopped; the last thirty are kept. The install is the same code as
+everywhere else, so a skill still arrives switched off and passes the same scan. The card has its own
+three-way switch, shipped off. Routes: `GET /api/skill-installs` (switch, accounts, installed skills),
+`GET /api/skill-installs/export?skill=<id>`, `POST /api/skill-installs/settings | inspect | install |
+remove`.
+
+**Agent Skills folders** (A0776; `src/agent-skills.ts`). The open layout other agents share
+(agentskills.io): `<name>/SKILL.md` with `name` and `description` front matter, and optional
+`references/`, `scripts/` and `assets/`. The front matter must meet that layout's rules (a lowercase
+name with single dashes, at most 64 long, matching its folder; a description up to 1024). Text
+references (`.md`, `.txt`) are kept with the package and added to the instructions under
+*Reference:* headings while they fit, because Branch gives the assistant one document per skill.
+Programs in `scripts/` are never run and files in `assets/` are never unpacked; both are named in the
+account. A version in `metadata.version` becomes the package version. *Save as an Agent Skills
+folder* writes any installed skill back out in the same layout, with its references in their own
+files again, so reading it back gives the same skill.
+
+**Who may do what.** Every change above is the owner's: a short-lived key is refused before it gets
+there (none of these routes is in `src/short-lived-keys.ts`), and the owner's own profile is asked for
+as well. Reading the list and the accounts, and exporting a skill, needs any key.
+
+**macOS and Linux.** Nothing here depends on the operating system. The example tool server is started
+with the same Node that runs Branch, so the snippet the card shows is right for the computer it is
+shown on.
 
 ## Talking to other agents and tools: where each one stands (wave mac4, bucket 20)
 

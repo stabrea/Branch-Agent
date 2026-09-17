@@ -11,6 +11,7 @@ import type { Run } from "../contracts.js";
 import { LiveStatus, defaultLiveTiming, statusEmoji, type LiveTiming } from "./live-status.js";
 import { chatLiveSwitches, saveChatLiveSwitches, type ChatLiveSwitches } from "./chat-live-settings.js";
 import { commandMode } from "../commands/settings.js";
+import { savedLine } from "../commands/saved.js";
 import { chatCommandSpec, parseChatCommand, runChatCommand, usageFooter, usageShown, type ChatCommand, type ChatTurn } from "./chat-commands.js";
 
 /**
@@ -31,6 +32,11 @@ export interface InboundMessage {
   messageId: string;
   /** The message a reaction goes on, where it differs from `messageId` (a Slack thread reply). */
   reactTo?: string;
+  /**
+   * mac6/bucket-16 integration: the message arrived while Branch was closed and was fetched after a
+   * restart (src/channels/catch-up.ts). A stranger's such message is let go without a pairing code.
+   */
+  caughtUp?: boolean;
   /**
    * A voice note, when the person sent one instead of typing. The bytes are fetched only if the
    * message gets as far as being answered, so a stranger cannot make Branch download anything.
@@ -349,6 +355,7 @@ export class ChannelRouter {
     if (message.chatKind === "group" && policy.activation === "mention" && !message.addressed) return "ignored";
     const access = this.access(message, policy);
     if (access !== "allowed") {
+      if (message.caughtUp) return "ignored"; // mac6/bucket-16 integration
       const text = access === "pairing"
         ? `I don't know you yet. Ask my owner to approve code ${this.pairingCode(message)} under Settings → Channels, then message me again.`
         : "This assistant is private.";
@@ -449,6 +456,15 @@ export class ChannelRouter {
   }
 
   private async answer(message: InboundMessage): Promise<Outcome> {
+    // ---- bucket 12: one of the owner's saved commands becomes the message it stands for ----
+    const saved = this.switches().commands === "off" || message.voice ? null : savedLine(this.store, this.runtime.owner, message.text);
+    if (saved && !("text" in saved)) {
+      const said = "problem" in saved ? saved.problem : saved.reply;
+      await this.deliver(message.channel, message.chatId, said, `saved:${message.messageId}`, message.messageId).catch(() => undefined);
+      return "replied";
+    }
+    if (saved) message = { ...message, text: saved.text };
+    // ---- end of the bucket 12 hook ----
     const command = this.commandIn(message);
     if (command) return this.command(message, command);
     // A bare "y", "a" or "n" answers whatever this chat's conversation is waiting on, rather than
@@ -741,7 +757,12 @@ export class ChannelRouter {
     return new LiveStatus({ adapter, chatId: message.chatId, messageId: message.messageId, reactTo: message.reactTo,
       allowed: () => this.liveOn() }, (text) => this.outboundGuard(this.hideLeaks(text)), this.liveTiming, setting === "when-needed");
   }
-  private access(message: InboundMessage, policy: ChannelPolicy): "allowed" | "pairing" | "rejected" {
+  /** mac6/bucket-16 integration: whether a sender may use a connected chat app, without offering a code. */
+  senderAllowed(channel: string, senderId: string): boolean {
+    const entry = this.adapters.get(channel);
+    return !!entry && !!senderId && this.access({ channel, senderId } as InboundMessage, entry.policy) === "allowed";
+  }
+  private access(message: Pick<InboundMessage, "channel" | "senderId">, policy: ChannelPolicy): "allowed" | "pairing" | "rejected" {
     // Batch 20 (wave 8): the one list for every chat app is read first, so "never this person"
     // holds everywhere at once. A channel's own list still works and is read after it.
     const list = readSenderAllowlist(this.store, this.runtime.owner);

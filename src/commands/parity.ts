@@ -59,5 +59,7 @@ export const PARITY: readonly ParityRow[] = [
   row("Mascots and pets", "/pet, /hatch (Hermes), /pets (Codex), /corgi (Gemini)", "—", "not applicable", "Branch draws its own oak instead."),
   row("Vendor account and billing", "/subscription, /topup (Hermes), /upgrade (Gemini)", "—", "not applicable", "Branch has no account of its own."),
   row("Report a bug", "/bug (Gemini), /feedback (Codex), /debug upload (Hermes)", "—", "not applicable", "Nothing is sent anywhere; Settings › Advanced has diagnostics."),
+  // bucket 12
+  row("Your own commands", "custom commands (Claude Code, Gemini CLI, OpenCode, Kilo Code), prompt groups with a command (LibreChat)", "/prompts", "built", "Saved prompts with a command of their own, on every surface with a message box; /prompts lists them and the saved procedures."),
   row("Restart or update", "/restart, /update (Hermes, OpenClaw)", "—", "elsewhere", "The dashboard's restart control and Settings › About."),
 ];

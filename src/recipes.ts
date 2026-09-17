@@ -32,14 +32,23 @@ export function bindInputs(parameters: Parameters, inputs: Record<string, InputV
 }
 
 /** Replaces {{name}} placeholders: a string that is exactly one placeholder takes the typed value; otherwise text is interpolated. */
+/**
+ * A placeholder name: `name`, or a dotted path such as `field.path` (src/triggers.ts flattens a
+ * payload into such keys). A path is looked up as one whole key, never walked, so nothing inherited
+ * (`constructor`, `__proto__`) is ever reached.
+ */
+const placeholderName = String.raw`[a-z][a-z0-9_]*(?:\.[A-Za-z0-9_-]+)*`;
+const wholePlaceholder = new RegExp(String.raw`^\{\{\s*(${placeholderName})\s*\}\}$`);
+const anyPlaceholder = () => new RegExp(String.raw`\{\{\s*(${placeholderName})\s*\}\}`, "g");
+function boundValue(bound: Record<string, InputValue>, name: string): InputValue {
+  if (!Object.hasOwn(bound, name)) throw new Error(`Recipe placeholder "${name}" has no bound input`);
+  return bound[name]!;
+}
 export function substitute<T>(value: T, bound: Record<string, InputValue>): T {
   if (typeof value === "string") {
-    const whole = /^\{\{\s*([a-z][a-z0-9_]*)\s*\}\}$/.exec(value);
-    if (whole) { const name = whole[1]!; if (!(name in bound)) throw new Error(`Recipe placeholder "${name}" has no bound input`); return bound[name] as unknown as T; }
-    return value.replace(/\{\{\s*([a-z][a-z0-9_]*)\s*\}\}/g, (_, name: string) => {
-      if (!(name in bound)) throw new Error(`Recipe placeholder "${name}" has no bound input`);
-      return String(bound[name]);
-    }) as unknown as T;
+    const whole = wholePlaceholder.exec(value);
+    if (whole) return boundValue(bound, whole[1]!) as unknown as T;
+    return value.replace(anyPlaceholder(), (_, name: string) => String(boundValue(bound, name))) as unknown as T;
   }
   if (Array.isArray(value)) return value.map((entry) => substitute(entry, bound)) as unknown as T;
   if (value && typeof value === "object")
@@ -49,7 +58,7 @@ export function substitute<T>(value: T, bound: Record<string, InputValue>): T {
 
 /** Placeholder names a recipe definition refers to, so undeclared ones can be refused when it is proposed. */
 export function placeholders(value: unknown, found = new Set<string>()): Set<string> {
-  if (typeof value === "string") for (const match of value.matchAll(/\{\{\s*([a-z][a-z0-9_]*)\s*\}\}/g)) found.add(match[1]!);
+  if (typeof value === "string") for (const match of value.matchAll(anyPlaceholder())) found.add(match[1]!);
   else if (Array.isArray(value)) for (const entry of value) placeholders(entry, found);
   else if (value && typeof value === "object") for (const entry of Object.values(value as Record<string, unknown>)) placeholders(entry, found);
   return found;

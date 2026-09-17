@@ -82,6 +82,9 @@ export class MastodonChannel extends PollingChannel {
   protected override async prepare(): Promise<void> {
     this.me = Account.parse(await this.call("/api/v1/accounts/verify_credentials"));
   }
+  // mac6/bucket-16: carry on after a restart from the saved place (src/channels/catch-up.ts).
+  protected override placeMark(): string | null { return this.lastId; }
+  protected override resumeFrom(mark: string): boolean { this.lastId = mark; return true; }
   protected async poll(first: boolean): Promise<InboundMessage[]> {
     const query = `types[]=mention&limit=40${this.lastId ? `&since_id=${encodeURIComponent(this.lastId)}` : ""}`;
     const notes = z.array(Notification).parse(await this.call(`/api/v1/notifications?${query}`));

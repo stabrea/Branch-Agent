@@ -64,6 +64,9 @@ import { WhatsAppAdapter } from "./channels/whatsapp.js";
 import { WebhookChatAdapter } from "./channels/webhook-chat.js";
 // Wave mac3 (channels-parity).
 import { isPostedChannel, type PostedChannel } from "./channels/parity-switch.js";
+import { isSignedQueryChannel, readRawBody, type SignedQueryChannel } from "./channels/signed-query.js"; // mac6/bucket-16
+import { saveSlackAutomations } from "./channels/slack-automations.js"; // mac6/bucket-16
+import { wechatXmlLimit } from "./channels/wechat-crypto.js"; // mac6/bucket-16 integration
 import type { ChannelAdapter } from "./channels/router.js";
 import { parityApi } from "./channels/parity-api.js";
 // Batch 20 (wave 8): the unguessable word on the end of every inbound webhook address.
@@ -116,6 +119,8 @@ import {
 } from "./dashboard-api.js";
 // Wave mac3 (commands): the one slash-command table's routes.
 import { CommandApiError, commandsApi, handlesCommandsPath } from "./commands/api.js";
+import { handlesPromptsPath, promptsApi } from "./prompt-library-api.js"; // bucket 12
+import { handlesSkillInstallsPath, skillInstallsApi } from "./skill-installs.js"; // bucket 12
 import { PolicyRememberSchema, policyPresets, readPolicy, savePolicy } from "./policy.js";
 import { maximumArchiveBytes } from "./session-library.js";
 import { maximumMemoryArchiveBytes } from "./memory.js";
@@ -149,6 +154,7 @@ import { RemoteAccess } from "./remote/remote-access.js";
 import { cliAgentRows, registerCliAgent } from "./providers/cli-agent.js";
 import { GatewayAuth } from "./remote/gateway-auth.js";
 import { deploymentApi, type DeploymentContext } from "./deployment-api.js";
+import { quitRequest } from "./install/quit.js"; // bucket 22
 import { clearRunning, writeRunning } from "./install/running.js";
 import { readFirstStart, recordFirstStart } from "./install/update-backup.js";
 import { readDesktopSettings, saveDesktopSettings } from "./integrations/desktop-config.js";
@@ -176,6 +182,7 @@ import { handlesOrchestrationPath, orchestrationApi, OrchestrationApiError } fro
 // Batch 21 (wave 8): the app's own OpenAPI description, Lockdown, kept answers, whole sets of
 // questions at once, and what each project has cost.
 import { handlesOtherPath, otherApi, OtherApiError } from "./other-api.js";
+import { handlesSdkKitPath, sdkKitApi, SdkKitError } from "./sdk-kit.js"; // bucket 21
 import { audit, csvCell } from "./audit.js";
 import { askFirstSettings } from "./ask-first.js";
 import { decisionsFromRules } from "./tool-categories.js";
@@ -350,6 +357,8 @@ async function staticFile(
     "/media.js": ["media.js", "text/javascript; charset=utf-8"],
     // Bucket 17: the video programs card and the speech plug-ins card.
     "/media-programs.js": ["media-programs.js", "text/javascript; charset=utf-8"],
+    // Bucket 21: the "Building on Branch" and "Flows as files" cards.
+    "/sdk-kit.js": ["sdk-kit.js", "text/javascript; charset=utf-8"],
     "/memory-tidy.js": ["memory-tidy.js", "text/javascript; charset=utf-8"],
     "/docs-memory-2.js": ["docs-memory-2.js", "text/javascript; charset=utf-8"],
     // Batch 27 (wave 8): writing documents, summaries, the map of names and knowledge housekeeping.
@@ -444,6 +453,9 @@ async function staticFile(
     "/learning-loop.js": ["learning-loop.js", "text/javascript; charset=utf-8"],
     // mac3/security-check: the security self-check card.
     "/security-check.js": ["security-check.js", "text/javascript; charset=utf-8"],
+    // bucket 12: saved prompts (Automations › Procedures) and the skill install record (Customize › Skills).
+    "/prompt-library.js": ["prompt-library.js", "text/javascript; charset=utf-8"],
+    "/skill-installs.js": ["skill-installs.js", "text/javascript; charset=utf-8"],
     // mac2/fly-core-2: the learning core's card.
     "/learning-core.js": ["learning-core.js", "text/javascript; charset=utf-8"],
     "/layout.css": ["layout.css", "text/css; charset=utf-8"],
@@ -761,6 +773,12 @@ async function api(
   if (handlesTracingPath(path))
     return tracingApi(app, request, path, readBody).catch((error: unknown) => {
       throw error instanceof TracingApiError ? new HttpError(error.status, error.message) : error;
+    });
+  // ── Bucket 21: the switch for building on Branch, and flows written out and read back as YAML. ──
+  if (handlesSdkKitPath(path))
+    return sdkKitApi({ store: app.store, owner: app.runtime.owner, flows: app.flows,
+      requireOwner: (what) => app.store.profiles.requireOwner(what) }, request.method ?? "GET", path, () => readBody(request)).catch((error: unknown) => {
+      throw error instanceof SdkKitError ? new HttpError(error.status, error.message) : error;
     });
   // Batch 20 (wave 7): flows as boxes and arrows, jobs handed over to finish later, programs left
   // running, and the switches for the project's check, those programs, and small scripts.
@@ -1690,6 +1708,8 @@ async function chatWebhook(app: Branch, request: IncomingMessage, response: Serv
   if (wrongAddress) throw new HttpError(404, wrongAddress);
   const adapter = app.channels.adapter(match[1]!);
   if (adapter instanceof MetaMessagingAdapter) return metaWebhook(app, adapter, request, response, { limiter, from });
+  // mac6/bucket-16: WeChat and WeCom check the address with a GET and sign XML posts in the query.
+  if (isSignedQueryChannel(adapter)) return signedQueryWebhook(app, adapter, request, response, { limiter, from });
   // Wave mac3 (channels-parity): services that are posted to and prove the post in their own way.
   if (isPostedChannel(adapter)) return postedChatWebhook(app, adapter, request, response, { limiter, from });
   if (!(adapter instanceof WebhookChatAdapter)) throw new HttpError(404, "No chat service with that name is connected");
@@ -1711,6 +1731,21 @@ async function postedChatWebhook(app: Branch, adapter: ChannelAdapter & PostedCh
     .catch((error: unknown) => { throw refusedChatPost(app, adapter.id, adapter.kind, error, limit); });
   limit.limiter.succeed(limit.from);
   send(response, 200, result.reply ?? { accepted: result.accepted });
+  return true;
+}
+/** mac6/bucket-16: hands a WeChat or WeCom request over whole and answers with the plain text it returns. */
+async function signedQueryWebhook(app: Branch, adapter: ChannelAdapter & SignedQueryChannel, request: IncomingMessage, response: ServerResponse, limit: ChatWebhookLimit): Promise<boolean> {
+  if (request.method !== "POST" && request.method !== "GET") throw new HttpError(404, "Endpoint not found");
+  if (adapter.accepting?.() === false) throw new HttpError(503, "That chat service is switched off in Customize");
+  const query = new URL(request.url ?? "/", "http://127.0.0.1").searchParams;
+  const raw = request.method === "POST"
+    ? await readRawBody(request, wechatXmlLimit).catch((error: unknown) => { throw new HttpError(/exceeds/.test(errorText(error)) ? 413 : 400, "That message could not be read"); })
+    : Buffer.alloc(0);
+  const text = await adapter.receiveSigned(request.method, query, raw)
+    .catch((error: unknown) => { throw refusedChatPost(app, adapter.id, adapter.kind, error, limit); });
+  limit.limiter.succeed(limit.from);
+  response.writeHead(200, { "content-type": "text/plain; charset=utf-8", "x-content-type-options": "nosniff" });
+  response.end(text);
   return true;
 }
 /** Where a post came from, so repeated refusals from one place can be counted and slowed down. */
@@ -1865,6 +1900,11 @@ async function channelsApi(app: Branch, request: IncomingMessage, path: string):
   if (path === "/api/channels/parity")
     return parityApi(app.store, owner, app.channels, request.method ?? "GET", request.method === "POST" ? await readBody(request) : undefined);
   if (request.method === "GET" && path === "/api/channels") return { ...app.channels.summary(), outstanding: app.channels.outstanding() };
+  // mac6/bucket-16: automations started by Slack's own events, and starting one that is waiting.
+  if (path === "/api/channels/slack-automations") return request.method === "POST"
+    ? saveSlackAutomations(app.store, owner, await readBody(request), (id) => !!app.triggers.get(owner, id))
+    : app.slackAutomations.list();
+  if (request.method === "POST" && path === "/api/channels/slack-automations/run") return app.slackAutomations.run(await readBody(request));
   // The chat services this copy knows how to talk to, so the Connections card lists them from data
   // rather than from a piece of hand-written page per service. No secret is involved either way.
   if (request.method === "GET" && path === "/api/channels/catalog")
@@ -1902,7 +1942,8 @@ function channelAddresses(app: Branch, owner: string): {
 } {
   const addresses = app.channels.summary().channels
     .filter((channel) => channel.kind === "whatsapp" || app.channels.adapter(channel.id) instanceof WebhookChatAdapter
-      || app.channels.adapter(channel.id) instanceof MetaMessagingAdapter || isPostedChannel(app.channels.adapter(channel.id)))
+      || app.channels.adapter(channel.id) instanceof MetaMessagingAdapter || isPostedChannel(app.channels.adapter(channel.id))
+      || isSignedQueryChannel(app.channels.adapter(channel.id)))
     .map((channel) => ({
       channel: channel.id, kind: channel.kind,
       address: webhookAddress(channel.kind === "whatsapp" ? "whatsapp" : "chat", channel.id,
@@ -2358,6 +2399,8 @@ export async function startServer(
     presence?: "app" | "daemon";
     /** How many wrong keys a place may try before it waits; the defaults suit a real install. */
     authLimits?: { attempts?: number; lockoutMs?: number; windowMs?: number };
+    /** bucket 22: what `branch quit` does to this launch (src/install/quit.ts); without it, it refuses. */
+    quit?: () => void;
   },
 ) {
   const token = await sessionToken(options.dataDir);
@@ -2492,6 +2535,17 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
           return;
         }
         // ---- end of the commands block ----
+        // ---- bucket 12: saved prompts (src/prompt-library-api.ts) and the skill install record
+        // (src/skill-installs.ts). Every change there is the owner's; short-lived keys never get this far. ----
+        if (handlesPromptsPath(path) || handlesSkillInstallsPath(path)) {
+          const method = request.method ?? "GET", body = () => readBody(request, 2 * 1024 * 1024);
+          const answer = handlesPromptsPath(path) ? await promptsApi(app, method, path, body)
+            : await skillInstallsApi(app, method, new URL(request.url ?? "/", "http://local"), body);
+          if (answer === undefined) throw new HttpError(404, "Endpoint not found");
+          send(response, 200, answer);
+          return;
+        }
+        // ---- end of the bucket 12 block ----
         // ---- mac4/bucket-20: the Agent Protocol and /api/interop (src/interop/api.ts). ----
         if (handlesInteropPath(path)) {
           app.store.profiles.requireOwner("Working with other agents");
@@ -2519,6 +2573,13 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
         // ---- end of the bucket-23 block ----
         if (await rawApi(app, request, response, path)) return;
         if (path.startsWith("/api/deployment")) {
+          // bucket 22: `branch quit`, from this computer with the master key only (src/install/quit.ts).
+          if (path === "/api/deployment/quit") {
+            const answer = await quitRequest(request, { dataDir: options.dataDir, quit: options.quit, viaRemote })
+              .catch((error: unknown) => { throw new HttpError(request.method === "POST" ? 403 : 405, errorText(error)); });
+            send(response, 200, answer);
+            return;
+          }
           const result = await deploymentApi(app, request, path, deployment(), (r) => readBody(r), remoteHandler);
           if (result !== undefined) { send(response, 200, result); return; }
         }
@@ -2967,7 +3028,7 @@ export function offLimitsToShortLivedKeys(method: string | undefined, path: stri
     return "A short-lived key cannot change when Branch checks with you, the models, or which commands are offered. Do that in the app window.";
   if (path === "/api/providers/cli-agents" || path.startsWith("/api/secrets") || path.startsWith("/api/connections") || /^\/api\/schedules\/[a-f0-9-]{36}\/gate$/.test(path))
     return "A short-lived key cannot name a program for Branch to run, add a model service, or change the locker. Do that in the app window.";
-  if (path === "/api/deployment/close")
+  if (path === "/api/deployment/close" || path === "/api/deployment/quit") // quit: bucket 22
     return "A short-lived key cannot close Branch. Only the app on this computer can.";
   // Wave mac2 (quiet-jobs): the check-in's switches, hours and where its news goes are the owner's.
   if (path === "/api/heartbeat" || path.startsWith("/api/heartbeat/"))

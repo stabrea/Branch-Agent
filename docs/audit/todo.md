@@ -621,7 +621,7 @@ Honest work remaining: 349 — 305 single ids still open, plus 27 partial and 17
 
 ## cli-and-tui — 23 pieces (23 rows) {'M': 20, 'S': 2, 'L': 1}
 
-- [ ] FAMILY custom-commands (1 rows): Custom commands — partial: saved procedures and skills are the owner's own; the terminal's slash commands are fixed
+- [x] FAMILY custom-commands (1 rows): Custom commands — done (bucket 12): saved prompts with a command of their own on every surface, src/commands/saved.ts; tests/prompt-library.test.mjs
 - A0284 [missing/M] CLI (in 10 projects): cli not implemented.
 - A0205 [partial/M] Terminal UI (in 5 projects): Terminal streaming exists; full TUI panels not implemented.
 - A0007 [partial/M] Terminal user interface (in 2 projects): terminal user interface has some implementation; specific features may be missing.
@@ -751,7 +751,7 @@ Honest work remaining: 349 — 305 single ids still open, plus 27 partial and 17
 - [x] FAMILY rules-discovery (1 rows): Project and user rules — done (0.14.0): project instructions in src/projects.ts and src/identity.ts; tests/projects-locker.test.mjs
 - [x] FAMILY skill-execution (1 rows): External executable skills — done (0.14.0): src/skill-http-tools.ts runs a skill's declared call; tests/skills-plugins.test.mjs
 - [x] FAMILY playbook-system (1 rows): Playbook extensibility — done (0.14.0): src/recipes.ts with inputs and result shapes; tests/recipes.test.mjs
-- [ ] FAMILY examples (1 rows): MCP example — not done
+- [x] FAMILY examples (1 rows): MCP example — done (bucket 12): src/examples/mcp-notes-server.ts with starter prompts in src/prompt-examples.ts; tests/prompt-library.test.mjs
 - [x] FAMILY domain-specific-api (1 rows): Python library API — not applicable: a Python library API; Branch is TypeScript
 - [x] FAMILY sdks (1 rows): Skills and tool SDKs — done (0.14.0): packages/sdk client and src/skill-authoring.ts; tests/sdk-misc.test.mjs
 - [x] FAMILY configuration (1 rows): Agent YAML specification — done (0.14.0): src/skill-document.ts YAML front matter; tests/skills-plugins.test.mjs

@@ -67,6 +67,7 @@ import { WebAccess, registerWeb } from "./integrations/web.js";
 import { Hooks } from "./hooks.js";
 import { Teams } from "./teams.js";
 import { Triggers } from "./triggers.js";
+import { SlackAutomations } from "./channels/slack-automations.js"; // mac6/bucket-16
 import { Webhooks } from "./webhooks.js";
 import { recordUncaughtErrors } from "./tracing.js";
 import { TraceExporter, traceExportSettings } from "./tracing-export.js";
@@ -106,6 +107,7 @@ import { GitRunner } from "./integrations/git-run.js";
 import { registerGit } from "./integrations/git-tools.js";
 import { jsonWriteProblem } from "./approvals.js";
 import { Flows, registerFlows } from "./flows.js";
+import { registerSdkKit } from "./sdk-kit.js"; // bucket 21
 import { PluginCatalog } from "./plugin-catalog.js";
 import { SkillRevisions, registerSkillSync } from "./skill-revisions.js";
 import { DataTables, registerData } from "./data-tools.js";
@@ -628,6 +630,9 @@ export async function createBranch(options: {
   const pluginProblems = await plugins.restore();
   const evaluation = new Evaluation(store, runtime.owner);
   const triggers = new Triggers(store, runtime);
+  // mac6/bucket-16: automations started by Slack's own events; off until the owner turns them on.
+  const slackAutomations = new SlackAutomations(store, () => runtime.owner, (id, payload) => triggers.fire(runtime.owner, id, payload),
+    undefined, (channelId, user) => channels.senderAllowed(channelId, user));
   const webhooks = new Webhooks(store, web.policy);
   // One trace crosses the boundary: a delivery and a question to another assistant both carry the
   // traceparent of the task behind them.
@@ -719,6 +724,8 @@ export async function createBranch(options: {
   const flows = new Flows(store, runtime.owner, workflows, runtime);
   flows.notifyEvent = guardedNotify;
   registerFlows(registry, flows);
+  // Bucket 21: tools for people building on Branch (switched off until the owner turns them on).
+  registerSdkKit(registry, store);
   // "workflows.resume" is the one way in for carrying anything saved on, a graph flow included, so
   // the schedules toolbox does not grow a second tool that says the same thing.
   workflows.resumeGraph = (id) => (flows.isGraph(id) ? flows.resumeGraph(id) : null);
@@ -1102,6 +1109,7 @@ export async function createBranch(options: {
     studies,
     triggers,
     webhooks,
+    slackAutomations, // mac6/bucket-16
     /** Wave 6: saved workflows, the waiting line for tasks, and days off with quiet hours. */
     workflows,
     runQueue,
@@ -1155,6 +1163,7 @@ export async function createBranch(options: {
       tracer: runtime.tracer,
       onLock: (release: () => Promise<unknown>) => { releaseOnLock.push(release); },
       context: (runId: string) => runtime.context({ runId }),
+      slackEvents: (channelId: string, event: unknown, bot: string | null) => void slackAutomations.handle(channelId, event, bot), // mac6/bucket-16
       // Wave mac2 (guards): hooks and AI tool servers listed in a file inside the workspace are only
       // started when the owner trusts that folder (src/folder-trust.ts). A file elsewhere is theirs.
       configTrusted: (path: string) => integrationsFileTrusted(store, runtime.owner, runtime.workspace, path),
@@ -1575,3 +1584,7 @@ export * from "./approval-reviewer.js";
 export * from "./log-bridge.js";
 export * from "./usage-report.js";
 export * from "./execution-metrics.js";
+// Bucket 21: a library other people can build on — flows as YAML, and the app-builder tools.
+export * from "./flow-yaml.js";
+export * from "./sdk-kit.js";
+export * from "./sdk-starters.js";

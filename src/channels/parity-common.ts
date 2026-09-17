@@ -5,6 +5,7 @@ import type { Duplex } from "node:stream";
 import type { ChannelAdapter, ChannelHealth, InboundMessage } from "./router.js";
 import { handle } from "./email.js";
 import { reconnectDelay } from "./ws-client.js";
+import { catchUpBatch, MarkKeeper, type ChannelMark } from "./catch-up.js"; // mac6/bucket-16
 
 /**
  * Pieces shared by the chat services added in wave mac3: a checked JSON call, a polling loop, a
@@ -80,6 +81,18 @@ export abstract class PollingChannel implements ChannelAdapter {
   abstract send(chatId: string, text: string, replyToMessageId?: string): Promise<string | undefined>;
   /** Anything the service needs before the first poll, such as signing in. */
   protected async prepare(): Promise<void> { /* most services need nothing */ }
+  // ---- mac6/bucket-16: catching up after a restart (src/channels/catch-up.ts) ----------------
+  /** Where this service was read up to, kept across restarts. Null: take stock from now. */
+  catchUp: ChannelMark | null = null;
+  /** The place after the last poll, for services that can carry on from one. */
+  protected placeMark(): string | null { return null; }
+  /** Carries on from a saved place instead of taking stock. False when the service cannot. */
+  protected resumeFrom(_mark: string): boolean { return false; }
+  private resumeSaved(): boolean {
+    const saved = this.catchUp?.load();
+    return !!saved && this.resumeFrom(saved);
+  }
+  // ---- end mac6/bucket-16 ----------------------------------------------------------------------
   health(): ChannelHealth { return this.state; }
   async start(onMessage: (message: InboundMessage) => Promise<void>): Promise<void> {
     this.stopping = false;
@@ -93,15 +106,20 @@ export abstract class PollingChannel implements ChannelAdapter {
     this.loop = null;
   }
   private async run(onMessage: (message: InboundMessage) => Promise<void>): Promise<void> {
-    let first = true;
+    let first = true, resumed = false;
+    const keeper = new MarkKeeper(this.catchUp); // mac6/bucket-16
     for (let failures = 0; !this.stopping;) {
       try {
-        if (first) await this.prepare();
-        const batch = await this.poll(first);
+        if (first) { await this.prepare(); resumed = this.resumeSaved(); first = !resumed; }
+        const polled = await this.poll(first);
+        const batch = resumed ? catchUpBatch(polled) : polled; // mac6/bucket-16 integration: capped
         first = false;
+        resumed = false;
         failures = 0;
         this.state = { state: "connected" };
-        for (const message of batch) { if (this.stopping) return; void onMessage(message).catch(() => undefined); }
+        const handling: Promise<unknown>[] = [];
+        for (const message of batch) { if (this.stopping) return; handling.push(onMessage(message).catch(() => undefined)); }
+        void keeper.after(this.placeMark(), handling);
       } catch (error) {
         if (this.stopping) return;
         failures++;

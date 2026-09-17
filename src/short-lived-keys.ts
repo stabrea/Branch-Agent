@@ -54,6 +54,7 @@ export const shortLivedKeyTaskRoutes: readonly TaskRoute[] = [
   post(new RegExp(`^/api/flows/${id}/(run|resume|pause)$`), "runs, resumes or pauses a saved flow"),
   post(new RegExp(`^/api/workflows/${id}/(run|pause)$`), "runs or pauses a saved workflow"),
   post(new RegExp(`^/api/schedules/${id}/trigger$`), "runs a schedule now"),
+  post("/api/channels/slack-automations/run", "starts an automation a Slack event is waiting on (mac6/bucket-16)"),
   post(new RegExp(`^/api/monitors/${id}/check$`), "checks a watched page now"),
   // What a task says and hears.
   post("/api/voice/transcribe", "speech to text for a message"),
