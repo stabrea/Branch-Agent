@@ -61,6 +61,8 @@ interface NodeResult {
  */
 type GraphWorkOptions = { source?: RunSource; chain?: readonly string[]; within?: readonly string[] };
 
+const limitKey = (runId: string): string => `flow-run-limit:${runId}`;
+
 export class FlowGraphRunner {
   constructor(
     private readonly store: Store,
@@ -92,6 +94,8 @@ export class FlowGraphRunner {
 
   /** Works through the boxes from wherever the checkpoint says, writing the state after each one. */
   async work(runId: string, compiled: CompiledGraph, options: GraphWorkOptions = {}): Promise<GraphRunView> {
+    // mac7/lockdown-fix: a task's limit is kept with the run, so the owner's yes later does not widen it.
+    if (options.within) this.store.save("settings", this.owner, limitKey(runId), { within: [...options.within] });
     const limit = compiled.definition.loopLimit;
     let saved = this.checkpoint(runId);
     let at = saved.nextNode, state = saved.state, loops = saved.loops, seq = this.lastSeq(runId);
@@ -378,7 +382,9 @@ export class FlowGraphRunner {
     const compiled = compileGraph(flow);
     this.save(runId, { status: "running", error: null });
     this.store.sqlite.prepare("UPDATE tasks SET status='running' WHERE id=?").run(runId);
+    const kept = (this.store.get("settings", this.owner, limitKey(runId))?.data as { within?: string[] } | undefined)?.within;
+    const within = kept && options.within ? kept.filter((p) => options.within!.includes(p)) : kept ?? options.within;
     return this.work(runId, compiled, { ...(options.source === undefined ? {} : { source: options.source }),
-      ...(options.within ? { within: options.within } : {}) });
+      ...(within ? { within } : {}) });
   }
 }

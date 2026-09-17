@@ -135,3 +135,30 @@ test("the tool gate itself refuses a call outside the task's permissions, before
   assert.deepEqual(fx.ran, []);
   await fx.app.runtime.executeTool("files.list", {}, { mode: "owner", within: TASK });
 });
+
+test("a graph flow's own tool, used by a task, keeps to the task's tools, and the owner's yes does not widen it", async (t) => {
+  const fx = await fixture(t);
+  savePolicy(fx.app.store, fx.owner, { preset: "custom", rules: [
+    { tool: "files.list", decision: "ask", remember: "session" },
+    { tool: "*", decision: "allow", remember: "always" },
+  ] });
+  const graph = fx.app.flows.saveGraph({
+    name: "Look then command", input: {}, state: { seen: "text", out: "text" }, entry: "a",
+    nodes: [
+      { id: "a", name: "Look", kind: "tool", tool: "files.list", args: {}, input: {}, output: { seen: "text" } },
+      { id: "b", name: "Command", kind: "tool", tool: "shell.execute", args: {}, input: {}, output: { out: "text" } },
+    ],
+    edges: [{ from: "a", to: "b" }],
+  });
+  assert.ok(fx.app.registry.permissionOf("flows.look-then-command"), "the flow has a tool of its own");
+  await taskCalls(fx, "flows.look-then-command", {});
+  const run = fx.app.flows.graphs.resumable(graph.id);
+  assert.ok(run, "the flow stopped to ask about the look");
+  const waiting = await fx.app.flows.settled(run.runId);
+  assert.equal(waiting.status, "waiting_approval");
+  fx.app.flows.resumeGraph(graph.id, { approve: true });
+  const finished = await fx.app.flows.settled(run.runId);
+  assert.equal(finished.status, "failed");
+  assert.match(finished.error ?? "", /may not use shell\.execute/);
+  assert.deepEqual(fx.ran, []);
+});
