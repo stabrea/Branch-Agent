@@ -209,7 +209,7 @@ test("a read-only setting refuses a recipe's steps before any of them runs", asy
 });
 
 test("a saved password inside a tool call never reaches the question the person is shown", async (t) => {
-  const secret = "sk-live-do-not-print-me";
+  const secret = "sk-live-do-not-print-me";  // not-a-real-secret: a planted fixture, here to prove it gets blanked out
   const { app, api } = await served(t, [calls(write("c1", `notes-${secret}.txt`, "one")), say("done")]);
   app.store.secrets.scrubber.remember("SERVICE_TOKEN", secret);
   await api("POST", "/api/policy", { preset: "ask-before-changes" });

@@ -81,7 +81,7 @@ const REPORT = {
   title: "The quarter so far",
   subtitle: "What the assistant did",
   sections: [
-    { heading: "What happened", body: "It read the file. The key was OPENAI_API_KEY=sk-abcdefghijklmnop1234." },
+    { heading: "What happened", body: "It read the file. The key was OPENAI_API_KEY=sk-abcdefghijklmnop1234." },  // not-a-real-secret: a planted fixture, here to prove it gets blanked out
     { heading: "What is left", body: "Nothing." },
   ],
 };
@@ -108,7 +108,7 @@ test("T2 a report comes out as notes, as a page and laid out for printing", asyn
 test("T2 every form of a report has its keys blanked out first", async (t) => {
   for (const format of ["markdown", "html", "print"]) {
     const report = buildReport({ ...REPORT, format });
-    assert.equal(/sk-abcdefghijklmnop1234/.test(report.body), false, `the ${format} report carried a key out`);
+    assert.equal(/sk-abcdefghijklmnop1234/.test(report.body), false, `the ${format} report carried a key out`);  // not-a-real-secret: a planted fixture, here to prove it gets blanked out
     assert.ok(report.secretsRemoved >= 1, `the ${format} report blanked nothing out`);
   }
 });
