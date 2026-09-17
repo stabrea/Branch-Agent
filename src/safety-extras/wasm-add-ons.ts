@@ -21,6 +21,9 @@ import { readWasmShape, wasmRefusal } from "./wasm-check.js";
  *  - a time limit: the worker is ended when it runs over, however busy it is (Node has no fuel
  *    counter, so time stands in for it);
  *  - its bytes are kept with their fingerprint when the owner installs it, and anything else is refused.
+ *    Integration review: the fingerprint is kept in the database as well as beside the file, so the
+ *    two files rewritten together are still refused; at most two add-ons run at once; a damaged note
+ *    is skipped rather than breaking the list; removing one is written in the record.
  *
  * Built with Node's own WebAssembly and worker threads only; no dependency. IronClaw's
  * `ironclaw_wasm` lane (MIT or Apache-2.0) was read for the shape of the limits.
@@ -38,6 +41,9 @@ export const WasmRunSchema = z.object({ name: z.string().regex(/^[a-z][a-z0-9-]{
 export interface WasmRun { ok: boolean; code: number | null; output: string; log: string; error?: string; durationMs: number }
 
 const maxOutputBytes = 1_000_000;
+/** Each run may hold up to 256 MB, so only a couple run at once. */
+export const maxRunsAtOnce = 2;
+const fingerprintKey = (name: string): string => `safety-wasm-add-on:${name}`;
 const pages = (mb: number): number => Math.floor(mb * 1_048_576 / 65_536);
 const sha = (bytes: Uint8Array): string => createHash("sha256").update(bytes).digest("hex");
 
@@ -94,6 +100,7 @@ export function runWasm(bytes: Uint8Array<ArrayBuffer>, input: string, limits: {
 }
 
 export class WasmAddOns {
+  private running = 0;
   constructor(private readonly store: Store, private readonly owner: string, private readonly folder: string) {}
 
   private file(name: string, ending: "wasm" | "json"): string { return join(this.folder, `${name}.${ending}`); }
@@ -101,8 +108,11 @@ export class WasmAddOns {
   async list(): Promise<WasmManifest[]> {
     const names = await readdir(this.folder).catch(() => [] as string[]);
     const found = await Promise.all(names.filter((name) => name.endsWith(".json"))
-      .map(async (name) => JSON.parse(await readFile(join(this.folder, name), "utf8")) as WasmManifest));
-    return found.sort((a, b) => a.name.localeCompare(b.name));
+      .map(async (name) => {
+        try { return JSON.parse(await readFile(join(this.folder, name), "utf8")) as WasmManifest; } catch { return null; }
+      }));
+    return found.filter((entry): entry is WasmManifest => !!entry && typeof entry.name === "string" && typeof entry.sha256 === "string")
+      .sort((a, b) => a.name.localeCompare(b.name));
   }
 
   /** The owner installs a module: it is checked, kept with its fingerprint, and written in the record. */
@@ -116,6 +126,7 @@ export class WasmAddOns {
     await mkdir(this.folder, { recursive: true, mode: 0o700 });
     await writeFile(this.file(value.name, "wasm"), bytes, { mode: 0o600 });
     await writeFile(this.file(value.name, "json"), JSON.stringify(manifest, null, 2), { mode: 0o600 });
+    this.store.save("settings", this.owner, fingerprintKey(value.name), { sha256: manifest.sha256, maxMemoryMb: manifest.maxMemoryMb, timeoutMs: manifest.timeoutMs });
     audit(this.store, this.owner, { action: "policy.changed", actor: this.owner, subject: `WebAssembly add-on ${value.name}`,
       reason: `Installed, fingerprint ${manifest.sha256.slice(0, 16)}; it runs sealed, with ${value.maxMemoryMb} MB and ${value.timeoutMs} ms`, outcome: "saved" });
     return manifest;
@@ -126,21 +137,38 @@ export class WasmAddOns {
     if (!known) return false;
     await rm(this.file(name, "wasm"), { force: true });
     await rm(this.file(name, "json"), { force: true });
+    this.store.delete("settings", this.owner, fingerprintKey(name));
+    audit(this.store, this.owner, { action: "policy.changed", actor: this.owner, subject: `WebAssembly add-on ${name}`,
+      reason: "Removed", outcome: "saved" });
     return true;
+  }
+
+  /** The kept limits, as the owner installed them; the note beside the file must agree. */
+  private async checked(name: string): Promise<{ bytes: Uint8Array<ArrayBuffer>; limits: { maxMemoryMb: number; timeoutMs: number } }> {
+    const manifest = (await this.list()).find((entry) => entry.name === name);
+    if (!manifest) throw new Error(`There is no WebAssembly add-on called ${name}.`);
+    const kept = this.store.get("settings", this.owner, fingerprintKey(name))?.data as { sha256?: unknown; maxMemoryMb?: unknown; timeoutMs?: unknown } | undefined;
+    const bytes = new Uint8Array(await readFile(this.file(name, "wasm")));
+    const actual = sha(bytes);
+    if (actual !== manifest.sha256 || actual !== kept?.sha256)
+      throw new Error(`${name} is not what it was when it was installed, so it was not run. Install it again.`);
+    const limits = { maxMemoryMb: Math.min(Number(kept.maxMemoryMb) || 16, manifest.maxMemoryMb, 256), timeoutMs: Math.min(Number(kept.timeoutMs) || 5000, manifest.timeoutMs, 30_000) };
+    const refusal = wasmRefusal(bytes, pages(limits.maxMemoryMb));
+    if (refusal) throw new Error(refusal);
+    return { bytes, limits };
   }
 
   async run(input: z.input<typeof WasmRunSchema>, context?: Pick<ToolContext, "runId">): Promise<WasmRun> {
     requireSafety(this.store, this.owner, "wasm-add-ons");
     const { name, input: text } = WasmRunSchema.parse(input);
-    const manifest = (await this.list()).find((entry) => entry.name === name);
-    if (!manifest) throw new Error(`There is no WebAssembly add-on called ${name}.`);
-    const bytes = new Uint8Array(await readFile(this.file(name, "wasm")));
-    if (sha(bytes) !== manifest.sha256) throw new Error(`${name} is not what it was when it was installed, so it was not run. Install it again.`);
-    const refusal = wasmRefusal(bytes, pages(manifest.maxMemoryMb));
-    if (refusal) throw new Error(refusal);
-    const run = await runWasm(bytes, text, manifest);
-    if (context?.runId) this.store.event(context.runId, "wasm.ran", { name, ok: run.ok, durationMs: run.durationMs });
-    return run;
+    if (this.running >= maxRunsAtOnce) throw new Error(`${maxRunsAtOnce} WebAssembly add-ons are already running. Try again when one has finished.`);
+    this.running++;
+    try {
+      const { bytes, limits } = await this.checked(name);
+      const run = await runWasm(bytes, text, limits);
+      if (context?.runId) this.store.event(context.runId, "wasm.ran", { name, ok: run.ok, durationMs: run.durationMs });
+      return run;
+    } finally { this.running--; }
   }
 }
 

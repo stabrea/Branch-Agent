@@ -160,3 +160,45 @@ test("the model can use an add-on inside a task, it counts as a change, and only
   const big = await post("/api/safety-extras/scan", { command: "x".repeat(200_000) });
   assert.equal(big.status, 413);
 });
+
+/* ---------- integration review (adversarial pass) ---------- */
+
+async function wasmApp(t) {
+  const root = await mkdtemp(join(tmpdir(), "branch-safety-wasm-review-"));
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"),
+    provider: { name: "scripted", async complete() { return { content: "Done.", toolCalls: [] }; } } });
+  t.after(async () => { await app.close(); await discardTemp(root); });
+  app.store.save("settings", app.runtime.owner, "safety-wasm-add-ons", { mode: "on" });
+  return { app, root, folder: join(root, "data", "wasm-add-ons") };
+}
+
+test("review: a module and its note rewritten together are still refused, since the fingerprint is also kept in the database", async (t) => {
+  const { app, folder } = await wasmApp(t);
+  await app.safetyExtras.wasm.install({ name: "echo", wasm: Buffer.from(echo).toString("base64") });
+  const swapped = Buffer.from(spin);
+  await writeFile(join(folder, "echo.wasm"), swapped);
+  const note = JSON.parse(await readFile(join(folder, "echo.json"), "utf8"));
+  const { createHash } = await import("node:crypto");
+  await writeFile(join(folder, "echo.json"), JSON.stringify({ ...note, sha256: createHash("sha256").update(swapped).digest("hex"), bytes: swapped.length }));
+  await assert.rejects(app.safetyExtras.wasm.run({ name: "echo", input: "x" }), /not what it was when it was installed/);
+});
+
+test("review: only two add-ons run at once, so the model cannot fill the memory with parallel runs", async (t) => {
+  const { app } = await wasmApp(t);
+  await app.safetyExtras.wasm.install({ name: "spin", wasm: Buffer.from(spin).toString("base64"), timeoutMs: 1500 });
+  const runs = [0, 1, 2].map(() => app.safetyExtras.wasm.run({ name: "spin" }).then((run) => run.error ?? "ran", (error) => error.message));
+  const answers = await Promise.all(runs);
+  assert.equal(answers.filter((answer) => /longer than 1500 ms/.test(answer)).length, 2, JSON.stringify(answers));
+  assert.equal(answers.filter((answer) => /already running/.test(answer)).length, 1, JSON.stringify(answers));
+});
+
+test("review: a damaged note leaves the card and the other add-ons working, and removing one is written in the record", async (t) => {
+  const { app, folder } = await wasmApp(t);
+  await app.safetyExtras.wasm.install({ name: "echo", wasm: Buffer.from(echo).toString("base64") });
+  await writeFile(join(folder, "broken.json"), "{ not json");
+  assert.deepEqual((await app.safetyExtras.wasm.list()).map((entry) => entry.name), ["echo"]);
+  assert.equal((await app.safetyExtras.wasm.run({ name: "echo", input: "still here" })).output, "still here");
+  assert.equal(await app.safetyExtras.wasm.remove("echo"), true);
+  assert.ok(app.store.audit.list(app.runtime.owner).some((entry) => entry.subject === "WebAssembly add-on echo" && /Removed/.test(entry.reason)));
+  await assert.rejects(app.safetyExtras.wasm.run({ name: "echo" }), /no WebAssembly add-on called echo/);
+});
