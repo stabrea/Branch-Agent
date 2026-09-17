@@ -1,3 +1,4 @@
+import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import type { Event, Message, Run, RunStatus } from "./contracts.js";
@@ -68,7 +69,14 @@ export class Store {
   private spanStore: SpanStore | undefined;
   private closed = false;
   get sqlite() { return this.db; }
+  /**
+   * The folder the database lives in, which is also where things that belong to the owner rather
+   * than to one piece of work are kept — their SOUL.md and USER.md, for instance, which should
+   * follow them from one workspace to the next instead of being rewritten in each.
+   */
+  readonly folder: string;
   constructor(path: string) {
+    this.folder = dirname(path);
     this.db = new DatabaseSync(path);
     try {
       this.db.exec(
