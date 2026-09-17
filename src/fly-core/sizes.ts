@@ -59,7 +59,8 @@ export const channelsPerFeature = 8;
  * the weakest changes are dropped first, so storage stays bounded however many situations an action
  * is used in. It is above `activeCells`, so one whole situation always fits. At `maximumActions`
  * (state.ts) the tables hold at most 5,000 × 2 × 120 entries × 8 base64 characters, about 9.6 MB of
- * weights, and the in-memory index (fast-index.ts) at most 5,000 × 240 × 10 bytes, about 12 MB.
+ * weights (measured: 9.97 MB). The in-memory index (fast-index.ts) is computed, not measured, at
+ * 5,000 × 240 × 10 bytes, about 12 MB, and up to about twice that because its lists grow by doubling.
  */
 export const maximumWeightsPerSide = 120;
 /** A synapse starts at full strength; learning moves it between 0 and this. */

@@ -1228,7 +1228,8 @@ ${run.output.slice(0, 6000)}`;
     const catalog = new ToolLoader(tools, {
       expanded: [...alwaysOpenGroups, ...guessed, ...opened], signals,
       // mac2/fly-core-2: with the learning core "on", its top tools join this pre-load (src/fly-core/apply.ts).
-      preload: advisedPreload(run.id, [...learned.preload(context.owner, run.prompt), ...switched.preload], tools),
+      // A feature the owner switched on is added after it, so the core's guesses never remove it.
+      preload: [...advisedPreload(run.id, learned.preload(context.owner, run.prompt), tools), ...switched.preload],
       demoted: [...learned.stale(context.owner), ...switched.hidden],
       budgetTokens: this.reliability.toolBudgetTokens,
       groupOf: (name) => this.registry.groupOf(name),

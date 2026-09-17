@@ -73,8 +73,11 @@ so storage stays bounded. The same stream, same seeds, with the cap:
 
 The other pickers are unchanged. With the cap lifted in a scratch copy, the version 2 code gives
 the "no cap" column exactly, so the faster code step changed nothing and these differences come from
-the cap alone. They are within the few points the stream moves by on its own; block 7 is the
-largest (3.8 points lower). This is still the synthetic stream and says nothing about real work.
+the cap alone. Most differences are within the few points the stream moves by on its own, but block 7 is not:
+right after the change the capped core picked the new best tool 1.4% of the time against 9.2%
+without the cap, so the cap slows the first block of relearning markedly. It catches up by block 9
+and is level by block 12 (54.2% / 53.6% against 56.4% / 51.6%). This is still the synthetic stream
+and says nothing about real work; no real-task number exists yet.
 
 At the cap (5,000 actions, each side full) the `fly_*` tables take 9.97 MB after `VACUUM`. A task
 start (`tests/fly-core-2.test.mjs` F15) reads per-cell lists kept in memory: on the Mac the ranking
