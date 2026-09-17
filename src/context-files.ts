@@ -47,12 +47,14 @@
  * their assistant talks to them, and it is also reported as permission-shaped so nobody mistakes it
  * for a setting. What it cannot do is open a gate: the gate is somewhere else entirely.
  */
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 import type { Store } from "./store.js";
 import type { ToolContext } from "./contracts.js";
 import type { ToolRegistry } from "./registry.js";
+// Wave mac2 (guards): a workspace folder the owner has not trusted is not read.
+import { folderAllows } from "./folder-trust.js";
 
 /** How much of one file is ever carried, and how much of the prompt all of them may take together. */
 export const perFileBytes = 8000;
@@ -170,7 +172,20 @@ function trimToBytes(text: string, limit: number): { text: string; trimmed: bool
 }
 
 /** Where the files are looked for: the work in hand, and the owner themselves. */
-export interface Folders { workspace: string; owner?: string | undefined }
+export interface Folders {
+  workspace: string;
+  owner?: string | undefined;
+  /**
+   * Wave mac2 (guards): whether the workspace folder may be read (src/folder-trust.ts). Only the
+   * workspace is asked; the owner's own folder is theirs and is always read. Absent means yes.
+   */
+  allows?: ((folder: string) => boolean) | undefined;
+}
+/** Wave mac2 (guards): true when the workspace holds this slot's file but the owner has not trusted it. */
+function heldBack(where: Folders, names: readonly string[]): boolean {
+  if (!where.allows || where.allows(where.workspace)) return false;
+  return names.some((name) => existsSync(join(where.workspace, name)));
+}
 
 /**
  * Finds one slot's file, or nothing at all.
@@ -184,7 +199,8 @@ export function findFile(folders: Folders | string, key: SlotKey): LoadedFile | 
   const slot = slots.find((entry) => entry.key === key);
   if (!slot) return null;
   const where = typeof folders === "string" ? { workspace: folders } : folders;
-  const roots = slot.scope === "owner" && where.owner ? [where.workspace, where.owner] : [where.workspace];
+  const workspace = where.allows && !where.allows(where.workspace) ? [] : [where.workspace]; // wave mac2 (guards)
+  const roots = slot.scope === "owner" && where.owner ? [...workspace, where.owner] : workspace;
   for (const folder of roots) {
     const found = inFolder(folder, slot.names, key);
     if (found) return found;
@@ -215,7 +231,7 @@ export interface SlotReport {
   name: string | null;
   bytes: number;
   /** "carried" in the prompt, "announced" as a single line, or why it was neither. */
-  outcome: "carried" | "announced" | "off" | "missing" | "empty" | "no room";
+  outcome: "carried" | "announced" | "off" | "missing" | "empty" | "no room" | "not trusted";
   permissionShaped: string[];
 }
 export interface AssembledContext {
@@ -249,7 +265,11 @@ export function assembleContext(folders: Folders | string, settings: ContextFile
     const setting = switchFor(settings, slot.key);
     if (setting === "off") { reports.push(report(slot.key, setting, null, 0, "off", [])); continue; }
     const found = findFile(folders, slot.key);
-    if (!found) { reports.push(report(slot.key, setting, null, 0, "missing", [])); continue; }
+    if (!found) {
+      const where = typeof folders === "string" ? { workspace: folders } : folders;
+      reports.push(report(slot.key, setting, null, 0, heldBack(where, slot.names) ? "not trusted" : "missing", []));
+      continue;
+    }
     if (!found.text.trim()) { reports.push(report(slot.key, setting, found.name, 0, "empty", [])); continue; }
     const fits = setting === "on" && used + found.bytes <= totalBytes;
     if (fits) {
@@ -290,9 +310,13 @@ function prompt(carried: string[], announced: string[]): string {
 
 /** The whole block, for the owner's settings screen: what is on, what was found, what will not fit. */
 export function contextFileStatus(store: Store, owner: string, workspace: string): SlotReport[] {
-  return assembleContext(foldersFor(store, workspace), contextFileSettings(store, owner)).reports;
+  return assembleContext(foldersFor(store, owner, workspace), contextFileSettings(store, owner)).reports;
 }
-const foldersFor = (store: Store, workspace: string): Folders => ({ workspace, owner: store.folder });
+const foldersFor = (store: Store, owner: string, workspace: string): Folders => ({
+  workspace, owner: store.folder,
+  // Wave mac2 (guards): folder trust decides whether the workspace's own files are read.
+  allows: (folder) => folderAllows(store, owner, folder),
+});
 
 const nothingOn: AssembledContext = { text: "", reports: [], bytes: 0, replacesPersona: false };
 
@@ -300,7 +324,7 @@ const nothingOn: AssembledContext = { text: "", reports: [], bytes: 0, replacesP
 export function contextFileInstructions(store: Store, context: ToolContext): AssembledContext {
   const settings = contextFileSettings(store, context.owner);
   if (!Object.values(settings.files).some((value) => value !== "off")) return nothingOn;
-  const built = assembleContext(foldersFor(store, context.workspace), settings);
+  const built = assembleContext(foldersFor(store, context.owner, context.workspace), settings);
   store.event(context.runId, "context.files", {
     bytes: built.bytes,
     carried: built.reports.filter((entry) => entry.outcome === "carried").map((entry) => entry.name),
@@ -326,7 +350,10 @@ export function registerContextFiles(registry: ToolRegistry, store: Store): void
     execute: async ({ file }, context) => {
       const setting = switchFor(contextFileSettings(store, context.owner), file);
       if (setting === "off") throw new Error(`The owner has ${file} switched off, so it is not read.`);
-      const found = findFile(foldersFor(store, context.workspace), file);
+      const folders = foldersFor(store, context.owner, context.workspace);
+      const found = findFile(folders, file);
+      if (!found && heldBack(folders, slots.find((slot) => slot.key === file)?.names ?? []))
+        throw new Error(`The owner has not trusted this workspace folder, so its ${file} file is not read.`);
       if (!found) throw new Error(`There is no ${file} file in this workspace.`);
       store.event(context.runId, "context.read", { name: found.name, bytes: found.bytes });
       return { name: found.name, text: found.text, trimmed: found.trimmed, permissionShaped: found.permissionShaped };
