@@ -460,6 +460,19 @@ async function signIn(page, server) {
   await page.locator("#workspace").waitFor({ state: "visible" });
 }
 
+/**
+ * Opens a Settings page and waits for the switch cards to finish reading their settings. Opening
+ * Settings redraws them (the voice plan is the last thing they read), and a redraw that landed after
+ * a choice was made would put the saved value back before Save is pressed.
+ */
+async function openAndSettle(page, open) {
+  const read = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/voice/plan", { timeout: 5000 })
+    .catch(() => null);
+  await open();
+  await read;
+  await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 150)));
+}
+
 const cardIds = ["os-permissions-card", "screen-switch-card", "system-voice-card", "keychain-card"];
 
 test("the cards go to their homes, and a settings link opens only on a click", async (t) => {
@@ -509,7 +522,7 @@ test("the cards go to their homes, and a settings link opens only on a click", a
     ["x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"], "only a real settings page is opened");
 
   // The two switch cards read and save the real settings, each opened where a person finds it.
-  await openPlace(page, "settings:computer");
+  await openAndSettle(page, () => openPlace(page, "settings:computer"));
   assert.equal(await page.locator("#screen-switch-card-mode").inputValue(), "off");
   assert.deepEqual(await page.locator("#screen-switch-card-mode option").evaluateAll((options) => options.map((o) => o.dataset.t)),
     ["switch.off", "switch.when-needed", "switch.on"]);
@@ -517,7 +530,7 @@ test("the cards go to their homes, and a settings link opens only on a click", a
   await page.locator("#screen-switch-card button").click();
   await page.waitForFunction(() => document.getElementById("screen-switch-card-status").textContent === "Saved.");
   assert.equal(readDesktopSettings(app.store, app.runtime.owner).mode, "on");
-  await openSettingFor(page, "#system-voice-card");
+  await openAndSettle(page, () => openSettingFor(page, "#system-voice-card"));
   await page.locator("#system-voice-card-mode").selectOption("when-needed");
   await page.locator("#system-voice-card button").click();
   await page.waitForFunction(() => document.getElementById("system-voice-card-status").textContent === "Saved.");
