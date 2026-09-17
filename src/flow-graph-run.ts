@@ -190,7 +190,7 @@ export class FlowGraphRunner {
     if (node.kind === "subflow") return this.subflow(node, state, options);
     if (node.kind === "prompt") {
       const run = await this.runtime.run({ prompt: fillIn(node.prompt!, state),
-        signal: AbortSignal.timeout(node.timeoutMs), source: "schedule", onTextDelta: () => undefined, ...this.limited(options) });
+        signal: AbortSignal.timeout(node.timeoutMs), source: options.source === "channel" ? "channel" : "schedule", onTextDelta: () => undefined, ...this.limited(options) });
       if (run.status !== "completed") throw new Error(`the assistant stopped (${run.status})`);
       return { patch: this.asPatch(node, run.output), output: run.output.slice(0, 2000), childRunId: run.id /* bucket 13: run monitor */ };
     }

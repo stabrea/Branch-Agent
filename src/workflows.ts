@@ -325,7 +325,8 @@ export class Workflows {
     // mac7/lockdown-fix: under a task's limit, every step holds only the permissions that task holds.
     const allowed = limit ? { permissions: [...this.runtime.context().permissions].filter((p) => limit.includes(p)) } : {};
     if (step.kind === "prompt") {
-      const run = await this.runtime.run({ prompt: step.prompt!, signal, source: "schedule", onTextDelta: () => undefined, ...allowed });
+      // A chat message's workflow asks the model as the chat, never as a schedule the owner made.
+      const run = await this.runtime.run({ prompt: step.prompt!, signal, source: source === "channel" ? "channel" : "schedule", onTextDelta: () => undefined, ...allowed });
       if (run.status !== "completed") throw new Error(`The step did not finish (${run.status})`);
       return { output: run.output, runId: run.id };
     }
