@@ -36,7 +36,8 @@ export function tightenCheck(store: Reader, owner: string, call: CallAbout, deci
     const tightened = tightenForFindings(decision, findings);
     if (findings.length) {
       const sentence = findingSentence(findings);
-      result = tightened === "deny" ? { ...result, reason: sentence } : { ...result, note: sentence };
+      // Integration review: a finding is asked about afresh; only a yes for these very bytes stands in for it.
+      result = tightened === "deny" ? { ...result, reason: sentence } : { ...result, note: sentence, exact: tightened === "ask" };
       result.decision = tightened;
     }
   }

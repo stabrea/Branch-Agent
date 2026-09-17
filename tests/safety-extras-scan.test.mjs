@@ -65,7 +65,7 @@ test("off does nothing, when needed only reads commands the rules would run, on 
   const needed = memoryStore({ "command-scan": "when-needed" });
   assert.equal(tightenCheck(needed, "local", piped, "allow").decision, "ask");
   assert.match(tightenCheck(needed, "local", piped, "allow").note, /straight to a program/);
-  assert.deepEqual(tightenCheck(needed, "local", piped, "ask"), { decision: "ask", reason: null, note: null, exact: false });
+  assert.deepEqual(tightenCheck(needed, "local", piped, "ask"), { decision: "ask", reason: null, note: null, exact: false, code: false });
   const on = memoryStore({ "command-scan": "on" });
   assert.equal(tightenCheck(on, "local", piped, "ask").decision, "ask");
   assert.match(tightenCheck(on, "local", piped, "ask").note, /straight to a program/);

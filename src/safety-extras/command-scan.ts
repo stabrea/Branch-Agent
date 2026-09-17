@@ -10,6 +10,12 @@
  *  - a download piped straight into a program that runs it (`curl … | sh`, `bash <(wget …)`,
  *    `iwr … | iex`). It is asked about, because nobody has read what will run.
  *
+ * Integration review: the command is first read the way a shell joins its words (`c''url`, `s\h`,
+ * `"bash"`, `$IFS`), a decoder (`base64 -d`, `openssl … -d`, `xxd -r`) counts like a download, a
+ * program may be named by its path or `$SHELL`, look-alike letters are found by Unicode's own
+ * compatibility folding (mathematical and full-width letters alike), a program name with any letter
+ * outside plain ASCII is asked about, and every invisible format character is a hidden code.
+ *
  * The scan can only make the answer stricter: allow becomes ask, and ask or allow becomes refuse.
  * The ideas follow Hermes Agent's `tools/threat_patterns.py` and its tirith command check (MIT);
  * the patterns were written here (see THIRD_PARTY_NOTICES.md).
@@ -19,24 +25,41 @@ export interface ScanFinding { kind: ScanKind; detail: string }
 
 /** C0 controls other than tab, line feed and carriage return; DEL; C1 controls. */
 const controlChars = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/u;
-/** Marks that turn text around or hide it: bidi embeddings and isolates, zero-width marks, BOM. */
-const hiddenMarks = /[\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/u;
+/**
+ * Marks that turn text around or hide it: every Unicode format character (bidi controls, zero-width
+ * marks, the soft hyphen, tag characters, BOM), plus the fillers and selectors that draw as nothing.
+ */
+const hiddenMark = String.raw`[\p{Cf}\u034f\u115f\u1160\u17b4\u17b5\u180b-\u180f\u3164\ufe00-\ufe0f\uffa0\u{e0100}-\u{e01ef}]`;
+const hiddenMarks = new RegExp(hiddenMark, "u");
 const fullWidth = /[\uff01-\uff5e]/u;
 const scripts: readonly [string, RegExp][] = [
   ["Latin", /\p{Script=Latin}/u], ["Cyrillic", /\p{Script=Cyrillic}/u], ["Greek", /\p{Script=Greek}/u],
   ["Armenian", /\p{Script=Armenian}/u], ["Cherokee", /\p{Script=Cherokee}/u],
 ];
 
-const downloaders = String.raw`(?:curl|wget|fetch|aria2c|iwr|irm|Invoke-WebRequest|Invoke-RestMethod|http|xh)`;
-const runners = String.raw`(?:sudo\s+(?:-\S+\s+)*)?(?:env\s+)?(?:sh|bash|zsh|dash|ksh|fish|csh|tcsh|python[0-9.]*|perl|ruby|node|deno|bun|php|pwsh|powershell|iex|Invoke-Expression|osascript|source|\.)`;
+const downloaders = String.raw`(?:curl|wget|fetch|aria2c|iwr|irm|Invoke-WebRequest|Invoke-RestMethod|http|xh)\b`;
+/** Turning hidden text back into a script counts like a download: nobody has read what comes out. */
+const decoders = String.raw`(?:base64\b[^|;&]*\s(?:-d|-D|--decode)\b|openssl\b[^|;&]*\s-d\b|xxd\b[^|;&]*\s-r|uudecode\b)`;
+const sources = `(?:${downloaders}|${decoders})`;
+const pathTo = String.raw`(?:[^\s|;&()<>]*/)?`;
+const runners = String.raw`(?:${pathTo}sudo\s+(?:-\S+\s+)*)?(?:${pathTo}env\s+(?:-\S+\s+)*)?(?:${pathTo}(?:sh|bash|zsh|dash|ksh|fish|csh|tcsh|python[0-9.]*|perl|ruby|node|deno|bun|php|pwsh|powershell|iex|Invoke-Expression|osascript|source|\.)|\$\{?SHELL\}?)`;
+const ends = String.raw`(?=\s|$|;|&|\)|\|)`;
 const pipePatterns: readonly RegExp[] = [
-  // curl https://x | sh   ·   wget -qO- x | sudo bash   ·   iwr x | iex
-  new RegExp(String.raw`(?:^|[;&|(\s])${downloaders}\b[^|;&]*\|\s*${runners}(?:\s|$|;|&|\))`, "i"),
-  // bash <(curl x)   ·   source <(wget x)
-  new RegExp(String.raw`${runners}\s+<\(\s*${downloaders}\b`, "i"),
-  // bash -c "$(curl x)"   ·   eval "$(wget x)"   ·   sh -c `curl x`
-  new RegExp(String.raw`(?:${runners}\s+-c|eval)\s+["']?(?:\$\(|\x60)\s*${downloaders}\b`, "i"),
+  // curl https://x | sh   ·   wget -qO- x | tee f | sudo bash   ·   base64 -d f | sh   ·   iwr x | iex
+  new RegExp(String.raw`(?:^|[;&|(\s])${sources}[^;&]*\|\s*${runners}${ends}`, "i"),
+  // bash <(curl x)   ·   source <(base64 -d f)
+  new RegExp(String.raw`${runners}\s+<\(\s*${sources}`, "i"),
+  // bash -c "$(curl x)"   ·   eval "$(wget x)"   ·   sh -c `base64 -d f`
+  new RegExp(String.raw`(?:${runners}\s+-c|eval)\s+(?:\$\(|\x60)\s*${sources}`, "i"),
 ];
+
+/** The command as a shell joins its words: line continuations, quotes and backslashes inside a word dropped, `$IFS` a space. */
+export function shellReading(command: string): string {
+  return command.replace(/\\\r?\n/g, "")
+    .replace(/\$\{IFS\}|\$IFS(?![A-Za-z0-9_])/g, " ")
+    .replace(/["']/g, "")
+    .replace(/\\([^\s])/g, "$1");
+}
 
 const words = (command: string): string[] => command.split(/[\s"'`=|;&()<>]+/).filter(Boolean);
 const scriptsOf = (word: string): string[] => scripts.filter(([, pattern]) => pattern.test(word)).map(([name]) => name);
@@ -54,6 +77,7 @@ const hex = (char: string): string => (char.codePointAt(0) ?? 0).toString(16).to
 function homographFinding(command: string): ScanFinding | null {
   for (const word of words(command)) {
     if (fullWidth.test(word)) return { kind: "homograph", detail: `"${word}" uses full-width letters` };
+    if (word.normalize("NFKC") !== word.normalize("NFC")) return { kind: "homograph", detail: `"${word}" uses letters that only look like plain ones` };
     const mixed = scriptsOf(word);
     if (mixed.length > 1) return { kind: "homograph", detail: `"${word}" mixes ${mixed.join(" and ")} letters` };
     const host = hostOf(word);
@@ -61,7 +85,15 @@ function homographFinding(command: string): ScanFinding | null {
       return { kind: "homograph", detail: `the address ${host} is spelled in punycode` };
     if (host && /[^\x00-\x7f]/.test(host)) return { kind: "homograph", detail: `the address ${host} uses letters outside plain ASCII` };
   }
-  return null;
+  // A mark the shell cannot see is reported as a hidden code already; here only letters count.
+  const program = programNames(command).find((name) => /[^\x00-\x7f]/.test(name.replace(new RegExp(hiddenMark, "gu"), "")));
+  return program ? { kind: "homograph", detail: `the program name "${program}" uses letters outside plain ASCII` } : null;
+}
+/** The program each part of a command starts, past `sudo`, `env` and `NAME=value`. */
+function programNames(command: string): string[] {
+  return command.split(/[|;&(`\n]+|\$\(/).map((part) => part.trim().split(/\s+/)
+    .find((word) => word && !/^(sudo|env|exec|command|nohup|time)$/.test(word) && !/^-/.test(word) && !/^[A-Za-z_][A-Za-z0-9_]*=/.test(word)) ?? "")
+    .filter(Boolean);
 }
 /** The host a word names: from a full address, or a bare `name.tld` at its start. */
 function hostOf(word: string): string | null {
@@ -79,7 +111,8 @@ function pipeFinding(command: string): ScanFinding | null {
 
 /** Everything the scan finds in one command, most serious first. */
 export function scanCommand(command: string): ScanFinding[] {
-  return [escapeFinding(command), homographFinding(command), pipeFinding(command)]
+  const read = shellReading(command);
+  return [escapeFinding(command), homographFinding(read), pipeFinding(read)]
     .filter((finding): finding is ScanFinding => finding !== null);
 }
 
