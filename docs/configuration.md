@@ -6129,3 +6129,82 @@ Bucket 14 of the public list ("what it has cost you, in plain figures"). Each pi
   span (`tests/tracing-policy.test.mjs` T1), which the diagnostics folder carries (T4).
 
 macOS and Linux: nothing here depends on the operating system; the tests run the same on all three.
+
+## Talking to other agents and tools: where each one stands (wave mac4, bucket 20)
+
+The open protocols, so Branch can be one part of somebody else's setup and they can be part of yours.
+Everything new lives in `src/interop/` and is switched in Customize → Connections, card "Working with other
+agents and tools" (`public/interop.js`). Each part has the three-way switch — off, when needed, on — and
+every one ships off: while a part is off its routes answer "switched off" (the Agent Protocol answers 404)
+and its tools are not in the catalog at all; "when needed" makes them a line in the index; "on" loads them
+from the first round (`src/feature-switches.ts`). Switching a part, bringing an assistant in and handing a
+conversation on need the key of this computer; a short-lived key is refused.
+
+**macOS and Linux.** Nothing here depends on the system: the socket, the routes and the files behave the
+same on all three, and the tests run on each.
+
+- **agent-protocol** (A0548, the Agent Protocol task API) — built: `POST /ap/v1/agent/tasks` makes a task,
+  `POST …/{task}/steps` runs a step as an ordinary Branch task in one conversation, held to "Ask before
+  changes" like an A2A task; steps, tasks and artifacts list with the specification's pagination, and
+  every answer is a small `answer-N.md` artifact you can download. Files sent in are refused (415). Tasks are
+  written down, so a restart keeps them (`src/interop/agent-protocol.ts`, `src/interop/api.ts`,
+  `tests/agent-interop.test.mjs`).
+- **client-tools** (A2335, external client tools) — built: a program on this computer opens
+  `ws://127.0.0.1:<port>/api/interop/client-tools/ws` with the key as `Sec-WebSocket-Protocol: bearer, <key>`,
+  says `hello` with up to 16 tools, and those tools join the catalog as `client.<program>.<tool>` until it
+  hangs up. Each call goes down the socket and waits up to a minute; every lent tool needs `client.tools`,
+  which counts as a change, and its description is read as somebody else's text
+  (`src/interop/client-tools.ts`, `tests/agent-interop.test.mjs`).
+- **A0429** (custom agent modes) — built: five modes come built in (Ask, Architect, Code, Debug,
+  Orchestrator); you add your own in Customize → Specialists; a project folder you trust may add more in
+  `.branch/modes.json` (a folder you have not trusted brings none). A mode is a role, instructions, the
+  toolboxes it may open and whether it may change anything, and it only ever narrows what the task could
+  already do (`src/interop/modes.ts`, `tests/agent-interop.test.mjs`, `tests/agent-interop-ui.test.mjs`).
+- **A0428** (boomerang orchestration) — built: `mode.task` sends one piece of work to another mode; that
+  mode works with its own reach and instructions and its summary comes back to the task that sent it, with
+  "sent" and "returned" on the parent's record. The Orchestrator mode does nothing else
+  (`src/interop/modes.ts`, `tests/agent-interop.test.mjs`).
+- **A1857** (agent marketplace) — built: a market is a `market.json` list naming files made by "Export the
+  assistant", each with its fingerprint. Looking installs nothing; bringing one in checks the fingerprint
+  and every part, and takes only specialists, saved procedures and skills — never approval rules, model
+  choices or memory — with new skills switched off, and a specialist or procedure with a name you already use is left out, never replaced. Publishing writes both files into a folder of your
+  workspace for any web server; nothing is uploaded (`src/interop/agent-market.ts`, `src/agent-export.ts`,
+  `tests/agent-interop.test.mjs`).
+- **provider-actions** (A2252, provider effect actions) — verified: a service's own operations become
+  tools once you name them (`tools.from_openapi`), the key is fetched at the call and kept out of the
+  answer, and every one needs `api.call`, which is a change, so "Ask before changes" asks before it acts
+  (`src/openapi-tools.ts`, `tests/code-ide.test.mjs` "a call built from the document fills the path",
+  `tests/agent-interop.test.mjs`).
+- **A0146** (fleet coordination) — built: `fleet.status` shows every working task with the task above it,
+  the teams, the assistants elsewhere and the programs lending tools; `fleet.send` gives one job to several
+  specialists and assistants elsewhere at once; `fleet.stop` stops everything, or everything under one
+  task, and never the task asking or any task above it (`src/interop/fleet.ts`,
+  `tests/agent-interop.test.mjs`).
+- **A0319** (remote handoff) — built: from Customize → Connections a conversation goes to another device as
+  a link that opens it (`#handoff=<id>`) and a key that may look and start tasks for the minutes you choose,
+  shown once; to a terminal as `branch chat --attach --session <id>`; or to an assistant elsewhere with the
+  recent conversation, keys scrubbed. The model can hand on to a terminal or an assistant, never mint a key
+  (`src/interop/handoff.ts`, `src/cli-attach.ts`, `tests/agent-interop.test.mjs`).
+- **A0688** (project routing) — built: each project may carry a few words of its own; a request is scored on
+  those and on the project's name, folder and repository, and the best one is named with the words that
+  decided it. A tie or no match changes nothing, and routing alone never switches — only the owner's
+  window, asking with `switch`, does (`src/interop/project-routing.ts`, `tests/agent-interop.test.mjs`).
+- **A1293** (swarm patterns) — documented: four ways of putting several specialists on one job, all over
+  the same fan-out engine, budget and approval rules. *Supervisor*: one specialist splits the goal between
+  named workers and writes the answer (`delegate.supervise`). *Swarm*: several workers take items off one
+  shared list, and an item nobody finished goes back on it (`delegate.swarm`). *Router*: the one specialist
+  a request belongs to is chosen and sent it (`delegate.route`). *Parallel*: up to six branches share this
+  task's budget (`delegate.parallel`), and *teams* keep a durable room (`src/teams.ts`). Mode boomerangs and
+  fleet commands above sit on the same engine (`src/orchestration-modes.ts`,
+  `src/orchestration-tools.ts`, `tests/reopened.test.mjs` "A0317 a swarm works down one shared list").
+- **A1327** (tool-discovery progressive disclosure) — verified: every round the catalog has three tiers —
+  loaded, a one-line index entry, and deferred until searched for — so a thousand tools cost no more than a
+  dozen, and a tool found by searching stays loaded (`src/tool-loading.ts`, `tests/tool-loading.test.mjs`
+  "a deferred tool is found by searching for it, called, and stays loaded afterwards").
+- **A0421** (AFlow workflow optimisation) — built, bounded: `flow.search` (and `POST /api/interop/flow-search`)
+  asks the model for up to four different flows for a goal, checks each the way the flow editor does, tries
+  each on up to five worked examples, scores the share of answers containing what was expected, shows the
+  best its misses for up to two rounds of improvement, and saves the winner only when you ask in Customize (the model's
+  call cannot save). A drafted flow may only ask and branch — at most eight boxes, no tool, list or other-flow box. It is greedy
+  improvement, not MetaGPT's tree search, and every try is a real run that costs what it costs
+  (`src/interop/flow-search.ts`, `tests/agent-interop.test.mjs`).

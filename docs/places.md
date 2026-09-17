@@ -93,6 +93,9 @@ Inside a conversation there are no homes to add to, only two surfaces with stric
 | The dashboard in the browser (`mac3/web-dashboard`) | A page of its own at `/dashboard`, not a place; its switch in `customize:channels` |
 | Watching a task again: its recording, the path it took, saving it as a page or a workflow (bucket 13) | `inbox:history` |
 | Whether Branch itself is keeping up, the event-loop watch (bucket 13) | `settings:advanced` |
+| Working with other agents and tools: Agent Protocol, lent tools, fleet, handoff, project routing, flow search (`mac4/bucket-20`) | `customize:connections` |
+| Ways of working (modes) and shared assistants (`mac4/bucket-20`) | `customize:specialists` |
+| A conversation handed over from another device (`#handoff=<id>`) | Opens the conversation itself; no screen of its own |
 
 When something new does not fit a row, apply the rule at the top and add a row here in the same
 change.
