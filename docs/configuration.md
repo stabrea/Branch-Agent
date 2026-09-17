@@ -1117,6 +1117,25 @@ to false once whatever it needs is working. One turn finishing clears the count.
 
 `GET /api/backup` (Settings → Backup, `branch backup <file>`) exports every state table as plain rows; secrets are left out because their key never leaves the device. `POST /api/restore` or `branch restore <file>` loads a backup into a fresh install and refuses when the install already has state. `GET /api/health?probe=1` (Settings → Health check, `branch doctor --probe`) reports each dependency with a plain fix.
 
+## Moving in from another assistant
+
+Memory → **Bring things over from another assistant** (and a one-line offer on the first-run card: "Bring your chats and memory from …") reads what Claude Code, Codex CLI, Hermes Agent, OpenClaw or OpenCode left on this computer, or in a folder, `.zip`, `.tar` or `.tar.gz` copy of one, and shows it before anything changes. The owner ticks what to bring; each thing is brought on its own, and a refusal (full memory, a skill name already in use, a chat over 1000 messages or 4 MB) is reported in a sentence while the rest still come.
+
+| What | Where it goes in Branch |
+| --- | --- |
+| Chats | Saved conversations, labelled `from <assistant>`. User and assistant words only: hidden reasoning, tool calls and tool output, side conversations and text the other assistant added itself are left out, and anything that looks like a key is blanked. |
+| Projects (the folders chats were in) | A project `moved-<folder name>`. |
+| Memory, `CLAUDE.md` / `AGENTS.md` / `SOUL.md` | Saved facts (long text is split, at most 3800 characters each); instructions become preferences. |
+| Skills | Installed skills, reshaped to Branch's fields and checked by the skill scanner first; other files in the skill's folder stay behind. |
+| Tool servers (MCP) | Kept under the card, ready to try under Settings → Sharing with other AI tools → Try a server, with the entry to paste into the connections file once its `tools` are filled in. |
+| Model choice | Shown as a suggestion when connecting a model. |
+
+Keys and sign-ins are never copied: `auth.json`, `.credentials.json`, `credentials/` and database tables of sign-ins are not opened, and from `.env`, `env` blocks and server headers only the names are read, to list which keys to add under Settings → Secrets. A record per assistant (`settings` row `move-in:<assistant>`, included in backups) makes a second press bring nothing twice. Databases (`state.db`, `openclaw-agent.sqlite`, `opencode.db`) are read from a private copy, never in place.
+
+Routes: `GET /api/move-in` (what was found and the offer), `POST /api/move-in/preview { source? , path? | archive?: { name, data (base64, up to 32 MB) } }`, `POST /api/move-in/import { …the same, items: [keys] }`, `GET /api/move-in/brought`. Owner only. `BRANCH_MOVE_IN_HOME` looks under another home folder (an old disk, say) instead of this one, and then ignores the assistants' own overrides.
+
+**macOS and Linux.** The same places are searched on every system: `~/.claude` (or `CLAUDE_CONFIG_DIR`) with `~/.claude.json`, `~/.codex` (or `CODEX_HOME`) with `~/.agents/skills`, `~/.hermes` (or `HERMES_HOME`; `%LOCALAPPDATA%\hermes` on Windows), `~/.openclaw` (or `OPENCLAW_STATE_DIR`), and OpenCode's `~/.local/share/opencode` and `~/.config/opencode` (or `XDG_DATA_HOME` / `XDG_CONFIG_HOME`). Links inside those folders are never followed, and a path that climbs out of the chosen folder is refused.
+
 ## Undo and workspace history
 
 Every `files.write` keeps the file's previous bytes and records a `file.changed` event with a line diff. Activity shows each change with **Show change** and **Undo this change** (`POST /api/history/restore { versionId }`); `GET /api/history/files?path=` lists kept versions; the model has `files.history` and `files.restore`. Whole-workspace snapshots: `POST /api/history/snapshots { label }`, `GET /api/history/snapshots`, `POST /api/history/snapshots/:id/restore` (Settings → Workspace snapshots, tool `workspace.snapshot`). Limits: 500 files, 256 KiB per file, 16 MB per snapshot; `node_modules`, `.git`, `dist`, `release` and secret-named files are skipped.
