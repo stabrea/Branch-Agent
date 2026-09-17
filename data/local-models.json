@@ -1,5 +1,5 @@
 {
- "$comment": "Models offered in Settings > Models > On this computer. Sizes and hashes were read from registry.ollama.ai and huggingface.co on 2026-09-17. Architecture figures (layers, key/value heads, head size) are each model's published configuration and feed the memory estimate in src/local-fit.ts. Data, not code: correct it and move on.",
+ "$comment": "Models offered in Settings > Models > On this computer. Sizes and hashes were copied by the builder from registry.ollama.ai and huggingface.co on 2026-09-17 and were not re-checked at integration (no network); every download is checked against them, so a wrong hash refuses the file rather than accepting a bad one. Architecture figures (layers, key/value heads, head size) are each model's published configuration and feed the memory estimate in src/local-fit.ts. Data, not code: correct it and move on.",
  "checked": "2026-09-17",
  "models": [
   {

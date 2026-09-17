@@ -1,5 +1,6 @@
 import { execFile, spawn } from "node:child_process";
 import { access } from "node:fs/promises";
+import { createServer } from "node:net";
 import { constants } from "node:fs";
 import { homedir } from "node:os";
 import { posix, win32 } from "node:path";
@@ -49,8 +50,10 @@ export const thisComputer = (): LaunchEnv => ({ platform: process.platform, arch
 export function candidatePaths(id: RuntimeId, at: LaunchEnv): string[] {
   const exe = at.platform === "win32" ? ".exe" : "";
   const join = at.platform === "win32" ? win32.join : posix.join;
+  // Integration review: only whole folders; a relative entry (".", "bin") would be read from wherever Branch runs.
+  const whole = at.platform === "win32" ? win32.isAbsolute : posix.isAbsolute;
   const onPath = (name: string) => (at.env.PATH ?? at.env.Path ?? "").split(at.platform === "win32" ? ";" : ":")
-    .filter(Boolean).map((dir) => join(dir, name + exe));
+    .filter((dir) => dir && whole(dir) && (at.platform !== "win32" || /^([a-z]:\\|\\\\)/i.test(dir))).map((dir) => join(dir, name + exe));
   const local = at.env.LOCALAPPDATA ?? join(at.home, "AppData", "Local");
   switch (id) {
     case "ollama":
@@ -80,12 +83,41 @@ export async function findRuntime(id: RuntimeId, at: LaunchEnv = thisComputer(),
 export type Runner = (file: string, args: string[], options: { timeout: number; windowsHide: boolean }) => Promise<{ stdout: string }>;
 export interface Started { pid: number | undefined; stop(): void }
 export type Spawner = (file: string, args: string[]) => Started;
-const realRunner: Runner = promisify(execFile);
+/**
+ * Integration review: a runtime gets Branch's variables minus anything secret or anything that
+ * changes how a program loads (Branch's own settings, keys and tokens, NODE_OPTIONS, injected
+ * libraries). What it needs to find its models and its graphics libraries stays.
+ */
+const secretName = /(KEY|TOKEN|SECRET|PASSWORD|PASSWD|PASSPHRASE|CREDENTIAL|COOKIE|AUTH)/i;
+const loaderName = /^(BRANCH_|NODE_OPTIONS$|NODE_TEST_CONTEXT$|DYLD_|LD_PRELOAD$|LD_AUDIT$|ELECTRON_)/i;
+export function runtimeChildEnv(env: Record<string, string | undefined>, extra: Record<string, string> = {}): Record<string, string> {
+  const clean: Record<string, string> = {};
+  for (const [name, value] of Object.entries(env)) {
+    if (value === undefined || secretName.test(name) || loaderName.test(name)) continue;
+    clean[name] = value;
+  }
+  return { ...clean, ...extra };
+}
+const realRunner: Runner = (file, args, options) =>
+  promisify(execFile)(file, args, { ...options, env: runtimeChildEnv(process.env) });
 const realSpawner: Spawner = (file, args) => {
-  const child = spawn(file, args, { stdio: "ignore", windowsHide: true, detached: false, env: { ...process.env, OLLAMA_HOST: "127.0.0.1:11434" } });
+  const child = spawn(file, args, { stdio: "ignore", windowsHide: true, detached: false, env: runtimeChildEnv(process.env, { OLLAMA_HOST: "127.0.0.1:11434" }) });
   child.on("error", () => undefined);
   return { pid: child.pid, stop: () => { child.kill(); } };
 };
+
+export interface ModelToStart { file?: string; repo?: string; context?: number; port?: number }
+/** A port nobody on this computer is using now, chosen by the system. */
+export const freeLoopbackPort = (): Promise<number> => new Promise((resolve, reject) => {
+  const probe = createServer();
+  probe.once("error", reject);
+  probe.listen(0, "127.0.0.1", () => {
+    const address = probe.address();
+    probe.close(() => (address && typeof address === "object" ? resolve(address.port) : reject(new Error("No free port on this computer"))));
+  });
+});
+/** The runtimes Branch starts with one model, each on a fresh port (integration review). */
+const ownPort = (id: RuntimeId): boolean => id === "llama-cpp" || id === "mlx";
 
 export interface StartPlan {
   /** Programs to run and wait for, in order (LM Studio's command line). */
@@ -97,8 +129,9 @@ export interface StartPlan {
 }
 
 /** What starting a runtime means on this system. Pure, so every system can be tested anywhere. */
-export function startPlan(id: RuntimeId, program: string, model: { file?: string; repo?: string; context?: number }, at: LaunchEnv, serviceKnown = false): StartPlan {
+export function startPlan(id: RuntimeId, program: string, model: ModelToStart, at: LaunchEnv, serviceKnown = false): StartPlan {
   const ctx = String(model.context ?? 8192);
+  const port = String(model.port ?? new URL(runtimeInfo[id].baseUrl).port);
   switch (id) {
     case "ollama":
       if (at.platform === "linux" && serviceKnown)
@@ -108,10 +141,10 @@ export function startPlan(id: RuntimeId, program: string, model: { file?: string
       return { commands: [[program, "daemon", "up"], [program, "server", "start", "--port", "1234"]], serve: null, instead: null };
     case "llama-cpp":
       if (!model.file) return { commands: [], serve: null, instead: "Choose a model first; llama.cpp starts with one model." };
-      return { commands: [], serve: [program, "-m", model.file, "-c", ctx, "--host", "127.0.0.1", "--port", "8080", "--jinja"], instead: null };
+      return { commands: [], serve: [program, "-m", model.file, "-c", ctx, "--host", "127.0.0.1", "--port", port, "--jinja"], instead: null };
     case "mlx":
       if (!model.repo) return { commands: [], serve: null, instead: "Choose a model first; MLX starts with one model." };
-      return { commands: [], serve: [program, "--model", model.repo, "--host", "127.0.0.1", "--port", "8081"], instead: null };
+      return { commands: [], serve: [program, "--model", model.repo, "--host", "127.0.0.1", "--port", port], instead: null };
   }
 }
 
@@ -120,20 +153,32 @@ export interface LauncherDeps {
   exists?: Exists;
   run?: Runner;
   spawn?: Spawner;
+  freePort?: () => Promise<number>;
 }
 
 /** Starts and stops runtimes, remembering which ones it started. */
 export class RuntimeLauncher {
-  private readonly started = new Map<RuntimeId, Started>();
+  private readonly started = new Map<RuntimeId, Started & { port?: number }>();
   readonly at: LaunchEnv;
   private readonly exists: Exists;
   private readonly run: Runner;
   private readonly spawner: Spawner;
+  private readonly freePort: () => Promise<number>;
   constructor(deps: LauncherDeps = {}) {
     this.at = deps.at ?? thisComputer();
     this.exists = deps.exists ?? realExists;
     this.run = deps.run ?? realRunner;
     this.spawner = deps.spawn ?? realSpawner;
+    this.freePort = deps.freePort ?? freeLoopbackPort;
+  }
+  /**
+   * Where a runtime answers now: Ollama and LM Studio at their own fixed address, llama.cpp and MLX
+   * only at the port Branch started them on, and nowhere (null) when Branch has not started them.
+   */
+  baseUrl(id: RuntimeId): string | null {
+    if (!ownPort(id)) return runtimeInfo[id].baseUrl;
+    const port = this.started.get(id)?.port;
+    return port ? `http://127.0.0.1:${port}` : null;
   }
   find(id: RuntimeId): Promise<string | null> { return findRuntime(id, this.at, this.exists); }
   /** Which runtimes are installed here, and where. */
@@ -152,16 +197,17 @@ export class RuntimeLauncher {
    * Starts an installed runtime. Refuses in plain words when it is not installed; never installs.
    * Returns the sentence to show.
    */
-  async start(id: RuntimeId, model: { file?: string; repo?: string; context?: number } = {}): Promise<{ started: boolean; message: string }> {
+  async start(id: RuntimeId, model: ModelToStart = {}): Promise<{ started: boolean; message: string }> {
     const program = await this.find(id);
     const info = runtimeInfo[id];
     if (!program) return { started: false, message: `${info.name} is not installed on this computer. ${info.installNote}` };
-    const plan = startPlan(id, program, model, this.at, id === "ollama" ? await this.linuxService() : false);
+    const port = ownPort(id) ? await this.freePort() : undefined;
+    const plan = startPlan(id, program, { ...model, ...(port ? { port } : {}) }, this.at, id === "ollama" ? await this.linuxService() : false);
     if (plan.instead) return { started: false, message: plan.instead };
     for (const command of plan.commands) await this.run(command[0]!, command.slice(1), { timeout: 60000, windowsHide: true });
     if (plan.serve) {
       this.stop(id);
-      this.started.set(id, this.spawner(plan.serve[0]!, plan.serve.slice(1)));
+      this.started.set(id, Object.assign(this.spawner(plan.serve[0]!, plan.serve.slice(1)), port ? { port } : {}));
     }
     return { started: true, message: `${info.name} is starting on this computer.` };
   }

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
-import { mkdir, rename, rm, stat, statfs } from "node:fs/promises";
+import { lstat, mkdir, rename, rm, stat, statfs } from "node:fs/promises";
 import { posix, win32 } from "node:path";
 import { z } from "zod";
 import { gb } from "./local-hardware.js";
@@ -93,8 +93,8 @@ async function openRanged(job: FileDownload, from: number): Promise<Response> {
 export async function downloadFile(job: FileDownload): Promise<string> {
   const partial = `${job.target}.partial`;
   await mkdir((job.target.includes("\\") ? win32 : posix).dirname(job.target), { recursive: true });
-  const done = await stat(job.target).catch(() => null);
-  if (done?.size === job.bytes) return job.target;
+  await refuseLinks(job.target, partial);
+  if (await finishedAlready(job)) return job.target;
   let have = (await stat(partial).catch(() => null))?.size ?? 0;
   if (have > job.bytes) { await rm(partial, { force: true }); have = 0; }
   if (have < job.bytes) {
@@ -102,6 +102,11 @@ export async function downloadFile(job: FileDownload): Promise<string> {
     if (response.status === 416 && have > 0) { await rm(partial, { force: true }); throw new Error("The saved part did not match; start the download again"); }
     if (!response.ok || !response.body) throw new Error(`The model library answered ${response.status}`);
     if (response.status !== 206) have = 0;
+    else if (rangeStart(response) !== have) {
+      await response.body.cancel().catch(() => undefined);
+      await rm(partial, { force: true });
+      throw new Error("The saved part did not match what the library sent; start the download again");
+    }
     await writeStream(response.body, partial, have, job);
   }
   const size = (await stat(partial)).size;
@@ -112,6 +117,27 @@ export async function downloadFile(job: FileDownload): Promise<string> {
   }
   await rename(partial, job.target);
   return job.target;
+}
+
+/**
+ * Integration review: a file (or a link) someone placed where the model goes is never trusted or
+ * written through. A link is refused; a file of the right size is only used once its hash matches.
+ */
+async function refuseLinks(...paths: string[]): Promise<void> {
+  for (const path of paths)
+    if ((await lstat(path).catch(() => null))?.isSymbolicLink()) throw new Error("A link sits where the model file goes, so Branch will not write there");
+}
+async function finishedAlready(job: FileDownload): Promise<boolean> {
+  const done = await stat(job.target).catch(() => null);
+  if (done?.size !== job.bytes) return false;
+  if (!job.sha256 || (await sha256Of(job.target)) === job.sha256.toLowerCase()) return true;
+  await rm(job.target, { force: true });
+  return false;
+}
+/** The first byte a 206 answer covers (`Content-Range: bytes 50-199/200`), or -1. */
+function rangeStart(response: Response): number {
+  const match = /^bytes (\d+)-/i.exec(response.headers.get("content-range") ?? "");
+  return match ? Number(match[1]) : -1;
 }
 
 async function writeStream(body: ReadableStream<Uint8Array>, path: string, start: number, job: FileDownload): Promise<void> {

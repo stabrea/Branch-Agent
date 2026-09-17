@@ -54,9 +54,9 @@ export class OneClick {
   private readonly lmStudio: LmStudioClient;
   constructor(private readonly deps: OneClickDeps) {
     this.jobs = new SetupJobs(deps.store, deps.owner);
-    const local = localRuntimeFetch(deps.policy, deps.fetch ?? globalThis.fetch);
-    this.ollama = new OllamaClient(runtimeInfo.ollama.baseUrl, local);
-    this.lmStudio = new LmStudioClient(runtimeInfo["lm-studio"].baseUrl, local);
+    const call = deps.fetch ?? globalThis.fetch;
+    this.ollama = new OllamaClient(runtimeInfo.ollama.baseUrl, localRuntimeFetch(deps.policy, call, runtimeInfo.ollama.baseUrl));
+    this.lmStudio = new LmStudioClient(runtimeInfo["lm-studio"].baseUrl, localRuntimeFetch(deps.policy, call, runtimeInfo["lm-studio"].baseUrl));
   }
   private now(): string { return (this.deps.now ?? (() => new Date()))().toISOString(); }
   private sleep(ms: number): Promise<void> { return (this.deps.sleep ?? ((wait) => new Promise((done) => setTimeout(done, wait))))(ms); }
@@ -131,7 +131,7 @@ export class OneClick {
       step({ stage: "loading", message: "Loading it with room for about " + Math.round(resolved.context / 1000) + ",000 words…", percent: 100 });
       const model = await this.load(resolved, local, step);
       step({ stage: "connecting", message: "Asking it a small question…" });
-      const record = await registerLocalConnection(this.deps, { runtime: resolved.runtime, model, contextLength: resolved.context, label: resolved.label }, this.deps.test ?? smokeTest);
+      const record = await registerLocalConnection({ ...this.deps, endpoint: (runtime) => this.deps.launcher.baseUrl(runtime) }, { runtime: resolved.runtime, model, contextLength: resolved.context, label: resolved.label }, this.deps.test ?? smokeTest);
       step({ stage: "done", connectionId: record.id, finishedAt: this.now(), message: `Ready: ${record.name}.` });
     } catch (error) {
       // Closing Branch is not the owner stopping it: leave the setup open so it resumes next time.
@@ -195,6 +195,8 @@ export class OneClick {
     const files = mlxFilesWanted(await repoFiles(repo, this.deps.library));
     if (!files.some((file) => file.path.endsWith(".safetensors"))) throw new Error("That repository has no MLX weights");
     const total = files.reduce((sum, file) => sum + file.bytes, 0);
+    // Integration review: a typed name has no size ahead, so the disk is checked once the list is known.
+    await assertRoomOnDisk(target, total, this.deps.launcher.at.platform, this.deps.statfs);
     const join = this.deps.launcher.at.platform === "win32" ? win32.join : posix.join;
     let before = 0;
     for (const file of files) {
@@ -236,7 +238,9 @@ export class OneClick {
         step({ stage: "starting", message: `Starting ${runtimeInfo[resolved.runtime].name} with this model…` });
         const started = await this.deps.launcher.start(resolved.runtime, resolved.runtime === "mlx" ? { repo: local, context: resolved.context } : { file: local, context: resolved.context });
         if (!started.started) throw new Error(started.message);
-        const server = new OpenAiServerClient(runtimeInfo[resolved.runtime].baseUrl, localRuntimeFetch(this.deps.policy, this.deps.fetch ?? globalThis.fetch));
+        const base = this.deps.launcher.baseUrl(resolved.runtime);
+        if (!base) throw new Error(`${runtimeInfo[resolved.runtime].name} did not start`);
+        const server = new OpenAiServerClient(base, localRuntimeFetch(this.deps.policy, this.deps.fetch ?? globalThis.fetch, base));
         await this.waitFor(async () => (await server.models()) !== null, `${runtimeInfo[resolved.runtime].name} did not answer within two minutes`, 120);
         return local;
       }

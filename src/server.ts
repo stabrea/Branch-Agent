@@ -2869,6 +2869,9 @@ function offLimitsToShortLivedKeys(method: string | undefined, path: string): st
   // pictures) and the event-loop watch are the owner's settings.
   if (path === "/api/recordings" || path === "/api/event-loop")
     return "A short-lived key cannot change task recordings or the check on whether Branch is keeping up. Do that in the app window.";
+  // mac5/local-models (integration review): the switch, downloading, starting a program and deleting a model.
+  if (/^\/api\/local-models\/(switch|setup|pull|load|stop|remove|delete|unload|runtime|routing$)/.test(path))
+    return "A short-lived key cannot switch models on this computer, download or delete one, or start or stop its program. Do that in the app window.";
   // mac4/bucket-20: switching those parts, bringing an assistant in, and handing a conversation on.
   return interopOffLimits(method, path);
 }

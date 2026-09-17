@@ -30,10 +30,22 @@ export function assertLocalRuntimeAllowed(policy: Pick<NetworkPolicy, "settings"
     throw new Error(`${host}${path} is not on the allowed list`);
 }
 
-/** A fetch for local runtimes: every call is checked first, and redirects are never followed. */
-export function localRuntimeFetch(policy: Pick<NetworkPolicy, "settings"> | null, base: typeof fetch = globalThis.fetch): typeof fetch {
+/**
+ * A fetch for one local runtime: every call is checked first, and redirects are never followed.
+ *
+ * Integration review: the skipped local refusal is pinned to the one address the runtime answers
+ * on (`expected`, e.g. `http://127.0.0.1:11434`, or a function when Branch picked the port), so
+ * this fetch can never reach Branch itself, another local service or another port. A function
+ * that answers null means the runtime is not running under Branch, and nothing is sent.
+ */
+export function localRuntimeFetch(
+  policy: Pick<NetworkPolicy, "settings"> | null, base: typeof fetch, expected: string | (() => string | null),
+): typeof fetch {
   return async function guardedLocal(input: string | URL | Request, init?: RequestInit) {
     const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url);
+    const origin = typeof expected === "function" ? expected() : expected;
+    if (!origin) throw new Error("That model's program is not running under Branch. Set the model up again to start it.");
+    if (url.origin !== new URL(origin).origin) throw new Error(`${url.host} is not the address of this model's program`);
     assertLocalRuntimeAllowed(policy, url);
     return base(input, { ...init, redirect: "error" });
   } as typeof fetch;

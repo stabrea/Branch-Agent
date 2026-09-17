@@ -26,12 +26,13 @@ export class LocalManager {
   private readonly ollama: OllamaClient;
   private readonly lmStudio: LmStudioClient;
   constructor(private readonly deps: ManageDeps) {
-    const local = localRuntimeFetch(deps.policy, deps.fetch ?? globalThis.fetch);
-    this.ollama = new OllamaClient(runtimeInfo.ollama.baseUrl, local);
-    this.lmStudio = new LmStudioClient(runtimeInfo["lm-studio"].baseUrl, local);
+    const call = deps.fetch ?? globalThis.fetch;
+    this.ollama = new OllamaClient(runtimeInfo.ollama.baseUrl, localRuntimeFetch(deps.policy, call, runtimeInfo.ollama.baseUrl));
+    this.lmStudio = new LmStudioClient(runtimeInfo["lm-studio"].baseUrl, localRuntimeFetch(deps.policy, call, runtimeInfo["lm-studio"].baseUrl));
   }
   private server(runtime: "llama-cpp" | "mlx"): OpenAiServerClient {
-    return new OpenAiServerClient(runtimeInfo[runtime].baseUrl, localRuntimeFetch(this.deps.policy, this.deps.fetch ?? globalThis.fetch));
+    const base = this.deps.launcher.baseUrl(runtime) ?? runtimeInfo[runtime].baseUrl;
+    return new OpenAiServerClient(base, localRuntimeFetch(this.deps.policy, this.deps.fetch ?? globalThis.fetch, () => this.deps.launcher.baseUrl(runtime)));
   }
   private join(...parts: string[]): string {
     return (this.deps.launcher.at.platform === "win32" ? win32 : posix).join(...parts);
@@ -92,6 +93,8 @@ export class LocalManager {
   async remove(input: unknown): Promise<{ removed: string; freedBytes: number; message: string }> {
     const { runtime, id } = UnloadSchema.parse(input);
     if (runtime === "lm-studio") throw new Error("LM Studio has no way for another program to delete a model. Delete it in LM Studio, under My Models.");
+    // Integration review: the name is checked before anything else, and "." or ".." never pass.
+    if (runtime !== "ollama" && !/^(?!\.{1,2}$)[A-Za-z0-9._-]+$/.test(id)) throw new Error("That is not a model Branch downloaded");
     const disk = (await this.onDisk()).find((model) => model.runtime === runtime && model.name === id);
     if (!disk) throw new Error("That model is not on this computer");
     if (runtime === "ollama") {
@@ -100,7 +103,6 @@ export class LocalManager {
       await this.ollama.remove(id);
     } else {
       const folder = modelsFolder(runtime, this.deps.launcher.at, this.deps.dataDir);
-      if (!/^[A-Za-z0-9._-]+$/.test(id)) throw new Error("That is not a model Branch downloaded");
       if (this.deps.launcher.owns(runtime)) await this.deps.launcher.stopRuntime(runtime);
       await rm(this.join(folder, id), { recursive: true, force: true });
       await rm(this.join(folder, `${id}.partial`), { force: true });

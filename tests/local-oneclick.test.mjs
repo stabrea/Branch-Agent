@@ -212,7 +212,8 @@ test("R1 starting a program is an exact argument list, and Linux's Ollama servic
   assert.match(service.instead, /sudo systemctl start ollama/);
   assert.deepEqual(startPlan("lm-studio", "/h/lms", {}, at.linux).commands, [["/h/lms", "daemon", "up"], ["/h/lms", "server", "start", "--port", "1234"]]);
   assert.deepEqual(startPlan("llama-cpp", "llama-server", { file: "/d/m.gguf", context: 16384 }, at.linux).serve,
-    ["llama-server", "-m", "/d/m.gguf", "-c", "16384", "--host", "127.0.0.1", "--port", "8080", "--jinja"]);
+    ["llama-server", "-m", "/d/m.gguf", "-c", "16384", "--host", "127.0.0.1", "--port", "8080", "--jinja"], "the pure plan falls back to the usual port");
+  assert.deepEqual(startPlan("llama-cpp", "llama-server", { file: "/d/m.gguf", port: 51000 }, at.linux).serve.slice(-3), ["--port", "51000", "--jinja"]);
   assert.deepEqual(startPlan("mlx", "mlx_lm.server", { repo: "/d/mlx/x", context: 8192 }, at.darwin).serve,
     ["mlx_lm.server", "--model", "/d/mlx/x", "--host", "127.0.0.1", "--port", "8081"]);
   assert.match(startPlan("llama-cpp", "llama-server", {}, at.linux).instead, /Choose a model/);
@@ -225,6 +226,7 @@ function fakeLauncher(installed, platform = "darwin") {
     exists: async (path) => installed.some((name) => path.endsWith(name)),
     run: async (file, args) => { ran.push([file, ...args]); if (file === "systemctl") return { stdout: "not-found\n" }; return { stdout: "" }; },
     spawn: (file, args) => { spawned.push([file, ...args]); return { pid: 1, stop: () => stopped.push(file) }; },
+    freePort: async () => 48081,
   });
   return { launcher, ran, spawned, stopped };
 }
@@ -283,7 +285,8 @@ function fakeLibrary(content, options = {}) {
     if (String(url).startsWith("https://huggingface.co/")) return new Response(null, { status: 302, headers: { location: options.to ?? "https://cas-bridge.xethub.hf.co/file?sig=1" } });
     const from = init.headers?.range ? Number(/bytes=(\d+)-/.exec(init.headers.range)[1]) : 0;
     const part = content.subarray(from);
-    return new Response(part, { status: from ? 206 : 200 });
+    const range = from ? { "content-range": `bytes ${from}-${content.length - 1}/${content.length}` } : {};
+    return new Response(part, { status: from ? 206 : 200, headers: range });
   };
   return { fetch, calls };
 }
@@ -334,7 +337,7 @@ test("N1 local runtimes follow the owner's network rules, apart from the blanket
   assert.doesNotThrow(() => assertLocalRuntimeAllowed(new NetworkPolicy({ allowedPaths: ["127.0.0.1/api/"] }), url));
   assert.throws(() => assertLocalRuntimeAllowed(new NetworkPolicy({}), new URL("http://192.168.1.5:11434/")), /not on this computer/);
   let reached = 0;
-  const guarded = localRuntimeFetch(new NetworkPolicy({ blockedHosts: ["127.0.0.1"] }), async () => { reached++; return json({}); });
+  const guarded = localRuntimeFetch(new NetworkPolicy({ blockedHosts: ["127.0.0.1"] }), async () => { reached++; return json({}); }, "http://127.0.0.1:11434");
   await assert.rejects(() => guarded("http://127.0.0.1:11434/api/tags"), /blocked/);
   assert.equal(reached, 0, "a refused call sends nothing");
   await assert.rejects(() => libraryFetch(null)("https://huggingface.co/api/models"), /will not reach the internet/);
@@ -353,7 +356,7 @@ function fakeRuntimes(options = {}) {
     calls.push({ port: url.port, path: url.pathname, method: init.method ?? "GET", body });
     if (url.port === "11434") return ollama(url.pathname, body);
     if (url.port === "1234") return studio(url.pathname, body);
-    if (url.port === "8081" && options.mlxUp) {
+    if (url.port === "48081" && options.mlxUp) {
       if (url.pathname === "/v1/models") return json({ data: [{ id: options.mlxUp() }] });
       if (url.pathname === "/v1/chat/completions") return json({ choices: [{ message: { role: "assistant", content: "OK" } }] });
     }
@@ -551,7 +554,7 @@ test("O4 one click with MLX on Apple silicon: fetch the folder, start its server
   const folder = join(w.deps.dataDir, "local-models", "mlx", "mlx-community--Qwen3-4B-4bit");
   assert.deepEqual(await readFile(join(folder, "model.safetensors")), files["model.safetensors"]);
   await assert.rejects(() => stat(join(folder, "README.md")), /ENOENT/, "only what the model needs is fetched");
-  assert.deepEqual(w.fake.spawned, [["/opt/homebrew/bin/mlx_lm.server", "--model", folder, "--host", "127.0.0.1", "--port", "8081"]]);
+  assert.deepEqual(w.fake.spawned, [["/opt/homebrew/bin/mlx_lm.server", "--model", folder, "--host", "127.0.0.1", "--port", "48081"]], "on the fresh port Branch picked");
   const saved = savedLocalConnections(w.store, "owner")[0];
   assert.equal(saved.runtime, "mlx");
   assert.equal(saved.model, folder);
@@ -609,7 +612,7 @@ test("K2 what is loaded is listed, taken out of memory, and removed with the spa
   await writeFile(join(folder, "tiny.gguf"), Buffer.alloc(2048));
   assert.equal((await manager.remove({ runtime: "llama-cpp", id: "tiny.gguf" })).freedBytes, 2048);
   await assert.rejects(() => stat(join(folder, "tiny.gguf")), /ENOENT/);
-  await assert.rejects(() => manager.remove({ runtime: "llama-cpp", id: "../branch.sqlite" }), /not on this computer/);
+  await assert.rejects(() => manager.remove({ runtime: "llama-cpp", id: "../branch.sqlite" }), /not a model Branch downloaded|not on this computer/);
 });
 
 test("K3 at start, off restores nothing; when needed restores; on also wakes the program", async (t) => {
@@ -658,7 +661,8 @@ test("K4 the routes: off by default, the switch saves, and changes refuse while 
   assert.ok(view.oneClick.offers.length >= 8);
   assert.deepEqual(view.oneClick.loaded, [], "nothing is asked of the runtimes while it is off");
   for (const [path, body] of [["/api/local-models/setup", { model: "qwen3-8b", quant: "Q4_K_M" }], ["/api/local-models/search", { runtime: "mlx", query: "qwen" }],
-    ["/api/local-models/runtime/start", { runtime: "ollama" }], ["/api/local-models/pull", { model: "llama3.2:3b" }]]) {
+    ["/api/local-models/runtime/start", { runtime: "ollama" }]]) {
+    // The older /pull, /stop, /remove and /load keep working while off (integration review; see V2 in local-models-review).
     const refused = await call(path, body);
     assert.equal(refused.status, 400, path);
     assert.match(refused.body.error, /switched off/, path);

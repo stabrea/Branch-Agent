@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { readdir, readFile } from "node:fs/promises";
 import { cpus, totalmem } from "node:os";
+import { win32 } from "node:path";
 import { promisify } from "node:util";
 import { z } from "zod";
 
@@ -58,7 +59,9 @@ export async function readGraphicsCard(exec: Exec = run, platform: string = proc
  * (`HardwareInformation.qwMemorySize`) when it is there, falling back to `AdapterRAM` when it is not.
  */
 async function windowsGraphicsCard(exec: Exec, options: { timeout: number; windowsHide: boolean }): Promise<GraphicsCard | null> {
-  const nvidia = await exec("nvidia-smi.exe", nvidiaQuery, options).then((out) => parseNvidiaSmi(out.stdout), () => null);
+  // Integration review: by its full path, so a program of that name in Branch's own folder is never run.
+  const system32 = win32.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "nvidia-smi.exe");
+  const nvidia = await exec(system32, nvidiaQuery, options).then((out) => parseNvidiaSmi(out.stdout), () => null);
   if (nvidia) return nvidia;
   const script = "Get-CimInstance Win32_VideoController | Select-Object -First 1 Name,AdapterRAM | ConvertTo-Json -Compress";
   const { stdout } = await exec("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], options);

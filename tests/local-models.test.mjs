@@ -231,19 +231,19 @@ test("L2 Windows reads real video memory, not the 4 GB-capped WMI figure", async
   // No NVIDIA driver: WMI gives the name and a capped figure, the registry the real 16 GB.
   const amd = await readGraphicsCard(async (file, args) => {
     asked.push([file, ...args]);
-    if (file === "nvidia-smi.exe") throw Object.assign(new Error("not found"), { code: "ENOENT" });
+    if (/System32\\nvidia-smi\.exe$/i.test(file)) throw Object.assign(new Error("not found"), { code: "ENOENT" });
     if (args.at(-1).startsWith("Get-CimInstance")) return { stdout: '{"Name":"AMD Radeon RX 7800 XT","AdapterRAM":4293918720}' };
     return { stdout: "17163091968\r\n" };
   }, "win32");
   assert.deepEqual(amd, { name: "AMD Radeon RX 7800 XT", memoryBytes: 17163091968 });
-  assert.deepEqual(asked[0], ["nvidia-smi.exe", "--query-gpu=name,memory.total", "--format=csv,noheader,nounits"]);
+  assert.deepEqual(asked[0], ["C:\\Windows\\System32\\nvidia-smi.exe", "--query-gpu=name,memory.total", "--format=csv,noheader,nounits"]);
   assert.match(asked[2].at(-1), /HardwareInformation\.qwMemorySize/);
   // With NVIDIA's tool present, its figure is used and nothing else is asked.
   const nvidia = await readGraphicsCard(async () => ({ stdout: "NVIDIA GeForce RTX 4090, 24564" }), "win32");
   assert.deepEqual(nvidia, { name: "NVIDIA GeForce RTX 4090", memoryBytes: 24564 * 1024 ** 2 });
   // A registry with nothing useful leaves the WMI figure as it was.
   const plain = await readGraphicsCard(async (file, args) => {
-    if (file === "nvidia-smi.exe") throw new Error("no");
+    if (/System32\\nvidia-smi\.exe$/i.test(file)) throw new Error("no");
     return args.at(-1).startsWith("Get-CimInstance") ? { stdout: '{"Name":"Intel Iris Xe","AdapterRAM":1073741824}' } : { stdout: "" };
   }, "win32");
   assert.deepEqual(plain, { name: "Intel Iris Xe", memoryBytes: 1073741824 });

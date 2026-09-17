@@ -35,6 +35,11 @@ export interface LocalConnectionDeps {
   owner: string;
   policy: Pick<NetworkPolicy, "settings"> | null;
   fetch?: typeof globalThis.fetch;
+  /**
+   * Where a runtime answers now (`RuntimeLauncher.baseUrl`). Integration review: llama.cpp and MLX
+   * get a fresh port each start, so without this their connections send nothing at all.
+   */
+  endpoint?: (runtime: RuntimeId) => string | null;
 }
 
 export function savedLocalConnections(store: Store, owner: string): LocalConnection[] {
@@ -49,8 +54,10 @@ export function localConnectionId(runtime: RuntimeId, model: string): string {
 }
 
 function providerFor(record: LocalConnection, deps: LocalConnectionDeps): Provider {
-  const call = deps.models.health.watch(record.id, localRuntimeFetch(deps.policy, deps.fetch ?? globalThis.fetch));
-  const endpoint = `${runtimeInfo[record.runtime].baseUrl}/v1`;
+  const fixed = record.runtime === "ollama" || record.runtime === "lm-studio";
+  const where = (): string | null => (fixed ? runtimeInfo[record.runtime].baseUrl : deps.endpoint?.(record.runtime) ?? null);
+  const call = deps.models.health.watch(record.id, localRuntimeFetch(deps.policy, deps.fetch ?? globalThis.fetch, where));
+  const endpoint = `${where() ?? runtimeInfo[record.runtime].baseUrl}/v1`;
   if (record.runtime === "ollama") return new OllamaProvider({ endpoint, model: record.model, fetchImpl: call });
   return new OpenAIProvider({ endpoint, model: record.model, apiKey: "local", fetchImpl: call });
 }

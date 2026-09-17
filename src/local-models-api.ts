@@ -66,12 +66,10 @@ async function changes(deps: LocalModelsDeps, path: string, input: unknown): Pro
     "/api/local-models/remove": (model) => runtimes.remove(model),
     "/api/local-models/load": (model) => runtimes.lmStudio.load(model),
   };
+  // Integration review: these four are the card's older Ollama and LM Studio routes. The switch
+  // ships off and off means the old behaviour, so they work whatever the switch says.
   const direct = simple[path];
-  if (direct) {
-    const { model } = modelBody.parse(input);
-    assertLocalModelsOn(store, owner);
-    return direct(model);
-  }
+  if (direct) return direct(modelBody.parse(input).model);
   const kit = deps.kit;
   if (!kit) throw new Error("One-click models are not set up in this launch of Branch");
   if (path === "/api/local-models/offers") return { offers: offers(await kit.room(), offersBody.parse(input).runtime) };

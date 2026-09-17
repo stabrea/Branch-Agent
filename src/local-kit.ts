@@ -2,7 +2,7 @@ import { restoreLocalConnections, savedLocalConnections } from "./local-connecti
 import { readRoom, type MachineRoom, type MemoryReaders } from "./local-fit.js";
 import { readHardware } from "./local-hardware.js";
 import { localModelsMode } from "./local-jobs.js";
-import { RuntimeLauncher, type LauncherDeps } from "./local-launch.js";
+import { RuntimeLauncher, type LauncherDeps, type RuntimeId } from "./local-launch.js";
 import { LocalManager } from "./local-manage.js";
 import { OneClick } from "./local-oneclick.js";
 import { libraryFetch } from "./local-policy.js";
@@ -46,7 +46,8 @@ export function createLocalKit(options: LocalKitOptions): LocalKit {
   const launcher = new RuntimeLauncher(options.launcher ?? {});
   const library = options.library ?? libraryFetch(options.policy);
   const room = async () => readRoom(await readHardware(), { platform: launcher.at.platform, ...(options.memory ?? {}) });
-  const shared = { models: options.models, store: options.store, owner: options.owner, policy: options.policy, ...(options.fetch ? { fetch: options.fetch } : {}) };
+  const shared = { models: options.models, store: options.store, owner: options.owner, policy: options.policy,
+    endpoint: (runtime: RuntimeId) => launcher.baseUrl(runtime), ...(options.fetch ? { fetch: options.fetch } : {}) };
   const oneClick = new OneClick({ ...shared, dataDir: options.dataDir, launcher, library, room,
     ...(options.statfs ? { statfs: options.statfs } : {}), ...(options.sleep ? { sleep: options.sleep } : {}) });
   const manager = new LocalManager({ ...shared, dataDir: options.dataDir, launcher });
@@ -67,7 +68,8 @@ export async function startLocalModels(options: LocalKitOptions): Promise<LocalK
   const kit = createLocalKit(options);
   const mode = localModelsMode(options.store, options.owner);
   if (mode === "off") return kit;
-  restoreLocalConnections({ models: options.models, store: options.store, owner: options.owner, policy: options.policy, ...(options.fetch ? { fetch: options.fetch } : {}) });
+  restoreLocalConnections({ models: options.models, store: options.store, owner: options.owner, policy: options.policy,
+    endpoint: (runtime) => kit.launcher.baseUrl(runtime), ...(options.fetch ? { fetch: options.fetch } : {}) });
   void kit.oneClick.resume().catch(() => 0);
   if (mode === "on") {
     const wanted = new Set(savedLocalConnections(options.store, options.owner).map((record) => record.runtime));
