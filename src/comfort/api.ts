@@ -1,0 +1,159 @@
+import type { IncomingMessage } from "node:http";
+import { z } from "zod";
+import type { Store } from "../store.js";
+import type { Runtime } from "../runtime.js";
+import { activeModel, sessionTotals } from "../terminal-commands.js";
+import { currentPerson } from "../people/context.js";
+import { startedWithShortLivedKey } from "../key-context.js";
+import {
+  allComfort, comfortCardNames, ComfortNetworkSchema, ownerOnlyComfortCards, readComfort, resetComfort, saveComfort,
+  shortcutDefaults, statusItems, type ComfortCard,
+} from "./settings.js";
+import { checkCertificate, validateNetwork, type OutboundNetwork } from "./network.js";
+import { busyTaskCount, noteUpdateCheck, updatePlan } from "./auto-update.js";
+import { sensitiveBrowserTools } from "./browser-safety.js";
+
+/**
+ * R17-S-C: the screen's way in.
+ *
+ *   GET  /api/comfort              every card's values, what is in force, and the choices offered
+ *   POST /api/comfort              { card, values } saves one card; { card, reset: true } puts it back
+ *   POST /api/comfort/update-plan  { updaterPhase?, checked? } what the window should do about updates
+ *   GET  /api/comfort/status?session=<id>  the status line's facts, and when each turn started and ended
+ *
+ * Every change is the owner's: a short-lived key is refused before this is reached (src/server.ts,
+ * src/short-lived-keys.ts). The browser and network cards also refuse a household profile.
+ */
+export class ComfortApiError extends Error {
+  constructor(readonly status: number, message: string) { super(message); }
+}
+export interface ComfortApp {
+  store: Store;
+  runtime: Runtime;
+  /** The proxy and certificates in force; absent in a program that makes no calls of its own. */
+  outbound?: OutboundNetwork;
+}
+export const comfortRoutes: readonly string[] = ["/api/comfort", "/api/comfort/update-plan", "/api/comfort/status"];
+export const handlesComfortPath = (path: string): boolean => comfortRoutes.includes(path);
+
+const SaveSchema = z.object({
+  card: z.enum(comfortCardNames as [ComfortCard, ...ComfortCard[]]),
+  values: z.record(z.string(), z.unknown()).optional(),
+  reset: z.boolean().optional(),
+}).strict();
+const PlanSchema = z.object({
+  updaterPhase: z.string().max(40).optional(),
+  checked: z.boolean().optional(),
+}).strict();
+
+/** Only the owner, in the owner's own profile and with the computer's own key, may change these. */
+function requireOwnerHere(store: Store, what: string): void {
+  if (startedWithShortLivedKey() || currentPerson())
+    throw new ComfortApiError(403, `${what} can only be changed by the owner, in the app window.`);
+  try { store.profiles.requireOwner(what); } catch (error) { throw new ComfortApiError(403, (error as Error).message); }
+}
+const cardWords: Record<string, string> = { browser: "How carefully the browser acts", network: "The proxy and trusted certificates" };
+const updateWords = "Whether Branch updates itself";
+
+/** Integration review: naming automatic updates at all, or putting a changed card back, is the owner's. */
+function changesUpdates(store: Store, owner: string, input: z.infer<typeof SaveSchema>): boolean {
+  if (input.card !== "notify") return false;
+  const now = readComfort(store, owner, "notify").autoUpdate;
+  if (input.reset) return now !== "off";
+  return !!input.values && "autoUpdate" in input.values;
+}
+
+function view(app: ComfortApp) {
+  const values = allComfort(app.store, app.runtime.owner);
+  return {
+    values,
+    certificates: values.network.caCertificates.map((entry) => {
+      try { return { name: entry.name, subject: checkCertificate(entry.pem), problem: null }; }
+      catch (error) { return { name: entry.name, subject: "", problem: (error as Error).message }; }
+    }),
+    network: app.outbound?.state ?? { proxy: "none", certificates: 0 },
+    shortcutDefaults, statusItems, sensitiveBrowserTools,
+    ownerOnly: ownerOnlyComfortCards,
+  };
+}
+
+function save(app: ComfortApp, body: unknown) {
+  const input = SaveSchema.parse(body);
+  const { store, runtime: { owner } } = app;
+  if (ownerOnlyComfortCards.includes(input.card)) requireOwnerHere(store, cardWords[input.card]!);
+  if (changesUpdates(store, owner, input)) requireOwnerHere(store, updateWords);
+  const before = readComfort(store, owner, "browser").confirmSensitive;
+  if (input.reset) resetComfort(store, owner, input.card);
+  else if (input.values) {
+    // Checked in full before anything is kept, so a refused certificate or proxy never reaches the store.
+    if (input.card === "network") validateNetwork(ComfortNetworkSchema.parse({ ...readComfort(store, owner, "network"), ...input.values }));
+    saveComfort(store, owner, input.card, input.values);
+  }
+  if (input.card === "network") app.outbound?.apply(readComfort(store, owner, "network"));
+  if (input.card === "browser") forgetYesesWhenConfirming(app, before);
+  return view(app);
+}
+
+const SessionSchema = z.string().uuid().nullable();
+/**
+ * What the window's status line and message times need for one conversation. The model is the
+ * conversation's own when it has one; the times come from its tasks, oldest first, since a message
+ * itself carries no time.
+ */
+function status(app: ComfortApp, url: URL) {
+  const { store, runtime } = app;
+  const sessionId = SessionSchema.parse(url.searchParams.get("session") || null);
+  const summary = runtime.models.summary(runtime.owner);
+  const project = store.projects.active(runtime.owner);
+  const chosen = sessionId ? runtime.models.session(runtime.owner, sessionId).preset : null;
+  const presetId = chosen ?? summary.activePreset ?? summary.defaultPreset;
+  const totals = sessionTotals(runtime, sessionId ?? undefined, activeModel(runtime, presetId));
+  const turns = sessionId
+    ? store.runs(runtime.owner).filter((run) => run.sessionId === sessionId).reverse()
+      .map((run) => ({ startedAt: run.createdAt, finishedAt: run.status === "running" ? null : run.updatedAt }))
+    : [];
+  return {
+    items: readComfort(store, runtime.owner, "display").statusLine,
+    timestamps: readComfort(store, runtime.owner, "display").timestamps,
+    facts: { model: runtime.models.presets.get(presetId)?.name ?? presetId, used: totals.input + totals.output,
+      folder: project.folder ? `${runtime.workspace}/${project.folder}` : runtime.workspace, cost: totals.cost },
+    turns,
+  };
+}
+
+/** Turning "ask before sensitive browser steps" on also ends the yeses already given, as Lockdown does. */
+function forgetYesesWhenConfirming(app: ComfortApp, before: boolean): void {
+  if (!before && readComfort(app.store, app.runtime.owner, "browser").confirmSensitive) app.runtime.approvals.forgetAll();
+}
+
+function plan(app: ComfortApp, body: unknown) {
+  const input = PlanSchema.parse(body ?? {});
+  const { store, runtime: { owner } } = app;
+  // Integration review: only the owner's window may be told to install; everyone's tasks count as work.
+  requireOwnerHere(store, updateWords);
+  if (input.checked) noteUpdateCheck(store, owner);
+  const busyTasks = busyTaskCount(store);
+  return updatePlan(store, owner, { busyTasks, updaterPhase: input.updaterPhase });
+}
+
+export async function comfortApi(app: ComfortApp, request: IncomingMessage, path: string,
+  readBody: (request: IncomingMessage) => Promise<unknown>): Promise<unknown> {
+  const method = request.method ?? "GET";
+  try {
+    if (path === "/api/comfort/update-plan") {
+      if (method !== "POST") throw new ComfortApiError(405, "Use POST");
+      return plan(app, await readBody(request));
+    }
+    if (path === "/api/comfort/status") {
+      if (method !== "GET") throw new ComfortApiError(405, "Use GET");
+      return status(app, new URL(request.url ?? "/", "http://branch.local"));
+    }
+    if (method === "GET") return view(app);
+    if (method === "POST") return save(app, await readBody(request));
+    throw new ComfortApiError(405, "Use GET or POST");
+  } catch (error) {
+    if (error instanceof ComfortApiError) throw error;
+    if (error instanceof z.ZodError) throw new ComfortApiError(400, error.issues[0]?.message ?? "That value is not allowed.");
+    throw new ComfortApiError(400, (error as Error).message);
+  }
+}

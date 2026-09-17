@@ -50,6 +50,7 @@ import { checkResult, fanoutWaves, type FanoutTask, type ResultCheck } from "./d
 import { describeToolCall, filePathOf } from "./activity.js";
 // Wave mac2 (guards): loop guard and folder trust; see src/run-guards.ts.
 import { RunGuards } from "./run-guards.js";
+import { browserConfirmationHold, holdsBrowserStep, withBrowserConfirmation } from "./comfort/browser-safety.js"; // R17-S19
 // mac5/manual-actions: the gate for tools run outside a conversation.
 import { gateToolUse, type ToolGateOptions } from "./tool-gate.js";
 // Wave mac3 (tool-safety): the second look before an approval.
@@ -1869,7 +1870,8 @@ ${run.output.slice(0, 6000)}`;
   /** The owner's saved approval policy, held to "Ask before changes" for tasks they did not start. */
   policy(source: RunSource = "owner"): Policy {
     // Wave mac2 (guards): with folder trust on, a task in a folder the owner does not trust asks first.
-    return this.guards.policy(cappedPolicy(readPolicy(this.store, this.owner), source));
+    // R17-S19: with "confirm sensitive browser steps" on, those steps ask every time (src/comfort/browser-safety.ts).
+    return withBrowserConfirmation(this.guards.policy(cappedPolicy(readPolicy(this.store, this.owner), source)), this.store, this.owner);
   }
   /**
    * Where answers already given are remembered for this piece of work: the conversation, or the
@@ -1910,16 +1912,19 @@ ${run.output.slice(0, 6000)}`;
     const { rule, leak } = tightened;
     // --- R17-C integration review: the owner's mail, calendar and house (src/personal/guard.ts). Work the
     // owner did not start is asked about, and a lock or door always is, just this once — whatever the rules say.
-    const hold = personalHold(tool, args, source);
-    const personal = hold && tightened.decision === "allow" ? "ask" : tightened.decision;
-    const decision = personal === "allow" && lockdownActive(this.store, this.owner) ? "ask" : personal; // mac7/lockdown-fix
+    const personal = personalHold(tool, args, source);
+    // R17-S-C integration review: with "confirm sensitive browser steps" on, those are once-only questions too.
+    const hold = personal ?? (holdsBrowserStep(this.store, this.owner, tool) ? { reason: browserConfirmationHold, onceOnly: true } : null);
+    const held = personal && tightened.decision === "allow" ? "ask" : tightened.decision;
+    const decision = held === "allow" && lockdownActive(this.store, this.owner) ? "ask" : held; // mac7/lockdown-fix
     if (hold?.onceOnly && decision === "ask" && fingerprint) this.approvals.holdOnce(fingerprint, hold.reason);
     // --- end R17-C ---
     // --- end mac7/lockdown-fix ---
     // An answer given earlier stands in for the question, never for a rule that already decided:
     // switching to a stricter setting takes effect at once. The answer is bound to the exact bytes
     // it was given for, so a changed command is asked about again.
-    const answered = decision === "ask"
+    // A once-only question is never answered by a kept yes (R17-S-C integration review).
+    const answered = decision === "ask" && !hold?.onceOnly
       ? this.approvals.answer(this.sessionOf(context), tool, target, fingerprint, !!leak || !!hold) : undefined;
     return { decision: answered ?? decision, label: leak ? `${label}, and the address carries ${leak}` : hold ? `${label}. ${hold.reason}` : label, target, readOnly,
       remember: hold?.onceOnly ? "never" : source === "owner" ? rule?.remember ?? "session" : "session",

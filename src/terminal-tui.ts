@@ -24,6 +24,11 @@ import type { Hit } from "./terminal-canvas.js";
 import { paletteItems, themeItems } from "./terminal-palette.js";
 import { seasonOf } from "./terminal-oak.js";
 import { routeKey, routeMouse } from "./terminal-keys.js";
+// R17-S16/S21: the owner's status line, the comfort settings as controls, and the model picker.
+import { switchComfort, terminalStatus } from "./comfort/terminal.js";
+import { readComfort } from "./comfort/settings.js";
+import type { OutboundNetwork } from "./comfort/network.js";
+import { activeModel, sessionTotals } from "./terminal-commands.js";
 
 export { usageLine, runCost, stepRow } from "./terminal-conversation.js";
 
@@ -186,7 +191,7 @@ export class Tui {
         text: this.focus === "ask" ? this.drafts.composer : this.editor.text, cursor: this.focus === "ask" ? 0 : this.editor.at,
         chips: this.conversation.chips(this.words), ...(this.conversation.awaiting ? { question: "y/n/a/s?" } : {}),
       },
-      status: this.conversation.status(),
+      status: this.comfortStatus() ?? this.conversation.status(), // R17-S16
       pane: { open: this.pane.open, tab: this.pane.tab, rows: this.conversation.paneRows(this.pane.tab, this.words) },
       oak: { show: oak && this.style.unicode, season: seasonOf(new Date()) },
       rows: this.rows, selected: this.selected, loading: this.loading,
@@ -375,6 +380,7 @@ export class Tui {
       newConversation: () => this.newConversation(),
       quit: () => this.quit(),
       keys: () => this.keys(),
+      pickModel: () => this.pickModel(), // R17-S21
       host: commandHost(this.runtime, this.app),
     };
   }
@@ -424,6 +430,7 @@ export class Tui {
     void this.reload();
   }
   switchSetting(name: string, value: string): void {
+    if (this.switchComfort(name, value)) return; // R17-S21
     const key = name === "pane" ? "sidePane" : name;
     if (!["mouse", "sidePane", "oak"].includes(key)) { this.conversation.say("warn", "Use /switch mouse, /switch sidePane or /switch oak."); return; }
     const current = this.switches[key as keyof TerminalSwitches];
@@ -433,6 +440,45 @@ export class Tui {
     this.readLook(true);
     void this.reload();
   }
+  // ── R17-S16/S21: the comfort settings (src/comfort/terminal.ts) ──
+  private comfortStatus(): string | null {
+    const { store, owner, workspace } = this.runtime;
+    if (readComfort(store, owner, "display").statusLine === null) return null;
+    const totals = sessionTotals(this.runtime, this.conversation.sessionId, activeModel(this.runtime, this.conversation.model));
+    return terminalStatus(store, owner, { model: this.conversation.modelName(), folder: workspace,
+      used: totals.input + totals.output, cost: totals.cost }, this.words, glyphsFor(this.style.unicode).dot);
+  }
+  private switchComfort(name: string, value: string): boolean {
+    const { store, owner } = this.runtime;
+    const outbound = (this.app as { comfort?: { outbound?: OutboundNetwork } } | undefined)?.comfort?.outbound;
+    let said: string | null;
+    try {
+      said = switchComfort(store, owner, name, value, this.words, (card) => {
+        if (card === "network") outbound?.apply(readComfort(store, owner, "network"));
+        // As the window does: asking before sensitive browser steps also ends the yeses already given.
+        if (card === "browser" && readComfort(store, owner, "browser").confirmSensitive) this.runtime.approvals.forgetAll();
+      });
+    } catch (error) {
+      this.conversation.say("warn", `[${error instanceof Error ? error.message : String(error)}]`);
+      return true;
+    }
+    if (said === null) return false;
+    this.say(said);
+    void this.reload();
+    return true;
+  }
+  /** `/model` with nothing after it: a picker of the connections, in the full-screen view. */
+  pickModel(): boolean {
+    if (!this.screen) return false;
+    const summary = this.runtime.models.summary(this.runtime.owner);
+    const active = this.conversation.model ?? summary.activePreset ?? summary.defaultPreset;
+    const items = summary.presets.map((preset) => ({ label: `${preset.id === active ? "● " : ""}${preset.name}`, section: preset.model, hint: preset.id, run: `/model ${preset.id}` }));
+    const selected = Math.max(0, summary.presets.findIndex((preset) => preset.id === active));
+    this.overlay = { kind: "picker", title: this.words.t("comfort.terminal.pickModel", "Model for this conversation"), items, selected };
+    this.requestDraw();
+    return true;
+  }
+  // ── end R17-S16/S21 ──
   async theme(argument: string): Promise<void> {
     const { store, owner } = this.runtime;
     const word = argument.trim();
