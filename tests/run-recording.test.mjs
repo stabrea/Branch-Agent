@@ -406,3 +406,30 @@ test("integration: a picture the owner attached is never thinned out, even with 
   assert.equal(messages[1].images, undefined);
   assert.equal(messages.filter((one) => one.images).length, 4);
 });
+
+test("integration: a real task that takes five pictures shows the model only its newest three", async (t) => {
+  const { z } = await import("zod");
+  const seen = [];
+  let round = 0;
+  const provider = {
+    name: "fake-vision", acceptsImages: true,
+    async complete(request) {
+      seen.push(request.messages.filter((m) => (m.images ?? []).length).length);
+      round += 1;
+      return round <= 5
+        ? { content: "", toolCalls: [{ id: `s${round}`, name: "files.fake_snapshot", arguments: JSON.stringify({ n: round }) }] }
+        : { content: "looked", toolCalls: [] };
+    },
+  };
+  const { app } = await served(t, provider);
+  app.registry.register({
+    name: "files.fake_snapshot", permission: "files.read", description: "a picture", readOnly: true,
+    parameters: z.object({ n: z.number() }).strict(),
+    execute: async (value, context) => app.runtime.artifacts.write(context.runId, `shot-${value.n}.png`, "image/png", Buffer.from(`P${value.n}`)),
+  });
+  const run = await app.runtime.run({ prompt: "take five pictures" });
+  assert.equal(run.status, "completed");
+  assert.deepEqual(seen, [0, 1, 2, 3, 3, 3], "never more than three of its own pictures travel");
+  const dropped = app.store.events(run.id).filter((event) => event.kind === "image.dropped");
+  assert.equal(dropped.length, 2);
+});
