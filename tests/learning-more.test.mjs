@@ -88,8 +88,8 @@ test("R17-052: blocks sit in front of the conversation, the assistant edits them
   assert.deepEqual(view.blocks.map((b) => [b.label, b.limit]), [["about-you", 200], ["project-goals", 120]]);
   await app.runtime.run({ prompt: "what are we doing?" });
   assert.match(provider.seen.at(-1).system, /Your memory blocks[\s\S]*project-goals[\s\S]*Ship the oak release\./);
-  // This part never shows the about-you note itself: that is its own switch's job.
-  assert.doesNotMatch(provider.seen.at(-1).system, /I garden on Sundays/);
+  // This part never shows the about-you note itself: the note's own switch (R17-S13) does, once.
+  assert.equal(provider.seen.at(-1).system.split("I garden on Sundays").length - 1, 1);
   const edited = await app.runtime.executeTool("memory.block_edit", { label: "project-goals", action: "replace", old: "oak", text: "birch" });
   assert.equal(edited.block.value, "Ship the birch release.");
   await assert.rejects(app.runtime.executeTool("memory.block_edit", { label: "project-goals", action: "append", text: "x".repeat(200) }), /over its budget of 120/);

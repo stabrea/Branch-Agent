@@ -1255,6 +1255,200 @@ means this wave added it (behind its switch, off); **not built** gives the reaso
 | Their own devices and bridges (PicoClaw `pico`, MaixCam, OpenClaw Raft and Reef, QA channel, device pairing, visitor access) | PicoClaw, OpenClaw | not applicable: parts of those projects rather than chat services; Branch has its own phone pairing and A2A |
 | Notion, Gmail push, file-drop and git "channels" | ZeroClaw | not applicable: not chat services; Branch has documents, email and triggers for these |
 
+## Setting up a chat app in one command
+
+*mac7/connect.* For every chat app Branch supports (55 of them, counted from the code: the nine with a
+type of their own, the ten team-chat services in `data/channels.json`, and the 36 wave mac3 services in
+`src/channels/connectors.ts`), one command gets the official app, opens the page that makes the bot,
+takes the token without showing it, checks it with the app's own service, keeps it in the locker, and
+switches the app on if you say so:
+
+```sh
+branch connect telegram
+```
+
+It is the same line in zsh, bash, PowerShell and cmd, wherever the `branch` command exists. It:
+
+1. looks for the system's own package manager (winget on Windows, Homebrew casks on a Mac, Flatpak from
+   Flathub or Snap on Linux), says exactly what it would run, and asks. Nothing is installed without a
+   typed yes; Snap is the only one that uses `sudo`, and the command says so before asking. Only
+   vendor-verified Flathub apps and Snap packages from verified publishers are offered, never a
+   community repackage. With no package manager, or no official package, it offers to open the
+   vendor's own download page instead. An app that is already installed is left alone;
+2. waits (ten minutes at most) until the app is there, when the computer can tell (`/Applications` on a
+   Mac, `winget list`, `flatpak info`, `snap list`), and otherwise asks you to press Enter;
+3. asks you to sign in, asks for your own server when the app is self-hosted, and opens the page that
+   makes the bot, in the app when it is installed and the app has its own link;
+4. asks for the token with nothing shown on screen. A terminal that cannot hide what is typed gets a
+   one-time page on `127.0.0.1` instead (a long random address, one form, closed after use or fifteen
+   minutes; the token travels in the form, never in an address);
+5. checks it with the app's own read-only "who am I" request, through your network settings;
+6. keeps it in the locker, switches the app on only if you answer `on` or `when-needed`, and, for
+   Telegram with Branch running, takes the six-digit code the bot sends and pairs your account.
+
+When Branch is running, the command goes through the same door as the window (the data folder's own
+key), so a Telegram bot connects at once. Otherwise it opens the saved work itself, and the bot connects
+the next time Branch starts.
+
+**One command or two.** Every app is one command. Telegram and the wave mac3 services are switched on by
+it. The nine older connections (Discord, Slack, WhatsApp, email, Messenger, Instagram, Matrix, Signal
+and the ten team-chat services) are switched on by a line in the connections file, which Branch does not
+rewrite for you (it may sit in a folder you have not trusted, and holds at most eight channels), so the
+command prints that line with your settings filled in, and you add it and restart. That is the second
+step, and the only one.
+
+**The switch.** *Setting up from here and from the terminal* ships **off**. Off, the panel still shows
+the command, the links and the codes; it only refuses to save a token or switch anything on. The first
+`branch connect` asks whether to switch it to *when needed*. *On* and *when needed* behave the same here.
+`GET /api/channel-setup` (the switch and the list), `POST /api/channel-setup {"mode": …}`,
+`GET /api/channel-setup/<app>` (one app's panel), `POST /api/channel-setup/<app>/check
+{"values": {…}, "enable": "on"}`. Looking needs only the app's key; saving and the switch are the
+owner's, and a short-lived key is refused.
+
+**In the window.** Customize → Chat apps → **Set up a chat app**: the command for this computer with a
+Copy button, the app's package or download page, three square codes (the app on iPhone, the app on
+Android, the page that makes the bot), the steps, a paste box and **Check and save**. Each row of **More
+chat apps** has a **Set up** button that opens this card on that app, and the Telegram card has the same
+panel folded inside it (there is still one Telegram card, and it keeps its own token field). The codes
+are drawn on this computer from `src/remote/qr.ts`; nothing is fetched. A phone cannot reach this
+computer, so the store code is two codes (iPhone and Android) rather than one page that guesses the
+phone. Slack's filled-in page is too long for a code, so its code opens Slack's plain new-app page.
+The phone app shows the same panel as links: the store page for that phone, and the page that makes the
+bot. The terminal view lists the command under Customize › Channels; the interactive steps run in an
+ordinary terminal (leave the view with Ctrl+D).
+
+**Starting from nothing.** On a Mac or Linux, beside the download, its `.sha256` and
+`install-branch-agent.sh` (bucket 22), one line installs Branch, checked against its checksum, and sets
+up Telegram:
+
+```sh
+sh install-branch-agent.sh --quiet && ~/.local/bin/branch connect telegram
+```
+
+Nothing is piped from the internet. On Windows the installer does not write a `branch` command yet, so
+it is two steps. First, in the folder with the download, install it: in Command Prompt: `"Install Branch Agent.cmd" /quiet`;
+in PowerShell: `& '.\Install Branch Agent.cmd' /quiet` (PowerShell needs the `&` and the `.\` to run a quoted file).
+Then use Customize → Chat apps → Set up a chat app in the window that opens (or `node dist\cli.js connect telegram`
+in a copy from Git, which is the same line in both).
+
+**Official means only.** Branch uses each app's official bot or app API and the vendor's own pages.
+It never signs in as you, never drives BotFather or any other app through your personal account, and
+never installs a userbot: Telegram bans accounts that automate BotFather that way. For Telegram the
+most that is officially possible is a link that opens BotFather with `/newbot` already typed:
+`https://t.me/BotFather?text=%2Fnewbot` (and `tg://resolve?domain=BotFather&text=%2Fnewbot` in the
+app), using the `text` draft parameter that Telegram documents for every public username link
+(core.telegram.org/api/links, "Public username links"). You press Send, then give a name and a
+username. What was checked and not used:
+
+- `?start=` on `t.me/BotFather` and `tg://resolve?…&start=` are documented, but only as a start
+  parameter handed to a bot's own code; BotFather does not document any that start `/newbot`.
+- `tg://msg?to=…&text=…` is not a documented link; the documented share links (`t.me/share`,
+  `tg://msg_url`) ask which chat to share into.
+- **Managed bots** (`t.me/newbot/<manager>/<username>?name=<name>`, `tg://newbot?manager=…`,
+  core.telegram.org/api/links and core.telegram.org/bots/features) create a bot with the name filled in,
+  but only on behalf of a *manager bot* that already exists and has Bot Management Mode switched on in
+  BotFather, and the new token goes to that manager bot (`getManagedBotToken`). A first bot therefore
+  cannot be made this way, and Branch runs no central manager bot that would receive your tokens.
+
+Slack's page arrives filled in with Branch's settings (`api.slack.com/apps?new_app=1&manifest_json=…`,
+documented in docs.slack.dev, "Configuring apps with app manifests"): Socket Mode on, the bot scopes
+and events Branch reads. Discord's link (`discord.com/developers/applications?new_application=true`,
+from Discord's own getting-started guide) opens the create dialog. Mastodon, Home Assistant,
+Nextcloud, Discourse, Gotify and Zulip open the right page on your own server. No other vendor
+documents a filled-in create link; those open the official page named below.
+
+**The recipes** are data, `data/channel-setup.json`, checked on 17 September 2026: every package id
+against formulae.brew.sh, microsoft/winget-pkgs, Flathub's verification record and Snapcraft's publisher
+record; every store link by loading it and matching the app's name; every create and check link against
+the vendor's documentation. What could not be confirmed was left out, and the recipe says why in words.
+A check is only a read-only "who am I" request, and a token only ever sits in an address where the
+vendor's API requires it (Telegram's `getMe`); where the only check would put a secret in an address
+(Meta, WeChat, WeCom, Threema) or post a message (incoming webhooks), there is no check, and the panel
+says so.
+
+<!-- channel-setup-table:start -->
+
+| Channel | One command? | Install source per OS | Bot or app page | What is pasted back | Check |
+| --- | --- | --- | --- | --- | --- |
+| Telegram (`telegram`) | yes, and switched on from it | Windows: winget `Telegram.TelegramDesktop`; Mac: cask `telegram`; Linux: Flathub `org.telegram.desktop` or Snap `telegram-desktop` | `https://t.me/BotFather?text=%2Fnewbot` (pre-filled) | `TELEGRAM_BOT_TOKEN` | GET `https://api.telegram.org/bot<token>/getMe` |
+| Discord (`discord`) | yes; then one line in the connections file | Windows: winget `Discord.Discord`; Mac: cask `discord`; Linux: Flathub `com.discordapp.Discord` | `https://discord.com/developers/applications?new_application=true` | `DISCORD_BOT_TOKEN` | GET `https://discord.com/api/v10/users/@me` |
+| Slack (`slack`) | yes; then one line in the connections file | Windows: winget `SlackTechnologies.Slack`; Mac: cask `slack`; Linux: Snap `slack` | `https://api.slack.com/apps?new_app=1&manifest_json=…` (pre-filled) | `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN` | POST `https://slack.com/api/auth.test` |
+| WhatsApp Business (`whatsapp`) | yes; then one line in the connections file | Windows: download page; Mac: cask `whatsapp`; Linux: download page | `https://developers.facebook.com/docs/whatsapp/cloud-api/get-started` | `WHATSAPP_TOKEN`, `WHATSAPP_APP_SECRET`, `WHATSAPP_VERIFY_TOKEN`; plus phoneNumberId | none |
+| Email (`email`) | yes; then one line in the connections file | nothing to install | none (plain steps) | `EMAIL_PASSWORD` | none |
+| Facebook Messenger (`messenger`) | yes; then one line in the connections file | nothing to install | `https://developers.facebook.com/docs/messenger-platform/getting-started/quick-start` | `META_PAGE_TOKEN`, `META_APP_SECRET`, `META_VERIFY_TOKEN`; plus pageId | none |
+| Instagram (`instagram`) | yes; then one line in the connections file | nothing to install | `https://developers.facebook.com/docs/instagram-platform/instagram-api-with-instagram-login/messaging-api` | `META_PAGE_TOKEN`, `META_APP_SECRET`, `META_VERIFY_TOKEN`; plus pageId | none |
+| Matrix (Element) (`matrix`) | yes; then one line in the connections file | Windows: winget `Element.Element`; Mac: cask `element`; Linux: download page | `https://app.element.io/#/register` | `MATRIX_ACCESS_TOKEN`; plus server, userId | GET `<server>/_matrix/client/v3/account/whoami` |
+| Signal (`signal`) | yes; then one line in the connections file | Windows: winget `OpenWhisperSystems.Signal`; Mac: cask `signal`; Linux: download page | none (plain steps) | nothing; plus path, account | none |
+| Mattermost (`mattermost`) | yes; then one line in the connections file | Windows: winget `Mattermost.MattermostDesktop`; Mac: cask `mattermost`; Linux: download page | `https://docs.mattermost.com/integrations-guide/incoming-webhooks.html` | `MATTERMOST_WEBHOOK_URL`, `MATTERMOST_TOKEN` (optional); plus server | none |
+| Rocket.Chat (`rocketchat`) | yes; then one line in the connections file | Windows: winget `RocketChat.RocketChat`; Mac: cask `rocket-chat`; Linux: Snap `rocketchat-desktop` | `https://docs.rocket.chat/docs/integrations` | `ROCKETCHAT_WEBHOOK_URL`, `ROCKETCHAT_TOKEN` (optional); plus server | none |
+| Google Chat (`googlechat`) | yes; then one line in the connections file | nothing to install | `https://developers.google.com/workspace/chat/quickstart/webhooks` | `GOOGLECHAT_WEBHOOK_URL`, `GOOGLECHAT_TOKEN` (optional) | none |
+| Microsoft Teams (webhook) (`msteams`) | yes; then one line in the connections file | Windows: winget `Microsoft.Teams`; Mac: cask `microsoft-teams`; Linux: download page | `https://learn.microsoft.com/microsoftteams/platform/webhooks-and-connectors/how-to/add-incoming-webhook` | `MSTEAMS_WEBHOOK_URL`, `MSTEAMS_SECRET` (optional) | none |
+| Zulip (`zulip`) | yes; then one line in the connections file | Windows: winget `Zulip.Zulip`; Mac: cask `zulip`; Linux: Flathub `org.zulip.Zulip` | `<server>/#settings/your-bots` | `ZULIP_BOT_API_KEY`; plus server | none |
+| Feishu / Lark (`feishu`) | yes; then one line in the connections file | Windows: winget `ByteDance.Feishu`; Mac: cask `feishu`; Linux: download page | `https://open.feishu.cn/document/client-docs/bot-v3/add-custom-bot` | `FEISHU_WEBHOOK_URL`, `FEISHU_SECRET` (optional) | none |
+| DingTalk (`dingtalk`) | yes; then one line in the connections file | Windows: winget `Alibaba.DingTalk`; Mac: cask `dingtalk`; Linux: download page | `https://open.dingtalk.com/document/robots/custom-robot-access` | `DINGTALK_WEBHOOK_URL`, `DINGTALK_SECRET` (optional) | none |
+| WeCom (group robot) (`wecom`) | yes; then one line in the connections file | Windows: winget `Tencent.WeCom`; Mac: download page; Linux: download page | `https://developer.work.weixin.qq.com/document/path/91770` | `WECOM_WEBHOOK_URL` | none |
+| LINE (`line`) | yes; then one line in the connections file | Windows: download page; Mac: download page; Linux: download page | `https://developers.line.biz/console/` | `LINE_CHANNEL_ACCESS_TOKEN`, `LINE_CHANNEL_SECRET` | GET `https://api.line.me/v2/bot/info` |
+| Viber (`viber`) | yes; then one line in the connections file | Windows: winget `Rakuten.Viber`; Mac: cask `viber`; Linux: download page | `https://developers.viber.com/docs/api/rest-bot-api/` | `VIBER_AUTH_TOKEN` | POST `https://chatapi.viber.com/pa/get_account_info` |
+| IRC (`irc`) | yes; switched on from it | nothing to install | none (plain steps) | `IRC_PASSWORD` (optional); plus server, nick | none |
+| Twitch chat (`twitch`) | yes; switched on from it | nothing to install | `https://dev.twitch.tv/console/apps/create` | `TWITCH_CHAT_TOKEN`; plus login, channel | GET `https://id.twitch.tv/oauth2/validate` |
+| Gotify (`gotify`) | yes; switched on from it | nothing to install | `<server>/#/applications` | `GOTIFY_APP_TOKEN`; plus server | none |
+| iMessage (`imessage`) | yes; switched on from it | nothing to install | none (plain steps) | nothing | none |
+| Microsoft Teams (bot) (`msteams-bot`) | yes; switched on from it | Windows: winget `Microsoft.Teams`; Mac: cask `microsoft-teams`; Linux: download page | `https://dev.teams.microsoft.com/bots` | `MSTEAMS_APP_PASSWORD`; plus appId | POST `https://login.microsoftonline.com/botframework.com/oauth2/v2.0/token` |
+| Webex (`webex`) | yes; switched on from it | Windows: winget `Cisco.Webex`; Mac: cask `webex`; Linux: download page | `https://developer.webex.com/docs/bots` | `WEBEX_BOT_TOKEN`, `WEBEX_WEBHOOK_SECRET` | GET `https://webexapis.com/v1/people/me` |
+| Synology Chat (`synology-chat`) | yes; switched on from it | Windows: winget `Synology.ChatClient`; Mac: download page; Linux: download page | `https://kb.synology.com/en-global/DSM/help/Chat/chat_integration` | `SYNOLOGY_CHAT_INCOMING_URL`, `SYNOLOGY_CHAT_TOKEN`; plus server | none |
+| Zalo Official Account (`zalo`) | yes; switched on from it | Windows: winget `VNGCorp.Zalo`; Mac: cask `zalo`; Linux: download page | `https://developers.zalo.me/` | `ZALO_APP_SECRET`, `ZALO_OA_SECRET_KEY`, `ZALO_OA_ACCESS_TOKEN`, `ZALO_OA_REFRESH_TOKEN`; plus appId | none |
+| Flock (`flock`) | yes; switched on from it | Windows: download page; Mac: download page; Linux: download page | `https://dev.flock.com/` | `FLOCK_APP_SECRET`, `FLOCK_BOT_TOKEN` | none |
+| Pumble (`pumble`) | yes; switched on from it | Windows: download page; Mac: download page; Linux: download page | `https://pumble.com/help/integrations/add-pumble-apps/` | `PUMBLE_APP_KEY`, `PUMBLE_BOT_TOKEN`, `PUMBLE_SIGNING_SECRET`; plus botUserId | none |
+| Mastodon (`mastodon`) | yes; switched on from it | nothing to install | `<server>/settings/applications/new` | `MASTODON_ACCESS_TOKEN`; plus server | GET `<server>/api/v1/accounts/verify_credentials` |
+| Bluesky (`bluesky`) | yes; switched on from it | nothing to install | `https://bsky.app/settings/app-passwords` | `BLUESKY_APP_PASSWORD`; plus handle | none |
+| Reddit (`reddit`) | yes; switched on from it | nothing to install | `https://www.reddit.com/prefs/apps` | `REDDIT_CLIENT_SECRET`, `REDDIT_PASSWORD`; plus username, clientId | none |
+| Discourse (`discourse`) | yes; switched on from it | nothing to install | `<server>/admin/api/keys/new` | `DISCOURSE_API_KEY`; plus server, username | GET `<server>/session/current.json` |
+| X direct messages (`x-dm`) | yes; switched on from it | nothing to install | `https://developer.x.com/en/portal/dashboard` | `X_USER_ACCESS_TOKEN` | GET `https://api.x.com/2/users/me` |
+| Twist (`twist`) | yes; switched on from it | Windows: download page; Mac: cask `twist`; Linux: download page | `https://developer.twist.com/v3/` | `TWIST_ACCESS_TOKEN`; plus conversation | none |
+| Nextcloud Talk (`nextcloud-talk`) | yes; switched on from it | Windows: winget `Nextcloud.Talk`; Mac: cask `nextcloud-talk`; Linux: download page | `<server>/settings/user/security` | `NEXTCLOUD_TALK_APP_PASSWORD`; plus server, username, room | GET `<server>/ocs/v2.php/cloud/user?format=json` |
+| Text messages (Twilio) (`sms`) | yes; switched on from it | nothing to install | `https://console.twilio.com/` | `TWILIO_AUTH_TOKEN`; plus accountSid, from | GET `https://api.twilio.com/2010-04-01/Accounts/{{accountSid}}.json` |
+| ntfy (`ntfy`) | yes; switched on from it | nothing to install | none (plain steps) | `NTFY_ACCESS_TOKEN` (optional); plus topic | none |
+| Pushover (`pushover`) | yes; switched on from it | nothing to install | `https://pushover.net/apps/build` | `PUSHOVER_APP_TOKEN`, `PUSHOVER_USER_KEY` | POST `https://api.pushover.net/1/users/validate.json` |
+| Threema Gateway (`threema`) | yes; switched on from it | Windows: winget `Threema.Threema`; Mac: cask `threema`; Linux: download page | `https://gateway.threema.ch/` | `THREEMA_GATEWAY_SECRET`; plus gatewayId | none |
+| Home Assistant (`homeassistant`) | yes; switched on from it | Windows: download page; Mac: cask `home-assistant`; Linux: download page | `<server>/profile/security` | `HOMEASSISTANT_TOKEN`; plus server | GET `<server>/api/` |
+| XMPP (Jabber) (`xmpp`) | yes; switched on from it | nothing to install | none (plain steps) | `XMPP_PASSWORD`; plus jid | none |
+| MQTT (`mqtt`) | yes; switched on from it | nothing to install | none (plain steps) | `MQTT_PASSWORD` (optional); plus host, inboundTopic, replyTopic | none |
+| Keybase (`keybase`) | yes; switched on from it | Windows: winget `Keybase.Keybase`; Mac: cask `keybase`; Linux: download page | none (plain steps) | nothing; plus path | none |
+| SimpleX Chat (`simplex`) | yes; switched on from it | Windows: download page; Mac: cask `simplex`; Linux: Flathub `chat.simplex.simplex` | none (plain steps) | nothing | none |
+| Delta Chat (`deltachat`) | yes; switched on from it | Windows: winget `DeltaChat.DeltaChat`; Mac: cask `deltachat`; Linux: Flathub `chat.delta.desktop` | none (plain steps) | nothing; plus path | none |
+| Nostr (`nostr`) | yes; switched on from it | nothing to install | none (plain steps) | `NOSTR_PRIVATE_KEY`; plus relay | none |
+| VK (`vk`) | yes; switched on from it | nothing to install | `https://dev.vk.com/en/api/bots/getting-started` | `VK_GROUP_TOKEN`; plus groupId | POST `https://api.vk.com/method/groups.getById` |
+| QQ (official bot) (`qq-bot`) | yes; switched on from it | Windows: winget `Tencent.QQ.NT`; Mac: cask `qq`; Linux: download page | `https://q.qq.com/` | `QQ_BOT_CLIENT_SECRET`; plus appId | POST `https://bots.qq.com/app/getAppAccessToken` |
+| Guilded (`guilded`) | yes; switched on from it | Windows: winget `Guilded.Guilded`; Mac: cask `guilded`; Linux: download page | `https://www.guilded.gg/` | `GUILDED_BOT_TOKEN` | GET `https://www.guilded.gg/api/v1/users/@me` |
+| Revolt (Stoat) (`revolt`) | yes; switched on from it | Windows: download page; Mac: download page; Linux: download page | `https://app.revolt.chat/settings/bots` | `REVOLT_BOT_TOKEN` | GET `https://api.revolt.chat/users/@me` |
+| Mumble (`mumble`) | yes; switched on from it | Windows: winget `Mumble.Mumble.Client`; Mac: download page; Linux: Flathub `info.mumble.Mumble` | none (plain steps) | `MUMBLE_PASSWORD` (optional); plus server, username | none |
+| KOOK (`kook`) | yes; switched on from it | Windows: download page; Mac: download page; Linux: download page | `https://developer.kookapp.cn/app/index` | `KOOK_BOT_TOKEN` | GET `https://www.kookapp.cn/api/v3/user/me` |
+| WeChat Official Account (`wechat-mp`) | yes; switched on from it | Windows: winget `Tencent.WeChat`; Mac: cask `wechat`; Linux: download page | `https://mp.weixin.qq.com/` | `WECHAT_MP_APP_SECRET`, `WECHAT_MP_TOKEN`, `WECHAT_MP_AES_KEY`; plus appId | none |
+| WeCom app (`wecom-app`) | yes; switched on from it | Windows: winget `Tencent.WeCom`; Mac: download page; Linux: download page | `https://work.weixin.qq.com/wework_admin/frame#apps` | `WECOM_APP_SECRET`, `WECOM_APP_TOKEN`, `WECOM_APP_AES_KEY`; plus corpId, agentId | none |
+
+<!-- channel-setup-table:end -->
+
+**What is not possible, and why.**
+
+- *Creating the bot for you.* No vendor offers an official way to make a bot on a person's behalf
+  without them confirming in their own account; the pre-filled links above are the closest.
+- *One install source for everything.* LINE, Flock, Pumble, KOOK and Stoat (Revolt) publish no package
+  a package manager can install on any system, and most apps have no vendor-verified Linux package; the
+  download page opens instead. WhatsApp's desktop app is only in the Microsoft Store on Windows, which
+  Branch does not drive, and Homebrew's Mumble cask is disabled.
+- *Store links for every phone.* No store page could be found for Twist or Guilded; VK and Stoat have
+  no iPhone link that could be confirmed, and KOOK and Flock no Play link. Those codes are left out.
+- *Signal, SimpleX and Delta Chat programs.* Branch talks through `signal-cli`, `simplex-chat` and
+  `deltachat-rpc-server`, which you install yourself; `signal-cli` is not made by Signal. The command
+  installs the chat app for you to talk from, never those programs.
+- *A connections line written for you.* See "One command or two" above.
+
+**macOS and Linux.** The command is the same on all three systems and each system's branch is tested
+with stand-ins (`tests/channel-setup.test.mjs`, `tests/channel-setup-command.test.mjs`): Homebrew casks
+and `open` on a Mac; Flatpak (`--user`, Flathub) then Snap (with `sudo`, said first) and `xdg-open` on
+Linux; winget (`--exact --source winget`) and `rundll32 url.dll,FileProtocolHandler` on Windows. Only
+`https://` and `tg://` links from a recipe are ever opened, always as an argument, never through a shell.
+
 ## Voice
 
 **Settings → Voice** configures speech input and output. Record audio messages to transcribe them to text (requires an OpenAI-compatible provider with an API key). Read messages aloud using your browser's built-in voice (free, offline) or the provider's text-to-speech endpoint (optional, higher quality). Voice settings include:
@@ -3475,6 +3669,62 @@ Routes: `GET /api/deployment`, `POST /api/deployment/autostart`, `POST /api/depl
 `POST /api/deployment/backup`, `GET /api/deployment/restore-points`,
 `POST /api/deployment/restore-point`, `POST /api/deployment/close` (macOS and Linux), and `POST /api/pair`. Interface files: `/deployment.js`,
 `/pair` and `/pair.js`.
+## Devices: your other computers and your phone lending Branch a hand
+
+*Customize, Channels, Your devices.* Ships **off**, and so does every capability of every device.
+Another computer (with `branch node`) or the phone app can lend Branch a few abilities: a photo from
+the camera, a picture of the screen, where the device is, a notification, the clipboard, opening a
+web page, reading files in one chosen folder, running a command inside that folder, speaking,
+listening for a few seconds, and showing a page on a phone. The model uses them through `device.list`,
+`device.camera`, `device.screen`, `device.location`, `device.notify`, `device.clipboard`, `device.open`,
+`device.run`, `device.files`, `device.speak`, `device.listen` and `device.canvas`.
+
+**Pairing.** Press *Pair a device*. On the other computer run `branch node pair "<link>" <number>`
+(or scan the square with the phone app). The device makes its own key, which never leaves it; Branch
+keeps only the public half. The request waits in the card until you press *Let it in*. Then run
+`branch node run` on that computer: it dials out to Branch (nothing is opened on the device, so a
+home router is no obstacle) and dials again by itself if the line drops. *Remove this device* stops
+its key working at once.
+
+**What is checked.** Each connection starts with a fresh challenge the device must sign, so a
+recorded answer is useless; wrong device names from one address, and failed proofs for one device,
+are limited to ten a minute (kept apart, so noise behind a gateway never locks a real device out),
+pairing to five wrong numbers per invitation, ten tries a minute per address and twenty overall, and
+each device to thirty requests a minute. Before it has proven itself a socket may hold at most 64 KiB. The device key opens only the device socket; it is not Branch's key.
+Taking a picture, a sound, a place, a file or the clipboard, and running a command, asks you first
+even when no approval rule says so; a rule you write still decides first. A yes to the camera, the
+screen, the microphone or a command covers that one call unless you choose otherwise when answering.
+A short-lived key, another AI tool (MCP, A2A, ACP) and a message from a chat app can never use a device; somebody else on this computer can use only a
+device you shared with them. What a device sends back is marked as information, never instructions,
+passes through the leak guard, and pictures and sound (at most 8 MB) are saved in the workspace under
+`device-media/`. The device itself refuses anything not switched on, and `branch node never camera,run`
+refuses things there whatever Branch says.
+
+**On the device.** The operating system's own permission question appears only on the device, at
+the moment you switch that capability on. `device.run` runs behind the device's own wall with no
+network, writing only inside the chosen folder, with the node's key folder unreadable and nothing of
+the node's own environment passed in. The device refuses a chosen folder that is the whole disk, the
+home folder or anything above it, or that holds or sits inside its key folder, a secrets folder
+(`.ssh`, `.aws`, the keychain…) or the Branch program. A node talks plain http only to this computer
+or a Tailscale address; anywhere else Branch must be reached over https.
+
+**macOS and Linux.** A Mac node uses `screencapture`, `osascript` notifications, `pbcopy`/`pbpaste`,
+`open`, `say`, `ffmpeg` (camera and microphone, only if already installed) and `/usr/bin/sandbox-exec`
+for the wall; it cannot say where it is. A Linux node uses `grim` (Wayland) or `scrot`, `notify-send`,
+`wl-clipboard` or `xclip`, `xdg-open`, `spd-say`, `ffmpeg`, GeoClue's `where-am-i`, and bubblewrap for
+the wall. A Windows node uses PowerShell for the screen, notifications, clipboard, opening pages and
+speech, with the model's words passed in the environment rather than the script; it offers no camera,
+microphone or commands, because Branch has no wall around a program there. Nothing is installed: a
+capability whose program is missing is simply not offered (`branch node status` lists them). The
+paired door (the Tailscale address) now answers the device socket, and only that, with the same host
+and page checks, so a phone or computer on your tailnet can be a device; a task's own socket stays on
+this computer's own address. The door's chain (key, pairing, phone secret) is not asked of a device,
+which holds none of them and proves itself by signature instead, but a "never" rule for the device's
+id on `remote` in the list of who may reach Branch still turns it away there. The phone app's device module (`apps/mobile/web/phone-node.js`) needs no new plugin for the
+camera, microphone, location, speech, opening pages and showing a page while the app is open;
+notifications and the clipboard need `@capacitor/local-notifications` and `@capacitor/clipboard`, and
+working while the app is closed needs a native background service, none of which is added yet.
+
 ## Phone apps
 
 Branch Agent for iPhone and Android is a small native shell around the Branch window you already
@@ -6618,6 +6868,86 @@ arguments, no shell, and only what they need from the environment. The stand-in 
 program on macOS and Linux and is skipped on Windows, where the in-process stand-in covers the same
 protocol.
 
+## It suggests, and runs things on its own (r17-b)
+
+Seven parts, each with the owner's three-way switch (off, on, only when it is needed), all off at
+first. Their switches and settings are under `/api/autonomy/`, owner only; a short-lived key can read
+some of them and change none (`tests/short-lived-key-routes.mjs`). Nothing lasting is made without the
+owner: the assistant's tools here only read or ask, and every question waits in Inbox → Needs you. A
+"no" is remembered for good, so the same thing is never asked or offered again; at most 20 questions
+wait at once.
+
+| Part | Where it lives | What it does |
+| --- | --- | --- |
+| Suggested automations | Automations → Scheduled | A catalogue of 13 blueprints with checked blanks, and up to five suggestions worked out from what Branch remembers and what is connected, without asking a model (`automation.ideas`, `automation.propose`, `/suggestions`, `/blueprint`) |
+| Standing orders | Automations → Scheduled | A named programme: what it may do, when it starts, what needs a yes, when to stop and ask. A reply starting `ESCALATE:` pauses it and asks you (`orders.list`, `orders.propose`) |
+| Repeating in a conversation | Automations → Scheduled | `/loop every 10m <what> [--times n] [--until …]` (1 minute apart at least, 10 turns unless said, 100 at most, stops on `LOOP_COMPLETE`) and `/heartbeat every 30m <what>` (5 minutes apart at least, adds a note only with news). Owner only |
+| Sub-goals, background tasks, handing on | The message box | `/subgoal` adds to the conversation's goal (the judge sees them); `/bg` runs a task in its own conversation, three at most; `/handoff <chat app>` points a chat that has talked to Branch at this conversation, and `/handoff terminal` or `assistant <name>` uses Interop's hand-on, behind its own switch |
+| Procedures that start themselves | Automations → Procedures | Steps that start on a clock, after one of your tasks, or by hand; each asks before every step, before it starts (the default), or runs on its own. A step marked `confirm` always asks; an "on its own" procedure under 50% after four runs goes back to asking (`procedures.auto.list`, `procedures.auto.propose`) |
+| What skills need | Customize → Skills | Programs, keys and systems a skill declares in its `metadata` (`requires-bins`, `requires-any-bins`, `requires-keys`, `os`, `install-brew`/`-apt`/`-winget`/`-npm`/`-pip`, or OpenClaw's `openclaw` block), and whether this computer has them (`skills.readiness`). Programs are looked for on `PATH` without running anything; install lines are only shown |
+| "From now on" instructions | Settings → Assistant | "From now on, …" in one of your messages is kept, after one yes, as a standing instruction for the assistant, every specialist, or one specialist (`instructions.list`, `instructions.propose`) |
+
+**Bounds.** Everything these parts start by themselves is an ordinary task marked as started by a
+schedule, so your approval rules are capped as for a timed job. Its permissions are never wider than
+what you hold, and never include making schedules, changing settings, installing anything or
+proposing more automations (`narrowed` in `src/autonomy/runner.ts`), whichever part asked. Nothing
+starts while Lockdown is on; turning Lockdown on, or switching a part off, cancels the turns that are
+working. Only your own tasks, typed in the window, the phone or the terminal, start an after-task order
+or procedure, pick up "from now on", or let the assistant propose something: a chat sender's message,
+a short-lived key's task and a household person's task never do (`src/autonomy/origin.ts`). A
+proposal is shown in full, with every step and what it may use, before you answer. Together they may start 48
+turns a day, each of at most 12 steps and 40,000 tokens (Automations → Scheduled, "Limits on
+automatic work", up to 200 turns, 40 steps and 200,000 tokens). Each order or procedure has its own
+daily count (4 unless set, 24 at most) and orders wait five minutes between turns. A conversation that
+is still busy is left alone until the next beat. "On" gives a task the standing orders and
+instructions in full; "only when it is needed" gives it one line saying where to read them.
+
+**macOS and Linux.** Everything here is plain Node and behaves the same on all three systems. The
+readiness check splits `PATH` with `:` on macOS and Linux and `;` on Windows (trying `.exe`, `.cmd`
+and `.bat` there), checks the file can be run, and suggests `brew` on macOS and Linux, `apt` on Linux
+and `winget` on Windows.
+
+## Trunks: assistants of your own (R17-A)
+
+A Trunk is a named assistant that stays: it has its own conversation, pinned and never swept away by
+the history rule, its own memory, model, instructions, style, tools, picture and routines. It is not a
+person on this computer (those are people, in Settings → General) and not a specialist (a reusable
+set of instructions), though a specialist can be brought across as a Trunk. Branch's answer to Hermes
+Agent's Bots and Grok's bots.
+
+Five parts, each with the three-way switch, all off at first. The card is in Customize → Specialists,
+under "Trunks"; the roster sits in the sidebar above Recents; rooms that asked for you show in
+Inbox → Needs you.
+
+| Part | What it does |
+| --- | --- |
+| Trunks | Make one from three fields (name, what it does, about it); it introduces itself. Edit Trunk opens every field. A message written `@name …` in the message box goes to that Trunk, and `/trunk` lists them or talks to one. |
+| Rooms | Two to six Trunks and you in one conversation. Your message starts at most three rounds and ten replies; only those you @mention answer (nobody mentioned means everyone); a Trunk may pass; `@you` raises "needs you"; a Trunk waiting for your yes is answered in the room. Rooms run inside Branch, not the window, and carry on after a restart. |
+| Messages | `trunk.message` lets a Trunk write to another from its own conversation only. Branch signs the message, it waits until the other is free, the answer comes back later, a failure that a second try can help is tried once more, and a chain stops three messages deep. One task sends at most three messages, and all Trunks together at most thirty an hour. |
+| Routines | Schedules a Trunk owns (`[Trunk @name]` in Automations). They run as the Trunk and report in its conversation; the first turn is at the time you chose. While Routines are off, or once the Trunk is gone, they do not run at all (never as you). |
+| Teaching | Watch me, do the job once, Save what I did: the task's steps become a workflow the Trunk owns, optionally repeated every day. |
+
+What a Trunk may reach starts off: no chat apps (a chat linked to its conversation is refused in one
+sentence until the Trunk may answer there), no commands (`shell.execute`, `code.execute`,
+`remote.execute`, `process.manage`), no connected tool servers until named. A Trunk never gets more
+than whoever started its turn; a reviewing style takes away every tool that writes. What it learns is
+saved in its own memory scope (`agent:trunk:<id>`); it never reads your private facts, and reads the
+facts you marked as shared unless you switch that off; it never writes into the shared facts. A
+Trunk's conversation keeps these limits even while Trunks are switched off, and a room turn runs
+without its own plan or reviewer pass. Keys are copies of yours. With several accounts per
+connection switched on (`src/accounts/`), the account you pick for a Trunk is its conversation's
+choice; without a pick, the connection's default account answers, sign-ins included, and the editor
+says so. A Trunk saved as a file (`branch-trunk/1`) carries who it is and never its conversations,
+memory, keys or reach, and key-shaped text is taken out. One brought in from a file says nothing by
+itself, uses no tool server and may only look (reads that stay on this computer) until you change it.
+Teaching learns only from a task you started yourself.
+
+Everything is under `/api/trunks/`, owner only (and so is `/trunk`), except talking to a Trunk and sending to or stopping
+a room, which a short-lived "run" key may do (`src/short-lived-keys.ts`). The picture model is asked
+through the one tool gate (`media.image`).
+
+**macOS and Linux.** Plain Node and the window's own code; it works the same on all three systems.
+
 ## Comments that ask the assistant (A0344)
 
 `branch watch <folder> --ai-comments` watches a folder inside your workspace. A comment written in
@@ -6751,6 +7081,69 @@ Bucket 14 of the public list ("what it has cost you, in plain figures"). Each pi
 
 macOS and Linux: nothing here depends on the operating system; the tests run the same on all three.
 
+## Limits that used to be hidden, with plain labels (R17-S-B)
+
+Figures that were written into the code are now settings with a label and a sentence each. Every
+default is what Branch did before, so nothing changes until the owner changes it. They are saved per
+card in the settings table (`knobs-compaction`, `knobs-limits`, `knobs-commands`, `knobs-subtasks`,
+`knobs-reasoning`, `knobs-memory`, `knobs-leakGuard`) and read fresh at each step, so a change needs
+no restart. The screen is `public/knobs.js`; the server side is `src/knobs/`. `GET /api/knobs` reads
+every card, and `POST /api/knobs` with `{ card, values }` or `{ card, reset: true }` changes one. A
+short-lived key can read them but never change them.
+
+| Card (where) | Setting | Default | What it does |
+| --- | --- | --- | --- |
+| When a long conversation is summarised (Settings, Models, Defaults) | `autoCompact` | `true` | Off keeps every message; a very long conversation then stops with "start a new conversation". |
+| | `compactAtPercent` | `null` | Fold at this share of the room; `null` works it out each round from the tools and the answer. |
+| | `keepRecentMessages` | `6` | Newest messages never folded. |
+| | `contextWindowTokens` | `null` (20,000) | Room in one request, used both for folding and for the "too long" stop. |
+| How far one task may go (Settings, Permissions) | `maxSteps` | `60` | Model rounds in one task of the owner's (and in a background sub-task). |
+| | `spendCapDollars` | `null` | The task stops before its next model round once it has cost about this much, sub-tasks included. A model with no price on file cannot be checked; the task notes that once (`limits.spend_unpriced`). |
+| Trying the model service again (Settings, Advanced) | `apiRetries` | `null` (launch setting, 2) | Tries after a busy or failed request, 0 to 5. |
+| How much a tool may say (Settings, Advanced) | `toolAnswerChars` | `null` (launch `toolResultChars`) | Longest tool answer the model reads. |
+| | `toolTimeoutSeconds` | `null` (launch `toolTimeoutMs`) | Longest one tool call runs. |
+| How commands run (Settings, Computer) | `commandTimeoutSeconds` | `null` (the file's `shell.timeoutMs`) | Longest one command runs, for `shell.*` and nothing else. |
+| | `keptOpenShell` | `true` | Off refuses to open a kept-open command line. |
+| | `passEnvironment` | `[]` | Extra variable names handed to commands and kept-open command lines. Owner only. |
+| Sub-tasks and side jobs (Settings, Models, Defaults) | `subtaskModel` | `null` | Connection for delegated work; `null` is the conversation's own. |
+| | `sideJobModel` | `null` | Connection for conversation summaries and the after-task and learning reviews. |
+| | `parallelSubtasks` | `4` | Sub-tasks one task runs at once. |
+| | `subtaskTimeoutSeconds` | `120` | Longest a sub-task runs when the call does not say. |
+| How hard each model thinks (Settings, Models, Defaults) | `effortByModel` | `{}` | Default effort per connection id. Order: this run, this conversation, this connection, the owner's general default, the connection's own. |
+| | `serviceTier` | `standard` | `priority` sends `service_tier: "priority"` to OpenAI-style services and `service_tier: "auto"` to Claude; `flex` sends `flex` to OpenAI-style services only. `standard` sends nothing. |
+| Showing a model's thinking (Settings, Appearance) | `showReasoning` | `true` | Off removes `<think>`, `<thinking>` and `<reasoning>` blocks from answers and from the live text. |
+| How much it remembers at the start (Library, Memory) | `snapshotFacts`, `snapshotChars` | `20`, `2000` | The memory snapshot a new conversation starts with. |
+| | `aboutYouOn`, `aboutYou`, `aboutYouChars` | `false`, `""`, `1500` | The owner's own note, put in front of the owner's conversations as background (never a household person's). |
+| | memory provider | Branch's own | "Branch's own plus Hindsight" is the same switch as the Hindsight card (`asks-hindsight`); the address stays there. |
+| Hiding key-like values (Settings, Permissions) | `sensitivity` | `standard` | `strict` also hides long random-looking strings with digits and both cases. |
+| | `exceptions` | `[]` | Kinds of value not hidden. A private key is never let through. Owner only. |
+
+**Security.** Every card can only be changed with the computer's own key, in the owner's own profile,
+never by a household person or a short-lived key, and the card says so in plain words. The owner's
+"about you" note is only shown to the owner. A variable name that mentions a key, token, secret,
+password, credential, sign-in, cookie, session or certificate is refused when it is saved and again
+when a command starts, and so is a name that changes which code a program loads, where it connects or
+which settings file it reads: the search path (`PATH`, `PATHEXT`), proxies and certificate bundles
+(`HTTPS_PROXY`, `NO_PROXY`, `SSL_CERT_FILE`), whole families such as `LD_*`, `DYLD_*`, `GIT_*`,
+`NODE_*`, `npm_config_*`, `PYTHON*`, `JAVA*`, `AWS_*`, `OPENAI_*`, `DOTNET_*`, and single names such as
+`HOME`, `SHELL`, `ENV`, `BASH_ENV`, `EDITOR` and `PROMPT_COMMAND`. Letter case never matters. A passed
+name never replaces one the launch file already sets, and on Windows it is looked up in any letter
+case. A value that looks like a key is left out even under an allowed name, whatever the leak guard's
+exceptions say. The leak guard's address check (`credentialInUrl`) is not affected by exceptions.
+
+**The launch settings file as a card.** "Settings from the launch file" (Settings, Computer) shows
+what `BRANCH_INTEGRATIONS` sets up: how many AI tool servers and hooks, which chat apps and programs,
+and where a key-like value is written. `GET /api/knobs/launch-file` reads it the way the security
+check does. The owner can change `shell.timeoutMs`, `shell.maxOutputBytes`, `shell.netless` and
+`browser.allowedOrigins` (`POST /api/knobs/launch-file` with `commandTimeoutSeconds`,
+`commandOutputBytes`, `commandsOffline`, `browserSites`). The whole file is checked against the
+launch schema before it is replaced in one step (through a spare copy with an unguessable name; a
+linked file keeps its link and the file it points at is written), and the change is used from the next start.
+
+**macOS and Linux.** Nothing here depends on the system. The command timeout and extra variables
+apply to the same program list on every system; the loader names refused include the macOS
+`DYLD_*` family.
+
 ## Typed commands, the same everywhere (wave mac3)
 
 Commands that start with a slash — `/status`, `/stop`, `/tokens`, `/help` — come from one table,
@@ -6845,6 +7238,7 @@ the switch is off.
 | `/version` | `/about` | any key | new | new | new | new | new |
 | `/health` | `/doctor` | any key | new | new | new | — | new |
 | `/prompts [name]` | `/procedures`, `/workflows` | any key | new | new | new | new | new |
+| `/trunk [name] [message]` | `/trunks` | a key that may start tasks (on its own: any key) | new | new | new | — | — |
 
 ### Parity with other agents
 
@@ -7177,6 +7571,155 @@ without the file and network wall (see above).
   plugins are also installable (`src/add-ons/formats.ts`).
 - **A0602** (a helper that installs and manages an isolated plugin for another agent): built as the write / check /
   remove lifecycle of Branch's own plugin for Codex and Claude Code, in a folder the owner names (`src/add-ons/export.ts`).
+
+## Understandable settings (R17-S-A)
+
+Every control in Settings has one sentence under it saying what it does and what changing it means,
+and every Settings card has a small chip saying how far it reaches: everything, this project only, or
+this computer only (`public/settings-describe.js`, words in `public/settings-descriptions.js`). A card
+that writes its own `.field-note` and links it with `aria-describedby` needs no row there.
+`tests/settings-descriptions.test.mjs` walks every Settings page and fails, naming the control, when
+one has no description. A card can declare `data-scope="project"`, `"computer"` or `"trunk"`; no card
+uses "trunk" yet, because Trunks are not built.
+
+Settings → General has **Start from a preset** (Private and local, Cheapest, Most capable, Hands-off,
+Careful) and **Put settings back** (one setting or all of them). Settings → Data has **Your settings in
+one file**. All three show every change before anything is written, and only the ticked lines are
+made. A change that makes Branch less careful (a guard turned down, or a switch that reaches further
+turned up) starts unticked and also needs "Yes, make it less careful"; the server refuses it otherwise.
+They reach only the fields listed in `src/settings-kit/catalogue.ts` (switches, yes/no, short choices
+and bounded numbers), never Lockdown, the session lock, connections, keys, people or pairing, so a
+settings file cannot carry or bring in a secret. The list fails closed: a setting or field that is not
+in the catalogue, including any added later, is blocked (`classify`), and accounts, add-ons, the leak
+guard, what is passed on to programs, never-break, tunnels and the launch file are on the never-touched
+list as well. Working until a goal is met and writing new skills count as reaching further; turning off
+the snapshots counts as taking a protection away. Guards are saved through their own module's save
+(the second look, loop guard, folder trust, security check, the wall, Keychain entries, retention, the
+smaller asks), so the change takes effect at once and is recorded. While Lockdown is on, nothing is
+changed from here. Every route is the owner's: a household profile gets 403. A short-lived key may read
+the list of settings but not the file, the owner's own files, or any change (`src/short-lived-keys.ts`).
+
+**Which file does what** (Settings → General) lists SOUL, IDENTITY, USER, AGENTS, TOOLS, SOP, MEMORY
+and HEARTBEAT: what each is for, whether it is kept with your own things or in the project, and whether
+it is read right now. "Change it here" reads the file through the loader in `src/context-files.ts`
+and replaces it whole; a file longer than the loader carries, a link, a file with a second name (hard
+link), or a file in an untrusted project folder is not edited here, and a project's file is checked
+against the never-break guard before it is written.
+
+After first run, a card under the conversation offers Say hello, Watch me once (turns on recording
+each task, "only when it is needed", so the next task can be saved as a workflow from Inbox › History)
+and three suggested automations that only fill in the message box.
+
+macOS and Linux: nothing here depends on the operating system. A file is never written through a
+link: it is checked with `lstat` first, and opened with `O_NOFOLLOW` where the system has it.
+
+## Coding polish (mac7/r17-d)
+
+Eleven parts for work on code, each with the owner's three-way switch (off, on, only when it is
+needed) and all off at first. The switches and their settings are one card in **Settings → Advanced**
+(`public/coding.js`), under `/api/coding/`, owner only. A short-lived "run" key may run the review
+checks and fork a conversation into its own copy (both only start work); it may read the rest except
+the shell snapshot, and change nothing else (`src/short-lived-keys.ts`). Every Branch tool one of
+these parts runs on a task's behalf goes through the one tool gate (`src/tool-gate.ts`) with that
+task's own permissions (`src/coding/gated.ts`); a call the rules would ask about is skipped and
+said so, never asked.
+
+| Part | What it does | Where |
+| --- | --- | --- |
+| Tidying and checking after every change (`format-on-edit`) | After `files.write`, `files.edit` or `files.patch`, the file is tidied with the owner's formatter for its ending and the language servers set up in Settings → Advanced report its errors and warnings in the same answer (`afterEdit`); `code.format` does it by hand | `src/coding/format-on-edit.ts` |
+| Your own command-line setup (`shell-snapshot`) | "Take a snapshot" starts your login shell once (`-l -c`), reads its start-up files, and keeps its PATH, install folders (`*_HOME`, `GOPATH` …), aliases and functions, with anything key-like left out. Commands use that PATH from the next start, unless the shell settings already name a PATH; the PATH folders that are relative, `..`-shaped or inside the workspace are dropped, and so is any alias or function that reads or sets a key-like name. The aliases and functions are written to `<data folder>/shell-snapshot/replay.sh` (only you can read it) for you to look at; Branch does not load that file into its command lines yet | `src/coding/shell-snapshot.ts` |
+| `@` mentions and `@imports` (`mentions`) | `@src/app.ts`, `@src/`, `@diff` or `@https://…` in a message is read first (with `files.read`, `files.list`, `git.diff`, `web.fetch`) and handed to the model as material, not instructions; the message box suggests paths as you type `@`. Inside an instruction file, `@docs/style.md` brings that file in (Markdown or text only, inside the same folder, not a key file, nothing `.branchignore` hides, not through a link that leaves the folder, five levels deep, 16 KB together) | `src/coding/mentions.ts`, `src/coding/imports.ts` |
+| Separate copies (`worktrees`) | Forking a conversation at a message gives the new one its own Git worktree in `.branch-worktrees/fork-…` on `branch/fork-…`; its file tools and commands work there. Removing a fork's copy is refused while it holds unsaved changes (its line of work is always kept). "A copy for each helper" gives every helper a task hands work to its own worktree, removed afterwards only when it has no commits and no unsaved change | `src/coding/worktrees.ts` |
+| `/init` (`init`) | Asks the model to look around and write AGENTS.md with `project.init`, through the instruction-file loader's own writer. An existing instruction file is never replaced; the text comes back as a proposal | `src/coding/init.ts`, `src/coding/commands.ts` |
+| Branch in CI (`ci`) | The GitHub Action `extras/ci/github/action.yml` and the GitLab component `extras/ci/gitlab/branch.yml` run `branch headless` on the checked-out project (read-only by default; the key only through a CI secret, `contents: read`, and no Git token left behind by the checkout); the card writes the lines to paste | `src/coding/ci.ts` |
+| A checklist per task (`checklist`) | `checklist.write` / `checklist.read`; the list is in the side pane's Plan tab, where you can tick, add and change steps while the task works. It is sent with every round and never stored in the conversation, so compaction cannot lose it; after your change the model is told your version wins | `src/coding/checklist.ts` |
+| Folder rules and schedule files (`path-rules`) | `.agents/rules/*.md`, each with its own switch: a `paths:` header limits a rule to the files the task is working on (none means always, `paths: []` never). `.agents/schedules/*.md` (`every: 6h` or `daily: "09:00"` with `timezone`, `kind`, `permissions`) become schedules only when you press "Make it a schedule". A schedule made from a file may only look: with no `permissions` it gets Branch's look-only permissions, and a file that asks for anything that changes something is refused (make that schedule yourself). Nothing is read from a folder you have not trusted | `src/coding/path-rules.ts` |
+| Very long answers kept (`large-output`) | A tool answer over 64 KB, which used to fail the call, is kept (secrets hidden, at most 8 million characters) in `<data folder>/tool-output/`, for a week and at most 200 per person, and the model reads it in pieces with `output.read` | `src/coding/large-output.ts` |
+| Notebooks (`notebooks`) | `notebook.read` gives a `.ipynb` as numbered cells with their printed output; pictures are named, not carried | `src/coding/notebooks.ts` |
+| Review checks (`review-checks`) | `.agents/checks/*.md` (`name`, optional `paths`, the body says what to look for); `review.checks` hands each check and the current changes to a read-only helper, four at a time | `src/coding/review-checks.ts` |
+
+The runtime asks these parts two things, in marked blocks of `src/runtime.ts`: where a task works (a
+fork's or helper's copy) and what to add to each round (the mentions once; the checklist and folder
+rules every round). The registry asks them after every call (`src/registry.ts`).
+
+Formatters are programs you already have (`formatters`, at most 16): give each one's full address,
+its endings and its arguments (`{file}` is the file). After tidying, Branch waits up to `waitMs`
+(1.5 seconds by default, at most 10) for the language server's error report. A copy per helper
+(`perHelper`, off by default) gives every helper a task starts its own worktree too. Branch never installs one, refuses one that sits inside the
+workspace (a task could rewrite it), starts it with an argument array and the clean environment
+(`src/child-env.ts`), and never on one of Branch's own files (`src/never-break/protected.ts`). A
+formatter reads the project's own settings (a `.prettierrc` can load plugins from the project), so it
+runs **only behind the wall around programs**, with no internet, and only for a folder you trust.
+While the wall is off (Settings, Computer) the file is not tidied and the answer says why; the
+language servers' report still comes back.
+
+**macOS and Linux.** The shell snapshot is for macOS and Linux (zsh, bash, sh, dash or ksh; your
+login shell unless you name one); on Windows it says so and commands keep their own settings. The
+formatter runs behind macOS's sandbox or bubblewrap, and only when the wall is on; Windows has no wall, so no formatter is started there. Worktrees, rules, checks,
+notebooks and long answers are plain Node and Git and work the same on all three systems.
+
+**Not built here.** Scripts that call Branch's own tools (a6) belong to bucket R17-G (R17-061).
+
+## Files, voice, devices and personal connectors (R17-C)
+
+Ten parts, each with the usual three-way switch (off, only when it is needed, on), and **every one ships off**. Their
+cards are in **Customize → Connections** (your own accounts, searching X, Home Assistant), **Customize → Channels**
+(files into chats, searching the email inbox), **Automations → Triggers** (the webhook address) and
+**Settings → Voice** (the spoken briefing, saying yes aloud). Everything here is the owner's alone: the routes under
+`/api/personal/` refuse other people on this computer, and a short-lived key can neither read nor change them.
+Keys and passwords are only ever *named* here; the values stay in Secrets. Every call to an outside service goes
+through your network rules.
+
+| Part | Tools | What it does |
+| --- | --- | --- |
+| Sending files into your chats | `chat.send_file` | Sends a workspace file into a Telegram, Slack or Discord chat as that app's own attachment. Only to a chat that has already talked to the assistant; never from a chat-started task; within your size limit (20 MB unless you change it) and the app's own (Telegram 50 MB, Discord 10 MB, Slack 100 MB); refused if its words hold anything key-shaped or one of your saved secrets; the caption passes the same last look as every reply, so Lockdown stops it. Each send is written in the record of what the assistant was allowed to do. |
+| Home Assistant | `home.states`, `home.call` | Looks at devices, and calls a service on one device — only for the kinds of device you list (lights, switches, scenes, scripts, media players, climate and fans to begin with; locks and alarms are not on it, and are always asked about if you add them). Uses a long-lived access token saved as `HOMEASSISTANT_TOKEN`. A Home Assistant on your home network needs private addresses allowed under Settings → Computer → Network reach. |
+| A spoken daily briefing | `brief.spoken`, `brief.send_voice` | Today's events and unread mail from Google and Outlook (whichever is on and signed in) and the morning brief, read with your voice settings. "Play my briefing" plays it in the window; `brief.send_voice` sends it to a linked chat as a voice note, after the same checks as a file, and like every sending tool it is never given to a task a chat started. |
+| Saying yes aloud | — | Beside each waiting question, "Answer aloud" listens for four seconds, only when you press it. Your words are written out by your own speech settings and must be just a yes or a no (English or French). The answer is bound to that exact request, used once, and runs out after two minutes; a spoken yes is always "just this once", and a risky request also needs a press. |
+| Searching X | `x.search` | xAI's own `x_search` tool, with an xAI API key saved as `XAI_API_KEY` (xAI charges for it). Signing in with a SuperGrok subscription is not used. |
+| Spotify | `spotify.now`, `spotify.search`, `spotify.control` | Your own Spotify app registration and sign-in. Controlling playback needs a Premium account and an open device. |
+| Google | `gmail.search`, `gmail.read`, `gmail.draft`, `gcal.events`, `gdrive.search`, `gdrive.read` | Your own Google Cloud OAuth client (desktop type; save its client secret in Secrets and name it on the card). Read-only scopes; "allow drafts" adds `gmail.compose`, which Google only offers together with sending — Branch never sends. |
+| Microsoft | `outlook.search`, `outlook.read`, `outlook.draft`, `outlook.events`, `teams.summary` | Your own Microsoft Entra app (public client, redirect `http://127.0.0.1`). Scopes: `Mail.Read` (or `Mail.ReadWrite` with drafts), `Calendars.Read`, `OnlineMeetings.Read`, `OnlineMeetingTranscript.Read.All` — the last may need your organisation's admin to agree. `teams.summary` fetches a meeting's newest transcript for the model to summarise. |
+| Searching the email inbox | `mail.search`, `mail.attachments`, `mail.save_attachment` | The email channel's mailbox (server, user, and the saved password's name). Search by sender, subject, words, dates or unread, with plain-ASCII words; open a message and its attached files; save one into the workspace's `mail-attachments` folder, never over an existing file. Nothing is marked read or sent. |
+| A public address for webhooks | — | Starts *your* tunnel program — `cloudflared`, `tailscale funnel` (without `--bg`, so nothing stays configured) or `ngrok` — pointed at a small door on this computer that only passes `/webhooks/chat/…`, `/webhooks/whatsapp/…`, `/hooks/…` and `POST /api/triggers/<id>/fire`, with any key, cookie or origin removed. The window is never on the internet. Lockdown refuses to start it; locking or closing Branch stops it. |
+
+Each connector hands its text to the model marked as somebody else's words: information, never instructions. A task started
+by a chat message gets none of these tools, so somebody you have paired cannot read your mail, hear your day, or
+switch things in your house.
+
+**Held tighter than the rules (integration review).** These hold whatever your approval settings say, "No approvals"
+included (`src/personal/guard.ts`):
+
+- Every personal tool refuses a household profile, a person signed in on the people page and a short-lived key before
+  it does anything.
+- Work you did not start yourself — a schedule, a trigger or webhook, another AI tool over MCP, another agent — is
+  asked about before any personal tool runs, so a scheduled spoken briefing waits for your yes.
+- A call to a lock, cover (garage doors and blinds), alarm, valve, siren or button is asked about every time, and only
+  "yes, just now" is accepted. A call names one device (no area, device, floor or label targets) and at most 30 calls
+  a minute go to Home Assistant. A script or switch that opens a door is not recognised as one; keep those off the list.
+- A spoken yes to anything past looking and changing workspace files — a command, a message, money, a setting, the
+  house, or a request the safety check advised against — decides nothing until you also press **Yes, allow it**.
+- "Play my briefing" asks the approval rules about `brief.spoken` first, as the tool would.
+- A packed file (zip, tar, gz and the like) is never sent into a chat, since its insides cannot be checked for keys.
+- What comes through the webhook address is counted on its own for wrong signatures and keys, never together with
+  this computer's own requests, and Branch is handed the path the door checked rather than the raw one.
+
+**What each card saves.** Your own accounts (one record each for Google, Microsoft and Spotify): `clientId`,
+`clientSecretName` (the name of a secret, or empty), `tenant` (Microsoft only, `common` by default) and `drafts`
+(off). Searching X: `keyName` (`XAI_API_KEY`) and `model` (`grok-4.5`). Home Assistant: `url`, `tokenName`
+(`HOMEASSISTANT_TOKEN`) and `domains`. Files into chats: `maxMegabytes` (20). The spoken briefing: `calendar`, `mail`
+and `morningBrief` (all on) and `maxCharacters` (1500). The email inbox: `host`, `port` (993), `user`, `passwordName`
+(`EMAIL_PASSWORD`) and `folder` (`mail-attachments`). The webhook address: `program` (`cloudflared`) and
+`executable` (a full path, or empty to find the program by name).
+
+**Not built in this round.** *Live voice in Discord voice channels* (R17-023) is left out: Discord voice needs the Opus
+codec and Discord's end-to-end voice encryption (DAVE, built on MLS), neither of which Node ships, and new
+dependencies are not allowed. *A wake word* is left out on purpose until the owner decides how one could be built
+safely; nothing here ever listens by itself.
+
+**macOS and Linux.** Everything above is plain HTTPS, IMAP and the owner's own programs started with an argument list,
+so it behaves the same on all three systems. The tunnel program is found by name on the search path or by the full
+path you give; nothing is installed. The tests use fake services, a loopback mail server and fake programs only.
 
 ## Learning, deeper (R17-F)
 
