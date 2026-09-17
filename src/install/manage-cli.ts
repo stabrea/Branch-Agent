@@ -67,6 +67,7 @@ async function uninstall(context: ManageContext, args: string[]): Promise<number
     },
   });
   context.print(report.removed.length ? `Branch Agent has been removed (${report.removed.length} places).` : "Branch Agent was not installed here; nothing needed removing.");
+  for (const copy of report.left) context.print(`${copy} was not put there by this installer, so it was left; remove it yourself if you want it gone.`);
   context.print(report.dataKept ? `Your conversations and files are kept in ${report.dataKept}.` : "Your conversations and files were removed too.");
   return 0;
 }

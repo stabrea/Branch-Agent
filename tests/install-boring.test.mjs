@@ -136,7 +136,7 @@ test("a custom distribution: an assistant file beside the installer is brought i
   await assert.rejects(unixInstall(["--source", source, "--assistant", join(root, "missing")], layout, () => {}, runBranch), /was not found, so nothing was installed/);
   await assert.rejects(stat(layout.launcher), "a wrong file stops the install before anything is copied");
   await unixInstall(["--source", source, "--assistant", assistant], layout, (line) => lines.push(line), runBranch);
-  assert.deepEqual(ran, [[layout.launcher, "import-agent", assistant, "--sections", "specialists,procedures,skills,routing,permissions,memory"]]);
+  assert.deepEqual(ran, [[layout.launcher, "import-agent", assistant, "--sections", "specialists,procedures,skills", "--shareable-only"]], "a market's rules: no approval rules, model choices or memory");
   assert.match(lines.join("\n"), /Branch Agent 1\.0\.0 is installed in .*The assistant in .* was brought in/s);
   await writeFile(join(layout.dataDir, "branch.sqlite"), "somebody's work");
   await unixInstall(["--source", source, "--assistant", assistant], layout, (line) => lines.push(line), runBranch);
@@ -245,7 +245,7 @@ test("on a Mac the installer script checks, unpacks and hands over to the app's 
   assert.match(lines[3], /\/Branch Agent\.app\/Contents\/Resources\/app\/dist\/install\/install-cli\.js$/);
   assert.equal(lines[4], "install");
   assert.equal(lines[5], "--source");
-  assert.match(lines[6], /branch-agent-setup\.[^/]+\/Branch Agent\.app$/);
+  assert.match(lines[6], /branch-agent-setup\.[^/]+\/app\/Branch Agent\.app$/);
   assert.deepEqual(lines.slice(7), ["--quiet", "--no-menu-entry"]);
 
   await writeFile(zip, "tampered");
@@ -259,7 +259,7 @@ test("on a Mac the installer script checks, unpacks and hands over to the app's 
 // ---------------------------------------------------------------------------------- branch quit
 
 function fakeRequest({ method = "POST", address = "127.0.0.1", token = TOKEN } = {}) {
-  return { method, headers: { authorization: `Bearer ${token}` }, socket: { localAddress: address } };
+  return { method, headers: { authorization: `Bearer ${token}` }, socket: { localAddress: address, remoteAddress: address } };
 }
 
 test("the engine closes on `branch quit` only for this computer's own key", async (t) => {

@@ -3222,7 +3222,7 @@ check, restart, update and remove Branch with one script.
 | | macOS and Linux | Windows |
 |---|---|---|
 | Install | `sh install-branch-agent.sh --quiet` beside the download and its `.sha256` | `"Install Branch Agent.cmd" /quiet` beside the zip |
-| Where it goes | Mac: `~/Applications/Branch Agent.app` (a copy already in `/Applications` is used instead). Linux: `~/.local/share/branch-agent/app`, with `~/.local/share/applications/branch-agent.desktop` | `%LOCALAPPDATA%\Programs\Branch Agent` |
+| Where it goes | Mac: `~/Applications/Branch Agent.app` (a copy already in `/Applications` is linked up instead, and never written to or removed). Linux: `~/.local/share/branch-agent/app`, with `~/.local/share/applications/branch-agent.desktop` | `%LOCALAPPDATA%\Programs\Branch Agent` |
 | The `branch` command | `~/.local/bin/branch` | not written yet |
 | Conversations and files | Mac: `~/Library/Application Support/Branch Agent`. Linux: `~/.config/Branch Agent` | `%APPDATA%\Branch Agent` |
 | What is installed | `branch --version --json` prints `{"version","path","dataDir","running","installed"}` | — |
@@ -3242,26 +3242,34 @@ the app's own runtime, on the app's own data folder, so it sees the same convers
 `branch quit` asks the running Branch, window or background engine, to close the way Quit does (work
 is saved, and the window gives it eight seconds at most), then waits up to twenty seconds for the
 process to go; a background engine that does not answer is stopped its own way. Only a program on this
-computer holding the data folder's own key can ask (`POST /api/deployment/quit`); short-lived keys and the
-phone door cannot. "Not running" counts as done.
+computer holding the data folder's own key can ask (`POST /api/deployment/quit`); short-lived keys, the
+phone door, a web page (Origin and cross-site checks) and an engine run by the never-break gateway cannot. "Not running" counts as done.
 
 `branch update` in an installed copy checks for a newer release and says what it found; `--yes` installs
 it through the same updater as the Update button: the download is checked against its published
 checksum, tried on a copy of the work when that switch is on, a safety copy is written, Branch is closed,
 and the same hand-over script swaps the folders, keeps the version before and writes its log. If Branch
-will not close, the update stops there and nothing is changed; it is never ended mid-work to make room. The log is
+will not close (or closing it fails outright), the update stops there and nothing is changed; it is never
+ended mid-work to make room. A release older than the installed copy is never installed. The log is
 `branch-agent-update/apply-update.log` in the temporary folder. It prints the old and new version.
 The window is opened again only if it was open before. A copy installed from Git keeps `branch update`
 as `git pull`, `npm ci` and a build.
 
 Removing Branch closes it, takes out its "start by itself when you sign in" entry, the app, the version
 before, the `branch` command and the menu entry. Conversations and files stay unless `--delete-data` is
-given. A `branch` command or menu entry the installer did not write is left alone.
+given. A `branch` command or menu entry the installer did not write (or a link in its place) is left
+alone, and installing refuses to write over another program's `branch`. A copy in the Mac's shared
+`/Applications` is not the installer's and is left; `branch uninstall` names it.
+`install-branch-agent.sh --uninstall` only runs a `branch` command the installer wrote. The script uses
+the system's own tools whatever `PATH` says, checks and unpacks a private copy of the download (so it
+cannot be swapped in between), and refuses a download that names files outside its own folder.
 
 A custom distribution is a folder with the download, `install-branch-agent.sh` and an assistant file
 made with `branch export-agent`: `sh install-branch-agent.sh --assistant team.branch-agent` brings its
-specialists, procedures, skills, routing, permissions and memory in on a fresh install, and never over an
-assistant already set up. The square logo for catalogues is `public/assets/icon.svg` on `main`.
+specialists, procedures and skills in on a fresh install, and never over an assistant already set up. It
+follows the same rules as bringing an assistant in from a market: every part is checked against its
+fingerprint, approval rules, model choices and memory never come in this way, and new skills arrive
+switched off. The square logo for catalogues is `public/assets/icon.svg` on `main`.
 
 The release workflow never uploads over a download that is already attached to the release (a
 hand-built Windows zip once was replaced that way): a download that is there stays, with its own
@@ -6351,7 +6359,8 @@ from a script".
   its script are the ones to use; that has not been tried on a real WSL machine.
 - **distributions** (custom distributions) — built: a folder holding the release download, the installer
   script and an assistant file made with `branch export-agent` is a custom Branch; `--assistant <file>`
-  brings that assistant in on a fresh install and never replaces one already set up
+  brings its specialists, procedures and skills in on a fresh install (market rules: skills off, no approval
+rules, model choices or memory) and never replaces one already set up
   (`src/install/unix-install-cli.ts`, `tests/install-boring.test.mjs`). There is no rebranded build, and
   Windows has no `--assistant` yet (run `branch import-agent` after installing there).
 

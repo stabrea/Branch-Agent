@@ -33,10 +33,13 @@ async function carriesMasterKey(request: IncomingMessage, dataDir: string): Prom
  * or the same stop as Ctrl+C for `branch start`); a launch that did not supply one refuses.
  */
 export async function quitRequest(
-  request: IncomingMessage, input: { dataDir: string; quit?: (() => void) | undefined },
+  request: IncomingMessage, input: { dataDir: string; quit?: (() => void) | undefined; viaRemote?: boolean },
 ): Promise<{ closing: true; pid: number; message: string }> {
   if (request.method !== "POST") throw new Error("Ask with POST.");
-  if (!loopback.has(request.socket?.localAddress ?? "") || !(await carriesMasterKey(request, input.dataDir)))
+  // Both ends of the connection are this computer, it did not come through the phone door, and it
+  // carries the data folder's own key (a web page can neither read that key nor send it cross-site).
+  const local = loopback.has(request.socket?.localAddress ?? "") && loopback.has(request.socket?.remoteAddress ?? "");
+  if (input.viaRemote || !local || !(await carriesMasterKey(request, input.dataDir)))
     throw new Error("Only a program on this computer holding Branch's own key can close it.");
   const quit = input.quit;
   if (!quit) throw new Error("This copy of Branch cannot be closed from outside.");

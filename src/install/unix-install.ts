@@ -1,4 +1,4 @@
-import { chmod, mkdir, readFile, rename, rm, rmdir, stat, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, readFile, rename, rm, rmdir, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { posix } from "node:path";
 import { shellQuote } from "../desktop/hand-over.js";
@@ -164,12 +164,33 @@ async function replaceCopy(root: string, source: string, copy: CopyTree): Promis
   return had ? previous : null;
 }
 
+const menuMarker = "X-Branch-Agent-Version=";
+
+/**
+ * Whether the installer may write `path`: nothing is there, or a plain file it wrote itself. A file
+ * somebody else put there (another program's `branch`), or a link to somewhere else, is never replaced.
+ */
+async function mayWrite(path: string, marker: string): Promise<boolean> {
+  const found = await lstat(path).catch(() => null);
+  if (!found) return true;
+  return found.isFile() && (await ours(path, marker));
+}
+
+/** Written beside the target and moved into place, so a link planted in between is replaced, never followed. */
+async function writeInPlace(path: string, text: string, mode: number): Promise<void> {
+  await mkdir(dirname(path), { recursive: true });
+  const incoming = `${path}.incoming-${process.pid}`;
+  await rm(incoming, { force: true });
+  await writeFile(incoming, text, { encoding: "utf8", mode, flag: "wx" });
+  await chmod(incoming, mode);
+  await rename(incoming, path);
+}
+
 async function writeMenuEntry(root: string, path: string): Promise<string | null> {
   const text = await readFile(join(root, `${linuxProgram}.desktop`), "utf8").catch(() => null);
   const entry = text === null ? null : installedMenuEntry(text, root);
-  if (entry === null) return null;
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, entry, { encoding: "utf8", mode: 0o644 });
+  if (entry === null || !(await mayWrite(path, menuMarker))) return null;
+  await writeInPlace(path, entry, 0o644);
   return path;
 }
 
@@ -177,17 +198,21 @@ async function writeMenuEntry(root: string, path: string): Promise<string | null
 export async function performUnixInstall(options: UnixInstallOptions): Promise<UnixInstallReport> {
   const { layout } = options;
   await checkSource(layout, options.source);
+  if (!(await mayWrite(layout.launcher, launcherMarker)))
+    throw new Error(`There is already a different \`branch\` command at ${layout.launcher}, so nothing was installed. Move it away and run the installer again.`);
   const found = await findInstall(layout);
   const root = found?.root ?? layout.installRoot;
-  const attached = found?.version === options.version && !options.repair;
+  // A copy found outside this person's own folder (a Mac's shared /Applications) is only linked up,
+  // never written to: that would need an administrator and may be somebody else's.
+  const elsewhere = root !== layout.installRoot;
+  const attached = elsewhere || (found?.version === options.version && !options.repair);
   const previousKept = attached ? null
     : await replaceCopy(root, options.source, options.copy ?? copyWith(layout.platform, options.run ?? runTool));
-  await mkdir(dirname(layout.launcher), { recursive: true });
-  await writeFile(layout.launcher, launcherScript({ platform: layout.platform, installRoot: root, dataDir: layout.dataDir, workspace: layout.workspace }), "utf8");
-  await chmod(layout.launcher, 0o755);
+  await writeInPlace(layout.launcher, launcherScript({ platform: layout.platform, installRoot: root, dataDir: layout.dataDir, workspace: layout.workspace }), 0o755);
   const menuEntry = layout.menuEntry && options.menuEntry !== false ? await writeMenuEntry(root, layout.menuEntry) : null;
   await mkdir(layout.dataDir, { recursive: true, mode: 0o700 });
-  return { installRoot: root, launcher: layout.launcher, menuEntry, previousKept, attached, version: options.version, dataDir: layout.dataDir };
+  return { installRoot: root, launcher: layout.launcher, menuEntry, previousKept, attached,
+    version: elsewhere ? found!.version : options.version, dataDir: layout.dataDir };
 }
 
 export interface UnixUninstallOptions {
@@ -198,7 +223,12 @@ export interface UnixUninstallOptions {
   /** Takes out the "start by itself when you sign in" entry (see daemon.ts). */
   removeService: () => Promise<void>;
 }
-export interface UnixUninstallReport { removed: string[]; dataKept: string | null }
+export interface UnixUninstallReport {
+  removed: string[];
+  dataKept: string | null;
+  /** Copies found that the installer did not put there, left as they are. */
+  left: string[];
+}
 
 /** Only files the installer itself wrote are removed; anything else with the same name is left. */
 async function ours(path: string, marker: string): Promise<boolean> {
@@ -207,11 +237,19 @@ async function ours(path: string, marker: string): Promise<boolean> {
 const installFolder = (layout: UnixLayout, root: string): boolean =>
   layout.platform === "darwin" ? basename(root) === macBundle : basename(root) === linuxAppFolder && basename(dirname(root)) === linuxProgram;
 
-async function removeCopies(layout: UnixLayout, removed: string[]): Promise<void> {
+/**
+ * Only the copy in this person's own folder is the installer's; one found elsewhere (a Mac's shared
+ * /Applications) is reported and left. A link in place of a copy is removed as a link, never followed.
+ */
+async function removeCopies(layout: UnixLayout, removed: string[], left: string[]): Promise<void> {
   for (const root of layout.candidates) {
+    if (root !== layout.installRoot) {
+      if (await copyVersion(layout.platform, root)) left.push(root);
+      continue;
+    }
     if (!installFolder(layout, root)) continue;
     for (const path of [root, `${root}.previous`, `${root}.previous-2`, `${root}.failed`, `${root}.incoming`]) {
-      if (!(await stat(path).then(() => true, () => false))) continue;
+      if (!(await lstat(path).then(() => true, () => false))) continue;
       await rm(path, { recursive: true, force: true });
       removed.push(path);
     }
@@ -221,17 +259,17 @@ async function removeCopies(layout: UnixLayout, removed: string[]): Promise<void
 
 /** Closes Branch, takes out its sign-in entry, program, command and menu entry, and keeps the data unless asked. */
 export async function performUnixUninstall(options: UnixUninstallOptions): Promise<UnixUninstallReport> {
-  const { layout } = options, removed: string[] = [];
+  const { layout } = options, removed: string[] = [], left: string[] = [];
   await options.stop();
   await options.removeService();
-  await removeCopies(layout, removed);
-  if (await ours(layout.launcher, launcherMarker)) { await rm(layout.launcher, { force: true }); removed.push(layout.launcher); }
-  if (layout.menuEntry && (await ours(layout.menuEntry, "X-Branch-Agent-Version="))) {
-    await rm(layout.menuEntry, { force: true });
-    removed.push(layout.menuEntry);
+  await removeCopies(layout, removed, left);
+  for (const [path, marker] of [[layout.launcher, launcherMarker], [layout.menuEntry, menuMarker]] as const) {
+    if (!path || !(await lstat(path).then((found) => found.isFile(), () => false)) || !(await ours(path, marker))) continue;
+    await rm(path, { force: true });
+    removed.push(path);
   }
-  if (!options.deleteData || basename(layout.userDataDir) !== dataFolderName) return { removed, dataKept: layout.userDataDir };
+  if (!options.deleteData || basename(layout.userDataDir) !== dataFolderName) return { removed, dataKept: layout.userDataDir, left };
   await rm(layout.userDataDir, { recursive: true, force: true });
   removed.push(layout.userDataDir);
-  return { removed, dataKept: null };
+  return { removed, dataKept: null, left };
 }

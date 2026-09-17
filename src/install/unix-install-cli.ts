@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
-import { agentSections } from "../agent-export.js";
+import { shareableSections } from "../interop/agent-market.js";
 import { databaseName } from "./layout.js";
 import { manageCommand } from "./manage-cli.js";
 import { performUnixInstall, unixLayout, type UnixLayout, type UnixPlatform } from "./unix-install.js";
@@ -16,7 +16,8 @@ import { performUnixInstall, unixLayout, type UnixLayout, type UnixPlatform } fr
  *
  * `--assistant` makes a custom distribution: an assistant file made with `branch export-agent` is
  * brought in on a fresh install, so everyone who installs from that folder starts with the same
- * specialists, procedures, skills, routing, permissions and memory. It never replaces an assistant
+ * specialists, procedures and skills. It follows a market's rules: approval rules, model choices and
+ * memory never come in this way, and new skills arrive switched off. It never replaces an assistant
  * that is already set up on this computer.
  *   uninstall [--delete-data]
  */
@@ -42,7 +43,8 @@ async function bringAssistant(file: string, report: { dataDir: string; launcher:
     print("An assistant is already set up on this computer, so the assistant file was not brought in.");
     return;
   }
-  await run(report.launcher, ["import-agent", resolve(file), "--sections", agentSections.join(",")]);
+  // The same rules as a market: only specialists, procedures and skills, and new skills switched off.
+  await run(report.launcher, ["import-agent", resolve(file), "--sections", shareableSections.join(","), "--shareable-only"]);
   print(`The assistant in ${file} was brought in.`);
 }
 

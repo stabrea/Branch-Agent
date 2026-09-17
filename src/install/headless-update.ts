@@ -98,7 +98,11 @@ function makeUpdater(input: HeadlessUpdateInput, note: RunningInstance | null, s
       target: input.installRoot, snapshot: deps.snapshot ?? defaultSnapshot(input.dataDir, note) }),
     stopDaemon: async () => {
       // A Branch that would not close stops the update below; it is never ended mid-work to make room.
-      stopped.report = await (deps.quit ?? quitRunning)(input.dataDir);
+      // A stop that fails outright counts as "would not close": the swap must never run under a live Branch.
+      stopped.report = await (deps.quit ?? quitRunning)(input.dataDir).catch((error: unknown) => ({
+        stopped: false, wasRunning: true, pid: null,
+        message: `Branch Agent could not be closed (${error instanceof Error ? error.message : String(error)}).`,
+      }));
       return stopped.report.stopped ? stopped.report.pid : null;
     },
   });
@@ -124,8 +128,8 @@ export async function headlessUpdate(input: HeadlessUpdateInput): Promise<number
     return { script: null };
   });
   if (!script) return 1;
-  if (stopped.report && !stopped.report.stopped) {
-    input.print(`${stopped.report.message} Nothing was changed; the update can be run again once Branch has closed.`);
+  if (!stopped.report || !stopped.report.stopped) {
+    input.print(`${stopped.report?.message ?? "Branch Agent was not closed."} Nothing was changed; the update can be run again once Branch has closed.`);
     return 1;
   }
   // The stop already happened (and was waited for) in the updater, so the script waits for nothing.

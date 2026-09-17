@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { createBranch } from "./index.js";
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { basename, join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defaultPreset, presetsFromEnv } from "./providers.js";
 import { ChatGPTAuth, FileTokenVault } from "./chatgpt-auth.js";
@@ -52,6 +52,7 @@ import { selfTestCommand } from "./never-break/self-test.js";
 // --- end mac3/never-break ---
 // --- bucket 22: commands a script uses to manage an installed Branch (src/install/manage-cli.ts) ---
 import { manageCommand } from "./install/manage-cli.js";
+import { bringInShareable, shareableSections } from "./interop/agent-market.js";
 // --- end bucket 22 ---
 
 async function configuredApp(options: Parameters<typeof createBranch>[0]) {
@@ -285,6 +286,16 @@ async function agentPortability(app: Awaited<ReturnType<typeof configuredApp>>["
   console.log(`Exported ${opened.manifest.exportedAt} by Branch ${opened.manifest.appVersion}. Inside:`);
   for (const section of opened.manifest.sections) console.log(`  ${section.name}: ${section.summary}`);
   const chosen = (flag("sections") ?? "").split(",").map((name) => name.trim()).filter(Boolean);
+  // bucket 22 integration: an installer's `--assistant` file follows a market's rules (only the parts
+  // that cannot widen anything, yours kept, new skills off), never the whole-file import below.
+  if (process.argv.includes("--shareable-only")) {
+    const parts = shareableSections.filter((name) => chosen.includes(name));
+    const label = { subject: `${basename(target)}, a custom distribution`, from: "Brought in by the installer" };
+    for (const report of parts.length ? bringInShareable(app.store, app.runtime.owner, opened, parts, label) : [])
+      console.log(`  ${report.section}: ${report.brought} ${report.note}`);
+    if (!parts.length) console.log(`Nothing was brought in. Choose parts with --sections ${shareableSections.join(",")}`);
+    return;
+  }
   const wanted = agentSections.filter((name) => chosen.includes(name));
   if (!wanted.length) {
     console.log(`Nothing was brought in. Choose parts with --sections ${agentSections.join(",")}`);

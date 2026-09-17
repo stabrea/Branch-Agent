@@ -2505,7 +2505,12 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
         if (await rawApi(app, request, response, path)) return;
         if (path.startsWith("/api/deployment")) {
           // bucket 22: `branch quit`, from this computer with the master key only (src/install/quit.ts).
-          if (path === "/api/deployment/quit") { send(response, 200, await quitRequest(request, { dataDir: options.dataDir, quit: options.quit })); return; }
+          if (path === "/api/deployment/quit") {
+            const answer = await quitRequest(request, { dataDir: options.dataDir, quit: options.quit, viaRemote })
+              .catch((error: unknown) => { throw new HttpError(request.method === "POST" ? 403 : 405, errorText(error)); });
+            send(response, 200, answer);
+            return;
+          }
           const result = await deploymentApi(app, request, path, deployment(), (r) => readBody(r), remoteHandler);
           if (result !== undefined) { send(response, 200, result); return; }
         }
@@ -2954,7 +2959,7 @@ export function offLimitsToShortLivedKeys(method: string | undefined, path: stri
     return "A short-lived key cannot change when Branch checks with you, the models, or which commands are offered. Do that in the app window.";
   if (path === "/api/providers/cli-agents" || path.startsWith("/api/secrets") || path.startsWith("/api/connections") || /^\/api\/schedules\/[a-f0-9-]{36}\/gate$/.test(path))
     return "A short-lived key cannot name a program for Branch to run, add a model service, or change the locker. Do that in the app window.";
-  if (path === "/api/deployment/close")
+  if (path === "/api/deployment/close" || path === "/api/deployment/quit") // quit: bucket 22
     return "A short-lived key cannot close Branch. Only the app on this computer can.";
   // Wave mac2 (quiet-jobs): the check-in's switches, hours and where its news goes are the owner's.
   if (path === "/api/heartbeat" || path.startsWith("/api/heartbeat/"))
