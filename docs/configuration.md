@@ -301,7 +301,17 @@ A number belongs to the *thing*, not to its place. It is worked out from what th
 
 The labels live in their own box marked as decoration, so they never turn up in `browser.snapshot` or in anything `browser.extract` pulls out. `browser.unmark` takes them off again before a picture or a saved page.
 
-**The honest limits:** only things that are visible and that the page describes in the ordinary way are numbered. A control drawn entirely on a canvas, or inside another page embedded in this one, is invisible to this and to every other browser tool here. And because a number comes from what a thing is and is called, two things that are genuinely alike — the same kind of button, the same words, the same surroundings — share a number, and acting on it acts on the first of them. That is the same rule `browser.click` already follows in asking for a uniquely named button.
+**A number is checked, not trusted.** The number is written onto the thing as an attribute, which
+is something the page itself could also write, so before a number is acted on three things are
+checked: that it was really given out by this task, that exactly one thing on the page is wearing
+it, and that the thing wearing it is still the *same* thing it was given to — worked out again from
+what it is, what it is called and the kinds of boxes it sits inside. A page that quietly moves a
+number from the Save button onto something else gets a plain refusal naming the number, and nothing
+is pressed. The four refusals read: "Number 4 was never given out on this page", "Number 4 is no
+longer on this page", "Number 4 is on more than one thing, so it was not used", and "Number 4 is now
+on a different thing from the one it was given to, so it was not used".
+
+**The honest limits:** only things that are visible and that the page describes in the ordinary way are numbered. A control drawn entirely on a canvas, or inside another page embedded in this one, is invisible to this and to every other browser tool here. And because a number comes from what a thing is and is called, two things that are genuinely alike — the same kind of button, the same words, the same surroundings — end up sharing a number; acting on that number is then **refused** ("Number 4 is on more than one thing"), because taking whichever came first is exactly how a press lands on the wrong thing. Say which one with a selector, or narrow the page first.
 
 ### Data in the shape you asked for
 
@@ -313,7 +323,7 @@ What comes back has already been checked. A field marked `required` that is miss
 
 Websites are rewritten constantly and remembered selectors rot. `browser.act { action: click | fill | check, selector?, name?, mark?, value? }` tries up to four ways in order: the exact selector, the thing's name as a button, the words showing on it, then its number from `browser.annotate`. The result says which way worked (`foundBy`) and how many were tried, and the same goes into the task's trace with `healed: true` when it was not the selector — so a step that keeps healing shows up and can be fixed properly.
 
-It never looks at a different page and never tries more than four ways. A thing that is genuinely gone is reported as gone, naming every way that was tried. Typing into a password box is refused here as everywhere else.
+It never looks at a different page and never tries more than four ways. A thing that is genuinely gone is reported as gone, naming every way that was tried. A number is the one way whose answer comes off something the page could have written itself, so it is the one way that is checked rather than trusted (above); when the check fails, the refusal says which of the four reasons it was, and nothing is pressed. Typing into a password box is refused here as everywhere else.
 
 ### Using the browser you already have open
 
@@ -347,15 +357,113 @@ A recording photographs **every tab in the window it is made in**, so a recordin
 
 Nothing is bypassed: each one goes through the very method the underlying tool uses, so the same limits are counted and the same refusals apply. Reaching a window needs the screen permission **as well**, checked separately, so a task allowed to browse cannot reach your windows through the short way. Whichever half is not configured in this launch says so plainly when it is asked for.
 
+### Skills for the sites you actually use
+
+Most of the trouble with a browser task is one website's habits: the cookie notice that covers
+everything, the table that is drawn a moment after the page says it has loaded, the same three
+columns you pull off it every time. Those belong in a skill about that site, not in Branch.
+
+A skill package may carry a **`site.json`** beside its `SKILL.md`:
+
+```json
+{
+  "site": {
+    "hosts": ["shop.example.com"],
+    "dismiss": ["#cookie-notice .accept"],
+    "waitFor": "#results",
+    "settleMs": 200,
+    "readings": {
+      "basket": {
+        "rows": "tr.line",
+        "fields": {
+          "item": {"selector": ".name", "required": true},
+          "price": {"selector": ".price", "type": "number", "required": true}
+        }
+      }
+    },
+    "notes": "The basket table is drawn after the page loads, so wait for #results first."
+  }
+}
+```
+
+| Field | Default | What it does |
+| --- | --- | --- |
+| `hosts` | required | The websites this skill knows, one to ten. A page on any of them, or under one of them, gets its quirks. |
+| `dismiss` | none | Up to five things to press once when a page opens, such as a cookie notice. One that is not on the page is skipped. |
+| `waitFor` | none | Something to wait up to five seconds for before the page counts as ready. A wait that never comes is reported, not thrown. |
+| `settleMs` | 0 | How long to let the page settle once it has opened, up to five seconds. |
+| `readings` | none | Named readings of this site, each an ordinary `browser.shape` request written down once. |
+| `notes` | empty | What is odd about this site, in plain words, for the person reading the skill. |
+
+With one installed and switched on, `browser.navigate` to that website applies the quirks by itself
+and **says in its answer that it did** — which notice it pressed, whether the wait came, and the
+skill's own note. `browser.site { action: "list" }` says which websites have a skill and what each
+one knows; `browser.site { action: "read", name: "basket" }` reads the page by the name of a
+reading, and refuses by name when there is no such reading.
+
+**Pressing is not reading.** Opening a page is a reading permission and pressing something is not,
+so a task that may only read gets the waiting and the settling but never the pressing: what it
+would have pressed comes back in the answer as `notPressed`, so it can ask for what it needs
+instead of wondering why the notice is still there.
+
+**What a site skill may not do.** It is data and only data: selectors, a wait, a pause and named
+readings. There is deliberately nowhere to put a piece of script, because a skill can arrive from
+anybody and a script in one would run inside the page. The selectors it will press are named in the
+card you read before installing the skill — "presses #cookie-notice .accept when a page opens" —
+because a cookie notice and a confirm-delete button look the same until somebody writes them down.
+And it can never widen anything: it cannot
+add a website to `allowedOrigins`, and a bank, broker, password manager or mailbox is refused as a
+site skill outright, in the same words the browser refuses one everywhere else. A skill that is
+installed but switched off brings no quirks, in the same way it brings no instructions. Site skills
+are read fresh each time, so installing one needs no restart.
+
 ### Browser skills that come with Branch
 
-Three ready-made skills are shipped as ordinary skill packages: **search and summarise the top results**, **fill a form from a document**, and **watch a page for a change** (which tells the assistant to use the existing watcher rather than browse in a loop). They are instructions and nothing else — no web calls, no recipes — and arrive switched off like any other skill.
+Five ready-made skills are shipped as ordinary skill packages: **search and summarise the top
+results**, **fill a form from a document**, **watch a page for a change** (which tells the assistant
+to use the existing watcher rather than browse in a loop), **read several pages of one site** (how
+to follow a site's own links a bounded number of times instead of crawling), and **write a site
+skill** (how to write the `site.json` above). They are instructions and nothing else — no web calls,
+no recipes — and arrive switched off like any other skill.
 
 `GET /api/skills/browser` lists them; `POST /api/skills/browser { "name": "search-and-summarise" }` installs one.
 
-### Not built
+### Not built, and what stands in for it
 
-Remote and cloud browsers — Browserbase and the like — are **not built**. Everything here runs a browser on this computer. There is no Python `browser-use` runtime and no sandboxed remote computer either.
+Remote and cloud browsers — Browserbase and the like — are **not built**. Everything here runs a browser on this computer.
+
+**Three audit rows describe one thing under three project names.** `A2172` (browser-use
+automation), `A2042` (browser-use integration) and `A2019` (browser/computer-use tools) all ask for
+the same capability: an assistant that looks at a page, points at a thing on it and acts. That is
+built, and it is what this whole section describes — `src/integrations/browser.ts` with
+`browser-marks.ts`, `browser-schema.ts`, `browser-heal.ts` and `browser-sites.ts`, asserted in
+`tests/browser-2.test.mjs` and `tests/browser-3.test.mjs`. What is **not** built, and deliberately
+so, is the Python `browser-use` runtime those rows name, and the hosted sandbox backend `A2019`
+names: Branch is TypeScript and drives the browser on this computer, the same reason the
+`hybrid-tooling`, `cloud-compute` and `remote-execution` families are already marked not applicable.
+One implementation satisfies all three rows; none of them needs building again.
+
+**`A0743` (Scrapling page fetch) — not applicable.** It names another project's Python fetching
+library. Fetching a page and reading it out is `web.fetch` (readable text, redirects bounded,
+private addresses refused) and `browser.shape` (the same page in an exact shape) — both built and
+tested. Branch would not gain a capability by adding a Python library, only a dependency.
+
+**`A1452` (web crawling) — not applicable as a crawler; the capability is covered.** It names
+Crawl4AI. Following a site's own links is `web.fetch` or `browser.navigate`, then `browser.shape`
+for the addresses, then reading a bounded handful of them — which is what the shipped
+**read several pages of one site** skill sets out, with the rules that keep it from becoming a
+crawl: the same website only, one level deep, at most five pages, never in a loop. A page to be
+checked again and again is the `monitors` tool's job, not a crawler's. No crawler is built, and a
+task's caps on actions and websites (above) already stop one being improvised.
+
+**The two document rows filed under the browser (`family: doc-processing`, `family:
+document-processing` in #62) are stale.** PDF text extraction and document extraction are both
+built with no extra software: `src/document-pdf.ts` unpacks the streams, reads the text operators
+and applies the file's own character tables; `src/document-readers.ts` routes `pdf` to it alongside
+Word, spreadsheets, PowerPoint, EPUB, RTF, HTML, CSV and JSON. Asserted in
+`tests/docs-memory-2.test.mjs` (compressed streams unpacked, lines in the order they sit on the
+page, a locked PDF refused in one sentence, a PDF of pictures saying so rather than pretending) and
+`tests/docs-3.test.mjs`. Nothing here needs building.
 
 ## Channels (Telegram)
 
