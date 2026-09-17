@@ -1139,6 +1139,12 @@ Ignored files: put a `.branchignore` in the workspace (or the project folder) an
 
 `GET|POST /api/memory/settings` holds `review` (after each finished task a separate, bounded model call may suggest memories or skill notes; suggestions wait for you) and `requireApproval` (memory changes the model makes on its own become suggestions instead of writes). `GET /api/memory/proposals`, `POST /api/memory/proposals/:id/accept|reject`. Every memory edit or deletion keeps an exact earlier version: `GET /api/memory/versions?id=`, `POST /api/memory/versions/restore { id, revision }`. Checkpoints freeze every memory and each skill's active version: `GET|POST /api/memory/checkpoints`, `POST /api/memory/checkpoints/:id/restore`. Each conversation starts with a memory snapshot (up to 20 recent facts) that stays the same until a new conversation begins.
 
+### The learning core
+
+Every task that is not in a temporary conversation passes through Branch's learning core (`src/fly-core/`), modelled on the fruit fly's mushroom body. As a task starts, the core ranks the tools, skills and memories that have worked in similar situations and writes them on the task as a `fly.suggested` event (`tools`, `skills`, `memories`, `avoid`). When the task ends, it learns from how it went: finished or failed, checks passed or failed, what it cost, and whether your next message in the same conversation corrected it. That is written as `fly.learned`, with the reasons in plain words. When the same steps keep working for the same kind of request, the idea of making them a skill appears in the suggestions queue above. Accepting it only notes it for now. Version 1 is advice only: it changes nothing else, needs no model call, and keeps no words from your requests, only the names of the tools, skills and memories involved. It lives in the `fly_*` tables of the same database. How well it learns, and how that will be measured on real work, is in `experiments/fly-core/PLAN.md`.
+
+**macOS and Linux.** The learning core is plain TypeScript over the built-in SQLite and works the same on Windows, macOS and Linux.
+
 ## Trust
 
 **Skill scanning.** Every skill version is scanned when it is installed or updated. Findings are hardcoded secrets, instructions to send data somewhere, and attempts to override the assistant's rules. Policy `block` (default) refuses to save such a version; policy `review` installs it disabled, shows the findings, and enabling that version requires `acknowledge: true`. `GET|POST /api/skills/policy`; the Skills view has the same choice.
