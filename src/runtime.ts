@@ -39,6 +39,8 @@ import { checkResult, fanoutWaves, type FanoutTask, type ResultCheck } from "./d
 import { describeToolCall, filePathOf } from "./activity.js";
 // Wave mac2 (guards): loop guard and folder trust; see src/run-guards.ts.
 import { RunGuards } from "./run-guards.js";
+// Wave mac3 (tool-safety): the second look before an approval.
+import { reviewCall } from "./approval-reviewer.js";
 import { routeForTask, routingSettings } from "./local-routing.js";
 import { routeByProfile } from "./model-profiles.js";
 import { memoryScope } from "./memory.js";
@@ -95,6 +97,8 @@ import { traceSettings, writeRunTrace } from "./trace.js";
 import { LeakGuard } from "./leak-guard.js";
 // mac2/fly-core: the mushroom-body learning core.
 import { watchTask } from "./fly-core/hook.js";
+// mac3/reflection-skills: looking back over conversations and writing new skills (src/reflection/).
+import { learnAfterTask } from "./reflection/hook.js";
 
 const childConcurrency = 4;
 /** What the approval policy says about one tool call, before anything is done about it. */
@@ -689,6 +693,15 @@ ${run.output.slice(0, 6000)}`;
     this.tracer.forget(run.id);
     this.guards.forget(run.id); // wave mac2 (guards)
     if (!parent && settled.status === "completed" && !options.resumeFrom) this.scheduleReview(run, context);
+    // ── mac3/reflection-skills: once a task of the owner's has settled, the learning loop may look back
+    // over the conversation or draft a skill (src/reflection/hook.ts). Its one model question is
+    // asked with no tools, charged to this task, as reviewRun's is; everything it finds waits for
+    // the owner. Nothing happens unless its switches are on, and it never fails the task. ──
+    if (!parent) void this.track(() => learnAfterTask(this, settled, context, async (system, question) => {
+      const preset = this.models.plan(context.owner, run.sessionId).candidates[0]!;
+      const scoped: ToolContext = { ...context, permissions: new Set(), budget: new Budget({ maxSteps: 2, maxTokens: 24000 }), signal: AbortSignal.timeout(120000) };
+      return (await this.complete(run, [{ role: "system", content: system }, { role: "user", content: question }], scoped, preset, null)).content;
+    })).catch(() => undefined);
     if (!parent) { try { this.store.governanceFor(context.owner).recordOutcome(run.id, settled.status, settled.output); } catch { /* governance never fails a task */ } }
     if (!parent) this.drainFollowUps(run.sessionId);
     return settled;
@@ -1734,7 +1747,10 @@ ${run.output.slice(0, 6000)}`;
     // The exact bytes the model asked for. A yes is bound to them, so a command that changes by one
     // character is a new question rather than something an earlier yes covers.
     const fingerprint = argumentFingerprint(call.arguments);
-    const { decision: ruled, label, target, readOnly, remember, sandbox, backend, paths, reason } = this.checkPolicy(call.name, args, context, fingerprint);
+    // Wave mac3 (tool-safety): a second model may look at a risky or unknown call first; it can only
+    // make the answer stricter, or confirm that a tool which does not say only reads (src/approval-reviewer.ts).
+    const { decision: ruled, label, target, readOnly, remember, sandbox, backend, paths, reason } =
+      await reviewCall(this, this.checkPolicy(call.name, args, context, fingerprint), { call, args, context, fingerprint });
     const held = { sandbox, backend, paths };
     if (context.dryRun && !readOnly) {
       this.store.event(context.runId, "tool.simulated", { name: call.name, id: call.id, label, target, decision: ruled });
@@ -1898,6 +1914,8 @@ ${run.output.slice(0, 6000)}`;
     // certainly not given for.
     if (fingerprint !== undefined && waiting.fingerprint !== fingerprint)
       throw new Error("That answer was for a different request. Look at what it wants to do now and answer again.");
+    // Wave mac3 (tool-safety): a request the safety check advised against may be allowed only this once.
+    this.approvals.settleOverrule(sessionId, waiting, decision, remember);
     this.approvals.resolve(sessionId, waiting.fingerprint);
     if (remember !== "never")
       this.approvals.remember(sessionId, waiting.tool, waiting.target, decision, {
