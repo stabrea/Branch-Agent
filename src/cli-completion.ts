@@ -1,3 +1,4 @@
+import { TERMINAL_CLI_COMMANDS } from "./terminal-parity.js";
 /**
  * Shell completion scripts for the `branch` command. They are plain text generated here, so the
  * person can write one to a file and load it from their shell profile; nothing is installed for
@@ -38,6 +39,8 @@ export const cliCommands: { name: string; summary: string; options: string[] }[]
   { name: "token", summary: "Short-lived keys for a script: token create | list | revoke <id>", options: ["--scope", "--minutes", "--name", "--json"] },
   { name: "schedule", summary: "Schedules on the engine already running: schedule add | list | remove <id>", options: ["--prompt", "--at", "--every", "--kind", "--json"] },
   { name: "trace", summary: "The trace number for one task, and whether it was sent anywhere", options: ["--json"] },
+  // Wave mac3 (terminal): every place by name and the everyday commands (src/terminal-parity.ts).
+  ...TERMINAL_CLI_COMMANDS,
 ];
 
 const commandNames = (): string => cliCommands.map((command) => command.name).join(" ");
