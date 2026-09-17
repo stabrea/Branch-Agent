@@ -108,6 +108,8 @@ export interface IntegrationFacts {
   browser: { allowedOrigins: string[]; downloadTypes: string[] } | null;
   channels: ChannelFact[];
   hooks: HookFact[];
+  /** As written in the file. Checks read network reach from SecuritySnapshot.network (the live policy,
+      which is authoritative); only `injection` is taken from here. */
   web: { allowPrivateAddresses: boolean; allowedHosts: string[] | null; injection: string } | null;
   /** Where in the file a value that looks like a real key or password was written. */
   keyLikeValues: string[];
@@ -143,6 +145,7 @@ export interface SecuritySnapshot {
   knownDevices: number;
   sessionLock: { idleMinutes: number; secretsWhileLocked: boolean };
   privacy: { outbound: string; moderation: boolean };
+  /** The network policy Branch is running with right now; authoritative over integrations.web. */
   network: { allowPrivateAddresses: boolean; allowedHosts: string[] | null; blockedHosts: number };
   traceExport: { enabled: boolean; endpoint: string; plainHeaders: string[] };
   tokens: { name: string; scope: string; expiresAt: string; revoked: boolean }[];
