@@ -1,0 +1,13 @@
+[project]
+name = "branch-agent-sdk"
+version = "0.0.0"
+description = "A standard-library-only client for a Branch Agent running on this computer"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.9"
+dependencies = []
+# Not published anywhere yet: this classifier makes the package index refuse an upload.
+classifiers = ["Private :: Do Not Upload"]
+
+[tool.setuptools]
+packages = ["branch_agent"]
