@@ -339,10 +339,14 @@ export class RunConductor {
   private startStep(): Message {
     const step = this.steps[this.index]!;
     this.checkBack(step);
+    // A step already marked as being worked on is one an earlier task stopped inside — to ask the
+    // owner something, most often. It begins again, so it is told to look before repeating itself.
+    const begunBefore = step.status === "working";
     step.status = "working";
     this.persist();
-    this.event("plan.step.started", { step: this.index + 1, of: this.steps.length, title: step.title });
-    return { role: "user", content: `Step ${this.index + 1} of ${this.steps.length}: ${step.title}. Do only this step now and say what you did. Do not start the next step.` };
+    this.event("plan.step.started", { step: this.index + 1, of: this.steps.length, title: step.title, ...(begunBefore ? { begunBefore } : {}) });
+    return { role: "user", content: `Step ${this.index + 1} of ${this.steps.length}: ${step.title}. Do only this step now and say what you did. Do not start the next step.`
+      + (begunBefore ? " You had already begun this step before it stopped: check what is already done before repeating anything that changes something." : "") };
   }
   /** Checks the finished step, then moves to the next one; null when the last step is done. */
   private async afterStep(answer: string): Promise<Message | null> {

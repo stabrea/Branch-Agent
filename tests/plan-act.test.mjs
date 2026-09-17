@@ -186,6 +186,8 @@ test("an ordinary approval in the middle of a plan does not throw the rest of th
   const writes = [stopped.id, second.id, done.id].flatMap((id) => data(app, id, "tool.completed"))
     .filter((event) => event.name === "files.write").length;
   assert.equal(writes, 2, "each note was written exactly once, though step 1 was begun twice");
+  assert.deepEqual(data(app, second.id, "plan.step.started").map((d) => d.begunBefore ?? false), [true, false],
+    "the step it stopped inside knows it had already begun");
   assert.equal(app.runtime.orchestration.plan(asked.sessionId), undefined, "the finished plan is cleared");
 });
 
