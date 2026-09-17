@@ -1,4 +1,5 @@
 import type { Completion, CompletionRequest, Provider } from "../contracts.js";
+import { ProviderHttpError } from "../provider-retry.js";
 import { currentAccountCall, type AccountCall } from "./context.js";
 import {
   type AccountState, failureFor, freshState, httpFailure, orderFor, rest, restMs, smartOrder, unavailable,
@@ -39,6 +40,17 @@ export interface PoolHooks {
 export class AccountLimitError extends Error {
   override name = "AccountLimitError";
   constructor(readonly pool: string, readonly account: string, message: string) { super(message); }
+}
+
+/**
+ * Every key was already resting. Said as a rate limit that lasts until the first key is ready, so
+ * the model list rests the whole connection and the task moves to the next one in the fallback order.
+ */
+export class EveryKeyRestingError extends ProviderHttpError {
+  constructor(waitMs: number, reasons: string) {
+    super(429, Math.max(0, waitMs), "rate_limit_exceeded");
+    this.message = `Every key of this connection is resting or switched off (${reasons}).`;
+  }
 }
 
 /** Refusals that come from a program's own plan limit (see src/providers/cli-agent.ts). */
@@ -103,7 +115,16 @@ export class AccountPoolProvider {
     }
     if (last) throw last;
     const reasons = usable.map((account) => `${account.label}: ${this.why(account) ?? "ready"}`).join("; ");
-    throw new Error(`Every key of this connection is resting or switched off (${reasons}).`);
+    throw new EveryKeyRestingError(this.firstReady(usable) - this.hooks.now(), reasons);
+  }
+  /** When the first of these keys can answer this model again; a minute when none of them will by itself. */
+  private firstReady(accounts: Account[]): number {
+    const now = this.hooks.now();
+    const times = accounts.filter((account) => !account.disabled && !this.hooks.capReached(account)).map((account) => {
+      const state = this.state(account.id);
+      return Math.max(state.restUntil, state.models.get(this.hooks.model) ?? 0);
+    });
+    return times.length ? Math.max(now, Math.min(...times)) : now + restMs.rate;
   }
 
   private async single(pool: Pool, usable: Account[], request: CompletionRequest, call: AccountCall | undefined): Promise<Completion> {

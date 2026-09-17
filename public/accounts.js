@@ -85,7 +85,8 @@ function statusOf(pool, account) {
   if (account.capReached) return t("accounts.state.cap");
   if (account.limitedUntil) return t("accounts.state.limit", { time: formatDate(account.limitedUntil, { timeStyle: "short" }) });
   if (account.restingUntil) return t("accounts.state.resting", { time: formatDate(account.restingUntil, { timeStyle: "short" }) });
-  if (pool.signedIn && pool.signedIn[account.id] === false) return t("accounts.state.signed-out");
+  if (pool.signedIn && pool.signedIn[account.id] === false)
+    return pool.signInProblems?.[account.id] ? `${t("accounts.state.signed-out")} ${pool.signInProblems[account.id]}` : t("accounts.state.signed-out");
   return t("accounts.state.ready");
 }
 function usageOf(pool, account) {

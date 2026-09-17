@@ -187,17 +187,25 @@ export function switchAccount(service: AccountsService, input: unknown) {
 
 /* ---------- what the screens read ---------- */
 
+/** True while someone other than the owner is using Branch (a household profile, or a person signed in elsewhere). */
+const someoneElse = (service: AccountsService): boolean => service.deps.store.profiles.scope() !== service.deps.owner;
+
 export function viewPool(service: AccountsService, pool: Pool) {
   const now = service.now();
+  // Somebody else sees only the keys shared with them, and none of the owner's spending.
+  const others = someoneElse(service);
+  const shown = others ? pool.accounts.filter((account) => pool.kind === "api-key" && account.shared) : pool.accounts;
   return {
     pool: pool.pool, kind: pool.kind, strategy: pool.strategy, autoSwitch: pool.autoSwitch,
     defaultAccount: pool.defaultAccount ?? pool.accounts[0]?.id ?? null,
     terms: accountTerms(pool.kind, pool.pool),
-    accounts: pool.accounts.map((account) => {
+    accounts: shown.map((account) => {
       const state = service.stateOf(pool.pool, account.id);
       return {
         ...account,
-        usage: service.ledger.month(service.deps.owner, pool.pool, account.id, new Date(now)),
+        ...(others ? { monthlyCapUsd: null } : {}),
+        usage: others ? { requests: 0, input: 0, output: 0, costUsd: 0, lastUsedAt: null }
+          : service.ledger.month(service.deps.owner, pool.pool, account.id, new Date(now)),
         capReached: service.capReached(pool.pool, account),
         restingUntil: state.restUntil > now ? new Date(state.restUntil).toISOString() : null,
         limitedUntil: state.limitedUntil > now ? new Date(state.limitedUntil).toISOString() : null,
@@ -224,15 +232,21 @@ export async function viewAll(service: AccountsService) {
   for (const [id, about] of seen) {
     const draft = { ...settings, pools: [...settings.pools] };
     const view = viewPool(service, poolOf(draft, id, about.kind, new Date(service.now())));
-    pools.push({ ...view, name: about.name, signedIn: about.kind === "chatgpt" ? await signedInMap(service, view.accounts.map((a) => a.id)) : null });
+    const signIn = about.kind === "chatgpt" ? await signInState(service, view.accounts.map((a) => a.id)) : null;
+    pools.push({ ...view, name: about.name, signedIn: signIn?.signedIn ?? null, signInProblems: signIn?.problems ?? null });
   }
   return { mode: settings.mode, pools };
 }
-async function signedInMap(service: AccountsService, ids: string[]): Promise<Record<string, boolean>> {
-  const result: Record<string, boolean> = {};
-  for (const id of ids)
-    result[id] = id === primaryAccount ? service.legacySignedIn : (await service.chatgptAccounts.auth(id).status()).signedIn;
-  return result;
+/** Whether each ChatGPT account is signed in, and why the last sign-in failed (never a token). */
+async function signInState(service: AccountsService, ids: string[]) {
+  const signedIn: Record<string, boolean> = {}, problems: Record<string, string | null> = {};
+  for (const id of ids) {
+    if (id === primaryAccount) { signedIn[id] = service.legacySignedIn; problems[id] = null; continue; }
+    const status = await service.chatgptAccounts.auth(id).status();
+    signedIn[id] = status.signedIn;
+    problems[id] = status.lastError;
+  }
+  return { signedIn, problems };
 }
 
 /** What the conversation header shows: for the connection answering now, which account it uses. */
@@ -245,10 +259,12 @@ export function viewSession(service: AccountsService, sessionId: string) {
   const pool = found ? service.pool(found.pool) : null;
   if (!pool || pool.accounts.length < 2) return { on: true, pool: null };
   const chosen = sessionId ? sessionChoice(store, owner, sessionId)[pool.pool] ?? null : null;
-  const active = pool.accounts.find((account) => account.id === (chosen ?? pool.defaultAccount)) ?? pool.accounts[0]!;
+  const visible = someoneElse(service) ? pool.accounts.filter((account) => pool.kind === "api-key" && account.shared) : pool.accounts;
+  if (!visible.length) return { on: true, pool: null };
+  const active = visible.find((account) => account.id === (chosen ?? pool.defaultAccount)) ?? visible[0]!;
   return {
     on: true, pool: pool.pool, kind: pool.kind, account: active.id, label: active.label,
     chosenHere: chosen !== null,
-    accounts: pool.accounts.filter((account) => !account.disabled).map((account) => ({ id: account.id, label: account.label })),
+    accounts: visible.filter((account) => !account.disabled).map((account) => ({ id: account.id, label: account.label })),
   };
 }

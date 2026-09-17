@@ -135,6 +135,25 @@ test("A4 once every key rests, the task falls back to the next connection", asyn
   assert.equal(events(app, run, "model.fallback").length, 1);
 });
 
+test("A4b when every key was already resting, the task still falls back instead of failing", async (t) => {
+  const fx = await fixture(t);
+  const { app, owner } = fx;
+  apiConnection(fx, rateLimited);
+  fx.service.deps.fetchImpl = async () => new Response(JSON.stringify({ error: { code: "rate_limit_exceeded" } }), { status: 429, headers: { "retry-after": "20", "content-type": "application/json" } });
+  let backup = 0;
+  app.runtime.models.register({ id: "backup", name: "Backup", model: "backup-model", provider: { name: "backup", complete: async () => { backup++; return { content: "from the backup", toolCalls: [] }; } } });
+  app.runtime.models.configure(owner, { activePreset: POOL, fallbackOrder: ["backup"], cooldownMs: 0 });
+  await turnOn(fx.service);
+  await addKey(fx.service);
+  await app.runtime.run({ prompt: "rest both keys" });
+  const run = await app.runtime.run({ prompt: "hello again" });
+  assert.equal(run.output, "from the backup");
+  assert.equal(events(app, run, "model.account_resting").length, 0, "no key was asked: both were still resting");
+  assert.equal(events(app, run, "model.fallback").length, 1);
+  assert.match(events(app, run, "model.fallback")[0].data.reason, /Every key of this connection is resting/);
+  assert.equal(backup, 2);
+});
+
 test("A5 a key that reached its monthly cap is passed over", async (t) => {
   const fx = await fixture(t);
   const { app, owner, service } = fx;
@@ -295,9 +314,16 @@ test("A10 people sharing the computer use only keys the owner shared, and never 
   t.after(() => app.store.profiles.switch({ profileId: null }));
   const refused = await app.runtime.run({ prompt: "hello" });
   assert.match(refused.output, /None of this connection's accounts is shared with you/);
+  const { viewAll } = await import("../dist/accounts/manage.js");
+  const hidden = (await viewAll(service)).pools.find((pool) => pool.pool === POOL);
+  assert.deepEqual(hidden.accounts, [], "nothing of the owner's is listed for them while nothing is shared");
   app.store.profiles.switch({ profileId: null });
-  await updateAccount(service, { pool: POOL, account: second, shared: true });
+  await updateAccount(service, { pool: POOL, account: second, shared: true, monthlyCapUsd: 50 });
   app.store.profiles.switch({ profileId: person.id, pin: "1234" });
+  const seen = (await viewAll(service)).pools.find((pool) => pool.pool === POOL);
+  assert.deepEqual(seen.accounts.map((account) => account.label), ["Second"]);
+  assert.equal(seen.accounts[0].monthlyCapUsd, null, "the owner's cap is not shown to them");
+  assert.equal(seen.accounts[0].usage.costUsd, 0);
   const shared = await app.runtime.run({ prompt: "hello" });
   assert.equal(shared.output, "from the second key");
   assert.equal(calls.first, 0);
