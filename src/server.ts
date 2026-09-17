@@ -354,6 +354,8 @@ async function staticFile(
     "/context-files.js": ["context-files.js", "text/javascript; charset=utf-8"],
     "/layout.css": ["layout.css", "text/css; charset=utf-8"],
     "/theme-catalogue.js": ["theme-catalogue.js", "text/javascript; charset=utf-8"],
+    // Wave mac3: one theme's colours under Branch's token names, for the window and the dashboard.
+    "/theme-bridge.js": ["theme-bridge.js", "text/javascript; charset=utf-8"],
     "/grove.js": ["grove.js", "text/javascript; charset=utf-8"],
     "/context-pane.js": ["context-pane.js", "text/javascript; charset=utf-8"],
     // Wave 7: what a conversation is allowed to do right now, and the observability screens.
@@ -2225,8 +2227,8 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
       // ---- Wave mac3: the owner's dashboard (src/dashboard-api.ts). What this key may do is worked
       // out once here, so the page can show a read-only view to a key that may only look. ----
       if (handlesDashboardPath(path)) {
-        const access = dashboardAccess(request, token, (supplied) =>
-          app.sessionTokens.check(app.runtime.owner, supplied, { method: "POST", executes: true }));
+        // The key was already checked and its use counted above; this only reads what it may do.
+        const access = dashboardAccess(request, token, (supplied) => app.sessionTokens.scopeOf(app.runtime.owner, supplied));
         const answer = await dashboardApi(app, request, path, {
           dataDir: options.dataDir, access, readBody: () => readBody(request),
         }).catch((error: unknown) => {
@@ -2639,6 +2641,10 @@ function offLimitsToShortLivedKeys(method: string | undefined, path: string): st
     return "A short-lived key cannot name a program for Branch to run, add a model service, or change the locker. Do that in the app window.";
   if (path === "/api/deployment/close")
     return "A short-lived key cannot close Branch. Only the app on this computer can.";
+  // Wave mac3 (dashboard review): a "run" key "cannot change what Branch is allowed to do", and
+  // Lockdown is exactly that; without this a script's key could switch Lockdown off.
+  if (path === "/api/lockdown")
+    return "A short-lived key cannot switch Lockdown on or off. Do that in the app window or with the key of this computer.";
   // Wave mac2 (guards): trusting a folder lets what is in it steer the assistant.
   if (handlesGuardsPath(path)) return "A short-lived key cannot change which folders are trusted or how repeated steps are stopped. Do that in the app window.";
   return null;

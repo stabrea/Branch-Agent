@@ -30,7 +30,12 @@ export interface SummaryDeps {
 
 const ACTIVITY_KINDS = new Set(["run.started", "run.finished", "model.started", "model.completed", "tool.started",
   "tool.completed", "tool.failed", "policy.ask", "schedule.fired", "delivery.failed"]);
-const clip = (text: unknown, length = 160) => String(text ?? "").replace(/\s+/g, " ").trim().slice(0, length);
+/**
+ * A short one-line version of a recorded text. Saved keys and key-shaped values are taken out before
+ * it is cut, because a key cut in half is no longer recognised by the scrubber the summary goes through.
+ */
+const clip = (app: Branch, text: unknown, length = 160) =>
+  app.runtime.hideSecrets(String(text ?? "")).replace(/\s+/g, " ").trim().slice(0, length);
 const sinceDays = (days: number, now: Date) => new Date(now.getTime() - days * 86_400_000).toISOString();
 
 /* ---------- Now ---------- */
@@ -39,7 +44,7 @@ function workingNow(app: Branch): Array<{ runId: string; sessionId: string; prom
   return app.store.runs(app.store.profiles.scope())
     .filter((run: Run) => run.status === "running")
     .slice(0, 20)
-    .map((run: Run) => ({ runId: run.id, sessionId: run.sessionId, prompt: clip(run.prompt), startedAt: run.createdAt }));
+    .map((run: Run) => ({ runId: run.id, sessionId: run.sessionId, prompt: clip(app, run.prompt), startedAt: run.createdAt }));
 }
 
 /** Questions a task stopped to ask, approvals waiting for a yes, and suggested memory changes. */
@@ -49,10 +54,10 @@ function needsYou(app: Branch) {
   for (const run of app.store.runs(owner)) {
     if (seen.has(run.sessionId)) continue;
     seen.add(run.sessionId);
-    if (run.status === "needs_input") questions.push({ runId: run.id, sessionId: run.sessionId, text: clip(run.output), at: run.createdAt });
+    if (run.status === "needs_input") questions.push({ runId: run.id, sessionId: run.sessionId, text: clip(app, run.output), at: run.createdAt });
   }
   const approvals = app.runtime.approvals.waiting()
-    .map((item) => ({ runId: item.runId, sessionId: item.sessionId, text: clip(item.label || item.question) }));
+    .map((item) => ({ runId: item.runId, sessionId: item.sessionId, text: clip(app, item.label || item.question) }));
   const memory = app.store.review.proposals(owner).length;
   return { total: questions.length + approvals.length + memory, questions, approvals, memory };
 }
@@ -86,7 +91,7 @@ function connectionsHealth(app: Branch) {
     return {
       id: preset.id, name: preset.name, model: preset.model, local: preset.local,
       state: failing ? "failing" : preset.health.lastOkAt ? "connected" : "unused",
-      lastOkAt: preset.health.lastOkAt, reason: failing ? clip(preset.health.lastError ?? "Resting after a failure") : null,
+      lastOkAt: preset.health.lastOkAt, reason: failing ? clip(app, preset.health.lastError ?? "Resting after a failure") : null,
     };
   });
 }
@@ -100,8 +105,8 @@ function channelsHealth(app: Branch) {
     const gaveUp = mine.filter((delivery) => delivery.status === "dead").length;
     const state = channel.health.state === "connected" && gaveUp === 0 ? "connected" : "failing";
     return {
-      id: channel.id, kind: channel.kind, name: clip(channel.botName ?? channel.id, 60), state,
-      reason: clip(channel.health.reason ?? (gaveUp ? mine.find((d) => d.status === "dead")?.lastError : "") ?? ""),
+      id: channel.id, kind: channel.kind, name: clip(app, channel.botName ?? channel.id, 60), state,
+      reason: clip(app, channel.health.reason ?? (gaveUp ? mine.find((d) => d.status === "dead")?.lastError : "") ?? ""),
       lastMessageAt: last, waiting: mine.length - gaveUp, gaveUp,
     };
   });
@@ -122,16 +127,16 @@ export function scheduleStanding(data: Record<string, unknown>): "healthy" | "fa
 function automationsHealth(app: Branch) {
   const owner = app.runtime.owner;
   const schedules = app.store.list("schedules", owner).map((record) => ({
-    id: record.id, name: clip(record.data.prompt, 80), kind: String(record.data.kind ?? "task"),
+    id: record.id, name: clip(app, record.data.prompt, 80), kind: String(record.data.kind ?? "task"),
     standing: scheduleStanding(record.data),
     lastRunAt: typeof record.data.lastRunAt === "string" ? record.data.lastRunAt : null,
     nextAt: record.data.status === "pending" && typeof record.data.dueAt === "string" ? record.data.dueAt : null,
-    reason: clip(record.data.pausedBecause ?? record.data.error ?? ""),
+    reason: clip(app, record.data.pausedBecause ?? record.data.error ?? ""),
   }));
   // A trigger's own record carries its secret, so only its name and switch leave this function.
-  const triggers = app.triggers.list(owner).map((trigger) => ({ id: trigger.id, name: clip(trigger.name, 80), on: trigger.enabled }));
+  const triggers = app.triggers.list(owner).map((trigger) => ({ id: trigger.id, name: clip(app, trigger.name, 80), on: trigger.enabled }));
   const workflows = app.workflows.list(owner).map((flow) => ({
-    id: flow.id, name: clip(flow.name, 80),
+    id: flow.id, name: clip(app, flow.name, 80),
     standing: flow.status === "failed" || flow.status === "interrupted" ? "failing"
       : flow.status === "completed" ? "healthy" : flow.status === "idle" ? "never" : flow.status === "paused" ? "paused" : "running",
   }));
@@ -198,13 +203,13 @@ function recentErrors(app: Branch, now: Date) {
   const owner = app.runtime.owner, since = sinceDays(7, now);
   const failedTasks = app.store.runs(owner)
     .filter((run) => run.status === "failed" && run.updatedAt >= since)
-    .map((run) => ({ at: run.updatedAt, what: "task", text: clip(run.output || run.prompt), runId: run.id }));
+    .map((run) => ({ at: run.updatedAt, what: "task", text: clip(app, run.output || run.prompt), runId: run.id }));
   const failedTools = app.store.recentEvents(owner, 400)
     .filter((event) => event.kind === "tool.failed" && event.createdAt >= since)
-    .map((event) => ({ at: event.createdAt, what: "tool", text: clip(event.data.error ?? event.data.name), runId: event.runId }));
+    .map((event) => ({ at: event.createdAt, what: "tool", text: clip(app, event.data.error ?? event.data.name), runId: event.runId }));
   const crashes = app.store.spans.recent(owner, 200)
     .filter((span) => span.kind === "error" && span.startedAt >= since)
-    .map((span) => ({ at: span.startedAt, what: "engine", text: clip(span.message), runId: null as string | null }));
+    .map((span) => ({ at: span.startedAt, what: "engine", text: clip(app, span.message), runId: null as string | null }));
   return [...failedTasks, ...failedTools, ...crashes]
     .sort((a, b) => b.at.localeCompare(a.at)).slice(0, 8);
 }
@@ -286,7 +291,7 @@ export function activitySection(app: Branch, limit = 40) {
     lastEventId: events[0]?.id ?? 0,
     events: events.filter((event) => ACTIVITY_KINDS.has(event.kind)).slice(0, limit).map((event) => ({
       id: event.id, runId: event.runId, kind: event.kind, createdAt: event.createdAt,
-      about: clip(event.data.name ?? event.data.label ?? event.data.model ?? event.data.question ?? event.data.error ?? "", 80),
+      about: clip(app, event.data.name ?? event.data.label ?? event.data.model ?? event.data.question ?? event.data.error ?? "", 80),
     })),
   };
 }

@@ -3,6 +3,8 @@ import type { IncomingMessage } from "node:http";
 import { z } from "zod";
 import type { createBranch } from "./index.js";
 import type { Store } from "./store.js";
+import type { TokenScope } from "./session-tokens.js";
+import { FeatureModeSchema } from "./feature-switches.js";
 import { readRunning } from "./install/running.js";
 import { assistantIdentity } from "./identity.js";
 import { preferences } from "./preferences.js";
@@ -31,7 +33,7 @@ import {
 type Branch = Awaited<ReturnType<typeof createBranch>>;
 
 export const DashboardSettingsSchema = z.object({
-  mode: z.enum(["off", "on", "when-needed"]).default("off"),
+  mode: FeatureModeSchema.default("off"),
 }).strict();
 export type DashboardSettings = z.infer<typeof DashboardSettingsSchema>;
 
@@ -66,11 +68,12 @@ export function handlesDashboardPath(path: string): boolean {
 /** What the key on this request may do on the page: everything, start and stop tasks, or only look. */
 export type DashboardAccess = "full" | "run" | "read";
 export function dashboardAccess(
-  request: IncomingMessage, masterKey: string, scoped: (supplied: string) => string | null,
+  request: IncomingMessage, masterKey: string, scopeOf: (supplied: string) => TokenScope | null,
 ): DashboardAccess {
-  const supplied = /^Bearer (\S+)$/.exec(String(request.headers.authorization ?? ""))?.[1] ?? "";
-  if (supplied.length === masterKey.length && timingSafeEqual(Buffer.from(supplied), Buffer.from(masterKey))) return "full";
-  return scoped(supplied) === null ? "run" : "read";
+  const supplied = Buffer.from(/^Bearer (\S+)$/.exec(String(request.headers.authorization ?? ""))?.[1] ?? "");
+  const master = Buffer.from(masterKey);
+  if (supplied.length === master.length && timingSafeEqual(supplied, master)) return "full";
+  return scopeOf(supplied.toString()) === "run" ? "run" : "read";
 }
 
 export class DashboardApiError extends Error {

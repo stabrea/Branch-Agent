@@ -115,12 +115,16 @@ test("a short-lived key only looks, or only stops tasks; the master key alone ch
   const run = f.app.sessionTokens.create(f.owner, { name: "phone script", scope: "run" }).token;
   assert.equal((await (await f.call("/api/dashboard", read)).json()).access, "read");
   assert.equal((await (await f.call("/api/dashboard", run)).json()).access, "run");
+  /* Working out what the key may do does not count a second use of it. */
+  for (const entry of f.app.sessionTokens.list(f.owner)) assert.equal(entry.uses, 1, `${entry.name} was counted ${entry.uses} times`);
   for (const key of [read, run]) {
     for (const [path, body] of [["/api/dashboard/automations", { paused: true }], ["/api/dashboard/restart", {}], ["/api/dashboard/settings", { mode: "off" }]]) {
       const answer = await f.call(path, key, body);
       assert.ok([401, 403].includes(answer.status), `${path} let a short-lived key through (${answer.status})`);
     }
   }
+  /* Lockdown is not a short-lived key's to switch, either way. */
+  for (const on of [true, false]) assert.equal((await f.call("/api/lockdown", run, { on })).status, 401);
   assert.equal(dashboardSettings(f.app.store, f.owner).mode, "on");
   assert.equal((await f.call("/api/dashboard", "branch_" + "0".repeat(48))).status, 401);
 });
