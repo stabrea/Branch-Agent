@@ -92,6 +92,22 @@ test("the wrapper really starts the program with its arguments intact", { skip: 
   assert.deepEqual(JSON.parse(out), args);
 });
 
+test("hostile arguments never run as shell commands through the wrapper", { skip: !posix }, async (t) => {
+  const dir = await scratch(t);
+  const marks = ["a", "b", "c", "d"].map((name) => join(dir, name));
+  const args = [`$(touch ${marks[0]})`, `\`touch ${marks[1]}\``, `x\ntouch ${marks[2]}`, `'; touch ${marks[3]}; '`, "--", "\"$@\"", "$0"];
+  const wrapped = limitWrapper({ executable: process.execPath, args: ["-e", "console.log(JSON.stringify(process.argv.slice(1)))", ...args] }, limits, process.platform);
+  const { code, out, err } = await output(wrapped);
+  assert.equal(code, 0, err);
+  assert.deepEqual(JSON.parse(out), args, "every argument arrives byte for byte");
+  for (const mark of marks) assert.equal(await readFile(mark).then(() => true, () => false), false, `${mark} was created`);
+  // A hostile program name is also only ever "$0", never part of the script.
+  const odd = limitWrapper({ executable: `/nonexistent/$(touch ${marks[0]})`, args: [] }, limits, process.platform);
+  const failed = await output(odd);
+  assert.notEqual(failed.code, 0);
+  assert.equal(await readFile(marks[0]).then(() => true, () => false), false);
+});
+
 test("a limit can only be lowered: a lower one already in place is kept, a higher one is brought down", { skip: !posix }, async () => {
   const report = ["-c", "echo $(ulimit -S -t) $(ulimit -H -t)"];
   const wrapped = limitWrapper({ executable: "/bin/sh", args: report }, limits, process.platform);
@@ -142,6 +158,13 @@ test("letting a group go asks first, then forces only what is still there", asyn
   await endProcessGroup(0, { kill: (pid, signal) => never.push(signal) });
   assert.deepEqual(never, [], "never the whole system, never our own group");
   await assert.rejects(endProcessGroup(99, { kill: () => { throw Object.assign(new Error("no"), { code: "EPERM" }); } }), /no/);
+  // macOS answers EPERM once only finished, uncollected members are left: that is the group gone.
+  const zombies = [];
+  await endProcessGroup(77, { graceMs: 200, kill: (pid, signal) => {
+    zombies.push(signal);
+    if (signal !== "SIGTERM") throw Object.assign(new Error("only zombies"), { code: "EPERM" });
+  } });
+  assert.deepEqual(zombies, ["SIGTERM", 0], "no SIGKILL, and no error, once only zombies remain");
 });
 
 test("closing the group ends a grandchild the command left behind", { skip: !posix }, async (t) => {
@@ -243,17 +266,34 @@ test("the real reader sees this computer's own group", { skip: !posix }, async (
   } finally { process.kill(-child.pid, "SIGKILL"); }
 });
 
+test("macOS ps -g really reads every program in the group, not just the leader", { skip: process.platform !== "darwin" }, async () => {
+  const child = spawn("/bin/sh", ["-c", `"${process.execPath}" -e "setTimeout(() => {}, 3000)" & wait`], { detached: true, stdio: "ignore" });
+  try {
+    await delay(300);
+    const rows = [];
+    const sample = await readDarwinGroup(child.pid, async (executable, args) => {
+      const text = execFileSync(executable, args, { encoding: "utf8" });
+      rows.push(...text.trim().split("\n"));
+      return text;
+    });
+    assert.ok(sample && sample.memoryMb > 1, JSON.stringify(sample));
+    assert.ok(rows.length >= 2, `the group read saw ${rows.length} program(s)`);
+  } finally { process.kill(-child.pid, "SIGKILL"); }
+});
+
 /* ---- a rule can only tighten ---- */
 
-test("a sandbox rule never opens the internet the settings closed, on macOS and Linux alike", () => {
+test("a sandbox rule only ever tightens, every field, on macOS, Linux and Windows alike", () => {
+  const ruleShape = { "no-internet": { job: true, netless: true }, "limits-only": { job: true, netless: false }, none: { job: false, netless: false } };
   for (const platform of ["darwin", "linux", "win32"]) {
     for (const choice of [null, undefined, ...sandboxChoices]) {
       for (const job of [true, false]) for (const netless of [true, false]) {
         const fallback = { job, netless };
         const shape = sandboxShape(choice, fallback);
-        if (netless) assert.equal(shape.netless, true, `${platform}: ${choice} loosened no-internet`);
-        if (!choice) assert.deepEqual(shape, fallback, `${platform}: no rule changes nothing`);
-        if (choice === "no-internet") assert.equal(shape.netless, true);
+        const expected = choice ? { job: ruleShape[choice].job || job, netless: ruleShape[choice].netless || netless } : fallback;
+        assert.deepEqual(shape, expected, `${platform}: ${choice} over ${JSON.stringify(fallback)}`);
+        assert.ok(!job || shape.job, `${platform}: ${choice} let go of limits the settings hold`);
+        assert.ok(!netless || shape.netless, `${platform}: ${choice} reopened the internet the settings closed`);
         // On macOS and Linux a held shape is started through the fixed limit script, and that
         // script only ever lowers a limit, so composing it with the host's limits cannot loosen them.
         if (shape.job && platform !== "win32") {
@@ -264,6 +304,8 @@ test("a sandbox rule never opens the internet the settings closed, on macOS and 
       }
     }
   }
+  // "none" still drops the box when the settings never asked for one.
+  assert.deepEqual(sandboxShape("none", { job: false, netless: false }), { job: false, netless: false });
 });
 
 /* ---- shells ---- */

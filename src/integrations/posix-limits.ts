@@ -61,10 +61,15 @@ export function limitWrapper(command: Command, limits: JobLimits, platform: Posi
 
 type Kill = (pid: number, signal: NodeJS.Signals | 0) => void;
 const systemKill: Kill = (pid, signal) => { process.kill(pid, signal); };
-/** Sends a signal to the whole group; false when there is no group left to send it to. */
-function signalGroup(pgid: number, signal: NodeJS.Signals | 0, kill: Kill): boolean {
+/**
+ * Sends a signal to the whole group; false when there is no group left to send it to. Once the
+ * group has taken a first signal, macOS answers EPERM rather than ESRCH while the only members left
+ * are finished programs waiting to be collected, so from then on EPERM also means nothing is left.
+ */
+function signalGroup(pgid: number, signal: NodeJS.Signals | 0, kill: Kill, accepted = false): boolean {
   try { kill(-pgid, signal); return true; } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ESRCH') return false;
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === 'ESRCH' || (accepted && code === 'EPERM')) return false;
     throw error;
   }
 }
@@ -79,9 +84,9 @@ export async function endProcessGroup(pgid: number, options: { graceMs?: number;
   const deadline = Date.now() + (options.graceMs ?? 150);
   while (Date.now() < deadline) {
     await new Promise(resolve => setTimeout(resolve, 25));
-    if (!signalGroup(pgid, 0, kill)) return;
+    if (!signalGroup(pgid, 0, kill, true)) return;
   }
-  signalGroup(pgid, 'SIGKILL', kill);
+  signalGroup(pgid, 'SIGKILL', kill, true);
 }
 
 /** One command's limits and group. It must be started with `wrap` and `detached: true`. */
