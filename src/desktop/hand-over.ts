@@ -106,6 +106,7 @@ function posixLaunch(plan: PosixHandOverPlan, watch: boolean): string {
  */
 export function posixHandOverScript(plan: PosixHandOverPlan): string {
   const q = shellQuote;
+  if (plan.daemonPid !== null && !Number.isSafeInteger(plan.daemonPid)) throw new Error("The background engine's process id is not a number.");
   return [
     "#!/bin/sh", 'PID="$1"',
     `TARGET=${q(plan.target)}`, `STAGED=${q(plan.staged)}`, `LOG=${q(plan.log)}`,

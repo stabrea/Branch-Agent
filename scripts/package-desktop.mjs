@@ -114,7 +114,7 @@ async function packageWindows({ arch, release }) {
   const { bootstrapperScript } = await import("../dist/install/installer.js");
   const script = join(RELEASE, "Install Branch Agent.cmd");
   await writeFile(script, bootstrapperScript({
-    assetName: "Branch-Agent-windows-x64.zip", executableName: "Branch Agent.exe",
+    assetName: assetNameFor("win32", "x64"), executableName: "Branch Agent.exe",
   }), "utf8");
   console.log(script);
   console.log(paths.join("\n"));

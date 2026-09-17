@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { createWriteStream } from "node:fs";
-import { mkdir, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -122,6 +122,7 @@ export class Updater {
     try {
       await rm(this.options.scratchDir, { recursive: true, force: true });
       await mkdir(this.options.scratchDir, { recursive: true });
+      if (this.platform !== "win32") await ensurePrivateDir(this.options.scratchDir);
       const archive = join(this.options.scratchDir, this.options.assetName!);
       await this.download(release, archive);
       await this.verify(archive, release);
@@ -279,6 +280,19 @@ function unsupportedReason(options: UpdaterOptions, platform: NodeJS.Platform): 
   if (options.installDir) return null;
   if (platform === "win32") return "Updates apply to the installed app only.";
   return "Updates apply to the installed app only. This copy is running from its source code, so update it with `branch update` instead.";
+}
+
+/**
+ * macOS and Linux: the scratch folder can sit in a temp folder other people can write to (/tmp on
+ * Linux), so it must be a real folder owned by this person and closed to everyone else before the
+ * download and the hand-over script go into it.
+ */
+export async function ensurePrivateDir(dir: string): Promise<void> {
+  const info = await lstat(dir);
+  const uid = process.getuid?.();
+  if (!info.isDirectory() || info.isSymbolicLink() || (uid !== undefined && info.uid !== uid))
+    throw new Error("The update folder is not safe to use (it belongs to someone else). Restart the computer and try again.");
+  await chmod(dir, 0o700);
 }
 
 /** macOS: the unpacked `.app` bundle itself, wherever it sits in the download. */

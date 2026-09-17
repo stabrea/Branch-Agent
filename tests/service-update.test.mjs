@@ -449,3 +449,41 @@ test("doctor gives Git advice that fits the computer, in plain words", async () 
     assert.ok(!/\b(TTS|daemon|binary|stdout|localhost|launchd|systemd)\b/.test(doctorText(report)));
   }
 });
+
+// ------------------------------------------------------------------ one list of download names
+
+test("packaging, the release workflow and the updater agree on every download name and layout", async () => {
+  const { assetNameFor } = await import("../scripts/package-desktop.mjs");
+  const mac = await import("../scripts/package-macos.mjs");
+  const linux = await import("../scripts/package-linux.mjs");
+  const { macAppBundleName } = await import("../dist/desktop/release-assets.js");
+  for (const platform of ["win32", "darwin", "linux", "freebsd"])
+    for (const arch of ["x64", "arm64", "ia32"])
+      assert.equal(assetNameFor(platform, arch), releaseAssetName(platform, arch), `${platform} ${arch}`);
+  for (const arch of mac.MAC_ARCHES) assert.equal(mac.macAssetName(arch), releaseAssetName("darwin", arch));
+  assert.equal(linux.linuxAssetName("x64"), releaseAssetName("linux", "x64"));
+  assert.equal(`${linux.LINUX_FOLDER}.tar.gz`, releaseAssetName("linux", "x64"), "the Linux folder is named after its download");
+  assert.equal(appEntryName("linux"), linux.LINUX_EXECUTABLE);
+  assert.equal(appEntryName("darwin"), `${mac.MAC_APP_NAME}.app`);
+  assert.equal(macAppBundleName, `${mac.MAC_APP_NAME}.app`);
+  const workflow = await readFile(new URL("../.github/workflows/package.yml", import.meta.url), "utf8");
+  const verifyLoop = /for name in ([^;]+);/.exec(workflow)?.[1].trim().split(/\s+/);
+  assert.deepEqual(verifyLoop, releaseAssets.map(({ name }) => name), "the workflow checks exactly these downloads");
+  const upload = /gh release upload[^\n]*\n((?:\s+.*\\\n)+)/.exec(workflow)?.[1] ?? "";
+  for (const { name } of releaseAssets) {
+    assert.ok(upload.includes(` ${name} `), `the workflow attaches ${name}`);
+    assert.ok(upload.includes(` ${checksumAssetName(name)} `), `the workflow attaches ${checksumAssetName(name)}`);
+  }
+});
+
+test("on macOS and Linux the update folder must belong to this person and is closed to others", { skip: process.platform === "win32" && "POSIX owners" }, async (t) => {
+  const { ensurePrivateDir } = await import("../dist/desktop/updater.js");
+  const root = await scratch(t);
+  const dir = join(root, "update");
+  await mkdir(dir, { mode: 0o777 });
+  await ensurePrivateDir(dir);
+  assert.equal((await stat(dir)).mode & 0o777, 0o700);
+  await symlink(dir, join(root, "link"));
+  await assert.rejects(ensurePrivateDir(join(root, "link")), /not safe/);
+  assert.throws(() => posixHandOverScript({ platform: "linux", target: "/a", staged: "/b", log: "/c", executableName: "x", daemonPid: "1; rm -rf ~" }), /not a number/);
+});
