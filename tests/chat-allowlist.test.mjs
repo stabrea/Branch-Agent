@@ -15,7 +15,7 @@ import { discardTemp } from "./temp-dir.mjs";
 import { createBranch, savePolicy } from "../dist/index.js";
 import { chatPermissionsOf } from "../dist/channels/router.js";
 import { chatSafePermissions, chatExtraPermissions, neverFromChat, neverFromChatFamilies,
-  grantableToChat } from "../dist/channels/chat-permissions.js";
+  grantableToChat, chatApprovablePermissions } from "../dist/channels/chat-permissions.js";
 import { isReadOnlyPermission } from "../dist/policy.js";
 import { changesFor, applyChanges, resetProposals } from "../dist/settings-kit/changes.js";
 
@@ -153,7 +153,8 @@ test("the owner's own paired account is a chat like any other, and can still ans
 test("putting the settings back turns the switch off and leaves the owner's own lines alone", async (t) => {
   const { app } = await fixture(t, callsTool("files.read"));
   const store = app.store, owner = app.runtime.owner;
-  const rules = [{ channel: "chat", sender: "owner", allow: ["files.write"], note: "my own phone" }];
+  // mac7/chat-approvals: a line written without the switch reads back with it off, never on.
+  const rules = [{ channel: "chat", sender: "owner", allow: ["files.write"], note: "my own phone", approvals: false }];
   app.channels.setPermissionSettings({ extras: true, rules });
   const { changes } = changesFor(store, owner, resetProposals("chat-permissions"));
   assert.deepEqual(changes.map((change) => [change.id, change.from, change.to, change.loosens]),
@@ -253,4 +254,95 @@ test("a household person on this computer cannot write a line, and the owner sti
   // Every change is written down, so a line that appeared can be traced to when it was saved.
   assert.ok(app.store.audit.list(app.runtime.owner, { action: "policy.changed" })
     .some((entry) => entry.subject === "what a chat message's task may use"), "a rule change was not recorded");
+});
+
+// ---- mac7/chat-approvals: the per-sender switch that lets a chat answer its own question --------
+
+/** A line of the owner's, written the way the card writes one. */
+const line = (extra = {}) => ({ channel: "chat", sender: "owner", allow: ["invented.power"], note: "my own phone", ...extra });
+/** What this chat and this person may say yes to, out of what their own lines granted. */
+const mayApprove = (app, channel = "chat", sender = "owner") =>
+  chatApprovablePermissions(app.channels.permissionSettings(), channel, sender);
+/** A task that stops on the invented tool, with the owner's line already saved. */
+async function stoppedOnAsk(t, rules) {
+  const { app, chat } = await fixture(t, callsTool("demo.invented"));
+  app.channels.setPermissionSettings({ extras: true, rules });
+  savePolicy(app.store, app.runtime.owner, { preset: "custom",
+    rules: [{ tool: "demo.invented", match: "*", applies: "any", decision: "ask", remember: "session" }] });
+  assert.equal(await app.channels.handle(message("use the new thing")), "replied");
+  assert.equal(app.store.run(lastRun(app).id).status, "needs_input", "the granted thing did not wait for a yes");
+  return { app, chat };
+}
+
+test("a line may say yes from the chat only when the owner turned that on, and it starts off", async (t) => {
+  // A line written without the switch reads back with it off, so an older saved line stays as it was.
+  const { app, chat } = await stoppedOnAsk(t, [line()]);
+  assert.equal(app.channels.permissionSettings().rules[0].approvals, false, "the switch is not off on a fresh line");
+  assert.deepEqual(mayApprove(app), [], "a line nobody switched on lets a chat say yes");
+  assert.equal(await app.channels.handle(message("y")), "replied");
+  assert.match(chat.sent.at(-1), /Branch app window/, "the chat was not told where the yes belongs");
+  assert.equal(app.store.run(lastRun(app).id).status, "needs_input", "the task went ahead on a yes the line did not allow");
+});
+
+test("with the switch on, that person on that app may say yes to what their own line granted", async (t) => {
+  const { app, chat } = await stoppedOnAsk(t, [line({ approvals: true })]);
+  assert.deepEqual(mayApprove(app), ["invented.power"]);
+  assert.equal(await app.channels.handle(message("y")), "replied");
+  assert.match(chat.sent.at(-1), /Noted/, "the switch did not let the yes land");
+  const decided = app.store.audit.list(app.runtime.owner, { action: "approval.decided" });
+  assert.equal(decided.length, 1, "the yes was not written down");
+  assert.equal(decided[0].outcome, "allowed");
+  assert.match(decided[0].reason, /answered on chat/, "the record does not say which chat app answered");
+});
+
+test("the switch reaches only what its own line granted, not what another line granted", async (t) => {
+  const { app, chat } = await stoppedOnAsk(t, [
+    line({ allow: ["files.write"], approvals: true, note: "writing, and I may say yes" }),
+    line({ allow: ["invented.power"], note: "the new thing, but not my yes" }),
+  ]);
+  assert.deepEqual(mayApprove(app), ["files.write"], "a switched-on line lent its yes to another line's grant");
+  assert.equal(await app.channels.handle(message("y")), "replied");
+  assert.match(chat.sent.at(-1), /Branch app window/, "the chat approved what its own line did not grant");
+  assert.equal(app.store.run(lastRun(app).id).status, "needs_input");
+});
+
+test("the switch never reaches a name a chat may never have, and never a standing yes", async (t) => {
+  const { app, chat } = await stoppedOnAsk(t, [line({ allow: [...neverFromChat, "invented.power"], approvals: true })]);
+  for (const never of neverFromChat) assert.equal(mayApprove(app).includes(never), false, `the switch reached ${never}`);
+  assert.deepEqual(mayApprove(app), ["invented.power"], "the switch reached past what a chat may ever hold");
+  // "Yes always" is a standing yes, and a chat never gets one however its line is written: a chat
+  // message's task is not one the owner started, and Runtime.approve refuses a standing yes for
+  // those whoever answered. The switch neither needs to add that refusal nor may get round it.
+  await assert.rejects(() => app.channels.answerApproval("chat", "c1", "a", "owner"),
+    /standing yes/i, "a chat was given a standing yes");
+  assert.equal(app.store.run(lastRun(app).id).status, "needs_input", "a standing yes from a chat went ahead");
+  assert.equal(app.store.audit.list(app.runtime.owner, { action: "approval.decided" }).length, 0);
+  const saved = app.store.get("settings", app.runtime.owner, "policy")?.data ?? {};
+  assert.equal((saved.rules ?? []).filter((rule) => rule.remember === "always").length, 0,
+    "a standing rule was written from a chat");
+  // The one-off yes still works, so the refusal above is about "always" and nothing else.
+  assert.equal(await app.channels.handle(message("y")), "replied");
+  assert.match(chat.sent.at(-1), /Noted/);
+});
+
+test("a person with no line of their own gets nothing from somebody else's switch", async (t) => {
+  const { app } = await fixture(t, callsTool("files.read"));
+  app.channels.setPermissionSettings({ extras: true, rules: [line({ approvals: true })] });
+  assert.deepEqual(mayApprove(app, "chat", "stranger"), [], "somebody else on the same app inherited the switch");
+  assert.deepEqual(mayApprove(app, "telegram", "owner"), [], "the same person on another app inherited the switch");
+  // And the switch does nothing at all while the extras switch above it is off.
+  app.channels.setPermissionSettings({ extras: false });
+  assert.deepEqual(mayApprove(app), [], "a line said yes while the extras switch was off");
+});
+
+test("no preset or settings file can turn a line's yes on, and turning it on is written down", async (t) => {
+  const { app } = await fixture(t, callsTool("files.read"));
+  const store = app.store, owner = app.runtime.owner;
+  const { refused } = changesFor(store, owner,
+    [{ key: "chat-permissions", field: "approvals", value: true }, { key: "chat-permissions", field: "rules", value: [line({ approvals: true })] }]);
+  assert.equal(refused.length, 2, "a settings file reached the switch that lets a chat say yes");
+  app.channels.setPermissionSettings({ extras: true, rules: [line({ approvals: true })] });
+  const written = store.audit.list(owner, { action: "policy.changed" })
+    .filter((entry) => entry.subject === "what a chat message's task may use");
+  assert.match(written[0].reason, /1 of them may answer yes from the chat/, "the record does not say a line may now say yes");
 });

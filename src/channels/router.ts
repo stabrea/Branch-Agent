@@ -12,6 +12,7 @@ import { LiveStatus, defaultLiveTiming, statusEmoji, type LiveTiming } from "./l
 import { chatLiveSwitches, saveChatLiveSwitches, type ChatLiveSwitches } from "./chat-live-settings.js";
 // mac7/chat-allowlist: the short list a chat's task may use, and the owner's additions to it.
 import { approveInWindow, chatMayApprove, chatPermissionsOf as chatPermissionsAllowed, chatExtraPermissions,
+  chatApprovablePermissions,
   readChatPermissionSettings as chatPermissionSettings,
   saveChatPermissionSettings, type ChatPermissionSettings } from "./chat-permissions.js";
 import { commandMode } from "../commands/settings.js";
@@ -459,7 +460,7 @@ export class ChannelRouter {
    * Returns null when this chat has nothing waiting, so an ordinary message that happens to be the
    * single letter "n" is still an ordinary message.
    */
-  async answerApproval(channel: string, chatId: string, value: string): Promise<{ decision: string; tool: string; refusal?: string } | null> {
+  async answerApproval(channel: string, chatId: string, value: string, senderId?: string): Promise<{ decision: string; tool: string; refusal?: string } | null> {
     const read = readApprovalAnswer(value);
     if (!read) return null;
     const sessionId = this.sessionFor(channel, chatId);
@@ -467,13 +468,22 @@ export class ChannelRouter {
     if (!sessionId || !waiting.length) return null;
     // mac7/chat-allowlist (integration review): a yes from the chat only answers a question about
     // what every chat may already do. Anything one of the owner's lines granted is approved in the
-    // window, so a line is not a way for a chat sender to approve their own change.
+    // window, unless that same line is one the owner switched on for this person (mac7/chat-approvals).
     const asked = read.fingerprint ? waiting.find((one) => one.fingerprint === read.fingerprint) : waiting[0];
-    if (read.decision === "allow" && asked && !chatMayApprove(this.runtime.registry.permissionOf(asked.tool)))
+    const mayApprove = !asked || chatMayApprove(this.runtime.registry.permissionOf(asked.tool), this.chatApprovals(channel, senderId));
+    if (read.decision === "allow" && asked && !mayApprove)
       return { decision: "in-window", tool: asked.tool, refusal: approveInWindow(asked.label || asked.tool) };
     const result = this.runtime.approve(sessionId, read.decision, read.remember,
       read.fingerprint || undefined, channel);
     return { decision: result.decision, tool: result.tool };
+  }
+  /**
+   * mac7/chat-approvals: what this person on this app may say yes to from the chat, out of what
+   * their own switched-on lines granted. Empty for a sender nobody named, which is the old rule.
+   */
+  private chatApprovals(channel: string, senderId?: string): string[] {
+    if (!senderId) return [];
+    return chatApprovablePermissions(chatPermissionSettings(this.store, this.runtime.owner), channel, senderId);
   }
 
   /**
@@ -491,8 +501,10 @@ export class ChannelRouter {
     const canAlways = waiting?.source === "owner" && message.chatKind === "direct";
     // mac7/chat-allowlist (integration review): a question about something one of the owner's lines
     // granted is answered in the window, so the chat is not offered a Yes it cannot give — only No,
-    // with the sentence saying where the yes belongs.
-    const mayApprove = !waiting || chatMayApprove(this.runtime.registry.permissionOf(waiting.tool));
+    // with the sentence saying where the yes belongs. mac7/chat-approvals: unless the owner switched
+    // that line on for this person on this app, in which case the Yes is theirs to press.
+    const mayApprove = !waiting
+      || chatMayApprove(this.runtime.registry.permissionOf(waiting.tool), this.chatApprovals(message.channel, message.senderId));
     const buttons = approvalButtons(waiting?.fingerprint ?? "", canAlways && mayApprove)
       .filter((button) => mayApprove || button.value.startsWith("n"));
     const text = mayApprove ? checked.text : `${checked.text}\n\n${approveInWindow(waiting?.label || waiting?.tool || "that")}`;
@@ -518,7 +530,7 @@ export class ChannelRouter {
     if (command) return this.command(message, command);
     // A bare "y", "a" or "n" answers whatever this chat's conversation is waiting on, rather than
     // starting a new task. Anything longer is an ordinary message, whatever it happens to say.
-    const answered = await this.answerApproval(message.channel, message.chatId, message.text.trim()).catch(() => null);
+    const answered = await this.answerApproval(message.channel, message.chatId, message.text.trim(), message.senderId).catch(() => null);
     if (answered) {
       await this.deliver(message.channel, message.chatId,
         answered.refusal ? answered.refusal

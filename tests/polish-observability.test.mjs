@@ -196,6 +196,11 @@ test("G2 a paused task asks in Telegram with buttons, and a pressed button answe
   const chat = { id: 501, type: "private" };
   const from = { id: 42, first_name: "Alice", username: "alice" };
   app.store.save("settings", app.runtime.owner, "policy", { preset: "ask-before-changes", rules: [{ tool: "*", applies: "changes", decision: "ask", remember: "session" }], limits: {} });
+  // mac7/chat-approvals: writing a file is not on the short list every chat has, so the owner's own
+  // line is what puts a Yes in this chat at all — and only because they ticked its box. Without it
+  // the chat gets No alone; the test below this one is that half.
+  app.channels.setPermissionSettings({ extras: true,
+    rules: [{ channel: "telegram", sender: "42", allow: ["files.write"], note: "my own phone", approvals: true }] });
 
   state.queue.push({ update_id: 1, message: { message_id: 10, text: "write the notes", from, chat } });
   await until(() => state.sent.some((sent) => sent.reply_markup), "the question went out with buttons");
@@ -237,6 +242,11 @@ test("G2 a button press is refused from another chat, from a stranger, with the 
   await app.channels.attach(chatty, { activation: "always", pairing: false, allowlist: ["42"] });
   t.after(async () => { await app.channels.detachAll(); });
   app.store.save("settings", app.runtime.owner, "policy", { preset: "ask-before-changes", rules: [{ tool: "*", applies: "changes", decision: "ask", remember: "session" }], limits: {} });
+  // mac7/chat-approvals: the line that lets 42 answer for what it granted. Everything refused below
+  // is refused on top of it — another chat, a stranger, a wrong fingerprint and a second press are
+  // all still refused for somebody the owner did name.
+  app.channels.setPermissionSettings({ extras: true,
+    rules: [{ channel: "telegram", sender: "42", allow: ["files.write"], note: "my own phone", approvals: true }] });
   const press = (chatId, senderId, text, messageId) => chatty.deliver({
     channel: "telegram", chatId, chatKind: "direct", senderId, senderName: "Someone",
     text, addressed: true, messageId,
@@ -286,6 +296,57 @@ test("G2 a button press is refused from another chat, from a stranger, with the 
   assert.match(decided[0].reason, /answered on telegram/);
 });
 
+test("G2 without the owner's switch the chat gets No alone and is told where the yes belongs", async (t) => {
+  /* mac7/chat-approvals: the other half of the two tests above. Writing a file is something one of
+     the owner's lines granted, and by default the yes for it is the owner's to give in the window:
+     the chat is never shown a Yes it cannot press, and is told in words where to press it. */
+  const { app } = await served(t, writesAFile("gated.txt"));
+  const sent = [];
+  const chatty = {
+    id: "telegram", kind: "telegram", botName: () => "Branch",
+    async start(onMessage) { chatty.deliver = onMessage; },
+    async send(chatId, text, replyTo) { sent.push({ chatId, text, replyTo }); return "m" + sent.length; },
+    async sendButtons(chatId, text, buttons) { sent.push({ chatId, text, buttons }); return "b" + sent.length; },
+    async stop() {},
+  };
+  await app.channels.attach(chatty, { activation: "always", pairing: false, allowlist: ["42"] });
+  t.after(async () => { await app.channels.detachAll(); });
+  app.store.save("settings", app.runtime.owner, "policy", { preset: "ask-before-changes", rules: [{ tool: "*", applies: "changes", decision: "ask", remember: "session" }], limits: {} });
+  /* The line grants the writing, and its box is not ticked — which is how every line starts. */
+  app.channels.setPermissionSettings({ extras: true,
+    rules: [{ channel: "telegram", sender: "42", allow: ["files.write"], note: "my own phone" }] });
+  assert.equal(app.channels.permissionSettings().rules[0].approvals, false, "a fresh line may already say yes");
+  const press = (text, messageId) => chatty.deliver({
+    channel: "telegram", chatId: "501", chatKind: "direct", senderId: "42", senderName: "Alice",
+    text, addressed: true, messageId,
+  });
+
+  await press("write the notes", "1");
+  await until(() => app.runtime.waitingApprovals().length === 1, "the task stopped to ask");
+  const waiting = app.runtime.waitingApprovals()[0];
+  const sessionId = waiting.sessionId;
+
+  /* Only No, and the sentence saying where the yes belongs. */
+  const asked = sent.find((m) => m.buttons);
+  assert.ok(asked, "the question went out with buttons");
+  assert.deepEqual(asked.buttons.map((b) => b.label), ["No"], "a Yes was offered that the chat cannot give");
+  assert.match(asked.text, /approved in the Branch app window/, "the chat was not told where the yes belongs");
+
+  /* Pressing the Yes anyway, by sending its value, changes nothing and says the same thing again. */
+  await press(`y:${waiting.fingerprint}`, "2");
+  await until(() => /approved in the Branch app window/.test(sent.at(-1).text ?? ""), "the yes was not refused in words");
+  assert.equal(app.runtime.waitingApprovals(sessionId).length, 1, "the chat's own yes went ahead");
+  assert.equal(app.runtime.allowedNow(sessionId).length, 0, "and something was allowed by it");
+  assert.equal(app.store.audit.list(app.runtime.owner, { action: "approval.decided" }).length, 0);
+
+  /* No always works from the chat, so nothing is left waiting for ever. */
+  await press(`n:${waiting.fingerprint}`, "3");
+  await until(() => app.runtime.waitingApprovals(sessionId).length === 0, "the no did not answer it");
+  const decided = app.store.audit.list(app.runtime.owner, { action: "approval.decided" });
+  assert.equal(decided.length, 1);
+  assert.equal(decided[0].outcome, "refused");
+});
+
 test("G2 a channel with no buttons gets the same question with reply y / a / n", async (t) => {
   const { app } = await served(t, writesAFile("gated.txt"));
   const sent = [];
@@ -299,6 +360,10 @@ test("G2 a channel with no buttons gets the same question with reply y / a / n",
   await app.channels.attach(plain, { activation: "always", pairing: false, allowlist: ["42"] });
   t.after(async () => { await app.channels.detachAll(); });
   app.store.save("settings", app.runtime.owner, "policy", { preset: "ask-before-changes", rules: [{ tool: "*", applies: "changes", decision: "ask", remember: "session" }], limits: {} });
+  // mac7/chat-approvals: the same line again, on the app that has no buttons, so the letters offered
+  // are the full set rather than "Reply n for no." alone.
+  app.channels.setPermissionSettings({ extras: true,
+    rules: [{ channel: "whatsapp", sender: "42", allow: ["files.write"], note: "my own phone", approvals: true }] });
 
   await plain.deliver({ channel: "whatsapp", chatId: "9", chatKind: "direct", senderId: "42", senderName: "Alice", text: "write the notes", addressed: true, messageId: "1" });
   await until(() => sent.some((m) => /reply y for yes/i.test(m.text)), `the letters were offered: ${JSON.stringify(sent)}`);
