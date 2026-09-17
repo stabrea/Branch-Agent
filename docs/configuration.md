@@ -7689,7 +7689,10 @@ writes only in its throwaway folder. Every call goes through the one gate (`src/
 task's own permissions, source and yeses; a call your rules would ask about is refused inside the script with a
 sentence telling the model to make it on its own. Only the tools the script named in `tools` (at most 16) may be
 called, never `tools.script` itself, at most 50 calls, within 1–120 seconds. On Windows there is no file and network
-wall, so scripts are refused there.
+wall, so scripts are refused there. Known gap: a script's calls go through the gate and are written to the task's
+events (`script.called`), but they skip the repeated-call guard and the never-break journal, so after a restart in
+the middle of a script there is no journal record of which calls already ran. Scripts also always use the strict
+fallback wall, not your own wall settings.
 
 **WebAssembly add-ons (R17-062).** Beside bucket 15's walled add-on programs, an add-on can be a WebAssembly module
 run with Node's own WebAssembly, no dependency. It may import only `branch.memory`, `branch.input_size`,

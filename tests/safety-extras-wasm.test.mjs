@@ -12,6 +12,7 @@ import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 import { readWasmShape, wasmRefusal } from "../dist/safety-extras/wasm-check.js";
 import { runWasm } from "../dist/safety-extras/wasm-add-ons.js";
+import { categoryOf } from "../dist/tool-categories.js";
 
 /* ---------- a tiny assembler ---------- */
 const leb = (n) => { const out = []; do { let byte = n & 0x7f; n >>>= 7; if (n) byte |= 0x80; out.push(byte); } while (n); return out; };
@@ -129,4 +130,33 @@ test("installing, running as a tool through the gate, and refusing changed bytes
   assert.ok(app.store.audit.list(app.runtime.owner).some((entry) => entry.subject === "WebAssembly add-on echo"));
   await api("/api/safety-extras/switch", { part: "wasm-add-ons", mode: "off" });
   assert.equal(app.registry.names().includes("wasm.run"), false);
+});
+
+test("the model can use an add-on inside a task, it counts as a change, and only an install may send a big body", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-safety-wasm-task-"));
+  let turn = 0;
+  const steps = [
+    { content: "", toolCalls: [{ id: "w1", name: "wasm.run", arguments: JSON.stringify({ name: "echo", input: "from a task" }) }] },
+    { content: "Done.", toolCalls: [] },
+  ];
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"),
+    provider: { name: "scripted", async complete() { return steps[Math.min(turn++, steps.length - 1)]; } } });
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  t.after(async () => { await server.close(); await app.close(); await discardTemp(root); });
+  const post = async (path, body) => {
+    const response = await fetch(server.url + path, { method: "POST",
+      headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" }, body: JSON.stringify(body) });
+    return { status: response.status, body: await response.json() };
+  };
+  assert.equal(categoryOf("wasm.run", "addons.wasm"), "settings", "not grouped with the looking tools");
+  assert.equal((await post("/api/safety-extras/wasm", { name: "echo", wasm: Buffer.from(echo).toString("base64") })).status, 200);
+  await post("/api/safety-extras/switch", { part: "wasm-add-ons", mode: "on" });
+  await post("/api/policy", { preset: "off", unmatchedCommands: "allow" });
+  const run = await post("/api/run", { prompt: "use the add-on" });
+  assert.equal(run.body.status, "completed", run.body.output);
+  const done = app.store.events(run.body.id).find((event) => event.kind === "tool.completed" && event.data.name === "wasm.run");
+  assert.ok(done, "wasm.run ran as a tool in the task");
+  assert.match(JSON.stringify(done.data), /from a task/);
+  const big = await post("/api/safety-extras/scan", { command: "x".repeat(200_000) });
+  assert.equal(big.status, 413);
 });

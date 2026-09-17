@@ -2754,7 +2754,8 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
           app.store.profiles.requireOwner("The safety extras");
           const answer = await safetyApi({
             extras: app.safetyExtras, runtime: app.runtime, method: request.method ?? "GET",
-            query: new URL(request.url ?? "/", "http://local").searchParams, readBody: () => readBody(request, 11_000_000),
+            query: new URL(request.url ?? "/", "http://local").searchParams, // Only an add-on install carries a WebAssembly file; everything else keeps the usual small limit.
+            readBody: () => readBody(request, path === "/api/safety-extras/wasm" ? 11_000_000 : 131072),
           }, path).catch((error: unknown) => {
             throw error instanceof SafetyHttpError ? new HttpError(error.status, error.message) : error;
           });
