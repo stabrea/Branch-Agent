@@ -48,7 +48,7 @@ export const personalLabels: Record<PersonalPart, string> = {
 export const personalTools: Record<PersonalPart, readonly string[]> = {
   "chat-files": ["chat.send_file"],
   "home-control": ["home.states", "home.call"],
-  "spoken-brief": ["brief.spoken"],
+  "spoken-brief": ["brief.spoken", "brief.send_voice"],
   "voice-approvals": [],
   "x-search": ["x.search"],
   spotify: ["spotify.now", "spotify.search", "spotify.control"],

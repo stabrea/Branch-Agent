@@ -62,6 +62,11 @@ test("a switch puts a part's tools in and takes them out, and 'on' preloads them
   for (const tool of personalTools.google) assert.equal(app.registry.names().includes(tool), false, tool);
   // Reading is a look; drafts, playback and switching the house are changes.
   assert.equal(isReadOnlyPermission("personal.read"), true);
+  // Sending the briefing to a chat is a sending tool, which a chat-started task never gets.
+  await call("/api/personal/switch", { part: "spoken-brief", mode: "when-needed" });
+  assert.equal(app.registry.permissionOf("brief.send_voice"), "channels.send");
+  assert.equal(app.registry.permissionOf("chat.send_file"), "");
+  assert.equal(app.registry.permissionOf("brief.spoken"), "media.write");
   for (const permission of ["personal.write", "home.control", "channels.send"]) assert.equal(isReadOnlyPermission(permission), false);
 });
 

@@ -94,11 +94,21 @@ export class SpokenBrief {
   }
 }
 
+/**
+ * Two tools, so that sending is its own permission: `channels.send` is never given to a task a chat
+ * started, so nobody writing from a chat can have the owner's day sent on to another chat.
+ */
 export function registerSpokenBrief(registry: ToolRegistry, brief: SpokenBrief): void {
   registry.register({ name: "brief.spoken", permission: "media.write",
-    description: "Make the owner's daily briefing from their connected calendars and mail and the morning brief, read it aloud, and optionally send it to a linked chat as a voice note.",
+    description: "Make the owner's daily briefing from their connected calendars and mail and the morning brief, and read it aloud.",
+    parameters: z.object({}).strict(), execute: async () => {
+      const { text, audio } = await brief.run({});
+      return { text, spokenBytes: audio.bytes.byteLength };
+    } });
+  registry.register({ name: "brief.send_voice", permission: "channels.send",
+    description: "Make the owner's daily briefing, read it aloud, and send it to one linked chat as a voice note.",
     parameters: SpokenBriefSchema, execute: async (input) => {
-      const { text, audio, sentTo } = await brief.run(input);
-      return { text, spokenBytes: audio.bytes.byteLength, sentTo };
+      const { text, sentTo } = await brief.run(input);
+      return { text, sentTo };
     } });
 }
