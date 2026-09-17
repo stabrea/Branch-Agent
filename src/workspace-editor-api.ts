@@ -31,6 +31,8 @@ export interface EditorHost {
   /** The assistant's own tool runner, so a save is recorded and can be undone like any other write. */
   runTool: (name: string, args: unknown) => Promise<unknown>;
   readBody: (request: IncomingMessage, maximumBytes?: number) => Promise<unknown>;
+  /** Branch's own guard (src/never-break/protected.ts): a reason when this path may not be read or changed. */
+  guard?: (path: string, readOnly: boolean) => string | null;
 }
 
 export const handlesWorkspaceEditorPath = (path: string): boolean => /^\/api\/workspace-editor(\/|$)/.test(path);
@@ -60,8 +62,11 @@ export async function workspaceEditorApi(host: EditorHost, request: IncomingMess
     throw new WorkspaceEditorApiError(403, "The code editor is switched off. Turn it on in Settings → Advanced.");
   if (request.method === "GET" && path === "/api/workspace-editor/list")
     return listFolder(host.files, url.searchParams.get("path") || ".");
-  if (request.method === "GET" && path === "/api/workspace-editor/read")
-    return openFile(host.files, pathParam.parse(url.searchParams.get("path") ?? ""));
+  if (request.method === "GET" && path === "/api/workspace-editor/read") {
+    const target = pathParam.parse(url.searchParams.get("path") ?? "");
+    guarded(host, target, true);
+    return openFile(host.files, target);
+  }
   if (request.method === "POST" && path === "/api/workspace-editor/save")
     return saveFile(host, SaveSchema.parse(await host.readBody(request, 128 * 1024)));
   throw new WorkspaceEditorApiError(404, "Endpoint not found");
@@ -95,7 +100,13 @@ async function openFile(files: WorkspaceFiles, path: string): Promise<unknown> {
   return { path, content, opened: checksum(content), readOnly: Boolean(readOnly), ...(readOnly ? { why: readOnly } : {}) };
 }
 
+function guarded(host: EditorHost, path: string, readOnly: boolean): void {
+  const refusal = host.guard?.(path, readOnly);
+  if (refusal) throw new WorkspaceEditorApiError(403, refusal);
+}
+
 async function saveFile(host: EditorHost, input: z.infer<typeof SaveSchema>): Promise<unknown> {
+  guarded(host, input.path, false);
   const readOnly = host.files.readOnly(input.path);
   if (readOnly) throw new WorkspaceEditorApiError(403, readOnly);
   const current = await readText(host.files, input.path);

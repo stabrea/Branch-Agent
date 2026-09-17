@@ -4,6 +4,7 @@ import { mkdtemp, mkdir, readFile, writeFile, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createBranch } from "../dist/index.js";
+import { protectedAreas } from "../dist/never-break/protected.js";
 import { startServer } from "../dist/server.js";
 import { discardTemp } from "./temp-dir.mjs";
 
@@ -151,4 +152,34 @@ test("A0098 the window's files use the editor routes and name every label", asyn
     assert.ok(fr[key] && fr[key] !== en[key], `${key} has real French`);
   }
   assert.doesNotMatch(script, /#[0-9a-f]{3,6}\b|rgb\(/i, "no literal colours");
+});
+
+test("A0098 review: a short-lived key can neither read nor save through the editor, even while it is on", async (t) => {
+  const { call, app, owner, workspace } = await fixture(t);
+  await call("settings", { mode: "on" });
+  await put(workspace, "a.txt", "hello\n");
+  const opened = (await call(read("a.txt"))).body.opened;
+  const key = app.sessionTokens.create(owner, { scope: "run", minutes: 5 }).token;
+  for (const path of [list("."), read("a.txt"), "settings"]) {
+    const answer = await call(path, undefined, key);
+    assert.equal(answer.status, 401, path);
+    assert.match(answer.body.error, /short-lived key/);
+  }
+  const save = await call("save", { path: "a.txt", content: "overwritten", opened }, key);
+  assert.equal(save.status, 401);
+  assert.equal(await readFile(join(workspace, "a.txt"), "utf8"), "hello\n");
+});
+
+test("A0098 review: Branch's own program inside the workspace can be neither opened nor saved over", async (t) => {
+  const { call, app, workspace, root } = await fixture(t);
+  await call("settings", { mode: "on" });
+  await put(workspace, "prog/dist/index.js", "original\n");
+  app.runtime.protectedAreas = protectedAreas({ workspace, dataDir: join(root, "data"), installRoot: join(workspace, "prog") });
+  const opened = await call(read("prog/dist/index.js"));
+  // Reading the program is allowed (it is not a key or saved work); changing it never is.
+  assert.equal(opened.status, 200);
+  const save = await call("save", { path: "prog/dist/index.js", content: "changed\n", opened: opened.body.opened });
+  assert.equal(save.status, 403);
+  assert.match(save.body.error, /Branch's own files/);
+  assert.equal(await readFile(join(workspace, "prog/dist/index.js"), "utf8"), "original\n");
 });

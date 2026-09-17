@@ -121,6 +121,7 @@ import { pullRequestHookSettings, savePullRequestHookSettings } from "./pr-hook.
 import { markShortLivedKey } from "./key-context.js";
 // bucket-18: code editor (A0098)
 import { handlesWorkspaceEditorPath, workspaceEditorApi, WorkspaceEditorApiError } from "./workspace-editor-api.js";
+import { protectedTarget } from "./never-break/protected.js"; // bucket-18 integration review
 import { parseModelCommand } from "./model-switch.js";
 import { pricingSettings, savePricingSettings, pricingTableInUse, estimateCost, formatCost } from "./pricing.js";
 import { usageReportRoute } from "./usage-report-api.js"; // bucket 14 (A0367)
@@ -710,6 +711,9 @@ async function api(
     return workspaceEditorApi({
       files: app.files, store: app.store, owner: app.runtime.owner, readBody,
       runTool: (name, args) => app.runtime.executeTool(name, args),
+      // Integration review: Branch's own program, settings and saved work stay out of reach here too.
+      guard: (target, readOnly) => protectedTarget({ tool: readOnly ? "files.read" : "files.write", readOnly, args: { path: target },
+        target, workspace: app.files.base }, app.runtime.protectedAreas),
     }, request, path, new URL(request.url ?? "/", "http://local")).catch((error: unknown) => {
       throw error instanceof WorkspaceEditorApiError ? new HttpError(error.status, error.message) : error;
     });
@@ -2857,6 +2861,10 @@ function voiceDeps(app: Branch) {
  * two are the owner's own step, in the app window, with the master key.
  */
 function offLimitsToShortLivedKeys(method: string | undefined, path: string): string | null {
+  // bucket-18 (A0098): the code editor, its switch included, is the owner's alone: a script's key may
+  // neither read files through it nor save over them, so this comes before reading is let through.
+  if (handlesWorkspaceEditorPath(path))
+    return "A short-lived key cannot use the code editor. Do that in the app window.";
   if (method === "GET") return null;
   if (path === "/api/providers/cli-agents" || path.startsWith("/api/secrets") || path.startsWith("/api/connections") || /^\/api\/schedules\/[a-f0-9-]{36}\/gate$/.test(path))
     return "A short-lived key cannot name a program for Branch to run, add a model service, or change the locker. Do that in the app window.";
@@ -2869,9 +2877,6 @@ function offLimitsToShortLivedKeys(method: string | undefined, path: string): st
   // Lockdown is exactly that; without this a script's key could switch Lockdown off.
   if (path === "/api/lockdown")
     return "A short-lived key cannot switch Lockdown on or off. Do that in the app window or with the key of this computer.";
-  // bucket-18 (A0098): whether the window may edit workspace files is the owner's switch.
-  if (path === "/api/workspace-editor/settings")
-    return "A short-lived key cannot switch the code editor on or off. Do that in the app window.";
   // bucket-18 (A2317): a copy of what is remembered may be sent to a remote; only the owner names it.
   if (path === "/api/memory/history")
     return "A short-lived key cannot change where the history of what is remembered is kept. Do that in the app window.";
