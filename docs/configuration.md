@@ -588,7 +588,9 @@ the first browser step says, in one sentence, why the sandbox cannot be used.
   --memory 2g --cpus 2 --shm-size 1g -p 127.0.0.1:<free port>:3000 --user pwuser` with no folder
   shared, waits up to 90 seconds for the Playwright server inside to answer, and stops the container
   by its id when the browser tool closes. The container fetches the matching `playwright` package
-  from npm when it starts (`npx -y playwright@<version> run-server`), so it needs internet access.
+  from npm when it starts (`npx -y playwright@<version> run-server`, as Playwright's own Docker guide
+  does, since the image carries the browsers but not the package), so it needs internet access. No
+  container has been started by the tests: the Docker steps are proven against a fake runner.
 - `where: "endpoint"` with `endpoint: "ws://…"` or `"wss://…"`: a Playwright server you run
   elsewhere (your NAS or a cloud machine). An address with a name, password or `?key` in it is
   refused. The token goes in the token box (`"token"` in the POST body, `null` removes it); it is kept
@@ -601,7 +603,8 @@ the first browser step says, in one sentence, why the sandbox cannot be used.
 connected browser, and the website list is applied to every request of that context from Branch's
 side (`context.route`), so a page in the sandbox cannot reach a site the list does not allow.
 Limits: the private-address check on addresses you ask to open is made by this computer, while the
-pages themselves are fetched by the sandbox's network; changing the setting takes effect for the
+pages themselves are fetched by the sandbox's network; a `ws://` address sends the token unencrypted,
+so use `wss://` for any server that is not on your own network; changing the setting takes effect for the
 next browser Branch starts (after the current sandbox browser is closed or Branch restarts).
 Code: `src/integrations/browser-container.ts`, `src/browser-container-api.ts`; tests in
 `tests/browser-container.test.mjs` (Docker is only ever a fake runner there; the "remote" server

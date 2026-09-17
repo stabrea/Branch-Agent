@@ -61,8 +61,9 @@ genuinely belongs elsewhere is handed over to another assistant and the result r
 **Google PaLM.** Retired by Google in favour of Gemini, so an adapter would have been dead on the day
 it was written.
 
-**Remote and cloud browsers.** Everything runs a browser on this computer. There is no hosted browser
-service and no sandboxed remote machine.
+**Hosted cloud browser services.** Branch has no Browserbase-style account integration. It can,
+when you switch it on, drive a browser in a Docker container or on a Playwright server you run
+yourself (see "Browser sandbox" in the configuration guide); otherwise the browser runs on this computer.
 
 **X / Twitter direct messages.** The endpoints need an elevated access tier applied for and paid for
 per project. Shipping a connection that always fails would be worse than not shipping one.

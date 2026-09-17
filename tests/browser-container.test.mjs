@@ -13,11 +13,12 @@ import {BranchBrowser} from '../dist/integrations/browser.js';
 import {BrowserProfiles} from '../dist/integrations/browser-profiles.js';
 import {
   BrowserContainerSchema, BrowserSandbox, connectEndpoint, dockerImage, dockerRunArgs, playwrightVersion,
-  readBrowserContainer, startContainer, tokenName,
+  probeHttp, readBrowserContainer, startContainer, tokenName,
 } from '../dist/integrations/browser-container.js';
 import {loadIntegrations} from '../dist/integrations/bootstrap.js';
 import {Budget, createBranch} from '../dist/index.js';
 import {startServer} from '../dist/server.js';
+import {NetworkPolicy} from '../dist/network-policy.js';
 
 /**
  * w911 (A2019, A2172, A2042): the browser sandbox. Docker is never run: every Docker call goes to a
@@ -156,6 +157,13 @@ test('A2019: docker runs with the exact hardened arguments, the wait is bounded,
   assert.deepEqual(calls.at(-1), ['docker', 'stop', id], 'a container that never answered is stopped');
 });
 
+test('A2019: the readiness check answers true for a real Playwright server and false for a closed port', {skip: noChromium}, async () => {
+  const server = await chromium.launchServer({host: '127.0.0.1', headless: true});
+  const port = Number(new URL(server.wsEndpoint()).port);
+  try { assert.equal(await probeHttp(port), true); } finally { await server.close(); }
+  assert.equal(await probeHttp(port), false);
+});
+
 test('A2019: closing the browser tool closes the sandbox browser and stops its container by id', {skip: noChromium}, async t => {
   const server = await chromium.launchServer({host: '127.0.0.1', headless: true});
   const {origin, stop} = await sites();
@@ -271,7 +279,7 @@ test('A2172/A2042: through the endpoint path, a real connected Chromium loads an
   const remote = await guardedServer(token);
   const {origin, forbiddenOrigin, hits, stop} = await sites();
   const browser = new BranchBrowser({allowedOrigins: [origin]});
-  browser.policy = {assertAllowed: async target => { if (target.hostname === 'blocked.test') throw new Error('The web policy refuses blocked.test'); }};
+  browser.policy = new NetworkPolicy({blockedHosts: ['blocked.test'], allowPrivateAddresses: true});
   browser.sandbox = new BrowserSandbox(memoryStore({mode: 'on', where: 'endpoint', endpoint: remote.endpoint}), tokenLocker(token));
   t.after(async () => { await browser.close().catch(() => undefined); await remote.stop(); await stop(); });
   const context = runContext('endpoint-run');
@@ -285,7 +293,7 @@ test('A2172/A2042: through the endpoint path, a real connected Chromium loads an
   policed.policy = browser.policy;
   policed.sandbox = new BrowserSandbox(memoryStore({mode: 'on', where: 'endpoint', endpoint: remote.endpoint}), tokenLocker(token));
   t.after(() => policed.close());
-  await assert.rejects(policed.navigate('http://blocked.test/', runContext('policed')), /web policy refuses blocked\.test/);
+  await assert.rejects(policed.navigate('http://blocked.test/', runContext('policed')), /blocked\.test is on the blocked list/);
   assert.equal(hits.forbidden, 0);
 
   const wrong = new BranchBrowser({allowedOrigins: [origin]});
@@ -301,6 +309,7 @@ test('A2172/A2042: two tasks on one connected browser get two separate contexts,
   const {origin, hits, stop} = await sites();
   const connected = [];
   const browser = new BranchBrowser({allowedOrigins: [origin]});
+  browser.policy = new NetworkPolicy({allowPrivateAddresses: true});
   browser.sandbox = new BrowserSandbox(memoryStore({mode: 'on', where: 'endpoint', endpoint: server.wsEndpoint()}), noLocker);
   browser.sandbox.connect = async (endpoint, options) => { const made = await chromium.connect(endpoint, options); connected.push(made); return made; };
   t.after(async () => { await browser.close().catch(() => undefined); await server.close(); await stop(); });
