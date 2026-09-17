@@ -175,7 +175,7 @@ export class FlowGraphRunner {
       const run = await this.runtime.run({ prompt: fillIn(node.prompt!, state),
         signal: AbortSignal.timeout(node.timeoutMs), source: "schedule", onTextDelta: () => undefined });
       if (run.status !== "completed") throw new Error(`the assistant stopped (${run.status})`);
-      return { patch: this.asPatch(node, run.output), output: run.output.slice(0, 2000), childRunId: run.id };
+      return { patch: this.asPatch(node, run.output), output: run.output.slice(0, 2000), childRunId: run.id /* bucket 13: run monitor */ };
     }
     const result = await this.useTool(node, filledArgs(node.args ?? {}, state), options.source ?? "owner");
     return { patch: this.asPatch(node, result), output: jsonOf(result).slice(0, 2000) };

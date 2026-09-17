@@ -16,6 +16,7 @@
 import { readFile } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { basename, dirname, extname, resolve } from "node:path";
+import { audit } from "./audit.js";
 import { eventLoopSettings, eventLoopWatch, saveEventLoopSettings } from "./event-loop-watch.js";
 import { preferences } from "./preferences.js";
 import { recordingFlowDraft } from "./recording-to-flow.js";
@@ -117,6 +118,9 @@ async function sendPage(app: RecordingApp, response: ServerResponse, runId: stri
     recording: shareable(recording), tokensCss: await readPublic("tokens.css"),
     theme: preferences(app.store, owner).appearance, t: (key) => words[key] ?? key,
   });
+  // A saved page leaves the app with what the task did in it, so it is written into the record (A1931).
+  audit(app.store, owner, { action: "data.exported", actor: owner, runId, subject: "a recording of one task",
+    reason: settings.pictures ? "Saved as a page, with its newest pictures" : "Saved as a page, without pictures", outcome: "saved" });
   response.writeHead(200, {
     "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-content-type-options": "nosniff",
     "content-disposition": `attachment; filename="task-recording-${runId.slice(0, 8)}.html"`,

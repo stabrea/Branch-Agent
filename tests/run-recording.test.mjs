@@ -109,6 +109,8 @@ test("the path picture and the saved page use tokens only, escape everything, an
   assert.ok(!page.text.includes("alert(1)</script>"), "the task's words cannot close a script");
   assert.ok(!page.text.includes("hunter2"));
   assert.match(page.text, /A task, step by step/, "fixed words come from the language file");
+  const exported = app.store.audit.list(app.runtime.owner, { action: "data.exported" });
+  assert.ok(exported.some((entry) => entry.subject === "a recording of one task" && entry.runId === run.id), "saving the page is written into the record");
 });
 
 test("the recording page escapes a hostile recording even when built directly", () => {
