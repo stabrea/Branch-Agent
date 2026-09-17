@@ -3,11 +3,12 @@ import { homedir } from "node:os";
 import { basename, dirname, isAbsolute } from "node:path";
 import { z } from "zod";
 import type { createBranch } from "./index.js";
-import { broughtServers, broughtSettings, bringOver } from "./migrate/apply.js";
+import { broughtServers, broughtSettings, bringOver, type ContextFileSink } from "./migrate/apply.js";
 import { placesFor, type PlaceInput } from "./migrate/detect.js";
 import { movedIn } from "./migrate/record.js";
 import { foundSources, offerSentence, placeInput, previewOf, recognise, scanSource, type ScanInput } from "./migrate/scan.js";
 import { archiveTree, folderTree, openSource } from "./migrate/source-tree.js";
+import { moveInMode, requireMoveInAllowed, saveMoveInMode } from "./migrate/switch.js";
 import { MoveInSourceSchema, sourceNames, type MoveInSource } from "./migrate/types.js";
 
 /**
@@ -30,7 +31,11 @@ export function handlesMoveInPath(path: string): boolean {
  * disk; the assistants' own overrides (`CODEX_HOME` and the like) then no longer apply, because
  * they describe this computer's home folder and not that one.
  */
-export interface MoveInOptions { platform: NodeJS.Platform; env: Record<string, string | undefined>; home: string }
+export interface MoveInOptions {
+  platform: NodeJS.Platform; env: Record<string, string | undefined>; home: string;
+  /** The loader that owns AGENTS.md, SOUL.md and the like, once the launch provides one. */
+  contextFiles?: ContextFileSink;
+}
 export function defaultMoveInOptions(env: Record<string, string | undefined> = process.env): MoveInOptions {
   const elsewhere = env.BRANCH_MOVE_IN_HOME?.trim();
   return elsewhere ? { platform: process.platform, env: {}, home: elsewhere }
@@ -84,14 +89,26 @@ export async function moveInApi(
   const owner = app.runtime.owner, get = request.method === "GET", post = request.method === "POST";
   try { app.store.profiles.requireOwner("Bringing things over from another assistant"); }
   catch (error) { throw new MoveInApiError(403, (error as Error).message); }
+  if (path === "/api/move-in/switch") {
+    if (post) saveMoveInMode(app.store, owner, await readBody(request));
+    else if (!get) throw new MoveInApiError(405, "Use GET or POST");
+    return { mode: moveInMode(app.store, owner) };
+  }
+  const mode = moveInMode(app.store, owner);
   if (get && path === "/api/move-in") {
+    // Off looks at nothing; "when needed" looks only when the owner asks; on looks whenever the card is shown.
+    const asked = new URL(request.url ?? "/", "http://branch.invalid").searchParams.get("look") === "1";
+    if (mode === "off" || (mode === "when-needed" && !asked)) return { mode, sources: [], offer: null };
     const sources = await foundSources(app.store, owner, options);
-    return { sources, offer: offerSentence(sources) };
+    return { mode, sources, offer: mode === "on" ? offerSentence(sources) : null };
   }
   if (get && path === "/api/move-in/brought")
     return { servers: broughtServers(app.store, owner), settings: broughtSettings(app.store, owner),
       counts: Object.fromEntries(MoveInSourceSchema.options.map((source) => [source, Object.keys(movedIn(app.store, owner, source)).length])) };
   const limit = Math.ceil(maximumUploadBytes / 3) * 4 + 1024 * 1024;
+  if (post && (path === "/api/move-in/preview" || path === "/api/move-in/import")) {
+    try { requireMoveInAllowed(mode); } catch (error) { throw new MoveInApiError(403, (error as Error).message); }
+  }
   if (post && path === "/api/move-in/preview")
     return withScan(await readBody(request, limit), options,
       async (source, from, scan) => previewOf(app.store, owner, source, from, scan));
@@ -103,7 +120,7 @@ export async function moveInApi(
     const held = new Set(app.store.locker.names(owner, project).map((entry) => entry.name));
     return withScan(where, options, async (source, from, scan) => ({
       source, name: sourceNames[source], from,
-      ...await bringOver(app.store, owner, source, scan, items, held),
+      ...await bringOver(app.store, owner, source, scan, items, held, options.contextFiles),
     }));
   }
   throw new MoveInApiError(404, "Endpoint not found");

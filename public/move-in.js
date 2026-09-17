@@ -50,6 +50,36 @@ function field(id, labelKey) {
   return [label, input];
 }
 
+const modes = ["off", "when-needed", "on"];
+let mode = "off";
+
+function switchField() {
+  const label = keyed("label", "field.movein-mode");
+  const select = make("select");
+  select.id = label.htmlFor = "move-in-mode";
+  for (const value of modes) {
+    const option = keyed("option", `memory.movein.mode.${value}`);
+    option.value = value;
+    select.append(option);
+  }
+  select.addEventListener("change", async () => {
+    try { ({ mode } = await api("move-in/switch", { mode: select.value })); await refresh(); }
+    catch (error) { say(error.message); }
+  });
+  return [label, select];
+}
+
+/** Shows what the switch allows: nothing when off, a "look" button when needed, the list when on. */
+function showMode() {
+  $("move-in-mode").value = mode;
+  $("move-in-body").hidden = mode === "off";
+  $("move-in-look").hidden = mode !== "when-needed";
+  const hint = $("move-in-mode-hint"), key = mode === "on" ? "" : `memory.movein.${mode}`;
+  hint.hidden = !key;
+  hint.textContent = key ? t(key) : "";
+  if (key) hint.dataset.t = key; else delete hint.dataset.t;
+}
+
 function buildCard() {
   const card = make("section", "", "card");
   card.id = "move-in-card";
@@ -65,11 +95,16 @@ function buildCard() {
   const status = make("p", "", "subtle");
   status.id = "move-in-status";
   status.setAttribute("role", "status");
-  const [sourcesBox, previewBox, broughtBox] = ["move-in-sources", "move-in-preview", "move-in-brought"]
+  const [sourcesBox, previewBox, broughtBox, body] = ["move-in-sources", "move-in-preview", "move-in-brought", "move-in-body"]
     .map((id) => Object.assign(make("div"), { id }));
   sourcesBox.className = "card-list";
+  const look = button("action.movein-look-for", () => showSources(true).catch((error) => say(error.message)));
+  look.id = "move-in-look";
+  const modeHint = make("p", "", "subtle");
+  modeHint.id = "move-in-mode-hint";
+  body.append(look, sourcesBox, pathLabel, row, fileLabel, file, status, previewBox, broughtBox);
   card.append(keyed("h2", "memory.movein.title"), keyed("p", "memory.movein.lead", "subtle"),
-    sourcesBox, pathLabel, row, fileLabel, file, status, previewBox, broughtBox);
+    ...switchField(), modeHint, body);
   file.addEventListener("change", () => openFile(file.files?.[0]));
   return card;
 }
@@ -88,8 +123,9 @@ async function openFile(chosen) {
 
 let sources = [];
 
-async function showSources() {
-  ({ sources } = await api("move-in"));
+async function showSources(asked = false) {
+  if (mode === "off" || (mode === "when-needed" && !asked)) { sources = []; $("move-in-sources").replaceChildren(); return; }
+  ({ sources } = await api(asked ? "move-in?look=1" : "move-in"));
   const where = $("move-in-sources");
   where.replaceChildren();
   for (const entry of sources.filter((item) => item.found)) {
@@ -200,6 +236,7 @@ async function showBrought() {
 /* ------------------------------------------------------------------ the first-run offer */
 
 function offerWords() {
+  if (mode !== "on") return null;
   const waiting = sources.filter((entry) => entry.found && !Object.keys(entry.moved).length).map((entry) => entry.name);
   if (!waiting.length) return null;
   const names = waiting.length === 1 ? waiting[0]
@@ -224,6 +261,8 @@ function showOffer() {
 }
 
 async function refresh() {
+  ({ mode } = await api("move-in/switch"));
+  showMode();
   await Promise.all([showSources(), showBrought()]);
   showOffer();
 }

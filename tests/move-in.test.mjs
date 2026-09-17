@@ -399,6 +399,33 @@ test("the original database is left exactly as it was, and the private copy is r
 
 // ------------------------------------------------------------------ what the owner sees
 
+test("a context file's text goes to the loader that owns such files, when there is one", async (t) => {
+  const { app, home, owner } = await fixture(t);
+  await claudeHome(home);
+  const scan = await scanned(home, "claude-code");
+  const handed = [];
+  const sink = async (file) => { handed.push(file); return `context file ${file.name}`; };
+  const wanted = scan.items.filter((item) => item.kind === "memory" || item.kind === "instructions").map((item) => item.key);
+  const receipt = await bringOver(app.store, owner, "claude-code", scan, wanted, new Set(), sink);
+  assert.deepEqual(receipt.brought.map((entry) => entry.target).sort(), ["context file CLAUDE.md", "context file MEMORY.md"]);
+  assert.deepEqual(handed.map((file) => [file.name, file.source, file.about, file.project]).sort(),
+    [["CLAUDE.md", "claude-code", undefined, undefined], ["MEMORY.md", "claude-code", "project", "moved-garden-app"]]);
+  assert.match(handed.find((file) => file.name === "CLAUDE.md").text, /Keep answers short/);
+  assert.equal(app.store.exportMemory(owner).records.length, 0, "nothing was kept on a path of this feature's own");
+});
+
+test("the move-in switch ships off and keeps only the three settings", async (t) => {
+  const { app, owner } = await fixture(t);
+  const { moveInMode, saveMoveInMode, requireMoveInAllowed } = await import("../dist/migrate/switch.js");
+  assert.equal(moveInMode(app.store, owner), "off");
+  assert.throws(() => requireMoveInAllowed("off"), /switched off/);
+  assert.doesNotThrow(() => requireMoveInAllowed("when-needed"));
+  assert.equal(saveMoveInMode(app.store, owner, { mode: "on" }), "on");
+  assert.equal(moveInMode(app.store, owner), "on");
+  assert.throws(() => saveMoveInMode(app.store, owner, { mode: "always" }));
+  assert.throws(() => saveMoveInMode(app.store, owner, { mode: "on", extra: 1 }));
+});
+
 test("the first-run offer names only the assistants found that nothing has come from yet", async (t) => {
   const { app, home, owner } = await fixture(t);
   await claudeHome(home);
@@ -440,6 +467,21 @@ test("the move-in screens: list, preview, bring over, and what came, behind the 
     return { status: response.status, body: await response.json() };
   };
   assert.equal((await api("GET", "/api/move-in", undefined, "wrong")).status, 401);
+  // It ships off: nothing is looked at, nothing is offered, and a preview is refused.
+  assert.deepEqual((await api("GET", "/api/move-in/switch")).body, { mode: "off" });
+  assert.deepEqual((await api("GET", "/api/move-in")).body, { mode: "off", sources: [], offer: null });
+  const refused = await api("POST", "/api/move-in/preview", { source: "claude-code" });
+  assert.equal(refused.status, 403);
+  assert.match(refused.body.error, /switched off/);
+  assert.equal((await api("POST", "/api/move-in/import", { source: "claude-code", items: ["a".repeat(32)] })).status, 403);
+  // When needed: it looks only when asked, and never offers on its own.
+  assert.deepEqual((await api("POST", "/api/move-in/switch", { mode: "when-needed" })).body, { mode: "when-needed" });
+  assert.deepEqual((await api("GET", "/api/move-in")).body, { mode: "when-needed", sources: [], offer: null });
+  const asked = await api("GET", "/api/move-in?look=1");
+  assert.equal(asked.body.sources.find((entry) => entry.source === "claude-code").found, true);
+  assert.equal(asked.body.offer, null);
+  assert.equal((await api("POST", "/api/move-in/switch", { mode: "sometimes" })).status, 400);
+  await api("POST", "/api/move-in/switch", { mode: "on" });
   const listed = await api("GET", "/api/move-in");
   assert.equal(listed.status, 200);
   assert.equal(listed.body.sources.find((entry) => entry.source === "claude-code").found, true);
@@ -515,6 +557,20 @@ test("the move-in card works at 400 pixels wide, with no sideways scroll and no 
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.locator("#workspace").waitFor({ state: "visible" });
+  // Off by default: the card shows only its switch, and the first-run card offers nothing.
+  const show = (view) => page.evaluate((name) => document.querySelector(`button.nav[data-view="${name}"]`).click(), view);
+  await show("memory");
+  const choice = page.locator("#move-in-mode");
+  await choice.waitFor({ state: "visible" });
+  assert.equal(await choice.inputValue(), "off");
+  assert.equal(await page.locator("#move-in-body").isHidden(), true);
+  assert.equal(await page.locator("#move-in-offer").count(), 0);
+  await choice.selectOption("when-needed");
+  await page.getByRole("button", { name: "Look for other assistants", exact: true }).click();
+  await page.getByRole("button", { name: "See what is there", exact: true }).waitFor({ state: "visible" });
+  assert.equal(await page.locator("#move-in-offer").count(), 0, "when needed never offers on its own");
+  await choice.selectOption("on");
+  await show("chat");
   const offer = page.locator("#move-in-offer button");
   await offer.waitFor({ state: "visible" });
   assert.equal(await offer.textContent(), "Bring your chats and memory from Claude Code.");

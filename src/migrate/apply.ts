@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { Store } from "../store.js";
 import { projectIdFor, splitForMemory } from "./common.js";
 import { movedIn, rememberMoved } from "./record.js";
-import { clip, sourceNames, type FoundItem, type KeyPrompt, type MovedServer, type MoveInSource, type Payload, type ScanResult } from "./types.js";
+import { clip, sourceNames, type ContextFileName, type FoundItem, type KeyPrompt, type MovedServer, type MoveInSource, type Payload, type ScanResult } from "./types.js";
 
 /**
  * Bringing the ticked things over into Branch's own stores. Each thing is brought over on its own,
@@ -10,6 +10,14 @@ import { clip, sourceNames, type FoundItem, type KeyPrompt, type MovedServer, ty
  * and the rest still come. Anything already in the record is left alone, so pressing the button a
  * second time brings nothing twice.
  */
+/**
+ * Where a context file's text goes when the loader that owns those files is present. It returns a
+ * short description of where the text now lives. Without one, the text becomes saved facts.
+ */
+export type ContextFileSink = (file: {
+  name: ContextFileName; text: string; source: MoveInSource; about?: "person" | "world" | "project"; project?: string;
+}) => Promise<string>;
+
 export interface Receipt {
   brought: { key: string; title: string; kind: string; target: string }[];
   skipped: { key: string; title: string; reason: string }[];
@@ -63,8 +71,13 @@ function memoryRecords(item: FoundItem, source: MoveInSource, payload: Extract<P
   }));
 }
 
-async function bringOne(store: Store, owner: string, source: MoveInSource, item: FoundItem): Promise<string> {
+async function bringOne(
+  store: Store, owner: string, source: MoveInSource, item: FoundItem, contextFiles?: ContextFileSink,
+): Promise<string> {
   const payload = await item.load();
+  if ((payload.kind === "memory" || payload.kind === "instructions") && payload.contextFile && contextFiles)
+    return contextFiles({ name: payload.contextFile, text: payload.text, source,
+      ...(payload.kind === "memory" ? { about: payload.about, ...(payload.project ? { project: payload.project } : {}) } : {}) });
   switch (payload.kind) {
     case "chat": {
       const { sessionId } = store.importSession(owner, { format: "branch-agent-conversation", version: 1,
@@ -102,6 +115,7 @@ function bringProject(store: Store, owner: string, payload: Extract<Payload, { k
 
 export async function bringOver(
   store: Store, owner: string, source: MoveInSource, scan: ScanResult, keys: string[], lockerNames: Set<string>,
+  contextFiles?: ContextFileSink,
 ): Promise<Receipt> {
   const wanted = new Set(keys), record = movedIn(store, owner, source);
   const receipt: Receipt = { brought: [], skipped: [], keys: [] };
@@ -112,7 +126,7 @@ export async function bringOver(
     if (item.key in record) { receipt.skipped.push({ key: item.key, title: item.title, reason: "It was brought over before." }); continue; }
     if (item.blocked) { receipt.skipped.push({ key: item.key, title: item.title, reason: item.detail }); continue; }
     try {
-      const target = await bringOne(store, owner, source, item);
+      const target = await bringOne(store, owner, source, item, contextFiles);
       rememberMoved(store, owner, source, [{ key: item.key, kind: item.kind, title: item.title, target }]);
       receipt.brought.push({ key: item.key, title: item.title, kind: item.kind, target });
       for (const name of item.needsKeys) needed.add(name);

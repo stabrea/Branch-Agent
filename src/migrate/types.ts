@@ -21,14 +21,27 @@ export const kindNames: Record<ItemKind, string> = {
 export interface MovedMessage { role: "user" | "assistant"; content: string }
 
 /**
+ * The context files Branch's own loader owns. When one of these comes over, its text is handed to
+ * that loader rather than kept somewhere of this feature's own.
+ */
+export const contextFileNames = ["AGENTS.md", "CLAUDE.md", "GEMINI.md", "SOUL.md", "USER.md", "IDENTITY.md",
+  "MEMORY.md", "HEARTBEAT.md", "TOOLS.md", "SOP.md"] as const;
+export type ContextFileName = (typeof contextFileNames)[number];
+export function contextFileOf(origin: string): ContextFileName | undefined {
+  const name = origin.split(/[/:#]/).pop() ?? "";
+  const plain = name === "AGENTS.override.md" ? "AGENTS.md" : name;
+  return (contextFileNames as readonly string[]).includes(plain) ? plain as ContextFileName : undefined;
+}
+
+/**
  * What each kind carries into Branch. Readers fill these in; nothing here has touched Branch yet.
  * Secret values are never held: a server or setting that needs one names it in `needsKeys` instead.
  */
 export type Payload =
   | { kind: "chat"; messages: MovedMessage[]; folder: string }
   | { kind: "project"; name: string; folder: string }
-  | { kind: "memory"; text: string; about: "person" | "world" | "project"; project?: string }
-  | { kind: "instructions"; text: string }
+  | { kind: "memory"; text: string; about: "person" | "world" | "project"; project?: string; contextFile?: ContextFileName }
+  | { kind: "instructions"; text: string; contextFile?: ContextFileName }
   | { kind: "skill"; document: string }
   | { kind: "mcp"; server: MovedServer }
   | { kind: "setting"; name: string; value: string };

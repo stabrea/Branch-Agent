@@ -5,7 +5,7 @@ import { parseSkillDocument, skillDocumentLimit } from "../skill-document.js";
 import { describeFindings, scanSkill } from "../skill-scan.js";
 import type { SourceTree } from "./source-tree.js";
 import {
-  clip, itemKey, lockerName, secretLike,
+  clip, contextFileOf, itemKey, lockerName, secretLike,
   type FoundItem, type ItemKind, type KeyPrompt, type MovedMessage, type MovedServer, type MoveInSource, type Payload,
 } from "./types.js";
 
@@ -232,8 +232,10 @@ export function textItem(
   if (!clean) return null;
   const facts = splitForMemory(clean).length;
   const detail = `${clean.length.toLocaleString("en")} characters, kept as ${facts} saved fact${facts === 1 ? "" : "s"}.`;
-  const payload: Payload = kind === "instructions" ? { kind, text: clean }
-    : { kind, text: clean, about, ...(project ? { project } : {}) };
+  const contextFile = contextFileOf(origin);
+  const named = contextFile ? { contextFile } : {};
+  const payload: Payload = kind === "instructions" ? { kind, text: clean, ...named }
+    : { kind, text: clean, about, ...(project ? { project } : {}), ...named };
   return found(source, kind, origin, title, detail, payload);
 }
 
