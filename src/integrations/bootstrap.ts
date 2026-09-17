@@ -301,6 +301,11 @@ async function startMcp(
   policy: NetworkPolicy | undefined, host: McpHost | undefined,
 ): Promise<(() => Promise<void>) | null> {
   const guard = policy ? { guard: (base: typeof fetch) => policy.guard(base) } : undefined;
+  // mac3/security-check: a server fetched from a package registry is looked up in the malware list
+  // before it is added, and again before it is opened later (src/security-audit/malware-check.ts).
+  // With no checker this adds nothing.
+  const vet = () => vetLaunch(server, host);
+  await vet();
   const connect = () => connectMcp(registry, server, env, guard, host?.cache);
   if (!host || host.connectWhen() !== 'on-demand') {
     const connection = await connect();
@@ -309,7 +314,7 @@ async function startMcp(
   const id = McpConfigSchema.parse(server).id;
   // Opening it puts nothing in the tool list — the tools are already there — so `openMcp`, not
   // `connectMcp`: the same connection, without a second registration to collide with the first.
-  host.connections.register(id, () => openMcp(server, env, guard, host.cache));
+  host.connections.register(id, () => vet().then(() => openMcp(server, env, guard, host.cache)));
   const names = registerCachedMcp(registry, server, host.cache.read(id), async () => {
     // Opened through the manager, so keep-warm, the cap and the retries all apply to it. What it
     // says its tools are NOW, and the credentials it was opened with, travel back with it: the
@@ -324,9 +329,17 @@ async function startMcp(
   }
   return async () => { for (const name of names) registry.unregister(name); };
 }
+/** mac3/security-check: asks the malware check about a server started from a package, if there is one. */
+async function vetLaunch(server: unknown, host: McpHost | undefined): Promise<void> {
+  if (!host?.vetLaunch) return;
+  const config = McpConfigSchema.parse(server);
+  if (config.transport === 'stdio') await host.vetLaunch(config.command, config.args);
+}
 /** What `loadIntegrations` needs to run outside servers on demand rather than at startup. */
 export interface McpHost {
   connectWhen(): 'startup' | 'on-demand';
+  /** mac3/security-check: throws a plain sentence for a package listed as malware. */
+  vetLaunch?: (command: string, args: readonly string[]) => Promise<void>;
   cache: McpToolCache;
   connections: { register(id: string, opener: () => Promise<{ close(): Promise<void> }>): void;
     acquire(runId: string, id: string): Promise<{ close(): Promise<void> }> };
