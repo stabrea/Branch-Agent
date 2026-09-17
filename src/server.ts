@@ -36,7 +36,7 @@ import { AnthropicProvider, GeminiProvider, OpenAIProvider } from "./providers.j
 import { allPresets, findPreset } from "./providers/presets.js";
 import { testRouteFor } from "./provider-factory.js";
 import { connectFromPreset, forgetConnection } from "./connections-preset.js";
-import { catalogEntries, providerCatalog } from "./provider-catalog.js";
+import { catalogEntries, catalogEntry, providerCatalog } from "./provider-catalog.js";
 import { localModelsApi } from "./local-models-api.js";
 import { localRuntimes } from "./local-runtimes.js";
 // Wave mac5 (local models): the one-click pieces kept beside this app's store.
@@ -123,7 +123,10 @@ import { voiceSettings, saveVoiceSettings } from "./voice.js";
 import { voiceApi } from "./voice-api.js";
 // bucket-18: pull requests from changes (A0300), and which requests came with a short-lived key.
 import { pullRequestHookSettings, savePullRequestHookSettings } from "./pr-hook.js";
-import { markShortLivedKey } from "./key-context.js";
+import { markShortLivedKey, startedWithShortLivedKey } from "./key-context.js";
+import { connectionCheck } from "./local-connection-policy.js"; // mac5/key-sweep: Test this connection
+import type { NetworkPolicy } from "./network-policy.js";
+import { generalShortLivedKeyRefusal, ownerOnlyRead, taskRouteFor } from "./short-lived-keys.js"; // mac5/key-sweep
 // bucket-18: code editor (A0098)
 import { handlesWorkspaceEditorPath, workspaceEditorApi, WorkspaceEditorApiError } from "./workspace-editor-api.js";
 import { protectedTarget } from "./never-break/protected.js"; // bucket-18 integration review
@@ -531,15 +534,23 @@ const providerTestInput = z.object({
 }).strict();
 
 /** Sends one tiny request through the same provider classes the assistant uses, so URL rules and errors match real use. */
-async function testProvider(body: unknown): Promise<unknown> {
+async function testProvider(body: unknown, policy: NetworkPolicy): Promise<unknown> {
   const input = providerTestInput.parse(body);
   const chosen = input.preset ? findPreset(input.preset) : undefined;
   if (input.preset && !chosen) throw new HttpError(400, "Unknown provider preset");
   const endpoint = input.endpoint ?? chosen?.baseUrl, model = input.model ?? chosen?.modelIds[0];
   if (!endpoint || !model || !input.apiKey) throw new HttpError(400, "Provide the address, a model name and the key to test");
+  // mac5/key-sweep: the typed key goes nowhere the network rules refuse; a catalogue service on this
+  // computer keeps the same narrow allowance as a saved connection (src/local-connection-policy.ts).
+  const check = connectionCheck(policy, chosen ? catalogEntry(chosen.id) : undefined, endpoint);
+  const fetchImpl = (async (target: string | URL | Request, init?: RequestInit) => {
+    await check(new URL(target instanceof Request ? target.url : String(target)), "model connection test");
+    return fetch(target, { ...init, redirect: "error" });
+  }) as typeof fetch;
   const started = Date.now();
   try {
-    const options = { endpoint, model, apiKey: input.apiKey };
+    await check(new URL(endpoint), "model connection test");
+    const options = { endpoint, model, apiKey: input.apiKey, fetchImpl };
     // --- mac5/providers: services whose route the header-style guess below gets wrong (Perplexity's
     // Agent API) or that have ended (GitHub Models). See src/provider-factory.ts testRouteFor.
     const ownRoute = chosen ? testRouteFor(chosen.id, endpoint, model, input.apiKey) : null;
@@ -886,7 +897,7 @@ async function api(
     return app.runtime.models.configure(app.runtime.owner, await readBody(request));
   if (request.method === "POST" && path === "/api/models/test") return testModel(app, await readBody(request));
   if (request.method === "GET" && path === "/api/providers/catalog") return providersCatalog();
-  if (request.method === "POST" && path === "/api/providers/test") return testProvider(await readBody(request));
+  if (request.method === "POST" && path === "/api/providers/test") return testProvider(await readBody(request), app.web.policy);
   if (request.method === "GET" && path === "/api/providers/local") return localProviders();
   // Batch 20 (wave 8): coding assistants already installed here, used as a model through their own
   // command line and their own sign-in. Listing them installs nothing and signs in to nothing.
@@ -1136,6 +1147,9 @@ async function api(
       remember: PolicyRememberSchema.default("session"),
       // Batch 19 (wave 7): the fingerprint the person was shown, so a yes cannot land on a changed request.
       fingerprint: z.string().regex(/^[a-f0-9]{32}$/).optional() }).strict().parse(await readBody(request));
+    // mac5/key-sweep: answering is a run key's job, but "always" would write a standing rule.
+    if (input.remember === "always" && startedWithShortLivedKey())
+      throw new HttpError(401, "A short-lived key can answer this once or for this conversation, but cannot make a standing rule. Do that in the app window.");
     return app.runtime.approve(input.sessionId, input.decision, input.remember, input.fingerprint);
   }
   if (request.method === "GET" && path === "/api/governance")
@@ -2909,7 +2923,8 @@ export function offLimitsToShortLivedKeys(method: string | undefined, path: stri
   // neither read files through it nor save over them, so this comes before reading is let through.
   if (handlesWorkspaceEditorPath(path))
     return "A short-lived key cannot use the code editor. Do that in the app window.";
-  if (method === "GET") return null;
+  // mac5/key-sweep: a few reads hand back a secret or everybody's data (src/short-lived-keys.ts).
+  if (method === "GET") return ownerOnlyRead(path);
   // Wave mac3 (commands, integration review): when Branch checks with you, which model every new
   // conversation starts with (and the model services behind it), and which commands are offered
   // are the owner's; `/preset` and `/default` already refused a "run" key, their routes did not.
@@ -2964,6 +2979,8 @@ export function offLimitsToShortLivedKeys(method: string | undefined, path: stri
   // mac5/local-models (integration review): the switch, downloading, starting a program and deleting a model.
   if (/^\/api\/local-models\/(switch|setup|pull|load|stop|remove|delete|unload|runtime|routing$)/.test(path))
     return "A short-lived key cannot switch models on this computer, download or delete one, or start or stop its program. Do that in the app window.";
+  // mac5/key-sweep: every other change fails closed; only the task routes in src/short-lived-keys.ts are open.
+  if (!taskRouteFor(method, path) && interopOffLimits(method, path) === null) return generalShortLivedKeyRefusal;
   // mac4/bucket-20: switching those parts, bringing an assistant in, and handing a conversation on.
   return interopOffLimits(method, path);
 }

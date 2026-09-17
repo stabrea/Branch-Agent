@@ -5611,6 +5611,29 @@ branch token revoke <id>
   script and never you. A wrong short-lived key is counted by the same rate limit as a wrong master
   key. See `src/session-tokens.ts` and `authorize` in `src/server.ts`.
 
+**What a short-lived key may change: one rule that fails closed.** A short-lived key never changes
+your settings, permissions or security. Every request that is not a GET is refused to it, unless it
+is on a short list of routes that start, steer, stop or answer a task, or only look something up
+with a long question. That list is `shortLivedKeyTaskRoutes` in `src/short-lived-keys.ts`: starting
+a task (`/api/run`, `/api/action`, `/api/tools/try`, `/api/commands/run`, `/api/goals`,
+`/v1/chat/completions`, `/a2a`, the Agent Protocol's tasks and steps, and tool calls on `/mcp`);
+stopping, resuming, steering, replaying or answering the plan of a task; the next message, the goal
+or the model of one conversation, and `/api/models/switch`; answering a question a task asked
+(`/api/policy/approve`, but only once or for that conversation — "always" would make a standing rule
+and is refused); the waiting line, running a saved flow, workflow or schedule now; speech in and out;
+and the searches. Everything else is the owner's: settings of every kind, permissions and approval
+rules, the locker and sign-ins, the sandbox and network, chat apps and pairing, integrations, add-ons
+and skills, backups and restores, updates and restarts, and profiles. A route added later is refused
+until somebody puts it on the list. Where a part of Branch already had its own sentence ("A
+short-lived key cannot switch Lockdown on or off …") that sentence is kept; everywhere else the answer
+is "A short-lived key can start, steer and stop tasks, but cannot change settings, permissions or
+security. Do that in the app window." A few reads are refused too, because what they give back
+outlives the key: triggers and outgoing webhooks (they carry their secrets), the secret chat-app
+addresses (`/api/channels/addresses`), the full backup (`/api/backup`, everybody's data), and the
+code editor. `tests/short-lived-keys.test.mjs` fails when a route is added anywhere in `src/` without
+being classified in `tests/short-lived-key-routes.mjs`, and tries every owner-only change with a "run"
+key. Windows, macOS and Linux behave the same.
+
 These are one feature answering two audited rows: A0100 ("session API-key authentication") and
 A1930 ("API keys and temporary auth tokens") describe the same thing from two projects.
 
