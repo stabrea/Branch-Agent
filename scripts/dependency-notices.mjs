@@ -34,5 +34,11 @@ for (const [path, entry] of Object.entries(lock.packages)) {
       "",
     );
 }
+// The hand-written section for source code adapted from other projects is not in any package;
+// it is carried over from the current file so regenerating never drops it.
+const adaptedHeading = "## Source code adapted from other projects";
+const current = await readFile("THIRD_PARTY_NOTICES.md", "utf8").catch(() => "");
+const adapted = current.indexOf(`\n${adaptedHeading}\n`);
+if (adapted >= 0) sections.push(current.slice(adapted + 1).trimEnd(), "");
 await writeFile("THIRD_PARTY_NOTICES.md", sections.join("\n").replace(/\r\n?/g, "\n").replace(/[ \t]+$/gm, ""));
 console.log("Collected notices from locked runtime dependencies.");
