@@ -65,6 +65,15 @@ export const screenTools = ["desktop.screenshot", "desktop.windows", "desktop.re
 export const systemVoiceTools = ["voice.say"] as const;
 
 type Reader = Pick<Store, "get">;
+/** mac4/bucket-20: each interop part with tools — its settings record, why it is loaded, and its tools. */
+export const interopToolFeatures: readonly (readonly [string, string, readonly string[]])[] = [
+  ["interop-modes", "ways of working are switched on", ["mode.list", "mode.task"]],
+  ["interop-project-routing", "choosing the project for a request is switched on", ["project.route"]],
+  ["interop-fleet", "looking after several assistants is switched on", ["fleet.status", "fleet.send", "fleet.stop"]],
+  ["interop-handoff", "handing a conversation on is switched on", ["conversation.handoff"]],
+  ["interop-flow-search", "finding a better flow is switched on", ["flow.search"]],
+  ["interop-agent-market", "sharing assistants is switched on", ["assistant.market"]],
+];
 const savedMode = (store: Reader, owner: string, key: string, field: "mode" | "systemVoice" = "mode"): FeatureMode => {
   const data = (store.get("settings", owner, key)?.data ?? {}) as Record<string, unknown>;
   const mode = FeatureModeSchema.safeParse(data[field]);
@@ -80,6 +89,8 @@ const savedMode = (store: Reader, owner: string, key: string, field: "mode" | "s
 const toolFeatures: { reason: string; tools: readonly string[]; hideWhenOff: boolean; mode: (store: Reader, owner: string) => FeatureMode }[] = [
   { reason: "your screen and keyboard are switched on", tools: screenTools, hideWhenOff: true, mode: (s, o) => savedMode(s, o, "desktop-control") },
   { reason: "your computer's own voice is switched on", tools: systemVoiceTools, hideWhenOff: false, mode: (s, o) => savedMode(s, o, "voice", "systemVoice") },
+  // ── mac4/bucket-20: talking to other agents and tools (src/interop/settings.ts keeps these lists). ──
+  ...interopToolFeatures.map(([key, reason, tools]) => ({ reason, tools, hideWhenOff: true, mode: (s: Reader, o: string) => savedMode(s, o, key) })),
 ];
 
 /**

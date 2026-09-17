@@ -86,6 +86,9 @@ import { meaningSearchExplanation, meaningSearchOn, meaningSearchSetting } from 
 import { handleA2a, remoteAgentsApi } from "./a2a-routes.js";
 import type { createBranch } from "./index.js";
 import { PreferencesSchema, preferences } from "./preferences.js";
+// mac4/bucket-20: the Agent Protocol, programs lending tools, and the owner's interop routes.
+import { handleInterop, handlesInteropPath, interopOffLimits } from "./interop/api.js";
+import { clientToolsPath, serveClientToolSocket } from "./interop/client-tools.js";
 // Wave mac3: the owner's control dashboard, a page of its own at /dashboard.
 import {
   DashboardApiError, dashboardAccess, dashboardApi, dashboardSettings, handlesDashboardPath, isDashboardFile,
@@ -328,6 +331,8 @@ async function staticFile(
     "/dashboard/feed.js": ["dashboard/feed.js", "text/javascript; charset=utf-8"],
     "/dashboard/look.js": ["dashboard/look.js", "text/javascript; charset=utf-8"],
     "/dashboard-card.js": ["dashboard/card.js", "text/javascript; charset=utf-8"],
+    // mac4/bucket-20: the cards for talking to other agents and tools, and ways of working.
+    "/interop.js": ["interop.js", "text/javascript; charset=utf-8"],
     "/usage.js": ["usage.js", "text/javascript; charset=utf-8"],
     "/evaluation.js": ["evaluation.js", "text/javascript; charset=utf-8"],
     // Wave 7: written-down experiments, under the evaluation card.
@@ -2266,6 +2271,18 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
       if (executes && !place)
         throw new HttpError(429, "Too many active executions");
       try {
+        // ---- mac4/bucket-20: the Agent Protocol and /api/interop (src/interop/api.ts). ----
+        if (handlesInteropPath(path)) {
+          app.store.profiles.requireOwner("Working with other agents");
+          await handleInterop({
+            interop: app.interop, store: app.store, owner: app.runtime.owner, runtime: app.runtime, flows: app.flows,
+            fleet: { runtime: app.runtime, knowledge: app.knowledge, teams: app.teams, remoteAgents: app.remoteAgents, clients: app.interop.clients },
+            readBody: () => readBody(request, 131072), baseUrl: remote.status().url ?? url,
+            requireOwner: (what) => app.store.profiles.requireOwner(what),
+          }, request, response, path);
+          return;
+        }
+        // ---- end of the bucket-20 block ----
         if (await rawApi(app, request, response, path)) return;
         if (path.startsWith("/api/deployment")) {
           const result = await deploymentApi(app, request, path, deployment(), (r) => readBody(r), remoteHandler);
@@ -2294,6 +2311,16 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
   server.on("upgrade", (request, socket) => {
     void (async () => {
       const path = new URL(request.url ?? "/", url || "http://127.0.0.1").pathname;
+      // mac4/bucket-20: a program on this computer lending tools, behind the key and while the switch is on.
+      if (path === clientToolsPath) {
+        const sameHost = hostAllowed(request.headers.host, request.headers.origin, url, remote.allowedHosts());
+        if (!sameHost || !tokenFromProtocol(request, token) || !app.interop.clients.enabled()) {
+          socket.end("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
+          return;
+        }
+        serveClientToolSocket(app.interop.clients, request, socket);
+        return;
+      }
       const match = /^\/api\/runs\/([a-f0-9-]{36})\/ws$/.exec(path);
       const run = match && app.store.run(match[1]!);
       const sameHost = hostAllowed(request.headers.host, request.headers.origin, url, remote.allowedHosts());
@@ -2673,11 +2700,14 @@ function offLimitsToShortLivedKeys(method: string | undefined, path: string): st
     return "A short-lived key cannot switch Lockdown on or off. Do that in the app window or with the key of this computer.";
   // Wave mac2 (guards): trusting a folder lets what is in it steer the assistant.
   if (handlesGuardsPath(path)) return "A short-lived key cannot change which folders are trusted or how repeated steps are stopped. Do that in the app window.";
-  return null;
+  // mac4/bucket-20: switching those parts, bringing an assistant in, and handing a conversation on.
+  return interopOffLimits(method, path);
 }
 function isExecution(request: IncomingMessage, path: string): boolean {
   return (
     request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore", "/api/deployment/restore-point", "/api/deployment/close", "/a2a", "/api/tools/try", "/api/tools/forget", "/api/tools/meaning-search", "/api/firewall/test", "/api/sandboxes", "/api/limits"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins|local-models|connections|monitors|brief|ask-first|retrieval|issues|practice|workflows|queue|profiles|labels|shares|calendar|knowledge|tracing|rules|flows|deferred|processes|skill-revisions|plugin-catalog|developer|studies|batch|artifacts|reports|todos|obsidian|log|remotes|marks|retention|heartbeat)(\/|$)/.test(path) || /^\/api\/mcp\/(try|signin)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/api\/runs\/[a-f0-9-]{36}\/replay$/.test(path) || /^\/webhooks\/(whatsapp|chat)\//.test(path))
+    // mac4/bucket-20: an Agent Protocol step, and every change under /api/interop, start or change work.
+    || (request.method !== "GET" && handlesInteropPath(path))
   );
 }
 function configureLimits(server: Server): void {

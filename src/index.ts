@@ -159,6 +159,8 @@ import { redactLeaksIn } from "./leak-guard.js";
 // mac2/fly-core: the learning core switch and its on-demand tool.
 import { flyCoreSettings } from "./fly-core/settings.js";
 import { setFlyCoreMode, syncSuggestTool } from "./fly-core/tool.js";
+// mac4/bucket-20: talking to other agents and tools.
+import { Interop } from "./interop/index.js";
 
 export async function createBranch(options: {
   workspace: string;
@@ -756,6 +758,9 @@ export async function createBranch(options: {
   // Short-lived, scoped keys for anything that is not the app window. The master session key is
   // never one of these; see src/session-tokens.ts.
   const sessionTokens = new SessionTokens(store.sqlite, store);
+  // ── mac4/bucket-20: talking to other agents and tools (src/interop/). Every part ships off. ──
+  const interop = new Interop({ runtime, registry, knowledge, teams, flows, remoteAgents,
+    tokens: sessionTokens, files, policy: web.policy, version });
   const stopWatchingErrors = recordUncaughtErrors(store.spans, runtime.owner, (value) => runtime.hideSecrets(value));
   // A finished task's spans go out on their own once sending is on; the exporter itself does
   // nothing at all while it is off, so this stays quiet until the owner turns it on.
@@ -781,6 +786,8 @@ export async function createBranch(options: {
   return {
     store,
     registry,
+    /** mac4/bucket-20: the Agent Protocol, lent tools, modes, project routing, fleet, handoff, flow search, market. */
+    interop,
     runtime,
     /** mac2/fly-core: the learning core's three-way switch (off, when-needed, on); it ships off. */
     learningCore: {
@@ -1339,6 +1346,8 @@ export * from "./providers/cli-agent.js";
 export * from "./cli-attach.js";
 export * from "./cli-completion.js";
 export * from "./cli-run.js";
+// mac4/bucket-20: talking to other agents and tools.
+export { Interop } from "./interop/index.js";
 // Wave mac2 (guards): the loop guard, the folder's own instructions and folder trust.
 export * from "./loop-guard.js";
 export * from "./folder-trust.js";
