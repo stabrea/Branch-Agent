@@ -164,6 +164,14 @@ export function heldReplay(store: Pick<Store, "get" | "delete">, owner: string, 
   return "Branch was restarted while it was working on this, and part of it may already have been done (a message sent, for example). So it was not started again. The owner can check and carry it on in the app.";
 }
 
+/** Held chat messages the chat app never sent again are forgotten after a week. */
+function pruneHeldReplays(store: Store, owner: string): void {
+  const weekAgo = new Date(Date.now() - 7 * 86_400_000).toISOString();
+  try {
+    store.sqlite.prepare("DELETE FROM settings WHERE owner=? AND id LIKE 'channel-replay:%' AND json_extract(data,'$.heldAt') < ?").run(owner, weekAgo);
+  } catch { /* tidying never matters enough to fail over */ }
+}
+
 const settledKinds = new Set(["run.auto_resumed", "run.can_continue", "run.left_for_channel", "attention.needed"]);
 
 /**
@@ -193,6 +201,7 @@ export async function recoverAfterRestart(input: RecoveryInput): Promise<Recover
   const report: RecoveredRun[] = [];
   for (const [runId, steps] of interruptedRuns(input)) report.push(await recoverRun(input, runId, steps));
   input.journal.prune();
+  pruneHeldReplays(input.store, input.runtime.owner);
   return report;
 }
 

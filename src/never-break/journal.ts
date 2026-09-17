@@ -130,7 +130,10 @@ export function openJournal(path: string): { journal: TaskJournal; reset: string
     const aside = `${path}.unreadable-${new Date().toISOString().replace(/[:.]/g, "-")}`;
     for (const suffix of ["", "-wal", "-shm"]) { try { renameSync(`${path}${suffix}`, `${aside}${suffix}`); } catch { /* not there */ } }
     const why = error instanceof Error ? error.message : String(error);
-    return { journal: new TaskJournal(path), reset: `The task journal could not be read (${why.slice(0, 200)}); it was put aside as ${aside} and a new one started.` };
+    let journal: TaskJournal;
+    // Last resort: a journal in memory, so Branch still starts; nothing is kept across a restart then.
+    try { journal = new TaskJournal(path); } catch { journal = new TaskJournal(":memory:"); }
+    return { journal, reset: `The task journal could not be read (${why.slice(0, 200)}); it was put aside as ${aside} and a new one started.` };
   }
 }
 
@@ -143,7 +146,8 @@ export class TaskJournal {
     try {
       this.db.exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA busy_timeout=2000;");
       migrate(this.db, migrations, { backupTo: null });
-      if (process.platform !== "win32") chmodSync(path, 0o600);
+      // Tidiness only: a disk that keeps no permissions must not stop the journal opening.
+      if (process.platform !== "win32") { try { chmodSync(path, 0o600); } catch { /* see above */ } }
     } catch (error) { this.db.close(); throw error; }
   }
   private write<T>(work: () => T): T {

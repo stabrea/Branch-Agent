@@ -361,6 +361,9 @@ test("a journal that cannot be read is put aside, Branch still starts, and nothi
   const dataDir = join(root, "d");
   await mkdir(dataDir, { recursive: true });
   await writeFile(join(dataDir, "journal.sqlite"), "this is not a database at all, just rubbish bytes ".repeat(200));
+  const nowhere = openJournal(join(root, "no-such-folder", "journal.sqlite"));
+  assert.match(nowhere.reset ?? "", /could not be read/, "even a journal that cannot be made at all never stops the start");
+  nowhere.journal.close();
   const opened = openJournal(join(dataDir, "journal.sqlite"));
   assert.match(opened.reset ?? "", /could not be read.*put aside/);
   opened.journal.close();
@@ -453,6 +456,10 @@ test("a chat task that may already have sent something is not done again when th
   assert.equal(second.outcome, "left-for-chat");
   await chat.deliver(handMessage("what is on my list", "m2"));
   assert.equal(provider.requests, 1, "answered once, as a fresh task");
+
+  app.store.save("settings", "local", "channel-replay:hand:7:old", { runId: "x", heldAt: new Date(Date.now() - 8 * 86_400_000).toISOString() });
+  await recoverAfterRestart({ store: app.store, runtime: app.runtime, journal: app.neverBreak.journal, mode: "on" });
+  assert.equal(app.store.get("settings", "local", "channel-replay:hand:7:old"), undefined, "a hold nobody used is forgotten after a week");
 });
 
 test("a task cut off by Branch closing is cancelled with the switch off, as before, and interrupted with it on", async (t) => {
