@@ -51,7 +51,7 @@ test("the native projects carry no typed colour outside the generated files", as
 
 test("every word on the phone has a key, in English and in real French", async () => {
   const [en, fr] = [await locale("en"), await locale("fr")];
-  const sources = await Promise.all(["index.html", "phone-home.js", "phone-pair.js", "phone-send.js", "phone.js", "rules.js", "vault.js"]
+  const sources = await Promise.all(["index.html", "phone-home.js", "phone-pair.js", "phone-send.js", "phone.js", "rules.js", "vault.js", "phone-connect.js"]
     .map((name) => readFile(join(WEB, name), "utf8")));
   const keys = new Set();
   for (const text of sources)
