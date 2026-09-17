@@ -582,6 +582,8 @@ function renderAttention() {
   for (const item of waiting) {
     if (notifiedAttention.has(item.runId)) continue;
     notifiedAttention.add(item.runId);
+    // R17-S17: the owner's sound, and "the banner only" (public/comfort.js).
+    if (globalThis.branchComfort?.attention(item) === "handled") continue;
     if (typeof Notification === "undefined") continue;
     const show = () => {
       const note = new Notification("Your assistant needs you", { body: item.question.slice(0, 200), tag: item.runId });

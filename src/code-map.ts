@@ -46,7 +46,8 @@ export interface OutlineResult { outline: string; tokens: number; budget: number
 
 export class ProjectMap {
   private readonly cache = new Map<string, Cached>();
-  private readonly search: WorkspaceSearch;
+  /** R17-S20: public so the owner's ignore-file choice reaches the map as well as the file search. */
+  readonly search: WorkspaceSearch;
   constructor(private readonly files: WorkspaceFiles) {
     this.search = new WorkspaceSearch(files);
   }

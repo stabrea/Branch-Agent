@@ -10,6 +10,7 @@ import { retentionSettings, saveRetentionSettings } from "../retention.js";
 import { eventLoopSettings, eventLoopWatch, saveEventLoopSettings } from "../event-loop-watch.js";
 import { audit } from "../audit.js";
 import { writeBoardSwitch, type BoardPart } from "../flows-boards/settings.js"; // r17-h integration review
+import { saveComfort, type ComfortCard } from "../comfort/settings.js";
 
 /**
  * R17-S-A (understandable settings): the settings that can be put back to how they started, set
@@ -195,7 +196,33 @@ const comfort: SettingSpec[] = [
   },
 ];
 
-export const settingsCatalogue: readonly SettingSpec[] = [...safety, ...reach, ...comfort];
+/**
+ * R17-S-C integration review: the comfort cards' switches and short lists (src/comfort/settings.ts),
+ * saved through the cards' own checks. The proxy, the certificates, the browser's care and automatic
+ * installing are not here and are on the never-touched list: no preset or file may set them.
+ */
+const viaComfort = (card: ComfortCard) => (store: Store, owner: string, patch: Record<string, unknown>): void => {
+  saveComfort(store, owner, card, patch);
+};
+const comfortCards: SettingSpec[] = [
+  { key: "comfort-keys", name: "Shortcuts", t: "comfort.keys.title", home: "settings:general", write: viaComfort("keys"),
+    fields: [yesNo("vim", "Vim keys in the message box", "comfort.field.vim", "plain")] },
+  { key: "comfort-display", name: "Status line and times", t: "comfort.display.title", home: "settings:appearance", write: viaComfort("display"),
+    fields: [yesNo("timestamps", "A time on every message", "comfort.field.timestamps", "plain")] },
+  { key: "comfort-notify", name: "Notifications and sound", t: "comfort.notify.title", home: "settings:notifications", write: viaComfort("notify"),
+    fields: [
+      { field: "method", label: "Where you are told", t: "comfort.field.method", guard: "plain", initial: "system", kind: { type: "choice", options: ["system", "window"] } },
+      { field: "sound", label: "Sound", t: "comfort.field.sound", guard: "plain", initial: "off", kind: { type: "choice", options: ["off", "chime", "knock"] } },
+    ] },
+  { key: "comfort-files", name: "Ignore files", t: "comfort.files.title", home: "settings:general", write: viaComfort("files"),
+    // Turning .gitignore off lets searches see more of the workspace (never a secret file).
+    fields: [yesNo("respectGitignore", "Skip what .gitignore lists", "comfort.field.respectGitignore", "guard", true)] },
+  { key: "comfort-mcp", name: "Tool servers' start-up time", t: "comfort.mcp.title", home: "customize:connections", write: viaComfort("mcp"),
+    fields: [{ field: "startupTimeoutSeconds", label: "Seconds a server may take to start", t: "comfort.field.startupTimeoutSeconds",
+      guard: "plain", initial: 10, kind: { type: "number", min: 1, max: 300 } }] },
+];
+
+export const settingsCatalogue: readonly SettingSpec[] = [...safety, ...reach, ...comfort, ...comfortCards];
 
 /**
  * Records that are never touched from here, whatever a file or a preset names. The catalogue above
@@ -208,6 +235,8 @@ export const neverTouched: readonly RegExp[] = [
   // Integration review: accounts, add-on lists and their wall, the leak guard, what is passed on to
   // programs, never-break and its gateway, tunnels and the launch file are never reached from here.
   /^accounts?(-|$)/, /^add-?ons?/, /leak/, /^knobs?/, /env/, /^never-break/, /gateway/, /tunnel/, /launch/,
+  // R17-S-C integration review: the proxy and certificates, the browser's care, and updating by itself.
+  /^comfort-(network|browser|update)/,
 ];
 
 /** A field name that sounds like it could hold a secret is refused outright, whatever the catalogue says. */

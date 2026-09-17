@@ -145,6 +145,9 @@ async function press() {
   startedAt = Date.now();
   recorder.start();
   show("listening");
+  // R17-S18: the longest recording the owner allows (public/comfort.js); unset, it runs until let go.
+  const limit = globalThis.branchComfort?.maxRecordingSeconds?.();
+  if (limit) { const started = startedAt; setTimeout(() => { if (startedAt === started) release(); }, limit * 1000); }
 }
 function release() {
   if (state !== "listening" || !recorder) return;
