@@ -1,6 +1,9 @@
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { posix } from "node:path";
+
+// These files only ever exist on macOS or Linux, so their paths use forward slashes wherever they are composed.
+const { dirname, join } = posix;
 import type { DaemonAction, DaemonReport } from "./daemon.js";
 import { runTool, type RunTool } from "./windows.js";
 
