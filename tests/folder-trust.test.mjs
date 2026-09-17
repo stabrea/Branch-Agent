@@ -206,6 +206,17 @@ test("the trust screen lists each folder, takes an answer, and refuses a short-l
   assert.match(html, /<script src="\/folder-trust\.js" type="module"><\/script>/);
 });
 
+/**
+ * Opens the screen these cards live on. The one place a test finds its way there, so it can move
+ * to tests/places.mjs (openSettingFor) when the redesigned window lands.
+ */
+async function openSettings(page) {
+  const nav = page.locator('.nav[data-view="settings"]').first();
+  if (!(await nav.isVisible())) await page.locator("#rail-toggle").click();
+  await nav.click();
+  await page.evaluate(() => document.body.classList.remove("rail-open"));
+}
+
 test("the chat screen asks once, the answer sticks, and Settings shows it", async (t) => {
   const { chromium } = await import("playwright");
   const deep = "folderwithaverylongnameandnowheretobreakit".repeat(4); // no spaces or hyphens to wrap at
@@ -239,10 +250,7 @@ test("the chat screen asks once, the answer sticks, and Settings shows it", asyn
   await page.evaluate(async () => (await import("/i18n.js")).setLanguage("en"));
   // At 400 px nothing on the card, long folder path included, widens the page.
   await page.setViewportSize({ width: 400, height: 800 });
-  const nav = page.locator('.nav[data-view="settings"]').first();
-  if (!(await nav.isVisible())) await page.locator("#rail-toggle").click();
-  await nav.click();
-  await page.evaluate(() => document.body.classList.remove("rail-open"));
+  await openSettings(page);
   await settings.scrollIntoViewIfNeeded();
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), "the page scrolls sideways");
   // A box can stay inside the window while its words spill out of it, so both are measured.
@@ -250,5 +258,17 @@ test("the chat screen asks once, the answer sticks, and Settings shows it", asyn
     .filter((node) => node.getBoundingClientRect().right > document.documentElement.clientWidth + 1 || node.scrollWidth > node.clientWidth + 1)
     .map((node) => `${node.tagName} ${node.textContent.slice(0, 30)}`));
   assert.deepEqual(wide, []);
+  // Both cards say where they belong, and each has exactly one filled button.
+  for (const id of ["folder-trust-card", "loop-guard-card"]) {
+    const card = page.locator(`#${id}`);
+    assert.equal(await card.getAttribute("data-home"), "settings:permissions");
+    assert.equal(await card.locator("button:not(.quiet-button)").count(), 1, id);
+  }
+  // The loop guard switch is kept by its Save button.
+  await page.locator("#loop-guard-mode").selectOption("when-needed");
+  await page.locator("#loop-guard-card button", { hasText: "Save this setting" }).click();
+  await page.locator("#loop-guard-card [role=status]", { hasText: "Saved." }).waitFor();
+  const { loopGuardMode } = await import("../dist/index.js");
+  assert.equal(loopGuardMode(app.store, owner), "when-needed");
   assert.deepEqual(errors, []);
 });

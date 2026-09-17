@@ -45,7 +45,7 @@ const kinds = [
   ["plugins", "folder-trust.kind.plugins", "folder-trust.kind.plugins-note"],
 ];
 
-/** A labelled off / on / when-needed choice that saves itself. */
+/** A labelled off / on / when-needed choice, kept by the card's one filled Save button. */
 function switchRow(id, labelKey, mode, save) {
   const label = worded("label", labelKey);
   label.htmlFor = id;
@@ -60,11 +60,13 @@ function switchRow(id, labelKey, mode, save) {
   const status = document.createElement("p");
   status.className = "subtle";
   status.setAttribute("role", "status");
-  select.addEventListener("change", async () => {
+  const button = worded("button", "action.save-this-setting");
+  button.type = "button";
+  button.addEventListener("click", async () => {
     try { await save(select.value); status.textContent = t("folder-trust.saved"); }
     catch (error) { status.textContent = error.message; }
   });
-  return [label, select, status];
+  return [label, select, button, status];
 }
 
 /** What one folder carries, as short lists. */
@@ -88,14 +90,14 @@ const placeName = (folder) => folder.project
   ? t("folder-trust.project-folder", { name: folder.project })
   : t("folder-trust.workspace");
 
-function buttons(folder) {
+function buttons(folder, filled = true) {
   const row = document.createElement("div");
   row.className = "identity-actions";
   const status = document.createElement("p");
   status.className = "subtle";
   status.setAttribute("role", "status");
   for (const [decision, key, quiet] of [["trust", "action.trust-this-folder", false], ["distrust", "action.do-not-trust-this-folder", true]]) {
-    const button = worded("button", key, quiet ? "quiet-button" : "");
+    const button = worded("button", key, quiet || !filled ? "quiet-button" : "");
     button.type = "button";
     button.addEventListener("click", async () => {
       try { await api({ folder: folder.folder, decision }); await refresh(); }
@@ -126,17 +128,27 @@ function askCard(folders) {
   chat.prepend(card);
 }
 
+/**
+ * One Settings card, made once and placed after `afterId`. Its home in the redesigned window is
+ * Settings → Permissions; the window's own layout reads `data-home` and moves it there.
+ */
+function settingsHome(id, afterId) {
+  let card = $(id);
+  if (card) return card;
+  const after = $(afterId);
+  if (!after) return null;
+  card = document.createElement("section");
+  card.className = "card";
+  card.id = id;
+  card.dataset.home = "settings:permissions";
+  after.after(card);
+  return card;
+}
+
 /** Every folder and its answer, in Settings, so a decision can be changed later. */
 function settingsCard(mode, folders) {
-  let card = $("folder-trust-card");
-  const after = $("firewall-card");
-  if (!card) {
-    if (!after) return;
-    card = document.createElement("section");
-    card.className = "card";
-    card.id = "folder-trust-card";
-    after.after(card);
-  }
+  const card = settingsHome("folder-trust-card", "firewall-card");
+  if (!card) return;
   card.replaceChildren(worded("h2", "settings.card.trusted-folders"), worded("p", "folder-trust.lead", "subtle"),
     ...switchRow("folder-trust-mode", "field.folder-trust-mode", mode, async (next) => { await api({ mode: next }); await refresh(); }),
     worded("p", `folder-trust.mode.${mode}`, "subtle"));
@@ -147,22 +159,15 @@ function settingsCard(mode, folders) {
     const heading = document.createElement("h4");
     heading.textContent = placeName(folder);
     row.append(heading, plain("p", folder.path, "subtle"), worded("p", `folder-trust.state.${folder.trust}`),
-      findings(folder.found), ...buttons(folder));
+      findings(folder.found), ...buttons(folder, false));
     card.append(row);
   }
 }
 
 /** The loop guard's own card, placed after the trusted-folders card. */
 function loopCard(mode) {
-  let card = $("loop-guard-card");
-  const after = $("folder-trust-card");
-  if (!card) {
-    if (!after) return;
-    card = document.createElement("section");
-    card.className = "card";
-    card.id = "loop-guard-card";
-    after.after(card);
-  }
+  const card = settingsHome("loop-guard-card", "folder-trust-card");
+  if (!card) return;
   card.replaceChildren(worded("h2", "settings.card.stopping-repeated-steps"), worded("p", "loop-guard.lead", "subtle"),
     ...switchRow("loop-guard-mode", "field.loop-guard-mode", mode, (next) => api({ mode: next }, "loop-guard")),
     worded("p", "loop-guard.modes", "subtle"));
