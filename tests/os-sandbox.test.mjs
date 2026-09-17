@@ -565,3 +565,28 @@ test("W20 the card lives in Settings, Computer, speaks French, fits 400 px and s
   await page.waitForFunction(() => document.getElementById("os-sandbox-card")?.textContent.includes("Le mur autour des programmes"));
   assert.deepEqual(errors, []);
 });
+
+/* ------------------------------------------------------------------ media and speech programs */
+
+test("W21 ffmpeg, yt-dlp and the reading-aloud program get a clean environment with no keys", async () => {
+  const { cleanChildEnvironment } = await import("../dist/child-env.js");
+  const { runProgram } = await import("../dist/voice-stt.js");
+  const source = { PATH: "/usr/bin", HOME: "/home/o", LANG: "fr_FR.UTF-8", LC_ALL: "C", TMPDIR: "/tmp", SystemRoot: "C:\\Windows",
+    OPENAI_API_KEY: "sk-proj-abcdefghijklmnopqrstuvwxyz123", ANTHROPIC_API_KEY: "sk-ant-x", BW_SESSION: "vault", NODE_OPTIONS: "--require x",
+    GITHUB_TOKEN: "ghp_x", BRANCH_TOKEN: "branch_x", AWS_SECRET_ACCESS_KEY: "y" };
+  assert.deepEqual(cleanChildEnvironment(source),
+    { PATH: "/usr/bin", HOME: "/home/o", LANG: "fr_FR.UTF-8", LC_ALL: "C", TMPDIR: "/tmp", SystemRoot: "C:\\Windows" });
+  // The runner the media and speech programs start through really hands the child only that.
+  const printed = await runProgram(process.execPath, ["-e", "process.stdout.write(JSON.stringify(Object.keys(process.env)))"],
+    AbortSignal.timeout(20_000), { ...source, PATH: process.env.PATH ?? "" });
+  const names = JSON.parse(printed);
+  for (const key of ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "BW_SESSION", "NODE_OPTIONS", "GITHUB_TOKEN", "BRANCH_TOKEN", "AWS_SECRET_ACCESS_KEY"])
+    assert.ok(!names.includes(key), `${key} reached the program`);
+  assert.ok(names.includes("HOME") && names.includes("LANG"));
+  // ffmpeg, yt-dlp and the speech engines use that runner unless a test hands in another.
+  const { readFile: read } = await import("node:fs/promises");
+  const src = (name) => read(new URL(`../src/${name}`, import.meta.url), "utf8");
+  assert.match(await src("media-understand.ts"), /deps\.run \?\? runProgram/);
+  assert.match(await src("speech-engine-service.ts"), /this\.deps\.run \?\? runProgram/);
+  assert.match(await src("index.ts"), /new MediaUnderstanding\(\{ store, media, policy: web\.policy \}\)/);
+});
