@@ -2,7 +2,8 @@
  * Wave mac2: goal mode on the page. "/goal <what should be true> [--max n]" in the message box (or
  * the Goal button, which only fills in "/goal " for you) keeps the conversation working in rounds
  * until it is judged done. A strip above the box shows the round, the score from 0 to 1, what is
- * still missing and how long it has worked, with Pause, Resume and Stop.
+ * still missing and how long it has worked, with Pause, Resume and Stop. Every word on screen comes
+ * from public/locales through `t`.
  *
  * Everything here is reached through the page's own requests; nothing is sent to the model from
  * this file except by starting the goal. The pure pieces are exported so they can be tested without
@@ -20,51 +21,49 @@ export function parseGoalLine(line) {
   const limit = /(?:^|\s)--max(?:=|\s+)(\S+)\s*$/.exec(text);
   if (limit) {
     const wanted = Number(limit[1]);
-    if (!Number.isInteger(wanted) || wanted < 1 || wanted > MAX_ROUNDS) return { error: `--max takes a whole number from 1 to ${MAX_ROUNDS}.` };
+    if (!Number.isInteger(wanted) || wanted < 1 || wanted > MAX_ROUNDS) return { error: "goal.errorMax", values: { max: MAX_ROUNDS } };
     maxRounds = wanted;
     text = text.slice(0, limit.index).trim();
   }
-  if (!text) return { error: "Say what the goal is: /goal <what should be true when it is done> [--max rounds]" };
+  if (!text) return { error: "goal.errorEmpty", values: {} };
   return { objective: text, maxRounds };
 }
 
-export function formatElapsed(ms) {
+/** How long it has worked, in the words `t` gives. */
+export function formatElapsed(ms, t) {
   const seconds = Math.max(0, Math.floor(Number(ms || 0) / 1000));
   const minutes = Math.floor(seconds / 60);
-  if (minutes >= 60) return `${Math.floor(minutes / 60)} h ${String(minutes % 60).padStart(2, "0")} min`;
-  return minutes ? `${minutes} min ${String(seconds % 60).padStart(2, "0")} s` : `${seconds} s`;
+  const pad = (value) => String(value).padStart(2, "0");
+  if (minutes >= 60) return t("goal.timeHours", { h: Math.floor(minutes / 60), m: pad(minutes % 60) });
+  return minutes ? t("goal.timeMinutes", { m: minutes, s: pad(seconds % 60) }) : t("goal.timeSeconds", { s: seconds });
 }
 
-const HEADINGS = {
-  working: "Working toward the goal", paused: "Goal paused", done: "Goal done",
-  blocked: "Goal blocked", stopped: "Goal stopped", limit: "Goal out of rounds",
-};
-/** What the strip says and which buttons it offers, for one goal. */
-export function stripModel(goal) {
+const HEADINGS = new Set(["working", "paused", "done", "blocked", "stopped", "limit"]);
+/** What the strip says and which buttons it offers, for one goal, in the words `t` gives. */
+export function stripModel(goal, t) {
   const score = goal.score === null || goal.score === undefined ? null : Math.max(0, Math.min(1, Number(goal.score)));
   const actions = goal.status === "working" ? ["pause", "stop"] : goal.status === "paused" ? ["resume", "stop"] : ["dismiss"];
   return {
-    heading: HEADINGS[goal.status] || "Goal",
+    heading: t(HEADINGS.has(goal.status) ? `goal.heading.${goal.status}` : "goal.heading.other"),
     objective: goal.objective,
-    rounds: `Round ${goal.round} of ${goal.maxRounds}`,
+    rounds: t("goal.rounds", { round: goal.round, max: goal.maxRounds }),
     score,
-    scoreText: score === null ? "Not scored yet" : `Score ${score.toFixed(2)} of 1`,
+    scoreText: score === null ? t("goal.notScored") : t("goal.score", { score: score.toFixed(2) }),
     missing: Array.isArray(goal.missing) ? goal.missing.slice(0, 8) : [],
-    elapsed: `Worked for ${formatElapsed(goal.elapsedMs)}`,
+    elapsed: t("goal.elapsed", { time: formatElapsed(goal.elapsedMs, t) }),
     reason: goal.reason || "",
-    actions,
+    actions: actions.map((action) => ({ action, label: t(`goal.action.${action}`) })),
   };
 }
 
-const LABELS = { pause: "Pause", resume: "Resume", stop: "Stop", dismiss: "Hide" };
 const POLL_MS = 2000;
 
 if (typeof document !== "undefined") void boot();
 
 async function boot() {
   const app = await import("/app.js");
-  if (!app.SLASH_COMMANDS.some(([name]) => name === "/goal"))
-    app.SLASH_COMMANDS.push(["/goal", "Keep working until a goal is met: /goal <what should be true> [--max rounds]."]);
+  const { t } = await import("/i18n.js");
+  if (!app.SLASH_COMMANDS.some(([name]) => name === "/goal")) app.SLASH_COMMANDS.push(["/goal", t("goal.commandHelp")]);
   const $ = (id) => document.getElementById(id);
   const el = (tag, text, className) => {
     const node = document.createElement(tag);
@@ -77,10 +76,12 @@ async function boot() {
   strip.hidden = true;
   strip.setAttribute("role", "status");
   $("composer-dock")?.prepend(strip);
-  const starter = el("button", "Goal", "text-button");
+  const starter = el("button", t("goal.button"), "text-button");
   starter.type = "button";
   starter.id = "goal-start";
-  starter.title = "Keep working until a goal is met. Fills in /goal for you; nothing is sent until you press Send.";
+  starter.dataset.t = "goal.button";
+  starter.dataset.tTitle = "goal.buttonTitle";
+  starter.title = t("goal.buttonTitle");
   starter.addEventListener("click", () => {
     const box = $("prompt");
     if (!box.value.trim().startsWith("/goal")) box.value = "/goal " + box.value.trim();
@@ -91,7 +92,7 @@ async function boot() {
   let hiddenFor = "", lastSeen = "";
   const render = (goal, sessionId) => {
     if (!goal || hiddenFor === `${sessionId}:${goal.startedAt}`) { strip.hidden = true; return; }
-    const model = stripModel(goal);
+    const model = stripModel(goal, t);
     const meter = el("progress");
     meter.max = 1;
     if (model.score !== null) meter.value = model.score;
@@ -103,11 +104,11 @@ async function boot() {
     if (model.missing.length) {
       const list = el("ul");
       for (const item of model.missing) list.append(el("li", item));
-      strip.append(el("p", "Still missing:", "meta"), list);
+      strip.append(el("p", t("goal.missing"), "meta"), list);
     }
     const controls = el("div", undefined, "message-controls");
-    for (const action of model.actions) {
-      const press = el("button", LABELS[action], "text-button");
+    for (const { action, label } of model.actions) {
+      const press = el("button", label, "text-button");
       press.type = "button";
       press.addEventListener("click", () => void act(action, sessionId, goal));
       controls.append(press);
@@ -141,7 +142,7 @@ async function boot() {
     if (!parsed) return;
     event.preventDefault();
     event.stopImmediatePropagation();
-    if (parsed.error) { app.toast(parsed.error); return; }
+    if (parsed.error) { app.toast(t(parsed.error, parsed.values)); return; }
     void startGoal(parsed);
   }, true);
   const startGoal = async (parsed) => {

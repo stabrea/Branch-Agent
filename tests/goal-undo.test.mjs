@@ -17,6 +17,13 @@ import { startServer } from "../dist/server.js";
 import { parseGoalLine, stripModel, formatElapsed } from "../public/goal.js";
 import { userEntries, isUndoThat, describeRewind } from "../public/rewind.js";
 
+const locale = async (name) => JSON.parse(await readFile(new URL(`../public/locales/${name}.json`, import.meta.url), "utf8"));
+const translator = (words) => (key, values = {}) => {
+  assert.ok(key in words, `no words on file for ${key}`);
+  return words[key].replace(/\{(\w+)\}/g, (whole, name) => (name in values ? String(values[name]) : whole));
+};
+const en = translator(await locale("en"));
+const fr = translator(await locale("fr"));
 const gitPath = await locateGit();
 const noGit = { skip: gitPath ? false : "git is not installed on this machine" };
 
@@ -225,7 +232,8 @@ test("without git: files come back from the per-file copies and the answer says 
   const result = await app.rewinds.rewind("local", sessionId, { messageId: users[1].messageId, restore: "files" });
   assert.equal(result.files.method, "copies");
   assert.match(result.files.note, /Git is not installed/);
-  assert.match(describeRewind(result), /1 file put back, 1 removed\. Git is not installed/);
+  assert.equal(describeRewind(result, en), `Went back (files put back: 1; files removed: 1). ${result.files.note}`);
+  assert.match(describeRewind(result, fr), /^Retour effectué \(fichiers remis : 1; fichiers retirés : 1\)\. Git is not installed/);
   assert.equal(await readFile(join(workspace, "notes.txt"), "utf8"), "one");
   assert.equal(await exists(join(workspace, "made.txt")), false);
   await app.rewinds.unrevert("local", sessionId);
@@ -248,22 +256,39 @@ test("the goal command is read the same way on the page and in the app", () => {
   assert.equal(parseGoalLine("/goals are nice"), null);
   assert.throws(() => parseGoalCommand("/goal"), /Say what the goal is/);
   assert.throws(() => parseGoalCommand("/goal x --max 21"));
-  assert.match(parseGoalLine("/goal x --max 0").error, /1 to 20/);
-  assert.match(parseGoalLine("/goal --max 3").error, /Say what the goal is/);
+  const tooMany = parseGoalLine("/goal x --max 0");
+  assert.equal(en(tooMany.error, tooMany.values), "--max takes a whole number from 1 to 20.");
+  const empty = parseGoalLine("/goal --max 3");
+  assert.match(en(empty.error, empty.values), /Say what the goal is/);
 });
 
-test("the strip shows rounds, score, what is missing, time and the right buttons", () => {
+test("the strip shows rounds, score, what is missing, time and the right buttons, in either language", () => {
   const goal = { objective: "Tidy", status: "working", round: 2, maxRounds: 6, score: 0.456, missing: ["tests"], elapsedMs: 65_000, reason: "" };
-  const model = stripModel(goal);
+  const model = stripModel(goal, en);
+  assert.equal(model.heading, "Working toward the goal");
   assert.equal(model.rounds, "Round 2 of 6");
   assert.equal(model.scoreText, "Score 0.46 of 1");
-  assert.equal(model.elapsed, "Worked for 1 min 05 s");
-  assert.deepEqual(model.actions, ["pause", "stop"]);
-  assert.deepEqual(stripModel({ ...goal, status: "paused" }).actions, ["resume", "stop"]);
-  assert.deepEqual(stripModel({ ...goal, status: "done" }).actions, ["dismiss"]);
-  assert.equal(stripModel({ ...goal, score: null }).scoreText, "Not scored yet");
-  assert.equal(formatElapsed(3_725_000), "1 h 02 min");
+  assert.equal(model.elapsed, "Worked for 1 min 05 sec");
+  assert.deepEqual(model.actions, [{ action: "pause", label: "Pause" }, { action: "stop", label: "Stop" }]);
+  assert.deepEqual(stripModel({ ...goal, status: "paused" }, en).actions.map((a) => a.action), ["resume", "stop"]);
+  for (const status of ["done", "blocked", "stopped", "limit", "unknown"])
+    assert.deepEqual(stripModel({ ...goal, status }, en).actions.map((a) => a.label), ["Hide"]);
+  assert.equal(stripModel({ ...goal, score: null }, en).scoreText, "Not scored yet");
+  const french = stripModel(goal, fr);
+  assert.equal(french.rounds, "Tour 2 sur 6");
+  assert.equal(french.elapsed, "A travaillé 1 min 05 s");
+  assert.deepEqual(french.actions.map((a) => a.label), ["Mettre en pause", "Arrêter"]);
+  assert.equal(formatElapsed(3_725_000, en), "1 hr 02 min");
+  assert.equal(formatElapsed(9_000, fr), "9 s");
   assert.ok(isUndoThat("Undo that.") && isUndoThat("  undo that ") && !isUndoThat("undo that file please"));
+  assert.ok(isUndoThat("Annule ça!", ["undo that", fr("rewind.undoPhrase")]));
+  for (const key of ["rewind.edit", "rewind.send", "rewind.undo", "rewind.legend", "rewind.choice.both", "rewind.choice.conversation",
+    "rewind.choice.files", "rewind.cancel", "rewind.editLabel", "rewind.empty", "rewind.saving", "rewind.wentBackEarlier",
+    "goal.button", "goal.buttonTitle", "goal.commandHelp", "goal.missing"]) {
+    assert.ok(en(key) && fr(key));
+    assert.notEqual(en(key), fr(key), `${key} is translated`);
+  }
+  assert.equal(en("rewind.putBack", { messages: 2, files: 1 }), "Put back. Messages: 2. Files: 1.");
 });
 
 /** A real app whose model replies "working" and whose grader gives the scores in turn. */
