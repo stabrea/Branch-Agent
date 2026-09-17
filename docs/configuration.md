@@ -7176,6 +7176,14 @@ through your network rules.
 
 Each connector hands its text to the model marked as somebody else's words: information, never instructions.
 
+**What each card saves.** Your own accounts (one record each for Google, Microsoft and Spotify): `clientId`,
+`clientSecretName` (the name of a secret, or empty), `tenant` (Microsoft only, `common` by default) and `drafts`
+(off). Searching X: `keyName` (`XAI_API_KEY`) and `model` (`grok-4.5`). Home Assistant: `url`, `tokenName`
+(`HOMEASSISTANT_TOKEN`) and `domains`. Files into chats: `maxMegabytes` (20). The spoken briefing: `calendar`, `mail`
+and `morningBrief` (all on) and `maxCharacters` (1500). The email inbox: `host`, `port` (993), `user`, `passwordName`
+(`EMAIL_PASSWORD`) and `folder` (`mail-attachments`). The webhook address: `program` (`cloudflared`) and
+`executable` (a full path, or empty to find the program by name).
+
 **Not built in this round.** *Live voice in Discord voice channels* (R17-023) is left out: Discord voice needs the Opus
 codec and Discord's end-to-end voice encryption (DAVE, built on MLS), neither of which Node ships, and new
 dependencies are not allowed. *A wake word* is left out on purpose until the owner decides how one could be built

@@ -49,13 +49,14 @@ export class HomeControl {
   settings() { return partSettings(this.store, this.owner, settingsKey, HomeSettingsSchema); }
   save(input: unknown) { return savePartSettings(this.store, this.owner, settingsKey, HomeSettingsSchema, input); }
 
+  /** One call to Home Assistant's REST API; `path` is what follows its /api. */
   private async call(path: string, init: RequestInit & { json?: unknown } = {}): Promise<unknown> {
     requirePersonal(this.store, this.owner, "home-control");
     const settings = this.settings();
     if (!settings.url) throw new Error("There is no Home Assistant address yet. Add it on the Home Assistant card.");
     const token = await this.secret(settings.tokenName);
     try {
-      return await callJson(this.fetcher, "Home Assistant", `${settings.url.replace(/\/+$/, "")}${path}`,
+      return await callJson(this.fetcher, "Home Assistant", `${settings.url.replace(/\/+$/, "")}/api${path}`,
         { ...init, headers: { authorization: `Bearer ${token}` } });
     } catch (error) {
       const said = error instanceof Error ? error.message : String(error);
@@ -68,8 +69,8 @@ export class HomeControl {
 
   async states(input: unknown) {
     const value = StatesSchema.parse(input);
-    if (value.entity) return { states: [summary(StateSchema.parse(await this.call(`/api/states/${value.entity}`)))] };
-    const all = z.array(StateSchema).parse(await this.call("/api/states"));
+    if (value.entity) return { states: [summary(StateSchema.parse(await this.call(`/states/${value.entity}`)))] };
+    const all = z.array(StateSchema).parse(await this.call("/states"));
     const words = value.text?.toLowerCase();
     const picked = all.map(summary)
       .filter((s) => !value.domain || s.entity.startsWith(`${value.domain}.`))
@@ -82,7 +83,7 @@ export class HomeControl {
     if (!value.entity.startsWith(`${value.domain}.`)) throw new Error(`${value.entity} is not a ${value.domain}`);
     if (!this.settings().domains.includes(value.domain))
       throw new Error(`Branch may not control ${value.domain} devices. Add ${value.domain} to the list on the Home Assistant card first.`);
-    const changed = await this.call(`/api/services/${value.domain}/${value.service}`, { method: "POST", json: { ...value.data, entity_id: value.entity } });
+    const changed = await this.call(`/services/${value.domain}/${value.service}`, { method: "POST", json: { ...value.data, entity_id: value.entity } });
     const states = z.array(StateSchema).safeParse(changed);
     return { called: `${value.domain}.${value.service}`, entity: value.entity, now: states.success ? states.data.map(summary).slice(0, 20) : [] };
   }

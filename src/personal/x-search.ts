@@ -16,9 +16,9 @@ import { clip, outsideTextNote, partSettings, requirePersonal, savePartSettings,
 export const XSearchSettingsSchema = z.object({
   keyName: secretNameSchema.default("XAI_API_KEY"),
   model: z.string().trim().regex(/^[A-Za-z0-9._-]{1,80}$/).default("grok-4.5"),
-  address: z.literal("https://api.x.ai/v1").default("https://api.x.ai/v1"),
 }).strict();
 const settingsKey = "personal-x-search-settings";
+const xaiApi = "https://api.x.ai/v1";
 
 const handle = z.string().trim().regex(/^@?[A-Za-z0-9_]{1,15}$/, "An X handle is up to 15 letters, digits or underscores").transform((h) => h.replace(/^@/, ""));
 const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Dates look like 2026-09-17");
@@ -73,7 +73,7 @@ export class XSearch {
     const tool = xSearchTool(value, today);
     const settings = this.settings();
     const key = await this.secret(settings.keyName);
-    const body = await callJson(this.fetcher, "xAI", `${settings.address}/responses`, {
+    const body = await callJson(this.fetcher, "xAI", `${xaiApi}/responses`, {
       method: "POST", headers: { authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(180_000),
       json: { model: settings.model, input: [{ role: "user", content: value.query }], tools: [tool], store: false },
     });
