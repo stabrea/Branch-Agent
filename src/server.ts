@@ -184,6 +184,9 @@ import { guardsApi, handlesGuardsPath } from "./run-guards.js";
 import { handlesKnobsPath, knobsApi, KnobsApiError } from "./knobs/api.js";
 // mac3/never-break: the gateway switch and suggested changes (src/never-break/api.ts).
 import { handlesNeverBreakPath, NeverBreakApiError, neverBreakApi } from "./never-break/api.js";
+// mac6/accounts: several accounts per connection (src/accounts/api.ts).
+import { AccountsApiError, accountsApi, handlesAccountsPath } from "./accounts/api.js";
+import { accountsServiceFor } from "./accounts/service.js";
 import { snapshotData } from "./never-break/canary.js";
 // Wave mac3 (tool-safety): the second look before an approval.
 import { reviewerView, saveReviewerSettings } from "./approval-reviewer.js";
@@ -447,6 +450,8 @@ async function staticFile(
     "/knobs.js": ["knobs.js", "text/javascript; charset=utf-8"], // R17-S-B: the hidden knobs
     // mac3/never-break: the Keep running card and the Telegram setup card.
     "/never-break.js": ["never-break.js", "text/javascript; charset=utf-8"],
+    // mac6/accounts: the Accounts list in each connection's card, and the chip in the conversation header.
+    "/accounts.js": ["accounts.js", "text/javascript; charset=utf-8"],
     "/telegram-setup.js": ["telegram-setup.js", "text/javascript; charset=utf-8"],
     // Wave mac2 (goal-undo): the goal strip, and editing an earlier message to go back to it.
     "/goal.js": ["goal.js", "text/javascript; charset=utf-8"],
@@ -823,6 +828,14 @@ async function api(
   if (handlesKnobsPath(path))
     return knobsApi(app, request, path, readBody, () => (process.env.BRANCH_INTEGRATIONS ? resolvePath(process.env.BRANCH_INTEGRATIONS) : null))
       .catch((error: unknown) => { throw error instanceof KnobsApiError ? new HttpError(error.status, error.message) : error; });
+  // mac6/accounts: the accounts of each connection, and switching between them.
+  if (handlesAccountsPath(path))
+    return accountsApi(request, path, {
+      service: accountsServiceFor(app.runtime.models), readBody: () => readBody(request, 16 * 1024),
+      requireOwner: (what) => app.store.profiles.requireOwner(what),
+    }).catch((error: unknown) => {
+      throw error instanceof AccountsApiError ? new HttpError(error.status, error.message) : error;
+    });
   // mac3/never-break: the gateway switch and the changes the assistant suggested for it.
   if (handlesNeverBreakPath(path))
     return neverBreakApi(dataDir, request, path, readBody, {
@@ -1991,13 +2004,15 @@ async function chatgptApi(app: Branch, request: IncomingMessage, path: string): 
   if (request.method === "POST" && path === "/api/chatgpt/login") {
     z.object({}).strict().parse(await readBody(request));
     const prompt = await auth.startDeviceLogin();
-    void finishChatGPTSignIn(app.runtime.models, auth, owner, app.userAgent).catch(() => undefined);
+    void finishChatGPTSignIn(app.runtime.models, auth, owner, app.userAgent)
+      .then(() => accountsServiceFor(app.runtime.models)?.ensureChatGPTPresets()).catch(() => undefined); // mac6/accounts
     return { userCode: prompt.userCode, verificationUrl: prompt.verificationUrl, expiresAt: prompt.expiresAt };
   }
   if (request.method === "POST" && path === "/api/chatgpt/logout") {
     z.object({}).strict().parse(await readBody(request));
     const status = await auth.signOut();
     syncChatGPTPresets(app.runtime.models, auth, false, app.userAgent);
+    await accountsServiceFor(app.runtime.models)?.ensureChatGPTPresets(); // mac6/accounts: other ChatGPT accounts stay
     return status;
   }
   throw new HttpError(404, "Endpoint not found");
@@ -3094,6 +3109,9 @@ export function offLimitsToShortLivedKeys(method: string | undefined, path: stri
     return "A short-lived key cannot change when Branch checks with you, the models, or which commands are offered. Do that in the app window.";
   if (path === "/api/providers/cli-agents" || path.startsWith("/api/secrets") || path.startsWith("/api/connections") || /^\/api\/schedules\/[a-f0-9-]{36}\/gate$/.test(path))
     return "A short-lived key cannot name a program for Branch to run, add a model service, or change the locker. Do that in the app window.";
+  // mac6/accounts: adding, removing and switching accounts is the owner's alone.
+  if (handlesAccountsPath(path))
+    return "A short-lived key cannot add, remove or switch accounts. Do that in the app window.";
   if (path === "/api/deployment/close" || path === "/api/deployment/quit") // quit: bucket 22
     return "A short-lived key cannot close Branch. Only the app on this computer can.";
   // Wave mac2 (quiet-jobs): the check-in's switches, hours and where its news goes are the owner's.

@@ -103,11 +103,16 @@ export class ModelRouter {
   get default(): ModelPreset {
     return this.registry.values().next().value as ModelPreset;
   }
+  /**
+   * mac6/accounts: set by src/accounts/service.ts. Every connection registered passes through it, so
+   * one that has several accounts answers through its pool; with that switch off it changes nothing.
+   */
+  presetHook: ((preset: ModelPreset) => ModelPreset) | null = null;
   /** Adds a preset at runtime, for example after a ChatGPT sign-in. Existing ids are replaced in place. */
   register(preset: ModelPreset): void {
     presetId.parse(preset.id);
     if (this.registry.size >= 32 && !this.registry.has(preset.id)) throw new Error("At most 32 model presets");
-    this.registry.set(preset.id, preset);
+    this.registry.set(preset.id, this.presetHook ? this.presetHook(preset) : preset);
   }
   /** Removes exactly one preset by name. The last one cannot be removed: something must answer. */
   remove(id: string): boolean {
