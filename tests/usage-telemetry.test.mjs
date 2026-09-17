@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { createServer } from "node:http";
 import { discardTemp } from "./temp-dir.mjs";
 import {
-  createBranch, afterTaskMetrics, bridgeLogs, change, executionMetricsSettings, levelFor, money, rollUp,
+  createBranch, afterTaskMetrics, bridgeLogs, change, executionMetricsDeps, executionMetricsSettings, levelFor, money, rollUp,
   saveExecutionMetricsSettings, saveTraceExportSettings, sendExecutionMetrics, usageReportSettings,
 } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
@@ -26,13 +26,13 @@ function scripted(steps) {
 const say = (content) => () => ({ content, toolCalls: [] });
 const write = (id) => () => ({ content: "", toolCalls: [{ id, name: "files.write", arguments: JSON.stringify({ path: `${id}.txt`, content: "x" }) }] });
 
-async function served(t, steps = [say("done")]) {
+async function served(t, steps = [say("done")], serverOptions = {}) {
   const root = await mkdtemp(join(tmpdir(), "branch-usage14-"));
   const app = await createBranch({
     workspace: join(root, "workspace"), dataDir: join(root, "data"), provider: scripted(steps),
     web: { allowPrivateAddresses: true },
   });
-  const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0, ...serverOptions });
   t.after(async () => { await server.close(); await app.close(); await discardTemp(root); });
   const api = async (method, path, body) => {
     const response = await fetch(server.url + path, {
@@ -42,7 +42,7 @@ async function served(t, steps = [say("done")]) {
     });
     return { status: response.status, body: await response.json() };
   };
-  return { app, api };
+  return { app, api, url: server.url };
 }
 
 /** The model the scripted runs were recorded under, so a price can be put on it. */
@@ -331,4 +331,61 @@ test("U8: the report card lives in Data and the counters card in Advanced, at 40
   const text = await page.locator("#counters-card").innerText();
   assert.doesNotMatch(text, /endpoint|payload|SSE|telemetry/i, "plain words only");
   assert.deepEqual(errors, []);
+});
+
+// ------------------------------------------------------------ integration review (mac4/bucket-14)
+
+test("U9: a short-lived key cannot make the usage report, flip its switches, or send the counters", async (t) => {
+  // Eight refusals in a row would otherwise trip the lock on wrong keys, which is not what is tested here.
+  const { app, api, url } = await served(t, undefined, { authLimits: { attempts: 100 } });
+  await api("POST", "/api/usage/report/settings", { mode: "on" });
+  const doors = [
+    ["/api/usage/report", { range: "7d" }], ["/api/usage/report/settings", { mode: "off" }],
+    ["/api/usage/counters", { mode: "on" }], ["/api/usage/counters/send", {}],
+  ];
+  for (const scope of ["read", "run"]) {
+    const key = app.sessionTokens.create(app.runtime.owner, { scope, minutes: 5 });
+    for (const [path, body] of doors) {
+      const answer = await fetch(`${url}${path}`, {
+        method: "POST", headers: { authorization: `Bearer ${key.token}`, "content-type": "application/json" }, body: JSON.stringify(body),
+      });
+      assert.equal(answer.status, 401, `${scope} ${path}`);
+      assert.match((await answer.json()).error, /short-lived key cannot make the usage report/, `${scope} ${path}`);
+    }
+  }
+  assert.equal(usageReportSettings(app.store, app.runtime.owner).mode, "on", "the switch stayed where the owner put it");
+  assert.equal(executionMetricsSettings(app.store, app.runtime.owner).mode, "off");
+  assert.equal((await api("POST", "/api/usage/report", { range: "7d" })).status, 200, "the owner's own key still makes it");
+});
+
+test("U10: a tool call counts once whether it finished, failed, stalled or was run by hand", async (t) => {
+  const { app } = await served(t);
+  const run = await app.runtime.run({ prompt: "nothing to do" });
+  const event = (kind, data) => app.store.event(run.id, kind, data);
+  event("tool.started", { name: "a", id: "1" }); event("tool.completed", { name: "a", id: "1" });
+  event("tool.started", { name: "b", id: "2" }); event("tool.failed", { name: "b", id: "2", error: "no" });
+  event("tool.started", { name: "c", id: "3" }); event("tool.stalled", { name: "c", id: "3", error: "slow" });
+  event("tool.started", { name: "d", manual: true }); event("tool.completed", { name: "d" });
+  const days = app.store.usageStore().aggregateUsage("30d", "day", {});
+  const toolCalls = days.reduce((sum, day) => sum + day.toolCalls, 0);
+  assert.equal(toolCalls, 4, "four calls, not eight");
+  assert.equal(days.reduce((sum, day) => sum + day.failures, 0), 1);
+});
+
+test("U11: the counters go nowhere the address rules refuse, and the refusal is written in the record", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-usage14p-"));
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider: scripted([say("ok")]) });
+  t.after(async () => { await app.close(); await discardTemp(root); });
+  let reached = 0;
+  const deps = executionMetricsDeps(app.store, app.runtime.owner, app.traceExport);
+  saveExecutionMetricsSettings(app.store, app.runtime.owner, { mode: "when-needed" });
+  saveTraceExportSettings(app.store, app.runtime.owner, { enabled: true, destination: "otlp", endpoint: "http://127.0.0.1:9/" });
+  const outcome = await sendExecutionMetrics({ ...deps, send: async (points, reason) => { reached += 1; return deps.send(points, reason); } });
+  assert.equal(outcome.sent, false, outcome.reason);
+  assert.match(outcome.reason, /Allow private addresses/, "refused by the address rules, not by a closed port");
+  assert.equal(reached, 1);
+  const record = app.store.audit.list(app.runtime.owner, { action: "data.exported" });
+  assert.ok(record.some((entry) => entry.outcome === "failed" && /counters/.test(entry.reason)), JSON.stringify(record));
+  assert.equal(executionMetricsSettings(app.store, app.runtime.owner).lastSentAt, undefined, "a refused send is not a send");
+  assert.ok(deps.counters().every((point) => typeof point.value === "number" && Object.keys(point).sort().join() === "description,name,unit,value"));
 });
