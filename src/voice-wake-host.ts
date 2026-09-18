@@ -1,8 +1,9 @@
 import { spawn } from "node:child_process";
-import { isAbsolute } from "node:path";
-import { findOnPath } from "./voice-tts.js";
+// mac7/live-voice: the discipline for starting one of these — the full path looked up here, none of
+// this computer's environment, and ending it for good if it will not go — is shared with live
+// dictation now and lives in src/mic-capture.ts. Nothing about what runs here changed with the move.
+import { endChild, located, windowBytes } from "./mic-capture.js";
 import type { WakeCaptureRunner, WakeRunner } from "./voice-wake.js";
-import { windowBytes } from "./voice-wake.js";
 
 /**
  * mac7/wake-mic: the real programs the wake word runs on this computer, and the only place in
@@ -15,23 +16,6 @@ import { windowBytes } from "./voice-wake.js";
  * the recorder's sound goes straight to the listener, which drops it as soon as the spotter has
  * been asked about it.
  */
-
-/** How long a program is given past its window before it is ended anyway. */
-const graceMs = 2000;
-
-/**
- * Where a program really is. Neither of these is given this computer's own environment — a spotter
- * that inherited it could carry the owner's own things into itself — and without a PATH nothing
- * would be found, so the looking up is done here, in Branch, and the full path is what is run.
- */
-const located = (file: string): string => (isAbsolute(file) ? file : findOnPath(file) ?? file);
-
-/** Ends a program and, if it will not go, ends it for good. */
-function end(child: ReturnType<typeof spawn>): void {
-  if (child.exitCode !== null || child.signalCode !== null) return;
-  child.kill("SIGTERM");
-  setTimeout(() => { if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL"); }, graceMs).unref();
-}
 
 /**
  * Records one window of sound to memory. The recorder writes to standard output — no file name is
@@ -52,7 +36,7 @@ export function wakeCaptureRunner(): WakeCaptureRunner {
       if (finished) return;
       finished = true;
       signal.removeEventListener("abort", abort);
-      end(child);
+      endChild(child);
       if (answer instanceof Error) fail(answer); else settle(answer);
     };
     const abort = () => done(new Uint8Array(0));
