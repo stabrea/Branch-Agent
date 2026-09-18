@@ -33,14 +33,19 @@ async function fixture(t, provider) {
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, acceptDownloads: true });
   const errors = []; page.on('pageerror', error => errors.push(error.message));
   await page.goto(server.url); await page.getByLabel('Session token', { exact: true }).fill(server.token);
-  await page.getByRole('button', { name: 'Connect', exact: true }).click();
+  /* The page's own settling point is waited for on the very next line. The click itself
+     therefore does not also wait on Playwright's generic after-the-click step, which on
+     Chromium is a CDP round trip (`Page.enable`) and stalled for the whole thirty seconds on
+     the loaded Windows checker. Nothing is waited for less: a real signal replaces a proxy. */
+  await page.getByRole('button', { name: 'Connect', exact: true }).click({ noWaitAfter: true });
   await page.locator('#workspace').waitFor({ state: 'visible' });
   return { app, page, root, sourceId, original, errors };
 }
 const card = (page, id) => page.locator(`#saved-list article[data-session-id="${id}"]`);
 /* One step, inside the page: the notice area is found and read in the same breath, so a redraw
    between the two cannot answer for an instant the notice was not up. */
-async function shown(page, pattern) {
+async function shown(page, pattern) {   // flagless patterns only: the source is rebuilt in the page
+
   await page.waitForFunction((source) => {
     const note = document.getElementById("toast");
     return !!note && !note.hidden && new RegExp(source).test(note.textContent ?? "");
