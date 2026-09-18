@@ -51,8 +51,9 @@ marks rather than only plain text. It ships off.
 **Reaching further.** Other computers side by side, long-lived assistants that live on another
 machine, using an app in the background, videos, a relay, `branch send` and pause, sharing work
 through git, skill bundles, a USB trigger, notes and a place to compare two answers. Lockdown stops
-all of it. The Docker, Nix and Termux packaging files exist but have never been built against the real
-thing. It ships off.
+all of it. The Docker, Nix and Termux packaging files have now been built and run
+against the real thing, on a Linux machine and a small Linux VM; only a real Android phone is still
+untried. It ships off.
 
 **A great many more chat apps.** Bluesky, Reddit, Discourse, X direct messages, Twist, Mastodon,
 Delta Chat, Keybase, MQTT, Nostr, SimpleX, XMPP, VK, QQ, Guilded, Revolt, Mumble, IRC, Twitch, Gotify,
