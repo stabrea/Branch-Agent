@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { shareableSections } from "../interop/agent-market.js";
 import { databaseName } from "./layout.js";
@@ -114,22 +114,20 @@ export async function unixInstall(
   print(`The \`branch\` command is ${report.launcher}.`);
   if (report.menuEntry) print(`It is in your applications menu (${report.menuEntry}).`);
   if (report.icons.length) print(`Its icon is in your icon theme (${report.icons.length} sizes).`);
-  for (const line of afterInstallNotes(report, layout, applications, args)) print(line);
+  for (const line of afterInstallNotes(report, layout, applications)) print(line);
   if (assistant !== undefined) await bringAssistant(assistant, report, run, print);
   print(`Your conversations and files are kept in ${report.dataDir}.`);
 }
 
 /** What macOS did, and what was not done, said once in plain words rather than done silently. */
 export function afterInstallNotes(
-  report: { quarantineCleared: boolean; installRoot: string }, layout: UnixLayout, applications: boolean, args: string[],
+  report: { quarantineCleared: boolean; attached: boolean; installRoot: string }, layout: UnixLayout, applications: boolean,
 ): string[] {
-  const lines: string[] = [];
   if (report.quarantineCleared)
-    lines.push("macOS marks anything that came from the internet, and it has been taken off this copy, so Branch Agent opens like any other app.");
-  if (layout.platform !== "darwin" || applications || report.installRoot === layout.sharedRoot) return lines;
-  if (answeredApplications(args) === null && args.includes("--quiet"))
-    lines.push(`Branch Agent is in your own ${dirname(layout.installRoot)} folder. To put it in the shared Applications folder instead, run the installer again with --applications.`);
-  return lines;
+    return ["macOS marks anything that came from the internet, and it has been taken off this copy, so Branch Agent opens like any other app."];
+  // Nobody said yes, so the mark was left on, and macOS may refuse the first open. Say so, and how.
+  if (layout.platform !== "darwin" || applications || report.attached) return [];
+  return [`macOS's internet mark was left on this copy, because nobody was asked. If macOS will not open it, run the installer again with --applications (it moves Branch Agent into Applications and takes the mark off), or allow it once under System Settings, Privacy & Security, Open Anyway.`];
 }
 
 export async function unixInstallMain(args: string[], env: NodeJS.ProcessEnv): Promise<void> {

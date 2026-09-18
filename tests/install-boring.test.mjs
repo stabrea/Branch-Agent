@@ -624,6 +624,8 @@ test("a person who is not asked never has the mark cleared, and one who answers 
   // The test runner has no terminal on stdin, which is exactly a script running the installer.
   await unixInstall(["--source", await fakeApp(join(root, "v1"), "darwin", "1.0.0")], layout, (line) => lines.push(line), undefined, never);
   assert.ok(!lines.some((line) => /taken off/.test(line)), lines.join("\n"));
+  assert.ok(lines.some((line) => /mark was left on/.test(line) && /--applications/.test(line)),
+    `a script's install says the mark is still there and how to take it off:\n${lines.join("\n")}`);
   await mkdir(join(root, "Applications"), { recursive: true });
   const yes = [];
   await unixInstall(["--source", await fakeApp(join(root, "v2"), "darwin", "2.0.0"), "--applications"], layout, (line) => yes.push(line), undefined, never);
