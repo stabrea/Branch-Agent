@@ -163,7 +163,12 @@ test("Guilded: a restart asks for what was missed, and a ping that goes unanswer
       connection.pings++;
       if (pongs) connection.socket.write(Buffer.from([0x8a, 0x00]));
     });
-    connection.send({ op: 1, d: { heartbeatIntervalMs: 40, lastMessageId: "server-latest", user: { id: "GBOT", name: "Branch" } } });
+    // mac7/linux-fixes: the welcome's interval is also the whole budget for a ping to come back,
+    // because a ping still unanswered when the next one is due closes the socket. At 40ms that
+    // was a race with the event loop, and on a busy two-processor machine the pong lost it: the
+    // first socket was dropped before it had sent two pings. 400ms asks the same questions with
+    // room for a stall.
+    connection.send({ op: 1, d: { heartbeatIntervalMs: 400, lastMessageId: "server-latest", user: { id: "GBOT", name: "Branch" } } });
   });
   const mark = memoryMark("gm-saved");
   const channel = new GuildedChannel({ id: "guilded", token: "t", apiBase: api.base, socketUrl: events.url, retryBaseMs: 20, minHeartbeatMs: 30 });
