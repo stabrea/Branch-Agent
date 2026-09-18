@@ -118,8 +118,7 @@ export class OpenAIStream {
     // integrate/empty-completion: out of room before a word of the answer is the model's limit, not
     // a broken provider, and the person is told so.
     if (this.done && this.finish === "length" && !this.content && !this.calls.size && this.thinking)
-      throw new Error(`The model used its whole reply allowance thinking (${this.thinking.toLocaleString()} characters) `
-        + "and was cut off before it answered. Try a larger model, or ask for one step at a time.");
+      throw new Error(outOfRoomThinking(this.thinking));
     if (!this.done || !["stop", "tool_calls"].includes(this.finish))
       throw new Error("Provider stream ended without a complete response");
     if (this.calls.size && this.finish !== "tool_calls")
@@ -143,10 +142,15 @@ const anthropicEvent = z.discriminatedUnion("type", [
   z.object({ type: z.literal("content_block_start"), index, content_block: z.discriminatedUnion("type", [
     z.object({ type: z.literal("text"), text: z.string() }),
     z.object({ type: z.literal("tool_use"), id: z.string(), name: z.string(), input: z.record(z.string(), z.unknown()) }),
+    // integrate/empty-completion: extended thinking, sent when the owner turns reasoning on.
+    z.object({ type: z.literal("thinking"), thinking: z.string().optional() }),
+    z.object({ type: z.literal("redacted_thinking") }),
   ]) }),
   z.object({ type: z.literal("content_block_delta"), index, delta: z.discriminatedUnion("type", [
     z.object({ type: z.literal("text_delta"), text: z.string() }),
     z.object({ type: z.literal("input_json_delta"), partial_json: z.string() }),
+    z.object({ type: z.literal("thinking_delta"), thinking: z.string() }),
+    z.object({ type: z.literal("signature_delta") }),
   ]) }),
   z.object({ type: z.literal("content_block_stop"), index }),
   z.object({ type: z.literal("message_delta"), delta: z.object({ stop_reason: z.string().nullable().optional() }),
@@ -156,7 +160,8 @@ const anthropicEvent = z.discriminatedUnion("type", [
   z.object({ type: z.literal("error") }),
 ]);
 type AnthropicEvent = z.infer<typeof anthropicEvent>;
-type Block = { text: string } | { call: ToolCall; json: string };
+/** A thinking block keeps only how much was thought; the thinking itself is never kept. */
+type Block = { text: string } | { call: ToolCall; json: string } | { thought: number };
 
 export class AnthropicStream {
   private blocks = new Map<number, Block>();
@@ -166,7 +171,11 @@ export class AnthropicStream {
   private started = false;
   private done = false;
   private finish = "";
-  constructor(private readonly emit: (text: string) => void) {}
+  constructor(
+    private readonly emit: (text: string) => void,
+    /** integrate/empty-completion: thinking as it arrives, for the watchdog. Counted, not kept. */
+    private readonly think: (text: string) => void = () => undefined,
+  ) {}
   consume(data: string): void {
     const event = anthropicEvent.parse(JSON.parse(data));
     if (event.type === "ping") return;
@@ -201,7 +210,11 @@ export class AnthropicStream {
     if (this.finish || this.blocks.has(event.index)) throw new Error("Invalid provider content block start");
     const block = event.content_block;
     this.open.add(event.index);
-    if (block.type === "text") {
+    if (block.type === "thinking" || block.type === "redacted_thinking") {
+      const opening = block.type === "thinking" ? block.thinking ?? "" : "";
+      this.blocks.set(event.index, { thought: opening.length });
+      if (opening) this.think(opening);
+    } else if (block.type === "text") {
       if ([...this.blocks.values()].some((value) => "text" in value)) this.emit("\n");
       this.blocks.set(event.index, { text: block.text });
       if (block.text) this.emit(block.text);
@@ -218,9 +231,20 @@ export class AnthropicStream {
       this.emit(event.delta.text);
     } else if (event.delta.type === "input_json_delta" && "call" in block) {
       block.json += event.delta.partial_json;
+    } else if (event.delta.type === "thinking_delta" && "thought" in block) {
+      block.thought += event.delta.thinking.length;
+      this.think(event.delta.thinking);
+    } else if (event.delta.type === "signature_delta" && "thought" in block) {
+      // The signature only matters to a caller that sends the thinking back, and Branch never does.
     } else throw new Error("Provider content delta type mismatch");
   }
+  private thinking(): number {
+    return [...this.blocks.values()].reduce((sum, block) => sum + ("thought" in block ? block.thought : 0), 0);
+  }
   result(): Completion {
+    const thought = this.thinking();
+    const said = [...this.blocks.values()].some((block) => !("thought" in block));
+    if (this.done && this.finish === "max_tokens" && !said && thought) throw new Error(outOfRoomThinking(thought));
     if (!this.done || this.open.size || !["end_turn", "tool_use", "stop_sequence"].includes(this.finish))
       throw new Error("Provider stream ended without a complete response");
     const blocks = [...this.blocks].sort(([a], [b]) => a - b).map(([, block]) => block);
@@ -230,6 +254,7 @@ export class AnthropicStream {
       content: blocks.filter((b) => "text" in b).map((b) => b.text).join("\n"),
       toolCalls: blocks.filter((b) => "call" in b).map((b) => ({ ...b.call, arguments: b.json || b.call.arguments })),
       ...(this.usage && this.finalUsage ? { usage: this.usage } : {}),
+      ...(thought ? { reasoningChars: thought } : {}),
     };
   }
   failure(cause: unknown): ProviderStreamError {
@@ -237,13 +262,18 @@ export class AnthropicStream {
     return streamFailure(cause,
       blocks.filter((block) => "text" in block).map((block) => block.text).join("\n"),
       blocks.filter((block) => "call" in block).map((block) => ({ ...block.call, arguments: block.json || block.call.arguments })),
-      this.usage);
+      this.usage, this.thinking());
   }
 }
 
 function streamFailure(cause: unknown, content: string, toolCalls: ToolCall[], usage?: Usage, thinking = 0): ProviderStreamError {
   const estimatedOutput = (content || toolCalls.length ? estimateTokens({ content, toolCalls }) : 0) + thinkingTokens(thinking);
   return new ProviderStreamError(cause, estimatedOutput, usage);
+}
+/** integrate/empty-completion: a reply that ran out of room before a word of its answer. */
+function outOfRoomThinking(chars: number): string {
+  return `The model used its whole reply allowance thinking (${chars.toLocaleString()} characters) `
+    + "and was cut off before it answered. Try a larger model, or ask for one step at a time.";
 }
 /** integrate/empty-completion: the first of the thinking fields that is text; anything else is ignored. */
 export function thinkingText(...fields: unknown[]): string {

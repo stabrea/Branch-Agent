@@ -68,6 +68,9 @@ const anthropicResponse = z.object({
         name: z.string(),
         input: z.record(z.string(), z.unknown()),
       }),
+      // integrate/empty-completion: extended thinking, counted and never kept.
+      z.object({ type: z.literal("thinking"), thinking: z.string().optional() }),
+      z.object({ type: z.literal("redacted_thinking") }),
     ]),
   ),
   usage: z
@@ -445,7 +448,7 @@ export class AnthropicProvider implements Provider {
   async complete(request: CompletionRequest): Promise<Completion> {
     const body = anthropicBody(request, this.options.model);
     if (request.onTextDelta) {
-      const stream = new AnthropicStream(request.onTextDelta);
+      const stream = new AnthropicStream(request.onTextDelta, request.onReasoningDelta);
       try {
         await post(this.options, "/messages", { ...body, stream: true },
           { "x-api-key": this.options.apiKey, "anthropic-version": "2023-06-01" },
@@ -474,6 +477,7 @@ export class AnthropicProvider implements Provider {
           name: originalName(c.name, request),
           arguments: JSON.stringify(c.input),
         })),
+      ...anthropicThought(response.content),
       ...(response.usage
         ? {
             usage: {
@@ -490,9 +494,23 @@ export class AnthropicProvider implements Provider {
   }
 }
 const thinkingBudgets = { low: 1024, medium: 4096, high: 8192 } as const;
+/** integrate/empty-completion: how much a non-streamed reply thought. The thinking itself is dropped. */
+function anthropicThought(content: z.infer<typeof anthropicResponse>["content"]): { reasoningChars?: number } {
+  const chars = content.reduce((sum, block) => sum + (block.type === "thinking" ? (block.thinking ?? "").length : 0), 0);
+  return chars ? { reasoningChars: chars } : {};
+}
+/**
+ * integrate/empty-completion: Anthropic refuses a request with thinking on whose last assistant
+ * turn used a tool without the signed thinking block that preceded it. Branch never keeps the
+ * thinking, so it cannot send it back; a round that continues a tool loop asks for no thinking.
+ */
+function continuesToolLoop(messages: Message[]): boolean {
+  const last = [...messages].reverse().find((message) => message.role === "assistant");
+  return Boolean(last?.toolCalls?.length);
+}
 /** Anthropic extended thinking needs a budget of at least 1024 tokens below max_tokens; otherwise it is omitted. */
 function anthropicThinking(request: CompletionRequest): Record<string, unknown> {
-  if (!request.reasoning) return {};
+  if (!request.reasoning || continuesToolLoop(request.messages)) return {};
   const budget = Math.min(thinkingBudgets[request.reasoning], request.maxTokens - 256);
   return budget >= 1024 ? { thinking: { type: "enabled", budget_tokens: budget } } : {};
 }
