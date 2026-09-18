@@ -48,13 +48,15 @@ test("the card is in Settings, Secrets, starts off, and writes down one sign-in"
   await page.getByLabel("The website it belongs to", { exact: true }).fill("example.com");
   await page.getByLabel("The item in your password manager", { exact: true }).fill("My Shop");
   await page.getByLabel("The sign-in page's address", { exact: true }).fill("https://example.com/login");
+  // The owner's own extra website names: nothing is worked out from the site above.
+  await page.getByLabel("Other website names it signs in on", { exact: true }).fill("accounts.example.com");
   await card.getByRole("button", { name: "Add this sign-in", exact: true }).click();
   await page.locator("#vault-autofill-status", { hasText: "Saved." }).waitFor();
 
   const saved = settings(app);
   assert.equal(saved.mode, "when-needed");
   assert.deepEqual(saved.logins, [{ name: "shop", site: "example.com", service: "bitwarden", item: "My Shop",
-    address: "https://example.com/login", code: false, note: "" }]);
+    alsoHosts: ["accounts.example.com"], address: "https://example.com/login", code: false, note: "" }]);
   // The card is a list of names. Nothing on it is a box a password could be typed into.
   assert.equal(await card.locator('input[type="password"]').count(), 0);
   assert.deepEqual(errors, []);
@@ -65,7 +67,7 @@ test("every control on the card says what it does", async (t) => {
   await openSettings(page, "secrets");
   await page.locator("#vault-autofill").waitFor({ state: "visible" });
   const undescribed = await page.evaluate(() =>
-    [...document.querySelectorAll("#vault-autofill :is(input, select)")]
+    [...document.querySelectorAll("#vault-autofill :is(input, select, textarea)")]
       .filter((node) => {
         const id = node.getAttribute("aria-describedby");
         const note = id && document.getElementById(id);

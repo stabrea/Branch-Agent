@@ -320,6 +320,35 @@ test('a kept recording exists, is a real archive, and holds no password and no k
   } finally { await h.close(); }
 });
 
+/**
+ * mac7/vault-autofill (integration review). The recording above holds no password only because
+ * `browser.fill`/`browser.act` refuse a password box outright. A recording DOES write down what
+ * every step was asked to type — that is proven here with an ordinary word, against the real
+ * Playwright — so filling a saved sign-in, which really does type a password, refuses outright
+ * while one is being kept rather than trusting anything in browser-trace.ts.
+ */
+test('a recording writes down what a step was asked to type, so a sign-in is refused while one is kept', async () => {
+  const h = await harness('browser2-trace-signin');
+  try {
+    const context = runContext('run-trace-signin');
+    ok(await h.registry.execute('browser.recording', {action: 'start'}, context));
+    await h.registry.execute('browser.navigate', {url: `${h.origin}/form`}, context);
+    ok(await h.registry.execute('browser.act', {action: 'fill', selector: '#who', value: 'Rumpelstiltskin'}, context));
+
+    // The page says the sign-in is being recorded, and typing into it is refused before anything else.
+    const page = h.browser.signInPage();
+    assert.equal((await page.where(context)).recording, true, 'the sign-in filling is not told a recording is being kept');
+    await assert.rejects(() => page.type(context, 'password', undefined, 'never-typed-anywhere-42'), /recording/i);
+
+    const bytes = await readFile((ok(await h.registry.execute('browser.recording', {action: 'keep'}, context))).path);
+    const text = recordingText(bytes);
+    assert.ok(text.includes('Rumpelstiltskin'),
+      'a recording no longer writes down what a step typed, so the reason for this refusal needs rechecking');
+    assert.equal(text.includes('never-typed-anywhere-42'), false, 'the refused value reached the recording');
+    await h.registry.finishRun(context);
+  } finally { await h.close(); }
+});
+
 test('a task keeping a recording cannot then borrow the owner\'s browser', async () => {
   const h = await harness('browser2-trace-borrow');
   h.browser.store = {get: () => ({data: {enabled: true, port: 9412, runId: 'run-both',

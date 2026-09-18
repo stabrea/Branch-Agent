@@ -89,7 +89,8 @@ function card() {
     make("p", "subtle", "vault-autofill.intro",
       "Branch can type a password you already keep in your password manager straight into a page you are on, "
       + "when you ask it to by name. It never shows you or the assistant the password, keeps no copy of its own, "
-      + "and only ever fills a page on the website you saved the sign-in for."),
+      + "and only ever fills a page on the exact website you saved the sign-in for. While a recording of the browser "
+      + "is being kept, it fills nothing at all."),
   );
   const status = make("p", "subtle");
   status.id = "vault-autofill-status";
@@ -114,7 +115,8 @@ function line(entry) {
   const name = make("strong", "");
   name.textContent = entry.name;
   const where = make("span", "subtle");
-  where.textContent = ` — ${entry.site} · ${entry.item}${entry.code ? " · +code" : ""}`;
+  const extra = (entry.alsoHosts ?? []).length ? ` (+${entry.alsoHosts.join(", ")})` : "";
+  where.textContent = ` — ${entry.site}${extra} · ${entry.item}${entry.code ? " · +code" : ""}`;
   where.style.overflowWrap = "anywhere";
   row.append(name, where, button(`vault-autofill-drop-${entry.name}`, "vault-autofill.action.remove", "Remove",
     "vault-autofill.hint.remove", "Takes this sign-in off the list. Nothing in your password manager is changed.",
@@ -131,6 +133,13 @@ function adder() {
   parts.push(...described("vault-autofill-site", "vault-autofill.field.site", "The website it belongs to",
     "vault-autofill.hint.site", "Just the website name, such as example.com. Branch fills this sign-in on that site "
     + "and pages under it, and refuses anywhere else.", field("text", "", "example.com")));
+  const also = document.createElement("textarea");
+  also.rows = 2;
+  also.style.maxWidth = "100%";
+  parts.push(...described("vault-autofill-also", "vault-autofill.field.also", "Other website names it signs in on",
+    "vault-autofill.hint.also", "Optional. Other exact website names this same sign-in may be filled on, one per line, "
+    + "such as accounts.example.com. Branch never works one out for itself: if signing in happens on a different name "
+    + "from the one above, write that name here.", also));
   parts.push(...described("vault-autofill-service", "vault-autofill.field.service", "Where it is saved",
     "vault-autofill.hint.service", "Which password manager holds it. Branch reads it through the password-manager connection you switched on under “Reading passwords out of your password manager”, using that manager's own command line, and can only read. A one-time code is read from Bitwarden only.",
     chooser("vault-autofill-service", SERVICES, "bitwarden")));
@@ -156,12 +165,14 @@ async function add() {
     site: $("vault-autofill-site").value.trim(),
     service: $("vault-autofill-service").value,
     item: $("vault-autofill-item").value.trim(),
+    alsoHosts: $("vault-autofill-also").value.split(/[\s,]+/).map((one) => one.trim()).filter(Boolean),
     code: $("vault-autofill-code").checked,
   };
   const address = $("vault-autofill-address").value.trim();
   if (address) entry.address = address;
   await save({ logins: [...settings.logins.filter((one) => one.name !== entry.name), entry] });
-  for (const id of ["vault-autofill-name", "vault-autofill-site", "vault-autofill-item", "vault-autofill-address"])
+  for (const id of ["vault-autofill-name", "vault-autofill-site", "vault-autofill-item", "vault-autofill-address",
+    "vault-autofill-also"])
     $(id).value = "";
   $("vault-autofill-code").checked = false;
 }

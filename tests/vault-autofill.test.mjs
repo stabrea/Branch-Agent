@@ -15,8 +15,9 @@ import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
 import {
   VaultAutofill, addressRefusal, autofillChatRefusal, autofillGuard, autofillLockdownRefusal, autofillOffRefusal,
+  autofillNoMatchRefusal, autofillRecordingRefusal,
   autofillShortLivedRefusal, autofillStartedElsewhereRefusal, autofillTrunkRefusal, readVaultAutofillSettings,
-  saveVaultAutofillSettings, siteHolds, vaultAutofillKey, vaultAutofillTools,
+  saveVaultAutofillSettings, hostAllowed, vaultAutofillKey, vaultAutofillTools,
 } from "../dist/vault-autofill.js";
 import { CredentialResolver, commandFor, saveCredentialSettings } from "../dist/credential-cli.js";
 import { SecretScrubber } from "../dist/vault.js";
@@ -63,11 +64,11 @@ function fakeManager(root, answers = { password: THE_PASSWORD, totp: THE_CODE })
 }
 
 /** A page that records which box it was asked to type into, and nothing about what went into it. */
-function fakePage(url, { acrossSites = false, boxes = ["password", "code"] } = {}) {
+function fakePage(url, { acrossSites = false, boxes = ["password", "code"], recording = false } = {}) {
   const typed = [];
   return {
     typed,
-    where: async () => ({ address: url, acrossSites }),
+    where: async () => ({ address: url, acrossSites, recording }),
     type: async (_context, box, label, value) => {
       if (!boxes.includes(box)) throw new Error(`the page has no ${box} box; it was asked for "${label}"`);
       typed.push({ box, label, length: value.length, matched: value === THE_PASSWORD || value === THE_CODE });
@@ -182,31 +183,42 @@ test("the leak guard finds nothing to hide in what the model is told, because th
 
 /* ───────────────────────────── the site has to be the saved item's own ───────────────────────────── */
 
-test("a site holds only itself and what is under it, never a look-alike", () => {
-  assert.equal(siteHolds("example.com", "example.com"), true);
-  assert.equal(siteHolds("example.com", "accounts.example.com"), true);
-  assert.equal(siteHolds("example.com", "EXAMPLE.COM."), true);
-  for (const host of ["evil-example.com", "example.com.attacker.net", "notexample.com", "example.co"])
-    assert.equal(siteHolds("example.com", host), false, `${host} must not count as example.com`);
+test("a site is the website itself and the names the owner added, never one Branch worked out", () => {
+  const entry = { site: "example.com", alsoHosts: ["accounts.example.com"] };
+  assert.equal(hostAllowed(entry, "example.com"), true);
+  assert.equal(hostAllowed(entry, "EXAMPLE.COM."), true);
+  assert.equal(hostAllowed(entry, "accounts.example.com"), true, "the owner's own extra name");
+  for (const host of ["evil-example.com", "example.com.attacker.net", "notexample.com", "example.co",
+    "attacker.example.com", "pages.example.com", "a.accounts.example.com"])
+    assert.equal(hostAllowed(entry, host), false, `${host} must not count as example.com`);
+  // A look-alike written in another alphabet never arrives as itself: an address hands back punycode.
+  assert.equal(hostAllowed(entry, new URL("https://\u0435xample.com/").hostname), false, "a look-alike host was allowed");
+  assert.equal(hostAllowed(entry, "xn--xample-9uf.com"), false);
+  assert.equal(hostAllowed({ site: "example.com" }, "accounts.example.com"), false, "no extra names means the site alone");
 });
 
 test("a page on another site, an insecure page, and an address carrying a name and password are all refused", async (t) => {
-  const entry = { name: "shop", site: "example.com", service: "bitwarden", item: "My Shop", code: false, note: "" };
-  assert.match(addressRefusal(entry, "https://evil.test/login", false), /saved for example\.com/);
+  const entry = { name: "shop", site: "example.com", alsoHosts: [], service: "bitwarden", item: "My Shop", code: false, note: "" };
+  assert.equal(addressRefusal(entry, "https://evil.test/login", false), autofillNoMatchRefusal);
   assert.match(addressRefusal(entry, "http://example.com/login", false), /not on a secure address/);
   assert.match(addressRefusal(entry, "https://someone:pw@example.com/login", false), /name and password of its own/);
-  assert.equal(addressRefusal(entry, "https://accounts.example.com/login", false), null);
+  // None of these name the entry or the site it is saved for.
+  for (const said of [addressRefusal(entry, "http://example.com/login", false),
+    addressRefusal(entry, "https://someone:pw@example.com/login", false)])
+    assert.ok(!said.includes("shop") && !said.includes("example.com"), `a refusal named the owner's book: ${said}`);
 
   const { autofill, page, manager } = await fixture(t, { url: "https://evil.test/login" });
-  await assert.rejects(() => autofill.fill({ login: "shop" }, context()), /saved for example\.com/);
+  await assert.rejects(() => autofill.fill({ login: "shop" }, context()), /no saved sign-in by that name/);
   assert.deepEqual(page.typed, [], "nothing was typed");
   assert.deepEqual(manager.calls, [], "the password manager was never even asked");
 });
 
-test("Branch never chooses the sign-in itself: an unknown name is a refusal naming what to add", async (t) => {
-  const { autofill, manager } = await fixture(t);
-  await assert.rejects(() => autofill.fill({ login: "bank" }, context()), /no saved sign-in called "bank"/);
+test("Branch never chooses the sign-in itself: an unknown name is refused without reading anything", async (t) => {
+  const { autofill, manager, store } = await fixture(t);
+  await assert.rejects(() => autofill.fill({ login: "bank" }, context()), /no saved sign-in by that name/);
   assert.deepEqual(manager.calls, []);
+  assert.ok(store.audits.some((row) => String(row.subject).includes("bank") && row.outcome === "refused"),
+    "the owner's own record does not show what the assistant asked for");
 });
 
 test("a page the task was taken to from another website is filled only at the address the owner wrote down", async (t) => {
@@ -239,7 +251,8 @@ test("the browser decides that hop by the website, not by the press, so a sign-i
   const source = await readFile(join(import.meta.dirname, "..", "src", "integrations", "browser.ts"), "utf8");
   assert.match(source, /acrossSites: entry\.pressed && \(!host \|\| host !== entry\.typedHost\)/,
     "a press within the website whose address was opened is not counted as a hop");
-  assert.match(source, /entry\.typedHost = new URL\(url\)\.hostname\.toLowerCase\(\)/, "an address sets the website");
+  assert.match(source, /entry\.typedHost = hostOf\(page\.url\(\)\) \|\| hostOf\(url\)/,
+    "the website is read from where the page really ended up, so an open redirect cannot lie about it");
 });
 
 /* ───────────────────────────── who may ask ───────────────────────────── */
@@ -421,6 +434,96 @@ test("the browser's own typing tool still refuses a password box outright", asyn
   const source = await readFile(join(import.meta.dirname, "..", "src", "integrations", "browser.ts"), "utf8");
   const refusals = source.match(/Password fields require a dedicated credential integration/g) ?? [];
   assert.equal(refusals.length, 2, "browser.fill and browser.act both still refuse a password box");
-  assert.match(source, /if \(box === 'password' && kind !== 'password'\)/,
+  assert.match(source, /kind === 'password' \? null : 'That is not a password box/,
     "a password only ever goes into a real password box");
+});
+
+/* ─────────────── integration review (integrate/mac7-vault-autofill): the holes found and closed ─────────────── */
+
+/**
+ * A recording writes down the arguments of every step it records, and typing a value into a box is
+ * a step whose argument IS the value. Proven against the real Playwright in the integration review:
+ * `{"method":"fill","params":{...,"value":"…"}}` lands in `trace.trace` even with snapshots and
+ * sources off, and the file is then kept beside the task's other files. Emptying password boxes
+ * before each step (src/integrations/browser-trace.ts) clears the page, not the step's own argument.
+ * So a sign-in is not filled at all while a recording is being kept, and the value is never read.
+ */
+test("a sign-in is refused while a recording is being kept, before the vault is asked anything", async (t) => {
+  const { autofill, manager, page, store } = await fixture(t, { page: { recording: true } });
+  await assert.rejects(() => autofill.fill({ login: "shop" }, context()), (error) => {
+    assert.match(error.message, /recording/i);
+    assert.ok(!error.message.includes(THE_PASSWORD));
+    return true;
+  });
+  assert.deepEqual(manager.calls, [], "the password manager was asked nothing at all");
+  assert.deepEqual(page.typed, [], "nothing was typed");
+  assert.ok(!everythingWritten(store, manager.calls).includes(THE_PASSWORD));
+});
+
+/**
+ * The site rule. "example.com and anything under it" hands the owner's password to whoever controls
+ * one sub-address: a user page, a hosted sub-address, or an open redirect on the saved site that
+ * lands on `attacker.example.com`. The address is the host itself, exactly, plus any other host the
+ * owner wrote down for that entry themselves.
+ */
+test("only the exact website the owner saved is filled: a sub-address of it is refused", () => {
+  const entry = { name: "shop", site: "example.com", service: "bitwarden", item: "My Shop", alsoHosts: [], code: false, note: "" };
+  assert.equal(addressRefusal(entry, "https://example.com/login", false), null);
+  assert.ok(addressRefusal(entry, "https://attacker.example.com/login", false),
+    "a sub-address somebody else controls was filled");
+  assert.ok(addressRefusal(entry, "https://accounts.example.com/login", false),
+    "a sub-address the owner never wrote down was filled");
+  assert.ok(addressRefusal(entry, "https://example.com.evil.test/login", false), "a look-alike was filled");
+  // The owner's own extra host, and nothing else, is added by hand.
+  const wider = { ...entry, alsoHosts: ["accounts.example.com"] };
+  assert.equal(addressRefusal(wider, "https://accounts.example.com/login", false), null);
+  assert.ok(addressRefusal(wider, "https://other.example.com/login", false));
+});
+
+test("an open redirect on the saved site cannot carry the sign-in to a sub-address", async (t) => {
+  // The task opened https://example.com/r?u=… by address, so nothing was pressed; the page it
+  // landed on is under example.com, which the old rule allowed.
+  const { autofill, manager } = await fixture(t, { url: "https://attacker.example.com/steal", page: { acrossSites: false } });
+  await assert.rejects(() => autofill.fill({ login: "shop" }, context()), /no saved sign-in by that name/i);
+  assert.deepEqual(manager.calls, [], "the password manager was asked for a value on a page it was never meant for");
+});
+
+/**
+ * The model must not be able to read the owner's book out of the refusals. Asking for a name on a
+ * page it chose told it whether that name exists and which website it is saved for; that is a map
+ * of where the owner's passwords are. Every "no" now says the same thing, and the real reason is
+ * written into the record only the owner reads.
+ */
+test("a refusal tells the model nothing about the owner's book: the same words for a wrong name and a wrong site", async (t) => {
+  const { autofill, store } = await fixture(t, { url: "https://somewhere-else.test/login" });
+  const wrongSite = await autofill.fill({ login: "shop" }, context()).then(() => null, (error) => error.message);
+  const noSuchName = await autofill.fill({ login: "bank" }, context()).then(() => null, (error) => error.message);
+  assert.equal(wrongSite, noSuchName, "the two refusals differ, so the model can walk the owner's book");
+  assert.ok(!wrongSite.includes("example.com"), `the refusal named the site the entry is saved for: ${wrongSite}`);
+  // The owner, who reads the record, still gets the real reason.
+  assert.ok(store.audits.some((row) => String(row.reason).includes("example.com")),
+    "the owner's own record lost the reason as well");
+});
+
+test("a code box must be a real box on the page, whatever the page calls it", async () => {
+  const { signInBoxFor } = await import("../dist/integrations/browser.js");
+  assert.equal(typeof signInBoxFor, "function", "the box check is not reachable to be proven");
+  // A label pointed at something that is not an input at all is refused for a code as for a password.
+  const div = { tag: "DIV", type: null };
+  const text = { tag: "INPUT", type: "text" };
+  const password = { tag: "INPUT", type: "password" };
+  assert.ok(signInBoxFor("code", div.tag, div.type), "a code was typed into something that is not a box");
+  assert.ok(signInBoxFor("code", password.tag, password.type), "a code was typed into a password box");
+  assert.equal(signInBoxFor("code", text.tag, text.type), null);
+  assert.ok(signInBoxFor("password", text.tag, text.type), "a password was typed into a plain text box");
+  assert.equal(signInBoxFor("password", password.tag, password.type), null);
+});
+
+test("the tool files under the browser box, not one of its own", async (t) => {
+  const { autofill } = await fixture(t);
+  const registry = new ToolRegistry();
+  registerVaultAutofill(registry, autofill);
+  const { inferToolGroup } = await import("../dist/catalog.js");
+  assert.equal(registry.groupOf("signin.fill"), "browser");
+  assert.equal(inferToolGroup("signin.fill"), "browser", "the name alone does not file under the browser box");
 });

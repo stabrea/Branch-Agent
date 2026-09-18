@@ -184,7 +184,10 @@ export class BranchBrowser {
       // Counted only once the page really opened, so a refused address costs the task nothing.
       entry.origins.add(origin);
       // mac7/vault-autofill: an address, not something somebody put on a page for Branch to press.
-      entry.typedHost = new URL(url).hostname.toLowerCase();
+      // Read from where the page really ended up, never from the address that was asked for: an
+      // open redirect on the address means the two are different websites, and a signal that lies
+      // about which website the task is on is worse than no signal at all (integration review).
+      entry.typedHost = hostOf(page.url()) || hostOf(url);
       entry.pressed = false;
       entry.host = new URL(url).host;
       const site = await this.quirks(context, page, url);
@@ -520,14 +523,17 @@ export class BranchBrowser {
   signInPage(): SignInPage {
     return {
       where: (context) => this.operation(context, async page => {
-        const entry = this.entry(context), address = page.url();
-        let host = '';
-        try { host = new URL(address).hostname.toLowerCase(); } catch { /* an address Branch cannot read */ }
+        const entry = this.entry(context), address = page.url(), host = hostOf(address);
         // Across sites, and only across sites: the same website the task opened by address is where
         // a sign-in flow stays, and a hop away from it is what nobody but the owner may vouch for.
-        return { address, acrossSites: entry.pressed && (!host || host !== entry.typedHost) };
+        return { address, acrossSites: entry.pressed && (!host || host !== entry.typedHost),
+          // A recording writes down what every step was asked to type, so nothing is filled while
+          // one is being kept (integration review; src/vault-autofill.ts refuses on this).
+          recording: entry.session.isRecording() };
       }),
       type: async (context, box, label, value) => {
+        if (this.entry(context).session.isRecording())
+          throw new Error('This task is keeping a recording of the browser, which writes down everything typed into a page.');
         await this.operation(context, async page => {
           const found = await signInBox(page, box, label);
           // Nothing thrown from inside `fill` is passed on: a page library writes what it was asked
@@ -576,14 +582,38 @@ export class BranchBrowser {
  * have the value typed where everyone can read it.
  */
 async function signInBox(page: Page, box: SignInBox, label: string | undefined) {
+  // Only ever the page's own top frame: a Playwright locator does not reach into a frame from
+  // another website (it takes a frameLocator, which nothing here has), so a page cannot have the
+  // value typed into a box it borrowed from somebody else. Proven in the integration review.
   const found = label
     ? page.getByLabel(label, { exact: true })
     : page.locator(box === 'password' ? 'input[type="password"]'
       : 'input[autocomplete="one-time-code"], input[inputmode="numeric"]').first();
-  const kind = (await found.getAttribute('type'))?.trim().toLowerCase();
-  if (box === 'password' && kind !== 'password')
-    throw new Error('That is not a password box on this page, so nothing was typed into it.');
+  const tag = await found.evaluate(node => node.tagName);
+  const refusal = signInBoxFor(box, String(tag), await found.getAttribute('type'));
+  if (refusal) throw new Error(refusal);
   return found;
+}
+
+/**
+ * mac7/vault-autofill (integration review): whether that really is the box it was said to be, from
+ * the element itself rather than from what the page called it. A password goes only into a real
+ * password box; a one-time code goes only into an ordinary text box, never into something that is
+ * not a box at all and never into a password box, whatever label a page hangs on it.
+ */
+export function signInBoxFor(box: SignInBox, tagName: string, type: string | null): string | null {
+  if (tagName.toUpperCase() !== 'INPUT')
+    return `That is not a box on this page, so nothing was typed into it.`;
+  const kind = (type ?? '').trim().toLowerCase();
+  if (box === 'password')
+    return kind === 'password' ? null : 'That is not a password box on this page, so nothing was typed into it.';
+  return ['text', 'tel', 'number', ''].includes(kind)
+    ? null : 'That is not a box a one-time code goes into, so nothing was typed into it.';
+}
+
+/** The website name of an address, or '' when Branch cannot read it. */
+function hostOf(address: string): string {
+  try { return new URL(address).hostname.toLowerCase(); } catch { return ''; }
 }
 
 function requireIndex(index: number | undefined): number {

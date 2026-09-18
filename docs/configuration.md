@@ -8142,33 +8142,47 @@ dropped. The assistant is told one thing afterwards — that a sign-in was fille
 
 Settings, "Secrets", card **Filling a saved sign-in**. It ships **off**, with the usual three-way switch
 (`mode`: off / only when I ask for it / on; `enabled` follows it, and the older yes/no saves still read correctly).
-Off, the `signin.fill` tool is not even offered to the assistant. The card also holds `logins` — your own book of
+Off, the `signin.fill` tool is not even offered to the assistant. A refusal the assistant is given never says
+whether a name is in your book or which website it is saved for — otherwise it could ask for one name after
+another on a page of its own choosing and read your whole book back out of the answers. The real reason is in
+your own record of what the assistant was allowed to do. The card also holds `logins` — your own book of
 sign-ins — and `timeoutMs`, how long the password manager's command may take.
 
 **Your book.** Each line of `logins` says what you will call the sign-in (`name`), the website it belongs to
 (`site`, a plain name such as `example.com`), which manager holds it (`service`) and the item's name there
-(`item`). Two more are optional: `address`, the exact sign-in page, and `code`, ticked when the same item also
-holds your one-time code. Branch **never** chooses an item by guessing from what a page says: you name the line,
+(`item`). Three more are optional: `alsoHosts`, any other **exact** website names the same sign-in is used on
+(`accounts.example.com`, `www.example.com`); `address`, the exact sign-in page; and `code`, ticked when the same
+item also holds your one-time code. Branch **never** chooses an item by guessing from what a page says: you name the line,
 and nothing else will do.
 
-**Where it will fill.** Only on the line's own `site`, or a page under it — never a look-alike such as
-`evil-example.com` or `example.com.attacker.net`. Only on a secure address, and never on an address that carries a
-name and password of its own. And when pressing something took the task away from the website whose address it
+**Where it will fill.** Only on the line's own `site`, **exactly**, or on one of the names you put in `alsoHosts`
+yourself — never a look-alike such as `evil-example.com` or `example.com.attacker.net`, and never a name *under*
+your site that you did not write down. `pages.example.com` and `attacker.example.com` are refused: a name under a
+website can belong to somebody other than the website, and one open redirect on the site you saved is enough to
+land the task on one. A look-alike written in another alphabet cannot slip past either, because an address hands
+back its punycode name and a site you may write is plain letters and digits. Only on a secure address, and never
+on an address that carries a name and password of its own. And when pressing something took the task away from the website whose address it
 opened, it fills nothing unless that address is the `address` you wrote down yourself: what it pressed was put
 there by whoever wrote the page, and a page's content is not something to be led by. Pressing "Sign in" on the
 website you opened is not that hop, so an ordinary sign-in — password, then the one-time code on the next page —
 works as it should.
 
-**What this does not catch.** The hop is noticed when Branch *presses* something. An address it opens
-directly is not a hop, so text on a page that talks the assistant into opening
-`https://pages.example.com/login` by address would still be filled, because anything under `example.com` is
-under your line's own site. The sign-in stays tied to the website you saved it for, which is the property that
-matters, and matching the website name exactly would refuse `www.` and ordinary sign-in subdomains. Write the
-`address` down for a line where that trade is not good enough for you.
+**Why the exact name.** The hop above is noticed when Branch *presses* something, and an address it opens
+directly is not a hop — so text on a page can still talk the assistant into *opening* an address. That is why the
+website name, not the hop, is what carries the safety: whatever address the assistant is talked into, the only
+place a sign-in can be filled is a name you wrote down yourself. The cost is that `accounts.google.com` is not
+`google.com`: when signing in really does happen on another name, put that name in `alsoHosts`. Branch will not
+decide for you that one name sits under another.
+
+**While a recording is being kept, nothing is filled.** A recording of the browser writes down what every step was
+asked to do, and what a "type this in" step was asked to do *is* the value. Blacking out password boxes on the page
+does not reach that. So `signin.fill` refuses outright while `browser.recording` is running, before the password
+manager is asked anything: keep the recording first, then ask for the sign-in.
 
 **Where the value can go.** Into the box on the page, and nowhere else. It is not in the answer the assistant gets,
 not in an event, not in the record of what the assistant was allowed to do (which names the sign-in, the box and
-the website only), not in a trace and not in an error message — a page library's own message is never passed on,
+the website only), not in a trace (a recording is refused outright, see above) and not in an error message — a page library's own
+message is never passed on,
 because such a message can quote what it was asked to type. A password is also remembered by the secret scrubber,
 so it would be taken back out of anything written later; a one-time code is not, because six figures blanked out of
 ordinary text for a whole session would do more harm than good, and the code never leaves the page in any case.

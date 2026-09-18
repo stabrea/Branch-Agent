@@ -25,7 +25,8 @@ const groupPrefixes: readonly (readonly [string, readonly string[]])[] = [
   // a box of its own rather than sharing "files", because everything in it is somewhere else.
   ["remote", ["remote."]],
   ["web", ["web.", "http."]],
-  ["browser", ["browser.", "page."]],
+  // mac7/vault-autofill: filling one of the owner's saved sign-ins is a thing done to a page.
+  ["browser", ["browser.", "page.", "signin."]],
   ["desktop", ["desktop.", "screen.", "apps.", "clipboard.", "windows.", "computer."]],
   // R17-F (integration review): memory blocks, finding facts by label, the learning timeline, meaning
   // search, lessons and outside memory services get a box of their own, before "memory" so these
