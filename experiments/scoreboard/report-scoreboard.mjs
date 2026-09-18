@@ -13,6 +13,7 @@
  * ranges are only called apart when `spreadsSeparate` says they do not overlap.
  */
 import { readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 
 import {
   combinedBasis, comparisonRefusal, completenessRefusal, costNote,
@@ -57,15 +58,29 @@ for (let i = 0; i < real.length; i++)
     if (refusal) refusals.push(refusal);
   }
 
+// What the window set out to do, not what it managed. Measuring completeness against the cells that
+// happen to be in the file would call a window that stopped after one task complete, which is the
+// error `incompleteWarning` exists to prevent. The runner writes `planned.json` beside its results;
+// if it is missing, what is in the file is all there is to go on, and the report says so.
+const plannedPath = argOf("planned", join(dirname(resultsPath), "planned.json"));
+let plannedCells = null;
+try { plannedCells = JSON.parse(readFileSync(plannedPath, "utf8")); } catch { plannedCells = null; }
+const plannedFor = (name) => (plannedCells ?? []).filter((cell) => cell.startsWith(`${name}__`))
+  .filter((cell) => !maxRepeat || Number(cell.slice(cell.lastIndexOf("__r") + 3)) <= maxRepeat);
+
 const tasksRun = [...new Set(rows.map((row) => row.task))];
 const repeats = Math.max(...rows.map((row) => row.repeat));
 const completenessOf = (name, rows) => {
+  const have = new Set(rows.map((row) => `${name}__${row.task}__r${row.repeat}`));
+  if (plannedCells) {
+    const want = plannedFor(name);
+    return { planned: want.length, recorded: have.size, missing: want.filter((cell) => !have.has(cell)) };
+  }
   const want = rows[0].demonstrationOnly ? tasksRun.length : tasksRun.length * repeats;
-  const have = new Set(rows.map((row) => `${row.task}__r${row.repeat}`));
   const missing = [];
   for (const task of tasksRun)
     for (let repeat = 1; repeat <= (rows[0].demonstrationOnly ? 1 : repeats); repeat++)
-      if (!have.has(`${task}__r${repeat}`)) missing.push(`${name} ${task} r${repeat}`);
+      if (!have.has(`${name}__${task}__r${repeat}`)) missing.push(`${name} ${task} r${repeat}`);
   return { planned: want, recorded: have.size, missing };
 };
 const completeness = new Map([...byContestant].map(([name, rows]) => [name, completenessOf(name, rows)]));
@@ -111,9 +126,15 @@ if (refusals.length) {
 } else {
   say("## The board");
   say();
-  say("The evaluation suite was asked whether these contestants may be put beside each other at all, "
-    + "and raised no objection: every row below was measured on one machine, against one model, with "
-    + "one deadline, over one unchanged task set, marked by one unchanged set of programs.");
+  // With one contestant there is nothing to certify, and saying the suite "raised no objection"
+  // would dress a table nobody could have objected to as a comparison that passed a check.
+  if (real.length < 2)
+    say(`Only one contestant has results here, so there is no comparison and nothing for the `
+      + `evaluation suite to certify. What follows is one agent's figures, not a ranking.`);
+  else
+    say("The evaluation suite was asked whether these contestants may be put beside each other at all, "
+      + "and raised no objection: every row below was measured on one machine, against one model, with "
+      + "one deadline, over one unchanged task set, marked by one unchanged set of programs.");
   say();
   say(`| agent | tasks passed, per pass of the board | median run | model calls | tokens in/out | had to be rescued |`);
   say(`|---|---|---|---|---|---|`);
@@ -175,6 +196,13 @@ if (refusals.length) {
         const [ahead, behind] = rateA.mean > rateB.mean ? [nameA, nameB] : [nameB, nameA];
         say(`- **Tasks passed: ${ahead} is ahead of ${behind}**, and the ranges do not overlap `
           + `(${pct(rateA.low)}–${pct(rateA.high)} against ${pct(rateB.low)}–${pct(rateB.high)}).`);
+      } else if (rateA.repeats < 2 || rateB.repeats < 2) {
+        // One measurement has no range, so it cannot overlap anything and cannot fail to. Saying
+        // "their ranges overlap" here would be a sentence contradicted by the two numbers printed
+        // beside it; the truthful thing is that the board was only run through once.
+        say(`- Tasks passed: **no claim between ${nameA} and ${nameB}** — the board was run through `
+          + `once (${pct(rateA.mean)} against ${pct(rateB.mean)}), and one pass has no range at all. `
+          + `A difference this size may be real or may be the afternoon. Run it again to find out.`);
       } else {
         say(`- Tasks passed: **${nameA} and ${nameB} are a tie** on this board — their ranges overlap `
           + `(${pct(rateA.low)}–${pct(rateA.high)} against ${pct(rateB.low)}–${pct(rateB.high)}), so the difference in the means is not something this many repeats can see.`);
@@ -183,6 +211,9 @@ if (refusals.length) {
         separated++;
         const [faster, slower] = timeA.mean < timeB.mean ? [nameA, nameB] : [nameB, nameA];
         say(`- **Time: ${faster} is faster than ${slower}**, ranges apart (${secs(timeA.low)}–${secs(timeA.high)} against ${secs(timeB.low)}–${secs(timeB.high)}).`);
+      } else if (timeA.repeats < 2 || timeB.repeats < 2) {
+        say(`- Time: **no claim between ${nameA} and ${nameB}** — one pass each `
+          + `(${secs(timeA.mean)} against ${secs(timeB.mean)} on average), which is a measurement, not a range.`);
       } else {
         say(`- Time: **${nameA} and ${nameB} overlap** (${secs(timeA.low)}–${secs(timeA.high)} against ${secs(timeB.low)}–${secs(timeB.high)}); no claim either way.`);
       }
@@ -205,7 +236,7 @@ if (demos.length) {
     const contestant = contestantById[name];
     say(`**${contestant?.name ?? name}** — ${contestant?.note ?? ""}`);
     say();
-    say(`One pass over ${demoRows.length} tasks: **${demoRows.filter((row) => row.passed).length} passed**. `
+    say(`One pass over ${demoRows.length} task${demoRows.length === 1 ? "" : "s"}: **${demoRows.filter((row) => row.passed).length} passed**. `
       + `This is a single pass, so it has no spread and supports no claim that anything beats anything. `
       + `It is here to show what those changes were worth.`);
     say();
