@@ -82,8 +82,13 @@ test("U3 both cards fit a 400-pixel window", async (t) => {
     await openPlace(page, place);
     const card = page.locator(id);
     await card.waitFor({ state: "visible" });
-    const box = await card.boundingBox();
-    assert.ok(box && box.x >= 0 && box.x + box.width <= 400, `${id}: ${JSON.stringify(box)}`);
+    // Measured inside the page in one step: the card redraws itself, and a box asked for in two
+    // steps (find the element, then measure it) can land on one that was just replaced (null).
+    const fits = await page.waitForFunction((selector) => {
+      const box = document.querySelector(selector)?.getBoundingClientRect();
+      return box && box.width > 0 && box.x >= 0 && box.right <= 400;
+    }, id, { timeout: 5000 }).then(() => true, () => false);
+    assert.ok(fits, `${id} fits inside 400 px`);
   }
   assert.deepEqual(errors, []);
 });

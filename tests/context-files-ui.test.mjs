@@ -96,9 +96,14 @@ test("the cards hold their shape at 400 px, and nothing scrolls sideways", async
   await page.locator("#context-assistant").waitFor();
   const wide = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
   assert.equal(wide, false, "the page does not scroll sideways at 400 px");
+  // Measured inside the page in one step: the card redraws itself, and a box asked for in two steps
+  // (find the element, then measure it) can land on one that was just replaced (null on a busy runner).
   for (const key of ["soul", "identity", "user"]) {
-    const box = await page.locator(`#context-switch-${key}`).boundingBox();
-    assert.ok(box && box.width <= 400, `the ${key} switch fits the window`);
+    const fits = await page.waitForFunction((selector) => {
+      const box = document.querySelector(selector)?.getBoundingClientRect();
+      return box && box.width > 0 && box.width <= 400;
+    }, `#context-switch-${key}`, { timeout: 5000 }).then(() => true, () => false);
+    assert.ok(fits, `the ${key} switch fits the window`);
   }
   assert.deepEqual(errors, []);
 });

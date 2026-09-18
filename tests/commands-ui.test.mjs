@@ -94,9 +94,17 @@ test("the commands card is in Settings › General, saves the switch, and fits 4
   await card.getByText("Saved.", { exact: true }).waitFor();
   assert.equal(commandSettings(app.store, app.runtime.owner).mode, "when-needed");
   await card.locator("summary").click();
-  assert.match(await card.locator(".commands-where").textContent(), /\/tokens window, phone, terminal, chat apps/);
-  const box = await card.boundingBox();
-  assert.ok(box && box.x >= 0 && box.x + box.width <= 400, `the card spans ${box?.x}..${(box?.x ?? 0) + (box?.width ?? 0)}`);
+  // Waited for, not read once: the summary click redraws the card, so the line can still be the old one.
+  const where = await card.locator(".commands-where").filter({ hasText: /\/tokens window, phone, terminal, chat apps/ })
+    .waitFor({ timeout: 5000 }).then(() => true, () => false);
+  assert.ok(where, "the card says where typed commands work");
+  // Measured inside the page in one step: the card redraws itself, and a box asked for in two
+  // steps (find the element, then measure it) can land on one that was just replaced (null).
+  const fits = await page.waitForFunction(() => {
+    const box = document.querySelector("#commands-card")?.getBoundingClientRect();
+    return box && box.width > 0 && box.x >= 0 && box.right <= 400;
+  }, undefined, { timeout: 5000 }).then(() => true, () => false);
+  assert.ok(fits, "the commands card fits inside 400 px");
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false);
   assert.deepEqual(errors, []);
 });

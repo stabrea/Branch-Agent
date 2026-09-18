@@ -90,8 +90,13 @@ test("the card fits a 400-pixel window and reads in French", async (t) => {
   await openPlace(page, "customize:channels");
   const card = page.locator("#chat-permissions-form");
   await card.waitFor({ state: "visible" });
-  const box = await card.boundingBox();
-  assert.ok(box && box.x >= 0 && box.x + box.width <= 400, `the card spans ${box?.x}..${(box?.x ?? 0) + (box?.width ?? 0)}`);
+  // Measured inside the page in one step: the card redraws itself, and a box asked for in two
+  // steps (find the element, then measure it) can land on one that was just replaced (null).
+  const fits = await page.waitForFunction(() => {
+    const box = document.querySelector("#chat-permissions-form")?.getBoundingClientRect();
+    return box && box.width > 0 && box.x >= 0 && box.right <= 400;
+  }, undefined, { timeout: 5000 }).then(() => true, () => false);
+  assert.ok(fits, "the chat-permissions card fits inside 400 px");
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false);
   const unkeyed = await page.evaluate(() => [...document.querySelectorAll("#chat-permissions-form :is(p, label, button, span, h2)")]
     .filter((node) => node.children.length === 0 && node.textContent.trim() && !node.dataset.t && node.id !== "chat-permissions-state")
