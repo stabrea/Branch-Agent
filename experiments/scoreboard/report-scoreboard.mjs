@@ -215,6 +215,26 @@ if (demos.length) {
   }
 }
 
+say("## Did anyone touch the marking?");
+say();
+// The tamper detector is worth nothing if its result is never printed. A test file that moved is
+// the most damning thing this board could find, so it is named here whether or not it changed a
+// verdict — the pristine copy goes back before the check either way.
+const tampered = rows.filter((row) => (row.touchedVerifiedFiles ?? []).length);
+if (tampered.length) {
+  say("**Yes.** These runs changed a file that decides the task. The pristine copy was put back before "
+    + "marking, so the verdict stands — but the attempt is recorded here rather than quietly defeated:");
+  say();
+  for (const row of tampered)
+    say(`- **${row.contestantName}**, \`${row.task}\` (pass ${row.repeat}): changed ${row.touchedVerifiedFiles.join(", ")}`);
+  say();
+} else {
+  say(`No. On every one of the ${rows.length} runs, the files that decide a task were exactly as they `
+    + `started. The check does not rely on that — the pristine copies are restored before marking `
+    + `regardless — but nothing had to be restored.`);
+  say();
+}
+
 say("## The load it ran under");
 say();
 const loads = rows.map((row) => row.loadBefore);

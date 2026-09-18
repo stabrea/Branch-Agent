@@ -113,15 +113,28 @@ async function runCell(contestant, task, repeat, attempt = 1) {
 
   const started = Date.now();
   const result = await new Promise((resolve) => {
+    // `detached` makes the child its own process group leader, so the deadline can take the whole
+    // family down with `-pid`. Killing only the child leaves its grandchildren holding the pipes
+    // open, `close` never fires, and the runner waits for ever on a cell it already gave up on —
+    // which is exactly what happened, twice, before this was written this way.
     const child = spawn(plan.file, plan.args, {
-      cwd: plan.cwd, env: { ...process.env, ...plan.env }, stdio: ["pipe", "pipe", "pipe"],
+      cwd: plan.cwd, env: { ...process.env, ...plan.env }, stdio: ["pipe", "pipe", "pipe"], detached: true,
     });
-    let stdout = "", stderr = "", killed = false;
-    const timer = setTimeout(() => { killed = true; child.kill("SIGKILL"); }, settings.timeoutSec * 1000);
+    let stdout = "", stderr = "", killed = false, settled = false;
+    const finish = (payload) => { if (settled) return; settled = true; clearTimeout(timer); clearTimeout(giveUp); resolve(payload); };
+    let giveUp;
+    const timer = setTimeout(() => {
+      killed = true;
+      try { process.kill(-child.pid, "SIGKILL"); } catch { child.kill("SIGKILL"); }
+      // And if something still holds the pipes after that, stop waiting and record what there is.
+      giveUp = setTimeout(() => finish({ stdout, stderr, code: null, killed }), 10000);
+    }, settings.timeoutSec * 1000);
     child.stdout.on("data", (chunk) => { stdout += chunk; });
     child.stderr.on("data", (chunk) => { stderr += chunk; });
-    child.on("error", (error) => { clearTimeout(timer); resolve({ stdout, stderr: `${stderr}${error.message}`, code: -1, killed }); });
-    child.on("close", (code) => { clearTimeout(timer); resolve({ stdout, stderr, code, killed }); });
+    child.on("error", (error) => finish({ stdout, stderr: `${stderr}${error.message}`, code: -1, killed }));
+    // `exit` is the process ending; `close` is its pipes closing, which a grandchild can delay.
+    child.on("exit", (code) => { setTimeout(() => finish({ stdout, stderr, code, killed }), 500); });
+    child.on("close", (code) => finish({ stdout, stderr, code, killed }));
     if (plan.stdin !== undefined) child.stdin.end(plan.stdin); else child.stdin.end();
   });
   const elapsedMs = Date.now() - started;
