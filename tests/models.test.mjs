@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch, OpenAIProvider, AnthropicProvider, presetsFromEnv, ModelRouter } from "../dist/index.js";
+import { replyCeiling } from "../dist/runtime.js";
 import { ProviderHttpError } from "../dist/provider-retry.js";
 import { startServer } from "../dist/server.js";
 
@@ -156,7 +157,9 @@ test("reasoning effort reaches provider requests in each protocol's own paramete
   assert.equal(seen[0].body.reasoning_effort, "medium");
   app.runtime.models.configure("local", { activePreset: "an" });
   await app.runtime.run({ prompt: "two" });
-  assert.deepEqual(seen[1].body.thinking, { type: "enabled", budget_tokens: 1792 });
+  // The thinking budget is the reply ceiling less the 256 tokens kept for the answer, so this
+  // follows `replyCeiling` rather than restating a number that goes stale when the ceiling moves.
+  assert.deepEqual(seen[1].body.thinking, { type: "enabled", budget_tokens: replyCeiling - 256 });
   app.runtime.models.configure("local", { reasoning: null, activePreset: "oa" });
   const session = await app.runtime.run({ prompt: "three" });
   app.runtime.models.configureSession("local", session.sessionId, { reasoning: "low" });
