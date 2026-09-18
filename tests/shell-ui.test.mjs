@@ -70,11 +70,20 @@ test("every place opens from the sidebar in one click, and every Settings page f
   // the pin picker lists every setting, one of which is "The files you write — MEMORY.md", and
   // hasText matches without regard to case, so the whole-page form of this check went off whenever
   // that picker had finished loading.
-  assert.equal(
-    await f.page.locator("select:not(#settings-window select)").filter({ hasText: "Memory" }).count(),
-    0,
-    "places must not live in a drop-down",
-  );
+  const placesInADropDown = () =>
+    f.page.locator("select:not(#settings-window select)").filter({ hasText: "Memory" }).count();
+  assert.equal(await placesInADropDown(), 0, "places must not live in a drop-down");
+  // And the check above can still go off: a drop-down of places in the shell is caught, so scoping
+  // it away from the Settings window did not quietly turn it into an assertion that cannot fail.
+  await f.page.evaluate(() => {
+    const select = document.createElement("select");
+    select.id = "places-drop-down-probe";
+    select.append(new Option("Memory", "memory"));
+    document.getElementById("workspace").append(select);
+  });
+  assert.equal(await placesInADropDown(), 1, "this check can no longer catch places moving into a drop-down");
+  await f.page.evaluate(() => document.getElementById("places-drop-down-probe").remove());
+  assert.equal(await placesInADropDown(), 0);
   for (const name of PLACES) {
     await f.page.getByRole("button", { name, exact: true }).click();
     await f.page.locator("#page-title").filter({ hasText: name }).waitFor();

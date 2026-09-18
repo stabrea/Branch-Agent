@@ -270,16 +270,35 @@ test("P13 an owner's settings write never even reads the list of pins", async (t
 });
 
 test("P14 no setting the owner can pin is written straight to the database behind Store.save", async () => {
-  // The pin is only as good as the one door it sits in. A setting written with its own SQL would
-  // walk past it, so no catalogue key may ever be written that way.
+  // The pin is only as good as the one door it sits in: Store.save and Store.delete. A settings
+  // record written with its own SQL walks past both, so every such statement in the tree is found
+  // here and has to name an id that cannot be pinned. A statement whose id is a bound parameter or
+  // a LIKE pattern cannot be read from the source at all, so each one is listed below with the
+  // reason it is safe; a new one fails this test until somebody has looked at it.
   const { readdir, readFile } = await import("node:fs/promises");
-  const names = (await readdir("src", { recursive: true })).filter((name) => name.endsWith(".ts"));
   const keys = new Set(settingsCatalogue.map((spec) => spec.key));
-  const walked = [];
+  /** Statements whose id this test cannot read, each checked by hand: none can be a catalogue key. */
+  const lookedAt = new Map([
+    // src/memory-review.ts: `memory-snapshot:${sessionId}`, a per-conversation note, never a setting.
+    ["memory-review.ts:INSERT INTO settings VALUES(?,?,?,?,?)", "memory-snapshot:<session>"],
+    // src/never-break/resume.ts: tidies held channel replays, whose ids all begin "channel-replay:".
+    ["never-break/resume.ts:DELETE FROM settings WHERE owner=? AND id LIKE 'channel-replay:%'", "channel-replay:<id>"],
+  ]);
+  const names = (await readdir("src", { recursive: true })).filter((name) => name.endsWith(".ts"));
+  const problems = [];
   for (const name of names) {
+    if (name === "store.ts") continue; // the door itself
     const text = await readFile(join("src", name), "utf8");
-    for (const [, id] of text.matchAll(/(?:INSERT INTO|UPDATE|DELETE FROM) settings[^\n]*?'([a-z0-9:-]+)'/g))
-      if (keys.has(id)) walked.push(`${name}: ${id}`);
+    for (const [statement] of text.matchAll(/(?:INSERT INTO|UPDATE|DELETE FROM) settings[^"`]*/g)) {
+      const literal = /'([a-z0-9:-]+)'/.exec(statement);
+      if (literal && !literal[1].endsWith(":")) {
+        if (keys.has(literal[1])) problems.push(`${name}: writes the pinnable setting "${literal[1]}" with its own SQL`);
+        continue;
+      }
+      const known = [...lookedAt.keys()].some((entry) => `${name}:${statement}`.startsWith(entry));
+      if (!known) problems.push(`${name}: writes a settings record with its own SQL under an id this test cannot read `
+        + `(${statement.trim().slice(0, 80)}). Write it through Store.save, or add it to lookedAt with the reason it can never be a setting the owner can pin.`);
+    }
   }
-  assert.deepEqual(walked, [], "a setting the owner can pin is written with its own SQL, which never meets the pin");
+  assert.deepEqual(problems, []);
 });

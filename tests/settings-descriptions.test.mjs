@@ -150,4 +150,20 @@ test("R17-S01: controls rebuilt on the page are described as they are rebuilt, n
   });
   assert.ok(described.length > 0, "the fallback checkboxes are not where this test looks any more");
   assert.deepEqual(described, described.map(() => true), "a checkbox came back from a rebuild with no description");
+
+  // Describing adds nodes to the page, which is itself a change the watcher sees. The pass leaves a
+  // control that is described already alone, so it settles instead of going round for ever — which
+  // would starve the page rather than fail a test. Count what it makes, over several turns.
+  const settled = await page.evaluate(async () => {
+    const count = () => document.querySelectorAll(".kit-describe, .kit-scope").length;
+    globalThis.branchDescribeSettingsNow();
+    const after = [];
+    for (let turn = 0; turn < 5; turn += 1) {
+      await new Promise((done) => setTimeout(done, 20));
+      after.push(count());
+    }
+    return after;
+  });
+  assert.deepEqual(settled, settled.map(() => settled[0]),
+    `describing the page keeps making new nodes instead of settling: ${settled.join(", ")}`);
 });
