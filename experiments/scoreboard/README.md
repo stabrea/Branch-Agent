@@ -79,6 +79,21 @@ well over a minute, and whichever agent paid for it would look slow rather than 
 - Each contestant runs against its own config and state directory under `/workspace/bench`. None of
   them reads or writes the owner's settings, and none starts with the owner's history.
 
+## A gap in the fingerprint, stated rather than hidden
+
+`scorerDigest` is given each task's id, whether it is read-only and whether its tests are restored —
+**not the source of the check function itself**. So rewriting a check to be kinder, while leaving
+the task's words alone, would produce the same digest, and `comparisonRefusal` would certify a
+comparison between a board marked the old way and a board marked the new way.
+
+That is precisely the failure `scorerDigest` was written to prevent for rubrics, and it is open here
+for programs. Nothing in this branch exploits it — no check was changed after a result was seen, and
+the two that were changed (`node --test`, and the environment a check runs in) were changed before
+any real window and are in the git history with their reasons. But a reader should know the
+fingerprint does not cover it. Closing it means hashing each `check` function's source into the
+digest, which invalidates every board recorded before the change — which is why it was not done in
+the middle of the window that produced this one.
+
 ## Claude Code
 
 It is not on the board. It talks only to Anthropic's API and cannot use the P40 at all, so putting
