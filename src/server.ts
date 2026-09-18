@@ -5,6 +5,7 @@ import {
   type Server,
 } from "node:http";
 import { randomBytes, timingSafeEqual } from "node:crypto";
+import { existsSync } from "node:fs";
 import { readFile, writeFile, lstat } from "node:fs/promises";
 import { dirname, join, resolve as resolvePath } from "node:path"; // R17-S-B: resolvePath
 import { fileURLToPath } from "node:url";
@@ -1125,6 +1126,7 @@ async function api(
   if (handlesRemovePath(path))
     return removeBranchApi(
       { store: app.store, owner: app.runtime.owner, platform: process.platform, env: process.env,
+        sourceCheckout: existsSync(join(packageRootHere(), ".git")),
         manage: { env: process.env, platform: process.platform, version: app.version, packageRoot: packageRootHere(), print: () => undefined } },
       request.method ?? "GET", path, () => readBody(request, 4 * 1024),
     );

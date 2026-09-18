@@ -4,7 +4,6 @@ import { errorText } from "./contracts.js";
 import { findVariant, ollamaDownloadBytes, variantBytes, type CatalogueEntry, type CatalogueVariant } from "./local-catalogue.js";
 import { registerLocalConnection, smokeTest, type LocalConnectionDeps } from "./local-connections.js";
 import { assertRoomOnDisk, downloadFile, freeDiskBytes, mlxFilesWanted, modelsFolder, repoFiles, resolveUrl, type StatFs } from "./local-files.js";
-import { gb } from "./local-hardware.js";
 import { chooseContext, judgeFit, type MachineRoom } from "./local-fit.js";
 import { SetupJobs, SetupRequestSchema, assertLocalModelsOn, type SetupJob, type SetupRequest } from "./local-jobs.js";
 import { runtimeIds, runtimeInfo, type RuntimeId, type RuntimeLauncher } from "./local-launch.js";
@@ -51,8 +50,8 @@ export interface OneButtonView {
   downloadNote: string;
   /** mac7/clean-uninstall: where the models this button downloads will be kept. */
   modelsFolder: string;
-  /** How much room is left where they go, in plain words. */
-  roomNote: string;
+  /** Free bytes on the disk that folder is on, or null when it cannot be told. */
+  freeBytes: number | null;
   choices: SizeChoice[];
   recommended: SizeChoice["size"] | null;
   /** Why this caller may not press it, or null. The plan itself is only ever a description. */
@@ -186,13 +185,10 @@ export class OneClick {
     return modelsFolder(runtime, this.deps.launcher.at, this.deps.dataDir, await this.deps.launcher.isOwn(runtime));
   }
 
-  /** How much room is left where the models go, in plain words, before anything is downloaded. */
-  async roomNote(runtime: RuntimeId): Promise<string> {
+  /** How much room is left where the models go, before anything is downloaded. The card says it. */
+  async roomLeft(runtime: RuntimeId): Promise<number | null> {
     const folder = await this.modelsGoTo(runtime);
-    try {
-      const free = await freeDiskBytes(folder, this.deps.launcher.at.platform, this.deps.statfs);
-      return `Models go to ${folder}. About ${gb(free)} GB is free on that disk.`;
-    } catch { return `Models go to ${folder}.`; }
+    return freeDiskBytes(folder, this.deps.launcher.at.platform, this.deps.statfs).catch(() => null);
   }
 
   /** Whether Ollama or LM Studio is answering now. */
@@ -328,7 +324,7 @@ export class OneClick {
       runner, name: runtimeInfo[runner].name, alreadyInstalled: Boolean(program), install: plan,
       downloadNote: plan ? `${planSize(plan)} from ${plan.source}.` : "",
       // mac7/clean-uninstall: where the download lands and how much of this disk is left for it.
-      modelsFolder: await this.modelsGoTo(runner), roomNote: await this.roomNote(runner),
+      modelsFolder: await this.modelsGoTo(runner), freeBytes: await this.roomLeft(runner),
       choices, recommended: recommended?.size ?? null, refusal,
     };
   }

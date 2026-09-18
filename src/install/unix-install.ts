@@ -14,7 +14,9 @@ const { basename, dirname, join } = posix;
  * Installing and removing Branch on macOS and Linux without a single question, the counterpart of
  * `installer.ts` on Windows. Everything goes into this person's own folders, so nothing needs an
  * administrator: the app, a `branch` command that talks to it, and on Linux a menu entry. Removing
- * Branch keeps conversations and files unless the person asks for them to go too.
+ * Branch keeps conversations and files unless the person asks for them to go too — but what Branch
+ * itself downloaded (mac7/clean-uninstall: the programs that run models, and their models) always
+ * goes, because those gigabytes are Branch's doing rather than the person's work.
  */
 export type UnixPlatform = "darwin" | "linux";
 

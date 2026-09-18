@@ -19,7 +19,8 @@ import { performUnixInstall, unixLayout, type UnixLayout, type UnixPlatform } fr
  * specialists, procedures and skills. It follows a market's rules: approval rules, model choices and
  * memory never come in this way, and new skills arrive switched off. It never replaces an assistant
  * that is already set up on this computer.
- *   uninstall [--delete-data]
+ *   uninstall [--delete-data]     removes Branch and everything it downloaded; conversations and
+ *                                 files stay unless --delete-data is given
  */
 const flag = (args: string[], name: string): string | undefined => {
   const at = args.indexOf(`--${name}`);

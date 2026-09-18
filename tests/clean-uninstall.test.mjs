@@ -8,8 +8,9 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { chromium } from "playwright";
@@ -24,8 +25,9 @@ import {
   branchModelsFolder, branchRunnerProgram, branchRunnerRoot, candidatePaths, findRuntime, startPlan,
 } from "../dist/local-launch.js";
 import { modelsFolder } from "../dist/local-files.js";
-import { installPlan } from "../dist/local-install.js";
+import { installPlan, runInstall } from "../dist/local-install.js";
 import { launcherMarker, unixLayout } from "../dist/install/unix-install.js";
+import { manageCommand } from "../dist/install/manage-cli.js";
 import {
   removalGuard, removalSurvey, removeBranch, removeChatRefusal, removePersonRefusal,
   removeShortLivedRefusal, removeStartedElsewhereRefusal, removeTrunkRefusal,
@@ -92,6 +94,28 @@ test("C3 models Branch downloads go inside Branch, and a library the person alre
   // Gigabytes must not be swept into a backup by surprise; on a Mac Branch asks Time Machine to skip them.
   const steps = installPlan("ollama", at.darwin, { homebrew: null, winget: null }, DATA).steps;
   assert.deepEqual(steps.at(-1).command, ["/usr/bin/tmutil", "addexclusion", "{models}"]);
+  assert.equal(steps.at(-1).advisory, true, "a backup hint never decides whether the install worked");
+});
+
+test("C4a a backup hint that does not take never throws away a checked, unpacked program", async (t) => {
+  const root = await scratch("advisory");
+  t.after(async () => { await discardTemp(root); });
+  const body = Buffer.from("a stand-in download");
+  const sum = createHash("sha256").update(body).digest("hex");
+  const library = async (url) => String(url).endsWith("sha256sum.txt")
+    ? new Response(`${sum}  ./Ollama-darwin.zip\n`)
+    : new Response(body, { headers: { "content-length": String(body.length) } });
+  const data = join(root, "data");
+  const outcome = await runInstall(installPlan("ollama", at.darwin, { homebrew: null, winget: null }, data), {
+    at: at.darwin, exists: async () => true, library, scratchDir: join(root, "dl"), dataDir: data,
+    run: async (file) => {
+      if (file === "/usr/bin/tmutil") throw Object.assign(new Error("exit 1"), { stderr: "not a backup volume" });
+      return { stdout: "" };
+    },
+  });
+  assert.equal(outcome.installed, true, "the program was checked and unpacked, so the install stands");
+  assert.match(outcome.message, /Keep the models out of Time Machine/, "and the owner is told what did not take");
+  assert.equal(existsSync(join(data, "runners", "ollama")), true, "the folder was not thrown away");
 });
 
 test("C4 where a system installer is the only honest option, the plan says it will be left behind", () => {
@@ -109,6 +133,22 @@ test("C4 where a system installer is the only honest option, the plan says it wi
   assert.equal(chosen.leavesBehind, true);
   assert.notEqual(chosen.fingerprint, installPlan("ollama", at.darwin, { homebrew: "/opt/homebrew/bin/brew", winget: null }, DATA).fingerprint,
     "choosing the system-wide copy is a different plan, so a yes to one is never a yes to the other");
+});
+
+test("C4b the card itself says where it goes, how much room is left, and what will be left behind", async () => {
+  const card = await readFile(join(import.meta.dirname, "..", "public", "local-oneclick.js"), "utf8");
+  for (const [words, key] of [["plan.where", "local.install.inside"], ["plan.leavesBehindNote", "local.install.leaves-behind"],
+    ["shown.modelsFolder", "local.install.room"]]) {
+    assert.ok(card.includes(words), `${words} is worked out but never drawn on the card`);
+    assert.ok(card.includes(key), `${key} is not used`);
+  }
+  const en = JSON.parse(await readFile(join(import.meta.dirname, "..", "public", "locales", "en.json"), "utf8"));
+  const fr = JSON.parse(await readFile(join(import.meta.dirname, "..", "public", "locales", "fr.json"), "utf8"));
+  for (const key of ["local.install.inside", "local.install.leaves-behind", "local.install.room",
+    "danger.card.title", "danger.action.remove", "danger.field.keep", "danger.intro"]) {
+    assert.ok(en[key], `${key} has no English`);
+    assert.ok(fr[key] && fr[key] !== en[key], `${key} needs real French`);
+  }
 });
 
 /* ---------------------------------------------- the danger zone: what goes, and what it cannot take */
@@ -160,6 +200,20 @@ test("C5 the danger zone shows exactly what will go, with real sizes, before any
   assert.notEqual(keeping.fingerprint, survey.fingerprint);
 });
 
+test("C5a a source folder, and a copy no installer put in place, are told so rather than offered folders", async (t) => {
+  const world = await installed(t);
+  const built = await removalSurvey({ platform: "darwin", env: world.env, layout: world.layout, sourceCheckout: true, exists: async () => false });
+  assert.match(built.instead, /nothing here to remove/);
+  assert.deepEqual(built.items, []);
+  // No copy of Branch where the installer puts one: the answer is the same, and no environment
+  // variable is consulted — the window opened from the Dock never has the installer's own one.
+  const bare = { ...world.layout, installRoot: join(world.root, "nowhere"), candidates: [join(world.root, "nowhere")] };
+  const none = await removalSurvey({ platform: "darwin", env: {}, layout: bare, exists: async () => false });
+  assert.match(none.instead, /nothing here to remove/);
+  const real = await removalSurvey({ platform: "darwin", env: {}, installed: true, layout: world.layout, exists: async () => false });
+  assert.equal(real.instead, null, "an installed copy is offered the real list");
+});
+
 test("C6 what Branch cannot remove is named, with the honest reason", async (t) => {
   const world = await installed(t);
   const brewOllama = "/opt/homebrew/bin/ollama";
@@ -197,6 +251,18 @@ test("C8 keeping the conversations keeps them, and still takes away what Branch 
   assert.equal(existsSync(join(world.layout.dataDir, "runners")), false, "gigabytes Branch fetched still go");
   assert.equal(existsSync(join(world.layout.dataDir, "models")), false);
   assert.equal(existsSync(world.layout.installRoot), false, "Branch itself is gone either way");
+});
+
+test("C8a `branch uninstall` says the downloaded programs and models went, not just that data stayed", async (t) => {
+  const world = await installed(t);
+  const said = [];
+  const code = await manageCommand(["uninstall"], { ...world.manage, print: (line) => said.push(line) });
+  assert.equal(code, 0);
+  const all = said.join("\n");
+  assert.match(all, /programs Branch downloaded to run models, and their models, were removed/i);
+  assert.match(all, /conversations and files are kept/);
+  assert.equal(existsSync(join(world.layout.dataDir, "models")), false);
+  assert.equal(existsSync(join(world.layout.dataDir, "branch.sqlite")), true);
 });
 
 test("C9 a misclick cannot pass, and neither can a yes to a list that has changed", async (t) => {

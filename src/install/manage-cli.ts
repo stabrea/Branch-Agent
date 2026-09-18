@@ -3,7 +3,7 @@ import { join, resolve } from "node:path";
 import { daemonCommand, daemonLauncherName } from "./daemon.js";
 import { headlessUpdate, type HeadlessUpdateDeps } from "./headless-update.js";
 import { quitRunning, runningNow, type QuitDeps } from "./quit.js";
-import { performUnixUninstall, unixLayout, type UnixLayout, type UnixUninstallReport } from "./unix-install.js";
+import { fetchedFolders, performUnixUninstall, unixLayout, type UnixLayout, type UnixUninstallReport } from "./unix-install.js";
 import type { RunTool } from "./windows.js";
 
 /**
@@ -12,7 +12,8 @@ import type { RunTool } from "./windows.js";
  *   branch --version --json      what is installed, where, and whether it is running
  *   branch quit                  close the running Branch and wait until it has gone
  *   branch update [--yes]        check for, and with --yes install, the newest release
- *   branch uninstall [--delete-data]   remove Branch; conversations and files stay unless asked
+ *   branch uninstall [--delete-data]   remove Branch and everything it downloaded; conversations
+ *                                      and files stay unless asked
  *
  * Each answers with an exit code: 0 only when it did what it says.
  */
@@ -75,6 +76,10 @@ export async function runUninstall(context: ManageContext, options: { deleteData
   });
   const lines = [report.removed.length ? `Branch Agent has been removed (${report.removed.length} places).` : "Branch Agent was not installed here; nothing needed removing."];
   for (const copy of report.left) lines.push(`${copy} was not put there by this installer, so it was left; remove it yourself if you want it gone.`);
+  // mac7/clean-uninstall: say what went from inside the folder that was kept, so "kept" is not read
+  // as "nothing in there was touched" when gigabytes of models have just gone.
+  const fetched = report.removed.filter((path) => fetchedFolders(layout).includes(path));
+  if (fetched.length) lines.push(`The programs Branch downloaded to run models, and their models, were removed with it: ${fetched.join(", ")}.`);
   lines.push(report.dataKept ? `Your conversations and files are kept in ${report.dataKept}.` : "Your conversations and files were removed too.");
   return { ok: true, lines, report };
 }

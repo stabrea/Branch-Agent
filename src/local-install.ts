@@ -11,8 +11,11 @@ import { branchModelsFolder, branchRunnerRoot, runtimeInfo, type Exists, type La
  * none. This is the one place Branch changes the owner's computer, so it is the most careful part
  * of the whole feature.
  *
- *   - Each system is installed its own way: Homebrew on a Mac, winget on Windows, and otherwise the
- *     publisher's own signed download. Nothing is ever fetched from anywhere but the publisher.
+ *   - mac7/clean-uninstall: by default every system gets the publisher's own plain archive, unpacked
+ *     inside Branch's own data folder, so removing Branch removes the program too. Homebrew and
+ *     winget are only for LM Studio, which publishes no archive with a checksum, and for an owner
+ *     who deliberately asks for a system-wide copy; those plans say plainly that they will be left
+ *     behind. Nothing is ever fetched from anywhere but the publisher.
  *   - Nothing is downloaded unverified. Homebrew and winget check their own package before they
  *     install it; a direct download is checked against the checksum the publisher publishes beside
  *     the file, and on a Mac the unpacked program is checked against Apple's own signature and
@@ -59,7 +62,16 @@ export interface ToolsPresent {
 }
 
 /** One thing to run, as an argument list. `{file}` and `{unpacked}` are filled in when it runs. */
-export interface InstallStep { what: string; command: string[] }
+export interface InstallStep {
+  what: string;
+  command: string[];
+  /**
+   * mac7/clean-uninstall: a hint to the system that is nice to have but must never decide whether
+   * the install worked. One that fails is reported and stepped over; a checked, unpacked program is
+   * never thrown away because a backup hint did not take.
+   */
+  advisory?: boolean;
+}
 export interface InstallFetch {
   /** The file to download, at the publisher's own address. */
   url: string;
@@ -208,7 +220,7 @@ function downloadPlan(at: LaunchEnv, asset: string, root: string): InstallPlan {
       { what: "Check macOS accepts it", command: ["/usr/sbin/spctl", "--assess", "--type", "execute", "{unpacked}/Ollama.app"] },
       { what: "Put it inside Branch", command: ["/usr/bin/ditto", "{unpacked}/Ollama.app", "{root}/Ollama.app"] },
       // Gigabytes of models must not be swept into Time Machine by surprise; this needs no administrator.
-      { what: "Keep the models out of Time Machine", command: ["/usr/bin/tmutil", "addexclusion", "{models}"] },
+      { what: "Keep the models out of Time Machine", command: ["/usr/bin/tmutil", "addexclusion", "{models}"], advisory: true },
     ],
     after,
   });
@@ -363,7 +375,7 @@ export async function runInstall(plan: InstallPlan, deps: InstallDeps): Promise<
     await mkdir(plan.where, { recursive: true });
     if (models) await mkdir(models, { recursive: true });
   }
-  const ran: string[][] = [];
+  const ran: string[][] = [], notes: string[] = [];
   for (const step of plan.steps) {
     deps.signal?.throwIfAborted();
     const command = step.command.map((part) =>
@@ -372,12 +384,14 @@ export async function runInstall(plan: InstallPlan, deps: InstallDeps): Promise<
     try {
       await deps.run(command[0]!, command.slice(1), { timeout: 20 * 60 * 1000, windowsHide: true });
     } catch (error) {
+      if (step.advisory) { notes.push(step.what); continue; }
       // Nothing half-unpacked is left inside Branch when a step fails.
       if (plan.where) await rm(plan.where, { recursive: true, force: true });
       return { installed: false, ran, message: stepFailure(plan, step, error) };
     }
   }
-  return { installed: true, ran, message: `${plan.name} was installed${plan.after ? `. ${plan.after}` : "."}` };
+  const missed = notes.length ? ` One thing did not take, and ${plan.name} works without it: ${notes.join("; ")}.` : "";
+  return { installed: true, ran, message: `${plan.name} was installed${plan.after ? `. ${plan.after}` : "."}${missed}` };
 }
 
 function stepFailure(plan: InstallPlan, step: InstallStep, error: unknown): string {

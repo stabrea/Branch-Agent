@@ -195,6 +195,12 @@ function planDetail(plan) {
     nodes.push(line);
   }
   if (plan.after) nodes.push(keyed("p", "local.install.after", "local-detail", { after: plan.after }));
+  /*
+   * mac7/clean-uninstall: where it goes, and — when it goes outside Branch — the plain warning that
+   * removing Branch will not take it away. Said here, on the card, before the owner agrees.
+   */
+  if (plan.where) nodes.push(keyed("p", "local.install.inside", "local-detail", { where: plan.where }));
+  if (plan.leavesBehind) nodes.push(keyed("p", "local.install.leaves-behind", "local-warning", { why: plan.leavesBehindNote }));
   return nodes;
 }
 
@@ -241,6 +247,10 @@ function oneButtonBlock(view) {
   if (shown.refusal) nodes.push(keyed("p", "local.install.refused", "local-warning", { why: shown.refusal }));
   else if (plan) nodes.push(...planDetail(plan));
   else nodes.push(keyed("p", "local.install.already", "local-detail", { name: shown.name ?? "" }));
+  // mac7/clean-uninstall: where the models will go and how much room is left, before downloading.
+  if (!shown.refusal && shown.modelsFolder)
+    nodes.push(keyed("p", shown.freeBytes === null ? "local.install.room-unknown" : "local.install.room", "local-detail",
+      { where: shown.modelsFolder, free: gb(shown.freeBytes ?? 0) }));
   const choices = shown.choices ?? [];
   const onPick = (size) => void pressButton({ size, ...(plan ? { agreedPlan: plan.fingerprint } : {}) });
   for (const choice of choices) nodes.push(choiceRow(choice, onPick, choice.size === shown.recommended));

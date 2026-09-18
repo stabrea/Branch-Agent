@@ -2,7 +2,7 @@ import { lstat, readdir, stat } from "node:fs/promises";
 import { posix } from "node:path";
 import { z } from "zod";
 import { audit } from "./audit.js";
-import { fetchedFolderNames, unixLayout, type UnixLayout, type UnixPlatform } from "./install/unix-install.js";
+import { fetchedFolderNames, findInstall, unixLayout, type UnixLayout, type UnixPlatform } from "./install/unix-install.js";
 import { runUninstall, windowsRemoveNote, type ManageContext } from "./install/manage-cli.js";
 import { runOrigin, startedFromChat, startedWithShortLivedKey } from "./key-context.js";
 import { candidatePaths, runtimeIds, runtimeInfo, thisComputer, type Exists, type LaunchEnv } from "./local-launch.js";
@@ -105,7 +105,7 @@ export async function folderBytes(path: string, seen = new Set<string>()): Promi
 const notRemovable = (platform: string): string => platform === "win32"
   ? windowsRemoveNote : `Removing Branch from Settings is not available on ${platform}.`;
 export const notInstalledHere =
-  "This Branch is running from a folder you put there yourself, not from an installed copy, so there is nothing here to remove. Delete that folder to be rid of it.";
+  "This Branch is running from a folder you put there yourself, not from a copy its installer put in place, so there is nothing here to remove. Delete that folder to be rid of it.";
 
 export interface SurveyDeps {
   platform: NodeJS.Platform;
@@ -113,9 +113,13 @@ export interface SurveyDeps {
   /**
    * Whether this is an installed copy. A Branch started from a folder somebody built themselves has
    * no installer's work to undo, so the danger zone says so rather than offering to remove folders
-   * it never put there. `BRANCH_INSTALL_ROOT` is what the installer's own `branch` command sets.
+   * it never put there. Left out, it is answered by looking for a copy the installer really put in
+   * one of the layout's own places — not by an environment variable, which only the installer's
+   * `branch` command sets and the window started from the Dock never has.
    */
   installed?: boolean;
+  /** True when this copy runs from a source folder (a `.git` beside its package.json). */
+  sourceCheckout?: boolean;
   layout?: UnixLayout;
   at?: LaunchEnv;
   exists?: Exists;
@@ -127,8 +131,9 @@ export async function removalSurvey(deps: SurveyDeps, keepConversations = false)
   const nothing = { platform: deps.platform, items: [], left: [], totalBytes: 0, keptBytes: 0, confirmPhrase, fingerprint: "" };
   if (deps.platform !== "darwin" && deps.platform !== "linux")
     return { ...nothing, instead: notRemovable(deps.platform) };
-  if (!(deps.installed ?? Boolean(deps.env.BRANCH_INSTALL_ROOT))) return { ...nothing, instead: notInstalledHere };
+  if (deps.sourceCheckout) return { ...nothing, instead: notInstalledHere };
   const layout = deps.layout ?? unixLayout(deps.platform as UnixPlatform, deps.env);
+  if (!(deps.installed ?? Boolean(await findInstall(layout)))) return { ...nothing, instead: notInstalledHere };
   const size = deps.sizeOf ?? ((path: string) => folderBytes(path));
   const items = await surveyItems(layout, size, keepConversations);
   const left = await leftBehind(layout, deps);
@@ -139,15 +144,17 @@ export async function removalSurvey(deps: SurveyDeps, keepConversations = false)
 }
 
 async function surveyItems(layout: UnixLayout, size: (path: string) => Promise<number>, keep: boolean): Promise<RemovalItem[]> {
-  const fetched = fetchedFolderNames.map((name) => posix.join(layout.dataDir, name));
-  const own = await Promise.all(fetched.map(size));
+  // Named, not positional: adding to or reordering `fetchedFolderNames` must never mislabel a size.
+  const own: Record<string, number> = {};
+  for (const name of fetchedFolderNames) own[name] = await size(posix.join(layout.dataDir, name));
+  const fetchedTotal = Object.values(own).reduce((sum, bytes) => sum + bytes, 0);
   const dataTotal = await size(layout.userDataDir);
   const rows: RemovalItem[] = [
     { what: "Branch Agent itself", path: layout.installRoot, bytes: await size(layout.installRoot), goes: true },
-    { what: "Programs Branch downloaded to run models", path: posix.join(layout.dataDir, "runners"), bytes: own[0] ?? 0, goes: true },
-    { what: "Models Branch downloaded", path: posix.join(layout.dataDir, "models"), bytes: (own[1] ?? 0) + (own[3] ?? 0), goes: true },
-    { what: "Downloads kept part-way through", path: posix.join(layout.dataDir, "local-installers"), bytes: own[2] ?? 0, goes: true },
-    { what: "Your conversations and settings", path: layout.userDataDir, bytes: Math.max(0, dataTotal - own.reduce((a, b) => a + b, 0)), goes: !keep },
+    { what: "Programs Branch downloaded to run models", path: posix.join(layout.dataDir, "runners"), bytes: own.runners ?? 0, goes: true },
+    { what: "Models Branch downloaded", path: posix.join(layout.dataDir, "models"), bytes: (own.models ?? 0) + (own["local-models"] ?? 0), goes: true },
+    { what: "Downloads kept part-way through", path: posix.join(layout.dataDir, "local-installers"), bytes: own["local-installers"] ?? 0, goes: true },
+    { what: "Your conversations and settings", path: layout.userDataDir, bytes: Math.max(0, dataTotal - fetchedTotal), goes: !keep },
     { what: "Starting by itself when you sign in", path: layout.serviceFile, bytes: await size(layout.serviceFile), goes: true },
     { what: "The `branch` command", path: layout.launcher, bytes: await size(layout.launcher), goes: true },
   ];
