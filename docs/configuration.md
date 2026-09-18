@@ -2089,6 +2089,38 @@ The design, the threat list and the test for each threat are in [never-break.md]
 
 **Updates that cannot brick it.** With the switch not off, the updater tries the unpacked version before anything is swapped (`src/never-break/canary.ts`): the process that holds the database takes a copy (`VACUUM INTO` of `branch.sqlite` and `journal.sqlite`, plus `locker.key` and `gateway.json`) into `updates/canary-*/` in the data folder — the window asks a background engine for it with `POST /api/never-break/snapshot` — and the new version's own runtime runs `branch start` with `BRANCH_SELF_TEST=<report>` on that copy (`src/never-break/self-test.ts`): it opens the saved work (applying its format changes to the copy), does a task with the offline model, loads every chat adapter, lets the timed jobs tick, carries an interrupted task on, and answers on its address. Any failed check stops the update with a sentence saying which, before the safety copy or the hand-over; the copy is always removed. A passed check writes `update-watch.json`; the new gateway watches the first `watchSeconds`, repairs a program folder an interrupted swap left half-done (`repairSwap`), ends the watch once the version has stayed up, and, if the new engine fails to start twice or trips the crash breaker inside the window, writes `updates/roll-back.sh` (or `roll-back.cmd`, started through the same hidden scheduled-task launcher as the update, so no console window opens) and closes: the script puts `<program>.previous` back, keeps the failed one as `<program>.failed`, promotes `<program>.previous-2`, and starts the previous version. Every update now keeps the last two versions (`.previous` and `.previous-2`) on all three systems. The gateway and its engine each state the contract version they speak and the range they read (`src/never-break/contract.ts`), so a new engine runs under an old gateway and the other way round for one release.
 
+**Going back from a bad update.** Every update writes down what it is about to change, before a
+single file moves, in `activation.sqlite` in the data folder (`src/never-break/activation.ts`,
+`synchronous=FULL`, and one of the places no task may touch): a fingerprint of the version that is
+installed and of the one replacing it (a SHA-256 digest over the sorted tree — each file's path,
+size and contents — plus where the file system keeps the folder), what format each database was in
+on both sides, which format changes ran, where the safety copies went, and **the newest data format
+the older version understood**, read from that version while it was still the one running. Only the
+newest activation is ever offered; earlier ones are marked superseded. A record that cannot be
+written stops the update, because an update nobody can undo is not worth making; a file that cannot
+be read is put aside and a new one started, and an undo with nothing recorded refuses rather than
+guesses.
+
+`branch rollback` says what going back would do; `branch rollback --yes` does it. The decision is
+`assessRollback` in `src/never-break/rollback.ts`, and it **refuses**, in a sentence saying why and
+what to do instead, when: there is no record; this update was already undone or superseded; another
+copy of Branch already holds the undo (the claim is a conditional update inside `BEGIN IMMEDIATE`,
+so two copies at once cannot both run one); `<program>.previous` is gone; its fingerprint is not the
+one the update put aside; the fingerprint could not be finished inside its time budget, so nothing
+was really checked; the installed program is not the version this entry activated; the saved work is
+not in the format the entry recorded (`state-moved-since`); or the saved work has been migrated to a
+shape the older version cannot read and there is no recorded, copied way back
+(`state-migrated-no-rollback`). Refusing is the whole point: restoring an older program on top of
+newer data is how a rollback costs more than the failure did. When it is safe, the kept version goes
+back, the failed one is kept as `<program>.failed`, the spare moves up, the data is left alone (or
+the recorded format changes are taken back out after a copy — and the message says what that costs),
+the gateway is started again and the person is told in plain words. Every step is appended to the
+entry's ledger before it is attempted and each is tried even if an earlier one failed, so a rollback
+that only got part of the way says exactly how far. One cut off part-way is put back to one whole
+version by `repairRollback`, which the gateway's start-up tidy-up (`repairSwap`) already runs. The
+gateway's own automatic rollback, after a new version fails to stay up, asks the same gate first: a
+crash loop is recoverable, a database the installed program cannot open is not.
+
 **Telegram from a card.** `customize:channels` has a **Set up Telegram** card (`public/telegram-setup.js`, `src/never-break/telegram-setup.ts`): the BotFather steps in plain words, a password field whose token goes straight into the locker as `TELEGRAM_BOT_TOKEN` in the default project (checked for BotFather's shape, never sent back), the three-way switch (settings key `telegram-setup`, shipped off), and a box for the six-digit code the bot sends a new person, which approves the owner's own account through the ordinary pairing. `GET|POST /api/never-break/telegram { mode?, token? }`. On a real start with the switch not off, Branch connects that bot through the network rules, unless the integrations file already has a Telegram channel. No real token was used to build or test it.
 
 **macOS and Linux.** The gateway is the same program on every system. It starts the engine with the same runtime it runs on (the app's own on an installed copy), with no window on Windows. The sign-in entries (`launchd`, `systemd --user`, the Windows scheduled task) are unchanged: they run `branch start`, which becomes the gateway when the switch is on, so `KeepAlive`/`Restart=on-failure` look after the gateway and the gateway looks after the engine. An engine whose gateway is killed closes itself within seconds, so the database is never left held.
