@@ -2475,6 +2475,7 @@
   "meter.stats": "This conversation",
   "meter.tokensIn": "Words in",
   "meter.tokensOut": "Words out",
+  "models.custom-address": "Another web address",
   "nav.chat": "Conversation",
   "nav.documents": "Documents",
   "nav.memory": "Memory",
