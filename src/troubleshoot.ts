@@ -312,6 +312,13 @@ export const TroubleshootInputSchema = z.object({
 async function troubleshootTool(runtime: Runtime, input: z.infer<typeof TroubleshootInputSchema>, context: ToolContext): Promise<unknown> {
   const settings = troubleshootSettings(runtime.store, context.owner);
   if (settings.mode === "off") throw new Error(troubleshootOff);
+  // mac7/collisions: running a command again is exactly as allowed as running it the first time,
+  // so the named command's own permission is checked against the caller's here. The tool asks for
+  // `code.execute` alone, so being installed can never conjure `shell.execute` on to a computer
+  // that has no command host configured (see registerTroubleshoot).
+  const needed = runtime.registry.permissionOf(input.tool);
+  if (!needed) throw new Error(`${input.tool} is not set up on this computer, so there is nothing to run again.`);
+  if (!context.permissions.has(needed)) throw new Error(`Permission denied: ${needed}`);
   const sessionId = runtime.store.run(context.runId)?.sessionId;
   const host: TroubleshootHost = {
     ask: askFor(runtime, context),
@@ -338,7 +345,12 @@ async function troubleshootTool(runtime: Runtime, input: z.infer<typeof Troubles
 
 export function registerTroubleshoot(registry: ToolRegistry, runtime: Runtime): void {
   registry.register({
-    name: "troubleshoot.run", permission: "shell.execute", group: "code",
+    // mac7/collisions: `code.execute`, not `shell.execute`. `registry.permissions()` is derived from
+    // the tools that are registered and is handed out whole as every task's permissions, so a tool
+    // that merely *demands* a permission also creates one; this tool is registered at launch, and
+    // demanding `shell.execute` put the command permission on every computer whether a command host
+    // was configured or not. The command it is asked to run is checked against the caller instead.
+    name: "troubleshoot.run", permission: "code.execute", group: "code",
     description: "Run a command that failed (shell.execute or code.run) again and work out why: a diagnosis, one fix at a time (write or edit a file, or run a command), each through the approval rules, then another try, up to the owner's limit.",
     parameters: TroubleshootInputSchema,
     target: (args) => `${args.tool} again, with fixes`,
