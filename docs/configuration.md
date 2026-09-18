@@ -5206,6 +5206,55 @@ The file is named after the month (`usage-2026-09.csv`) and holds the same money
 export above. The scheduler's existing beat writes it; a folder it cannot write to is passed over
 quietly rather than stopping the rest of the scheduled work.
 
+### What each connection has left (mac7/usage-bar)
+
+The Usage screen has a panel above the month card called **What each connection has left**. It shows
+how much of each service's allowance is still there, one row per connection and one row per account
+where a connection has several.
+
+It is deliberately sparse, and the sparseness is the point. Every row is in one of three states:
+
+- **Measured** — a service actually said this, either in a header on an answer to a request Branch
+  was making anyway, or at an endpoint the service documents and Branch is allowed to call. The row
+  says which, and says when it was read: *"as of 4 min ago"*.
+- **Estimated** — Branch worked it out from its own counting, because the service gave a limit but
+  no remainder. The row says the word *estimate* and says what it was worked out from. An estimated
+  bar never looks like a measured one.
+- **Not published** — the service publishes nothing Branch may lawfully read. There is no bar at
+  all, only the sentence *"This service does not say what it allows."* That is a good answer, not a
+  failure, and it is what most rows will say.
+
+A model running on this computer says *"Runs on this computer. There is no limit to report."* —
+never 100%, never a full bar.
+
+**Accounts are never added together.** Two subscriptions are not interchangeable, and two API keys
+in one organisation share a single limit, so adding their remainders would make a number that is
+simply false. Each account is its own row, and the one that would be used next is marked.
+
+**Nothing is ever asked of a subscription account.** A request whose only purpose is to read the
+allowance spends the very allowance it is measuring. The one service Branch may ask outright is
+OpenRouter, which documents an endpoint for exactly this question; that asking is behind a switch
+(Settings → Data & usage → *Asking a service what is left*) and ships off. Every other figure on
+this panel arrived on traffic Branch was already sending.
+
+**What Branch will not do to fill a row**, whatever other tools in this space do: read another
+application's credential file or Keychain item, import a browser's cookies, call an endpoint a
+provider has not published, or drive a provider's own program to harvest a figure it prints.
+
+- `GET /api/usage/limits` — the rows, the three states, and the one-line summary
+  (*"3 of 5 connections report a limit. The other 2 do not publish one."*).
+- `GET /api/usage/limits/settings` / `POST /api/usage/limits/settings` — `{ mode, enabled }`, the
+  switch behind the one service Branch may ask.
+
+Both are the owner's alone: a household profile and a short-lived key are refused the whole answer,
+not shown a thinned-out one, because what a paid-for connection has left is the owner's spending
+seen from another angle. `branch usage` prints the same rows in the same words, and `--json` hands
+back the same shape the screen reads.
+
+Note what this panel is **not**. The meter under the message box measures how much of *this
+conversation's* room has been used against the model's context window. That is a different thing
+from a provider's allowance, and the two are deliberately kept apart.
+
 ## Specialists that work in different ways (batch 20, wave 7)
 
 A specialist now says how it works, not just what it knows. Pick one in Specialists → Propose a

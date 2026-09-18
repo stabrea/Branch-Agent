@@ -3,6 +3,8 @@ import type { createBranch } from "./index.js";
 import { inferToolGroup } from "./catalog.js";
 import { lockdownState, setLockdown } from "./lockdown.js";
 import { pricingSettings } from "./pricing.js";
+import { limitLines } from "./usage-limits.js"; // mac7/usage-bar
+import { usageLimits } from "./usage-limits-api.js"; // mac7/usage-bar
 import { choosePreset, historyLines, presetLines } from "./terminal-commands.js";
 import { PLACE_ROWS, type Row } from "./terminal-place-data.js";
 import { TERMINAL_ALIASES, TERMINAL_CLI_COMMANDS } from "./terminal-parity.js";
@@ -148,12 +150,19 @@ function lockdownCommand(app: Branch, args: string[], io: Io): void {
   io.write(state.on ? `Lockdown is on${state.since ? ` since ${state.since}` : ""}.` : "Lockdown is off.");
   if (state.on) for (const effect of state.effects) io.write(`- ${effect}`);
 }
-function usageCommand(app: Branch, io: Io): void {
+async function usageCommand(app: Branch, io: Io): Promise<void> {
   const { overrides } = pricingSettings(app.store, app.runtime.owner);
   const stats = app.store.usageStore().getMonthlyStats(undefined, overrides);
-  if (io.json) return io.write(JSON.stringify(stats, null, 2));
+  // mac7/usage-bar: the same rows the Usage screen draws, in the same words, as plain lines.
+  // It is the owner's figure, so a household profile is refused and simply gets nothing here.
+  const limits = await usageLimits(app).catch(() => null);
+  if (io.json) return io.write(JSON.stringify({ ...stats, ...(limits ? { limits } : {}) }, null, 2));
   io.write(`Since ${stats.monthStart.slice(0, 10)}: ${stats.currentMonthlyTokens} words of context used, about $${stats.estimatedCost.toFixed(2)}.`);
   if (stats.unpricedRuns) io.write(`${stats.unpricedRuns} task(s) used a model with no price on file, so they are not in that figure.`);
+  if (!limits) return;
+  io.write("");
+  io.write("What each connection has left:");
+  for (const line of limitLines(limits, Date.now())) io.write(line);
 }
 
 /** Runs one of the terminal's commands. */
