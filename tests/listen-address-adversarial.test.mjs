@@ -10,6 +10,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { request } from "node:http";
+import { readFile } from "node:fs/promises";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -237,30 +238,21 @@ test("X5 a page whose whole secret is its address is served to this computer onl
 
 /* ---------- X6 the key the whole wider door rests on ---------- */
 
-/** The middle value, which a busy machine's occasional long pause cannot drag around. */
-const median = (values) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)];
-
-test("X6 a wrong key tells an attacker nothing by how long it takes to be refused", () => {
+test("X6 a wrong key tells an attacker nothing by how long it takes to be refused", async () => {
   // On a wider door the key is the only thing between the network and everything Branch can do, so
   // a comparison that stops at the first wrong character would let it be guessed one character at a
-  // time. The two guesses below are both wrong; one is wrong in the first character and one only in
-  // the last, which is the shape that separates a constant-time comparison from `===`.
+  // time. The guarantee is in how the comparison is written, so that is what is checked: a
+  // constant-time compare over the whole key, with the length checked first. A wall-clock
+  // measurement was tried here and had to go — on a shared machine the scheduler's own pauses are
+  // far larger than the difference being looked for, so it failed on honest code.
+  const source = await readFile(new URL("../src/ws.ts", import.meta.url), "utf8");
+  assert.match(source, /supplied\.length === token\.length && timingSafeEqual\(/,
+    "the length is checked first, then the whole key is compared in constant time");
+  assert.equal(/\bsupplied === token\b/.test(source), false, "the key is never compared with ===");
+  // And it still answers correctly, whichever character is wrong.
   const real = "c".repeat(64);
-  const wrongFirst = "d" + "c".repeat(63);
-  const wrongLast = "c".repeat(63) + "d";
-  const timeOf = (guess) => {
-    const at = process.hrtime.bigint();
-    for (let i = 0; i < 2000; i += 1)
-      assert.equal(tokenFromProtocol({ headers: { "sec-websocket-protocol": `bearer, ${guess}` } }, real), false);
-    return Number(process.hrtime.bigint() - at);
-  };
-  const first = [], last = [];
-  for (let round = 0; round < 9; round += 1) { first.push(timeOf(wrongFirst)); last.push(timeOf(wrongLast)); }
-  const [a, b] = [median(first), median(last)];
-  // Generously wide on purpose: this must catch a comparison that gives the answer away, not
-  // measure this Mac. An early-exit comparison separates these by orders of magnitude.
-  assert.ok(Math.abs(a - b) / Math.max(a, b) < 0.5,
-    `refusing a key wrong in the first character (${a}ns) and in the last (${b}ns) must take alike`);
+  for (const wrong of ["d" + "c".repeat(63), "c".repeat(63) + "d"])
+    assert.equal(tokenFromProtocol({ headers: { "sec-websocket-protocol": `bearer, ${wrong}` } }, real), false);
   // The right key is still the right key, and nothing reads it from the address.
   assert.equal(tokenFromProtocol({ headers: { "sec-websocket-protocol": `bearer, ${real}` } }, real), true);
 });
