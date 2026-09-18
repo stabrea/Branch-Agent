@@ -226,6 +226,18 @@ const fingerprint = (args: unknown): string =>
   createHash("sha256").update(JSON.stringify(args ?? {}), "utf8").digest("hex").slice(0, 32);
 
 /** The approval gate's answer before anything is done: null for go, a sentence otherwise. */
+/**
+ * mac7/collisions: what the caller may not do itself, the loop may not do for it. On the tool path
+ * every command and every fix goes out through `runtime.executeTool`, which makes a context holding
+ * every permission there is, so the caller's own permissions are held against each one here first.
+ * The in-task hook does not need this: its fixes go through the task's own tool path, which checks.
+ */
+function permissionRefusal(runtime: Runtime, tool: string, context: ToolContext): string | null {
+  const needed = runtime.registry.permissionOf(tool);
+  if (!needed) return `${tool} is not set up on this computer.`;
+  return context.permissions.has(needed) ? null : `Permission denied: ${needed}`;
+}
+
 function gateAnswer(runtime: Runtime, tool: string, args: unknown, context: ToolContext): string | null {
   try {
     gateToolUse(runtime, tool, args, context, fingerprint(args), "policy");
@@ -312,17 +324,16 @@ export const TroubleshootInputSchema = z.object({
 async function troubleshootTool(runtime: Runtime, input: z.infer<typeof TroubleshootInputSchema>, context: ToolContext): Promise<unknown> {
   const settings = troubleshootSettings(runtime.store, context.owner);
   if (settings.mode === "off") throw new Error(troubleshootOff);
-  // mac7/collisions: running a command again is exactly as allowed as running it the first time,
-  // so the named command's own permission is checked against the caller's here. The tool asks for
-  // `code.execute` alone, so being installed can never conjure `shell.execute` on to a computer
-  // that has no command host configured (see registerTroubleshoot).
-  const needed = runtime.registry.permissionOf(input.tool);
-  if (!needed) throw new Error(`${input.tool} is not set up on this computer, so there is nothing to run again.`);
-  if (!context.permissions.has(needed)) throw new Error(`Permission denied: ${needed}`);
+  // mac7/collisions: running a command again is exactly as allowed as running it the first time, so
+  // the named command's own permission is checked against the caller's. The tool itself asks for
+  // `code.execute` alone, so being installed can never conjure `shell.execute` on to a computer with
+  // no command host configured (see registerTroubleshoot).
+  const refused = permissionRefusal(runtime, input.tool, context);
+  if (refused) throw new Error(refused);
   const sessionId = runtime.store.run(context.runId)?.sessionId;
   const host: TroubleshootHost = {
     ask: askFor(runtime, context),
-    check: (tool, a) => gateAnswer(runtime, tool, a, context),
+    check: (tool, a) => permissionRefusal(runtime, tool, context) ?? gateAnswer(runtime, tool, a, context),
     run: async (tool, a) => {
       try {
         return { ok: true, result: await runtime.executeTool(tool, a, { mode: "policy",
