@@ -2339,7 +2339,7 @@
   "local.install.after": "Afterwards: {after}",
   "local.install.already": "{name} is already on this computer, so nothing needs installing.",
   "local.install.checked": "How Branch knows it is really theirs: {how}",
-  "local.install.from": "From {source} — about {size} GB to download.",
+  "local.install.from": "To download: {note}",
   "local.install.guidance": "{guidance} About {size} GB to download.",
   "local.install.refused": "Branch will not do this here: {why}",
   "local.install.switch-note": "Off: Branch never installs anything, and says where to get the program instead. Only when it is needed, or On: Branch may install it, and always shows you what, from where and how big first.",

@@ -497,6 +497,19 @@ test("I13 with the program already there the button goes straight to the model, 
   assert.deepEqual(w.ran, [], "nothing was installed: the program was already there");
 });
 
+test("I13b the size on the screen is the one sentence the server worked out", async (t) => {
+  // The page did its own `${bytes / 1024 ** 3} GB`, so a 30 MB Homebrew install read "about 0.0 GB
+  // to download" and a 190 MB one read "0.2 GB". The sentence the server already writes is the one
+  // shown, and it picks the unit that fits.
+  const w = await world(t, { programs: [] });
+  const view = await w.oneClick.buttonPlan({});
+  assert.ok(view.install, "a Mac with no Homebrew is offered the download");
+  assert.equal(view.downloadNote, `${planSize(view.install)} from ${view.install.source}.`);
+  assert.match(view.downloadNote, /^about 190 MB from https:\/\/github\.com\//);
+  assert.doesNotMatch(view.downloadNote, /0\.[0-2] GB/);
+  assert.equal(planSize({ approxBytes: 30 * 1024 ** 2 }), "about 30 MB", "and Homebrew's is not 0.0 GB either");
+});
+
 test("I14 a short-lived key can neither flip the switch nor press the button", async () => {
   const { offLimitsToShortLivedKeys } = await import("../dist/server.js");
   assert.ok(stages.includes("installing"), "a setup can say it is installing the program");
