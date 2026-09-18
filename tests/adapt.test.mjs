@@ -12,6 +12,9 @@ import { readBlocker } from "../dist/adapt/blockers.js";
 import { fixFor, fixFingerprint } from "../dist/adapt/fixes.js";
 import { Adapt } from "../dist/adapt/service.js";
 import { adaptGuard, adaptOffRefusal, adaptLockdownRefusal, adaptMode, saveAdaptSettings } from "../dist/adapt/settings.js";
+import {
+  installChatRefusal, installPersonRefusal, installShortLivedRefusal, installStartedElsewhereRefusal, installTrunkRefusal,
+} from "../dist/local-one-button.js";
 import { continuationFor } from "../dist/adapt/host.js";
 import { installPlan } from "../dist/local-install.js";
 import { COMMANDS, lookup, parseLine } from "../dist/commands/catalog.js";
@@ -265,6 +268,37 @@ test("A4 a chat, a short-lived key, a household person, a Trunk, a schedule and 
   const adapt = new Adapt({ store: chatty, owner: OWNER, oneButton: button });
   await assert.rejects(adapt.go({ said: "Ollama is not installed on this computer.", agreed: "0".repeat(32) }, { source: "channel", runId: "from-chat" }));
   assert.equal(button.asked.presses.length, 0, "a refused caller installs nothing");
+});
+
+test("A4 the one button's refusals still carry the words /adapt rewords, so a drift cannot go quiet", () => {
+  /*
+   * `adaptGuard` reuses the one button's own refusals and swaps the words about installing for the
+   * words about `/adapt`. If those sentences are ever reworded, the swap would quietly no-op and
+   * `/adapt` would start telling the owner about installing programs. This fails at the source.
+   */
+  const swapped = ["install a program on this computer", "Installing a program on this computer belongs to the owner"];
+  for (const refusal of [installChatRefusal, installShortLivedRefusal, installTrunkRefusal,
+    installPersonRefusal, installStartedElsewhereRefusal]) {
+    assert.ok(swapped.some((phrase) => refusal.includes(phrase)),
+      `this refusal no longer carries a phrase /adapt rewords, so its own sentence would be wrong: ${refusal}`);
+  }
+});
+
+test("A4 a plan that moved between being read and being pressed is a failure, never a quiet success", async () => {
+  /*
+   * `OneClick.buttonGo` answers `needsAgreement` rather than throwing when the plan changed. If
+   * that answer were dropped, /adapt would report a success with nothing installed — exactly the
+   * half-install-and-claim-success this feature must never do.
+   */
+  const store = on(fakeStore());
+  const moved = {
+    plan: async () => ({ install: plan(), alreadyInstalled: false }),
+    press: async () => ({ message: "Branch has not installed anything.", needsAgreement: plan() }),
+  };
+  const adapt = new Adapt({ store, owner: OWNER, oneButton: moved });
+  const said = "Ollama is not installed on this computer.";
+  const looked = await adapt.look({ said });
+  await assert.rejects(adapt.go({ said, agreed: looked.fix.fingerprint }), /has changed since you looked/);
 });
 
 test("A4 the install switch is the one button's to check, and /adapt never gets round it", async () => {

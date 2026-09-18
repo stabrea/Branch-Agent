@@ -21,7 +21,10 @@ function oneButtonOf(store: Store, owner: string): OneButtonLike | undefined {
   return {
     plan: (input, context: PressContext) => kit.oneClick.buttonPlan(input, context)
       .then((view) => ({ install: view.install, alreadyInstalled: view.alreadyInstalled })),
-    press: (input, context: PressContext) => kit.oneClick.buttonGo(input, context).then((answer) => ({ message: answer.message })),
+    // `needsAgreement` is carried back, not dropped: the button installs nothing when the plan moved
+    // between being read and being pressed, and `/adapt` must never call that a success.
+    press: (input, context: PressContext) => kit.oneClick.buttonGo(input, context)
+      .then((answer) => ({ message: answer.message, ...(answer.needsAgreement ? { needsAgreement: answer.needsAgreement } : {}) })),
   };
 }
 

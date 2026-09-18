@@ -28,8 +28,12 @@ import type { Store } from "../store.js";
 export interface OneButtonLike {
   /** `OneClick.buttonPlan`: what installing the program would mean, with nothing done. */
   plan(input: { runner?: string } | Record<string, never>, context: PressContext): Promise<{ install: InstallPlan | null; alreadyInstalled: boolean }>;
-  /** `OneClick.buttonGo`: the one button, which checks the install switch and the guard again. */
-  press(input: { agreedPlan?: string }, context: PressContext): Promise<{ message: string }>;
+  /**
+   * `OneClick.buttonGo`: the one button, which checks the install switch and the guard again.
+   * It answers `needsAgreement` rather than throwing when the plan moved between being read and
+   * being pressed, so that answer has to come back here or a stale plan would look like a success.
+   */
+  press(input: { agreedPlan?: string }, context: PressContext): Promise<{ message: string; needsAgreement?: unknown }>;
 }
 
 export interface AdaptDeps {
@@ -148,6 +152,9 @@ export class Adapt {
     }
     if (!this.deps.oneButton) throw new Error("Models on this computer are not set up in this launch of Branch, so there is nothing for /adapt to use.");
     const answer = await this.deps.oneButton.press(fix.install ? { agreedPlan: fix.install.fingerprint } : {}, context);
+    // The button installs nothing when the plan moved between being read and being pressed. Saying
+    // that plainly is the whole point: nothing here may report a success it did not have.
+    if (answer.needsAgreement) throw new Error(`${planChangedNote} ${answer.message}`);
     return answer.message;
   }
 
