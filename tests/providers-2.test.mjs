@@ -606,7 +606,11 @@ test("health is recorded from real calls: latency, the last complaint, and the s
   const good = health.get("one");
   assert.equal(good.consecutiveFailures, 0);
   assert.ok(good.latencyMs !== null && good.latencyMs >= 0);
-  assert.deepEqual(good.rateLimit, { limit: 100, remaining: 7, resetSeconds: 30 });
+  // mac7/usage-bar: the flat three are the requests window, kept; `windows` is the whole of it.
+  assert.equal(good.rateLimit.limit, 100);
+  assert.equal(good.rateLimit.remaining, 7);
+  assert.equal(good.rateLimit.resetSeconds, 30);
+  assert.deepEqual(good.rateLimit.windows.map((one) => one.id), ["requests"]);
   await watched(`${origin}/bad`);
   const bad = health.get("one");
   assert.equal(bad.consecutiveFailures, 1);
@@ -636,7 +640,10 @@ test("the why-this-model line says nothing extra when nothing was skipped", () =
 });
 
 test("rate-limit headers are read in whichever spelling the service uses", () => {
-  assert.deepEqual(readRateLimit(new Headers({ "ratelimit-remaining": "5" })), { limit: null, remaining: 5, resetSeconds: null });
+  const reading = readRateLimit(new Headers({ "ratelimit-remaining": "5" }));
+  assert.equal(reading.limit, null);
+  assert.equal(reading.remaining, 5);
+  assert.equal(reading.resetSeconds, null);
   assert.equal(readRateLimit(new Headers({})), null);
 });
 
