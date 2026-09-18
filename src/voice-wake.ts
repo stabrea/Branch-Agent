@@ -56,7 +56,7 @@ export function saveWakeWordSettings(store: Store, owner: string, input: unknown
 
 /** A program run for the spotter. Always passed in, so a test hands in a fake and no microphone is opened. */
 export type WakeRunner = (
-  file: string, args: readonly string[], input: Uint8Array,
+  file: string, args: readonly string[], input: Uint8Array, env: Readonly<Record<string, string>>,
 ) => Promise<{ code: number; stdout: string; stderr: string }>;
 
 export interface WakeSpotter {
@@ -64,8 +64,13 @@ export interface WakeSpotter {
   available: boolean;
   /** What it would use, or why it cannot, in the owner's words. */
   how: string;
-  /** The program and arguments that would be run, or null when there is nothing to run. */
-  command: { file: string; args: string[] } | null;
+  /**
+   * The program, its arguments and the whole of the environment it is given, or null when there is
+   * nothing to run. The environment is built here and holds only these two names: the spotter never
+   * inherits this computer's own environment, so nothing of the owner's can leak into it, and the
+   * word travels as its own thing rather than as text inside a command (integration review).
+   */
+  command: { file: string; args: string[]; env: Record<string, string> } | null;
 }
 
 const windowsSpotter = (word: string, sureness: number): WakeSpotter => ({
@@ -73,12 +78,22 @@ const windowsSpotter = (word: string, sureness: number): WakeSpotter => ({
   how: "Windows' own speech recognition, which runs on this computer and needs nothing installed.",
   command: {
     file: "powershell.exe",
-    // The word is never put into the script text: it is passed as an argument, so nothing a word
-    // could contain is read as PowerShell. -Command with a file keeps the same shape as the rest
-    // of the app, where no command line is ever built by pasting text together.
-    args: ["-NoProfile", "-NonInteractive", "-Command", windowsScript, "-Word", word, "-Sureness", String(sureness / 100)],
+    // The word is never put into the script text. PowerShell's -Command takes one string and glues
+    // any words after it onto the end of that same string, so an argument there would be read as
+    // PowerShell after all; the word is handed over in the environment instead, where it is only
+    // ever a value (integration review, mac7/wake-pins).
+    args: ["-NoProfile", "-NonInteractive", "-Command", windowsScript],
+    env: wakeEnvironment(word, sureness),
   },
 });
+
+/**
+ * The whole environment the spotter is given: the word, how sure it must be, and nothing else. Built
+ * rather than inherited, so neither this computer's environment nor anything in it reaches the
+ * spotter, and the word is a value the program reads rather than text in a command line.
+ */
+const wakeEnvironment = (word: string, sureness: number): Record<string, string> =>
+  ({ BRANCH_WAKE_WORD: word, BRANCH_WAKE_SURENESS: String(sureness / 100) });
 
 /**
  * The one-word grammar, on this computer. System.Speech ships with Windows, recognises against a
@@ -86,7 +101,8 @@ const windowsSpotter = (word: string, sureness: number): WakeSpotter => ({
  * service is a different class and is not used.
  */
 const windowsScript = [
-  "param([string]$Word,[double]$Sureness)",
+  "$Word = $env:BRANCH_WAKE_WORD",
+  "$Sureness = [double]$env:BRANCH_WAKE_SURENESS",
   "Add-Type -AssemblyName System.Speech",
   "$engine = New-Object System.Speech.Recognition.SpeechRecognitionEngine",
   "$choices = New-Object System.Speech.Recognition.Choices($Word)",
@@ -99,12 +115,15 @@ const windowsScript = [
 
 const ownSpeechProgram = (settings: VoiceSettings, word: string): WakeSpotter => ({
   available: true,
-  how: `The speech program you already set up on this computer (${settings.localSpeechKind}), asked only whether it heard "${word}". It writes out what it heard rather than saying how sure it is, so "how sure it must be" does nothing while this is what spots the word.`,
+  // The word itself is never put in this sentence: the sentence is shown to whoever is using this
+  // computer, and the owner's word is theirs alone (integration review, mac7/wake-pins).
+  how: `The speech program you already set up on this computer (${settings.localSpeechKind}), asked only whether it heard your word. It writes out what it heard rather than saying how sure it is, so "how sure it must be" does nothing while this is what spots the word.`,
   command: {
     file: settings.localSpeechExecutable,
     args: settings.localSpeechKind === "whisper-cpp"
       ? ["-m", settings.localSpeechModel, "-f", "-", "-otxt", "-nt"]
       : ["--model", settings.localSpeechModel, "--output_format", "txt", "-"],
+    env: wakeEnvironment(word, 0),
   },
 });
 
@@ -145,15 +164,28 @@ export function wakeRefusal(store: Store, owner: string, platform: string = proc
   return null;
 }
 
+/**
+ * The plain truth about this feature today, said on the card and in docs/configuration.md.
+ *
+ * Nothing opens the microphone. `listenForWake` is handed sound by its caller, and there is no
+ * caller: no part of Branch records anything or feeds it. So however the switch is set and whatever
+ * this computer could do, the wake word does nothing on its own yet, and the card must say so
+ * rather than reading as though it were listening (integration review, mac7/wake-pins).
+ */
+export const captureNote = "Branch does not open the microphone yet, so nothing is fed to this listener and the wake word does nothing on its own today. What is set here is remembered, and the card says what this computer would use once the microphone is wired up.";
+
 /** What the card shows: the switch, the word, and what this computer would really do. */
 export function wakeWordState(store: Store, owner: string, platform: string = process.platform): {
   settings: WakeWordSettings; spotter: WakeSpotter; refusal: string | null; mode: FeatureMode;
+  listening: boolean; capture: string;
 } {
   const settings = wakeWordSettings(store, owner);
   return {
     settings, mode: settings.mode,
     spotter: wakeSpotter(voiceSettings(store, owner), settings, platform),
     refusal: wakeRefusal(store, owner, platform),
+    // Never true while nothing feeds the listener, whatever the switch says.
+    listening: false, capture: captureNote,
   };
 }
 
@@ -162,11 +194,22 @@ export function wakeWordState(store: Store, owner: string, platform: string = pr
  * a thing of the owner's, and the card only ever shows the sentence and whether there is a spotter
  * at all. What is left is the switch, the word, that sentence, and why it is refused right now.
  */
-export function wakeWordView(store: Store, owner: string, platform: string = process.platform): {
-  settings: WakeWordSettings; spotter: { available: boolean; how: string }; refusal: string | null; mode: FeatureMode;
+export function wakeWordView(
+  store: Store, owner: string, platform: string = process.platform, isOwner = true,
+): {
+  settings: Omit<WakeWordSettings, "word"> & { word?: string }; spotter: { available: boolean; how: string };
+  refusal: string | null; mode: FeatureMode; listening: boolean; capture: string; wordChosen: boolean;
 } {
   const state = wakeWordState(store, owner, platform);
-  return { ...state, spotter: { available: state.spotter.available, how: state.spotter.how } };
+  const { word, ...rest } = state.settings;
+  return {
+    ...state,
+    // The word is the owner's own. Somebody else on this computer is told whether one has been
+    // chosen — which is why nothing is listening — and never what it is (integration review).
+    settings: isOwner ? state.settings : rest,
+    wordChosen: word.length > 0,
+    spotter: { available: state.spotter.available, how: state.spotter.how },
+  };
 }
 
 /* ---------- the listener ---------- */
@@ -191,7 +234,7 @@ export function isTheWord(text: string, word: string): boolean {
  */
 export async function askSpotter(runner: WakeRunner, spotter: WakeSpotter, word: string, sound: Uint8Array): Promise<WakeHeard> {
   if (!spotter.command) return { heard: false, text: "" };
-  const done = await runner(spotter.command.file, spotter.command.args, sound);
+  const done = await runner(spotter.command.file, spotter.command.args, sound, spotter.command.env);
   const text = done.code === 0 ? done.stdout.trim().slice(0, 200) : "";
   return { heard: isTheWord(text, word), text };
 }

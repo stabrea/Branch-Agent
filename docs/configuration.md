@@ -7883,8 +7883,15 @@ without the file and network wall (see above).
 
 ## A word that starts a turn (mac7/wake-pins)
 
-Instead of holding **Talk**, you can say a word of your own and Branch starts listening. It ships
-**off**, like everything else, and has the same three-way switch: **off** — nothing listens at all;
+**Not finished yet: nothing feeds it.** Branch does not open the microphone by itself, and no part
+of Branch yet hands this listener any sound. So on every computer, however the switch is set and
+whatever that computer could do, **the wake word does nothing on its own today**. What is described
+here is the switch, the word and the spotter, all of which are built, saved and enforced; the
+microphone capture that would drive them is not wired up. The card says this too, so nobody reads it
+as though something were listening.
+
+Instead of holding **Talk**, you will be able to say a word of your own and have Branch start
+listening. It ships **off**, like everything else, and has the same three-way switch: **off** — nothing listens at all;
 **when needed** — it listens only while a conversation is open on the screen; **on** — it listens
 whenever Branch is running. Its card, **A word that starts a turn**, lives in Settings → Voice.
 Holding Talk stays the ordinary way in and is not going away.
@@ -7902,7 +7909,10 @@ something that can spot a word without the internet or it says so and stays off.
 
 - **Windows** uses the speech recognition that ships with Windows (`System.Speech`), loaded with a
   grammar of exactly your one word. It runs on the machine and reaches no network. Your word is
-  passed as an argument, never pasted into the script.
+  handed over in the spotter's environment (`BRANCH_WAKE_WORD`), never pasted into the script:
+  PowerShell's `-Command` glues any words after it onto the same command string, so an argument
+  there would have been read as PowerShell after all. The spotter is given that environment and
+  nothing else — it never inherits this computer's own.
 - **macOS** has nothing a program can ask: macOS keeps its speech recognition inside apps with a
   window, and there is no command for it. So on a Mac the wake word stays **off** and the card says
   why, unless you have already set up a speech program of your own under Voice (below).
@@ -7925,6 +7935,13 @@ looked at, so no more than this is ever in memory, and it is thrown away again e
 switch and `sureness` are in the settings catalogue, so a whole-app preset or a settings file can
 turn listening off or make it stricter but can **never choose what this computer listens for**: the
 word is set by you, in the card, and nowhere else.
+
+**Your word stays yours.** `GET /api/voice/wake` is readable by anybody using this computer, so it
+never carries the word itself to anybody but you: somebody on a household profile is told only
+whether a word has been chosen (`wordChosen`), and the sentence about what this computer would use
+does not repeat the word either. Setting the word, and choosing the speech program that would spot
+it, are both refused for anybody but you. The answer also carries `listening` (always false today)
+and `capture`, the sentence saying the microphone is not wired up.
 
 **API.** `GET /api/voice/wake` answers the settings, one sentence about what this computer would
 really use to spot the word and whether it has one at all, and why it is refused right now when it

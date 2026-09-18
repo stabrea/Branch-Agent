@@ -17,6 +17,7 @@ import { startServer } from "../dist/server.js";
 import { settingsKitApi, SettingsKitError } from "../dist/settings-kit/api.js";
 import { pinFor, pinnedIds, pins } from "../dist/settings-kit/pins.js";
 import { changesFor, applyWithPins } from "../dist/settings-kit/changes.js";
+import { settingsCatalogue } from "../dist/settings-kit/catalogue.js";
 import { exportSettings } from "../dist/settings-kit/transfer.js";
 import { saveVoiceSettings, voiceSettings } from "../dist/voice.js";
 import { saveWakeWordSettings, wakeWordSettings } from "../dist/voice-wake.js";
@@ -193,14 +194,28 @@ async function served(t) {
   return { app, call };
 }
 
-test("P9 over HTTP: a household person is refused in the same plain words, with the owner's 403", async (t) => {
+test("P9 over HTTP: somebody else is refused, and a pin that is reached answers the owner's 403", async (t) => {
   const { app, call } = await served(t);
   assert.equal((await call("POST", "/api/settings-kit/pins", { key: "voice", field: "autoReadAloud", pinned: true })).status, 200);
   await household(app);
+  // Integration review: every settings screen over HTTP is the owner's outright (these routes are
+  // "owner POST" in tests/short-lived-key-routes.mjs), so that is what somebody else meets first —
+  // including the one that names the speech program the wake word would run.
   const refused = await call("POST", "/api/voice/settings", { autoReadAloud: true });
-  assert.equal(refused.status, 403, "a pinned setting was not refused the way the owner's own things are");
-  assert.match(refused.body.error, /The owner pinned this setting \(Voice: Read replies aloud automatically\)/);
-  assert.match(refused.body.error, /Only the owner can unpin it/);
+  assert.equal(refused.status, 400);
+  assert.match(refused.body.error, /belongs to the owner/);
+  assert.equal(voiceSettings(app.store, "local").autoReadAloud, false);
+
+  // The pin sits behind that, for the ways in that are not an owner-only route: the terminal, a
+  // settings file, a tool the model calls. Whichever of them reaches it, the refusal is the same
+  // sentence and carries the owner's 403, which src/server.ts answers with (see the widget catch).
+  let stopped = null;
+  try { app.store.save("settings", "local", "voice", { autoReadAloud: true }); }
+  catch (error) { stopped = error; }
+  assert.ok(stopped, "a pinned setting was written by somebody who is not the owner");
+  assert.equal(stopped.status, 403, "a pinned setting is not refused the way the owner's own things are");
+  assert.match(stopped.message, /The owner pinned this setting \(Voice: Read replies aloud automatically\)/);
+  assert.match(stopped.message, /Only the owner can unpin it/);
   assert.equal(voiceSettings(app.store, "local").autoReadAloud, false);
 });
 
@@ -219,4 +234,52 @@ test("P10 over HTTP: a household person sees the pinned setting and that it is p
   assert.equal((await call("POST", "/api/settings-kit/pins", { key: "wake-word", field: "mode", pinned: false })).status, 403);
   assert.equal((await call("POST", "/api/voice/wake", { mode: "on" })).status, 400, "the word is the owner's");
   assert.equal(pins(app.store, "local").length, 1);
+});
+
+/* ---------- integration review (adversarial): the ways round a pin ---------- */
+
+test("P11 a pinned setting cannot be wiped by deleting the record instead of saving it", async (t) => {
+  const { app, store, ask } = await fixture(t);
+  saveWakeWordSettings(store, "local", { mode: "when-needed", word: "branch" });
+  await pin(ask, "wake-word", "mode");
+  await household(app);
+  // Deleting the record puts the field back to what it means when it is missing, which is exactly
+  // the change the pin exists to refuse. The way out must be shut as firmly as the way in.
+  assert.throws(() => store.delete("settings", "local", "wake-word"), /The owner pinned this setting/);
+  assert.equal(wakeWordSettings(store, "local").mode, "when-needed", "a pinned setting was wiped by a delete");
+  asOwner(app);
+  assert.equal(store.delete("settings", "local", "wake-word"), true, "the owner may still delete their own record");
+});
+
+test("P12 the list of pins itself cannot be deleted by anybody else", async (t) => {
+  const { app, store, ask } = await fixture(t);
+  saveWakeWordSettings(store, "local", { mode: "when-needed" });
+  await pin(ask, "wake-word", "mode");
+  await household(app);
+  assert.throws(() => store.delete("settings", "local", "settings-pins"), /Pinning a setting is the owner's alone/);
+  assert.equal(pins(store, "local").length, 1, "every pin was taken off at once by one delete");
+});
+
+test("P13 an owner's settings write never even reads the list of pins", async (t) => {
+  const { store } = await fixture(t);
+  const real = store.get.bind(store);
+  const read = [];
+  store.get = (table, owner, id) => { read.push(id); return real(table, owner, id); };
+  try { store.save("settings", "local", "preferences", { theme: "dark" }); } finally { store.get = real; }
+  assert.deepEqual(read, ["preferences"], "the owner's own saves now pay for a pin lookup they can never be refused by");
+});
+
+test("P14 no setting the owner can pin is written straight to the database behind Store.save", async () => {
+  // The pin is only as good as the one door it sits in. A setting written with its own SQL would
+  // walk past it, so no catalogue key may ever be written that way.
+  const { readdir, readFile } = await import("node:fs/promises");
+  const names = (await readdir("src", { recursive: true })).filter((name) => name.endsWith(".ts"));
+  const keys = new Set(settingsCatalogue.map((spec) => spec.key));
+  const walked = [];
+  for (const name of names) {
+    const text = await readFile(join("src", name), "utf8");
+    for (const [, id] of text.matchAll(/(?:INSERT INTO|UPDATE|DELETE FROM) settings[^\n]*?'([a-z0-9:-]+)'/g))
+      if (keys.has(id)) walked.push(`${name}: ${id}`);
+  }
+  assert.deepEqual(walked, [], "a setting the owner can pin is written with its own SQL, which never meets the pin");
 });

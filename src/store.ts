@@ -29,7 +29,7 @@ import { Profiles } from "./profiles.js";
 import { ToolUsage } from "./tool-usage.js";
 import { SpanStore } from "./tracing.js";
 // mac7/wake-pins: settings the owner pinned. Imports nothing but zod and this file's own type.
-import { PinnedSettingError, pinnedWriteRefusal } from "./settings-kit/pins.js";
+import { PinnedSettingError, pinnedDeleteRefusal, pinnedWriteRefusal } from "./settings-kit/pins.js";
 
 type Row = Record<string, unknown>;
 export type RecordTable = "memory" | "specialists" | "procedures" | "schedules" | "settings" | "deliveries" | "governance" | "triggers" | "webhooks" | "workflows" | "flow_graphs";
@@ -560,6 +560,12 @@ export class Store {
   }
   delete(table: RecordTable, owner: string, id: string): boolean {
     if (table === "memory") return this.memories.delete(owner, id);
+    // mac7/wake-pins (integration review): removing the record puts every field it held back to
+    // what it means when it is missing, so a pin has to be met here exactly as it is on the way in.
+    if (table === "settings") {
+      const refusal = pinnedDeleteRefusal(this, this.profiles.ownerName, this.profiles.isOwner(), id);
+      if (refusal) throw new PinnedSettingError(refusal);
+    }
     return (
       this.db
         .prepare(`DELETE FROM ${table} WHERE owner=? AND id=?`)

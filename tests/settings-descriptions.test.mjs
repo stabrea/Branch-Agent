@@ -129,3 +129,25 @@ test("R17-S04: the scope chip says project for project cards, this computer for 
   await page.evaluate(() => { document.getElementById("settings-kit-presets").dataset.scope = "trunk"; globalThis.branchDescribeSettings(); });
   await page.waitForFunction(() => document.querySelector("#settings-kit-presets > .kit-scope")?.dataset.scope === "trunk");
 });
+
+test("R17-S01: controls rebuilt on the page are described as they are rebuilt, not 60ms later", async (t) => {
+  // Integration review (mac7/wake-pins): renderModels() throws the fallback checkboxes away and
+  // makes new ones, which arrive with no aria-describedby. Until this fix the only thing that put
+  // the description back was settings-describe.js's debounce, so anything looking at the page in
+  // between — a person with a screen reader, or this suite — found bare controls. The whole
+  // check below runs inside one page function, so no timer can have run: the description has to be
+  // there because the rebuild put it there.
+  const { page } = await fixture(t);
+  await openSettings(page, "models");
+  await page.locator("#lx-page-models .lx-subtab[data-sub=\"connection\"]").click();
+  await page.locator("#models-fallback input").first().waitFor({ state: "attached", timeout: 30000 });
+
+  const described = await page.evaluate(() => {
+    globalThis.branchRenderModels();
+    const boxes = [...document.querySelectorAll("#models-fallback input")];
+    return boxes.map((box) => (box.getAttribute("aria-describedby") || "").split(/\s+/).filter(Boolean)
+      .some((id) => document.getElementById(id)?.textContent.trim()));
+  });
+  assert.ok(described.length > 0, "the fallback checkboxes are not where this test looks any more");
+  assert.deepEqual(described, described.map(() => true), "a checkbox came back from a rebuild with no description");
+});

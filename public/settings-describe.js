@@ -127,14 +127,25 @@ const STYLE = `
 `;
 
 let queued = false;
+/**
+ * Describes and chips everything, once per batch of changes to the page.
+ *
+ * Integration review (mac7/wake-pins): this used to wait 60ms. A card that draws its controls from
+ * an answer — the Permissions page, renderModels' fallback checkboxes — therefore showed bare
+ * controls for 60ms every time, with no description for a screen reader to read and none for
+ * tests/settings-descriptions.test.mjs to find, which is why it failed about one run in three. A
+ * microtask still batches a whole run of changes into one pass, but finishes before anything can
+ * look at the page. The pass is idempotent (a control that is described already is left alone), so
+ * the nodes it adds settle on the next pass instead of going round for ever.
+ */
 function refresh() {
   if (queued) return;
   queued = true;
-  setTimeout(() => {
+  queueMicrotask(() => {
     queued = false;
     describeAll();
     for (const card of document.querySelectorAll(CARDS)) chip(card);
-  }, 60);
+  });
 }
 
 if (typeof document !== "undefined") {
@@ -157,4 +168,15 @@ if (typeof document !== "undefined") {
       node.textContent = say(node.dataset.t, node.textContent);
   });
   globalThis.branchDescribeSettings = () => refresh();
+  /**
+   * Integration review (mac7/wake-pins): the same, at once. A card that throws its controls away and
+   * makes new ones (renderModels' fallback checkboxes) calls this straight after, so the new
+   * controls are described before anybody — or any test — can look at them. Waiting for the
+   * debounce above left them bare for 60ms, which is where tests/settings-descriptions.test.mjs
+   * caught #models-form about one run in three.
+   */
+  globalThis.branchDescribeSettingsNow = () => {
+    describeAll();
+    for (const card of document.querySelectorAll(CARDS)) chip(card);
+  };
 }

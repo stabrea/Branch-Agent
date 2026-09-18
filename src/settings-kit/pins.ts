@@ -93,6 +93,22 @@ export function effectiveValue(pin: Pin, data: Record<string, unknown>): unknown
 }
 
 /**
+ * Why this settings record may not be removed, or null. A delete is a write by another name: the
+ * record goes, and every field it held falls back to what it means when it is missing, which is the
+ * very change the pin exists to refuse. Asked by `Store.delete` for the same reason `Store.save`
+ * asks about a save (integration review, mac7/wake-pins).
+ */
+export function pinnedDeleteRefusal(
+  store: Pick<Store, "get">, ownerName: string, isOwner: boolean, key: string,
+): string | null {
+  if (isOwner) return null;
+  if (key === pinsKey) return "Pinning a setting is the owner's alone.";
+  // An empty record is what is left behind, so the pin is checked against exactly that.
+  const pin = pins(store, ownerName).find((entry) => entry.key === key);
+  return pin && effectiveValue(pin, {}) !== pin.value ? pinnedRefusal(pin) : null;
+}
+
+/**
  * Why this settings write is refused, or null. Asked by `Store.save` about every settings record, so
  * a way in that nobody thought of meets the pin as well. The owner is never refused: a pin is the
  * owner's own mark, and they change a pinned setting by pinning it somewhere else or unpinning it.

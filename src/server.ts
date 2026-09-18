@@ -965,7 +965,8 @@ async function api(
   // The word that starts a turn. Reading it says what this computer could really do; changing it,
   // like every other setting, is the owner's.
   if (path === "/api/voice/wake") {
-    if (request.method === "GET") return wakeWordView(app.store, app.runtime.owner);
+    if (request.method === "GET")
+      return wakeWordView(app.store, app.runtime.owner, process.platform, app.store.profiles.isOwner());
     app.store.profiles.requireOwner("The word that starts a turn");
     saveWakeWordSettings(app.store, app.runtime.owner, await readBody(request));
     return { settings: wakeWordSettings(app.store, app.runtime.owner), state: wakeWordView(app.store, app.runtime.owner) };
@@ -1101,6 +1102,10 @@ async function api(
   }
   if (request.method === "GET" && path === "/api/voice/settings")
     return voiceSettings(app.store, app.runtime.owner);
+  // mac7/wake-pins integration review: these settings name the speech program on this computer, and
+  // the wake word's spotter IS that program. Choosing a program for Branch to run is the owner's.
+  if (request.method === "POST" && path === "/api/voice/settings")
+    app.store.profiles.requireOwner("The speech settings");
   // Wave 7: voice routes and plans, routing profiles, switching model mid-conversation, and a live
   // check of what each connection can do. The bodies of all of these live in src/voice-api.ts.
   if (path === "/api/voice/settings" || path === "/api/voice/plan" || path === "/api/voice/voices"

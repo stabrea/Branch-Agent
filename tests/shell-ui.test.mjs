@@ -65,8 +65,13 @@ async function tabStops(page, count) {
 
 test("every place opens from the sidebar in one click, and every Settings page from the gear", async (t) => {
   const f = await fixture(t);
+  // The places are buttons in the sidebar, never a drop-down. Integration review (mac7/wake-pins):
+  // this looks outside the Settings window, because a drop-down inside Settings is not navigation —
+  // the pin picker lists every setting, one of which is "The files you write — MEMORY.md", and
+  // hasText matches without regard to case, so the whole-page form of this check went off whenever
+  // that picker had finished loading.
   assert.equal(
-    await f.page.locator("select").filter({ hasText: "Memory" }).count(),
+    await f.page.locator("select:not(#settings-window select)").filter({ hasText: "Memory" }).count(),
     0,
     "places must not live in a drop-down",
   );

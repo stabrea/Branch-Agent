@@ -4098,7 +4098,7 @@
   "settings-kit.name.chat-permissions": "What a chat may do beyond talking",
   "settings-kit.field.chat-extras": "Use my list of what chats may also do",
   "settings.card.wake-word": "A word that starts a turn",
-  "settings.wake-word.intro": "Say your own word and Branch starts listening, instead of holding the Talk button. Listening happens on this computer only: no sound ever leaves it, and nothing is recorded or kept before your word has been heard. While the switch is off, nothing listens at all. Holding Talk stays the ordinary way in, and the word gives nothing away — whatever you say after it is asked about exactly as the same words typed into the box would be.",
+  "settings.wake-word.intro": "Not finished yet: Branch does not open the microphone by itself, and nothing yet feeds this listener, so the wake word does nothing on its own today — what you set here is remembered and will work once the microphone is wired up. When it does: say your own word and Branch starts listening, instead of holding the Talk button. Listening happens on this computer only: no sound ever leaves it, and nothing is recorded or kept before your word has been heard. While the switch is off, nothing listens at all. Holding Talk stays the ordinary way in, and the word gives nothing away — whatever you say after it is asked about exactly as the same words typed into the box would be.",
   "field.wake-word-mode": "Listening for your word",
   "settings.wake-word.mode-note": "Off, nothing listens. When needed, it listens only while a conversation is open on the screen. On, it listens whenever Branch is running. Lockdown switches it off whatever this says.",
   "field.wake-word-word": "Your word",

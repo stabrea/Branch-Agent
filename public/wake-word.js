@@ -18,7 +18,10 @@ function show(state) {
   $("wake-word-sureness").value = state?.settings?.sureness ?? 80;
   // What this computer would really do, said whether the switch is on or off, because it is the
   // one thing that decides whether turning it on can work at all.
-  $("wake-word-how").textContent = state?.spotter?.how ?? "";
+  // Integration review (mac7/wake-pins): the plain truth first — nothing feeds this listener yet —
+  // then what this computer would use once something does. Taken from the answer rather than
+  // written here, so the card cannot drift from what src/voice-wake.ts actually says.
+  $("wake-word-how").textContent = [state?.capture, state?.spotter?.how].filter(Boolean).join(" ");
   const blocked = state?.spotter?.available === false;
   $("wake-word-how").classList.toggle("warn", blocked);
   $("wake-word-refusal").textContent = state?.refusal ?? "";
