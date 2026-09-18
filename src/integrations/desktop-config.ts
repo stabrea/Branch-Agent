@@ -1,5 +1,7 @@
 import { z } from 'zod';
 import type { Store } from '../store.js';
+import { FeatureModeSchema, sentFields, settleSwitch } from '../feature-switches.js';
+import { lockdownOverrides } from '../lockdown.js'; // mac7/lockdown-fix
 
 /**
  * Settings, input shapes and refusals for letting the assistant use the screen and keyboard of
@@ -11,6 +13,8 @@ import type { Store } from '../store.js';
 export const DesktopSettingsSchema = z.object({
   /** "Allow the assistant to use my screen and keyboard". Off until the owner turns it on. */
   enabled: z.boolean().default(false),
+  /** mac2: off / when needed / on. Older saves have only `enabled`; see feature-switches.ts. */
+  mode: FeatureModeSchema.optional(),
   /** Most screen actions one task may take before it has to stop and be asked again. */
   maxActionsPerRun: z.number().int().min(1).max(200).default(40),
 }).strict();
@@ -20,11 +24,15 @@ const settingsKey = 'desktop-control';
 
 export function readDesktopSettings(store: Store, owner: string): DesktopSettings {
   const saved = DesktopSettingsSchema.safeParse(store.get('settings', owner, settingsKey)?.data ?? {});
-  return saved.success ? saved.data : DesktopSettingsSchema.parse({});
+  const settings = saved.success ? saved.data : DesktopSettingsSchema.parse({});
+  // mac7/lockdown-fix: while Lockdown is on the switch reads off, whatever mode was saved.
+  if (lockdownOverrides(store, owner, settingsKey)) return { ...settings, enabled: false, mode: 'off' };
+  return { ...settings, ...settleSwitch(settings, {}) };
 }
 export function saveDesktopSettings(store: Store, owner: string, input: unknown): DesktopSettings {
-  const value = DesktopSettingsInputSchema.parse(input ?? {});
-  const next = DesktopSettingsSchema.parse({ ...readDesktopSettings(store, owner), ...value });
+  const value = sentFields(DesktopSettingsInputSchema.parse(input ?? {}), input);
+  const current = readDesktopSettings(store, owner);
+  const next = DesktopSettingsSchema.parse({ ...current, ...value, ...settleSwitch(current, value) });
   store.save('settings', owner, settingsKey, next);
   return next;
 }

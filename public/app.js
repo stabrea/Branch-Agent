@@ -1,12 +1,22 @@
 import { applyAppearance, currentAppearance, initAppearance } from "/appearance.js";
 // Wave 6: replies render as markdown, and any task can be opened with "Look inside".
 import { fillMarkdown, inlineNodes } from "/markdown.js";
+// A phone paired in its browser sends its own secret with every request (src/remote/gateway-auth.ts).
+import { installDeviceHeaders } from "/device-headers.js";
+installDeviceHeaders();
+// Wave mac3 (commands): the command list is shown in the chosen language.
+import { t } from "/i18n.js";
 export const $ = (id) => document.getElementById(id);
 globalThis.toast = (message) => toast(message);
+/* One notice area, one timer. A second notice inside the six seconds has to cancel the first
+   one's timer, or that older timer hides the new notice almost as soon as it appears and it never
+   comes back (it hid the "at most 4 MiB" notice on Windows, where the two arrive close together). */
+let toastTimer = null;
 export function toast(message) {
   $("toast").textContent = message;
   $("toast").hidden = false;
-  setTimeout(() => {
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => {
     $("toast").hidden = true;
   }, 6000);
 }
@@ -236,7 +246,12 @@ function renderLearning() {
     const node = el("div", undefined, "record");
     const what = p.kind === "put" ? "Remember" : p.kind === "update" ? "Change a memory to" : p.kind === "delete" ? "Forget a memory" : "Note for a skill";
     node.append(el("strong", `${what}${p.text ? ": " + p.text : ""}`), el("p", `${p.source || ""}${p.runId ? " · from a task" : ""}`, "meta"));
-    node.append(button("Accept", async () => { await api(`memory/proposals/${p.id}/accept`, {}); toast("Applied."); await refresh(); }),
+    node.append(button("Accept", async () => {
+      const done = await api(`memory/proposals/${p.id}/accept`, {});
+      toast("Applied."); await refresh();
+      // mac2/fly-core-2: a skill idea from the learning core opens as a draft in the skill editor.
+      if (done?.applied?.skillDraft) globalThis.branchOpenSkillDraft?.(done.applied.skillDraft);
+    }),
       button("Reject", async () => { await api(`memory/proposals/${p.id}/reject`, {}); await refresh(); }));
     return node;
   }, ["No suggestions waiting.", "When your assistant thinks something is worth remembering it will ask you here first."]);
@@ -572,6 +587,8 @@ function renderAttention() {
   for (const item of waiting) {
     if (notifiedAttention.has(item.runId)) continue;
     notifiedAttention.add(item.runId);
+    // R17-S17: the owner's sound, and "the banner only" (public/comfort.js).
+    if (globalThis.branchComfort?.attention(item) === "handled") continue;
     if (typeof Notification === "undefined") continue;
     const show = () => {
       const note = new Notification("Your assistant needs you", { body: item.question.slice(0, 200), tag: item.runId });
@@ -619,7 +636,7 @@ async function renderChannels() {
   let summary;
   try { summary = await api("channels"); } catch { return; }
   // The address each chat service posts to, with its own unguessable word on the end.
-  let posting = { addresses: [], settings: {} };
+  let posting = { addresses: [], settings: {}, waits: [] };
   try { posting = await api("channels/addresses"); } catch { /* older copies have none */ }
   const deliver = $("schedule-deliver");
   if (document.activeElement !== deliver) {
@@ -658,8 +675,24 @@ async function renderChannels() {
         toast("New address made. Paste it into the service, or it will stop hearing from you.");
         await renderChannels();
       }));
-      if (posting.settings.acceptOldAddresses)
-        node.append(el("p", `Addresses without that word on the end still work${posting.settings.oldAddressesEndOn ? ` until ${posting.settings.oldAddressesEndOn}` : ""}, so you have time to change them over.`, "meta"));
+      // mac7/lockout: a service being turned away used to be completely silent — the owner only
+      // saw their messages stop. Now it says so here, beside the address it should be using.
+      const wait = (posting.waits || []).find((entry) => entry.channel === channel.id);
+      if (wait) {
+        const minutes = Math.max(0, Math.ceil((wait.until - Date.now()) / 60000));
+        const key = minutes > 0
+          ? (wait.proven ? "channels.address.turned-away-signature" : "channels.address.turned-away")
+          : "channels.address.turned-away-was";
+        node.append(el("p", t(key, { minutes }), "meta"));
+      }
+      // mac7/channel-leaks: while the old shape is still answered the card says so AND says what it
+      // costs, because it is a door anybody can find by guessing the name.
+      if (posting.settings.acceptOldAddresses) {
+        node.append(el("p", posting.settings.oldAddressesEndOn
+          ? t("channels.address.old-accepted-until", { date: posting.settings.oldAddressesEndOn })
+          : t("channels.address.old-accepted"), "meta"));
+        node.append(el("p", t("channels.address.old-cost"), "meta"));
+      }
     }
     for (const chat of summary.chats.filter((c) => c.channel === channel.id))
       node.append(button(`Send a test message to ${chat.title}`, async () => {
@@ -834,7 +867,10 @@ $("first-run-test").addEventListener("click", async () => {
   } finally { $("first-run-test").disabled = false; }
 });
 $("first-run-done").addEventListener("click", async () => {
-  try { await api("onboarding", { done: true }); await refresh(); toast("You're set. Say hello."); $("prompt").focus(); }
+  try {
+    await api("onboarding", { done: true }); await refresh(); toast("You're set. Say hello."); $("prompt").focus();
+    globalThis.branchFirstRunDone?.(); // R17-S06: what to try next (public/first-run-next.js)
+  }
   catch (e) { toast(e.message); }
 });
 let chatgptTimer = null, chatgptBusy = false;
@@ -959,11 +995,16 @@ function renderModels() {
       return label;
     }));
   }
+  // Integration review (mac7/wake-pins): the checkboxes above are new nodes with no
+  // aria-describedby. Describe them now rather than leaving them bare until the debounce runs.
+  globalThis.branchDescribeSettingsNow?.();
   $("models-note").textContent = models.presets.length > 1
     ? `${models.presets.length} models available.`
     : "One model is configured. Add more with BRANCH_MODEL_PRESETS in the launch environment, or in the desktop connection settings.";
   presetOptions($("session-model"), models.presets, "Workspace default", sessionModel.preset);
 }
+/* The page's own rebuild of the model controls, so a test can watch what a rebuild leaves behind. */
+globalThis.branchRenderModels = () => renderModels();
 let sessionModel = { preset: null, reasoning: null };
 async function loadSessionSkill() {
   const select = $("session-skill");
@@ -1207,10 +1248,13 @@ let pendingFollowUps = 0;
 /** A message typed while the assistant is busy waits its turn in the same conversation. */
 async function queueFollowUp(prompt) {
   try {
-    const result = await api(`sessions/${sessionId}/followups`, { prompt });
+    // r17-h: wait, pass it on, or stop and go next, as the owner chose (public/flows-boards.js); null keeps the plain queue.
+    const busy = await globalThis.branchBusySend?.(sessionId, prompt);
+    const result = busy ?? await api(`sessions/${sessionId}/followups`, { prompt });
     $("prompt").value = "";
     message("user", prompt);
-    message("assistant", result.position > 1 ? `Got it. I will do this after the ${result.position - 1} message(s) already waiting.` : "Got it. I will do this as soon as the current task finishes.");
+    message("assistant", busy && busy.mode !== "queue" ? busy.message : result.position > 1 ? `Got it. I will do this after the ${result.position - 1} message(s) already waiting.` : "Got it. I will do this as soon as the current task finishes.");
+    if (busy?.mode === "steer") return;
     pendingFollowUps++;
   } catch (e) { toast(e.message); }
 }
@@ -1477,6 +1521,11 @@ $("login-form").addEventListener("submit", async (event) => {
     globalThis.branchVoiceReady?.();
     /* Wave 9: the owner's own instruction files can only be read once you are in, same as above. */
     globalThis.branchContextFilesReady?.();
+    /* mac3/security-check: the security check card reads its switches once you are in. */
+    globalThis.branchSecurityCheckReady?.();
+    globalThis.branchLearningCoreReady?.(); // mac2/fly-core-2
+    globalThis.branchPeopleReady?.(); // bucket 19: who may sign in from other devices
+    globalThis.branchSettingsKitReady?.(); // R17-S-A: presets, putting settings back, the settings file
   } catch (e) {
     toast(e.message);
   }
@@ -1500,33 +1549,60 @@ $("prompt").addEventListener("keydown", (event) => {
   if (!conversationBusy) $("chat-form").requestSubmit();
 });
 /**
- * Wave 7: lines you type that are commands rather than messages. The message box knows which lines
- * are commands on its own, so "/model" and "/help" still work when public/model-profiles.js has
- * not loaded; when it has, it handles "/model" itself. Returns true when the line was a command,
- * so nothing is sent to the model.
+ * Wave 7: lines you type that are commands rather than messages. Wave mac3: the list is no longer
+ * written here — it is read from the one table every surface shares (src/commands/catalog.ts,
+ * served at /api/commands), so the message box offers exactly what that table says the window
+ * does. Each row is [name, description, details]. "/model" and "/help" still work when
+ * public/model-profiles.js and public/commands.js have not loaded; when they have, they handle the
+ * rest. Returns true when the line was a command, so nothing is sent to the model.
  */
-export const SLASH_COMMANDS = [
-  ["/model", "Change the model for this conversation. On its own it lists what you can choose."],
-  ["/help", "Show these commands."],
-];
-export function parseSlashCommand(line) {
-  const match = /^\/([a-z]+)(?:\s+([\s\S]*))?$/i.exec(String(line ?? "").trim());
-  if (!match) return null;
-  const name = "/" + match[1].toLowerCase();
-  if (!SLASH_COMMANDS.some(([known]) => known === name)) return null;
-  return { name, rest: (match[2] ?? "").trim() };
+export const SLASH_COMMANDS = [];
+let slashList = null;
+/* The phone app opens the paired Branch at "/" and leaves a note in this tab first (apps/mobile inject.js). */
+const phoneNote = () => { try { return Boolean(sessionStorage.getItem("branch-phone")); } catch { return false; } };
+const slashSurface = () => (globalThis.Capacitor?.isNativePlatform?.() || phoneNote()
+  || new URLSearchParams(location.search).get("surface") === "phone" ? "phone" : "window");
+export function loadSlashCommands(fresh = false) {
+  if (slashList && !fresh) return slashList;
+  slashList = api(`commands?surface=${slashSurface()}`).then(({ commands, mode }) => {
+    const others = SLASH_COMMANDS.filter((row) => !row[2]);
+    SLASH_COMMANDS.splice(0, SLASH_COMMANDS.length, ...commands.map((entry) => [`/${entry.name}`, t(entry.key) === entry.key ? entry.english : t(entry.key), { ...entry, mode }]),
+      ...others.filter(([name]) => !commands.some((entry) => `/${entry.name}` === name)));
+    return SLASH_COMMANDS;
+  }).catch(() => { slashList = null; return SLASH_COMMANDS; });
+  return slashList;
 }
+globalThis.branchSlashCommands = { list: SLASH_COMMANDS, load: loadSlashCommands, surface: slashSurface };
+export function parseSlashCommand(line) {
+  const match = /^\/([a-z?][\w?-]*)(?:\s+([\s\S]*))?$/i.exec(String(line ?? "").trim());
+  if (!match) return null;
+  const typed = match[1].toLowerCase();
+  const row = SLASH_COMMANDS.find(([known, , details]) => known === "/" + typed || details?.aliases?.includes(typed));
+  if (!row) return null;
+  return { name: row[0], rest: (match[2] ?? "").trim() };
+}
+/** The /help list: what the table says this window lists. */
+const slashHelp = () => "Commands you can type here:\n" + SLASH_COMMANDS
+  .filter(([, , details]) => !details || details.listed)
+  .map(([name, what, details]) => `${name}${details?.args ? " " + details.args : ""} — ${what}`).join("\n");
 async function runSlashCommand(typed) {
+  if (!typed.startsWith("/")) return false;
+  await loadSlashCommands();
   const command = parseSlashCommand(typed);
   if (!command) return false;
-  if (command.name === "/help") {
-    toast("Commands you can type here:\n" + SLASH_COMMANDS.map(([name, what]) => `${name} — ${what}`).join("\n"));
+  if (command.name === "/help" && !command.rest) {
+    toast(slashHelp());
     return true;
   }
-  /* The models module is the handler when it is there; otherwise the message box does the work. */
-  if (globalThis.branchSlashCommand) return (await globalThis.branchSlashCommand(typed, sessionId)) !== false;
-  await switchModelWithoutModule(command.rest);
-  return true;
+  /* "/model" is the models module's when it is there, and this file's own otherwise; the shared
+     commands (public/commands.js) handle the rest. */
+  if (command.name === "/model") {
+    if (globalThis.branchSlashCommand) return (await globalThis.branchSlashCommand(typed, sessionId)) !== false;
+    await switchModelWithoutModule(command.rest);
+    return true;
+  }
+  if (globalThis.branchCatalogCommand) return (await globalThis.branchCatalogCommand(typed, sessionId)) !== false;
+  return false;
 }
 /** The plain fallback for "/model": list the choices, or change this conversation's model. */
 async function switchModelWithoutModule(wanted) {

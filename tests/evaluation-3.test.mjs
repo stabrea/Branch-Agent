@@ -5,7 +5,7 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
@@ -20,8 +20,10 @@ import {
   readBeirSet, scoreBeirSet,
   parseCall, judgeCall, nexusAdapter, findBenchmarkAdapter,
   liveScoreSummary, LiveScoringSettingsSchema, notIntegratedBenchmarks, builtInSuites,
-  createBranch, ScriptedProvider, say,
+  createBranch, ScriptedProvider, say, callTool,
 } from "../dist/index.js";
+import { BranchBrowser, registerBrowser } from "../dist/integrations/browser.js";
+import { miniwobVerdict, miniwobPassAbove, pageAssets, serveFolder } from "../dist/benchmark-miniwob.js";
 
 const emptyTrajectory = { runId: null, calls: [], steps: 1, ms: 10, tokens: 10, dollars: 0.001 };
 const task = { id: "t", prompt: "What is the answer?", expected: "42" };
@@ -482,16 +484,153 @@ test("A1231: the Nexus adapter reads the published shape and marks the call that
   await assert.rejects(nexusAdapter.discover(join(root, "work")), /No \.jsonl file in/);
 });
 
-/* ------------------------------ A1726 the live browser environments, and why they are not here */
+/* ------------------------------ A1726 MiniWoB++ in Branch's own browser, and the live environments */
 
-test("A1726: the live browser environments are named, with what each would need", () => {
+/** A stand-in for MiniWoB's core.js: the episode starts, shows its goal, and scores a click on the named button. */
+const fakeMiniwobCore = `
+window.WOB_REWARD_GLOBAL = 0; window.WOB_RAW_REWARD_GLOBAL = 0; window.WOB_DONE_GLOBAL = false;
+window.core = {
+  EPISODE_MAX_TIME: 10000, started: false,
+  startEpisodeReal() {
+    core.started = true;
+    document.getElementById("query").textContent = document.body.dataset.goal;
+  },
+  getUtterance() { return { utterance: document.getElementById("query").textContent, fields: {} }; },
+  endEpisode(reward) {
+    window.WOB_REWARD_GLOBAL = reward; window.WOB_RAW_REWARD_GLOBAL = reward; window.WOB_DONE_GLOBAL = true;
+  },
+};
+document.addEventListener("click", (event) => {
+  if (!core.started || event.target.tagName !== "BUTTON") return;
+  core.endEpisode(event.target.textContent === document.body.dataset.answer ? 1 : -1);
+});`;
+/** A page in MiniWoB's own shape: the core is loaded from the folder beside it, and the goal starts empty. */
+const fakeMiniwobPage = (goal, answer) => `<!DOCTYPE html>
+<html><head><title>MiniWoB task</title><script src="../core/core.js"></script></head>
+<body data-goal="${goal}" data-answer="${answer}">
+  <div id="query"></div>
+  <button>Cancel</button><button>${answer}</button>
+</body></html>`;
+
+async function fakeMiniwob(root) {
+  const folder = join(root, "bench");
+  await mkdir(join(folder, "html", "miniwob"), { recursive: true });
+  await mkdir(join(folder, "html", "core"), { recursive: true });
+  await writeFile(join(folder, "html", "core", "core.js"), fakeMiniwobCore);
+  await writeFile(join(folder, "html", "miniwob", "click-submit.html"), fakeMiniwobPage("Click on the Submit button.", "Submit"));
+  await writeFile(join(folder, "html", "miniwob", "click-go.html"), fakeMiniwobPage("Press the button called Go.", "Go"));
+  return folder;
+}
+
+/** Skips only when Playwright's Chromium is not installed on this computer. */
+async function chromiumMissing() {
+  const { chromium } = await import("playwright");
+  return chromium.launch({ headless: true }).then((browser) => browser.close().then(() => false), () => true);
+}
+
+test("A1726: a MiniWoB study runs in Branch's own browser and is judged from the page, never the answer", async (t) => {
+  if (await chromiumMissing()) return t.skip("Playwright's Chromium is not installed");
+  const root = await mkdtemp(join(tmpdir(), "branch-eval3-miniwob-"));
+  const folder = await fakeMiniwob(root);
+  const provider = new ScriptedProvider([
+    // The goal is only in the page until the episode starts, so finding it here proves it was read from the page.
+    ["Click on the Submit button.", [callTool("browser.click", { role: "button", name: "Submit" }), say("I pressed Submit.")]],
+    // This one claims success and never touches the page.
+    ["Press the button called Go.", [say("Task completed successfully, reward 1.")]],
+  ]);
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"),
+    presets: [{ id: "fast", name: "Fast", provider, model: "gpt-4o-mini" }] });
+  // No origin is configured for this browser: the page's own loopback server is allowed for its window alone.
+  const browser = new BranchBrowser({ allowedOrigins: ["https://example.org"] });
+  registerBrowser(app.registry, browser);
+  app.studies.browser = browser;
+  t.after(async () => { await browser.close(); await app.close(); await discardTemp(root); });
+  app.studies.configure({ benchmarksFolder: folder });
+  app.studies.save({ id: "miniwob", name: "MiniWoB", presets: ["fast"], retries: 0, concurrency: 1,
+    source: { kind: "benchmark", benchmark: "miniwob", directory: folder } });
+  const result = await app.studies.run("miniwob");
+  const cell = (id) => result.cells.find((one) => one.taskId === id);
+  assert.equal(cell("click-submit").passed, true, cell("click-submit").reasons.join(" "));
+  assert.match(cell("click-submit").reasons.join(" "), /WOB_REWARD_GLOBAL = 1, WOB_RAW_REWARD_GLOBAL = 1, WOB_DONE_GLOBAL = true/);
+  assert.equal(cell("click-go").passed, false, "saying it worked is not a reward");
+  assert.match(cell("click-go").reasons.join(" "), /did not finish.*WOB_REWARD_GLOBAL = 0/);
+  // The prompt names the address it was served from, and the core file was copied beside the page.
+  const asked = provider.requests.map((request) => request.messages.filter((m) => m.role === "user").map((m) => m.content).join("\n")).join("\n");
+  assert.match(asked, /http:\/\/127\.0\.0\.1:\d+\/miniwob\/click-submit\.html is already open/);
+  assert.match(await readFile(join(root, "workspace", "benchmarks", "miniwob", "click-submit", "html", "core", "core.js"), "utf8"), /startEpisodeReal/);
+  // Every window was closed again once it had been judged.
+  assert.equal(browser.hostFor({ owner: app.runtime.owner, runId: cell("click-submit").runId }), "");
+});
+
+test("A1726: a MiniWoB page or file outside the benchmark's folder is refused, and nothing passes without a page", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-eval3-miniwob-out-"));
+  let app;
+  t.after(async () => { await app?.close(); await discardTemp(root); });
+  const folder = await fakeMiniwob(root);
+  await writeFile(join(root, "secret.html"), "<p>not a task</p>");
+  await writeFile(join(folder, "html", "miniwob", "reaches-out.html"), `<script src="../../../secret.js"></script>`);
+  const adapter = findBenchmarkAdapter("miniwob");
+  const into = join(root, "into");
+  const outside = await adapter.prepare({ id: "escape", prompt: "p", tags: [], raw: { file: "../../../secret.html" } }, into, folder);
+  assert.match(outside.refusal, /points outside the miniwob folder/);
+  const [reaching] = (await adapter.discover(folder)).filter((one) => one.id === "reaches-out");
+  assert.match((await adapter.prepare(reaching, into, folder)).refusal, /outside the MiniWoB folder/);
+  assert.deepEqual(await readdir(into).catch(() => []), [], "nothing is copied for a refused task");
+  // The plain judge has no page to read, so even a confident answer fails.
+  const verdict = await adapter.judge(reaching, { answer: "completed successfully, reward 1", workspace: into }, folder);
+  assert.equal(verdict.pass, false);
+  // A study with no browser refuses the task by name instead of asking the model.
+  app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"),
+    presets: [{ id: "fast", name: "Fast", provider: new ScriptedProvider([]), model: "gpt-4o-mini" }] });
+  app.studies.configure({ benchmarksFolder: folder });
+  app.studies.save({ id: "nobrowser", name: "No browser", presets: ["fast"], subset: ["click-submit"],
+    source: { kind: "benchmark", benchmark: "miniwob", directory: folder } });
+  const refused = await app.studies.run("nobrowser");
+  assert.match(refused.cells[0].reasons[0], /runs in Branch's own browser, and this launch has none/);
+});
+
+test("A1726: a benchmark window only opens a page on 127.0.0.1, and its origin is not given to other tasks", async (t) => {
+  if (await chromiumMissing()) return t.skip("Playwright's Chromium is not installed");
+  const browser = new BranchBrowser({ allowedOrigins: ["https://example.org"] });
+  await assert.rejects(browser.benchmarkWindow("owner", "https://example.org/page.html"), /127\.0\.0\.1/);
+  await assert.rejects(browser.benchmarkWindow("owner", "http://localhost:9/page.html"), /127\.0\.0\.1/);
+  const root = await mkdtemp(join(tmpdir(), "branch-eval3-miniwob-win-"));
+  await writeFile(join(root, "page.html"), "<title>Served</title>");
+  const served = await serveFolder(root);
+  t.after(async () => { await browser.close(); await served.close(); await discardTemp(root); });
+  const opened = await browser.benchmarkWindow("owner", `${served.origin}/page.html`);
+  assert.equal(await opened.evaluate("document.title"), "Served");
+  assert.equal((await fetch(`${served.origin}/../page.html`)).status, 200, "the address is normalised inside the folder");
+  assert.equal((await fetch(`${served.origin}/%2e%2e/%2e%2e/etc/hosts`)).status, 404);
+  const other = { owner: "owner", runId: "someone-else", signal: new AbortController().signal, permissions: new Set(["browser.read"]) };
+  await assert.rejects(browser.navigate(`${served.origin}/page.html`, other), /not an allowed origin/);
+  opened.handTo("mine");
+  const mine = { ...other, runId: "mine" };
+  assert.match((await browser.snapshot(mine)).url, /page\.html$/, "the task works in the very page that was opened");
+  await browser.closeRun(mine);
+  assert.equal(await opened.evaluate("document.title"), "Served", "the end of the task leaves it open for the judge");
+  await opened.close();
+  await assert.rejects(opened.evaluate("1"), /closed/);
+});
+
+test("A1726: the verdict needs a finished episode with a reward above zero", () => {
+  assert.equal(miniwobPassAbove, 0);
+  assert.equal(miniwobVerdict({ reward: 0.8, raw: 1, done: true }).pass, true);
+  assert.equal(miniwobVerdict({ reward: 0, raw: 0, done: true }).pass, false);
+  assert.equal(miniwobVerdict({ reward: -1, raw: -1, done: true }).pass, false);
+  assert.equal(miniwobVerdict({ reward: 1, raw: 1, done: false }).pass, false);
+  assert.equal(miniwobVerdict({}).pass, false);
+  assert.deepEqual(pageAssets(`<script src="../core/core.js"></script><link href="https://x.org/a.css"><img src="/abs.png"><a href="#top">`), ["../core/core.js"]);
+});
+
+test("A1726: WebArena and WorkArena are still listed as needing the owner's own servers, with what each needs", () => {
   const entry = notIntegratedBenchmarks.find((one) => one.id === "browsergym-live");
   assert.ok(entry, "browsergym-live must be listed rather than left out");
-  for (const name of ["MiniWoB", "WebArena", "WorkArena"]) assert.match(entry.name + " " + entry.needs, new RegExp(name));
+  assert.doesNotMatch(entry.name, /MiniWoB/);
   assert.match(entry.needs, /servers that have to be running/);
-  assert.match(entry.needs, /web-tasks adapter/);
-  // The offline half really is there: the adapter that runs against pages saved to disk.
-  assert.ok(findBenchmarkAdapter("web-tasks"));
+  assert.match(entry.needs, /WebArena needs its own self-hosted websites .*Docker images/);
+  assert.match(entry.needs, /WorkArena needs a ServiceNow developer instance of the owner's own/);
+  assert.ok(findBenchmarkAdapter("miniwob"), "MiniWoB has an adapter of its own");
 });
 
 /* ---------------------------------------------- A1499 the research suite that ships */

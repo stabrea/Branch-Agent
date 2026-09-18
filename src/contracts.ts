@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { SandboxChoice } from "./sandbox.js";
+import type { SandboxChoice, WallContext } from "./sandbox.js";
 import type { SandboxBackendName } from "./sandbox-backends.js";
 
 export const ToolCallSchema = z
@@ -72,6 +72,10 @@ export interface CompletionRequest {
   maxTokens: number;
   /** Requested reasoning effort; adapters map it to their own parameter or ignore it. */
   reasoning?: "low" | "medium" | "high";
+  /** R17-S12: a faster or cheaper service tier, where the service offers one; absent asks for the usual. */
+  serviceTier?: "priority" | "flex";
+  /** R17-046: OpenRouter's company preferences; only a connection whose address is openrouter.ai sends them. */
+  providerRouting?: import("./model-savings/openrouter.js").OpenRouterRouting;
   /** Live provider text only; partial text is not a committed completion. */
   onTextDelta?: (text: string) => void;
   /**
@@ -229,7 +233,7 @@ export interface ToolContext {
   /** Practice run: tools that would change something report what they would have done instead. */
   dryRun?: boolean;
   /** Who started this task; anything but the owner is held to the "Ask before changes" policy. */
-  source?: "owner" | "trigger" | "schedule" | "mcp" | "a2a" | "acp";
+  source?: "owner" | "trigger" | "schedule" | "mcp" | "a2a" | "acp" | "channel";
   /**
    * Where answers already given are remembered when there is no conversation to remember them
    * against: a saved workflow uses its own name here, so a yes given to one of its steps still
@@ -249,6 +253,16 @@ export interface ToolContext {
    */
   sandboxBackend?: SandboxBackendName;
   sandboxPaths?: readonly string[];
+  /**
+   * Wave mac3 (os-sandbox): the wall a program this call starts goes behind (macOS's own sandbox or
+   * bubblewrap), set by the runtime from the owner's settings. Never set from a tool's arguments.
+   */
+  osSandbox?: WallContext;
+  /**
+   * mac7/lockdown-fix: set on a Trunk's turn (and carried into its sub-tasks and side jobs): the keys
+   * it may use. A sign-in account never answers for it (src/accounts/trunk-guard.ts).
+   */
+  trunkKeys?: { copyFromOwner: boolean; accounts: Record<string, string> };
 }
 export interface ToolDefinition<T = unknown> {
   name: string;

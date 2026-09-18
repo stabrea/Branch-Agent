@@ -1,3 +1,4 @@
+import { chatOwnerOnly, startedFromChat } from "./key-context.js";
 import { z } from "zod";
 import type { Store } from "./store.js";
 import type { ToolRegistry } from "./registry.js";
@@ -6,6 +7,7 @@ import type { Monitors } from "./monitors.js";
 import type { DeliveryHandler } from "./scheduler.js";
 import { nextDailyOccurrence } from "./scheduler.js";
 import { placeholders, substitute } from "./recipes.js";
+import { optionalFields } from "./feature-switches.js";
 
 /**
  * One message first thing: what is planned today, what was left unfinished, documents that arrived,
@@ -76,7 +78,7 @@ export function assembleBrief(settings: BriefSettings, content: BriefContent, no
 
 export class MorningBrief {
   constructor(
-    private readonly store: Store,
+    readonly store: Store,
     private readonly monitors?: Monitors,
     private readonly documents?: DocumentLibrary,
     private readonly deliver?: DeliveryHandler,
@@ -154,13 +156,19 @@ export function registerBrief(registry: ToolRegistry, brief: MorningBrief): void
   registry.register({
     name: "brief.configure", permission: "brief.manage",
     description: "Turn the morning brief on or off, choose the time of day and timezone, choose which parts it covers, change its wording, and choose the chat it is sent to.",
-    parameters: BriefSettingsSchema.partial(),
-    execute: async (input, context) => brief.configure(context.owner, input),
+    parameters: optionalFields(BriefSettingsSchema),
+    execute: async (input, context) => {
+      if (startedFromChat(context, brief.store)) throw chatOwnerOnly("Changing the morning brief");
+      return brief.configure(context.owner, input);
+    },
   });
   registry.register({
     name: "brief.send", permission: "brief.manage",
     description: "Send the morning brief now: it appears in the conversation list and goes to the chosen chat.",
     parameters: z.object({}).strict(),
-    execute: async (_input, context) => brief.send(context.owner),
+    execute: async (_input, context) => {
+      if (startedFromChat(context, brief.store)) throw chatOwnerOnly("Sending the morning brief to a chat");
+      return brief.send(context.owner);
+    },
   });
 }

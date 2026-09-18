@@ -288,7 +288,11 @@ test("the chat address refuses a post that is not genuine, writes the refusal do
   t.after(() => server.close());
 
   const post = JSON.stringify(row.post({ text: "hello from outside", sender: "user-9", chat: "user-9", group: false }));
-  const refused = await fetch(`${server.url}/webhooks/chat/line`, {
+  // mac7/channel-leaks: the service's own words, and the row in the record, are for a caller who
+  // showed the word on the end of the address. That is the whole address the owner pastes in.
+  const { webhookSecret } = await import("../dist/channels/webhook-address.js");
+  const word = webhookSecret(app.store, app.runtime.owner, "line");
+  const refused = await fetch(`${server.url}/webhooks/chat/line/${word}`, {
     method: "POST", headers: { "content-type": "application/json", "x-line-signature": "AAAA" }, body: post,
   });
   assert.equal(refused.status, 401);
@@ -299,13 +303,14 @@ test("the chat address refuses a post that is not genuine, writes the refusal do
   assert.match(text, /webhooks\/chat\/line/, "the refusal is in the record of what was allowed");
   assert.match(text, /auth\.refused/);
 
-  const good = await fetch(`${server.url}/webhooks/chat/line`, {
+  const good = await fetch(`${server.url}/webhooks/chat/line/${word}`, {
     method: "POST",
     headers: { "content-type": "application/json", "x-line-signature": sign({ algorithm: "sha256", encoding: "base64", signs: "body", keyEncoding: "utf8" }, SECRET, Buffer.from(post, "utf8"), "") },
     body: post,
   });
   assert.equal(good.status, 200);
   assert.deepEqual(await good.json(), { accepted: 1 });
+
 
   const shown = await fetch(`${server.url}/api/channels`, { headers: { authorization: "Bearer " + server.token, origin: server.url } }).then((r) => r.text());
   assert.ok(!shown.includes(SECRET) && !shown.includes(TOKEN), "no secret is in what the app shows");
@@ -320,13 +325,27 @@ test("the chat address refuses a post that is not genuine, writes the refusal do
 
   // Nothing here carries the session key, so somewhere posting rubbish over and over is made to
   // wait rather than being allowed to fill the record of refusals.
-  const tryBadly = () => fetch(`${server.url}/webhooks/chat/line`, {
+  const tryBadly = () => fetch(`${server.url}/webhooks/chat/line/${word}`, {
     method: "POST", headers: { "content-type": "application/json", "x-line-signature": "AAAA" }, body: post,
   });
   const codes = [];
   for (let attempt = 0; attempt < 6; attempt++) codes.push((await tryBadly()).status);
   assert.deepEqual(codes.slice(0, 5), [401, 401, 401, 401, 401]);
   assert.equal(codes[5], 429, "a place that keeps posting rubbish is made to wait");
+
+  // mac7/channel-leaks: the old shape of address, which anybody can guess, gets one sentence and
+  // leaves nothing behind in the owner's record. Counted on its own limiter, which is now waiting,
+  // so this is checked on a second launch.
+  const second = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  t.after(() => second.close());
+  const rows = JSON.stringify(app.store.auditEntries?.(app.runtime.owner) ?? []).length;
+  const guessed = await fetch(`${second.url}/webhooks/chat/line`, {
+    method: "POST", headers: { "content-type": "application/json", "x-line-signature": "AAAA" }, body: post,
+  });
+  assert.equal(guessed.status, 404);
+  assert.match((await guessed.json()).error, /No chat service is connected at that address/);
+  assert.equal(JSON.stringify(app.store.auditEntries?.(app.runtime.owner) ?? []).length, rows,
+    "a caller who never showed the word cannot fill the owner's record");
   await adapter.stop();
 });
 
@@ -388,6 +407,7 @@ test("Matrix holds a request open, retries with a widening wait, and stops when 
   const { app, provider } = await fixture(t);
   const syncs = [];
   const sends = [];
+  const typing = [];
   let failNext = true;
   const server = createServer(async (request, response) => {
     let raw = ""; for await (const part of request) raw += part;
@@ -400,14 +420,16 @@ test("Matrix holds a request open, retries with a widening wait, and stops when 
       response.end(JSON.stringify({ next_batch: `s${syncs.length}`, rooms: { join: { "!room:example.org": { timeline: { events } } } } }));
       return;
     }
-    sends.push({ path: request.url, body: JSON.parse(raw), headers: request.headers });
+    // "typing…" goes to its own address; everything else here is a message sent to the room.
+    (request.url.includes("/typing/") ? typing : sends).push({ path: request.url, body: JSON.parse(raw), headers: request.headers });
     response.writeHead(200, { "content-type": "application/json" });
-    response.end(JSON.stringify({ event_id: "$sent" }));
+    response.end(JSON.stringify(request.url.includes("/typing/") ? {} : { event_id: "$sent" }));
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   t.after(() => new Promise((resolve) => server.close(resolve)));
   const adapter = new MatrixAdapter({ id: "matrix", homeserver: `http://127.0.0.1:${server.address().port}`,
     userId: "@branch:example.org", accessToken: TOKEN, syncTimeoutMs: 50, reconnectBaseMs: 5 });
+  app.channels.setSwitches({ liveStatus: "on" });
   await app.channels.attach(adapter, { activation: "mention", pairing: false, allowlist: ["@alice:example.org"] });
 
   await until(() => adapter.health().state === "reconnecting" || syncs.length > 1, "the first failure is retried");
@@ -417,6 +439,11 @@ test("Matrix holds a request open, retries with a widening wait, and stops when 
   assert.equal(sent.headers.authorization, `Bearer ${TOKEN}`);
   assert.equal(sent.body.msgtype, "m.text");
   assert.ok(provider.requests.length >= 1);
+  // While it worked, the room was shown "typing…" as the bot itself, with the same token.
+  assert.ok(typing.length >= 1, "typing was shown while the answer was written");
+  assert.equal(typing[0].path, "/_matrix/client/v3/rooms/!room%3Aexample.org/typing/%40branch%3Aexample.org");
+  assert.deepEqual(typing[0].body, { typing: true, timeout: 6000 });
+  assert.equal(typing[0].headers.authorization, `Bearer ${TOKEN}`);
   await until(() => /encrypted room/.test(adapter.health().reason ?? ""), "encrypted messages are reported, not read");
 
   const before = syncs.length;

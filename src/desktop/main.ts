@@ -26,6 +26,12 @@ import { safeStorage } from "electron";
 import type { DesktopSettings } from "./settings.js";
 import { registerConversationExportIpc } from "./conversation-export-ipc.js";
 import { recordDesktopCrash, type SpanStore } from "../tracing.js";
+// mac2/desktop-ui: the Stop notice for screen control on macOS and Linux is a window of this app's own.
+import { screen } from "electron";
+import { electronBannerWindow } from "./banner-window.js";
+// mac3/never-break: trying a new version on a copy of the data before an update.
+import { snapshotData, updateCanary } from "../never-break/canary.js";
+import { appEntryName } from "./release-assets.js";
 
 let window: BrowserWindow | undefined;
 let tray: Tray | undefined;
@@ -167,6 +173,7 @@ async function start(): Promise<void> {
     return createWindow(running.url, running.token, settings, {
       backup: () => requestUpdateBackup(running.url, running.token),
       stopDaemon: () => stopBackgroundEngine(dataDir).then((report) => report.pid),
+      canary: desktopCanary(dataDir, () => engineSnapshot(running.url, running.token)), // mac3/never-break
     });
   const chatgpt = new ChatGPTAuth(new FileTokenVault(join(base, "chatgpt-auth.json"), {
     available: () => safeStorage.isEncryptionAvailable(),
@@ -178,6 +185,10 @@ async function start(): Promise<void> {
     workspace,
     presets: [defaultPreset(desktopProvider(settings), settings.summary().model || undefined)],
     chatgpt,
+    bannerWindow: electronBannerWindow({
+      create: (options) => new BrowserWindow(options),
+      workArea: () => screen.getPrimaryDisplay().workArea,
+    }),
   });
   watchDesktopCrashes(branch);
   let integrationClose: (() => Promise<void>) | undefined;
@@ -205,16 +216,20 @@ async function start(): Promise<void> {
     );
     integrationClose = integrations.close;
     branch.browser = integrations.hosted.browser ?? null;
+    branch.studies.browser = integrations.hosted.browser; // w911 (A1726) hook: MiniWoB studies open their page in this browser
     branch.issues = integrations.hosted.issues ?? null;
     const server = await startServer(branch, {
       dataDir, port: 0, presence: "app",
       executable: app.isPackaged ? process.execPath : null,
       installRoot: installedAppRoot(app.isPackaged, process.platform, process.execPath),
+      quit: () => app.quit(), // bucket 22: `branch quit` is the same as Quit in the menu (bounded shutdown below)
     });
     serverClose = server.close;
     await createWindow(server.url, server.token, settings, {
       backup: () =>
         writeUpdateBackup(dataDir, branch.store.backup(branch.version), branch.version).then(() => undefined),
+      // mac3/never-break: the new version is tried on a copy of this data before it is used.
+      canary: desktopCanary(dataDir, () => snapshotData({ dataDir, database: branch.store.sqlite, journal: branch.neverBreak.journal.database })),
     });
   } catch (error) {
     await stop();
@@ -236,6 +251,20 @@ function watchDesktopCrashes(branch: { store: { spans: SpanStore }; runtime: { o
     record("window", `The window stopped: ${details.reason}${details.exitCode ? ` (code ${details.exitCode})` : ""}`));
   app.on("child-process-gone", (_event, details) =>
     record(details.type || "helper", `A helper program stopped: ${details.reason}${details.exitCode ? ` (code ${details.exitCode})` : ""}`));
+}
+
+/** mac3/never-break: the update's canary step for this computer (src/never-break/canary.ts). */
+function desktopCanary(dataDir: string, snapshot: () => Promise<string>) {
+  return updateCanary({ dataDir, platform: process.platform, executableName: appEntryName(process.platform),
+    fromVersion: app.getVersion(), target: installedAppRoot(app.isPackaged, process.platform, process.execPath), snapshot });
+}
+/** mac3/never-break: asks the background engine, which holds the database, for a copy of it. */
+async function engineSnapshot(url: string, token: string): Promise<string> {
+  const response = await fetch(`${url}/api/never-break/snapshot`, { method: "POST",
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: "{}", signal: AbortSignal.timeout(120000) });
+  const body = await response.json().catch(() => null) as { folder?: unknown; error?: unknown } | null;
+  if (!response.ok || typeof body?.folder !== "string") throw new Error(typeof body?.error === "string" ? body.error : "The background engine did not make a copy of your work.");
+  return body.folder;
 }
 
 function desktopProvider(settings: DesktopSettings) {

@@ -3,7 +3,7 @@ import type { Completion, CompletionRequest, Message, Provider, ToolCall } from 
 import { ProviderStreamError, estimateTokens } from "../contracts.js";
 import { rejectedHttpResponse } from "../provider-retry.js";
 import { readEventStream } from "../provider-stream.js";
-import { readJsonBody, restoreToolNames, wireName } from "../providers.js";
+import { readJsonBody, restoreToolNames, serviceTierPart, wireName } from "../providers.js";
 
 /**
  * OpenAI's newer Responses route. The conversation goes in as a list of items rather than as chat
@@ -15,6 +15,10 @@ export interface ResponsesOptions {
   model: string;
   apiKey: string;
   fetchImpl?: typeof globalThis.fetch;
+  /** Where the route lives under the address; OpenAI's is `/responses`. */
+  path?: string;
+  /** A last change to the body, for a service that speaks this shape with its own small differences. */
+  shapeBody?: (body: Record<string, unknown>) => Record<string, unknown>;
 }
 
 const outputItem = z.object({
@@ -66,7 +70,7 @@ export function responsesBody(request: CompletionRequest, model: string): Record
 }
 
 export class OpenAIResponsesProvider implements Provider {
-  readonly name = "openai-responses";
+  readonly name: string = "openai-responses";
   readonly acceptsImages = true;
   private readonly fetchImpl: typeof globalThis.fetch;
   constructor(private readonly options: ResponsesOptions) {
@@ -82,12 +86,14 @@ export class OpenAIResponsesProvider implements Provider {
   embeddings(): { endpoint: string; apiKey: string } | null {
     return { endpoint: this.options.endpoint, apiKey: this.options.apiKey };
   }
-  images(): { kind: "openai"; endpoint: string; apiKey: string; defaultModel: string } {
+  images(): { kind: "openai"; endpoint: string; apiKey: string; defaultModel: string } | null {
     return { kind: "openai", endpoint: this.options.endpoint, apiKey: this.options.apiKey, defaultModel: "gpt-image-1" };
   }
   supportsImages(): boolean { return true; }
   async complete(request: CompletionRequest): Promise<Completion> {
-    const body = responsesBody(request, this.options.model);
+    // R17-S12 (integration review): the faster or cheaper tier, only for OpenAI's own address or Azure.
+    const plain = { ...responsesBody(request, this.options.model), ...serviceTierPart(this.options.endpoint, request.serviceTier) };
+    const body = this.options.shapeBody ? this.options.shapeBody(plain) : plain;
     if (request.onTextDelta) return this.stream(request, body);
     const response = await this.post({ ...body, stream: false }, request.signal);
     return restoreToolNames(readCompletion(responsesReply.parse(await readJsonBody(response))), request);
@@ -103,7 +109,7 @@ export class OpenAIResponsesProvider implements Provider {
     return restoreToolNames(state.result(), request);
   }
   private async post(body: unknown, signal: AbortSignal): Promise<Response> {
-    const response = await this.fetchImpl(this.options.endpoint.replace(/\/$/, "") + "/responses", {
+    const response = await this.fetchImpl(this.options.endpoint.replace(/\/$/, "") + (this.options.path ?? "/responses"), {
       method: "POST",
       headers: { "content-type": "application/json", authorization: `Bearer ${this.options.apiKey}` },
       body: JSON.stringify(body), signal, redirect: "error",

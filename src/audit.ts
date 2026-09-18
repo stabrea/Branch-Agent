@@ -34,6 +34,8 @@ export const auditActions = [
   "limit.reached",
   // Batch 26 (wave 8): old conversations were offered for deletion, exported, or deleted.
   "history.pruned",
+  // Wave mac2 (move-in): chats, memory, skills or settings were brought in from another assistant.
+  "data.imported",
 ] as const;
 export type AuditAction = (typeof auditActions)[number];
 
@@ -41,7 +43,7 @@ export type AuditAction = (typeof auditActions)[number];
  * Where a task can start: the owner's own app, a schedule, a trigger, or another AI tool. This is
  * what the "started by" column holds, and it is the older, shorter of the two lists below.
  */
-export const auditOrigins = ["owner", "trigger", "schedule", "mcp", "a2a", "acp", "system"] as const;
+export const auditOrigins = ["owner", "trigger", "schedule", "mcp", "a2a", "acp", "system", "channel"] as const;
 export type AuditOrigin = (typeof auditOrigins)[number];
 /**
  * Where the moment itself happened. Everywhere a task can start, and also every chat app an answer
@@ -106,6 +108,7 @@ const actionLabels: Record<AuditAction, string> = {
   "network.connected": "A connection that stays open was made to a service outside this computer",
   "limit.reached": "Something reached the limit you set for a minute or an hour",
   "history.pruned": "Old conversations were offered for deletion, exported, or deleted",
+  "data.imported": "Chats, memory or settings were brought in from another assistant",
 };
 export const auditLabel = (action: AuditAction): string => actionLabels[action];
 
@@ -140,8 +143,17 @@ export class AuditLog {
     const row = this.db.prepare(`INSERT INTO audit(owner,at,action,actor,subject,reason,source,origin,run_id,outcome)
       VALUES(?,?,?,?,?,?,?,?,?,?) RETURNING id`)
       .get(owner, at, value.action, value.actor, value.subject, value.reason, value.source, origin, value.runId, value.outcome);
-    return { id: Number(row?.id ?? 0), owner, at, ...value, origin };
+    const entry: AuditEntry = { id: Number(row?.id ?? 0), owner, at, ...value, origin };
+    for (const listener of this.recordListeners) { try { listener(entry); } catch { /* a listener never breaks the record */ } } // mac7/r17-g
+    return entry;
   }
+  // ── mac7/r17-g: the tamper-evident chain (src/safety-extras/activity-chain.ts) follows each entry. ──
+  private readonly recordListeners = new Set<(entry: AuditEntry) => void>();
+  onRecord(listener: (entry: AuditEntry) => void): () => void {
+    this.recordListeners.add(listener);
+    return () => { this.recordListeners.delete(listener); };
+  }
+  // ── end mac7/r17-g ──
   /** Entries newest first, narrowed by what happened, where it came from and when. */
   list(owner: string, input: unknown = {}): AuditEntry[] {
     const query = AuditQuerySchema.parse(input ?? {});

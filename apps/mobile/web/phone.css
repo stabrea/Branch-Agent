@@ -1,0 +1,120 @@
+/* The phone app's own screens: one glass column over the oak. Colours only through the tokens
+   (public/tokens.css, and the theme the window last used, applied by theme.js). */
+html, body { min-height: 100%; }
+body {
+  background: var(--ground);
+  color: var(--text);
+  font-family: var(--body);
+  overflow-x: hidden;
+}
+#wall, #wall-fx {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  image-rendering: pixelated;
+  pointer-events: none;
+}
+#phone {
+  position: relative;
+  max-width: 560px;
+  margin: 0 auto;
+  padding: calc(env(safe-area-inset-top) + var(--s4)) 16px calc(env(safe-area-inset-bottom) + var(--s5));
+}
+.phone-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  margin-bottom: var(--s4);
+}
+.phone-head .mark { width: 36px; height: 36px; }
+.phone-name {
+  margin: 0;
+  font-family: Archivo, var(--body);
+  font-stretch: 75%;
+  font-weight: 700;
+  font-size: 1.35rem;
+  letter-spacing: 0.01em;
+}
+#phone .card {
+  padding: var(--s4);
+  margin: 0 0 var(--s4);
+  border: 1px solid var(--line);
+  border-radius: var(--r3);
+  background: var(--panel);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+#phone .card > h2 {
+  margin: 0 0 var(--s2);
+  font-family: Archivo, var(--body);
+  font-stretch: 80%;
+  font-size: 1.3rem;
+}
+#phone .card > h2 + p {
+  margin: 0 0 var(--s3);
+  font-size: 0.95rem;
+  color: var(--muted);
+}
+#phone button, #phone .quiet-button { width: 100%; margin-top: var(--s3); min-height: 44px; }
+.quiet-button {
+  display: block;
+  text-align: center;
+  background: transparent;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  box-shadow: none;
+  color: var(--text);
+  font-family: var(--body);
+  font-size: 1rem;
+  font-weight: 500;
+  padding: 11px 17px;
+  cursor: pointer;
+}
+.quiet-button:hover { background: var(--hover); }
+#phone label { font-size: 12px; }
+.field-note { margin: 6px 0 0; font-size: 12px; color: var(--muted); }
+#phone .subtle { font-size: 13px; color: var(--muted); min-height: 1.2em; margin: var(--s3) 0 0; }
+#phone .subtle:empty { display: none; }
+#phone .subtle.bad { color: var(--bad); }
+#scan-view {
+  width: 100%;
+  margin-top: var(--s3);
+  border-radius: var(--r2);
+  border: 1px solid var(--line);
+  background: var(--well);
+}
+.phone-origin { font-family: var(--font-mono); font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.phone-places { display: grid; grid-template-columns: 1fr 1fr; gap: 0 var(--s2); }
+.phone-places button:first-child { grid-column: 1 / -1; }
+.phone-list { list-style: none; margin: 0; padding: 0; }
+.phone-list li {
+  padding: var(--s2) 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+.phone-switch { margin: var(--s3) 0 0; border: 0; padding: 0; min-width: 0; }
+.phone-switch legend { font-weight: 600; padding: 0; }
+.phone-switch p { margin: 2px 0 var(--s2); font-size: 0.85rem; color: var(--muted); }
+.phone-seg { display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid var(--line-strong); border-radius: 8px; overflow: hidden; }
+.phone-seg label {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  font-family: var(--body);
+  font-size: 0.85rem;
+  color: var(--text);
+  cursor: pointer;
+}
+.phone-seg label + label { border-left: 1px solid var(--line); }
+.phone-seg input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.phone-seg label:has(input:checked) { background: var(--copper); color: var(--on-copper); }
+.phone-seg label:has(input:focus-visible) { box-shadow: inset 0 0 0 2px var(--ring, var(--copper)); }
+#talk.recording { background: var(--bad); border-color: var(--bad); }
+
+/* mac7/connect: the chat app setup card. */
+.phone-connect { display: grid; gap: 0.5rem; margin-top: 0.5rem; }
+.phone-connect a.quiet-button { display: block; text-align: center; text-decoration: none; }

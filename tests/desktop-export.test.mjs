@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { discardTemp } from './temp-dir.mjs';
 import { _electron } from 'playwright';
 import { saveConversationExport, saveMemoryExport } from '../dist/desktop/conversation-export.js';
-import { connected, desktopOptions } from './fixtures/desktop-options.mjs';
+import { connected, desktopOptions, STARTUP_MS } from './fixtures/desktop-options.mjs';
 
 const archive = { format: 'branch-agent-conversation', version: 1, exportedAt: '2026-09-15T00:00:00.000Z',
   messages: [{ role: 'user', content: 'Export fixture' }, { role: 'assistant', content: 'Saved response' }] };
@@ -49,7 +49,10 @@ test('native conversation export uses guarded IPC and leaves the blanket downloa
   const { home, options } = await desktopOptions(), path = join(home, 'exported-conversation.json');
   const electron = await _electron.launch(options);
   try {
-    const page = await electron.firstWindow(); page.setDefaultTimeout(10000);
+    // Each click waits for the window to take it. With other desktop files starting beside it, a
+    // loaded CI Mac spent over ten seconds on the Send click alone (Playwright's log ended at
+    // "performing click action", with nothing covering the button), so every step gets a minute.
+    const page = await electron.firstWindow(); page.setDefaultTimeout(60000);
     await connected(page);
     await electron.evaluate(({ dialog }, path) => {
       globalThis.fixtureExportDialogs = [];
@@ -61,7 +64,10 @@ test('native conversation export uses guarded IPC and leaves the blanket downloa
     const invalid = await page.evaluate(() => window.branchDesktop.exportConversation('{}').then(() => 'allowed', error => error.message));
     assert.notEqual(invalid, 'allowed');
     assert.equal(await electron.evaluate(() => globalThis.fixtureExportDialogs.length), 0);
-    await page.getByLabel('Your message', { exact: true }).fill('Export the demo conversation');
+    // The message box can still be settling (the welcome card, the first state load) just after
+    // "Connected" shows; a loaded CI Mac took longer than the ten-second default. Wait for the box
+    // itself to take typing, with the same allowance as the start-up.
+    await page.getByLabel('Your message', { exact: true }).fill('Export the demo conversation', { timeout: STARTUP_MS });
     await page.locator('#send').click();
     // Waiting for a whole task to finish, not for the page to paint: the model answers, the reply is
     // written down and the conversation is saved before Send comes back. Ten seconds is enough on a

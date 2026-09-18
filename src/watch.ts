@@ -24,6 +24,12 @@ export interface WatchHandle {
   readonly runs: number;
 }
 
+// bucket-18: AI comments (A0344)
+export interface OnChangeWatchHandle extends WatchHandle {
+  /** Track changed paths during a burst. */
+  changedPaths(): string[];
+}
+
 /** Whether a changed path is one of the things that never needs to set anything off. */
 export function ignored(path: string, ignore: readonly string[]): boolean {
   const parts = path.split(/[\\/]/);
@@ -77,6 +83,59 @@ export function watchFolder(
 
   return {
     get runs() { return runs; },
+    async stop(): Promise<void> {
+      stopped = true;
+      if (timer) { clearTimeout(timer); timer = null; }
+      watcher?.close();
+      watcher = null;
+      await running?.catch(() => undefined);
+    },
+  };
+}
+
+// bucket-18: AI comments (A0344) — the same watcher, handing the action the paths changed in the burst
+export function watchFolderPaths(
+  folder: string,
+  action: (paths: string[]) => Promise<void>,
+  input: unknown = {},
+  onError: (error: unknown) => void = () => undefined,
+): OnChangeWatchHandle {
+  const options = WatchOptionsSchema.parse(input);
+  const root = realpathSync.native(resolve(folder));
+  let timer: NodeJS.Timeout | null = null;
+  let running: Promise<void> | null = null;
+  let again = false;
+  let stopped = false;
+  let runs = 0;
+  let watcher: FSWatcher | null = null;
+  let changedSet = new Set<string>();
+
+  const fire = (): void => {
+    if (stopped) return;
+    if (running) { again = true; return; }
+    runs += 1;
+    const paths = Array.from(changedSet);
+    changedSet.clear();
+    running = action(paths)
+      .catch(onError)
+      .finally(() => {
+        running = null;
+        if (again && !stopped) { again = false; fire(); }
+      });
+  };
+  const changed = (name: string): void => {
+    if (stopped || ignored(name, options.ignore)) return;
+    changedSet.add(name);
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => { timer = null; fire(); }, options.settleMs);
+    timer.unref?.();
+  };
+  watcher = watch(root, { recursive: true }, (_kind, name) => changed(String(name ?? "")));
+  watcher.on("error", onError);
+
+  return {
+    get runs() { return runs; },
+    changedPaths() { return Array.from(changedSet); },
     async stop(): Promise<void> {
       stopped = true;
       if (timer) { clearTimeout(timer); timer = null; }

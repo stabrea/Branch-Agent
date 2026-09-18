@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { z } from "zod";
 import type { Completion, CompletionRequest, Provider } from "../contracts.js";
+import { refuseSignInForTrunk } from "../accounts/context.js"; // mac7/lockdown-fix
 
 /**
  * Batch 20 (wave 8): using a coding assistant already installed on this computer as a model.
@@ -32,20 +33,71 @@ export const CliAgentRowSchema = z.object({
   jsonField: z.string().trim().max(40).default(""),
   /** Shown beside the row, so nobody thinks Branch is signing in to anything. */
   note: z.string().trim().max(200).default("Uses your installed tool and its own sign-in."),
+  /** The Terms line: which route this is, where the maker's terms are, and anything to know first. */
+  terms: z.object({
+    route: z.string().min(1).max(200),
+    url: z.string().regex(/^https:\/\//).max(2048),
+    standing: z.enum(["official", "unofficial"]),
+    warning: z.string().max(400).optional(),
+  }).strict().optional(),
 }).strict();
 export type CliAgentRow = z.infer<typeof CliAgentRowSchema>;
 
+/** What an owner's own command is told: Branch cannot know its maker's terms. */
+const ownCommandTerms = {
+  route: "A program you named, with its own sign-in",
+  url: "https://github.com/stabrea/Branch-Agent/blob/main/docs/configuration.md",
+  standing: "unofficial" as const,
+  warning: "Branch cannot know this program's terms. Check that its maker allows it to be run by another app.",
+};
+
 /** The coding assistants Branch knows the command line of. Data, not code: correct it and move on. */
 export const cliAgentCatalog: CliAgentRow[] = [
+  // Anthropic lets a person sign in to its unmodified Claude Code program with their own plan, and
+  // forbids other apps from handling Claude.ai sign-ins; Branch only runs the program and never
+  // touches its sign-in (https://code.claude.com/docs/en/legal-and-compliance).
   { id: "claude-code", name: "Claude Code (installed on this computer)", command: "claude",
     args: ["-p", "--output-format", "json"], jsonField: "result",
-    note: "Uses your installed tool and its own sign-in." },
+    note: "Runs Anthropic's own Claude Code with your own sign-in. Branch never sees or keeps that sign-in.",
+    terms: {
+      route: "Anthropic's unmodified claude program, run with -p, signed in by you",
+      url: "https://code.claude.com/docs/en/legal-and-compliance",
+      standing: "official",
+      warning: "Use through claude -p counts against your Claude plan's usage limits (https://support.claude.com/en/articles/15036540-use-the-claude-agent-sdk-with-your-claude-plan). Plan limits assume ordinary individual use.",
+    } },
   { id: "codex", name: "Codex (installed on this computer)", command: "codex",
     args: ["exec", "--json", "-"], jsonField: "",
-    note: "Uses your installed tool and its own sign-in." },
+    note: "Runs OpenAI's own Codex with your own sign-in. Branch never sees or keeps that sign-in.",
+    terms: {
+      route: "OpenAI's codex program, run with exec, signed in by you",
+      url: "https://learn.chatgpt.com/docs/auth",
+      standing: "official",
+      warning: "Use through a ChatGPT plan counts against that plan's limits.",
+    } },
+  // `copilot -p` takes the prompt as its value, which would put the whole conversation on the
+  // command line where any program can read it; Copilot also accepts the prompt piped in on
+  // standard input (github/copilot-cli changelog), which is how every row here is given it.
   { id: "copilot", name: "GitHub Copilot CLI (installed on this computer)", command: "copilot",
-    args: ["-p"], jsonField: "",
-    note: "Uses your installed tool and its own sign-in." },
+    args: [], jsonField: "",
+    note: "Runs GitHub's own Copilot command line with your own sign-in. Branch never sees or keeps that sign-in.",
+    terms: {
+      route: "GitHub's copilot program, with the question piped in, signed in by you",
+      url: "https://docs.github.com/copilot/how-tos/use-copilot-agents/use-copilot-cli",
+      standing: "official",
+      warning: "Requests count against your Copilot plan's premium requests.",
+    } },
+  // Google says using Gemini CLI's sign-in from other software breaks its terms
+  // (https://geminicli.com/docs/resources/tos-privacy/), so Branch runs the program itself in its
+  // documented headless mode (docs/cli/headless.md: JSON output with a "response" field).
+  { id: "gemini-cli", name: "Gemini CLI (installed on this computer)", command: "gemini",
+    args: ["--output-format", "json"], jsonField: "response",
+    note: "Runs Google's own Gemini CLI with your own sign-in. Branch never sees or keeps that sign-in.",
+    terms: {
+      route: "Google's gemini program in its headless mode, signed in by you",
+      url: "https://geminicli.com/docs/resources/tos-privacy/",
+      standing: "official",
+      warning: "Google forbids other apps from reusing Gemini CLI's sign-in, so Branch only runs the program. Use counts against your Google plan's limits.",
+    } },
 ];
 
 /** Only what a program needs to find itself and its own sign-in; nothing else of the owner's. */
@@ -64,6 +116,8 @@ export interface CliAgentLimits {
 }
 export type SpawnAgent = (
   row: CliAgentRow, prompt: string, signal: AbortSignal, limits: Required<CliAgentLimits>,
+  /** mac6/accounts: the one extra variable naming this account's own folder (CLAUDE_CONFIG_DIR, ...). */
+  home?: AccountHome,
 ) => Promise<{ code: number | null; stdout: string; stderr: string; missing?: boolean }>;
 
 /** Branch's whole transcript as the one question the tool is asked. */
@@ -87,10 +141,29 @@ export function answerFrom(row: CliAgentRow, stdout: string): string {
   return text;
 }
 
-export const runCliAgent: SpawnAgent = (row, prompt, signal, limits) =>
+// ---- mac6/accounts: several sign-ins of one program, each in the folder its maker documents ----
+/** The environment variable each program officially reads for a folder of its own, sign-in included. */
+export const accountHomeVariables: Record<string, string> = {
+  // https://code.claude.com/docs/en/claude-directory ("If you set CLAUDE_CONFIG_DIR ...")
+  "claude-code": "CLAUDE_CONFIG_DIR",
+  // https://learn.chatgpt.com/docs/config-file/environment-variables ("Sets the root for Codex state ... auth")
+  codex: "CODEX_HOME",
+  // https://geminicli.com/docs/cli/enterprise/ (GEMINI_CLI_HOME)
+  "gemini-cli": "GEMINI_CLI_HOME",
+  // https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-config-dir-reference (COPILOT_HOME)
+  copilot: "COPILOT_HOME",
+};
+export interface AccountHome { name: string; path: string }
+/** The program said it has reached its plan's limit. */
+export class ProgramLimitError extends Error { override name = "ProgramLimitError"; }
+const limitWords = /usage limit|rate limit|limit reached|quota exceeded|exceeded your (?:current )?quota|too many requests/i;
+// ---- end mac6/accounts ----
+
+export const runCliAgent: SpawnAgent = (row, prompt, signal, limits, home) =>
   new Promise((resolve) => {
     const child = spawn(row.command, row.args, {
-      stdio: ["pipe", "pipe", "pipe"], windowsHide: true, shell: false, env: strippedEnvironment(),
+      stdio: ["pipe", "pipe", "pipe"], windowsHide: true, shell: false,
+      env: home ? { ...strippedEnvironment(), [home.name]: home.path } : strippedEnvironment(),
     });
     let stdout = "", stderr = "", settled = false;
     const finish = (code: number | null, missing?: boolean): void => {
@@ -121,20 +194,30 @@ export const runCliAgent: SpawnAgent = (row, prompt, signal, limits) =>
 export class CliAgentProvider implements Provider {
   readonly name: string;
   private readonly limits: Required<CliAgentLimits>;
+  /** mac6/accounts: say plainly when the program reports a plan limit (set for accounts in a list). */
+  detectLimits = false;
   constructor(
     private readonly row: CliAgentRow,
     limits: CliAgentLimits = {},
     private readonly spawnAgent: SpawnAgent = runCliAgent,
+    /** mac6/accounts: which account's folder the program uses; absent means its usual one. */
+    private readonly home?: AccountHome,
   ) {
     this.name = `${cliAgentShape}:${row.id}`;
     this.limits = { timeoutMs: limits.timeoutMs ?? 180_000, maxOutputChars: limits.maxOutputChars ?? 200_000 };
   }
   async complete(request: CompletionRequest): Promise<Completion> {
-    const outcome = await this.spawnAgent(this.row, agentPromptFrom(request), request.signal, this.limits);
+    refuseSignInForTrunk(); // mac7/lockdown-fix: an installed program's sign-in never answers for a Trunk
+    const outcome = this.home
+      ? await this.spawnAgent(this.row, agentPromptFrom(request), request.signal, this.limits, this.home)
+      : await this.spawnAgent(this.row, agentPromptFrom(request), request.signal, this.limits);
     if (outcome.missing)
       throw new Error(`"${this.row.command}" is not on this computer, so Branch cannot use ${this.row.name}. Install it, or pick another model.`);
     if (outcome.code === null)
       throw new Error(`${this.row.name} took too long and was stopped. Ask again, or pick another model.`);
+    // mac6/accounts: only when an account folder is in use, so a single sign-in behaves as before.
+    if (outcome.code !== 0 && (this.home || this.detectLimits) && limitWords.test(`${outcome.stderr}\n${outcome.stdout.slice(0, 4000)}`))
+      throw new ProgramLimitError(`${this.row.name} says this account has reached its plan limit.`);
     if (outcome.code !== 0)
       throw new Error(`${this.row.name} stopped with an error and said nothing Branch can pass on. Run it yourself to see why.`);
     const content = answerFrom(this.row, outcome.stdout);
@@ -169,7 +252,7 @@ export function rowFor(input: unknown): CliAgentRow {
     throw new Error(`Branch does not know a coding assistant called "${asked.id}". Give the command to run as well.`);
   return CliAgentRowSchema.parse({
     id: asked.id, name: asked.name ?? asked.id, command: asked.command,
-    args: asked.args ?? [], jsonField: asked.jsonField ?? "",
+    args: asked.args ?? [], jsonField: asked.jsonField ?? "", terms: ownCommandTerms,
   });
 }
 
@@ -180,9 +263,9 @@ export function rowFor(input: unknown): CliAgentRow {
 export function registerCliAgent(
   models: { register(preset: { id: string; name: string; provider: Provider; model: string }): void },
   input: unknown, limits: CliAgentLimits = {}, spawnAgent: SpawnAgent = runCliAgent,
-): { id: string; name: string; note: string } {
+): { id: string; name: string; note: string; terms: CliAgentRow["terms"] } {
   const row = rowFor(input);
   const id = `cli-${row.id}`;
   models.register({ id, name: row.name, provider: new CliAgentProvider(row, limits, spawnAgent), model: row.command });
-  return { id, name: row.name, note: row.note };
+  return { id, name: row.name, note: row.note, terms: row.terms };
 }

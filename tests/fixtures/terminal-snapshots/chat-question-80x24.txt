@@ -1,0 +1,24 @@
+ ♣ Branch Agent · Conversation              ◆ Lockdown  ● Offline demonstration
+  1 Conversation   2 Inbox 2   3 Automations   4 Library   5 Customize
+ Lockdown is on. Commands are refused; all else asks you.  /lockdown off
+ › write the demo file
+   · Writing branch-demo.txt
+   [Branch needs your yes before it goes on]
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ ╭─ Offline demonstration ────────────────────────────────────────────────────╮
+ │ y/n/a/s? Answer y (yes), n (no), a (yes, always) or s (yes, for this co…   │
+ ╰────────────────────────────────────────────────────────────────────────────╯
+ 9.7k in / 168 out · no price on file · Ctrl+P Side pane · Esc then 1-5 for pl…

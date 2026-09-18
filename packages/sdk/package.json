@@ -15,6 +15,6 @@
   },
   "files": ["client.mjs", "types.d.ts", "README.md"],
   "engines": {
-    "node": ">=24.0.0"
+    "node": ">=24.14.0 <25 || >=25.4.0"
   }
 }

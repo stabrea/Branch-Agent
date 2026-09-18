@@ -1,3 +1,4 @@
+import { chatOwnerOnly, startedFromChat } from "./key-context.js";
 import { randomBytes, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { Budget, errorText, type ToolContext } from "./contracts.js";
@@ -58,7 +59,7 @@ export const AskSchema = z.object({
 export class RemoteAgents {
   private readonly rates = new RateLimiter();
   constructor(
-    private readonly store: Store,
+    readonly store: Store,
     private readonly owner: string,
     private readonly policy: NetworkPolicy,
     private readonly fetchImpl: typeof fetch = globalThis.fetch,
@@ -200,8 +201,9 @@ export function registerRemoteAgents(registry: ToolRegistry, agents: RemoteAgent
     name: "agents.remote", permission: "agents.manage",
     description: "Add, list or remove an assistant elsewhere that this one may hand work to. Adding one reads its card at the address given.",
     parameters: RemoteActionSchema,
-    execute: async (args) => {
+    execute: async (args, context) => {
       if (args.action === "list") return { agents: agents.list().map(({ key: _key, ...rest }) => rest) };
+      if (startedFromChat(context, agents.store)) throw chatOwnerOnly("Changing the list of other assistants");
       if (args.action === "remove") return agents.remove(args.agent);
       const { key: _key, ...added } = await agents.add(args);
       return added;

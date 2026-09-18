@@ -1,11 +1,19 @@
 import { randomUUID } from "node:crypto";
-import { cp, mkdir, mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join, resolve, sep } from "node:path";
+import { realpathSync, statSync } from "node:fs";
+import { cp, mkdir, mkdtemp, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
+import { basename, dirname, join, resolve, sep } from "node:path";
 import { z } from "zod";
 import { ShellProcess } from "./integrations/shell-process.js";
 import { netlessEnvironment } from "./integrations/shell-config.js";
 import { defaultJobObjects, jobWithin, type JobObjects } from "./integrations/job-object.js";
+import type { HeldBySystem } from "./integrations/posix-limits.js";
+import { systemName, type WallContext, type WallNetwork } from "./sandbox.js";
+import { ApprovalRequiredError } from "./approvals.js";
+import { sandboxExecPath, seatbeltArgs, secretHomePlaces } from "./sandbox-seatbelt.js";
+import { bwrapArgs, bwrapAvailability, doorBridgeSource, insideDoorPorts, seccompFilter, withSeccomp } from "./sandbox-bwrap.js";
+import { newPlaceholder, proxyEnvironment, SandboxProxy, type EdgeKey, type ProxyOptions } from "./sandbox-proxy.js";
+import { explainDenial, siteQuestion, widenable, widenQuestion } from "./sandbox-denial.js";
 
 /**
  * Where a program Branch Agent starts actually runs. `src/sandbox.ts` says how tightly it is held
@@ -22,7 +30,7 @@ export type SandboxBackendName = (typeof sandboxBackends)[number];
 
 /** Plain words for the settings screen, the approval card and the refusal. */
 export const sandboxBackendSentences: Record<SandboxBackendName, string> = {
-  "job-object": "on this computer, held to its memory and processor limits by Windows",
+  "job-object": `on this computer, held to its memory and processor limits by ${systemName()}`,
   docker: "inside a container, which cannot see anything on this computer except the folder it is given",
   wsl: "inside the Linux you already have on this computer, with a copy of the folder it is given",
   "windows-sandbox": "in Windows' own throwaway desktop, which is thrown away when it closes",
@@ -74,14 +82,18 @@ export interface SandboxLimits {
   timeoutMs: number; maxMemoryMb: number; maxCpuSeconds: number; maxOutputBytes: number;
   /** Whether the program may reach the internet at all. */
   network: boolean;
-  /** Whether Windows itself holds the memory and processor ceilings (see src/sandbox.ts). */
+  /** Whether the system itself holds the memory and processor ceilings (see src/sandbox.ts). */
   job: boolean;
+  /** macOS and Linux: the wall the program goes behind, when the owner's switch says so. */
+  wall?: WallContext | undefined;
 }
 export interface SandboxRunResult {
   status: string; exitCode: number | null; stdout: string; stderr: string;
   truncated: boolean; durationMs: number; backend: SandboxBackendName;
   /** Whether Windows itself held the memory and processor ceilings, or Branch sampled them. */
   isolation: "job-object" | "sampling";
+  /** macOS and Linux: what the system itself held, when the program ran in a limited process group. */
+  heldBySystem?: HeldBySystem;
   /** The exact program and arguments that were started, for the record and for the tests. */
   argv: string[];
 }
@@ -122,7 +134,7 @@ export type SandboxSpawn = (
   limits: SandboxLimits, signal: AbortSignal,
 ) => Promise<{
   status: string; exitCode: number | null; stdout: string; stderr: string;
-  truncated: boolean; durationMs: number; isolation?: "job-object" | "sampling";
+  truncated: boolean; durationMs: number; isolation?: "job-object" | "sampling"; heldBySystem?: HeldBySystem;
 }>;
 
 /** The real one: the same child-process machinery every other host command goes through. */
@@ -138,7 +150,7 @@ export function defaultSandboxSpawn(jobs: JobObjects = defaultJobObjects()): San
     }).run();
     return { status: result.status, exitCode: result.exitCode, stdout: result.stdout,
       stderr: result.stderr, truncated: result.truncated, durationMs: result.durationMs,
-      isolation: result.isolation };
+      isolation: result.isolation, ...(result.heldBySystem ? { heldBySystem: result.heldBySystem } : {}) };
   };
 }
 
@@ -187,15 +199,21 @@ async function started(
 /** What everything did before this existed: the program runs here, held by a Windows job object. */
 export class JobObjectBackend implements SandboxBackend {
   readonly name = "job-object" as const;
-  constructor(private readonly spawn: SandboxSpawn = defaultSandboxSpawn()) {}
+  constructor(private readonly spawn: SandboxSpawn = defaultSandboxSpawn(), private readonly wallDeps: WallDeps = {}) {}
   async available(): Promise<SandboxAvailability> { return { ok: true, reason: "" }; }
   async prepare(slice: SandboxSlice): Promise<SandboxHandle> {
-    const spawn = this.spawn, mount = slice.hostPath;
-    const argvFor = async (command: SandboxCommand, limits: SandboxLimits): Promise<SandboxStart> =>
+    const spawn = this.spawn, mount = slice.hostPath, wallDeps = this.wallDeps;
+    const plainFor = async (command: SandboxCommand, limits: SandboxLimits): Promise<SandboxStart> =>
       ({ executable: command.executable, args: command.args, cwd: mount, env: baseEnv(limits.network) });
+    // wave mac3 (os-sandbox): a program left running goes behind the wall too, with no door open.
+    const argvFor = async (command: SandboxCommand, limits: SandboxLimits): Promise<SandboxStart> =>
+      limits.wall ? keptWall(await openWall(limits.wall, await plainFor(command, limits), { workspace: mount, proxy: false }, wallDeps))
+        : plainFor(command, limits);
     return {
       backend: this.name, mount, argvFor,
-      run: (command, limits, signal) => started(argvFor(command, limits), spawn, limits, signal, "job-object"),
+      run: (command, limits, signal) => limits.wall
+        ? walledRun(plainFor(command, limits), { limits, spawn, signal, workspace: mount, deps: wallDeps })
+        : started(argvFor(command, limits), spawn, limits, signal, "job-object"),
       collect: (paths) => sizesOf(mount, paths),
       dispose: async () => undefined,
     };
@@ -379,12 +397,14 @@ export interface SandboxBackendDeps {
   settings: SandboxBackendSettings;
   probe: SandboxProbe;
   spawn?: SandboxSpawn;
+  /** How the wall looks at this computer; the probe above is used for bubblewrap unless this says otherwise. */
+  wall?: WallDeps;
 }
 /** Every backend, built once from the owner's settings. */
 export function sandboxBackendSet(deps: SandboxBackendDeps): Record<SandboxBackendName, SandboxBackend> {
   const spawn = deps.spawn ?? defaultSandboxSpawn();
   return {
-    "job-object": new JobObjectBackend(spawn),
+    "job-object": new JobObjectBackend(spawn, { probe: deps.probe, ...deps.wall }),
     docker: new ContainerBackend(deps.settings, deps.probe, spawn),
     wsl: new WslBackend(deps.settings, deps.probe, spawn),
     "windows-sandbox": new WindowsSandboxBackend(deps.settings, deps.probe, spawn),
@@ -430,4 +450,223 @@ export async function sliceFor(workspace: string, folders: readonly string[]): P
   await mkdir(hostPath, { recursive: true });
   await readdir(hostPath);
   return { hostPath };
+}
+
+// ------------------------------------------------------------------ the wall (wave mac3, os-sandbox)
+
+/** What the wall needs from this computer. Every piece is replaced in tests, so no wall is really built. */
+export interface WallDeps {
+  platform?: NodeJS.Platform;
+  /** Whether a file is there; used for `/usr/bin/sandbox-exec`. */
+  exists?: (path: string) => Promise<boolean>;
+  /** Where the system's `bwrap` is, or null. */
+  locateBwrap?: () => Promise<string | null>;
+  probe?: SandboxProbe;
+  realpath?: (path: string) => Promise<string>;
+  kindOf?: (path: string) => "dir" | "file" | null;
+  /** Branch's own data folder, never readable from behind the wall. */
+  dataDir?: string | undefined;
+  /** Where a request really goes; tests only. */
+  upstream?: ProxyOptions["upstream"];
+  /** How a site name becomes addresses; tests only (bucket-15 integration: passed through to the door). */
+  resolve?: ProxyOptions["resolve"];
+}
+export interface WallRun { exitCode: number | null; stdout: string; stderr: string }
+export interface OpenedWall {
+  start: SandboxStart;
+  /** After the program ends: stops on a question for the owner, or returns a sentence for the task. */
+  finish(result: WallRun): Promise<string | null>;
+  close(): Promise<void>;
+}
+interface WallPlan {
+  wall: WallContext; network: WallNetwork; workspace: string; temp: string; hidden: string[]; readOnly: string[];
+  extraWrites: string[]; keys: EdgeKey[]; deps: WallDeps;
+  /** Linux only: a private folder for the filter and the door, made when the wall is built. */
+  staging?: string;
+  /** A program left running: no door is ever opened for it. */
+  doorless: boolean;
+}
+
+const fileExists = async (path: string): Promise<boolean> => !!(await stat(path).catch(() => null));
+const kindOnDisk = (path: string): "dir" | "file" | null => {
+  try { return statSync(path).isDirectory() ? "dir" : "file"; } catch { return null; }
+};
+async function whichBwrap(): Promise<string | null> {
+  for (const dir of ["/usr/bin", "/usr/local/bin", "/bin"]) if (await fileExists(join(dir, "bwrap"))) return join(dir, "bwrap");
+  return null;
+}
+/**
+ * The name the system itself uses for a place: links followed and `/var` spelled `/private/var`. A
+ * file that is not there yet is named through its folder.
+ */
+export function canonicalPath(path: string): string {
+  try { return realpathSync(path); } catch { /* not there yet */ }
+  try { return join(realpathSync(dirname(path)), basename(path)); } catch { return path; }
+}
+const passThrough = (start: SandboxStart): OpenedWall => ({ start, finish: async () => null, close: async () => undefined });
+
+/**
+ * A stand-in for every saved key the call asked for; the program never holds a real one. A key the
+ * owner tied to no site stays a stand-in everywhere: the door refuses to send it anywhere.
+ */
+function edgeKeys(wall: WallContext, secrets: Readonly<Record<string, string>>): EdgeKey[] {
+  return Object.entries(secrets).map(([name, value]) => {
+    const site = Object.hasOwn(wall.keySites, name) ? wall.keySites[name] ?? "" : "";
+    return { name, value, site, placeholder: newPlaceholder() };
+  });
+}
+
+async function planWall(
+  wall: WallContext, options: { workspace: string; secrets?: Readonly<Record<string, string>>; proxy?: boolean }, deps: WallDeps,
+): Promise<WallPlan> {
+  const real = deps.realpath ?? realpath;
+  const workspace = await real(options.workspace), temp = await real(tmpdir());
+  const home = homedir();
+  const named = [...secretHomePlaces.map((place) => join(home, place)), ...wall.unreadable, ...(deps.dataDir ? [deps.dataDir] : [])];
+  // Each hidden place both as written and as the system names it, so a `/var` or a link cannot slip past.
+  const hidden = [...new Set(named.flatMap((path) => [path, canonicalPath(path)]))];
+  const readOnly = [...new Set((wall.readOnly ?? []).flatMap((path) => [path, canonicalPath(path)]))];
+  // A yes given after the wall stopped a write lets that one file through, once — the file itself,
+  // never what a link in its place points at.
+  const asked = wall.granted("sandbox.write");
+  for (const path of asked) wall.spend("sandbox.write", path);
+  // The question names the file as the system does, so a yes naming anything else (a link) is not used.
+  const extraWrites = asked.filter((path) => canonicalPath(path) === path && widenable(path, { workspace, hidden: [...hidden, ...readOnly] }));
+  const keys = edgeKeys(wall, options.secrets ?? {});
+  // A program left running cannot keep a door open after the call, so it gets no network instead.
+  const network = options.proxy === false && (wall.network === "limited" || wall.network === "per-site") ? "none" : wall.network;
+  return { wall, network, workspace, temp, hidden, readOnly, extraWrites, keys, deps, doorless: options.proxy === false };
+}
+
+function doorFor(plan: WallPlan, paths?: { http: string; socks: string }): SandboxProxy | null {
+  const { network, keys, wall } = plan;
+  if (plan.doorless || network === "none" || (network === "open" && !keys.length)) return null;
+  return new SandboxProxy({ network, keys, check: wall.siteCheck, upstream: plan.deps.upstream,
+    ...(plan.deps.resolve ? { resolve: plan.deps.resolve } : {}), ...(paths ? { paths } : {}),
+    decide: (host) => wall.answer("network.site", host) ?? (network === "open" ? "allow" : "ask") });
+}
+
+const keyEnv = (keys: readonly EdgeKey[]): NodeJS.ProcessEnv => Object.fromEntries(keys.map((key) => [key.name, key.placeholder]));
+
+async function macWall(plan: WallPlan, start: SandboxStart): Promise<{ start: SandboxStart; door: SandboxProxy | null }> {
+  if (!(await (plan.deps.exists ?? fileExists)(sandboxExecPath)))
+    throw new Error("macOS's own sandbox program (/usr/bin/sandbox-exec) is missing, so Branch will not start this program. Switch the wall off in Settings to run it without one.");
+  const door = doorFor(plan);
+  const address = door ? await door.start() : null;
+  const ports = address ? [address.httpPort!, address.socksPort!] : undefined;
+  // The hidden places go in as the system names them (`/private/var`, not `/var`), or macOS would not match them.
+  const args = seatbeltArgs({ workspace: plan.workspace, network: plan.network, proxyPorts: ports, extraWrites: plan.extraWrites,
+    unreadable: plan.hidden, readOnly: plan.readOnly, temp: [plan.temp, "/private/tmp", "/private/var/tmp"] }, start);
+  const env = { ...start.env, ...keyEnv(plan.keys), ...(address && door ? proxyEnvironment({ httpPort: address.httpPort!, socksPort: address.socksPort! }, door.secret) : {}) };
+  return { door, start: { executable: sandboxExecPath, args, cwd: start.cwd, env } };
+}
+
+async function linuxWall(plan: WallPlan, start: SandboxStart): Promise<{ start: SandboxStart; door: SandboxProxy | null }> {
+  const found = await bwrapAvailability(plan.deps.probe ?? defaultSandboxProbe(), plan.deps.locateBwrap ?? whichBwrap);
+  if (!found.ok) throw new Error(found.reason);
+  const staging = plan.staging = await mkdtemp(join(plan.temp, "branch-wall-"));
+  const paths = { http: join(staging, "http.sock"), socks: join(staging, "socks.sock") };
+  const door = doorFor(plan, paths);
+  if (door) await door.start();
+  let command: SandboxCommand = start;
+  if (door) {
+    const bridge = join(staging, "door.cjs");
+    await writeFile(bridge, doorBridgeSource, { mode: 0o400 });
+    command = { executable: process.execPath, args: [bridge, paths.http, String(insideDoorPorts.http),
+      paths.socks, String(insideDoorPorts.socks), "--", start.executable, ...start.args] };
+  }
+  const filter = join(staging, "filter.bpf");
+  await writeFile(filter, seccompFilter({ network: plan.network }), { mode: 0o400 });
+  const kindOf = plan.deps.kindOf ?? kindOnDisk;
+  // A file that is not there yet can only be let through by its folder, the narrowest bwrap can bind.
+  const extraWrites = plan.extraWrites.map((path) => (kindOf(path) ? path : dirname(path)))
+    .filter((path) => widenable(path, { workspace: plan.workspace, hidden: [...plan.hidden, ...plan.readOnly] }));
+  const args = bwrapArgs({ workspace: plan.workspace, network: plan.network, doorDir: door ? staging : undefined,
+    extraWrites, unreadable: plan.hidden, readOnly: plan.readOnly, temp: plan.temp, uid: process.getuid?.(),
+    seccompFd: 9, kindOf }, command);
+  const wrapped = withSeccomp(found.path, filter, args);
+  const env = { ...start.env, ...keyEnv(plan.keys), ...(door ? proxyEnvironment({ httpPort: insideDoorPorts.http, socksPort: insideDoorPorts.socks }, door.secret) : {}) };
+  return { door, start: { ...wrapped, cwd: start.cwd, env } };
+}
+
+/**
+ * Puts one program behind the wall. On Windows it changes nothing: the job object and Windows'
+ * throwaway desktop keep doing exactly what they did. Anywhere the wall cannot be built it refuses
+ * in a sentence and nothing starts — it never quietly runs the program without one.
+ */
+export async function openWall(
+  wall: WallContext, start: SandboxStart,
+  options: { workspace: string; secrets?: Readonly<Record<string, string>>; proxy?: boolean }, deps: WallDeps = {},
+): Promise<OpenedWall> {
+  const platform = deps.platform ?? process.platform;
+  if (platform === "win32") return passThrough(start);
+  if (platform !== "darwin" && platform !== "linux")
+    throw new Error("The wall around programs works on macOS and Linux only. Switch it off in Settings to run programs here.");
+  const plan = await planWall(wall, options, deps);
+  const cleanup = async () => { if (plan.staging) await rm(plan.staging, { recursive: true, force: true }).catch(() => undefined); };
+  let built: { start: SandboxStart; door: SandboxProxy | null };
+  try { built = platform === "darwin" ? await macWall(plan, start) : await linuxWall(plan, start); }
+  catch (error) { await cleanup(); throw error; }
+  const { door } = built;
+  const close = async () => { await door?.close(); await cleanup(); };
+  return { start: built.start, close, finish: async (result) => { await close(); return wallVerdict(plan, door, result); } };
+}
+
+/** What the task hears after a program behind the wall ended: a question, a sentence, or nothing. */
+function wallVerdict(plan: WallPlan, door: SandboxProxy | null, result: WallRun): string | null {
+  const site = door?.asked[0];
+  if (site) throw new ApprovalRequiredError("network.site", site, siteQuestion(), "session");
+  const siteless = plan.keys.filter((key) => !key.site).map((key) => key.name);
+  const keysNote = siteless.length && result.exitCode !== 0
+    ? `Behind the wall, ${siteless.join(", ")} reached the program only as a stand-in, because no site is set for ${siteless.length === 1 ? "it" : "them"} in Settings, Computer.`
+    : null;
+  const denial = explainDenial(result, { network: plan.network, workspace: plan.workspace, hidden: [...plan.hidden, ...plan.readOnly] });
+  if (!denial) return keysNote;
+  const path = denial.path ? canonicalPath(denial.path) : undefined;
+  if (path && !widenable(path, { workspace: plan.workspace, hidden: [...plan.hidden, ...plan.readOnly] }))
+    return `The wall around programs stopped this command changing ${path}. That place is always protected, so Branch will not ask to open it.`;
+  // Asked once: a file the owner already let through, or refused, is not asked about again.
+  if (path && plan.wall.answer("sandbox.write", path) === undefined && !plan.extraWrites.includes(path))
+    throw new ApprovalRequiredError("sandbox.write", path, widenQuestion(), "session");
+  return keysNote ? `${denial.message}\n${keysNote}` : denial.message;
+}
+
+/**
+ * A program left running keeps its wall. It never has a door, and on Linux the filter file is only
+ * read as the program starts, so what the wall set up is let go a moment after it has started.
+ */
+function keptWall(opened: OpenedWall): SandboxStart {
+  if (opened.start.executable === sandboxExecPath) void opened.close();
+  else setTimeout(() => void opened.close(), 30_000).unref();
+  return opened.start;
+}
+
+/** One command behind the wall, from start to the verdict. */
+async function walledRun(
+  plain: Promise<SandboxStart>,
+  run: { limits: SandboxLimits; spawn: SandboxSpawn; signal: AbortSignal; workspace: string; deps: WallDeps },
+): Promise<SandboxRunResult> {
+  const opened = await openWall(run.limits.wall!, await plain, { workspace: run.workspace }, run.deps);
+  try {
+    const out = await run.spawn(opened.start, run.limits, run.signal);
+    const note = await opened.finish(out);
+    return { ...out, stderr: note ? `${out.stderr}${out.stderr.endsWith("\n") || !out.stderr ? "" : "\n"}${note}` : out.stderr,
+      isolation: out.isolation ?? "sampling", backend: "job-object", argv: [opened.start.executable, ...opened.start.args] };
+  } finally {
+    await opened.close();
+  }
+}
+
+/** Whether this computer can build the wall, for the settings card. Nothing is started to find out on macOS. */
+export async function wallReport(deps: WallDeps = {}): Promise<{ platform: string; available: boolean; reason: string }> {
+  const platform = deps.platform ?? process.platform;
+  if (platform === "win32")
+    return { platform, available: false, reason: "On Windows, programs are held by Windows' own job object and throwaway desktop instead; this switch changes nothing here." };
+  if (platform === "darwin") {
+    const here = await (deps.exists ?? fileExists)(sandboxExecPath);
+    return { platform, available: here, reason: here ? "" : "macOS's own sandbox program (/usr/bin/sandbox-exec) is missing on this Mac." };
+  }
+  if (platform !== "linux") return { platform, available: false, reason: "The wall around programs works on macOS and Linux only." };
+  const found = await bwrapAvailability(deps.probe ?? defaultSandboxProbe(), deps.locateBwrap ?? whichBwrap);
+  return { platform, available: found.ok, reason: found.ok ? "" : found.reason };
 }

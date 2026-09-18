@@ -1,10 +1,14 @@
 import { mkdir } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { resolve, join, relative, isAbsolute } from "node:path";
 import { Store } from "./store.js";
 import { ToolRegistry } from "./registry.js";
 import { WorkspaceFiles, registerFiles } from "./files.js";
 import { registerWorkspaceHistory } from "./workspace-history.js";
 import { WorkspaceSearch, registerCodeSearch } from "./code-search.js";
+// R17-S-C (comfort): shortcuts, status line, notifications, voice keys, browser care, proxy and certificates.
+import { OutboundNetwork } from "./comfort/network.js";
+import { readComfort } from "./comfort/settings.js";
 import { CodeEditor, registerCodeEdit } from "./code-edit.js";
 import { CodeChanges, registerCodeChanges } from "./code-change.js";
 import { registerHumanTasks } from "./deferred.js";
@@ -12,7 +16,8 @@ import { BackgroundProcesses, registerProcesses } from "./processes.js";
 import { CodeRunner, registerCodeRun } from "./code-run.js";
 import { CredentialResolver } from "./credential-cli.js";
 import { OsPermissions, probeReader } from "./os-permissions.js";
-import { Runtime } from "./runtime.js";
+import { Runtime, argumentFingerprint } from "./runtime.js";
+import { gateRefusal } from "./tool-gate.js"; // integration review (mac5/manual-actions)
 import { DemoProvider } from "./demo.js";
 import { Knowledge, registerKnowledge } from "./knowledge.js";
 import { registerOrchestration } from "./orchestration-tools.js";
@@ -27,7 +32,7 @@ import { memorySnapshotLimits } from "./memory-review.js";
 import { catalogHealthTick } from "./tool-usage.js";
 import { MemoryTransfer } from "./memory-export.js";
 import { SqliteMemoryBackend } from "./memory-backend.js";
-import { Scheduler, registerSchedules } from "./scheduler.js";
+import { Scheduler, registerSchedules, nextTurn } from "./scheduler.js";
 import { registerHistory } from "./history.js";
 import { registerRunExport } from "./trajectory.js";
 import { meteringTick } from "./metering.js";
@@ -42,6 +47,7 @@ import { startMcpServer } from "./mcp-server.js";
 // Wave 7: opening other AI tools' servers only while a task needs them, and the two look-only
 // tools that report what a call would do and how those connections are faring.
 import { McpConnections, readLifecycleSettings } from "./mcp-lifecycle.js";
+import { integrationsFileTrusted } from "./folder-trust.js";
 import type { CachedMcpTool } from "./integrations/mcp.js";
 import { registerMcpTools } from "./mcp-tools.js";
 import { A2aServer } from "./a2a.js";
@@ -51,6 +57,8 @@ import { z } from "zod";
 import { ModelRouter, type ModelPreset } from "./models.js";
 import type { ChatGPTAuth } from "./chatgpt-auth.js";
 import { syncChatGPTPresets } from "./chatgpt-presets.js";
+import { startAccounts } from "./accounts/service.js"; // mac6/accounts
+import { People } from "./people/index.js"; // bucket 19
 import { FileLockerKey, type LockerKeySource } from "./locker.js";
 import { SessionLock } from "./session-lock.js";
 import { Moderation } from "./moderation.js";
@@ -64,9 +72,11 @@ import { WebAccess, registerWeb } from "./integrations/web.js";
 import { Hooks } from "./hooks.js";
 import { Teams } from "./teams.js";
 import { Triggers } from "./triggers.js";
+import { SlackAutomations } from "./channels/slack-automations.js"; // mac6/bucket-16
 import { Webhooks } from "./webhooks.js";
 import { recordUncaughtErrors } from "./tracing.js";
 import { TraceExporter, traceExportSettings } from "./tracing-export.js";
+import { afterTaskMetrics, executionMetricsDeps } from "./execution-metrics.js"; // bucket 14 (A1751)
 import { SessionTokens } from "./session-tokens.js";
 import { CommandSecrets, KeychainSecrets } from "./vault-sources.js";
 import { SkillRegistry } from "./registry-install.js";
@@ -79,12 +89,21 @@ import { liveScores, liveScoreSummary, liveScoringSettings, saveLiveScoringSetti
 import { NeedsInputError, type ToolContext } from "./contracts.js";
 import { defaultPreset } from "./providers.js";
 import { restoreConnections } from "./connections-preset.js";
+// Wave mac5 (local models): one-click models on this computer, restored and resumed at start.
+import { localKitFor, startLocalModels } from "./local-kit.js";
 import type { Provider } from "./contracts.js";
 import { parseRetryPolicy, type RetryPolicyInput } from "./provider-retry.js";
 import type { ReliabilityInput } from "./reliability.js";
 import { DocumentLibrary, registerDocuments } from "./documents.js";
 import { MediaTools, registerMedia } from "./media.js";
 import { VoiceService, registerVoice } from "./voice-service.js";
+import { startWakeWord, type ProgramPresent, type WakeCaptureRunner, type WakeRunner } from "./voice-wake.js"; // mac7/wake-mic
+import { wakeCaptureRunner, wakeRunner } from "./voice-wake-host.js"; // mac7/wake-mic
+// Bucket 17.
+import { MediaUnderstanding, registerMediaUnderstanding } from "./media-understand.js";
+import { SpeechEngineService } from "./speech-engine-service.js";
+import { registerTroubleshoot } from "./troubleshoot.js"; // w911 (A0374) hook.
+import { builtInSpeech } from "./speech-engines.js";
 import { LiveConversations } from "./realtime-voice.js";
 import { registerModelSwitch } from "./model-switch.js";
 import { GitTools } from "./integrations/git.js";
@@ -96,7 +115,10 @@ import { GitRunner } from "./integrations/git-run.js";
 import { registerGit } from "./integrations/git-tools.js";
 import { jsonWriteProblem } from "./approvals.js";
 import { Flows, registerFlows } from "./flows.js";
+import { registerSdkKit } from "./sdk-kit.js"; // bucket 21
+import { WebPages, registerWebPages } from "./web-pages.js"; // w911 (A0743, A1452) hook
 import { PluginCatalog } from "./plugin-catalog.js";
+import { AddOns } from "./add-ons/index.js"; // bucket-15: add-ons other people wrote
 import { SkillRevisions, registerSkillSync } from "./skill-revisions.js";
 import { DataTables, registerData } from "./data-tools.js";
 import { DocumentAnalysis, registerDocumentAnalysis } from "./document-analysis.js";
@@ -106,6 +128,8 @@ import { Monitors, registerMonitors } from "./monitors.js";
 import { ScreenWatches, registerScreenWatches } from "./screen-watch.js";
 import { MorningBrief, registerBrief } from "./brief.js";
 import { DesktopControl } from "./integrations/desktop.js";
+import { screenControlParts, type BannerWindowFactory } from "./integrations/desktop-banner.js";
+import { migrateFeatureSwitches } from "./feature-switch-migration.js";
 import { registerDesktop } from "./integrations/desktop-tools.js";
 import { registerComputer, type ComputerLayers } from "./integrations/computer.js";
 import { audit } from "./audit.js";
@@ -126,6 +150,8 @@ import { KnowledgeManagement } from "./knowledge-manage.js";
 import { KnowledgePictures } from "./knowledge-pictures.js";
 import { registerKnowledgeExtras, type KnowledgeParts } from "./knowledge-more.js";
 import { MemoryMirror, readOnlyRefusal, registerMemoryMirror } from "./memory-mirror.js";
+// bucket-18: memory history (A2317)
+import { MemoryHistory, registerMemoryHistory } from "./memory-git.js";
 import { EphemeralDocuments, EphemeralRetriever, registerEphemeralDocuments } from "./memory-ephemeral.js";
 import { CachedEmbeddings, asEmbeddings } from "./embeddings.js";
 import { MemoryConsolidation } from "./memory-consolidate.js";
@@ -148,13 +174,64 @@ import { ProjectMap, registerProjectMap } from "./code-map.js";
 import { LanguageServers } from "./language-server.js";
 import { registerLanguageServers } from "./language-server-tools.js";
 import { DebugAdapters, registerDebug } from "./debug-adapter.js";
-import { registerCheckpoints } from "./checkpoints.js";
+import { registerCheckpoints, SnapshotStore, systemGit, type GitCall } from "./checkpoints.js";
+// Wave mac2 (goal-undo): working toward a goal in rounds, and going back to an earlier message.
+import { GoalMode, goalUndoSettings } from "./goal-mode.js";
+import { Rewinds } from "./rewind.js";
+import { isReadOnlyPermission } from "./policy.js";
 import { KeptArtifacts, registerKeptArtifacts } from "./build-artifacts.js";
+import { registerArtifactVersions } from "./artifact-versions.js"; // bucket-18 (A1183)
+import { offerPullRequestFromChanges, watchFinishedTasks, type PullRequestDeps } from "./pr-hook.js"; // bucket-18 (A0300)
+import { protectedTarget } from "./never-break/protected.js"; // bucket-18 integration review
 import { OpenApiTools, registerOpenApiTools } from "./openapi-tools.js";
 import { redactLeaksIn } from "./leak-guard.js";
+// mac3/security-check: the security self-check and the malware check on add-ons.
+import { SecurityService } from "./security-audit/service.js";
 // mac2/fly-core: the learning core switch and its on-demand tool.
 import { flyCoreSettings } from "./fly-core/settings.js";
+import { setWallEdge } from "./sandbox-wall.js"; // wave mac3 (os-sandbox)
 import { setFlyCoreMode, syncSuggestTool } from "./fly-core/tool.js";
+// mac3/never-break: the gateway's settings and the one tool that suggests a change to them.
+import { loadGatewayConfig } from "./never-break/gateway-config.js";
+import { gatewayDryRun, registerNeverBreak } from "./never-break/api.js";
+import { journalHook, openJournal, type TaskJournal } from "./never-break/journal.js";
+import { migrate, storeMigrations } from "./never-break/migrations.js";
+import { recoverOnStart } from "./never-break/resume.js";
+import { connectGuidedTelegram, saveTelegramSetup, telegramSetupView } from "./never-break/telegram-setup.js";
+import { fileURLToPath } from "node:url";
+import { Asks } from "./asks/index.js"; // mac6/bucket-23: the smaller asks
+import { Devices } from "./devices/index.js"; // mac7/nodes: the owner's other devices
+import { Autonomy } from "./autonomy/index.js"; // r17-b: it suggests, and runs things on its own
+import { Trunks } from "./trunks/index.js"; // R17-A: Trunks, named long-lived agents
+import { accountsSettings, saveSessionChoice } from "./accounts/settings.js"; // R17-A: a Trunk's account (R17-005)
+import { Coding } from "./coding/index.js"; // mac7/r17-d: coding polish
+import { worktreeScope } from "./coding/worktrees.js"; // mac7/r17-d
+import { Personal } from "./personal/index.js"; // R17-C: files, voice, devices and personal connectors
+import { Reach } from "./reach/index.js"; // r17-i: reach and platform
+import { platformRunners } from "./reach/host.js"; // r17-i
+import { trunkRoster } from "./reach/trunk-roster.js"; // r17-i
+import { askMode } from "./asks/settings.js"; // r17-i: other computers follow bucket 23's switch
+import { SafetyExtras } from "./safety-extras/index.js"; // mac7/r17-g: the safety extras
+import { assertAddressNotStopped } from "./safety-extras/emergency-stop.js"; // mac7/r17-g
+import { FlowsBoards } from "./flows-boards/index.js"; // r17-h: flows and boards
+// R17-F: learning, deeper (src/learning-more/).
+import { homedir as learningHome } from "node:os";
+import { LearningMore } from "./learning-more/index.js";
+// mac4/bucket-20: talking to other agents and tools.
+import { Interop } from "./interop/index.js";
+// mac3/reflection-skills: looking back over conversations, and skills written from experience.
+import { LearningLoop } from "./reflection/loop.js";
+import { attachLearningLoop } from "./reflection/hook.js";
+// mac2/fly-core-2: advice that acts, the owner's view of what was learned, and skill ideas as drafts.
+import { advisedFacts } from "./fly-core/apply.js";
+import { warmLearningCore } from "./fly-core/hook.js";
+// R17-S-B: the hidden knobs, with plain labels (src/knobs/).
+import { memorySnapshotBudget as knobSnapshotLimits } from "./knobs/apply.js";
+import { leakOptions } from "./knobs/leak-options.js";
+// R17-E: mixtures of models offered as connections (src/model-savings/).
+import { syncMixtures } from "./model-savings/mixture.js";
+import { skillIdeaDraft } from "./fly-core/skill-idea.js";
+import { forgetLearning, learningCoreView } from "./fly-core-api.js";
 
 export async function createBranch(options: {
   workspace: string;
@@ -172,6 +249,17 @@ export async function createBranch(options: {
   retryPolicy?: RetryPolicyInput;
   /** Stall, tool time and context-size limits for ordinary runs. */
   reliability?: ReliabilityInput;
+  /* mac2/desktop-ui: the desktop app's own Stop notice window, for screen control on macOS and Linux. */
+  bannerWindow?: BannerWindowFactory;
+  /** Wave mac2: how the hidden snapshot store runs git; null means "git is not installed". */
+  snapshotGit?: GitCall | null;
+  /** mac3/security-check: the home folder the security check looks under; this computer's own when left out. */
+  home?: string;
+  /**
+   * mac7/wake-mic: fakes for the one part of Branch that opens a microphone. Left out, the real
+   * programs on this computer are used; a test hands in its own so no microphone is ever opened.
+   */
+  wake?: { runner?: WakeRunner; capture?: WakeCaptureRunner; present?: ProgramPresent; platform?: string };
 }) {
   const retryPolicy = parseRetryPolicy(options.retryPolicy);
   const workspace = resolve(options.workspace),
@@ -188,7 +276,15 @@ export async function createBranch(options: {
   await mkdir(dataDir, { recursive: true, mode: 0o700 });
   const files = new WorkspaceFiles(workspace);
   await files.checked(".", true);
+  // mac2/desktop-ui: whether this is a new install decides whether the three-way switches start off.
+  const existedBefore = existsSync(join(dataDir, "branch.sqlite"));
   const store = new Store(join(dataDir, "branch.sqlite"));
+  // --- mac3/never-break: the data format stamp (refuses data newer than this version can read) and
+  // the task journal beside the database, flushed before every step.
+  const { journal, reset: journalReset } = openNeverBreak(store, dataDir);
+  if (journalReset) console.error(journalReset);
+  // --- end mac3/never-break ---
+  migrateFeatureSwitches(store, options.owner ?? "local", existedBefore);
   const lockerKey = options.lockerKey ?? new FileLockerKey(join(dataDir, "locker.key"));
   store.openLocker(lockerKey);
   // One scrubber in front of the whole event log: no saved password or key can be written down.
@@ -198,7 +294,8 @@ export async function createBranch(options: {
   const artifacts = new RunArtifacts(join(dataDir, "artifacts"));
   const browserProfiles = new BrowserProfiles(join(dataDir, "browser-profiles"), lockerKey);
   const registry = new ToolRegistry();
-  files.scope = () => store.projects.active(options.owner ?? "local").folder;
+  // mac7/r17-d: a task working in its own copy of the project (src/coding/worktrees.ts) reads and writes there.
+  files.scope = () => worktreeScope() ?? store.projects.active(options.owner ?? "local").folder;
   const history = store.openWorkspaceHistory(files, options.owner ?? "local");
   let documents: DocumentLibrary | undefined;
   const writeObserver = {
@@ -220,7 +317,10 @@ export async function createBranch(options: {
   // Files a task produced that are not text, kept version by version with their checksums.
   const keptArtifacts = new KeptArtifacts(join(dataDir, "kept"));
   registerKeptArtifacts(registry, keptArtifacts, files);
-  registerCodeSearch(registry, new WorkspaceSearch(files));
+  // bucket-18 (A1183): put a kept version back, or let one go.
+  registerArtifactVersions(registry, keptArtifacts, files);
+  const workspaceSearch = new WorkspaceSearch(files); // R17-S20: the ignore-file choice is set below
+  registerCodeSearch(registry, workspaceSearch);
   // The project map: built once, then kept up to date file by file, and ordered around a request.
   const projectMap = new ProjectMap(files);
   registerProjectMap(registry, projectMap);
@@ -247,6 +347,9 @@ export async function createBranch(options: {
   registerDebug(registry, debugAdapters);
   // ── mac2/fly-core: the learning core's on-demand tool, present only while its switch is not off. ──
   syncSuggestTool(registry, store, options.owner ?? "local");
+  // mac2/fly-core-2: accepting the core's skill idea opens a pre-filled draft in the skill editor.
+  store.review.acceptSkillIdea = (_ideaOwner, proposal) => ({ skillDraft: skillIdeaDraft(proposal) });
+  warmLearningCore(store, options.owner ?? "local");
   // Programs left running (a preview server, a watcher) and small scripts run on their own. Both
   // go through the same approval a host command does, and both are off until the owner sets them up.
   const processes = new BackgroundProcesses(store, options.owner ?? "local", workspace);
@@ -297,7 +400,10 @@ export async function createBranch(options: {
   const retention = new ConversationRetention(store, options.owner ?? "local");
   // This computer's screen and keyboard. The tools are always here so they can explain themselves,
   // but every one of them refuses until the owner turns the switch on in Settings.
-  const desktop = new DesktopControl(store, { artifacts });
+  // mac2/desktop-ui: on a Mac or Linux the screen is used only while the app's Stop notice shows.
+  const desktop = new DesktopControl(store, {
+    artifacts, ...screenControlParts(options.bannerWindow ? { window: options.bannerWindow } : {}),
+  });
   // Batch 26 (wave 8): Windows has switches of its own under Privacy & security, and a refusal
   // there looks like nothing happening at all. The screen is probed by asking for the window list;
   // the microphone and the camera are read out of what the person already chose.
@@ -318,6 +424,7 @@ export async function createBranch(options: {
     retryPolicy,
     options.reliability,
   );
+  runtime.journal = journalHook(journal, (text) => runtime.hideSecrets(text)); // mac3/never-break: nothing secret is written down
   runtime.artifacts = artifacts;
   // Locking the app: after a quiet spell the locker stays shut until the owner unlocks it again.
   const sessionLock = new SessionLock(store, runtime.owner);
@@ -351,13 +458,28 @@ export async function createBranch(options: {
   try { shipTidyProcedure(store, runtime.owner); } catch { /* an older store simply keeps what it has */ }
   // What goes in front of a task is taken layer by layer in the documented order and budget: what
   // is happening now, then the job in hand, then everything the assistant knows for good.
-  store.review.orderFacts = (factOwner, agent) =>
-    chooseForInjection(memory.retrieval.ranking(factOwner, agent).map((entry) => entry.record), memorySnapshotLimits).records;
+  // mac2/fly-core-2: with the learning core "on", the facts that helped in similar tasks go first.
+  store.review.orderFacts = (factOwner, agent, sessionId) =>
+    chooseForInjection(advisedFacts(sessionId, memory.retrieval.ranking(factOwner, agent).map((entry) => entry.record)), knobSnapshotLimits(store, runtime.owner)).records;
+  // ── R17-S-B: the owner's memory budget and the leak guard's sensitivity, read fresh each time. ──
+  store.review.snapshotLimits = () => knobSnapshotLimits(store, runtime.owner);
+  runtime.leakGuard.options = () => leakOptions(store, runtime.owner);
+  // ── end R17-S-B ──
+  syncMixtures(store, runtime.owner, runtime.models); // R17-051: none until the owner makes one
   registerMemory(registry, store, memory.retrieval);
   registerHistory(registry, store);
   registerSessions(registry, store);
   const sessionTree = new SessionTree(store.sqlite);
   registerSessionTree(registry, store, sessionTree);
+  // Wave mac2 (goal-undo): a hidden snapshot of the workspace before each task, kept in the private
+  // data folder, so an earlier message can take back files and conversation together; and goal mode.
+  const snapshots = new SnapshotStore(join(dataDir, "snapshots"), workspace,
+    options.snapshotGit === undefined ? systemGit() : options.snapshotGit);
+  const rewinds = new Rewinds(store.sqlite, runtime.owner, sessionTree, history, snapshots, files,
+    () => goalUndoSettings(store, runtime.owner).snapshots,
+    (tool) => { const permission = registry.permissionOf(tool); return permission !== "" && !isReadOnlyPermission(permission); });
+  runtime.turnStarted = (run) => rewinds.turnStarted(run);
+  const goals = new GoalMode(runtime, store);
   registerSkills(registry, store);
   registerContextFiles(registry, store);
   documents = new DocumentLibrary(store, runtime.models, files);
@@ -380,6 +502,16 @@ export async function createBranch(options: {
   registerSecondOpinion(registry, runtime);
   const web = new WebAccess(options.web ?? {}, globalThis.fetch, `BranchAgent/${String(createRequire(import.meta.url)("../package.json").version)}`);
   registerWeb(registry, web, (context, info) => { if (context.runId) store.event(context.runId, "content.flagged", info); });
+  // ── R17-S-C (comfort): the owner's proxy and extra certificates for every call Branch makes, and
+  // which ignore files hide paths from searches (src/comfort/). Both do nothing until set. ──
+  const outbound = new OutboundNetwork();
+  outbound.apply(readComfort(store, runtime.owner, "network"));
+  workspaceSearch.ignoreChoice = projectMap.search.ignoreChoice = () => readComfort(store, runtime.owner, "files");
+  // ── end R17-S-C ──
+  // ---- wave mac3 (os-sandbox): the wall's door asks the same network rules as the web, and never
+  // lets a program behind the wall read Branch's own data folder.
+  setWallEdge(store, { siteCheck: (target) => web.policy.assertAllowed(target), dataDir });
+  // ---- end wave mac3 (os-sandbox)
   // A paid search service's key comes out of the locker for the one request and is written down
   // nowhere else: the settings file only ever holds the name of the secret, never its value.
   web.searchKey = async (name: string) => {
@@ -394,10 +526,35 @@ export async function createBranch(options: {
   await restoreConnections({
     models: runtime.models, locker: store.locker, owner: runtime.owner, policy: web.policy, store,
   });
+  // ---- Wave mac5 (local models) hook: off by default; see src/local-kit.ts. ----
+  await startLocalModels({ store, owner: runtime.owner, models: runtime.models, policy: web.policy, dataDir });
+  // ---- end wave mac5 hook ----
   // Pictures, speech and what a video's headers say. Every one of these refuses in plain words
   // when the connected model has no such service, and keeps what it makes beside the database.
   // A service that describes itself in OpenAPI becomes tools, one per operation the owner allows.
   const openApiTools = new OpenApiTools(registry, { store, policy: web.policy, files });
+  // ---- bucket-18: open pull-request hook (A0300); off until the owner switches it on ----
+  const pullRequestStop = new AbortController();
+  const pullRequestWork = new Set<Promise<unknown>>();
+  const pullRequestDeps: PullRequestDeps = {
+    store, owner: runtime.owner, files, policy: web.policy, registry,
+    git: (options, signal) => gitRunner.run(options, AbortSignal.any([signal, pullRequestStop.signal])),
+    // mac5/manual-actions: inside a task the call that got here was already gated as a whole; the
+    // hook working by itself after a task is held to the full rules, "ask" included.
+    runTool: (name, args, runId) => runtime.executeTool(name, args, { mode: runId ? "owner" : "policy" }),
+    // Integration review: the same gate, asked before anything is pushed.
+    preflight: (name, args, runId) => gateRefusal(runtime, name, args, runtime.context(runId ? { runId } : {}),
+      argumentFingerprint(JSON.stringify(args ?? {})), runId ? "owner" : "policy"),
+    // Integration review: Branch's saved work and keys never leave in a pull request.
+    guard: (path) => protectedTarget({ tool: "files.read", readOnly: true, args: { path }, target: path, workspace: files.base }, runtime.protectedAreas),
+  };
+  const stopOfferingPullRequests = offerPullRequestFromChanges(pullRequestDeps);
+  const stopPullRequests = watchFinishedTasks(pullRequestDeps, (work) => {
+    const pending = work().catch(() => undefined);
+    pullRequestWork.add(pending);
+    void pending.finally(() => pullRequestWork.delete(pending));
+  });
+  // ---- end of the pull-request hook block ----
   registerOpenApiTools(registry, openApiTools);
   // Batch 20 (wave 8): the services the owner turned into tools are built back from what was
   // written down, so they survive a restart. Nothing is fetched; each key still comes from the
@@ -429,6 +586,18 @@ export async function createBranch(options: {
   registerVoice(registry, voice, store);
   registerModelSwitch(registry, store, runtime.models);
   media.voice = voice;
+  // Bucket 17 hook: videos understood through the owner's own ffmpeg and yt-dlp, and speech plug-ins.
+  const understanding = new MediaUnderstanding({ store, media, policy: web.policy });
+  registerMediaUnderstanding(registry, understanding);
+  registerTroubleshoot(registry, runtime); // w911 (A0374) hook: the troubleshoot.run tool (switched, off by default).
+  voice.engines = new SpeechEngineService({
+    store, registry: builtInSpeech(), policy: web.policy, fetch: web.policy.guard(globalThis.fetch),
+    secret: async (owner, name, purpose) =>
+      (await store.secrets.resolve(owner, "default", [name], { purpose }).catch((error: Error) => {
+        if (/is not available/.test(error.message)) return {} as Record<string, string>;
+        throw error;
+      }))[name] ?? null,
+  });
   const channels = new ChannelRouter(store, runtime);
   channels.transcribeVoice = async (clip) => (await voice.transcribe(runtime.owner, clip)).text;
   channels.speakReply = async (text) => {
@@ -450,6 +619,10 @@ export async function createBranch(options: {
     lockedDown(store, runtime.owner)
       ? { text: "", blocked: true, reason: lockdownRefusal }
       : privacy.outbound(text);
+  // Wave mac2 (chat-live): typing, reactions and progress messages stop under Lockdown as well.
+  channels.liveAllowed = () => !lockedDown(store, runtime.owner);
+  // ...and nothing key-shaped or secret shows in a step label or streamed text (mac2/leak-guard).
+  channels.hideLeaks = (text) => redactLeaksIn(store.secrets.scrubber.deep(text)).value;
   runtime.hideSecrets = (value) => {
     // mac2/leak-guard: key-shaped values nobody looked up are hidden in logs and question cards too.
     const scrubbed = redactLeaksIn(store.secrets.scrubber.deep(value)).value;
@@ -464,6 +637,13 @@ export async function createBranch(options: {
   // and lets go of anything an integration was holding on the owner's behalf — above all a browser
   // of theirs a task had borrowed.
   const releaseOnLock: (() => Promise<unknown>)[] = [];
+  /**
+   * Integration review (mac7/wake-mic): what comes back by itself when the lock ends. Letting go on
+   * the lock has to be answered here or it is one-way, and the owner is left with a part of Branch
+   * silently off until some setting happens to be saved.
+   */
+  const resumeOnUnlock: (() => void)[] = [];
+  sessionLock.onUnlock = () => { for (const resume of resumeOnUnlock) { try { resume(); } catch { /* one part coming back must not stop the rest */ } } };
   sessionLock.onLock = () => {
     runtime.approvals.forgetAll();
     // Wave 8: a connection that stays open would otherwise outlive the lock. Every live
@@ -471,6 +651,7 @@ export async function createBranch(options: {
     live.closeAll("Branch was locked");
     for (const release of releaseOnLock) void release().catch(() => undefined);
   };
+  releaseOnLock.push(async () => runtime.keepAlive.stop()); // R17-050 (integration review): locking Branch stops cache pings
   // Signing in to outside services the ordinary way, with the answer coming back to this computer.
   const oauth = new OAuthConnections(runtime.owner, store.secrets, web.policy, web.policy.guard(globalThis.fetch));
   const hooks = new Hooks(store, runtime.owner);
@@ -498,12 +679,30 @@ export async function createBranch(options: {
   // Where plugins come from: a folder or one file on this computer, shown in full before it is
   // copied in, with its fingerprint kept so a file that changes later is noticed.
   const pluginCatalog = new PluginCatalog(store, runtime.owner, join(dataDir, "plugins"));
+  // ── bucket-15: add-ons other people wrote (src/add-ons/). Every part ships off; a plugin from a
+  // package runs walled, so this has to be set before the plugins the owner chose are loaded back. ──
+  // The malware check lives in the security service, made further down; until it is there, a look
+  // at a package is refused in a sentence rather than reaching a name that does not exist yet.
+  let vetAddOn: (command: string, args: readonly string[]) => Promise<void> = async () => {
+    throw new Error("Branch is still starting, so the malware check is not ready. Try again in a moment.");
+  };
+  const addOns = new AddOns({ store, runtime, registry, plugins, dataDir, policy: web.policy,
+    vet: (command, args) => vetAddOn(command, args),
+    secret: async (name) => (await store.secrets.resolve(runtime.owner, "default", [name], { purpose: "pipelines" }).catch(() => ({} as Record<string, string>)))[name] ?? null });
+  // ── end bucket-15 ──
   // Drafts of better versions of a skill, tried against real tasks as a practice run first.
   const skillRevisions = new SkillRevisions(store, runtime.owner);
   registerSkillSync(registry, store, files);
+  // ── mac3/reflection-skills: the learning loop, its runtime hook, and what accepting a skill note does. ──
+  const learningLoop = new LearningLoop(store, runtime, registry, runtime.owner);
+  attachLearningLoop(runtime, learningLoop);
+  store.review.applySkillNote = (noteOwner, proposal) => learningLoop.notes.apply(noteOwner, proposal);
   const pluginProblems = await plugins.restore();
   const evaluation = new Evaluation(store, runtime.owner);
   const triggers = new Triggers(store, runtime);
+  // mac6/bucket-16: automations started by Slack's own events; off until the owner turns them on.
+  const slackAutomations = new SlackAutomations(store, () => runtime.owner, (id, payload) => triggers.fire(runtime.owner, id, payload),
+    undefined, (channelId, user) => channels.senderAllowed(channelId, user));
   const webhooks = new Webhooks(store, web.policy);
   // One trace crosses the boundary: a delivery and a question to another assistant both carry the
   // traceparent of the task behind them.
@@ -521,6 +720,13 @@ export async function createBranch(options: {
   // Batch 26 (wave 8): the owner's own checks get a say before a tool call goes ahead, and may only
   // make the answer stricter — hold it for a yes, or refuse it.
   runtime.askHooks = (runId, about) => hooks.decide(runId, about);
+  // Wave mac2 (goal-undo): with snapshots "when needed", the workspace is recorded just before a
+  // task's first call that can change something, then the owner's own checks are asked as before.
+  const decideHooks = runtime.askHooks;
+  runtime.askHooks = async (runId, about) => {
+    await rewinds.beforeChange(runId, String(about.tool ?? ""));
+    return decideHooks(runId, about);
+  };
   // Batch 26 (wave 8): the owner's own task waits for its window to free up; somebody messaging from
   // outside is told in one sentence and their message is let go. Both are written into the record.
   runtime.sessionCeiling = (sessionId, tokens) =>
@@ -529,6 +735,8 @@ export async function createBranch(options: {
     sessionLimiter.check({ scope: "sender", id: `${channel}:${senderId}` }, "stranger");
   const scheduler = new Scheduler(store, runtime, (channel, chatId, text, key) => channels.deliver(channel, chatId, text, key));
   registerSchedules(registry, scheduler);
+  // wave mac2 (quiet-jobs follow-up): a program left running that finishes wakes the check-in; wake() does nothing while it is off.
+  processes.finished.add(() => { void scheduler.heartbeat.wake("a background command finished").catch(() => undefined); });
   // Figures, looking things up properly, watching pages, and the one message first thing.
   const deliverMessage = (channel: string, chatId: string, text: string, key: string) => channels.deliver(channel, chatId, text, key);
   const dataTables = new DataTables(files, web, writeObserver);
@@ -541,6 +749,18 @@ export async function createBranch(options: {
   const documentAnalysis = new DocumentAnalysis(files, dataTables, runtime.models);
   registerDocumentAnalysis(registry, documentAnalysis);
   const research = new Research(store, web, files, documents, writeObserver);
+  // bucket-18 (A2128): research reads a page built by script with the browser, when one is set up.
+  research.pageFallback = async (url, context) => {
+    const names = registry.names();
+    if (!names.includes("browser.navigate") || !names.includes("browser.snapshot") || !context.permissions.has("browser.read")) return null;
+    // Integration review: only where the owner's approval rules already let the browser open this page
+    // without asking; a rule that asks (or refuses) leaves the plain read's answer standing.
+    for (const [tool, args] of [["browser.navigate", { url }], ["browser.snapshot", {}]] as const)
+      if (runtime.checkPolicy(tool, args, context).decision !== "allow") return null;
+    await registry.execute("browser.navigate", { url }, context);
+    const snapshot = await registry.execute("browser.snapshot", {}, context) as { url?: string; accessibility?: string };
+    return { url: snapshot.url ?? url, title: snapshot.url ?? url, text: String(snapshot.accessibility ?? "") };
+  };
   registerResearch(registry, research);
   const monitors = new Monitors(store, web, deliverMessage);
   registerMonitors(registry, monitors);
@@ -574,9 +794,13 @@ export async function createBranch(options: {
   const flows = new Flows(store, runtime.owner, workflows, runtime);
   flows.notifyEvent = guardedNotify;
   registerFlows(registry, flows);
+  // Bucket 21: tools for people building on Branch (switched off until the owner turns them on).
+  registerSdkKit(registry, store);
+  // w911 (A0743, A1452) hook: web.page and web.crawl (switched off until the owner turns them on).
+  const webPages = new WebPages({ store, web, registry, runtime }); registerWebPages(registry, webPages);
   // "workflows.resume" is the one way in for carrying anything saved on, a graph flow included, so
   // the schedules toolbox does not grow a second tool that says the same thing.
-  workflows.resumeGraph = (id) => (flows.isGraph(id) ? flows.resumeGraph(id) : null);
+  workflows.resumeGraph = (id, within) => (flows.isGraph(id) ? flows.resumeGraph(id, within ? { within } : {}) : null); // mac7/lockdown-fix: within
   // Wave 9: a graph flow left working when the app closed picks up at the box after the last one
   // that finished, with the state exactly as that box left it. Nothing is started again from the
   // top, and a launch with no interrupted flow does nothing at all.
@@ -585,6 +809,10 @@ export async function createBranch(options: {
   // items in one place, with a due day handed on to the schedules rather than timed here.
   const todos = new Todos(store.sqlite);
   registerTodos(registry, todos, runtime.owner);
+  // --- mac3/never-break: with the switch on, the assistant may suggest gateway settings (never apply them) ---
+  if ((await loadGatewayConfig(dataDir)).config.mode !== "off")
+    registerNeverBreak(registry, dataDir, gatewayDryRun(fileURLToPath(new URL("./cli.js", import.meta.url))));
+  // --- end mac3/never-break ---
   // Wave 8: the owner's notes folder, written into and read back from. A folder bridge, not an
   // Obsidian plugin: Obsidian keeps ordinary Markdown in an ordinary folder.
   const obsidian = new ObsidianBridge(store, runtime.owner);
@@ -609,6 +837,12 @@ export async function createBranch(options: {
     await chatgpt.load();
     syncChatGPTPresets(runtime.models, chatgpt, (await chatgpt.status()).signedIn, userAgent);
   }
+  // ---- mac6/accounts: several accounts per connection (src/accounts/); off by default ----
+  await startAccounts({
+    store, owner: runtime.owner, models: runtime.models, policy: web.policy, dataDir, userAgent,
+    ...(chatgpt ? { chatgpt } : {}),
+  });
+  // ---- end mac6/accounts ----
   // Nothing is shared with other AI tools until the owner turns it on in Settings.
   const mcpServer = await startMcpServer(registry, store, runtime, knowledge, files);
   mcpServer.documents = { list: (who: string) => documents.list(who) as unknown[] };
@@ -677,6 +911,9 @@ export async function createBranch(options: {
   files.readOnly = (path) => (memoryMirror.owns(path) ? readOnlyRefusal : "");
   // And a knowledge base never reads those notes back in: they are the assistant's own writing.
   knowledgeBases.skip = (path) => memoryMirror.owns(path);
+  // bucket-18: memory history (A2317): what is remembered, committed to a private repository in the data folder.
+  const memoryHistory = new MemoryHistory(dataDir, store, memoryMirror, (options, signal) => gitRunner.run(options, signal), web.policy);
+  registerMemoryHistory(registry, memoryHistory, runtime.owner);
   // Saved facts are read through the same store of already-read passages, so nothing is sent twice.
   memory.retrieval.wrapEmbedder = (embedder) => new CachedEmbeddings(asEmbeddings(embedder), knowledgeBases.cache);
   const consolidation = new MemoryConsolidation(store, memory.retrieval, memory.hygiene);
@@ -738,6 +975,129 @@ export async function createBranch(options: {
   // Short-lived, scoped keys for anything that is not the app window. The master session key is
   // never one of these; see src/session-tokens.ts.
   const sessionTokens = new SessionTokens(store.sqlite, store);
+  // ── bucket 19: people signing in from their own device, groups and sharing (src/people/). Ships off. ──
+  const people = new People({ store, owner: runtime.owner, db: store.sqlite, roles: runtime.roles, tokens: sessionTokens,
+    fetch: web.policy.guard(globalThis.fetch),
+    secret: async (name: string) => {
+      const project = store.projects.active(runtime.owner).id;
+      const value = (await store.secrets.resolve(runtime.owner, project, [name], { purpose: "signing a person in" }))[name];
+      audit(store, runtime.owner, { action: "secret.used", actor: "an identity service you set up", subject: `${name} (project ${project})`,
+        reason: "Signing a person in needed it", outcome: "handed over" });
+      return value;
+    } });
+  // ── end bucket 19 ──
+  // ── mac4/bucket-20: talking to other agents and tools (src/interop/). Every part ships off. ──
+  const interop = new Interop({ runtime, registry, knowledge, teams, flows, remoteAgents,
+    tokens: sessionTokens, files, policy: web.policy, version });
+  // ── mac6/bucket-23: the smaller asks (src/asks/). Every part ships off. ──
+  const asks = new Asks({ runtime, registry, web, files, flows, fetch: web.policy.guard(globalThis.fetch),
+    secret: async (name, purpose) => (await store.secrets.resolve(runtime.owner, store.projects.active(runtime.owner).id, [name], { purpose }))[name]!,
+    telegramInUse: () => channels.summary().channels.some((channel) => channel.kind === "telegram"), version,
+    assertHost: (host, port) => web.policy.assertAllowed(new URL(`https://${host}:${port}/`), "mail server address") });
+  // ── end mac6/bucket-23 ──
+  // ── mac7/nodes: the owner's other devices lending Branch a few abilities (src/devices/). Ships off. ──
+  const devices = new Devices({ store, owner: runtime.owner, registry, files });
+  // ── end mac7/nodes ──
+  // ── r17-b: suggestions, standing orders, loops, self-starting procedures (src/autonomy/). Every part ships off. ──
+  const autonomy = new Autonomy({ runtime, registry, scheduler, chats: channels, handoff: interop.handoffParts,
+    hasSecret: (name) => {
+      try { return store.secrets.list(runtime.owner, store.projects.active(runtime.owner).id).some((entry) => entry.name === name); } catch { return false; }
+    } });
+  scheduler.onTick.add(() => autonomy.tick());
+  // ── end r17-b ──
+  // ── R17-A (wave mac7): Trunks (src/trunks/). Every part ships off. ──
+  // R17-005: a Trunk's account is its own conversation's choice in the accounts work (src/accounts/).
+  const trunkAccounts = {
+    get connected() { return accountsSettings(store, runtime.owner).mode !== "off"; },
+    pools: () => accountsSettings(store, runtime.owner).pools.map((pool) => ({ id: pool.pool, label: pool.pool,
+      accounts: pool.accounts.map((account) => ({ id: account.id, label: account.label, signIn: pool.kind !== "api-key" })) })),
+    choose: (sessionId: string, pool: string, account: string | null) => saveSessionChoice(store, runtime.owner, sessionId, pool, account),
+  };
+  const trunks = new Trunks({ runtime, registry, knowledge, scheduler, workflows, accounts: trunkAccounts,
+    picture: async (prompt) => {
+      const made = await runtime.executeTool("media.image", { prompt, size: "256x256" }, { mode: "owner" }) as { path?: string; mediaType?: string };
+      if (!made.path || !runtime.artifacts) throw new Error("The picture model did not hand back a picture");
+      return { bytes: await runtime.artifacts.read(made.path), mediaType: made.mediaType ?? "image/png" };
+    } });
+  retention.keeps = (sessionId) => trunks.keeps(sessionId);
+  channels.trunkReach = (channel, sessionId) => {
+    const owned = trunks.trunkForConversation(sessionId);
+    const trunk = owned ? trunks.records.find(owned.trunkId) : undefined;
+    return trunk && !trunk.reach.channels.includes(channel) // whatever the switch says, reach only narrows
+      ? `${trunk.name} does not answer on ${channel}. The owner can allow it under Customize → Trunks.` : null;
+  };
+  // ── end R17-A ──
+  // ── mac7/r17-d: coding polish (src/coding/). Every part ships off. ──
+  const coding = new Coding({ runtime, registry, files, servers: languageServers, git, gitRun });
+  runtime.coding = coding;
+  // ── end mac7/r17-d ──
+  // ── R17-C: files, voice, devices and personal connectors (src/personal/). Every part ships off. ──
+  const personalSecret = async (name: string, purpose: string) =>
+    (await store.secrets.resolve(runtime.owner, store.projects.active(runtime.owner).id, [name], { purpose }))[name]!;
+  const personal = new Personal({ runtime, registry, files, oauth, fetch: web.policy.guard(globalThis.fetch), secret: personalSecret,
+    assertHost: (host, port) => web.policy.assertAllowed(new URL(`https://${host}:${port}/`), "mail server address"),
+    channels: { adapter: (id) => channels.adapter(id), outboundGuard: (text) => channels.outboundGuard(text),
+      reachable: (id, chatId) => channels.chats(runtime.owner).some((chat) => chat.channel === id && chat.chatId === chatId) },
+    holdsKnownSecret: (text) => store.secrets.scrubber.deep(text) !== text,
+    requireOwner: (what) => store.profiles.requireOwner(what),
+    morningBrief: () => brief.preview(runtime.owner).markdown,
+    speak: async (text) => { const spoken = await voice.speak(runtime.owner, { text, voice: "", speed: 1 }); return { bytes: spoken.bytes, mediaType: spoken.mediaType }; },
+    transcribe: async (clip) => (await voice.transcribe(runtime.owner, { ...clip, name: "spoken answer" })).text,
+    lockdownRefusal: () => (lockedDown(store, runtime.owner) ? lockdownRefusal : null) });
+  releaseOnLock.push(() => personal.close()); // locking Branch stops the tunnel and forgets spoken answers
+  // ── end R17-C ──
+  // ── mac7/wake-mic: the word that starts a turn, actually listening. Ships off, like everything else. ──
+  // It runs only while the switch is on, a word is chosen, and this computer can really listen, and
+  // it asks again before every window, so Lockdown or the switch going off stops it within one
+  // window whoever turned it. Hearing the word starts an ordinary turn: the same run a typed
+  // message starts, with no permissions of its own and every question still asked.
+  const wake = startWakeWord({
+    store, owner: runtime.owner, runner: options.wake?.runner ?? wakeRunner(),
+    capture: options.wake?.capture ?? wakeCaptureRunner(),
+    // Integration review: being locked is a state the listener asks about before every window and
+    // before every start, so a settings save cannot reopen the microphone on a locked Branch.
+    locked: () => sessionLock.locked(),
+    ...(options.wake?.present ? { present: options.wake.present } : {}),
+    ...(options.wake?.platform ? { platform: options.wake.platform } : {}),
+    // The turn the word starts is an ordinary one: the same call a typed message makes, with no
+    // permissions of its own, nobody else's source, and every question still asked.
+    onHeard: (text) => { if (text.trim()) void runtime.run({ prompt: text.trim() }).catch(() => undefined); },
+  });
+  releaseOnLock.push(() => wake.stop()); // locking Branch lets go of the microphone
+  resumeOnUnlock.push(() => wake.refresh()); // ...and unlocking it listens again, with no save needed
+  // ── end mac7/wake-mic ──
+  // ── r17-i: reach and platform (src/reach/). Every part ships off. ──
+  const reachParts = new Reach({ runtime, registry, router: channels, files, policy: web.policy, fetch: web.policy.guard(globalThis.fetch),
+    secret: async (name, purpose) => (await store.secrets.resolve(runtime.owner, store.projects.active(runtime.owner).id, [name], { purpose }))[name]!,
+    machines: { list: () => (askMode(store, runtime.owner, "nodes") === "off" ? [] : asks.nodes.nodes()) }, version, ...platformRunners() });
+  scheduler.onTick.add(() => reachParts.tick());
+  reachParts.remoteTrunks.useRoster(trunkRoster(trunks, runtime, registry, reachParts)); // R17-077 on R17-A's Trunks
+  // ── end r17-i ──
+  // ── mac7/r17-g: the safety extras (src/safety-extras/). Every part ships off; the emergency stop is unpressed. ──
+  const safetyExtras = new SafetyExtras({ runtime, registry, dataDir });
+  web.policy.emergencyStop = (target) => assertAddressNotStopped(store, runtime.owner, target);
+  // ── end mac7/r17-g ──
+  // ── r17-h: flows and boards (src/flows-boards/). Every part ships off. ──
+  const flowsBoards = new FlowsBoards({ runtime, registry, flows, knowledge, queue: runQueue, asks,
+    fetch: () => web.policy.guard(globalThis.fetch), ...(process.env.BRANCH_OSV_ENDPOINT ? { osvEndpoint: process.env.BRANCH_OSV_ENDPOINT } : {}) });
+  // ── end r17-h ──
+  // ── R17-F: learning, deeper (src/learning-more/). Every part ships off. ──
+  const learningMore = new LearningMore({ store, registry, owner: runtime.owner, models: runtime.models,
+    fetch: () => web.policy.guard(globalThis.fetch), hindsight: asks.hindsight, mirror: memoryMirror, files,
+    secret: async (name, purpose) => (await store.secrets.resolve(runtime.owner, store.projects.active(runtime.owner).id, [name], { purpose }))[name]!,
+    // A home folder given to createBranch is where to look, so the assistants' own override variables are not read then.
+    place: () => (options.home ? { platform: process.platform, env: {}, home: resolve(options.home) } : { platform: process.platform, env: process.env, home: learningHome() }),
+    provider: () => runtime.models.plan(runtime.owner, "").candidates[0]?.provider,
+    wrapEmbedder: (embedder) => new CachedEmbeddings(asEmbeddings(embedder), knowledgeBases.cache) });
+  // ── end R17-F ──
+  // ── mac3/security-check: the self-check and the malware check (src/security-audit). Both ship off. ──
+  const security = new SecurityService(
+    { store, runtime, registry, sessionLock, privacy, web, sessionTokens, plugins, pluginCatalog, people },
+    { dataDir, ...(options.home ? { home: resolve(options.home) } : {}), integrationsPath: () => (process.env.BRANCH_INTEGRATIONS ? resolve(process.env.BRANCH_INTEGRATIONS) : null),
+      ...(process.env.BRANCH_OSV_ENDPOINT ? { osvEndpoint: process.env.BRANCH_OSV_ENDPOINT } : {}) });
+  security.start();
+  vetAddOn = (command, args) => security.malware.vet(command, args); // bucket-15: the add-ons' malware check is ready now
+  // ── end mac3/security-check ──
   const stopWatchingErrors = recordUncaughtErrors(store.spans, runtime.owner, (value) => runtime.hideSecrets(value));
   // A finished task's spans go out on their own once sending is on; the exporter itself does
   // nothing at all while it is off, so this stays quiet until the owner turns it on.
@@ -759,18 +1119,73 @@ export async function createBranch(options: {
     store.event(runId, failed ? "trace.send_failed" : "trace.sent",
       failed ? { error: failed.error } : { spans: spans.length, endpoint: failed ? "" : settings.destination });
   };
+  // --- bucket 14 (A1751): after the steps, the task counters, only when that switch is on ---
+  const sendTaskSteps = runtime.exportSpans;
+  runtime.exportSpans = async (runId) => {
+    await sendTaskSteps(runId);
+    await afterTaskMetrics(executionMetricsDeps(store, runtime.owner, traceExport)).catch(() => null);
+  };
+  // --- end bucket 14 ---
   let closing: Promise<void> | undefined;
   return {
     store,
     registry,
+    /** R17-S-C: the proxy and certificates in force (src/comfort/network.ts). */
+    comfort: { outbound },
+    /** mac4/bucket-20: the Agent Protocol, lent tools, modes, project routing, fleet, handoff, flow search, market. */
+    interop,
+    /** bucket-15: add-on packages, lists, filters, Pipelines, drafts, search sources, Branch as a plugin. */
+    addOns,
+    /** mac6/bucket-23: the smaller asks (src/asks/); every part ships off. */
+    asks,
+    /** mac7/nodes: paired devices, their switches and the device socket (src/devices/); ships off. */
+    devices,
+    /** r17-b: suggested automations, standing orders, loops and self-starting procedures; every part ships off. */
+    autonomy,
+    /** R17-A: Trunks, named long-lived agents (src/trunks/); every part ships off. */
+    trunks,
+    /** mac7/r17-d: coding polish (src/coding/); every part ships off. */
+    coding,
+    /** R17-C: files, voice, devices and personal connectors (src/personal/); every part ships off. */
+    personal,
+    /** r17-i: other computers, Trunks across computers, background apps, videos, relay, send and pause, sharing, USB, notes, arena. */
+    reachParts,
+    /** mac7/r17-g: tool scripts, WebAssembly add-ons, codes, the emergency stop, scans, the activity chain. */
+    safetyExtras,
+    /** r17-h: going back in a flow, checked procedures, the shared board, widgets, the waiting line, focus, install requests; every part ships off. */
+    flowsBoards,
+    /** R17-F: learning, deeper (src/learning-more/); every part ships off. */
+    learningMore,
     runtime,
+    /** mac3/never-break: the task journal, and settling interrupted work after a restart. */
+    neverBreak: {
+      journal,
+      recoverOnStart: async (dataFolder: string) => recoverOnStart({ store, runtime, journal, nextTurn,
+        mode: (await loadGatewayConfig(dataFolder)).config.mode, askOnly: journalReset !== null }),
+      /** The Telegram setup card: its state, saving it, and connecting the bot it set up. */
+      telegram: {
+        view: () => telegramSetupView(store, runtime.owner, channels),
+        save: (input: unknown) => saveTelegramSetup(store, runtime.owner, input),
+        connect: () => connectGuidedTelegram({ store, owner: runtime.owner, router: channels, fetch: web.policy.guard(globalThis.fetch) }),
+      },
+    },
+    /** mac3/security-check: the security self-check, its repairs, and the malware check on add-ons. */
+    security,
     /** mac2/fly-core: the learning core's three-way switch (off, when-needed, on); it ships off. */
     learningCore: {
       settings: () => flyCoreSettings(store, options.owner ?? "local"),
       configure: (input: unknown) => setFlyCoreMode(store, options.owner ?? "local", input, registry),
+      /** mac2/fly-core-2: what it has learned, in plain words, and forgetting all of it. */
+      view: (viewOwner = options.owner ?? "local") => learningCoreView(store, viewOwner),
+      forget: (forgetOwner = options.owner ?? "local") => forgetLearning(store, forgetOwner),
     },
+    /** mac3/reflection-skills: looking back over conversations and writing new skills; both switches ship off. */
+    learningLoop,
     /** Wave 8: the shape conversations make when one is branched off another, and carrying an answer back. */
     sessionTree,
+    /** Wave mac2: going back to an earlier message, and working toward a goal in rounds. */
+    rewinds,
+    goals,
     files,
     knowledge,
     documents,
@@ -778,6 +1193,9 @@ export async function createBranch(options: {
     media,
     /** Writing speech out and reading text aloud, whichever service does the work. */
     voice,
+    /** Bucket 17: videos and sound understood through the owner's own ffmpeg and yt-dlp. */
+    understanding,
+    webPages, // w911 (A0743, A1452) hook: reading and crawling web pages
     /** Wave 8: live conversations — talking and being cut off, over a connection that stays open. */
     live,
     /** Finding, tidying and moving saved facts. */
@@ -900,6 +1318,7 @@ export async function createBranch(options: {
     studies,
     triggers,
     webhooks,
+    slackAutomations, // mac6/bucket-16
     /** Wave 6: saved workflows, the waiting line for tasks, and days off with quiet hours. */
     workflows,
     runQueue,
@@ -918,6 +1337,8 @@ export async function createBranch(options: {
     codeChanges,
     /** The project map, for the screens that show it and for the tests. */
     projectMap,
+    /** bucket-18 (A2317): the history of what is remembered, off until the owner switches it on. */
+    memoryHistory,
     /** Services turned into tools from their own OpenAPI description. */
     openApiTools,
     /** Files a task produced that are not text, kept version by version. */
@@ -951,6 +1372,10 @@ export async function createBranch(options: {
       tracer: runtime.tracer,
       onLock: (release: () => Promise<unknown>) => { releaseOnLock.push(release); },
       context: (runId: string) => runtime.context({ runId }),
+      slackEvents: (channelId: string, event: unknown, bot: string | null) => void slackAutomations.handle(channelId, event, bot), // mac6/bucket-16
+      // Wave mac2 (guards): hooks and AI tool servers listed in a file inside the workspace are only
+      // started when the owner trusts that folder (src/folder-trust.ts). A file elsewhere is theirs.
+      configTrusted: (path: string) => integrationsFileTrusted(store, runtime.owner, runtime.workspace, path),
       // Whether another person's server is started as Branch starts or only when a task really
       // needs it, and what it last said its tools are, so they can be listed either way.
       mcp: {
@@ -962,12 +1387,19 @@ export async function createBranch(options: {
             void store.save("settings", runtime.owner, `mcp-tools:${id}`, { tools, at: new Date().toISOString() }),
         },
         connections: mcpConnections,
+        startupTimeoutMs: () => readComfort(store, runtime.owner, "mcp").startupTimeoutSeconds * 1000, // R17-S20
+        // mac3/security-check: a server fetched from a package registry is looked up first.
+        vetLaunch: (command: string, args: readonly string[]) => security.malware.vet(command, args),
       },
     },
+    /** mac7/wake-mic: the word that starts a turn. The card reads `listening` from this, never guesses it. */
+    wake,
     /** Sending traces and counters to an address the owner chose; off until they turn it on. */
     traceExport,
     /** Batch 20 (wave 8): short-lived keys for a script, an extension or the SDK. */
     sessionTokens,
+    /** bucket 19: people signing in from their own device, groups and sharing; ships off. */
+    people,
     /** Wave 9: scoring the real work as it finishes, and the recent verdicts. */
     liveScoring: {
       settings: () => liveScoringSettings(store, runtime.owner),
@@ -976,6 +1408,11 @@ export async function createBranch(options: {
       summary: (limit?: number) => liveScoreSummary(liveScores(store, runtime.owner, limit)),
     },
     close: () => (closing ??= (async () => {
+      // bucket-18 (A0300): nothing is sent to GitHub while the app is closing.
+      stopPullRequests();
+      stopOfferingPullRequests();
+      pullRequestStop.abort(new Error("Branch is closing"));
+      await Promise.allSettled([...pullRequestWork]);
       stopWatchingErrors();
       stopLiveScoring();
       // Wave 8: a connection that stays open must not outlive the app either.
@@ -985,15 +1422,28 @@ export async function createBranch(options: {
       knowledgeBases.vectors.close?.();
       skillPackages.stop();
       mcpServer.close();
+      asks.close(); // mac6/bucket-23: live pages stop asking their tools again
+      devices.close(); // mac7/nodes: every device socket is closed
+      await wake.stop(); // mac7/wake-mic: the microphone is let go of before the app closes
+      runtime.keepAlive.stop(); // R17-050: no cache ping outlives the app
+      await autonomy.close(); // r17-b: nothing more starts by itself, and a turn that is working gets a moment
+      await trunks.close(); // R17-A: rooms stop between turns
+      await personal.close().catch(() => undefined); // R17-C: the webhook tunnel program stops
+      await reachParts.close(); // r17-i: the relay stops asking
+      safetyExtras.close(); // mac7/r17-g
       await mcpConnections.closeAll();
       // Nothing the assistant left running outlives the app.
       await processes.stopAll().catch(() => undefined);
       await languageServers.stopAll().catch(() => undefined);
       await debugAdapters.stopAll().catch(() => undefined);
+      // mac3/reflection-skills: a draft or a look back still being written gets a moment to finish.
+      await Promise.race([learningLoop.idle(), new Promise((resolve) => setTimeout(resolve, 5000).unref())]);
       try {
         await closeBranch(scheduler, runtime, store, channels, desktop);
       } finally {
+        journal.close(); // mac3/never-break
         oauth.closeAll();
+        outbound.reset(); // R17-S-C: the program's proxy and certificates go back as they were
       }
     })()),
   };
@@ -1007,6 +1457,17 @@ async function replayNamedRecipe(knowledge: Knowledge, store: Store, runtime: Ru
   if (!match) throw new Error(`No verified recipe called "${recipe}"`);
   await knowledge.replayProcedure(runtime.context({ runId }), match.id);
 }
+/** mac3/never-break: stamps the store's data format and opens the journal; the store is closed if the stamp fails. */
+function openNeverBreak(store: Store, dataDir: string): { journal: TaskJournal; reset: string | null } {
+  try {
+    migrate(store.sqlite, storeMigrations, { backupTo: join(dataDir, "update-backups", `before-format-${Date.now()}.sqlite`) });
+    // A journal that cannot be read is put aside rather than stopping Branch from starting.
+    return openJournal(join(dataDir, "journal.sqlite"));
+  } catch (error) {
+    store.close();
+    throw error;
+  }
+}
 async function closeBranch(
   scheduler: Scheduler,
   runtime: Runtime,
@@ -1019,6 +1480,7 @@ async function closeBranch(
   const schedulingStopped = scheduler.stop();
   await runtime.shutdown();
   await schedulingStopped;
+  localKitFor(store)?.close(); // Wave mac5 (local models): stop what Branch started, keep setups resumable.
   store.close();
 }
 export * from "./contracts.js";
@@ -1036,6 +1498,7 @@ export * from "./knowledge.js";
 export * from "./memory.js";
 export * from "./identity.js";
 export * from "./context-files.js";
+export * from "./security-audit/index.js";
 export * from "./skills.js";
 export * from "./models.js";
 export * from "./chatgpt-auth.js";
@@ -1095,6 +1558,9 @@ export * from "./tracing-export.js";
 export * from "./metrics.js";
 export * from "./auth-limits.js";
 export * from "./hooks.js";
+// bucket-18: Open pull-request hook (A0300)
+export * from "./pr-hook.js";
+export * from "./key-context.js";
 export * from "./ws.js";
 export * from "./integrations/process-usage.js";
 export * from "./skill-governance.js";
@@ -1153,6 +1619,8 @@ export * from "./integrations/git.js";
 export * from "./integrations/git-run.js";
 export * from "./integrations/git-tools.js";
 export * from "./integrations/github.js";
+// bucket-18: GitHub App (A2227)
+export * from "./integrations/github-app.js";
 export * from "./integrations/gitlab.js";
 export * from "./integrations/desktop.js";
 export * from "./integrations/desktop-tools.js";
@@ -1223,6 +1691,9 @@ export * from "./screen-watch.js";
 export * from "./plugin-catalog.js";
 export * from "./skill-revisions.js";
 export * from "./media.js";
+export * from "./troubleshoot.js"; // w911 (A0374) hook.
+export * from "./qa-scenarios.js"; // w911 (A1753) hook.
+export * from "./qa-api.js"; // w911 (A1753) hook.
 export * from "./voice.js";
 export * from "./voice-stt.js";
 export * from "./voice-tts.js";
@@ -1253,6 +1724,8 @@ export * from "./misc-api.js";
 export * from "./integrations/linear.js";
 export * from "./integrations/issue-context.js";
 export * from "./integrations/issue-tools.js";
+// bucket-18: Issue-tracker context (A0174) - add Jira and GitLab support
+export * from "./integrations/jira.js";
 // Wave 6 (collaboration and workflows).
 export * from "./labels.js";
 export * from "./conversation-share.js";
@@ -1288,11 +1761,18 @@ export * from "./api-openapi.js";
 export * from "./help.js";
 export * from "./request-cache.js";
 export * from "./batch-inference.js";
+export * from "./chat-engine.js"; // w911 (A0847)
 export * from "./provider-batch.js";
 export * from "./lockdown.js";
 export * from "./session-tree.js";
+export * from "./goal-mode.js";
+export * from "./rewind.js";
 export * from "./project-ledger.js";
 export * from "./watch.js";
+// bucket-18: AI comments (A0344)
+export * from "./ai-comments.js";
+// bucket-18: memory history (A2317)
+export * from "./memory-git.js";
 // Batch 20 (wave 8): writing and changing documents, and the rest of what this batch added.
 export * from "./document-package.js";
 export * from "./document-write.js";
@@ -1312,9 +1792,55 @@ export * from "./memory-ephemeral.js";
 // may message the assistant, the chain a phone must satisfy, and coding assistants as a model.
 export * from "./session-tokens.js";
 export * from "./vault-sources.js";
+export * from "./vault-autofill.js"; // mac7/vault-autofill (R17-068)
 export * from "./channels/allowlist.js";
 export * from "./remote/gateway-auth.js";
 export * from "./providers/cli-agent.js";
 export * from "./cli-attach.js";
 export * from "./cli-completion.js";
 export * from "./cli-run.js";
+// mac4/bucket-20: talking to other agents and tools.
+export { Interop } from "./interop/index.js";
+// bucket-15: add-ons other people wrote.
+export { AddOns, applyFilters, branchPluginFiles, definePlugin, addOnApiVersion, readOffer, signListEntry, verifyListEntry, pluginWall } from "./add-ons/index.js";
+// Wave mac2 (guards): the loop guard, the folder's own instructions and folder trust.
+export * from "./loop-guard.js";
+// R17-S-B: the hidden knobs, with plain labels.
+export * from "./knobs/settings.js";
+export * from "./knobs/apply.js";
+export * from "./knobs/environment.js";
+export * from "./knobs/thinking.js";
+export * from "./knobs/commands.js";
+export * from "./knobs/leak-options.js";
+export { LaunchFileChangeSchema, launchFileView, saveLaunchFile } from "./knobs/launch-file.js";
+// R17-E: models, cheaper and smarter.
+export * from "./model-savings/settings.js";
+export * from "./model-savings/openrouter.js";
+export * from "./model-savings/difficulty.js";
+export * from "./model-savings/reported.js";
+export * from "./model-savings/rounds.js";
+export * from "./model-savings/keep-alive.js";
+export * from "./model-savings/mixture.js";
+// R17-S-C (comfort): shortcuts, status line, notifications, voice keys, browser care, proxy and certificates.
+export * from "./comfort/settings.js";
+export * from "./comfort/network.js";
+// mac7/node-floor: the oldest Node Branch is supported on, and what to say on an older one.
+export * from "./node-floor.js";
+export * from "./comfort/browser-safety.js";
+export * from "./comfort/ignore-files.js";
+export * from "./comfort/status-line.js";
+export * from "./comfort/auto-update.js";
+export * from "./folder-trust.js";
+export * from "./run-guards.js";
+// Wave mac3 (tool-safety): "always allow" per subcommand, and the second look before an approval.
+export * from "./command-prefix.js";
+export * from "./approval-reviewer.js";
+// Bucket 14 (A1334, A0367): handing events to an embedding program's logger, and the usage report.
+export * from "./log-bridge.js";
+export * from "./usage-report.js";
+export * from "./execution-metrics.js";
+// Bucket 21: a library other people can build on — flows as YAML, and the app-builder tools.
+export * from "./flow-yaml.js";
+export * from "./sdk-kit.js";
+export * from "./web-pages-settings.js"; // w911 (A0743, A1452) hook
+export * from "./sdk-starters.js";

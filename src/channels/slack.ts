@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { ChannelAdapter, ChannelHealth, InboundMessage } from "./router.js";
+import type { ChannelAdapter, ChannelHealth, InboundMessage, OutgoingFile } from "./router.js"; // R17-C: OutgoingFile
 import { connectWebSocket, reconnectDelay, type WebSocketConnect, type WebSocketConnection } from "./ws-client.js";
 
 /**
@@ -22,6 +22,8 @@ export interface SlackOptions {
   fetch?: typeof fetch;
   connect?: WebSocketConnect;
   reconnectBaseMs?: number;
+  /** mac6/bucket-16: every event Slack sends, for Slack-started automations (src/channels/slack-automations.ts). */
+  onEvent?: (event: unknown, botUserId: string | null) => void;
 }
 const eventSchema = z.object({
   type: z.string(), channel: z.string().optional(), user: z.string().optional(), text: z.string().optional(),
@@ -44,6 +46,11 @@ export function toMrkdwn(text: string): string {
   out = out.replace(/\*\*([^*\n]+)\*\*/g, "*$1*");
   return out.replace(/\u0000(\d+)\u0000/g, (_, index: string) => fences[Number(index)]!);
 }
+
+/** Slack names reactions in words; these are the ones the live status uses (see live-status.ts). */
+const slackEmojiNames: Record<string, string> = {
+  "👀": "eyes", "🤔": "thinking_face", "\u{1F468}\u200D\u{1F4BB}": "technologist", "👍": "+1", "😢": "cry",
+};
 
 export class SlackAdapter implements ChannelAdapter {
   readonly kind = "slack";
@@ -86,6 +93,9 @@ export class SlackAdapter implements ChannelAdapter {
         const address = this.options.socketUrl ?? await this.open();
         const socket = await this.connect(address, { onMessage: (text) => this.receive(text, onMessage) });
         this.socket = socket;
+        // mac7/linux-fixes: a stop that arrived while this was still being opened found nothing to
+        // close, and the loop then waited for a close nobody would ask for. Let it go straight away.
+        if (this.stopping) socket.close();
         this.state = { state: "connected" };
         attempt = 0;
         await socket.closed;
@@ -112,6 +122,7 @@ export class SlackAdapter implements ChannelAdapter {
     const eventId = payload?.event_id;
     if (!payload?.event || (eventId && this.seen.has(eventId))) return;
     if (eventId) { this.seen.add(eventId); if (this.seen.size > 500) this.seen.delete(this.seen.values().next().value!); }
+    try { this.options.onEvent?.(payload.event, this.user?.id ?? null); } catch { /* an automation never stops a reply */ } // mac6/bucket-16
     const inbound = this.inbound(payload.event);
     if (inbound) void onMessage(inbound).catch(() => undefined);
   }
@@ -131,6 +142,7 @@ export class SlackAdapter implements ChannelAdapter {
       addressed: direct || mentioned,
       // Replying to this id keeps the answer in the thread the question was asked in.
       messageId: event.thread_ts ?? event.ts ?? "",
+      ...(event.thread_ts && event.ts ? { reactTo: event.ts } : {}),
     };
   }
   async send(chatId: string, text: string, replyToMessageId?: string): Promise<string | undefined> {
@@ -140,6 +152,45 @@ export class SlackAdapter implements ChannelAdapter {
     const parsed = z.object({ ts: z.string() }).passthrough().safeParse(result);
     return parsed.success ? parsed.data.ts : undefined;
   }
+  /**
+   * Slack keeps every reaction side by side and names them in words, so the previous one is taken
+   * off first. Slack has no "typing…" for an app, so there is no `sendTyping` here.
+   */
+  async react(chatId: string, messageId: string, emoji: string, previous?: string): Promise<void> {
+    const name = slackEmojiNames[emoji];
+    if (!name) throw new Error("Slack has no name for that reaction");
+    const old = previous ? slackEmojiNames[previous] : undefined;
+    if (old && old !== name)
+      await this.call("reactions.remove", this.options.token, { channel: chatId, timestamp: messageId, name: old }).catch(() => undefined);
+    await this.call("reactions.add", this.options.token, { channel: chatId, timestamp: messageId, name });
+  }
+  async edit(chatId: string, messageId: string, text: string): Promise<void> {
+    await this.call("chat.update", this.options.token, { channel: chatId, ts: messageId, text: toMrkdwn(text) });
+  }
+  // ---- R17-C (R17-022): a file through Slack's external upload (the older files.upload is retired).
+  // 1. files.getUploadURLExternal hands out an address and a file id; 2. the bytes go to that
+  // address; 3. files.completeUploadExternal shares the file in the chat, in the thread if one is named.
+  readonly maxFileBytes = 100 * 1024 * 1024;
+  async sendFile(chatId: string, file: OutgoingFile, replyToMessageId?: string): Promise<string | undefined> {
+    const form = new URLSearchParams({ filename: file.name, length: String(file.bytes.byteLength) });
+    const response = await this.fetch(`${this.base}/files.getUploadURLExternal`, {
+      method: "POST", headers: { authorization: `Bearer ${this.options.token}`, "content-type": "application/x-www-form-urlencoded" },
+      body: form.toString(), signal: AbortSignal.timeout(20000),
+    });
+    const slot = z.object({ ok: z.boolean(), error: z.string().optional(), upload_url: z.string().url().optional(), file_id: z.string().optional() })
+      .passthrough().parse(await response.json());
+    if (!slot.ok || !slot.upload_url || !slot.file_id) throw new Error(`Slack files.getUploadURLExternal failed: ${slot.error ?? response.status}`);
+    if (!/^https:\/\/([a-z0-9-]+\.)*slack\.com\//i.test(slot.upload_url)) throw new Error("Slack gave an upload address outside slack.com"); // R17-C
+    const upload = await this.fetch(slot.upload_url, { method: "POST", body: new Blob([new Uint8Array(file.bytes)], { type: file.mediaType }),
+      signal: AbortSignal.timeout(120000) });
+    if (!upload.ok) throw new Error(`Slack would not take the file (${upload.status})`);
+    await this.call("files.completeUploadExternal", this.options.token, {
+      files: [{ id: slot.file_id, title: file.name }], channel_id: chatId,
+      ...(file.caption ? { initial_comment: toMrkdwn(file.caption) } : {}), ...(replyToMessageId ? { thread_ts: replyToMessageId } : {}),
+    });
+    return slot.file_id;
+  }
+  // ---- end R17-C ----
   private async call(method: string, token: string, body: unknown): Promise<unknown> {
     const response = await this.fetch(`${this.base}/${method}`, {
       method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json; charset=utf-8" },

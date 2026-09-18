@@ -244,6 +244,10 @@ test("A1413 the browser refuses an address outside its own list and outside the 
   await assert.rejects(browser.navigate("https://docs.rs/", context), /not on the allowed list/);
   // An address carrying a password is refused whatever the lists say.
   await assert.rejects(browser.navigate("https://user:pw@example.com/", context), /not an allowed origin/);
+  /* Integration review (adversarial): something that is not an address at all is refused in the
+     same plain words, not with the URL parser's own "Invalid URL". */
+  for (const nonsense of ["not a url", "", "://", "http://"])
+    await assert.rejects(browser.navigate(nonsense, context), /not an allowed origin/, JSON.stringify(nonsense));
 });
 
 // --------------------------------------------------------------------------------- A2028
@@ -820,10 +824,13 @@ test("A0648 a rule about another computer is about the program, not the computer
 
   // "tower: make build" is a command rule about `make`, so "always allow make" means make and not
   // everything that computer can run.
+  // Wave mac3 (tool-safety): the whole command is kept; a rule naming "make" still covers it.
   assert.deepEqual(resourceOf("remote.run", "remote.execute", "tower: make build", { computer: "tower", program: "make" }),
-    { kind: "command", value: "make" });
+    { kind: "command", value: "make build" });
+  // Integration review (mac3/tool-safety): the program's folder is kept, so `/tmp/make` is not `make`
+  // to an allow; a refusal naming "make" still reaches it.
   assert.deepEqual(resourceOf("remote.run", "remote.execute", "tower: /usr/bin/make build", {}),
-    { kind: "command", value: "make" });
+    { kind: "command", value: "/usr/bin/make build" });
 
   // Running a program elsewhere is a change, so the strict presets cover it without naming it.
   assert.equal(isReadOnlyPermission("remote.execute"), false);

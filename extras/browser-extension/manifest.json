@@ -1,12 +1,40 @@
 {
   "manifest_version": 3,
   "name": "Send to Branch",
-  "version": "1.0.0",
-  "description": "Send the page you are looking at, or what you have selected on it, to your own Branch Agent as a task.",
-  "permissions": ["activeTab", "scripting", "storage"],
-  "optional_host_permissions": ["http://*/*", "https://*/*"],
+  "version": "1.2.0",
+  "description": "Send the page you are looking at, or what you have selected on it, to your own Branch Agent as a task, right-click one thing on a page to leave Branch a note about it, or talk to it in the side panel.",
+  "permissions": [
+    "activeTab",
+    "contextMenus",
+    "scripting",
+    "sidePanel",
+    "storage"
+  ],
+  "optional_host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
   "action": {
     "default_title": "Send to Branch",
     "default_popup": "popup.html"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
   }
 }

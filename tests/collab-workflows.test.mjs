@@ -93,7 +93,13 @@ test("a share link needs its code, works once, and expires", async (t) => {
   assert.ok(!/<script/i.test(page) && !page.includes("sk-proj-abcdefghijklmnopqrstuvwx1234"));  // not-a-real-secret: a planted fixture, here to prove it gets blanked out
   const again = await fetch(`${server.url}${made.body.path}?code=${made.body.code}`);
   assert.equal(again.status, 403, "the code works once");
-  assert.equal((await again.text()).includes("already been used"), true);
+  // mac7/channel-leaks: the page says one thing for all five reasons. This address answers before
+  // any key, so "already used" and "no such link" told a caller apart who had a real link from one
+  // who was guessing. The reasons are still there underneath, for the owner's own screens.
+  const oneSentence = await again.text();
+  assert.deepEqual(oneSentence, await noCode.text());
+  assert.equal(oneSentence.includes("already been used"), false);
+  assert.throws(() => app.store.shares.open(made.body.id, made.body.code), /already been used once/);
   const expired = app.store.shares.create("local", { sessionId: run.sessionId, expiresInMinutes: 5 }, []);
   app.store.shares.now = () => new Date(Date.now() + 6 * 60000);
   assert.throws(() => app.store.shares.open(expired.id, expired.code), /expired/);
@@ -591,7 +597,9 @@ test("a share link closes itself after five wrong codes", async (t) => {
     assert.equal((await fetch(`${server.url}/share/${link.body.id}?code=${attempt}`)).status, 403, "a wrong code is refused");
   const shut = await fetch(`${server.url}/share/${link.body.id}?code=${link.body.code}`);
   assert.equal(shut.status, 403, "the right code no longer works once the link has closed");
-  assert.match(await shut.text(), /too many wrong codes/);
+  // The page says only that the link is not available; the reason is still there underneath.
+  assert.doesNotMatch(await shut.text(), /too many wrong codes/);
+  assert.throws(() => app.store.shares.open(link.body.id, link.body.code), /too many wrong codes/);
 });
 
 test("a profile waiting out wrong PINs cannot keep guessing", async (t) => {
@@ -623,12 +631,13 @@ test("somebody else's profile reaches none of the owner's sharing, workflows, wa
   // the web routes: otherwise a task started under somebody else's name reaches them that way.
   await assert.rejects(
     () => app.runtime.executeTool("workflows.list", {}),
-    /belongs to the owner/,
+    // mac5/manual-actions: a hand-run tool is held to the profile's role first, so either refusal will do.
+    /belongs to the owner|does not cover/,
     "the assistant's own workflow tools are refused while a profile is switched on",
   );
   await assert.rejects(
     () => app.runtime.executeTool("workflows.create", { name: "Sneaky", steps: [{ name: "Do it", kind: "tool", tool: "memory.put", args: { text: "x", source: "y" } }] }),
-    /belongs to the owner/,
+    /belongs to the owner|does not cover/,
   );
   await call("/api/profiles/switch", { profileId: null });
   assert.equal((await call("/api/workflows")).body.workflows.length, 1, "the owner still sees their own");

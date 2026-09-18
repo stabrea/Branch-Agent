@@ -1,0 +1,40 @@
+ ♣ Branch Agent · Conversation                                                                  ● Offline demonstration
+  1 Conversation   2 Inbox 2   3 Automations   4 Library   5 Customize                             Ctrl+K Find anything
+ › write the demo file                                                              │ Activity  Plan  Files  Memory
+   · Writing branch-demo.txt                                                        │
+   ok Writing branch-demo.txt                                                       │  Writing branch-demo.txt
+   Assistant:                                                                       │  done
+   Demo fixture completed. The file is written, and nothing else was touched —      │
+   日本語 too.                                                                      │
+   [this answer: 9.7k in / 168 out · no price on file]                              │
+                                                                                    │
+                                                                                    │
+                                                                                    │
+                                                                                    │
+                                                                                    │
+                                                                                    │
+                                                                                    │
+                                                                                    │
+                                                                                    │
+                                                                                    │
+                                                                                    │
+                                                                                    │
+                                                                                    │
+                                                                                    │
+                                                                                    │
+                                                                                    │
+                                                                                    │
+                                                                                    │
+                                                                                    │
+                                                                                    │
+                                                                                    │
+                                                                                    │
+                                                                                    │
+                                                                                    │
+                                                                                    │
+                                                                                    │
+                                                                                    │
+ ╭─ Offline demonstration ─ Ask before changes ─ + notes.md ──────────────────────╮ │
+ │ › and now the report                                                           │ │
+ ╰────────────────────────────────────────────────────────────────────────────────╯ │
+ 9.7k in / 168 out · no price on file · Ctrl+P Side pane · Esc then 1-5 for places

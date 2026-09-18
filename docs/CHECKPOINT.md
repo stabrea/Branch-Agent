@@ -1,4 +1,4 @@
-# Checkpoint 2026-09-17 (early morning) — one machine now, and how to carry on
+# Checkpoint 2026-09-18 — 0.18.0 prepared; one machine now, and how to carry on
 
 **Read this first, then `docs/places.md`, then `docs/agents/README.md`.**
 
@@ -56,16 +56,65 @@ SSH: `desktop-bridge.ps1 -Install`.
 
 ## Where the work stands
 
-**Released: 0.16.0**, installed and running on the owner's PC.
+**Prepared, not yet published: 0.18.0.** The version is set to 0.18.0 on `mac7/release-018`, the
+notes are written, and the release path has been checked without being run. Nothing is tagged and
+nothing is published: the coordinator presses go, and `docs/agents/RELEASE-018-READY.md` says in what
+order.
 
-**0.17.0 is cut and waiting on CI** — branch `feat/assistant-runtime`, pull request #104. It began as
-the eight top buckets of the public list and now also carries buckets 9–11, the Mac's own
-cross-platform work, the wave 9 window redesign, the owner's hand-written context files, and the
-trusted mid-task steering channel. `docs/agents/briefs/release-notes-0.17.0.md` describes all of it.
+- **What 0.18.0 is:** `mac/cross-platform` — 0.17.0 plus the 660 commits staging never saw. The nine
+  re-audit groups (devices, model savings, comfort settings, deeper learning, flows and boards, safety
+  extras, personal, coding, reach and platform), the three security follow-ups, the chat-source and
+  chat-permission work, credential autofill, pinned settings, the wake word, waves 9 to 11, the Node
+  floor correction, and the Linux, Windows and macOS round fixes. `wave2/integration` is still at the
+  0.17.0 point and has to be moved forward as part of publishing.
+- **The three things a person must be told**, and the reason each is in the notes rather than left to
+  be found: **Node 24.14.0 or newer is now required** (25.4.0 or newer on the 25 line), because the
+  proxy setting works by handing the proxy to Node and older Nodes have no way to be told; **a task
+  started from a chat app now holds four read-only permissions** instead of everything minus a named
+  handful, which is a real narrowing that will stop things that used to work; and **a chat cannot
+  approve a change** unless the owner ticks approvals on a line naming that one person on that one
+  app.
+- **Every new group ships off.** A fresh install is still the provider talking and nothing in the way.
+- **Proof so far:** build-fast mode only — `npm run build`, `npx tsc --noEmit`, and the macOS test
+  files each branch touched, at `--test-concurrency=2`. **No full three-system round has been run on
+  this tree.** That round is the first thing the coordinator owes the release, and until it passes
+  0.18.0 is prepared rather than ready.
+- **Downloads, and one thing CHECKPOINT used to get wrong:** the publish job no longer uploads with
+  `--clobber`. `fix(package): never upload over a download already on the release` added a guard that
+  keeps any asset already attached, together with its checksum. So a hand-built Windows zip attached
+  to the release *before* the tag is kept, not replaced, and does not need attaching a second time.
+  The job also builds the phone download, `branch-agent-<version>.tgz` with its `.sha256`, and refuses
+  the release if the tag and `package.json` disagree about the version.
+- **Update rehearsal:** not yet run for 0.18.0. The staging folder holds 0.17.0, which is the right
+  base for it.
+- **Ticks:** not yet rewritten. The `(merged, ships in 0.18.0)` markers in the theme issues become
+  `(0.18.0)` at release, and #103 is regenerated after that.
 
-**Staging `wave2/integration`** additionally holds the Mac's third-wave briefs and the prompt
-library is on `wave9/prompt-library`, backend and screen complete with 8 passing tests, not yet
-merged.
+What the 0.17.0 release run found and fixed (all in `9515f87`'s history), kept because each one
+will recur:
+
+1. **Signed out by an early reload** (`public/app.js`): the token was saved only after the locker
+   answered, so a reload in that gap showed the sign-in form again. This caused the "Tab walks the
+   rail" timeouts on the Mac.
+2. **Pictures mistaken for keys** (`src/leak-guard.ts`): random base64 can match the Google key
+   pattern (`/AIza` plus 35 characters). Matches entirely inside a `data:…;base64,` payload are ignored now.
+3. **Activity lists closing themselves** (`public/automations.js`): every refresh redraws the panel.
+   A list that is open is now drawn open again.
+4. **Linux desktop settings:** Playwright's Electron launcher always adds `--password-store=basic`,
+   so no Linux test run can reach a keyring, even when the machine has one (proved on
+   branch-test-linux). The test checks the refusal there and says why. Do not try a CI keyring again.
+5. Test-only fixes: wait for the words or the variable, not a clock (`cli-tui`, `shell-ui`,
+   `session-ui`). Close the server before the app in the same hook (`projects-locker`, `skills`).
+   The docs table test no longer breaks on a space in the checkout path. The desktop tests allow two
+   minutes for app startup, because the shared Windows runner needed more than 30 s on some runs.
+6. **This Mac's `/usr/bin/git` needs the Xcode licence accepted** (owner's password). Until then,
+   use `DEVELOPER_DIR=/Library/Developer/CommandLineTools` for git and gh, and put a `git` symlink
+   to the Command Line Tools copy first on PATH for suite runs, or `tests/git*.test.mjs` fails with a
+   licence message.
+
+**Staging `wave2/integration` is behind the work, not ahead of it.** It still sits at the 0.17.0
+point; `mac/cross-platform` is the trunk everything has been merged into since. Moving staging
+forward is a step in publishing 0.18.0, not something that already happened.
 
 **Everything the owner reversed is back on the list.** The forty rows once marked "decided against"
 are re-opened. Nothing is declined any more: if a feature exists in any agent, it exists in this one,

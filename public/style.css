@@ -706,3 +706,52 @@ label > input[type="radio"] {
   overflow-x: auto;
   max-width: 100%;
 }
+
+/* mac5/providers: the Terms line under a provider. A route that is not official is marked in the
+   warning colour, from tokens only. */
+.terms-line[data-standing="unofficial"] #provider-terms-standing,
+.terms-line[data-standing="retired"] #provider-terms-standing,
+.terms-line[data-standing="not-offered"] #provider-terms-standing { color: var(--warn); }
+.terms-line a { overflow-wrap: anywhere; }
+
+/* Wave mac3 (commands): the "/" menu above the message box, and the list in the commands card. */
+.composer { position: relative; }
+.slash-menu {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  right: 0;
+  max-height: 18rem;
+  overflow-y: auto;
+  margin: 0 0 0.4rem;
+  padding: 0.25rem;
+  list-style: none;
+  background: var(--panel);
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  z-index: 20;
+}
+.slash-choice {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 0.6rem;
+  padding: 0.35rem 0.5rem;
+  border-radius: 6px;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.slash-choice[aria-selected="true"], .slash-choice:hover { background: var(--selected); }
+.slash-choice strong { color: var(--text); }
+.commands-where { padding-left: 1rem; overflow-wrap: anywhere; }
+/* bucket-18 (A0098): the code editor in the Files tab. Tokens only. */
+.wsedit-list { display: flex; flex-direction: column; gap: var(--s1); max-height: 12rem; overflow-y: auto; }
+.wsedit-entry { justify-content: flex-start; text-align: left; overflow-wrap: anywhere; }
+.wsedit-editor { display: flex; flex-direction: column; gap: var(--s2); margin-top: var(--s2); min-width: 0; }
+.wsedit-code { display: flex; min-width: 0; border: 1px solid var(--line); border-radius: var(--r2); background: var(--well); }
+.wsedit-lines { margin: 0; padding: var(--s2) var(--s1); overflow: hidden; max-height: 24rem; color: var(--muted);
+  font: 0.8125rem/1.5 var(--font-mono); text-align: right; user-select: none; border-right: 1px solid var(--line); }
+.wsedit-text { flex: 1; min-width: 0; min-height: 16rem; max-height: 24rem; margin: 0; padding: var(--s2); border: 0;
+  resize: vertical; background: transparent; color: var(--text); font: 0.8125rem/1.5 var(--font-mono); tab-size: 2; overflow: auto; }
+.wsedit-text:focus-visible { outline: 2px solid var(--copper); outline-offset: -2px; }
+#wsedit-unsaved { color: var(--warn); }

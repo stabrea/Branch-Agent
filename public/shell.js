@@ -334,6 +334,8 @@ async function drawLabelChips() {
   if (!host) return;
   host.replaceChildren(labelChips(labelCatalog, chosenLabels, async (next) => {
     chosenLabels = next;
+    /* The chip shows the new choice at once, before the filtered list and the counts come back. */
+    await drawLabelChips();
     await loadRail();
   }));
   host.hidden = labelCatalog.length === 0;
@@ -388,8 +390,8 @@ function entries() {
     run: () => displayView(view),
   }));
   found.push(
-    { label: "New conversation", hint: "Ctrl N", run: () => $("rail-new").click() },
-    { label: "Appearance settings", hint: "Ctrl ,", run: () => $("appearance-shortcut").click() },
+    { label: "New conversation", hint: hintFor("newConversation", "Ctrl N"), run: () => $("rail-new").click() }, // R17-S15
+    { label: "Appearance settings", hint: hintFor("appearance", "Ctrl ,"), run: () => $("appearance-shortcut").click() },
     { label: "Check for updates", hint: "Action", run: () => { displayView("settings"); $("updates-check")?.click(); } },
   );
   /* One "Help: <chapter>" line per handbook chapter, so any of them opens by name. */
@@ -488,6 +490,8 @@ async function drawPaletteLabels() {
   labelCatalog = await conversationLabels();
   host.replaceChildren(labelChips(labelCatalog, chosenLabels, async (next) => {
     chosenLabels = next;
+    /* The chip shows the new choice at once, before the filtered list and the counts come back. */
+    await drawLabelChips();
     await loadRail();
     await drawPaletteLabels();
     drawPalette(palette.querySelector("input").value);
@@ -499,27 +503,30 @@ function closePalette() {
 }
 
 /* ---------- keyboard ---------- */
+/* R17-S15: the owner's own keys for these four (public/comfort.js); without it, the keys they have always been. */
+const pressed = (event, action, always) => globalThis.branchComfort?.pressed(event, action) ?? always;
+const hintFor = (action, always) => globalThis.branchComfort?.hint(action) ?? always;
 document.addEventListener("keydown", (event) => {
   const key = event.key.toLowerCase();
   /* Ctrl+Shift+K folds the context pane away and back, where there is room for it. */
-  if ((event.ctrlKey || event.metaKey) && event.shiftKey && key === "k") {
+  if (pressed(event, "sidePane", (event.ctrlKey || event.metaKey) && event.shiftKey && key === "k")) {
     if ($("aside-toggle").offsetParent === null) return;
     event.preventDefault();
     $("aside-toggle").click();
     return;
   }
-  if ((event.ctrlKey || event.metaKey) && key === "k") {
+  if (pressed(event, "palette", (event.ctrlKey || event.metaKey) && key === "k")) {
     event.preventDefault();
     if (palette?.hidden === false) closePalette();
     else openPalette();
     return;
   }
-  if ((event.ctrlKey || event.metaKey) && key === "n") {
+  if (pressed(event, "newConversation", (event.ctrlKey || event.metaKey) && key === "n")) {
     event.preventDefault();
     $("rail-new").click();
     return;
   }
-  if ((event.ctrlKey || event.metaKey) && key === ",") {
+  if (pressed(event, "appearance", (event.ctrlKey || event.metaKey) && key === ",")) {
     event.preventDefault();
     $("appearance-shortcut").click();
     return;

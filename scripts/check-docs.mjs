@@ -13,6 +13,7 @@
  */
 import { readdirSync, readFileSync, statSync, existsSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const SOURCE = "src";
 const REFERENCE = "docs/configuration.md";
@@ -42,8 +43,50 @@ function objectBody(source, open) {
   return "";
 }
 
+/**
+ * Comments blanked, to the same length so every other index still lines up. Prose in a comment can
+ * read like a key ("w911: the three-way switch"), so it must not be read as one. The text is walked
+ * rather than swept with one replacement: a string may hold "/*" or "*\/", and blanking from there
+ * would swallow every key up to the next end-of-comment and hide an undocumented setting. A line
+ * comment is left alone on purpose - "\/\/" also happens inside a regular expression such as
+ * `regex(/^https?:\/\//)`, and a line comment has never been able to hide a key.
+ */
+export function withoutComments(source) {
+  let out = "";
+  for (let i = 0; i < source.length;) {
+    // An escape is copied whole, so the "\/\/" of a regular expression such as `regex(/^https?:\/\//)`
+    // is never mistaken for the start of a line comment.
+    if (source[i] === "\\") { out += source.slice(i, i + 2); i += 2; continue; }
+    const two = source.slice(i, i + 2);
+    if (two === "/*" || two === "//") {
+      const end = two === "/*" ? source.indexOf("*/", i + 2) : source.indexOf("\n", i);
+      const stop = end < 0 ? source.length : two === "/*" ? end + 2 : end;
+      out += " ".repeat(stop - i);
+      i = stop;
+      continue;
+    }
+    const quote = source[i];
+    if (quote === '"' || quote === "'" || quote === "`") {
+      // The quotes are kept and what is between them blanked: a brace, a colon or a "/*" a person
+      // wrote inside a default value is not part of the code around it either.
+      out += quote;
+      i += 1;
+      for (; i < source.length; i += 1) {
+        if (source[i] === "\\") { out += "  "; if (i + 1 < source.length) i += 1; continue; }
+        if (source[i] === quote) { out += quote; i += 1; break; }
+        out += " ";
+      }
+      continue;
+    }
+    out += source[i];
+    i += 1;
+  }
+  return out;
+}
+
 /** The keys written at the top level of one object body, ignoring anything nested inside it. */
-function topLevelKeys(body) {
+export function topLevelKeys(source) {
+  const body = withoutComments(source);
   const keys = [];
   let depth = 0;
   for (let i = 0; i < body.length; i += 1) {
@@ -117,15 +160,20 @@ function brokenLinks() {
   return broken;
 }
 
-const keys = settingKeys();
-const missing = undocumented(keys, readFileSync(REFERENCE, "utf8"));
-const broken = brokenLinks();
+/** The whole check. Run when this file is the program; a test may import the pieces instead. */
+function main() {
+  const keys = settingKeys();
+  const missing = undocumented(keys, readFileSync(REFERENCE, "utf8"));
+  const broken = brokenLinks();
 
-for (const line of missing) console.error(`Not in ${REFERENCE}: ${line}`);
-for (const line of broken) console.error(`Broken handbook link in ${line}`);
-if (missing.length || broken.length) {
-  console.error(`\n${missing.length} undocumented setting(s), ${broken.length} broken link(s).`);
-  process.exitCode = 1;
-} else {
-  console.log(`${keys.size} settings all named in ${REFERENCE}; every handbook link resolves.`);
+  for (const line of missing) console.error(`Not in ${REFERENCE}: ${line}`);
+  for (const line of broken) console.error(`Broken handbook link in ${line}`);
+  if (missing.length || broken.length) {
+    console.error(`\n${missing.length} undocumented setting(s), ${broken.length} broken link(s).`);
+    process.exitCode = 1;
+  } else {
+    console.log(`${keys.size} settings all named in ${REFERENCE}; every handbook link resolves.`);
+  }
 }
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();

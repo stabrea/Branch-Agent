@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { cleanChildEnvironment } from "./child-env.js";
 import { access, constants, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -25,8 +26,8 @@ export interface AudioClip {
 }
 export interface TranscriptionResult {
   text: string;
-  /** Which route did the work, in plain words for the record. */
-  route: SttRoute;
+  /** Which route did the work, in plain words for the record. Bucket 17: or `engine:<id>`, a speech plug-in. */
+  route: SttRoute | `engine:${string}`;
   /** The language the service reported, when it reported one. */
   language: string | null;
   cost: AudioCostEstimate;
@@ -240,9 +241,13 @@ async function readJson(response: Response, what: string): Promise<unknown> {
  */
 export const hiddenChildOptions = { windowsHide: true, timeout: 300_000, maxBuffer: 8 * 1_048_576 } as const;
 
-/** Runs a program with an argument list, never a shell line, so nothing in the text can be run. */
-export function runProgram(file: string, args: string[], signal?: AbortSignal): Promise<string> {
+/**
+ * Runs a program with an argument list, never a shell line, so nothing in the text can be run. The
+ * program gets a clean environment (src/child-env.ts): no model-service key or vault variable of
+ * Branch's own reaches ffmpeg, yt-dlp, the reading-aloud program or the system voice.
+ */
+export function runProgram(file: string, args: string[], signal?: AbortSignal, source: NodeJS.ProcessEnv = process.env): Promise<string> {
   return new Promise((resolve, reject) =>
-    execFile(file, args, { ...hiddenChildOptions, ...(signal ? { signal } : {}) },
+    execFile(file, args, { ...hiddenChildOptions, env: cleanChildEnvironment(source), ...(signal ? { signal } : {}) },
       (error, stdout, stderr) => (error ? reject(new Error((stderr || error.message).trim().slice(0, 300))) : resolve(stdout))));
 }

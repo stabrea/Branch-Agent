@@ -270,7 +270,9 @@ test("\"keep audio on this computer\" refuses every route that would send it awa
   assert.equal(recorded[0].route, "openai");
   assert.equal(recorded[0].cost, estimateSpeechCost("tts-1", "read this out".length, "openai").amount);
 
-  saveVoiceSettings(app.store, "local", { ...voiceSettings(app.store, "local"), keepAudioOnThisComputer: true });
+  // mac2: the computer's own voice ships switched off; it is switched on here so the refusal below
+  // is the one this test is about.
+  saveVoiceSettings(app.store, "local", { ...voiceSettings(app.store, "local"), keepAudioOnThisComputer: true, systemVoice: "on" });
   await assert.rejects(
     registry.execute("voice.say", { text: "read this out", voice: "", speed: 1 }, context),
     /no program was started in this test|part of Windows|no system voice on this computer|spd-say/,

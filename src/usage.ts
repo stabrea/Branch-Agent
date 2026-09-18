@@ -99,14 +99,27 @@ export class UsageStore {
     };
   }
 
+  /** Dollars this task spent on something that is not tokens, from its `spend.recorded` events. */
+  private runSpend(runId: string): number {
+    const rows = this.db.prepare(`SELECT data FROM events WHERE run_id = ? AND kind = 'spend.recorded'`).all(runId) as Array<{ data: string }>;
+    let total = 0;
+    for (const row of rows) {
+      const data = JSON.parse(row.data) as { dollars?: unknown };
+      total += Number(data.dollars ?? 0) || 0;
+    }
+    return total;
+  }
+
   /** Which model answered, how many tools ran, and how many of them failed, from the run's events. */
   private runEvents(runId: string): { presetId: string; model: string; toolCalls: number; failures: number } {
     const events = this.db
       .prepare(`SELECT kind, data FROM events WHERE run_id = ? ORDER BY id`)
       .all(runId) as Array<{ kind: string; data: string }>;
-    let presetId = "", model = "", toolCalls = 0, failures = 0;
+    let presetId = "", model = "", started = 0, finished = 0, failures = 0;
     for (const event of events) {
-      if (event.kind === "tool.completed" || event.kind === "tool.started") toolCalls += 1;
+      // One call writes a start and an end; counting both made every call count twice (bucket 14).
+      if (event.kind === "tool.started") started += 1;
+      if (event.kind === "tool.completed" || event.kind === "tool.failed") finished += 1;
       if (event.kind === "tool.failed") failures += 1;
       // model.started also names the model, so tasks recorded before model.completed carried it
       // are still attributed correctly.
@@ -116,7 +129,7 @@ export class UsageStore {
       if (data.preset !== undefined) presetId = String(data.preset);
       if (data.model !== undefined) model = String(data.model);
     }
-    return { presetId, model, toolCalls, failures };
+    return { presetId, model, toolCalls: Math.max(started, finished), failures };
   }
 
   /**
@@ -333,6 +346,8 @@ export class UsageStore {
       const amount = model ? estimateCost(model, tokens, overrides).amount : null;
       if (amount === null) unpricedRuns += 1;
       else cost += amount;
+      // mac7/reach-leftovers: what a task spent outside the model's tokens (a video) is money too.
+      cost += this.runSpend(run.id);
     }
 
     const alert80 = maxMonthlyTokens ? total >= maxMonthlyTokens * 0.8 : false;

@@ -1,3 +1,4 @@
+import { runOrigin } from "../key-context.js";
 import { createHash } from "node:crypto";
 import type { Run } from "../contracts.js";
 import type { Store } from "../store.js";
@@ -7,15 +8,18 @@ import { correctionSignal, isCorrection, outcomeOf } from "./signals.js";
 import { correctionTraceMinutes } from "./sizes.js";
 import { flyCoreSettings } from "./settings.js";
 import { FlyState } from "./state.js";
+import { postAdvice, takeDownAdvice } from "./apply.js";
 
 /**
  * Branch's learning core, as the runtime sees it: when a task starts, it ranks what has worked in
  * situations like this one; when the task ends, it learns from how it went.
  *
- * It follows the owner's three-way switch (settings.ts), which ships off. Version 1 gives advice
- * only. With the switch on, the ranking is written on the task as a `fly.suggested` event; a
- * pattern of steps that keeps working is offered as a skill idea in the owner's existing review
- * queue; nothing is changed without the owner. See experiments/fly-core for how well it learns.
+ * It follows the owner's three-way switch (settings.ts), which ships off. With the switch on, the
+ * ranking is written on the task as a `fly.suggested` event and applied through the mechanisms
+ * Branch already has (apply.ts): the top tools are pre-loaded, the top skills listed first and the
+ * top memories put first in the snapshot. "When needed" only learns and answers `learning.suggest`.
+ * A pattern of steps that keeps working is offered as a skill idea in the owner's existing review
+ * queue. See experiments/fly-core for how well it learns, and real-eval.mjs for how that is measured.
  */
 export interface Suggestion { name: string; score: number }
 export interface Suggestions { tools: Suggestion[]; skills: Suggestion[]; memories: Suggestion[]; avoid: Suggestion[] }
@@ -49,11 +53,15 @@ export class FlyCore {
   code(owner: string, context: TaskContext): KenyonCode {
     return this.wiring(owner).code(context);
   }
-  /** What has worked, and what has not, in situations like this one. */
-  suggest(owner: string, code: KenyonCode, circuit: Circuit = this.state.load(owner)): Suggestions {
+  /**
+   * What has worked, and what has not, in situations like this one. Without a circuit it reads the
+   * index kept in memory (fast-index.ts), which gives the same ranking without reading the table.
+   */
+  suggest(owner: string, code: KenyonCode, circuit?: Circuit): Suggestions {
     const now = this.now(), all: Scored[] = [];
+    const indexed = circuit ? undefined : this.state.rank(owner, code, now, clearScore);
     const pick = (kind: ActionKind): Suggestion[] => {
-      const ranked = circuit.rank(code, kind, now);
+      const ranked = indexed ? indexed[kind] : circuit!.rank(code, kind, now);
       all.push(...ranked);
       return named(ranked.filter((s) => s.score >= clearScore).slice(0, suggestionLimit));
     };
@@ -101,10 +109,14 @@ export class FlyCore {
     if (pattern.proposedAt || pattern.successes < patternSuccesses || pattern.successes / total < patternSuccessRate) return;
     const scores = new Map(circuit.rank(code, "tool", this.now()).map((s) => [s.action, s.score]));
     if (!tools.every((tool) => (scores.get(tool) ?? 0) > 0)) return;
+    const text = `These steps have worked ${pattern.successes} of ${total} times for ${kind} requests: ${tools.join(", then ")}. They could become a skill.`;
     this.store.review.propose(owner, {
-      kind: "skill-note", skillId: null, runId: run.id, source: "Noticed by Branch's learning core",
-      text: `These steps have worked ${pattern.successes} of ${total} times for ${kind} requests: ${tools.join(", then ")}. They could become a skill.`,
+      kind: "skill-note", skillId: null, runId: run.id, source: "Noticed by Branch's learning core", text,
       note: `Last seen working in a task that began: ${run.prompt.slice(0, 120)}`,
+      learned: {
+        signal: learningCoreSignal, text, source: `${kind} requests`, kind: "skill-idea",
+        evidence: tools.slice(0, 8), fingerprint,
+      },
     });
     this.state.markProposed(owner, fingerprint);
   }
@@ -121,16 +133,21 @@ export class FlyCore {
   }
 }
 
+/** The value a skill idea from the core carries in `learned.signal` (src/memory-review.ts). */
+export const learningCoreSignal = "learning-core";
+
 /** Where the task started from, as the tasks table recorded it. */
 export function contextOf(store: Store, run: Run): TaskContext {
   const row = store.sqlite.prepare("SELECT source, project FROM tasks WHERE id=?").get(run.id);
-  return { prompt: run.prompt, project: String(row?.project ?? run.project ?? "default"), source: String(row?.source ?? "owner") };
+  // A task that did not come through the waiting line (a chat message's, for one) says where it came from itself.
+  return { prompt: run.prompt, project: String(row?.project ?? run.project ?? "default"), source: String(row?.source ?? runOrigin(store, run.id).source) };
 }
 
 /**
  * The runtime's one call. With the switch off it does nothing at all. Otherwise it applies a
- * correction, ranks suggestions as the task starts (only when the switch is on), and returns what
- * to call when the task has settled. Nothing here may fail or slow a task: errors are recorded.
+ * correction, ranks suggestions as the task starts and posts them to be applied (only when the
+ * switch is on), and returns what to call when the task has settled. Nothing here may fail or slow
+ * a task: errors are recorded.
  */
 export function watchTask(store: Store, run: Run, owner: string, makeCore = () => new FlyCore(store)): (settled: Run) => void {
   try {
@@ -139,8 +156,9 @@ export function watchTask(store: Store, run: Run, owner: string, makeCore = () =
     const core = makeCore();
     const corrected = isCorrection(run.prompt) && core.applyCorrection(owner, run.sessionId);
     const code = core.code(owner, contextOf(store, run));
-    if (mode === "on") store.event(run.id, "fly.suggested", { ...core.suggest(owner, code), corrected, activeCells: code.length });
+    if (mode === "on") advise(store, run, core.suggest(owner, code), { corrected, activeCells: code.length });
     return (settled) => {
+      takeDownAdvice(run.id);
       try { store.event(run.id, "fly.learned", { ...core.learn(owner, settled, code), corrected }); }
       catch (error) { noteFailure(store, run.id, error); }
     };
@@ -148,6 +166,27 @@ export function watchTask(store: Store, run: Run, owner: string, makeCore = () =
     noteFailure(store, run.id, error);
     return () => undefined;
   }
+}
+/**
+ * Builds the ranking index soon after launch when the switch is on, so the first task does not pay
+ * for reading the table (about a tenth of a second at the cap). It never throws.
+ */
+export function warmLearningCore(store: Store, owner: string): void {
+  const timer = setTimeout(() => {
+    try {
+      if (flyCoreSettings(store, owner).mode === "on") new FlyState(store.sqlite).rank(owner, [0], Date.now());
+    } catch { /* a closed or broken store simply builds the index on first use */ }
+  }, 0);
+  timer.unref?.();
+}
+
+/** Writes the ranking on the task and posts it for the tool loader, the skill list and the snapshot. */
+function advise(store: Store, run: Run, suggestions: Suggestions, extra: Record<string, unknown>): void {
+  store.event(run.id, "fly.suggested", { ...suggestions, ...extra });
+  postAdvice({
+    runId: run.id, sessionId: run.sessionId, suggestions,
+    note: (what, names) => store.event(run.id, "fly.applied", { what, names: names.slice(0, 8) }),
+  });
 }
 function noteFailure(store: Store, runId: string, error: unknown): void {
   try { store.event(runId, "fly.failed", { error: error instanceof Error ? error.message : String(error) }); } catch { /* never fails a task */ }

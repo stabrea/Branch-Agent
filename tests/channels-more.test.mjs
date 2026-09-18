@@ -91,6 +91,7 @@ test("Discord: a mention is answered in 2000-character pieces, the token never l
   const rest = await jsonService(t, (call) => call.path.endsWith("/messages") ? { body: { id: "msg-" + Date.now() } } : null);
   const adapter = new DiscordAdapter({ id: "discord", token: discordToken, apiBase: rest.base,
     gatewayUrl: gateway.url, heartbeatMs: 30, reconnectBaseMs: 10 });
+  app.channels.setSwitches({ liveStatus: "on" });
   await app.channels.attach(adapter, { activation: "mention", pairing: false, allowlist: ["9001"] });
   const first = await until(() => gateway.connections[0], "gateway connection");
   const identify = await until(() => first.received.find((message) => message.op === 2), "identify");
@@ -109,8 +110,14 @@ test("Discord: a mention is answered in 2000-character pieces, the token never l
   assert.equal(rest.calls.length, 0, "no reply to an unaddressed channel message");
   first.send({ op: 0, s: 3, t: "MESSAGE_CREATE", d: { id: "m2", channel_id: "c1", guild_id: "g1",
     content: "<@bot-1> how are you", author: { id: "9001", username: "alice" }, mentions: [{ id: "bot-1" }] } });
-  const reply = await until(() => rest.calls[0], "mentioned reply");
+  const posts = () => rest.calls.filter((call) => call.path.endsWith("/messages"));
+  const reply = await until(() => posts()[0], "mentioned reply");
   assert.equal(reply.path, "/channels/c1/messages");
+  // While it worked, the channel showed "typing…" and the question got a "seen" reaction, both as the bot.
+  const typing = rest.calls.find((call) => call.path === "/channels/c1/typing");
+  assert.equal(typing?.headers.authorization, `Bot ${discordToken}`);
+  assert.ok(rest.calls.some((call) => call.path === `/channels/c1/messages/m2/reactions/${encodeURIComponent("👀")}/@me`),
+    "the question was marked as seen");
   assert.match(reply.body.content, /^Echo: \[alice in channel c1\] how are you$/);
   assert.equal(reply.body.message_reference.message_id, "m2");
   assert.equal(reply.headers.authorization, `Bot ${discordToken}`);
@@ -119,7 +126,7 @@ test("Discord: a mention is answered in 2000-character pieces, the token never l
   const { provider } = await (async () => ({ provider: app.runtime.models }))();
   void provider;
   await app.channels.deliver("discord", "c1", "x".repeat(4500), "long:1");
-  const pieces = rest.calls.slice(1).map((call) => call.body.content);
+  const pieces = posts().slice(1).map((call) => call.body.content);
   assert.equal(pieces.length, 3, "4500 characters become three messages");
   assert.ok(pieces.every((piece) => piece.length <= 2000), "no piece is over Discord's limit");
 
@@ -131,11 +138,11 @@ test("Discord: a mention is answered in 2000-character pieces, the token never l
   const resume = await until(() => second.received.find((message) => message.op === 6), "resume");
   assert.equal(resume.d.session_id, "sess-1");
   second.send({ op: 0, s: 4, t: "READY", d: { user: { id: "bot-1", username: "BranchBot" }, session_id: "sess-1", resume_gateway_url: gateway.url } });
-  const before = rest.calls.length;
+  const before = posts().length;
   second.send({ op: 0, s: 5, t: "MESSAGE_CREATE", d: { id: "m3", channel_id: "dm1",
     content: "are you back", author: { id: "9001", username: "alice" }, mentions: [] } });
-  await until(() => rest.calls.length > before, "reply after reconnect");
-  assert.equal(rest.calls.at(-1).body.content, "Echo: are you back");
+  await until(() => posts().length > before, "reply after reconnect");
+  assert.equal(posts().at(-1).body.content, "Echo: are you back");
   await adapter.stop();
 });
 
@@ -230,18 +237,27 @@ test("WhatsApp: the address is verified, an unsigned message is refused, and a l
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
   t.after(() => server.close());
 
+  // The whole address the owner pastes into Meta carries an unguessable word on the end.
+  const { webhookSecret } = await import("../dist/channels/webhook-address.js");
+  const word = webhookSecret(app.store, app.runtime.owner, "whatsapp");
+  const at = `/webhooks/whatsapp/whatsapp/${word}`;
   // Meta checks the address once, and expects the challenge back as plain text.
-  const good = await fetch(`${server.url}/webhooks/whatsapp/whatsapp?hub.mode=subscribe&hub.verify_token=let-me-in&hub.challenge=54321`, { headers: { origin: server.url } });
+  const good = await fetch(`${server.url}${at}?hub.mode=subscribe&hub.verify_token=let-me-in&hub.challenge=54321`, { headers: { origin: server.url } });
   assert.equal(good.status, 200);
   assert.equal(await good.text(), "54321");
-  const bad = await fetch(`${server.url}/webhooks/whatsapp/whatsapp?hub.mode=subscribe&hub.verify_token=wrong&hub.challenge=54321`, { headers: { origin: server.url } });
+  const bad = await fetch(`${server.url}${at}?hub.mode=subscribe&hub.verify_token=wrong&hub.challenge=54321`, { headers: { origin: server.url } });
   assert.equal(bad.status, 403);
+  // mac7/channel-leaks: without the word, the same wrong check says only that nothing is there,
+  // which is what an address nobody has ever connected says too.
+  const guessed = await fetch(`${server.url}/webhooks/whatsapp/whatsapp?hub.mode=subscribe&hub.verify_token=wrong&hub.challenge=54321`, { headers: { origin: server.url } });
+  assert.equal(guessed.status, 404);
+  assert.match((await guessed.json()).error, /No chat service is connected at that address/);
 
   const body = JSON.stringify({ object: "whatsapp_business_account", entry: [{ changes: [{ value: {
     contacts: [{ wa_id: "27123456789", profile: { name: "Thandi" } }],
     messages: [{ id: "wamid.in1", from: "27123456789", type: "text", text: { body: "what is the weather" } }] } }] }] });
   const sign = (secret) => "sha256=" + createHmac("sha256", secret).update(Buffer.from(body)).digest("hex");
-  const post = (headers) => fetch(`${server.url}/webhooks/whatsapp/whatsapp`, { method: "POST", body,
+  const post = (headers) => fetch(`${server.url}${at}`, { method: "POST", body,
     headers: { "content-type": "application/json", origin: server.url, ...headers } });
 
   assert.equal((await post({})).status, 401, "a message with no signature is refused");

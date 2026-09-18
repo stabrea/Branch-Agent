@@ -134,7 +134,7 @@ export class Research {
       context.budget.step(context.signal);
       state.visited.push(url);
       try {
-        const page = await this.web.fetchPage(url, 20000);
+        const page = await this.readPage(url, context);
         // The owner's injection policy applies here exactly as it does to `web.read`: a page whose
         // lines read like orders to the assistant is redacted or refused before it can be quoted.
         const warnings = detectInjection(page.text);
@@ -146,6 +146,27 @@ export class Research {
       }
       this.record(context.owner, id, { state: JSON.stringify(state) });
     }
+  }
+  /**
+   * bucket-18 (A2128): a plain read first; when that fails or comes back nearly empty (a page built by
+   * script), the browser, if the owner has one set up and this task may use it. The browser keeps its
+   * own allowed sites and the network rules, so this reaches nothing a browser task could not.
+   */
+  pageFallback?: (url: string, context: ToolContext) => Promise<{ url: string; title: string; text: string } | null>;
+  private async readPage(url: string, context: ToolContext): Promise<{ url: string; title: string; text: string }> {
+    const plain = await this.web.fetchPage(url, 20000).catch((error: unknown) => error as Error);
+    const thin = plain instanceof Error || plain.text.trim().length < 200;
+    if (!thin || !this.pageFallback) {
+      if (plain instanceof Error) throw plain;
+      return plain;
+    }
+    const viaBrowser = await this.pageFallback(url, context).catch(() => null);
+    if (viaBrowser && viaBrowser.text.trim().length > (plain instanceof Error ? 0 : plain.text.trim().length)) {
+      if (context.runId) this.store.event(context.runId, "research.browser", { url });
+      return viaBrowser;
+    }
+    if (plain instanceof Error) throw plain;
+    return plain;
   }
   /** The person's own documents count as a source when they hold something about the question. */
   private async readDocuments(context: ToolContext, input: ResearchInput, state: State): Promise<void> {

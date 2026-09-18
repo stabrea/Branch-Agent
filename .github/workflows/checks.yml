@@ -10,8 +10,9 @@ name: Checks
 # checked by the request, which is the real gate into main.
 on:
   push:
-    branches: [main, wave2/integration, 'release/**', 'mac/**', 'mac2/**', 'wave9/**']
+    branches: [main, wave2/integration, 'release/**', 'mac/**', 'mac2/**', 'mac5/**', 'mac6/**', 'wave9/**']
   pull_request:
+  workflow_dispatch:
 permissions:
   contents: read
 # One run per branch. A newer push replaces an older run rather than queueing behind it, except on
@@ -30,6 +31,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      # '24' is the newest Node 24, which is above the floor in src/node-floor.ts (24.14.0). The
+      # floor itself is held by a test in tests/comfort.test.mjs, not by pinning a patch here.
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '24'

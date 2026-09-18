@@ -68,6 +68,10 @@ export const webhookEvents = [
   "evaluation.regression",
   /** One step of a saved flow has finished, failed, or stopped to wait for something. */
   "flow.node",
+  /** A check-in decided the owner should hear something (the news itself is not sent along). */
+  "heartbeat.notify",
+  /** A scheduled job's check script failed; `paused` says whether the job has been stopped for it. */
+  "schedule.script_failed",
 ] as const;
 export type WebhookEvent = (typeof webhookEvents)[number];
 /** What the rest of the runtime calls to announce an event; a no-op when nothing is listening. */

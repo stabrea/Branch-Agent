@@ -400,7 +400,8 @@ test("V12 the switch for naming project files is saved and read back through its
   assert.deepEqual(before.byCollection, {});
 
   const saved = await api("POST", "/api/retrieval/context", { repositoryContext: true, repositoryContextFiles: 3 });
-  assert.deepEqual(saved, { repositoryContext: true, repositoryContextFiles: 3 });
+  // bucket-18 (A0334) added the outline budget; it is saved with its default of 0 (off).
+  assert.deepEqual(saved, { repositoryContext: true, repositoryContextFiles: 3, repositoryOutlineTokens: 0 });
   const after = await api("GET", "/api/retrieval");
   assert.equal(after.repositoryContext, true);
   assert.equal(after.repositoryContextFiles, 3);

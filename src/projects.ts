@@ -28,6 +28,13 @@ export const ProjectSchema = z.object({
 }).strict();
 export type Project = z.infer<typeof ProjectSchema>;
 export const defaultProjectId = "default";
+/**
+ * mac7/r17-g integration review: locker projects Branch keeps for itself (model-service keys, the
+ * authenticator key, extra accounts' tokens). A project of the same id would hand those secrets to
+ * whatever reads "the active project's secrets" (OpenAPI and skill tools, the secrets card), so none
+ * may be made.
+ */
+export const reservedProjectId = (id: string): boolean => id === "model-connections" || id === "branch-safety" || /^acct-[0-9a-f]{12}$/.test(id);
 const activeSchema = z.object({ active: projectIdSchema }).strict();
 
 export class Projects {
@@ -72,6 +79,7 @@ export class Projects {
   }
   save(owner: string, input: unknown): Project {
     const project = ProjectSchema.parse(input);
+    if (reservedProjectId(project.id)) throw new Error(`The project id ${project.id} is kept for Branch's own secrets. Choose another.`);
     if (this.list(owner).length >= 32 && !this.list(owner).some((p) => p.id === project.id)) throw new Error("At most 32 projects");
     this.store.save("settings", owner, `project:${project.id}`, project);
     return project;

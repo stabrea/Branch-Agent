@@ -1,8 +1,12 @@
 import { z } from "zod";
+import { GoalStartSchema } from "./goal-mode.js";
+import { RewindSchema } from "./rewind.js";
 import { RunInputSchema } from "./contracts.js";
 import { PolicyInputSchema } from "./policy.js";
 import { WorkflowSchema } from "./workflows.js";
 import { ProjectSchema } from "./projects.js";
+import { CommandRunSchema, CommandSettingsSchema } from "./commands/settings.js";
+import { FlowYamlImportSchema } from "./flow-yaml.js";
 
 /**
  * Branch's own web API, described the way every other program expects to be told: an OpenAPI 3
@@ -37,6 +41,15 @@ export const apiRoutes: readonly ApiRoute[] = [
   { method: "get", path: "/api/sessions/{sessionId}", summary: "One conversation with its messages.", tag: "sessions" },
   { method: "get", path: "/api/sessions/{sessionId}/tree", summary: "This conversation and everything branched from it.", tag: "sessions" },
   { method: "post", path: "/api/sessions/{sessionId}/merge-note", summary: "Carry this branch's last answer back into the conversation it came off.", tag: "sessions" },
+  // Wave mac2 (goal-undo): working toward a goal in rounds, and going back to an earlier message.
+  { method: "post", path: "/api/goals", summary: "Keep working in rounds until a goal is judged met (goal mode must be switched on).", tag: "sessions", body: GoalStartSchema },
+  { method: "get", path: "/api/goal-undo/settings", summary: "The off, on and when-needed switches for goal mode and rewind snapshots.", tag: "sessions" },
+  { method: "post", path: "/api/goal-undo/settings", summary: "Change either switch; the one not sent keeps its value.", tag: "sessions", bodyNote: "{ goal?: \"off\" | \"on\" | \"when-needed\", snapshots?: same }" },
+  { method: "get", path: "/api/sessions/{sessionId}/goal", summary: "The goal in this conversation: round, score, what is missing, time.", tag: "sessions" },
+  { method: "post", path: "/api/sessions/{sessionId}/goal", summary: "Pause, resume or stop this conversation's goal.", tag: "sessions", bodyNote: "{ action: \"pause\" | \"resume\" | \"stop\" }" },
+  { method: "get", path: "/api/sessions/{sessionId}/rewind", summary: "Whether files can be taken back here, and the rewind that can be undone.", tag: "sessions" },
+  { method: "post", path: "/api/sessions/{sessionId}/rewind", summary: "Take the conversation, the files, or both back to just before one message.", tag: "sessions", body: RewindSchema },
+  { method: "post", path: "/api/sessions/{sessionId}/unrevert", summary: "Undo the newest rewind in this conversation.", tag: "sessions", bodyNote: "{}" },
   { method: "get", path: "/api/memory/export", summary: "Everything the assistant has been asked to remember.", tag: "memory" },
   { method: "post", path: "/api/memory/search", summary: "Search the saved facts.", tag: "memory", bodyNote: "A search: { query, limit }." },
   { method: "get", path: "/api/state", summary: "One snapshot of everything the app's own screen shows.", tag: "app" },
@@ -48,10 +61,26 @@ export const apiRoutes: readonly ApiRoute[] = [
   { method: "get", path: "/api/flows", summary: "Saved flows as boxes and arrows.", tag: "flows" },
   { method: "post", path: "/api/flows", summary: "Save a flow.", tag: "flows", body: WorkflowSchema },
   { method: "post", path: "/api/flows/{flowId}/run", summary: "Start a saved flow.", tag: "flows" },
+  // Bucket 21: flows written out and read back as YAML, and the switch for building on Branch.
+  { method: "get", path: "/api/flows/{flowId}/yaml", summary: "One saved flow written as YAML (building on Branch must be switched on).", tag: "flows" },
+  { method: "post", path: "/api/flows/yaml", summary: "Save a flow written as YAML, always as a new flow (building on Branch must be switched on).", tag: "flows", body: FlowYamlImportSchema },
+  { method: "get", path: "/api/sdk-kit", summary: "The switch for building on Branch, the clients for each language, and the tools to share.", tag: "developer" },
+  { method: "post", path: "/api/sdk-kit", summary: "Change that switch (the owner only).", tag: "developer", bodyNote: "{ mode: \"off\" | \"on\" | \"when-needed\" }" },
   { method: "get", path: "/api/policy", summary: "The approval settings.", tag: "settings" },
   { method: "post", path: "/api/policy", summary: "Change the approval settings.", tag: "settings", body: PolicyInputSchema },
   { method: "get", path: "/api/lockdown", summary: "Whether Lockdown is on.", tag: "settings" },
   { method: "post", path: "/api/lockdown", summary: "Turn Lockdown on or off.", tag: "settings", bodyNote: "{ on: true } or { on: false }." },
+  // Wave mac3 (commands, integration review): the one table of typed commands, and the dashboard.
+  { method: "get", path: "/api/commands", summary: "The typed commands one page offers; add ?surface=window, phone or dashboard.", tag: "commands" },
+  { method: "get", path: "/api/commands/table", summary: "Every typed command on every surface, and how each compares with other assistants.", tag: "commands" },
+  { method: "post", path: "/api/commands/run", summary: "Carry out one typed command; a key that may only look may send only commands that look.", tag: "commands", body: CommandRunSchema },
+  { method: "get", path: "/api/commands/settings", summary: "The off, on and when-needed switch for the commands the table added.", tag: "commands" },
+  { method: "post", path: "/api/commands/settings", summary: "Change that switch (the key of this computer only).", tag: "commands", body: CommandSettingsSchema },
+  { method: "get", path: "/api/dashboard", summary: "The browser dashboard in one answer: what is happening now, health, spending and recent activity (the dashboard must be switched on).", tag: "dashboard" },
+  { method: "get", path: "/api/dashboard/settings", summary: "The dashboard's switch, and what this key may do there.", tag: "dashboard" },
+  { method: "post", path: "/api/dashboard/settings", summary: "Switch the dashboard (the key of this computer only).", tag: "dashboard", bodyNote: "{ mode: \"off\" | \"on\" | \"when-needed\" }" },
+  { method: "post", path: "/api/dashboard/automations", summary: "Pause every schedule and trigger, or resume the ones that were paused (the key of this computer only).", tag: "dashboard", bodyNote: "{ paused: true } or { paused: false }" },
+  { method: "post", path: "/api/dashboard/restart", summary: "Restart Branch, where the computer's own service will start it again (the key of this computer only).", tag: "dashboard", bodyNote: "{}" },
   { method: "post", path: "/v1/chat/completions", summary: "The OpenAI-shaped way in, for tools that already speak it.", tag: "compatibility" },
   { method: "get", path: "/v1/models", summary: "The model connections, in the OpenAI shape.", tag: "compatibility" },
 ];

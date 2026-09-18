@@ -15,8 +15,13 @@ import { resolve as healResolve, type HealTarget } from './browser-heal.js';
 import { SiteSkills, applyQuirks, type QuirksApplied } from './browser-sites.js';
 import { attach, attachRefusal, attachedAddressRefusal, readAttachSettings, saveAttachSettings, type AttachedBrowser } from './browser-attach.js';
 import { clearPasswordValues, startRecording } from './browser-trace.js';
+import { registerPageNotes } from './browser-notes-tool.js'; // w911 (A2144)
+import type { MarkChecks } from './browser-heal.js'; // w911 (A2144)
 import type { Store } from '../store.js';
 import { audit } from '../audit.js';
+import { browserCare, browserCareDefaults, uploadsBlocked, type BrowserCare } from '../comfort/browser-safety.js'; // R17-S19
+import type { BrowserSandbox } from './browser-container.js'; // w911 (A2019) hook: import
+import type { SignInBox, SignInPage } from '../vault-autofill.js'; // mac7/vault-autofill (R17-068)
 
 export const BrowserConfigSchema = z.object({
   allowedOrigins: z.array(z.string().url()).min(1).max(30),
@@ -62,6 +67,26 @@ interface RunEntry {
   marks: MarkRegistry;
   /** The owner's own browser, while this task is borrowing it. */
   borrowed: AttachedBrowser | null;
+  // w911 (A1726) hook: a benchmark window (see benchmarkWindow) — its one extra origin, and whether
+  // the end of a task leaves it open for the benchmark to read and close itself.
+  /**
+   * mac7/vault-autofill (R17-068): the website of the last address this task opened by address, and
+   * whether it has pressed anything since. Together they say whether the page it is on now was
+   * reached from another website — which is what "a link in untrusted content" means here. Pressing
+   * "Sign in" on the site whose address was opened is not that, and 2FA would be impossible if it were.
+   */
+  typedHost: string;
+  pressed: boolean;
+  granted?: string | undefined;
+  held?: boolean | undefined;
+}
+/** w911 (A1726): a page Branch itself opened for a benchmark task, before the task starts. */
+export interface BenchmarkWindow {
+  /** Runs a script in the page and hands back its value. */
+  evaluate<T>(script: string): Promise<T>;
+  /** Makes this very page the one the task with this id works in. */
+  handTo(runId: string): void;
+  close(): Promise<void>;
 }
 /** Where the trace of one task is written, when the launch keeps traces. */
 export interface BrowserTracer {
@@ -95,17 +120,27 @@ export class BranchBrowser {
   store: Store | undefined;
   /** Opens a connection to the owner's own browser. Replaced in tests by one they start themselves. */
   connect: typeof attach = attach;
+  /** w911 (A2019) hook: the browser sandbox (Docker or a remote Playwright server); unset means this computer only. */
+  sandbox: BrowserSandbox | undefined;
   /**
    * The site skills this owner has installed: the quirks of particular websites, kept in the skill
    * that knows about the site rather than in this tool. Left unset, no site has any quirks.
    */
   siteSkills: ((owner: string) => SiteSkills) | undefined;
 
-  private allowed(value: string): boolean {
-    try { return this.origins.has(new URL(value).origin); } catch { return false; }
+  /** R17-S19: the owner's browser care (Settings › Computer & browser); defaults without a store. */
+  private care(owner: string): BrowserCare {
+    return this.store ? browserCare(this.store, owner) : browserCareDefaults;
   }
-  private async route(request: Route): Promise<void> {
-    if (!this.allowed(request.request().url())) { await request.abort(); return; }
+  /** A1726: besides the listed websites, the one address this run was granted (the local task page). */
+  private allowed(value: string, entry?: RunEntry): boolean {
+    try {
+      const origin = new URL(value).origin;
+      return this.origins.has(origin) || (!!entry?.granted && entry.granted === origin);
+    } catch { return false; }
+  }
+  private async route(request: Route, entry?: RunEntry): Promise<void> {
+    if (!this.allowed(request.request().url(), entry)) { await request.abort(); return; }
     try {
       const response = await request.fetch({ maxRedirects: 0, timeout: 10000 });
       try {
@@ -132,12 +167,18 @@ export class BranchBrowser {
     const key = this.key(context), existing = this.sessions.get(key);
     if (existing) return existing;
     if (this.sessions.size >= this.config.maxRuns) throw new Error('Browser active run limit reached');
-    const session = new BrowserSession(() => this.starting ??= this.launch(), route => this.route(route));
+    // A1726: the run entry is named here so the route rule can read the address this run was granted.
+    let created: RunEntry | undefined = undefined;
+    // w911 (A2019) hook: the sandbox decides per task at first launch; null keeps the local launch below.
+    const session: BrowserSession = new BrowserSession(
+      () => this.sandbox?.pick(context.owner, !!session.options.storageState) ?? (this.starting ??= this.launch()),
+      route => this.route(route, created));
     session.options.saveDownload = download => this.saveDownload(download);
+    session.options.dialogAnswer = () => this.care(context.owner).dialogs; // R17-S19
     const cancel = () => { void this.closeRun(context).catch(() => undefined); };
     context.signal.addEventListener('abort', cancel, { once: true });
-    const created: RunEntry = { session, origins: new Set(), actions: 0, host: '', profile: null,
-      marks: new MarkRegistry(), borrowed: null,
+    created = { session, origins: new Set(), actions: 0, host: '', profile: null,
+      marks: new MarkRegistry(), borrowed: null, typedHost: '', pressed: false,
       detach: () => context.signal.removeEventListener('abort', cancel) };
     this.sessions.set(key, created);
     return created;
@@ -154,10 +195,15 @@ export class BranchBrowser {
     } finally { if (context.signal.aborted) await this.closeRun(context); }
   }
   async navigate(url: string, context: ToolContext) {
-    if (!this.allowed(url) || new URL(url).username || new URL(url).password)
-      throw new Error('Browser destination is not an allowed origin');
-    await this.policy?.assertAllowed(new URL(url), 'browser address');
-    const entry = this.entry(context), origin = new URL(url).origin;
+    const known = this.sessions.get(this.key(context));
+    // Something that is not an address at all is refused in the same plain words as an address on
+    // no list: `allowed` answers false for it, so the reason never becomes the URL parser's own.
+    if (!this.allowed(url, known)) throw new Error('Browser destination is not an allowed origin');
+    const target = new URL(url), origin = target.origin;
+    if (target.username || target.password) throw new Error('Browser destination is not an allowed origin');
+    // w911 (A1726): the one loopback page Branch itself serves to this window skips the network policy.
+    if (known?.granted !== origin) await this.policy?.assertAllowed(new URL(url), 'browser address');
+    const entry = this.entry(context);
     // In the owner's own browser the refusals that keep the screen control away from banks and
     // password managers apply to website names too.
     const refused = entry.borrowed ? attachedAddressRefusal(url, '', this.extraRefusedHosts(context.owner)) : null;
@@ -168,6 +214,12 @@ export class BranchBrowser {
       await page.goto(url, { waitUntil: 'domcontentloaded' });
       // Counted only once the page really opened, so a refused address costs the task nothing.
       entry.origins.add(origin);
+      // mac7/vault-autofill: an address, not something somebody put on a page for Branch to press.
+      // Read from where the page really ended up, never from the address that was asked for: an
+      // open redirect on the address means the two are different websites, and a signal that lies
+      // about which website the task is on is worse than no signal at all (integration review).
+      entry.typedHost = hostOf(page.url()) || hostOf(url);
+      entry.pressed = false;
       entry.host = new URL(url).host;
       const site = await this.quirks(context, page, url);
       return { url: page.url(), title: await page.title(), ...(site ? { site } : {}) };
@@ -204,6 +256,7 @@ export class BranchBrowser {
       accessibility: (await page.locator('body').ariaSnapshot()).slice(0, 16000) }));
   }
   async click(role: 'button' | 'link', name: string, context: ToolContext) {
+    this.entry(context).pressed = true; // mac7/vault-autofill: wherever this lands came off a page
     return this.operation(context, async page => {
       await page.getByRole(role, { name, exact: true }).click();
       return { url: page.url(), clicked: name };
@@ -259,6 +312,11 @@ export class BranchBrowser {
         marks: found.marks.map(mark => ({ id: mark.id, role: mark.role, name: mark.name })) };
     });
   }
+  /** w911 (A2144): one read-only look at the page this task has open, with its numbers checkable. */
+  async lookAtPage<T extends object>(context: ToolContext, look: (page: Page, checks: MarkChecks) => Promise<T>): Promise<T> {
+    const entry = this.entry(context);
+    return this.operation(context, page => look(page, { keyOf: id => entry.marks.keyOf(id), liveKey: id => liveMarkKey(page, id) }));
+  }
   /** Takes the numbered labels off the page again. */
   async clearMarks(context: ToolContext) {
     return this.operation(context, async page => { await clearMarks(page); return { cleared: true, url: page.url() }; });
@@ -270,6 +328,7 @@ export class BranchBrowser {
    */
   async act(input: HealTarget & { action: 'click' | 'fill' | 'check'; value?: string | undefined }, context: ToolContext) {
     const entry = this.entry(context);
+    if (input.action === 'click') entry.pressed = true; // mac7/vault-autofill
     return this.operation(context, async page => {
       const found = await healResolve(page, input, 2000,
         { keyOf: id => entry.marks.keyOf(id), liveKey: id => liveMarkKey(page, id) });
@@ -291,6 +350,7 @@ export class BranchBrowser {
   }
   /** Sends one file from the person's workspace to a file box on the page. */
   async upload(selector: string, path: string, context: ToolContext) {
+    if (this.care(context.owner).blockUploads) throw new Error(uploadsBlocked); // R17-S19
     if (!this.files) throw new Error('Sending a file to a website needs the workspace');
     const target = await this.files.checked(path);
     return this.operation(context, async page => {
@@ -488,9 +548,43 @@ export class BranchBrowser {
     }
     return borrowed.length;
   }
+
+  /* ──────────────── mac7/vault-autofill (R17-068): filling one of the owner's saved sign-ins ────────────────
+     The browser is the only thing here that ever sees the value, and only for as long as it takes to
+     type it. `browser.fill` and `browser.act` still refuse a password box outright, exactly as
+     before, because the assistant supplies the value there; this way in is the owner's own, it
+     supplies the value itself (src/vault-autofill.ts), and it hands nothing back. */
+
+  /** The page this task is on, as the sign-in filling needs it. Nothing here returns what it typed. */
+  signInPage(): SignInPage {
+    return {
+      where: (context) => this.operation(context, async page => {
+        const entry = this.entry(context), address = page.url(), host = hostOf(address);
+        // Across sites, and only across sites: the same website the task opened by address is where
+        // a sign-in flow stays, and a hop away from it is what nobody but the owner may vouch for.
+        return { address, acrossSites: entry.pressed && (!host || host !== entry.typedHost),
+          // A recording writes down what every step was asked to type, so nothing is filled while
+          // one is being kept (integration review; src/vault-autofill.ts refuses on this).
+          recording: entry.session.isRecording() };
+      }),
+      type: async (context, box, label, value) => {
+        if (this.entry(context).session.isRecording())
+          throw new Error('This task is keeping a recording of the browser, which writes down everything typed into a page.');
+        await this.operation(context, async page => {
+          const found = await signInBox(page, box, label);
+          // Nothing thrown from inside `fill` is passed on: a page library writes what it was asked
+          // to type into its own message, and that message must never leave this method.
+          try { await found.fill(value); } catch { throw new Error(`Branch could not type into that ${box} box.`); }
+          return { typed: box };
+        });
+      },
+    };
+  }
+
   async closeRun(context: Pick<ToolContext, 'owner' | 'runId'>): Promise<void> {
     const key = this.key(context), entry = this.sessions.get(key);
-    if (!entry) return;
+    if (!entry || entry.held) return; // w911 (A1726): a benchmark window is closed by the benchmark
+
     entry.detach();
     await this.keepSignIn(context.owner, entry);
     await entry.session.close();
@@ -504,6 +598,38 @@ export class BranchBrowser {
       if (state) await this.profiles.save(owner, entry.profile, state);
     } catch { /* a sign-in that could not be refreshed is never worth failing a task for */ }
   }
+  /**
+   * w911 (A1726) hook: a benchmark opens its task page in a window of Branch's own before the task
+   * starts, hands that very window to the task, and reads the page again once the task is over. Only
+   * a page Branch serves on 127.0.0.1 may be opened, and that one origin is allowed for this window
+   * alone. The window outlives the task until the benchmark closes it (see src/benchmark-miniwob.ts).
+   */
+  async benchmarkWindow(owner: string, url: string): Promise<BenchmarkWindow> {
+    const target = new URL(url);
+    if (target.protocol !== 'http:' || target.hostname !== '127.0.0.1' || !target.port || target.username || target.password)
+      throw new Error('A benchmark window may only open a page Branch serves on 127.0.0.1');
+    const context = { owner, runId: `benchmark-${randomUUID()}`, signal: new AbortController().signal } as ToolContext;
+    const entry = this.entry(context);
+    entry.granted = target.origin;
+    entry.held = true;
+    let key = this.key(context);
+    const close = async () => {
+      entry.held = false; entry.detach();
+      await entry.session.close();
+      if (this.sessions.get(key) === entry) this.sessions.delete(key);
+    };
+    const use = <T>(action: (page: Page) => Promise<T>) => entry.session.use(context, action);
+    try { await use(page => page.goto(url, { waitUntil: 'load' })); }
+    catch (error) { await close(); throw error; }
+    entry.origins.add(target.origin);
+    entry.host = target.host;
+    return { close, evaluate: <T>(script: string) => use(page => page.evaluate(script) as Promise<T>),
+      handTo: runId => {
+        const next = this.key({ owner, runId });
+        if (this.sessions.has(next)) throw new Error('That task already has a browser window');
+        this.sessions.delete(key); this.sessions.set(next, entry); key = next;
+      } };
+  }
   close(): Promise<void> {
     this.closed = true;
     return this.closing ??= this.shutdown();
@@ -512,12 +638,54 @@ export class BranchBrowser {
     const pending = [...this.sessions.values()].map(entry => { entry.detach(); return entry.session.close(); });
     const results = await Promise.allSettled(pending);
     await this.starting?.catch(() => undefined);
+    await this.sandbox?.close(); // w911 (A2019) hook: closes the sandbox browser and stops its container
     await this.browser?.close();
     this.sessions.clear();
     const failures = results.filter(result => result.status === 'rejected');
     if (failures.length) throw new AggregateError(failures.map(result => result.reason), 'Browser cleanup failed');
   }
 }
+
+/**
+ * mac7/vault-autofill: the one box a saved sign-in is typed into. A password goes only into a real
+ * password box, whatever label was given, so a page that labels a plain text box "Password" cannot
+ * have the value typed where everyone can read it.
+ */
+async function signInBox(page: Page, box: SignInBox, label: string | undefined) {
+  // Only ever the page's own top frame: a Playwright locator does not reach into a frame from
+  // another website (it takes a frameLocator, which nothing here has), so a page cannot have the
+  // value typed into a box it borrowed from somebody else. Proven in the integration review.
+  const found = label
+    ? page.getByLabel(label, { exact: true })
+    : page.locator(box === 'password' ? 'input[type="password"]'
+      : 'input[autocomplete="one-time-code"], input[inputmode="numeric"]').first();
+  const tag = await found.evaluate(node => node.tagName);
+  const refusal = signInBoxFor(box, String(tag), await found.getAttribute('type'));
+  if (refusal) throw new Error(refusal);
+  return found;
+}
+
+/**
+ * mac7/vault-autofill (integration review): whether that really is the box it was said to be, from
+ * the element itself rather than from what the page called it. A password goes only into a real
+ * password box; a one-time code goes only into an ordinary text box, never into something that is
+ * not a box at all and never into a password box, whatever label a page hangs on it.
+ */
+export function signInBoxFor(box: SignInBox, tagName: string, type: string | null): string | null {
+  if (tagName.toUpperCase() !== 'INPUT')
+    return `That is not a box on this page, so nothing was typed into it.`;
+  const kind = (type ?? '').trim().toLowerCase();
+  if (box === 'password')
+    return kind === 'password' ? null : 'That is not a password box on this page, so nothing was typed into it.';
+  return ['text', 'tel', 'number', ''].includes(kind)
+    ? null : 'That is not a box a one-time code goes into, so nothing was typed into it.';
+}
+
+/** The website name of an address, or '' when Branch cannot read it. */
+function hostOf(address: string): string {
+  try { return new URL(address).hostname.toLowerCase(); } catch { return ''; }
+}
+
 function requireIndex(index: number | undefined): number {
   if (index === undefined) throw new Error('Say which tab, by its number');
   return index;
@@ -610,4 +778,5 @@ function registerBrowserSecondPass(registry: ToolRegistry, browser: BranchBrowse
     description: 'Keep a recording of what the browser does in this task, to look at afterwards. Start it, then keep it when the work is done.',
     parameters: z.object({ action: z.enum(['start', 'keep']) }).strict(),
     execute: (a, c) => a.action === 'start' ? browser.startRecording(c) : browser.keepRecording(c) });
+  registerPageNotes(registry, browser); // w911 (A2144) hook: page notes, hidden and refused while switched off.
 }

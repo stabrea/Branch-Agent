@@ -9,7 +9,8 @@ import { TemplateSchema, exportTemplate, importTemplate } from "./templates.js";
 import type { ToolContext, Run } from "./contracts.js";
 import type { Store, SavedRecord } from "./store.js";
 import type { ToolRegistry } from "./registry.js";
-import { argumentFingerprint, type Runtime } from "./runtime.js";
+import { argumentFingerprint, type PolicyCheck, type Runtime } from "./runtime.js";
+import { outsideRecipeRefusal, outsideTask, scopeOf } from "./tool-gate.js"; // mac5/manual-actions
 import { executeTracedTool, type ToolSource } from "./tool-trace.js";
 import { ApprovalRequiredError, PolicyRefusedError } from "./approvals.js";
 import { SpecialistStyleSchema, styleShape, styledPermissions, type SpecialistStyle } from "./specialist-styles.js";
@@ -104,7 +105,7 @@ export class Knowledge {
       )
     )
       throw new Error("Recipes cannot invoke orchestration tools");
-    const undeclared = [...placeholders({ steps: definition.steps, preconditions: definition.preconditions })].filter((name) => !(name in definition.parameters));
+    const undeclared = [...placeholders({ steps: definition.steps, preconditions: definition.preconditions })].filter((name) => !Object.hasOwn(definition.parameters, name));
     if (undeclared.length) throw new Error(`Recipe uses inputs it does not declare: ${undeclared.join(", ")}`);
     const old = this.store.get("procedures", context.owner, id)
       ?.data as unknown as ProcedureState | undefined;
@@ -201,24 +202,32 @@ export class Knowledge {
    * replayed as a whole, so the question has to come before anything happens: when the owner says
    * yes and the recipe is tried again, no step is done twice.
    */
-  private gateSteps(context: ToolContext, definition: Procedure, source: ToolSource): void {
+  private gateSteps(context: ToolContext, definition: Procedure, source: ToolSource): PolicyCheck[] {
+    const checks: PolicyCheck[] = [];
     for (const [index, step] of definition.steps.entries()) {
       // The yes is bound to this step's exact arguments, as it is for a tool the model calls itself.
       const fingerprint = argumentFingerprint(JSON.stringify(step.args ?? {}));
+      // A step outside what the asking task may use is refused in words, before any question is put.
+      if (outsideTask(this.registry, step.tool, context)) {
+        this.store.event(context.runId, "policy.denied", { name: step.tool, label: step.tool, source: { ...source, index } });
+        throw Object.assign(new PolicyRefusedError(step.tool, step.tool), { message: outsideRecipeRefusal(step.tool) });
+      }
       const check = this.runtime.checkPolicy(step.tool, step.args, context, fingerprint);
+      checks.push(check);
       if (check.decision === "allow") continue;
       this.store.event(context.runId, check.decision === "deny" ? "policy.denied" : "policy.ask",
         { name: step.tool, label: check.label, target: check.target, source: { ...source, index } });
       if (check.decision === "deny") throw new PolicyRefusedError(step.tool, check.label);
       throw new ApprovalRequiredError(step.tool, check.target, check.label, check.remember, fingerprint);
     }
+    return checks;
   }
   private async executeProcedure(
     context: ToolContext,
     definition: Procedure,
     source: ToolSource,
   ): Promise<unknown[]> {
-    this.gateSteps(context, definition, source);
+    const checks = this.gateSteps(context, definition, source);
     await this.checkFiles(
       context,
       definition.preconditions,
@@ -227,10 +236,12 @@ export class Knowledge {
     );
     const results: unknown[] = [];
     for (const [index, step] of definition.steps.entries()) {
+      // mac5/manual-actions: each step runs where its own rule and the owner's wall say, as a task's call does.
+      const { osSandbox: _outer, ...unwalled } = context;
       const result = await executeTracedTool(
         this.registry,
         this.store,
-        context,
+        { ...unwalled, ...scopeOf(this.runtime, step.tool, step.args, context, checks[index]!) },
         step.tool,
         step.args,
         { ...source, index },

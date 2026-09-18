@@ -1,0 +1,151 @@
+import { z } from "zod";
+import type { Store } from "../store.js";
+import { isSecretEntry } from "../files.js";
+
+/**
+ * R17-S15 … R17-S21: the comfort settings. Every default below is exactly what Branch did before the
+ * setting existed, so a fresh install behaves as it always has. Each card has its own record, so
+ * saving one card never touches another.
+ */
+
+/** A key combination written the way people say it: "Ctrl+K", "Ctrl+Shift+K", "F8". Empty means none. */
+export const keyCombo = z.string().max(40).regex(
+  /^$|^((Ctrl|Alt|Shift)\+){1,3}([A-Z0-9,./;]|Space|Enter|F([1-9]|1[0-2]))$|^F([1-9]|1[0-2])$/,
+  "Write a key as Ctrl+K, Alt+Shift+P or F8",
+);
+/** The window's shortcuts that can be changed, with the keys they have always had. */
+export const shortcutDefaults = {
+  palette: "Ctrl+K",
+  newConversation: "Ctrl+N",
+  appearance: "Ctrl+,",
+  sidePane: "Ctrl+Shift+K",
+} as const;
+export type ShortcutAction = keyof typeof shortcutDefaults;
+export const shortcutActions = Object.keys(shortcutDefaults) as ShortcutAction[];
+
+/** R17-S15: which keys do what in the window, and vim keys in the message box. */
+export const ComfortKeysSchema = z.object({
+  palette: keyCombo.default(shortcutDefaults.palette),
+  newConversation: keyCombo.default(shortcutDefaults.newConversation),
+  appearance: keyCombo.default(shortcutDefaults.appearance),
+  sidePane: keyCombo.default(shortcutDefaults.sidePane),
+  /** Esc leaves typing for moving (h j k l, w b, 0 $, x, dd, i a o), as in vim. */
+  vim: z.boolean().default(false),
+}).strict().superRefine((value, context) => {
+  const used = shortcutActions.map((action) => value[action].toLowerCase()).filter(Boolean);
+  if (new Set(used).size !== used.length) context.addIssue({ code: "custom", message: "Two shortcuts use the same keys. Give each its own." });
+});
+
+export const statusItems = ["model", "context", "folder", "cost", "time"] as const;
+export type StatusItem = (typeof statusItems)[number];
+/** R17-S16: what the status line shows, and a time on every message. */
+export const ComfortDisplaySchema = z.object({
+  /** null keeps the line as it has always been; a list shows exactly those, in that order. */
+  statusLine: z.array(z.enum(statusItems)).max(statusItems.length).nullable().default(null),
+  /** Show when each message was written. */
+  timestamps: z.boolean().default(false),
+}).strict();
+
+/** R17-S17: how Branch gets your attention, and whether it updates itself. */
+export const ComfortNotifySchema = z.object({
+  /** system: a notification from the computer as well as the banner; window: the banner only. */
+  method: z.enum(["system", "window"]).default("system"),
+  /** A short sound when Branch needs you. */
+  sound: z.enum(["off", "chime", "knock"]).default("off"),
+  /** off: only when you press Check; check: look once a day and say so; install: also install, safely. */
+  autoUpdate: z.enum(["off", "check", "install"]).default("off"),
+}).strict();
+
+/** R17-S18: a key to hold while speaking, and the longest a recording may run. */
+export const ComfortVoiceSchema = z.object({
+  pushToTalkKey: keyCombo.default(""),
+  /** A recording stops by itself after this many seconds; null means it runs until you let go. */
+  maxRecordingSeconds: z.number().int().min(5).max(600).nullable().default(null),
+}).strict();
+
+/** R17-S19: how carefully the browser acts. Owner only. */
+export const ComfortBrowserSchema = z.object({
+  /** Ask every time before the browser types, presses, uploads or borrows your browser. */
+  confirmSensitive: z.boolean().default(false),
+  /** Refuse every file upload to a website. */
+  blockUploads: z.boolean().default(false),
+  /** What happens to a website's pop-up message box: dismiss (Cancel) or accept (OK). */
+  dialogs: z.enum(["dismiss", "accept"]).default("dismiss"),
+}).strict();
+
+const hostName = z.string().trim().min(1).max(253).regex(/^[a-z0-9.*-]+$/i, "Write a host name such as intranet.example.com");
+/** A certificate the owner trusts, as PEM text. Checked in network.ts before it is kept. */
+export const CaCertificateSchema = z.object({
+  name: z.string().trim().min(1).max(80),
+  pem: z.string().min(100).max(20000),
+}).strict();
+/** R17-S20: a proxy and extra certificates for everything Branch reaches. Owner only. */
+export const ComfortNetworkSchema = z.object({
+  /** http://host:port or https://host:port; null means no proxy. */
+  proxy: z.string().trim().max(300).nullable().default(null),
+  /** Hosts that are reached directly, not through the proxy. */
+  noProxy: z.array(hostName).max(50).default([]),
+  /** Certificates added to the ones this computer already trusts. They never replace them. */
+  caCertificates: z.array(CaCertificateSchema).max(10).default([]),
+}).strict();
+
+const ignoreName = z.string().trim().min(1).max(120)
+  .regex(/^[^/\\:*?"<>|]+$/, "Name a file in the workspace's top folder, such as .aiignore")
+  // Integration review: a file that may hold secrets is never read, not even as a list of names.
+  .refine((name) => !isSecretEntry(name), "That file may hold secrets, so it cannot be used as an ignore file");
+/** R17-S20: which ignore files hide paths from the assistant's searches. */
+export const ComfortFilesSchema = z.object({
+  /** Use .gitignore when there is no .branchignore (as always). Off uses .branchignore only. */
+  respectGitignore: z.boolean().default(true),
+  /** Further ignore files whose lines are added to the ones above. */
+  extraIgnoreFiles: z.array(ignoreName).max(8).default([]),
+}).strict();
+
+/** R17-S20: how long a tool server may take to start. */
+export const ComfortMcpSchema = z.object({
+  startupTimeoutSeconds: z.number().int().min(1).max(300).default(10),
+}).strict();
+
+export const comfortCards = {
+  keys: ComfortKeysSchema,
+  display: ComfortDisplaySchema,
+  notify: ComfortNotifySchema,
+  voice: ComfortVoiceSchema,
+  browser: ComfortBrowserSchema,
+  network: ComfortNetworkSchema,
+  files: ComfortFilesSchema,
+  mcp: ComfortMcpSchema,
+} as const;
+export type ComfortCard = keyof typeof comfortCards;
+export type ComfortValues = { [K in ComfortCard]: z.infer<(typeof comfortCards)[K]> };
+export const comfortCardNames = Object.keys(comfortCards) as ComfortCard[];
+/** Cards only the owner may change, in the owner's own profile, with the computer's own key. */
+export const ownerOnlyComfortCards: readonly ComfortCard[] = ["browser", "network"];
+
+const keyOf = (card: ComfortCard): string => `comfort-${card}`;
+type Reader = Pick<Store, "get">;
+
+/** One card's settings, with today's behaviour for anything never saved or saved wrongly. */
+export function readComfort<K extends ComfortCard>(store: Reader, owner: string, card: K): ComfortValues[K] {
+  const schema = comfortCards[card] as unknown as z.ZodType<ComfortValues[K]>;
+  const saved = schema.safeParse(store.get("settings", owner, keyOf(card))?.data ?? {});
+  return saved.success ? saved.data : schema.parse({});
+}
+
+/** Saves one card; fields left out keep what was there. Returns what is now in force. */
+export function saveComfort<K extends ComfortCard>(store: Store, owner: string, card: K, input: unknown): ComfortValues[K] {
+  const schema = comfortCards[card] as unknown as z.ZodType<ComfortValues[K]>;
+  const next = schema.parse({ ...readComfort(store, owner, card), ...(input && typeof input === "object" ? input : {}) });
+  store.save("settings", owner, keyOf(card), next as Record<string, unknown>);
+  return next;
+}
+
+/** Every card, for the screen. */
+export function allComfort(store: Reader, owner: string): ComfortValues {
+  return Object.fromEntries(comfortCardNames.map((card) => [card, readComfort(store, owner, card)])) as ComfortValues;
+}
+
+/** Puts one card back to how Branch ships. */
+export function resetComfort(store: Store, owner: string, card: ComfortCard): void {
+  store.save("settings", owner, keyOf(card), {});
+}

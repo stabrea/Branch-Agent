@@ -122,6 +122,22 @@ to.
 Move up, Move down and Take it out are `.text-button`s on the row they act on; Add a step, Save and
 Run are `.quiet` in a row of their own under the list, because they act on the whole flow.
 
+### The dashboard in the browser (wave mac3)
+
+`/dashboard` (`public/dashboard/`) is a page of its own rather than a sixth place. It is for a phone,
+another computer or a screen on the wall, where the rail, the composer and eighty modules are in the
+way; and it reads across all five places at once, so it belongs to none of them. It wears the window
+exactly: one glass pane over the same oak, the owner's theme, season and contrast from this browser
+and light or dark from the workspace (`public/dashboard/look.js` and `layout.js` both hand the
+catalogue's colours to Branch's token names through `public/theme-bridge.js`, because `layout.js`
+itself cannot be loaded without the whole app). The head carries the mark, a status chip and Refresh; under it the five places and Settings in
+the window's order and names, each a link back into the window; then the condensed title and one
+sentence. Five areas follow — Now, Health, Spend, Activity, Controls — as `.lx-eyebrow` labels over
+ordinary cards (`<h2>`, a purpose line, one filled button at most), one column under 900 px, two
+under 1400 px, three above and four on a wall. Chips, rows, tabs and buttons are `layout.css`'s own;
+`public/dashboard/dashboard.css` adds only the layout, the meters (good below 75%, warn below 92%,
+bad above) and the spend bars in `--series-N`. Its switch card lives in `customize:channels`.
+
 ## The glossary
 
 One name per idea, across every screen, the rail, the palette and the language files. The words on
@@ -173,6 +189,8 @@ allowed to name a colour and no others may be added without a reason written dow
 
 - `public/deployment.js` paints the square code for the phone in plain black on plain white,
   because a phone camera needs that contrast to read it, in either theme.
+- `public/channel-setup.js` paints the square codes of the Set up a chat app panel (mac7/connect)
+  black on white for the same reason as the phone code.
 - `public/update-screen.js` carries the palette of the little figure who walks across the screen
   while an update installs. It is a picture, not a surface.
 - `public/flows.js` passes a token to the SVG with a colour after it as a safety net. The token is

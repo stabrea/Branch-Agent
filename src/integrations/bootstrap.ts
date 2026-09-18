@@ -1,15 +1,23 @@
 import { readFile, stat } from 'node:fs/promises';
+import { withLoginPath } from "../coding/shell-snapshot.js"; // mac7/r17-d
+import { channelPosition } from '../never-break/channel-position.js'; // mac3/never-break
+import { channelMark } from '../channels/catch-up.js'; // mac6/bucket-16
 import { z } from 'zod';
 import type { ToolRegistry } from '../registry.js';
 import { McpConfigSchema } from './mcp-config.js';
 import { connectMcp, openMcp, registerCachedMcp, type LiveMcp, type McpToolCache } from './mcp.js';
 import { BranchBrowser, BrowserConfigSchema, registerBrowser, type WorkspacePaths } from './browser.js';
+// mac7/vault-autofill (R17-068): filling one of the owner's saved sign-ins into the page they are on.
+import { CredentialResolver } from '../credential-cli.js';
+import { VaultAutofill, registerVaultAutofill } from '../vault-autofill.js';
 import type { BrowserProfiles } from './browser-profiles.js';
+import { BrowserSandbox } from './browser-container.js'; // w911 (A2019) hook: import
 import { siteSkillsFor, type SiteSkillSource } from './browser-sites.js';
 import type { RunArtifacts } from '../artifacts.js';
 import { ShellConfigSchema } from './shell-config.js';
 import { BranchShell, registerShell, type SecretResolver } from './shell.js';
 import { ShellSessions, registerShellSessions } from '../shell-session.js';
+import { commandTuning } from '../knobs/commands.js'; // R17-S10
 import type { Store } from '../store.js';
 import { ChannelPolicySchema, type ChannelAdapter, type ChannelRouter } from '../channels/router.js';
 import { TelegramAdapter } from '../channels/telegram.js';
@@ -28,11 +36,15 @@ import { HookSchema, type Hooks, type HookRunner } from '../hooks.js';
 import type { ToolContext } from '../contracts.js';
 import type { NetworkPolicy } from '../network-policy.js';
 import type { GitTools } from './git.js';
-import { GitHubAccess, GitHubConfigSchema } from './github.js';
+import { GitHubAccess, GitHubConfigSchema, type TokenSource } from './github.js';
+import { GitHubAppSettingsSchema, chooseGitHubTokenSource } from './github-app.js';
 import { registerGitHub, registerGitRemote } from './git-tools.js';
 import { GitLabAccess, GitLabConfigSchema, registerGitLab } from './gitlab.js';
 import { LinearAccess, LinearConfigSchema } from './linear.js';
+import { JiraAccess, JiraConfigSchema } from './jira.js';
 import { IssueAccess, registerIssues, type IssueTrackers } from './issue-tools.js';
+// Wave mac3 (channels-parity): the chat services added to match other assistants, all behind a switch.
+import { ParityChannelSchema, buildParityChannel, isParityChannel, type ParityChannelConfig } from '../channels/parity-config.js';
 
 const channelId = z.string().regex(/^[a-z][a-z0-9_-]{0,29}$/);
 const credentialName = z.string().regex(/^[A-Z][A-Z0-9_]{0,63}$/);
@@ -144,11 +156,15 @@ export const SignalChannelSchema = z.object({
 export const ChannelConfigSchema = z.discriminatedUnion('type', [
   TelegramChannelSchema, DiscordChannelSchema, SlackChannelSchema, WhatsAppChannelSchema, EmailChannelSchema,
   WebhookChatChannelSchema, MessengerChannelSchema, InstagramChannelSchema, MatrixChannelSchema, SignalChannelSchema,
+  // Checked here, but typed as nothing: the launcher never looks inside one, it hands it on whole.
+  ParityChannelSchema as never,
 ]).superRefine((value, context) => {
   if (value.type === 'telegram' && !value.tokenEnv === !value.tokenSecret)
     context.addIssue({ code: 'custom', message: 'Give exactly one of tokenEnv or tokenSecret' });
 });
 export interface ChannelHost { router: ChannelRouter; secret: (name: string) => Promise<string>; web?: WebAccess; hooks?: Hooks; context?: (runId: string) => ToolContext;
+  /** mac6/bucket-16: Slack's own events, for the automations they start. */
+  slackEvents?: (channelId: string, event: unknown, botUserId: string | null) => void;
   /** Version control on this computer, so the remote and GitHub tools can be switched on here. */
   git?: GitTools; activeSecret?: (name: string) => Promise<string>;
   /** The workspace, so the browser can send a file to a website and keep one it sends back. */
@@ -166,6 +182,8 @@ export interface ChannelHost { router: ChannelRouter; secret: (name: string) => 
   computer?: { page?: unknown };
   /** Settings and spans, so the browser can read the "use my browser" switch and record healing. */
   store?: unknown; tracer?: unknown;
+  /** Wave mac2 (guards): false when the integrations file sits in a workspace folder the owner has not trusted. */
+  configTrusted?: (path: string) => boolean;
   /** Things to let go of when Branch locks itself, such as a browser of the owner's it had borrowed. */
   onLock?: (release: () => Promise<unknown>) => void }
 
@@ -173,6 +191,8 @@ export interface ChannelHost { router: ChannelRouter; secret: (name: string) => 
 export const GitConfigSchema = z.object({
   remote: z.boolean().default(false),
   github: GitHubConfigSchema.partial().optional(),
+  /** bucket-18: GitHub App (A2227). Exchange private key for installation tokens instead of personal access token. */
+  githubApp: GitHubAppSettingsSchema.optional(),
   /** Reading issues, releases and pipelines from GitLab; needs its own saved token. */
   gitlab: GitLabConfigSchema.partial().optional(),
 }).strict();
@@ -181,6 +201,9 @@ export const GitConfigSchema = z.object({
 export const IssuesConfigSchema = z.object({
   github: z.boolean().default(false),
   linear: LinearConfigSchema.partial().optional(),
+  // bucket-18 (A0174): read GitLab issues with the GitLab settings under "git", and Jira issues from the owner's site.
+  gitlab: z.boolean().default(false),
+  jira: JiraConfigSchema.optional(),
 }).strict();
 
 const ConfigSchema = z.object({ mcp: z.array(McpConfigSchema).max(8).default([]),
@@ -189,6 +212,8 @@ const ConfigSchema = z.object({ mcp: z.array(McpConfigSchema).max(8).default([])
   git: GitConfigSchema.optional(),
   issues: IssuesConfigSchema.optional(),
   hooks: z.array(HookSchema).max(16).default([]) }).strict();
+/** R17-S14: the whole launch settings file, so the Settings card can check a change before writing it. */
+export const LaunchFileSchema = ConfigSchema;
 
 export async function loadIntegrations(registry: ToolRegistry, path?: string, env = process.env, secrets?: SecretResolver, channels?: ChannelHost) {
   const closers: (() => Promise<void>)[] = [];
@@ -210,6 +235,12 @@ export async function loadIntegrations(registry: ToolRegistry, path?: string, en
   const info = await stat(path);
   if (!info.isFile() || info.size > 65536) throw new Error('Integration config must be a file of at most 64 KiB');
   const config = ConfigSchema.parse(JSON.parse(await readFile(path, 'utf8')));
+  // Wave mac2 (guards): an untrusted folder's hooks and AI tool servers are left unstarted.
+  if (channels?.configTrusted && !channels.configTrusted(path)) {
+    if (config.mcp.length || config.hooks.length)
+      console.warn(`Branch did not start the AI tool servers or hooks listed in ${path}: that folder is not trusted. Trust it in Settings, Permissions.`);
+    config.mcp = []; config.hooks = [];
+  }
   if (config.web) channels?.web?.configure(config.web);
   const policy = channels?.web?.policy;
   if (new Set(config.mcp.map(server => server.id)).size !== config.mcp.length)
@@ -227,6 +258,8 @@ export async function loadIntegrations(registry: ToolRegistry, path?: string, en
       browser.profiles = channels?.browserProfiles;
       browser.store = channels?.store as never;
       browser.tracer = channels?.tracer as never;
+      // w911 (A2019) hook: the browser sandbox; its settings are read when a task first opens a page.
+      if (channels?.store) { const kept = channels.store as Store; browser.sandbox = new BrowserSandbox(kept, () => kept.secrets); }
       // The quirks of particular websites live in the skills the owner installed, not in the
       // browser tool, so they are read fresh each time: installing a skill needs no restart.
       const skillStore = channels?.store as SiteSkillSource | undefined;
@@ -239,12 +272,30 @@ export async function loadIntegrations(registry: ToolRegistry, path?: string, en
       hosted.browser = browser;
       hosted.browserOrigins = [...config.browser.allowedOrigins];
       registerBrowser(registry, browser); closers.push(() => browser.close());
+      // ── mac7/vault-autofill (R17-068): the owner's saved sign-ins, filled straight into the page.
+      // It ships off; with no browser there is nothing to fill, so it is registered only here.
+      const signInStore = channels?.store as Store | undefined, signInOwner = channels?.context?.('bootstrap').owner;
+      if (signInStore && signInOwner) {
+        const resolver = new CredentialResolver(signInStore, signInOwner, signInStore.secrets.scrubber);
+        resolver.gate = () => signInStore.secrets.gate(); // the same unlock the locker waits for
+        registerVaultAutofill(registry, new VaultAutofill({
+          store: signInStore, owner: signInOwner, page: browser.signInPage(),
+          read: (reference, use) => resolver.read(reference, use),
+          requireOwner: (what) => signInStore.profiles.requireOwner(what),
+        }));
+      }
     }
     let shell: BranchShell | undefined;
     if (config.shell) {
       hosted.commandsNetless = config.shell.netless === true;
+      // mac7/r17-d: with "Using your own command-line setup" on, commands get the owner's login PATH (src/coding/shell-snapshot.ts).
+      const loginStore = channels?.store as Store | undefined, loginOwner = channels?.context?.('bootstrap').owner;
+      if (loginStore && loginOwner) config.shell = withLoginPath(config.shell, loginStore, loginOwner);
       const created = new BranchShell(config.shell, env, secrets);
       shell = created;
+      // R17-S10: the owner's command timeout and extra environment names, read for each command.
+      const tunedStore = channels?.store as Store | undefined, tunedOwner = channels?.context?.('bootstrap').owner;
+      if (tunedStore && tunedOwner) created.tuning = () => commandTuning(tunedStore, tunedOwner, env);
       await created.ready();
       registerShell(registry, created); closers.push(() => created.close());
       // A command line the owner can keep open, from the very same list of programs. It is closed
@@ -293,7 +344,12 @@ async function startMcp(
   policy: NetworkPolicy | undefined, host: McpHost | undefined,
 ): Promise<(() => Promise<void>) | null> {
   const guard = policy ? { guard: (base: typeof fetch) => policy.guard(base) } : undefined;
-  const connect = () => connectMcp(registry, server, env, guard, host?.cache);
+  // mac3/security-check: a server fetched from a package registry is looked up in the malware list
+  // before it is added, and again before it is opened later (src/security-audit/malware-check.ts).
+  // With no checker this adds nothing.
+  const vet = () => vetLaunch(server, host);
+  await vet();
+  const connect = () => connectMcp(registry, server, env, guard, host?.cache, host?.startupTimeoutMs?.()); // R17-S20
   if (!host || host.connectWhen() !== 'on-demand') {
     const connection = await connect();
     return connection.close;
@@ -301,7 +357,7 @@ async function startMcp(
   const id = McpConfigSchema.parse(server).id;
   // Opening it puts nothing in the tool list — the tools are already there — so `openMcp`, not
   // `connectMcp`: the same connection, without a second registration to collide with the first.
-  host.connections.register(id, () => openMcp(server, env, guard, host.cache));
+  host.connections.register(id, () => vet().then(() => openMcp(server, env, guard, host.cache, host.startupTimeoutMs?.()))); // R17-S20
   const names = registerCachedMcp(registry, server, host.cache.read(id), async () => {
     // Opened through the manager, so keep-warm, the cap and the retries all apply to it. What it
     // says its tools are NOW, and the credentials it was opened with, travel back with it: the
@@ -316,10 +372,20 @@ async function startMcp(
   }
   return async () => { for (const name of names) registry.unregister(name); };
 }
+/** mac3/security-check: asks the malware check about a server started from a package, if there is one. */
+async function vetLaunch(server: unknown, host: McpHost | undefined): Promise<void> {
+  if (!host?.vetLaunch) return;
+  const config = McpConfigSchema.parse(server);
+  if (config.transport === 'stdio') await host.vetLaunch(config.command, config.args);
+}
 /** What `loadIntegrations` needs to run outside servers on demand rather than at startup. */
 export interface McpHost {
   connectWhen(): 'startup' | 'on-demand';
+  /** mac3/security-check: throws a plain sentence for a package listed as malware. */
+  vetLaunch?: (command: string, args: readonly string[]) => Promise<void>;
   cache: McpToolCache;
+  /** R17-S20: how long a server may take to start, in milliseconds; unset keeps 10 seconds. */
+  startupTimeoutMs?: () => number;
   connections: { register(id: string, opener: () => Promise<{ close(): Promise<void> }>): void;
     acquire(runId: string, id: string): Promise<{ close(): Promise<void> }> };
 }
@@ -346,6 +412,9 @@ function guardedSocket(policy: NetworkPolicy | undefined): WebSocketConnect | un
 
 /** Builds the adapter one configured channel asks for, with its secrets and network guards. */
 async function buildChannel(channel: ChannelConfig, env: NodeJS.ProcessEnv, host: ChannelHost, policy: NetworkPolicy | undefined): Promise<ChannelAdapter> {
+  // Wave mac3 (channels-parity): IRC, XMPP, Mastodon and the rest are built in their own files.
+  if (isParityChannel(channel)) return buildParityChannel(channel as unknown as ParityChannelConfig, { credential: (name) => credential(name, env, host),
+    policy, store: host.store, owner: host.context?.('bootstrap').owner });
   const guardedFetch = policy ? policy.guard(globalThis.fetch) : globalThis.fetch;
   const connect = guardedSocket(policy);
   const base = 'apiBase' in channel && channel.apiBase ? { apiBase: channel.apiBase } : {};
@@ -356,8 +425,10 @@ async function buildChannel(channel: ChannelConfig, env: NodeJS.ProcessEnv, host
       appSecret: await credential(channel.appSecretSecret, env, host), fetch: guardedFetch, ...base });
   if (channel.type === 'matrix') {
     await policy?.assertAllowed(new URL(channel.homeserver), 'Matrix home server');
+    const mark = channelMark(host.store, channel.id, host.context?.('bootstrap').owner); // mac6/bucket-16: catch up after a restart
     return new MatrixAdapter({ id: channel.id, homeserver: channel.homeserver, userId: channel.userId,
-      accessToken: await credential(channel.tokenSecret, env, host), syncTimeoutMs: channel.syncSeconds * 1000, fetch: guardedFetch });
+      accessToken: await credential(channel.tokenSecret, env, host), syncTimeoutMs: channel.syncSeconds * 1000, fetch: guardedFetch,
+      ...(mark ? { mark } : {}) });
   }
   if (channel.type === 'signal') return new SignalAdapter({ id: channel.id, path: channel.path, account: channel.account });
   if (channel.type === 'telegram') {
@@ -366,7 +437,9 @@ async function buildChannel(channel: ChannelConfig, env: NodeJS.ProcessEnv, host
     // Same guard as Discord and WhatsApp: every call Telegram makes — sending a reply and
     // fetching a voice note — is checked against the network settings first, so a made-up
     // apiBase cannot be used to reach somewhere the owner never allowed.
-    return new TelegramAdapter({ id: channel.id, token, fetch: guardedFetch, ...base });
+    // mac3/never-break: the read position is kept, so messages sent during a restart are answered.
+    const position = channelPosition(host.store, channel.id);
+    return new TelegramAdapter({ id: channel.id, token, fetch: guardedFetch, ...base, ...(position ? { position } : {}) });
   }
   if (channel.type === 'discord')
     return new DiscordAdapter({ id: channel.id, token: await credential(channel.tokenSecret, env, host),
@@ -374,7 +447,8 @@ async function buildChannel(channel: ChannelConfig, env: NodeJS.ProcessEnv, host
   if (channel.type === 'slack')
     return new SlackAdapter({ id: channel.id, token: await credential(channel.tokenSecret, env, host),
       appToken: await credential(channel.appTokenSecret, env, host), fetch: guardedFetch,
-      ...(connect ? { connect } : {}), ...(channel.slackChannels.length ? { channels: channel.slackChannels } : {}), ...base });
+      ...(connect ? { connect } : {}), ...(channel.slackChannels.length ? { channels: channel.slackChannels } : {}), ...base,
+      ...(host.slackEvents ? { onEvent: (event: unknown, bot: string | null) => host.slackEvents!(channel.id, event, bot) } : {}) }); // mac6/bucket-16
   if (channel.type === 'whatsapp')
     return new WhatsAppAdapter({ id: channel.id, phoneNumberId: channel.phoneNumberId,
       token: await credential(channel.tokenSecret, env, host), verifyToken: await credential(channel.verifyTokenSecret, env, host),
@@ -416,12 +490,17 @@ function enableGit(registry: ToolRegistry, config: z.infer<typeof GitConfigSchem
   if (config.gitlab) enableGitLab(registry, config.gitlab, host, policy);
   if (!config.github) return;
   if (!policy || !host.activeSecret) throw new Error('GitHub needs the network settings and the secrets locker');
-  const secret = host.activeSecret, name = GitHubConfigSchema.parse(config.github).tokenSecret;
-  registerGitHub(registry, new GitHubAccess(config.github, policy, async () => {
-    const value = await secret(name).catch(() => '');
-    if (!value) throw new Error(`Connect GitHub first: save a secret called ${name} in the active project holding a GitHub personal access token.`);
+  const secret = host.activeSecret;
+
+  // bucket-18: GitHub App (A2227): the owner's own app when switched on, the personal token otherwise.
+  const github = GitHubConfigSchema.parse(config.github);
+  const personal: TokenSource = async () => {
+    const value = await secret(github.tokenSecret).catch(() => '');
+    if (!value) throw new Error(`Connect GitHub first: save a secret called ${github.tokenSecret} in the active project holding a GitHub personal access token.`);
     return value;
-  }), host.git);
+  };
+  const tokenSource = chooseGitHubTokenSource(config.githubApp, personal, policy, secret, { apiBase: github.apiBase });
+  registerGitHub(registry, new GitHubAccess(config.github, policy, tokenSource), host.git);
 }
 
 /** Reading from GitLab; the token comes out of the active project's secrets at the moment of a call. */
@@ -459,6 +538,12 @@ function enableIssues(
     const settings = LinearConfigSchema.parse(config.linear);
     trackers.linear = new LinearAccess(settings, policy, held(settings.tokenSecret, 'Linear', 'a Linear API key'));
   }
+  // bucket-18 (A0174): GitLab and Jira, read only, each with its own saved key.
+  if (config.gitlab) {
+    const settings = GitLabConfigSchema.parse(git?.gitlab ?? {});
+    trackers.gitlab = new GitLabAccess(settings, policy, held(settings.tokenSecret, 'GitLab', 'a GitLab personal access token'));
+  }
+  if (config.jira) trackers.jira = new JiraAccess(config.jira, policy, secret);
   const access = new IssueAccess(trackers, host?.web);
   if (access.available().length) registerIssues(registry, access);
   return access;

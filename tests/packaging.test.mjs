@@ -11,6 +11,7 @@ import {
 } from "../scripts/package-desktop.mjs";
 import * as mac from "../scripts/package-macos.mjs";
 import * as linux from "../scripts/package-linux.mjs";
+import { builtOutputs, missingOutputs, pathInTarball } from "../scripts/pack-cli.mjs";
 
 const platforms = ["win32", "darwin", "linux"];
 
@@ -188,4 +189,44 @@ test("a built Mac bundle has the expected structure and Info.plist", { skip: pro
   assert.match(line, new RegExp(`^[a-f0-9]{64}  Branch-Agent-macos-${process.arch}\\.zip\\n$`));
   const listing = execFileSync("zipinfo", ["-1", zip], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
   assert.ok(listing.startsWith("Branch Agent.app/"));
+});
+
+// ---- mac7/packaging-real: the phone download cannot be packed out of an unbuilt folder ----
+// Built for real on a Linux machine, `node scripts/pack-cli.mjs` with no dist/ on disk wrote a
+// one-megabyte tarball containing only package.json, data, public and the licences. It installs
+// cleanly and its `branch` command points at dist/cli.js, which is not in the file. The release
+// workflow only escapes this because `npm run package:desktop` happens to build first.
+test("packing refuses when the program has not been built, and only then", async () => {
+  const manifest = JSON.parse(await readFile("package.json", "utf8"));
+  assert.deepEqual(builtOutputs(manifest), ["dist/cli.js", "dist", "public"]);
+  // An empty folder: every built path is missing, so the script has something to refuse.
+  assert.deepEqual(missingOutputs(manifest, () => false), ["dist/cli.js", "dist", "public"]);
+  // tsc ran but copy-fonts did not, so public/ is there and the command is not: still refused.
+  assert.deepEqual(missingOutputs(manifest, (path) => path !== "dist/cli.js"), ["dist/cli.js"]);
+  assert.deepEqual(missingOutputs(manifest, () => true), []);
+  // `npm test` builds first, so this working folder is genuinely ready to be packed.
+  assert.deepEqual(missingOutputs(manifest), []);
+});
+
+test("the packed name of the command is the one the tarball is checked for", async () => {
+  const manifest = JSON.parse(await readFile("package.json", "utf8"));
+  assert.equal(pathInTarball(manifest.bin.branch), "package/dist/cli.js");
+});
+
+// ---- mac7/packaging-real: the release job has to compare names the way GitHub stores them ----
+// GitHub turns every character that is not a letter, a digit, a hyphen, an underscore or a dot into
+// a dot, so "Install Branch Agent.cmd" is attached as "Install.Branch.Agent.cmd". Comparing the
+// file's own name against the release therefore never matched for the two installer scripts, and a
+// re-run tried to upload a name that was already there. The rule the job uses is run here, not
+// restated, so the test fails if the line changes.
+test("the release job compares asset names the way GitHub writes them", { skip: process.platform === "win32" }, async () => {
+  const workflow = await readFile(join(".github", "workflows", "package.yml"), "utf8");
+  const rule = workflow.split(/\r?\n/).map((line) => line.trim()).find((line) => line.startsWith("as_attached()"));
+  assert.ok(rule, "package.yml no longer has an as_attached rule to compare names with");
+  const naming = (name) => execFileSync("sh", ["-c", `${rule}; as_attached "$1"`, "sh", name], { encoding: "utf8" });
+  assert.equal(naming("Install Branch Agent.cmd"), "Install.Branch.Agent.cmd");
+  // Everything else is already made of characters GitHub keeps, so nothing else moves.
+  for (const kept of ["install-branch-agent.sh", "Branch-Agent-macos-arm64.zip", "Branch-Agent-linux-x64.tar.gz",
+    "branch-agent-0.18.0.tgz", "branch-agent-0.18.0.tgz.sha256"])
+    assert.equal(naming(kept), kept);
 });

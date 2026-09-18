@@ -119,7 +119,8 @@ export function posixHandOverScript(plan: PosixHandOverPlan): string {
     'log "copying new version beside the old one"',
     'rm -rf "$INCOMING"',
     `${posixCopy(plan, "$STAGED", "$INCOMING")} || { log "copy failed; nothing was changed"; rm -rf "$INCOMING"; exit 1; }`,
-    'log "keeping previous version"', 'rm -rf "$PREVIOUS"',
+    // mac3/never-break: the last two versions are kept, so a rollback still has one to spare.
+    'log "keeping previous version"', 'rm -rf "$PREVIOUS-2"', 'if [ -e "$PREVIOUS" ]; then mv "$PREVIOUS" "$PREVIOUS-2"; fi', 'rm -rf "$PREVIOUS"',
     'if [ -e "$TARGET" ] && ! mv "$TARGET" "$PREVIOUS"; then log "old version could not be moved; nothing was changed"; rm -rf "$INCOMING"; exit 1; fi',
     'if ! mv "$INCOMING" "$TARGET"; then log "new version could not be moved in; restoring previous"; mv "$PREVIOUS" "$TARGET"; exit 1; fi',
     'if [ "$2" = stay ]; then exit 0; fi',
@@ -128,4 +129,56 @@ export function posixHandOverScript(plan: PosixHandOverPlan): string {
     'log "new version did not start; restoring previous"',
     'rm -rf "$TARGET"', posixCopy(plan, "$PREVIOUS", "$TARGET"), posixLaunch(plan, false), "exit 1", "",
   ].join("\n");
+}
+
+// ------------------------------------------------------------------------------ rolling back (mac3/never-break)
+
+export interface RollbackPlan {
+  platform: "darwin" | "linux";
+  target: string;
+  log: string;
+  executableName: string;
+}
+
+/**
+ * The way back when a new version does not stay up after an update: wait for the gateway to close,
+ * move the new version aside as `<name>.failed`, put the previous one back, promote the one before
+ * that to "previous", and start it. With no previous version it changes nothing.
+ */
+export function posixRollbackScript(plan: RollbackPlan): string {
+  const q = shellQuote;
+  return [
+    "#!/bin/sh", 'PID="$1"',
+    `TARGET=${q(plan.target)}`, `LOG=${q(plan.log)}`,
+    'PREVIOUS="$TARGET.previous"', 'FAILED="$TARGET.failed"',
+    'log() { printf \'[%s] %s\\n\' "$(date \'+%Y-%m-%d %H:%M:%S\')" "$1" >>"$LOG"; }',
+    ...posixWait,
+    'log "going back to the previous version for pid $PID"',
+    'wait_for "$PID" gateway',
+    'if [ ! -e "$PREVIOUS" ]; then log "there is no previous version to go back to; nothing was changed"; exit 1; fi',
+    'rm -rf "$FAILED"',
+    'if [ -e "$TARGET" ] && ! mv "$TARGET" "$FAILED"; then log "the new version could not be moved aside; nothing was changed"; exit 1; fi',
+    'if ! mv "$PREVIOUS" "$TARGET"; then log "the previous version could not be put back; restoring the new one"; mv "$FAILED" "$TARGET"; exit 1; fi',
+    'if [ -e "$PREVIOUS-2" ]; then mv "$PREVIOUS-2" "$PREVIOUS"; fi',
+    'log "previous version is back"',
+    'if [ "$2" = stay ]; then exit 0; fi',
+    posixLaunch({ ...plan, staged: plan.target, daemonPid: null }, false), "exit 0", "",
+  ].join("\n");
+}
+
+/** Windows: the same way back, as a batch file run through the hidden launcher (no console window). */
+export function windowsRollbackScript(plan: { install: string; exe: string; log: string }): string {
+  const sys = "%SystemRoot%\\System32\\";
+  const previous = `${plan.install}.previous`, failed = `${plan.install}.failed`;
+  const mirror = (from: string, to: string) => `${sys}robocopy.exe "${from}" "${to}" /MIR /R:10 /W:1 /NP /NFL /NDL >>"${plan.log}" 2>&1`;
+  return [
+    "@echo off", "setlocal", 'set "PID=%~1"', "set WAITED=0",
+    `echo [%date% %time%] going back to the previous version for pid %PID% >>"${plan.log}"`,
+    ":wait", `${sys}tasklist.exe /FI "PID eq %PID%" /NH /FO CSV 2>NUL | ${sys}find.exe ",""%PID%""," >NUL`,
+    `if not errorlevel 1 if %WAITED% lss 60 ( set /a WAITED+=1 & ${sys}ping.exe -n 2 127.0.0.1 >NUL & goto wait )`,
+    `if not exist "${previous}\\" ( echo [%time%] there is no previous version to go back to >>"${plan.log}" & exit /b 1 )`,
+    mirror(plan.install, failed), mirror(previous, plan.install), "if errorlevel 8 exit /b 1",
+    `echo [%time%] previous version is back >>"${plan.log}"`,
+    'if "%~2"=="stay" exit /b 0', `start "" "${plan.exe}"`, "exit /b 0", "",
+  ].join("\r\n");
 }

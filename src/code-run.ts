@@ -2,11 +2,13 @@ import { stat } from "node:fs/promises";
 import { isAbsolute } from "node:path";
 import { z } from "zod";
 import type { Store } from "./store.js";
+import { lockdownOverrides } from "./lockdown.js"; // mac7/lockdown-fix
 import type { ToolContext } from "./contracts.js";
 import type { ToolRegistry } from "./registry.js";
 import { WorkspaceFiles } from "./files.js";
 import { defaultJobObjects, jobWithin, type JobObjects } from "./integrations/job-object.js";
 import { sandboxShape, shapeChoice, type SandboxChoice } from "./sandbox.js";
+import type { HeldBySystem } from "./integrations/posix-limits.js";
 import { checkCodeBlock } from "./code-check.js";
 import {
   chooseSandboxBackend, defaultSandboxProbe, defaultSandboxSpawn as defaultSandboxSpawnFor,
@@ -41,7 +43,8 @@ export type CodeRunSettings = z.infer<typeof CodeRunSettingsSchema>;
 
 export function codeRunSettings(store: Store, owner: string): CodeRunSettings {
   const parsed = CodeRunSettingsSchema.safeParse(store.get("settings", owner, "code-run")?.data ?? {});
-  return parsed.success ? parsed.data : CodeRunSettingsSchema.parse({});
+  const settings = parsed.success ? parsed.data : CodeRunSettingsSchema.parse({});
+  return lockdownOverrides(store, owner, "code-run") ? { ...settings, enabled: false } : settings; // mac7/lockdown-fix
 }
 export async function saveCodeRunSettings(store: Store, owner: string, input: unknown): Promise<CodeRunSettings> {
   const value = CodeRunSettingsSchema.parse(input ?? {});
@@ -60,6 +63,8 @@ export const CodeRunInputSchema = z.object({
 export interface CodeRunResult {
   language: string; status: string; exitCode: number | null; output: string; errors: string;
   truncated: boolean; durationMs: number; network: boolean; isolation: "job-object" | "sampling";
+  /** macOS and Linux: what the system itself held, when the script ran in a limited process group. */
+  heldBySystem?: HeldBySystem;
   /** How tightly the script was held: the owner's rule for this tool, or the script settings. */
   sandbox: SandboxChoice;
   /** Where it actually ran: this computer, a container, the Linux side, or the throwaway desktop. */
@@ -110,7 +115,9 @@ export class CodeRunner {
     const handle = await backend.prepare(await sliceFor(root, context.sandboxPaths ?? []));
     const limits = { timeoutMs: settings.timeoutMs, maxMemoryMb: settings.maxMemoryMb,
       maxCpuSeconds: settings.maxCpuSeconds, maxOutputBytes: settings.maxOutputBytes,
-      network: !shape.netless, job: shape.job };
+      network: !shape.netless, job: shape.job,
+      // wave mac3 (os-sandbox): the wall, made stricter still when the script may not reach the internet.
+      ...(context.osSandbox ? { wall: shape.netless ? { ...context.osSandbox, network: "none" as const } : context.osSandbox } : {}) };
     const executable = this.program(input.language, backend.name, settings.python);
     const args = input.language === "python" ? ["-c", input.source] : ["--input-type=module", "--eval", input.source];
     try {
@@ -121,7 +128,8 @@ export class CodeRunner {
           exitCode: result.exitCode, sandbox, backend: backend.name, folder });
       return { language: input.language, status: result.status, exitCode: result.exitCode,
         output: result.stdout, errors: result.stderr, truncated: result.truncated,
-        durationMs: result.durationMs, network: !shape.netless, isolation: result.isolation, sandbox, backend: backend.name, folder };
+        durationMs: result.durationMs, network: !shape.netless, isolation: result.isolation,
+        ...(result.heldBySystem ? { heldBySystem: result.heldBySystem } : {}), sandbox, backend: backend.name, folder };
     } finally {
       await handle.collect(["branch-output.txt"]).catch(() => undefined);
       await handle.dispose().catch(() => undefined);

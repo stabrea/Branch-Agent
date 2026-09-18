@@ -1,13 +1,16 @@
+import { gatewayModel } from "./asks/model-gateway.js"; // mac6/bucket-23 (A1012)
 import { z } from "zod";
 import type { Provider } from "./contracts.js";
 import type { Locker } from "./locker.js";
 import type { ModelRouter } from "./models.js";
 import type { NetworkPolicy } from "./network-policy.js";
 import type { Store } from "./store.js";
-import { catalogEntry, modelsAddress } from "./provider-catalog.js";
+import { type CatalogEntry, catalogEntry, isRetired, modelsAddress } from "./provider-catalog.js";
 import { buildConnection } from "./provider-factory.js";
 import { countModels } from "./provider-probe.js";
 import { audit } from "./audit.js";
+import { migrateRecords, describeMove } from "./provider-migrations.js";
+import { type ConnectionCheck, connectionCheck } from "./local-connection-policy.js";
 
 /**
  * Adding a model connection in plain language: pick a service, paste the key, answer whatever else
@@ -134,6 +137,7 @@ export async function forgetConnection(deps: FromPresetDeps, id: string): Promis
  */
 export async function restoreConnections(deps: FromPresetDeps): Promise<string[]> {
   if (!deps.store) return [];
+  migrateSavedConnections(deps.store, deps.owner);
   const back: string[] = [];
   for (const record of savedConnections(deps.store, deps.owner)) {
     try {
@@ -155,6 +159,40 @@ export async function restoreConnections(deps: FromPresetDeps): Promise<string[]
 }
 
 /**
+ * Moves written-down connections onto a service's new route (Perplexity's Agent API, a region
+ * choice) in place, so nothing is asked of the owner. Written back only when something changed.
+ */
+export function migrateSavedConnections(store: Store, owner: string): string[] {
+  const before = savedConnections(store, owner);
+  const { records, changed } = migrateRecords(before);
+  if (!changed.length) return [];
+  // The records as they were are kept beside the new ones (the first copy is never overwritten),
+  // so going back one release, or undoing a move by hand, loses nothing. Keys are not in here.
+  if (!store.get("settings", owner, movedFromSetting))
+    store.save("settings", owner, movedFromSetting, { connections: before, movedAt: new Date().toISOString() });
+  store.save("settings", owner, connectionsSetting, { connections: records });
+  const moves = describeMove(before, records).join("; ");
+  audit(store, owner, { action: "connection.changed", actor: "branch", subject: changed.join(", ").slice(0, 300),
+    reason: `A model service moved to a new address or route, so the saved connection moved with it: ${moves}`.slice(0, 500),
+    outcome: "moved" });
+  return changed;
+}
+/** Where the saved connections are copied before a move, beside the live row. */
+export const movedFromSetting = "model-connections-before-move";
+
+/**
+ * The answers written down for a new connection, with the default filled in for every box that is
+ * a fixed choice (a region). A connection saved without it would look like one made before the
+ * choice existed, and the region move would then send its key to the other region's address.
+ */
+function withChosenDefaults(entry: CatalogEntry, extras: Record<string, string>): Record<string, string> {
+  const filled = { ...extras };
+  for (const extra of entry.extras ?? [])
+    if (extra.choices && extra.default && !(filled[extra.key] ?? "").trim()) filled[extra.key] = extra.default;
+  return filled;
+}
+
+/**
  * Checks a service is really reachable with this key, then remembers it. The order matters: a key
  * that does not work is never stored, so nothing accumulates that a person would later have to
  * clean up.
@@ -163,6 +201,7 @@ export async function connectFromPreset(deps: FromPresetDeps, input: unknown): P
   const asked = FromPresetSchema.parse(input);
   const entry = catalogEntry(asked.provider);
   if (!entry) throw new Error(`Branch does not know a model service called "${asked.provider}"`);
+  if (isRetired(entry)) throw new Error(entry.terms.warning ?? `${entry.name} can no longer be used.`);
   if (!entry.capabilities.includes("chat") && entry.modelsPath === null)
     throw new Error(`${entry.name} does not hold conversations and publishes no list of models, so Branch cannot check a key for it. Use it for searching your own documents instead.`);
   const call = deps.fetchImpl ?? globalThis.fetch;
@@ -172,17 +211,19 @@ export async function connectFromPreset(deps: FromPresetDeps, input: unknown): P
   const id = uniqueId(deps.models, asked.provider);
   const built = buildConnection({
     provider: asked.provider, key: asked.key, extras: asked.extras,
-    ...(asked.model ? { model: asked.model } : {}),
+    // mac6/bucket-23 (A1012): "vendor/model" or a bare name, spelled the way this service wants it.
+    ...(asked.model ? { model: gatewayModel(entry.id, asked.model) } : {}),
     policy: deps.policy, fetchImpl: deps.models.health.watch(id, call),
   });
   const list = modelsAddress(entry, built.baseUrl);
-  const found = list ? await probeList(deps, list, asked.key, entry.auth, call) : null;
+  const check = connectionCheck(deps.policy, entry, built.baseUrl);
+  const found = list ? await probeList(check, list, asked.key, entry.auth, call) : null;
   if (!list) await probeChat(built.provider);
   const name = asked.name || entry.name;
   if (asked.key) await deps.locker.set(deps.owner, connectionProject, secretNameFor(id), asked.key);
   deps.models.register({ id, name, provider: built.provider, model: built.model, catalogId: entry.id });
   // The connection itself (never the key) is written down, so it is still here after a restart.
-  rememberConnection(deps, { id, name, catalogId: entry.id, model: built.model, extras: asked.extras });
+  rememberConnection(deps, { id, name, catalogId: entry.id, model: built.model, extras: withChosenDefaults(entry, asked.extras) });
   return {
     id, name, provider: entry.id, model: built.model,
     models: found ?? [], modelsFound: found ? found.length : null,
@@ -195,9 +236,9 @@ export async function connectFromPreset(deps: FromPresetDeps, input: unknown): P
 }
 
 async function probeList(
-  deps: FromPresetDeps, url: string, key: string, auth: string, call: typeof globalThis.fetch,
+  check: ConnectionCheck, url: string, key: string, auth: string, call: typeof globalThis.fetch,
 ): Promise<string[]> {
-  await deps.policy.assertAllowed(new URL(url), "model connection check");
+  await check(new URL(url), "model connection check");
   const headers: Record<string, string> =
     auth === "x-api-key" ? { "x-api-key": key, "anthropic-version": "2023-06-01" }
     : auth === "api-key" ? { "api-key": key }

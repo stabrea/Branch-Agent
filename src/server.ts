@@ -6,9 +6,10 @@ import {
 } from "node:http";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { readFile, writeFile, lstat } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve as resolvePath } from "node:path"; // R17-S-B: resolvePath
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
+import { quietJobsApi } from "./scheduler.js";
 import { finishChatGPTSignIn, syncChatGPTPresets } from "./chatgpt-presets.js";
 import { embedSettings, widgetOrigin } from "./embeds.js";
 import { RunInputSchema, errorText } from "./contracts.js";
@@ -33,10 +34,13 @@ import { maximumBackupBytes } from "./backup.js";
 import { chatCompletion, modelsList } from "./openai-compat.js";
 import { AnthropicProvider, GeminiProvider, OpenAIProvider } from "./providers.js";
 import { allPresets, findPreset } from "./providers/presets.js";
+import { testRouteFor } from "./provider-factory.js";
 import { connectFromPreset, forgetConnection } from "./connections-preset.js";
-import { catalogEntries, providerCatalog } from "./provider-catalog.js";
+import { catalogEntries, catalogEntry, providerCatalog } from "./provider-catalog.js";
 import { localModelsApi } from "./local-models-api.js";
 import { localRuntimes } from "./local-runtimes.js";
+// Wave mac5 (local models): the one-click pieces kept beside this app's store.
+import { localKitFor } from "./local-kit.js";
 import { streamOwnerEvents, streamRunEvents } from "./streams.js";
 // Web app (wave 6): "Look inside" a task, and "Try a tool" in the developer playground.
 import { inspectRun } from "./inspect.js";
@@ -44,17 +48,31 @@ import { buildTrajectory, trajectoryLines } from "./trajectory.js";
 import { replayRun } from "./replay.js";
 import { meteringFolder, meteringSettings, saveMeteringSettings, writeMeteringFile } from "./metering.js";
 import { TryToolSchema, toolForms, tryTool } from "./playground.js";
+// mac5/manual-actions: the hand-pressed gate for "Try a tool".
+import { manualVerdict } from "./tool-gate.js";
+import { ApprovalRequiredError, PolicyRefusedError } from "./approvals.js";
+import { argumentFingerprint } from "./runtime.js";
 import { exportTemplate, importTemplate } from "./templates.js";
 import { serveRunSocket, tokenFromProtocol } from "./ws.js";
+// Bucket 13 (mac4): seeing what a task did, step by step, afterwards.
+import { handlesRecordingPath, recordingApi, startEventLoopWatch } from "./run-recording-api.js";
 import { liveHooks } from "./realtime-socket.js";
-import { readBodyWithRaw } from "./triggers.js";
+import { readBodyWithRaw, type TriggerState } from "./triggers.js";
 import { knowledgeApi } from "./knowledge-tools.js";
 import { knowledgeExtrasApi } from "./knowledge-more.js";
 import { WhatsAppAdapter } from "./channels/whatsapp.js";
 import { WebhookChatAdapter } from "./channels/webhook-chat.js";
+// Wave mac3 (channels-parity).
+import { isPostedChannel, type PostedChannel } from "./channels/parity-switch.js";
+import { isSignedQueryChannel, readRawBody, type SignedQueryChannel } from "./channels/signed-query.js"; // mac6/bucket-16
+import { saveSlackAutomations } from "./channels/slack-automations.js"; // mac6/bucket-16
+import { wechatXmlLimit } from "./channels/wechat-crypto.js"; // mac6/bucket-16 integration
+import type { ChannelAdapter } from "./channels/router.js";
+import { parityApi } from "./channels/parity-api.js";
 // Batch 20 (wave 8): the unguessable word on the end of every inbound webhook address.
-import { rotateWebhookSecret, saveWebhookAddressSettings, webhookAddress, webhookAddressRefusal,
-  webhookAddressSettings, webhookSecret } from "./channels/webhook-address.js";
+import { rotateWebhookSecret, saveWebhookAddressSettings, webhookAddress, webhookAddressVerdict,
+  webhookAddressSettings, webhookSecret, wrongWebhookAddress } from "./channels/webhook-address.js";
+import { noteWebhookWait, webhookWaits } from "./channels/webhook-waits.js";
 import { channelEntries } from "./channels/catalog.js";
 import { MetaMessagingAdapter } from "./channels/meta-graph.js";
 import { standardSuite } from "./evaluation.js";
@@ -76,26 +94,92 @@ import { hiddenToolsText } from "./mcp-policy.js";
 import { listSnapshots } from "./mcp-snapshots.js";
 import { readLifecycleSettings, saveLifecycleSettings } from "./mcp-lifecycle.js";
 import { tryServer } from "./mcp-workbench.js";
+// mac3/security-check: the self-check card's routes.
+import { securityCheckApi } from "./security-audit/api.js";
 import { signIn as mcpSignIn } from "./integrations/mcp-oauth.js";
 import { AppResourceSchema, appHeaders, appPage, type AppResource } from "./mcp-apps.js";
+// mac2/fly-core-2: the learning core's owner routes.
+import { handlesLearningCorePath, learningCoreApi, LearningCoreApiError } from "./fly-core-api.js";
 // Wave 8: artifacts out of a reply, shown in the same locked-down frame an MCP app gets.
 import { ArtifactPageSchema, ArtifactSaveSchema, artifactPageRoute, holdArtifactPage } from "./artifact-pages.js";
 import { readServingSettings, saveServingSettings } from "./mcp-server.js";
 import { meaningSearchExplanation, meaningSearchOn, meaningSearchSetting } from "./tool-loading.js";
 import { handleA2a, remoteAgentsApi } from "./a2a-routes.js";
 import type { createBranch } from "./index.js";
+import { goalApi } from "./goal-mode.js";
+import { rewindApi } from "./rewind.js";
 import { PreferencesSchema, preferences } from "./preferences.js";
+import { asksApi, AsksHttpError, handlesAsksPath } from "./asks/api.js"; // mac6/bucket-23: the smaller asks
+import { autonomyApi, AutonomyHttpError, handlesAutonomyPath } from "./autonomy/api.js"; // r17-b
+import { handlesTrunksPath, trunksApi, TrunksHttpError } from "./trunks/api.js"; // R17-A: Trunks
+import { codingApi, CodingHttpError, handlesCodingPath } from "./coding/api.js"; // mac7/r17-d: coding polish
+import { handlesPersonalPath, personalApi, PersonalHttpError } from "./personal/api.js"; // R17-C
+import { handlesReachPath, reachApi, ReachHttpError } from "./reach/api.js"; // r17-i
+import { reachKey, reachParts } from "./reach/settings.js"; // r17-i integration review
+import { handlesSafetyPath, safetyApi, SafetyHttpError } from "./safety-extras/api.js"; // mac7/r17-g: the safety extras
+import { codesResting, confirmWithCode, restingRefusal } from "./safety-extras/code-approvals.js"; // mac7/r17-g
+import { reservedProjectId } from "./projects.js"; // mac7/r17-g integration review
+import { flowsBoardsApi, FlowsBoardsHttpError, handlesFlowsBoardsPath } from "./flows-boards/api.js"; // r17-h
+import { handlesLearningMorePath, learningMoreApi, LearningMoreHttpError } from "./learning-more/api.js"; // R17-F
+// mac4/bucket-20: the Agent Protocol, programs lending tools, and the owner's interop routes.
+import { handleInterop, handlesInteropPath, interopOffLimits } from "./interop/api.js";
+import { clientToolsPath, serveClientToolSocket } from "./interop/client-tools.js";
+import { lookApi } from "./terminal-theme.js";
+// Wave mac3: the owner's control dashboard, a page of its own at /dashboard.
+import {
+  DashboardApiError, dashboardAccess, dashboardApi, dashboardSettings, handlesDashboardPath, isDashboardFile,
+} from "./dashboard-api.js";
+// Wave mac3 (commands): the one slash-command table's routes.
+import { CommandApiError, commandsApi, handlesCommandsPath } from "./commands/api.js";
+import { handlesPromptsPath, promptsApi } from "./prompt-library-api.js"; // bucket 12
+import { handlesSkillInstallsPath, skillInstallsApi } from "./skill-installs.js"; // bucket 12
 import { PolicyRememberSchema, policyPresets, readPolicy, savePolicy } from "./policy.js";
 import { maximumArchiveBytes } from "./session-library.js";
 import { maximumMemoryArchiveBytes } from "./memory.js";
 import { conversationMarkdown, maximumImportBytes } from "./memory-export.js";
 import { assistantIdentity, saveAssistantIdentity } from "./identity.js";
 import { contextFileStatus, saveContextFileSettings, contextFileSettings } from "./context-files.js";
+// mac3/reflection-skills: the learning loop's routes.
+import { reflectionApi } from "./reflection/api.js";
+import { handlesSettingsKitPath, settingsKitApi, settingsKitBodyBytes, SettingsKitError } from "./settings-kit/api.js"; // R17-S-A
+import { PinnedSettingError, pins } from "./settings-kit/pins.js"; // mac7/wake-pins
+import { saveWakeWordSettings, wakeWordSettings, wakeWordView } from "./voice-wake.js"; // mac7/wake-pins
 import { voiceSettings, saveVoiceSettings } from "./voice.js";
 import { voiceApi } from "./voice-api.js";
+// bucket-18: pull requests from changes (A0300), and which requests came with a short-lived key.
+import { pullRequestHookSettings, savePullRequestHookSettings } from "./pr-hook.js";
+import { markShortLivedKey, startedWithShortLivedKey } from "./key-context.js";
+import { connectionCheck } from "./local-connection-policy.js"; // mac5/key-sweep: Test this connection
+import type { NetworkPolicy } from "./network-policy.js";
+import { generalShortLivedKeyRefusal, knobsRefusal, ownerOnlyRead, taskRouteFor } from "./short-lived-keys.js"; // mac5/key-sweep (R17-S-B: knobsRefusal)
+// ---- bucket 19: people signing in from their own device (src/people/). ----
+import { notPeople, PeopleHttpError, peopleApi, peopleSignInRoute } from "./people/api.js";
+import { People } from "./people/index.js";
+import { peopleEnabled } from "./people/settings.js";
+import { interopMode } from "./interop/settings.js";
+import { requireBoundSession } from "./people/access.js";
+import { keyAnswerRefusal, shortLivedKeyMark } from "./key-context.js";
+import { currentPerson } from "./people/context.js";
+// ---- end bucket 19 ----
+// bucket-18: code editor (A0098)
+import { handlesWorkspaceEditorPath, workspaceEditorApi, WorkspaceEditorApiError } from "./workspace-editor-api.js";
+import { protectedTarget } from "./never-break/protected.js"; // bucket-18 integration review
+// mac7/bind: where this door listens, and who may change that (src/listen-address.ts).
+import {
+  decideListen, fromThisComputer, type ListenDecision, listenAsked, listenChangeRefusal, listenKeyRefusal,
+  listenReadRefusal, listenView, ownAddresses, saveListenSettings, thisComputerAddress,
+} from "./listen-address.js";
+import { lockdownActive, onLockdownChange } from "./lockdown.js";
 import { parseModelCommand } from "./model-switch.js";
 import { pricingSettings, savePricingSettings, pricingTableInUse, estimateCost, formatCost } from "./pricing.js";
+import { usageReportRoute } from "./usage-report-api.js"; // bucket 14 (A0367)
 import { builtInImagePrices, imagePricedAt, mediaSettings, saveMediaSettings } from "./media-settings.js";
+// Bucket 17.
+import { bucket17Api, handlesBucket17, readMediaBody } from "./media-understand-api.js";
+import { troubleshootApi } from "./troubleshoot.js"; // w911 (A0374) hook.
+import { handlesQa, qaApi, qaDeps } from "./qa-api.js"; // w911 (A1753) hook.
+import { browserContainerApi, handlesBrowserContainer } from "./browser-container-api.js"; // w911 (A2019) hook: import
+import { handlesPageNotes, pageNotesApi } from "./browser-notes-api.js"; // w911 (A2144) hook: page notes
 import { buildTraceDocument, traceSettings, saveTraceSettings } from "./trace.js";
 import { writeDiagnosticsBundle } from "./diagnostics.js";
 import { toolCatalogReport } from "./tool-report.js";
@@ -103,23 +187,62 @@ import { toolCatalogReport } from "./tool-report.js";
 import { RemoteAccess } from "./remote/remote-access.js";
 import { cliAgentRows, registerCliAgent } from "./providers/cli-agent.js";
 import { GatewayAuth } from "./remote/gateway-auth.js";
+// ---- mac7/nodes: the owner's devices (src/devices/) ----
+import type { Duplex } from "node:stream";
+import { devicesApi, DevicesHttpError, handlesDevicesPath, openDevicePaths, openDevicesApi } from "./devices/api.js";
+import { claimedDevice, refuseUpgrade } from "./devices/hub.js";
+import { decide as allowlistSays, readSenderAllowlist } from "./channels/allowlist.js";
+import { remoteChannel } from "./remote/gateway-auth.js";
+import { socketPath as deviceSocketPath } from "./devices/protocol.js";
+// ---- end mac7/nodes ----
 import { deploymentApi, type DeploymentContext } from "./deployment-api.js";
+import { quitRequest } from "./install/quit.js"; // bucket 22
 import { clearRunning, writeRunning } from "./install/running.js";
 import { readFirstStart, recordFirstStart } from "./install/update-backup.js";
 import { readDesktopSettings, saveDesktopSettings } from "./integrations/desktop-config.js";
 import { readCredentialSettings, saveCredentialSettings } from "./credential-cli.js";
+// mac7/vault-autofill (R17-068): the owner's book of saved sign-ins Branch may fill into a page.
+import { readVaultAutofillSettings, saveVaultAutofillSettings } from "./vault-autofill.js";
+import { keychainApi, keychainSettingsPath, permissionsContext } from "./keychain-api.js";
+import { optionalFields } from "./feature-switches.js";
 import { auditCsvResponse, handlesMiscPath, miscApi, MiscApiError } from "./misc-api.js";
 // Batch 19 (wave 7): spans, sending traces somewhere, the counters page and the rule sentences.
 import { handlesTracingPath, logsResponse, metricsResponse, tracingApi, TracingApiError } from "./tracing-api.js";
 // Batch 26 (wave 8): where scripts run, what may reach the internet, how much one person may ask
 // for, the owner's other computers, marks, and how long conversations are kept.
 import { handlesSandboxRemotePath, sandboxRemoteApi, SandboxRemoteApiError } from "./sandbox-remote-api.js";
+// Wave mac2 (move-in): bringing chats and memory over from another assistant.
+import { contextFileSinkFor, defaultMoveInOptions, handlesMoveInPath, moveInApi, MoveInApiError } from "./migrate-api.js";
+// Wave mac2 (guards): which workspace folders are trusted, and the loop guard switch.
+import { guardsApi, handlesGuardsPath } from "./run-guards.js";
+// R17-S-B: the hidden knobs, with plain labels, and the launch settings file as a card.
+import { handlesKnobsPath, knobsApi, KnobsApiError } from "./knobs/api.js";
+// R17-E: models, cheaper and smarter (src/model-savings/).
+import { handlesSavingsPath, savingsApi, SavingsApiError } from "./model-savings/api.js";
+// mac7/usage-bar: how much of each connection's allowance is left (src/usage-limits.ts).
+import { handlesUsageLimitsPath, usageLimitsRoute, UsageLimitsError } from "./usage-limits-api.js";
+import { savingsRefusal } from "./short-lived-keys.js";
+// R17-S-C: the comfort settings (src/comfort/); every change is the owner's.
+import { ComfortApiError, comfortApi, handlesComfortPath } from "./comfort/api.js";
+import { comfortRefusal } from "./short-lived-keys.js";
+// mac3/never-break: the gateway switch and suggested changes (src/never-break/api.ts).
+import { handlesNeverBreakPath, NeverBreakApiError, neverBreakApi } from "./never-break/api.js";
+import { channelSetupApi, handlesChannelSetupPath } from "./channel-setup/api.js"; // mac7/connect
+import { SetupRefusal } from "./channel-setup/check.js"; // mac7/connect
+// mac6/accounts: several accounts per connection (src/accounts/api.ts).
+import { AccountsApiError, accountsApi, handlesAccountsPath } from "./accounts/api.js";
+import { accountsServiceFor } from "./accounts/service.js";
+import { snapshotData } from "./never-break/canary.js";
+// Wave mac3 (tool-safety): the second look before an approval.
+import { reviewerView, saveReviewerSettings } from "./approval-reviewer.js";
 import { helpApi } from "./help.js";
-import { AuthLimiter, noteAuthFailure, requestSource } from "./auth-limits.js";
+import { AuthLimiter, noteAuthFailure, requestSource, tunnelSource, webhookLimitKey } from "./auth-limits.js";
 import { handlesOrchestrationPath, orchestrationApi, OrchestrationApiError } from "./orchestration-api.js";
 // Batch 21 (wave 8): the app's own OpenAPI description, Lockdown, kept answers, whole sets of
 // questions at once, and what each project has cost.
 import { handlesOtherPath, otherApi, OtherApiError } from "./other-api.js";
+import { handlesSdkKitPath, sdkKitApi, SdkKitError } from "./sdk-kit.js"; // bucket 21
+import { webPagesApi, WebPagesApiError } from "./web-pages.js"; // w911 (A0743, A1452) hook
 import { audit, csvCell } from "./audit.js";
 import { askFirstSettings } from "./ask-first.js";
 import { decisionsFromRules } from "./tool-categories.js";
@@ -153,7 +276,7 @@ const PlanAnswerSchema = z.object({
   reason: z.string().trim().max(500).optional(),
 }).strict();
 /** Which of the two modes this conversation is in, and how far it may go before checking back. */
-const PlanActChoiceSchema = PlanActSettingsSchema.partial().extend({
+const PlanActChoiceSchema = optionalFields(PlanActSettingsSchema).extend({
   sessionId: z.string().max(64).optional(),
   /** "conversation" sets this one apart; "project" changes what every conversation starts from. */
   scope: z.enum(["conversation", "project"]).default("conversation"),
@@ -215,15 +338,43 @@ async function sessionToken(dataDir: string): Promise<string> {
 }
 /**
  * Which addresses a request may claim it was sent to. Normally only this computer's own loopback
- * address; while "reach Branch from my phone" is on, also the private Tailscale address and name.
+ * address; while "reach Branch from my phone" is on, also the private Tailscale address and name;
+ * and while the door is open to the private network (mac7/bind, src/listen-address.ts), the names
+ * and addresses this computer answers on.
  * Everything else is refused, which is what stops a web page elsewhere talking to Branch.
  */
+/** The name part of a `host:port`, with an IPv6 address left in its brackets. */
+function hostOf(value: string): string {
+  const text = value.trim().toLowerCase();
+  if (text.startsWith("[")) { const end = text.indexOf("]"); return end < 0 ? text : text.slice(0, end + 1); }
+  const colon = text.indexOf(":");
+  return colon < 0 ? text : text.slice(0, colon);
+}
+/**
+ * An allowed entry that carries no port. Branch inside a container cannot know which port of the
+ * host it was published on, so a name it answers to is allowed whatever port the request arrived
+ * at. The port never kept anyone out; the local key does, and the name is still what stops a page
+ * elsewhere from pointing its own address at this computer.
+ */
+const anyPortEntry = (entry: string): boolean => (entry.startsWith("[") ? entry.endsWith("]") : !entry.includes(":"));
 export function hostAllowed(
   host: string | undefined, origin: string | undefined, url: string, extra: readonly string[] = [],
 ): boolean {
   const hosts = [new URL(url).host, ...extra];
-  if (!host || !hosts.includes(host)) return false;
-  return !origin || hosts.some((allowed) => origin === `http://${allowed}`);
+  const anyPort = extra.filter(anyPortEntry).map((entry) => entry.toLowerCase());
+  if (!host || (!hosts.includes(host) && !anyPort.includes(hostOf(host)))) return false;
+  if (!origin) return true;
+  // bucket 19 (integration review): the same host served over TLS (a paired door behind https) is the same place.
+  if (hosts.some((allowed) => origin === `http://${allowed}` || origin === `https://${allowed}`)) return true;
+  // mac7/bind (integration review): a portless entry lets a request SAY it was sent to any port,
+  // because Branch inside a container cannot know which port of the host it was published on. It
+  // must not also let a PAGE on another port of this same computer call itself Branch's own page: a
+  // development server, another app's dashboard or a plugin's own page on 127.0.0.1:8080 is a
+  // different origin, and `sec-fetch-site` calls it same-site because a port is not part of a site.
+  // Branch's own page is served by Branch, so its Origin always carries the very host and port the
+  // request arrived at — which is the test here, and it keeps the published-port case working.
+  const from = /^https?:\/\/([^/?#]+)$/.exec(origin.trim())?.[1]?.toLowerCase();
+  return !!from && from === host.trim().toLowerCase() && anyPort.includes(hostOf(from));
 }
 function authorize(
   request: IncomingMessage, url: string, token: string, extra: readonly string[] = [],
@@ -235,6 +386,13 @@ function authorize(
    * owner's own app. It answers the plain reason it refused, or null to let the request through.
    */
   scoped?: (supplied: string) => string | null,
+  /**
+   * mac5/key-sweep (integration review): whether a key is one of this computer's working keys. A
+   * working key refused one route is not a guess, so it is not counted: otherwise a script bumping
+   * into the owner's routes would make every short-lived key from that place wait (the dashboard, a
+   * paired phone behind the same address) and write a false "wrong key" line into the record.
+   */
+  working?: (supplied: string) => boolean,
 ): void {
   if (!hostAllowed(request.headers.host, undefined, url, extra))
     throw new HttpError(403, "Host rejected");
@@ -245,7 +403,7 @@ function authorize(
   const supplied = request.headers.authorization?.replace(/^Bearer /, "") ?? "";
   const correct =
     supplied.length === token.length && timingSafeEqual(Buffer.from(supplied), Buffer.from(token));
-  const from = requestSource(request.socket?.remoteAddress);
+  const from = requestSource(request.socket?.remoteAddress, request.headers);
   // The right key is checked first and clears the count at once, so the owner's own app can never
   // shut itself out. Only a wrong key is counted, and a place that keeps guessing is made to wait.
   if (correct) { limits?.limiter.succeed(from); return; }
@@ -253,7 +411,7 @@ function authorize(
   if (waiting) throw new HttpError(429, waiting);
   const refusal = supplied && scoped ? scoped(supplied) : "Local session token required";
   if (refusal === null) { limits?.limiter.succeed(from); return; }
-  limits?.onFailure(from);
+  if (!(supplied && working?.(supplied))) limits?.onFailure(from);
   throw new HttpError(401, refusal);
 }
 /** A study result without its thousands of rows, for the list on the Evaluation screen. */
@@ -268,11 +426,14 @@ async function staticFile(
 ): Promise<boolean> {
   const assets: Record<string, [string, string]> = {
     "/acorn.js": ["acorn.js", "text/javascript; charset=utf-8"],
+    "/look-sync.js": ["look-sync.js", "text/javascript; charset=utf-8"],
     "/assets/keepoak-mark.png": ["assets/keepoak-mark.png", "image/png"],
     "/assets/keepoak-mark-reversed.png": ["assets/keepoak-mark-reversed.png", "image/png"],
     "/": ["index.html", "text/html; charset=utf-8"],
     "/app.js": ["app.js", "text/javascript; charset=utf-8"],
     "/voice.js": ["voice.js", "text/javascript; charset=utf-8"],
+    // mac2/desktop-ui: this computer's own permission switches, and the Keychain list on a Mac.
+    "/os-permissions.js": ["os-permissions.js", "text/javascript; charset=utf-8"],
     "/voice-talk.js": ["voice-talk.js", "text/javascript; charset=utf-8"],
     // Wave 8: the composer's live-conversation button and everything behind it.
     "/voice-live.js": ["voice-live.js", "text/javascript; charset=utf-8"],
@@ -282,6 +443,10 @@ async function staticFile(
     "/documents.js": ["documents.js", "text/javascript; charset=utf-8"],
     "/knowledge.js": ["knowledge.js", "text/javascript; charset=utf-8"],
     "/media.js": ["media.js", "text/javascript; charset=utf-8"],
+    // Bucket 17: the video programs card and the speech plug-ins card.
+    "/media-programs.js": ["media-programs.js", "text/javascript; charset=utf-8"],
+    // Bucket 21: the "Building on Branch" and "Flows as files" cards.
+    "/sdk-kit.js": ["sdk-kit.js", "text/javascript; charset=utf-8"],
     "/memory-tidy.js": ["memory-tidy.js", "text/javascript; charset=utf-8"],
     "/docs-memory-2.js": ["docs-memory-2.js", "text/javascript; charset=utf-8"],
     // Batch 27 (wave 8): writing documents, summaries, the map of names and knowledge housekeeping.
@@ -290,9 +455,13 @@ async function staticFile(
     "/self-improving.js": ["self-improving.js", "text/javascript; charset=utf-8"],
     "/skills-extra.js": ["skills-extra.js", "text/javascript; charset=utf-8"],
     "/local-models.js": ["local-models.js", "text/javascript; charset=utf-8"],
+    // Wave mac5 (local models): the one-click block inside the same card.
+    "/local-oneclick.js": ["local-oneclick.js", "text/javascript; charset=utf-8"],
     // Wave 6: sharing, labels and notes, workflows, the waiting line, days off and people.
     "/collab.js": ["collab.js", "text/javascript; charset=utf-8"],
     "/automations.js": ["automations.js", "text/javascript; charset=utf-8"],
+    // Wave mac2 (quiet-jobs): the check-in card, automation health and check-script approval.
+    "/heartbeat.js": ["heartbeat.js", "text/javascript; charset=utf-8"],
     "/mcp.js": ["mcp.js", "text/javascript; charset=utf-8"],
     "/mcp-workbench.js": ["mcp-workbench.js", "text/javascript; charset=utf-8"],
     "/browser.js": ["browser.js", "text/javascript; charset=utf-8"],
@@ -305,6 +474,34 @@ async function staticFile(
     "/pair": ["pair.html", "text/html; charset=utf-8"],
     "/pair.js": ["pair.js", "text/javascript; charset=utf-8"],
     "/pair.css": ["pair.css", "text/css; charset=utf-8"],
+    // Wave mac3: the owner's dashboard, and the card in Customize → Channels that switches it on.
+    "/dashboard": ["dashboard/index.html", "text/html; charset=utf-8"],
+    "/dashboard/dashboard.css": ["dashboard/dashboard.css", "text/css; charset=utf-8"],
+    "/dashboard/dashboard.js": ["dashboard/dashboard.js", "text/javascript; charset=utf-8"],
+    "/dashboard/sections.js": ["dashboard/sections.js", "text/javascript; charset=utf-8"],
+    "/dashboard/feed.js": ["dashboard/feed.js", "text/javascript; charset=utf-8"],
+    "/dashboard/look.js": ["dashboard/look.js", "text/javascript; charset=utf-8"],
+    "/dashboard-card.js": ["dashboard/card.js", "text/javascript; charset=utf-8"],
+    "/dashboard/commands.js": ["dashboard/commands.js", "text/javascript; charset=utf-8"],
+    // Wave mac3 (commands): the message box's / menu and the commands card.
+    "/commands.js": ["commands.js", "text/javascript; charset=utf-8"],
+    // Bucket 13 (mac4): the task recordings card and the "is Branch keeping up" card.
+    "/recordings.js": ["recordings.js", "text/javascript; charset=utf-8"],
+    // mac4/bucket-20: the cards for talking to other agents and tools, and ways of working.
+    "/interop.js": ["interop.js", "text/javascript; charset=utf-8"],
+    // Bucket 15: the add-ons card (Customize → Plugins).
+    "/add-ons.js": ["add-ons.js", "text/javascript; charset=utf-8"],
+    "/asks.js": ["asks.js", "text/javascript; charset=utf-8"], // mac6/bucket-23
+    "/devices.js": ["devices.js", "text/javascript; charset=utf-8"], // mac7/nodes
+    "/autonomy.js": ["autonomy.js", "text/javascript; charset=utf-8"], // r17-b
+    "/trunks.js": ["trunks.js", "text/javascript; charset=utf-8"], // R17-A
+    "/coding.js": ["coding.js", "text/javascript; charset=utf-8"], // mac7/r17-d
+    "/personal.js": ["personal.js", "text/javascript; charset=utf-8"], // R17-C
+    "/reach.js": ["reach.js", "text/javascript; charset=utf-8"], // r17-i
+    "/safety-extras.js": ["safety-extras.js", "text/javascript; charset=utf-8"], // mac7/r17-g
+    "/vault-autofill.js": ["vault-autofill.js", "text/javascript; charset=utf-8"], // mac7/vault-autofill
+    "/flows-boards.js": ["flows-boards.js", "text/javascript; charset=utf-8"], // r17-h
+    "/learning-more.js": ["learning-more.js", "text/javascript; charset=utf-8"], // R17-F
     "/usage.js": ["usage.js", "text/javascript; charset=utf-8"],
     "/evaluation.js": ["evaluation.js", "text/javascript; charset=utf-8"],
     // Wave 7: written-down experiments, under the evaluation card.
@@ -316,13 +513,45 @@ async function staticFile(
     "/flows.js": ["flows.js", "text/javascript; charset=utf-8"],
     // Wave 9: the advisor switch and the two debate bounds.
     "/second-opinion.js": ["second-opinion.js", "text/javascript; charset=utf-8"],
+    // Wave mac2 (chat-live): the chat-app switches card under Customize, Chat apps.
+    "/chat-live.js": ["chat-live.js", "text/javascript; charset=utf-8"],
+    "/chat-permissions.js": ["chat-permissions.js", "text/javascript; charset=utf-8"], // mac7/chat-allowlist
+    "/wake-word.js": ["wake-word.js", "text/javascript; charset=utf-8"], // mac7/wake-pins
+    "/pins.js": ["pins.js", "text/javascript; charset=utf-8"], // mac7/wake-pins
     "/skill-revisions.js": ["skill-revisions.js", "text/javascript; charset=utf-8"],
+    // Wave mac3 (channels-parity): the switches for the chat services added to match other assistants.
+    "/channels-more.js": ["channels-more.js", "text/javascript; charset=utf-8"],
     "/specialist-styles.js": ["specialist-styles.js", "text/javascript; charset=utf-8"],
     // Wave 7 (a coder's toolbox): the two Developer switches for language servers and debuggers.
     "/code-ide.js": ["code-ide.js", "text/javascript; charset=utf-8"],
+    "/code-editor.js": ["code-editor.js", "text/javascript; charset=utf-8"], // bucket-18 (A0098)
     // Wave 8: the Lockdown switch and the shape branched conversations make.
     "/other.js": ["other.js", "text/javascript; charset=utf-8"],
     "/sandbox-remote.js": ["sandbox-remote.js", "text/javascript; charset=utf-8"],
+    // Wave mac2: bringing your chats and memory over from another assistant.
+    "/move-in.js": ["move-in.js", "text/javascript; charset=utf-8"],
+    "/usage-report.js": ["usage-report.js", "text/javascript; charset=utf-8"], // bucket 14 (A0367)
+    // Wave mac2 (guards): the card that asks whether a folder is trusted.
+    "/folder-trust.js": ["folder-trust.js", "text/javascript; charset=utf-8"],
+    "/knobs.js": ["knobs.js", "text/javascript; charset=utf-8"], // R17-S-B: the hidden knobs
+    "/model-savings.js": ["model-savings.js", "text/javascript; charset=utf-8"], // R17-E
+    "/round-chart.js": ["round-chart.js", "text/javascript; charset=utf-8"], // R17-E (R17-049)
+    "/comfort.js": ["comfort.js", "text/javascript; charset=utf-8"], // R17-S-C
+    // mac3/never-break: the Keep running card and the Telegram setup card.
+    "/never-break.js": ["never-break.js", "text/javascript; charset=utf-8"],
+    // mac6/accounts: the Accounts list in each connection's card, and the chip in the conversation header.
+    "/accounts.js": ["accounts.js", "text/javascript; charset=utf-8"],
+    "/telegram-setup.js": ["telegram-setup.js", "text/javascript; charset=utf-8"],
+    // mac7/connect: the Set up panel for each chat app.
+    "/channel-setup.js": ["channel-setup.js", "text/javascript; charset=utf-8"],
+    "/channel-setup.css": ["channel-setup.css", "text/css; charset=utf-8"],
+    // Wave mac2 (goal-undo): the goal strip, and editing an earlier message to go back to it.
+    "/goal.js": ["goal.js", "text/javascript; charset=utf-8"],
+    "/rewind.js": ["rewind.js", "text/javascript; charset=utf-8"],
+    // Wave mac3 (tool-safety): the card for the second look before an approval.
+    "/approval-reviewer.js": ["approval-reviewer.js", "text/javascript; charset=utf-8"],
+    // Wave mac3 (os-sandbox): the card for the wall around programs.
+    "/os-sandbox.js": ["os-sandbox.js", "text/javascript; charset=utf-8"],
     "/providers.js": ["providers.js", "text/javascript; charset=utf-8"],
     "/style.css": ["style.css", "text/css; charset=utf-8"],
     // App shell (wave 2): tokens, layout, appearance.
@@ -332,8 +561,31 @@ async function staticFile(
     // Wave 9 redesign: the five places, the Settings window, the 44 themes' colours and the oak.
     "/layout.js": ["layout.js", "text/javascript; charset=utf-8"],
     "/context-files.js": ["context-files.js", "text/javascript; charset=utf-8"],
+    // R17-S-A (understandable settings): the settings kit, descriptions on every control, and first-run offers.
+    "/settings-kit.js": ["settings-kit.js", "text/javascript; charset=utf-8"],
+    "/settings-describe.js": ["settings-describe.js", "text/javascript; charset=utf-8"],
+    "/settings-descriptions.js": ["settings-descriptions.js", "text/javascript; charset=utf-8"],
+    "/first-run-next.js": ["first-run-next.js", "text/javascript; charset=utf-8"],
+    // mac3/reflection-skills: looking back (Library, Memory) and skills it wrote (Customize, Skills).
+    "/learning-loop.js": ["learning-loop.js", "text/javascript; charset=utf-8"],
+    // mac3/security-check: the security self-check card.
+    "/security-check.js": ["security-check.js", "text/javascript; charset=utf-8"],
+    // bucket 12: saved prompts (Automations › Procedures) and the skill install record (Customize › Skills).
+    "/prompt-library.js": ["prompt-library.js", "text/javascript; charset=utf-8"],
+    "/skill-installs.js": ["skill-installs.js", "text/javascript; charset=utf-8"],
+    // bucket 19: the page people sign in on, and the owner's card for it (Settings, General).
+    "/people": ["people.html", "text/html; charset=utf-8"],
+    "/people.js": ["people.js", "text/javascript; charset=utf-8"],
+    "/people.css": ["people.css", "text/css; charset=utf-8"],
+    "/people-admin.js": ["people-admin.js", "text/javascript; charset=utf-8"],
+    // mac2/fly-core-2: the learning core's card.
+    "/learning-core.js": ["learning-core.js", "text/javascript; charset=utf-8"],
     "/layout.css": ["layout.css", "text/css; charset=utf-8"],
     "/theme-catalogue.js": ["theme-catalogue.js", "text/javascript; charset=utf-8"],
+    // Wave mac3: one theme's colours under Branch's token names, for the window and the dashboard.
+    "/theme-bridge.js": ["theme-bridge.js", "text/javascript; charset=utf-8"],
+    // mac3/mobile integration: a phone paired in its browser sends its own secret on every request.
+    "/device-headers.js": ["device-headers.js", "text/javascript; charset=utf-8"],
     "/grove.js": ["grove.js", "text/javascript; charset=utf-8"],
     "/context-pane.js": ["context-pane.js", "text/javascript; charset=utf-8"],
     // Wave 7: what a conversation is allowed to do right now, and the observability screens.
@@ -429,16 +681,28 @@ const providerTestInput = z.object({
 }).strict();
 
 /** Sends one tiny request through the same provider classes the assistant uses, so URL rules and errors match real use. */
-async function testProvider(body: unknown): Promise<unknown> {
+async function testProvider(body: unknown, policy: NetworkPolicy): Promise<unknown> {
   const input = providerTestInput.parse(body);
   const chosen = input.preset ? findPreset(input.preset) : undefined;
   if (input.preset && !chosen) throw new HttpError(400, "Unknown provider preset");
   const endpoint = input.endpoint ?? chosen?.baseUrl, model = input.model ?? chosen?.modelIds[0];
   if (!endpoint || !model || !input.apiKey) throw new HttpError(400, "Provide the address, a model name and the key to test");
+  // mac5/key-sweep: the typed key goes nowhere the network rules refuse; a catalogue service on this
+  // computer keeps the same narrow allowance as a saved connection (src/local-connection-policy.ts).
+  const check = connectionCheck(policy, chosen ? catalogEntry(chosen.id) : undefined, endpoint);
+  const fetchImpl = (async (target: string | URL | Request, init?: RequestInit) => {
+    await check(new URL(target instanceof Request ? target.url : String(target)), "model connection test");
+    return fetch(target, { ...init, redirect: "error" });
+  }) as typeof fetch;
   const started = Date.now();
   try {
-    const options = { endpoint, model, apiKey: input.apiKey };
-    const provider = chosen?.headerStyle === "google-key" ? new GeminiProvider(options)
+    await check(new URL(endpoint), "model connection test");
+    const options = { endpoint, model, apiKey: input.apiKey, fetchImpl };
+    // --- mac5/providers: services whose route the header-style guess below gets wrong (Perplexity's
+    // Agent API) or that have ended (GitHub Models). See src/provider-factory.ts testRouteFor.
+    const ownRoute = chosen ? testRouteFor(chosen.id, endpoint, model, input.apiKey, fetchImpl) : null; // key-sweep review: redirects checked too
+    // --- end mac5/providers
+    const provider = ownRoute ? ownRoute : chosen?.headerStyle === "google-key" ? new GeminiProvider(options)
       : chosen?.headerStyle === "x-api-key" ? new AnthropicProvider(options) : new OpenAIProvider(options);
     const completion = await provider.complete({
       messages: [{ role: "system", content: "You are Branch Agent. Reply with the single word OK." }, { role: "user", content: "Connection test" }],
@@ -452,8 +716,8 @@ async function testProvider(body: unknown): Promise<unknown> {
 
 function providerFailureReason(error: unknown): string {
   const text = errorText(error);
-  if (/(401|403)|invalid.*key|unauthori|forbidden/i.test(text)) return "The key was not accepted. Check it and try again.";
-  if (/404|not found|no such model|does not exist/i.test(text)) return "That model name was not found at this address.";
+  if (/\b(401|403)\b|invalid.*key|unauthori|forbidden/i.test(text)) return "The key was not accepted. Check it and try again.";
+  if (/\b404\b|not found|no such model|does not exist/i.test(text)) return "That model name was not found at this address.";
   if (/ENOTFOUND|ECONNREFUSED|fetch failed|timed? ?out|abort/i.test(text)) return "Could not reach that address. Check the URL and your connection.";
   if (/private|blocked|policy|requires HTTPS/i.test(text)) return "That address is not allowed: " + text.slice(0, 120);
   return "The provider answered with an error: " + text.slice(0, 160);
@@ -609,6 +873,8 @@ async function api(
   request: IncomingMessage,
   path: string,
   dataDir: string,
+  /** mac7/bind: where this door ended up listening, and why, for `/api/listen` to show. */
+  listen: ListenDecision,
 ): Promise<unknown> {
   // Batch 19 (wave 6): the record of what it was allowed to do, approval kinds, ask-first,
   // the practice workspace, how passages are ordered, plugin model connections, issue context.
@@ -616,10 +882,33 @@ async function api(
     return miscApi(app, request, path, readBody).catch((error: unknown) => {
       throw error instanceof MiscApiError ? new HttpError(error.status, error.message) : error;
     });
+  // bucket-18: code editor (A0098)
+  if (handlesWorkspaceEditorPath(path))
+    return workspaceEditorApi({
+      files: app.files, store: app.store, owner: app.runtime.owner, readBody,
+      runTool: (name, args) => app.runtime.executeTool(name, args, { mode: "owner" }), // mac5/manual-actions
+      // Integration review: Branch's own program, settings and saved work stay out of reach here too.
+      guard: (target, readOnly) => protectedTarget({ tool: readOnly ? "files.read" : "files.write", readOnly, args: { path: target },
+        target, workspace: app.files.base }, app.runtime.protectedAreas),
+    }, request, path, new URL(request.url ?? "/", "http://local")).catch((error: unknown) => {
+      throw error instanceof WorkspaceEditorApiError ? new HttpError(error.status, error.message) : error;
+    });
   // Batch 19 (wave 7): spans, sending traces out, and the approval rules read as sentences.
   if (handlesTracingPath(path))
     return tracingApi(app, request, path, readBody).catch((error: unknown) => {
       throw error instanceof TracingApiError ? new HttpError(error.status, error.message) : error;
+    });
+  // w911 (A0743, A1452) hook: the switch for reading and crawling web pages (owner-only change).
+  if (path === "/api/web-pages")
+    return webPagesApi({ store: app.store, owner: app.runtime.owner, requireOwner: (what) => app.store.profiles.requireOwner(what) },
+      request.method ?? "GET", () => readBody(request)).catch((error: unknown) => {
+      throw error instanceof WebPagesApiError ? new HttpError(error.status, error.message) : error;
+    });
+  // ── Bucket 21: the switch for building on Branch, and flows written out and read back as YAML. ──
+  if (handlesSdkKitPath(path))
+    return sdkKitApi({ store: app.store, owner: app.runtime.owner, flows: app.flows,
+      requireOwner: (what) => app.store.profiles.requireOwner(what) }, request.method ?? "GET", path, () => readBody(request)).catch((error: unknown) => {
+      throw error instanceof SdkKitError ? new HttpError(error.status, error.message) : error;
     });
   // Batch 20 (wave 7): flows as boxes and arrows, jobs handed over to finish later, programs left
   // running, and the switches for the project's check, those programs, and small scripts.
@@ -633,6 +922,71 @@ async function api(
     return sandboxRemoteApi(app, request, path, readBody).catch((error: unknown) => {
       throw error instanceof SandboxRemoteApiError ? new HttpError(error.status, error.message) : error;
     });
+  // Wave mac2 (move-in): the preview of what another assistant left behind, and bringing it over.
+  if (handlesMoveInPath(path))
+    return moveInApi(app, request, path, readBody, { ...defaultMoveInOptions(), contextFiles: contextFileSinkFor(app) }).catch((error: unknown) => {
+      throw error instanceof MoveInApiError ? new HttpError(error.status, error.message) : error;
+    });
+  // Wave mac2 (guards): which workspace folders are trusted, what each carries, and both switches.
+  if (handlesGuardsPath(path)) return guardsApi(app, request, path, readBody);
+  // R17-S-B: the hidden knobs. Every change is the owner's (see offLimitsToShortLivedKeys).
+  if (handlesKnobsPath(path))
+    return knobsApi(app, request, path, readBody, () => (process.env.BRANCH_INTEGRATIONS ? resolvePath(process.env.BRANCH_INTEGRATIONS) : null))
+      .catch((error: unknown) => { throw error instanceof KnobsApiError ? new HttpError(error.status, error.message) : error; });
+  // R17-E: how models are chosen and what they may spend; every change is the owner's.
+  if (handlesSavingsPath(path))
+    return savingsApi(app, request, path, new URL(request.url ?? "/", "http://branch.invalid"), readBody)
+      .catch((error: unknown) => { throw error instanceof SavingsApiError ? new HttpError(error.status, error.message) : error; });
+  // R17-S-C: shortcuts, status line, notifications, voice keys, browser care, proxy and certificates.
+  if (handlesComfortPath(path))
+    return comfortApi({ store: app.store, runtime: app.runtime, outbound: app.comfort.outbound }, request, path, readBody)
+      .catch((error: unknown) => { throw error instanceof ComfortApiError ? new HttpError(error.status, error.message) : error; });
+  // mac6/accounts: the accounts of each connection, and switching between them.
+  if (handlesAccountsPath(path))
+    return accountsApi(request, path, {
+      service: accountsServiceFor(app.runtime.models), readBody: () => readBody(request, 16 * 1024),
+      requireOwner: (what) => app.store.profiles.requireOwner(what),
+    }).catch((error: unknown) => {
+      throw error instanceof AccountsApiError ? new HttpError(error.status, error.message) : error;
+    });
+  // mac7/bind: where Branch's own door listens (src/listen-address.ts). The owner's alone, in the
+  // app window: a short-lived key (which is how a Trunk's message arrives), a household person, a
+  // chat message's task and work another program started are all refused, and so is Lockdown.
+  if (path === "/api/listen") {
+    if (request.method === "GET") {
+      // Integration review: where the door is is where to knock, so looking is guarded too.
+      const hidden = listenReadRefusal(app.store, app.runtime.owner);
+      if (hidden) throw new HttpError(403, hidden);
+      return listenView(app.store, app.runtime.owner, listen);
+    }
+    if (request.method !== "POST") throw new HttpError(405, "Use GET or POST here.");
+    const refused = listenChangeRefusal(app.store, app.runtime.owner);
+    if (refused) throw new HttpError(403, refused);
+    saveListenSettings(app.store, app.runtime.owner, await readBody(request, 4096));
+    return { ...listenView(app.store, app.runtime.owner, listen), note: "Saved. It takes effect the next time Branch starts." };
+  }
+  // mac3/never-break: the gateway switch and the changes the assistant suggested for it.
+  if (handlesNeverBreakPath(path))
+    return neverBreakApi(dataDir, request, path, readBody, {
+      snapshot: () => snapshotData({ dataDir, database: app.store.sqlite, journal: app.neverBreak.journal.database }),
+      telegram: app.neverBreak.telegram,
+    }).catch((error: unknown) => {
+      throw error instanceof NeverBreakApiError ? new HttpError(error.status, error.message) : error;
+    });
+  // --- mac7/connect: the Set up panel for each chat app (src/channel-setup/) ---
+  if (handlesChannelSetupPath(path))
+    return channelSetupApi({ store: app.store, owner: app.runtime.owner, fetch: app.web.policy.guard(globalThis.fetch),
+      telegram: app.neverBreak.telegram, requireOwner: (what) => app.store.profiles.requireOwner(what) },
+    request.method ?? "GET", path, () => readBody(request)).catch((error: unknown) => {
+      throw error instanceof SetupRefusal ? new HttpError(error.status, error.message) : error;
+    });
+  // --- end mac7/connect ---
+  // Wave mac3 (tool-safety): the second look before an approval — its switch, connection and rules.
+  if (path === "/api/approval-reviewer" && request.method === "GET") return reviewerView(app.store, app.runtime.owner);
+  if (path === "/api/approval-reviewer" && request.method === "POST") {
+    saveReviewerSettings(app.store, app.runtime.owner, await readBody(request));
+    return reviewerView(app.store, app.runtime.owner);
+  }
   // Batch 21 (wave 8): the description of this API, Lockdown, kept answers, whole sets, project cost.
   if (handlesOtherPath(path))
     return otherApi(app, request, path, readBody).catch((error: unknown) => {
@@ -644,6 +998,55 @@ async function api(
     if (answer === undefined) throw new HttpError(404, "There is no handbook chapter by that name");
     return answer;
   }
+  // ── mac2/fly-core-2: the learning core's switch, what it has learned, and forgetting it. ──
+  if (handlesLearningCorePath(path))
+    return learningCoreApi({ store: app.store, owner: app.runtime.owner, configure: app.learningCore.configure },
+      request.method ?? "GET", path, () => readBody(request)).catch((error: unknown) => {
+      throw error instanceof LearningCoreApiError ? new HttpError(error.status, error.message) : error;
+    });
+  // ── R17-S-A (understandable settings): presets, putting settings back, one settings file, and the files you write. ──
+  if (handlesSettingsKitPath(path))
+    return settingsKitApi({
+      store: app.store, owner: app.runtime.owner, workspace: app.runtime.workspace, appVersion: app.version,
+      writers: {
+        "fly-core": (patch) => app.learningCore.configure(patch), reflection: (patch) => app.learningLoop.configure(patch),
+        // Integration review: each through its own save, so a tool or a helper comes and goes at once.
+        "security-check": (patch) => app.security.configure(patch),
+        // mac7/wake-mic: the switch reached through a settings file or a preset starts and stops
+        // the listener exactly as the card's own switch does.
+        "wake-word": (patch) => { saveWakeWordSettings(app.store, app.runtime.owner, patch); app.wake.refresh(); },
+        ...Object.fromEntries((["analytics", "answer-engine", "runtimes", "nodes", "project-board"] as const)
+          .map((part) => [`asks-${part}`, (patch: Record<string, unknown>) => { app.asks.setMode(part, patch); }])),
+        // r17-i integration review: a reach switch saved through Reach, so its tools and the relay follow at once.
+        ...Object.fromEntries(reachParts.map((part) => [reachKey(part), (patch: Record<string, unknown>) => {
+          void app.reachParts.setMode(part, patch).catch(() => undefined); // the record is saved before the first await
+        }])),
+      },
+      guard: (target) => protectedTarget({ tool: "files.write", readOnly: false, args: { path: target }, target,
+        workspace: app.runtime.workspace }, app.runtime.protectedAreas),
+    }, request.method ?? "GET", path, () => readBody(request, settingsKitBodyBytes)).catch((error: unknown) => {
+      throw error instanceof SettingsKitError ? new HttpError(error.status, error.message) : error;
+    });
+  // ── mac7/wake-pins ──
+  // Which settings the owner pinned, for anybody who uses this computer: somebody on a household
+  // profile is shown the pinned setting and told it is pinned, which is the whole point of a pin.
+  // Only the names and the fixed values are here, and every change goes through settings-kit above.
+  if (request.method === "GET" && path === "/api/pins")
+    return { pins: pins(app.store, app.store.profiles.ownerName).map(({ key, field, value, name, label }) => ({ key, field, value, name, label })) };
+  // The word that starts a turn. Reading it says what this computer could really do; changing it,
+  // like every other setting, is the owner's.
+  if (path === "/api/voice/wake") {
+    // mac7/wake-mic: whether it is listening this moment comes from the listener itself, so the
+    // card cannot say one thing while the microphone does another.
+    if (request.method === "GET")
+      return wakeWordView(app.store, app.runtime.owner, process.platform, app.store.profiles.isOwner(), app.wake.listening);
+    app.store.profiles.requireOwner("The word that starts a turn");
+    saveWakeWordSettings(app.store, app.runtime.owner, await readBody(request));
+    app.wake.refresh(); // the switch going on or off starts or stops the listener at once
+    return { settings: wakeWordSettings(app.store, app.runtime.owner),
+      state: wakeWordView(app.store, app.runtime.owner, process.platform, true, app.wake.listening) };
+  }
+  // ── end mac7/wake-pins ──
   if (request.method === "GET" && path === "/api/state") return state(app);
   // Wave 6: sharing, labels and notes, workflows, the waiting line, days off, and profiles.
   const collab = await collabApi(app, request, path, (maximumBytes) => readBody(request, maximumBytes));
@@ -651,14 +1054,18 @@ async function api(
   if (request.method === "GET" && path === "/api/tools") return toolInventory(app);
   // The developer playground: the form for every tool, and running one by hand through the gate.
   if (request.method === "GET" && path === "/api/tools/forms") return { tools: toolForms(app.registry) };
-  if (request.method === "POST" && path === "/api/tools/try")
+  if (request.method === "POST" && path === "/api/tools/try") {
+    const input = TryToolSchema.parse(await readBody(request));
     // Scrubbed on the way out, exactly as the runtime scrubs a tool result before it records one,
     // and given the same two-minute ceiling a manual action gets so nothing holds a slot for ever.
     return app.runtime.hideSecrets(
       await tryTool(app.registry, app.store, app.runtime.owner,
-        app.runtime.context({ signal: AbortSignal.timeout(120000) }),
-        TryToolSchema.parse(await readBody(request)),
-        (tool, permission) => app.runtime.roleRefusal(tool, permission)));
+        app.runtime.context({ signal: AbortSignal.timeout(120000) }), input,
+        (tool, permission) => app.runtime.roleRefusal(tool, permission),
+        // mac5/manual-actions: the same hand-pressed gate as /api/action, with its question kept. A
+        // short-lived key meets the full rules there: only "allow" runs, and it cannot confirm (key-sweep).
+        (tool, args, context) => manualVerdict(app.runtime, tool, args, context, argumentFingerprint(JSON.stringify(args)))));
+  }
   // Wave 8: an artifact out of a reply. Minting an address puts the page behind an unguessable
   // name the frame can fetch; saving keeps it beside the task, where the Documents list finds it.
   if (request.method === "POST" && path === "/api/artifacts/page")
@@ -680,6 +1087,9 @@ async function api(
   // everything else, so a paired phone can pick up what was started at the computer.
   if (request.method === "GET" && path === "/api/sessions")
     return app.store.recentSessions(app.store.profiles.scope(), Number(new URL(request.url ?? "/", "http://x").searchParams.get("limit") ?? 20) || 20);
+  // Wave mac2 (goal-undo): working toward a goal in rounds, and going back to an earlier message.
+  if (path === "/api/goals" || path === "/api/goal-undo/settings" || /^\/api\/sessions\/[a-f0-9-]{36}\/(goal|rewind|unrevert)$/.test(path))
+    return goalUndoApi(app, request, path);
   if (path.startsWith("/api/sessions/")) return sessionApi(app, request, path);
   if (path.startsWith("/api/memory/")) return memoryApi(app, request, path);
   if (path.startsWith("/api/history/")) return historyApi(app, request, path);
@@ -692,6 +1102,13 @@ async function api(
   if (path.startsWith("/api/lock") || path.startsWith("/api/privacy")) return guardApi(app, request, path);
   if (path.startsWith("/api/connections/")) return connectionsApi(app, request, path);
   if (path.startsWith("/api/channels")) return channelsApi(app, request, path);
+  // Wave mac2 (quiet-jobs): the check-in, and the owner's yes to a job's check script.
+  if (path.startsWith("/api/heartbeat") || /^\/api\/schedules\/[a-f0-9-]{36}\/gate$/.test(path)) {
+    app.store.profiles.requireOwner("Your schedules");
+    const answer = await quietJobsApi(app.scheduler, request.method ?? "GET", path, () => readBody(request));
+    if (answer !== undefined) return answer;
+    throw new HttpError(404, "Endpoint not found");
+  }
   if (path === "/api/schedules" || path.startsWith("/api/schedules/")) return schedulesApi(app, request, path);
   if (path.startsWith("/api/documents")) return documentsApi(app, request, path);
   // Knowledge bases: named sets of folders and files, searched by words and by meaning at once.
@@ -709,6 +1126,12 @@ async function api(
     return researchApi(app, request, path);
   if (path.startsWith("/api/triggers")) return triggersApi(app, request, path);
   if (path.startsWith("/api/webhooks")) return webhooksApi(app, request, path);
+  // w911 (A2019) hook: where the browser runs (on this computer, in Docker, or on a server elsewhere).
+  if (handlesBrowserContainer(path))
+    return browserContainerApi({ store: app.store, owner: app.runtime.owner, secrets: () => app.store.secrets,
+      requireOwner: (what) => app.store.profiles.requireOwner(what) }, request.method ?? "GET", () => readBody(request));
+  // w911 (A2144) hook: page notes, before the browser routes read the body.
+  if (handlesPageNotes(path)) return pageNotesApi(app, request.method ?? "GET", path, new URL(request.url ?? "/", "http://local").searchParams, () => readBody(request, 262144));
   if (path.startsWith("/api/browser/")) return browserApi(app, request, path);
   if (request.method === "POST" && path === "/api/identity")
     return saveAssistantIdentity(app.store, app.runtime.owner, await readBody(request));
@@ -720,11 +1143,19 @@ async function api(
     };
   if (request.method === "POST" && path === "/api/context-files")
     return saveContextFileSettings(app.store, app.runtime.owner, await readBody(request));
+  // ── mac3/reflection-skills: looking back over conversations and skills written from experience. ──
+  if (path.startsWith("/api/reflection")) {
+    // What the assistant learns is the owner's, so only the owner changes how it learns.
+    if (request.method !== "GET") app.store.profiles.requireOwner("Changing what the assistant learns");
+    const answer = await reflectionApi(app.learningLoop, app.store, request.method ?? "GET", path, () => readBody(request));
+    if (answer === undefined) throw new HttpError(404, "Not found");
+    return app.runtime.hideSecrets(answer);
+  }
   if (request.method === "POST" && path === "/api/models")
     return app.runtime.models.configure(app.runtime.owner, await readBody(request));
   if (request.method === "POST" && path === "/api/models/test") return testModel(app, await readBody(request));
   if (request.method === "GET" && path === "/api/providers/catalog") return providersCatalog();
-  if (request.method === "POST" && path === "/api/providers/test") return testProvider(await readBody(request));
+  if (request.method === "POST" && path === "/api/providers/test") return testProvider(await readBody(request), app.web.policy);
   if (request.method === "GET" && path === "/api/providers/local") return localProviders();
   // Batch 20 (wave 8): coding assistants already installed here, used as a model through their own
   // command line and their own sign-in. Listing them installs nothing and signs in to nothing.
@@ -734,7 +1165,7 @@ async function api(
   // Models on this computer: what is installed, downloads, hardware advice and task routing.
   if (path === "/api/local-models" || path.startsWith("/api/local-models/"))
     return localModelsApi(
-      { runtimes: localRuntimes(), store: app.store, models: app.runtime.models, owner: app.runtime.owner },
+      { runtimes: localRuntimes(), store: app.store, models: app.runtime.models, owner: app.runtime.owner, kit: localKitFor(app.store) },
       request.method ?? "GET", path, () => readBody(request),
     );
   if (request.method === "POST" && path === "/api/onboarding") {
@@ -742,6 +1173,9 @@ async function api(
     app.store.save("settings", app.runtime.owner, "onboarding", { ...value, completedAt: new Date().toISOString() });
     return onboardingState(app);
   }
+  // Wave mac3 (terminal): the theme `branch theme` and Settings › Appearance share (src/terminal-theme.ts).
+  if (path === "/api/look" && request.method !== "GET" && request.method !== "POST") throw new HttpError(405, "Use GET or POST");
+  if (path === "/api/look") return lookApi(app.store, app.runtime.owner, request.method ?? "GET", () => readBody(request));
   if (request.method === "POST" && path === "/api/preferences") {
     const value = PreferencesSchema.parse(await readBody(request));
     app.store.save("settings", app.runtime.owner, "preferences", value);
@@ -749,6 +1183,10 @@ async function api(
   }
   if (request.method === "GET" && path === "/api/voice/settings")
     return voiceSettings(app.store, app.runtime.owner);
+  // mac7/wake-pins integration review: these settings name the speech program on this computer, and
+  // the wake word's spotter IS that program. Choosing a program for Branch to run is the owner's.
+  if (request.method === "POST" && path === "/api/voice/settings")
+    app.store.profiles.requireOwner("The speech settings");
   // Wave 7: voice routes and plans, routing profiles, switching model mid-conversation, and a live
   // check of what each connection can do. The bodies of all of these live in src/voice-api.ts.
   if (path === "/api/voice/settings" || path === "/api/voice/plan" || path === "/api/voice/voices"
@@ -760,6 +1198,16 @@ async function api(
     return { settings: mediaSettings(app.store, app.runtime.owner), prices: builtInImagePrices, pricedAt: imagePricedAt };
   if (request.method === "POST" && path === "/api/media/settings")
     return { settings: saveMediaSettings(app.store, app.runtime.owner, await readBody(request)) };
+  // w911 (A1753) hook: plain-language page test scenarios, drafted, accepted and run as suites.
+  if (handlesQa(path)) return qaApi(qaDeps(app), request.method ?? "GET", path, () => readBody(request));
+  // w911 (A0374) hook: the switch and limit for fixing failed commands, and what it did.
+  if (path === "/api/troubleshoot") return troubleshootApi(app.store, app.runtime.owner, request.method ?? "GET", () => readBody(request));
+  // Bucket 17 hook: watching videos, where ffmpeg and yt-dlp are, and speech plug-ins.
+  if (handlesBucket17(path))
+    return bucket17Api(
+      { store: app.store, owner: app.runtime.owner, understanding: app.understanding, engines: app.voice.engines },
+      request.method ?? "GET", path, () => readBody(request), () => readMediaBody(request),
+    );
   if (request.method === "GET" && path === "/api/artifacts") {
     const type = new URL(request.url ?? "/", "http://local").searchParams.get("type") ?? "";
     const kept = await app.artifacts.list();
@@ -767,12 +1215,24 @@ async function api(
   }
   // Batch 26 (wave 8): what Windows itself allows, with the page that turns each one on.
   if (request.method === "GET" && path === "/api/os-permissions")
-    return { permissions: await app.osPermissions.all() };
+    return { permissions: await app.osPermissions.all(), ...permissionsContext() };
   // Batch 26 (wave 8): reading passwords out of the password manager the owner already has.
   if (request.method === "GET" && path === "/api/credentials/settings")
     return readCredentialSettings(app.store, app.runtime.owner);
   if (request.method === "POST" && path === "/api/credentials/settings")
     return saveCredentialSettings(app.store, app.runtime.owner, await readBody(request));
+  // mac7/vault-autofill (R17-068): which saved sign-in goes with which site. Names and website names
+  // only; no password ever travels this route, because nothing here asks a password manager anything.
+  // The owner's alone: a household person is refused here, a short-lived key at the door below.
+  if (path === "/api/vault-autofill/settings") {
+    app.store.profiles.requireOwner("Your saved sign-ins");
+    if (request.method === "GET") return readVaultAutofillSettings(app.store, app.runtime.owner);
+    if (request.method === "POST") return saveVaultAutofillSettings(app.store, app.runtime.owner, await readBody(request));
+    throw new HttpError(405, "That is not something Branch can do with your saved sign-ins");
+  }
+  // mac2/desktop-ui: which Keychain entries Branch may read on a Mac (names only, off by default).
+  if (path === keychainSettingsPath)
+    return keychainApi(app.store, app.runtime.owner, request.method ?? "GET", () => readBody(request));
   // Using this computer's screen and keyboard: off until the owner turns it on here.
   if (request.method === "GET" && path === "/api/desktop/settings")
     return readDesktopSettings(app.store, app.runtime.owner);
@@ -961,7 +1421,21 @@ async function api(
     const input = z.object({ sessionId: z.string().uuid(), decision: z.enum(["allow", "deny"]),
       remember: PolicyRememberSchema.default("session"),
       // Batch 19 (wave 7): the fingerprint the person was shown, so a yes cannot land on a changed request.
-      fingerprint: z.string().regex(/^[a-f0-9]{32}$/).optional() }).strict().parse(await readBody(request));
+      fingerprint: z.string().regex(/^[a-f0-9]{32}$/).optional(),
+      // mac7/r17-g: the six-digit code from the owner's authenticator app, for a yes that needs one.
+      code: z.string().max(12).optional() }).strict().parse(await readBody(request));
+    // mac5/key-sweep: answering is a run key's job, but "always" would write a standing rule.
+    if (input.remember === "always" && startedWithShortLivedKey())
+      throw new HttpError(401, "A short-lived key can answer this once or for this conversation, but cannot make a standing rule. Do that in the app window.");
+    // bucket 19: a short-lived key answers only the questions of tasks it started itself.
+    requireBoundSession(shortLivedKeyMark().sessionId, input.sessionId);
+    // With nothing waiting, the answer below says so in its own words.
+    const asked = app.runtime.approvals.questionFor(input.sessionId, input.fingerprint);
+    const keyRefusal = asked ? keyAnswerRefusal(app.store, asked.runId) : null;
+    if (keyRefusal) throw new HttpError(401, keyRefusal);
+    // mac7/r17-g: a code typed with the answer is checked first; a wrong one is said plainly.
+    if (input.code !== undefined && asked && !(await confirmWithCode(app.store, app.runtime.owner, input.sessionId, asked.fingerprint, input.code)))
+      throw new HttpError(401, codesResting(app.store, app.runtime.owner) ? restingRefusal : "That authenticator code did not match, or it was already used. Wait for the next code.");
     return app.runtime.approve(input.sessionId, input.decision, input.remember, input.fingerprint);
   }
   if (request.method === "GET" && path === "/api/governance")
@@ -980,6 +1454,7 @@ async function api(
   }
   if (request.method === "POST" && path === "/api/run") {
     const input = RunInputSchema.parse(await readBody(request));
+    requireBoundSession(shortLivedKeyMark().sessionId, input.sessionId); // bucket 19
     // Wave 6: a task started while somebody's profile is switched on is filed under their name.
     return runForCurrentPerson(app, {
       prompt: input.prompt,
@@ -994,7 +1469,9 @@ async function api(
   }
   if (request.method === "POST" && path === "/api/action") {
     const action = actionSchema.parse(await readBody(request));
-    return app.runtime.executeTool(action.tool, action.args);
+    // mac5/manual-actions: the owner pressed it in the app window (src/tool-gate.ts). A short-lived
+    // key goes through the same gate held to the full rules; its refusal is a 401 (mac5/key-sweep).
+    return asKeyRefusal(() => app.runtime.executeTool(action.tool, action.args, { mode: "owner" }));
   }
   // Usage and observability routes
   if (request.method === "GET" && path === "/api/usage") {
@@ -1084,6 +1561,15 @@ async function api(
     app.store.save("settings", app.runtime.owner, "usage_budget", input);
     return { budget: input };
   }
+  // --- bucket 14 (A0367, A1751): the usage report and sending the task counters; src/usage-report-api.ts ---
+  if (["/api/usage/report", "/api/usage/report/settings", "/api/usage/counters", "/api/usage/counters/send"].includes(path))
+    return usageReportRoute(app, request, path, () => readBody(request));
+  // --- end bucket 14 ---
+  // --- mac7/usage-bar: what each connection has left, in its honest state; src/usage-limits-api.ts ---
+  if (handlesUsageLimitsPath(path))
+    return usageLimitsRoute(app, request, path, () => readBody(request))
+      .catch((error: unknown) => { throw error instanceof UsageLimitsError ? new HttpError(error.status, error.message) : error; });
+  // --- end mac7/usage-bar ---
   throw new HttpError(404, "Endpoint not found");
 }
 async function sessionApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
@@ -1115,6 +1601,8 @@ async function sessionApi(app: Branch, request: IncomingMessage, path: string): 
     }
   }
   if (match && match[2] === "followups") {
+    // bucket 19: only whoever the conversation belongs to may read or add its queued messages.
+    if (!app.store.ownsSession(owner, match[1]!)) throw new HttpError(404, "Session not found");
     if (request.method === "GET") return { followUps: app.runtime.queued(match[1]!) };
     if (request.method === "POST") {
       const { prompt } = z.object({ prompt: z.string().trim().min(1).max(16000) }).strict().parse(await readBody(request));
@@ -1156,6 +1644,15 @@ async function sessionApi(app: Branch, request: IncomingMessage, path: string): 
   }
   throw new HttpError(404, "Endpoint not found");
 }
+/** Wave mac2 (goal-undo): both answer only for conversations of the profile that is switched on. */
+async function goalUndoApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
+  const owner = app.store.profiles.scope(), method = request.method ?? "GET", body = () => readBody(request);
+  const answer = path.endsWith("/goal") || path === "/api/goals" || path === "/api/goal-undo/settings"
+    ? await goalApi(app.goals, (id) => app.store.ownsSession(owner, id), method, path, body)
+    : await rewindApi(app.rewinds, owner, method, path, body);
+  if (answer === undefined) throw new HttpError(404, "Endpoint not found");
+  return answer;
+}
 async function historyApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
   const history = app.store.workspaceHistory;
   if (request.method === "GET" && path === "/api/history/files")
@@ -1184,12 +1681,22 @@ async function developerApi(app: Branch, request: IncomingMessage, path: string)
       : debugSettings(app.store, owner);
   if (path === "/api/developer/running" && request.method === "GET")
     return { languageServers: app.languageServers.list(), services: app.openApiTools.list() };
+  // bucket-18 (A0300): pull requests from a task's changes; off until the owner says otherwise.
+  if (path === "/api/developer/pull-requests")
+    return request.method === "POST"
+      ? savePullRequestHookSettings(app.store, owner, await readBody(request))
+      : pullRequestHookSettings(app.store, owner);
   throw new HttpError(404, "Endpoint not found");
 }
 
 async function memoryApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
   // Wave 6: saved facts belong to whoever's profile is switched on, not always to the owner.
   const owner = app.store.profiles.scope();
+  // bucket-18 (A2317): the history of what is remembered; the owner's switch and the versions so far.
+  if (path === "/api/memory/history")
+    return request.method === "POST"
+      ? app.memoryHistory.configure(app.runtime.owner, await readBody(request))
+      : { ...app.memoryHistory.settings(app.runtime.owner), ...app.memoryHistory.status(app.runtime.owner), versions: await app.memoryHistory.versions(30) };
   if (request.method === "GET" && path === "/api/memory/export") {
     audit(app.store, owner, { action: "data.exported", actor: owner, subject: "your saved notes",
       reason: "The facts the assistant remembers were written out", outcome: "saved" });
@@ -1311,6 +1818,8 @@ async function secretsApi(app: Branch, request: IncomingMessage, path: string): 
   }
   const action = /^\/api\/secrets\/([a-z0-9-]{1,40})\/([A-Z][A-Z0-9_]{0,63})\/(remove|rotate)$/.exec(path);
   if (action && request.method === "POST") {
+    // mac7/r17-g integration review: Branch's own locker projects are never changed from the secrets card.
+    if (reservedProjectId(action[1]!)) throw new HttpError(403, "Branch keeps these secrets itself; change them where they are set up.");
     if (action[3] === "remove") {
       z.object({}).strict().parse(await readBody(request));
       return { removed: secrets.remove(owner, action[1]!, action[2]!) };
@@ -1416,27 +1925,48 @@ async function hook(app: Branch, request: IncomingMessage, path: string): Promis
  * to work without the app's session token. WhatsApp checks the address once with a challenge it
  * expects echoed back as plain text, and signs every later request with the app secret.
  */
-async function whatsAppWebhook(app: Branch, request: IncomingMessage, response: ServerResponse, path: string): Promise<boolean> {
+async function whatsAppWebhook(app: Branch, request: IncomingMessage, response: ServerResponse, path: string,
+  limiter: AuthLimiter, beyond: () => boolean): Promise<boolean> {
   const match = /^\/webhooks\/whatsapp\/([a-z][a-z0-9_-]{0,29})(?:\/([a-f0-9]{32}))?$/.exec(path);
   if (!match) return false;
+  // mac7/channel-leaks: this address carries no key either, so a place that keeps posting rubbish
+  // to it is made to wait, exactly as the chat address's callers are.
   // The random word on the end of the address is what makes it unguessable. Checked before the
   // channel is even looked up, so a wrong address tells nobody which names exist.
-  const wrongAddress = webhookAddressRefusal(app.store, app.runtime.owner, match[1]!, match[2]);
-  if (wrongAddress) throw new HttpError(404, wrongAddress);
+  const verdict = webhookAddressVerdict(app.store, app.runtime.owner, match[1]!, match[2],
+    widerThanThisComputer(request, beyond));
+  const limit = chatWebhookLimit(request, limiter, "whatsapp", match[1]!, verdict);
+  if (verdict === "refused") return refuseWebhookAddress(app, request, response, limit, true);
   const adapter = app.channels.adapter(match[1]!);
-  if (!(adapter instanceof WhatsAppAdapter)) throw new HttpError(404, "No WhatsApp channel with that name is connected");
+  if (!(adapter instanceof WhatsAppAdapter)) {
+    if (!limit.proven) return refuseWebhookAddress(app, request, response, limit);
+    throw new HttpError(404, "No WhatsApp channel with that name is connected");
+  }
   if (request.method === "GET") {
-    const query = new URL(request.url ?? "/", "http://127.0.0.1").searchParams;
-    const challenge = tryOr(() => adapter.verify(query), 403);
+    let challenge: string;
+    try { challenge = adapter.verify(new URL(request.url ?? "/", "http://127.0.0.1").searchParams); }
+    catch (error) {
+      if (!limit.proven) return refuseWebhookAddress(app, request, response, limit);
+      throw new HttpError(403, errorText(error));
+    }
+    limiter.succeed(limit.from);
     response.writeHead(200, { "content-type": "text/plain; charset=utf-8" });
     response.end(challenge);
     return true;
   }
-  if (request.method !== "POST") throw new HttpError(404, "Endpoint not found");
-  const { raw } = await readBodyWithRaw(request, 256 * 1024).catch(() => { throw new HttpError(400, "That message could not be read"); });
-  const signature = request.headers["x-hub-signature-256"];
-  const result = await adapter.receive(raw, typeof signature === "string" ? signature : undefined)
-    .catch((error: unknown) => { throw new HttpError(401, errorText(error)); });
+  if (request.method !== "POST") {
+    if (!limit.proven) return refuseWebhookAddress(app, request, response, limit);
+    throw new HttpError(404, "Endpoint not found");
+  }
+  const read = await readBodyWithRaw(request, 256 * 1024).catch(() => undefined);
+  if (!read) {
+    if (!limit.proven) return refuseWebhookAddress(app, request, response, limit);
+    throw new HttpError(400, "That message could not be read");
+  }
+  const result = await adapter.receive(read.raw, typeof request.headers["x-hub-signature-256"] === "string"
+    ? request.headers["x-hub-signature-256"] : undefined)
+    .catch((error: unknown) => { throw refusedChatPost(app, match[1]!, "whatsapp", error, limit); });
+  limiter.succeed(limit.from);
   send(response, 200, result);
   return true;
 }
@@ -1446,53 +1976,190 @@ async function whatsAppWebhook(app: Branch, request: IncomingMessage, response: 
  * hands over the exact bytes and the headers. Like the WhatsApp route it carries no session key,
  * so the signature check is the only thing letting a post through.
  */
-async function chatWebhook(app: Branch, request: IncomingMessage, response: ServerResponse, path: string, limiter: AuthLimiter): Promise<boolean> {
+async function chatWebhook(app: Branch, request: IncomingMessage, response: ServerResponse, path: string,
+  limiter: AuthLimiter, beyond: () => boolean): Promise<boolean> {
   const match = /^\/webhooks\/chat\/([a-z][a-z0-9_-]{0,29})(?:\/([a-f0-9]{32}))?$/.exec(path);
   if (!match) return false;
   // Nothing here carries the session key, so a place that keeps posting rubbish is made to wait,
   // exactly as somewhere guessing the key is. That also keeps a flood off the record of refusals.
-  const from = requestSource(request.socket?.remoteAddress);
-  const waiting = limiter.refusal(from, "signature");
-  if (waiting) throw new HttpError(429, waiting);
   // The random word on the end of the address is what makes it unguessable. Checked before the
   // channel is even looked up, so a wrong address tells nobody which channel names exist.
-  const wrongAddress = webhookAddressRefusal(app.store, app.runtime.owner, match[1]!, match[2]);
-  if (wrongAddress) throw new HttpError(404, wrongAddress);
+  const verdict = webhookAddressVerdict(app.store, app.runtime.owner, match[1]!, match[2],
+    widerThanThisComputer(request, beyond));
+  // mac7/channel-leaks: everything below asks `limit.proven` before it says anything at all. A
+  // caller who has shown the word on the end holds a secret only this computer and the chat service
+  // have, so it is worth telling them what is wrong; a caller who has not gets one sentence,
+  // whether the name is connected, misspelt or was never used by anybody.
+  const limit = chatWebhookLimit(request, limiter, "chat", match[1]!, verdict);
+  if (verdict === "refused") return refuseWebhookAddress(app, request, response, limit, true);
   const adapter = app.channels.adapter(match[1]!);
-  if (adapter instanceof MetaMessagingAdapter) return metaWebhook(app, adapter, request, response, { limiter, from });
-  if (!(adapter instanceof WebhookChatAdapter)) throw new HttpError(404, "No chat service with that name is connected");
-  if (request.method !== "POST") throw new HttpError(404, "Endpoint not found");
-  const { raw } = await readBodyWithRaw(request, 256 * 1024).catch(() => { throw new HttpError(400, "That message could not be read"); });
-  const result = await adapter.receive(raw, request.headers)
-    .catch((error: unknown) => { throw refusedChatPost(app, match[1]!, adapter.kind, error, { limiter, from }); });
-  limiter.succeed(from);
+  if (adapter instanceof MetaMessagingAdapter) return metaWebhook(app, adapter, request, response, limit);
+  // mac6/bucket-16: WeChat and WeCom check the address with a GET and sign XML posts in the query.
+  if (isSignedQueryChannel(adapter)) return signedQueryWebhook(app, adapter, request, response, limit);
+  // Wave mac3 (channels-parity): services that are posted to and prove the post in their own way.
+  if (isPostedChannel(adapter)) return postedChatWebhook(app, adapter, request, response, limit);
+  if (!(adapter instanceof WebhookChatAdapter)) {
+    if (!limit.proven) return refuseWebhookAddress(app, request, response, limit);
+    throw new HttpError(404, "No chat service with that name is connected");
+  }
+  if (request.method !== "POST") {
+    if (!limit.proven) return refuseWebhookAddress(app, request, response, limit);
+    throw new HttpError(404, "Endpoint not found");
+  }
+  const read = await readBodyWithRaw(request, 256 * 1024).catch(() => undefined);
+  if (!read) {
+    if (!limit.proven) return refuseWebhookAddress(app, request, response, limit);
+    throw new HttpError(400, "That message could not be read");
+  }
+  const result = await adapter.receive(read.raw, request.headers)
+    .catch((error: unknown) => { throw refusedChatPost(app, match[1]!, adapter.kind, error, limit); });
+  limiter.succeed(limit.from);
   // Some services will not send anything until the address echoes a word back once.
   send(response, 200, result.challenge === undefined ? { accepted: result.accepted } : { challenge: result.challenge });
   return true;
 }
-/** Where a post came from, so repeated refusals from one place can be counted and slowed down. */
-interface ChatWebhookLimit { limiter: AuthLimiter; from: string }
+/**
+ * mac7/channel-leaks: the one answer at a webhook address, and the only one a caller who has not
+ * shown the word on the end ever gets.
+ *
+ * The body is read and thrown away first, to the same limit a post that is taken seriously is read
+ * to, so a name nobody has connected is not answered sooner than one that is: a quicker "no such
+ * thing" is still an answer. The try is counted, so a place working through channel names is made
+ * to wait. Nothing is written into the owner's record here — the address was never proved, and
+ * anybody at all could otherwise fill that record with names they made up.
+ */
+async function refuseWebhookAddress(app: Branch, request: IncomingMessage, response: ServerResponse,
+  limit: ChatWebhookLimit, wrongAddress = false): Promise<true> {
+  await readBodyWithRaw(request, 256 * 1024).catch(() => undefined);
+  noteWrongWebhook(app, limit, "a webhook address");
+  // mac7/lockout: the wait is read here, after the address was found to be wrong, and never before.
+  // A caller that has shown the word on the end of the address never reaches this line at all, so
+  // no wait can ever turn away a correctly addressed post — which is the whole point of counting
+  // each service separately. A caller that has not is told it is waiting, in the same words for
+  // every name, only once its own wrong tries have earned that.
+  const waiting = wrongAddress ? limit.limiter.waitMs(limit.from) : 0;
+  if (waiting > 0) send(response, 429, { error: `${wrongWebhookAddress}. Wait ${Math.ceil(waiting / 60000)} minute(s).` });
+  else send(response, 404, { error: wrongWebhookAddress });
+  return true;
+}
+/**
+ * mac7/lockout: who this post is counted as. The place it came from AND the service its address
+ * names, so a chat service retrying an address the owner has replaced slows only itself down.
+ * See `webhookLimitKey` in src/auth-limits.ts for why neither half can be forged.
+ */
+function chatWebhookLimit(request: IncomingMessage, limiter: AuthLimiter, kind: string, channel: string,
+  verdict: ReturnType<typeof webhookAddressVerdict>): ChatWebhookLimit {
+  const proven = verdict === "proven";
+  const source = requestSource(request.socket?.remoteAddress, request.headers);
+  return { limiter, from: webhookLimitKey(source, kind, channel, proven), proven, channel };
+}
+/**
+ * mac7/lockout: the old shape of address — no word on the end at all — is refused outright once
+ * the webhook door is carrying the internet, exactly as it is once Branch listens beyond this
+ * computer. Both are the same fact: an address anybody can find by guessing the name is worth less
+ * than the convenience the moment strangers can reach it. Keeping the grace loopback-only is also
+ * what makes it safe never to turn an old-shape post away for waiting (see `refuseWebhookAddress`).
+ */
+function widerThanThisComputer(request: IncomingMessage, beyond: () => boolean): boolean {
+  return beyond() || requestSource(request.socket?.remoteAddress, request.headers) === tunnelSource;
+}
+/**
+ * One wrong try at a webhook address, counted, and — when it starts a wait — written where the
+ * owner will see it: a line in the record of refusals naming the service, and a note on that
+ * service's own row on the Connections card. A service being turned away for five minutes at a
+ * time used to be completely silent; the owner only saw their messages stop.
+ */
+function noteWrongWebhook(app: Branch, limit: ChatWebhookLimit, what: string): void {
+  const now = Date.now();
+  const state = noteAuthFailure(limit.limiter, app.store, app.runtime.owner, limit.from, what, now, {
+    actor: `posts to the ${limit.channel} address`,
+    subject: `${what} for ${limit.channel}`,
+  });
+  if (state.until) noteWebhookWait(app.store, app.runtime.owner, limit.channel, state.until, limit.proven, now);
+}
+/** Wave mac3 (channels-parity): hands the exact bytes to a service that checks its own signature. */
+async function postedChatWebhook(app: Branch, adapter: ChannelAdapter & PostedChannel, request: IncomingMessage, response: ServerResponse, limit: ChatWebhookLimit): Promise<boolean> {
+  if (request.method !== "POST" || adapter.accepting?.() === false) {
+    // Whether a service is switched off in Customize is state, so it is only said to a caller who
+    // has shown the word on the end of the address.
+    if (!limit.proven) return refuseWebhookAddress(app, request, response, limit);
+    throw new HttpError(request.method === "POST" ? 503 : 404,
+      request.method === "POST" ? "That chat service is switched off in Customize" : "Endpoint not found");
+  }
+  const { raw } = await readBodyWithRaw(request, 256 * 1024).catch(() => { throw new HttpError(400, "That message could not be read"); });
+  const result = await adapter.receivePost(raw, request.headers)
+    .catch((error: unknown) => { throw refusedChatPost(app, adapter.id, adapter.kind, error, limit); });
+  limit.limiter.succeed(limit.from);
+  send(response, 200, result.reply ?? { accepted: result.accepted });
+  return true;
+}
+/** mac6/bucket-16: hands a WeChat or WeCom request over whole and answers with the plain text it returns. */
+async function signedQueryWebhook(app: Branch, adapter: ChannelAdapter & SignedQueryChannel, request: IncomingMessage, response: ServerResponse, limit: ChatWebhookLimit): Promise<boolean> {
+  if ((request.method !== "POST" && request.method !== "GET") || adapter.accepting?.() === false) {
+    if (!limit.proven) return refuseWebhookAddress(app, request, response, limit);
+    throw new HttpError(adapter.accepting?.() === false ? 503 : 404,
+      adapter.accepting?.() === false ? "That chat service is switched off in Customize" : "Endpoint not found");
+  }
+  const query = new URL(request.url ?? "/", "http://127.0.0.1").searchParams;
+  const raw = request.method === "POST"
+    ? await readRawBody(request, wechatXmlLimit).catch((error: unknown) => { throw new HttpError(/exceeds/.test(errorText(error)) ? 413 : 400, "That message could not be read"); })
+    : Buffer.alloc(0);
+  const text = await adapter.receiveSigned(request.method, query, raw)
+    .catch((error: unknown) => { throw refusedChatPost(app, adapter.id, adapter.kind, error, limit); });
+  limit.limiter.succeed(limit.from);
+  response.writeHead(200, { "content-type": "text/plain; charset=utf-8", "x-content-type-options": "nosniff" });
+  response.end(text);
+  return true;
+}
+/**
+ * Where a post came from, so repeated refusals from one place can be counted and slowed down, and
+ * whether the caller showed the word on the end of the address — which decides whether they are
+ * told anything beyond the one sentence.
+ */
+interface ChatWebhookLimit {
+  limiter: AuthLimiter; from: string; proven: boolean;
+  /** The service the address named, for the line the owner reads and for the Connections card. */
+  channel: string;
+}
 /** A post that did not prove it came from the service is refused, and the refusal is written down. */
 function refusedChatPost(app: Branch, channel: string, kind: string, error: unknown, limit: ChatWebhookLimit): HttpError {
+  // mac7/lockout: read before this try is counted, so a run of wrong signatures is answered exactly
+  // as it was before each service got its own count. A correctly signed post never reaches this
+  // function at all, so no wait here can ever turn one away.
+  const waiting = limit.limiter.refusal(limit.from, "signature");
+  // The post itself is never written down: it was not proved genuine, so nothing inside it is kept.
+  noteWrongWebhook(app, limit, "a chat service's signature");
+  // mac7/channel-leaks: a caller who never showed the word on the end of the address is told the
+  // one sentence and leaves no row behind. The service's own words — "not signed by Slack", "no
+  // shared secret is saved", "too old" — name the service and say whether it is set up, and the
+  // record of refusals is the owner's, not something anybody on the network may fill.
+  if (!limit.proven) return new HttpError(404, wrongWebhookAddress);
   audit(app.store, app.runtime.owner, {
     action: "auth.refused", actor: `the ${kind} connection`, subject: `/webhooks/chat/${channel}`, source: "system",
     reason: "A message arrived claiming to come from that chat service, but it was not proved to have come from it",
     outcome: "refused",
   });
-  // The post itself is never written down: it was not proved genuine, so nothing inside it is kept.
-  noteAuthFailure(limit.limiter, app.store, app.runtime.owner, limit.from, "a chat service's signature");
-  return new HttpError(401, errorText(error));
+  // A caller that has shown the word on the end is counted in an entry of its own, which nobody
+  // without the word can reach, so saying it is waiting cannot tell a stranger the name is real.
+  return new HttpError(waiting ? 429 : 401, waiting ?? errorText(error));
 }
 /** Messenger and Instagram answer Meta's one-off check and sign every later post, as WhatsApp does. */
 async function metaWebhook(app: Branch, adapter: MetaMessagingAdapter, request: IncomingMessage, response: ServerResponse, limit: ChatWebhookLimit): Promise<boolean> {
   if (request.method === "GET") {
-    const query = new URL(request.url ?? "/", "http://127.0.0.1").searchParams;
-    const challenge = tryOr(() => adapter.verify(query), 403);
+    let challenge: string;
+    try { challenge = adapter.verify(new URL(request.url ?? "/", "http://127.0.0.1").searchParams); }
+    catch (error) {
+      if (!limit.proven) return refuseWebhookAddress(app, request, response, limit);
+      throw new HttpError(403, errorText(error));
+    }
     response.writeHead(200, { "content-type": "text/plain; charset=utf-8" });
     response.end(challenge);
     return true;
   }
-  if (request.method !== "POST") throw new HttpError(404, "Endpoint not found");
+  if (request.method !== "POST") {
+    if (!limit.proven) return refuseWebhookAddress(app, request, response, limit);
+    throw new HttpError(404, "Endpoint not found");
+  }
   const { raw } = await readBodyWithRaw(request, 256 * 1024).catch(() => { throw new HttpError(400, "That message could not be read"); });
   const signature = request.headers["x-hub-signature-256"];
   const result = await adapter.receive(raw, typeof signature === "string" ? signature : undefined)
@@ -1501,13 +2168,22 @@ async function metaWebhook(app: Branch, adapter: MetaMessagingAdapter, request: 
   send(response, 200, result);
   return true;
 }
-function tryOr<T>(work: () => T, status: number): T {
-  try { return work(); } catch (error) { throw new HttpError(status, errorText(error)); }
-}
 const triggerBodyLimit = 256 * 1024;
-async function triggerFire(app: Branch, request: IncomingMessage, triggerId: string): Promise<unknown> {
+/**
+ * mac7/channel-leaks: the one answer a caller who has not proved a trigger gets. The route used to
+ * say "Trigger not found" for an id nobody had made and "Invalid secret", "Missing signature",
+ * "Invalid signature algorithm", "timestamp too old" or "nonce reused" for one that existed, all
+ * before any key was checked — so the ids the owner really has could be found by trying them.
+ */
+const triggerRefused = "That request was not accepted";
+/** A trigger that is not on the list, so an id nobody made is still checked rather than skipped. */
+const decoyTrigger: TriggerState = {
+  id: "", name: "", prompt: "", enabled: false, rateLimitPerMinute: 1, replayProtection: false,
+  replayWindowSeconds: 300, secret: randomBytes(32).toString("hex"),
+  createdAt: "", updatedAt: "",
+};
+async function triggerFire(app: Branch, request: IncomingMessage, triggerId: string, limit: ChatWebhookLimit): Promise<unknown> {
   const trigger = app.triggers.get(app.runtime.owner, triggerId);
-  if (!trigger) throw new HttpError(404, "Trigger not found");
   if (Number(request.headers["content-length"] ?? 0) > triggerBodyLimit)
     throw new HttpError(413, `Request exceeds ${triggerBodyLimit / 1024} KiB`);
 
@@ -1516,12 +2192,22 @@ async function triggerFire(app: Branch, request: IncomingMessage, triggerId: str
     throw new HttpError(message.includes("exceeds") ? 413 : 400, message);
   });
 
-  const verified = app.triggers.verify(trigger, request.headers, raw);
-  if (!verified.valid) throw new HttpError(401, verified.error ?? "Unauthorized");
-  // A copied request cannot be sent again: when the owner asked for it, the timestamp must be
-  // fresh and the nonce one nobody has used before.
-  const fresh = app.triggers.checkFreshness(trigger, request.headers);
-  if (!fresh.valid) throw new HttpError(401, fresh.error ?? "Unauthorized");
+  // A trigger that was never made is checked against a secret that belongs to nothing, so the work
+  // done and the answer given are the same as for one that exists but was not proved. A copied
+  // request cannot be sent again either: when the owner asked for it, the timestamp must be fresh
+  // and the nonce one nobody has used before.
+  const against = trigger ?? { ...decoyTrigger, id: triggerId };
+  const verified = app.triggers.verify(against, request.headers, raw);
+  const fresh = verified.valid ? app.triggers.checkFreshness(against, request.headers) : { valid: false };
+  if (!trigger || !verified.valid || !fresh.valid) {
+    // mac7/lockout: the wait is read only once this caller's own secret has been found wrong, so a
+    // caller holding the right secret clears its wait rather than being held by it.
+    const waiting = limit.limiter.waitMs(limit.from);
+    noteAuthFailure(limit.limiter, app.store, app.runtime.owner, limit.from, "a trigger's secret", Date.now(),
+      { actor: `posts to trigger ${limit.channel}`, subject: `a trigger's secret for ${limit.channel}` });
+    throw new HttpError(waiting > 0 ? 429 : 401, triggerRefused);
+  }
+  limit.limiter.succeed(limit.from);
 
   return app.triggers.fire(app.runtime.owner, triggerId, parsed).catch((error: unknown) => {
     const message = errorText(error);
@@ -1617,8 +2303,35 @@ async function webhooksApi(app: Branch, request: IncomingMessage, path: string):
   throw new HttpError(404, "Endpoint not found");
 }
 async function channelsApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
+  // mac7/channels-owner: the chats are the owner's, so the whole of /api/channels is theirs.
+  //
+  // Until now only `/api/channels/permissions` asked who was there (the check inside
+  // `saveChatPermissionSettings`). Everything else — the live switches, the parity switches, the
+  // pairing approvals and removals, the link to a conversation, a test message, the webhook
+  // addresses and their rotation — was open to anybody signed in on this computer under their own
+  // profile. A household person could approve their own pairing code, point a chat at a
+  // conversation, or read the secret address each chat service posts to.
+  //
+  // The check is here, once, before the routes rather than on each of them, so a route added
+  // tomorrow is the owner's without anybody having to remember. The reads are the owner's too: the
+  // summary carries their pairings and chats, the addresses carry a secret, and the waiting Slack
+  // events carry message text. The catalogue of supported services holds no secret and is guarded
+  // with the rest on purpose — one exception here is how the next one gets written.
+  //
+  // This does not change what the owner or the app window can do, and it is not on the path a chat
+  // service posts in on (`/webhooks/...`, answered further up with its own unguessable word), so
+  // pairing, the setup cards and the parity checks work exactly as before.
+  app.store.profiles.requireOwner("Your chat apps");
   const owner = app.runtime.owner;
+  // Wave mac3 (channels-parity): the list of added chat services and their off / on / when-needed switches.
+  if (path === "/api/channels/parity")
+    return parityApi(app.store, owner, app.channels, request.method ?? "GET", request.method === "POST" ? await readBody(request) : undefined);
   if (request.method === "GET" && path === "/api/channels") return { ...app.channels.summary(), outstanding: app.channels.outstanding() };
+  // mac6/bucket-16: automations started by Slack's own events, and starting one that is waiting.
+  if (path === "/api/channels/slack-automations") return request.method === "POST"
+    ? saveSlackAutomations(app.store, owner, await readBody(request), (id) => !!app.triggers.get(owner, id))
+    : app.slackAutomations.list();
+  if (request.method === "POST" && path === "/api/channels/slack-automations/run") return app.slackAutomations.run(await readBody(request));
   // The chat services this copy knows how to talk to, so the Connections card lists them from data
   // rather than from a piece of hand-written page per service. No secret is involved either way.
   if (request.method === "GET" && path === "/api/channels/catalog")
@@ -1630,6 +2343,10 @@ async function channelsApi(app: Branch, request: IncomingMessage, path: string):
   if (request.method === "POST" && retry) return app.channels.retryDelivery(decodeURIComponent(retry[1]!));
   if (request.method === "POST" && path === "/api/channels/pairings/approve") return app.channels.approve(owner, await readBody(request));
   if (request.method === "POST" && path === "/api/channels/link") return app.channels.link(owner, await readBody(request));
+  // Wave mac2 (chat-live): the on / off / when-needed switches for typing, commands, steering and splitting.
+  if (request.method === "POST" && path === "/api/channels/live") return { live: app.channels.setSwitches(await readBody(request)) };
+  // mac7/chat-allowlist: the switch and the list for what a chat's task may use beyond talking.
+  if (request.method === "POST" && path === "/api/channels/permissions") return { permissions: app.channels.setPermissionSettings(await readBody(request)) };
   if (request.method === "POST" && path === "/api/channels/test") {
     const { channel, chatId } = z.object({ channel: z.string().min(1).max(64), chatId: z.string().min(1).max(64) }).strict().parse(await readBody(request));
     return app.channels.deliver(channel, chatId, "Test message from Branch Agent: this channel is connected and working.", `test:${Date.now()}`);
@@ -1651,16 +2368,19 @@ async function channelsApi(app: Branch, request: IncomingMessage, path: string):
 function channelAddresses(app: Branch, owner: string): {
   addresses: { channel: string; kind: string; address: string }[];
   settings: ReturnType<typeof webhookAddressSettings>;
+  /** mac7/lockout: services whose posts are being turned away, so the card can say so. */
+  waits: ReturnType<typeof webhookWaits>;
 } {
   const addresses = app.channels.summary().channels
     .filter((channel) => channel.kind === "whatsapp" || app.channels.adapter(channel.id) instanceof WebhookChatAdapter
-      || app.channels.adapter(channel.id) instanceof MetaMessagingAdapter)
+      || app.channels.adapter(channel.id) instanceof MetaMessagingAdapter || isPostedChannel(app.channels.adapter(channel.id))
+      || isSignedQueryChannel(app.channels.adapter(channel.id)))
     .map((channel) => ({
       channel: channel.id, kind: channel.kind,
       address: webhookAddress(channel.kind === "whatsapp" ? "whatsapp" : "chat", channel.id,
         webhookSecret(app.store, owner, channel.id)),
     }));
-  return { addresses, settings: webhookAddressSettings(app.store, owner) };
+  return { addresses, settings: webhookAddressSettings(app.store, owner), waits: webhookWaits(app.store, owner) };
 }
 async function chatgptApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
   const auth = app.chatgpt, owner = app.runtime.owner;
@@ -1669,13 +2389,15 @@ async function chatgptApi(app: Branch, request: IncomingMessage, path: string): 
   if (request.method === "POST" && path === "/api/chatgpt/login") {
     z.object({}).strict().parse(await readBody(request));
     const prompt = await auth.startDeviceLogin();
-    void finishChatGPTSignIn(app.runtime.models, auth, owner, app.userAgent).catch(() => undefined);
+    void finishChatGPTSignIn(app.runtime.models, auth, owner, app.userAgent)
+      .then(() => accountsServiceFor(app.runtime.models)?.ensureChatGPTPresets()).catch(() => undefined); // mac6/accounts
     return { userCode: prompt.userCode, verificationUrl: prompt.verificationUrl, expiresAt: prompt.expiresAt };
   }
   if (request.method === "POST" && path === "/api/chatgpt/logout") {
     z.object({}).strict().parse(await readBody(request));
     const status = await auth.signOut();
     syncChatGPTPresets(app.runtime.models, auth, false, app.userAgent);
+    await accountsServiceFor(app.runtime.models)?.ensureChatGPTPresets(); // mac6/accounts: other ChatGPT accounts stay
     return status;
   }
   throw new HttpError(404, "Endpoint not found");
@@ -1877,7 +2599,9 @@ async function mcpModeApi(app: Branch, request: IncomingMessage, path: string): 
     // Trying a server starts a program on this computer, or reaches out to a web address, so it
     // stays with the owner even where several people share the app.
     app.store.profiles.requireOwner("Trying another AI tool's server");
-    return tryServer(app.store, app.runtime.owner, await readBody(request, 65536), process.env, app.web.policy);
+    const trying = await readBody(request, 65536);
+    await vetTriedServer(app, trying); // mac3/security-check
+    return tryServer(app.store, app.runtime.owner, trying, process.env, app.web.policy);
   }
   // The pages outside servers offered during one conversation, newest first. The page itself
   // travels with the answer so the card can hand it straight back for a one-time address; it is
@@ -2108,6 +2832,8 @@ export async function startServer(
     presence?: "app" | "daemon";
     /** How many wrong keys a place may try before it waits; the defaults suit a real install. */
     authLimits?: { attempts?: number; lockoutMs?: number; windowMs?: number };
+    /** bucket 22: what `branch quit` does to this launch (src/install/quit.ts); without it, it refuses. */
+    quit?: () => void;
   },
 ) {
   const token = await sessionToken(options.dataDir);
@@ -2116,6 +2842,15 @@ export async function startServer(
   // meant to handle.
   const executions = app.executions;
   const remote = new RemoteAccess(token);
+  // mac7/bind: where this door listens. 127.0.0.1 unless the owner said otherwise and every
+  // protection the wider door needs is really on; see src/listen-address.ts for what is refused.
+  const listen = decideListen({
+    where: listenAsked(app.store, app.runtime.owner),
+    lockdown: lockdownActive(app.store, app.runtime.owner),
+    token, addresses: ownAddresses(),
+  });
+  /** Every name a request may say it was sent to: the paired address, and the wider door's own. */
+  const allowedHosts = (): string[] => [...remote.allowedHosts(), ...listen.extraHosts];
   // Batch 20 (wave 8): what a phone must satisfy on the extra door, as a chain of named steps.
   const gateway = new GatewayAuth(app.store, app.runtime.owner);
   // Wrong keys, PINs and pairing codes are counted per place they came from; five in a row and that
@@ -2148,7 +2883,7 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
     try {
       const path = new URL(request.url ?? "/", url || "http://127.0.0.1")
         .pathname;
-      if (!hostAllowed(request.headers.host, undefined, url, remote.allowedHosts()))
+      if (!hostAllowed(request.headers.host, undefined, url, allowedHosts()))
         throw new HttpError(403, "Host rejected");
       if (viaRemote && widgetCors(app, request, response)) return;
       if (viaRemote && (await pairingRequest(remote, request, response, path, gateway))) return;
@@ -2156,34 +2891,121 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
       // box off the owner's page rather than only hiding the setting.
       if (path === "/widget.js" && !embedSettings(app.store, app.runtime.owner).widget)
         throw new HttpError(404, "Not found");
+      // Wave mac3: while the dashboard switch is off its page and files are not served at all.
+      if (isDashboardFile(path) && dashboardSettings(app.store, app.runtime.owner).mode === "off")
+        throw new HttpError(404, "Not found");
+      // bucket 19: the person's page is only served while signing in, or handing a conversation over, is on.
+      if (["/people", "/people.js", "/people.css"].includes(path) && !peopleEnabled(app.store, app.runtime.owner)
+        && interopMode(app.store, app.runtime.owner, "handoff") === "off")
+        throw new HttpError(404, "Not found");
       if (request.method === "GET" && (await staticFile(path, response)))
         return;
       if (path.startsWith("/hooks/")) {
         send(response, 200, await hook(app, request, path));
         return;
       }
-      if (await whatsAppWebhook(app, request, response, path)) return;
-      if (await chatWebhook(app, request, response, path, webhookLimiter)) return;
+      if (await whatsAppWebhook(app, request, response, path, webhookLimiter, () => listen.beyond)) return;
+      if (await chatWebhook(app, request, response, path, webhookLimiter, () => listen.beyond)) return;
       // Wave 6: a read-only shared conversation carries its own code instead of the session key.
       if (await sharePage(app, request, response, path)) return;
       // Wave 7: a page an outside AI-tool server sent, shown in a frame that can do nothing at all.
       // A frame cannot carry the session key, so the address itself is the one-time secret.
-      if (mcpAppPage(request, response, path)) return;
+      // mac7/channel-leaks: and only to a caller on this very computer, as the artifact page below
+      // already is. The frame is always local, so the gate costs nothing and the address — whose
+      // whole secret is the address — is not offered to the private network.
+      if (fromThisComputer(request.socket?.remoteAddress, request.headers) && mcpAppPage(request, response, path)) return;
       // Wave 8: an artifact out of a reply, in that same frame. Its address is not used up by the
       // first fetch, so the frame may reload and "open larger" may show the same one again.
-      if (artifactPageRoute(request, response, path)) return;
-      const triggerFireMatch = /^\/api\/triggers\/([a-f0-9-]{36})\/fire$/.exec(path);
-      if (triggerFireMatch && request.method === "POST") {
-        send(response, 200, await triggerFire(app, request, triggerFireMatch[1]!));
+      // mac7/bind (integration review): the same gate the live surface gets just below, and for the
+      // builder's own reason. This page's address is NOT used up by the first fetch (see the note in
+      // src/artifact-pages.ts), so for ten minutes it is a page whose whole secret is its address.
+      // The single-use MCP page above burns its address on the first GET, so it does not need this.
+      if (fromThisComputer(request.socket?.remoteAddress, request.headers) && artifactPageRoute(request, response, path)) return;
+      // ---- bucket 19: signing a person in needs no key yet; only this app's own pages may ask. ----
+      if (path.startsWith("/api/people/sign-in")) {
+        if (!hostAllowed(request.headers.host, request.headers.origin, url, allowedHosts()) || request.headers["sec-fetch-site"] === "cross-site")
+          throw new HttpError(403, "Origin rejected");
+      }
+      // Integration review: the identity service's way back is a navigation from its own site, so it
+      // has no origin check, but on the paired door it passes the door's chain like the rest.
+      if ((path.startsWith("/api/people/sign-in") || path === "/api/people/oidc/callback") && viaRemote) {
+        const refused = gateway.check(request, true);
+        if (refused) throw new HttpError(401, refused);
+      }
+      if (await peopleSignInRoute(app, request, response, path, () => readBody(request), (status, value) => send(response, status, value))) return;
+      // ---- end bucket 19 ----
+      // ---- mac7/nodes: a device answering an invitation has no key; its number and its signature are checked. ----
+      if (openDevicePaths.includes(path)) {
+        if (request.headers.origin && !hostAllowed(request.headers.host, request.headers.origin, url, allowedHosts()))
+          throw new HttpError(403, "Origin rejected");
+        // mac7/channel-leaks: a six-digit number is small enough that the five tries per invitation
+        // are not the whole answer. A place that keeps getting it wrong now waits, counted where
+        // every other wrong key and PIN is counted — which is what the note by `authLimiter` above
+        // has always said happens to pairing codes, and until now did not.
+        // mac7/lockout: the wait is read only after this device's own number has been found wrong,
+        // never before, so a phone typing the right number is let in while somebody else is being
+        // made to wait. The five tries per invitation, which burn the invitation, are the guard
+        // against guessing; this wait is the second one and must not stand in a real device's way.
+        // It matters most behind the never-break gateway, where every device on the private network
+        // reaches the engine from 127.0.0.1 and so shares one entry.
+        const from = requestSource(request.socket?.remoteAddress, request.headers);
+        const answer = await openDevicesApi({ devices: app.devices, method: request.method ?? "GET", readBody: () => readBody(request, 4096) },
+          path, from).catch((error: unknown) => {
+          if (!(error instanceof DevicesHttpError)) throw error;
+          if (error.status !== 403) throw new HttpError(error.status, error.message);
+          const pairingWait = authLimiter.refusal(from, "pairing code");
+          noteAuthFailure(authLimiter, app.store, app.runtime.owner, from, "a device's pairing code");
+          throw new HttpError(pairingWait ? 429 : error.status, pairingWait ?? error.message);
+        });
+        authLimiter.succeed(from);
+        send(response, 200, answer);
         return;
       }
-      authorize(request, url, token, remote.allowedHosts(), {
+      // ---- end mac7/nodes ----
+      // mac6/bucket-23 (A2240): a live page in the same sealed frame, under its own long random name;
+      // only on this computer's own listener, since the name does not run out as an artifact's does.
+      // mac7/bind: and only to a caller on this very computer. Opening the door to the private
+      // network must not quietly widen a page whose whole secret is its address.
+      if (!viaRemote && fromThisComputer(request.socket?.remoteAddress, request.headers)
+        && app.asks.surfaces.serve(request, response, path)) return;
+      const triggerFireMatch = /^\/api\/triggers\/([a-f0-9-]{36})\/fire$/.exec(path);
+      if (triggerFireMatch && request.method === "POST") {
+        // Counted on the webhook limiter, not the key's: a service set up with the wrong secret
+        // slows itself down and never stands between the owner and their own app.
+        // mac7/lockout: and counted per trigger, not per door. Every trigger fired through the
+        // webhook door used to share one entry with every chat service, so one caller with a stale
+        // secret silenced all of them. The wait is now read inside `triggerFire`, after the
+        // signature has been checked, so a correctly signed fire is never turned away by it.
+        const from = webhookLimitKey(requestSource(request.socket?.remoteAddress, request.headers),
+          "trigger", triggerFireMatch[1]!);
+        send(response, 200, await triggerFire(app, request, triggerFireMatch[1]!,
+          { limiter: webhookLimiter, from, proven: false, channel: triggerFireMatch[1]! }));
+        return;
+      }
+      // Wave mac3 (commands): a read key's command is sent with POST but only looks.
+      let onlyLooking = false;
+      authorize(request, url, token, allowedHosts(), {
         limiter: authLimiter,
         onFailure: (from) => noteAuthFailure(authLimiter, app.store, app.runtime.owner, from, "the local key"),
-      }, (supplied) => offLimitsToShortLivedKeys(request.method, path)
-        ?? app.sessionTokens.check(app.runtime.owner, supplied, {
-          method: request.method ?? "GET", executes: isExecution(request, path),
-        }));
+      }, (supplied) => {
+        // bucket 19: a person's own key reaches only their own page (src/people/access.ts).
+        if (People.isPersonKey(supplied)) {
+          const refused = app.people.admit(supplied, request.method, path);
+          if (refused === null) markShortLivedKey({ keyId: `person:${currentPerson()!.keyId}` });
+          return refused;
+        }
+        const look = commandLook(app, request, path, supplied);
+        onlyLooking = look !== null;
+        const refusal = offLimitsToShortLivedKeys(request.method, path)
+          ?? app.sessionTokens.check(app.runtime.owner, supplied, { ...(look ?? {
+            method: request.method ?? "GET", executes: isExecution(request, path),
+          }), path });
+        // bucket-18 (A0300): everything this request starts knows it came with a short-lived key.
+        // bucket 19: and which key, and the one conversation it may be held to.
+        if (refusal === null) markShortLivedKey(app.sessionTokens.markOf(app.runtime.owner, supplied) ?? {});
+        return refusal;
+      }, (supplied) => app.sessionTokens.scopeOf(app.runtime.owner, supplied) !== null
+        || app.people.keys.working(supplied)); // bucket 19
       // The extra door has its own chain on top of the key: see src/remote/gateway-auth.ts. The
       // window on this computer never goes through it.
       if (viaRemote) {
@@ -2192,25 +3014,227 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
       }
       // Doing something counts as activity; merely looking does not, or the app's own three-second
       // refresh of the screen would keep it awake for ever and it would never lock itself.
-      if (request.method !== "GET" && path !== "/api/lock") app.sessionLock.touch();
+      if (request.method !== "GET" && path !== "/api/lock" && !onlyLooking) app.sessionLock.touch();
       if (await handleMcpRequest(app, request, response)) return;
+      // ---- Wave mac3: the owner's dashboard (src/dashboard-api.ts). What this key may do is worked
+      // out once here, so the page can show a read-only view to a key that may only look. ----
+      if (handlesDashboardPath(path)) {
+        // The key was already checked and its use counted above; this only reads what it may do.
+        const access = dashboardAccess(request, token, (supplied) => app.sessionTokens.scopeOf(app.runtime.owner, supplied));
+        const answer = await dashboardApi(app, request, path, {
+          dataDir: options.dataDir, access, readBody: () => readBody(request),
+        }).catch((error: unknown) => {
+          throw error instanceof DashboardApiError ? new HttpError(error.status, error.message) : error;
+        });
+        send(response, 200, answer);
+        return;
+      }
+      // ---- end of the dashboard block ----
       const executes = isExecution(request, path);
       const place = executes ? executions.take() : null;
       if (executes && !place)
         throw new HttpError(429, "Too many active executions");
       try {
+        // ---- Wave mac3 (commands): the one slash-command table, for the window, the phone and the
+        // dashboard (src/commands/api.ts). What the key may do is read the way the dashboard reads it,
+        // and checked command by command; running one takes a place like any other task. ----
+        if (handlesCommandsPath(path)) {
+          const access = dashboardAccess(request, token, (supplied) => app.sessionTokens.scopeOf(app.runtime.owner, supplied));
+          const answer = await commandsApi(app, path, {
+            method: request.method ?? "GET", url: new URL(request.url ?? "/", "http://local"), access, readBody: () => readBody(request),
+          }).catch((error: unknown) => {
+            throw error instanceof CommandApiError ? new HttpError(error.status, error.message) : error;
+          });
+          send(response, 200, answer);
+          return;
+        }
+        // ---- end of the commands block ----
+        // ---- bucket 12: saved prompts (src/prompt-library-api.ts) and the skill install record
+        // (src/skill-installs.ts). Every change there is the owner's; short-lived keys never get this far. ----
+        if (handlesPromptsPath(path) || handlesSkillInstallsPath(path)) {
+          const method = request.method ?? "GET", body = () => readBody(request, 2 * 1024 * 1024);
+          const answer = handlesPromptsPath(path) ? await promptsApi(app, method, path, body)
+            : await skillInstallsApi(app, method, new URL(request.url ?? "/", "http://local"), body);
+          if (answer === undefined) throw new HttpError(404, "Endpoint not found");
+          send(response, 200, answer);
+          return;
+        }
+        // ---- end of the bucket 12 block ----
+        // ---- mac4/bucket-20: the Agent Protocol and /api/interop (src/interop/api.ts). ----
+        if (handlesInteropPath(path)) {
+          app.store.profiles.requireOwner("Working with other agents");
+          await handleInterop({
+            interop: app.interop, store: app.store, owner: app.runtime.owner, runtime: app.runtime, flows: app.flows,
+            fleet: { runtime: app.runtime, knowledge: app.knowledge, teams: app.teams, remoteAgents: app.remoteAgents, clients: app.interop.clients },
+            readBody: () => readBody(request, 131072), baseUrl: remote.status().url ?? url,
+            requireOwner: (what) => app.store.profiles.requireOwner(what),
+          }, request, response, path);
+          return;
+        }
+        // ---- end of the bucket-20 block ----
+        // ---- bucket 19: a person's own page, a handed-over conversation, and the owner's card. ----
+        if (path.startsWith("/api/people/")) {
+          const answer = await peopleApi(app, request, path, () => readBody(request, 262144)).catch((error: unknown) => {
+            throw error instanceof PeopleHttpError ? new HttpError(error.status, error.message) : error;
+          });
+          if (answer !== notPeople) { send(response, 200, answer); return; }
+        }
+        // ---- end bucket 19 ----
+        // ---- mac7/nodes: the Devices card's routes (src/devices/api.ts); the owner's alone. ----
+        if (handlesDevicesPath(path)) {
+          app.store.profiles.requireOwner("Your devices");
+          const answer = await devicesApi({ devices: app.devices, store: app.store, owner: app.runtime.owner, method: request.method ?? "GET",
+            readBody: () => readBody(request, 16384), baseUrl: remote.status().url ?? url }, path).catch((error: unknown) => {
+            throw error instanceof DevicesHttpError ? new HttpError(error.status, error.message) : error;
+          });
+          if (answer === undefined) throw new HttpError(404, "Endpoint not found");
+          send(response, 200, answer);
+          return;
+        }
+        // ---- end mac7/nodes ----
+        // ---- mac6/bucket-23: the smaller asks under /api/asks (src/asks/api.ts); the owner's alone. ----
+        if (handlesAsksPath(path)) {
+          app.store.profiles.requireOwner("These parts of Branch");
+          const answer = await asksApi({
+            asks: app.asks, runtime: app.runtime, method: request.method ?? "GET",
+            query: new URL(request.url ?? "/", "http://local").searchParams, readBody: () => readBody(request, 131072),
+          }, path).catch((error: unknown) => {
+            throw error instanceof AsksHttpError ? new HttpError(error.status, error.message) : error;
+          });
+          send(response, 200, answer);
+          return;
+        }
+        // ---- end of the bucket-23 block ----
+        // ---- r17-b: suggestions, standing orders, loops and procedures under /api/autonomy; the owner's alone. ----
+        if (handlesAutonomyPath(path)) {
+          app.store.profiles.requireOwner("Automations that run on their own");
+          const answer = await autonomyApi({
+            autonomy: app.autonomy, method: request.method ?? "GET",
+            query: new URL(request.url ?? "/", "http://local").searchParams, readBody: () => readBody(request, 131072),
+          }, path).catch((error: unknown) => {
+            throw error instanceof AutonomyHttpError ? new HttpError(error.status, error.message) : error;
+          });
+          send(response, 200, answer);
+          return;
+        }
+        // ---- end of the r17-b block ----
+        // ---- mac7/r17-d: coding polish under /api/coding (src/coding/api.ts); the owner's alone. ----
+        if (handlesCodingPath(path)) {
+          app.store.profiles.requireOwner("These parts of Branch");
+          const answer = await codingApi({
+            coding: app.coding, runtime: app.runtime, method: request.method ?? "GET",
+            query: new URL(request.url ?? "/", "http://local").searchParams, readBody: () => readBody(request, 131072),
+          }, path).catch((error: unknown) => {
+            throw error instanceof CodingHttpError ? new HttpError(error.status, error.message) : error;
+          });
+          send(response, 200, answer);
+          return;
+        }
+        // ---- end of the r17-d block ----
+        // ---- R17-A: Trunks under /api/trunks (src/trunks/api.ts); the owner's, bar talking to them. ----
+        if (handlesTrunksPath(path)) {
+          app.store.profiles.requireOwner("Trunks");
+          const answer = await trunksApi({ trunks: app.trunks, method: request.method ?? "GET", readBody: () => readBody(request, 524288) }, path)
+            .catch((error: unknown) => { throw error instanceof TrunksHttpError ? new HttpError(error.status, error.message) : error; });
+          send(response, 200, answer);
+          return;
+        }
+        // ---- end of the R17-A block ----
+        // ---- R17-C: files, voice, devices and personal connectors under /api/personal (src/personal/api.ts). ----
+        if (handlesPersonalPath(path)) {
+          app.store.profiles.requireOwner("Your personal connectors");
+          const answer = await personalApi({ personal: app.personal, runtime: app.runtime, method: request.method ?? "GET",
+            readBody: () => readBody(request, 4 * 1024 * 1024) }, path).catch((error: unknown) => {
+            throw error instanceof PersonalHttpError ? new HttpError(error.status, error.message) : error;
+          });
+          send(response, 200, answer);
+          return;
+        }
+        // ---- end of the R17-C block ----
+        // ---- r17-i: reach and platform under /api/reach; the owner's alone (one peer route: src/reach/api.ts). ----
+        if (handlesReachPath(path)) {
+          app.store.profiles.requireOwner("Reach and platform");
+          const answer = await reachApi({
+            reach: app.reachParts, method: request.method ?? "GET",
+            query: new URL(request.url ?? "/", "http://local").searchParams, readBody: () => readBody(request, 262144),
+            // mac7/reach-leftovers: which short-lived key this came with, for the Trunks inbox.
+            keyId: shortLivedKeyMark().keyId,
+          }, path).catch((error: unknown) => {
+            throw error instanceof ReachHttpError ? new HttpError(error.status, error.message) : error;
+          });
+          send(response, 200, answer);
+          return;
+        }
+        // ---- end of the r17-i block ----
+        // ---- mac7/r17-g: the safety extras under /api/safety-extras (src/safety-extras/api.ts); the owner's alone. ----
+        if (handlesSafetyPath(path)) {
+          app.store.profiles.requireOwner("The safety extras");
+          const answer = await safetyApi({
+            extras: app.safetyExtras, runtime: app.runtime, method: request.method ?? "GET",
+            query: new URL(request.url ?? "/", "http://local").searchParams, // Only an add-on install carries a WebAssembly file; everything else keeps the usual small limit.
+            readBody: () => readBody(request, path === "/api/safety-extras/wasm" ? 11_000_000 : 131072),
+          }, path).catch((error: unknown) => {
+            throw error instanceof SafetyHttpError ? new HttpError(error.status, error.message) : error;
+          });
+          send(response, 200, answer);
+          return;
+        }
+        // ---- end of the mac7/r17-g block ----
+        // ---- r17-h: flows and boards under /api/flows-boards; the owner's alone. ----
+        if (handlesFlowsBoardsPath(path)) {
+          app.store.profiles.requireOwner("Flows and boards");
+          const answer = await flowsBoardsApi({
+            boards: app.flowsBoards, method: request.method ?? "GET",
+            query: new URL(request.url ?? "/", "http://local").searchParams, readBody: () => readBody(request, 131072),
+          }, path).catch((error: unknown) => {
+            throw error instanceof FlowsBoardsHttpError ? new HttpError(error.status, error.message) : error;
+          });
+          send(response, 200, answer);
+          return;
+        }
+        // ---- end of the r17-h block ----
+        // ---- R17-F: learning, deeper under /api/learning-more (src/learning-more/api.ts); the owner's alone. ----
+        if (handlesLearningMorePath(path)) {
+          app.store.profiles.requireOwner("Learning, deeper");
+          const answer = await learningMoreApi({
+            more: app.learningMore, runtime: app.runtime, method: request.method ?? "GET", scope: app.store.profiles.scope(),
+            query: new URL(request.url ?? "/", "http://local").searchParams, readBody: () => readBody(request, 131072),
+          }, path).catch((error: unknown) => {
+            throw error instanceof LearningMoreHttpError ? new HttpError(error.status, error.message) : error;
+          });
+          send(response, 200, answer);
+          return;
+        }
+        // ---- end R17-F ----
         if (await rawApi(app, request, response, path)) return;
         if (path.startsWith("/api/deployment")) {
+          // bucket 22: `branch quit`, from this computer with the master key only (src/install/quit.ts).
+          if (path === "/api/deployment/quit") {
+            const answer = await quitRequest(request, { dataDir: options.dataDir, quit: options.quit, viaRemote })
+              .catch((error: unknown) => { throw new HttpError(request.method === "POST" ? 403 : 405, errorText(error)); });
+            send(response, 200, answer);
+            return;
+          }
           const result = await deploymentApi(app, request, path, deployment(), (r) => readBody(r), remoteHandler);
           if (result !== undefined) { send(response, 200, result); return; }
         }
-        send(response, 200, await api(app, request, path, options.dataDir));
+        // mac3/security-check: the self-check card, which needs to know whether the phone door is open.
+        if (path.startsWith("/api/security-check")) {
+          // Switches and repairs stay with the owner, like trying a server does.
+          if (request.method !== "GET" && path !== "/api/security-check/run")
+            app.store.profiles.requireOwner("The security check's switches and repairs");
+          const answer = await securityCheckApi(app.security, request.method ?? "GET", path, () => readBody(request), remote.status().enabled);
+          if (answer !== undefined) { send(response, 200, answer); return; }
+        }
+        send(response, 200, await api(app, request, path, options.dataDir, listen));
       } finally {
         place?.();
       }
     } catch (e) {
       if (!response.headersSent)
-        send(response, e instanceof HttpError ? e.status : 400, {
+        // mac7/wake-pins: a setting the owner pinned is refused the way every other thing of
+        // theirs is, in the same words and with the same 403, wherever the write came from.
+        send(response, e instanceof HttpError ? e.status : e instanceof PinnedSettingError ? 403 : 400, {
           // A saved password or key can never travel back out in a failure message.
           error: app.runtime.hideSecrets(errorText(e)),
         });
@@ -2224,12 +3248,41 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
     dataDir: options.dataDir, workspace: app.runtime.workspace, port: new URL(url).port ? Number(new URL(url).port) : 0,
     executable: options.executable ?? null, installRoot: options.installRoot ?? null, remote,
   });
-  server.on("upgrade", (request, socket) => {
+  // mac7/nodes: one upgrade handler for this computer's door and the paired door (`viaRemote`).
+  const upgrade = (request: IncomingMessage, socket: Duplex, viaRemote: boolean): void => {
     void (async () => {
       const path = new URL(request.url ?? "/", url || "http://127.0.0.1").pathname;
+      // ---- mac7/nodes: a device's socket. Its own signature is the key; never the window's key. ----
+      if (path === deviceSocketPath) {
+        const hosts = allowedHosts();
+        const refused = app.devices.hub.refusal(request, requestSource(request.socket?.remoteAddress),
+          hostAllowed(request.headers.host, undefined, url, hosts), hostAllowed(request.headers.host, request.headers.origin, url, hosts));
+        // Integration review: the door's chain is not run here. Its `token` and `device` steps are the
+        // phone window's key and secret, which a device never holds; the device's own signature over a
+        // fresh challenge stands in for them. The door's one allowlist still holds: "never" wins.
+        const neverOnDoor = viaRemote && allowlistSays(readSenderAllowlist(app.store, app.runtime.owner), remoteChannel, claimedDevice(request)) === "block";
+        if (refused || neverOnDoor) { refuseUpgrade(socket); return; }
+        app.devices.hub.attach(request, socket);
+        return;
+      }
+      // Integration review: the paired door serves the device socket and nothing else. It had no
+      // upgrade handler before this branch, and a task's socket stays on this computer's own door.
+      if (viaRemote) { refuseUpgrade(socket); return; }
+      // ---- end mac7/nodes ----
+      // mac4/bucket-20: a program on this computer lending tools, behind the key and while the switch is on.
+      if (path === clientToolsPath) {
+        // Integration review: "a program on this computer" — the paired address never lends tools.
+        const sameHost = hostAllowed(request.headers.host, request.headers.origin, url);
+        if (!sameHost || !tokenFromProtocol(request, token) || !app.interop.clients.enabled()) {
+          socket.end("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
+          return;
+        }
+        serveClientToolSocket(app.interop.clients, request, socket);
+        return;
+      }
       const match = /^\/api\/runs\/([a-f0-9-]{36})\/ws$/.exec(path);
       const run = match && app.store.run(match[1]!);
-      const sameHost = hostAllowed(request.headers.host, request.headers.origin, url, remote.allowedHosts());
+      const sameHost = hostAllowed(request.headers.host, request.headers.origin, url, allowedHosts());
       if (!match || !run || run.owner !== app.store.profiles.scope() || !sameHost || !tokenFromProtocol(request, token)) {
         socket.end("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
         return;
@@ -2238,11 +3291,21 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
       // one. Nothing is opened until it does, so an ordinary task is unchanged.
       await serveRunSocket(app.store, run.id, request, socket, liveHooks(app.live, run.id, run.sessionId));
     })().catch(() => socket.destroy());
-  });
+  };
+  server.on("upgrade", (request, socket) => upgrade(request, socket, false));
+  remote.upgrade = (request, socket) => upgrade(request, socket, true);
   configureLimits(server);
+  startEventLoopWatch(app); // bucket 13: runs from the start only when the owner has it on
+  // mac7/bind (integration review): kept so that dropping the wider door can drop what is already
+  // connected through it, rather than leaving an open conversation on the network behind.
+  const liveConnections = new Set<{ remoteAddress?: string | undefined; destroy: () => void; once: (event: string, listener: () => void) => unknown }>();
+  server.on("connection", (socket) => {
+    liveConnections.add(socket);
+    socket.once("close", () => liveConnections.delete(socket));
+  });
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
-    server.listen(options.port ?? 3210, "127.0.0.1", () => {
+    server.listen(options.port ?? 3210, listen.address, () => {
       server.off("error", reject);
       resolve();
     });
@@ -2250,8 +3313,53 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
   const address = server.address();
   if (!address || typeof address === "string")
     throw new Error("Failed to bind loopback server");
+  // mac7/bind: the address Branch tells everything else about stays this computer's own, whatever
+  // the door listens on: the window, the webhook door and every test reach Branch here as before.
   url = `http://127.0.0.1:${address.port}`;
+  if (listen.refusal) console.log(`Branch Agent: ${listen.refusal}`);
+  else if (listen.beyond)
+    console.log("Branch Agent is listening on every address this computer answers on, not only this computer."
+      + " Anyone who can reach it still needs the local session token.");
+  // mac7/bind (integration review): switching Lockdown on while the wide door is already open has
+  // to TAKE THE DOOR AWAY, not merely refuse what arrives at it. `decideListen` is asked once, at
+  // the start, so without this the socket stays open on every address until the next restart —
+  // which is the one thing Lockdown is for. The listening socket is closed, everything already
+  // connected from beyond this computer is dropped, and the door comes back on 127.0.0.1 alone.
+  const boundPort = address.port;
+  const stopWatchingLockdown = onLockdownChange((_store, _owner, on) => {
+    if (on) void narrowToThisComputer().catch((error: unknown) => {
+      // The wide socket is already given up by the time anything here can fail, so Lockdown has had
+      // the effect that matters. What can still go wrong is coming back on 127.0.0.1 — say so
+      // plainly rather than leaving a promise nobody caught, because a door nobody can open is a
+      // different problem from a door open too wide, and the owner has to be told which one it is.
+      console.log("Branch Agent: Lockdown closed the wider door, but Branch could not start"
+        + ` listening on this computer again (${errorText(error)}). Restart Branch.`);
+    });
+  });
+  async function narrowToThisComputer(): Promise<void> {
+    if (listen.address === thisComputerAddress) return;
+    // `close` gives the listening handle up at once; its callback waits for every open connection
+    // to end, which is why it is not awaited — the wide ones are dropped by hand just below.
+    server.close();
+    for (const socket of liveConnections)
+      if (!fromThisComputer(socket.remoteAddress)) socket.destroy();
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(boundPort, thisComputerAddress, () => { server.off("error", reject); resolve(); });
+    });
+    listen.address = thisComputerAddress;
+    listen.beyond = false;
+    listen.extraHosts = [];
+    listen.refusal = "Lockdown is on, so Branch is listening on this computer only.";
+    console.log(`Branch Agent: ${listen.refusal}`);
+  }
+  app.personal.tunnel.localAddress = url; // R17-C: the webhook door passes requests on to this address
   app.scheduler.start();
+  // mac3/never-break: a real start settles work a restart cut off (nothing, with the switch off).
+  if (options.presence || process.env.BRANCH_GATEWAY_CHILD === "1") {
+    void app.neverBreak.recoverOnStart(options.dataDir).catch((error: unknown) => console.error(`Could not pick up interrupted work: ${errorText(error)}`));
+    void app.neverBreak.telegram.connect().then((why) => { if (why && !/switched off/.test(why)) console.log(why); });
+  }
   if (options.presence) {
     await writeRunning(options.dataDir, { port: address.port, pid: process.pid, url, mode: options.presence, version: app.version }).catch(() => undefined);
     await noteFirstStart(app, options.dataDir).catch(() => undefined);
@@ -2266,7 +3374,10 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
      * send anything — can be tested without a Tailscale address and a real network.
      */
     remoteHandler,
+    /** mac7/bind: the address the door is really on now, which Lockdown can narrow while it runs. */
+    listeningOn: (): string => listen.address,
     close: async () => {
+      stopWatchingLockdown();
       await remote.disable().catch(() => undefined);
       if (options.presence) await clearRunning(options.dataDir).catch(() => undefined);
       await stopServer(app, server);
@@ -2280,6 +3391,13 @@ async function noteFirstStart(app: Branch, dataDir: string): Promise<void> {
 }
 /** Endpoints that write the response themselves (streams and the OpenAI-style chat). */
 async function rawApi(app: Branch, request: IncomingMessage, response: ServerResponse, path: string): Promise<boolean> {
+  // ---- bucket 13 (mac4): recordings of a task, the path it took, the run monitor and the event-loop
+  // watch (src/run-recording-api.ts). It answers errors itself. ----
+  if (handlesRecordingPath(path)) {
+    await recordingApi(app, request, response, path, { readBody: () => readBody(request) });
+    return true;
+  }
+  // ---- end of the bucket 13 block ----
   // Batch 19 (wave 7): the counters, as the plain text a monitoring tool reads rather than JSON.
   if (request.method === "GET" && path === "/api/metrics") { metricsResponse(app, response); return true; }
   // Batch 20 (wave 8): what every task wrote down, as one JSON object per line, for a log shipper.
@@ -2351,7 +3469,9 @@ async function rawApi(app: Branch, request: IncomingMessage, response: ServerRes
         ...(Number.isFinite(seconds) && seconds > 0 ? { seconds } : {}),
       });
       response.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
-      response.end(JSON.stringify({ text: written.text, via: written.route, language: written.language, cost: written.cost }));
+      // Bucket 17 hook: a short phrase such as "stop" is marked as a spoken command (null while that switch is off).
+      const command = app.voice.engines?.command(app.runtime.owner, written.text) ?? null;
+      response.end(JSON.stringify({ text: written.text, via: written.route, language: written.language, cost: written.cost, command }));
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       throw new HttpError(400, msg);
@@ -2505,11 +3625,15 @@ async function sharePage(app: Branch, request: IncomingMessage, response: Server
   const code = new URL(request.url ?? "/", "http://local").searchParams.get("code") ?? "";
   let body: string, status = 200;
   try { body = app.store.shares.open(match[1]!, code); }
-  catch (error) {
+  catch {
+    // mac7/channel-leaks: the page used to say which of the reasons it was — "that link is not
+    // valid", "that code is not right", "already used once", "expired", "closed after too many
+    // wrong codes". This address answers before any key, so the difference told anyone who tried a
+    // made-up link apart from anyone who had a real one. One page now, for all five.
     status = 403;
     body = `<!doctype html><html lang="en"><head><meta charset="utf-8" /><title>Not available</title></head>`
       + `<body style="font:16px system-ui;margin:3rem auto;max-width:32rem"><h1>This link is not available</h1>`
-      + `<p>${errorText(error).replace(/[<>&"]/g, "")}</p></body></html>`;
+      + `<p>Ask whoever sent it to share it again.</p></body></html>`;
   }
   response.writeHead(status, {
     "content-type": "text/html; charset=utf-8", "cache-control": "no-store",
@@ -2591,17 +3715,146 @@ function voiceDeps(app: Branch) {
  * do — and naming a program for Branch to run, or writing into the locker, is exactly that. Those
  * two are the owner's own step, in the app window, with the master key.
  */
-function offLimitsToShortLivedKeys(method: string | undefined, path: string): string | null {
-  if (method === "GET") return null;
-  if (path === "/api/providers/cli-agents" || path.startsWith("/api/secrets") || path.startsWith("/api/connections"))
+/**
+ * Wave mac3 (commands, integration review): a key that may only look sends its commands with POST
+ * too, so what it typed never lands in an address or a log. For that one route its POST counts as
+ * looking; `src/commands/api.ts` then lets it carry out only the commands that look.
+ */
+function commandLook(app: Branch, request: IncomingMessage, path: string, supplied: string): { method: string; executes: boolean } | null {
+  if (request.method !== "POST" || path !== "/api/commands/run") return null;
+  return app.sessionTokens.scopeOf(app.runtime.owner, supplied) === "read" ? { method: "GET", executes: false } : null;
+}
+
+export function offLimitsToShortLivedKeys(method: string | undefined, path: string): string | null {
+  // bucket-18 (A0098): the code editor, its switch included, is the owner's alone: a script's key may
+  // neither read files through it nor save over them, so this comes before reading is let through.
+  if (handlesWorkspaceEditorPath(path))
+    return "A short-lived key cannot use the code editor. Do that in the app window.";
+  // mac7/bind: opening Branch's door to the private network is the owner's alone, and so is being
+  // told where the door already is. A Trunk's message from another computer arrives with such a
+  // key, so this is where a Trunk is refused too. Like the code editor above, it comes before
+  // reading is let through, because the answer is where to knock.
+  if (path === "/api/listen") return listenKeyRefusal;
+  // mac5/key-sweep: a few reads hand back a secret or everybody's data (src/short-lived-keys.ts).
+  if (method === "GET") return ownerOnlyRead(path);
+  // Wave mac3 (commands, integration review): when Branch checks with you, which model every new
+  // conversation starts with (and the model services behind it), and which commands are offered
+  // are the owner's; `/preset` and `/default` already refused a "run" key, their routes did not.
+  if (path === "/api/policy" || path === "/api/models" || path === "/api/commands/settings")
+    return "A short-lived key cannot change when Branch checks with you, the models, or which commands are offered. Do that in the app window.";
+  if (path === "/api/providers/cli-agents" || path.startsWith("/api/secrets") || path.startsWith("/api/connections") || /^\/api\/schedules\/[a-f0-9-]{36}\/gate$/.test(path))
     return "A short-lived key cannot name a program for Branch to run, add a model service, or change the locker. Do that in the app window.";
-  if (path === "/api/deployment/close")
+  // mac6/accounts: adding, removing and switching accounts is the owner's alone.
+  if (handlesAccountsPath(path))
+    return "A short-lived key cannot add, remove or switch accounts. Do that in the app window.";
+  if (path === "/api/deployment/close" || path === "/api/deployment/quit") // quit: bucket 22
     return "A short-lived key cannot close Branch. Only the app on this computer can.";
-  return null;
+  // Wave mac2 (quiet-jobs): the check-in's switches, hours and where its news goes are the owner's.
+  if (path === "/api/heartbeat" || path.startsWith("/api/heartbeat/"))
+    return "A short-lived key cannot change the check-in or start one. Do that in the app window.";
+  // Wave mac3 (dashboard review): a "run" key "cannot change what Branch is allowed to do", and
+  // Lockdown is exactly that; without this a script's key could switch Lockdown off.
+  if (path === "/api/lockdown")
+    return "A short-lived key cannot switch Lockdown on or off. Do that in the app window or with the key of this computer.";
+  // mac7/vault-autofill (R17-068): which saved sign-in Branch may type into a page is the owner's alone.
+  if (path.startsWith("/api/vault-autofill"))
+    return "A short-lived key cannot change which saved sign-ins Branch may fill. Do that in the app window.";
+  // bucket-18 (A2317): a copy of what is remembered may be sent to a remote; only the owner names it.
+  if (path === "/api/memory/history")
+    return "A short-lived key cannot change where the history of what is remembered is kept. Do that in the app window.";
+  // bucket-18 (A0300): where work is sent on GitHub is the owner's to decide.
+  if (path === "/api/developer/pull-requests")
+    return "A short-lived key cannot change how work is sent to GitHub. Do that in the app window.";
+  // Wave mac3 (os-sandbox): the wall around programs, and where scripts run, decide what a program
+  // may touch; a script's key must not be able to take either down.
+  if (path === "/api/os-sandbox" || path === "/api/sandboxes")
+    return "A short-lived key cannot change the wall around programs or where scripts run. Do that in the app window.";
+  // Wave mac2 (guards): trusting a folder lets what is in it steer the assistant.
+  if (handlesGuardsPath(path)) return "A short-lived key cannot change which folders are trusted or how repeated steps are stopped. Do that in the app window.";
+  // R17-S-B: the knobs include which environment variables commands get and how keys are hidden.
+  if (handlesKnobsPath(path)) return knobsRefusal;
+  if (handlesSavingsPath(path)) return savingsRefusal; // R17-E
+  // R17-S-C: the proxy, certificates, browser care and automatic updates are the owner's.
+  if (handlesComfortPath(path)) return comfortRefusal;
+  // mac3/never-break: the gateway's settings are the owner's alone.
+  if (handlesNeverBreakPath(path)) return "A short-lived key cannot change how Branch keeps itself running. Do that in the app window.";
+  // mac7/connect: saving a chat app's token or switching setting-up on is the owner's alone.
+  if (handlesChannelSetupPath(path)) return "A short-lived key cannot save a chat app's token or change how chat apps are set up. Do that in the app window.";
+  // mac3/never-break (integration review): letting a new person reach the assistant is the owner's alone.
+  if (path.startsWith("/api/channels/pairings/")) return "A short-lived key cannot let a new person reach the assistant, or remove one. Do that in the app window.";
+  // Bucket 17: naming a program for Branch to run (ffmpeg, yt-dlp, a reading-aloud program) is the owner's step.
+  if (path === "/api/media/programs" || path === "/api/voice/engines")
+    return "A short-lived key cannot choose which programs or speech services Branch uses. Do that in the app window.";
+  // Wave mac3 (tool-safety): the second look decides what gets asked about.
+  if (path === "/api/approval-reviewer" && method !== "GET") return "A short-lived key cannot change the safety check before approvals. Do that in the app window.";
+  // mac3/security-check: changing who may reach Branch's files, or the check's own switches.
+  if (path.startsWith("/api/security-check/") && path !== "/api/security-check/run")
+    return "A short-lived key cannot change security settings or file permissions. Do that in the app window.";
+  // mac2/fly-core-2 (integration review): the learning core's switch and "forget" are the owner's.
+  if (handlesLearningCorePath(path)) return "A short-lived key cannot change the learning core or make it forget. Do that in the app window.";
+  // mac4/bucket-14 (integration review): the report shows every person's tasks, and the counters go out to the trace address.
+  if (path.startsWith("/api/usage/report") || path.startsWith("/api/usage/counters"))
+    return "A short-lived key cannot make the usage report, change it, or send the task counters. Do that in the app window.";
+  // mac7/usage-bar: what the owner's paid-for connections have left is the owner's business.
+  if (handlesUsageLimitsPath(path))
+    return "A short-lived key cannot see what each connection has left, or change how it is asked for. Do that in the app window.";
+  // mac3/channels-parity (integration review): switching a chat app on lets outsiders reach the assistant.
+  if (path === "/api/channels/parity") return "A short-lived key cannot switch chat apps on or off. Do that in the app window.";
+  // mac4/bucket-13 (integration review): the recordings switch (and whether saved pages carry
+  // pictures) and the event-loop watch are the owner's settings.
+  if (path === "/api/recordings" || path === "/api/event-loop")
+    return "A short-lived key cannot change task recordings or the check on whether Branch is keeping up. Do that in the app window.";
+  // mac5/local-models (integration review): the switch, downloading, starting a program and deleting a model.
+  if (/^\/api\/local-models\/(switch|setup|pull|load|stop|remove|delete|unload|runtime|routing$)/.test(path))
+    return "A short-lived key cannot switch models on this computer, download or delete one, or start or stop its program. Do that in the app window.";
+  // mac5/key-sweep: every other change fails closed; only the task routes in src/short-lived-keys.ts are open.
+  if (!taskRouteFor(method, path) && interopOffLimits(method, path) === null) return generalShortLivedKeyRefusal;
+  // mac4/bucket-20: switching those parts, bringing an assistant in, and handing a conversation on.
+  return interopOffLimits(method, path);
+}
+/**
+ * mac5/key-sweep + mac5/manual-actions (integration review): a tool run by hand with a short-lived
+ * key is decided by the one gate (src/tool-gate.ts: never-break, the role, the rules, the leak guard;
+ * only "allow" runs). What that gate refuses for the key is answered as the key's refusal, a 401.
+ */
+async function asKeyRefusal<T>(work: () => Promise<T>): Promise<T> {
+  try {
+    return await work();
+  } catch (error) {
+    if (startedWithShortLivedKey() && (error instanceof PolicyRefusedError || error instanceof ApprovalRequiredError))
+      throw new HttpError(401, error.message);
+    throw error;
+  }
+}
+/** mac3/security-check: a server tried from Settings is looked up in the malware list before it starts. */
+async function vetTriedServer(app: Branch, input: unknown): Promise<void> {
+  const server = (input as { server?: { transport?: unknown; command?: unknown; args?: unknown } } | null)?.server;
+  if (server?.transport !== "stdio" || typeof server.command !== "string") return;
+  await app.security.malware.vet(server.command, Array.isArray(server.args) ? server.args.map(String) : []);
 }
 function isExecution(request: IncomingMessage, path: string): boolean {
   return (
-    request.method === "POST" && (["/api/run", "/api/action", "/v1/chat/completions", "/api/restore", "/api/deployment/restore-point", "/api/deployment/close", "/a2a", "/api/tools/try", "/api/tools/forget", "/api/tools/meaning-search", "/api/firewall/test", "/api/sandboxes", "/api/limits"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins|local-models|connections|monitors|brief|ask-first|retrieval|issues|practice|workflows|queue|profiles|labels|shares|calendar|knowledge|tracing|rules|flows|deferred|processes|skill-revisions|plugin-catalog|developer|studies|batch|artifacts|reports|todos|obsidian|log|remotes|marks|retention)(\/|$)/.test(path) || /^\/api\/mcp\/(try|signin)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/api\/runs\/[a-f0-9-]{36}\/replay$/.test(path) || /^\/webhooks\/(whatsapp|chat)\//.test(path))
+    request.method === "POST" && (["/api/run", "/api/commands/run", "/api/action", "/v1/chat/completions", "/api/restore", "/api/deployment/restore-point", "/api/deployment/close", "/a2a", "/api/tools/try", "/api/tools/forget", "/api/tools/meaning-search", "/api/firewall/test", "/api/sandboxes", "/api/os-sandbox", "/api/limits"].includes(path) || /^\/api\/(sessions|memory|skills|chatgpt|projects|secrets|channels|teams|registry|evaluation|documents|browser|agents|plugins|local-models|connections|monitors|brief|ask-first|retrieval|issues|practice|workflows|queue|profiles|labels|shares|calendar|knowledge|tracing|rules|flows|deferred|processes|skill-revisions|plugin-catalog|developer|studies|batch|artifacts|reports|todos|obsidian|log|remotes|marks|retention|heartbeat)(\/|$)/.test(path) || /^\/api\/mcp\/(try|signin)(\/|$)/.test(path) || /^\/api\/triggers\/[a-f0-9-]{36}\/fire$/.test(path) || /^\/api\/runs\/[a-f0-9-]{36}\/replay$/.test(path) || /^\/webhooks\/(whatsapp|chat)\//.test(path))
+    // mac4/bucket-20: an Agent Protocol step, and every change under /api/interop, start or change work.
+    || (request.method !== "GET" && handlesInteropPath(path))
+    // mac6/bucket-23: every change under /api/asks may start work (an answer, an article, a send).
+    || (request.method !== "GET" && handlesAsksPath(path))
+    // r17-b: every change under /api/autonomy may start work (a schedule, an order's turn, a procedure).
+    || (request.method !== "GET" && handlesAutonomyPath(path))
+    // R17-A: every change under /api/trunks may start work (a Trunk's turn, a room's rounds).
+    || (request.method !== "GET" && handlesTrunksPath(path))
+    // mac7/r17-d: every change under /api/coding may start work (a snapshot, the checks, a fork).
+    || (request.method !== "GET" && handlesCodingPath(path))
+    // R17-C: every change under /api/personal may reach an outside service or start a program.
+    || (request.method !== "GET" && handlesPersonalPath(path))
+    // r17-i: every change under /api/reach may start work (a task elsewhere, a video, a send, an import).
+    || (request.method !== "GET" && handlesReachPath(path))
+    // mac7/r17-g: every change under /api/safety-extras may run something (a WebAssembly add-on).
+    || (request.method !== "GET" && handlesSafetyPath(path))
+    // r17-h: every change under /api/flows-boards may start work (a flow copy, a procedure, a card's task).
+    || (request.method !== "GET" && handlesFlowsBoardsPath(path))
+    // R17-F: every change under /api/learning-more may ask a model or an outside service.
+    || (request.method !== "GET" && handlesLearningMorePath(path))
   );
 }
 function configureLimits(server: Server): void {

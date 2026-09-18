@@ -60,6 +60,26 @@ jobs:
         run: |
           rm -f "$RUNNER_TEMP/notary-key.p8" "$RUNNER_TEMP/cert.p12"
           if [ -f "$RUNNER_TEMP/signing.keychain-db" ]; then security delete-keychain "$RUNNER_TEMP/signing.keychain-db"; fi
+      # The phone download: the packed command the Termux script installs, with the checksum that
+      # script insists on. Built on Linux only, so the three runners cannot produce three of it.
+      - name: Build the phone download
+        if: runner.os == 'Linux'
+        shell: bash
+        working-directory: release
+        run: |
+          node ../scripts/pack-cli.mjs . >/dev/null
+          test "$(ls -1 branch-agent-*.tgz | wc -l)" -eq 1
+          name="$(ls -1 branch-agent-*.tgz)"
+          sha256sum "$name" > "$name.sha256"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: runner.os == 'Linux'
+        with:
+          name: download-phone
+          path: |
+            release/branch-agent-*.tgz
+            release/branch-agent-*.tgz.sha256
+          if-no-files-found: error
+          retention-days: 7
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: download-${{ runner.os }}
@@ -68,6 +88,7 @@ jobs:
             release/Branch-Agent-*.tar.gz
             release/Branch-Agent-*.sha256
             release/Install Branch Agent.cmd
+            release/install-branch-agent.sh
           if-no-files-found: error
           retention-days: 7
   publish:
@@ -82,12 +103,22 @@ jobs:
           merge-multiple: true
       - name: Check every download is there with its checksum
         working-directory: downloads
+        env:
+          TAG: ${{ github.ref_name }}
         run: |
           for name in Branch-Agent-windows-x64.zip Branch-Agent-macos-arm64.zip Branch-Agent-macos-x64.zip Branch-Agent-linux-x64.tar.gz; do
             test -f "$name" && test -f "$name.sha256"
             sha256sum --check "$name.sha256"
           done
-      - name: Attach to the release
+          test -f "Install Branch Agent.cmd" && test -f install-branch-agent.sh
+          # The phone download is named after the version in package.json, so a tag that does not
+          # match it stops the release here rather than shipping a file the script cannot check.
+          cli="branch-agent-${TAG#v}.tgz"
+          test -f "$cli" && test -f "$cli.sha256"
+          sha256sum --check "$cli.sha256"
+      # A download already on the release is never replaced: an owner may have attached a hand-built
+      # one (the Windows zip once was), and it stays together with its own checksum.
+      - name: Attach to the release, keeping anything already there
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -95,9 +126,29 @@ jobs:
         working-directory: downloads
         run: |
           gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --draft --verify-tag --title "Branch Agent ${TAG#v}" --notes "Downloads for ${TAG}."
-          gh release upload "$TAG" --clobber \
-            Branch-Agent-windows-x64.zip Branch-Agent-windows-x64.zip.sha256 \
-            Branch-Agent-macos-arm64.zip Branch-Agent-macos-arm64.zip.sha256 \
-            Branch-Agent-macos-x64.zip Branch-Agent-macos-x64.zip.sha256 \
-            Branch-Agent-linux-x64.tar.gz Branch-Agent-linux-x64.tar.gz.sha256 \
-            "Install Branch Agent.cmd"
+          attached="$(gh release view "$TAG" --json assets --jq '.assets[].name')"
+          # An asset is named after the file, except that GitHub turns every character that is not
+          # a letter, a digit, a hyphen, an underscore or a dot into a dot: "Install Branch Agent.cmd"
+          # is attached as "Install.Branch.Agent.cmd". Comparing the file's own name against the
+          # release never matched for the two installer scripts, so a re-run tried to upload a name
+          # that was already there and the job failed. The same rule is applied to both sides here.
+          as_attached() { printf '%s' "$1" | tr -c 'A-Za-z0-9._-' '.'; }
+          on_release() { printf '%s\n' "$attached" | grep -Fxq -- "$(as_attached "$1")"; }
+          for name in Branch-Agent-windows-x64.zip Branch-Agent-macos-arm64.zip Branch-Agent-macos-x64.zip Branch-Agent-linux-x64.tar.gz; do
+            if on_release "$name"; then
+              echo "$name is already on the release; it and its checksum are kept as they are."
+              on_release "$name.sha256" || echo "::warning::$name is on the release without $name.sha256; attach its checksum by hand."
+            else
+              gh release upload "$TAG" "$name" "$name.sha256"
+            fi
+          done
+          cli="branch-agent-${TAG#v}.tgz"
+          if on_release "$cli"; then
+            echo "$cli is already on the release; it and its checksum are kept as they are."
+            on_release "$cli.sha256" || echo "::warning::$cli is on the release without $cli.sha256; attach its checksum by hand."
+          else
+            gh release upload "$TAG" "$cli" "$cli.sha256"
+          fi
+          for script in "Install Branch Agent.cmd" install-branch-agent.sh; do
+            if on_release "$script"; then echo "$script is already on the release; it is kept."; else gh release upload "$TAG" "$script"; fi
+          done

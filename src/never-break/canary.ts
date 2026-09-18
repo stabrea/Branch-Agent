@@ -1,0 +1,189 @@
+import { spawn } from "node:child_process";
+import { copyFile, mkdir, readFile, rename, rm, stat } from "node:fs/promises";
+import { isAbsolute, join, posix, relative, resolve, win32 } from "node:path";
+import type { DatabaseSync } from "node:sqlite";
+import { z } from "zod";
+import { gatewayFile, loadGatewayConfig, writeAtomic } from "./gateway-config.js";
+
+/** What `branch start` writes in self-test mode (see self-test.ts). */
+export interface SelfTestCheck { name: string; ok: boolean; detail: string }
+export interface SelfTestReport { ok: boolean; version: string; contract: number; format: number | null; checks: SelfTestCheck[] }
+export async function readSelfTest(path: string): Promise<SelfTestReport | null> {
+  try { return JSON.parse(await readFile(path, "utf8")) as SelfTestReport; } catch { return null; }
+}
+export const selfTestReportName = (folder: string): string => join(folder, "self-test.json");
+
+/**
+ * Blue/green updates. The new version is unpacked beside the current one (the updater does that),
+ * then started here as a canary: its own runtime and engine, on a copy of the owner's data, in
+ * self-test mode. Only a clean report lets the swap go ahead. After the swap, `update-watch.json`
+ * tells the new gateway to watch the first minutes and roll back if the new version does not stay
+ * up. See docs/never-break.md, threats 5–7.
+ */
+export const watchFile = "update-watch.json";
+export const canaryFolder = "updates";
+
+/** Where the engine and the runtime sit inside an unpacked release. */
+export function stagedEngine(stagedDir: string, platform: NodeJS.Platform, executableName: string): { executable: string; script: string } {
+  // The release's own system decides the separator, not the computer this runs on (tests ask for all three).
+  const { join } = platform === "win32" ? win32 : posix;
+  if (platform === "darwin") {
+    const contents = join(stagedDir, "Contents");
+    return { executable: join(contents, "MacOS", executableName.replace(/\.app$/, "")), script: join(contents, "Resources", "app", "dist", "cli.js") };
+  }
+  return { executable: join(stagedDir, executableName), script: join(stagedDir, "resources", "app", "dist", "cli.js") };
+}
+
+/**
+ * A copy of the saved work for the canary, taken by the process that holds the database (which is
+ * the only one that can). The device key goes with it so saved secrets still open; the copy lives
+ * in the data folder, closed to everyone else, and is removed when the canary is done.
+ */
+export async function snapshotData(input: { dataDir: string; database: DatabaseSync; journal?: DatabaseSync | null; at?: Date }): Promise<string> {
+  const stamp = (input.at ?? new Date()).toISOString().replace(/[:.]/g, "-");
+  const folder = join(input.dataDir, canaryFolder, `canary-${stamp}`, "data");
+  await mkdir(folder, { recursive: true, mode: 0o700 });
+  const into = (path: string) => `VACUUM INTO '${path.replace(/'/g, "''")}'`;
+  input.database.exec(into(join(folder, "branch.sqlite")));
+  input.journal?.exec(into(join(folder, "journal.sqlite")));
+  for (const name of ["locker.key", gatewayFile]) await copyFile(join(input.dataDir, name), join(folder, name)).catch(() => undefined);
+  return folder;
+}
+
+export interface CanaryInput {
+  engine: { executable: string; script: string };
+  /** The copied data folder (from `snapshotData`), removed afterwards together with its parent. */
+  dataCopy: string;
+  timeoutMs?: number;
+  env?: NodeJS.ProcessEnv;
+}
+export interface CanaryResult { ok: boolean; detail: string; report: SelfTestReport | null }
+
+/** No gateway, resume or chat-app settings reach the copy: its chat bots would read the owner's real messages. */
+const clean = (env: NodeJS.ProcessEnv): NodeJS.ProcessEnv =>
+  Object.fromEntries(Object.entries(env).filter(([name]) => !/^BRANCH_(GATEWAY|RESUME|SELF_TEST|INTEGRATIONS)/.test(name) && name !== "NODE_TEST_CONTEXT"));
+
+/** The copy must be one `snapshotData` made, inside the data folder's update area; anything else is refused before it is used or removed. */
+export function isCanaryCopy(dataDir: string, folder: string): boolean {
+  const rel = relative(resolve(dataDir, canaryFolder), resolve(folder));
+  const parts = rel.split(/[\\/]/);
+  return !isAbsolute(rel) && parts.length === 2 && /^canary-[0-9TZ-]+$/.test(parts[0]!) && parts[1] === "data";
+}
+
+/** Starts the new version on the copy and reads its verdict. Nothing of the running install is touched. */
+export async function runCanary(input: CanaryInput): Promise<CanaryResult> {
+  const folder = join(input.dataCopy, "..");
+  const report = selfTestReportName(folder);
+  try {
+    await stat(input.engine.script).catch(() => { throw new Error("The new version's engine was not found in the download."); });
+    const env = { ...clean(input.env ?? process.env), ELECTRON_RUN_AS_NODE: "1", BRANCH_SELF_TEST: report,
+      BRANCH_DATA_DIR: input.dataCopy, BRANCH_WORKSPACE: join(folder, "workspace"), BRANCH_PORT: "0" };
+    const exit = await started(input.engine, env, input.timeoutMs ?? 180_000);
+    const result = await readSelfTest(report);
+    if (!result) return { ok: false, detail: `The new version did not finish its check (${exit}).`, report: null };
+    const failed = result.checks.filter((one) => !one.ok);
+    return { ok: result.ok, report: result, detail: result.ok
+      ? `Version ${result.version} passed its check on a copy of your work.`
+      : `Version ${result.version} failed its check on a copy of your work: ${failed.map((one) => `${one.name} (${one.detail})`).join("; ")}.` };
+  } catch (error) {
+    return { ok: false, detail: error instanceof Error ? error.message : String(error), report: null };
+  } finally {
+    await rm(folder, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }).catch(() => undefined);
+  }
+}
+
+function started(engine: { executable: string; script: string }, env: NodeJS.ProcessEnv, timeoutMs: number): Promise<string> {
+  return new Promise((resolve) => {
+    const child = spawn(engine.executable, [engine.script, "start"], { env, stdio: "ignore", windowsHide: true });
+    const timer = setTimeout(() => { child.kill("SIGKILL"); resolve("it took too long and was stopped"); }, timeoutMs);
+    child.once("error", (error) => { clearTimeout(timer); resolve(`it could not be started: ${error.message}`); });
+    child.once("exit", (code, signal) => { clearTimeout(timer); resolve(signal ? `it was ended by ${signal}` : `it exited with code ${code}`); });
+  });
+}
+
+export interface UpdateCanaryInput {
+  dataDir: string;
+  platform: NodeJS.Platform;
+  executableName: string;
+  fromVersion: string;
+  /** The installed program, watched after the swap; null when this copy cannot be updated. */
+  target: string | null;
+  /** Takes the copy of the saved work (in-process, or by asking the background engine). */
+  snapshot: () => Promise<string>;
+  timeoutMs?: number;
+}
+
+/**
+ * The updater's canary step. With the switch off it does nothing, as before. Otherwise the new
+ * version must pass its check on a copy, and the gateway is told to watch it after the swap.
+ */
+export function updateCanary(input: UpdateCanaryInput): (stagedDir: string, version: string) => Promise<void> {
+  return async (stagedDir, version) => {
+    if ((await loadGatewayConfig(input.dataDir)).config.mode === "off") return;
+    const dataCopy = await input.snapshot();
+    if (!isCanaryCopy(input.dataDir, dataCopy)) throw new Error("The copy of your work was not where Branch keeps update copies, so it was not used.");
+    const result = await runCanary({ engine: stagedEngine(stagedDir, input.platform, input.executableName),
+      dataCopy, ...(input.timeoutMs ? { timeoutMs: input.timeoutMs } : {}) });
+    if (!result.ok) throw new Error(result.detail);
+    const platform = input.platform === "win32" || input.platform === "darwin" ? input.platform : "linux";
+    if (input.target) await writeWatch(input.dataDir, { from: input.fromVersion, to: version, target: input.target, platform,
+      executableName: input.executableName, startedAt: new Date().toISOString() });
+  };
+}
+
+/* ---------- watching the first minutes after the swap ---------- */
+
+export const UpdateWatchSchema = z.object({
+  from: z.string().max(40),
+  to: z.string().max(40),
+  /** The installed program: the `.app` bundle on macOS, the program folder elsewhere. */
+  target: z.string().min(1).max(4096),
+  platform: z.enum(["win32", "darwin", "linux"]),
+  executableName: z.string().min(1).max(200),
+  startedAt: z.iso.datetime(),
+}).strict();
+export type UpdateWatch = z.infer<typeof UpdateWatchSchema>;
+
+export async function writeWatch(dataDir: string, watch: UpdateWatch): Promise<void> {
+  await writeAtomic(join(dataDir, watchFile), JSON.stringify(UpdateWatchSchema.parse(watch)));
+}
+export async function readWatch(dataDir: string): Promise<UpdateWatch | null> {
+  try {
+    return UpdateWatchSchema.parse(JSON.parse(await readFile(join(dataDir, watchFile), "utf8")));
+  } catch { return null; }
+}
+export async function clearWatch(dataDir: string): Promise<void> {
+  await rm(join(dataDir, watchFile), { force: true });
+}
+
+/**
+ * Pure: what the gateway should do about a watched update. Roll back when the new version keeps
+ * failing inside the window; call the update done once it has been up for the whole window.
+ */
+export function watchVerdict(watch: UpdateWatch | null, input: { now: number; watchSeconds: number; runningVersion: string | null; failing: boolean }): "none" | "watching" | "done" | "roll-back" {
+  if (!watch) return "none";
+  const inside = input.now - Date.parse(watch.startedAt) <= input.watchSeconds * 1000;
+  if (input.failing && inside) return "roll-back";
+  if (input.runningVersion !== watch.to) return inside ? "watching" : "none";
+  return inside ? "watching" : "done";
+}
+
+/**
+ * An update interrupted part-way (power cut, killed script) leaves the program folder in one of a
+ * few shapes. This puts it back to a whole version: the current one if it is there, else the
+ * previous one, and removes a half-copied new one. Answers what it did, in plain words.
+ */
+export async function repairSwap(target: string): Promise<string[]> {
+  const exists = (path: string) => stat(path).then(() => true, () => false);
+  const done: string[] = [];
+  const previous = `${target}.previous`, incoming = `${target}.incoming`;
+  if (!(await exists(target)) && (await exists(previous))) {
+    await rename(previous, target);
+    done.push("The update had stopped half-way; the previous version was put back.");
+  }
+  if (await exists(incoming)) {
+    await rm(incoming, { recursive: true, force: true });
+    done.push("A half-copied new version was removed.");
+  }
+  return done;
+}

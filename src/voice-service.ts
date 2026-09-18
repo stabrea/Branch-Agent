@@ -1,12 +1,13 @@
 import { z } from "zod";
 import type { Provider, ToolContext } from "./contracts.js";
 import type { ModelRouter } from "./models.js";
+import type { SpeechEngineService } from "./speech-engine-service.js";
 import type { NetworkPolicy } from "./network-policy.js";
 import type { ToolRegistry } from "./registry.js";
 import type { Store } from "./store.js";
 import { voiceSettings, type AudioProvider, type VoiceSettings } from "./voice.js";
 import { LocalSpeechSchema, Transcription, type AudioClip, type SttRoute, type TranscriptionResult } from "./voice-stt.js";
-import { Speech, SpeakRequestSchema, type SpeakRequest, type SpokenAudio, type TtsRoute } from "./voice-tts.js";
+import { Speech, SpeakRequestSchema, type ProgramLocator, type SpeakRequest, type SpokenAudio, type TtsRoute } from "./voice-tts.js";
 
 /**
  * Voice as the rest of the app sees it: hand it a recording and get words back, hand it words and
@@ -43,34 +44,66 @@ export function sttRouteFor(settings: VoiceSettings, provider: Provider | undefi
   return { kind: "openai", provider: audio, reason: "Your connected model offers this" };
 }
 
-/** Which service should read a reply aloud. Windows' own voice is the one that needs nothing. */
-export function ttsRouteFor(settings: VoiceSettings, provider: Provider | undefined): VoiceRoute<TtsRoute> {
+/** The system voice in the owner's words: Windows keeps its own name, every other computer says "your computer's own voice". */
+export function systemVoiceWords(platform: string = process.platform): { chosen: string; free: string } {
+  return platform === "win32"
+    ? { chosen: "the voice that comes with Windows", free: "the free Windows voice" }
+    : { chosen: "your computer's own voice", free: "your computer's own voice, which is free," };
+}
+
+/** Which service should read a reply aloud. The computer's own voice is the one that needs nothing. */
+export function ttsRouteFor(settings: VoiceSettings, provider: Provider | undefined, platform: string = process.platform): VoiceRoute<TtsRoute> {
   const audio = audioOf(provider);
+  const words = systemVoiceWords(platform);
   if (settings.keepAudioOnThisComputer)
     return { kind: "windows", provider: null, reason: "You asked for audio to stay on this computer" };
-  if (settings.ttsRoute === "windows") return { kind: "windows", provider: null, reason: "You chose the voice that comes with Windows" };
+  if (settings.ttsRoute === "windows") return { kind: "windows", provider: null, reason: `You chose ${words.chosen}` };
   if (settings.ttsRoute === "gemini") return { kind: "gemini", provider: audio, reason: "You chose Gemini" };
   if (settings.ttsRoute === "openai") return { kind: "openai", provider: audio, reason: "You chose your model provider" };
-  if (!settings.useProviderVoice) return { kind: "windows", provider: null, reason: "Higher-quality voice is switched off, so the free Windows voice is used" };
+  if (!settings.useProviderVoice) return { kind: "windows", provider: null, reason: `Higher-quality voice is switched off, so ${words.free} is used` };
   if (isGemini(provider)) return { kind: "gemini", provider: audio, reason: `${provider?.name} is connected, and it can read text aloud` };
-  if (!audio) return { kind: "windows", provider: null, reason: "No connected model offers this, so the free Windows voice is used" };
+  if (!audio) return { kind: "windows", provider: null, reason: `No connected model offers this, so ${words.free} is used` };
   return { kind: "openai", provider: audio, reason: "Your connected model offers this" };
+}
+
+/** What reading aloud says while the computer's own voice is switched off. */
+export function systemVoiceOffMessage(platform: string = process.platform, keepAudioHere = false): string {
+  const name = platform === "win32" ? "The voice that comes with Windows" : "Your computer's own voice";
+  // With audio kept on this computer the provider's voice refuses too, so it is not offered.
+  const instead = keepAudioHere ? "" : ", or choose your provider's voice there";
+  return `${name} is switched off, so nothing was read aloud. Turn it on under Settings → Voice${instead}.`;
+}
+
+/** Which computer the voice runs on, and how it starts and finds programs there; all replaced in tests. */
+export interface VoiceSystem {
+  platform?: string;
+  /** Starts a program with a list of arguments and hands back what it printed. */
+  runProgram?: (file: string, args: string[], signal?: AbortSignal) => Promise<string>;
+  /** Where a program lives on the search path, without starting it. */
+  locate?: ProgramLocator;
 }
 
 /** Everything the voice screens and routes need in one object, so callers never wire it up twice. */
 export class VoiceService {
   readonly transcription: Transcription;
   readonly speech: Speech;
+  /** The kind of computer this is, for the words the voice screens use. */
+  readonly platform: string;
+  /** Bucket 17: speech plug-ins the owner picked under Settings → Voice; asked first, null means carry on. */
+  engines: SpeechEngineService | undefined;
   constructor(
     private readonly store: Store,
     private readonly models: ModelRouter,
     policy: NetworkPolicy,
     fetchImpl: typeof globalThis.fetch = globalThis.fetch,
-    /** Replaced in tests so no program is ever started on the owner's computer. */
-    runProgram?: (file: string, args: string[], signal?: AbortSignal) => Promise<string>,
+    /** A program runner on its own (older callers), or the whole computer; replaced in tests so nothing is started. */
+    system: VoiceSystem | VoiceSystem["runProgram"] = {},
   ) {
-    this.transcription = runProgram ? new Transcription(policy, fetchImpl, runProgram) : new Transcription(policy, fetchImpl);
-    this.speech = runProgram ? new Speech(policy, fetchImpl, runProgram) : new Speech(policy, fetchImpl);
+    const given: VoiceSystem = typeof system === "function" ? { runProgram: system } : system ?? {};
+    this.platform = given.platform ?? process.platform;
+    const where = { platform: this.platform, ...(given.locate ? { locate: given.locate } : {}) };
+    this.transcription = given.runProgram ? new Transcription(policy, fetchImpl, given.runProgram) : new Transcription(policy, fetchImpl);
+    this.speech = given.runProgram ? new Speech(policy, fetchImpl, given.runProgram, where) : new Speech(policy, fetchImpl, undefined, where);
   }
   settings(owner: string): VoiceSettings { return voiceSettings(this.store, owner); }
   /** The connection that answers for this owner right now, for whichever conversation is open. */
@@ -80,11 +113,21 @@ export class VoiceService {
   /** What would happen if the owner pressed the microphone or Read aloud right now. */
   plan(owner: string): { stt: VoiceRoute<SttRoute>; tts: VoiceRoute<TtsRoute>; settings: VoiceSettings } {
     const settings = this.settings(owner), provider = this.provider(owner);
-    return { stt: sttRouteFor(settings, provider), tts: ttsRouteFor(settings, provider), settings };
+    const tts = ttsRouteFor(settings, provider, this.platform);
+    const off = tts.kind === "windows" && settings.systemVoice === "off";
+    const reason = systemVoiceOffMessage(this.platform, settings.keepAudioOnThisComputer);
+    return { stt: sttRouteFor(settings, provider), tts: off ? { ...tts, reason } : tts, settings };
+  }
+  /** The computer's own voices, or none without asking the computer while that voice is switched off. */
+  async systemVoiceNames(owner: string): Promise<string[]> {
+    return this.settings(owner).systemVoice === "off" ? [] : this.speech.windowsVoices();
   }
   /** Writes a recording out, using the owner's chosen service and language. */
   async transcribe(owner: string, clip: AudioClip, options: { signal?: AbortSignal } = {}): Promise<TranscriptionResult> {
     const settings = this.settings(owner);
+    // Bucket 17 hook: a chosen speech plug-in does the work instead.
+    const byEngine = await this.engines?.listen(owner, clip, settings.keepAudioOnThisComputer, options.signal);
+    if (byEngine) return byEngine;
     const route = sttRouteFor(settings, this.provider(owner));
     return this.transcription.transcribe(clip, {
       kind: route.kind, provider: route.provider,
@@ -99,7 +142,12 @@ export class VoiceService {
   /** Reads text aloud, using the owner's chosen voice and speed. */
   async speak(owner: string, input: SpeakRequest, options: { signal?: AbortSignal } = {}): Promise<SpokenAudio> {
     const settings = this.settings(owner);
-    const route = ttsRouteFor(settings, this.provider(owner));
+    // Bucket 17 hook: a chosen speech plug-in does the work instead.
+    const byEngine = await this.engines?.speak(owner, input.text, settings.keepAudioOnThisComputer, options.signal);
+    if (byEngine) return byEngine;
+    const route = ttsRouteFor(settings, this.provider(owner), this.platform);
+    if (route.kind === "windows" && settings.systemVoice === "off")
+      throw new Error(systemVoiceOffMessage(this.platform, settings.keepAudioOnThisComputer));
     const request: SpeakRequest = {
       text: input.text,
       voice: input.voice || (settings.voiceId === "default" ? "" : settings.voiceId),

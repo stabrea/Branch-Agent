@@ -898,8 +898,9 @@ test("a second person's profile reaches no flow and none of the switches behind 
   await refused("skill-revisions");
 
   // The assistant always works as the owner, so the tool must check the profile too, not just the route.
+  // The tool gate (mac5/manual-actions) now refuses the switched-on person's role first; either refusal will do.
 
-  await assert.rejects(() => app.runtime.executeTool("flows.list", {}), /belongs to the owner/);
+  await assert.rejects(() => app.runtime.executeTool("flows.list", {}), /belongs to the owner|is set up as "Adult"/);
 
   await api("profiles/switch", { profileId: null });
 

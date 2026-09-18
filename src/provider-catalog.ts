@@ -16,6 +16,8 @@ export const providerShapes = [
   "bedrock-converse",
   "cohere-chat-v2",
   "ollama",
+  "perplexity-agent",
+  "anthropic-vertex",
 ] as const;
 export type ProviderShape = (typeof providerShapes)[number];
 
@@ -33,6 +35,8 @@ const ExtraSchema = z.object({
   required: z.boolean(),
   example: z.string().max(200).optional(),
   default: z.string().max(200).optional(),
+  /** When set, the answer must be one of these, so a region choice cannot become any address at all. */
+  choices: z.array(z.string().min(1).max(100)).max(12).optional(),
 }).strict();
 export type ProviderExtra = z.infer<typeof ExtraSchema>;
 
@@ -41,6 +45,22 @@ const PriceSchema = z.object({
   output: z.number().min(0).max(10000),
   cached: z.number().min(0).max(10000).optional(),
 }).strict();
+
+/**
+ * Under what terms Branch reaches a service: the route it uses, where the service's own terms are,
+ * and whether the route is one the service offers for use like this. Shown as the Terms line on
+ * each provider in Settings, so nobody signs in to something that could cost them their account
+ * without being told first.
+ */
+export const routeStandings = ["official", "unofficial", "retired", "not-offered"] as const;
+export type RouteStanding = (typeof routeStandings)[number];
+const TermsSchema = z.object({
+  route: z.string().min(1).max(200),
+  url: z.string().regex(/^https:\/\//).max(2048),
+  standing: z.enum(routeStandings),
+  warning: z.string().min(1).max(400).optional(),
+}).strict();
+export type ProviderTerms = z.infer<typeof TermsSchema>;
 
 export const CatalogEntrySchema = z.object({
   id: z.string().min(1).max(64).regex(/^[a-z0-9]+(?:[-_.][a-z0-9]+)*$/),
@@ -62,6 +82,7 @@ export const CatalogEntrySchema = z.object({
   extras: z.array(ExtraSchema).max(6).optional(),
   note: z.string().min(1).max(500),
   signUp: z.string().max(2048),
+  terms: TermsSchema,
 }).strict();
 export type CatalogEntry = z.infer<typeof CatalogEntrySchema>;
 
@@ -153,9 +174,18 @@ export function resolveBaseUrl(entry: CatalogEntry, extras: Record<string, strin
     const value = answers[name];
     if (!value) throw new Error(`${entry.name} needs ${labelFor(entry, name)} before it can be reached`);
     if (!/^[A-Za-z0-9._-]{1,100}$/.test(value)) throw new Error(`${labelFor(entry, name)} may only contain letters, digits, dots, dashes and underscores`);
+    const allowed = choicesFor(entry, name);
+    if (allowed && !allowed.includes(value)) throw new Error(`${labelFor(entry, name)} must be one of: ${allowed.join(", ")}`);
     return value;
   });
   return filled.replace(/\/$/, "");
+}
+function choicesFor(entry: CatalogEntry, key: string): string[] | undefined {
+  return (entry.extras ?? []).find((extra) => extra.key === key)?.choices;
+}
+/** True when the service has ended the route Branch used for it; such a line is kept only to explain why. */
+export function isRetired(entry: CatalogEntry): boolean {
+  return entry.terms.standing === "retired" || entry.terms.standing === "not-offered";
 }
 function labelFor(entry: CatalogEntry, key: string): string {
   return (entry.extras ?? []).find((extra) => extra.key === key)?.label ?? key;

@@ -31,6 +31,8 @@ async function withShell(t, app, config = {}) {
   t.after(() => shell.close());
   return shell;
 }
+/** A command run straight through `executeTool` stands in for the owner pressing it in the app window. */
+const owner = { mode: "owner" };
 /** Every stored event of every task, as one string, for an honest search. */
 const wholeEventLog = (app) => JSON.stringify(app.store.recentEvents(app.runtime.owner, 2000));
 
@@ -60,7 +62,7 @@ test("a secret reference is filled in only at the call and its value appears in 
   assert.equal(echoed.sent, "Bearer [secret DEPLOY_TOKEN]");
   assert.deepEqual(echoed.nested.copies, ["Bearer [secret DEPLOY_TOKEN]"]);
   await assert.rejects(app.runtime.executeTool("test.fail", {}));
-  const run = await app.runtime.executeTool("shell.execute", { executable: "node", args: ["-e", "console.log(process.env.DEPLOY_TOKEN)"], secrets: ["DEPLOY_TOKEN"] });
+  const run = await app.runtime.executeTool("shell.execute", { executable: "node", args: ["-e", "console.log(process.env.DEPLOY_TOKEN)"], secrets: ["DEPLOY_TOKEN"] }, owner);
   assert.match(run.stdout, /\[secret DEPLOY_TOKEN\]/);
   assert.equal(wholeEventLog(app).includes(sentinel), false, "no stored event repeats the value");
   assert.equal(collectReferences({ a: ["secret://default/DEPLOY_TOKEN"] }).length, 1);
@@ -192,7 +194,7 @@ test("a command runs with a narrow environment, inside a Windows job where one i
   registerShell(app.registry, shell);
   t.after(() => shell.close());
   const result = await app.runtime.executeTool("shell.execute",
-    { executable: "node", args: ["-e", "console.log(JSON.stringify(process.env))"], secrets: ["DEPLOY_TOKEN"] });
+    { executable: "node", args: ["-e", "console.log(JSON.stringify(process.env))"], secrets: ["DEPLOY_TOKEN"] }, owner);
   const env = JSON.parse(result.stdout);
   for (const name of Object.keys(hostOnly)) assert.equal(env[name], undefined, `${name} from the host environment must not reach the command`);
   assert.equal(JSON.stringify(env).includes("must-not-appear"), false, "nothing the host set is passed through");
@@ -224,11 +226,11 @@ test("a command told to stay offline is pointed at a dead address and fails at o
   await withShell(t, app, { netless: true, timeoutMs: 20000 });
   const script = "const t = Date.now();" +
     "fetch(process.env.HTTPS_PROXY).then(() => console.log('reached')).catch(() => console.log('failed ' + (Date.now() - t < 5000)))";
-  const result = await app.runtime.executeTool("shell.execute", { executable: "node", args: ["-e", script] });
+  const result = await app.runtime.executeTool("shell.execute", { executable: "node", args: ["-e", script] }, owner);
   assert.match(result.stdout, /failed true/, `expected a fast failure, got ${result.stdout}`);
   assert.equal(result.target.netless, true);
   const allowed = await app.runtime.executeTool("shell.execute",
-    { executable: "node", args: ["-e", "console.log(process.env.HTTPS_PROXY ?? 'none')"], netless: false });
+    { executable: "node", args: ["-e", "console.log(process.env.HTTPS_PROXY ?? 'none')"], netless: false }, owner);
   assert.match(allowed.stdout, /none/, "the setting can be turned off for one command");
 });
 

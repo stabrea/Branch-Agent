@@ -5,6 +5,7 @@ import type { Runtime } from "./runtime.js";
 import type { ExecutionLimit } from "./execution-limit.js";
 import { errorText } from "./contracts.js";
 import { placeTask, type Placement } from "./dispatch-fallback.js";
+import { startedWithShortLivedKey, underShortLivedKey } from "./key-context.js"; // bucket-18 (A0300)
 
 /**
  * A waiting line for tasks. When as many tasks are already working as this computer is set to
@@ -41,6 +42,8 @@ export class RunQueue {
     store.sqlite.exec(`CREATE TABLE IF NOT EXISTS run_queue(id TEXT PRIMARY KEY, owner TEXT NOT NULL,
       prompt TEXT NOT NULL, session_id TEXT, source TEXT NOT NULL, priority INTEGER NOT NULL,
       status TEXT NOT NULL, run_id TEXT, error TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`);
+    // bucket-18 (A0300): a task queued with a short-lived key still counts as one when it starts later.
+    try { store.sqlite.exec("ALTER TABLE run_queue ADD COLUMN short_lived INTEGER NOT NULL DEFAULT 0"); } catch { /* already there */ }
     // A task left working when the app closed is not replayed; it is marked so the line can move on.
     store.sqlite.exec("UPDATE run_queue SET status='failed', error='The app closed before this task finished' WHERE status='running'");
   }
@@ -77,8 +80,10 @@ export class RunQueue {
     if (value.sessionId && !this.store.ownsSession(owner, value.sessionId)) throw new Error("Conversation not found");
     if (this.waiting(owner).length >= 200) throw new Error("The waiting line is full");
     const id = randomUUID(), now = new Date().toISOString();
-    this.store.sqlite.prepare("INSERT INTO run_queue VALUES(?,?,?,?,?,?,?,?,?,?,?)")
-      .run(id, owner, value.prompt, value.sessionId ?? null, value.source, sourcePriority[value.source], "waiting", null, null, now, now);
+    this.store.sqlite.prepare(`INSERT INTO run_queue(id,owner,prompt,session_id,source,priority,status,run_id,error,created_at,updated_at,short_lived)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`)
+      .run(id, owner, value.prompt, value.sessionId ?? null, value.source, sourcePriority[value.source], "waiting", null, null, now, now,
+        startedWithShortLivedKey() ? 1 : 0);
     this.drain(owner);
     return { ...this.entry(owner, id)!, placement: this.placement(owner, id) };
   }
@@ -145,6 +150,11 @@ export class RunQueue {
     return started;
   }
   private start(owner: string, entry: QueueEntry, place: () => void): void {
+    const row = this.store.sqlite.prepare("SELECT short_lived FROM run_queue WHERE id=?").get(entry.id) as { short_lived?: number } | undefined;
+    if (row?.short_lived) { underShortLivedKey(() => this.startNow(owner, entry, place)); return; }
+    this.startNow(owner, entry, place);
+  }
+  private startNow(owner: string, entry: QueueEntry, place: () => void): void {
     void this.runtime.run({
       prompt: entry.prompt, source: entry.source,
       ...(entry.sessionId ? { sessionId: entry.sessionId } : {}), onTextDelta: () => undefined,

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { ChannelAdapter, ChannelHealth, InboundMessage } from "./router.js";
+import type { ChannelAdapter, ChannelHealth, InboundMessage, OutgoingFile } from "./router.js"; // R17-C: OutgoingFile
 import { connectWebSocket, reconnectDelay, type WebSocketConnect, type WebSocketConnection } from "./ws-client.js";
 
 /**
@@ -95,6 +95,9 @@ export class DiscordAdapter implements ChannelAdapter {
       onMessage: (text) => void this.receive(text, onMessage).catch(() => undefined),
     });
     this.socket = socket;
+    // mac7/linux-fixes: a stop that arrived while this was still being opened found nothing to
+    // close, and the loop then waited for a close nobody would ask for. Let it go straight away.
+    if (this.stopping) socket.close();
     await socket.closed;
     if (this.heartbeat) clearInterval(this.heartbeat);
     if (!this.stopping) this.state = { state: "reconnecting", reason: "Discord closed the connection; reconnecting" };
@@ -214,6 +217,54 @@ export class DiscordAdapter implements ChannelAdapter {
     if (!response.ok) throw new Error(`Discord refused the question (${response.status})`);
     const parsed = z.object({ id: z.string() }).passthrough().safeParse(await response.json().catch(() => ({})));
     return parsed.success ? parsed.data.id : undefined;
+  }
+  // ---- R17-C (R17-022): a file as a Discord attachment: a multipart message with payload_json and
+  // files[0]. Discord takes 10 MiB from a bot in an ordinary server.
+  readonly maxFileBytes = 10 * 1024 * 1024;
+  async sendFile(chatId: string, file: OutgoingFile, replyToMessageId?: string): Promise<string | undefined> {
+    const wait = this.readyAt - Date.now();
+    if (wait > 0) await new Promise((resolve) => setTimeout(resolve, Math.min(wait, 10000)));
+    const form = new FormData();
+    form.append("payload_json", JSON.stringify({
+      ...(file.caption ? { content: file.caption.slice(0, this.maxTextLength) } : {}),
+      attachments: [{ id: 0, filename: file.name }],
+      ...(replyToMessageId ? { message_reference: { message_id: replyToMessageId, fail_if_not_exists: false } } : {}),
+    }));
+    form.append("files[0]", new Blob([new Uint8Array(file.bytes)], { type: file.mediaType }), file.name);
+    const response = await this.fetch(`${this.base}/channels/${encodeURIComponent(chatId)}/messages`, {
+      method: "POST", headers: this.headers(), body: form, signal: AbortSignal.timeout(120000),
+    });
+    this.noteLimits(response);
+    if (response.status === 413) throw new Error("Discord said the file is too large for that chat");
+    if (!response.ok) throw new Error(`Discord refused the file (${response.status})`);
+    const parsed = z.object({ id: z.string() }).passthrough().safeParse(await response.json().catch(() => ({})));
+    return parsed.success ? parsed.data.id : undefined;
+  }
+  // ---- end R17-C ----
+  /** "typing…" for about ten seconds; the router asks again while the task works. */
+  async sendTyping(chatId: string): Promise<void> {
+    await this.rest("POST", `/channels/${encodeURIComponent(chatId)}/typing`);
+  }
+  /** Discord keeps every reaction side by side, so the previous one is taken off first. */
+  async react(chatId: string, messageId: string, emoji: string, previous?: string): Promise<void> {
+    const message = `/channels/${encodeURIComponent(chatId)}/messages/${encodeURIComponent(messageId)}/reactions`;
+    if (previous && previous !== emoji) await this.rest("DELETE", `${message}/${encodeURIComponent(previous)}/@me`).catch(() => undefined);
+    await this.rest("PUT", `${message}/${encodeURIComponent(emoji)}/@me`);
+  }
+  async edit(chatId: string, messageId: string, text: string): Promise<void> {
+    await this.rest("PATCH", `/channels/${encodeURIComponent(chatId)}/messages/${encodeURIComponent(messageId)}`,
+      { content: text.slice(0, this.maxTextLength) });
+  }
+  /** One small call for the live status; a rate limit is noted and reported as a failure. */
+  private async rest(method: string, path: string, body?: unknown): Promise<void> {
+    if (this.readyAt > Date.now()) throw new Error("Discord asked us to slow down");
+    const response = await this.fetch(`${this.base}${path}`, {
+      method, signal: AbortSignal.timeout(20000),
+      headers: { ...this.headers(), ...(body === undefined ? {} : { "content-type": "application/json" }) },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+    this.noteLimits(response);
+    if (!response.ok) throw new Error(`Discord refused ${method} ${path.split("/")[1] ?? ""} (${response.status})`);
   }
   /** Records how long Discord wants us to wait before the next call on this route. */
   private noteLimits(response: { status: number; headers: Headers }): void {

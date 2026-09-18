@@ -8,7 +8,7 @@ well**, without changing anything a Windows user sees. You build ONE area, named
 - Machine: the owner's Mac (macOS, Apple Silicon, Node 26, zsh). **This Mac is also the owner's
   everyday computer**: nothing you run may open a window, play a sound, show a notification, ask for
   a macOS permission, install a login item, load a launchd job, or touch `~/Library/LaunchAgents`.
-- Your worktree: `~/Code/wt/<area>` on branch `mac1/<area>`, cut from `wave2/integration` (already
+- Your worktree: `~/Code/wt/<area>` (new worktrees from 17 September on live in `/Volumes/512GB SSD/branch-wt/<area>`; the internal disk is nearly full — keep large caches, SDKs and build outputs on that SSD too) on branch `mac1/<area>`, cut from `wave2/integration` (already
   created for you; check `git branch --show-current`). Run `npm ci --no-audit --no-fund` once in it.
   Do not symlink `node_modules`.
 - Linux check machine: `ssh branch-test-linux` (Ubuntu 24.04, Node 24, Xvfb, no desktop). Copy your
@@ -25,6 +25,21 @@ well**, without changing anything a Windows user sees. You build ONE area, named
 - Windows is checked by the pull-request CI (`.github/workflows/checks.yml` runs Windows, macOS and
   Linux) and by the Legion machine. **Every Windows code path must behave exactly as before.** Keep the
   Windows branch of each function textually recognisable, and keep or strengthen its tests.
+
+## Build-fast mode (owner, 2026-09-17) — overrides the test rules below until the feature push is done
+
+- Builders and integrators run **only the macOS test files their change touches** (`--test-concurrency=2`),
+  plus `npm run build` and `npx tsc --noEmit`. **No Linux VM runs, no Windows runs, no full suites** per branch.
+- GitHub CI still runs all three systems on every push; nobody waits for it, but report a red result if you see one.
+- Integrators still review every branch (security areas get the adversarial pass) and merge into `mac/cross-platform`.
+- Nothing is released or installed on the owner's machine until one full three-system round passes at the end.
+
+## Running tests on the Mac
+
+Many agents share this Mac. **A full-suite run goes through the Mac lock, one at a time:**
+`lockf -t 7200 /tmp/branch-mac-suite.lock node --test --test-concurrency=2 --test-timeout=240000 <files>`.
+Targeted runs of a few files don't need the lock but use `--test-concurrency=2` at most. A test that fails only while
+the Mac is busy (load average above ~20, see `uptime`) must be rerun alone before it is called a failure.
 
 ## Read first
 
@@ -52,6 +67,27 @@ your brief owns and their tests (`grep -l <module> tests/*.mjs`).
   passes on macOS and fails on Windows every time.
 - Never run `tests/desktop*.test.mjs` or `tests/screen-control.test.mjs`, never start Electron with a
   window, never set `BRANCH_SCREEN_TESTS`.
+- **Measure a page in ONE step, and wait for the answer instead of asking once.** Find the element and
+  then measure it in a second call (`const box = await card.boundingBox()`) and a card that redraws
+  itself between the two calls hands you `null`, which reads as a bare "expected true" and costs the
+  next builder an afternoon proving it was not a real defect. It has bitten us three times now
+  (`local-oneclick-ui` on Linux, `add-ons-review` during the release, and the twelve files swept in
+  `mac7/flaky-measure`). Do the whole measurement inside the page and let Playwright wait:
+  ```js
+  const fits = await page.waitForFunction(() => {
+    const box = document.querySelector("#the-card")?.getBoundingClientRect();
+    return box && box.width > 0 && box.x >= 0 && box.right <= 400;
+  }, undefined, { timeout: 5000 }).then(() => true, () => false);
+  assert.ok(fits, "the card fits inside 400 px");
+  ```
+  A selector built from a loop variable must be **passed in** as the second argument
+  (`}, id, { timeout: 5000 })`); a closure variable is not in scope inside the page. The same rule
+  covers `isVisible()` (it answers for this instant and never waits — use
+  `.waitFor({ state: "visible" })`), `innerText()`/`textContent()` read straight after a redraw (use
+  `.filter({ hasText: /…/ }).waitFor()`), and hand-rolled `waitForTimeout` poll loops that ask the
+  page again every tick — on a loaded machine the round trips cost more than the thing being waited
+  for. Conditional `if (await x.isVisible())` control flow, and asserts that something is **absent**,
+  are not this shape: leave them alone.
 - Stay inside the files your brief owns. If the real fix is in a file another brief owns, write it
   down in your report instead of editing it. Small additive hooks in `src/index.ts` / `src/cli.ts`
   are allowed when unavoidable; keep them in one clearly separated block.

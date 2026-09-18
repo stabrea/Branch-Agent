@@ -6,7 +6,7 @@
 
 **Architecture:** Branch Agent owns execution, persistence, permissions, memory, procedures, specialists, scheduling, and model accounting. Configured language models supply inference. Optional external tools connect through versioned contracts. No automatic inheritance of upstream internals is claimed.
 
-**Tech stack:** Node.js 24, strict TypeScript, SQLite, a small local web interface, and Python 3.12 experiments. Runtime validation is mandatory at external boundaries. Add dependencies only for concrete capabilities; preserve their licenses.
+**Tech stack:** Node.js 24.14.0 or newer, strict TypeScript, SQLite, a small local web interface, and Python 3.12 experiments. Runtime validation is mandatory at external boundaries. Add dependencies only for concrete capabilities; preserve their licenses.
 
 The existing root MIT LICENSE covers Branch Agent-owned code. Required third-party license and notice files must accompany reused components; dependency distribution is not relicensed as solely Branch Agent-owned code.
 

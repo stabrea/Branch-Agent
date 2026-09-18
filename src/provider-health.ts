@@ -1,18 +1,18 @@
 import { errorText } from "./contracts.js";
+import { readRateLimit, type RateLimitReading } from "./rate-limit-headers.js";
 
 /**
  * How each model connection has actually been behaving: when it last answered, how long it took,
  * what it last complained about, and how close it is to the limit the service imposes. Everything
  * here is recorded from real calls, never guessed, so the screen can say "this one is struggling"
  * with something behind it.
+ *
+ * mac7/usage-bar: the allowance reading itself moved to src/rate-limit-headers.ts, where it grew
+ * from one unnamed window to every named window a service reports — the token side included, and
+ * Anthropic's `anthropic-ratelimit-*` family, which was read as nothing at all before.
  */
-export interface RateLimitReading {
-  /** Requests or tokens the service allows in the current window, when it says. */
-  limit: number | null;
-  remaining: number | null;
-  /** Seconds until the allowance refills, when the service says. */
-  resetSeconds: number | null;
-}
+export { readRateLimit, type RateLimitReading, type RateLimitWindow } from "./rate-limit-headers.js";
+
 export interface ConnectionHealth {
   id: string;
   lastOkAt: string | null;
@@ -32,25 +32,6 @@ const empty = (id: string): ConnectionHealth => ({
   latencyMs: null, consecutiveFailures: 0, rateLimit: null,
   summary: "Not used yet, so there is nothing to report.",
 });
-
-const numberFrom = (value: string | null): number | null => {
-  if (value === null) return null;
-  const parsed = Number(value.replace(/s$/, ""));
-  return Number.isFinite(parsed) ? parsed : null;
-};
-
-/** The allowance a service reports, in whichever of the usual header spellings it uses. */
-export function readRateLimit(headers: Headers): RateLimitReading | null {
-  const pick = (...names: string[]): string | null => {
-    for (const name of names) { const value = headers.get(name); if (value !== null) return value; }
-    return null;
-  };
-  const limit = numberFrom(pick("x-ratelimit-limit-requests", "x-ratelimit-limit", "ratelimit-limit"));
-  const remaining = numberFrom(pick("x-ratelimit-remaining-requests", "x-ratelimit-remaining", "ratelimit-remaining"));
-  const reset = numberFrom(pick("x-ratelimit-reset-requests", "x-ratelimit-reset", "ratelimit-reset", "retry-after"));
-  if (limit === null && remaining === null && reset === null) return null;
-  return { limit, remaining, resetSeconds: reset };
-}
 
 export class ProviderHealth {
   private readonly records = new Map<string, ConnectionHealth>();
@@ -84,7 +65,7 @@ export class ProviderHealth {
     return this.put({
       ...previous, id, latencyMs, consecutiveFailures: 0,
       lastOkAt: new Date(this.now()).toISOString(), lastStatus: 200,
-      rateLimit: headers ? readRateLimit(headers) ?? previous.rateLimit : previous.rateLimit,
+      rateLimit: headers ? readRateLimit(headers, this.now()) ?? previous.rateLimit : previous.rateLimit,
       summary: describe({ ...previous, latencyMs, consecutiveFailures: 0 }, true),
     });
   }
@@ -98,7 +79,7 @@ export class ProviderHealth {
       lastStatus: typeof status === "number" ? status : null,
       latencyMs: latencyMs ?? previous.latencyMs,
       consecutiveFailures: previous.consecutiveFailures + 1,
-      rateLimit: headers ? readRateLimit(headers) ?? previous.rateLimit : previous.rateLimit,
+      rateLimit: headers ? readRateLimit(headers, this.now()) ?? previous.rateLimit : previous.rateLimit,
       summary: "",
     };
     return this.put({ ...record, summary: describe(record, false) });

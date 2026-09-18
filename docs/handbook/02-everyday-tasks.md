@@ -140,7 +140,9 @@ When either is reached it says one sentence out loud and stops, rather than goin
 **The sound of a live conversation is not kept anywhere** — not in the database, not in a file, and
 there is no setting that changes that.
 
-There is no wake word. Nothing listens until you press the button.
+Nothing listens until you press the button, unless you have switched on a wake word of your own
+(Settings → Voice, "A word that starts a turn"). It ships off, it listens only on this computer,
+and nothing is recorded before your word has been heard.
 
 ## Where to go next
 

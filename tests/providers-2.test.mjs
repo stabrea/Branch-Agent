@@ -143,6 +143,23 @@ const shapeFakes = {
     stream: "ndjson",
   },
   "bedrock-converse": { path: "/converse", reply: () => ({}), stream: "aws" },
+  "perplexity-agent": {
+    path: "/agent",
+    reply: () => ({ output: [{ type: "message", content: [{ type: "output_text", text: "hi" }] }], usage: { input_tokens: 3, output_tokens: 1 } }),
+    stream: [{ type: "response.output_text.delta", delta: "hi" }, { type: "response.completed", response: { usage: { input_tokens: 3, output_tokens: 1 } } }],
+  },
+  "anthropic-vertex": {
+    path: ":rawPredict",
+    reply: () => ({ content: [{ type: "text", text: "hi" }], usage: { input_tokens: 3, output_tokens: 1 } }),
+    stream: [
+      { type: "message_start", message: { usage: { input_tokens: 3, output_tokens: 0 } } },
+      { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
+      { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "hi" } },
+      { type: "content_block_stop", index: 0 },
+      { type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 1 } },
+      { type: "message_stop" },
+    ],
+  },
 };
 
 /** The answers a service needs, with the address pointed at the fake instead of the real thing. */
@@ -172,6 +189,7 @@ for (const entry of catalogEntries()) {
     const completion = await provider.complete(request);
     assert.equal(completion.content, "hi");
     assert.ok(seen[0].url.includes(shape.path.replace(":generateContent", "")), `${entry.id} asked for ${seen[0].url}`);
+    if (entry.shape === "perplexity-agent") assert.equal(seen[0].body.preset, entry.defaultModel);
     assert.equal(completion.usage.input, 3);
     assert.equal(completion.usage.output, 1);
   });
@@ -213,7 +231,7 @@ test("every entry that says it streams can stream, against a fake of its shape",
         ]));
       }
       if (shape.stream === null) return json(res, shape.reply());
-      sse(res, shape.stream, !["anthropic-messages", "gemini"].includes(shapeName));
+      sse(res, shape.stream, !["anthropic-messages", "anthropic-vertex", "gemini"].includes(shapeName));
     });
     const local = localised(entry, origin);
     const { provider } = buildConnectionAgainst(local, extrasFor(entry, origin));
@@ -588,7 +606,11 @@ test("health is recorded from real calls: latency, the last complaint, and the s
   const good = health.get("one");
   assert.equal(good.consecutiveFailures, 0);
   assert.ok(good.latencyMs !== null && good.latencyMs >= 0);
-  assert.deepEqual(good.rateLimit, { limit: 100, remaining: 7, resetSeconds: 30 });
+  // mac7/usage-bar: the flat three are the requests window, kept; `windows` is the whole of it.
+  assert.equal(good.rateLimit.limit, 100);
+  assert.equal(good.rateLimit.remaining, 7);
+  assert.equal(good.rateLimit.resetSeconds, 30);
+  assert.deepEqual(good.rateLimit.windows.map((one) => one.id), ["requests"]);
   await watched(`${origin}/bad`);
   const bad = health.get("one");
   assert.equal(bad.consecutiveFailures, 1);
@@ -618,7 +640,10 @@ test("the why-this-model line says nothing extra when nothing was skipped", () =
 });
 
 test("rate-limit headers are read in whichever spelling the service uses", () => {
-  assert.deepEqual(readRateLimit(new Headers({ "ratelimit-remaining": "5" })), { limit: null, remaining: 5, resetSeconds: null });
+  const reading = readRateLimit(new Headers({ "ratelimit-remaining": "5" }));
+  assert.equal(reading.limit, null);
+  assert.equal(reading.remaining, 5);
+  assert.equal(reading.resetSeconds, null);
   assert.equal(readRateLimit(new Headers({})), null);
 });
 
@@ -643,6 +668,7 @@ test("the catalog supplies prices for models pricing.ts does not list, and never
 
 test("the documentation table regenerates to exactly what is checked in", () => {
   const before = readFileSync(new URL("../docs/configuration.md", import.meta.url), "utf8");
+  // fileURLToPath, not .pathname: a checkout whose folder name has a space must still be found.
   execFileSync(process.execPath, ["scripts/docs-providers.mjs"], { cwd: fileURLToPath(new URL("..", import.meta.url)) });
   const after = readFileSync(new URL("../docs/configuration.md", import.meta.url), "utf8");
   assert.equal(after, before, "run `npm run docs:providers` and commit the result");

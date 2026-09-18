@@ -5,6 +5,7 @@ import { type Capability, catalogEntry } from "./provider-catalog.js";
 import { ProviderHealth, fallbackReason } from "./provider-health.js";
 import { RequestCounter } from "./dashboards.js";
 import { fallbackEligible } from "./provider-retry.js";
+import { effortFor } from "./knobs/apply.js"; // R17-S12
 
 export const reasoningEfforts = ["low", "medium", "high"] as const;
 export type ReasoningEffort = (typeof reasoningEfforts)[number];
@@ -71,6 +72,11 @@ export interface CapabilityPlan extends ModelPlan {
   refusal: string | null;
 }
 
+/** mac5/providers: true for a saved connection whose service has ended the route it used. */
+function isRetiredConnection(preset: ModelPreset | undefined): boolean {
+  return (preset?.provider as { retired?: unknown } | undefined)?.retired === true;
+}
+
 export class ModelRouter {
   private readonly registry = new Map<string, ModelPreset>();
   private readonly cooldowns = new Map<string, number>();
@@ -97,11 +103,16 @@ export class ModelRouter {
   get default(): ModelPreset {
     return this.registry.values().next().value as ModelPreset;
   }
+  /**
+   * mac6/accounts: set by src/accounts/service.ts. Every connection registered passes through it, so
+   * one that has several accounts answers through its pool; with that switch off it changes nothing.
+   */
+  presetHook: ((preset: ModelPreset) => ModelPreset) | null = null;
   /** Adds a preset at runtime, for example after a ChatGPT sign-in. Existing ids are replaced in place. */
   register(preset: ModelPreset): void {
     presetId.parse(preset.id);
     if (this.registry.size >= 32 && !this.registry.has(preset.id)) throw new Error("At most 32 model presets");
-    this.registry.set(preset.id, preset);
+    this.registry.set(preset.id, this.presetHook ? this.presetHook(preset) : preset);
   }
   /** Removes exactly one preset by name. The last one cannot be removed: something must answer. */
   remove(id: string): boolean {
@@ -155,9 +166,11 @@ export class ModelRouter {
     const projectPreset = project && this.presets.has(project) ? project : null;
     const source = chosen ? "session" : projectPreset ? "project" : owned.activePreset ? "owner" : "default";
     const first = this.presets.get(chosen ?? projectPreset ?? owned.activePreset ?? this.default.id) ?? this.default;
-    const effort = override.reasoning !== undefined ? override.reasoning : (scoped.reasoning ?? owned.reasoning ?? first.reasoning ?? null);
+    // R17-S12: a default the owner set for this one connection comes before the general default.
+    const effort = override.reasoning !== undefined ? override.reasoning : (scoped.reasoning ?? effortFor(this.store, owner, first.id) ?? owned.reasoning ?? first.reasoning ?? null);
     const fallbacks = owned.fallbackOrder
-      .filter(id => id !== first.id && !this.coolingDown(id))
+      // mac5/providers: a connection whose service ended its route is never a fallback.
+      .filter(id => id !== first.id && !this.coolingDown(id) && !isRetiredConnection(this.presets.get(id)))
       .map(id => this.presets.get(id)!);
     if (this.coolingDown(first.id) && fallbacks.length) {
       const why = fallbackReason(this.health, [first.id], fallbacks[0]!.id);

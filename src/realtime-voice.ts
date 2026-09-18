@@ -230,7 +230,7 @@ export class LiveConversation {
         return;
       }
       if (check.decision === "ask") { this.askFirst(session, callId, name, check, bytes, fingerprint); return; }
-      const result = await this.deps.runtime.executeTool(name, args);
+      const result = await this.deps.runtime.executeTool(name, args, { mode: "policy", source: "owner", approvalKey: this.sessionId }); // mac5/manual-actions
       this.deps.store.event(this.runId, "voice.live.tool_done", { name, target: check.target });
       session.toolResult(callId, name, result);
     } catch (error) {
@@ -294,6 +294,13 @@ export class LiveConversation {
     if (!this.session) throw new Error("There is no live conversation open");
     this.deps.store.message(this.sessionId, { role: "user", content: text });
     this.session.sendText(text);
+  }
+  /** Bucket 17: a picture shown while talking. Only its name is written into the conversation. */
+  show(picture: { mediaType: string; data: string; name?: string | undefined }): void {
+    if (!this.session) throw new Error("There is no live conversation open");
+    if (!this.session.sendImage) throw new Error("This live service cannot be shown a picture");
+    this.deps.store.message(this.sessionId, { role: "user", content: `[picture shown: ${picture.name ?? "picture"}]` });
+    this.session.sendImage({ mediaType: picture.mediaType, data: picture.data });
   }
   audio(chunk: Uint8Array): void { this.session?.sendAudio(chunk); }
   done(): void { this.session?.commit(); }

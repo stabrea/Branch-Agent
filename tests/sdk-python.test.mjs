@@ -62,6 +62,10 @@ out["categories"] = [row["id"] for row in branch.policy.categories()["categories
 branch.policy.save(preset="read-only")
 out["audited"] = [entry["action"] for entry in branch.audit(action="policy.changed")["entries"]]
 out["described"] = sorted(branch.get("/api/openapi.json")["paths"])
+branch.post("/api/sdk-kit", {"mode": "when-needed"})
+flow = branch.flows.save({"name": "Tidy", "steps": [{"name": "Say hello", "kind": "prompt", "prompt": "Say hello"}]})
+copy = branch.flows.import_yaml(branch.flows.export_yaml(flow["id"]))
+out["yamlCopy"] = [copy["name"], copy["id"] != flow["id"]]
 try:
     branch.runs.get("00000000-0000-0000-0000-000000000000")
 except BranchError as error:
@@ -98,4 +102,5 @@ test("the Python client drives a real Branch Agent: start, stream, read, search,
   assert.equal(out.refused[0], 404);
   assert.match(out.refused[1], /not found/i);
   assert.equal(out.wrongKey, 401);
+  assert.deepEqual(out.yamlCopy, ["Tidy", true], "a flow goes out as YAML and comes back as a new flow from Python");
 });

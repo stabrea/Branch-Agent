@@ -48,10 +48,19 @@ export class SessionLock {
     if (this.lockedAt === null) { this.lockedAt = this.now(); this.onLock(); }
     return this.state();
   }
+  /**
+   * Called the moment Branch is unlocked again, so anything that was let go of only because of the
+   * lock can come back by itself. Integration review (mac7/wake-mic): without this, letting go of
+   * the microphone on the lock was one-way — the wake word stayed silent afterwards until some
+   * setting happened to be saved.
+   */
+  onUnlock: () => void = () => undefined;
   /** The owner unlocking from their own app; the request already carries the app's session token. */
   unlock(): SessionLockState {
+    const wasLocked = this.lockedAt !== null;
     this.lockedAt = null;
     this.lastActive = this.now();
+    if (wasLocked) this.onUnlock();
     return this.state();
   }
   locked(): boolean {

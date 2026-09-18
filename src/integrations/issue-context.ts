@@ -10,8 +10,8 @@ import { z } from "zod";
  */
 export interface TrackerComment { author: string; at: string; body: string }
 export interface TrackerIssue {
-  tracker: "github" | "linear";
-  /** How a person would write it: "owner/name#12" or "ENG-214". */
+  tracker: "github" | "linear" | "gitlab" | "jira";
+  /** How a person would write it: "owner/name#12", "ENG-214", "group/name#12" on GitLab, or a Jira key. */
   reference: string;
   title: string;
   body: string;
@@ -26,10 +26,16 @@ export const IssueLinkSchema = z.object({
 
 export type IssueLink =
   | { tracker: "github"; repo: string; number: number }
-  | { tracker: "linear"; key: string };
+  | { tracker: "linear"; key: string }
+  // bucket-18 (A0174): GitLab and Jira addresses. Which server it is on is kept, so an address on a
+  // server other than the owner's own is never fetched with the owner's key.
+  | { tracker: "gitlab"; host: string; project: string; number: number }
+  | { tracker: "jira"; site: string; key: string };
 
 const githubIssue = /^https?:\/\/(?:www\.)?github\.com\/([A-Za-z0-9._-]{1,100})\/([A-Za-z0-9._-]{1,100})\/(?:issues|pull)\/(\d{1,9})(?:[/?#].*)?$/i;
 const linearIssue = /^https?:\/\/(?:www\.)?linear\.app\/[A-Za-z0-9._-]{1,100}\/issue\/([A-Za-z][A-Za-z0-9]{0,9}-\d{1,6})(?:[/?#].*)?$/i;
+const gitlabIssue = /^https:\/\/([A-Za-z0-9.-]{1,253}(?::\d{1,5})?)\/([A-Za-z0-9._-]{1,60}(?:\/[A-Za-z0-9._-]{1,60}){1,4})\/-\/(?:issues|work_items)\/(\d{1,9})(?:[/?#].*)?$/i;
+const jiraIssue = /^https:\/\/([A-Za-z0-9.-]{1,253})\/browse\/([A-Z][A-Z0-9_]{1,9}-\d{1,7})(?:[/?#].*)?$/;
 const shorthand = /^([A-Za-z0-9._-]{1,100}\/[A-Za-z0-9._-]{1,100})#(\d{1,9})$/;
 
 /** The issue an address points at, or null when it is not an issue address at all. */
@@ -39,9 +45,20 @@ export function parseIssueLink(value: string): IssueLink | null {
   if (github) return { tracker: "github", repo: `${github[1]}/${github[2]}`, number: Number(github[3]) };
   const linear = linearIssue.exec(text);
   if (linear) return { tracker: "linear", key: linear[1]!.toUpperCase() };
+  const gitlab = gitlabIssue.exec(text);
+  if (gitlab) return { tracker: "gitlab", host: gitlab[1]!.toLowerCase(), project: gitlab[2]!, number: Number(gitlab[3]) };
+  const jira = jiraIssue.exec(text);
+  if (jira) return { tracker: "jira", site: jira[1]!.toLowerCase(), key: jira[2]! };
   const short = shorthand.exec(text);
   if (short) return { tracker: "github", repo: short[1]!, number: Number(short[2]) };
   return null;
+}
+/** One name per issue, for telling repeats apart. */
+export function issueLinkKey(link: IssueLink): string {
+  if (link.tracker === "github") return `github:${link.repo}#${link.number}`;
+  if (link.tracker === "gitlab") return `gitlab:${link.host}/${link.project}#${link.number}`;
+  if (link.tracker === "jira") return `jira:${link.site}/${link.key}`;
+  return `linear:${link.key}`;
 }
 
 /** Every issue address inside a longer piece of text, in the order they appear, without repeats. */
@@ -51,7 +68,7 @@ export function issueLinksIn(text: string, limit = 3): IssueLink[] {
   for (const token of text.split(/\s+/).slice(0, 400)) {
     const link = parseIssueLink(token.replace(/[),.;]+$/, ""));
     if (!link) continue;
-    const key = link.tracker === "github" ? `${link.repo}#${link.number}` : link.key;
+    const key = issueLinkKey(link);
     if (seen.has(key)) continue;
     seen.add(key);
     found.push(link);

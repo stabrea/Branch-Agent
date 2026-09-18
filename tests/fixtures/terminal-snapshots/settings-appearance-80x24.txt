@@ -1,0 +1,24 @@
+ ♣ Branch Agent · Settings › Appearance                 ● Offline demonstration
+  1 Conversation   2 Inbox 2   3 Automations   4 Library   5 Customize
+ Settings › Appearance  (3/12)
+ < Assistant   Notifications >
+   APPEARANCE
+   Every KeepOak theme, light or dark. Changes show in this terminal and in
+   the window.
+
+     Theme: Forest
+     All 44 themes, shared with the window.
+   › Light and dark: Dark
+
+
+
+
+
+
+
+
+
+
+
+
+ Left and right change page · Enter chooses · Esc closes

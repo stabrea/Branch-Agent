@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { type CatalogEntry, catalogEntries } from "../provider-catalog.js";
+import { type CatalogEntry, catalogEntries, routeStandings } from "../provider-catalog.js";
 
 export const headerStyle = z.enum(["bearer", "x-api-key", "azure-key", "google-key", "query-key", "aws-sigv4", "none"]);
 export type HeaderStyle = z.infer<typeof headerStyle>;
@@ -17,6 +17,10 @@ export const ProviderPresetSchema = z.object({
   /** Plain-language help text: where to get an API key or how to set up the local service. */
   keyHelp: z.string().min(1).max(500),
   kind: providerKind,
+  /** The Terms line: the route Branch uses, the service's terms, and whether the route is official. */
+  terms: z.object({
+    route: z.string(), url: z.string(), standing: z.enum(routeStandings), warning: z.string().optional(),
+  }).strict(),
 }).strict();
 
 export type ProviderPreset = z.infer<typeof ProviderPresetSchema>;
@@ -47,6 +51,7 @@ function toPreset(entry: CatalogEntry): ProviderPreset {
     modelIds: entry.recommendedModels.slice(0, 20),
     keyHelp: keyHelpFor(entry),
     kind: entry.kind,
+    terms: { ...entry.terms },
   };
 }
 

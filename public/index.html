@@ -142,7 +142,7 @@
             <h2 data-t="chat.card.choose-how-your-assistant-thinks">Choose how your assistant thinks.</h2>
             <p class="first-run-lead">Pick one to start. You can change it any time in Settings.</p>
             <div class="doors">
-              <button id="door-chatgpt" type="button" class="door"><strong>Use my ChatGPT plan</strong><span>Sign in on OpenAI's site with a short code. Nothing to paste.</span></button>
+              <button id="door-chatgpt" type="button" class="door"><strong>Use my ChatGPT plan</strong><span>Sign in on OpenAI's site with a short code. Nothing to paste. <em data-t="terms.chatgpt.door">Unofficial, and may stop working.</em></span></button>
               <button id="door-key" type="button" class="door"><strong>Use an API key</strong><span>OpenAI-compatible or Anthropic. Set it up in Settings.</span></button>
               <button id="door-demo" type="button" class="door"><strong>Just look around</strong><span>An offline demonstration that only writes and reads one greeting file.</span></button>
             </div>
@@ -258,7 +258,7 @@
               rows="3"
             ></textarea>
             <div id="composer-attachments" class="attachments" hidden></div>
-            <input id="composer-media-file" type="file" class="sr-only" aria-label="Choose a picture or a sound file" multiple accept="image/png,image/jpeg,image/webp,image/gif,audio/*" />
+            <input id="composer-media-file" type="file" class="sr-only" aria-label="Choose a picture, a sound or a video file" multiple accept="image/png,image/jpeg,image/webp,image/gif,audio/*,video/*" />
             <div>
               <button id="composer-media" type="button" class="composer-icon" title="Add a picture or a sound file to this message" aria-label="Add a picture or a sound file"
                 ><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" /><circle cx="8.5" cy="9.5" r="1.5" /><path d="M21 16l-5-5-5 5-3-3-5 5" /></svg></button
@@ -977,6 +977,115 @@
             <button data-t="appearance.save">Save appearance</button>
           </form>
           <!-- Wave 9: a second pair of eyes on an answer, and two connections arguing a hard question. -->
+          <!-- Wave mac3 (channels-parity): its home is Customize, Chat apps (docs/places.md). -->
+          <form id="channels-more-form" class="card" data-home="customize:channels">
+            <h2 data-t="channels-more.title">More chat apps</h2>
+            <p data-t="channels-more.intro">IRC, Mastodon, Bluesky, iMessage and more, each with its own switch. All of them start off: nothing connects until you switch it on and add it to the connections file.</p>
+            <p class="field-note" data-t="channels-more.switch-note">Off never connects. When needed connects only when there is something to send, and lets go after fifteen quiet minutes. On stays connected.</p>
+            <div id="channels-more-list" class="card-list" aria-live="polite"></div>
+            <p id="channels-more-state" class="field-note" aria-live="polite"></p>
+            <button data-t="action.save-channels-more">Save the chat app switches</button>
+          </form>
+          <!-- Wave mac2 (chat-live): its home is Customize, Chat apps (docs/places.md). -->
+          <form id="chat-live-form" class="card" data-home="customize:channels">
+            <h2 data-t="settings.card.chat-live">While a task works in a chat app</h2>
+            <p data-t="settings.chat-live.intro">Choose what the chat shows and accepts while Branch works on a message; everything here starts off.</p>
+            <label for="chat-live-status" data-t="field.chat-live-status">Show the work in the chat</label>
+            <select id="chat-live-status" name="liveStatus">
+              <option value="off" data-t="settings.chat-live.off">Off</option>
+              <option value="when-needed" data-t="settings.chat-live.when-needed">When needed</option>
+              <option value="on" data-t="settings.chat-live.on">On</option>
+            </select>
+            <p class="field-note" data-t="settings.chat-live.status-note">Typing, a reaction on your message, and one message that lists the steps. When needed: only once a task has taken a few seconds.</p>
+            <label for="chat-live-commands" data-t="field.chat-live-commands">Read commands such as /stop</label>
+            <select id="chat-live-commands" name="commands">
+              <option value="off" data-t="settings.chat-live.off">Off</option>
+              <option value="when-needed" data-t="settings.chat-live.when-needed">When needed</option>
+              <option value="on" data-t="settings.chat-live.on">On</option>
+            </select>
+            <p class="field-note" data-t="settings.chat-live.commands-note">/stop, /status, /new, /compact, /usage and /btw. When needed: only /stop, /status and /btw, and only while a task works.</p>
+            <label for="chat-live-steering" data-t="field.chat-live-steering">Pass later messages to the task</label>
+            <select id="chat-live-steering" name="steering">
+              <option value="off" data-t="settings.chat-live.off">Off</option>
+              <option value="when-needed" data-t="settings.chat-live.when-needed">When needed</option>
+              <option value="on" data-t="settings.chat-live.on">On</option>
+            </select>
+            <p class="field-note" data-t="settings.chat-live.steering-note">A message sent while a task works becomes a note it reads next. On also answers quick messages as one. Off: it waits its turn.</p>
+            <label for="chat-live-splitting" data-t="field.chat-live-splitting">Keep code whole in long replies</label>
+            <select id="chat-live-splitting" name="splitting">
+              <option value="off" data-t="settings.chat-live.off">Off</option>
+              <option value="when-needed" data-t="settings.chat-live.when-needed">When needed</option>
+              <option value="on" data-t="settings.chat-live.on">On</option>
+            </select>
+            <p class="field-note" data-t="settings.chat-live.splitting-note">Long replies are split at paragraph breaks and code blocks stay code. When needed: only for replies with code.</p>
+            <p id="chat-live-state" class="field-note" aria-live="polite"></p>
+            <button data-t="action.save-chat-live">Save chat settings</button>
+          </form>
+          <!-- mac7/chat-allowlist: what a chat message's task may use. Its home is Customize, Chat apps. -->
+          <!-- mac7/wake-pins: a word that starts a turn, and the settings the owner has pinned. -->
+          <form id="wake-word-form" class="card" data-home="settings:voice">
+            <h2 data-t="settings.card.wake-word">A word that starts a turn</h2>
+            <p data-t="settings.wake-word.intro">Say your own word and Branch starts a turn, instead of holding the Talk button. Listening happens on this computer only: no sound ever leaves it, no file is written, and nothing is recorded or kept before your word has been heard — one window of sound is held, asked about, and dropped. Not every computer can listen: the line below says what this one really does, and whether it is listening this moment. While the switch is off, nothing listens at all and the microphone is let go of. Holding Talk stays the ordinary way in, and the word gives nothing away — the turn it starts is asked about exactly as the same words typed into the box would be, with the same questions. It carries only the one window your word was in, a second or two: nothing said after that window is heard, because no further sound is recorded. On Windows the engine listens for that one phrase alone, so there the turn carries just your word and nothing else.</p>
+            <label for="wake-word-mode" data-t="field.wake-word-mode">Listening for your word</label>
+            <select id="wake-word-mode" aria-describedby="wake-word-mode-note">
+              <option value="off" data-t="switch.off">Off</option>
+              <option value="when-needed" data-t="switch.when-needed">When needed</option>
+              <option value="on" data-t="switch.on">On</option>
+            </select>
+            <p id="wake-word-mode-note" class="field-note" data-t="settings.wake-word.mode-note">Off, nothing listens. On, it listens whenever Branch is running. When needed is not wired up yet — nothing tells the listener whether a conversation is open on the screen, so it says so rather than listening all the time. Lockdown switches it off whatever this says.</p>
+            <label for="wake-word-word" data-t="field.wake-word-word">Your word</label>
+            <input id="wake-word-word" type="text" maxlength="40" aria-describedby="wake-word-word-note" />
+            <p id="wake-word-word-note" class="field-note" data-t="settings.wake-word.word-note">Two or three syllables work best, and something you would not say by accident. With no word chosen there is nothing to listen for, so nothing listens.</p>
+            <label for="wake-word-sureness" data-t="field.wake-word-sureness">How sure it must be before it answers</label>
+            <input id="wake-word-sureness" type="number" min="50" max="99" step="1" aria-describedby="wake-word-sureness-note" />
+            <p id="wake-word-sureness-note" class="field-note" data-t="settings.wake-word.sureness-note">Out of a hundred. Lower hears your word more often, and more often hears it when you did not say it.</p>
+            <p id="wake-word-listening" class="field-note" aria-live="polite"></p>
+            <p id="wake-word-how" class="field-note" aria-live="polite"></p>
+            <p id="wake-word-refusal" class="field-note" aria-live="polite"></p>
+            <p id="wake-word-state" class="field-note" aria-live="polite"></p>
+            <button data-t="action.save-wake-word">Save the wake word</button>
+          </form>
+          <form id="pins-form" class="card" data-home="settings:permissions">
+            <h2 data-t="settings.card.pins">Settings you have pinned</h2>
+            <p data-t="settings.pins.intro">Pin a setting and it is fixed. Somebody else who uses this computer still sees it, and sees that you pinned it, but every way of changing it is refused in the same words: this window, the API, the terminal, a settings file, a whole-app preset and a tool the assistant calls. Pinning and unpinning are yours alone. A preset or a settings file steps over a pinned setting and makes all the rest, rather than failing.</p>
+            <div id="pins-list" class="card-list" aria-live="polite"></div>
+            <div id="pins-picker" hidden>
+              <label for="pins-setting" data-t="field.pins-setting">Which setting to pin</label>
+              <select id="pins-setting" aria-describedby="pins-setting-note"></select>
+              <p id="pins-setting-note" class="field-note" data-t="settings.pins.setting-note">It is pinned at whatever it is set to now, so set it the way you want it first. You can still change it yourself, one switch at a time, while it is pinned.</p>
+            </div>
+            <p id="pins-state" class="field-note" aria-live="polite"></p>
+            <button data-t="action.pin-setting">Pin this setting</button>
+          </form>
+          <form id="chat-permissions-form" class="card" data-home="customize:channels">
+            <h2 data-t="settings.card.chat-permissions">What a chat may do beyond talking</h2>
+            <p data-t="settings.chat-permissions.intro">A message in a chat app cannot prove who is typing, so its task may only read and answer: ask you a question, read a file, read what Branch remembers, read a skill you installed, and look something up on the web. Everything else is refused until you allow it here.</p>
+            <label class="check-row" for="chat-permissions-extras">
+              <input type="checkbox" id="chat-permissions-extras" aria-describedby="chat-permissions-extras-note" />
+              <span data-t="field.chat-permissions-extras">Use my list of what chats may also do</span>
+            </label>
+            <p id="chat-permissions-extras-note" class="field-note" data-t="settings.chat-permissions.extras-note">Off, the lines below do nothing and every chat gets the short list only. Turning it on lets each line add what it names, for the app and the person it names. Whatever a line adds is still asked about before it happens, and that yes has to be given here in the window, not in the chat.</p>
+            <div id="chat-permissions-list" class="card-list" aria-live="polite"></div>
+            <label for="chat-permissions-channel" data-t="field.chat-permissions-channel">Which chat app</label>
+            <input id="chat-permissions-channel" type="text" value="*" maxlength="64" aria-describedby="chat-permissions-channel-note" />
+            <p id="chat-permissions-channel-note" class="field-note" data-t="settings.chat-permissions.channel-note">The name you gave the app in the connections file, or * for every one of them.</p>
+            <label for="chat-permissions-sender" data-t="field.chat-permissions-sender">Which person</label>
+            <input id="chat-permissions-sender" type="text" value="*" maxlength="120" aria-describedby="chat-permissions-sender-note" />
+            <p id="chat-permissions-sender-note" class="field-note" data-t="settings.chat-permissions.sender-note">Their id on that app, as it appears under the people who may message you, or * for everybody on it.</p>
+            <label for="chat-permissions-allow" data-t="field.chat-permissions-allow">What they may also do</label>
+            <input id="chat-permissions-allow" type="text" maxlength="400" aria-describedby="chat-permissions-allow-note" />
+            <p id="chat-permissions-allow-note" class="field-note" data-t="settings.chat-permissions.allow-note">Names separated by commas, such as files.write. Commands on this computer, your other devices, your mail, calendar and house, and writing to other chats are never allowed from here.</p>
+            <label class="check-row" for="chat-permissions-approvals">
+              <input type="checkbox" id="chat-permissions-approvals" aria-describedby="chat-permissions-approvals-note" />
+              <span data-t="field.chat-permissions-approvals">They may also say yes in the chat to what this line allows</span>
+            </label>
+            <p id="chat-permissions-approvals-note" class="field-note" data-t="settings.chat-permissions.approvals-note">Off, and a question about what this line allows is shown in the chat with No only, saying the yes has to be given here in the window. On, and this person on this app can answer yes from the chat, but only to what this same line allows. Name the app and the person for it to do anything: a line written with * for either keeps the tick and no more. Be sure before you turn it on: a chat app cannot prove who is typing, so anyone who gets into that chat account, or who manages to pass themselves off as it, can approve those changes from their own phone. They still cannot say yes to everything from now on, and never to anything this line does not allow.</p>
+            <label for="chat-permissions-note" data-t="field.chat-permissions-note">Who this is</label>
+            <input id="chat-permissions-note" type="text" maxlength="200" aria-describedby="chat-permissions-note-note" />
+            <p id="chat-permissions-note-note" class="field-note" data-t="settings.chat-permissions.note-note">Your own words, so the line still means something a year from now.</p>
+            <p id="chat-permissions-state" class="field-note" aria-live="polite"></p>
+            <button data-t="action.save-chat-permissions">Save what chats may do</button>
+          </form>
           <form id="second-opinion-form" class="card">
             <h2 data-t="settings.card.second-opinion">A second opinion</h2>
             <p data-t="settings.second-opinion.intro">Have another connection read a finished answer and say whether it stands up. It is shown beside the answer and never written into it, so you read both. Off until you turn it on, and it costs what any other model call costs.</p>
@@ -1003,7 +1112,7 @@
             <h2 data-t="settings.card.voice">Voice</h2>
             <p>Talk to your assistant and hear it talk back. Recording uses your microphone. Read aloud uses your browser's voice or a higher-quality voice from your model provider.</p>
             <label class="check-row">
-              <input id="auto-read-aloud" type="checkbox" /> Read replies aloud automatically
+              <input id="auto-read-aloud" type="checkbox" /> <span data-t="comfort.read-aloud">Read replies aloud automatically</span>
             </label>
             <label for="voice-select" data-t="field.voice">Voice</label>
             <select id="voice-select">
@@ -1088,6 +1197,7 @@
             <input id="gemini-signin-model" maxlength="200" placeholder="gemini-2.5-flash" />
             <button type="button" id="gemini-signin" data-t="action.sign-in-with-google">Sign in with Google</button>
             <p id="gemini-signin-status" class="subtle" role="status"></p>
+            <p class="subtle terms-line" id="gemini-signin-terms"><strong data-t="terms.label">Terms:</strong> <span data-t="terms.gemini.route">Google sign-in through your own Google Cloud client, billed to your own project. Branch never reuses Gemini CLI's sign-in, which Google forbids; to use a Google plan, add Gemini CLI under coding assistants.</span> <a href="https://geminicli.com/docs/resources/tos-privacy/" target="_blank" rel="noopener noreferrer" data-t="terms.read">Read the terms ↗</a></p>
           </section>
           <form id="media-form" class="card">
             <h2 data-t="settings.card.pictures-and-sound">Pictures and sound</h2>
@@ -1097,7 +1207,7 @@
             <label for="media-folder" data-t="field.where-to-save-pictures-and">Where to save pictures and sound</label>
             <input id="media-folder" maxlength="100" placeholder="media" />
             <p class="subtle" id="media-prices"></p>
-            <p class="subtle">The assistant can make pictures only through a provider that offers them. It cannot make videos, and it cannot pull still frames out of one; it can read how long a video runs.</p>
+            <p class="subtle">The assistant can make pictures only through a provider that offers them. It cannot make videos. With "Watching and saving videos" switched on below, it can look at still pictures from a video and read what is said in it.</p>
             <button type="submit" data-t="action.save-picture-and-sound-settings">Save picture and sound settings</button>
             <p id="media-status" role="status"></p>
           </form>
@@ -1118,7 +1228,8 @@
               <button id="chatgpt-login" type="button" data-t="action.sign-in-with-chatgpt">Sign in with ChatGPT</button>
               <button id="chatgpt-logout" type="button" hidden data-t="action.sign-out">Sign out</button>
             </div>
-            <p class="subtle">Access through a ChatGPT plan is provided by OpenAI for its own tools and may change. Branch identifies itself as Branch Agent and never pretends to be another app.</p>
+            <p class="subtle terms-line" id="chatgpt-terms"><strong data-t="terms.label">Terms:</strong> <span data-t="terms.chatgpt.route">ChatGPT plan sign-in. Unofficial: OpenAI documents this sign-in only for its own apps and has given no written permission for other apps, so it may stop working at any time. It stays off until you sign in, and an API key is the officially supported way.</span> <a href="https://learn.chatgpt.com/docs/auth" target="_blank" rel="noopener noreferrer" data-t="terms.chatgpt.sign-in-page">OpenAI's sign-in documentation ↗</a> · <a href="https://openai.com/policies/row-terms-of-use/" target="_blank" rel="noopener noreferrer" data-t="terms.read">Read the terms ↗</a></p>
+            <p class="subtle" data-t="terms.chatgpt.honest">Branch identifies itself as Branch Agent and never pretends to be another app.</p>
           </section>
           <section id="updates-card" class="card" hidden>
             <h2 data-t="settings.card.updates">Updates</h2>
@@ -1504,6 +1615,32 @@
               <button id="code-ide-save" type="button" data-t="action.save">Save</button>
               <p id="code-ide-status" class="subtle" aria-live="polite"></p>
             </details>
+            <!-- bucket-18 (A0098): the code editor's switch; the editor itself is in the side pane's Files tab -->
+            <details id="wsedit-card">
+              <summary data-t="wsedit.card.title">Code editor</summary>
+              <p class="subtle" data-t="wsedit.card.note">Open and change text files in your workspace from the Files tab of a conversation. Every save can be put back, and a file that changed since you opened it is never overwritten.</p>
+              <label for="wsedit-mode" data-t="wsedit.card.title">Code editor</label>
+              <select id="wsedit-mode">
+                <option value="off" data-t="schedules.switch.off">Off</option>
+                <option value="when-needed" data-t="schedules.switch.when-needed">When needed</option>
+                <option value="on" data-t="schedules.switch.on">On</option>
+              </select>
+              <button id="wsedit-mode-save" type="button" data-t="action.save">Save</button>
+              <p id="wsedit-mode-status" class="subtle" aria-live="polite"></p>
+            </details>
+            <!-- bucket-18 (A0300): pull requests from a task's changes, off by default -->
+            <details id="pull-requests">
+              <summary data-t="developer.pull-requests.title">Pull requests from changes</summary>
+              <p class="subtle" data-t="developer.pull-requests.note">When this is on, a task that changed files can put them on a new branch, send it to GitHub with this computer's own Git sign-in and open a draft pull request. It never sends to a shared branch such as main, and a short-lived key can never use it. GitHub must be connected first.</p>
+              <label for="pull-requests-mode" data-t="developer.pull-requests.mode">Pull requests from changes</label>
+              <select id="pull-requests-mode">
+                <option value="off" data-t="schedules.switch.off">Off</option>
+                <option value="when-needed" data-t="developer.pull-requests.when-needed">When asked</option>
+                <option value="on" data-t="developer.pull-requests.on">After every task that changed files</option>
+              </select>
+              <button id="pull-requests-save" type="button" data-t="action.save">Save</button>
+              <p id="pull-requests-status" class="subtle" aria-live="polite"></p>
+            </details>
             <!-- Wave 7: how the assistant is finding its tools (public/tool-catalog.js). Read-only,
                  apart from the button that deletes what it has learned. -->
             <details id="tool-catalog">
@@ -1562,18 +1699,12 @@
           </form>
           <section id="local-models-card" class="card">
             <h2 data-t="settings.card.models-on-this-computer">Models on this computer</h2>
-            <p>Run a model here instead of in the cloud: nothing leaves this computer and nothing is charged. Branch checks what your computer can handle and suggests a size that will feel right.</p>
+            <p data-t="settings.local.purpose">Run a model here instead of in the cloud: nothing leaves this computer and nothing is charged. Branch checks what your computer can handle and suggests a size that will feel right.</p>
             <p id="local-models-hardware" class="subtle"></p>
             <p id="local-models-state" class="subtle">Checking…</p>
-            <div id="local-models-suggestions" class="card-list"></div>
-            <div class="input-row">
-              <input id="local-model-name" maxlength="160" aria-label="Model name" placeholder="Or type a model name, for example llama3.2:3b" />
-              <button id="local-model-get" type="button" data-t="action.get-this-model">Get this model</button>
-            </div>
-            <div id="local-models-downloads" class="card-list"></div>
-            <div id="local-models-installed" class="card-list"></div>
-            <h3>Which model answers which task</h3>
-            <p class="subtle">Off by default. When it is on, Branch still does exactly what you choose for a conversation.</p>
+            <div id="local-oneclick" class="local-oneclick"></div>
+            <h3 data-t="settings.local.routing-title">Which model answers which task</h3>
+            <p class="subtle" data-t="settings.local.routing-note">Off by default. When it is on, Branch still does exactly what you choose for a conversation.</p>
             <label><input id="local-routing-enabled" type="checkbox" /> <span data-t="field.choose-the-model-for-me">Choose the model for me, task by task</span></label>
             <label><input id="local-routing-private" type="checkbox" /> <span data-t="field.keep-tasks-that-mention-personal">Keep tasks that mention personal details on this computer</span></label>
             <label><input id="local-routing-hard" type="checkbox" /> <span data-t="field.send-long-or-fiddly-tasks">Send long or fiddly tasks to the cloud model</span></label>
@@ -1587,6 +1718,7 @@
             <fieldset id="model-settings-fields">
               <label for="provider-preset" data-t="field.choose-a-provider">Choose a provider</label>
               <select id="provider-preset"></select>
+              <p id="provider-terms" class="subtle terms-line" role="note" hidden><strong data-t="terms.label">Terms:</strong> <span id="provider-terms-route"></span> <strong id="provider-terms-standing"></strong> <span id="provider-terms-warning"></span> <a id="provider-terms-link" href="#" target="_blank" rel="noopener noreferrer" data-t="terms.read">Read the terms ↗</a></p>
               <div class="provider-actions">
                 <button id="provider-test" type="button" class="secondary" data-t="action.test-this-connection">Test this connection</button>
                 <button id="provider-local" type="button" class="secondary" data-t="action.use-the-model-running-on">Use the model running on this computer</button>
@@ -1665,6 +1797,27 @@
         <h2 class="context-head">Pages to open</h2>
         <div id="context-apps" class="context-rows"></div>
       </div>
+      <!-- bucket-18 (A0098): the code editor (public/code-editor.js), in the Files tab. -->
+      <div class="context-block" data-pane="files">
+        <details id="wsedit">
+          <summary class="context-head" data-t="wsedit.title">Edit a file</summary>
+          <p id="wsedit-off" class="context-empty" data-t="wsedit.off" hidden>The code editor is off. Switch it on in Settings → Advanced → Developer.</p>
+          <div id="wsedit-on" hidden>
+            <p class="meta" id="wsedit-folder"></p>
+            <div id="wsedit-list" class="wsedit-list"></div>
+            <div id="wsedit-editor" class="wsedit-editor" hidden>
+              <p class="meta"><span id="wsedit-path"></span> <span id="wsedit-unsaved" data-t="wsedit.unsaved" hidden>(not saved)</span></p>
+              <div class="wsedit-code">
+                <pre id="wsedit-lines" class="wsedit-lines" aria-hidden="true"></pre>
+                <label class="sr-only" for="wsedit-text" data-t="wsedit.text">The file's text</label>
+                <textarea id="wsedit-text" class="wsedit-text" spellcheck="false" wrap="off"></textarea>
+              </div>
+              <button id="wsedit-save" type="button" data-t="action.save">Save</button>
+            </div>
+          </div>
+          <p id="wsedit-status" class="context-empty" role="status" aria-live="polite"></p>
+        </details>
+      </div>
       <div class="context-block">
         <h2 class="context-head">Saved memory</h2>
         <div id="context-facts" class="context-rows"></div>
@@ -1730,26 +1883,99 @@
     <script src="/approvals.js" type="module"></script>
     <script src="/tracing.js" type="module"></script>
     <script src="/desktop.js" type="module"></script>
+    <script src="/os-permissions.js" type="module"></script>
     <script src="/acorn.js" type="module"></script>
+    <script src="/look-sync.js" type="module"></script>
     <script src="/context-pane.js" type="module"></script>
     <script src="/memory-tidy.js" type="module"></script>
     <script src="/docs-memory-2.js" type="module"></script>
     <script src="/self-improving.js" type="module"></script>
     <script src="/skills-extra.js" type="module"></script>
     <script src="/local-models.js" type="module"></script>
+    <script src="/local-oneclick.js" type="module"></script>
     <!-- Wave 6. i18n loads first so every later module reads the chosen language. -->
     <script src="/web-ui.js" type="module"></script>
     <script src="/misc.js" type="module"></script>
     <script src="/flows.js" type="module"></script>
     <script src="/second-opinion.js" type="module"></script>
+    <script src="/chat-live.js" type="module"></script>
+    <script src="/chat-permissions.js" type="module"></script>
+    <script src="/wake-word.js" type="module"></script>
+    <script src="/pins.js" type="module"></script>
+    <script src="/heartbeat.js" type="module"></script>
+    <!-- Bucket 17: watching videos and speech plug-ins. -->
+    <script src="/media-programs.js" type="module"></script>
+    <!-- Bucket 21: building on Branch, and flows as YAML files. -->
+    <script src="/sdk-kit.js" type="module"></script>
     <script src="/skill-revisions.js" type="module"></script>
+    <script src="/channels-more.js" type="module"></script>
     <script src="/specialist-styles.js" type="module"></script>
     <script src="/code-ide.js" type="module"></script>
+    <!-- bucket-18: code editor (A0098) -->
+    <script src="/code-editor.js" type="module"></script>
     <script src="/docs-3.js" type="module"></script>
     <script src="/other.js" type="module"></script>
     <script src="/sandbox-remote.js" type="module"></script>
+    <script src="/move-in.js" type="module"></script>
+    <!-- bucket 14 (A0367): the usage report card, placed in Settings → Data -->
+    <script src="/usage-report.js" type="module"></script>
+    <script src="/folder-trust.js" type="module"></script>
+    <script src="/knobs.js" type="module"></script>
+    <!-- R17-E: models, cheaper and smarter; and the per-round chart beside the meter -->
+    <script src="/model-savings.js" type="module"></script>
+    <script src="/round-chart.js" type="module"></script>
+    <!-- R17-S-C: shortcuts, vim keys, status line, message times, notifications, voice keys, browser care, proxy -->
+    <script src="/comfort.js" type="module"></script>
+    <script src="/never-break.js" type="module"></script>
+    <script src="/telegram-setup.js" type="module"></script>
+    <script src="/channel-setup.js" type="module"></script><!-- mac7/connect -->
+    <!-- mac6/accounts: several accounts per connection, and the account chip in the title bar. -->
+    <script src="/accounts.js" type="module"></script>
+    <!-- Wave mac2 (goal-undo): the goal strip, and editing an earlier message to go back to it. -->
+    <script src="/goal.js" type="module"></script>
+    <script src="/rewind.js" type="module"></script>
+    <!-- Wave mac3 (tool-safety): a second look before approvals. -->
+    <script src="/approval-reviewer.js" type="module"></script>
+    <script src="/os-sandbox.js" type="module"></script>
     <!-- Wave 9 redesign: last, so every panel it moves already exists. -->
     <script src="/context-files.js" type="module"></script>
+    <script src="/learning-loop.js" type="module"></script>
+    <script src="/security-check.js" type="module"></script>
+    <!-- bucket 19: signing in from other devices, groups and sharing (Settings, General). -->
+    <script src="/people-admin.js" type="module"></script>
+    <!-- mac2/fly-core-2: the learning core's card, which puts itself in Library → Memory. -->
+    <script src="/learning-core.js" type="module"></script>
+    <!-- Wave mac3 (commands): the "/" menu, carrying commands out, and the commands card. -->
+    <script src="/commands.js" type="module"></script>
+    <!-- bucket 12: saved prompts and the skill install record -->
+    <script src="/prompt-library.js" type="module"></script>
+    <script src="/skill-installs.js" type="module"></script>
+    <!-- Bucket 13 (mac4): watching a task again (Inbox, History) and "is Branch keeping up" (Settings, Advanced). -->
+    <script src="/recordings.js" type="module"></script>
+    <!-- Bucket 15: add-ons other people wrote (Customize → Plugins). -->
+    <script src="/add-ons.js" type="module"></script>
+    <!-- mac6/bucket-23: the smaller asks, one card in each part's home. -->
+    <script src="/asks.js" type="module"></script>
+    <script src="/devices.js" type="module"></script>
+    <script src="/autonomy.js" type="module"></script>
+    <script src="/trunks.js" type="module"></script>
+    <script src="/coding.js" type="module"></script>
+    <script src="/personal.js" type="module"></script>
+    <!-- r17-i: reach and platform (other computers, relay, send and pause, sharing, USB, notes, arena). -->
+    <script src="/reach.js" type="module"></script>
+    <script src="/safety-extras.js" type="module"></script>
+    <script src="/vault-autofill.js" type="module"></script>
+    <!-- r17-h: flows and boards — going back in a flow, checked procedures, the shared board, widgets, the waiting line, focus view, install requests. -->
+    <script src="/flows-boards.js" type="module"></script>
+    <script src="/learning-more.js" type="module"></script>
+    <!-- R17-S-A: understandable settings (descriptions, scope chips, presets, reset, one settings file, first-run offers). -->
+    <script src="/settings-describe.js" type="module"></script>
+    <script src="/settings-kit.js" type="module"></script>
+    <script src="/first-run-next.js" type="module"></script>
+    <!-- mac4/bucket-20: working with other agents and tools (Customize → Connections, Specialists). -->
+    <script src="/interop.js" type="module"></script>
+    <!-- Wave mac3: the dashboard's switch (Customize → Channels) and the links back in from it. -->
+    <script src="/dashboard-card.js" type="module"></script>
     <script src="/layout.js" type="module"></script>
   </body>
 </html>

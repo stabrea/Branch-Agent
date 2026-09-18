@@ -12,11 +12,11 @@ import { McpConfigSchema, makeTransport, type McpConfig } from './mcp-config.js'
 export const mcpToolName = (id: string, tool: string): string =>
   `mcp.${id}.${createHash('sha256').update(tool).digest('hex').slice(0, 16)}`;
 
-async function discover(client: Client, wanted: string[]): Promise<Tool[]> {
+async function discover(client: Client, wanted: string[], timeout = 10000): Promise<Tool[]> {
   const found = new Map<string, Tool>(), seen = new Set<string>();
   let cursor: string | undefined;
   for (let page = 0; page < 10; page++) {
-    const result = await client.listTools(cursor ? { cursor } : {}, { timeout: 10000 });
+    const result = await client.listTools(cursor ? { cursor } : {}, { timeout });
     for (const tool of result.tools) {
       if (JSON.stringify(tool).length > 65536) throw new Error('MCP tool schema is too large');
       if (wanted.includes(tool.name)) found.set(tool.name, tool);
@@ -147,6 +147,8 @@ export function registerCachedMcp(
 export async function openMcp(
   input: unknown, env = process.env,
   policy?: { guard(base: typeof fetch): typeof fetch }, cache?: McpToolCache,
+  /** R17-S20: how long the server may take to start and list its tools (Settings › Connections). */
+  startupTimeoutMs = 10000,
 ) {
   const config = McpConfigSchema.parse(input);
   if (new Set(config.tools).size !== config.tools.length) throw new Error('Duplicate MCP tool allowlist entry');
@@ -154,10 +156,10 @@ export async function openMcp(
   const client = new Client({ name: 'branch', version: '0.1.0' });
   try {
     // SDK 1.x transport declarations disagree on optional sessionId under exact optional types.
-    await client.connect(transport as Transport, { timeout: 10000 });
+    await client.connect(transport as Transport, { timeout: startupTimeoutMs });
     if (client.getServerVersion()?.version !== config.expectedVersion)
       throw new Error('MCP server version changed; review compatibility before enabling');
-    const found = await discover(client, config.tools);
+    const found = await discover(client, config.tools, startupTimeoutMs);
     // What it has just said its tools are, so a later launch can list them without starting it.
     cache?.write(config.id, cacheable(found));
     return { config, found, secrets, call: through(client), close: () => client.close() };
@@ -169,9 +171,9 @@ export async function openMcp(
 
 export async function connectMcp(
   registry: ToolRegistry, input: unknown, env = process.env,
-  policy?: { guard(base: typeof fetch): typeof fetch }, cache?: McpToolCache,
+  policy?: { guard(base: typeof fetch): typeof fetch }, cache?: McpToolCache, startupTimeoutMs?: number,
 ) {
-  const opened = await openMcp(input, env, policy, cache);
+  const opened = await openMcp(input, env, policy, cache, startupTimeoutMs);
   try {
     const definitions = opened.found.map(tool => definition(opened.call, opened.config, tool, opened.secrets));
     const existing = new Set(registry.descriptions(new Set(registry.permissions())).map(tool => tool.name));

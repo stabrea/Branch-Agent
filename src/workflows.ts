@@ -1,3 +1,4 @@
+import { chatOwnerOnly, startedFromChat } from "./key-context.js";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { Store, SavedRecord } from "./store.js";
@@ -7,6 +8,8 @@ import type { ToolRegistry } from "./registry.js";
 import { errorText } from "./contracts.js";
 import { ApprovalRequiredError, PolicyRefusedError } from "./approvals.js";
 import { argumentFingerprint } from "./runtime.js";
+import { outsideTask } from "./tool-gate.js"; // mac7/lockdown-fix
+import type { ToolContext } from "./contracts.js";
 import type { PolicyRemember, RunSource } from "./policy.js";
 
 /**
@@ -103,9 +106,9 @@ export class Workflows {
    * to everyone outside, so "carry it on" is the one tool it already had rather than a second one
    * in a toolbox that is already full.
    */
-  resumeGraph: ((id: string) => unknown) | null = null;
+  resumeGraph: ((id: string, within?: readonly string[]) => unknown) | null = null;
   constructor(
-    private readonly store: Store,
+    readonly store: Store,
     private readonly runtime: Runtime,
     private readonly knowledge?: Knowledge,
   ) {
@@ -130,6 +133,8 @@ export class Workflows {
     this.store.save("workflows", owner, id, {
       ...definition, id, status: existing?.status ?? "idle", cursor: Number(existing?.cursor ?? 0),
       waitingUntil: existing?.waitingUntil ?? null, question: null, error: null,
+      // mac7/lockdown-fix (integration review): saving the steps again never drops a task's limit.
+      taskLimit: Array.isArray(existing?.taskLimit) ? existing.taskLimit : null,
     });
     return this.view(owner, id);
   }
@@ -189,13 +194,13 @@ export class Workflows {
    * step that wanted to use a tool is tried again with that yes remembered, rather than skipped:
    * `remember` says whether the yes lasts for this workflow only or is kept as a standing rule.
    */
-  async resume(owner: string, id: string, options: { remember?: PolicyRemember; source?: RunSource } = {}): Promise<WorkflowView> {
+  async resume(owner: string, id: string, options: { remember?: PolicyRemember; source?: RunSource; within?: readonly string[] } = {}): Promise<WorkflowView> {
     const current = this.view(owner, id);
     if (current.status === "running") throw new Error("That workflow is working right now");
     if (current.status === "completed") throw new Error("That workflow has already finished");
     const waitingForYes = current.status === "waiting_approval"
       || (current.status === "paused" && current.pausedFrom === "waiting_approval");
-    if (!waitingForYes) return this.run(owner, id, options.source ?? "owner");
+    if (!waitingForYes) return this.run(owner, id, options.source ?? "owner", [], options.within);
     const asked = this.pending(owner, id);
     if (asked) {
       this.runtime.grantApproval(approvalKeyFor(id), asked, options.remember ?? asked.remember);
@@ -211,26 +216,43 @@ export class Workflows {
    * The same as `resume`, but it will not say yes on the owner's behalf. The assistant calls this
    * one, so a workflow that stopped to ask can only be let past from the owner's own screen.
    */
-  async resumeWithoutApproving(owner: string, id: string, source: RunSource = "owner"): Promise<WorkflowView> {
+  async resumeWithoutApproving(owner: string, id: string, source: RunSource = "owner", within?: readonly string[]): Promise<WorkflowView> {
     const current = this.view(owner, id);
     if (current.status === "waiting_approval"
       || (current.status === "paused" && current.pausedFrom === "waiting_approval"))
       throw new Error("That workflow is waiting for the owner to say yes. Ask them to approve it on their screen.");
-    return this.resume(owner, id, { source });
+    return this.resume(owner, id, { source, ...(within ? { within } : {}) });
+  }
+  /**
+   * mac7/lockdown-fix: the permissions a task that set a workflow going holds, or undefined when it
+   * holds them all (the owner pressing the tool by hand), so the owner's own start is unchanged.
+   */
+  taskLimit(context: Pick<ToolContext, "permissions">): string[] | undefined {
+    return taskLimitOf(this.runtime, context);
+  }
+  /**
+   * mac7/lockdown-fix: the limit this run works under. A task's start narrows it (and is kept with the
+   * workflow, so an owner's yes later does not widen it); the owner starting it afresh clears it.
+   */
+  private limitFor(owner: string, id: string, fresh: boolean, within: readonly string[] | undefined): string[] | null {
+    const saved = (this.store.get("workflows", owner, id)?.data as { taskLimit?: string[] | null } | undefined)?.taskLimit ?? null;
+    if (!within) return fresh ? null : saved;
+    return saved && !fresh ? saved.filter((p) => within.includes(p)) : [...within];
   }
   /**
    * Works through the steps until one needs the owner, a time to pass, or everything is done.
    * `source` is whoever set it going: a workflow started by a schedule or another app is held to
    * the same limits that task would have been, so it cannot be used to get around them.
    */
-  async run(owner: string, id: string, source: RunSource = "owner", chain: readonly string[] = []): Promise<WorkflowView> {
+  async run(owner: string, id: string, source: RunSource = "owner", chain: readonly string[] = [], within?: readonly string[]): Promise<WorkflowView> {
     let current = this.view(owner, id);
     if (current.status === "running") throw new Error("That workflow is working right now");
     const fresh = ["idle", "completed", "failed"].includes(current.status);
-    current = this.setStatus(owner, id, { status: "running", error: null, question: null, pausedFrom: null, pendingApproval: null, ...(fresh ? { cursor: 0 } : {}) });
+    const limit = this.limitFor(owner, id, fresh, within); // mac7/lockdown-fix
+    current = this.setStatus(owner, id, { status: "running", error: null, question: null, pausedFrom: null, pendingApproval: null, taskLimit: limit, ...(fresh ? { cursor: 0 } : {}) });
     for (let index = current.cursor; index < current.steps.length; index++) {
       const step = current.steps[index]!;
-      const outcome = await this.step(owner, id, index, step, current, source, chain);
+      const outcome = await this.step(owner, id, index, step, current, source, chain, limit);
       if (outcome.halt) return this.setStatus(owner, id, { cursor: outcome.cursor ?? index, ...outcome.patch });
       // Take the saved view back, so a later step sees what the last one wrote (a wait's moment).
       current = this.setStatus(owner, id, { cursor: outcome.cursor ?? index + 1, ...outcome.patch });
@@ -238,7 +260,7 @@ export class Workflows {
     }
     return this.setStatus(owner, id, { status: "completed", cursor: current.steps.length, waitingUntil: null });
   }
-  private async step(owner: string, id: string, index: number, step: WorkflowStep, view: WorkflowView, source: RunSource, chain: readonly string[] = []):
+  private async step(owner: string, id: string, index: number, step: WorkflowStep, view: WorkflowView, source: RunSource, chain: readonly string[] = [], limit: string[] | null = null):
     Promise<{ halt: boolean; cursor?: number; patch?: Record<string, unknown> }> {
     if (step.kind === "approval") {
       this.writeStep(owner, id, index, step, { status: "waiting", attempts: 0, output: step.question ?? "" });
@@ -259,16 +281,16 @@ export class Workflows {
       this.writeStep(owner, id, index, step, { status: "done", attempts: 1, output: matched ? "carried on" : "skipped ahead" });
       return { halt: false, cursor: index + 1 + (matched ? 0 : step.skipAhead ?? 1) };
     }
-    return this.attempt(owner, id, index, step, source, chain);
+    return this.attempt(owner, id, index, step, source, chain, limit);
   }
   /** Runs one working step, giving it its allowed number of second tries before the workflow stops. */
-  private async attempt(owner: string, id: string, index: number, step: WorkflowStep, source: RunSource, chain: readonly string[] = []):
+  private async attempt(owner: string, id: string, index: number, step: WorkflowStep, source: RunSource, chain: readonly string[] = [], limit: string[] | null = null):
     Promise<{ halt: boolean; cursor?: number; patch?: Record<string, unknown> }> {
     let lastError = "";
     for (let attempt = 1; attempt <= step.retries + 1; attempt++) {
       this.writeStep(owner, id, index, step, { status: "running", attempts: attempt });
       try {
-        const result = await this.execute(step, id, source, owner, chain);
+        const result = await this.execute(step, id, source, owner, chain, limit);
         this.writeStep(owner, id, index, step, { status: "done", attempts: attempt, output: result.output, runId: result.runId });
         return { halt: false, cursor: index + 1 };
       } catch (error) {
@@ -297,25 +319,31 @@ export class Workflows {
     };
     return { halt: true, cursor: index, patch: { status: "waiting_approval", question: asked.message, pendingApproval } };
   }
-  private async execute(step: WorkflowStep, id: string, source: RunSource, owner: string, chain: readonly string[] = []): Promise<{ output: string; runId: string | null }> {
+  private async execute(step: WorkflowStep, id: string, source: RunSource, owner: string, chain: readonly string[] = [], limit: string[] | null = null): Promise<{ output: string; runId: string | null }> {
     const signal = AbortSignal.timeout(step.timeoutMs);
-    if (step.kind === "flow") return this.nested(step, id, source, owner, chain);
+    if (step.kind === "flow") return this.nested(step, id, source, owner, chain, limit);
+    // mac7/lockdown-fix: under a task's limit, every step holds only the permissions that task holds.
+    const allowed = limit ? { permissions: [...this.runtime.context().permissions].filter((p) => limit.includes(p)) } : {};
     if (step.kind === "prompt") {
-      const run = await this.runtime.run({ prompt: step.prompt!, signal, source: "schedule", onTextDelta: () => undefined });
+      // A chat message's workflow asks the model as the chat, never as a schedule the owner made.
+      const run = await this.runtime.run({ prompt: step.prompt!, signal, source: source === "channel" ? "channel" : "schedule", onTextDelta: () => undefined, ...allowed });
       if (run.status !== "completed") throw new Error(`The step did not finish (${run.status})`);
       return { output: run.output, runId: run.id };
     }
-    const context = this.runtime.context({ signal, source, approvalKey: approvalKeyFor(id) });
+    const context = this.runtime.context({ signal, source, approvalKey: approvalKeyFor(id), ...allowed });
     if (step.kind === "tool") {
       // A saved step uses its tool under the owner's approval settings, exactly as the assistant
       // does mid-conversation: allowed, asked about, or refused in the same words.
       // The exact bytes of this step's arguments. Everything downstream — the question the owner
       // sees, the yes they give, the retry after it — is bound to this one fingerprint.
       const fingerprint = argumentFingerprint(JSON.stringify(step.args ?? {}));
+      const outside = outsideTask(this.runtime, step.tool!, context); // mac7/lockdown-fix: before any question
+      if (outside) throw Object.assign(new PolicyRefusedError(step.tool!, step.name), { message: outside });
       const check = this.runtime.checkPolicy(step.tool!, step.args ?? {}, context, fingerprint);
       if (check.decision === "deny") throw new PolicyRefusedError(step.tool!, check.label);
       if (check.decision === "ask") throw new ApprovalRequiredError(step.tool!, check.target, check.label, check.remember, fingerprint);
-      const result = await this.runtime.executeTool(step.tool!, step.args ?? {});
+      // mac5/manual-actions: the run itself is gated the same way, under this workflow's own yeses.
+      const result = await this.runtime.executeTool(step.tool!, step.args ?? {}, { mode: "policy", source, approvalKey: approvalKeyFor(id), ...(limit ? { within: limit } : {}) });
       return { output: JSON.stringify(result).slice(0, 4000), runId: null };
     }
     if (!this.knowledge) throw new Error("Saved procedures are not available in this launch");
@@ -328,7 +356,7 @@ export class Workflows {
    * `maximumFlowDepth` is refused before it starts. The step is held to whatever set the outer flow
    * going, so nesting is no way around the limits that source is kept to.
    */
-  private async nested(step: WorkflowStep, id: string, source: RunSource, owner: string, chain: readonly string[]):
+  private async nested(step: WorkflowStep, id: string, source: RunSource, owner: string, chain: readonly string[], limit: string[] | null = null):
     Promise<{ output: string; runId: string | null }> {
     const target = step.flowId!;
     const running = [...chain, id];
@@ -336,7 +364,7 @@ export class Workflows {
       throw new Error(`That flow leads back to one already running (${target}), so it was not started.`);
     if (running.length >= maximumFlowDepth)
       throw new Error(`Flows may only go ${maximumFlowDepth} deep; this one would be ${running.length + 1}.`);
-    const finished = await this.run(owner, target, source, running);
+    const finished = await this.run(owner, target, source, running, limit ?? undefined);
     // The inner flow's own reason is carried up, so the outer one says what actually went wrong.
     if (finished.status !== "completed")
       throw new Error(finished.error || `The flow inside this one did not finish (${finished.status})`);
@@ -345,13 +373,25 @@ export class Workflows {
 }
 
 /** Tools so a saved workflow can be made, looked at, started, stopped and carried on. */
+/**
+ * mac7/lockdown-fix: the permissions a task holds, or undefined when it holds them all (the owner
+ * pressing a tool by hand). Shared by every tool that sets saved work going.
+ */
+export function taskLimitOf(runtime: Pick<Runtime, "context">, context: Pick<ToolContext, "permissions">): string[] | undefined {
+  const all = runtime.context().permissions;
+  return [...all].every((p) => context.permissions.has(p)) ? undefined : [...context.permissions];
+}
+
 export function registerWorkflows(registry: ToolRegistry, workflows: Workflows): void {
   registry.register({
     name: "workflows.create",
     description: "Save a list of steps the app can work through on its own: ask the assistant, replay a saved procedure, use one tool, wait for the owner to approve, wait a while, or skip ahead when the last answer did not say what was expected.",
     permission: "workflows.manage",
     parameters: WorkflowSchema,
-    execute: async (value, context) => workflows.create(workflows.forOwner(context.owner), value),
+    execute: async (value, context) => {
+      if (startedFromChat(context, workflows.store)) throw chatOwnerOnly("Saving a workflow");
+      return workflows.create(workflows.forOwner(context.owner), value);
+    },
   });
   registry.register({
     name: "workflows.list",
@@ -367,7 +407,8 @@ export function registerWorkflows(registry: ToolRegistry, workflows: Workflows):
     parameters: z.object({ id: z.string().uuid() }).strict(),
     // The workflow is held to whatever this task is held to: starting one is no way around the
     // approval settings a schedule or another app is kept to.
-    execute: async (value, context) => workflows.run(workflows.forOwner(context.owner), value.id, context.source ?? "owner"),
+    // mac7/lockdown-fix: and to the tools this task may use, so a workflow is no way round its own list.
+    execute: async (value, context) => workflows.run(workflows.forOwner(context.owner), value.id, context.source ?? "owner", [], workflows.taskLimit(context)),
   });
   registry.register({
     name: "workflows.pause",
@@ -384,8 +425,9 @@ export function registerWorkflows(registry: ToolRegistry, workflows: Workflows):
     execute: async (value, context) => {
       const owner = workflows.forOwner(context.owner);
       // A flow drawn as a graph carries on from its own checkpoint; everything else is a step list.
-      return workflows.resumeGraph?.(value.id)
-        ?? workflows.resumeWithoutApproving(owner, value.id, context.source ?? "owner");
+      const within = workflows.taskLimit(context); // mac7/lockdown-fix
+      return workflows.resumeGraph?.(value.id, within)
+        ?? workflows.resumeWithoutApproving(owner, value.id, context.source ?? "owner", within);
     },
   });
 }

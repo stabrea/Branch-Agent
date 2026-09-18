@@ -1,5 +1,6 @@
 import { z } from "zod";
-import type { ChannelAdapter, InboundMessage } from "./router.js";
+import type { ChannelAdapter, InboundMessage, OutgoingFile } from "./router.js"; // R17-C: OutgoingFile
+import type { ChannelPosition } from "../never-break/channel-position.js";
 
 /**
  * Telegram Bot API adapter using long polling. Only text messages are delivered; a message is
@@ -11,6 +12,8 @@ export interface TelegramOptions {
   apiBase?: string;
   fetch?: typeof fetch;
   pollTimeoutSeconds?: number;
+  /** mac3/never-break: where the stream was read up to, kept across restarts. */
+  position?: ChannelPosition;
 }
 const userSchema = z.object({ id: z.number(), is_bot: z.boolean().optional(), first_name: z.string().optional(), username: z.string().optional() }).passthrough();
 const voiceSchema = z.object({
@@ -53,6 +56,9 @@ export class TelegramAdapter implements ChannelAdapter {
   private username: string | null = null;
   private offset = 0;
   private stopping = new AbortController();
+  /** mac3/never-break: messages handed over and not yet settled, and how far everything is settled. */
+  private readonly inFlight = new Set<number>();
+  private settledUpTo = 0;
   private loop: Promise<void> | null = null;
   constructor(private readonly options: TelegramOptions) {
     this.id = options.id;
@@ -64,6 +70,7 @@ export class TelegramAdapter implements ChannelAdapter {
   async start(onMessage: (message: InboundMessage) => Promise<void>): Promise<void> {
     const me = userSchema.parse(await this.call("getMe", {}));
     this.username = me.username ?? null;
+    this.offset = Math.max(this.offset, this.options.position?.load() ?? 0); // mac3/never-break
     this.loop = this.poll(onMessage);
   }
   async stop(): Promise<void> {
@@ -91,6 +98,21 @@ export class TelegramAdapter implements ChannelAdapter {
     const message = z.object({ message_id: z.number() }).passthrough().safeParse(parsed.result);
     return message.success ? String(message.data.message_id) : undefined;
   }
+  // ---- R17-C (R17-022): a file as a Telegram document. Bots may send up to 50 MB. ----
+  readonly maxFileBytes = 50 * 1024 * 1024;
+  async sendFile(chatId: string, file: OutgoingFile, replyToMessageId?: string): Promise<string | undefined> {
+    const form = new FormData();
+    form.append("chat_id", chatId);
+    form.append("document", new Blob([new Uint8Array(file.bytes)], { type: file.mediaType }), file.name);
+    if (file.caption) form.append("caption", file.caption.slice(0, 1024));
+    if (replyToMessageId) form.append("reply_to_message_id", replyToMessageId);
+    const response = await this.fetch(`${this.base}/sendDocument`, { method: "POST", body: form, signal: AbortSignal.timeout(120000) });
+    const parsed = responseSchema.parse(await response.json());
+    if (!parsed.ok) throw new Error(`Telegram sendDocument failed: ${parsed.description ?? response.status}`);
+    const message = z.object({ message_id: z.number() }).passthrough().safeParse(parsed.result);
+    return message.success ? String(message.data.message_id) : undefined;
+  }
+  // ---- end R17-C ----
   private async poll(onMessage: (message: InboundMessage) => Promise<void>): Promise<void> {
     while (!this.stopping.signal.aborted) {
       try {
@@ -98,10 +120,12 @@ export class TelegramAdapter implements ChannelAdapter {
         const updates = z.array(updateSchema).parse(await this.call("getUpdates", { offset: this.offset, timeout: this.pollTimeout, allowed_updates: ["message", "callback_query"] }, true));
         for (const update of updates) {
           this.offset = Math.max(this.offset, update.update_id + 1);
+          // Handed over without waiting: a message sent while a task works is a note for that task,
+          // and it has to be read while the task is still going. The router keeps one task per chat.
           const pressed = update.callback_query && this.fromButton(update.callback_query);
-          if (pressed) { await onMessage(pressed).catch(() => undefined); continue; }
+          if (pressed) { this.handOver(update.update_id, pressed, onMessage); continue; }
           const message = update.message && this.inbound(update.message);
-          if (message) await onMessage(message).catch(() => undefined);
+          this.handOver(update.update_id, message || null, onMessage);
         }
       } catch (error) {
         if (this.stopping.signal.aborted) return;
@@ -111,6 +135,21 @@ export class TelegramAdapter implements ChannelAdapter {
     }
   }
   /**
+   * mac3/never-break: hands one update to the router without waiting for it, and saves the read
+   * position only up to the oldest message still being handled, so a crash never skips one.
+   */
+  private handOver(id: number, message: InboundMessage | null, onMessage: (message: InboundMessage) => Promise<void>): void {
+    const settle = () => {
+      this.inFlight.delete(id);
+      this.settledUpTo = Math.max(this.settledUpTo, id + 1);
+      const oldest = Math.min(...this.inFlight);
+      this.options.position?.save(Number.isFinite(oldest) ? Math.min(oldest, this.settledUpTo) : this.settledUpTo);
+    };
+    if (!message) { settle(); return; }
+    this.inFlight.add(id);
+    void onMessage(message).catch(() => undefined).finally(settle);
+  }
+  /**
    * A pressed button, as an ordinary addressed message carrying the button's own value. The router
    * reads it as an answer to whatever this chat's conversation is waiting on; if nothing is waiting
    * it is a short message like any other. Telegram is told the press landed straight away, so the
@@ -118,7 +157,10 @@ export class TelegramAdapter implements ChannelAdapter {
    */
   private fromButton(query: z.infer<typeof callbackSchema>): InboundMessage | null {
     const chat = query.message?.chat;
-    if (!chat || !query.from || !query.data) return null;
+    // mac7/chat-approvals (integration review): the same guard `inbound` puts on an ordinary
+    // message. A press carries the sender id a line is matched against, so a bot posting as the
+    // person the owner named would otherwise have carried that person's yes.
+    if (!chat || !query.from || query.from.is_bot || !query.data) return null;
     void this.call("answerCallbackQuery", { callback_query_id: query.id }).catch(() => undefined);
     return {
       channel: this.id, chatId: String(chat.id), chatKind: chat.type === "private" ? "direct" : "group",
@@ -141,6 +183,24 @@ export class TelegramAdapter implements ChannelAdapter {
     });
     const parsed = z.object({ message_id: z.number() }).passthrough().safeParse(result);
     return parsed.success ? String(parsed.data.message_id) : undefined;
+  }
+  /** "typing…" for about five seconds; the router asks again while the task works. */
+  async sendTyping(chatId: string): Promise<void> {
+    await this.call("sendChatAction", { chat_id: Number(chatId), action: "typing" });
+  }
+  /** Telegram shows one reaction from a bot and replaces it, so `previous` needs no removing. */
+  async react(chatId: string, messageId: string, emoji: string): Promise<void> {
+    await this.call("setMessageReaction", {
+      chat_id: Number(chatId), message_id: Number(messageId), reaction: [{ type: "emoji", emoji }],
+    });
+  }
+  async edit(chatId: string, messageId: string, text: string): Promise<void> {
+    try {
+      await this.call("editMessageText", { chat_id: Number(chatId), message_id: Number(messageId), text });
+    } catch (error) {
+      // Sending the same words again is refused with this; the message already says them.
+      if (!/message is not modified/i.test(error instanceof Error ? error.message : "")) throw error;
+    }
   }
   private inbound(message: z.infer<typeof messageSchema>): InboundMessage | null {
     const spoken = message.voice ?? message.audio;

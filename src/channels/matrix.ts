@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { ChannelAdapter, ChannelHealth, InboundMessage } from "./router.js";
 import { handle } from "./email.js";
 import { reconnectDelay } from "./ws-client.js";
+import { catchUpBatch, MarkKeeper, type ChannelMark } from "./catch-up.js"; // mac6/bucket-16
 
 /**
  * Matrix, over the ordinary client-server API with an access token. Matrix is not a webhook
@@ -26,6 +27,8 @@ export interface MatrixOptions {
   syncTimeoutMs?: number;
   fetch?: typeof fetch;
   reconnectBaseMs?: number;
+  /** mac6/bucket-16: where the last sync got to, kept across restarts so missed messages are answered. */
+  mark?: ChannelMark;
 }
 const eventSchema = z.object({
   type: z.string(), event_id: z.string().optional(), sender: z.string().optional(),
@@ -74,12 +77,21 @@ export class MatrixAdapter implements ChannelAdapter {
   }
   /** Asks again and again what has happened, waiting longer each time the server will not answer. */
   private async run(onMessage: (message: InboundMessage) => Promise<void>): Promise<void> {
+    const keeper = new MarkKeeper(this.options.mark); // mac6/bucket-16
+    const saved = keeper.load();
+    let resumed = this.since === undefined && !!saved; // mac6/bucket-16 integration: the first sync is capped
+    this.since ??= saved ?? undefined;
     for (let attempt = 0; !this.stopping; attempt++) {
       try {
-        const batch = await this.sync();
+        const synced = await this.sync();
+        const batch = resumed ? catchUpBatch(synced) : synced;
+        resumed = false;
         this.state = { state: "connected", ...(this.encryptedSeen ? { reason: `${this.encryptedSeen} message(s) arrived in an encrypted room, which this assistant cannot read` } : {}) };
         attempt = -1;
-        for (const message of batch) { if (this.stopping) return; await onMessage(message).catch(() => undefined); }
+        // Handed over without waiting, so a note can reach a task that is still working (see telegram.ts).
+        const handling: Promise<unknown>[] = [];
+        for (const message of batch) { if (this.stopping) return; handling.push(onMessage(message).catch(() => undefined)); }
+        void keeper.after(this.since, handling);
         continue;
       } catch (error) {
         if (this.stopping) return;
@@ -128,6 +140,19 @@ export class MatrixAdapter implements ChannelAdapter {
       addressed: text.includes(this.options.userId) || text.includes(name),
       messageId: handle(event.event_id ?? randomUUID(), "msg"),
     };
+  }
+  /**
+   * "typing…" in the room for a few seconds. Only typing: this adapter keeps shortened message ids,
+   * so it has no way back to the event a reaction or an edit would have to name.
+   */
+  async sendTyping(chatId: string): Promise<void> {
+    const roomId = this.rooms.get(chatId) ?? chatId;
+    const address = `${this.base}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/typing/${encodeURIComponent(this.options.userId)}`;
+    const response = await this.fetch(address, {
+      method: "PUT", headers: { authorization: `Bearer ${this.options.accessToken}`, "content-type": "application/json" },
+      body: JSON.stringify({ typing: true, timeout: 6000 }), redirect: "error", signal: AbortSignal.timeout(20000),
+    });
+    if (!response.ok) throw new Error(`Matrix refused the typing notice (${response.status})`);
   }
   async send(chatId: string, text: string): Promise<string | undefined> {
     const roomId = this.rooms.get(chatId) ?? chatId;

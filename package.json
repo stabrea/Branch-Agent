@@ -1,18 +1,18 @@
 {
   "name": "branch-agent",
-  "version": "0.17.0",
+  "version": "0.18.0",
   "private": true,
   "description": "A local, inspectable personal assistant runtime",
   "type": "module",
   "license": "MIT",
   "engines": {
-    "node": ">=24.0.0"
+    "node": ">=24.14.0 <25 || >=25.4.0"
   },
   "exports": {
     ".": "./dist/index.js"
   },
   "bin": {
-    "branch": "./dist/cli.js"
+    "branch": "dist/cli.js"
   },
   "files": [
     "dist",
@@ -25,7 +25,7 @@
   "scripts": {
     "build": "tsc && node scripts/copy-fonts.mjs && node scripts/copy-suites.mjs && node scripts/copy-data.mjs",
     "pretest": "node -e \"require('electron')\"",
-    "test": "npm run build && node --test --test-concurrency=3 tests/*.test.mjs packages/sdk/test/*.test.mjs",
+    "test": "npm run build && node scripts/run-tests.mjs",
     "start": "npm run build && node dist/cli.js start",
     "chat": "npm run build && node dist/cli.js chat",
     "demo": "npm run build && node dist/cli.js demo",
@@ -51,8 +51,5 @@
     "typescript": "^5.9.3"
   },
   "main": "dist/desktop/main.js",
-  "bin": {
-    "branch": "dist/cli.js"
-  },
   "productName": "Branch Agent"
 }

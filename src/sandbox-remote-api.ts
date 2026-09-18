@@ -5,8 +5,10 @@ import { firewallView, testFirewall } from "./firewall.js";
 import { codeRunSettings } from "./code-run.js";
 import {
   defaultSandboxProbe, sandboxBackendReport, sandboxBackendSet, sandboxBackendSettings,
-  saveSandboxBackendSettings,
+  saveSandboxBackendSettings, wallReport,
 } from "./sandbox-backends.js";
+import { saveWallSettings, wallSettings } from "./sandbox.js";
+import { audit } from "./audit.js";
 import { saveSessionLimits, sessionLimits } from "./session-limits.js";
 import { retentionSettings, saveRetentionSettings, sentenceFor } from "./retention.js";
 
@@ -23,7 +25,7 @@ export class SandboxRemoteApiError extends Error {
   constructor(readonly status: number, message: string) { super(message); }
 }
 export function handlesSandboxRemotePath(path: string): boolean {
-  return /^\/api\/(sandboxes|firewall|limits|remotes|marks|retention)(\/|$)/.test(path);
+  return /^\/api\/(sandboxes|os-sandbox|firewall|limits|remotes|marks|retention)(\/|$)/.test(path);
 }
 
 const AddressSchema = z.object({ address: z.string().trim().min(1).max(2000) }).strict();
@@ -53,6 +55,22 @@ export async function sandboxRemoteApi(
     const settings = sandboxBackendSettings(app.store, owner);
     const backends = await sandboxBackendReport(sandboxBackendSet({ settings, probe: defaultSandboxProbe() }));
     return { settings, backends };
+  }
+
+  // Wave mac3 (os-sandbox): the wall around programs — the owner's switch, and whether this computer
+  // can build it. Only the app window's own key may change it (see offLimitsToShortLivedKeys).
+  if (path === "/api/os-sandbox") {
+    if (post) {
+      const before = wallSettings(app.store, owner);
+      const after = saveWallSettings(app.store, owner, await readBody(request));
+      // Integration review: the wall widens or narrows what a program may reach, so every change is written down.
+      audit(app.store, owner, { action: "policy.changed", actor: owner,
+        subject: `Wall around programs: ${after.mode}, network ${after.network}`.slice(0, 300),
+        reason: `Was ${before.mode}, network ${before.network}; ${Object.keys(after.keySites).length} keys tied to sites, ${after.unreadable.length} extra hidden places.`,
+        outcome: "saved" });
+    }
+    else if (!get) throw new SandboxRemoteApiError(405, "Only reading and saving are possible here.");
+    return { settings: wallSettings(app.store, owner), computer: await wallReport() };
   }
 
   // What may reach out, in sentences, and the button that asks the real check about one address.
