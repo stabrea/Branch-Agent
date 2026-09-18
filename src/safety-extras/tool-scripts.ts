@@ -85,6 +85,7 @@ export class ToolScripts {
 
   private drive(start: SandboxStart, input: ScriptInput, context: ToolContext, idPrefix: string): Promise<ScriptResult> {
     const child = (this.deps.start ?? startScript)(start);
+    child.stdin?.on("error", () => undefined); // a pipe that closes first must not throw on its own
     const calls: ScriptResult["calls"] = [];
     let output = "";
     child.stdout?.on("data", (chunk: Buffer) => { if (output.length < 64_000) output += chunk.toString("utf8"); });
@@ -92,7 +93,13 @@ export class ToolScripts {
     let queue = Promise.resolve();
     const requests = child.stdio[3];
     if (requests && "on" in requests) createInterface({ input: requests as NodeJS.ReadableStream }).on("line", (line) => {
-      queue = queue.then(() => this.answer(line, input, context, calls, idPrefix)).then((reply) => { child.stdin?.write(`${JSON.stringify(reply)}\n`); });
+      // mac7/linux-fixes: the script may be gone by the time its call is answered — stopped, timed
+      // out or killed — and then this is a pipe with nobody reading it. Writing to one throws
+      // EPIPE where nothing could catch it, which took the whole run down. The answer is simply
+      // dropped instead: there is no longer anyone to give it to.
+      queue = queue.then(() => this.answer(line, input, context, calls, idPrefix))
+        .then((reply) => { if (child.stdin?.writable) child.stdin.write(`${JSON.stringify(reply)}\n`, () => undefined); })
+        .catch(() => undefined);
     });
     return new Promise<ScriptResult>((resolve) => {
       const timer = setTimeout(() => stopChild(child), input.timeoutMs);
