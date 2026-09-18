@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
 import {
-  assetNameFor, checksumLine, includedInApp, needsAssetName, packagerOptions, parseArgs, windowsZipCommand, writeLinuxIcons,
+  assetNameFor, checksumLine, finishMac, includedInApp, needsAssetName, packagerOptions, parseArgs, windowsZipCommand, writeLinuxIcons,
 } from "../scripts/package-desktop.mjs";
 import * as mac from "../scripts/package-macos.mjs";
 import * as linux from "../scripts/package-linux.mjs";
@@ -355,4 +355,42 @@ test("the mark really shrinks to every size a Linux menu asks for", async () => 
     assert.equal(small.height, size);
     assert.ok(small.data.some((byte) => byte !== 0), `${iconFileName("branch-agent", size)} is really drawn`);
   }
+});
+
+// ---- integrate/mac-fixes: a release that fails the identity check must not leave a download behind ----
+// Built for real here with no certificate and --release: the check refused, loudly, but only after the
+// ad-hoc bundle had already been zipped into release/, beside the checksum of the previous (signed)
+// build. Anyone uploading release/ by hand would ship exactly the build the check exists to stop.
+test("the identity check runs after signing and before anything is zipped", () => {
+  const plan = mac.macFinishPlan({ app: "A.app", zip: "A.zip", nested: ["A.app/H.app"], entitlements: "e", env: {} });
+  const ran = [];
+  const refuse = () => { ran.push("check"); throw new Error("the requirement pins a cdhash"); };
+  assert.throws(() => finishMac(plan, { app: "A.app", release: true, run: (command) => ran.push(command[0]), check: refuse }), /cdhash/);
+  assert.deepEqual(ran, ["codesign", "codesign", "check"], "signed, checked, and never zipped");
+
+  ran.length = 0;
+  const signed = mac.macFinishPlan({ app: "A.app", zip: "A.zip", nested: [], entitlements: "e", env: { MAC_SIGNING_SHA1: "AB" } });
+  finishMac(signed, { app: "A.app", release: false, run: (command) => ran.push(command[0]), check: () => ran.push("check") });
+  assert.deepEqual(ran, ["codesign", "check", "ditto"], "a signed build is checked even when it is not a release");
+
+  ran.length = 0;
+  finishMac(plan, { app: "A.app", release: false, run: (command) => ran.push(command[0]), check: () => ran.push("check") });
+  assert.deepEqual(ran, ["codesign", "codesign", "ditto"], "a plain local build stays ad-hoc and unchecked, as before");
+});
+
+test("the release workflow refuses a Mac release with no certificate and never shows the certificate", async () => {
+  const workflow = await readFile(join(".github", "workflows", "package.yml"), "utf8");
+  const step = (name) => workflow.split(/\n\s*- /).find((block) => block.includes(`name: ${name}`)) ?? "";
+  const refuse = step("Refuse to publish a Mac release with no signing certificate");
+  assert.match(refuse, /runner\.os == 'macOS' && env\.HAS_MAC_SIGNING_CERTIFICATE != 'true'/);
+  assert.match(refuse, /exit 1/);
+  const load = step("Load the signing certificate");
+  assert.match(load, /base64 --decode > "\$RUNNER_TEMP\/branch-signing\.p12"/);
+  assert.match(load, /rm -f "\$RUNNER_TEMP\/branch-signing\.p12"/);
+  assert.doesNotMatch(load, /echo[^\n]*MAC_SIGNING_P12|set -x/, "the certificate and its passphrase are never printed");
+  const remove = step("Remove the signing material");
+  assert.match(remove, /if: always\(\)/);
+  assert.match(remove, /security delete-keychain "\$RUNNER_TEMP\/branch-signing\.keychain-db"/);
+  // --release is what makes the build read its identity back and refuse a cdhash.
+  assert.match(workflow, /npm run package:desktop -- --release/);
 });

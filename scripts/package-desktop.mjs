@@ -164,6 +164,21 @@ async function writeUnixInstaller() {
   console.log(script);
 }
 
+/**
+ * Signs, checks the identity, and only then zips (and notarises). A release is checked whether or not
+ * it thinks it signed: the failure worth catching is a build that lost the certificate, signed ad hoc,
+ * and looks perfectly fine until every user's permissions are gone. Checking before the zip means a
+ * refused build leaves no download behind to be uploaded by hand. A plain local build stays ad-hoc
+ * and unchecked, as it always was.
+ */
+export function finishMac(plan, { app, release, run = runCommand, check = assertStableIdentity }) {
+  const zipAt = plan.commands.findIndex(([file]) => file === "ditto");
+  const signing = zipAt === -1 ? plan.commands : plan.commands.slice(0, zipAt);
+  for (const command of signing) run(command);
+  if (plan.signed || release) check(app);
+  for (const command of plan.commands.slice(signing.length)) run(command);
+}
+
 async function packageMac({ arch, release }) {
   const [out] = await runPackager(packagerOptions("darwin", arch, await macIcon()));
   const app = join(out, `${mac.MAC_APP_NAME}.app`);
@@ -171,13 +186,11 @@ async function packageMac({ arch, release }) {
   await writeFile(entitlements, mac.entitlementsPlist(), "utf8");
   const nested = mac.nestedCode(app, await readdir(join(app, "Contents", "Frameworks")));
   const zip = join(RELEASE, assetNameFor("darwin", arch));
+  // The checksum goes too: a stale one beside a new zip names a download that is not there.
   await rm(zip, { force: true });
+  await rm(`${zip}.sha256`, { force: true });
   const plan = mac.macFinishPlan({ app, zip, nested, entitlements, env: process.env });
-  for (const command of plan.commands) runCommand(command);
-  // A release is checked whether or not it thinks it signed: the failure worth catching is a build
-  // that lost the certificate, signed ad hoc, and looks perfectly fine until every user's
-  // permissions are gone. A plain local build stays ad-hoc and silent, as it always was.
-  if (plan.signed || release) assertStableIdentity(app);
+  finishMac(plan, { app, release });
   await writeChecksum(zip);
   await writeUnixInstaller();
   console.log(app);
