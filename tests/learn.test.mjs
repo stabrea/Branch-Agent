@@ -270,7 +270,7 @@ test("the feature ships off: its tools are not advertised and it refuses in one 
 test("/learn is in the one command table every surface reads", () => {
   const learn = COMMANDS.find((command) => command.name === "learn");
   assert.ok(learn, "the catalog has no /learn");
-  assert.equal(learn.level, "run", "building a map reads a whole folder, so it is not a bare look");
+  assert.equal(learn.level, "owner", "every /api/learn route is the owner's, so the command asks the same");
   assert.equal(learn.bareLooks, true, "/learn on its own only looks");
   assert.deepEqual([...learn.surfaces].sort(), ["dashboard", "phone", "terminal", "window"]);
   assert.deepEqual(learn.legacy, [], "it is new, so it worked nowhere before the table");

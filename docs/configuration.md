@@ -8741,3 +8741,101 @@ characters), `readOnly` and `value`; a fact's labels are `tags` (up to 12) and `
 Nothing here depends on the platform. The Claude Code and Codex folders follow each assistant's own
 override variable (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`) and otherwise `~/.claude` and `~/.codex` on
 every system (`src/migrate/detect.ts`).
+
+## Understanding something (mac7/learn)
+
+Point Branch at something you are trying to understand -- a folder of code, a knowledge base, a
+folder of notes -- and get two things: **a map** of what is in there and how the parts connect, and
+**a tour**, a guided walk through it, one stop at a time, in plain words. The card is in Library →
+Documents, beside the other knowledge base cards. `/learn` does the same from the message box, the
+terminal and the dashboard. Routes are under `/api/learn`, the owner's profile only.
+
+**It ships off**, like every feature. Off, `/learn` and the three tools refuse in one sentence and
+are not offered to the assistant; "only when it is needed" lists them until the work calls for them;
+"on" loads them from the first round.
+
+### What every claim carries
+
+This is the whole point of the feature, so it is said first. Every claim the map or the tour makes
+carries the place it was read from, and you can open it:
+
+- over code, the file and the **line** where a name is declared;
+- over documents, the **document, heading and page** of the passage -- the citation Branch's entity
+  map has carried all along (`GraphLink.citation`).
+
+A claim with nothing behind it is not quietly dropped and not quietly shown: it says so on itself,
+in words ("Nothing on this stop could be traced to a passage: …"), and the tour counts them for you.
+A confident summary written for somebody who cannot check it is how a wrong map teaches the wrong
+shape without anybody noticing, so there is no way to leave the citation out.
+
+Anything a model wrote -- the paragraph on a stop -- is marked as written by the assistant from the
+named source, never as something the document says.
+
+### What it costs
+
+**Building a map calls no model at all**, over code or over documents, so it costs nothing and
+nothing leaves this computer. That is said in words, never as a figure: a made-up `$0.00` cannot be
+told apart from a model whose price nobody knows.
+
+The only model call in the whole feature writes the paragraph on each stop of the tour -- one call
+for the whole tour, and only if you tick the box. Press **What would this cost** (or use
+`learn.cost`) and you are told before anything is spent: how many parts the map has, and what the
+tour's one call would come to from the price table, from a price you typed in, or -- for a model
+with no price on file -- the plain words "no price is on file for that model", never a zero
+(`src/pricing.ts`). Nothing starts on its own and nothing is spent without you pressing the button.
+
+### How the tour is made
+
+Compute first, narrate second. The stops, their order and the source under each one are worked out
+on this computer before a model is asked anything:
+
+1. the ranking Branch already has says what the rest leans on (`src/code-rank.ts`, no model);
+2. the things are grouped, and each group becomes a stop -- grouping before spending, so a model is
+   asked few, well-shaped questions instead of one per file;
+3. over code the stops are ordered by following the links out from the highest-ranked file, which is
+   the order the folder really reads in; over documents it is most-talked-about outward;
+4. only then, if you asked for it, one model call writes the words.
+
+With no model connected the tour still exists: every stop keeps its title, its source and a plain
+sentence, and says that is what happened. A model's answer is assumed to be broken and repaired on
+the way in -- fenced blocks, trailing commas, stops numbered from zero, words under another name --
+and anything that cannot be matched to a real stop is dropped rather than guessed at, so a bad
+answer can never move a paragraph onto the wrong stop.
+
+Your language reaches the **written words**, not only the buttons: with the workspace in French the
+model is told, in French, to write in French, so a French tour is French sentences and not French
+chrome around English ones.
+
+### What works less well without code
+
+Worth saying plainly, because it is the honest difference between the two halves.
+
+Code states its own dependencies: one file imports another, and that is a real link nobody had to
+guess. **A folder of documents states nothing about itself.** With no import graph there is no cheap
+structure to group by and no natural starting point, so over documents:
+
+- a link usually means only "these two names turned up in the same passage". It does not say how the
+  two are related, and the map does not pretend to know. The map says so in its own limits.
+- there is **no "start here"**. The order is what the files talk about most, which is useful but is
+  not a reading order. If you know what you want to understand, say so -- ranking the map around
+  your own question works better than any guess at an entry point.
+- the names come from runs of capitalised words, so two spellings of one thing are two things, and a
+  name that is also an ordinary word turns up as both. That is the reader on this computer being
+  honest about what it is.
+
+Over code the names come from a light reader, not a real parser, so a name inside a comment or a
+string can be read as a declaration. Both caveats are on the map itself, not only here.
+
+### Safety
+
+Passages are somebody else's writing, so they go to the model marked untrusted, with a note that
+they are material to read and never instructions to follow; a passage carrying a copy of the marker
+cannot close the envelope early. Anything that comes back reading like instructions aimed at the
+assistant is dropped and the stop keeps its own words. Nothing is uploaded, nothing is published,
+and no map is ever offered to a hosted service.
+
+Nothing ever rebuilds a map on its own. A stale map is a row saying so; you press Build.
+
+Settings fields (`learn`): `mode` (off, when-needed, on -- off at first) and `steps`, how many stops
+a tour may have (3 to 12, default 8). Tools: `learn.map`, `learn.tour`, `learn.cost`, all under the
+permission for reading documents.

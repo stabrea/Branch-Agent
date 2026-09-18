@@ -3,6 +3,7 @@ import { readPolicy, policyPresets } from "./policy.js";
 import { lockdownState } from "./lockdown.js";
 import { assistantIdentity } from "./identity.js";
 import type { Words } from "./terminal-words.js";
+import { learnMode } from "./learn/settings.js"; // mac7/learn
 
 /**
  * What each place and tab holds, read from the same stores the window's screens read. Every row is
@@ -29,6 +30,25 @@ const clip = (text: unknown, size = 90): string => {
 const day = (iso: string): string => iso.slice(0, 16).replace("T", " ");
 const WEEK = 7 * 24 * 60 * 60 * 1000;
 
+/**
+ * mac7/learn: the map of each knowledge base, as rows rather than a picture. A terminal that tries
+ * to draw a graph is worse than a list, so this says how big each map is and where it came from,
+ * and Enter on a row runs `/learn`. Nothing here builds anything.
+ */
+function learnRows(app: PlaceApp): Row[] {
+  const mode = learnMode(app.store, app.runtime.owner);
+  if (mode === "off") return [];
+  const rows = app.store.sqlite.prepare(`SELECT e.collection AS collection, COUNT(DISTINCT e.entity_id) AS things,
+    (SELECT COUNT(*) FROM kb_relations r WHERE r.owner=e.owner AND r.collection=e.collection) AS links
+    FROM kb_entities e WHERE e.owner=? GROUP BY e.collection ORDER BY things DESC LIMIT 12`)
+    .all(app.runtime.owner) as { collection: unknown; things: unknown; links: unknown }[];
+  return rows.map((row) => ({
+    title: clip(String(row.collection)),
+    detail: `${Number(row.things)} things · ${Number(row.links)} links · built from your files, no model`,
+    tone: "muted" as const,
+    command: `/learn documents ${String(row.collection)}`,
+  }));
+}
 function needsYou(app: PlaceApp, words: Words): Row[] {
   const rows: Row[] = app.runtime.approvals.waiting().map((ask) => ({
     title: clip(ask.label || ask.tool), detail: `${ask.tool}${ask.target ? " · " + clip(ask.target, 60) : ""} · ${day(ask.askedAt)}`,
@@ -113,10 +133,13 @@ export const PLACE_ROWS: Record<string, RowReader> = {
   "library:memory": (app) => app.store.list("memory", app.store.profiles.scope()).map((fact) => ({
     title: clip(fact.data.text), detail: clip(fact.data.source),
   })),
-  "library:documents": (app) => app.documents.list(app.runtime.owner).map((entry) => ({
-    title: clip(entry.name), detail: `${entry.fileType} · ${entry.status.replace(/_/g, " ")} · ${day(entry.updatedAt)}`,
-    tone: entry.status === "failed" ? "bad" as const : undefined,
-  })),
+  "library:documents": (app) => [
+    ...learnRows(app),
+    ...app.documents.list(app.runtime.owner).map((entry) => ({
+      title: clip(entry.name), detail: `${entry.fileType} · ${entry.status.replace(/_/g, " ")} · ${day(entry.updatedAt)}`,
+      tone: entry.status === "failed" ? "bad" as const : undefined,
+    })),
+  ],
   "library:made": made,
   "customize:skills": (app, words) => app.store.skills.list(app.runtime.owner).map((skill) => ({
     title: skill.name, detail: clip(`${skill.activeVersion ? "" : words.t("terminal.state.off", "off") + " · "}${skill.description}`),

@@ -3362,6 +3362,16 @@ Two parts of Branch are adapted from Aider (https://github.com/Aider-AI/aider, c
 
 Changes: rewritten in TypeScript for Branch; file access goes through Branch's workspace checks.
 
+### Understand Anything (ideas only), MIT
+
+`src/learn/` -- the map and the guided tour ("Understanding something") -- takes three ideas from Understand Anything (https://github.com/Egonex-AI/Understand-Anything, commit 6df3065), Copyright (c) 2026 Yuxiang Lin and Copyright (c) 2026 Infinite Universe, Inc., licensed under the MIT licence, whose text is given under IronClaw above. **No code was copied, and no file of theirs was used**; the three ideas were written afresh for Branch:
+
+- **Cluster the graph before spending anything on a model**, so a model is asked few, well-shaped questions instead of one question per file (their `understand-anything-plugin/skills/understand/compute-batches.mjs`, which runs Louvain community detection over the import graph through `graphology` and `graphology-communities-louvain`). Branch's `src/learn/cluster.ts` is a label-propagation pass written here, with every tie broken deterministically; the two packages are not added, because one modularity pass over a graph Branch already holds in memory does not justify them.
+- **Assume a model's structured output is broken and repair it on the way in** (their `merge-batch-graphs.py`, which normalises ids, drops edges pointing at things that are not there and flips inverted ones). Branch's `src/learn/repair.ts` does the same for the one structured answer this feature asks for.
+- **Push the person's language into the generated text, not only the surrounding screen** (their `--language` flag, which reaches every agent prompt so the summaries come back translated). Branch's `tourInstructions` in `src/learn/tour.ts` puts the directive in the instructions themselves, in that language.
+
+Nothing else was taken. Their node and edge vocabulary, their layer table, their tour generator, their embedding search and their React dashboard are all deliberately left behind, and their `SessionStart` hook -- which re-analyses a whole codebase without asking, instructing the agent not to seek confirmation -- is refused outright: in Branch a stale map is a row saying so, and the owner presses Build.
+
 ### Hermes Agent and OpenClaw gateway recovery (ideas only), MIT
 
 The gateway in `src/never-break/` takes three ideas from other assistants' gateways: chaining restarts by the gap between them and not carrying interrupted work on by itself once the chain trips (Hermes Agent, `gateway/restart_loop_guard.py`), a "running" mark left behind as the sign of an unclean exit (Hermes Agent, `gateway/lifecycle_ledger.py`; https://github.com/NousResearch/hermes-agent, MIT), and promoting a configuration that started cleanly to a last-known-good copy that is restored when the current one fails (OpenClaw, `src/config/io.observe-recovery.ts`; https://github.com/openclaw/openclaw, MIT). They were written afresh; no code was copied.
