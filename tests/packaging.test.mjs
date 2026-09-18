@@ -11,6 +11,9 @@ import {
 } from "../scripts/package-desktop.mjs";
 import * as mac from "../scripts/package-macos.mjs";
 import * as linux from "../scripts/package-linux.mjs";
+import { WINDOW_ICON_SIZE, isTemplateTrayIcon, trayIconScales, trayIconSize } from "../dist/desktop/icon-sizes.js";
+import { LINUX_ICON_SIZES, iconFileName } from "../dist/install/unix-icons.js";
+import { readPng, scale } from "../apps/mobile/scripts/png.mjs";
 
 const platforms = ["win32", "darwin", "linux"];
 
@@ -165,7 +168,7 @@ test("a real .icns is made with sips and iconutil", { skip: process.platform !==
  */
 const builtApp = process.env.BRANCH_PACKAGED_APP
   ?? join("release", `Branch Agent-darwin-${process.arch}`, "Branch Agent.app");
-test("a built Mac bundle has the expected structure and Info.plist", { skip: process.platform !== "darwin" || !existsSync(builtApp) }, async () => {
+test("a built Mac bundle has the expected structure and Info.plist", { skip: process.platform !== "darwin" || !existsSync(builtApp) }, async (t) => {
   const contents = join(builtApp, "Contents");
   assert.ok(existsSync(join(contents, "MacOS", "Branch Agent")));
   assert.ok(existsSync(join(contents, "Resources", "app", "dist", "desktop", "main.js")));
@@ -177,6 +180,16 @@ test("a built Mac bundle has the expected structure and Info.plist", { skip: pro
   assert.equal(info.CFBundleShortVersionString, manifest.version);
   const icon = await readFile(join(contents, "Resources", info.CFBundleIconFile));
   assert.deepEqual(icon, await readFile(join("release", "build", "keepoak.icns")), "the KeepOak icon replaced Electron's");
+  // mac7/app-icon: the dock never takes its icon from the window, only from this file, so every size
+  // a Mac asks for has to be in it — 1024 for a dock on a Retina screen down to 16 for a list.
+  const unpacked = await mkdtemp(join(tmpdir(), "branch-icns-"));
+  t.after(() => discardTemp(unpacked));
+  execFileSync("iconutil", ["-c", "iconset", join(contents, "Resources", info.CFBundleIconFile), "-o", join(unpacked, "k.iconset")]);
+  assert.deepEqual((await readdir(join(unpacked, "k.iconset"))).sort(),
+    [16, 32, 128, 256, 512].flatMap((size) => [`icon_${size}x${size}.png`, `icon_${size}x${size}@2x.png`]).sort());
+  const biggest = readPng(await readFile(join(unpacked, "k.iconset", "icon_512x512@2x.png")));
+  assert.equal(biggest.width, 1024);
+  assert.ok(biggest.data.some((byte) => byte !== 0), "the mark is really drawn, not an empty square");
   assert.equal(info.ElectronAsarIntegrity, undefined);
   assert.equal(info.NSMicrophoneUsageDescription, mac.macInfoExtras().NSMicrophoneUsageDescription);
   const helpers = (await readdir(join(contents, "Frameworks"))).filter((name) => name.endsWith(".app"));
@@ -188,4 +201,28 @@ test("a built Mac bundle has the expected structure and Info.plist", { skip: pro
   assert.match(line, new RegExp(`^[a-f0-9]{64}  Branch-Agent-macos-${process.arch}\\.zip\\n$`));
   const listing = execFileSync("zipinfo", ["-1", zip], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
   assert.ok(listing.startsWith("Branch Agent.app/"));
+});
+
+/** mac7/app-icon: one size for the window, the menu bar and the dock was wrong for all three. */
+test("each place the mark appears asks for its own size, and only macOS wants a template", () => {
+  assert.equal(WINDOW_ICON_SIZE, 512, "a taskbar had to stretch the 32 it used to get");
+  assert.equal(trayIconSize("darwin"), 16, "the menu bar, in points");
+  for (const platform of ["win32", "linux"]) {
+    assert.equal(trayIconSize(platform), 32, "the notification area keeps the size it has always had");
+    assert.deepEqual(trayIconScales(platform), [1]);
+    assert.equal(isTemplateTrayIcon(platform), false);
+  }
+  assert.deepEqual(trayIconScales("darwin"), [1, 2], "a Retina menu bar gets real pixels, not a stretch");
+  assert.equal(isTemplateTrayIcon("darwin"), true, "so the mark suits a light and a dark menu bar");
+});
+
+test("the mark really shrinks to every size a Linux menu asks for", async () => {
+  const mark = readPng(await readFile("public/assets/keepoak-mark.png"));
+  assert.equal(mark.width, 1024, "the source is big enough for every size below");
+  for (const size of LINUX_ICON_SIZES) {
+    const small = scale(mark, size);
+    assert.equal(small.width, size);
+    assert.equal(small.height, size);
+    assert.ok(small.data.some((byte) => byte !== 0), `${iconFileName("branch-agent", size)} is really drawn`);
+  }
 });

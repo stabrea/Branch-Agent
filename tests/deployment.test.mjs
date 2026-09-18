@@ -7,7 +7,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
-import { performInstall, bootstrapperScript, uninstallEntries, uninstallScript, uninstallKey, defaultInstallRoot } from "../dist/install/installer.js";
+import { performInstall, bootstrapperScript, uninstallEntries, uninstallScript, uninstallKey, defaultInstallRoot, shippedIconPath, shortcutIcon } from "../dist/install/installer.js";
 import { shortcutScript, regAddArgs, regDeleteValueArgs } from "../dist/install/windows.js";
 import { portableLocation, installedLocation, resolveDataLocation, migrateLegacyData, legacyDataDirs } from "../dist/install/layout.js";
 import { autostartCommand, setAutostart, startsMinimized, minimizedFlag } from "../dist/install/autostart.js";
@@ -110,6 +110,17 @@ test("the installer script and the Uninstall entry say what they will do", () =>
   assert.ok(script.split("\r\n").every((line) => !/(^|&\s*)pause\b/.test(line)), "the installer's waits go through %PAUSE%, which /quiet switches off");
   assert.match(script, /if \/i "%%~A"=="\/quiet" set "PAUSE=type NUL"/);
   assert.match(shortcutScript({ path: "C:\\M\\a.lnk", target: "C:\\App\\x.exe" }), /CreateObject\("WScript\.Shell"\)/);
+
+  // mac7/app-icon: the packager copies the stock Electron executable back over the packaged one, so it
+  // still carries Electron's logo. Every shortcut and every list entry has to name the KeepOak .ico.
+  assert.equal(shippedIconPath, join("resources", "app", "public", "assets", "keepoak.ico"));
+  assert.equal(shortcutIcon("C:\\App", "Branch Agent.exe", true), `${join("C:\\App", shippedIconPath)},0`);
+  assert.equal(shortcutIcon("C:\\App", "Branch Agent.exe", false), `${join("C:\\App", "Branch Agent.exe")},0`,
+    "an older copy without the icon still gets a working shortcut");
+  assert.match(shortcutScript({ path: "a", target: "t", iconLocation: "C:\\App\\k.ico,0" }), /link\.IconLocation = "C:\\App\\k\.ico,0"/);
+  assert.equal(byName.DisplayIcon, join("C:\\App", "Branch Agent.exe"), "no icon given, the executable as before");
+  const withIcon = uninstallEntries({ installRoot: "C:\\App", executableName: "Branch Agent.exe", version: "1.2.3", uninstaller: "u", icon: "C:\\App\\k.ico" });
+  assert.equal(Object.fromEntries(withIcon.map((entry) => [entry.name, entry.value])).DisplayIcon, "C:\\App\\k.ico");
   assert.ok(defaultInstallRoot({ LOCALAPPDATA: "C:\\L" }).endsWith(join("Programs", "Branch Agent")));
 });
 
