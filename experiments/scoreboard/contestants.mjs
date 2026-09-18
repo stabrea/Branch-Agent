@@ -99,6 +99,13 @@ export const contestants = [
         "--timeout", String(timeoutSec), prompt],
       cwd: dir,
       env: {
+        // All four of these, not just the config one. `--isolated` isolates the *config*; without
+        // OPENCLAW_HOME and OPENCLAW_STATE_DIR the program still opens the owner's own
+        // ~/.openclaw/state/openclaw.sqlite and writes to their plugin-skills folder, which was
+        // observed happening before these were set. A contestant must leave the owner's
+        // installation exactly as it found it, and must not inherit the owner's history as a start.
+        OPENCLAW_HOME: `${BENCH}/openclaw/home`,
+        OPENCLAW_STATE_DIR: dataDir,
         OPENCLAW_CONFIG_DIR: `${BENCH}/openclaw/config`,
         // Ollama needs no key; OpenClaw refuses to register the provider without one present.
         OLLAMA_API_KEY: "ollama-local-no-key",

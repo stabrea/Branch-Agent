@@ -94,7 +94,7 @@ writeFileSync(join(settings.scratch, "conditions.json"), JSON.stringify(conditio
  * scoring it as one would quietly credit the busiest minutes of the afternoon to whichever agent
  * was not in them. A cell that fails this way is tried once more, and the retry is recorded.
  */
-const rigFailure = (text) => /fetch failed|ECONNREFUSED|ECONNRESET|socket hang up|EAI_AGAIN|502 |503 |Internal Server Error|Connection error/i.test(text ?? "");
+const rigFailure = (text) => /fetch failed|ECONNREFUSED|ECONNRESET|socket hang up|EAI_AGAIN|HTTP 50[0-9]|Internal Server Error/i.test(text ?? "");
 
 /** One attempt: set the folder up, run the program, put the tests back, and mark it. */
 async function runCell(contestant, task, repeat, attempt = 1) {
@@ -148,7 +148,13 @@ async function runCell(contestant, task, repeat, attempt = 1) {
   }
 
   // A rig failure on the first try buys one more go, from a clean folder, rather than a nought.
-  if (attempt === 1 && !result.killed && rigFailure(`${parsed.error ?? ""} ${parsed.answer ?? ""} ${result.stderr}`)) {
+  //
+  // Only the program's *error* is read here, never its answer. An agent's answer is the thing under
+  // test; letting it decide whether the harness gives a second go would hand a contestant a lever
+  // on its own marking — an agent that wrote the words "connection error" in a summary would earn
+  // itself a retry. It was also observed firing on an innocent sentence about retry policy, which
+  // cost four minutes of doubled work and marked a clean run as rescued.
+  if (attempt === 1 && !result.killed && rigFailure(parsed.error ?? "")) {
     process.stdout.write(`retry ${slug} — the model server failed, not the agent: ${(parsed.error || parsed.answer || "").slice(0, 60)}\n`);
     return runCell(contestant, task, repeat, 2);
   }

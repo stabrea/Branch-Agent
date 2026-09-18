@@ -61,3 +61,35 @@ Branch appears **twice**. `branch-trunk` is b23532d9 exactly as it stands, run o
 set — a demonstration of what these two constants cost, not a contestant. `branch` is the same tree
 with those two constants changed and nothing else. OpenClaw and Hermes ran unmodified. That
 asymmetry is stated wherever the board is printed: Branch needed two fixes to enter at all.
+
+## F3 — with a small model, Branch picks a switched-off tool and then asks a question nobody can answer
+
+On `fix-sum` ("run the tests, find the bug, fix the source"), the fixed build does reach the model
+and does call tools. What it does with them:
+
+```
+model.completed  toolCalls 1
+tool.started     troubleshoot.run
+tool.failed      "Fixing failed commands is switched off. The owner can turn it on with the
+                  troubleshoot setting (GET or POST /api/troubleshoot)."
+model.completed  toolCalls 1
+tool.started     user.ask
+attention.needed "I need to enable the troubleshoot setting to run the test command. Would you
+                  like me to do that?"
+run.finished     status needs_input
+```
+
+Two separate things happen here, and only the second is arguably a defect:
+
+1. The model chose `troubleshoot.run` to run a test command, when Branch also offers
+   `shell.execute`, `code.run` and `shell.session.run`. Out of 211 tools, 18 were shown to it that
+   round. Choosing badly among them is what a 4B model does; a catalogue that makes it easy to
+   choose badly is a design one can argue about, but it is not a bug.
+2. Having been refused, Branch's next move was to **ask the owner a question and stop**, rather than
+   reach for one of the other three tools that would have worked. In a headless run there is nobody
+   to answer, so the task ends at `needs_input` with the work untouched.
+
+Nothing was configured around this. The troubleshoot setting was left off, which is how Branch
+ships, and the run is scored as the failure it is. OpenClaw was likewise left on its default tool
+surface — `--local-model-lean` exists and was **not** passed, because that would have been tuning
+one contestant and not the others.
