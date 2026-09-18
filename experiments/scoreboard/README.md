@@ -79,6 +79,24 @@ well over a minute, and whichever agent paid for it would look slow rather than 
 - Each contestant runs against its own config and state directory under `/workspace/bench`. None of
   them reads or writes the owner's settings, and none starts with the owner's history.
 
+## Everything this left running, so it can be stopped
+
+RIG.md keeps a list of what the rig installed; this is what the board added on top of it.
+
+| what | where | stop or remove it with |
+|---|---|---|
+| derived models `qwen3-4b-16k`, `qwen3-4b-64k`, `qwen3-4b-64k-nothink` | the owner's `branch-ollama` container | `docker exec branch-ollama ollama rm qwen3-4b-16k qwen3-4b-64k qwen3-4b-64k-nothink` |
+| the window itself | `taofik-ai`, systemd **user** unit | `systemctl --user stop bench-scoreboard` |
+| the keep-warm pinger (it holds ~12 GB of the P40 on a 24-hour keep-alive, and two copies were started) | `taofik-ai` | `pkill -f keep-model-warm.sh` then `docker exec branch-ollama ollama stop qwen3-4b-64k` |
+| the second Branch checkout, unmodified b23532d9 | `/workspace/bench/branch-trunk` on `taofik-ai` | `rm -rf` |
+| the Hermes virtualenv and its home | `/workspace/bench/hermes-venv`, `/workspace/bench/hermes-home` | `rm -rf` |
+| every run's workspace and state | `/workspace/bench/board/{work,state}` | `rm -rf` |
+
+Nothing was installed on the Mac, no system package was added to the VM, and the owner's own
+Hermes, OpenClaw and Codex installations were not run, configured or read. `~/.claude`,
+`~/.openclaw` and `~/.hermes` are checked before and after every window; the check and its result
+are in the board's own write-up.
+
 ## A gap in the fingerprint, stated rather than hidden
 
 `scorerDigest` is given each task's id, whether it is read-only and whether its tests are restored —
