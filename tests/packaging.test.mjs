@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
 import {
-  assetNameFor, checksumLine, finishMac, includedInApp, needsAssetName, packagerOptions, parseArgs, windowsZipCommand, writeLinuxIcons,
+  assetNameFor, checksumLine, finishMac, includedInApp, signingRequired, needsAssetName, packagerOptions, parseArgs, windowsZipCommand, writeLinuxIcons,
 } from "../scripts/package-desktop.mjs";
 import * as mac from "../scripts/package-macos.mjs";
 import * as linux from "../scripts/package-linux.mjs";
@@ -365,8 +365,18 @@ test("the identity check runs after signing and before anything is zipped", () =
   const plan = mac.macFinishPlan({ app: "A.app", zip: "A.zip", nested: ["A.app/H.app"], entitlements: "e", env: {} });
   const ran = [];
   const refuse = () => { ran.push("check"); throw new Error("the requirement pins a cdhash"); };
-  assert.throws(() => finishMac(plan, { app: "A.app", release: true, run: (command) => ran.push(command[0]), check: refuse }), /cdhash/);
+  assert.throws(() => finishMac(plan, { app: "A.app", release: true, required: true, run: (command) => ran.push(command[0]), check: refuse }), /cdhash/);
   assert.deepEqual(ran, ["codesign", "codesign", "check"], "signed, checked, and never zipped");
+
+  // Before the owner has turned signing on, a release is unsigned exactly as it always was: it is
+  // not checked, it is zipped, and it says plainly what that costs.
+  ran.length = 0;
+  const warned = [];
+  finishMac(plan, { app: "A.app", release: true, required: false, run: (command) => ran.push(command[0]), check: refuse, warn: (line) => warned.push(line) });
+  assert.deepEqual(ran, ["codesign", "codesign", "ditto"]);
+  assert.equal(warned.length, 1);
+  assert.match(warned[0], /unsigned/);
+  assert.match(warned[0], /every update/);
 
   ran.length = 0;
   const signed = mac.macFinishPlan({ app: "A.app", zip: "A.zip", nested: [], entitlements: "e", env: { MAC_SIGNING_SHA1: "AB" } });
@@ -374,16 +384,38 @@ test("the identity check runs after signing and before anything is zipped", () =
   assert.deepEqual(ran, ["codesign", "check", "ditto"], "a signed build is checked even when it is not a release");
 
   ran.length = 0;
-  finishMac(plan, { app: "A.app", release: false, run: (command) => ran.push(command[0]), check: () => ran.push("check") });
+  const quiet = [];
+  finishMac(plan, { app: "A.app", release: false, required: true, run: (command) => ran.push(command[0]), check: () => ran.push("check"),
+    warn: (line) => quiet.push(line) });
   assert.deepEqual(ran, ["codesign", "codesign", "ditto"], "a plain local build stays ad-hoc and unchecked, as before");
+  assert.deepEqual(quiet, [], "and silent");
+  assert.equal(signingRequired({ MAC_SIGNING_REQUIRED: "true" }), true);
+  for (const value of [undefined, "", "false", "TRUE ", "1"]) assert.equal(signingRequired({ MAC_SIGNING_REQUIRED: value }), false, String(value));
 });
 
-test("the release workflow refuses a Mac release with no certificate and never shows the certificate", async () => {
+test("the release workflow refuses a Mac release only once signing is switched on, and warns before then", async () => {
   const workflow = await readFile(join(".github", "workflows", "package.yml"), "utf8");
   const step = (name) => workflow.split(/\n\s*- /).find((block) => block.includes(`name: ${name}`)) ?? "";
+  // The owner's switch is a repository variable, set beside the three secrets.
+  assert.match(workflow, /MAC_SIGNING_REQUIRED: \$\{\{ vars\.MAC_SIGNING_REQUIRED == 'true' \}\}/);
+  assert.match(workflow, /HAS_ANY_MAC_SIGNING_SECRET: \$\{\{ secrets\.MAC_SIGNING_P12_BASE64 != '' \|\| secrets\.MAC_SIGNING_P12_PASSWORD != '' \|\| secrets\.MAC_SIGNING_SHA1 != '' \}\}/);
+  // Switched on with no certificate: refused, loudly.
   const refuse = step("Refuse to publish a Mac release with no signing certificate");
-  assert.match(refuse, /runner\.os == 'macOS' && env\.HAS_MAC_SIGNING_CERTIFICATE != 'true'/);
+  assert.match(refuse, /if: runner\.os == 'macOS' && env\.MAC_SIGNING_REQUIRED == 'true' && env\.HAS_MAC_SIGNING_CERTIFICATE != 'true'/);
+  assert.match(refuse, /::error::/);
   assert.match(refuse, /exit 1/);
+  // A secret with no switch is a half-finished setup: refused, loudly.
+  const half = step("Refuse a half-finished Mac signing setup");
+  assert.match(half, /if: runner\.os == 'macOS' && env\.MAC_SIGNING_REQUIRED != 'true' && env\.HAS_ANY_MAC_SIGNING_SECRET == 'true'/);
+  assert.match(half, /exit 1/);
+  // Not switched on: the release goes ahead unsigned, with a warning in the job summary.
+  const warn = step("Warn that the Mac copy is unsigned");
+  assert.match(warn, /if: runner\.os == 'macOS' && env\.MAC_SIGNING_REQUIRED != 'true' && env\.HAS_ANY_MAC_SIGNING_SECRET != 'true'/);
+  assert.match(warn, /GITHUB_STEP_SUMMARY/);
+  assert.match(warn, /unsigned/);
+  assert.doesNotMatch(warn, /exit 1/);
+  // The build itself is told, so a lost or broken certificate still fails at the identity check.
+  assert.match(step("Build the download"), /MAC_SIGNING_REQUIRED: \$\{\{ env\.MAC_SIGNING_REQUIRED \}\}/);
   const load = step("Load the signing certificate");
   assert.match(load, /base64 --decode > "\$RUNNER_TEMP\/branch-signing\.p12"/);
   assert.match(load, /rm -f "\$RUNNER_TEMP\/branch-signing\.p12"/);
@@ -391,6 +423,5 @@ test("the release workflow refuses a Mac release with no certificate and never s
   const remove = step("Remove the signing material");
   assert.match(remove, /if: always\(\)/);
   assert.match(remove, /security delete-keychain "\$RUNNER_TEMP\/branch-signing\.keychain-db"/);
-  // --release is what makes the build read its identity back and refuse a cdhash.
   assert.match(workflow, /npm run package:desktop -- --release/);
 });

@@ -20,6 +20,11 @@ jobs:
       # names it by. Either one alone signs nothing and silently falls back to the ad-hoc seal.
       HAS_MAC_SIGNING_CERTIFICATE: ${{ secrets.MAC_SIGNING_P12_BASE64 != '' && secrets.MAC_SIGNING_SHA1 != '' }}
       HAS_APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY != '' }}
+      # The owner's switch. Until it is set, the Mac copy is unsigned exactly as it always was, with a
+      # warning. Once it is set, a missing or broken certificate refuses the release instead of
+      # silently shipping a build that resets every user's permissions.
+      MAC_SIGNING_REQUIRED: ${{ vars.MAC_SIGNING_REQUIRED == 'true' }}
+      HAS_ANY_MAC_SIGNING_SECRET: ${{ secrets.MAC_SIGNING_P12_BASE64 != '' || secrets.MAC_SIGNING_P12_PASSWORD != '' || secrets.MAC_SIGNING_SHA1 != '' }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -48,14 +53,27 @@ jobs:
       # The free certificate that keeps the owner's microphone, screen and accessibility permissions
       # across updates. Without it the Mac copy falls back to the ad-hoc seal, whose identity is the
       # app's own contents, so the next update looks like a different app and every permission is
-      # asked for again. That failure is silent, so the release refuses to publish without it.
+      # asked for again. Once signing is switched on that failure would be silent, so it refuses.
       - name: Refuse to publish a Mac release with no signing certificate
-        if: runner.os == 'macOS' && env.HAS_MAC_SIGNING_CERTIFICATE != 'true' && !(env.HAS_APPLE_CERTIFICATE == 'true' && env.HAS_APPLE_SIGNING_IDENTITY == 'true')
+        if: runner.os == 'macOS' && env.MAC_SIGNING_REQUIRED == 'true' && env.HAS_MAC_SIGNING_CERTIFICATE != 'true' && !(env.HAS_APPLE_CERTIFICATE == 'true' && env.HAS_APPLE_SIGNING_IDENTITY == 'true')
         run: |
-          echo "::error::No macOS signing certificate. Publishing now would reset every user's" \
-            "microphone, screen recording and accessibility permission. Set MAC_SIGNING_P12_BASE64," \
-            "MAC_SIGNING_P12_PASSWORD and MAC_SIGNING_SHA1 (scripts/make-mac-signing-certificate.sh)."
+          echo "::error::Mac signing is switched on (MAC_SIGNING_REQUIRED) but there is no signing certificate." \
+            "Publishing now would reset every user's microphone, screen recording and accessibility permission." \
+            "Set MAC_SIGNING_P12_BASE64, MAC_SIGNING_P12_PASSWORD and MAC_SIGNING_SHA1 (scripts/make-mac-signing-certificate.sh)."
           exit 1
+      # A signing secret with no switch is almost certainly a setup that was never finished.
+      - name: Refuse a half-finished Mac signing setup
+        if: runner.os == 'macOS' && env.MAC_SIGNING_REQUIRED != 'true' && env.HAS_ANY_MAC_SIGNING_SECRET == 'true'
+        run: |
+          echo "::error::A MAC_SIGNING_* secret is set but the repository variable MAC_SIGNING_REQUIRED is not 'true'." \
+            "Finish turning signing on (docs/desktop.md), or remove the secrets."
+          exit 1
+      - name: Warn that the Mac copy is unsigned
+        if: runner.os == 'macOS' && env.MAC_SIGNING_REQUIRED != 'true' && env.HAS_ANY_MAC_SIGNING_SECRET != 'true'
+        run: |
+          message="The Mac copy in this release is unsigned: every update will ask each person for microphone, screen recording and accessibility permission again. To stop that, turn signing on (docs/desktop.md)."
+          echo "::warning::$message"
+          printf '### macOS download is unsigned\n\n%s\n' "$message" >> "$GITHUB_STEP_SUMMARY"
       # The certificate lives in a keychain made for this run only. It is never trusted: an untrusted
       # certificate signs perfectly well when it is named by its SHA-1, and trusting it would be a
       # change to the machine's security settings for no gain. The keychain must be added to the
@@ -90,6 +108,7 @@ jobs:
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           MAC_SIGNING_SHA1: ${{ secrets.MAC_SIGNING_SHA1 }}
+          MAC_SIGNING_REQUIRED: ${{ env.MAC_SIGNING_REQUIRED }}
         run: |
           if [ -f "$RUNNER_TEMP/notary-key.p8" ]; then export APPLE_API_KEY_PATH="$RUNNER_TEMP/notary-key.p8"; fi
           npm run package:desktop -- --release

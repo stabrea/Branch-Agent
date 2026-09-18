@@ -165,17 +165,29 @@ async function writeUnixInstaller() {
 }
 
 /**
- * Signs, checks the identity, and only then zips (and notarises). A release is checked whether or not
- * it thinks it signed: the failure worth catching is a build that lost the certificate, signed ad hoc,
- * and looks perfectly fine until every user's permissions are gone. Checking before the zip means a
- * refused build leaves no download behind to be uploaded by hand. A plain local build stays ad-hoc
- * and unchecked, as it always was.
+ * Whether the owner has switched Mac signing on (the `MAC_SIGNING_REQUIRED` repository variable,
+ * set beside the three signing secrets). Only the exact word "true" counts.
  */
-export function finishMac(plan, { app, release, run = runCommand, check = assertStableIdentity }) {
+export function signingRequired(env) {
+  return env.MAC_SIGNING_REQUIRED === "true";
+}
+
+export const unsignedReleaseWarning = "This Mac release is unsigned: its identity is its own contents, so every update will ask each person for microphone, screen recording and accessibility permission again. Turning signing on is in docs/desktop.md.";
+
+/**
+ * Signs, checks the identity, and only then zips (and notarises). Once signing is switched on, a
+ * release is checked whether or not it thinks it signed: the failure worth catching is a build that
+ * lost the certificate, signed ad hoc, and looks perfectly fine until every user's permissions are
+ * gone. Checking before the zip means a refused build leaves no download behind. Before signing is
+ * switched on, a release is unsigned as it always was, and says what that costs. A plain local build
+ * stays ad-hoc, unchecked and silent.
+ */
+export function finishMac(plan, { app, release, required, run = runCommand, check = assertStableIdentity, warn = console.warn }) {
   const zipAt = plan.commands.findIndex(([file]) => file === "ditto");
   const signing = zipAt === -1 ? plan.commands : plan.commands.slice(0, zipAt);
   for (const command of signing) run(command);
-  if (plan.signed || release) check(app);
+  if (plan.signed || (release && required)) check(app);
+  else if (release) warn(unsignedReleaseWarning);
   for (const command of plan.commands.slice(signing.length)) run(command);
 }
 
@@ -190,7 +202,7 @@ async function packageMac({ arch, release }) {
   await rm(zip, { force: true });
   await rm(`${zip}.sha256`, { force: true });
   const plan = mac.macFinishPlan({ app, zip, nested, entitlements, env: process.env });
-  finishMac(plan, { app, release });
+  finishMac(plan, { app, release, required: signingRequired(process.env) });
   await writeChecksum(zip);
   await writeUnixInstaller();
   console.log(app);

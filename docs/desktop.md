@@ -10,7 +10,7 @@ npm run desktop
 npm run package:desktop
 ```
 
-The portable Windows folder is `release/Branch Agent-win32-x64/`; launch `Branch Agent.exe` inside it. Keep the whole folder together. The Windows build is unsigned and does not install shortcuts, a startup service or automatic updates; the macOS build is signed with the project's own certificate, which is what keeps its permissions across updates (see below). Those distribution capabilities remain on the feature inventory.
+The portable Windows folder is `release/Branch Agent-win32-x64/`; launch `Branch Agent.exe` inside it. Keep the whole folder together. The Windows build is unsigned and does not install shortcuts, a startup service or automatic updates; the macOS build is signed with the project's own certificate once the owner turns signing on, which is what keeps its permissions across updates (see below). Those distribution capabilities remain on the feature inventory.
 
 Electron is a development dependency because it supplies the native window, platform tray and bundled runtime. Electron Packager creates the distributable directory. Fontsource packages supply locally bundled typefaces; each font's license accompanies it. The package includes only runtime files, public assets, production dependencies, package metadata and notices.
 
@@ -70,9 +70,17 @@ as a one-line identity receipt, which belongs in the release notes:
 Identity receipt: identifier "com.keepoak.branch-agent" and certificate root = H"…"
 ```
 
-A release that would silently reset everyone's permissions therefore fails the build instead of
-shipping. The release workflow also refuses to publish a macOS download at all when no signing
-certificate is configured.
+Signing is switched on by the repository variable `MAC_SIGNING_REQUIRED=true` (Settings, Secrets
+and variables, Actions, Variables), set beside the three secrets `MAC_SIGNING_P12_BASE64`,
+`MAC_SIGNING_P12_PASSWORD` and `MAC_SIGNING_SHA1`.
+
+- **Switched on:** a missing certificate, a failed import, or a `cdhash` requirement refuses the
+  release loudly, before anything is zipped. A release that would silently reset everyone's
+  permissions therefore fails instead of shipping. `npm run package:desktop -- --release` does the
+  same locally when `MAC_SIGNING_REQUIRED=true` is in the environment.
+- **Not switched on:** the release goes ahead unsigned, exactly as before, with a warning in the job
+  summary that every update will ask for permissions again. A plain local build is unsigned and silent.
+- **A signing secret with no variable** refuses the release: that is a setup that was never finished.
 
 ## Smart App Control and the executable
 

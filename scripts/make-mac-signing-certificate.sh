@@ -117,11 +117,18 @@ What to do next, in order:
      (Create the item first with \`bw-claude create item\`, or add the attachment to an existing
      "Branch Agent signing" login item. Nothing here uploads anything for you.)
 
-  2. Add three repository secrets on GitHub (Settings, Secrets and variables, Actions):
+  2. Add three repository secrets on GitHub (Settings, Secrets and variables, Actions, Secrets):
 
        MAC_SIGNING_P12_BASE64     base64 -i "$OUT/branch-signing.p12" | pbcopy
        MAC_SIGNING_P12_PASSWORD   the passphrase you just chose
        MAC_SIGNING_SHA1           $SHA1
+
+     and, on the Variables tab beside them, the switch that turns signing on:
+
+       MAC_SIGNING_REQUIRED       true
+
+     From then on a release with a missing or broken certificate is refused rather than shipped
+     unsigned. Set all four together: a secret with no variable also refuses the release.
 
   3. Delete the .p12 from this folder once both copies exist, or leave it and keep the folder private.
      It is already readable only by you.
