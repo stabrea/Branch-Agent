@@ -1,4 +1,4 @@
-# Checkpoint 2026-09-17 — 0.17.0 released; one machine now, and how to carry on
+# Checkpoint 2026-09-18 — 0.18.0 prepared; one machine now, and how to carry on
 
 **Read this first, then `docs/places.md`, then `docs/agents/README.md`.**
 
@@ -56,27 +56,42 @@ SSH: `desktop-bridge.ps1 -Install`.
 
 ## Where the work stands
 
-**Released: 0.17.0** (2026-09-17), cut and published by the Mac.
-[Release](https://github.com/stabrea/Branch-Agent/releases/tag/v0.17.0), PR #104 merged as
-`2fc3e6e`. The owner's PC still runs **0.16.0**: publish-template.sh has no hand-install step, so
-0.17.0 reaches it through the in-app update.
+**Prepared, not yet published: 0.18.0.** The version is set to 0.18.0 on `mac7/release-018`, the
+notes are written, and the release path has been checked without being run. Nothing is tagged and
+nothing is published: the coordinator presses go, and `docs/agents/RELEASE-018-READY.md` says in what
+order.
 
-- **What 0.17.0 is:** `wave2/integration` at `78045b8` plus fixes only, released from `9515f87`. The
-  newer Mac work on `mac/cross-platform` is not in it. `wave2/integration`, `release/0.17.0` and
-  `feat/assistant-runtime` all point at `9515f87`.
-- **Proof, same commit:** Windows `verify.sh` on Legion 1602 tests, 0 failed, 21 skipped. macOS
-  `verify.sh` 1602, 0 failed, 12 skipped. Linux: every touched file plus all four desktop files under
-  xvfb on branch-test-linux, 189 tests, 0 failed, 3 skipped. PR check green on all three systems.
-- **Downloads:** Windows is packaged on Legion through `desktop-bridge.ps1`. macOS (arm64, x64) and
-  Linux come from the tag-triggered `package.yml`, which worked for the first time here. Its publish
-  job uploads with `--clobber`, so it **replaces the hand-built Windows zip**: attach that zip again
-  once the job finishes (done for 0.17.0; sha256 `66ac6ba4…311784`).
-- **Update rehearsal:** 0.16.0 to 0.17.0 in 18 s with zero console windows, and 0.16.0 kept as
-  `install.previous`. The staging folder now holds 0.17.0, which is the right base for the next rehearsal.
-- **Ticks:** 120 `(merged, ships in 0.17.0)` markers in 17 theme issues now read `(0.17.0)`. #103
-  counts 601 released, 0 merged-but-unreleased, and 154 still to build.
+- **What 0.18.0 is:** `mac/cross-platform` — 0.17.0 plus the 660 commits staging never saw. The nine
+  re-audit groups (devices, model savings, comfort settings, deeper learning, flows and boards, safety
+  extras, personal, coding, reach and platform), the three security follow-ups, the chat-source and
+  chat-permission work, credential autofill, pinned settings, the wake word, waves 9 to 11, the Node
+  floor correction, and the Linux, Windows and macOS round fixes. `wave2/integration` is still at the
+  0.17.0 point and has to be moved forward as part of publishing.
+- **The three things a person must be told**, and the reason each is in the notes rather than left to
+  be found: **Node 24.14.0 or newer is now required** (25.4.0 or newer on the 25 line), because the
+  proxy setting works by handing the proxy to Node and older Nodes have no way to be told; **a task
+  started from a chat app now holds four read-only permissions** instead of everything minus a named
+  handful, which is a real narrowing that will stop things that used to work; and **a chat cannot
+  approve a change** unless the owner ticks approvals on a line naming that one person on that one
+  app.
+- **Every new group ships off.** A fresh install is still the provider talking and nothing in the way.
+- **Proof so far:** build-fast mode only — `npm run build`, `npx tsc --noEmit`, and the macOS test
+  files each branch touched, at `--test-concurrency=2`. **No full three-system round has been run on
+  this tree.** That round is the first thing the coordinator owes the release, and until it passes
+  0.18.0 is prepared rather than ready.
+- **Downloads, and one thing CHECKPOINT used to get wrong:** the publish job no longer uploads with
+  `--clobber`. `fix(package): never upload over a download already on the release` added a guard that
+  keeps any asset already attached, together with its checksum. So a hand-built Windows zip attached
+  to the release *before* the tag is kept, not replaced, and does not need attaching a second time.
+  The job also builds the phone download, `branch-agent-<version>.tgz` with its `.sha256`, and refuses
+  the release if the tag and `package.json` disagree about the version.
+- **Update rehearsal:** not yet run for 0.18.0. The staging folder holds 0.17.0, which is the right
+  base for it.
+- **Ticks:** not yet rewritten. The `(merged, ships in 0.18.0)` markers in the theme issues become
+  `(0.18.0)` at release, and #103 is regenerated after that.
 
-What the release run found and fixed (all in `9515f87`'s history):
+What the 0.17.0 release run found and fixed (all in `9515f87`'s history), kept because each one
+will recur:
 
 1. **Signed out by an early reload** (`public/app.js`): the token was saved only after the locker
    answered, so a reload in that gap showed the sign-in form again. This caused the "Tab walks the
@@ -97,9 +112,9 @@ What the release run found and fixed (all in `9515f87`'s history):
    to the Command Line Tools copy first on PATH for suite runs, or `tests/git*.test.mjs` fails with a
    licence message.
 
-**Staging `wave2/integration`** additionally holds the Mac's third-wave briefs and the prompt
-library is on `wave9/prompt-library`, backend and screen complete with 8 passing tests, not yet
-merged.
+**Staging `wave2/integration` is behind the work, not ahead of it.** It still sits at the 0.17.0
+point; `mac/cross-platform` is the trunk everything has been merged into since. Moving staging
+forward is a step in publishing 0.18.0, not something that already happened.
 
 **Everything the owner reversed is back on the list.** The forty rows once marked "decided against"
 are re-opened. Nothing is declined any more: if a feature exists in any agent, it exists in this one,
