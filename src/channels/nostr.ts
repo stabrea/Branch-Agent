@@ -77,6 +77,9 @@ export class NostrChannel implements ChannelAdapter {
       try {
         const socket = await this.options.connect(relay, { onMessage: (text) => this.onText(text) });
         this.open.set(relay, socket);
+        // mac7/linux-fixes: a stop that arrived while this was still being opened found nothing to
+        // close, and the loop then waited for a close nobody would ask for. Let it go straight away.
+        if (this.stopping) socket.close();
         const filter = { kinds: [4], "#p": [this.publicKey], since: this.since };
         socket.send(JSON.stringify(["REQ", "branch-dm", filter]));
         await socket.closed;

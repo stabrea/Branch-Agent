@@ -23,7 +23,13 @@ async function signedIn(t) {
   const browser = await chromium.launch({ headless: true });
   t.after(() => browser.close());
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
-  await page.addInitScript(() => Object.defineProperty(navigator, "platform", { get: () => "MacIntel" }));
+  // The page picks the install line from userAgentData first and only then from the older
+  // navigator.platform, so a stub that sets just the latter left the viewer as whatever the
+  // machine running the tests happened to be: a Mac passed, Linux read its own Flatpak line.
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "platform", { get: () => "MacIntel" });
+    Object.defineProperty(navigator, "userAgentData", { get: () => ({ platform: "macOS" }) });
+  });
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto(server.url);

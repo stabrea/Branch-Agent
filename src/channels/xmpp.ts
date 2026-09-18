@@ -103,6 +103,9 @@ export class XmppChannel implements ChannelAdapter {
         const socket = await this.options.open({ host: this.options.host, port: this.options.port,
           tls: this.options.security === "direct", servername: this.domain });
         const session = this.attach(socket, this.options.security === "direct");
+        // mac7/linux-fixes: a stop that arrived while this was still being opened found nothing to
+        // close, and the loop then waited for a close nobody would ask for. Let it go straight away.
+        if (this.stopping) session.end();
         this.openStream();
         const keepalive = setInterval(() => this.write(" "), this.options.keepaliveMs ?? 60000);
         await session.closed;
