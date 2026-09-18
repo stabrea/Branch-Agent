@@ -116,11 +116,18 @@ async function ownersData(root) {
   return { dataDir, workspace, before: await fingerprint(dataDir, workspace) };
 }
 
-/** No change to the shape of the data is half-applied: the format is one this build knows. */
+/**
+ * No change to the shape of the data is half-applied. The format is either one this build knows, or
+ * a newer one that says this format can still read it — which is the promise that lets an owner go
+ * back one release, so it counts as whole too.
+ */
 function assertFormatWhole(label, format, list = storeMigrations) {
   const newest = list.at(-1).version;
-  assert.ok(format.version >= 1 && format.version <= newest, `${label}: the data format is ${format.version}, which this build does not know`);
+  assert.ok(format.version >= 1, `${label}: the data has no format at all (${format.version})`);
   assert.ok(format.readableBy <= format.version, `${label}: the format says it needs a newer reader than it is`);
+  if (format.version > newest)
+    assert.ok(format.readableBy <= newest,
+      `${label}: the data is at format ${format.version}, which this build cannot read (it needs ${format.readableBy})`);
 }
 
 /**
@@ -553,7 +560,7 @@ test(`data from a newer Branch is refused without a single byte being changed ($
     db.prepare("INSERT INTO only_the_newer_one_knows VALUES(?)").run("the owner's newer work");
     db.exec("CREATE TABLE IF NOT EXISTS branch_format(id INTEGER PRIMARY KEY CHECK (id=1), version INTEGER NOT NULL, readable_by INTEGER NOT NULL, changed_at TEXT NOT NULL)");
     db.prepare("INSERT INTO branch_format(id,version,readable_by,changed_at) VALUES(1,?,?,?) ON CONFLICT(id) DO UPDATE SET version=excluded.version, readable_by=excluded.readable_by")
-      .run(ahead, ahead - 1, new Date().toISOString());
+      .run(ahead, ahead, new Date().toISOString());
     db.exec(`PRAGMA user_version=${ahead}`);
     db.close();
     const digest = async () => createHash("sha256").update(await readFile(join(dataDir, "branch.sqlite"))).digest("hex");
@@ -573,14 +580,18 @@ test(`data from a newer Branch is refused without a single byte being changed ($
   t.diagnostic(outcomes.join(" "));
 });
 
-/** Stamps a data folder as having been written by a Branch newer than this one. */
-function stampFromTheFuture(dataDir, ahead) {
+/**
+ * Stamps a data folder as having been written by a Branch newer than this one. `readableBy` says the
+ * oldest format that can still read it, and it is what decides whether this build may open it at
+ * all: data marked as still readable here is meant to open, so it defaults to the new format.
+ */
+function stampFromTheFuture(dataDir, ahead, readableBy = ahead) {
   const db = new DatabaseSync(join(dataDir, "branch.sqlite"));
   try {
     db.prepare("UPDATE tasks SET status='running', output=''").run();
     db.exec("CREATE TABLE IF NOT EXISTS branch_format(id INTEGER PRIMARY KEY CHECK (id=1), version INTEGER NOT NULL, readable_by INTEGER NOT NULL, changed_at TEXT NOT NULL)");
     db.prepare("INSERT INTO branch_format(id,version,readable_by,changed_at) VALUES(1,?,?,?) ON CONFLICT(id) DO UPDATE SET version=excluded.version, readable_by=excluded.readable_by")
-      .run(ahead, ahead - 1, new Date().toISOString());
+      .run(ahead, readableBy, new Date().toISOString());
     db.exec(`PRAGMA user_version=${ahead}`);
   } finally { db.close(); }
 }
@@ -607,6 +618,11 @@ test(`\`branch update --yes\` on data from a newer Branch refuses without touchi
     const root = await temp(t, `headless-${seed}`);
     const { dataDir } = await ownersData(root);
     const ahead = storeMigrations.at(-1).version + 1 + Math.floor(next() * 20);
+    // Two ways in, and the seed picks one. With the never-break switch on, the copy for the check is
+    // taken first; with it off there is no check, and the safety copy is the first thing to open the
+    // saved work. Both go through the same `withStore`, and both must refuse before writing.
+    const checking = next() < 0.5;
+    await saveGatewayConfig(dataDir, GatewayConfigSchema.parse({ mode: checking ? "on" : "off" }));
     stampFromTheFuture(dataDir, ahead);
     const digest = async () => createHash("sha256").update(await readFile(join(dataDir, "branch.sqlite"))).digest("hex");
     const wasAt = await digest();
@@ -625,15 +641,36 @@ test(`\`branch update --yes\` on data from a newer Branch refuses without touchi
         runScript: () => { throw new Error(`seed ${seed}: the files were swapped although the saved work could not be read`); },
       },
     });
-    const label = `seed ${seed}, \`branch update --yes\` on data from format ${ahead}`;
+    const label = `seed ${seed}, \`branch update --yes\` on data from format ${ahead} (${checking ? "the copy for the check" : "the safety copy"})`;
     assert.equal(code, 1, `${label}: the update went ahead`);
     assert.equal(await digest(), wasAt, `${label}: the saved work was changed by an update that then refused`);
     const said = lines.join("\n");
     assert.match(said, /newer version of Branch|cannot read safely/, `${label}: ${said}`);
     assert.doesNotMatch(said, systemWords, `${label}: ${said}`);
-    outcomes.push(`${seed}:format-${ahead}`);
+    outcomes.push(`${seed}:format-${ahead}:${checking ? "check-copy" : "safety-copy"}`);
   }
   t.diagnostic(outcomes.join(" "));
+});
+
+test("data a newer Branch marked as still readable here opens, and is not dragged back", async (t) => {
+  // Seed 5 of the update round drew this case and showed the tests were asking for the wrong thing.
+  // A change that only adds keeps `readableBy` at the old number precisely so the release before can
+  // still open the data — going back one version is the whole point of it, so it must not refuse,
+  // and it must not quietly stamp the data back down to its own format either.
+  const root = await temp(t, "readable-ahead");
+  const { dataDir, workspace, before } = await ownersData(root);
+  const newest = storeMigrations.at(-1).version;
+  stampFromTheFuture(dataDir, newest + 1, newest);
+  assert.doesNotThrow(() => assertFormatReadable(join(dataDir, "branch.sqlite"), storeMigrations),
+    "data marked as still readable by this format must open");
+  assert.equal(await startOrRefuse("newer data still readable here", dataDir, workspace, before), "started");
+  const db = new DatabaseSync(join(dataDir, "branch.sqlite"), { readOnly: true });
+  try {
+    assert.equal(formatOf(db).version, newest + 1, "the newer version's format stamp was not written over");
+  } finally { db.close(); }
+  // One more ahead than that, and no longer readable here: it must refuse.
+  stampFromTheFuture(dataDir, newest + 2, newest + 1);
+  assert.throws(() => assertFormatReadable(join(dataDir, "branch.sqlite"), storeMigrations), DataTooNewError);
 });
 
 test("data from a much older Branch opens and keeps everything", async (t) => {
