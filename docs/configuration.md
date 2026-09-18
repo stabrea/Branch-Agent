@@ -295,7 +295,7 @@ confirmed from the provider's own pages.
 
 Branch needs **Node 24.14.0 or newer**. On the Node 25 line it needs **25.4.0 or newer**, because Node 25.0 to 25.3
 carry a higher number but not the piece Branch needs. Node 26 and later are all new enough. `package.json` says this
-as `>=24.14.0 <25 || >=25.4.0`, and `npm` refuses to install on anything older.
+as `>=24.14.0 <25 || >=25.4.0`, and `npm` warns when it is installed on anything older.
 
 The floor used to be 24.0.0. It was raised because of the proxy above. Branch hands the proxy to Node through
 `http.setGlobalProxyFromEnv()`, which points every call Branch makes — including `fetch` to your AI providers — at

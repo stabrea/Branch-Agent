@@ -13,6 +13,8 @@
  *   24.13.1  `http.setGlobalProxyFromEnv` is not a function — nothing can be pointed at a proxy
  *   24.14.0  https and http both reach the proxy and come back (as a CONNECT tunnel)
  *   24.21.0, 25.9.0, 26.4.0  the same
+ *   25.0.0 and 25.3.0  not a function either: the Node 25 line only got it in 25.4.0, which is
+ *            why the range below has to name that line separately rather than say `>=24.14.0`
  *   26.5.0+  the same for https; plain http stops being tunnelled and is proxied in the ordinary
  *            way instead (undici 8.7.0, nodejs/undici#5116). Both reach the proxy.
  * An earlier reading that `fetch` ignored the proxy on Node 24 came from a test proxy that only
