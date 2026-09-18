@@ -115,6 +115,11 @@ export class OpenAIStream {
     }
   }
   result(): Completion {
+    // integrate/empty-completion: out of room before a word of the answer is the model's limit, not
+    // a broken provider, and the person is told so.
+    if (this.done && this.finish === "length" && !this.content && !this.calls.size && this.thinking)
+      throw new Error(`The model used its whole reply allowance thinking (${this.thinking.toLocaleString()} characters) `
+        + "and was cut off before it answered. Try a larger model, or ask for one step at a time.");
     if (!this.done || !["stop", "tool_calls"].includes(this.finish))
       throw new Error("Provider stream ended without a complete response");
     if (this.calls.size && this.finish !== "tool_calls")

@@ -213,3 +213,27 @@ test("an audited operation that returns nothing is not refused as an empty answe
   const value = await app.runtime.auditOperation(app.runtime.context(), "Nothing to return", async () => undefined);
   assert.equal(value, undefined);
 });
+
+test("a reply cut off while still thinking says so, rather than blaming the provider", async (t) => {
+  // 0.18.1 keeps the 2,048-token reply ceiling, so a local reasoning model can still run out of room
+  // mid-thought (one recorded reply was 2,409 tokens). That ends as a failure either way; this holds
+  // that the sentence names the real cause and that the thinking is still charged.
+  const endpoint = await serve(t, async (req, res) => {
+    for await (const _ of req);
+    res.setHeader("Content-Type", "text/event-stream");
+    for (const frame of [
+      sse(chunk({ reasoning_content: "z".repeat(4000) })),
+      sse(chunk({ content: "" }, "length")),
+      sse("[DONE]"),
+    ]) { res.write(frame); await delay(1); }
+    res.end();
+  });
+  const error = await new OpenAIProvider({ endpoint: `${endpoint}/v1`, model: "m", apiKey: "k" }).complete({
+    messages: [{ role: "user", content: "q" }], tools: [], maxTokens: 1000,
+    signal: new AbortController().signal, onTextDelta: () => undefined,
+  }).then(() => null, (e) => e);
+  assert.ok(error);
+  assert.doesNotMatch(error.message, /Provider stream ended/);
+  assert.match(error.message, /thinking/i);
+  assert.ok(error.estimatedOutput >= 1000);
+});
