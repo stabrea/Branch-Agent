@@ -63,6 +63,7 @@ import { parseSessionSummary, summaryText } from "./session-summary.js";
 import { chatEngineSettings, condenseMessages, earlierTurns, shouldCondense, standaloneQuestion } from "./chat-engine.js"; // w911 (A0847)
 import {
   CheckError, StallError, ReliabilityOptionsSchema, CompletionCheckSchema, clipToolResult, evaluateChecks, shrinkToolResults, withStallWatchdog,
+  thinkingKeepsAlive, thinkingCharsPerToken, thinkingStallWindows,
   type CompletionCheck, type ReliabilityInput, type ReliabilityOptions,
 } from "./reliability.js";
 import {
@@ -105,6 +106,7 @@ import { estimateCost, formatCost, pricingSettings } from "./pricing.js";
 // --- R17-S-B: the owner's knobs, read fresh at each marked hook (src/knobs/apply.ts) ---
 import * as knobs from "./knobs/apply.js";
 import { thinkingFilter, withoutThinking } from "./knobs/thinking.js";
+import { produced, producedNothing, thinkingTokens } from "./empty-answer.js"; // mac7/empty-completion
 // --- end R17-S-B ---
 // --- R17-E: models, cheaper and smarter (src/model-savings/hook.ts) ---
 import * as savings from "./model-savings/hook.js";
@@ -526,7 +528,8 @@ export class Runtime {
         run,
         scoped,
         status,
-        status === "completed" ? JSON.stringify(value) : errorText(failure),
+        // integrate/empty-completion: an operation that returns nothing still ran; `undefined` is not JSON.
+        status === "completed" ? JSON.stringify(value) ?? "null" : errorText(failure),
       );
       if (status !== "completed") throw failure;
       if (settled.status !== "completed") throw new Error(settled.output);
@@ -581,7 +584,8 @@ export class Runtime {
       run,
       context,
       status,
-      this.hideSecrets(status !== "completed" ? errorText(failure) : JSON.stringify(result)),
+      // mac7/empty-completion: `undefined` is not JSON, and a tool that returns nothing still ran.
+      this.hideSecrets(status !== "completed" ? errorText(failure) : JSON.stringify(result) ?? "null"),
     );
     if (status !== "completed") throw failure;
     if (settled.status !== "completed") throw new Error(settled.output);
@@ -978,6 +982,16 @@ ${run.output.slice(0, 6000)}`;
     status: Run["status"],
     output: string,
   ): Promise<Run> {
+    // mac7/empty-completion: a task that claims to have finished with nothing to show for it is a
+    // failure with a plain sentence, not a success. This is the only place the runtime finishes a
+    // run — an owner's task, a delegated child and a manual tool action all settle here — so the
+    // check cannot be walked around, and it judges only what the task itself recorded.
+    const nothing = producedNothing(status, output, produced(this.store.events(run.id)));
+    if (nothing) {
+      this.store.event(run.id, "run.produced_nothing", { reason: nothing });
+      status = "failed";
+      output = nothing;
+    }
     try {
       await this.registry.finishRun(context);
     } catch (error) {
@@ -1812,8 +1826,14 @@ ${run.output.slice(0, 6000)}`;
       // mac6/accounts: the call carries its conversation, so a connection with several accounts can honour the one chosen for it.
       const raw = await withAccountCall({ owner: run.owner, sessionId: run.sessionId, runId: run.id, note: (kind, data) => this.store.event(run.id, kind, data),
         ...(context.trunkKeys ? { trunk: { keys: context.trunkKeys } } : {}) }, async () => onTextDelta
+        // mac7/empty-completion: thinking resets the silence clock as text does. A reasoning model
+        // writes no words of its answer while it thinks, and the watchdog was calling that a dead
+        // provider and abandoning a call that was working. The thinking is heard, never shown.
         ? await withStallWatchdog(context.signal, this.reliability.modelStallMs, (signal, touch) =>
-            preset.provider.complete({ ...request, signal, onTextDelta: (text: string) => { touch(); onTextDelta(text); } }))
+            preset.provider.complete({ ...request, signal, onTextDelta: (text: string) => { touch(); onTextDelta(text); },
+              // integrate/empty-completion: only within the reply's room and a bounded window.
+              onReasoningDelta: thinkingKeepsAlive(touch, { maxChars: maxTokens * thinkingCharsPerToken,
+                forMs: this.reliability.modelStallMs * thinkingStallWindows }) }))
         : await preset.provider.complete({ ...request, signal: context.signal }));
       const { output, reported } = this.recordCompletion(run, context, raw, input);
       // R17-048 / R17-050: note the service's own count, and keep its cache warm if the owner asked.
@@ -1827,6 +1847,9 @@ ${run.output.slice(0, 6000)}`;
         toolCalls: completion.toolCalls.length,
         estimatedInput: input,
         estimatedOutput: output,
+        // mac7/empty-completion: thinking that is not part of the answer, so a round that thought
+        // and said nothing can be told apart from one that was never answered at all.
+        reasoningChars: completion.reasoningChars ?? 0,
         reported: reported ?? null,
         // What the provider's own prompt cache served, when it says: the catalog is the part of the
         // request that repeats every round, so this is where keeping it stable pays off.
@@ -1852,7 +1875,12 @@ ${run.output.slice(0, 6000)}`;
   /** R17-S12: with "show reasoning" off, no caller (task, side question, debate turn) gets the thinking. */
   private shownThinking(completion: Completion): Completion {
     if (knobs.showsReasoning(this.store, this.owner)) return completion;
-    return { ...completion, content: withoutThinking(completion.content) };
+    const content = withoutThinking(completion.content);
+    // mac7/empty-completion: a model that writes `<think>…</think>` inline leaves nothing behind
+    // once it is taken out. What was taken out is counted, so an empty answer can still say why.
+    // Absent when there was none, so a plain reply is the same object it always was.
+    const thought = (completion.reasoningChars ?? 0) + Math.max(0, completion.content.length - content.length);
+    return { ...completion, content, ...(thought ? { reasoningChars: thought } : {}) };
   }
   /**
    * A round answered from the kept answers. The provider was never asked, so the round is written
@@ -1881,7 +1909,9 @@ ${run.output.slice(0, 6000)}`;
   ) {
     const usage = UsageSchema.safeParse(raw.usage),
       reported = usage.success ? usage.data : undefined;
-    const output = estimateTokens(raw);
+    // integrate/empty-completion: thinking is output the provider produced and charges for, even
+    // though the text is not kept; without a reported count it is estimated like any other output.
+    const output = estimateTokens(raw) + thinkingTokens(raw.reasoningChars);
     this.store.addUsage(run.id, 0, output, reported);
     context.budget.charge(
       Math.max(output, reported?.output ?? 0) +

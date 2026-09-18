@@ -12,7 +12,7 @@ import type {
 import { anthropicBatchApi, openaiBatchApi } from "./provider-batch.js";
 import { DemoProvider } from "./demo.js";
 import { rejectedHttpResponse } from "./provider-retry.js";
-import { AnthropicStream, OpenAIStream, readEventStream } from "./provider-stream.js";
+import { AnthropicStream, OpenAIStream, readEventStream, thinkingText } from "./provider-stream.js";
 import type { ModelPreset } from "./models.js";
 export { GeminiProvider } from "./providers/gemini.js";
 
@@ -33,6 +33,10 @@ const openaiResponse = z.object({
       z.object({
         message: z.object({
           content: z.string().nullable().optional(),
+          // mac7/empty-completion: the thinking a reasoning model returns beside its answer.
+          // integrate/empty-completion: read loosely; only text counts (src/provider-stream.ts).
+          reasoning_content: z.unknown().optional(),
+          reasoning: z.unknown().optional(),
           tool_calls: z
             .array(
               z.object({
@@ -64,6 +68,9 @@ const anthropicResponse = z.object({
         name: z.string(),
         input: z.record(z.string(), z.unknown()),
       }),
+      // integrate/empty-completion: extended thinking, counted and never kept.
+      z.object({ type: z.literal("thinking"), thinking: z.string().optional() }),
+      z.object({ type: z.literal("redacted_thinking") }),
     ]),
   ),
   usage: z
@@ -310,7 +317,8 @@ export class OpenAIProvider implements Provider {
     const body = { ...plain, ...serviceTierPart(this.options.endpoint, request.serviceTier),
       ...openRouterBodyPart(this.options.endpoint, request.providerRouting) };
     if (request.onTextDelta) {
-      const stream = new OpenAIStream(request.onTextDelta);
+      // mac7/empty-completion: thinking goes to its own listener, never to the page.
+      const stream = new OpenAIStream(request.onTextDelta, request.onReasoningDelta);
       try {
         await post(this.options, "/chat/completions",
           { ...body, stream: true, stream_options: { include_usage: true } },
@@ -329,6 +337,7 @@ export class OpenAIProvider implements Provider {
       ),
     );
     const message = response.choices[0]!.message;
+    const thought = thinkingText(message.reasoning_content, message.reasoning).length;
     return {
       content: message.content ?? "",
       toolCalls: (message.tool_calls ?? []).map((c) => ({
@@ -336,6 +345,7 @@ export class OpenAIProvider implements Provider {
         name: originalName(c.function.name, request),
         arguments: c.function.arguments,
       })),
+      ...(thought ? { reasoningChars: thought } : {}),
       ...(response.usage
         ? {
             usage: {
@@ -438,7 +448,7 @@ export class AnthropicProvider implements Provider {
   async complete(request: CompletionRequest): Promise<Completion> {
     const body = anthropicBody(request, this.options.model);
     if (request.onTextDelta) {
-      const stream = new AnthropicStream(request.onTextDelta);
+      const stream = new AnthropicStream(request.onTextDelta, request.onReasoningDelta);
       try {
         await post(this.options, "/messages", { ...body, stream: true },
           { "x-api-key": this.options.apiKey, "anthropic-version": "2023-06-01" },
@@ -467,6 +477,7 @@ export class AnthropicProvider implements Provider {
           name: originalName(c.name, request),
           arguments: JSON.stringify(c.input),
         })),
+      ...anthropicThought(response.content),
       ...(response.usage
         ? {
             usage: {
@@ -483,9 +494,23 @@ export class AnthropicProvider implements Provider {
   }
 }
 const thinkingBudgets = { low: 1024, medium: 4096, high: 8192 } as const;
+/** integrate/empty-completion: how much a non-streamed reply thought. The thinking itself is dropped. */
+function anthropicThought(content: z.infer<typeof anthropicResponse>["content"]): { reasoningChars?: number } {
+  const chars = content.reduce((sum, block) => sum + (block.type === "thinking" ? (block.thinking ?? "").length : 0), 0);
+  return chars ? { reasoningChars: chars } : {};
+}
+/**
+ * integrate/empty-completion: Anthropic refuses a request with thinking on whose last assistant
+ * turn used a tool without the signed thinking block that preceded it. Branch never keeps the
+ * thinking, so it cannot send it back; a round that continues a tool loop asks for no thinking.
+ */
+function continuesToolLoop(messages: Message[]): boolean {
+  const last = [...messages].reverse().find((message) => message.role === "assistant");
+  return Boolean(last?.toolCalls?.length);
+}
 /** Anthropic extended thinking needs a budget of at least 1024 tokens below max_tokens; otherwise it is omitted. */
 function anthropicThinking(request: CompletionRequest): Record<string, unknown> {
-  if (!request.reasoning) return {};
+  if (!request.reasoning || continuesToolLoop(request.messages)) return {};
   const budget = Math.min(thinkingBudgets[request.reasoning], request.maxTokens - 256);
   return budget >= 1024 ? { thinking: { type: "enabled", budget_tokens: budget } } : {};
 }

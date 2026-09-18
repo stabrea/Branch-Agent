@@ -79,6 +79,13 @@ export interface CompletionRequest {
   /** Live provider text only; partial text is not a committed completion. */
   onTextDelta?: (text: string) => void;
   /**
+   * mac7/empty-completion: live *thinking* from a reasoning model, which arrives in a field of its
+   * own (`reasoning_content`, `reasoning`, `thinking`) rather than in the answer. It is not the
+   * answer and never reaches the page, but a model that is visibly thinking is a model that is
+   * working, so whatever watches for silence needs to hear it.
+   */
+  onReasoningDelta?: (text: string) => void;
+  /**
    * The exact shape the reply must take. An adapter with a setting of its own for this uses it;
    * one without simply ignores the field, and whatever asked falls back to saying so in the words
    * of the question and checking the reply afterwards. See src/answer-shape.ts.
@@ -89,6 +96,12 @@ export interface Completion {
   content: string;
   toolCalls: ToolCall[];
   usage?: Usage | undefined;
+  /**
+   * mac7/empty-completion: how many characters of thinking the model produced that are not part of
+   * the answer. Kept so a round that thought and said nothing can be told apart from one that was
+   * never answered at all; the thinking itself is not kept.
+   */
+  reasoningChars?: number | undefined;
 }
 /** Usage observed before a provider stream failed; content remains uncommitted. */
 export class ProviderStreamError extends Error {
@@ -148,6 +161,7 @@ export const CompletionSchema = z.object({
   content: z.string().max(65536),
   toolCalls: z.array(ToolCallSchema).max(16),
   usage: UsageSchema.optional(),
+  reasoningChars: z.number().int().nonnegative().optional(),
 });
 export type RunStatus =
   | "running"
