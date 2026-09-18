@@ -302,8 +302,39 @@ test("I12 after installing, Branch checks the program really arrived rather than
   const view = await w.oneClick.buttonPlan({});
   await assert.rejects(w.oneClick.buttonGo({ size: "small", agreedPlan: view.install.fingerprint }),
     /still is not on this computer/, "a half-install is never called a success");
-  assert.deepEqual(w.ran.map((command) => command[0]),
-    ["/usr/bin/ditto", "/usr/bin/codesign", "/usr/sbin/spctl", "/usr/bin/ditto"], "the checked plan ran, in order");
+  const scratch = join(w.root, "data", "local-installers");
+  assert.deepEqual(w.ran, [
+    ["/usr/bin/ditto", "-x", "-k", join(scratch, "Ollama-darwin.zip"), join(scratch, "unpacked")],
+    ["/usr/bin/codesign", "--verify", "--strict", "--deep", `${join(scratch, "unpacked")}/Ollama.app`],
+    ["/usr/sbin/spctl", "--assess", "--type", "execute", `${join(scratch, "unpacked")}/Ollama.app`],
+    ["/usr/bin/ditto", `${join(scratch, "unpacked")}/Ollama.app`, "/Applications/Ollama.app"],
+  ], "the exact commands, with the downloaded file and the unpacked folder filled in under Branch's own folder");
+  for (const command of w.ran) for (const part of command) assert.doesNotMatch(part, /[{}]/, "nothing is left unfilled");
+});
+
+test("I12b a program macOS does not accept is never put in Applications", async (t) => {
+  const body = Buffer.from("not really a program");
+  const sum = createHash("sha256").update(body).digest("hex");
+  const library = async (url) => String(url).endsWith("sha256sum.txt")
+    ? new Response(`${sum}  ./Ollama-darwin.zip\n`)
+    : new Response(body, { headers: { "content-length": String(body.length) } });
+  const root = await scratch("install-signature");
+  t.after(async () => { await discardTemp(root); });
+  const ran = [];
+  const outcome = await runInstall(installPlan("ollama", at.darwin, noTools), {
+    at: at.darwin, exists: async () => false, library, scratchDir: join(root, "dl"),
+    run: async (file, args) => {
+      ran.push([file, ...args]);
+      if (file === "/usr/sbin/spctl") throw Object.assign(new Error("exit 3"), { stderr: "rejected: source=no usable signature" });
+      return { stdout: "" };
+    },
+  });
+  assert.equal(outcome.installed, false);
+  assert.match(outcome.message, /Check the signature|Check macOS accepts it/, "the message names the step that stopped it");
+  assert.match(outcome.message, /no usable signature/);
+  assert.equal(ran.length, 3, "it stopped at the check");
+  assert.equal(ran.some((command) => command.includes("/Applications/Ollama.app")), false,
+    "nothing an unsigned download unpacked ever reaches Applications");
 });
 
 test("I13 with the program already there the button goes straight to the model, and says so", async (t) => {

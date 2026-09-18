@@ -163,7 +163,7 @@ function downloadPlan(at: LaunchEnv, asset: string): InstallPlan {
     ...common, approxBytes: 700 * 1024 ** 2,
     verify: "Branch checks the download against the SHA-256 Ollama publishes beside it, and throws it away if it does not match.",
     steps: [{ what: "Open Ollama's own installer", command: ["{file}"] }],
-    after: "Ollama's installer opens; click through it, then come back here.",
+    after: "Ollama's own installer opens. Branch waits while you click through it, then checks that Ollama really arrived.",
   });
   return finish({
     ...common, approxBytes: 16 * 1024,
