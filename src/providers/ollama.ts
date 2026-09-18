@@ -19,6 +19,10 @@ export interface OllamaOptions {
 const ollamaReply = z.object({
   message: z.object({
     content: z.string().default(""),
+    // mac7/empty-completion: Ollama's own name for a reasoning model's thinking. It is not the
+    // answer, but a model that is thinking is a model that is working, so it is heard rather than
+    // dropped — see src/provider-stream.ts for the same gap in the OpenAI-shaped adapter.
+    thinking: z.string().nullable().optional(),
     tool_calls: z.array(z.object({
       function: z.object({ name: z.string(), arguments: z.union([z.string(), z.record(z.string(), z.unknown())]) }),
     }).loose()).optional(),
@@ -96,13 +100,15 @@ export class OllamaProvider implements Provider {
   }
   private async stream(request: CompletionRequest, body: Record<string, unknown>): Promise<Completion> {
     const emit = request.onTextDelta!;
-    let text = "", usage: { input: number; output: number } | undefined, calls: ToolCall[] = [];
+    let text = "", thinking = 0, usage: { input: number; output: number } | undefined, calls: ToolCall[] = [];
     try {
       const response = await this.post({ ...body, stream: true }, request.signal);
       for await (const line of lines(response)) {
         const part = ollamaReply.parse(JSON.parse(line) as unknown);
         const chunk = part.message.content;
         if (chunk) { text += chunk; emit(chunk); }
+        const thought = part.message.thinking;
+        if (thought) { thinking += thought.length; request.onReasoningDelta?.(thought); }
         const finished = readCompletion(part);
         if (finished.toolCalls.length) calls = [...calls, ...finished.toolCalls];
         if (part.done && finished.usage) usage = finished.usage;
@@ -110,7 +116,7 @@ export class OllamaProvider implements Provider {
     } catch (error) {
       throw new ProviderStreamError(error, estimateTokens(text), usage);
     }
-    return restoreToolNames({ content: text, toolCalls: calls, ...(usage ? { usage } : {}) }, request);
+    return restoreToolNames({ content: text, toolCalls: calls, ...(usage ? { usage } : {}), ...(thinking ? { reasoningChars: thinking } : {}) }, request);
   }
   private async post(body: unknown, signal: AbortSignal): Promise<Response> {
     const response = await this.fetchImpl(ollamaRoot(this.options.endpoint) + "/api/chat", {
@@ -159,6 +165,7 @@ function readCompletion(parsed: z.infer<typeof ollamaReply>): Completion {
   return {
     content: parsed.message.content,
     toolCalls: calls,
+    ...(parsed.message.thinking ? { reasoningChars: parsed.message.thinking.length } : {}),
     ...(input !== undefined || output !== undefined
       ? { usage: { input: Math.trunc(input ?? 0), output: Math.trunc(output ?? 0) } } : {}),
   };

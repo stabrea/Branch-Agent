@@ -9,6 +9,12 @@ const openaiChunk = z.object({
     index: z.literal(0),
     delta: z.object({
       content: z.string().nullable().optional(),
+      // mac7/empty-completion: a reasoning model streams its thinking in a field beside the answer.
+      // OpenAI-shaped local servers (Ollama, llama.cpp, vLLM) use one of these two names. Dropping
+      // them made a thinking model look silent: no text ever arrived, so the stall watchdog fired,
+      // and a reply that was all thinking arrived as an empty answer with nothing to explain it.
+      reasoning_content: z.string().nullable().optional(),
+      reasoning: z.string().nullable().optional(),
       tool_calls: z.array(z.object({
         index,
         id: z.string().optional(),
@@ -71,11 +77,16 @@ class EventFraming {
 
 export class OpenAIStream {
   private content = "";
+  private thinking = 0;
   private calls = new Map<number, ToolCall>();
   private usage: Usage | undefined;
   private finish = "";
   private done = false;
-  constructor(private readonly emit: (text: string) => void) {}
+  constructor(
+    private readonly emit: (text: string) => void,
+    /** mac7/empty-completion: thinking as it arrives. It is not the answer, so it is counted, not kept. */
+    private readonly think: (text: string) => void = () => undefined,
+  ) {}
   consume(data: string): void {
     if (this.done) throw new Error("Provider sent data after stream completion");
     if (data === "[DONE]") { this.done = true; return; }
@@ -87,6 +98,8 @@ export class OpenAIStream {
       if (this.finish) throw new Error("Provider sent choices after finish");
       const text = choice.delta.content;
       if (text) { this.content += text; this.emit(text); }
+      const thought = choice.delta.reasoning_content ?? choice.delta.reasoning;
+      if (thought) { this.thinking += thought.length; this.think(thought); }
       for (const fragment of choice.delta.tool_calls ?? []) {
         const call = this.calls.get(fragment.index) ?? { id: "", name: "", arguments: "" };
         call.id += fragment.id ?? "";
@@ -106,6 +119,7 @@ export class OpenAIStream {
       content: this.content,
       toolCalls: [...this.calls].sort(([a], [b]) => a - b).map(([, call]) => call),
       ...(this.usage ? { usage: this.usage } : {}),
+      ...(this.thinking ? { reasoningChars: this.thinking } : {}),
     };
   }
   failure(cause: unknown): ProviderStreamError {

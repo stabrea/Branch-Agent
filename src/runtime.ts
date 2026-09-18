@@ -1865,8 +1865,12 @@ ${run.output.slice(0, 6000)}`;
       // mac6/accounts: the call carries its conversation, so a connection with several accounts can honour the one chosen for it.
       const raw = await withAccountCall({ owner: run.owner, sessionId: run.sessionId, runId: run.id, note: (kind, data) => this.store.event(run.id, kind, data),
         ...(context.trunkKeys ? { trunk: { keys: context.trunkKeys } } : {}) }, async () => onTextDelta
+        // mac7/empty-completion: thinking resets the silence clock as text does. A reasoning model
+        // writes no words of its answer while it thinks, and the watchdog was calling that a dead
+        // provider and abandoning a call that was working. The thinking is heard, never shown.
         ? await withStallWatchdog(context.signal, this.reliability.modelStallMs, (signal, touch) =>
-            preset.provider.complete({ ...request, signal, onTextDelta: (text: string) => { touch(); onTextDelta(text); } }))
+            preset.provider.complete({ ...request, signal, onTextDelta: (text: string) => { touch(); onTextDelta(text); },
+              onReasoningDelta: () => touch() }))
         : await preset.provider.complete({ ...request, signal: context.signal }));
       const { output, reported } = this.recordCompletion(run, context, raw, input);
       // R17-048 / R17-050: note the service's own count, and keep its cache warm if the owner asked.
@@ -1880,6 +1884,9 @@ ${run.output.slice(0, 6000)}`;
         toolCalls: completion.toolCalls.length,
         estimatedInput: input,
         estimatedOutput: output,
+        // mac7/empty-completion: thinking that is not part of the answer, so a round that thought
+        // and said nothing can be told apart from one that was never answered at all.
+        reasoningChars: completion.reasoningChars ?? 0,
         reported: reported ?? null,
         // What the provider's own prompt cache served, when it says: the catalog is the part of the
         // request that repeats every round, so this is where keeping it stable pays off.
@@ -1905,7 +1912,11 @@ ${run.output.slice(0, 6000)}`;
   /** R17-S12: with "show reasoning" off, no caller (task, side question, debate turn) gets the thinking. */
   private shownThinking(completion: Completion): Completion {
     if (knobs.showsReasoning(this.store, this.owner)) return completion;
-    return { ...completion, content: withoutThinking(completion.content) };
+    const content = withoutThinking(completion.content);
+    // mac7/empty-completion: a model that writes `<think>…</think>` inline leaves nothing behind
+    // once it is taken out. What was taken out is counted, so an empty answer can still say why.
+    const hidden = completion.content.length - content.length;
+    return { ...completion, content, reasoningChars: (completion.reasoningChars ?? 0) + Math.max(0, hidden) };
   }
   /**
    * A round answered from the kept answers. The provider was never asked, so the round is written
