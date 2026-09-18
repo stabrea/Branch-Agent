@@ -264,7 +264,7 @@ test("I7 a step that fails stops the rest and is reported honestly", async (t) =
   assert.equal(failed.installed, false);
   assert.match(failed.message, /could not install Ollama/);
   assert.match(failed.message, /No such keg/);
-  assert.match(failed.message, /Nothing was left half-installed/);
+  assert.match(failed.message, /Nothing was left half-installed/, "Homebrew tidies up after itself");
 
   const refused = await runInstall(installPlan("lm-studio", at.linux, noTools), {
     at: at.linux, exists: async () => true, library: async () => { throw new Error("no"); }, scratchDir: join(root, "x"),
@@ -339,6 +339,35 @@ test("I7b a download that cannot happen is said in plain words, with nothing lef
     run: async () => { throw new Error("a refused download must run nothing"); },
   });
   assert.match(refused.message, /did not match the checksum its publisher published/);
+});
+
+test("I7c when the publisher's own installer fails, Branch does not claim the disk is clean", async (t) => {
+  // Seen on a real Ubuntu box: Ollama's install script got as far as putting the program in
+  // /usr/local before it failed on the machine's user accounts, and Branch told the owner "Nothing
+  // was left half-installed". Branch had indeed put nothing there itself — but the step it ran had,
+  // and the owner reads that sentence about their computer, not about Branch's part in it.
+  const root = await scratch("install-partial");
+  t.after(async () => { await discardTemp(root); });
+  const body = Buffer.from("#!/bin/sh\nexit 1\n");
+  const sum = createHash("sha256").update(body).digest("hex");
+  const library = async (url) => new Response(url.includes("sha256sum.txt") ? `${sum}  ./install.sh\n` : body);
+  const outcome = await runInstall(installPlan("ollama", at.linux, noTools), {
+    at: at.linux, exists: async () => false, library, scratchDir: join(root, "dl"),
+    run: async () => { throw Object.assign(new Error("exit 1"), { stderr: "useradd: group ollama exists" }); },
+  });
+  assert.equal(outcome.installed, false);
+  assert.match(outcome.message, /useradd: group ollama exists/, "what it said is still there");
+  assert.doesNotMatch(outcome.message, /Nothing was left half-installed/,
+    "Ollama's own installer ran, so Branch cannot promise the computer is untouched");
+  assert.match(outcome.message, /may have left part of itself/);
+  assert.match(outcome.message, /ollama\.com/);
+
+  // Homebrew and winget do clean up after themselves, so there the promise still holds.
+  const brew = await runInstall(installPlan("ollama", at.darwin, { homebrew: "/opt/homebrew/bin/brew", winget: null }), {
+    at: at.darwin, exists: async () => false, library: async () => { throw new Error("no download here"); },
+    scratchDir: join(root, "x"), run: async () => { throw Object.assign(new Error("exit 1"), { stderr: "No such keg" }); },
+  });
+  assert.match(brew.message, /Nothing was left half-installed/);
 });
 
 test("I8 the switch ships off, and Lockdown holds it off whatever is saved", async (t) => {

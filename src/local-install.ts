@@ -363,10 +363,18 @@ export async function runInstall(plan: InstallPlan, deps: InstallDeps): Promise<
   return { installed: true, ran, message: `${plan.name} was installed${plan.after ? `. ${plan.after}` : "."}` };
 }
 
+/**
+ * What to say when a step did not work. Branch can promise its own hands are clean, but where the
+ * step that failed was the publisher's own installer, that installer may have got part-way, so the
+ * owner is told that instead of a promise about their computer that Branch cannot keep.
+ */
 function stepFailure(plan: InstallPlan, step: InstallStep, error: unknown): string {
   const said = String((error as { stderr?: string })?.stderr ?? (error as Error)?.message ?? "").trim().slice(0, 300);
-  return `Branch could not install ${plan.name}: the step "${step.what}" did not work${said ? `. It said: ${said}` : "."} `
-    + `Nothing was left half-installed by Branch. You can install it yourself from ${runtimeInfo[plan.runner].installPage}.`;
+  const page = runtimeInfo[plan.runner].installPage;
+  const after = plan.fetch
+    ? `${plan.name}'s own installer ran, so it may have left part of itself in place. Installing it again, here or from ${page}, puts that right.`
+    : `Nothing was left half-installed by Branch. You can install it yourself from ${page}.`;
+  return `Branch could not install ${plan.name}: the step "${step.what}" did not work${said ? `. It said: ${said}` : "."} ${after}`;
 }
 
 /** How big the download is, in plain words, for the sentence the owner reads before saying yes. */
