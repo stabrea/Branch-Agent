@@ -244,6 +244,10 @@ test("A1413 the browser refuses an address outside its own list and outside the 
   await assert.rejects(browser.navigate("https://docs.rs/", context), /not on the allowed list/);
   // An address carrying a password is refused whatever the lists say.
   await assert.rejects(browser.navigate("https://user:pw@example.com/", context), /not an allowed origin/);
+  /* Integration review (adversarial): something that is not an address at all is refused in the
+     same plain words, not with the URL parser's own "Invalid URL". */
+  for (const nonsense of ["not a url", "", "://", "http://"])
+    await assert.rejects(browser.navigate(nonsense, context), /not an allowed origin/, JSON.stringify(nonsense));
 });
 
 // --------------------------------------------------------------------------------- A2028

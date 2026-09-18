@@ -186,9 +186,12 @@ export class BranchBrowser {
     } finally { if (context.signal.aborted) await this.closeRun(context); }
   }
   async navigate(url: string, context: ToolContext) {
-    const known = this.sessions.get(this.key(context)), origin = new URL(url).origin;
-    if (!this.allowed(url, known) || new URL(url).username || new URL(url).password)
-      throw new Error('Browser destination is not an allowed origin');
+    const known = this.sessions.get(this.key(context));
+    // Something that is not an address at all is refused in the same plain words as an address on
+    // no list: `allowed` answers false for it, so the reason never becomes the URL parser's own.
+    if (!this.allowed(url, known)) throw new Error('Browser destination is not an allowed origin');
+    const target = new URL(url), origin = target.origin;
+    if (target.username || target.password) throw new Error('Browser destination is not an allowed origin');
     // w911 (A1726): the one loopback page Branch itself serves to this window skips the network policy.
     if (known?.granted !== origin) await this.policy?.assertAllowed(new URL(url), 'browser address');
     const entry = this.entry(context);
