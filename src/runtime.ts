@@ -1265,7 +1265,12 @@ ${run.output.slice(0, 6000)}`;
    * has to respect is its own, not the task's.
    */
   async completeAside(run: Run, context: ToolContext, preset: ModelPreset, question: string): Promise<string> {
-    return (await this.complete(run, [{ role: "user", content: question }], context, preset, null)).content;
+    // mac7/collisions: "with no tools" is this function's own promise, so it keeps it itself rather
+    // than trusting every caller to empty the permissions first. A side question that kept them
+    // carried the whole catalogue in its request; once waves 9-11 grew that catalogue past the
+    // context ceiling, such a call could no longer be answered at all.
+    const scoped: ToolContext = { ...context, permissions: new Set() };
+    return (await this.complete(run, [{ role: "user", content: question }], scoped, preset, null)).content;
   }
   /** What the advisor said about one task, for showing beside its answer. Null when none was asked. */
   advice(runId: string): (Advice & { line: string }) | null {
