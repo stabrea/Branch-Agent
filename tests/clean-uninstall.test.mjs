@@ -272,6 +272,8 @@ test("C11 the danger zone is the last card in Settings, fits 400 px, and says it
   await openPlace(page, "settings:about");
   await page.waitForFunction(() => document.querySelector("#danger-zone h2")?.textContent === "Zone dangereuse");
   await page.waitForFunction(() => document.querySelector("label[for=danger-confirm]")?.textContent === "Tapez Branch Agent pour confirmer");
+  await page.waitForFunction(() => document.querySelector("#danger-remove")?.textContent === "Supprimer Branch et tout ce qu'il a installé");
+  await page.waitForFunction(() => document.querySelector("#danger-zone p[data-t='danger.intro']")?.textContent.startsWith("Supprimer Branch le ferme"));
   assert.deepEqual(errors, []);
 });
 
