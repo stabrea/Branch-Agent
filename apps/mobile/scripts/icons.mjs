@@ -29,8 +29,26 @@ async function androidIcons(res, reversed, ground) {
   }
 }
 
+/** The grey copy iOS tints itself: the mark's brightness, with its shape kept. */
+function grey(image) {
+  const data = Buffer.from(image.data);
+  for (let at = 0; at < data.length; at += 4) {
+    const value = Math.round(0.299 * data[at] + 0.587 * data[at + 1] + 0.114 * data[at + 2]);
+    data[at] = data[at + 1] = data[at + 2] = value;
+  }
+  return { ...image, data };
+}
+
+/**
+ * Since iOS 18 Apple asks for three 1024 icons, not one: the ordinary one, one for a dark home screen
+ * and a grey one the system tints itself. Only the ordinary one may be opaque; the other two leave the
+ * ground clear so the system puts its own behind the mark (mac7/app-icon).
+ */
 async function iosIcons(assets, reversed, normal, ground) {
-  await put(join(assets, "AppIcon.appiconset", "AppIcon-512@2x.png"), writePng(compose(reversed, 1024, 0.62, ground), true));
+  const icon = join(assets, "AppIcon.appiconset");
+  await put(join(icon, "AppIcon-512@2x.png"), writePng(compose(reversed, 1024, 0.62, ground), true));
+  await put(join(icon, "AppIcon-dark.png"), writePng(compose(reversed, 1024, 0.62, null)));
+  await put(join(icon, "AppIcon-tinted.png"), writePng(grey(compose(reversed, 1024, 0.62, null))));
   const launch = join(assets, "LaunchMark.imageset");
   await put(join(launch, "LaunchMark-light.png"), writePng(compose(normal, 360, 0.9, null)));
   await put(join(launch, "LaunchMark-dark.png"), writePng(compose(reversed, 360, 0.9, null)));
