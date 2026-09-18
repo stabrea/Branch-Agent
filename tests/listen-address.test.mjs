@@ -158,8 +158,9 @@ test("B4 a chat, a key, a household person, a Trunk and Lockdown are each refuse
   // A Trunk's message from another computer arrives at POST /api/reach/trunks/inbox with a
   // short-lived key, so the key refusal is what a Trunk meets; work another program started is
   // refused by name as well.
-  assert.match(offLimitsToShortLivedKeys("POST", "/api/listen"), /short-lived key cannot change where Branch listens/);
-  assert.equal(offLimitsToShortLivedKeys("GET", "/api/listen"), null, "looking is not moving");
+  assert.match(offLimitsToShortLivedKeys("POST", "/api/listen"), /short-lived key cannot read or change where Branch listens/);
+  // Integration review: looking is not moving, but it is still telling the caller where to knock.
+  assert.match(offLimitsToShortLivedKeys("GET", "/api/listen"), /short-lived key cannot read or change where Branch listens/);
   for (const source of ["mcp", "a2a", "acp"])
     assert.match(listenChangeRefusal(store, owner, { source }), /another assistant or program/);
 
@@ -218,7 +219,7 @@ test("B5 the setting is in the catalogue as one that reaches further, and the ro
   assert.equal(spec.fields[0].guard, "reach", "moving the door off this computer reaches further");
   assert.deepEqual(spec.fields[0].kind.options, ["this-computer", "private-network"], "most careful first");
   assert.equal(spec.fields[0].initial, "this-computer");
-  assert.equal(ROUTES["/api/listen"], "owner POST");
+  assert.equal(ROUTES["/api/listen"], "owner GET,POST");
 
   const docs = await readFile(new URL("../docs/configuration.md", import.meta.url), "utf8");
   assert.match(docs, /## Where Branch listens/, "the reference never says what this is");

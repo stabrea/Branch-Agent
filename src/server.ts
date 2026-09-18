@@ -165,10 +165,10 @@ import { handlesWorkspaceEditorPath, workspaceEditorApi, WorkspaceEditorApiError
 import { protectedTarget } from "./never-break/protected.js"; // bucket-18 integration review
 // mac7/bind: where this door listens, and who may change that (src/listen-address.ts).
 import {
-  decideListen, fromThisComputer, type ListenDecision, listenAsked, listenChangeRefusal, listenKeyRefusal, listenView,
-  ownAddresses, saveListenSettings,
+  decideListen, fromThisComputer, type ListenDecision, listenAsked, listenChangeRefusal, listenKeyRefusal,
+  listenReadRefusal, listenView, ownAddresses, saveListenSettings, thisComputerAddress,
 } from "./listen-address.js";
-import { lockdownActive } from "./lockdown.js";
+import { lockdownActive, onLockdownChange } from "./lockdown.js";
 import { parseModelCommand } from "./model-switch.js";
 import { pricingSettings, savePricingSettings, pricingTableInUse, estimateCost, formatCost } from "./pricing.js";
 import { usageReportRoute } from "./usage-report-api.js"; // bucket 14 (A0367)
@@ -365,8 +365,15 @@ export function hostAllowed(
   if (!origin) return true;
   // bucket 19 (integration review): the same host served over TLS (a paired door behind https) is the same place.
   if (hosts.some((allowed) => origin === `http://${allowed}` || origin === `https://${allowed}`)) return true;
-  const from = /^https?:\/\/([^/?#]+)$/.exec(origin.trim())?.[1];
-  return !!from && anyPort.includes(hostOf(from));
+  // mac7/bind (integration review): a portless entry lets a request SAY it was sent to any port,
+  // because Branch inside a container cannot know which port of the host it was published on. It
+  // must not also let a PAGE on another port of this same computer call itself Branch's own page: a
+  // development server, another app's dashboard or a plugin's own page on 127.0.0.1:8080 is a
+  // different origin, and `sec-fetch-site` calls it same-site because a port is not part of a site.
+  // Branch's own page is served by Branch, so its Origin always carries the very host and port the
+  // request arrived at — which is the test here, and it keeps the published-port case working.
+  const from = /^https?:\/\/([^/?#]+)$/.exec(origin.trim())?.[1]?.toLowerCase();
+  return !!from && from === host.trim().toLowerCase() && anyPort.includes(hostOf(from));
 }
 function authorize(
   request: IncomingMessage, url: string, token: string, extra: readonly string[] = [],
@@ -945,7 +952,12 @@ async function api(
   // app window: a short-lived key (which is how a Trunk's message arrives), a household person, a
   // chat message's task and work another program started are all refused, and so is Lockdown.
   if (path === "/api/listen") {
-    if (request.method === "GET") return listenView(app.store, app.runtime.owner, listen);
+    if (request.method === "GET") {
+      // Integration review: where the door is is where to knock, so looking is guarded too.
+      const hidden = listenReadRefusal(app.store, app.runtime.owner);
+      if (hidden) throw new HttpError(403, hidden);
+      return listenView(app.store, app.runtime.owner, listen);
+    }
     if (request.method !== "POST") throw new HttpError(405, "Use GET or POST here.");
     const refused = listenChangeRefusal(app.store, app.runtime.owner);
     if (refused) throw new HttpError(403, refused);
@@ -2751,7 +2763,11 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
       if (mcpAppPage(request, response, path)) return;
       // Wave 8: an artifact out of a reply, in that same frame. Its address is not used up by the
       // first fetch, so the frame may reload and "open larger" may show the same one again.
-      if (artifactPageRoute(request, response, path)) return;
+      // mac7/bind (integration review): the same gate the live surface gets just below, and for the
+      // builder's own reason. This page's address is NOT used up by the first fetch (see the note in
+      // src/artifact-pages.ts), so for ten minutes it is a page whose whole secret is its address.
+      // The single-use MCP page above burns its address on the first GET, so it does not need this.
+      if (fromThisComputer(request.socket?.remoteAddress, request.headers) && artifactPageRoute(request, response, path)) return;
       // ---- bucket 19: signing a person in needs no key yet; only this app's own pages may ask. ----
       if (path.startsWith("/api/people/sign-in")) {
         if (!hostAllowed(request.headers.host, request.headers.origin, url, allowedHosts()) || request.headers["sec-fetch-site"] === "cross-site")
@@ -2781,7 +2797,7 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
       // only on this computer's own listener, since the name does not run out as an artifact's does.
       // mac7/bind: and only to a caller on this very computer. Opening the door to the private
       // network must not quietly widen a page whose whole secret is its address.
-      if (!viaRemote && fromThisComputer(request.socket?.remoteAddress)
+      if (!viaRemote && fromThisComputer(request.socket?.remoteAddress, request.headers)
         && app.asks.surfaces.serve(request, response, path)) return;
       const triggerFireMatch = /^\/api\/triggers\/([a-f0-9-]{36})\/fire$/.exec(path);
       if (triggerFireMatch && request.method === "POST") {
@@ -3102,6 +3118,13 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
   remote.upgrade = (request, socket) => upgrade(request, socket, true);
   configureLimits(server);
   startEventLoopWatch(app); // bucket 13: runs from the start only when the owner has it on
+  // mac7/bind (integration review): kept so that dropping the wider door can drop what is already
+  // connected through it, rather than leaving an open conversation on the network behind.
+  const liveConnections = new Set<{ remoteAddress?: string | undefined; destroy: () => void; once: (event: string, listener: () => void) => unknown }>();
+  server.on("connection", (socket) => {
+    liveConnections.add(socket);
+    socket.once("close", () => liveConnections.delete(socket));
+  });
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
     server.listen(options.port ?? 3210, listen.address, () => {
@@ -3119,6 +3142,32 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
   else if (listen.beyond)
     console.log("Branch Agent is listening on every address this computer answers on, not only this computer."
       + " Anyone who can reach it still needs the local session token.");
+  // mac7/bind (integration review): switching Lockdown on while the wide door is already open has
+  // to TAKE THE DOOR AWAY, not merely refuse what arrives at it. `decideListen` is asked once, at
+  // the start, so without this the socket stays open on every address until the next restart —
+  // which is the one thing Lockdown is for. The listening socket is closed, everything already
+  // connected from beyond this computer is dropped, and the door comes back on 127.0.0.1 alone.
+  const boundPort = address.port;
+  const stopWatchingLockdown = onLockdownChange((_store, _owner, on) => {
+    if (on) void narrowToThisComputer();
+  });
+  async function narrowToThisComputer(): Promise<void> {
+    if (listen.address === thisComputerAddress) return;
+    // `close` gives the listening handle up at once; its callback waits for every open connection
+    // to end, which is why it is not awaited — the wide ones are dropped by hand just below.
+    server.close();
+    for (const socket of liveConnections)
+      if (!fromThisComputer(socket.remoteAddress)) socket.destroy();
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(boundPort, thisComputerAddress, () => { server.off("error", reject); resolve(); });
+    });
+    listen.address = thisComputerAddress;
+    listen.beyond = false;
+    listen.extraHosts = [];
+    listen.refusal = "Lockdown is on, so Branch is listening on this computer only.";
+    console.log(`Branch Agent: ${listen.refusal}`);
+  }
   app.personal.tunnel.localAddress = url; // R17-C: the webhook door passes requests on to this address
   app.scheduler.start();
   // mac3/never-break: a real start settles work a restart cut off (nothing, with the switch off).
@@ -3140,7 +3189,10 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
      * send anything — can be tested without a Tailscale address and a real network.
      */
     remoteHandler,
+    /** mac7/bind: the address the door is really on now, which Lockdown can narrow while it runs. */
+    listeningOn: (): string => listen.address,
     close: async () => {
+      stopWatchingLockdown();
       await remote.disable().catch(() => undefined);
       if (options.presence) await clearRunning(options.dataDir).catch(() => undefined);
       await stopServer(app, server);
@@ -3489,6 +3541,11 @@ export function offLimitsToShortLivedKeys(method: string | undefined, path: stri
   // neither read files through it nor save over them, so this comes before reading is let through.
   if (handlesWorkspaceEditorPath(path))
     return "A short-lived key cannot use the code editor. Do that in the app window.";
+  // mac7/bind: opening Branch's door to the private network is the owner's alone, and so is being
+  // told where the door already is. A Trunk's message from another computer arrives with such a
+  // key, so this is where a Trunk is refused too. Like the code editor above, it comes before
+  // reading is let through, because the answer is where to knock.
+  if (path === "/api/listen") return listenKeyRefusal;
   // mac5/key-sweep: a few reads hand back a secret or everybody's data (src/short-lived-keys.ts).
   if (method === "GET") return ownerOnlyRead(path);
   // Wave mac3 (commands, integration review): when Branch checks with you, which model every new
@@ -3532,9 +3589,6 @@ export function offLimitsToShortLivedKeys(method: string | undefined, path: stri
   if (handlesComfortPath(path)) return comfortRefusal;
   // mac3/never-break: the gateway's settings are the owner's alone.
   if (handlesNeverBreakPath(path)) return "A short-lived key cannot change how Branch keeps itself running. Do that in the app window.";
-  // mac7/bind: opening Branch's door to the private network is the owner's alone. A Trunk's message
-  // from another computer arrives with such a key, so this is where a Trunk is refused too.
-  if (path === "/api/listen" && method !== "GET") return listenKeyRefusal;
   // mac7/connect: saving a chat app's token or switching setting-up on is the owner's alone.
   if (handlesChannelSetupPath(path)) return "A short-lived key cannot save a chat app's token or change how chat apps are set up. Do that in the app window.";
   // mac3/never-break (integration review): letting a new person reach the assistant is the owner's alone.

@@ -2,6 +2,7 @@ import { isIP } from "node:net";
 import { networkInterfaces } from "node:os";
 import { z } from "zod";
 import { audit } from "./audit.js";
+import { tunnelMark } from "./auth-limits.js";
 import { runOrigin, startedFromChat, startedWithShortLivedKey } from "./key-context.js";
 import { lockdownActive } from "./lockdown.js";
 import { isPrivateAddress } from "./network-policy.js";
@@ -60,8 +61,20 @@ export const thisComputerAddress = "127.0.0.1";
 export const everyAddress = "0.0.0.0";
 
 const loopbackAddresses = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);
-/** Whether a caller is on this very computer, whatever address the door is listening on. */
-export function fromThisComputer(remoteAddress: string | undefined): boolean {
+/**
+ * Whether a caller is on this very computer, whatever address the door is listening on.
+ *
+ * Integration review: the webhook door (src/personal/tunnel.ts) dials 127.0.0.1, so a request it
+ * passes on from the internet arrives wearing a loopback address. Today it only ever passes on
+ * webhook and trigger paths, so nothing guarded by this function is reachable that way — but that
+ * is a promise kept in another file, and this one must not depend on it. The mark the door always
+ * sets, and always strips from a caller, is read here too, so widening what the door forwards can
+ * never quietly turn the internet into "this computer".
+ */
+export function fromThisComputer(
+  remoteAddress: string | undefined, headers: Record<string, unknown> = {},
+): boolean {
+  if (headers[tunnelMark] !== undefined) return false;
   const from = (remoteAddress ?? "").toLowerCase();
   return loopbackAddresses.has(from) || from.startsWith("127.") || from.startsWith("::ffff:127.");
 }
@@ -108,11 +121,11 @@ export function saveListenSettings(store: Store, owner: string, input: unknown):
 /* ---------- who may change it ---------- */
 
 export const listenKeyRefusal =
-  "A short-lived key cannot change where Branch listens. Do that in the app window.";
+  "A short-lived key cannot read or change where Branch listens. Do that in the app window.";
 export const listenChatRefusal =
-  "A message from a chat app cannot change where Branch listens. Do that in the app window.";
+  "A message from a chat app cannot read or change where Branch listens. Do that in the app window.";
 export const listenAgentRefusal =
-  "Work another assistant or program started cannot change where Branch listens. The owner can, in the app window.";
+  "Work another assistant or program started cannot read or change where Branch listens. The owner can, in the app window.";
 export const listenPersonRefusal =
   "Where Branch listens belongs to the owner. Switch back to the owner's profile to change it.";
 export const listenLockdownRefusal =
@@ -125,17 +138,40 @@ export const listenLockdownRefusal =
  * assistant or program started are all refused before anything is written. Lockdown is refused too,
  * because opening the door wider is exactly the kind of reaching Lockdown exists to stop.
  */
-export function listenChangeRefusal(
-  store: Store, owner: string, context: { source?: string | undefined; runId?: string | undefined } = {},
-): string | null {
-  store.profiles.requireOwner("Where Branch listens");
-  if (lockdownActive(store, owner)) return listenLockdownRefusal;
+export interface ListenCaller { source?: string | undefined; runId?: string | undefined }
+
+/** Everyone who is not the owner sitting at the app window, whether they are looking or moving it. */
+function notTheOwner(store: Store, context: ListenCaller): string | null {
   const origin = context.runId && store.run(context.runId) ? runOrigin(store, context.runId) : null;
   if (startedWithShortLivedKey() || origin?.shortLivedKey) return listenKeyRefusal;
   if (currentPerson() || origin?.personProfileId || origin?.lentTo) return listenPersonRefusal;
   if (startedFromChat(context, store)) return listenChatRefusal;
   if (["mcp", "a2a", "acp"].includes(context.source ?? origin?.source ?? "owner")) return listenAgentRefusal;
   return null;
+}
+
+/**
+ * Why this caller may not even be told where Branch listens, or null.
+ *
+ * Integration review: the same line as changing it, and for the same reason. Where the door is is
+ * where to knock: telling a household person, a chat message's task, a Trunk on another computer or
+ * another assistant's program that Branch answers on the private network hands them the one fact
+ * the wider door was careful about. Lockdown is deliberately NOT a refusal here — the owner's own
+ * card has to be able to say "Lockdown is on, so Branch is listening on this computer only", and a
+ * blank card exactly then would be the worst moment to go quiet.
+ */
+export function listenReadRefusal(store: Store, owner: string, context: ListenCaller = {}): string | null {
+  store.profiles.requireOwner("Where Branch listens");
+  void owner;
+  return notTheOwner(store, context);
+}
+
+export function listenChangeRefusal(
+  store: Store, owner: string, context: ListenCaller = {},
+): string | null {
+  store.profiles.requireOwner("Where Branch listens");
+  if (lockdownActive(store, owner)) return listenLockdownRefusal;
+  return notTheOwner(store, context);
 }
 
 /* ---------- where the door ends up ---------- */
@@ -194,6 +230,13 @@ export function decideListen(input: {
   if (!/^[a-f0-9]{64}$/.test(input.token))
     return stay("Branch has no local key to ask callers for, so it is listening on this computer only.");
   const outward = input.addresses.filter((entry) => !entry.internal);
+  // Integration review: every other refusal here is something found; this one is something NOT
+  // found, which is exactly the shape that fails open. A computer that answers on nothing beyond
+  // itself has nowhere to be reached from, so a wide socket buys nothing and hides the next mistake
+  // (a network that comes up later, an address list read wrongly) behind an open door.
+  if (!outward.length)
+    return stay("This computer answers on no address beyond itself, so Branch is listening on this"
+      + " computer only.");
   const open = outward.filter((entry) => !privateHere(entry.address));
   if (open.length)
     return stay(`This computer answers on ${open[0]!.address}, which is not a private address, so Branch is`
