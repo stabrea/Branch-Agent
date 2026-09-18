@@ -67,6 +67,27 @@ your brief owns and their tests (`grep -l <module> tests/*.mjs`).
   passes on macOS and fails on Windows every time.
 - Never run `tests/desktop*.test.mjs` or `tests/screen-control.test.mjs`, never start Electron with a
   window, never set `BRANCH_SCREEN_TESTS`.
+- **Measure a page in ONE step, and wait for the answer instead of asking once.** Find the element and
+  then measure it in a second call (`const box = await card.boundingBox()`) and a card that redraws
+  itself between the two calls hands you `null`, which reads as a bare "expected true" and costs the
+  next builder an afternoon proving it was not a real defect. It has bitten us four times now
+  (`local-oneclick-ui` on Linux, `add-ons-review` during the release, and the eleven files in
+  `mac7/flaky-measure`). Do the whole measurement inside the page and let Playwright wait:
+  ```js
+  const fits = await page.waitForFunction(() => {
+    const box = document.querySelector("#the-card")?.getBoundingClientRect();
+    return box && box.width > 0 && box.x >= 0 && box.right <= 400;
+  }, undefined, { timeout: 5000 }).then(() => true, () => false);
+  assert.ok(fits, "the card fits inside 400 px");
+  ```
+  A selector built from a loop variable must be **passed in** as the second argument
+  (`}, id, { timeout: 5000 })`); a closure variable is not in scope inside the page. The same rule
+  covers `isVisible()` (it answers for this instant and never waits — use
+  `.waitFor({ state: "visible" })`), `innerText()`/`textContent()` read straight after a redraw (use
+  `.filter({ hasText: /…/ }).waitFor()`), and hand-rolled `waitForTimeout` poll loops that ask the
+  page again every tick — on a loaded machine the round trips cost more than the thing being waited
+  for. Conditional `if (await x.isVisible())` control flow, and asserts that something is **absent**,
+  are not this shape: leave them alone.
 - Stay inside the files your brief owns. If the real fix is in a file another brief owns, write it
   down in your report instead of editing it. Small additive hooks in `src/index.ts` / `src/cli.ts`
   are allowed when unavoidable; keep them in one clearly separated block.

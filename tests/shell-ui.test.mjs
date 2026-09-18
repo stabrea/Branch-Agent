@@ -360,13 +360,16 @@ test("a Recents row lights up under the pointer in Daylight", async (t) => {
   const resting = await colour();
   await row.hover();
   /* The wash arrives through a CSS transition, so wait for the colour rather than for a stopwatch:
-     a build machine under load paints later than a quiet laptop, and 150ms is a guess either way. */
-  let hovered = resting;
-  for (const deadline = Date.now() + 5000; Date.now() < deadline && hovered === resting; ) {
-    await f.page.waitForTimeout(25);
-    hovered = await colour();
-  }
-  assert.notEqual(hovered, resting, "the row takes a background under the pointer");
+     a build machine under load paints later than a quiet laptop, and 150ms is a guess either way.
+     Waited for inside the page, in one step: the old loop asked the page again every 25ms, and on a
+     loaded machine each of those round trips costs more than the transition it was waiting for, so
+     the deadline ran out while the wash was already on screen (seen once at load average 22). */
+  const washed = await f.page.waitForFunction((was) => {
+    const node = document.querySelector("#rail-list .rail-line");
+    return !!node && getComputedStyle(node).backgroundColor !== was;
+  }, resting, { timeout: 5000 }).then(() => true, () => false);
+  const hovered = await colour();
+  assert.ok(washed, `the row takes a background under the pointer (still ${hovered})`);
   /* color-mix serialises as color(srgb r g b / a), so the alpha is the last part. */
   const alpha = hovered.includes("/")
     ? Number.parseFloat(hovered.split("/").pop().replace(")", "").trim())
