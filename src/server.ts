@@ -188,6 +188,8 @@ import { clearRunning, writeRunning } from "./install/running.js";
 import { readFirstStart, recordFirstStart } from "./install/update-backup.js";
 import { readDesktopSettings, saveDesktopSettings } from "./integrations/desktop-config.js";
 import { readCredentialSettings, saveCredentialSettings } from "./credential-cli.js";
+// mac7/vault-autofill (R17-068): the owner's book of saved sign-ins Branch may fill into a page.
+import { readVaultAutofillSettings, saveVaultAutofillSettings } from "./vault-autofill.js";
 import { keychainApi, keychainSettingsPath, permissionsContext } from "./keychain-api.js";
 import { optionalFields } from "./feature-switches.js";
 import { auditCsvResponse, handlesMiscPath, miscApi, MiscApiError } from "./misc-api.js";
@@ -454,6 +456,7 @@ async function staticFile(
     "/personal.js": ["personal.js", "text/javascript; charset=utf-8"], // R17-C
     "/reach.js": ["reach.js", "text/javascript; charset=utf-8"], // r17-i
     "/safety-extras.js": ["safety-extras.js", "text/javascript; charset=utf-8"], // mac7/r17-g
+    "/vault-autofill.js": ["vault-autofill.js", "text/javascript; charset=utf-8"], // mac7/vault-autofill
     "/flows-boards.js": ["flows-boards.js", "text/javascript; charset=utf-8"], // r17-h
     "/learning-more.js": ["learning-more.js", "text/javascript; charset=utf-8"], // R17-F
     "/usage.js": ["usage.js", "text/javascript; charset=utf-8"],
@@ -1112,6 +1115,15 @@ async function api(
     return readCredentialSettings(app.store, app.runtime.owner);
   if (request.method === "POST" && path === "/api/credentials/settings")
     return saveCredentialSettings(app.store, app.runtime.owner, await readBody(request));
+  // mac7/vault-autofill (R17-068): which saved sign-in goes with which site. Names and website names
+  // only; no password ever travels this route, because nothing here asks a password manager anything.
+  // The owner's alone: a household person is refused here, a short-lived key at the door below.
+  if (path === "/api/vault-autofill/settings") {
+    app.store.profiles.requireOwner("Your saved sign-ins");
+    if (request.method === "GET") return readVaultAutofillSettings(app.store, app.runtime.owner);
+    if (request.method === "POST") return saveVaultAutofillSettings(app.store, app.runtime.owner, await readBody(request));
+    throw new HttpError(405, "That is not something Branch can do with your saved sign-ins");
+  }
   // mac2/desktop-ui: which Keychain entries Branch may read on a Mac (names only, off by default).
   if (path === keychainSettingsPath)
     return keychainApi(app.store, app.runtime.owner, request.method ?? "GET", () => readBody(request));
@@ -3380,6 +3392,9 @@ export function offLimitsToShortLivedKeys(method: string | undefined, path: stri
   // Lockdown is exactly that; without this a script's key could switch Lockdown off.
   if (path === "/api/lockdown")
     return "A short-lived key cannot switch Lockdown on or off. Do that in the app window or with the key of this computer.";
+  // mac7/vault-autofill (R17-068): which saved sign-in Branch may type into a page is the owner's alone.
+  if (path.startsWith("/api/vault-autofill"))
+    return "A short-lived key cannot change which saved sign-ins Branch may fill. Do that in the app window.";
   // bucket-18 (A2317): a copy of what is remembered may be sent to a remote; only the owner names it.
   if (path === "/api/memory/history")
     return "A short-lived key cannot change where the history of what is remembered is kept. Do that in the app window.";

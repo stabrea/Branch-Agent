@@ -50,7 +50,15 @@ export function saveCredentialSettings(store: Store, owner: string, input: unkno
 const referenceText = "secret://(bitwarden|1password)/([A-Za-z0-9][A-Za-z0-9 ._@/-]{0,79})";
 const anyCredentialReference = new RegExp(referenceText, "g");
 const wholeCredentialReference = new RegExp(`^${referenceText}$`);
-export interface CredentialRef { service: CredentialService; item: string }
+export interface CredentialRef {
+  service: CredentialService; item: string;
+  /**
+   * mac7/vault-autofill (R17-068): which field of the item to read. "password" is what every
+   * `secret://` reference means and what every caller before this one asked for; "totp" is the
+   * one-time code, and only the sign-in filling ever asks for it.
+   */
+  field?: "password" | "totp";
+}
 /** The reference text for one vault item, for settings screens and documentation. */
 export const credentialReference = (service: CredentialService, item: string): string => `secret://${service}/${item}`;
 export function parseCredentialReference(value: unknown): CredentialRef | null {
@@ -72,10 +80,17 @@ export function collectCredentialReferences(value: unknown): CredentialRef[] {
 export interface CliOutcome { code: number | null; stdout: string; stderr: string; missing?: boolean }
 export type CliRunner = (executable: string, args: string[], timeoutMs: number) => Promise<CliOutcome>;
 
-/** The command and arguments that read one item, read-only in both password managers. */
+/**
+ * The command and arguments that read one item, read-only in both password managers. Always an
+ * array of arguments, never a line for a shell to take apart: an item name of the owner's with a
+ * space or a quote in it is one argument, whatever it contains.
+ */
 export function commandFor(reference: CredentialRef, settings: CredentialSettings): { executable: string; args: string[] } {
+  const field = reference.field ?? "password";
   if (reference.service === "bitwarden")
-    return { executable: settings.bitwardenCommand || "bw", args: ["--nointeraction", "--raw", "get", "password", reference.item] };
+    return { executable: settings.bitwardenCommand || "bw", args: ["--nointeraction", "--raw", "get", field === "totp" ? "totp" : "password", reference.item] };
+  // 1Password reads a field by its address, and a one-time code is not at a path Branch can guess,
+  // so it is refused before it gets this far (src/vault-autofill.ts).
   const path = reference.item.startsWith("op://") ? reference.item : `op://${reference.item}`;
   return { executable: settings.onePasswordCommand || "op", args: ["read", "--no-newline", path] };
 }
@@ -137,7 +152,8 @@ export function refusalFrom(reference: CredentialRef, outcome: CliOutcome, execu
   if (outcome.code !== 0 && absent.test(said))
     return `There is nothing called "${reference.item}" in your ${name} vault.`;
   if (outcome.code !== 0) return `${name} would not hand that over, and gave no reason Branch can pass on.`;
-  if (!outcome.stdout.trim()) return `${name} found "${reference.item}" but it has no password saved on it.`;
+  if (!outcome.stdout.trim())
+    return `${name} found "${reference.item}" but it has no ${reference.field === "totp" ? "one-time code" : "password"} saved on it.`;
   return null;
 }
 
@@ -178,7 +194,11 @@ export class CredentialResolver {
     const refusal = refusalFrom(reference, outcome, executable);
     if (refusal) { this.record(reference, use, "refused"); throw new Error(refusal); }
     const value = outcome.stdout.replace(/\r?\n$/, "");
-    this.scrubber.remember(`${reference.service}:${reference.item}`, value);
+    // A password is remembered by the scrubber so it is taken back out of anything written later.
+    // A one-time code is not: it is six or eight figures, it is stale within the minute, and
+    // remembering it would blank those figures out of ordinary text for the rest of the session.
+    // Nothing downstream ever sees it instead — it goes straight into the page (src/vault-autofill.ts).
+    if ((reference.field ?? "password") !== "totp") this.scrubber.remember(`${reference.service}:${reference.item}`, value);
     this.record(reference, use, "handed over");
     return value;
   }
@@ -187,7 +207,7 @@ export class CredentialResolver {
   private record(reference: CredentialRef, use: { runId?: string | undefined; purpose: string }, outcome: string): void {
     audit(this.store, this.owner, {
       action: "secret.used", actor: `your ${serviceNames[reference.service]} vault`,
-      subject: credentialReference(reference.service, reference.item),
+      subject: `${credentialReference(reference.service, reference.item)}${reference.field === "totp" ? " (one-time code)" : ""}`,
       reason: use.purpose.slice(0, 120), runId: use.runId ?? null, outcome,
     });
   }

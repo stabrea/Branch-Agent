@@ -118,6 +118,9 @@ const ownerOnlyReads: readonly RegExp[] = [
   /^\/api\/personal(\/|$)/,
   // r17-h integration review: the widgets' list carries each widget's frame address, which opens without a key.
   /^\/api\/flows-boards\/widgets$/,
+  // mac7/vault-autofill (R17-068): the book of saved sign-ins names the owner's vault items and the
+  // sites they belong to. It holds no password, but it is a map of where the owner's passwords are.
+  /^\/api\/vault-autofill(\/|$)/,
 ];
 
 /**

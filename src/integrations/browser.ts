@@ -18,6 +18,7 @@ import { clearPasswordValues, startRecording } from './browser-trace.js';
 import type { Store } from '../store.js';
 import { audit } from '../audit.js';
 import { browserCare, browserCareDefaults, uploadsBlocked, type BrowserCare } from '../comfort/browser-safety.js'; // R17-S19
+import type { SignInBox, SignInPage } from '../vault-autofill.js'; // mac7/vault-autofill (R17-068)
 
 export const BrowserConfigSchema = z.object({
   allowedOrigins: z.array(z.string().url()).min(1).max(30),
@@ -63,6 +64,12 @@ interface RunEntry {
   marks: MarkRegistry;
   /** The owner's own browser, while this task is borrowing it. */
   borrowed: AttachedBrowser | null;
+  /**
+   * mac7/vault-autofill (R17-068): whether this task got to the page it is on by pressing something
+   * on another page, rather than by opening an address. A link can be put on a page by anybody, so
+   * a saved sign-in is not filled into such a page unless the owner wrote the address down first.
+   */
+  followedLink: boolean;
 }
 /** Where the trace of one task is written, when the launch keeps traces. */
 export interface BrowserTracer {
@@ -143,7 +150,7 @@ export class BranchBrowser {
     const cancel = () => { void this.closeRun(context).catch(() => undefined); };
     context.signal.addEventListener('abort', cancel, { once: true });
     const created: RunEntry = { session, origins: new Set(), actions: 0, host: '', profile: null,
-      marks: new MarkRegistry(), borrowed: null,
+      marks: new MarkRegistry(), borrowed: null, followedLink: false,
       detach: () => context.signal.removeEventListener('abort', cancel) };
     this.sessions.set(key, created);
     return created;
@@ -174,6 +181,7 @@ export class BranchBrowser {
       await page.goto(url, { waitUntil: 'domcontentloaded' });
       // Counted only once the page really opened, so a refused address costs the task nothing.
       entry.origins.add(origin);
+      entry.followedLink = false; // mac7/vault-autofill: an address, not a link somebody put on a page
       entry.host = new URL(url).host;
       const site = await this.quirks(context, page, url);
       return { url: page.url(), title: await page.title(), ...(site ? { site } : {}) };
@@ -210,6 +218,7 @@ export class BranchBrowser {
       accessibility: (await page.locator('body').ariaSnapshot()).slice(0, 16000) }));
   }
   async click(role: 'button' | 'link', name: string, context: ToolContext) {
+    this.entry(context).followedLink = true; // mac7/vault-autofill: wherever this lands came off a page
     return this.operation(context, async page => {
       await page.getByRole(role, { name, exact: true }).click();
       return { url: page.url(), clicked: name };
@@ -276,6 +285,7 @@ export class BranchBrowser {
    */
   async act(input: HealTarget & { action: 'click' | 'fill' | 'check'; value?: string | undefined }, context: ToolContext) {
     const entry = this.entry(context);
+    if (input.action === 'click') entry.followedLink = true; // mac7/vault-autofill
     return this.operation(context, async page => {
       const found = await healResolve(page, input, 2000,
         { keyOf: id => entry.marks.keyOf(id), liveKey: id => liveMarkKey(page, id) });
@@ -495,6 +505,30 @@ export class BranchBrowser {
     }
     return borrowed.length;
   }
+
+  /* ──────────────── mac7/vault-autofill (R17-068): filling one of the owner's saved sign-ins ────────────────
+     The browser is the only thing here that ever sees the value, and only for as long as it takes to
+     type it. `browser.fill` and `browser.act` still refuse a password box outright, exactly as
+     before, because the assistant supplies the value there; this way in is the owner's own, it
+     supplies the value itself (src/vault-autofill.ts), and it hands nothing back. */
+
+  /** The page this task is on, as the sign-in filling needs it. Nothing here returns what it typed. */
+  signInPage(): SignInPage {
+    return {
+      address: (context) => this.operation(context, async page => ({ url: page.url() })).then(seen => seen.url),
+      followedLink: (context) => this.entry(context).followedLink,
+      type: async (context, box, label, value) => {
+        await this.operation(context, async page => {
+          const found = await signInBox(page, box, label);
+          // Nothing thrown from inside `fill` is passed on: a page library writes what it was asked
+          // to type into its own message, and that message must never leave this method.
+          try { await found.fill(value); } catch { throw new Error(`Branch could not type into that ${box} box.`); }
+          return { typed: box };
+        });
+      },
+    };
+  }
+
   async closeRun(context: Pick<ToolContext, 'owner' | 'runId'>): Promise<void> {
     const key = this.key(context), entry = this.sessions.get(key);
     if (!entry) return;
@@ -525,6 +559,23 @@ export class BranchBrowser {
     if (failures.length) throw new AggregateError(failures.map(result => result.reason), 'Browser cleanup failed');
   }
 }
+
+/**
+ * mac7/vault-autofill: the one box a saved sign-in is typed into. A password goes only into a real
+ * password box, whatever label was given, so a page that labels a plain text box "Password" cannot
+ * have the value typed where everyone can read it.
+ */
+async function signInBox(page: Page, box: SignInBox, label: string | undefined) {
+  const found = label
+    ? page.getByLabel(label, { exact: true })
+    : page.locator(box === 'password' ? 'input[type="password"]'
+      : 'input[autocomplete="one-time-code"], input[inputmode="numeric"]').first();
+  const kind = (await found.getAttribute('type'))?.trim().toLowerCase();
+  if (box === 'password' && kind !== 'password')
+    throw new Error('That is not a password box on this page, so nothing was typed into it.');
+  return found;
+}
+
 function requireIndex(index: number | undefined): number {
   if (index === undefined) throw new Error('Say which tab, by its number');
   return index;

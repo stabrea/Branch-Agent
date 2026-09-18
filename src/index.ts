@@ -1745,6 +1745,7 @@ export * from "./memory-ephemeral.js";
 // may message the assistant, the chain a phone must satisfy, and coding assistants as a model.
 export * from "./session-tokens.js";
 export * from "./vault-sources.js";
+export * from "./vault-autofill.js"; // mac7/vault-autofill (R17-068)
 export * from "./channels/allowlist.js";
 export * from "./remote/gateway-auth.js";
 export * from "./providers/cli-agent.js";

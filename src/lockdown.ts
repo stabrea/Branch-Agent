@@ -90,6 +90,8 @@ const coveredSettings: readonly RegExp[] = [
   // r17-i integration: the reach parts that reach past this computer (src/reach/settings.ts). Notes, the
   // arena and pausing a chat app stay: they are local, or only ever tighten.
   /^reach-(machines|remote-trunks|background-screen|video|relay|send|agent-git|skill-bundles|usb)$/,
+  // mac7/vault-autofill (R17-068): typing one of the owner's saved passwords into a page.
+  /^vault-autofill$/,
 ];
 
 /** True when Lockdown is on and this settings record is one it switches off. */
