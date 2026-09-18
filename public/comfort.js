@@ -430,7 +430,9 @@ function attention(item) {
 let updateTimer = null;
 async function autoUpdate() {
   const desktop = window.branchDesktop;
-  if (!desktop || !token() || view?.values.notify.autoUpdate === "off") return;
+  /* Until the owner's choice has been read, treat it as off: never go looking for an update
+     before we know it was wanted. */
+  if (!desktop || !token() || (view?.values.notify.autoUpdate ?? "off") === "off") return;
   try {
     let status = await desktop.updateStatus();
     let plan = await api("comfort/update-plan", { updaterPhase: status?.phase });
