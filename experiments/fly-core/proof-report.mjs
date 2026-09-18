@@ -39,8 +39,13 @@ export const metrics = [
  * One figure, baseline against candidate. Each side is `{ mean, low, high, repeats }` or null.
  * With one repeat there is no spread, so no difference can be called real.
  */
-export function metricVerdict(metric, before, after) {
+export function metricVerdict(metric, before, after, bases = {}) {
   if (!before || !after) return { verdict: "not comparable", why: `no figure for the ${before ? "candidate" : "baseline"}` };
+  // mac7/eval-honesty: money is the one figure whose two sides can be worked out different ways —
+  // Hermes reports what a call cost, Branch counts the tokens itself and prices them from a table.
+  // Those two numbers are not the same kind of thing, so the metric is marked rather than judged.
+  if (metric.field === "dollarsPerTask" && bases.before && bases.after && bases.before !== bases.after)
+    return { verdict: "not comparable", why: `cost is ${bases.before} on one side and ${bases.after} on the other; the two are not the same measurement` };
   if (metric.better === null) return { verdict: "for context", why: "not better or worse in itself" };
   if (before.repeats < 2 || after.repeats < 2)
     return { verdict: "not comparable", why: "one repeat has no spread; run with --repeats 3 or more" };
@@ -163,8 +168,9 @@ export function judge(report, { baseline: baselineName, candidate: candidateName
       + `Fix whatever stopped that suite and measure again before reading any of these numbers.`);
   const comparison = compare([baseline, candidate], report.settings.passes);
   const [before, after] = comparison.rows;
+  const bases = { before: baseline.conditions?.costBasis, after: candidate.conditions?.costBasis };
   const figures = metrics.map((metric) => ({ ...metric, before: before[metric.field], after: after[metric.field],
-    ...metricVerdict(metric, before[metric.field], after[metric.field]) }));
+    ...metricVerdict(metric, before[metric.field], after[metric.field], bases) }));
   const tasks = taskChanges(baseline, candidate);
   const safety = { ...taskChanges(baseline, candidate, { safety: true }), outcomesDiffer: comparison.safetyOutcomesDiffer };
   const gate = tasks.regressions.length > 0 || safety.regressions.length > 0 || safety.outcomesDiffer;

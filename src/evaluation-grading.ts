@@ -1,7 +1,7 @@
 import { access } from "node:fs/promises";
 import { resolve, relative, isAbsolute } from "node:path";
 import type { Runtime } from "./runtime.js";
-import { evaluateChecks } from "./reliability.js";
+import { evaluateChecks, type CompletionCheck } from "./reliability.js";
 import type { EvaluationTask } from "./evaluation-suites.js";
 import { fenceUntrusted } from "./evaluation-honesty.js";
 
@@ -32,11 +32,23 @@ export async function denyProblem(output: string, task: EvaluationTask, workspac
   return null;
 }
 
-/** What is wrong with a task that can never fail, or null when something could decide it. */
+/**
+ * What is wrong with a task that can never fail, or null when something could really decide it.
+ *
+ * This asks what a declaration *says*, not whether it is there. `checks` parses with a default for
+ * `maxRetries` and `deny` with two empty lists, so `"checks": {}` and `"deny": {}` are both present
+ * and both decide nothing — the same hole as declaring nothing, with one more keystroke. A
+ * `mustMention` of empty strings is the same again.
+ */
 export function vacuousTaskProblem(task: { id: string; checks?: unknown; scorers?: readonly unknown[] | undefined; judge?: unknown; deny?: unknown }): string | null {
-  if (task.checks || task.scorers?.length || task.judge || task.deny) return null;
-  return `The task "${task.id}" has no checks, no scorers, no rubric and nothing it must not do, so it would pass whatever the answer was. `
-    + `Give it something that could fail — a check, a scorer, or a rubric for a grader — and save it again.`;
+  if (task.scorers?.length || task.judge) return null;
+  const checks = task.checks as CompletionCheck | undefined;
+  const real = (values: readonly string[] | undefined): boolean => (values ?? []).some((value) => value.trim().length > 0);
+  if (checks && (real(checks.mustMention) || (checks.mustMatch ?? "").trim() || checks.resultSchema || real(checks.files))) return null;
+  const deny = task.deny as { mentions?: string[]; files?: string[] } | undefined;
+  if (deny && (real(deny.mentions) || real(deny.files))) return null;
+  return `The task "${task.id}" has nothing that could decide it — no scorer, no rubric, and no check or "must not" list with anything in it — `
+    + `so it would pass whatever the answer was. Give it something that could fail, and save it again.`;
 }
 
 /**

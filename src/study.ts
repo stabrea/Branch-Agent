@@ -558,9 +558,12 @@ export class StudyRunner {
     if (!previous) return { entry: latest, plan: journalReplayPlan(latest), report: `This is the first run of ${latest.name}, so there is nothing to compare it with yet.` };
     const results = this.results(studyId);
     const before = results.find((one) => one.id === previous.runId), after = results.find((one) => one.id === latest.runId);
-    const attempt = before && after ? tryCompare(before, after) : { refusal: null };
+    // When the two results themselves are no longer on file, nothing is handed in and the report
+    // works the refusal out from the entries' own conditions. Handing it null would say "I checked,
+    // and there is nothing wrong" — which is exactly the silence this branch is removing.
+    const attempt = before && after ? tryCompare(before, after) : undefined;
     return { entry: latest, plan: journalReplayPlan(latest),
-      report: journalReport(previous, latest, attempt.comparison, attempt.refusal) };
+      report: journalReport(previous, latest, attempt?.comparison, attempt?.refusal) };
   }
 }
 

@@ -282,7 +282,7 @@ test("cost prefers what the provider reported and says which it used", () => {
 
 /* ------------------------------------------- the same four holes in the scoreboard harness */
 
-const { armRefusal, lostSuites, judge, combineReports } = await import("../experiments/fly-core/proof-report.mjs");
+const { armRefusal, lostSuites, judge, combineReports, metricVerdict, metrics } = await import("../experiments/fly-core/proof-report.mjs");
 const { armConditions } = await import("../experiments/fly-core/real-eval.mjs");
 
 const arm = (name, extra = {}) => ({
@@ -333,4 +333,78 @@ test("an arm records the conditions it ran under, including the tasks it actuall
   const reworded = armConditions({ arm: "off", kind: "branch", sharedFolder: false },
     [{ id: "everyday", tasks: [{ ...suites[0].tasks[0], prompt: "a different question" }] }], options, "0.17.0");
   assert.notEqual(one.taskSetHash, reworded.taskSetHash);
+});
+
+/* ------------------------------------------------ C2: a case that can never fail cannot ship */
+
+const { builtInSuites, vacuousTaskProblem, denyProblem, evaluateChecks, scoreAll, saveSuite } = await import("../dist/index.js");
+
+test("every task that ships also fails: none of them can go green against an empty answer", async () => {
+  const suites = builtInSuites();
+  assert.ok(suites.length >= 6);
+  const modelGraded = [];
+  for (const suite of suites) for (const task of suite.tasks) {
+    assert.equal(vacuousTaskProblem(task), null, `${suite.id}/${task.id} declares nothing that could fail`);
+    // An empty answer is the weakest possible run. Anything the merge gate stands on has to fail it.
+    const forbidden = await denyProblem("", task, tmpdir());
+    const checked = task.checks ? await evaluateChecks("", { ...task.checks, maxRetries: 0 }, tmpdir()) : null;
+    const scored = task.scorers?.length
+      ? await scoreAll(task.scorers.map((spec) => makeScorer(spec, { workspace: tmpdir() })), { id: task.id, prompt: task.prompt, expected: task.expected },
+        { runId: null, calls: [], steps: 0, ms: 0, tokens: 0, dollars: 0 }, "")
+      : null;
+    const failed = Boolean(forbidden) || Boolean(checked) || (scored ? !scored.pass : false);
+    // A task decided only by a model is not checked here — that would cost money in a test. It is
+    // named instead, so the list of tasks nothing deterministic can fail is visible and short.
+    if (!failed && task.judge) { modelGraded.push(`${suite.id}/${task.id}`); continue; }
+    assert.ok(failed, `${suite.id}/${task.id} passes an empty answer, so it can never fail the gate`);
+  }
+  assert.deepEqual(modelGraded, ["everyday/summarise-note"],
+    "when this list grows, the gate is standing on more tasks only a model can fail");
+});
+
+test("a task that declares an empty check or an empty must-not list is refused too", () => {
+  const cases = [
+    { id: "nothing", prompt: "p" },
+    { id: "empty-checks", prompt: "p", checks: { maxRetries: 0 } },
+    { id: "empty-deny", prompt: "p", deny: { mentions: [], files: [] } },
+    { id: "blank-mention", prompt: "p", checks: { mustMention: ["   "], maxRetries: 0 } },
+    { id: "empty-scorers", prompt: "p", scorers: [] },
+  ];
+  for (const task of cases) {
+    assert.ok(vacuousTaskProblem(task), `${task.id} should be refused`);
+    assert.match(vacuousTaskProblem(task), /nothing that could decide it/);
+  }
+  assert.equal(vacuousTaskProblem({ id: "real", prompt: "p", checks: { mustMention: ["banana"], maxRetries: 0 } }), null);
+  assert.equal(vacuousTaskProblem({ id: "real", prompt: "p", deny: { mentions: ["secret"], files: [] } }), null);
+});
+
+/* --------------------------------- a dropped try never decides whether a skill switches on */
+
+const { trialRefusal } = await import("../dist/index.js");
+
+test("a skill trial whose try never happened is refused, not read as the draft doing better", () => {
+  const side = (over = {}) => ({ finished: 2, ms: 10, tokens: 10, errors: 0, model: "demo-1", ...over });
+  assert.equal(trialRefusal(side(), side()), null);
+  // The version in use had an outage; the draft looks better only because a try never happened.
+  const outage = trialRefusal(side({ finished: 1, errors: 1 }), side());
+  assert.match(outage, /cannot be read/i);
+  assert.match(outage, /1 on the version in use/);
+  assert.match(outage, /not a try that went badly/);
+  assert.match(trialRefusal(side(), side({ errors: 2 })), /2 on the draft/);
+  // And the two sides must have been answered by the same model.
+  assert.match(trialRefusal(side(), side({ model: "demo-2" })), /could be the model rather than the skill/);
+  assert.equal(trialRefusal(side({ model: null }), side()), null, "an unrecorded model is not a mismatch");
+});
+
+test("money worked out two different ways is marked, not judged", () => {
+  const money = metrics.find((one) => one.field === "dollarsPerTask");
+  const cheaper = { mean: 0.01, low: 0.009, high: 0.011, repeats: 3 };
+  const dearer = { mean: 0.05, low: 0.049, high: 0.051, repeats: 3 };
+  assert.equal(metricVerdict(money, dearer, cheaper, { before: "estimated", after: "estimated" }).verdict, "better");
+  const mixed = metricVerdict(money, dearer, cheaper, { before: "estimated", after: "reported" });
+  assert.equal(mixed.verdict, "not comparable");
+  assert.match(mixed.why, /not the same measurement/);
+  // Everything else is judged as before: only money has two ways of being worked out.
+  const passed = metrics.find((one) => one.field === "successRate");
+  assert.equal(metricVerdict(passed, cheaper, dearer, { before: "estimated", after: "reported" }).verdict, "better");
 });

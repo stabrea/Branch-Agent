@@ -201,6 +201,9 @@ function differences(before: RunConditions, after: RunConditions): Difference[] 
     "run both sides over the same tasks, unchanged");
   note("how the tasks were marked", before.scorerDigest, after.scorerDigest,
     "mark both sides with the same scorers, thresholds and rubric text");
+  // `costBasis` is deliberately not here. Two sides may honestly count money differently — one
+  // provider reports what a call cost and another does not — and that makes the money figure
+  // incomparable, not the whole comparison. Whoever prints money marks that one figure instead.
   return found;
 }
 
