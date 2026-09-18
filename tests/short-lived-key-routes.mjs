@@ -501,6 +501,10 @@ export const ROUTES = {
   "/api/issues": "prefix",
   "/api/issues/context": "other POST",
   "/api/keychain/settings": "owner POST",
+  // mac7/vault-autofill (R17-068): the book of saved sign-ins names the owner's vault items and the
+  // sites they belong to — a map of where their passwords are, so it is not read with a key either.
+  "/api/vault-autofill": "prefix",
+  "/api/vault-autofill/settings": "secret-read",
   "/api/knobs": "owner POST", // R17-S-B
   "/api/knobs/launch-file": "owner POST", // R17-S-B
   "/api/model-savings": "owner POST", // R17-E
@@ -706,6 +710,7 @@ export const ROUTES = {
   "/api/plugins/sample/disable": "owner POST",
   "/api/plugins/sample/enable": "owner POST",
   "/api/plugins/sample/inspect": "owner POST",
+  "/api/pins": "look", // mac7/wake-pins: which settings the owner pinned, for everybody who uses this computer
   "/api/policy": "owner POST",
   "/api/policy/approve": "task POST",
   "/api/practice": "owner POST",
@@ -915,6 +920,8 @@ export const ROUTES = {
   "/api/settings-kit/files/sample": "secret-read",
   "/api/settings-kit/preview": "owner POST",
   "/api/settings-kit/apply": "owner POST",
+  // mac7/wake-pins: pinning a setting is the owner's alone; the list of pins is only names and values.
+  "/api/settings-kit/pins": "owner POST",
   "/api/triggers": "secret-read",
   "/api/triggers/:id": "secret-read",
   "/api/triggers/:id/enabled": "owner POST",
@@ -942,6 +949,8 @@ export const ROUTES = {
   "/api/voice/transcribe": "task POST",
   "/api/voice/voices": "look",
   "/api/web-pages": "owner POST", // w911 (A0743, A1452) hook: the switch for reading and crawling web pages
+  // mac7/wake-pins: the word that starts a turn. Reading says what this computer could do; changing is the owner's.
+  "/api/voice/wake": "secret-read",
   "/api/webhooks": "secret-read",
   "/api/webhooks/:id": "secret-read",
   "/api/webhooks/:id/enable": "owner POST",

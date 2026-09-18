@@ -11,6 +11,11 @@ import type { ComfortNetworkSchema } from "./settings.js";
  * trusted certificates), so every outbound call — which the network policy checks first, as ever —
  * goes the same way. The owner's certificates are always added to the ones this computer already
  * trusts; nothing here can replace that list, and nothing here can turn certificate checks off.
+ *
+ * The proxy switch is `http.setGlobalProxyFromEnv()`, which Node grew in 24.14.0 — the floor in
+ * src/node-floor.ts, chosen for exactly this. Asking whether the function is there is therefore the
+ * same question as whether this Node meets the floor, which is why the check below is a capability
+ * check and not a version number: it cannot drift from what Node can actually do.
  */
 export type NetworkChoice = z.infer<typeof ComfortNetworkSchema>;
 

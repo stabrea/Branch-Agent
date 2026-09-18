@@ -143,6 +143,8 @@ const actionWords: Record<string, { words: string; bareHost?: boolean }> = {
   "browser.click": { words: "clicking on" },
   "browser.fill": { words: "typing on" },
   "browser.upload": { words: "sending your files to" },
+  // mac7/vault-autofill (R17-068): the sign-in named, never the value it stands for.
+  "signin.fill": { words: "filling your saved sign-in" },
   "web.*": { words: "reading", bareHost: true },
   "channels.*": { words: "sending messages" },
   "email.*": { words: "sending email" },

@@ -128,6 +128,9 @@ export class IrcChannel implements ChannelAdapter {
       try {
         const link = await this.options.dial((line) => this.onLine(line, onMessage));
         this.link = link;
+        // mac7/linux-fixes: a stop that arrived while this was still being opened found nothing to
+        // close, and the loop then waited for a close nobody would ask for. Let it go straight away.
+        if (this.stopping) link.close();
         this.greet(link);
         await link.closed;
         if (this.state.state === "connected") attempt = 0;

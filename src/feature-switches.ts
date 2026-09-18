@@ -75,6 +75,8 @@ export const screenTools = ["desktop.screenshot", "desktop.windows", "desktop.re
   "desktop.type", "desktop.key", "desktop.open", "desktop.clipboard"] as const;
 /** Reading aloud with the computer's own voice (src/voice-service.ts). */
 export const systemVoiceTools = ["voice.say"] as const;
+/** mac7/vault-autofill (R17-068): typing a saved sign-in into a page (src/vault-autofill.ts). */
+export const signInFillTools = ["signin.fill"] as const;
 /** Bucket 21: the app-builder tools (src/sdk-kit.ts registers them). */
 export const sdkKitToolNames = ["sdk.routes", "sdk.route", "sdk.starter"] as const;
 /** Bucket 17: watching and saving videos with the owner's own ffmpeg and yt-dlp (src/media-understand.ts). */
@@ -136,6 +138,9 @@ const toolFeatures: { reason: string; tools: readonly string[]; hideWhenOff: boo
   ...boardToolFeatures.map(([key, reason, tools]) => ({ reason, tools, hideWhenOff: true, mode: (s: Reader, o: string) => savedMode(s, o, key) })),
   // ── R17-F: learning, deeper (src/learning-more/settings.ts keeps these lists). ──
   ...learningToolFeatures.map(([key, reason, tools]) => ({ reason, tools, hideWhenOff: true, mode: (s: Reader, o: string) => savedMode(s, o, key) })),
+  // mac7/vault-autofill (R17-068): filling a saved sign-in (src/vault-autofill.ts). Written out here
+  // rather than imported, because that module reads this one for the three-way switch.
+  { reason: "filling a saved sign-in is switched on", tools: signInFillTools, hideWhenOff: true, mode: (s, o) => savedMode(s, o, "vault-autofill") },
   // Bucket 21 hook: tools for people building on Branch (src/sdk-kit.ts).
   { reason: "tools for people building on Branch are switched on", tools: sdkKitToolNames, hideWhenOff: true, mode: (s, o) => savedMode(s, o, "sdk-kit") },
   // ── bucket-15: add-ons other people wrote (src/add-ons/settings.ts keeps these lists). ──

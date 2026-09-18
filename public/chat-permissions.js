@@ -30,7 +30,10 @@ function draw() {
     const row = document.createElement("div");
     row.className = "item";
     const words = document.createElement("span");
-    words.textContent = `${rule.channel} · ${rule.sender} · ${rule.allow.join(", ")}${rule.note ? ` · ${rule.note}` : ""}`;
+    // A line that may answer yes from the chat says so where the owner reads the list, not only in
+    // the box they ticked once: it is the part of a line that gives the most away.
+    const answering = rule.approvals ? ` · ${t("settings.chat-permissions.may-answer")}` : "";
+    words.textContent = `${rule.channel} · ${rule.sender} · ${rule.allow.join(", ")}${answering}${rule.note ? ` · ${rule.note}` : ""}`;
     const remove = document.createElement("button");
     remove.type = "button";
     remove.dataset.t = "action.remove-chat-permission";
@@ -60,12 +63,16 @@ async function save(event) {
   const allow = names($("chat-permissions-allow").value);
   const next = allow.length
     ? [...rules, { channel: $("chat-permissions-channel").value.trim() || "*", sender: $("chat-permissions-sender").value.trim() || "*",
-      allow, note: $("chat-permissions-note").value.trim() }]
+      allow, note: $("chat-permissions-note").value.trim(),
+      // Off unless the owner ticked it for this line, so a line written without a thought for it
+      // keeps the old rule: the yes belongs in the window.
+      approvals: $("chat-permissions-approvals").checked === true }]
     : rules;
   try {
     show((await api("channels/permissions", { extras: $("chat-permissions-extras").checked, rules: next.slice(0, 50) })).permissions);
     $("chat-permissions-allow").value = "";
     $("chat-permissions-note").value = "";
+    $("chat-permissions-approvals").checked = false;
     say(t("settings.chat-permissions.saved"));
   } catch (error) {
     say(t("settings.chat-permissions.failed", { reason: error instanceof Error ? error.message : String(error) }));

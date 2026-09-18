@@ -402,7 +402,9 @@ test("a procedure asks before it starts, a confirm step waits, and a failing aut
 
 test("readiness looks for programs on PATH and keys by name, and only suggests how to install", () => {
   const files = new Set(["/usr/bin/git", "C:\\Tools\\jq.exe"]);
-  const probe = (platform, path) => ({ platform, path, runnable: (file) => files.has(file.replaceAll("/", platform === "win32" ? "\\" : "/")) || files.has(file), hasKey: (key) => key === "GITHUB_TOKEN" });
+  // The stand-in matches the file name exactly, with no separators smoothed over: a Windows PATH
+  // must be joined with backslashes and a Unix one with slashes, whichever computer is asking.
+  const probe = (platform, path) => ({ platform, path, runnable: (file) => files.has(file), hasKey: (key) => key === "GITHUB_TOKEN" });
   const needs = { bins: ["git", "gh"], anyBins: ["jq", "yq"], keys: ["GITHUB_TOKEN", "OPENAI_API_KEY"], os: ["macos", "linux"],
     install: [{ kind: "brew", package: "gh" }, { kind: "apt", package: "gh" }, { kind: "winget", package: "GitHub.cli" }] };
   const mac = checkReadiness(needs, probe("darwin", "/usr/bin:/opt/homebrew/bin"));
@@ -585,7 +587,6 @@ test("review: what the owner is asked shows every word and permission a proposed
 
 test("review: a restart finishes a procedure that was cut off, and keeps one that waits for the owner's answer", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "branch-autonomy-restart-"));
-  t.after(() => discardTemp(root));
   const options = () => ({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider: scripted() });
   const first = await createBranch(options());
   const auto = first.autonomy.procedures;
@@ -599,7 +600,9 @@ test("review: a restart finishes a procedure that was cut off, and keeps one tha
   await first.close();
 
   const second = await createBranch(options());
-  t.after(() => second.close());
+  // One hook, app first: Windows will not delete a folder whose database is still open, and node
+  // runs after hooks in the order they were registered.
+  t.after(async () => { await second.close(); await discardTemp(root); });
   const after = second.autonomy.procedures;
   assert.equal(after.get(cut.id).running, null, "the cut-off run is closed");
   assert.equal(after.get(cut.id).stats.cancelled, 1);

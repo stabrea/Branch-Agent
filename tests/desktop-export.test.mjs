@@ -49,7 +49,10 @@ test('native conversation export uses guarded IPC and leaves the blanket downloa
   const { home, options } = await desktopOptions(), path = join(home, 'exported-conversation.json');
   const electron = await _electron.launch(options);
   try {
-    const page = await electron.firstWindow(); page.setDefaultTimeout(10000);
+    // Each click waits for the window to take it. With other desktop files starting beside it, a
+    // loaded CI Mac spent over ten seconds on the Send click alone (Playwright's log ended at
+    // "performing click action", with nothing covering the button), so every step gets a minute.
+    const page = await electron.firstWindow(); page.setDefaultTimeout(60000);
     await connected(page);
     await electron.evaluate(({ dialog }, path) => {
       globalThis.fixtureExportDialogs = [];

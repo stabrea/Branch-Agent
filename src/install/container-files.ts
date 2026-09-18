@@ -15,13 +15,19 @@
  *
  * The ideas are Hermes Agent's Termux, Nix and Docker guides (MIT); these files are written for Branch.
  */
+import { nodeFloor, nodeFloor25, nodeFloorMajor } from "../node-floor.js";
+
 export const dockerfilePath = "packaging/docker/Dockerfile";
 export const dockerignorePath = ".dockerignore";
 export const flakePath = "flake.nix";
 export const termuxScriptPath = "packaging/termux/install-branch-termux.sh";
 
-/** The Node major the image and the flake use; the same as `engines.node` in package.json allows. */
-export const nodeMajor = 24;
+/**
+ * The Node major the image and the flake use. `node:24-bookworm-slim` and `pkgs.nodejs_24` both
+ * give the newest 24.x, which is above the floor in src/node-floor.ts; the Termux script, which
+ * takes whatever Node the phone already has, checks the floor exactly.
+ */
+export const nodeMajor = nodeFloorMajor;
 
 export function dockerfileText(): string {
   return [
@@ -77,7 +83,7 @@ export function dockerignoreText(): string {
 export function flakeText(): string {
   return `# Branch Agent as a Nix flake. Written by src/install/container-files.ts; do not edit by hand.
 #   nix run github:stabrea/Branch-Agent -- start
-#   nix develop        (a shell with Node ${nodeMajor} for working on Branch)
+#   nix develop        (a shell with Node ${nodeMajor}, whose newest patch is above Branch's floor of ${nodeFloor})
 {
   description = "Branch Agent, a local, inspectable personal assistant";
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -144,8 +150,13 @@ export function termuxScript(): string {
     'ACTUAL="$(sha256sum "$PACKAGE" | cut -d " " -f 1)"',
     '[ "$EXPECTED" = "$ACTUAL" ] || fail "$PACKAGE does not match its .sha256, so nothing was installed."',
     'if ! command -v node >/dev/null 2>&1; then say "Installing Node.js from Termux..."; pkg install -y nodejs; fi',
-    `MAJOR="$(node -p 'process.versions.node.split(".")[0]')"`,
-    `[ "$MAJOR" -ge ${nodeMajor} ] || fail "Branch needs Node.js ${nodeMajor} or newer; this phone has $MAJOR. Run: pkg upgrade nodejs"`,
+    `VERSION="$(node -p 'process.versions.node')"`,
+    // The floor is a patch, not a major (see src/node-floor.ts), so the major alone cannot answer it.
+    `NEW_ENOUGH="$(node -p '(() => { const [a, b] = process.versions.node.split(".").map(Number);`
+      + ` if (a > 25) return "yes"; if (a === 25) return b >= ${Number(nodeFloor25.split(".")[1])} ? "yes" : "no";`
+      + ` return a === ${nodeFloorMajor} && b >= ${Number(nodeFloor.split(".")[1])} ? "yes" : "no"; })()')"`,
+    `[ "$NEW_ENOUGH" = "yes" ] || fail "Branch needs Node.js ${nodeFloor} or newer (on the Node 25 line, ${nodeFloor25} or newer);`
+      + ` this phone has $VERSION. Without it a proxy cannot be used at all. Run: pkg upgrade nodejs"`,
     "ELECTRON_SKIP_BINARY_DOWNLOAD=1 PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \\",
     '  npm install -g --omit=dev --ignore-scripts --no-audit --no-fund "$PACKAGE"',
     'say "Branch Agent is installed. Start it with:  cd ~ && branch start"',

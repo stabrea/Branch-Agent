@@ -157,7 +157,10 @@ export class TelegramAdapter implements ChannelAdapter {
    */
   private fromButton(query: z.infer<typeof callbackSchema>): InboundMessage | null {
     const chat = query.message?.chat;
-    if (!chat || !query.from || !query.data) return null;
+    // mac7/chat-approvals (integration review): the same guard `inbound` puts on an ordinary
+    // message. A press carries the sender id a line is matched against, so a bot posting as the
+    // person the owner named would otherwise have carried that person's yes.
+    if (!chat || !query.from || query.from.is_bot || !query.data) return null;
     void this.call("answerCallbackQuery", { callback_query_id: query.id }).catch(() => undefined);
     return {
       channel: this.id, chatId: String(chat.id), chatKind: chat.type === "private" ? "direct" : "group",

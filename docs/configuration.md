@@ -291,7 +291,23 @@ else" for one of those. The Kimi coding plan, the Z.ai coding plan and Amazon's 
 address are not offered, because their terms for other tools, or the address itself, could not be
 confirmed from the provider's own pages.
 
-#### macOS and Linux
+#### Which Node Branch needs
+
+Branch needs **Node 24.14.0 or newer**. On the Node 25 line it needs **25.4.0 or newer**, because Node 25.0 to 25.3
+carry a higher number but not the piece Branch needs. Node 26 and later are all new enough. `package.json` says this
+as `>=24.14.0 <25 || >=25.4.0`, and `npm` warns when it is installed on anything older.
+
+The floor used to be 24.0.0. It was raised because of the proxy above. Branch hands the proxy to Node through
+`http.setGlobalProxyFromEnv()`, which points every call Branch makes — including `fetch` to your AI providers — at
+that proxy. Node grew that function in 24.14.0, and on the 25 line in 25.4.0. On anything older Branch has no way to
+tell Node about a proxy at all, so someone on a work network could set one, see it saved, and have it cover nothing.
+Rather than let that happen quietly, the version Branch asks for is the version where the setting actually works.
+Nothing else Branch uses needed more than Node 24.0.0, which is why the floor moved by a patch and not by a whole major.
+
+Starting Branch on an older Node prints one plain line saying which version is needed and that the proxy will not
+work, and then carries on: everything except the proxy still runs. The proxy card in Settings says the same thing.
+
+### macOS and Linux
 
 Nothing in this section depends on the operating system. The coding-assistant rows run the
 program named on your `PATH` with fixed arguments and no shell on every system, and Windows behaves
@@ -858,16 +874,45 @@ Branch tomorrow. `skills.` and `brief.` are not families, because `skills.read` 
 above and `brief.read` only reads.
 
 **Who says yes.** A line hands a chat something that can change things, and what makes that safe is
-that the change is asked about first. So the yes cannot come from the same chat. Replying `y` in a chat
+that the change is asked about first. By default the yes does not come from the same chat: replying `y`
 answers a question about the short list every chat already has, and nothing else; a question about
 something one of your lines granted is shown in the chat without a Yes button and says it has to be
-approved in the app window. `n` always works from the chat, so nothing is left waiting for ever. `a`
-("yes always") was never offered for a chat's task and still is not.
+approved in the app window. `n` always works from the chat, so nothing is left waiting for ever.
+
+- `approvals` — **off** on every line, including every line you saved before this existed. Turning it on
+  for one line lets the app and the person that line names answer `y` in the chat, for what that same
+  line allows.
+
+Turning it on gives something real away, and the card says so in the same words: a chat app cannot prove
+who is typing, so anyone who gets into that chat account, or who manages to pass themselves off as it,
+can approve those changes from their own phone. Leave it off unless being away from this computer and
+unable to say yes to the thing you granted your own phone is a problem you actually have.
+
+What it cannot do, however the line is written:
+
+- It only reaches what **that same line** allows. Two lines for one person never lend each other their
+  yes, so a line that may answer yes to `files.write` cannot answer yes to what another line granted.
+- It never reaches a name a chat may never have. Everything in the paragraphs above — the exact names
+  and the whole families — is still refused, even if a line names it and ticks the box.
+- It never becomes a standing yes. `a` ("yes always") is not offered in a chat at all, and typing it
+  is answered with a sentence saying a standing yes has to be given here in the window. Nothing is
+  written to your rules by it, whoever asked and whatever their line says.
+- It does nothing at all while `extras` above it is off, and nothing for a person no line of yours names.
+- It only works one to one. In a group anybody paired may press the button, and a line of yours was
+  not you handing your yes to whoever else is in the room, so a group gets No and the sentence saying
+  where the yes belongs — even for the person the line names. This is the same rule as `a`.
+- It needs a line that names **one person on one app**. A line written with `*` for the app or for
+  the person keeps its tick with no effect: the widest line there is would otherwise have been the
+  easiest one to tick, since both boxes fall back to `*` when you leave them empty. Such a line
+  still adds what it allows; only its yes is refused.
+
+Every save is written to the record, including how many of your lines may now answer yes from the chat,
+so turning one on is something you can find again later.
 
 The lines are deliberately not part of the settings file or the whole-app presets
 (`src/settings-kit/catalogue.ts` holds `extras` alone, marked as reaching further). A settings file
 brought in from somewhere else, or a preset, can turn the switch off, but can never write a line that
-hands a chat something new. The whole thing is `src/channels/chat-permissions.ts`, still reached under
+hands a chat something new, and can never turn a line's `approvals` on. Only you, in the app window. The whole thing is `src/channels/chat-permissions.ts`, still reached under
 its old name `chatPermissionsOf` from `src/channels/router.ts`, and asserted in
 `tests/chat-allowlist.test.mjs`.
 
@@ -1690,13 +1735,13 @@ Routes: `GET /api/voice/plan` (which service would do the work, where the sound 
 
 Speech is pluggable. **Settings → Voice → Other speech services** picks a service for writing speech out and one for reading replies aloud, instead of the usual choices above: **Deepgram** (both), **ElevenLabs** (both), **Azure speech** (both; give the region as `azureRegion`, for example `westeurope`, and writing out takes WAV only), or **a program on this computer** that reads aloud, such as Piper (name it by its full place and give its arguments one per line as `programArgs`, at most 20, with `{text}` for the file holding the words and `{out}` for the WAV file it must write; the words never travel as an argument). Each service's key stays in **Secrets** (the default project); the card only names the secret (`DEEPGRAM_API_KEY`, `ELEVENLABS_API_KEY`, `AZURE_SPEECH_KEY` by default), and it is taken out at the moment of the call. The switch ships **off**, and while it is off, or while no service is picked, the usual routes do the work exactly as before. "Keep audio on this computer" refuses every cloud service in plain words; only the program on this computer still works. No price is on file for these services, so none is shown. Other code can add its own engine or spoken command through `SpeechRegistry.register` / `addIntent` (`src/speech-engines.ts`).
 
-**Spoken commands.** While the switch is on, saying only "stop", "say that again", "slower" or "faster" (or "arrête", "répète", "plus lentement", "plus vite") into **Talk** is taken as a command rather than sent as a message: it stops reading aloud, reads the last answer again, or changes the speaking speed by a quarter. A longer sentence is always an ordinary message. There is still no wake word. API: `GET|POST /api/voice/engines`, `POST /api/voice/command`, and `POST /api/voice/transcribe` now answers with `command` (null when the phrase is not one, or while the switch is off).
+**Spoken commands.** While the switch is on, saying only "stop", "say that again", "slower" or "faster" (or "arrête", "répète", "plus lentement", "plus vite") into **Talk** is taken as a command rather than sent as a message: it stops reading aloud, reads the last answer again, or changes the speaking speed by a quarter. A longer sentence is always an ordinary message. A wake word is a separate switch, ships off, and is described under "A word that starts a turn" below. API: `GET|POST /api/voice/engines`, `POST /api/voice/command`, and `POST /api/voice/transcribe` now answers with `command` (null when the phrase is not one, or while the switch is off).
 
 **macOS and Linux.** The cloud services are the same everywhere. For a voice that never leaves the computer beyond `say` and `espeak-ng`, install Piper yourself and name it here.
 
 ### Live conversation (wave 8)
 
-A **live conversation** is the other way of talking to Branch: instead of holding a button, recording, and waiting, you press **Talk live** once and then simply talk. Your voice goes up while you are still saying it, the answer comes back while it is still being said, and pressing the button again cuts it off mid-sentence the way you would interrupt a person. There is still no wake word: nothing listens until you press the button, and pressing it again ends the conversation.
+A **live conversation** is the other way of talking to Branch: instead of holding a button, recording, and waiting, you press **Talk live** once and then simply talk. Your voice goes up while you are still saying it, the answer comes back while it is still being said, and pressing the button again cuts it off mid-sentence the way you would interrupt a person. Nothing listens until you press the button, and pressing it again ends the conversation; a live conversation is never started by a wake word, which is a separate switch of its own, described below.
 
 **What is sent.** While a live conversation is open, the sound of your microphone goes to the model service you are connected to, continuously, and its answer comes back as sound. Both sides are also written out in words, and those words go into the conversation on screen as ordinary messages, so afterwards you can read what was said. **The sound itself is not kept anywhere** — not in the database, not in a file, and there is no setting that changes that. It is sent, played and forgotten. The one setting near it, *Note in the task's record how much sound a live conversation carried*, writes down the size of each piece of sound and nothing else, so you can see how much went back and forth; switch it on only if you want that detail.
 
@@ -5445,8 +5490,6 @@ going to be built. They are written down here so nobody goes looking for them.
 - **No screen control on a Mac or Linux outside the app.** There the screen and keyboard tools work
   only inside the Branch Agent app, whose own window carries the Stop notice; see "Using this
   computer's screen and keyboard".
-- **No wake word.** Talk mode starts when you press the button or run the command. Nothing listens
-  to the room waiting for its name, because that means a microphone open all day.
 - **No outside vector databases.** Everything Branch remembers is searched in the SQLite file beside
   your own data. There are no connectors to Postgres, Redis, Qdrant, Pinecone, Chroma, Weaviate,
   MongoDB or Azure, because that would mean sending what you said to a server somewhere else.
@@ -7387,7 +7430,7 @@ data in `/data` and the workspace in `/workspace`, and downloads no browser. The
 listens on 127.0.0.1, as everywhere: run the container with `--network host` on Linux to open the
 window, or reach it through chat apps. The flake reads `package-lock.json` directly, so it keeps no
 hash; `nix run github:stabrea/Branch-Agent -- start`. The Termux script installs the release's
-`branch-agent-<version>.tgz` after checking its `.sha256` (Node 24 or newer from `pkg`); `--uninstall`
+`branch-agent-<version>.tgz` after checking its `.sha256` (Node 24.14.0 or newer from `pkg`); `--uninstall`
 removes it, and a missing or wrong checksum stops it before anything is installed. Both files are now
 attached to every version's release by the Package workflow, which builds the `.tgz` on the Linux runner
 and writes the checksum beside it; the release stops rather than ships if the file is missing, if its
@@ -8078,6 +8121,188 @@ without the file and network wall (see above).
 - **A0602** (a helper that installs and manages an isolated plugin for another agent): built as the write / check /
   remove lifecycle of Branch's own plugin for Codex and Claude Code, in a folder the owner names (`src/add-ons/export.ts`).
 
+## A word that starts a turn (mac7/wake-pins, mac7/wake-mic, mac7/wake-mac)
+
+Instead of holding **Talk**, say a word of your own and Branch starts a turn. It ships **off**, like everything else, and has the same three-way switch: **off** — nothing listens at all;
+**on** — it listens whenever Branch is running; **when needed** — meant to listen only while a
+conversation is open on the screen, and **not wired up**: nothing tells the listener whether one is,
+so it says so plainly rather than listening all the time under a switch that promises otherwise
+(mac7/wake-mic). Its card, **A word that starts a turn**, lives in Settings → Voice.
+Holding Talk stays the ordinary way in and is not going away.
+
+**What it really does, and what it never does.** Listening happens on this computer. No sound leaves
+the machine for this, ever, and **nothing is recorded or kept before your word has been heard**: what
+the listener holds is a few seconds of sound in memory, thrown away every time your word is not in
+it. No file is written. Hearing the word grants nothing at all: the turn it starts is asked about exactly
+as the same words typed into the message box would be, with the same approval rules and the same
+questions.
+
+**What the turn actually carries (integration review).** The turn carries **the one window your word
+was in** — one to five seconds, two by default — as the spotter wrote it out, and nothing else. No
+further sound is recorded for it, so **nothing said after that window is heard**; to say more, say it
+inside the window or hold **Talk**. On **Windows** this is sharper still: its engine is loaded with a
+grammar of exactly one phrase, so the only thing it can ever write out is the word itself and the
+turn's whole prompt is your wake word. That is worth saying plainly rather than leaving the card to
+imply an instruction can follow the word: on Windows the word can start a turn, but it cannot carry
+one. Earlier wording promised that "whatever you say after it" was heard; no computer does that, and
+the card, the French and this reference have been corrected. While **Lockdown** is on the wake word is off whatever the
+switch says, and turning Lockdown off puts the switch back where it was.
+
+**What opens the microphone (mac7/wake-mic).** Branch owns one listener, started in `src/index.ts`
+beside the other long-lived parts. It runs only while the switch is on, a word is chosen, and this
+computer can really listen, and it asks again **before every window** rather than being told once, so
+Lockdown coming on, the switch going off, or the app closing stops it within one window whoever
+turned it — the card, the terminal, a settings file or another window — and the microphone is let go
+of when it stops. The recorder is **one program per window**: it is started, it ends when the window
+is up, and it is ended by the count of bytes as well, so only one window of sound is ever in memory
+and nothing can hold the microphone open between windows. A recorder that will not go when it is
+asked is ended for good two seconds later. The sound goes to the spotter on its standard input; no
+file name is ever an argument to either program, and no file is written.
+
+**Locking Branch, and unlocking it (integration review).** Locking Branch lets go of the microphone
+along with everything else it holds only for "while I am here", and **unlocking it starts listening
+again by itself** — you do not have to save anything to get your word back. While it is locked
+nothing can start it: being locked is a state the listener asks about before every window and before
+every start, so a settings file, a preset or the card cannot reopen the microphone underneath the
+lock.
+
+**When something goes wrong (integration review).** A window that fails — the machine woke from
+sleep with the sound card gone, a microphone was unplugged, the spotter would not start — is one
+window lost. The listener waits two seconds and tries the next one: it does not stop the app, and it
+does not ask a dead device again as fast as it can. So sleeping and waking costs you the window it
+slept through and nothing else.
+
+- **macOS needs a recording program you already have (mac7/wake-mac).** macOS ships no recorder a
+  program can ask for sound — there is no `arecord`, no `afrecord`, nothing — and Branch still will
+  not install one of its own, bundle one, or add a dependency for one. What it does now is *look* on
+  your search path for one you installed yourself: `rec` (sox) first, then `sox` (`-d` is what
+  chooses the microphone there), then `ffmpeg` (`-f avfoundation -i :default`). Where one is found,
+  the card names it and a Mac listens exactly as Linux does. Where none is found, the card says so,
+  says that `brew install sox` is the smallest thing that would fix it — as something you might do,
+  never something Branch does — and **nothing listens, whatever the switch says**. A Mac still needs a spotter as well:
+  a speech program of your own can *spot* a word, and now there is also something that can *record*
+  one, and it takes both.
+- **macOS will ask you for the microphone, and only you can answer.** The first time a recording
+  program opens the microphone, macOS itself puts up its own permission question. That question
+  comes from the system, it is yours to accept or refuse, and **Branch cannot ask for you or answer
+  it for you**; until you accept it, nothing is heard. The card says this *before* you turn the
+  switch on, beside the name of the program it found. While that question is still on the screen the
+  recorder is refused the microphone and ends at once, giving back no sound. A window that carried
+  no sound is not a window: the spotter is not asked about it, nothing is written down about it, and
+  the listener waits two seconds before trying again — so it neither spins nor gives up, and it
+  hears your word the moment you say yes (integration review).
+- **Which program, exactly (integration review).** Branch runs the **first program of that name on
+  your search path** and does **not** check what it is — it is not verified, signed-checked or
+  compared against sox. A directory anybody can write to, early on your `PATH`, would therefore
+  decide what runs; that is true of every program Branch is told to use, and the card says so rather
+  than letting "one you installed yourself" imply a check that is not made. What *is* true of it:
+  it is given its arguments one at a time and never a line for a shell to read, it is given **none**
+  of this computer's own environment, no file name is ever an argument, and it is ended when its
+  window is up and ended for good two seconds later if it will not go.
+- **Linux** uses `arecord` (alsa-utils) when it is really on this computer, and `parecord`
+  (PulseAudio) when it is not. Neither is assumed: the search path is looked at, and a Linux box with
+  neither says so and stays off. `arecord` is given the window's length as well as being bounded by
+  the count of bytes; `parecord` has no length of its own and is bounded by the count alone.
+- **Windows** needs no recorder: its own speech engine opens the microphone itself, for one window at
+  a time, so **no sound ever reaches Branch at all** on that path. Because Windows ships nothing to
+  record with, its own engine is what listens there even when you have set up a speech program of
+  your own for writing recordings out.
+
+**What each computer can really do to spot the word.** No new dependency is added for this, so a
+computer either has something that can spot a word without the internet or it says so and stays off.
+
+- **Windows** uses the speech recognition that ships with Windows (`System.Speech`), loaded with a
+  grammar of exactly your one word. It runs on the machine and reaches no network. Your word is
+  handed over in the spotter's environment (`BRANCH_WAKE_WORD`), never pasted into the script:
+  PowerShell's `-Command` glues any words after it onto the same command string, so an argument
+  there would have been read as PowerShell after all. The spotter is given that environment and
+  nothing else — it never inherits this computer's own.
+- **macOS** has nothing a program can ask to *spot* a word: macOS keeps its speech recognition
+  inside apps with a window, and there is no command for it. So a Mac uses a speech program of your
+  own, exactly as Linux does, and says so and stays **off** until you have set one up. A Mac needs
+  both halves — something to record with (above) and something to spot with — and says which half
+  is missing.
+- **Linux** ships no speech recognition at all, so a speech program of your own is what spots the
+  word there. A Linux box needs both: something to record with and something to spot with.
+- **Any computer** where you have set up a speech program yourself (Settings → Voice, "a speech
+  program already installed here": whisper.cpp or faster-whisper) uses that program, asked only
+  whether it heard your word. On Linux that is what makes the wake word possible at all.
+
+Sending what your microphone hears to a service is never an option, on any computer, and there is no
+setting that turns it into one.
+
+**What is saved** (`src/voice-wake.ts`, record `wake-word`): `mode` (off / when-needed / on, off by
+default), `word` (your own word or short phrase, empty by default, so nothing is listened for),
+`sureness` (50–99, 80 by default — how sure the spotter must be out of a hundred; lower hears your
+word more often and more often hears it when you did not say it, and it does nothing when your own
+speech program is what spots the word, because such a program writes out what it heard rather than
+saying how sure it is) and `windowSeconds` (1–5, 2 by default — the longest piece of sound the
+listener will hold at once; a piece longer than this is dropped where it arrives, without being
+looked at, so no more than this is ever in memory, and it is thrown away again either way). Only the
+switch and `sureness` are in the settings catalogue, so a whole-app preset or a settings file can
+turn listening off or make it stricter but can **never choose what this computer listens for**: the
+word is set by you, in the card, and nowhere else.
+
+**Your word stays yours.** `GET /api/voice/wake` is readable by anybody using this computer, so it
+never carries the word itself to anybody but you: somebody on a household profile is told only
+whether a word has been chosen (`wordChosen`), and the sentences about what this computer would use
+do not repeat the word either. Setting the word, and choosing the speech program that would spot it,
+are both refused for anybody but you. The answer also carries `canListen` (whether this computer can
+listen for a word at all), `listening` (whether it is listening this moment, read from the listener
+itself rather than guessed from the switch) and `capture`, one sentence about what would really open
+the microphone here. Neither the recorder's path nor the spotter's ever travels.
+
+**API.** `GET /api/voice/wake` answers the settings, one sentence about what this computer would
+really use to spot the word and whether it has one at all, and why it is refused right now when it
+is. The program that would be run never travels: its full path is the owner's. `POST /api/voice/wake`
+saves the settings and is the owner's alone. A short-lived key is refused both, the read included,
+because the word outlives any key.
+
+## Settings you have pinned (mac7/wake-pins)
+
+Pin a setting and it is fixed. Somebody else who uses this computer — a household profile — still
+sees it, and sees that you pinned it, but cannot change it. **Pinning and unpinning are yours alone.**
+The card, **Settings you have pinned**, lives in Settings → Permissions; it lists what is pinned and
+what each one is fixed at, and a household profile sees that same list read-only.
+
+**Where it is enforced.** Not in the window: at the one place every setting is written
+(`Store.save`), so each of these meets the same refusal in the same words — the window, the API, the
+terminal, a settings file, a whole-app preset and a tool the assistant calls. The refusal says *"The
+owner pinned this setting (…), so it cannot be changed here. Only the owner can unpin it, in
+Settings."* This matters because several settings screens write the owner's own record without a
+profile check of their own; the pin is what stands in the way there.
+
+A pin is checked against what the record would **mean**, not against the text sent, so a write that
+leaves the field out, or that flips the older yes/no some records keep beside their switch, is
+refused too. Everything else on the same record is still the other person's to change: only the
+pinned field is fixed.
+
+**Presets and settings files step over a pinned setting rather than failing.** Bringing in a file of
+forty settings with one pinned among them makes the other thirty-nine and tells you which one it left
+alone; the same is true of a whole-app preset and of putting settings back. The owner still changes a
+pinned setting deliberately, one switch at a time, or unpins it first. The list of pins is itself a
+record nobody else may write, and it is on the never-touched list, so no preset or file can unpin
+anything.
+
+**What is saved** (`src/settings-kit/pins.ts`, record `settings-pins`): one entry per pinned field
+with the setting's key and field, the value it is fixed at, what the field falls back to when a
+record does not carry it, whether the record keeps an older yes/no beside its switch, and the
+setting's name and the field's label so the refusal can say which setting in plain words.
+
+**API.** `POST /api/settings-kit/pins` with `{ key, field, pinned }` pins or unpins one field, and is
+the owner's alone like the rest of the settings kit. `GET /api/pins` answers the list of pinned
+settings — names and fixed values only — to anybody who uses this computer, which is how a household
+profile is shown that a setting is pinned. `GET /api/settings-kit` now marks each field `pinned`, and
+`POST /api/settings-kit/apply` answers `skipped` beside `applied`.
+
+macOS and Linux: nothing in either of these two sections depends on the operating system, except
+which spotter and which recorder the wake word can use, both set out above. The tests
+(`tests/wake-word.test.mjs`, `tests/wake-mic.test.mjs`, `tests/wake-mac.test.mjs`) hand in a fake
+recorder, a fake spotter and a
+fake answer to "is this program here", through the same options `createBranch` fills with the real
+ones, so what is tested is the real wiring: no microphone is ever opened, no program is ever run and
+no sound is ever played.
+
 ## Understandable settings (R17-S-A)
 
 Every control in Settings has one sentence under it saying what it does and what changing it means,
@@ -8220,8 +8445,8 @@ and `morningBrief` (all on) and `maxCharacters` (1500). The email inbox: `host`,
 
 **Not built in this round.** *Live voice in Discord voice channels* (R17-023) is left out: Discord voice needs the Opus
 codec and Discord's end-to-end voice encryption (DAVE, built on MLS), neither of which Node ships, and new
-dependencies are not allowed. *A wake word* is left out on purpose until the owner decides how one could be built
-safely; nothing here ever listens by itself.
+dependencies are not allowed. *A wake word* is now built, separately and off,
+under "A word that starts a turn"; nothing in this round listens by itself.
 
 **macOS and Linux.** Everything above is plain HTTPS, IMAP and the owner's own programs started with an argument list,
 so it behaves the same on all three systems. The tunnel program is found by name on the search path or by the full
@@ -8328,15 +8553,80 @@ with no result gets a stand-in saying the outcome is unknown; a note that landed
 them. **On** also drops empty answers and joins two messages in a row from the same side. Each repair is noted on the
 task (`history.repaired`).
 
-### Credential vault (R17-068): awaiting owner
+### Filling a saved sign-in (R17-068)
 
-Not built; the owner has not decided. The proposal: signing in and filling forms goes only through the owner's
-password manager's own autofill (for example the Bitwarden extension in the owner's browser, or a local helper that
-fills the field itself), so the model asks for "sign in to example.com with the matching saved login" and never
-receives, prints or types the secret. Branch would check that the page's address matches the saved login's site
-before asking the password manager, show the owner which login is about to be used, and record the moment in the
-record of what the assistant was allowed to do. Branch would keep no copy of any password, and a model-written
-value would never be typed into a password field. Row R17-068 stays **awaiting owner**.
+The owner settled row R17-068 as **filling only**. Branch can type a password you already keep in your password
+manager straight into a page you are on, when you ask for it by name. It keeps no password of its own, and neither
+you nor the assistant is ever shown the value: it is read at the moment it is needed, typed into the box, and
+dropped. The assistant is told one thing afterwards — that a sign-in was filled, which one, and on which address.
+
+Settings, "Secrets", card **Filling a saved sign-in**. It ships **off**, with the usual three-way switch
+(`mode`: off / only when I ask for it / on; `enabled` follows it, and the older yes/no saves still read correctly).
+Off, the `signin.fill` tool is not even offered to the assistant. A refusal the assistant is given never says
+whether a name is in your book or which website it is saved for — otherwise it could ask for one name after
+another on a page of its own choosing and read your whole book back out of the answers. The real reason is in
+your own record of what the assistant was allowed to do. The card also holds `logins` — your own book of
+sign-ins — and `timeoutMs`, how long the password manager's command may take.
+
+**Your book.** Each line of `logins` says what you will call the sign-in (`name`), the website it belongs to
+(`site`, a plain name such as `example.com`), which manager holds it (`service`) and the item's name there
+(`item`). Three more are optional: `alsoHosts`, any other **exact** website names the same sign-in is used on
+(`accounts.example.com`, `www.example.com`); `address`, the exact sign-in page; and `code`, ticked when the same
+item also holds your one-time code. Branch **never** chooses an item by guessing from what a page says: you name the line,
+and nothing else will do.
+
+**Where it will fill.** Only on the line's own `site`, **exactly**, or on one of the names you put in `alsoHosts`
+yourself — never a look-alike such as `evil-example.com` or `example.com.attacker.net`, and never a name *under*
+your site that you did not write down. `pages.example.com` and `attacker.example.com` are refused: a name under a
+website can belong to somebody other than the website, and one open redirect on the site you saved is enough to
+land the task on one. A look-alike written in another alphabet cannot slip past either, because an address hands
+back its punycode name and a site you may write is plain letters and digits. Only on a secure address, and never
+on an address that carries a name and password of its own. And when pressing something took the task away from the website whose address it
+opened, it fills nothing unless that address is the `address` you wrote down yourself: what it pressed was put
+there by whoever wrote the page, and a page's content is not something to be led by. Pressing "Sign in" on the
+website you opened is not that hop, so an ordinary sign-in — password, then the one-time code on the next page —
+works as it should.
+
+**Why the exact name.** The hop above is noticed when Branch *presses* something, and an address it opens
+directly is not a hop — so text on a page can still talk the assistant into *opening* an address. That is why the
+website name, not the hop, is what carries the safety: whatever address the assistant is talked into, the only
+place a sign-in can be filled is a name you wrote down yourself. The cost is that `accounts.google.com` is not
+`google.com`: when signing in really does happen on another name, put that name in `alsoHosts`. Branch will not
+decide for you that one name sits under another.
+
+**While a recording is being kept, nothing is filled.** A recording of the browser writes down what every step was
+asked to do, and what a "type this in" step was asked to do *is* the value. Blacking out password boxes on the page
+does not reach that. So `signin.fill` refuses outright while `browser.recording` is running, before the password
+manager is asked anything: keep the recording first, then ask for the sign-in.
+
+**Where the value can go.** Into the box on the page, and nowhere else. It is not in the answer the assistant gets,
+not in an event, not in the record of what the assistant was allowed to do (which names the sign-in, the box and
+the website only), not in a trace (a recording is refused outright, see above) and not in an error message — a page library's own
+message is never passed on,
+because such a message can quote what it was asked to type. A password is also remembered by the secret scrubber,
+so it would be taken back out of anything written later; a one-time code is not, because six figures blanked out of
+ordinary text for a whole session would do more harm than good, and the code never leaves the page in any case.
+
+**Whose it is.** Yours alone. A message from a chat app, a short-lived key (which is also how another computer
+running Branch reaches this one), someone else using a household profile on this computer, a Trunk, and work a
+schedule, a trigger or another AI tool started are each refused in one plain sentence. Everything is refused while
+Lockdown is on. The book itself is the owner's too: a short-lived key may neither read `/api/vault-autofill/settings`
+nor change it.
+
+**Two switches, on purpose.** Branch reads through the password-manager connection you already had
+("Reading passwords out of your password manager", above): that has to be on, with the right manager
+ticked, before this one will fill anything. Turning on filling does not by itself let Branch read a
+vault, and the older switch by itself never types anything into a page.
+
+**The password manager.** Bitwarden is wired end to end, through its own command line (`bw --nointeraction --raw
+get password <item>`, and `get totp <item>` for a one-time code). 1Password items can be named for a password;
+a one-time code is read from Bitwarden only. Branch only ever reads: nothing here writes to, unlocks or signs in
+to a vault, the manager is always started with an argument array and never a line for a shell to take apart, and a
+locked or missing vault is a plain refusal. It waits for the same unlock the secrets locker does. The tests use a
+fake runner and a command name inside a temporary folder, so no real vault is ever asked anything.
+
+`browser.fill` and `browser.act` still refuse a password box outright, exactly as before: there the assistant
+supplies the value. This way in supplies its own.
 
 ### macOS and Linux
 
@@ -8389,8 +8679,14 @@ turn installing on or off (a household profile and a short-lived key are refused
 **The proxy and certificates** apply to every call Branch itself makes, after the network rules have allowed the
 address. A proxy address may not carry a user name or password. A certificate must be a certificate authority, current
 and readable; it is added to the certificates this computer already trusts and never replaces them, and nothing here
-can turn certificate checks off. The proxy needs Node 25 or newer inside Branch; with an older Node it is kept and the
-card says so. Programs the assistant starts are not given the proxy. The card says plainly that a proxy passes on
+can turn certificate checks off. The proxy needs Node 24.14.0 or newer inside Branch (on the Node 25 line, 25.4.0 or
+newer) — see "Which Node Branch needs" below; with an older Node it is kept and the card says so.
+
+What the proxy covers: everything Branch itself sends — the calls to your AI providers, web reading, update checks,
+chat services. What it does not cover: anything Branch did not send. **Programs the assistant starts are not given the
+proxy**, so a command or a tool server it launches goes out however that program goes out. Neither is the browser the
+browser tools drive. And local model servers on this computer — Ollama, LM Studio, anything on `localhost`, `127.0.0.1`
+or `::1` — are always kept off the proxy on purpose, along with any host you list yourself. The card says plainly that a proxy passes on
 everything Branch sends, including requests carrying your provider keys, and that an added certificate lets whoever
 holds its private key read and change Branch's secure connections. Presets, "put back" and settings files never
 touch the proxy, the certificates, the browser's care or installing by itself.

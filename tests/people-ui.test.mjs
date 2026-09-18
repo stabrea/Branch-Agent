@@ -94,7 +94,10 @@ test("P3 a person signs in on the page with their PIN, talks, and sees only thei
   await phone.getByLabel("Your PIN").fill("1234");
   await phone.getByRole("button", { name: "Check my PIN" }).click();
   await phone.getByText("Hello, Ada").waitFor();
-  assert.ok(await phone.getByText("Nothing yet. Start a conversation below.").isVisible());
+  // mac7/linux-fixes: isVisible() asks whether it is on the page this instant and never waits,
+  // so on a slow machine this read the list before it had drawn. waitFor() asks the same
+  // question and gives the page time to answer.
+  await phone.getByText("Nothing yet. Start a conversation below.").waitFor();
   await phone.getByRole("button", { name: "New conversation" }).click();
   await phone.getByLabel("Your message").fill("what is on today?");
   await phone.getByRole("button", { name: "Send" }).click();

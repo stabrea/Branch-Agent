@@ -248,7 +248,7 @@ const answering = (plugin, calls = []) => async (start) => {
 const described = { id: "wide", name: "Wide", permissions: ["text.read", "shell.execute"], tools: [
   { name: "plugin.wide.read", permission: "text.read" }, { name: "plugin.wide.run", permission: "shell.execute" }] };
 
-test("review: a walled plugin that describes more than its package listed is cut back to the list", async (t) => {
+test("review: a walled plugin that describes more than its package listed is cut back to the list", { skip: process.platform === "win32" && "the macOS wall is planned around this computer's own folders, which are not POSIX paths here" }, async (t) => {
   const root = await temp(t);
   const file = join(root, "wide.mjs");
   await writeFile(file, "export default {};\n");
@@ -259,7 +259,7 @@ test("review: a walled plugin that describes more than its package listed is cut
   assert.ok(plugin.notes.some((line) => /plugin\.wide\.run was left out: it needs a permission the package did not list/.test(line)));
 });
 
-test("review: a hand-placed walled plugin is pinned to the code it had when it was loaded", async (t) => {
+test("review: a hand-placed walled plugin is pinned to the code it had when it was loaded", { skip: process.platform === "win32" && "the macOS wall is planned around this computer's own folders, which are not POSIX paths here" }, async (t) => {
   const root = await temp(t);
   const file = join(root, "mine.mjs");
   await writeFile(file, "export default { id: 'mine' };\n");
@@ -272,7 +272,7 @@ test("review: a hand-placed walled plugin is pinned to the code it had when it w
   await assert.rejects(plugin.tools[0].run({}, {}), /not what it was when you installed it/);
 });
 
-test("review: one question to a plugin is bounded in size and in how many run at once", async (t) => {
+test("review: one question to a plugin is bounded in size and in how many run at once", { skip: process.platform === "win32" && "the macOS wall is planned around this computer's own folders, which are not POSIX paths here" }, async (t) => {
   let release;
   const gate = new Promise((resolve) => { release = resolve; });
   const walled = new WalledPlugins({ policy: () => ({ walled: true, hosts: [] }), unreadable: () => [],
@@ -377,11 +377,12 @@ test("review: a filter for the connection a task falls back to holds the preview
     for (const piece of answer.split(" ")) request.onTextDelta?.(`${piece} `);
     return { content: answer, toolCalls: [] };
   } };
-  const root = await temp(t, "branch-addons-fallback-");
+  const root = await mkdtemp(join(tmpdir(), "branch-addons-fallback-"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"),
     presets: [{ id: "main", name: "Main", provider: main, model: "m" }, { id: "backup", name: "Backup", provider: backup, model: "b" }],
     retryPolicy: { maxRetries: 0, baseDelayMs: 1, maxDelayMs: 2 } });
-  t.after(() => app.close());
+  // One hook, app first: Windows will not delete a folder whose database is still open.
+  t.after(async () => { await app.close(); await discardTemp(root); });
   app.runtime.models.configure("local", { fallbackOrder: ["backup"] });
   app.addOns.filters.save({ id: "cards", name: "Cards", stage: "outlet", match: "4111", action: "redact", text: "[card]", models: ["Backup"] });
   const shown = [];

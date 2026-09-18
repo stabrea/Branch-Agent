@@ -59,6 +59,7 @@ import { bringInShareable, shareableSections } from "./interop/agent-market.js";
 // --- end bucket 22 ---
 import { sendCommand } from "./reach/send-cli.js"; // r17-i: branch send
 import { qaCommand, qaDeps } from "./qa-api.js"; // w911 (A1753) hook.
+import { sayOnceIfNodeIsTooOld } from "./node-floor.js"; // mac7/node-floor
 
 async function configuredApp(options: Parameters<typeof createBranch>[0]) {
   const app = await createBranch(options);
@@ -131,6 +132,9 @@ async function serve(
 }
 
 async function main(): Promise<void> {
+  // mac7/node-floor: on a Node older than Branch supports, say so plainly, once, before anything
+  // else is printed — and carry on, because everything but the proxy still works. See src/node-floor.ts.
+  sayOnceIfNodeIsTooOld((line) => console.error(line));
   // ---- Wave mac3 (terminal): `branch` alone opens the terminal view when it runs in a terminal (and
   // starts the web app anywhere else, as before); names brought from Hermes and OpenClaw become the
   // Branch command they mean; `version` needs nothing opened. See src/terminal-cli.ts.

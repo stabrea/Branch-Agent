@@ -158,7 +158,7 @@ const repeat = (times) => `export default async (branch) => {
   return out;
 };`;
 
-test("scripts: the loop guard sees a script's calls, so one script cannot repeat a step without end", async (t) => {
+test("scripts: the loop guard sees a script's calls, so one script cannot repeat a step without end", { skip: process.platform === "win32" && "the macOS wall is planned around this computer's own folders, which are not POSIX paths here" }, async (t) => {
   const { app, looked, context } = await scripted(t);
   app.store.save("settings", app.runtime.owner, "loop_guard", { mode: "on" });
   const answer = await unwalled(app).run({ source: repeat(12), tools: ["notes.lookup"], timeoutMs: 30_000 }, context);
@@ -167,7 +167,7 @@ test("scripts: the loop guard sees a script's calls, so one script cannot repeat
   assert.ok(answer.result.some((entry) => entry.startsWith("refused")), JSON.stringify(answer.result));
 });
 
-test("scripts: every call a script makes is written to the task journal first, under an id no model call can have", async (t) => {
+test("scripts: every call a script makes is written to the task journal first, under an id no model call can have", { skip: process.platform === "win32" && "the macOS wall is planned around this computer's own folders, which are not POSIX paths here" }, async (t) => {
   const { app, context, run } = await scripted(t);
   const answer = await unwalled(app).run({ source: repeat(2), tools: ["notes.lookup"], timeoutMs: 30_000 }, context);
   assert.equal(answer.ok, true, JSON.stringify(answer));
@@ -179,7 +179,7 @@ test("scripts: every call a script makes is written to the task journal first, u
   }
 });
 
-test("scripts: what a tool hands a script has keys hidden before the script can reshape it", async (t) => {
+test("scripts: what a tool hands a script has keys hidden before the script can reshape it", { skip: process.platform === "win32" && "the macOS wall is planned around this computer's own folders, which are not POSIX paths here" }, async (t) => {
   const { app, context } = await scripted(t);
   const source = `export default async (branch) => {
     const found = await branch.call("notes.lookup", { q: "k" });
@@ -205,7 +205,7 @@ test("scripts: a task's own wall never widens a script's: no network, no key sit
   assert.deepEqual(plain.unreadable, ["/branch-data"]);
 });
 
-test("scripts: a restart in the middle of a script puts it to the owner, and nothing it sent is sent again", async (t) => {
+test("scripts: a restart in the middle of a script puts it to the owner, and nothing it sent is sent again", { skip: process.platform === "win32" && "the macOS wall is planned around this computer's own folders, which are not POSIX paths here" }, async (t) => {
   const { app, root, run } = await scripted(t);
   await saveGatewayConfig(join(root, "data"), GatewayConfigSchema.parse({ mode: "on" }));
   const sent = [];
@@ -233,6 +233,34 @@ test("scripts: a restart in the middle of a script puts it to the owner, and not
   controller.abort();
   release();
   await running.catch(() => undefined);
+});
+
+/**
+ * mac7/linux-fixes: the answer to a tool call was written straight down the script's stdin, with
+ * no check that anyone was still reading it and no listener for the write failing. A script that
+ * had gone away left a pipe with no reader, and the write threw where nothing could catch it,
+ * taking the run down with it. It went red on Linux, where a dead child's pipe is gone sooner;
+ * a stdin closed up front forces the same moment on any machine.
+ */
+test("scripts: an answer nobody is left to read is let go, not thrown", { skip: process.platform === "win32" && "the macOS wall is planned around this computer's own folders, which are not POSIX paths here" }, async (t) => {
+  const { app, run } = await scripted(t);
+  const deaf = new ToolScripts({ host: app.runtime, registry: app.registry, unreadable: () => [],
+    wallDeps: { platform: "darwin", exists: async () => true, realpath: async (path) => path },
+    start: (start) => {
+      const child = spawn(process.execPath, start.args.slice(start.args.indexOf("--no-warnings")),
+        { cwd: start.cwd, env: start.env, stdio: ["pipe", "pipe", "pipe", "pipe"] });
+      // A pipe whose reader has gone: it is no longer writable, and writing to it fails with EPIPE.
+      const gone = Object.create(child.stdin);
+      Object.defineProperties(gone, { writable: { value: false },
+        write: { value: () => { const error = new Error("write EPIPE"); error.code = "EPIPE"; throw error; } } });
+      Object.defineProperty(child, "stdin", { value: gone });
+      return child;
+    } });
+  const context = app.runtime.context({ runId: run.id });
+  const args = { source: `export default async (branch) => branch.call("notes.lookup", { q: "same" })`,
+    tools: ["notes.lookup"], timeoutMs: 1500 };
+  const result = await deaf.run(args, context);
+  assert.ok(result, "the run comes back instead of taking the process down");
 });
 
 /* ---------- the command scan ---------- */

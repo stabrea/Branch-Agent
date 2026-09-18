@@ -974,11 +974,16 @@ function renderModels() {
       return label;
     }));
   }
+  // Integration review (mac7/wake-pins): the checkboxes above are new nodes with no
+  // aria-describedby. Describe them now rather than leaving them bare until the debounce runs.
+  globalThis.branchDescribeSettingsNow?.();
   $("models-note").textContent = models.presets.length > 1
     ? `${models.presets.length} models available.`
     : "One model is configured. Add more with BRANCH_MODEL_PRESETS in the launch environment, or in the desktop connection settings.";
   presetOptions($("session-model"), models.presets, "Workspace default", sessionModel.preset);
 }
+/* The page's own rebuild of the model controls, so a test can watch what a rebuild leaves behind. */
+globalThis.branchRenderModels = () => renderModels();
 let sessionModel = { preset: null, reasoning: null };
 async function loadSessionSkill() {
   const select = $("session-skill");

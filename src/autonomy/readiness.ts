@@ -1,5 +1,5 @@
 import { accessSync, constants, statSync } from "node:fs";
-import { join } from "node:path";
+import { posix, win32 } from "node:path";
 import { z } from "zod";
 
 /**
@@ -60,8 +60,13 @@ export function localProbe(hasKey: (key: string) => boolean, env: NodeJS.Process
 }
 
 export function findProgram(program: string, probe: Probe): boolean {
-  const ends = probe.platform === "win32" ? ["", ".exe", ".cmd", ".bat"] : [""];
-  const split = probe.platform === "win32" ? ";" : ":";
+  const windows = probe.platform === "win32";
+  const ends = windows ? ["", ".exe", ".cmd", ".bat"] : [""];
+  const split = windows ? ";" : ":";
+  // The folder is joined the way the system being asked about writes paths, not the way this
+  // computer does. Reading a Linux PATH on Windows with the host's join turned /usr/bin into
+  // \usr\bin and every program on it looked missing.
+  const join = windows ? win32.join : posix.join;
   return probe.path.split(split).filter(Boolean).some((folder) => ends.some((end) => probe.runnable(join(folder, program + end))));
 }
 

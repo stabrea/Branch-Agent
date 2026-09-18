@@ -502,6 +502,8 @@ test("Q6 every button and field label on the page says its words through a key",
    whole. Anything else left in English is a translation that was never written. */
 const SHARED_WITH_FRENCH = new Set([
   "Conversation", "Conversations", "Documents", "Messages", "Gemini", "Secrets", "Diagnostics",
+  // The password managers are called what their makers call them, in either language.
+  "1Password", "Bitwarden",
 ]);
 test("Q6 French is a real translation, not the English file under another name", async (t) => {
   const english = JSON.parse(await readFile(join(PUBLIC, "locales", "en.json"), "utf8"));

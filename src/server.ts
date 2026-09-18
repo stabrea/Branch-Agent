@@ -141,6 +141,8 @@ import { contextFileStatus, saveContextFileSettings, contextFileSettings } from 
 // mac3/reflection-skills: the learning loop's routes.
 import { reflectionApi } from "./reflection/api.js";
 import { handlesSettingsKitPath, settingsKitApi, settingsKitBodyBytes, SettingsKitError } from "./settings-kit/api.js"; // R17-S-A
+import { PinnedSettingError, pins } from "./settings-kit/pins.js"; // mac7/wake-pins
+import { saveWakeWordSettings, wakeWordSettings, wakeWordView } from "./voice-wake.js"; // mac7/wake-pins
 import { voiceSettings, saveVoiceSettings } from "./voice.js";
 import { voiceApi } from "./voice-api.js";
 // bucket-18: pull requests from changes (A0300), and which requests came with a short-lived key.
@@ -192,6 +194,8 @@ import { clearRunning, writeRunning } from "./install/running.js";
 import { readFirstStart, recordFirstStart } from "./install/update-backup.js";
 import { readDesktopSettings, saveDesktopSettings } from "./integrations/desktop-config.js";
 import { readCredentialSettings, saveCredentialSettings } from "./credential-cli.js";
+// mac7/vault-autofill (R17-068): the owner's book of saved sign-ins Branch may fill into a page.
+import { readVaultAutofillSettings, saveVaultAutofillSettings } from "./vault-autofill.js";
 import { keychainApi, keychainSettingsPath, permissionsContext } from "./keychain-api.js";
 import { optionalFields } from "./feature-switches.js";
 import { auditCsvResponse, handlesMiscPath, miscApi, MiscApiError } from "./misc-api.js";
@@ -459,6 +463,7 @@ async function staticFile(
     "/personal.js": ["personal.js", "text/javascript; charset=utf-8"], // R17-C
     "/reach.js": ["reach.js", "text/javascript; charset=utf-8"], // r17-i
     "/safety-extras.js": ["safety-extras.js", "text/javascript; charset=utf-8"], // mac7/r17-g
+    "/vault-autofill.js": ["vault-autofill.js", "text/javascript; charset=utf-8"], // mac7/vault-autofill
     "/flows-boards.js": ["flows-boards.js", "text/javascript; charset=utf-8"], // r17-h
     "/learning-more.js": ["learning-more.js", "text/javascript; charset=utf-8"], // R17-F
     "/usage.js": ["usage.js", "text/javascript; charset=utf-8"],
@@ -475,6 +480,8 @@ async function staticFile(
     // Wave mac2 (chat-live): the chat-app switches card under Customize, Chat apps.
     "/chat-live.js": ["chat-live.js", "text/javascript; charset=utf-8"],
     "/chat-permissions.js": ["chat-permissions.js", "text/javascript; charset=utf-8"], // mac7/chat-allowlist
+    "/wake-word.js": ["wake-word.js", "text/javascript; charset=utf-8"], // mac7/wake-pins
+    "/pins.js": ["pins.js", "text/javascript; charset=utf-8"], // mac7/wake-pins
     "/skill-revisions.js": ["skill-revisions.js", "text/javascript; charset=utf-8"],
     // Wave mac3 (channels-parity): the switches for the chat services added to match other assistants.
     "/channels-more.js": ["channels-more.js", "text/javascript; charset=utf-8"],
@@ -951,6 +958,9 @@ async function api(
         "fly-core": (patch) => app.learningCore.configure(patch), reflection: (patch) => app.learningLoop.configure(patch),
         // Integration review: each through its own save, so a tool or a helper comes and goes at once.
         "security-check": (patch) => app.security.configure(patch),
+        // mac7/wake-mic: the switch reached through a settings file or a preset starts and stops
+        // the listener exactly as the card's own switch does.
+        "wake-word": (patch) => { saveWakeWordSettings(app.store, app.runtime.owner, patch); app.wake.refresh(); },
         ...Object.fromEntries((["analytics", "answer-engine", "runtimes", "nodes", "project-board"] as const)
           .map((part) => [`asks-${part}`, (patch: Record<string, unknown>) => { app.asks.setMode(part, patch); }])),
         // r17-i integration review: a reach switch saved through Reach, so its tools and the relay follow at once.
@@ -963,6 +973,26 @@ async function api(
     }, request.method ?? "GET", path, () => readBody(request, settingsKitBodyBytes)).catch((error: unknown) => {
       throw error instanceof SettingsKitError ? new HttpError(error.status, error.message) : error;
     });
+  // ── mac7/wake-pins ──
+  // Which settings the owner pinned, for anybody who uses this computer: somebody on a household
+  // profile is shown the pinned setting and told it is pinned, which is the whole point of a pin.
+  // Only the names and the fixed values are here, and every change goes through settings-kit above.
+  if (request.method === "GET" && path === "/api/pins")
+    return { pins: pins(app.store, app.store.profiles.ownerName).map(({ key, field, value, name, label }) => ({ key, field, value, name, label })) };
+  // The word that starts a turn. Reading it says what this computer could really do; changing it,
+  // like every other setting, is the owner's.
+  if (path === "/api/voice/wake") {
+    // mac7/wake-mic: whether it is listening this moment comes from the listener itself, so the
+    // card cannot say one thing while the microphone does another.
+    if (request.method === "GET")
+      return wakeWordView(app.store, app.runtime.owner, process.platform, app.store.profiles.isOwner(), app.wake.listening);
+    app.store.profiles.requireOwner("The word that starts a turn");
+    saveWakeWordSettings(app.store, app.runtime.owner, await readBody(request));
+    app.wake.refresh(); // the switch going on or off starts or stops the listener at once
+    return { settings: wakeWordSettings(app.store, app.runtime.owner),
+      state: wakeWordView(app.store, app.runtime.owner, process.platform, true, app.wake.listening) };
+  }
+  // ── end mac7/wake-pins ──
   if (request.method === "GET" && path === "/api/state") return state(app);
   // Wave 6: sharing, labels and notes, workflows, the waiting line, days off, and profiles.
   const collab = await collabApi(app, request, path, (maximumBytes) => readBody(request, maximumBytes));
@@ -1099,6 +1129,10 @@ async function api(
   }
   if (request.method === "GET" && path === "/api/voice/settings")
     return voiceSettings(app.store, app.runtime.owner);
+  // mac7/wake-pins integration review: these settings name the speech program on this computer, and
+  // the wake word's spotter IS that program. Choosing a program for Branch to run is the owner's.
+  if (request.method === "POST" && path === "/api/voice/settings")
+    app.store.profiles.requireOwner("The speech settings");
   // Wave 7: voice routes and plans, routing profiles, switching model mid-conversation, and a live
   // check of what each connection can do. The bodies of all of these live in src/voice-api.ts.
   if (path === "/api/voice/settings" || path === "/api/voice/plan" || path === "/api/voice/voices"
@@ -1133,6 +1167,15 @@ async function api(
     return readCredentialSettings(app.store, app.runtime.owner);
   if (request.method === "POST" && path === "/api/credentials/settings")
     return saveCredentialSettings(app.store, app.runtime.owner, await readBody(request));
+  // mac7/vault-autofill (R17-068): which saved sign-in goes with which site. Names and website names
+  // only; no password ever travels this route, because nothing here asks a password manager anything.
+  // The owner's alone: a household person is refused here, a short-lived key at the door below.
+  if (path === "/api/vault-autofill/settings") {
+    app.store.profiles.requireOwner("Your saved sign-ins");
+    if (request.method === "GET") return readVaultAutofillSettings(app.store, app.runtime.owner);
+    if (request.method === "POST") return saveVaultAutofillSettings(app.store, app.runtime.owner, await readBody(request));
+    throw new HttpError(405, "That is not something Branch can do with your saved sign-ins");
+  }
   // mac2/desktop-ui: which Keychain entries Branch may read on a Mac (names only, off by default).
   if (path === keychainSettingsPath)
     return keychainApi(app.store, app.runtime.owner, request.method ?? "GET", () => readBody(request));
@@ -2937,7 +2980,9 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
       }
     } catch (e) {
       if (!response.headersSent)
-        send(response, e instanceof HttpError ? e.status : 400, {
+        // mac7/wake-pins: a setting the owner pinned is refused the way every other thing of
+        // theirs is, in the same words and with the same 403, wherever the write came from.
+        send(response, e instanceof HttpError ? e.status : e instanceof PinnedSettingError ? 403 : 400, {
           // A saved password or key can never travel back out in a failure message.
           error: app.runtime.hideSecrets(errorText(e)),
         });
@@ -3401,6 +3446,9 @@ export function offLimitsToShortLivedKeys(method: string | undefined, path: stri
   // Lockdown is exactly that; without this a script's key could switch Lockdown off.
   if (path === "/api/lockdown")
     return "A short-lived key cannot switch Lockdown on or off. Do that in the app window or with the key of this computer.";
+  // mac7/vault-autofill (R17-068): which saved sign-in Branch may type into a page is the owner's alone.
+  if (path.startsWith("/api/vault-autofill"))
+    return "A short-lived key cannot change which saved sign-ins Branch may fill. Do that in the app window.";
   // bucket-18 (A2317): a copy of what is remembered may be sent to a remote; only the owner names it.
   if (path === "/api/memory/history")
     return "A short-lived key cannot change where the history of what is remembered is kept. Do that in the app window.";

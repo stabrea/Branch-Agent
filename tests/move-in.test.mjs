@@ -743,6 +743,12 @@ test("the move-in card works at 400 pixels wide, with no sideways scroll and no 
   await choice.selectOption("when-needed");
   await page.getByRole("button", { name: "Look for other assistants", exact: true }).click();
   await page.getByRole("button", { name: "See what is there", exact: true }).waitFor({ state: "visible" });
+  // A redraw after looking (here a language change; on a slow machine a retry left from before
+  // sign-in) looks again rather than wiping the list the owner asked for.
+  const looked = page.waitForResponse((response) => response.url().endsWith("/api/move-in?look=1"));
+  await page.evaluate(() => document.dispatchEvent(new CustomEvent("branch-language", { detail: { language: "en" } })));
+  await looked;
+  await page.getByRole("button", { name: "See what is there", exact: true }).waitFor({ state: "visible", timeout: 5000 });
   assert.equal(await page.locator("#move-in-offer").count(), 0, "when needed never offers on its own");
   await choice.selectOption("on");
   await openScreen(page, "chat");

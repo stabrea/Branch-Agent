@@ -7,6 +7,7 @@ import { saveReviewerSettings } from "../approval-reviewer.js";
 import { saveSecurityCheckSettings } from "../security-audit/settings.js";
 import { saveWallSettings, wallSettings } from "../sandbox.js";
 import { saveKeychainSettings } from "../vault-sources.js";
+import { saveVaultAutofillSettings } from "../vault-autofill.js"; // mac7/vault-autofill (R17-068)
 import { retentionSettings, saveRetentionSettings } from "../retention.js";
 import { eventLoopSettings, eventLoopWatch, saveEventLoopSettings } from "../event-loop-watch.js";
 import { audit } from "../audit.js";
@@ -150,6 +151,11 @@ const reach: SettingSpec[] = [
   one("desktop-control", "Your screen and keyboard", "settings-kit.name.desktop", "settings:computer", "reach", { keepsEnabled: true }),
   one("keychain-entries", "Passwords from the Keychain", "settings-kit.name.keychain", "settings:secrets", "reach",
     { keepsEnabled: true, write: (store, owner, patch) => { saveKeychainSettings(store, owner, patch); } }),
+  // mac7/vault-autofill (R17-068): turning this on lets Branch type a saved password into a page, so
+  // it reaches further. Only the switch is here: the book of which item goes with which site is the
+  // owner's own, written at its card, and nothing brought in from a file or a preset may write one.
+  one("vault-autofill", "Filling a saved sign-in", "settings-kit.name.vault-autofill", "settings:secrets", "reach",
+    { keepsEnabled: true, write: (store, owner, patch) => { saveVaultAutofillSettings(store, owner, patch); } }),
   {
     key: "voice", name: "Voice", t: "settings-kit.name.voice", home: "settings:voice",
     fields: [sw("systemVoice", "Your computer's own voice", "settings-kit.field.system-voice", "reach"),
@@ -177,6 +183,15 @@ const reach: SettingSpec[] = [
     home: "customize:channels",
     fields: [yesNo("extras", "Use my list of what chats may also do", "settings-kit.field.chat-extras", "reach")],
     write: (store, owner, patch) => { saveChatPermissionSettings(store, owner, patch); },
+  },
+  // mac7/wake-pins: listening for a word holds the microphone open by itself, so turning it up
+  // reaches further. The word itself is deliberately not a field here: nothing brought in from a
+  // file or a preset may ever choose what this computer listens for.
+  {
+    key: "wake-word", name: "A word that starts a turn", t: "settings-kit.name.wake-word", home: "settings:voice",
+    fields: [sw("mode", "Switch", "settings-kit.field.switch", "reach"),
+      { field: "sureness", label: "How sure it must be before it answers", t: "settings-kit.field.wake-sureness",
+        guard: "guard", initial: 80, kind: { type: "number", min: 50, max: 99 } }],
   },
   one("sdk-kit", "Tools for building on Branch", "settings-kit.name.sdk-kit", "settings:advanced", "reach"),
   // r17-i integration review: every reach and platform switch reaches further when raised (src/reach/settings.ts).
@@ -276,6 +291,9 @@ export const neverTouched: readonly RegExp[] = [
   /^comfort-(network|browser|update)/,
   // mac7/lockdown-fix: the limit a task put on a flow run it started is never loosened from here.
   /^flow-run-limit:/,
+  // mac7/wake-pins: the list of settings the owner pinned. Pinning is the owner's alone, and a
+  // preset or a settings file that named this record could otherwise unpin everything at once.
+  /^settings-pins$/,
 ];
 
 /** A field name that sounds like it could hold a secret is refused outright, whatever the catalogue says. */

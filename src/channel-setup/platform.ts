@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { access, constants } from "node:fs/promises";
 import { homedir } from "node:os";
-import { delimiter, join } from "node:path";
+import { delimiter, join, posix } from "node:path";
 import type { Recipe } from "./recipes.js";
 
 /**
@@ -70,8 +70,10 @@ export function planLine(plan: InstallPlan): string {
 export async function isInstalled(recipe: Recipe, platform: NodeJS.Platform, probe: Probe, runner: Runner): Promise<boolean | null> {
   const app = recipe.app;
   if (!app) return null;
+  // A Mac's folders are written the Mac's way even when the question is asked from Windows, where
+  // the host's own join would turn /Applications into \Applications and find nothing.
   if (platform === "darwin" && app.macApp)
-    return (await probe.exists(join("/Applications", app.macApp))) || (await probe.exists(join(probe.home, "Applications", app.macApp)));
+    return (await probe.exists(posix.join("/Applications", app.macApp))) || (await probe.exists(posix.join(probe.home, "Applications", app.macApp)));
   const asks: [Manager, string[]][] = platform === "win32" ? [["winget", ["list", "--exact", "--id", app.winget ?? ""]]]
     : platform === "linux" ? [["flatpak", ["info", app.flatpak ?? ""]], ["snap", ["list", app.snap ?? ""]]] : [];
   let known = false;
