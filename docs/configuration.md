@@ -6845,6 +6845,7 @@ Every field of `VoiceSettingsSchema` (`src/voice.ts`), which is what **Settings 
 | `localSpeechExecutable` | The full path to whisper.cpp or faster-whisper, if you have one. Branch downloads nothing. |
 | `localSpeechModel` | The model file that program should use. |
 | `localSpeechKind` | Which of the two it is: `whisper-cpp` or `faster-whisper`, so the right flags are used. |
+| `localSpeechStream` | The full path to a streaming speech program that is handed sound on its standard input and writes words out as it hears them, for live dictation. Empty means none, and Branch looks for `whisper-stream` or sherpa-onnx on your search path instead. Branch downloads nothing. |
 | `liveMaxMinutes` | How many minutes one live conversation may last. 10 by default. |
 | `liveMaxDollars` | How much one live conversation may cost. $1.00 by default. |
 | `liveVoiceDetection` | Let the service decide when you have stopped speaking, rather than waiting for the button. |
@@ -8153,10 +8154,13 @@ beside the other long-lived parts. It runs only while the switch is on, a word i
 computer can really listen, and it asks again **before every window** rather than being told once, so
 Lockdown coming on, the switch going off, or the app closing stops it within one window whoever
 turned it — the card, the terminal, a settings file or another window — and the microphone is let go
-of when it stops. The recorder is **one program per window**: it is started, it ends when the window
-is up, and it is ended by the count of bytes as well, so only one window of sound is ever in memory
-and nothing can hold the microphone open between windows. A recorder that will not go when it is
-asked is ended for good two seconds later. The sound goes to the spotter on its standard input; no
+of when it stops. **For the wake word**, the recorder is **one program per window**: it is started,
+it ends when the window is up, and it is ended by the count of bytes as well, so only one window of
+sound is ever in memory and **nothing in this feature can hold the microphone open between
+windows**. A recorder that will not go when it is asked is ended for good two seconds later.
+Live dictation, below, is the one feature that does hold the microphone open, deliberately and
+only while you are dictating; it is a separate switch, it ships off, and its card says so above the
+switch. Nothing it does changes the sentences in this section, which are about the wake word. The sound goes to the spotter on its standard input; no
 file name is ever an argument to either program, and no file is written.
 
 **Locking Branch, and unlocking it (integration review).** Locking Branch lets go of the microphone
@@ -8257,6 +8261,88 @@ really use to spot the word and whether it has one at all, and why it is refused
 is. The program that would be run never travels: its full path is the owner's. `POST /api/voice/wake`
 saves the settings and is the owner's alone. A short-lived key is refused both, the read included,
 because the word outlives any key.
+
+## Speak and see the words (mac7/live-voice)
+
+Speak, and the words appear in the message box as you say them — on this computer, for nothing, and
+nothing is sent anywhere. Its card, **Speak and see the words**, lives in Settings → Voice. It ships
+**off**, like everything else, and has the same three-way switch: **off** — the Dictate control is
+not there and nothing can open the microphone; **when needed** — the control is there while a
+conversation is open; **on** — the control is always there. **"On" does not mean the microphone is
+open.** No setting in this feature ever opens a microphone: only pressing **Dictate** does, and only
+at the app window. Say that to yourself once before reading the rest, because it is the difference
+between this and every voice assistant that listens to a room.
+
+**While dictation is on, the microphone stays open.** That is what it is: a recorder runs for as
+long as you are dictating, and Branch holds a few seconds of sound in memory at a time. It is opened
+when you turn dictation on and closed the moment you turn it off, the conversation closes, Branch is
+locked, or Lockdown comes on — and the indicator on screen is on for exactly as long as the
+microphone is. Nothing is written to disk and nothing is kept. The wake word is unchanged: it still
+takes one window at a time and still lets go of the microphone every window.
+
+That paragraph replaces a promise this reference used to make without qualification. The section
+above, **A word that starts a turn**, said that "nothing can hold the microphone open between
+windows". That is still true *of the wake word*, and it is now written that way; it was never going
+to be true of dictation, whose whole point is that the microphone stays open while you speak. The
+card says this **above the switch**, in the same words, so nobody can switch it on without having
+been told.
+
+**A quiet room lets go of the microphone.** Nobody speaking for a few seconds — `silenceSeconds`,
+four by default, anywhere from one to thirty — ends the phrase and ends the program holding the
+microphone. Branch does not hold a microphone open for a room that has gone quiet. On the path where
+Branch is handed the sound itself, it also counts how loud the room is — plain arithmetic over
+twenty milliseconds of sound at a time, with the floor learned from the first second — and feeds the
+speech program only what carries speech, so a quiet room costs the processor nothing.
+
+**It fills the message box; it does not send.** The words land where typed words land and *you*
+press send. Hearing something grants nothing, which is the same rule the wake word lives under.
+
+**You supply the speech program. Branch installs none and downloads none.** Dictation needs a
+program that writes words out *as it hears them*, which is a different thing from one that writes
+out a recording. Branch looks on your own search path for `whisper-stream` (whisper.cpp's streaming
+build, which also wants SDL2), then sherpa-onnx's microphone or ALSA build, and it uses the model
+you named under Voice. All three open the microphone themselves, so on that path **no sound reaches
+Branch at all** — only the words, and only while the program runs. You may also name your own
+streaming program under `localSpeechStream`, and that one is handed sound on its standard input by a
+recorder Branch holds open beside it. Where this computer has none of them, the card says which to
+install — `brew install whisper-cpp` on a Mac, sherpa-onnx on Linux — as something *you* might do,
+never something Branch does, and **the switch stays off**.
+
+- **macOS.** macOS has an on-device speech engine of its own inside the system, and it is very good.
+  There is no command a program can ask for it, and Branch will not ship a compiled helper of its
+  own to reach it, so it is not what dictation uses. The card says that plainly rather than implying
+  a Mac has nothing.
+- **Windows.** Windows' own speech recognition listens for one phrase at a time against a grammar
+  rather than writing out free speech, so it cannot do this. It stays what it is: the wake word's
+  spotter, and nothing more.
+- **Linux.** sherpa-onnx is the smallest thing that genuinely streams and it needs no graphics card.
+
+**Words appear about a second behind you, and may change as it hears more.** That is the honest
+claim and it is the one the card makes. It is not "as you speak": every one of these programs looks
+at the last few seconds and says what it has every half second, so the words settle rather than
+arriving finished.
+
+**Whose it is.** Dictation is the **owner's**, at the app window. It is refused to a task started
+from a chat app, to a short-lived key, to somebody else on this computer using a household profile,
+to a Trunk and to another computer — none of those is the owner at the window, and each is refused
+by the same guard rather than by five different ones. A household profile is not shown the switch,
+which speech program is here, the model, or the control. While **Lockdown** is on dictation is off
+whatever the switch says, and the microphone is let go of within half a second of it coming on.
+
+**Locking Branch.** Locking it lets go of the microphone along with everything else it holds only
+for "while I am here". Unlocking it deliberately does **not** start dictation again — that would be
+a microphone opened without a press, which nothing in this feature may do. Press Dictate.
+
+**When the speech program dies.** That is a stop, not something to paper over: the microphone is let
+go of and the words so far are settled. It is never restarted by itself; a press restarts it. A
+program that dies the instant it starts, three times over, makes the next press refuse with a
+sentence rather than trying for ever. A program that is not keeping up has its sound **dropped where
+it arrives** — never queued behind it — so a slow or dying program cannot pile up sound or spin.
+
+| Setting (`live-dictation`) | What it does |
+| --- | --- |
+| `mode` | `off`, `when-needed` or `on`. Ships `off`. None of the three ever opens a microphone by itself. |
+| `silenceSeconds` | How long a quiet room ends the phrase and lets go of the microphone. 4 by default, 1 to 30. |
 
 ## Settings you have pinned (mac7/wake-pins)
 

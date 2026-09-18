@@ -36,6 +36,13 @@ export const VoiceSettingsSchema = z
     localSpeechExecutable: z.string().trim().max(400).default(""),
     localSpeechModel: z.string().trim().max(400).default(""),
     localSpeechKind: z.enum(["whisper-cpp", "faster-whisper"]).default("whisper-cpp"),
+    /**
+     * mac7/live-voice: a streaming speech program on this computer that is handed sound on its
+     * standard input and writes words out as it hears them, for live dictation. Empty means none,
+     * and Branch looks for whisper-stream or sherpa-onnx on the search path instead. Branch never
+     * downloads one.
+     */
+    localSpeechStream: z.string().trim().max(400).default(""),
     /** Answer a voice note on a chat app with a voice note back. Off until the owner turns it on. */
     replyWithVoiceOnChannels: z.boolean().default(false),
     // Wave 8: a live conversation, where sound goes up while it is being spoken. Everything here

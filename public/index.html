@@ -1045,6 +1045,28 @@
             <p id="wake-word-state" class="field-note" aria-live="polite"></p>
             <button data-t="action.save-wake-word">Save the wake word</button>
           </form>
+          <form id="dictation-form" class="card" data-home="settings:voice">
+            <h2 data-t="settings.card.dictation">Speak and see the words</h2>
+            <p class="warn" data-t="settings.dictation.warning">Read this before you switch it on: while dictation is listening, the microphone stays open. A recording program runs for as long as you are dictating, which is what lets the words appear as you speak. This is the one place Branch holds a microphone open — the word that starts a turn takes one window of sound at a time and lets go of the microphone every window; this does not. It is opened when you press Dictate and closed the moment you press it again, a quiet room ends the phrase, the conversation closes, Branch is locked, or Lockdown comes on. The line below is on for exactly as long as the microphone is.</p>
+            <p data-t="settings.dictation.intro">Speak, and the words appear in the message box as you say them, on this computer, for nothing, and nothing is sent anywhere. It uses a streaming speech program you installed yourself — Branch installs none of its own and downloads none — so where this computer has none, the line below says which one to install and the switch stays off. Dictation fills the message box; it does not send it. You press send, exactly as if you had typed. Nothing is written to disk, nothing is kept beyond the phrase being written out, and the words go to the screen rather than into any record. Words appear about a second behind you and may change as it hears more. Dictation is the owner's: nobody else who uses this computer is offered it.</p>
+            <div id="dictation-fields">
+            <label for="dictation-mode" data-t="field.dictation-mode">Speaking to Branch</label>
+            <select id="dictation-mode" aria-describedby="dictation-mode-note">
+              <option value="off" data-t="option.off">Off</option>
+              <option value="when-needed" data-t="option.when-needed">When needed</option>
+              <option value="on" data-t="option.on">On</option>
+            </select>
+            <p id="dictation-mode-note" class="field-note" data-t="settings.dictation.mode-note">Off, the Dictate control is not there and nothing can open the microphone. When needed, it is there while a conversation is open. On, it is always there. On does not mean the microphone is open — no setting here ever opens one: only pressing Dictate does, and only at this window. Lockdown switches it off whatever this says.</p>
+            <label for="dictation-silence" data-t="field.dictation-silence">Seconds of quiet that end a phrase</label>
+            <input id="dictation-silence" type="number" min="1" max="30" step="1" aria-describedby="dictation-silence-note" />
+            <p id="dictation-silence-note" class="field-note" data-t="settings.dictation.silence-note">Nobody speaking for this long ends the phrase and lets go of the microphone. Branch does not hold a microphone open for a room that has gone quiet.</p>
+            </div>
+            <p id="dictation-open" class="field-note" aria-live="polite"></p>
+            <p id="dictation-how" class="field-note" aria-live="polite"></p>
+            <p id="dictation-refusal" class="field-note" aria-live="polite"></p>
+            <p id="dictation-state" class="field-note" aria-live="polite"></p>
+            <button data-t="action.save-dictation">Save dictation</button>
+          </form>
           <form id="pins-form" class="card" data-home="settings:permissions">
             <h2 data-t="settings.card.pins">Settings you have pinned</h2>
             <p data-t="settings.pins.intro">Pin a setting and it is fixed. Somebody else who uses this computer still sees it, and sees that you pinned it, but every way of changing it is refused in the same words: this window, the API, the terminal, a settings file, a whole-app preset and a tool the assistant calls. Pinning and unpinning are yours alone. A preset or a settings file steps over a pinned setting and makes all the rest, rather than failing.</p>
@@ -1901,6 +1923,7 @@
     <script src="/chat-live.js" type="module"></script>
     <script src="/chat-permissions.js" type="module"></script>
     <script src="/wake-word.js" type="module"></script>
+    <script src="/dictation.js" type="module"></script>
     <script src="/pins.js" type="module"></script>
     <script src="/heartbeat.js" type="module"></script>
     <!-- Bucket 17: watching videos and speech plug-ins. -->
