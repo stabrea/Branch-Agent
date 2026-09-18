@@ -100,6 +100,24 @@ test("a connected and an unconnected chat name answer an unauthenticated caller 
   }
 });
 
+test("the grace for the old shape of address lasts only while the door is on this computer", async (t) => {
+  const { app } = await fixture(t);
+  const { webhookAddressVerdict, webhookSecret } = await import("../dist/channels/webhook-address.js");
+  const owner = app.runtime.owner;
+  const word = webhookSecret(app.store, owner, "line");
+  // This is the other half of keeping `acceptOldAddresses` on by default: the grace is a door
+  // anybody can find by guessing the name, so it closes the moment Branch listens beyond here.
+  assert.equal(webhookAddressVerdict(app.store, owner, "line", undefined, false), "old");
+  assert.equal(webhookAddressVerdict(app.store, owner, "line", undefined, true), "refused",
+    "the old shape is refused outright once the door is wider, whatever the setting says");
+  // The whole address keeps working either way; that is what the word on the end is for.
+  assert.equal(webhookAddressVerdict(app.store, owner, "line", word, true), "proven");
+  assert.equal(webhookAddressVerdict(app.store, owner, "line", word, false), "proven");
+  // And a name nobody has connected is refused the same way a wrong word is, on both doors.
+  for (const beyond of [false, true])
+    assert.equal(webhookAddressVerdict(app.store, owner, "nothing-here", word, beyond), "refused");
+});
+
 test("the same holds for WhatsApp's address, which also answers before any key", async (t) => {
   const { server } = await served(t);
   const wrong = "0".repeat(32);
