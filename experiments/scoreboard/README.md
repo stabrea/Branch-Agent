@@ -64,9 +64,18 @@ well over a minute, and whichever agent paid for it would look slow rather than 
 
 ## What the rig had to be changed to
 
-- The board runs at a **65536-token window** because **Hermes refuses any model under 64K** — not
-  because 64k was the neutral choice. The model `qwen3-4b-64k` is `qwen3:4b` with `num_ctx 65536`;
-  qwen3:4b's own window is 262144, so this is inside what the weights support.
+- The board runs at a **16384-token window** (`qwen3-4b-16k` = `qwen3:4b` with `num_ctx 16384`).
+  Not 64K, which was tried first: a 64K context does not fit the 4 GiB memory cage the rig puts
+  round the Ollama container, and the kernel killed `llama-server` seven times before that was
+  understood. The cage is what stops a memory squeeze taking one of the owner's virtual machines
+  instead, so it stays. See FINDINGS.md, F4.
+- **Hermes is not on the board**, because it refuses any model under 64K and 64K does not fit the
+  cage. The one setting that would talk it round is a lie about the model's real window, and was not
+  used. See FINDINGS.md, F5. The rest of the harness still knows how to drive it, for a machine that
+  can hold a 64K model.
+- The **loopback forwarder** had a thirty-second timeout that applied to reading the reply, not only
+  to connecting, and it severed most model calls under load. It is fixed in place, with the original
+  kept beside it as `ollama-forward.py.orig`.
 - Three derived models were added to the owner's `branch-ollama` container and should be removed
   when this work is done: `qwen3-4b-16k`, `qwen3-4b-64k`, `qwen3-4b-64k-nothink`. The last is a dead
   end — closing the template's `<think>` block moved the reasoning into the answer, which is worse
