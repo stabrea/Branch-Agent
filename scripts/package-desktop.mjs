@@ -139,6 +139,23 @@ async function macIcon() {
   return icns;
 }
 
+/**
+ * A signed Mac copy must keep its identity across updates, or the owner grants microphone, screen
+ * recording and accessibility all over again. macOS decides that from the designated requirement, so
+ * the build reads it back and refuses a bundle whose requirement is pinned to its own contents. The
+ * dangerous failure this catches is silent: a build that lost the certificate still signs, still
+ * runs, and still resets every permission.
+ */
+export function assertStableIdentity(app) {
+  const [file, ...args] = mac.macRequirementCommand(app);
+  const result = spawnSync(file, args, { encoding: "utf8" });
+  if (result.error) throw new Error(`${file} could not run: ${result.error.message}`);
+  const check = mac.macIdentityCheck(`${result.stdout ?? ""}\n${result.stderr ?? ""}`);
+  if (!check.ok) throw new Error(`This Mac copy would lose its identity on the next update: ${check.reason}`);
+  console.log(`Identity receipt: ${check.requirement}`);
+  return check;
+}
+
 /** bucket 22: the no-questions installer for macOS and Linux, published beside their downloads. */
 async function writeUnixInstaller() {
   const { unixBootstrapperName, unixBootstrapperScript } = await import("../dist/install/unix-bootstrap.js");
@@ -157,6 +174,7 @@ async function packageMac({ arch }) {
   await rm(zip, { force: true });
   const plan = mac.macFinishPlan({ app, zip, nested, entitlements, env: process.env });
   for (const command of plan.commands) runCommand(command);
+  if (plan.signed) assertStableIdentity(app);
   await writeChecksum(zip);
   await writeUnixInstaller();
   console.log(app);
