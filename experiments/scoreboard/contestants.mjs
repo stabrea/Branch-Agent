@@ -56,8 +56,13 @@ function branchContestant({ id, name, root, note }) {
       if (!json) return { answer: "", calls: null, usage: null, error: "Branch printed nothing that parsed as JSON" };
       const usage = json.usage ?? {};
       const reported = (usage.reports ?? 0) > 0 && (usage.reportedInput ?? 0) + (usage.reportedOutput ?? 0) > 0;
+      // A run that did not complete has no answer: what Branch puts in `output` then is the reason
+      // it stopped ("fetch failed", "No response for 60 seconds"). Handing that to a check as an
+      // answer scores a transport failure as a wrong answer, and hides it from the harness's own
+      // retry, which reads only the error. So a failed run's message goes where it belongs.
+      const finished = json.run?.status === "completed";
       return {
-        answer: String(json.run?.output ?? ""),
+        answer: finished ? String(json.run?.output ?? "") : "",
         calls: usage.attempts ?? null,
         usage: {
           input: reported ? usage.reportedInput ?? 0 : usage.estimatedInput ?? 0,
@@ -65,7 +70,7 @@ function branchContestant({ id, name, root, note }) {
           basis: reported ? "reported" : "estimated",
         },
         // Branch says so itself; the harness does not have to guess from the text.
-        error: json.run?.status === "completed" ? null : `run status ${json.run?.status ?? "unknown"}`,
+        error: finished ? null : `run status ${json.run?.status ?? "unknown"}: ${String(json.run?.output ?? "").slice(0, 300)}`,
         incompleteCalls: usage.incompleteCalls ?? 0,
       };
     },

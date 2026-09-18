@@ -94,7 +94,7 @@ writeFileSync(join(settings.scratch, "conditions.json"), JSON.stringify(conditio
  * scoring it as one would quietly credit the busiest minutes of the afternoon to whichever agent
  * was not in them. A cell that fails this way is tried once more, and the retry is recorded.
  */
-const rigFailure = (text) => /fetch failed|ECONNREFUSED|ECONNRESET|socket hang up|EAI_AGAIN|HTTP 50[0-9]|Internal Server Error/i.test(text ?? "");
+const rigFailure = (text) => /fetch failed|ECONNREFUSED|ECONNRESET|socket hang up|EAI_AGAIN|HTTP 50[0-9]|Internal Server Error|network connection error|No response for \d+ seconds|Connection (reset|closed|aborted)|premature close/i.test(text ?? "");
 
 /** One attempt: set the folder up, run the program, put the tests back, and mark it. */
 async function runCell(contestant, task, repeat, attempt = 1) {

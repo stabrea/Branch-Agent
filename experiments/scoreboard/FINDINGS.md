@@ -93,3 +93,59 @@ Nothing was configured around this. The troubleshoot setting was left off, which
 ships, and the run is scored as the failure it is. OpenClaw was likewise left on its default tool
 surface — `--local-model-lean` exists and was **not** passed, because that would have been tuning
 one contestant and not the others.
+
+## F4 — the first window was thrown away, and why
+
+A full pass of the board was run at a 65536-token context and **discarded**. The raw records are kept
+as `results-discarded-64k.jsonl` so the reasoning can be checked rather than taken on trust. Two
+things, both the rig rather than any agent, made roughly half of it meaningless.
+
+**The loopback forwarder severed every model call over thirty seconds.** `/workspace/bench/bin/ollama-forward.py`
+connected upstream with
+
+```py
+upstream = socket.create_connection(TARGET, timeout=30)
+```
+
+Python leaves that timeout on the socket after connecting, so it bounded every *read of the reply*
+as well. On an idle card nothing notices; under load, most calls take longer than half a minute and
+were cut mid-answer. The agents reported it in their own words — Branch as `fetch failed` and
+`No response for 60 seconds`, OpenClaw as `LLM request failed: network connection error` — and the
+harness scored it as the agent losing. In the discarded pass that was **5 of Branch's 10 runs and 4
+of OpenClaw's 10**. Fixed by giving the connection its thirty seconds and then clearing the socket's
+clock (`settimeout(None)`); the original is kept beside it as `ollama-forward.py.orig`.
+
+**A 64K context does not fit the rig's own safety cage.** The `branch-ollama` container runs with
+`--memory=4g`, which RIG.md is explicit about: the host has about 5 GB free and no swap, and that cap
+exists so that Ollama is the casualty of a memory squeeze rather than one of the owner's 25 GB VMs.
+A 65536-token qwen3:4b does not fit inside it:
+
+```
+memory.events: oom 1, oom_kill 1, max 130852
+dmesg: Memory cgroup out of memory: Killed process (llama-server)
+       constraint=CONSTRAINT_MEMCG  anon-rss:3385004kB
+ollama: "llama-server process no longer running" string="signal: killed"   (x7)
+```
+
+The cage did exactly what it was put there to do. **It must not be raised** — the alternative
+casualty is the owner's virtual machine. So the board runs at **16384 tokens**, where the same
+container sits at 1.9 GiB of its 4 GiB and three long calls in a row come back 200.
+
+## F5 — and therefore Hermes cannot be measured on this rig at all
+
+Hermes Agent refuses to start against any model whose window is under 64K:
+
+```
+ValueError: Model qwen3-4b-16k has a context window of 16,384 tokens, which is below the
+minimum 64,000 required by Hermes Agent.
+```
+
+There is a setting that would let it believe otherwise — `model.context_length` in its config — and
+it was **not** used, because telling Hermes a 16K model has a 64K window is a lie that would break
+somewhere later and produce numbers with no meaning.
+
+So: 64K is the only window Hermes will accept, and 64K is more than this rig's memory cage allows.
+Hermes is therefore **not on the board**, and the reason is the rig, not the agent. What was learned
+about it before that point is worth recording anyway: in the discarded 64K pass it finished 0 of 10
+tasks and was stopped by the five-minute deadline on 7 of them. That is not a result about Hermes's
+quality — the window it ran in was the one being killed by the OOM cage — and no claim is made from it.
