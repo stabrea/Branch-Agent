@@ -3860,13 +3860,36 @@ check, restart, update and remove Branch with one script.
 | | macOS and Linux | Windows |
 |---|---|---|
 | Install | `sh install-branch-agent.sh --quiet` beside the download and its `.sha256` | `"Install Branch Agent.cmd" /quiet` beside the zip |
-| Where it goes | Mac: `~/Applications/Branch Agent.app` (a copy already in `/Applications` is linked up instead, and never written to or removed). Linux: `~/.local/share/branch-agent/app`, with `~/.local/share/applications/branch-agent.desktop` | `%LOCALAPPDATA%\Programs\Branch Agent` |
+| Where it goes | Mac: `~/Applications/Branch Agent.app`, or `/Applications` with `--applications`. Linux: `~/.local/share/branch-agent/app`, with `~/.local/share/applications/branch-agent.desktop` and the icon in `~/.local/share/icons/hicolor` | `%LOCALAPPDATA%\Programs\Branch Agent` |
 | The `branch` command | `~/.local/bin/branch` | not written yet |
 | Conversations and files | Mac: `~/Library/Application Support/Branch Agent`. Linux: `~/.config/Branch Agent` | `%APPDATA%\Branch Agent` |
 | What is installed | `branch --version --json` prints `{"version","path","dataDir","running","installed"}` | — |
 | Restart | `branch quit`, then open the app (or `branch start`); while the never-break gateway runs the engine, `branch quit` refuses (exit 1) | — |
 | Update | `branch update --yes` | the app's Update button |
 | Remove | `sh install-branch-agent.sh --uninstall [--delete-data]` or `branch uninstall [--delete-data]` | `Uninstall Branch Agent.cmd /quiet [--delete-data]` |
+
+**What a person gets after downloading (mac7/app-icon).** On a Mac the installer asks one question,
+and only when a person is at a terminal to answer it: whether to put Branch in the shared
+`/Applications` folder. `--applications` and `--no-applications` answer it in advance and `--quiet`
+(or a script with no terminal) is never asked, so installing from a script still asks nothing.
+`/Applications` is used only when this person can write it without an administrator; otherwise the
+install falls back to `~/Applications` and says so. A copy that was in `~/Applications` is taken away
+once Branch has moved, so there is never more than one.
+
+macOS marks anything that came from the internet, and the mark travels through the zip into the
+unpacked app and through the copy into the installed one — after which macOS refuses to open it at
+all. The installer takes that mark off the copy it has just made (`xattr -r -d com.apple.quarantine`
+on the installed bundle and nothing else) and says in plain words that it did. Releases are still only
+ad-hoc sealed until a Developer ID certificate is in the workflow; taking the mark off is what makes
+an unsigned download open like an ordinary app.
+
+On Linux the download carries the KeepOak mark ready-made in every size an icon theme asks for (16 to
+512, in its `icons` folder), and the installer copies each into `~/.local/share/icons/hicolor`, so the
+menu entry names the theme's icon and each menu, dock and switcher draws the size made for it. They
+are removed again with the rest. On Windows the Start-menu and desktop shortcuts, and the Add/Remove
+Programs entry, name the KeepOak `.ico` that travels inside the app: the executable itself is the
+stock Electron one (kept byte for byte so Smart App Control recognises its hash), so it still carries
+Electron's own logo and cannot be used for the icon.
 
 Installing a version that is already there does not copy it again: the copy is linked up (the
 `branch` command and menu entry are written again) and `--repair` copies it anyway. Installing a
@@ -3897,7 +3920,9 @@ Removing Branch closes it, takes out its "start by itself when you sign in" entr
 before, the `branch` command and the menu entry. Conversations and files stay unless `--delete-data` is
 given. A `branch` command or menu entry the installer did not write (or a link in its place) is left
 alone, and installing refuses to write over another program's `branch`. A copy in the Mac's shared
-`/Applications` is not the installer's and is left; `branch uninstall` names it.
+`/Applications` is the installer's to update and to remove only when this person can write that folder
+without an administrator; one that needs an administrator may be somebody else's, so it is left exactly
+as it is and `branch uninstall` names it.
 `install-branch-agent.sh --uninstall` only runs a `branch` command the installer wrote. The script uses
 the system's own tools whatever `PATH` says, checks and unpacks a private copy of the download (so it
 cannot be swapped in between), and refuses a download that names files outside its own folder.
@@ -4127,6 +4152,10 @@ The splash screen, the icon, the status bar and the native screens take their co
 `public/theme-catalogue.js` through `apps/mobile/web/palette.js`, and their words from the
 `phone.*` keys in `public/locales` (English and French). `apps/mobile/scripts/native-files.mjs`
 and `icons.mjs` write those native files before every build; none of them is kept in git.
+`icons.mjs` writes the Android launcher at all five densities (the square, the round one and the
+adaptive front layer, the last inside the 66% a launcher never crops) and, since iOS 18, three 1024
+icons rather than one: the ordinary one, one for a dark home screen and a grey one the system tints
+itself. Only the ordinary one is opaque, as Apple asks (mac7/app-icon).
 
 **Building.** `npm run build`, then `npm ci` in `apps/mobile`, then
 `node scripts/package-mobile.mjs [--android] [--ios]`. Files land in `release/mobile/`, each with a
