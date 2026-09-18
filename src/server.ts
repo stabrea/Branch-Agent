@@ -3149,7 +3149,14 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
   // connected from beyond this computer is dropped, and the door comes back on 127.0.0.1 alone.
   const boundPort = address.port;
   const stopWatchingLockdown = onLockdownChange((_store, _owner, on) => {
-    if (on) void narrowToThisComputer();
+    if (on) void narrowToThisComputer().catch((error: unknown) => {
+      // The wide socket is already given up by the time anything here can fail, so Lockdown has had
+      // the effect that matters. What can still go wrong is coming back on 127.0.0.1 — say so
+      // plainly rather than leaving a promise nobody caught, because a door nobody can open is a
+      // different problem from a door open too wide, and the owner has to be told which one it is.
+      console.log("Branch Agent: Lockdown closed the wider door, but Branch could not start"
+        + ` listening on this computer again (${errorText(error)}). Restart Branch.`);
+    });
   });
   async function narrowToThisComputer(): Promise<void> {
     if (listen.address === thisComputerAddress) return;
