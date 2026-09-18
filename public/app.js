@@ -670,8 +670,14 @@ async function renderChannels() {
         toast("New address made. Paste it into the service, or it will stop hearing from you.");
         await renderChannels();
       }));
-      if (posting.settings.acceptOldAddresses)
-        node.append(el("p", `Addresses without that word on the end still work${posting.settings.oldAddressesEndOn ? ` until ${posting.settings.oldAddressesEndOn}` : ""}, so you have time to change them over.`, "meta"));
+      // mac7/channel-leaks: while the old shape is still answered the card says so AND says what it
+      // costs, because it is a door anybody can find by guessing the name.
+      if (posting.settings.acceptOldAddresses) {
+        node.append(el("p", posting.settings.oldAddressesEndOn
+          ? t("channels.address.old-accepted-until", { date: posting.settings.oldAddressesEndOn })
+          : t("channels.address.old-accepted"), "meta"));
+        node.append(el("p", t("channels.address.old-cost"), "meta"));
+      }
     }
     for (const chat of summary.chats.filter((c) => c.channel === channel.id))
       node.append(button(`Send a test message to ${chat.title}`, async () => {

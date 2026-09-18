@@ -111,9 +111,18 @@ test("B19-4 the owner can ask for more than one check; the chain is all of them"
   // A check the chain does not name cannot stand in for one it does.
   const other = await f.call("POST", "/api/people/sign-in/step", { body: { ticket: started.body.ticket, method: "oidc", stage: "begin", provider: "x" } });
   assert.match(other.body.error, /not part of signing in/);
-  // Extra checks for one person add to the chain, never take away.
+  // Extra checks for one person add to the chain, never take away — but they are asked for once a
+  // first check has passed, not handed to anybody who types a name. The sign-in page answers before
+  // any key, so steps that differ per person would say which names belong to somebody here
+  // (mac7/channel-leaks).
   await f.owner("POST", "/api/people/settings", { chain: ["pin"], extra: { [f.bo.id]: ["passkey"] } });
-  assert.deepEqual((await f.call("POST", "/api/people/sign-in/start", { body: { name: "Bo" } })).body.steps, ["pin", "passkey"]);
+  const bo = await f.call("POST", "/api/people/sign-in/start", { body: { name: "Bo" } });
+  assert.deepEqual(bo.body.steps, ["pin"], "who is on this computer is not readable from the steps offered");
+  const boPin = await f.call("POST", "/api/people/sign-in/step",
+    { body: { ticket: bo.body.ticket, method: "pin", stage: "finish", pin: "5678" } });
+  assert.deepEqual(boPin.body.left, ["passkey"], "Bo's extra check is asked for once the PIN has passed");
+  assert.equal((await f.call("POST", "/api/people/sign-in/finish", { body: { ticket: bo.body.ticket } })).status, 400,
+    "and it really has to be passed");
   assert.equal((await f.owner("POST", "/api/people/settings", { chain: [] })).status, 400, "the chain is never empty");
 });
 

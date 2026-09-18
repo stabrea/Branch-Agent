@@ -142,11 +142,19 @@ export class SignIns {
   /** Adds a way of proving who somebody is. It still has to be named in the chain to be asked. */
   register(method: SignInMethod): void { this.methods.set(method.id, method); }
 
+  /**
+   * mac7/channel-leaks: the steps offered are the chain everybody here passes, never the extra
+   * checks the owner added for one person. This address answers before any key, and the extras are
+   * per person, so handing them back at the start said which names belong to somebody on this
+   * computer. A person's own extras are added to the ticket the moment their first check passes
+   * (see `step` below), and `complete` refuses a ticket that has not passed them, so nothing is
+   * loosened: the extras are asked for later rather than announced to anyone who types a name.
+   */
   start(name: string, device: string): { ticket: string; steps: SignInMethodId[] } {
     this.prune();
     const profile = this.host.profiles.byName(name);
     const settings = this.host.settings();
-    const required = profile ? chainFor(settings, profile.id) : [...settings.chain];
+    const required = [...settings.chain];
     const ticket: Ticket = { id: randomBytes(24).toString("base64url"), name: name.trim(), profileId: profile?.id ?? null, required, passed: [],
       failures: 0, expiresAt: this.now() + ticketMs, device: device.slice(0, 120), scratch: {} };
     this.tickets.set(ticket.id, ticket);
@@ -167,6 +175,11 @@ export class SignIns {
       throw error;
     }
     if (!ticket.passed.includes(method)) ticket.passed.push(method);
+    // Now that this device has proved something, the extras the owner added for this one person
+    // join the list, and `left` tells the page what is still to come.
+    if (ticket.profileId)
+      for (const extra of chainFor(this.host.settings(), ticket.profileId))
+        if (!ticket.required.includes(extra)) ticket.required.push(extra);
     return { result: { passed: method }, left: this.left(ticket) };
   }
 

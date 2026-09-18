@@ -26,6 +26,15 @@ const AddressSchema = z.object({
  * Whether an address with no random word on the end is still answered. It starts true, so a copy
  * that is updated keeps working while the owner goes round their chat services pasting in the new
  * addresses, and the note beside it says when that stops.
+ *
+ * mac7/channel-leaks: it stays true, and here is exactly what it is for. Version 0.15.0 shipped
+ * `/webhooks/chat/<name>` with no word on the end at all; 0.16.0 put the word there. A copy that
+ * connected a chat service while it was running 0.15.0 has that older address pasted into the chat
+ * service's own settings, and turning this off by default would stop those messages arriving with
+ * nothing said and nothing the owner could see. So the grace is kept — but it now costs something
+ * the owner is told about on the Connections card, and `webhookAddressVerdict` refuses the old
+ * shape outright while Branch is listening beyond this computer, whatever this says. The wider door
+ * is the one moment when an address anybody can guess is worth more than the convenience.
  */
 export const WebhookAddressSettingsSchema = z.object({
   acceptOldAddresses: z.boolean().default(true),
@@ -96,20 +105,56 @@ export function sameSecret(supplied: string, expected: string): boolean {
 }
 
 /**
- * Why a post to this address is not answered, or null when it may be. An address carrying the right
- * word is always answered; one carrying the wrong word never is; one carrying none is answered only
- * while the owner is still being given time to paste the new addresses in.
+ * The one sentence anybody who has not shown the word on the end of an address is ever told. It
+ * says nothing about which chat services the owner has connected, because it is the same sentence
+ * for every one of them and for every name nobody has ever used.
+ */
+export const wrongWebhookAddress = "No chat service is connected at that address";
+
+/**
+ * A word of the right shape that matches nothing, made once per launch. A name with no word of its
+ * own is compared against this rather than skipped, so the time an answer takes does not say which
+ * names exist. A faster "no such thing" is still an answer.
+ */
+const decoySecret = randomBytes(webhookSecretBytes).toString("hex");
+
+/** What may be done with a post to this address, before a single byte of it has been believed. */
+export type WebhookAddressVerdict =
+  /** The word on the end is this channel's own: the caller holds a secret only the owner has. */
+  | "proven"
+  /** No word at all, and the grace for addresses saved before the word existed is still on. */
+  | "old"
+  /** Nothing else. */
+  | "refused";
+
+/**
+ * What a post to this address may do. An address carrying the right word is proved; one carrying
+ * the wrong word is refused; one carrying none is the old shape, allowed only while the grace lasts
+ * and only while Branch is listening on this computer alone.
  *
  * Nothing is written here. This runs before anything has been checked, on a post that may have come
  * from anywhere, so a channel that has no word yet is simply one whose word does not match — never
  * a reason to make one and keep it. The word is made when the owner looks at the Connections card.
  */
+export function webhookAddressVerdict(
+  store: Store, owner: string, channel: string, supplied: string | undefined, beyondThisComputer = false,
+): WebhookAddressVerdict {
+  const stored = storedWebhookSecret(store, owner, channel);
+  // Always compared, against the decoy when this name has no word of its own, and never short-cut
+  // by an early return: the comparison is what makes the two cases take the same path.
+  const matched = sameSecret(supplied ?? "", stored ?? decoySecret) && stored !== undefined;
+  if (supplied !== undefined) return matched ? "proven" : "refused";
+  if (beyondThisComputer) return "refused";
+  return webhookAddressSettings(store, owner).acceptOldAddresses ? "old" : "refused";
+}
+
+/**
+ * Why a post to this address is not answered, or null when it may be. Kept as the plain question
+ * `webhookAddressVerdict` answers, for the places that only need a yes or a no.
+ */
 export function webhookAddressRefusal(
-  store: Store, owner: string, channel: string, supplied: string | undefined,
+  store: Store, owner: string, channel: string, supplied: string | undefined, beyondThisComputer = false,
 ): string | null {
-  const wrongAddress = "No chat service is connected at that address";
-  const expected = storedWebhookSecret(store, owner, channel);
-  if (supplied !== undefined) return expected && sameSecret(supplied, expected) ? null : wrongAddress;
-  if (webhookAddressSettings(store, owner).acceptOldAddresses) return null;
-  return wrongAddress;
+  return webhookAddressVerdict(store, owner, channel, supplied, beyondThisComputer) === "refused"
+    ? wrongWebhookAddress : null;
 }

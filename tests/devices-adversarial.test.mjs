@@ -128,7 +128,7 @@ test("pairing tries are also counted per address, beside the overall count", asy
   const offer = app.devices.book.invite();
   const key = deviceKey();
   const body = { offer: "b".repeat(32), code: "000000", platform: "linux", publicKey: key.publicKey };
-  for (let i = 0; i < 10; i++) assert.throws(() => app.devices.book.redeem(body, "100.64.0.9"), /not the one on offer/);
+  for (let i = 0; i < 10; i++) assert.throws(() => app.devices.book.redeem(body, "100.64.0.9"), /Check the number on the computer/);
   assert.throws(() => app.devices.book.redeem(body, "100.64.0.9"), /Too many pairing tries/);
   const done = app.devices.book.redeem({ ...body, offer: offer.id, code: offer.code }, "100.64.0.10");
   assert.equal(done.status, "waiting", "another address can still answer the invitation");

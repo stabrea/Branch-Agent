@@ -57,7 +57,7 @@ import { serveRunSocket, tokenFromProtocol } from "./ws.js";
 // Bucket 13 (mac4): seeing what a task did, step by step, afterwards.
 import { handlesRecordingPath, recordingApi, startEventLoopWatch } from "./run-recording-api.js";
 import { liveHooks } from "./realtime-socket.js";
-import { readBodyWithRaw } from "./triggers.js";
+import { readBodyWithRaw, type TriggerState } from "./triggers.js";
 import { knowledgeApi } from "./knowledge-tools.js";
 import { knowledgeExtrasApi } from "./knowledge-more.js";
 import { WhatsAppAdapter } from "./channels/whatsapp.js";
@@ -70,8 +70,8 @@ import { wechatXmlLimit } from "./channels/wechat-crypto.js"; // mac6/bucket-16 
 import type { ChannelAdapter } from "./channels/router.js";
 import { parityApi } from "./channels/parity-api.js";
 // Batch 20 (wave 8): the unguessable word on the end of every inbound webhook address.
-import { rotateWebhookSecret, saveWebhookAddressSettings, webhookAddress, webhookAddressRefusal,
-  webhookAddressSettings, webhookSecret } from "./channels/webhook-address.js";
+import { rotateWebhookSecret, saveWebhookAddressSettings, webhookAddress, webhookAddressVerdict,
+  webhookAddressSettings, webhookSecret, wrongWebhookAddress } from "./channels/webhook-address.js";
 import { channelEntries } from "./channels/catalog.js";
 import { MetaMessagingAdapter } from "./channels/meta-graph.js";
 import { standardSuite } from "./evaluation.js";
@@ -1924,27 +1924,50 @@ async function hook(app: Branch, request: IncomingMessage, path: string): Promis
  * to work without the app's session token. WhatsApp checks the address once with a challenge it
  * expects echoed back as plain text, and signs every later request with the app secret.
  */
-async function whatsAppWebhook(app: Branch, request: IncomingMessage, response: ServerResponse, path: string): Promise<boolean> {
+async function whatsAppWebhook(app: Branch, request: IncomingMessage, response: ServerResponse, path: string,
+  limiter: AuthLimiter, beyond: () => boolean): Promise<boolean> {
   const match = /^\/webhooks\/whatsapp\/([a-z][a-z0-9_-]{0,29})(?:\/([a-f0-9]{32}))?$/.exec(path);
   if (!match) return false;
+  // mac7/channel-leaks: this address carries no key either, so a place that keeps posting rubbish
+  // to it is made to wait, exactly as the chat address's callers are.
+  const from = requestSource(request.socket?.remoteAddress, request.headers);
+  const waiting = limiter.refusal(from, "signature");
+  if (waiting) throw new HttpError(429, waiting);
   // The random word on the end of the address is what makes it unguessable. Checked before the
   // channel is even looked up, so a wrong address tells nobody which names exist.
-  const wrongAddress = webhookAddressRefusal(app.store, app.runtime.owner, match[1]!, match[2]);
-  if (wrongAddress) throw new HttpError(404, wrongAddress);
+  const verdict = webhookAddressVerdict(app.store, app.runtime.owner, match[1]!, match[2], beyond());
+  const limit: ChatWebhookLimit = { limiter, from, proven: verdict === "proven" };
+  if (verdict === "refused") return refuseWebhookAddress(app, request, response, limit);
   const adapter = app.channels.adapter(match[1]!);
-  if (!(adapter instanceof WhatsAppAdapter)) throw new HttpError(404, "No WhatsApp channel with that name is connected");
+  if (!(adapter instanceof WhatsAppAdapter)) {
+    if (!limit.proven) return refuseWebhookAddress(app, request, response, limit);
+    throw new HttpError(404, "No WhatsApp channel with that name is connected");
+  }
   if (request.method === "GET") {
-    const query = new URL(request.url ?? "/", "http://127.0.0.1").searchParams;
-    const challenge = tryOr(() => adapter.verify(query), 403);
+    let challenge: string;
+    try { challenge = adapter.verify(new URL(request.url ?? "/", "http://127.0.0.1").searchParams); }
+    catch (error) {
+      if (!limit.proven) return refuseWebhookAddress(app, request, response, limit);
+      throw new HttpError(403, errorText(error));
+    }
+    limiter.succeed(from);
     response.writeHead(200, { "content-type": "text/plain; charset=utf-8" });
     response.end(challenge);
     return true;
   }
-  if (request.method !== "POST") throw new HttpError(404, "Endpoint not found");
-  const { raw } = await readBodyWithRaw(request, 256 * 1024).catch(() => { throw new HttpError(400, "That message could not be read"); });
-  const signature = request.headers["x-hub-signature-256"];
-  const result = await adapter.receive(raw, typeof signature === "string" ? signature : undefined)
-    .catch((error: unknown) => { throw new HttpError(401, errorText(error)); });
+  if (request.method !== "POST") {
+    if (!limit.proven) return refuseWebhookAddress(app, request, response, limit);
+    throw new HttpError(404, "Endpoint not found");
+  }
+  const read = await readBodyWithRaw(request, 256 * 1024).catch(() => undefined);
+  if (!read) {
+    if (!limit.proven) return refuseWebhookAddress(app, request, response, limit);
+    throw new HttpError(400, "That message could not be read");
+  }
+  const result = await adapter.receive(read.raw, typeof request.headers["x-hub-signature-256"] === "string"
+    ? request.headers["x-hub-signature-256"] : undefined)
+    .catch((error: unknown) => { throw refusedChatPost(app, match[1]!, "whatsapp", error, limit); });
+  limiter.succeed(from);
   send(response, 200, result);
   return true;
 }
@@ -1954,7 +1977,8 @@ async function whatsAppWebhook(app: Branch, request: IncomingMessage, response: 
  * hands over the exact bytes and the headers. Like the WhatsApp route it carries no session key,
  * so the signature check is the only thing letting a post through.
  */
-async function chatWebhook(app: Branch, request: IncomingMessage, response: ServerResponse, path: string, limiter: AuthLimiter): Promise<boolean> {
+async function chatWebhook(app: Branch, request: IncomingMessage, response: ServerResponse, path: string,
+  limiter: AuthLimiter, beyond: () => boolean): Promise<boolean> {
   const match = /^\/webhooks\/chat\/([a-z][a-z0-9_-]{0,29})(?:\/([a-f0-9]{32}))?$/.exec(path);
   if (!match) return false;
   // Nothing here carries the session key, so a place that keeps posting rubbish is made to wait,
@@ -1964,28 +1988,65 @@ async function chatWebhook(app: Branch, request: IncomingMessage, response: Serv
   if (waiting) throw new HttpError(429, waiting);
   // The random word on the end of the address is what makes it unguessable. Checked before the
   // channel is even looked up, so a wrong address tells nobody which channel names exist.
-  const wrongAddress = webhookAddressRefusal(app.store, app.runtime.owner, match[1]!, match[2]);
-  if (wrongAddress) throw new HttpError(404, wrongAddress);
+  const verdict = webhookAddressVerdict(app.store, app.runtime.owner, match[1]!, match[2], beyond());
+  // mac7/channel-leaks: everything below asks `limit.proven` before it says anything at all. A
+  // caller who has shown the word on the end holds a secret only this computer and the chat service
+  // have, so it is worth telling them what is wrong; a caller who has not gets one sentence,
+  // whether the name is connected, misspelt or was never used by anybody.
+  const limit: ChatWebhookLimit = { limiter, from, proven: verdict === "proven" };
+  if (verdict === "refused") return refuseWebhookAddress(app, request, response, limit);
   const adapter = app.channels.adapter(match[1]!);
-  if (adapter instanceof MetaMessagingAdapter) return metaWebhook(app, adapter, request, response, { limiter, from });
+  if (adapter instanceof MetaMessagingAdapter) return metaWebhook(app, adapter, request, response, limit);
   // mac6/bucket-16: WeChat and WeCom check the address with a GET and sign XML posts in the query.
-  if (isSignedQueryChannel(adapter)) return signedQueryWebhook(app, adapter, request, response, { limiter, from });
+  if (isSignedQueryChannel(adapter)) return signedQueryWebhook(app, adapter, request, response, limit);
   // Wave mac3 (channels-parity): services that are posted to and prove the post in their own way.
-  if (isPostedChannel(adapter)) return postedChatWebhook(app, adapter, request, response, { limiter, from });
-  if (!(adapter instanceof WebhookChatAdapter)) throw new HttpError(404, "No chat service with that name is connected");
-  if (request.method !== "POST") throw new HttpError(404, "Endpoint not found");
-  const { raw } = await readBodyWithRaw(request, 256 * 1024).catch(() => { throw new HttpError(400, "That message could not be read"); });
-  const result = await adapter.receive(raw, request.headers)
-    .catch((error: unknown) => { throw refusedChatPost(app, match[1]!, adapter.kind, error, { limiter, from }); });
+  if (isPostedChannel(adapter)) return postedChatWebhook(app, adapter, request, response, limit);
+  if (!(adapter instanceof WebhookChatAdapter)) {
+    if (!limit.proven) return refuseWebhookAddress(app, request, response, limit);
+    throw new HttpError(404, "No chat service with that name is connected");
+  }
+  if (request.method !== "POST") {
+    if (!limit.proven) return refuseWebhookAddress(app, request, response, limit);
+    throw new HttpError(404, "Endpoint not found");
+  }
+  const read = await readBodyWithRaw(request, 256 * 1024).catch(() => undefined);
+  if (!read) {
+    if (!limit.proven) return refuseWebhookAddress(app, request, response, limit);
+    throw new HttpError(400, "That message could not be read");
+  }
+  const result = await adapter.receive(read.raw, request.headers)
+    .catch((error: unknown) => { throw refusedChatPost(app, match[1]!, adapter.kind, error, limit); });
   limiter.succeed(from);
   // Some services will not send anything until the address echoes a word back once.
   send(response, 200, result.challenge === undefined ? { accepted: result.accepted } : { challenge: result.challenge });
   return true;
 }
+/**
+ * mac7/channel-leaks: the one answer at a webhook address, and the only one a caller who has not
+ * shown the word on the end ever gets.
+ *
+ * The body is read and thrown away first, to the same limit a post that is taken seriously is read
+ * to, so a name nobody has connected is not answered sooner than one that is: a quicker "no such
+ * thing" is still an answer. The try is counted, so a place working through channel names is made
+ * to wait. Nothing is written into the owner's record here — the address was never proved, and
+ * anybody at all could otherwise fill that record with names they made up.
+ */
+async function refuseWebhookAddress(app: Branch, request: IncomingMessage, response: ServerResponse,
+  limit: ChatWebhookLimit): Promise<true> {
+  await readBodyWithRaw(request, 256 * 1024).catch(() => undefined);
+  noteAuthFailure(limit.limiter, app.store, app.runtime.owner, limit.from, "a webhook address");
+  send(response, 404, { error: wrongWebhookAddress });
+  return true;
+}
 /** Wave mac3 (channels-parity): hands the exact bytes to a service that checks its own signature. */
 async function postedChatWebhook(app: Branch, adapter: ChannelAdapter & PostedChannel, request: IncomingMessage, response: ServerResponse, limit: ChatWebhookLimit): Promise<boolean> {
-  if (request.method !== "POST") throw new HttpError(404, "Endpoint not found");
-  if (adapter.accepting?.() === false) throw new HttpError(503, "That chat service is switched off in Customize");
+  if (request.method !== "POST" || adapter.accepting?.() === false) {
+    // Whether a service is switched off in Customize is state, so it is only said to a caller who
+    // has shown the word on the end of the address.
+    if (!limit.proven) return refuseWebhookAddress(app, request, response, limit);
+    throw new HttpError(request.method === "POST" ? 503 : 404,
+      request.method === "POST" ? "That chat service is switched off in Customize" : "Endpoint not found");
+  }
   const { raw } = await readBodyWithRaw(request, 256 * 1024).catch(() => { throw new HttpError(400, "That message could not be read"); });
   const result = await adapter.receivePost(raw, request.headers)
     .catch((error: unknown) => { throw refusedChatPost(app, adapter.id, adapter.kind, error, limit); });
@@ -1995,8 +2056,11 @@ async function postedChatWebhook(app: Branch, adapter: ChannelAdapter & PostedCh
 }
 /** mac6/bucket-16: hands a WeChat or WeCom request over whole and answers with the plain text it returns. */
 async function signedQueryWebhook(app: Branch, adapter: ChannelAdapter & SignedQueryChannel, request: IncomingMessage, response: ServerResponse, limit: ChatWebhookLimit): Promise<boolean> {
-  if (request.method !== "POST" && request.method !== "GET") throw new HttpError(404, "Endpoint not found");
-  if (adapter.accepting?.() === false) throw new HttpError(503, "That chat service is switched off in Customize");
+  if ((request.method !== "POST" && request.method !== "GET") || adapter.accepting?.() === false) {
+    if (!limit.proven) return refuseWebhookAddress(app, request, response, limit);
+    throw new HttpError(adapter.accepting?.() === false ? 503 : 404,
+      adapter.accepting?.() === false ? "That chat service is switched off in Customize" : "Endpoint not found");
+  }
   const query = new URL(request.url ?? "/", "http://127.0.0.1").searchParams;
   const raw = request.method === "POST"
     ? await readRawBody(request, wechatXmlLimit).catch((error: unknown) => { throw new HttpError(/exceeds/.test(errorText(error)) ? 413 : 400, "That message could not be read"); })
@@ -2008,29 +2072,45 @@ async function signedQueryWebhook(app: Branch, adapter: ChannelAdapter & SignedQ
   response.end(text);
   return true;
 }
-/** Where a post came from, so repeated refusals from one place can be counted and slowed down. */
-interface ChatWebhookLimit { limiter: AuthLimiter; from: string }
+/**
+ * Where a post came from, so repeated refusals from one place can be counted and slowed down, and
+ * whether the caller showed the word on the end of the address — which decides whether they are
+ * told anything beyond the one sentence.
+ */
+interface ChatWebhookLimit { limiter: AuthLimiter; from: string; proven: boolean }
 /** A post that did not prove it came from the service is refused, and the refusal is written down. */
 function refusedChatPost(app: Branch, channel: string, kind: string, error: unknown, limit: ChatWebhookLimit): HttpError {
+  // The post itself is never written down: it was not proved genuine, so nothing inside it is kept.
+  noteAuthFailure(limit.limiter, app.store, app.runtime.owner, limit.from, "a chat service's signature");
+  // mac7/channel-leaks: a caller who never showed the word on the end of the address is told the
+  // one sentence and leaves no row behind. The service's own words — "not signed by Slack", "no
+  // shared secret is saved", "too old" — name the service and say whether it is set up, and the
+  // record of refusals is the owner's, not something anybody on the network may fill.
+  if (!limit.proven) return new HttpError(404, wrongWebhookAddress);
   audit(app.store, app.runtime.owner, {
     action: "auth.refused", actor: `the ${kind} connection`, subject: `/webhooks/chat/${channel}`, source: "system",
     reason: "A message arrived claiming to come from that chat service, but it was not proved to have come from it",
     outcome: "refused",
   });
-  // The post itself is never written down: it was not proved genuine, so nothing inside it is kept.
-  noteAuthFailure(limit.limiter, app.store, app.runtime.owner, limit.from, "a chat service's signature");
   return new HttpError(401, errorText(error));
 }
 /** Messenger and Instagram answer Meta's one-off check and sign every later post, as WhatsApp does. */
 async function metaWebhook(app: Branch, adapter: MetaMessagingAdapter, request: IncomingMessage, response: ServerResponse, limit: ChatWebhookLimit): Promise<boolean> {
   if (request.method === "GET") {
-    const query = new URL(request.url ?? "/", "http://127.0.0.1").searchParams;
-    const challenge = tryOr(() => adapter.verify(query), 403);
+    let challenge: string;
+    try { challenge = adapter.verify(new URL(request.url ?? "/", "http://127.0.0.1").searchParams); }
+    catch (error) {
+      if (!limit.proven) return refuseWebhookAddress(app, request, response, limit);
+      throw new HttpError(403, errorText(error));
+    }
     response.writeHead(200, { "content-type": "text/plain; charset=utf-8" });
     response.end(challenge);
     return true;
   }
-  if (request.method !== "POST") throw new HttpError(404, "Endpoint not found");
+  if (request.method !== "POST") {
+    if (!limit.proven) return refuseWebhookAddress(app, request, response, limit);
+    throw new HttpError(404, "Endpoint not found");
+  }
   const { raw } = await readBodyWithRaw(request, 256 * 1024).catch(() => { throw new HttpError(400, "That message could not be read"); });
   const signature = request.headers["x-hub-signature-256"];
   const result = await adapter.receive(raw, typeof signature === "string" ? signature : undefined)
@@ -2043,9 +2123,21 @@ function tryOr<T>(work: () => T, status: number): T {
   try { return work(); } catch (error) { throw new HttpError(status, errorText(error)); }
 }
 const triggerBodyLimit = 256 * 1024;
-async function triggerFire(app: Branch, request: IncomingMessage, triggerId: string): Promise<unknown> {
+/**
+ * mac7/channel-leaks: the one answer a caller who has not proved a trigger gets. The route used to
+ * say "Trigger not found" for an id nobody had made and "Invalid secret", "Missing signature",
+ * "Invalid signature algorithm", "timestamp too old" or "nonce reused" for one that existed, all
+ * before any key was checked — so the ids the owner really has could be found by trying them.
+ */
+const triggerRefused = "That request was not accepted";
+/** A trigger that is not on the list, so an id nobody made is still checked rather than skipped. */
+const decoyTrigger: TriggerState = {
+  id: "", name: "", prompt: "", enabled: false, rateLimitPerMinute: 1, replayProtection: false,
+  replayWindowSeconds: 300, secret: randomBytes(32).toString("hex"),
+  createdAt: "", updatedAt: "",
+};
+async function triggerFire(app: Branch, request: IncomingMessage, triggerId: string, limit: ChatWebhookLimit): Promise<unknown> {
   const trigger = app.triggers.get(app.runtime.owner, triggerId);
-  if (!trigger) throw new HttpError(404, "Trigger not found");
   if (Number(request.headers["content-length"] ?? 0) > triggerBodyLimit)
     throw new HttpError(413, `Request exceeds ${triggerBodyLimit / 1024} KiB`);
 
@@ -2054,12 +2146,18 @@ async function triggerFire(app: Branch, request: IncomingMessage, triggerId: str
     throw new HttpError(message.includes("exceeds") ? 413 : 400, message);
   });
 
-  const verified = app.triggers.verify(trigger, request.headers, raw);
-  if (!verified.valid) throw new HttpError(401, verified.error ?? "Unauthorized");
-  // A copied request cannot be sent again: when the owner asked for it, the timestamp must be
-  // fresh and the nonce one nobody has used before.
-  const fresh = app.triggers.checkFreshness(trigger, request.headers);
-  if (!fresh.valid) throw new HttpError(401, fresh.error ?? "Unauthorized");
+  // A trigger that was never made is checked against a secret that belongs to nothing, so the work
+  // done and the answer given are the same as for one that exists but was not proved. A copied
+  // request cannot be sent again either: when the owner asked for it, the timestamp must be fresh
+  // and the nonce one nobody has used before.
+  const against = trigger ?? { ...decoyTrigger, id: triggerId };
+  const verified = app.triggers.verify(against, request.headers, raw);
+  const fresh = verified.valid ? app.triggers.checkFreshness(against, request.headers) : { valid: false };
+  if (!trigger || !verified.valid || !fresh.valid) {
+    noteAuthFailure(limit.limiter, app.store, app.runtime.owner, limit.from, "a trigger's secret");
+    throw new HttpError(401, triggerRefused);
+  }
+  limit.limiter.succeed(limit.from);
 
   return app.triggers.fire(app.runtime.owner, triggerId, parsed).catch((error: unknown) => {
     const message = errorText(error);
@@ -2754,13 +2852,16 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
         send(response, 200, await hook(app, request, path));
         return;
       }
-      if (await whatsAppWebhook(app, request, response, path)) return;
-      if (await chatWebhook(app, request, response, path, webhookLimiter)) return;
+      if (await whatsAppWebhook(app, request, response, path, webhookLimiter, () => listen.beyond)) return;
+      if (await chatWebhook(app, request, response, path, webhookLimiter, () => listen.beyond)) return;
       // Wave 6: a read-only shared conversation carries its own code instead of the session key.
       if (await sharePage(app, request, response, path)) return;
       // Wave 7: a page an outside AI-tool server sent, shown in a frame that can do nothing at all.
       // A frame cannot carry the session key, so the address itself is the one-time secret.
-      if (mcpAppPage(request, response, path)) return;
+      // mac7/channel-leaks: and only to a caller on this very computer, as the artifact page below
+      // already is. The frame is always local, so the gate costs nothing and the address — whose
+      // whole secret is the address — is not offered to the private network.
+      if (fromThisComputer(request.socket?.remoteAddress, request.headers) && mcpAppPage(request, response, path)) return;
       // Wave 8: an artifact out of a reply, in that same frame. Its address is not used up by the
       // first fetch, so the frame may reload and "open larger" may show the same one again.
       // mac7/bind (integration review): the same gate the live surface gets just below, and for the
@@ -2785,10 +2886,20 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
       if (openDevicePaths.includes(path)) {
         if (request.headers.origin && !hostAllowed(request.headers.host, request.headers.origin, url, allowedHosts()))
           throw new HttpError(403, "Origin rejected");
+        // mac7/channel-leaks: a six-digit number is small enough that the five tries per invitation
+        // are not the whole answer. A place that keeps getting it wrong now waits, counted where
+        // every other wrong key and PIN is counted — which is what the note by `authLimiter` above
+        // has always said happens to pairing codes, and until now did not.
+        const from = requestSource(request.socket?.remoteAddress, request.headers);
+        const pairingWait = authLimiter.refusal(from, "pairing code");
+        if (pairingWait) throw new HttpError(429, pairingWait);
         const answer = await openDevicesApi({ devices: app.devices, method: request.method ?? "GET", readBody: () => readBody(request, 4096) },
-          path, requestSource(request.socket?.remoteAddress)).catch((error: unknown) => {
-          throw error instanceof DevicesHttpError ? new HttpError(error.status, error.message) : error;
+          path, from).catch((error: unknown) => {
+          if (!(error instanceof DevicesHttpError)) throw error;
+          if (error.status === 403) noteAuthFailure(authLimiter, app.store, app.runtime.owner, from, "a device's pairing code");
+          throw new HttpError(error.status, error.message);
         });
+        authLimiter.succeed(from);
         send(response, 200, answer);
         return;
       }
@@ -2801,7 +2912,12 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
         && app.asks.surfaces.serve(request, response, path)) return;
       const triggerFireMatch = /^\/api\/triggers\/([a-f0-9-]{36})\/fire$/.exec(path);
       if (triggerFireMatch && request.method === "POST") {
-        send(response, 200, await triggerFire(app, request, triggerFireMatch[1]!));
+        // Counted on the webhook limiter, not the key's: a service set up with the wrong secret
+        // slows itself down and never stands between the owner and their own app.
+        const from = requestSource(request.socket?.remoteAddress, request.headers);
+        const triggerWait = webhookLimiter.refusal(from, "secret");
+        if (triggerWait) throw new HttpError(429, triggerWait);
+        send(response, 200, await triggerFire(app, request, triggerFireMatch[1]!, { limiter: webhookLimiter, from, proven: false }));
         return;
       }
       // Wave mac3 (commands): a read key's command is sent with POST but only looks.
@@ -3447,11 +3563,15 @@ async function sharePage(app: Branch, request: IncomingMessage, response: Server
   const code = new URL(request.url ?? "/", "http://local").searchParams.get("code") ?? "";
   let body: string, status = 200;
   try { body = app.store.shares.open(match[1]!, code); }
-  catch (error) {
+  catch {
+    // mac7/channel-leaks: the page used to say which of the reasons it was — "that link is not
+    // valid", "that code is not right", "already used once", "expired", "closed after too many
+    // wrong codes". This address answers before any key, so the difference told anyone who tried a
+    // made-up link apart from anyone who had a real one. One page now, for all five.
     status = 403;
     body = `<!doctype html><html lang="en"><head><meta charset="utf-8" /><title>Not available</title></head>`
       + `<body style="font:16px system-ui;margin:3rem auto;max-width:32rem"><h1>This link is not available</h1>`
-      + `<p>${errorText(error).replace(/[<>&"]/g, "")}</p></body></html>`;
+      + `<p>Ask whoever sent it to share it again.</p></body></html>`;
   }
   response.writeHead(status, {
     "content-type": "text/html; charset=utf-8", "cache-control": "no-store",
