@@ -15,7 +15,7 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
@@ -240,6 +240,27 @@ test("a folder of notes produces a map, with the passage behind every link", asy
   for (const step of tour.steps) assert.ok(step.words, "every stop has words even with no model");
 });
 
+test("with nothing named, the map follows the project that is open", async (t) => {
+  const { app, workspace } = await fixture(t);
+  switchOn(app);
+  await codeFolder(workspace);
+  await mkdir(join(workspace, "other"), { recursive: true });
+  await writeFile(join(workspace, "other", "alone.ts"), "export const alone = 1;\n", "utf8");
+
+  const whole = await app.learn.map("local", { subject: "code" });
+  assert.ok(whole.things.some((thing) => thing.name.includes("shop/")), "the default project is the whole workspace");
+  assert.ok(whole.things.some((thing) => thing.name.includes("alone.ts")), "including the folder outside shop");
+
+  /* The workspace itself follows the active project's folder, so a map with nothing named is that
+     project's map without the feature having to do anything about it. */
+  app.store.projects.save("local", { id: "shopwork", name: "Shop work", folder: "shop" });
+  app.store.projects.setActive("local", { active: "shopwork" });
+  const scoped = await app.learn.map("local", { subject: "code" });
+  assert.ok(scoped.things.length >= 3, `expected the shop files, got ${scoped.things.length}`);
+  assert.ok(scoped.things.every((thing) => !thing.name.includes("alone.ts")),
+    `switching project moved the map: ${scoped.things.map((thing) => thing.name).join(", ")}`);
+});
+
 /* ── 6. the switch off hides the tools and refuses in one sentence ── */
 
 test("the feature ships off: its tools are not advertised and it refuses in one plain sentence", async (t) => {
@@ -276,6 +297,29 @@ test("/learn is in the one command table every surface reads", () => {
   assert.deepEqual(learn.legacy, [], "it is new, so it worked nowhere before the table");
   assert.equal(learn.route.path, "/api/learn/map");
   assert.equal(learn.key, "commands.learn");
+});
+
+test("every control on the card can be named, including the ones that start hidden", async () => {
+  const page = await readFile(new URL("../public/index.html", import.meta.url), "utf8");
+  const card = page.slice(page.indexOf('id="learn-card"'), page.indexOf('id="gallery-refresh"'));
+  assert.ok(card.includes("<h2"), "the card carries a title");
+  assert.match(card, /<p class="subtle" data-t="documents\.note\.[^"]+">/, "and a purpose line under it");
+  /* Q4 skips anything not on screen, so the tour's Back and Next -- which start hidden -- are
+     never reached by that test. They are checked here instead. */
+  const controls = [...card.matchAll(/<(button|input|select|textarea)\b([^>]*)>/g)];
+  assert.ok(controls.length >= 8, `expected the card's controls, found ${controls.length}`);
+  const nameless = [];
+  for (const [, tag, attributes] of controls) {
+    const id = /id="([^"]+)"/.exec(attributes)?.[1] ?? "(no id)";
+    const named = /aria-label="[^"]+"/.test(attributes)
+      || /data-t="[^"]+"/.test(attributes)
+      || new RegExp(`id="${id}"[^>]*>|<label><input id="${id}"`).test(card) && new RegExp(`for="${id}"|<label><input id="${id}"[^>]*/?>\\s*<span`).test(card)
+      || new RegExp(`<button[^>]*id="${id}"[^>]*>[^<]*\\S`).test(card);
+    if (!named) nameless.push(`${tag}#${id}`);
+  }
+  assert.deepEqual(nameless, [], "every control on the card can be read out, hidden or not");
+  for (const id of ["learn-tour-back", "learn-tour-next"])
+    assert.match(card, new RegExp(`id="${id}"[^>]*data-t="action\\.[a-z]+"`), `${id} says its words through a key`);
 });
 
 /* ── 7. the cost is said before the work, and a zero is never made up ── */

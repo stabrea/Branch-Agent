@@ -120,12 +120,20 @@ export class Learn {
     };
   }
 
+  /**
+   * With nothing named, a map belongs to the project that is open, the way a search already does.
+   * The code root needs no work: the workspace itself already follows the active project's folder,
+   * so "." is that project's folder. The collection is the first of the ones the project looks in
+   * (`Project.knowledgeBases`, the same list search narrows by), falling back to the first there is.
+   */
   private collection(owner: string, named: string): string {
     if (!this.deps.bases) throw new Error("There are no knowledge bases on this launch.");
     if (named) return this.deps.bases.one(owner, named).id;
-    const first = this.deps.bases.list(owner)[0];
-    if (!first) throw new Error("There are no knowledge bases yet. Make one in Documents first.");
-    return first.id;
+    const here = this.deps.bases.list(owner);
+    if (!here.length) throw new Error("There are no knowledge bases yet. Make one in Documents first.");
+    const wanted = this.deps.store.projects.defaults(owner).knowledgeBases;
+    const scoped = here.find((base) => wanted.includes(base.id) || wanted.includes(base.name));
+    return (scoped ?? here[0]!).id;
   }
   private modelName(owner: string): string {
     return this.deps.models?.plan(owner, "").choice.model ?? "";
