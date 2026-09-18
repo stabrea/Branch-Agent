@@ -8,10 +8,15 @@ installDeviceHeaders();
 import { t } from "/i18n.js";
 export const $ = (id) => document.getElementById(id);
 globalThis.toast = (message) => toast(message);
+/* One notice area, one timer. A second notice inside the six seconds has to cancel the first
+   one's timer, or that older timer hides the new notice almost as soon as it appears and it never
+   comes back (it hid the "at most 4 MiB" notice on Windows, where the two arrive close together). */
+let toastTimer = null;
 export function toast(message) {
   $("toast").textContent = message;
   $("toast").hidden = false;
-  setTimeout(() => {
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => {
     $("toast").hidden = true;
   }, 6000);
 }

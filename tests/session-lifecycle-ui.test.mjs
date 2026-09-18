@@ -38,6 +38,14 @@ async function fixture(t, provider) {
   return { app, page, root, sourceId, original, errors };
 }
 const card = (page, id) => page.locator(`#saved-list article[data-session-id="${id}"]`);
+/* One step, inside the page: the notice area is found and read in the same breath, so a redraw
+   between the two cannot answer for an instant the notice was not up. */
+async function shown(page, pattern) {
+  await page.waitForFunction((source) => {
+    const note = document.getElementById("toast");
+    return !!note && !note.hidden && new RegExp(source).test(note.textContent ?? "");
+  }, pattern.source);
+}
 async function ready(page) { await page.waitForFunction(() => !document.getElementById('send').disabled); }
 async function library(page, query = '') {
   if (!(await page.locator('#saved-conversations').evaluate(node => node.open)))
@@ -119,7 +127,7 @@ test('invalid and oversized import files report errors without changing the sele
   await card(f.page, f.sourceId).getByRole('button', { name: 'Open', exact: true }).click(); await ready(f.page);
   for (const [buffer, expected] of [[Buffer.from('{broken'), /valid conversation JSON/], [Buffer.alloc(4 * 1024 * 1024 + 1), /at most 4 MiB/], [Buffer.from('{}'), /format|Invalid/]]) {
     await f.page.locator('#conversation-import').setInputFiles({ name: 'bad.json', mimeType: 'application/json', buffer });
-    await f.page.locator('#toast').filter({ hasText: expected }).waitFor(); await ready(f.page);
+    await shown(f.page, expected); await ready(f.page);
     assert.equal(await f.page.locator('#conversation').getAttribute('data-session-id'), f.sourceId);
   }
   assert.equal(JSON.stringify(f.app.store.sessionView('local', f.sourceId)), f.original);
