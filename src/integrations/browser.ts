@@ -18,6 +18,7 @@ import { clearPasswordValues, startRecording } from './browser-trace.js';
 import type { Store } from '../store.js';
 import { audit } from '../audit.js';
 import { browserCare, browserCareDefaults, uploadsBlocked, type BrowserCare } from '../comfort/browser-safety.js'; // R17-S19
+import type { SignInBox, SignInPage } from '../vault-autofill.js'; // mac7/vault-autofill (R17-068)
 
 export const BrowserConfigSchema = z.object({
   allowedOrigins: z.array(z.string().url()).min(1).max(30),
@@ -63,6 +64,14 @@ interface RunEntry {
   marks: MarkRegistry;
   /** The owner's own browser, while this task is borrowing it. */
   borrowed: AttachedBrowser | null;
+  /**
+   * mac7/vault-autofill (R17-068): the website of the last address this task opened by address, and
+   * whether it has pressed anything since. Together they say whether the page it is on now was
+   * reached from another website — which is what "a link in untrusted content" means here. Pressing
+   * "Sign in" on the site whose address was opened is not that, and 2FA would be impossible if it were.
+   */
+  typedHost: string;
+  pressed: boolean;
 }
 /** Where the trace of one task is written, when the launch keeps traces. */
 export interface BrowserTracer {
@@ -143,7 +152,7 @@ export class BranchBrowser {
     const cancel = () => { void this.closeRun(context).catch(() => undefined); };
     context.signal.addEventListener('abort', cancel, { once: true });
     const created: RunEntry = { session, origins: new Set(), actions: 0, host: '', profile: null,
-      marks: new MarkRegistry(), borrowed: null,
+      marks: new MarkRegistry(), borrowed: null, typedHost: '', pressed: false,
       detach: () => context.signal.removeEventListener('abort', cancel) };
     this.sessions.set(key, created);
     return created;
@@ -174,6 +183,12 @@ export class BranchBrowser {
       await page.goto(url, { waitUntil: 'domcontentloaded' });
       // Counted only once the page really opened, so a refused address costs the task nothing.
       entry.origins.add(origin);
+      // mac7/vault-autofill: an address, not something somebody put on a page for Branch to press.
+      // Read from where the page really ended up, never from the address that was asked for: an
+      // open redirect on the address means the two are different websites, and a signal that lies
+      // about which website the task is on is worse than no signal at all (integration review).
+      entry.typedHost = hostOf(page.url()) || hostOf(url);
+      entry.pressed = false;
       entry.host = new URL(url).host;
       const site = await this.quirks(context, page, url);
       return { url: page.url(), title: await page.title(), ...(site ? { site } : {}) };
@@ -210,6 +225,7 @@ export class BranchBrowser {
       accessibility: (await page.locator('body').ariaSnapshot()).slice(0, 16000) }));
   }
   async click(role: 'button' | 'link', name: string, context: ToolContext) {
+    this.entry(context).pressed = true; // mac7/vault-autofill: wherever this lands came off a page
     return this.operation(context, async page => {
       await page.getByRole(role, { name, exact: true }).click();
       return { url: page.url(), clicked: name };
@@ -276,6 +292,7 @@ export class BranchBrowser {
    */
   async act(input: HealTarget & { action: 'click' | 'fill' | 'check'; value?: string | undefined }, context: ToolContext) {
     const entry = this.entry(context);
+    if (input.action === 'click') entry.pressed = true; // mac7/vault-autofill
     return this.operation(context, async page => {
       const found = await healResolve(page, input, 2000,
         { keyOf: id => entry.marks.keyOf(id), liveKey: id => liveMarkKey(page, id) });
@@ -495,6 +512,39 @@ export class BranchBrowser {
     }
     return borrowed.length;
   }
+
+  /* ──────────────── mac7/vault-autofill (R17-068): filling one of the owner's saved sign-ins ────────────────
+     The browser is the only thing here that ever sees the value, and only for as long as it takes to
+     type it. `browser.fill` and `browser.act` still refuse a password box outright, exactly as
+     before, because the assistant supplies the value there; this way in is the owner's own, it
+     supplies the value itself (src/vault-autofill.ts), and it hands nothing back. */
+
+  /** The page this task is on, as the sign-in filling needs it. Nothing here returns what it typed. */
+  signInPage(): SignInPage {
+    return {
+      where: (context) => this.operation(context, async page => {
+        const entry = this.entry(context), address = page.url(), host = hostOf(address);
+        // Across sites, and only across sites: the same website the task opened by address is where
+        // a sign-in flow stays, and a hop away from it is what nobody but the owner may vouch for.
+        return { address, acrossSites: entry.pressed && (!host || host !== entry.typedHost),
+          // A recording writes down what every step was asked to type, so nothing is filled while
+          // one is being kept (integration review; src/vault-autofill.ts refuses on this).
+          recording: entry.session.isRecording() };
+      }),
+      type: async (context, box, label, value) => {
+        if (this.entry(context).session.isRecording())
+          throw new Error('This task is keeping a recording of the browser, which writes down everything typed into a page.');
+        await this.operation(context, async page => {
+          const found = await signInBox(page, box, label);
+          // Nothing thrown from inside `fill` is passed on: a page library writes what it was asked
+          // to type into its own message, and that message must never leave this method.
+          try { await found.fill(value); } catch { throw new Error(`Branch could not type into that ${box} box.`); }
+          return { typed: box };
+        });
+      },
+    };
+  }
+
   async closeRun(context: Pick<ToolContext, 'owner' | 'runId'>): Promise<void> {
     const key = this.key(context), entry = this.sessions.get(key);
     if (!entry) return;
@@ -525,6 +575,47 @@ export class BranchBrowser {
     if (failures.length) throw new AggregateError(failures.map(result => result.reason), 'Browser cleanup failed');
   }
 }
+
+/**
+ * mac7/vault-autofill: the one box a saved sign-in is typed into. A password goes only into a real
+ * password box, whatever label was given, so a page that labels a plain text box "Password" cannot
+ * have the value typed where everyone can read it.
+ */
+async function signInBox(page: Page, box: SignInBox, label: string | undefined) {
+  // Only ever the page's own top frame: a Playwright locator does not reach into a frame from
+  // another website (it takes a frameLocator, which nothing here has), so a page cannot have the
+  // value typed into a box it borrowed from somebody else. Proven in the integration review.
+  const found = label
+    ? page.getByLabel(label, { exact: true })
+    : page.locator(box === 'password' ? 'input[type="password"]'
+      : 'input[autocomplete="one-time-code"], input[inputmode="numeric"]').first();
+  const tag = await found.evaluate(node => node.tagName);
+  const refusal = signInBoxFor(box, String(tag), await found.getAttribute('type'));
+  if (refusal) throw new Error(refusal);
+  return found;
+}
+
+/**
+ * mac7/vault-autofill (integration review): whether that really is the box it was said to be, from
+ * the element itself rather than from what the page called it. A password goes only into a real
+ * password box; a one-time code goes only into an ordinary text box, never into something that is
+ * not a box at all and never into a password box, whatever label a page hangs on it.
+ */
+export function signInBoxFor(box: SignInBox, tagName: string, type: string | null): string | null {
+  if (tagName.toUpperCase() !== 'INPUT')
+    return `That is not a box on this page, so nothing was typed into it.`;
+  const kind = (type ?? '').trim().toLowerCase();
+  if (box === 'password')
+    return kind === 'password' ? null : 'That is not a password box on this page, so nothing was typed into it.';
+  return ['text', 'tel', 'number', ''].includes(kind)
+    ? null : 'That is not a box a one-time code goes into, so nothing was typed into it.';
+}
+
+/** The website name of an address, or '' when Branch cannot read it. */
+function hostOf(address: string): string {
+  try { return new URL(address).hostname.toLowerCase(); } catch { return ''; }
+}
+
 function requireIndex(index: number | undefined): number {
   if (index === undefined) throw new Error('Say which tab, by its number');
   return index;

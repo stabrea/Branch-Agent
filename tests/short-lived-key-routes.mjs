@@ -495,6 +495,10 @@ export const ROUTES = {
   "/api/issues": "prefix",
   "/api/issues/context": "other POST",
   "/api/keychain/settings": "owner POST",
+  // mac7/vault-autofill (R17-068): the book of saved sign-ins names the owner's vault items and the
+  // sites they belong to — a map of where their passwords are, so it is not read with a key either.
+  "/api/vault-autofill": "prefix",
+  "/api/vault-autofill/settings": "secret-read",
   "/api/knobs": "owner POST", // R17-S-B
   "/api/knobs/launch-file": "owner POST", // R17-S-B
   "/api/model-savings": "owner POST", // R17-E

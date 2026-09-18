@@ -120,6 +120,9 @@ const ownerOnlyReads: readonly RegExp[] = [
   /^\/api\/flows-boards\/widgets$/,
   // mac7/wake-pins: the wake word answer carries the owner's own word, which outlives any key.
   /^\/api\/voice\/wake$/,
+  // mac7/vault-autofill (R17-068): the book of saved sign-ins names the owner's vault items and the
+  // sites they belong to. It holds no password, but it is a map of where the owner's passwords are.
+  /^\/api\/vault-autofill(\/|$)/,
 ];
 
 /**

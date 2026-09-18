@@ -7,6 +7,7 @@ import { saveReviewerSettings } from "../approval-reviewer.js";
 import { saveSecurityCheckSettings } from "../security-audit/settings.js";
 import { saveWallSettings, wallSettings } from "../sandbox.js";
 import { saveKeychainSettings } from "../vault-sources.js";
+import { saveVaultAutofillSettings } from "../vault-autofill.js"; // mac7/vault-autofill (R17-068)
 import { retentionSettings, saveRetentionSettings } from "../retention.js";
 import { eventLoopSettings, eventLoopWatch, saveEventLoopSettings } from "../event-loop-watch.js";
 import { audit } from "../audit.js";
@@ -150,6 +151,11 @@ const reach: SettingSpec[] = [
   one("desktop-control", "Your screen and keyboard", "settings-kit.name.desktop", "settings:computer", "reach", { keepsEnabled: true }),
   one("keychain-entries", "Passwords from the Keychain", "settings-kit.name.keychain", "settings:secrets", "reach",
     { keepsEnabled: true, write: (store, owner, patch) => { saveKeychainSettings(store, owner, patch); } }),
+  // mac7/vault-autofill (R17-068): turning this on lets Branch type a saved password into a page, so
+  // it reaches further. Only the switch is here: the book of which item goes with which site is the
+  // owner's own, written at its card, and nothing brought in from a file or a preset may write one.
+  one("vault-autofill", "Filling a saved sign-in", "settings-kit.name.vault-autofill", "settings:secrets", "reach",
+    { keepsEnabled: true, write: (store, owner, patch) => { saveVaultAutofillSettings(store, owner, patch); } }),
   {
     key: "voice", name: "Voice", t: "settings-kit.name.voice", home: "settings:voice",
     fields: [sw("systemVoice", "Your computer's own voice", "settings-kit.field.system-voice", "reach"),

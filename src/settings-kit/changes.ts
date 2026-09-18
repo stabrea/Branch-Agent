@@ -99,7 +99,9 @@ export function changesFor(store: Store, owner: string, proposals: readonly Prop
   const changes: Change[] = [];
   const refused: string[] = [];
   const seen = new Set<string>();
-  const pinned = pinnedIds(store, store.profiles.ownerName); // mac7/wake-pins
+  // mac7/wake-pins. Integration review: a store with no book of profiles has nobody but the owner
+  // on it, so there is nothing for a pin to hold back and the owner's own name is the scope.
+  const pinned = pinnedIds(store, store.profiles?.ownerName ?? owner);
   for (const proposal of proposals.slice(0, 500)) {
     const spec = specFor(proposal.key);
     const field = spec?.fields.find((entry) => entry.field === proposal.field);
@@ -170,7 +172,7 @@ export function applyWithPins(store: Store, owner: string, changes: readonly Cha
   const accepted = new Set(choice.accept);
   const wanted = changes.filter((change) => accepted.has(change.id));
   const skipped = choice.pinnedAllowed ? [] : wanted.filter((change) => change.pinned)
-    .map((change) => ({ id: change.id, why: pinnedRefusal(pinFor(store, store.profiles.ownerName, change.key, change.field)
+    .map((change) => ({ id: change.id, why: pinnedRefusal(pinFor(store, store.profiles?.ownerName ?? owner, change.key, change.field)
       ?? { key: change.key, field: change.field, value: change.from, initial: change.from, keepsEnabled: false, name: change.name, label: change.label }) }));
   const skippedIds = new Set(skipped.map((entry) => entry.id));
   const picked = wanted.filter((change) => !skippedIds.has(change.id));

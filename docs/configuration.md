@@ -8240,15 +8240,80 @@ with no result gets a stand-in saying the outcome is unknown; a note that landed
 them. **On** also drops empty answers and joins two messages in a row from the same side. Each repair is noted on the
 task (`history.repaired`).
 
-### Credential vault (R17-068): awaiting owner
+### Filling a saved sign-in (R17-068)
 
-Not built; the owner has not decided. The proposal: signing in and filling forms goes only through the owner's
-password manager's own autofill (for example the Bitwarden extension in the owner's browser, or a local helper that
-fills the field itself), so the model asks for "sign in to example.com with the matching saved login" and never
-receives, prints or types the secret. Branch would check that the page's address matches the saved login's site
-before asking the password manager, show the owner which login is about to be used, and record the moment in the
-record of what the assistant was allowed to do. Branch would keep no copy of any password, and a model-written
-value would never be typed into a password field. Row R17-068 stays **awaiting owner**.
+The owner settled row R17-068 as **filling only**. Branch can type a password you already keep in your password
+manager straight into a page you are on, when you ask for it by name. It keeps no password of its own, and neither
+you nor the assistant is ever shown the value: it is read at the moment it is needed, typed into the box, and
+dropped. The assistant is told one thing afterwards — that a sign-in was filled, which one, and on which address.
+
+Settings, "Secrets", card **Filling a saved sign-in**. It ships **off**, with the usual three-way switch
+(`mode`: off / only when I ask for it / on; `enabled` follows it, and the older yes/no saves still read correctly).
+Off, the `signin.fill` tool is not even offered to the assistant. A refusal the assistant is given never says
+whether a name is in your book or which website it is saved for — otherwise it could ask for one name after
+another on a page of its own choosing and read your whole book back out of the answers. The real reason is in
+your own record of what the assistant was allowed to do. The card also holds `logins` — your own book of
+sign-ins — and `timeoutMs`, how long the password manager's command may take.
+
+**Your book.** Each line of `logins` says what you will call the sign-in (`name`), the website it belongs to
+(`site`, a plain name such as `example.com`), which manager holds it (`service`) and the item's name there
+(`item`). Three more are optional: `alsoHosts`, any other **exact** website names the same sign-in is used on
+(`accounts.example.com`, `www.example.com`); `address`, the exact sign-in page; and `code`, ticked when the same
+item also holds your one-time code. Branch **never** chooses an item by guessing from what a page says: you name the line,
+and nothing else will do.
+
+**Where it will fill.** Only on the line's own `site`, **exactly**, or on one of the names you put in `alsoHosts`
+yourself — never a look-alike such as `evil-example.com` or `example.com.attacker.net`, and never a name *under*
+your site that you did not write down. `pages.example.com` and `attacker.example.com` are refused: a name under a
+website can belong to somebody other than the website, and one open redirect on the site you saved is enough to
+land the task on one. A look-alike written in another alphabet cannot slip past either, because an address hands
+back its punycode name and a site you may write is plain letters and digits. Only on a secure address, and never
+on an address that carries a name and password of its own. And when pressing something took the task away from the website whose address it
+opened, it fills nothing unless that address is the `address` you wrote down yourself: what it pressed was put
+there by whoever wrote the page, and a page's content is not something to be led by. Pressing "Sign in" on the
+website you opened is not that hop, so an ordinary sign-in — password, then the one-time code on the next page —
+works as it should.
+
+**Why the exact name.** The hop above is noticed when Branch *presses* something, and an address it opens
+directly is not a hop — so text on a page can still talk the assistant into *opening* an address. That is why the
+website name, not the hop, is what carries the safety: whatever address the assistant is talked into, the only
+place a sign-in can be filled is a name you wrote down yourself. The cost is that `accounts.google.com` is not
+`google.com`: when signing in really does happen on another name, put that name in `alsoHosts`. Branch will not
+decide for you that one name sits under another.
+
+**While a recording is being kept, nothing is filled.** A recording of the browser writes down what every step was
+asked to do, and what a "type this in" step was asked to do *is* the value. Blacking out password boxes on the page
+does not reach that. So `signin.fill` refuses outright while `browser.recording` is running, before the password
+manager is asked anything: keep the recording first, then ask for the sign-in.
+
+**Where the value can go.** Into the box on the page, and nowhere else. It is not in the answer the assistant gets,
+not in an event, not in the record of what the assistant was allowed to do (which names the sign-in, the box and
+the website only), not in a trace (a recording is refused outright, see above) and not in an error message — a page library's own
+message is never passed on,
+because such a message can quote what it was asked to type. A password is also remembered by the secret scrubber,
+so it would be taken back out of anything written later; a one-time code is not, because six figures blanked out of
+ordinary text for a whole session would do more harm than good, and the code never leaves the page in any case.
+
+**Whose it is.** Yours alone. A message from a chat app, a short-lived key (which is also how another computer
+running Branch reaches this one), someone else using a household profile on this computer, a Trunk, and work a
+schedule, a trigger or another AI tool started are each refused in one plain sentence. Everything is refused while
+Lockdown is on. The book itself is the owner's too: a short-lived key may neither read `/api/vault-autofill/settings`
+nor change it.
+
+**Two switches, on purpose.** Branch reads through the password-manager connection you already had
+("Reading passwords out of your password manager", above): that has to be on, with the right manager
+ticked, before this one will fill anything. Turning on filling does not by itself let Branch read a
+vault, and the older switch by itself never types anything into a page.
+
+**The password manager.** Bitwarden is wired end to end, through its own command line (`bw --nointeraction --raw
+get password <item>`, and `get totp <item>` for a one-time code). 1Password items can be named for a password;
+a one-time code is read from Bitwarden only. Branch only ever reads: nothing here writes to, unlocks or signs in
+to a vault, the manager is always started with an argument array and never a line for a shell to take apart, and a
+locked or missing vault is a plain refusal. It waits for the same unlock the secrets locker does. The tests use a
+fake runner and a command name inside a temporary folder, so no real vault is ever asked anything.
+
+`browser.fill` and `browser.act` still refuse a password box outright, exactly as before: there the assistant
+supplies the value. This way in supplies its own.
 
 ### macOS and Linux
 

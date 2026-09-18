@@ -7,6 +7,9 @@ import type { ToolRegistry } from '../registry.js';
 import { McpConfigSchema } from './mcp-config.js';
 import { connectMcp, openMcp, registerCachedMcp, type LiveMcp, type McpToolCache } from './mcp.js';
 import { BranchBrowser, BrowserConfigSchema, registerBrowser, type WorkspacePaths } from './browser.js';
+// mac7/vault-autofill (R17-068): filling one of the owner's saved sign-ins into the page they are on.
+import { CredentialResolver } from '../credential-cli.js';
+import { VaultAutofill, registerVaultAutofill } from '../vault-autofill.js';
 import type { BrowserProfiles } from './browser-profiles.js';
 import { siteSkillsFor, type SiteSkillSource } from './browser-sites.js';
 import type { RunArtifacts } from '../artifacts.js';
@@ -266,6 +269,18 @@ export async function loadIntegrations(registry: ToolRegistry, path?: string, en
       hosted.browser = browser;
       hosted.browserOrigins = [...config.browser.allowedOrigins];
       registerBrowser(registry, browser); closers.push(() => browser.close());
+      // ── mac7/vault-autofill (R17-068): the owner's saved sign-ins, filled straight into the page.
+      // It ships off; with no browser there is nothing to fill, so it is registered only here.
+      const signInStore = channels?.store as Store | undefined, signInOwner = channels?.context?.('bootstrap').owner;
+      if (signInStore && signInOwner) {
+        const resolver = new CredentialResolver(signInStore, signInOwner, signInStore.secrets.scrubber);
+        resolver.gate = () => signInStore.secrets.gate(); // the same unlock the locker waits for
+        registerVaultAutofill(registry, new VaultAutofill({
+          store: signInStore, owner: signInOwner, page: browser.signInPage(),
+          read: (reference, use) => resolver.read(reference, use),
+          requireOwner: (what) => signInStore.profiles.requireOwner(what),
+        }));
+      }
     }
     let shell: BranchShell | undefined;
     if (config.shell) {
