@@ -32,32 +32,51 @@ ready. Do not skip it because the targeted runs were green; they were targeted.
    body = the release notes with the verification paragraph appended, the way #104 reads. Wait for the
    three-system check to go green, then merge it.
 
-4. **Build the Windows download on Legion** and attach it to the release **before the tag exists**.
-   `ssh` in, then
+4. **Build the Windows download on Legion.** `ssh` in, then
    `powershell -NoProfile -File docs/agents/scripts/desktop-bridge.ps1 -Run 'npm run package:desktop -- --release' -Wait`.
-   Create the release first as a draft and upload `Branch-Agent-windows-x64.zip` with its `.sha256`.
+   That leaves `release/Branch-Agent-windows-x64.zip` and its `.sha256` on that machine. Only Windows
+   builds the Windows download; `package.yml` builds the other three.
+
+5. **Create the release, with the Windows zip, in one command.** This is the 0.15.0 and 0.17.0 shape,
+   and it is one action rather than two on purpose:
+
+   ```sh
+   gh release create v0.18.0 --target <the merged main SHA> \
+     --title "Branch Agent 0.18.0" \
+     --notes-file docs/agents/briefs/release-notes-0.18.0.md \
+     "release/Branch-Agent-windows-x64.zip" "release/Branch-Agent-windows-x64.zip.sha256"
+   ```
+
+   `gh release create` creates the tag itself at `--target` when it does not already exist (checked
+   against `gh release create --help`), and that tag push is what triggers
+   `.github/workflows/package.yml`. **Do not make a draft first and publish it later**, and do not
+   push the tag separately beforehand: either way you end up reasoning about whether the workflow
+   fired against the right object. One command, tag and assets together.
 
    **This is the part CHECKPOINT used to get wrong.** The publish job no longer uses `--clobber`;
    `fix(package): never upload over a download already on the release` added a guard that keeps any
-   asset already attached together with its checksum. So the hand-built Windows zip attached *before*
-   the tag is kept, and does **not** need re-attaching afterwards. Attach the `.sha256` too — the job
+   asset already attached together with its checksum. So the Windows zip uploaded here is kept, and
+   does **not** need re-attaching afterwards. Attach the `.sha256` alongside it as above — the job
    warns but does not fix a zip that arrives without one.
-
-5. **Tag it.** `gh release create v0.18.0 --target <the merged main SHA> --title "Branch Agent 0.18.0"
-   --notes-file docs/agents/briefs/release-notes-0.18.0.md`, or publish the draft from step 4 against
-   that tag. The tag triggers `.github/workflows/package.yml`.
 
 6. **Let `package.yml` finish.** It builds macOS arm64 and x64, Linux x64, the two no-questions
    installers, and the phone download `branch-agent-0.18.0.tgz` with its `.sha256`. Its publish job
    refuses the release if the tag and `package.json` disagree about the version — they agree, checked.
-   It keeps the Windows zip from step 4 and uploads the rest.
+   It keeps the Windows zip from step 5 and uploads the rest.
 
 7. **Rehearse the update.** 0.17.0 to 0.18.0 from the staging folder on Legion, which already holds
    0.17.0. Expect zero console windows and 0.17.0 kept as `install.previous`.
 
 8. **Rewrite the ticks.** `(merged, ships in 0.18.0)` becomes `(0.18.0)` across the theme issues, then
-   regenerate public issue #103 with `docs/agents/scripts/make_list.py`. Note that script still maps
-   `merged` to `0.17.0*` at line 59 — change it to `0.18.0*` first or the counts come out wrong.
+   regenerate public issue #103 with `docs/agents/scripts/make_list.py`. Its hard-coded release marker
+   is fixed here: it read `0.17.0` for every still-merged row, which would have credited this
+   release's work to the previous one. It is now a `NEXT_RELEASE` constant at the top of the file, set
+   to `0.18.0` — move it at the start of the next release rather than hunting for a literal.
+
+   **That script cannot run on the Mac as it stands.** It reads `all-rows.json` and `buckets.py` from
+   `C:/Users/bishi/AppData/Local/Temp/claude-session-files`, a Windows session folder belonging to the
+   two finished Windows sessions. Either run it on Legion where that folder still exists, or point the
+   two paths at wherever the row data lives now. It is a scratch script, not a maintained tool.
 
 9. **Update `docs/CHECKPOINT.md`** with the published SHA, the release URL, the PR number, the
    three-system test counts and the rehearsal result, the way the 0.17.0 entry records them.

@@ -72,8 +72,8 @@ check. MCP in both directions: servers the assistant uses, and other tools using
 in groups and your own commands on every surface. Long-lived named assistants with rooms, messages,
 routines and teaching.
 
-**Chat apps.** Roughly thirty-five services, every one off: Telegram, Discord, Slack, Matrix, WhatsApp,
-IRC, Twitch, Gotify, iMessage, Bluesky, Reddit, Discourse, X direct messages, Twist, Mastodon, Delta
+**Chat apps.** Fifty-five services, counted from the code, every one off. Among them: Telegram,
+Discord, Slack, Matrix, WhatsApp, IRC, Twitch, Gotify, iMessage, Bluesky, Reddit, Discourse, X direct messages, Twist, Mastodon, Delta
 Chat, Keybase, MQTT, Nostr, SimpleX, XMPP, VK, QQ, Guilded, Revolt, Mumble, Teams, Webex, Synology
 Chat, Zalo, Flock, Pumble, Nextcloud Talk, SMS, ntfy, Pushover, Threema and Home Assistant. One command
 sets any of them up. Branch can see and steer a running task from the chat, and passes on typing, edits
