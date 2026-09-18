@@ -127,7 +127,13 @@ jobs:
         run: |
           gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --draft --verify-tag --title "Branch Agent ${TAG#v}" --notes "Downloads for ${TAG}."
           attached="$(gh release view "$TAG" --json assets --jq '.assets[].name')"
-          on_release() { printf '%s\n' "$attached" | grep -Fxq -- "$1"; }
+          # An asset is named after the file, except that GitHub turns every character that is not
+          # a letter, a digit, a hyphen, an underscore or a dot into a dot: "Install Branch Agent.cmd"
+          # is attached as "Install.Branch.Agent.cmd". Comparing the file's own name against the
+          # release never matched for the two installer scripts, so a re-run tried to upload a name
+          # that was already there and the job failed. The same rule is applied to both sides here.
+          as_attached() { printf '%s' "$1" | tr -c 'A-Za-z0-9._-' '.'; }
+          on_release() { printf '%s\n' "$attached" | grep -Fxq -- "$(as_attached "$1")"; }
           for name in Branch-Agent-windows-x64.zip Branch-Agent-macos-arm64.zip Branch-Agent-macos-x64.zip Branch-Agent-linux-x64.tar.gz; do
             if on_release "$name"; then
               echo "$name is already on the release; it and its checksum are kept as they are."

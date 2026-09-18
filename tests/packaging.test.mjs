@@ -11,6 +11,7 @@ import {
 } from "../scripts/package-desktop.mjs";
 import * as mac from "../scripts/package-macos.mjs";
 import * as linux from "../scripts/package-linux.mjs";
+import { builtOutputs, missingOutputs, pathInTarball } from "../scripts/pack-cli.mjs";
 
 const platforms = ["win32", "darwin", "linux"];
 
@@ -188,4 +189,26 @@ test("a built Mac bundle has the expected structure and Info.plist", { skip: pro
   assert.match(line, new RegExp(`^[a-f0-9]{64}  Branch-Agent-macos-${process.arch}\\.zip\\n$`));
   const listing = execFileSync("zipinfo", ["-1", zip], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
   assert.ok(listing.startsWith("Branch Agent.app/"));
+});
+
+// ---- mac7/packaging-real: the phone download cannot be packed out of an unbuilt folder ----
+// Built for real on a Linux machine, `node scripts/pack-cli.mjs` with no dist/ on disk wrote a
+// one-megabyte tarball containing only package.json, data, public and the licences. It installs
+// cleanly and its `branch` command points at dist/cli.js, which is not in the file. The release
+// workflow only escapes this because `npm run package:desktop` happens to build first.
+test("packing refuses when the program has not been built, and only then", async () => {
+  const manifest = JSON.parse(await readFile("package.json", "utf8"));
+  assert.deepEqual(builtOutputs(manifest), ["dist/cli.js", "dist", "public"]);
+  // An empty folder: every built path is missing, so the script has something to refuse.
+  assert.deepEqual(missingOutputs(manifest, () => false), ["dist/cli.js", "dist", "public"]);
+  // tsc ran but copy-fonts did not, so public/ is there and the command is not: still refused.
+  assert.deepEqual(missingOutputs(manifest, (path) => path !== "dist/cli.js"), ["dist/cli.js"]);
+  assert.deepEqual(missingOutputs(manifest, () => true), []);
+  // `npm test` builds first, so this working folder is genuinely ready to be packed.
+  assert.deepEqual(missingOutputs(manifest), []);
+});
+
+test("the packed name of the command is the one the tarball is checked for", async () => {
+  const manifest = JSON.parse(await readFile("package.json", "utf8"));
+  assert.equal(pathInTarball(manifest.bin.branch), "package/dist/cli.js");
 });
