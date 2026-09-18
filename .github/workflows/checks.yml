@@ -10,8 +10,9 @@ name: Checks
 # checked by the request, which is the real gate into main.
 on:
   push:
-    branches: [main, wave2/integration, 'release/**', 'mac/**', 'mac2/**', 'wave9/**']
+    branches: [main, wave2/integration, 'release/**', 'mac/**', 'mac2/**', 'mac5/**', 'mac6/**', 'wave9/**']
   pull_request:
+  workflow_dispatch:
 permissions:
   contents: read
 # One run per branch. A newer push replaces an older run rather than queueing behind it, except on

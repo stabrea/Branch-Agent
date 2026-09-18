@@ -36,9 +36,14 @@ async function edit(page, text, source) {
   await page.getByLabel('Edit memory fact', { exact: true }).fill(text);
   await page.getByLabel('Edit memory source', { exact: true }).fill(source);
 }
+/* An import is finished only when the box takes files again: the result is written first and the
+   page refreshed after, and a file chosen before then is ignored. On a loaded runner the next file
+   was chosen in that gap and the first import's result was read back as the second's. */
+const importDone = page => page.waitForFunction(() => !document.getElementById('memory-import').disabled);
 async function upload(page, archive) {
+  await importDone(page);
   await page.locator('#memory-import').setInputFiles({ name: 'memory.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(archive)) });
-  await page.waitForFunction(() => !document.getElementById('memory-import').disabled);
+  await importDone(page);
 }
 
 test('memory edits persist after reload and a new chat retrieves the corrected fact', async t => {
@@ -203,6 +208,7 @@ test('memory file export/import preserves metadata in an empty store and conflic
   const archive = JSON.parse(await readFile(path, 'utf8'));
   await destination.page.locator('#memory-import').setInputFiles(path);
   await destination.page.locator('#memory-import-result').filter({ hasText: '1 facts imported; 0 unchanged.' }).waitFor();
+  await importDone(destination.page);
   assert.deepEqual(record(destination), record(source));
   await upload(destination.page, archive);
   assert.match(await destination.page.locator('#memory-import-result').innerText(), /0 facts imported; 1 unchanged/);

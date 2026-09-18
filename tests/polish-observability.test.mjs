@@ -516,6 +516,9 @@ test("D3 the Activity screen shows the live feed and stops it when you leave", a
   await page.locator("#activity-feed-card").waitFor({ state: "visible" });
   await api("POST", "/api/run", { prompt: "write it" });
   await page.locator("#activity-feed .feed-row").first().waitFor({ timeout: 25000 });
+  /* The rows arrive one by one; the model's steps come before the tool's. */
+  await page.locator("#activity-feed .feed-row strong").filter({ hasText: /tool/i }).first()
+    .waitFor({ timeout: 25000 }).catch(() => undefined);
   const words = await page.locator("#activity-feed .feed-row strong").allTextContents();
   assert.ok(words.some((line) => /tool/i.test(line)), `a tool step arrived: ${words.join(" | ")}`);
   assert.ok(words.every((line) => !/^(run|model|tool|policy)\./.test(line)),
