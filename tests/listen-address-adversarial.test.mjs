@@ -278,3 +278,23 @@ test("X6 a wrong key is refused the same way whatever its length, and is counted
   for (let i = 0; i < 6; i += 1) last = await ask(server, { host, token: "e".repeat(64) });
   assert.equal(last.status, 429, "wrong keys on the wider door are counted and then made to wait");
 });
+
+/* ---------- X7 the wider door is not the paired door ---------- */
+
+test("X7 the paired door's own exemptions are not on the wider door", async (t) => {
+  const { server } = await fixture(t, { where: "private-network" });
+  const host = new URL(server.url).host;
+  // `viaRemote` is a literal false for this computer's own server and a literal true only for the
+  // paired listener's own handler, so everything written behind `viaRemote &&` — the phone's
+  // pairing exchange, the widget's cross-origin permission, the sign-in gateway's chain — is
+  // unreachable here. The wider door is this same server, so it inherits none of them.
+  // Redeeming a pairing code is the paired door's alone: here it is just another address that
+  // wants the local key.
+  const paired = await ask(server, { host, path: "/api/pair", method: "POST" });
+  assert.equal(paired.status, 401, "the phone's pairing exchange is not answered on the wider door");
+  assert.equal(/deviceKey|deviceId/.test(paired.body), false, "and hands out no phone secret");
+  // The widget's cross-origin permission is a paired-door answer too: nothing here grants a page
+  // elsewhere the right to read what Branch says.
+  const preflight = await ask(server, { host, origin: "https://a-site-the-owner-listed.example", method: "OPTIONS" });
+  assert.notEqual(preflight.status, 204, "no cross-origin permission is given on this door");
+});
