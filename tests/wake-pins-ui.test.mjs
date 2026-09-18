@@ -63,7 +63,9 @@ test("U2 the pins card is under Settings, Permissions, starts empty, and pins on
   await card.waitFor({ state: "visible" });
   await page.getByText("Nothing is pinned yet: every setting can be changed by anybody who uses this computer.").waitFor();
 
-  await page.locator("#pins-setting").selectOption({ label: "A word that starts a turn — Switch" });
+  // The list of settings is only asked for once the card is really on the screen.
+  await page.locator("#pins-setting option").first().waitFor({ state: "attached" });
+  await page.locator("#pins-setting").selectOption({ label: "A word that starts a turn \u2014 Switch" });
   await card.getByRole("button", { name: "Pin this setting", exact: true }).click();
   await page.locator("#pins-state", { hasText: "Pinned." }).waitFor();
   assert.deepEqual(app.store.get("settings", "local", "settings-pins").data.pins.map(({ key, field, value }) => ({ key, field, value })),
