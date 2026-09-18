@@ -18,6 +18,7 @@ import { quitPath, quitRequest, quitRunning } from "../dist/install/quit.js";
 import { manageCommand } from "../dist/install/manage-cli.js";
 import { headlessUpdate, releaseRepo } from "../dist/install/headless-update.js";
 import { writeRunning } from "../dist/install/running.js";
+import { symlink } from "node:fs/promises";
 import { releaseAssets } from "../dist/desktop/release-assets.js";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
@@ -475,9 +476,10 @@ test("the internet mark is taken off the copy the installer made, and off nothin
   const ran = [];
   const run = async (file, args) => { ran.push([file, args]); return ""; };
   const layout = unixLayout("darwin", {}, join(root, "home"));
-  const mac = await performUnixInstall({ layout, source: await fakeApp(join(root, "v1"), "darwin", "1.0.0"), version: "1.0.0", copy: nodeCopy, run });
+  const mac = await performUnixInstall({ layout, source: await fakeApp(join(root, "v1"), "darwin", "1.0.0"), version: "1.0.0", copy: nodeCopy, run,
+    clearMark: true });
   assert.equal(mac.quarantineCleared, true);
-  assert.deepEqual(ran, [["/usr/bin/xattr", ["-r", "-d", "com.apple.quarantine", layout.installRoot]]],
+  assert.deepEqual(ran, [["/usr/bin/xattr", ["-r", "-s", "-d", "com.apple.quarantine", layout.installRoot]]],
     "only the installed bundle, by name, and nothing wider");
 
   ran.length = 0;
@@ -585,4 +587,124 @@ test("the icon sizes the Linux theme asks for are named the same way by the pack
   assert.equal(iconFileSize("branch-agent", "evil.png"), null);
   assert.equal(iconFileSize("branch-agent", "../../../etc/branch-agent-48.png"), null, "a name that climbs out is not ours");
   assert.equal(iconThemePath("/t/hicolor", "branch-agent", 256), "/t/hicolor/256x256/apps/branch-agent.png");
+});
+
+// ---- integrate/mac-fixes: the adversarial pass over mac7/app-icon ----
+// Clearing macOS's "came from the internet" mark is a security decision, so it happens only when the
+// person said yes, only to the copy just made, and never through a link out of that copy. A shared
+// Applications folder is writable by every administrator on the Mac, so a writable folder does not
+// make the copy in it this person's: it has to be a real folder, holding Branch, that they own.
+
+test("the internet mark stays on unless the person said yes, and a note about it is only ever true", { skip: posixOnly }, async (t) => {
+  const root = await scratch(t);
+  const ran = [];
+  const run = async (file, args) => { ran.push([file, args]); return ""; };
+  const layout = unixLayout("darwin", {}, join(root, "home"));
+  const silent = await performUnixInstall({ layout, source: await fakeApp(join(root, "v1"), "darwin", "1.0.0"), version: "1.0.0", copy: nodeCopy, run });
+  assert.equal(silent.quarantineCleared, false, "nobody said yes, so nothing is cleared");
+  assert.deepEqual(ran, []);
+
+  const again = await performUnixInstall({ layout, source: await fakeApp(join(root, "v1b"), "darwin", "1.0.0"), version: "1.0.0", copy: nodeCopy, run,
+    clearMark: true });
+  assert.equal(again.attached, true);
+  assert.equal(again.quarantineCleared, false, "a copy the installer did not just make is not touched");
+  assert.deepEqual(ran, []);
+
+  const failed = await performUnixInstall({ layout, source: await fakeApp(join(root, "v2"), "darwin", "2.0.0"), version: "2.0.0", copy: nodeCopy,
+    clearMark: true, run: async () => { throw new Error("/usr/bin/xattr failed"); } });
+  assert.equal(failed.attached, false);
+  assert.equal(failed.quarantineCleared, false, "xattr failed, so the installer must not say the mark is gone");
+});
+
+test("a person who is not asked never has the mark cleared, and one who answers on the command line does", { skip: process.platform !== "darwin" && "real xattr and ditto" }, async (t) => {
+  const root = await scratch(t);
+  const layout = sharedLayout(root);
+  const never = async () => { throw new Error("nobody should be asked here"); };
+  const lines = [];
+  // The test runner has no terminal on stdin, which is exactly a script running the installer.
+  await unixInstall(["--source", await fakeApp(join(root, "v1"), "darwin", "1.0.0")], layout, (line) => lines.push(line), undefined, never);
+  assert.ok(!lines.some((line) => /taken off/.test(line)), lines.join("\n"));
+  await mkdir(join(root, "Applications"), { recursive: true });
+  const yes = [];
+  await unixInstall(["--source", await fakeApp(join(root, "v2"), "darwin", "2.0.0"), "--applications"], layout, (line) => yes.push(line), undefined, never);
+  assert.ok(yes.some((line) => /taken off this copy/.test(line)), yes.join("\n"));
+});
+
+test("on a real Mac the mark comes off the installed app and off nothing a link inside it points at", { skip: process.platform !== "darwin" && "real xattr" }, async (t) => {
+  const root = await scratch(t);
+  const mark = (path) => spawnSync("/usr/bin/xattr", ["-s", "-w", "com.apple.quarantine", "0081;00000000;Test;", path]).status;
+  const marked = (path) => spawnSync("/usr/bin/xattr", ["-s", "-p", "com.apple.quarantine", path]).status === 0;
+  const outside = join(root, "outside");
+  await mkdir(join(outside, "folder"), { recursive: true });
+  await writeFile(join(outside, "file"), "not Branch's");
+  for (const path of [join(outside, "file"), join(outside, "folder")]) assert.equal(mark(path), 0);
+  const source = await fakeApp(join(root, "v1"), "darwin", "1.0.0");
+  await symlink(join(outside, "file"), join(source, "Contents", "Resources", "planted-file"));
+  await symlink(join(outside, "folder"), join(source, "Contents", "Resources", "planted-folder"));
+  const layout = unixLayout("darwin", {}, join(root, "home"));
+  const program = join(layout.installRoot, "Contents", "MacOS", "Branch Agent");
+  const copy = async (from, to) => { await nodeCopy(from, to); assert.equal(mark(program), 0); assert.equal(mark(to), 0); };
+  const report = await performUnixInstall({ layout, source, version: "1.0.0", copy, clearMark: true });
+  assert.equal(report.quarantineCleared, true);
+  assert.equal(marked(program), false, "the app's own files are cleared");
+  assert.equal(marked(layout.installRoot), false);
+  assert.equal(marked(join(outside, "file")), true, "a file a link points at is somebody else's and keeps its mark");
+  assert.equal(marked(join(outside, "folder")), true);
+});
+
+test("another person's copy in a writable shared folder is linked up, never replaced and never removed", { skip: posixOnly }, async (t) => {
+  const root = await scratch(t);
+  const layout = sharedLayout(root);
+  await mkdir(join(root, "Applications"), { recursive: true });
+  await nodeCopy(await fakeApp(join(root, "v1"), "darwin", "1.0.0"), layout.sharedRoot);
+  const someoneElse = process.getuid() + 1;
+  const copy = async () => { throw new Error("another person's copy is never written over"); };
+  const ran = [];
+  const report = await performUnixInstall({ layout, source: await fakeApp(join(root, "v2"), "darwin", "2.0.0"), version: "2.0.0",
+    canWrite: async () => true, uid: someoneElse, copy, run: async (file, args) => { ran.push([file, args]); return ""; }, clearMark: true });
+  assert.equal(report.attached, true);
+  assert.equal(report.version, "1.0.0");
+  assert.equal(report.quarantineCleared, false);
+  assert.deepEqual(ran, []);
+  const moved = await performUnixInstall({ layout, source: await fakeApp(join(root, "v3"), "darwin", "2.0.0"), version: "2.0.0",
+    canWrite: async () => true, uid: someoneElse, copy, run: async () => "", applications: true });
+  assert.equal(moved.attached, true, "asking for Applications does not make another person's copy this person's");
+  assert.equal(moved.version, "1.0.0", "and the version really there is the one reported");
+  const left = await performUnixUninstall({ layout, ...shush, canWrite: async () => true, uid: someoneElse });
+  assert.deepEqual(left.left, [layout.sharedRoot]);
+  assert.ok(await stat(join(layout.sharedRoot, "Contents", "MacOS", "Branch Agent")), "it is still there");
+});
+
+test("a different program, or a link, under Branch's name in Applications is never moved aside or written through", { skip: posixOnly }, async (t) => {
+  const root = await scratch(t);
+  const layout = sharedLayout(root);
+  await mkdir(layout.sharedRoot, { recursive: true });
+  await writeFile(join(layout.sharedRoot, "somebody-elses.txt"), "keep me");
+  const report = await performUnixInstall({ layout, source: await fakeApp(join(root, "v1"), "darwin", "1.0.0"), version: "1.0.0",
+    canWrite: async () => true, copy: nodeCopy, run: async () => "", applications: true });
+  assert.equal(report.installRoot, layout.installRoot);
+  assert.equal(await readFile(join(layout.sharedRoot, "somebody-elses.txt"), "utf8"), "keep me");
+  await assert.rejects(stat(`${layout.sharedRoot}.previous`), "nothing of theirs is put where the next install deletes it");
+
+  const linked = sharedLayout(join(root, "linked"));
+  const elsewhere = await fakeApp(join(root, "elsewhere"), "darwin", "1.0.0");
+  await mkdir(join(root, "linked", "Applications"), { recursive: true });
+  await symlink(elsewhere, linked.sharedRoot);
+  const through = await performUnixInstall({ layout: linked, source: await fakeApp(join(root, "v2"), "darwin", "2.0.0"), version: "2.0.0",
+    canWrite: async () => true, copy: async () => { throw new Error("never through a link"); }, run: async () => "" });
+  assert.equal(through.attached, true);
+  const gone = await performUnixUninstall({ layout: linked, ...shush, canWrite: async () => true });
+  assert.ok(await stat(join(elsewhere, "Contents", "MacOS", "Branch Agent")), "removing never follows the link");
+  assert.ok(!gone.removed.includes(linked.sharedRoot));
+});
+
+test("moving into Applications refuses while Branch is running, before anything is changed", { skip: posixOnly }, async (t) => {
+  const root = await scratch(t);
+  const layout = sharedLayout(root);
+  await performUnixInstall({ layout, source: await fakeApp(join(root, "v1"), "darwin", "1.0.0"), version: "1.0.0", copy: nodeCopy, run: async () => "" });
+  await mkdir(join(root, "Applications"), { recursive: true });
+  await assert.rejects(performUnixInstall({ layout, source: await fakeApp(join(root, "v2"), "darwin", "1.0.0"), version: "1.0.0",
+    applications: true, canWrite: async () => true, copy: nodeCopy, run: async () => "", running: async () => true }), /running/);
+  assert.ok(await stat(join(layout.installRoot, "Contents", "MacOS", "Branch Agent")), "the running copy is still there");
+  await assert.rejects(stat(layout.sharedRoot));
 });

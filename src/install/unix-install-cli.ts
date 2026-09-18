@@ -103,7 +103,8 @@ export async function unixInstall(
   const applications = await wantsApplications(args, layout.platform, Boolean(process.stdin.isTTY), ask);
   const report = await performUnixInstall({
     layout, source, version: await versionOf(layout.platform, source),
-    menuEntry: !args.includes("--no-menu-entry"), repair: args.includes("--repair"), applications,
+    // The one question covers both: yes moves the app and takes the mark off the copy it makes.
+    menuEntry: !args.includes("--no-menu-entry"), repair: args.includes("--repair"), applications, clearMark: applications,
   });
   print(report.attached
     ? `Branch Agent ${report.version} was already installed in ${report.installRoot}; it is linked up again.`

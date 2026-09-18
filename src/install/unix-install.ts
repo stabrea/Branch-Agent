@@ -6,6 +6,7 @@ import { shellQuote } from "../desktop/hand-over.js";
 import { stagedEngine } from "../never-break/canary.js";
 import { launchdPlistPath } from "./launchd.js";
 import { systemdUnitPath } from "./systemd.js";
+import { runningNow } from "./quit.js";
 import { LINUX_ICON_FOLDER, LINUX_ICON_SIZES, iconFileSize } from "./unix-icons.js";
 import { runTool, type RunTool } from "./windows.js";
 
@@ -115,31 +116,47 @@ export function installedMenuEntry(text: string, root: string, themed = false): 
 export type CanWrite = (path: string) => Promise<boolean>;
 const canWriteDir: CanWrite = (path) => access(path, constants.W_OK).then(() => true, () => false);
 
+const myUid = (): number => process.getuid?.() ?? -1;
+
 /**
- * Whether a copy is the installer's to write over and to remove again. This person's own folder
- * always is. The shared `/Applications` on a Mac only is when this person can write it without an
- * administrator: otherwise it may be somebody else's, and it is left exactly as it was found.
+ * Whether a copy outside this person's own folder is theirs to write over and to remove again.
+ * Every administrator can write a Mac's shared `/Applications`, so a writable folder is not enough:
+ * the copy must also be nothing yet, or a real folder (never a link) holding Branch, owned by this
+ * person. Anything else may be somebody else's, and it is left exactly as it was found.
  */
-export async function updatable(layout: UnixLayout, root: string, canWrite: CanWrite = canWriteDir): Promise<boolean> {
-  return root === layout.installRoot || canWrite(dirname(root));
+export async function sharedCopyIsMine(
+  platform: UnixPlatform, root: string, canWrite: CanWrite = canWriteDir, uid: number = myUid(),
+): Promise<boolean> {
+  if (!(await canWrite(dirname(root)))) return false;
+  const found = await lstat(root).catch(() => null);
+  if (!found) return true;
+  return found.isDirectory() && found.uid === uid && (await copyVersion(platform, root)) !== null;
 }
 
-/** Where a fresh install goes: the shared Applications folder when it was asked for and can be written. */
-export async function chooseRoot(layout: UnixLayout, applications: boolean, canWrite: CanWrite = canWriteDir): Promise<string> {
+/** Whether a copy is the installer's to write over and to remove again. This person's own folder always is. */
+export async function updatable(layout: UnixLayout, root: string, canWrite: CanWrite = canWriteDir, uid: number = myUid()): Promise<boolean> {
+  return root === layout.installRoot || sharedCopyIsMine(layout.platform, root, canWrite, uid);
+}
+
+/** Where a fresh install goes: the shared Applications folder when it was asked for and is this person's to use. */
+export async function chooseRoot(
+  layout: UnixLayout, applications: boolean, canWrite: CanWrite = canWriteDir, uid: number = myUid(),
+): Promise<string> {
   if (!applications || !layout.sharedRoot) return layout.installRoot;
-  return (await canWrite(dirname(layout.sharedRoot))) ? layout.sharedRoot : layout.installRoot;
+  return (await sharedCopyIsMine(layout.platform, layout.sharedRoot, canWrite, uid)) ? layout.sharedRoot : layout.installRoot;
 }
 
 /**
  * macOS marks everything that came from the internet, and that mark travels through the zip into the
  * unpacked app and through the copy into the installed one — so macOS then refuses to open it. The
- * installer takes the mark off the copy it just made, and off nothing else. The command is quiet and
- * gives the same answer whether or not the mark was there.
+ * installer takes the mark off the copy it just made, and off nothing else: `-s` acts on a link
+ * itself, because without it xattr clears the file a link inside the app points at, wherever that
+ * is. The root must be a real folder, not a link. The answer is true only when xattr succeeded.
  */
 export async function clearQuarantine(platform: UnixPlatform, root: string, run: RunTool): Promise<boolean> {
   if (platform !== "darwin") return false;
-  await run("/usr/bin/xattr", ["-r", "-d", "com.apple.quarantine", root]).catch(() => undefined);
-  return true;
+  if (!(await lstat(root).then((found) => found.isDirectory(), () => false))) return false;
+  return run("/usr/bin/xattr", ["-r", "-s", "-d", "com.apple.quarantine", root]).then(() => true, () => false);
 }
 
 /**
@@ -183,6 +200,12 @@ export interface UnixInstallOptions {
   repair?: boolean;
   /** macOS: put Branch in the shared Applications folder, when this person can write it. */
   applications?: boolean;
+  /** macOS: the person said yes to taking the internet mark off the copy this install makes. */
+  clearMark?: boolean;
+  /** Whether Branch is running now; a copy that is running is never taken away. */
+  running?: () => Promise<boolean>;
+  /** Whose files count as this person's (their user id); tests hand in another. */
+  uid?: number;
   copy?: CopyTree;
   run?: RunTool;
   canWrite?: CanWrite;
@@ -281,9 +304,10 @@ interface Target {
 async function chooseTarget(options: UnixInstallOptions, canWrite: CanWrite): Promise<Target> {
   const { layout } = options;
   const found = await findInstall(layout);
-  const asked = await chooseRoot(layout, options.applications === true, canWrite);
+  const uid = options.uid ?? myUid();
+  const asked = await chooseRoot(layout, options.applications === true, canWrite, uid);
   const root = asked === layout.installRoot ? found?.root ?? layout.installRoot : asked;
-  return { root, found, mine: await updatable(layout, root, canWrite) };
+  return { root, found, mine: await updatable(layout, root, canWrite, uid) };
 }
 
 /** After a move into the shared folder, the copy left in this person's own folder would only confuse. */
@@ -305,10 +329,13 @@ export async function performUnixInstall(options: UnixInstallOptions): Promise<U
   const { root, found, mine } = await chooseTarget(options, options.canWrite ?? canWriteDir);
   const already = found?.root === root ? found : null;
   const attached = !mine || (already?.version === options.version && !options.repair);
+  if (!attached && root !== layout.installRoot && found?.root === layout.installRoot
+    && (await (options.running ?? (async () => (await runningNow(layout.dataDir)) !== null))()))
+    throw new Error(`Branch Agent is running from ${layout.installRoot}, so it was not moved. Quit it (\`branch quit\`) and run the installer again.`);
   const previousKept = attached ? null
     : await replaceCopy(root, options.source, options.copy ?? copyWith(layout.platform, run));
   const movedFrom = attached ? null : await removeMoved(layout, root);
-  const quarantineCleared = mine && (await clearQuarantine(layout.platform, root, run));
+  const quarantineCleared = !attached && options.clearMark === true && (await clearQuarantine(layout.platform, root, run));
   await writeInPlace(layout.launcher, launcherScript({ platform: layout.platform, installRoot: root, dataDir: layout.dataDir, workspace: layout.workspace }), 0o755);
   const icons = await installIcons(layout, root);
   const menuEntry = layout.menuEntry && options.menuEntry !== false ? await writeMenuEntry(root, layout.menuEntry, icons.length > 0) : null;
@@ -326,6 +353,7 @@ export interface UnixUninstallOptions {
   /** Takes out the "start by itself when you sign in" entry (see daemon.ts). */
   removeService: () => Promise<void>;
   canWrite?: CanWrite;
+  uid?: number;
 }
 export interface UnixUninstallReport {
   removed: string[];
@@ -345,11 +373,11 @@ const installFolder = (layout: UnixLayout, root: string): boolean =>
  * Only the copy in this person's own folder is the installer's; one found elsewhere (a Mac's shared
  * /Applications) is reported and left. A link in place of a copy is removed as a link, never followed.
  */
-async function removeCopies(layout: UnixLayout, removed: string[], left: string[], canWrite: CanWrite): Promise<void> {
+async function removeCopies(layout: UnixLayout, removed: string[], left: string[], canWrite: CanWrite, uid: number): Promise<void> {
   for (const root of layout.candidates) {
-    // The same test the installer used: a shared copy this person cannot write without an
-    // administrator was never written by it, so it is reported and left exactly as it is.
-    if (root !== layout.installRoot && !(await canWrite(dirname(root)))) {
+    // The same test the installer used: a shared copy that is not this person's own (it needs an
+    // administrator, belongs to someone else, or is a link) is reported and left exactly as it is.
+    if (root !== layout.installRoot && !(await sharedCopyIsMine(layout.platform, root, canWrite, uid))) {
       if (await copyVersion(layout.platform, root)) left.push(root);
       continue;
     }
@@ -379,7 +407,7 @@ export async function performUnixUninstall(options: UnixUninstallOptions): Promi
   const { layout } = options, removed: string[] = [], left: string[] = [];
   await options.stop();
   await options.removeService();
-  await removeCopies(layout, removed, left, options.canWrite ?? canWriteDir);
+  await removeCopies(layout, removed, left, options.canWrite ?? canWriteDir, options.uid ?? myUid());
   await removeIcons(layout, removed);
   for (const [path, marker] of [[layout.launcher, launcherMarker], [layout.menuEntry, menuMarker]] as const) {
     if (!path || !(await lstat(path).then((found) => found.isFile(), () => false)) || !(await ours(path, marker))) continue;
