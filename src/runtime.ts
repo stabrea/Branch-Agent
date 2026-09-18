@@ -105,6 +105,7 @@ import { estimateCost, formatCost, pricingSettings } from "./pricing.js";
 // --- R17-S-B: the owner's knobs, read fresh at each marked hook (src/knobs/apply.ts) ---
 import * as knobs from "./knobs/apply.js";
 import { thinkingFilter, withoutThinking } from "./knobs/thinking.js";
+import { produced, producedNothing } from "./empty-answer.js"; // mac7/empty-completion
 // --- end R17-S-B ---
 // --- R17-E: models, cheaper and smarter (src/model-savings/hook.ts) ---
 import * as savings from "./model-savings/hook.js";
@@ -581,7 +582,8 @@ export class Runtime {
       run,
       context,
       status,
-      this.hideSecrets(status !== "completed" ? errorText(failure) : JSON.stringify(result)),
+      // mac7/empty-completion: `undefined` is not JSON, and a tool that returns nothing still ran.
+      this.hideSecrets(status !== "completed" ? errorText(failure) : JSON.stringify(result) ?? "null"),
     );
     if (status !== "completed") throw failure;
     if (settled.status !== "completed") throw new Error(settled.output);
@@ -978,6 +980,16 @@ ${run.output.slice(0, 6000)}`;
     status: Run["status"],
     output: string,
   ): Promise<Run> {
+    // mac7/empty-completion: a task that claims to have finished with nothing to show for it is a
+    // failure with a plain sentence, not a success. This is the only place the runtime finishes a
+    // run — an owner's task, a delegated child and a manual tool action all settle here — so the
+    // check cannot be walked around, and it judges only what the task itself recorded.
+    const nothing = producedNothing(status, output, produced(this.store.events(run.id)));
+    if (nothing) {
+      this.store.event(run.id, "run.produced_nothing", { reason: nothing });
+      status = "failed";
+      output = nothing;
+    }
     try {
       await this.registry.finishRun(context);
     } catch (error) {
@@ -1862,8 +1874,9 @@ ${run.output.slice(0, 6000)}`;
     const content = withoutThinking(completion.content);
     // mac7/empty-completion: a model that writes `<think>…</think>` inline leaves nothing behind
     // once it is taken out. What was taken out is counted, so an empty answer can still say why.
-    const hidden = completion.content.length - content.length;
-    return { ...completion, content, reasoningChars: (completion.reasoningChars ?? 0) + Math.max(0, hidden) };
+    // Absent when there was none, so a plain reply is the same object it always was.
+    const thought = (completion.reasoningChars ?? 0) + Math.max(0, completion.content.length - content.length);
+    return { ...completion, content, ...(thought ? { reasoningChars: thought } : {}) };
   }
   /**
    * A round answered from the kept answers. The provider was never asked, so the round is written
