@@ -66,21 +66,22 @@ async function tabStops(page, count) {
 test("every place opens from the sidebar in one click, and every Settings page from the gear", async (t) => {
   const f = await fixture(t);
   // The places are buttons in the sidebar, never a drop-down. Integration review (mac7/wake-pins):
-  // this looks outside the Settings window, because a drop-down inside Settings is not navigation —
-  // the pin picker lists every setting, one of which is "The files you write — MEMORY.md", and
-  // hasText matches without regard to case, so the whole-page form of this check went off whenever
-  // that picker had finished loading.
-  const placesInADropDown = () =>
-    f.page.locator("select:not(#settings-window select)").filter({ hasText: "Memory" }).count();
+  // this looks outside the Settings window, because a drop-down inside Settings is not navigation.
+  // mac7/linux-fixes: it also used to look for the word "Memory", which is not one of the places at
+  // all, so it went off on any drop-down with a memory-ish option — on Linux it caught
+  // #knobs-memoryProvider, the Memory card's own provider picker, once that card had drawn. A
+  // drop-down of places would list the places, so it is their own names that are looked for now.
+  const placesInADropDown = () => f.page.locator("select:not(#settings-window select)")
+    .filter({ hasText: PLACES[0] }).filter({ hasText: PLACES[1] }).count();
   assert.equal(await placesInADropDown(), 0, "places must not live in a drop-down");
   // And the check above can still go off: a drop-down of places in the shell is caught, so scoping
   // it away from the Settings window did not quietly turn it into an assertion that cannot fail.
-  await f.page.evaluate(() => {
+  await f.page.evaluate((places) => {
     const select = document.createElement("select");
     select.id = "places-drop-down-probe";
-    select.append(new Option("Memory", "memory"));
+    for (const place of places) select.append(new Option(place, place.toLowerCase()));
     document.getElementById("workspace").append(select);
-  });
+  }, PLACES);
   assert.equal(await placesInADropDown(), 1, "this check can no longer catch places moving into a drop-down");
   await f.page.evaluate(() => document.getElementById("places-drop-down-probe").remove());
   assert.equal(await placesInADropDown(), 0);
