@@ -1,256 +1,145 @@
-# Feature coverage
+# What Branch actually does
 
-This inventory preserves 169 researched acceptance requirements. It is a development checklist, not a claim that all listed features are implemented.
+This page describes the product as of **0.18.0**, in the words the screens use, organised the way the
+window is organised (`docs/places.md`). It replaces the old acceptance-audit table, which had not been
+touched since the 169-row research checklist was written and no longer described anything real.
 
-The source/fixture audit recorded 95 implemented, 14 partial, 1 external and 59 missing entries. A passing local fixture does not establish configured external-service readiness. Refresh individual entries after implementation and verification.
+Two rules for reading it:
 
-Machine-readable criteria, source paths, test names and remaining work are in [features.json](features.json).
+- **Nearly everything new ships off.** Every feature added since 0.16.0 has a three-way switch — off,
+  on, or loaded only when the work calls for it — and arrives off. A fresh install is the model talking
+  and nothing in the way. Where something is on by default it says so.
+- **Where a thing has only been proved against a stand-in**, it says so in the same sentence. A page
+  that oversells is a support ticket later.
 
-## Surfaces
+The machine-readable checklist in [features.json](features.json) is the original research audit. Its
+counts (95 implemented, 14 partial, 1 external, 59 missing) are from that audit and are **not** a
+description of 0.18.0. Settings, their exact names and their defaults are in
+[configuration.md](configuration.md).
 
-| Feature | Status | Remaining acceptance work |
-| --- | --- | --- |
-| Browser chat and settings (`surfaces.web`) | implemented | Covered by the listed local fixtures. |
-| Interactive terminal with streaming and interruption (`surfaces.terminal`) | implemented | Covered by the listed local fixtures. |
-| Desktop and menu-bar clients (`surfaces.desktop`) | implemented | Covered by the listed local fixtures. |
-| Voice dictation and transcription (`surfaces.voice-input`) | missing | Submit an audio fixture and produce a readable transcript that can be sent as a conversation turn. |
-| Text-to-speech (`surfaces.voice-output`) | missing | Generate playable speech from a response using the selected provider. |
-| Images audio video and document attachments (`surfaces.attachments`) | missing | Attach representative image, audio, video and document files and preserve their content types and accessible references in the conversation. |
-| Image and video generation (`surfaces.generation`) | missing | Generate one image and one video through configured adapters and verify that both output files can be decoded. |
-| Inline media playback (`surfaces.playback`) | missing | Play an attached audio file and video file inside the supported conversation client. |
-| Grouped side-by-side conversations (`surfaces.panes`) | missing | Arrange multiple topics side by side and verify that messages remain assigned to the correct topic. |
-| Mobile installable web app and push notifications (`surfaces.mobile-push`) | missing | Install the supported mobile web app and receive a push notification for a completed task when the app is backgrounded. |
-| Localized application interface (`surfaces.i18n`) | missing | Switch between two supported interface languages and verify that navigation and task controls remain usable. |
-| Background task attention notifications (`surfaces.attention`) | implemented | Covered by the listed local fixtures. |
-| Personal knowledge access from note editors (`surfaces.editor-clients`) | missing | Query indexed personal knowledge from a supported note-editor client and open the cited document. |
+## Conversation — the work happening now
 
-## Routing
+Talking to it by typing, by holding the Talk button, or by saying a word that starts a turn (off; on a
+Mac it needs a recording program you already have). Answers read back aloud, offline where the system
+has voices. Attachments: images, audio, video and documents, with pictures described once and then
+searchable. A switch between "just do it" and "show me the plan first", with numbered steps in plain
+words and nothing that changes anything happening until you say yes. Goal mode, rewinding files and
+the conversation to an earlier message, and editing a message. Saying something to a task already
+working, in a marker the assistant is told is the only trusted one. Side-by-side conversations, a
+temporary conversation that leaves no trace, and branching a conversation from an earlier point. A
+live meter of what the round is costing. Forty-four themes, light or dark, in two languages, down to
+400 px.
 
-| Feature | Status | Remaining acceptance work |
-| --- | --- | --- |
-| Direct and group chat adapters (`routing.channels`) | implemented | Covered by the listed local fixtures. |
-| Mention activation and engagement policies (`routing.activation`) | implemented | Covered by the listed local fixtures. |
-| Sender allowlists and pairing (`routing.pairing`) | implemented | Covered by the listed local fixtures. |
-| Conversation spanning channels (`routing.shared-session`) | missing | Continue one conversation from two linked channels with both surfaces observing the same ordered history. |
-| Shared agent identity with separate conversations (`routing.shared-identity`) | implemented | Covered by the listed local fixtures. |
-| Separate memory and workspaces across audiences (`routing.isolated-agents`) | partial | Provide per-agent file roots and prove file plus memory isolation between isolated agents. |
-| Search resume duplicate import and export sessions (`routing.lifecycle`) | implemented | Covered by the listed local fixtures. |
-| Temporary chats excluded from history and memory (`routing.temporary`) | implemented | Covered by the listed local fixtures. |
-| Branch a conversation from a selected prior state (`routing.branch`) | implemented | Covered by the listed local fixtures. |
+## Inbox — what needs a decision, and the record
+
+Approvals waiting for a yes, with the card naming what will be touched, on which machine, and whether
+it changes anything. Suggested memory changes, each with the reason it was noticed. Finished tasks
+from the last week with Look inside and Open the conversation. The whole record: every task, reports,
+comparing two runs, the event log, and a tamper-evident chain that shows if the record has been cut or
+rebuilt. Watching a finished task again, step by step. A proof report that says whether a build got
+better and what stopped working.
+
+## Automations — work that runs without being asked
+
+Timed tasks, a waiting line, a heartbeat, and triggers from a webhook, a chat message, a USB device or
+a program finishing. Saved procedures and flows as a proper graph: branches, loops with a limit, steps
+that fan out over a list and gather again, and a flow inside a flow. State is written down after every
+box, so a flow that stops at the ninth step carries on from there; a box left half-run is asked about
+rather than repeated. Flow time travel, checked procedures, a shared board, widgets and a focus view.
+A saved flow can be used as a tool. Suggested automations, standing orders and self-starting
+procedures, all off. Quiet background jobs — a check-in, gated schedules, news-only checks and health.
+A repeating schedule that fails moves to its next turn, counts failures and pauses after three, saying
+why.
+
+## Library — what it knows and what it made
+
+Memory in blocks, with a count of what is kept, a timeline, search by meaning, lessons it drew, chat
+preferences, an expiry and a read-back before memory is used. Nothing is remembered without you.
+Documents and knowledge bases with summaries and citations, renaming, merging, splitting, export and a
+light map of how things connect. Writing Word, Excel and PowerPoint files on this computer with no
+extra software, each checked by opening it in the real program. Pictures, files and reports the
+assistant made. Bringing chats and memory over from another assistant. Pruning on a schedule that
+exports before it deletes.
+
+*Proved against stand-ins only:* meaning search has seen a fake embedder, and the Mem0 and Honcho
+bridges have seen fake servers.
+
+## Customize — what it can do and who can reach it
+
+Skills, installed and removed with a written account, read and written as Agent Skills folders, with a
+scan of anything risky. Specialists. Plugins and add-ons in four formats, each walled, with a malware
+check. MCP in both directions: servers the assistant uses, and other tools using Branch. Saved prompts
+in groups and your own commands on every surface. Long-lived named assistants with rooms, messages,
+routines and teaching.
+
+**Chat apps.** Roughly thirty-five services, every one off: Telegram, Discord, Slack, Matrix, WhatsApp,
+IRC, Twitch, Gotify, iMessage, Bluesky, Reddit, Discourse, X direct messages, Twist, Mastodon, Delta
+Chat, Keybase, MQTT, Nostr, SimpleX, XMPP, VK, QQ, Guilded, Revolt, Mumble, Teams, Webex, Synology
+Chat, Zalo, Flock, Pumble, Nextcloud Talk, SMS, ntfy, Pushover, Threema and Home Assistant. One command
+sets any of them up. Branch can see and steer a running task from the chat, and passes on typing, edits
+and buttons only where the service really has them.
+
+**What a chat may do is deliberately small.** A task started by a chat message holds four permissions:
+asking you something, reading files, reading memory, reading the web. Nothing that can change anything,
+including permissions added later. More is granted only by a line you write naming the app, the person
+and what they may also do, behind a switch that ships off; your own devices and commands on any
+computer can never be in such a line. A chat can approve a change only if you tick approvals on that
+one line, which also ships off.
+
+**Devices.** Another computer or a phone paired as a device, with a switch per ability — camera,
+screen, microphone, running something — each asked about every time. A clean environment with none of
+your keys, its own safe folders and a private line. Chat senders are refused at the device door.
+Pairing another computer with its key is still command-line only; there is no card for it, and the
+phone app has no pairing screen.
+
+## Execution — what it can run, and how tightly
+
+Editing files and running commands, web search, fetching and crawling a page, a browser it drives
+itself with page notes, and a ranked map of a repository inside a token budget. A real box where the
+computer has one — Docker, WSL or Windows Sandbox — and a wall around programs on macOS and Linux with
+keys kept at the network edge; a backend you do not have refuses in plain words and names what to
+install. Working on another computer over SSH, host names from your own configuration only, an unknown
+host refused outright. Scripts checked for forbidden calls before anything starts, including decoders,
+disguises and hidden marks. File changes get a checkpoint you can undo. A shell kept open across tasks,
+held to the same rules. Tool scripts, WebAssembly add-ons, one-time codes, an emergency stop, a
+progress check and a repair for a damaged history. Diagnosing, fixing and re-running a failed command,
+behind its own switch and held to the caller's own permissions. Lockdown refuses commands outright
+rather than asking about them.
 
 ## Models
 
-| Feature | Status | Remaining acceptance work |
-| --- | --- | --- |
-| Hosted and local model endpoints (`models.hosted-local`) | external | Configure actual hosted and local model endpoints and complete the same fixture on both. |
-| API-key and supported OAuth routes (`models.oauth`) | implemented | Covered by the listed local fixtures. |
-| Model and provider presets (`models.presets`) | implemented | Covered by the listed local fixtures. |
-| Bounded retries preserving completed work (`models.retry`) | implemented | Covered by the listed local fixtures. |
-| Auth rotation cooldowns and model fallback (`models.fallback`) | implemented | Covered by the listed local fixtures. |
-| Respect explicit selected-model policy (`models.strict-choice`) | implemented | Covered by the listed local fixtures. |
-| Live switching with visible fallback notices (`models.switching`) | implemented | Covered by the listed local fixtures. |
-| Hardware-aware local model acquisition (`models.local-download`) | missing | Recommend a model for measured hardware, download it with progress and run a local prompt without a cloud endpoint. |
-| Per-session reasoning effort controls (`models.reasoning-default`) | implemented | Covered by the listed local fixtures. |
+Hosted providers and models on this computer, the local ones downloadable in one click. API keys and
+the OAuth routes each maker actually allows. Which model does what, routing, fallbacks and live
+switching with a visible notice. Several accounts per connection, with key rotation and owner-switched
+sign-ins. Caching, cheaper routes for small side questions and a clearer cost per task — a mixture is
+priced at its dearest member, never its cheapest. A Terms line for every provider in the picker.
 
-## Execution
+*Not proved:* the learning core has never run against a real model, so there is no head-to-head
+scoreboard against Hermes.
 
-| Feature | Status | Remaining acceptance work |
-| --- | --- | --- |
-| File editing and shell execution (`execution.files-shell`) | implemented | Covered by the listed local fixtures. |
-| Web search and fetch (`execution.web`) | implemented | Covered by the listed local fixtures. |
-| Browser automation screenshots and persistent sessions (`execution.browser`) | partial | Add actual screenshot output and a multi-page fixture proving same authorized browser session across pages. |
-| Live shared Linux desktop (`execution.desktop`) | missing | Operate a desktop-only test application and allow the user to take over the same live desktop. |
-| DOM inspection and element-attached comments (`execution.annotations`) | missing | Attach a comment to a DOM element and include the element identity and inspection context in the resulting task. |
-| Host file browser and command bridge (`execution.host-bridge`) | missing | Perform an authorized operation on an explicitly selected host and return the host identity with its result. |
-| SSH and serverless execution adapters (`execution.remote`) | missing | Run the same bounded command through configured SSH and serverless adapters and record the execution target. |
-| Paired camera screen location and notification commands (`execution.nodes`) | missing | Pair a device, discover its granted commands and execute a permitted device command while rejecting an unavailable one. |
-| MQTT and embedded hardware integrations (`execution.hardware`) | missing | Exchange an MQTT fixture and exercise declared serial, GPIO, I2C or SPI adapters against device fixtures while reporting unsupported protocols or disconnects explicitly. |
+## Settings, and the app itself
 
-## Extensions
+Twelve pages, opened over whatever you were doing and closed on Escape, with descriptions, scope chips,
+presets, reset, one settings file and a map of where each setting lives. Any setting can be **pinned**,
+so a household person sees it but cannot change it; pinning is the owner's alone and no preset or
+imported file can undo it. Comfort settings: keyboard shortcuts, vim keys, a status line,
+notifications, voice keys, browser care, a proxy and your own certificates, terminal controls. Filling
+a saved sign-in from the password manager you already use, by the website the page is actually on,
+never showing, printing, logging or telling the model the value. People on this computer, signing in
+from another device, groups and sharing. A usage report and task counters. Short-lived keys that expire
+and can be revoked. Traces and logs exported on your terms. A security self-check with repairs.
 
-| Feature | Status | Remaining acceptance work |
-| --- | --- | --- |
-| Progressive skill loading (`extensions.progressive`) | implemented | Covered by the listed local fixtures. |
-| Skill creation editing installation and curation (`extensions.authoring`) | implemented | Covered by the listed local fixtures. |
-| Pin a procedure to active chat (`extensions.pinning`) | implemented | Covered by the listed local fixtures. |
-| MCP servers and tool selection (`extensions.mcp`) | implemented | Operational use requires a configured trusted server; fixture coverage does not establish every server or tool capability. |
-| Plugin and channel adapter registry (`extensions.registry`) | missing | Install a chosen plugin from a declared registry and verify that its capabilities appear only after activation. |
-| Agent templates without secrets (`extensions.templates`) | implemented | Covered by the listed local fixtures. |
-| Parameterized recipes and requirements (`extensions.recipes`) | implemented | Covered by the listed local fixtures. |
-| JSON Schema outputs (`extensions.structured`) | implemented | Covered by the listed local fixtures. |
-| Generate capability-limited WASM tools (`extensions.tool-building`) | missing | Build a requested WASM tool and execute it with only declared host capabilities. |
-| Lifecycle event hooks with failure isolation (`extensions.lifecycle-hooks`) | implemented | Covered by the listed local fixtures. |
-| Connect external hosted agent platforms (`extensions.platform-bridge`) | missing | Invoke a configured external agent-platform workflow and return its correlated result through the assistant. |
-| Visual branching workflow editor (`extensions.visual-workflows`) | missing | Build a workflow with connected blocks and a conditional branch, save it and execute the selected branch. |
+**Runs on Windows, macOS and Linux.** Starting with the computer, updating itself silently — tried on
+a copy first, watched after the swap, and rolled back if it will not start — keeping the previous
+version, and `branch doctor --fix` giving advice that matches the machine. A no-questions installer for
+each system. The whole assistant runs with no window at all for a scripted job, and a gateway keeps
+Branch's address open and restarts the engine. A browser dashboard at `/dashboard`. Branch on iPhone
+and Android as shells around the same window. A Go client, React hooks, an app-builder kit over MCP and
+flows as YAML. Plain-language page tests you can accept and run as owner suites.
 
-## Memory
+**Node.js 24.14.0 or newer is required** (on the Node 25 line, 25.4.0 or newer), because the proxy
+setting works by handing the proxy to Node and older Nodes have no way to be told. On an older Node the
+command line says so once and carries on; everything except the proxy still works.
 
-| Feature | Status | Remaining acceptance work |
-| --- | --- | --- |
-| Editable user profile and assistant identity (`memory.profile`) | implemented | Covered by the listed local fixtures. |
-| Bounded durable facts (`memory.facts`) | implemented | Covered by the listed local fixtures. |
-| Full-text prior-session retrieval (`memory.search`) | implemented | Covered by the listed local fixtures. |
-| Vector plus full-text rank fusion (`memory.hybrid`) | missing | Retrieve relevant seeded memories through both lexical and semantic matching with inspectable ranking. |
-| External memory provider support (`memory.providers`) | missing | Replace the memory backend through configuration and verify that read and write operations use the selected backend. |
-| Explicit agent and project memory boundaries (`memory.scope`) | implemented | Covered by the listed local fixtures. |
-| Source lineage and admission controls (`memory.lineage`) | implemented | Covered by the listed local fixtures. |
-| Preview removal of tracked derived memory (`memory.forget`) | implemented | Covered by the listed local fixtures. |
-| Semantic retrieval over personal document formats (`memory.documents`) | missing | Index PDF, Markdown, Word, org-mode, image and supported connected-note fixtures and return source-linked answers to their contents. |
-| Automatic archival and expiry of stale memory (`memory.hygiene`) | implemented | Covered by the listed local fixtures. |
-| Export and restore complete memory state (`memory.export-import`) | implemented | Covered by the listed local fixtures. |
-| Time-aware entity and relationship memory (`memory.temporal-graph`) | implemented | Covered by the listed local fixtures. |
-| Editable linked knowledge pages (`memory.linked-wiki`) | missing | Create related knowledge pages, follow their links and preserve a user correction in subsequent retrieval. |
-| Shared memory through independent host adapters (`memory.cross-agent`) | missing | Ingest a supported host's session log and retrieve its permitted memory through a second host adapter. |
-| Locally searchable email calendar and message datasets (`memory.connector-datasets`) | missing | Synchronize configured email, CalDAV and messaging fixtures and search their local projections with source identifiers. |
-
-## Learning
-
-| Feature | Status | Remaining acceptance work |
-| --- | --- | --- |
-| Context compaction preserving task handoff (`learning.compaction`) | implemented | Covered by the listed local fixtures. |
-| Scheduled consolidation from append-only history (`learning.dream`) | implemented | Covered by the listed local fixtures. |
-| Versioned durable memory (`learning.versioning`) | implemented | Covered by the listed local fixtures. |
-| Post-task memory and skill review (`learning.review`) | implemented | Covered by the listed local fixtures. |
-| Pending memory write review (`learning.approval`) | implemented | Covered by the listed local fixtures. |
-| Inspect edit prune and archive learning (`learning.journey`) | implemented | Covered by the listed local fixtures. |
-| Bounded session-start memory snapshots (`learning.cache`) | implemented | Covered by the listed local fixtures. |
-| Automatic recovery point before memory or skill edits (`learning.pre-edit-checkpoint`) | implemented | Covered by the listed local fixtures. |
-| Evidence-governed skill lifecycle and rollback (`learning.governance`) | implemented | Covered by the listed local fixtures. |
-| Optimize skill candidates from recorded traces (`learning.trace-optimization`) | implemented | Covered by the listed local fixtures. |
-| Compare skill versions on reproducible evaluation tasks (`learning.skill-benchmark`) | implemented | Covered by the listed local fixtures. |
-| Environment-specific skill failure avoidance (`learning.failure-aware`) | implemented | Covered by the listed local fixtures. |
-
-## Delegation
-
-| Feature | Status | Remaining acceptance work |
-| --- | --- | --- |
-| Focused child agents (`delegation.children`) | implemented | External model behavior remains configuration-dependent; local fixture establishes child/result isolation only. |
-| Sequential and parallel tasks (`delegation.parallel`) | implemented | Covered by the listed local fixtures. |
-| Restrict child tool access (`delegation.tools`) | implemented | Covered by the listed local fixtures. |
-| Depth concurrency timeout and turn bounds (`delegation.limits`) | implemented | Covered by the listed local fixtures. |
-| Structured child result contracts (`delegation.results`) | implemented | Covered by the listed local fixtures. |
-| Queue follow-ups while tasks run (`delegation.steering`) | implemented | Covered by the listed local fixtures. |
-| Cascading child cancellation (`delegation.cancellation`) | implemented | Covered by the listed local fixtures. |
-| Preserve critical child results after parent finishes (`delegation.orphans`) | implemented | Covered by the listed local fixtures. |
-| Persistent specialist roles and team rooms (`delegation.persistent-teams`) | partial | Add durable team membership/roles and shared room history with restart fixture. |
-| Route task chains and fan-out across named teammates (`delegation.handoff`) | implemented | Covered by the listed local fixtures. |
-
-## Automation
-
-| Feature | Status | Remaining acceptance work |
-| --- | --- | --- |
-| Recurring timed tasks (`automation.cron`) | implemented | Covered by the listed local fixtures. |
-| Periodic proactive checks (`automation.heartbeat`) | implemented | Covered by the listed local fixtures. |
-| Event and webhook routines (`automation.events`) | implemented | Covered by the listed local fixtures. |
-| Local script triggers (`automation.local`) | implemented | Covered by the listed local fixtures. |
-| Pause and resume with state (`automation.pause`) | implemented | Covered by the listed local fixtures. |
-| Route results to chosen channels (`automation.delivery`) | implemented | Covered by the listed local fixtures. |
-| Inspectable run history (`automation.history`) | implemented | Covered by the listed local fixtures. |
-| Package requirements settings and dashboard metrics (`automation.metrics`) | missing | Load a task package and expose its required tools, configurable inputs and declared runtime metrics. |
-| One-time scheduled work (`automation.once`) | implemented | Covered by the listed local fixtures. |
-
-## Workspace
-
-| Feature | Status | Remaining acceptance work |
-| --- | --- | --- |
-| Project files instructions repositories and presets (`workspace.projects`) | implemented | Covered by the listed local fixtures. |
-| Project-scoped secrets and knowledge (`workspace.secrets`) | implemented | Covered by the listed local fixtures. |
-| Live editable Markdown artifacts (`workspace.markdown`) | partial | Provide user editor and conflict-aware nonconflicting agent/user merge fixture. |
-| Document spreadsheet and presentation cowork (`workspace.office`) | missing | Create and reopen a document, spreadsheet and presentation in the supported office integration. |
-| Visible file diffs and artifacts (`workspace.diffs`) | implemented | Covered by the listed local fixtures. |
-| Workspace snapshots and revert (`workspace.snapshots`) | implemented | Covered by the listed local fixtures. |
-| Explicit topic context sharing (`workspace.cross-topic`) | missing | Attach another topic as context and record which topic was accessed for the task. |
-| Authenticated managed files with read-only sandbox mounts (`workspace.managed-files`) | missing | Upload a managed file and expose it to a task through a read-only mount that rejects writes. |
-| Tasks assigned to agents and teams on a board (`workspace.task-board`) | missing | Create a task, assign it to an agent or team and move it through board stages with persisted state. |
-
-## Security
-
-| Feature | Status | Remaining acceptance work |
-| --- | --- | --- |
-| Approval and command policies (`security.permissions`) | implemented | Covered by the listed local fixtures. |
-| Per-agent containers and mounts (`security.containers`) | missing | Execute in an agent container and prove unmounted host and other-agent paths are inaccessible. |
-| Platform-specific OS sandboxes (`security.os`) | partial | Add actual supported OS sandbox backends and enforcement fixtures. |
-| Capability-limited WASM (`security.wasm`) | missing | Run a WASM tool and reject a host operation absent from its capability manifest. |
-| Host-side credential injection (`security.credentials`) | partial | Implement WASM execution with host-boundary credential injection and verify absence from WASM input/output. |
-| Host/path allowlists and rate limits (`security.network`) | implemented | Covered by the listed local fixtures. |
-| CPU memory and execution limits (`security.resources`) | implemented | Covered by the listed local fixtures. |
-| Encrypted credential store and hidden prompts (`security.secrets`) | implemented | Covered by the listed local fixtures. |
-| Untrusted-output wrapping and detection (`security.content`) | implemented | Covered by the listed local fixtures. |
-| Execution audit and authenticated successful-call receipts (`security.audit`) | implemented | Covered by the listed local fixtures. |
-| Passkey authentication for the assistant service (`security.passkeys`) | missing | Register a passkey and authenticate a fresh session while rejecting an invalid authentication attempt. |
-| Block internal-network request forgery (`security.ssrf`) | implemented | Covered by the listed local fixtures. |
-| Cross-origin WebSocket admission control (`security.origin`) | partial | Implement the WebSocket surface and test rejection/acceptance of upgrade origins. |
-| Verify downloaded release provenance and hashes (`security.release-verification`) | partial | Publish and verify a signed attestation alongside the checksum. |
-| End-to-end encrypted relay transport (`security.encrypted-relay`) | missing | Exchange a message through an enabled encrypted relay and verify that relay-visible payloads do not contain plaintext. |
-| Pinned SSH host identity for remote execution (`security.host-pinning`) | missing | Execute against a recorded SSH host key and reject a connection whose host identity has changed. |
-| Scan skills before activation (`security.skill-scanning`) | implemented | Covered by the listed local fixtures. |
-
-## Interop
-
-| Feature | Status | Remaining acceptance work |
-| --- | --- | --- |
-| OpenAI-compatible API (`interop.openai`) | implemented | Covered by the listed local fixtures. |
-| Embedding SDK (`interop.sdk`) | implemented | Covered by the listed local fixtures. |
-| REST WebSocket and SSE (`interop.streaming`) | implemented | Covered by the listed local fixtures. |
-| ACP integration (`interop.acp`) | missing | Complete a task through a supported ACP client or agent adapter using its documented subset. |
-| Agent-to-agent surface (`interop.a2a`) | missing | Exchange a task and result with a compatible A2A peer using declared capabilities. |
-| Remote tool skill and inference discovery (`interop.node-discovery`) | missing | Discover tools, skills and inference advertised by a node and identify their owning host. |
-| Personal email calendar and task account connection (`interop.personal-connectors`) | missing | Connect a supported account and read permitted email, calendar and task data without exposing its credentials. |
-
-## Operations
-
-| Feature | Status | Remaining acceptance work |
-| --- | --- | --- |
-| Guided provider and channel setup (`operations.setup`) | implemented | Covered by the listed local fixtures. |
-| Background gateway and foreground modes (`operations.daemon`) | partial | Add background-service launch independent of launcher and verify handling after launcher closure plus controlled stop. |
-| Single-binary constrained deployment (`operations.portable`) | missing | Launch a packaged binary on a declared supported target and report measured gateway resource usage. |
-| Serverless idle suspension (`operations.hibernation`) | missing | Suspend the configured serverless environment and resume an operation with its persisted workspace intact. |
-| Status diagnostics and recovery (`operations.health`) | implemented | Covered by the listed local fixtures. |
-| Import configuration skills memories and sessions (`operations.migration`) | missing | Preview and import supported configuration, memory and skills while preserving original source state. |
-| Preconfigured branded desktop distribution (`operations.distribution`) | missing | Build a distribution with selected branding, providers and extensions and verify those defaults on first launch. |
-| Full application backup and restore (`operations.backup-restore`) | implemented | Covered by the listed local fixtures. |
-| Manage reproducible agent sandbox lifecycle (`operations.sandbox-lifecycle`) | missing | Create, snapshot, stop and restore a configured agent sandbox while preserving its declared network and inference policies. |
-
-## Packages
-
-| Feature | Status | Remaining acceptance work |
-| --- | --- | --- |
-| Cited multi-source reports (`packages.research`) | missing | Produce a multi-source report whose cited links support the associated factual claims. |
-| Change monitoring and knowledge graphs (`packages.monitoring`) | missing | Detect a seeded source change and retain the prior observation and resulting alert evidence. |
-| Prospect discovery enrichment scoring and deduplication (`packages.leads`) | missing | Enrich and score a fixture prospect set and exclude duplicates in the exported results. |
-| Forecasts and calibration (`packages.forecasting`) | missing | Store probabilistic forecasts and calculate a calibration score after recording outcomes. |
-| Video clipping captions and thumbnails (`packages.clips`) | missing | Generate a playable short clip with captions and a thumbnail from a valid input video. |
-| Content scheduling approval and metrics (`packages.social`) | missing | Prepare and schedule a social post while retaining it in the approval queue until authorized. |
-| Multistep browser workflows (`packages.browser`) | partial | Add multi-step form acceptance and an explicit approval-pause/resume flow before protected actions. |
-| Trajectory generation and compression (`packages.trajectories`) | missing | Generate a batch of tool trajectories and export a compressed representation preserving task and outcome links. |
-| Spoken daily briefing from personal sources (`packages.morning-brief`) | missing | Generate and play a dated briefing from configured email, calendar, health and news fixtures with source links. |
-
-## Reliability
-
-| Feature | Status | Remaining acceptance work |
-| --- | --- | --- |
-| Streaming tool activity (`reliability.activity`) | implemented | Covered by the listed local fixtures. |
-| Context tokens and cache metrics (`reliability.context`) | partial | Include supported cache-use metrics and per-round client display, marking absent cache metrics unavailable. |
-| Visible compaction events (`reliability.compaction`) | implemented | Covered by the listed local fixtures. |
-| Success checks and bounded retry handlers (`reliability.checks`) | implemented | Covered by the listed local fixtures. |
-| Stuck-operation recovery (`reliability.stuck`) | implemented | Covered by the listed local fixtures. |
-| Context-limit and truncation recovery (`reliability.overflow`) | implemented | Covered by the listed local fixtures. |
-| Differentiate successful receipts from failed and blocked audit events (`reliability.proof`) | implemented | Covered by the listed local fixtures. |
-| Resume work from provider-neutral safe checkpoints (`reliability.checkpoints`) | implemented | Covered by the listed local fixtures. |
-| Reconcile interrupted writes before retry (`reliability.uncertain-effects`) | partial | Enforce a recorded reconciliation step before a repeat of the same write is allowed. |
-| Durable ordered outbound delivery independent of task completion (`reliability.delivery-ledger`) | implemented | Covered by the listed local fixtures. |
-| Transactional queue retries and dead-letter inspection (`reliability.dead-letter`) | implemented | Covered by the listed local fixtures. |
-| Runtime-verified task exit criteria (`reliability.completion-contract`) | implemented | Covered by the listed local fixtures. |
-| Measure task accuracy energy latency and cost (`reliability.evaluation`) | partial | Execute a fixed evaluation suite and record accuracy/latency/cost/energy availability from actual runs. |
-| Export task traces and service metrics (`reliability.tracing`) | partial | Add trace/metric export to configured observability endpoints. |
-| Live inventory of tools and configuration readiness (`reliability.capability-inventory`) | implemented | Covered by the listed local fixtures. |
-
-## Collaboration
-
-| Feature | Status | Remaining acceptance work |
-| --- | --- | --- |
-| Identity-signed shared collaboration events (`collaboration.signed-events`) | missing | Publish a collaboration event under a member identity and reject a modified event whose signature no longer verifies. |
-| Persistent shared rooms for people and agents (`collaboration.rooms`) | missing | Add human and agent members to a private room and enforce membership on its history and artifacts. |
-| Unified search over conversations workflow events and patches (`collaboration.unified-search`) | missing | Search one query across conversation, workflow and repository events and return source-linked results. |
-| Comments anchored to a media frame (`collaboration.media-comments`) | missing | Attach a comment to a video timestamp and reopen the comment at the same media position. |
-| Repository changes represented as shared events (`collaboration.git-events`) | missing | Publish a patch and its repository status as searchable signed events linked to the correct repository. |
+*Never built against the real thing:* the Docker, Nix and Termux packaging files, and the video
+services.
