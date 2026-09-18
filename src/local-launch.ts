@@ -128,13 +128,23 @@ export interface StartPlan {
   instead: string | null;
 }
 
+/**
+ * Whether Linux has an Ollama system service, and whether it is already running. Ollama's own
+ * installer puts one in place and starts it, so "active" is the ordinary state a moment after the
+ * one-click install — and a service that is running is not something to start.
+ */
+export type LinuxService = "none" | "known" | "active";
+
 /** What starting a runtime means on this system. Pure, so every system can be tested anywhere. */
-export function startPlan(id: RuntimeId, program: string, model: ModelToStart, at: LaunchEnv, serviceKnown = false): StartPlan {
+export function startPlan(id: RuntimeId, program: string, model: ModelToStart, at: LaunchEnv, service: LinuxService = "none"): StartPlan {
   const ctx = String(model.context ?? 8192);
   const port = String(model.port ?? new URL(runtimeInfo[id].baseUrl).port);
   switch (id) {
     case "ollama":
-      if (at.platform === "linux" && serviceKnown)
+      // It is already running: nothing to start, and starting a second copy would only fight it for
+      // the port. Branch waits for it to answer instead.
+      if (at.platform === "linux" && service === "active") return { commands: [], serve: null, instead: null };
+      if (at.platform === "linux" && service === "known")
         return { commands: [], serve: null, instead: "Ollama is installed as a system service here. Start it with: sudo systemctl start ollama" };
       return { commands: [], serve: [program, "serve"], instead: null };
     case "lm-studio":
@@ -192,12 +202,14 @@ export class RuntimeLauncher {
     const found = await Promise.all(runtimeIds.map(async (id) => [id, await this.find(id)] as const));
     return Object.fromEntries(found) as Record<RuntimeId, string | null>;
   }
-  /** Whether Linux knows an Ollama system service (installed by its own script). */
-  private async linuxService(): Promise<boolean> {
-    if (this.at.platform !== "linux") return false;
-    const answer = await this.run("systemctl", ["is-enabled", "ollama"], { timeout: 3000, windowsHide: true })
+  /** Whether Linux knows an Ollama system service (installed by its own script), and whether it runs. */
+  private async linuxService(): Promise<LinuxService> {
+    if (this.at.platform !== "linux") return "none";
+    const ask = (verb: string) => this.run("systemctl", [verb, "ollama"], { timeout: 3000, windowsHide: true })
       .then((out) => out.stdout.trim(), (error: { stdout?: string }) => String(error?.stdout ?? "").trim());
-    return answer === "enabled" || answer === "disabled";
+    if (await ask("is-active") === "active") return "active";
+    const answer = await ask("is-enabled");
+    return answer === "enabled" || answer === "disabled" ? "known" : "none";
   }
   /**
    * Starts an installed runtime. Refuses in plain words when it is not installed; never installs.
@@ -208,7 +220,7 @@ export class RuntimeLauncher {
     const info = runtimeInfo[id];
     if (!program) return { started: false, message: `${info.name} is not installed on this computer. ${info.installNote}` };
     const port = ownPort(id) ? await this.freePort() : undefined;
-    const plan = startPlan(id, program, { ...model, ...(port ? { port } : {}) }, this.at, id === "ollama" ? await this.linuxService() : false);
+    const plan = startPlan(id, program, { ...model, ...(port ? { port } : {}) }, this.at, id === "ollama" ? await this.linuxService() : "none");
     if (plan.instead) return { started: false, message: plan.instead };
     for (const command of plan.commands) await this.run(command[0]!, command.slice(1), { timeout: 60000, windowsHide: true });
     if (plan.serve) {

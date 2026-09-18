@@ -207,7 +207,7 @@ test("R1 each program is looked for where each system keeps it", () => {
 test("R1 starting a program is an exact argument list, and Linux's Ollama service is left to the owner", () => {
   assert.deepEqual(startPlan("ollama", "/usr/bin/ollama", {}, at.darwin), { commands: [], serve: ["/usr/bin/ollama", "serve"], instead: null });
   assert.deepEqual(startPlan("ollama", "C:\\o\\ollama.exe", {}, at.win32).serve, ["C:\\o\\ollama.exe", "serve"]);
-  const service = startPlan("ollama", "/usr/bin/ollama", {}, at.linux, true);
+  const service = startPlan("ollama", "/usr/bin/ollama", {}, at.linux, "known");
   assert.equal(service.serve, null);
   assert.match(service.instead, /sudo systemctl start ollama/);
   assert.deepEqual(startPlan("lm-studio", "/h/lms", {}, at.linux).commands, [["/h/lms", "daemon", "up"], ["/h/lms", "server", "start", "--port", "1234"]]);
@@ -254,7 +254,8 @@ test("R2 Branch starts only what is installed, and stops only what it started", 
 
   const linux = fakeLauncher(["/usr/bin/ollama"], "linux");
   await linux.launcher.start("ollama");
-  assert.deepEqual(linux.ran, [["systemctl", "is-enabled", "ollama"]]);
+  assert.deepEqual(linux.ran, [["systemctl", "is-active", "ollama"], ["systemctl", "is-enabled", "ollama"]],
+    "a running service is asked about first, because Ollama's own installer starts one");
   assert.deepEqual(linux.spawned, [["/usr/bin/ollama", "serve"]], "no service known, so Branch starts it for this person");
 });
 

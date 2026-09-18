@@ -13,6 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
 import { Store } from "../dist/store.js";
+import { startPlan } from "../dist/local-launch.js";
 import { ModelRouter } from "../dist/models.js";
 import { NetworkPolicy } from "../dist/network-policy.js";
 import { RuntimeLauncher } from "../dist/local-launch.js";
@@ -103,8 +104,39 @@ test("I3 a yes only ever agrees to the plan that was shown", () => {
   assert.equal(planFingerprint(mac), mac.fingerprint, "the line is the plan's own facts, nothing else");
   const meddled = { ...mac, steps: [{ what: "x", command: ["/bin/sh", "-c", "curl x | sh"] }] };
   assert.notEqual(planFingerprint(meddled), mac.fingerprint);
-  assert.match(planSize(mac), /GB$/);
-  assert.match(planSize(installPlan("ollama", at.linux, noTools)), /MB$/);
+  assert.match(planSize(mac), /MB$/);
+  assert.match(planSize(installPlan("ollama", at.linux, noTools)), /GB$/);
+
+  // The size and the sentence about how it is checked are part of what the owner agreed to: change
+  // either and the yes they gave no longer fits. Both were left out of the line at first.
+  assert.notEqual(planFingerprint({ ...mac, approxBytes: mac.approxBytes * 10 }), mac.fingerprint);
+  assert.notEqual(planFingerprint({ ...mac, verify: "Branch checks nothing at all." }), mac.fingerprint);
+});
+
+test("I3b the size and the address the owner reads are what really happens", () => {
+  // Measured against the publishers on 2026-09-18, from the machines themselves:
+  //   Ollama's Linux install.sh is 15,902 bytes but then pulls 1,427,542,079 from ollama.com;
+  //   OllamaSetup.exe (what winget installs too) is 1,569,993,232; Ollama-darwin.zip is 197,183,181.
+  // The plan said "about 1 MB", "about 700 MB" and "about 1.2 GB". A size the owner agrees to has
+  // to be the size that is really transferred, and the address has to be where it really comes from.
+  const linux = installPlan("ollama", at.linux, noTools);
+  assert.ok(linux.approxBytes > 1024 ** 3,
+    "the Linux plan counts what the script it runs downloads, not just the script");
+  assert.match(linux.source, /ollama\.com/, "and names where the program itself comes from");
+  assert.match(planSize(linux), /GB$/);
+
+  const win = installPlan("ollama", at.win32, noTools);
+  assert.ok(win.approxBytes > 1024 ** 3 && win.approxBytes < 3 * 1024 ** 3, "OllamaSetup.exe is about 1.5 GB");
+  const winget = installPlan("ollama", at.win32, { homebrew: null, winget: "C:\\w\\winget.exe" });
+  assert.equal(winget.approxBytes, win.approxBytes, "winget installs that same file, so it is that same size");
+
+  const mac = installPlan("ollama", at.darwin, noTools);
+  assert.ok(mac.approxBytes < 512 * 1024 ** 2, "Ollama-darwin.zip is about 190 MB, not 1.2 GB");
+
+  // A size under a megabyte was rounded up to "about 1 MB"; small is allowed to look small.
+  assert.equal(planSize({ approxBytes: 15902 }), "about 16 KB");
+  assert.equal(planSize({ approxBytes: 0 }), "about 0 KB");
+  assert.equal(planSize({ approxBytes: 30 * 1024 ** 2 }), "about 30 MB");
 });
 
 test("I4 Homebrew and winget are looked for only where they really live", async () => {
@@ -195,6 +227,22 @@ test("I6b a real release redirect is followed: GitHub's signed asset address is 
   await assert.rejects(fetchInstaller(plan, {
     at: at.linux, run: async () => ({ stdout: "" }), exists: async () => false, library: tooLong, scratchDir: join(root, "dl2"),
   }), /only ever downloaded from its own publisher/);
+});
+
+test("I6c on Linux the service Ollama's own installer started is waited for, not handed back", async () => {
+  // Found on a real Ubuntu box: install.sh installs Ollama as a systemd service and starts it, but
+  // it is not answering the instant the script returns. Branch asked once, got no answer, and gave
+  // up with "start it yourself" — for a service that was already running. The one-click could never
+  // finish on Linux. A service that is up is not something to start; a stopped one still is.
+  const running = startPlan("ollama", "/usr/local/bin/ollama", {}, at.linux, "active");
+  assert.equal(running.instead, null, "a running service is not handed back to the owner");
+  assert.deepEqual(running.commands, []);
+  assert.equal(running.serve, null, "and Branch does not start a second copy beside it");
+
+  const stopped = startPlan("ollama", "/usr/local/bin/ollama", {}, at.linux, "known");
+  assert.match(stopped.instead, /system service/, "a stopped service still needs the owner's password");
+  assert.deepEqual(startPlan("ollama", "/usr/local/bin/ollama", {}, at.linux, "none").serve,
+    ["/usr/local/bin/ollama", "serve"], "with no service at all Branch runs it itself");
 });
 
 test("I7 a step that fails stops the rest and is reported honestly", async (t) => {

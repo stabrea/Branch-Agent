@@ -40,6 +40,19 @@ const ollamaRelease = "https://github.com/ollama/ollama/releases/latest/download
 const ollamaAsset: Record<string, string | null> = {
   darwin: "Ollama-darwin.zip", win32: "OllamaSetup.exe", linux: "install.sh",
 };
+/** Where Ollama's Linux script fetches the program itself, once Branch has checked the script. */
+const ollamaLinuxPayload = "https://ollama.com/download";
+/**
+ * About how much really crosses the wire, measured from the publishers' own releases on 2026-09-18.
+ * The owner agrees to a size, so it is the size that is really transferred: on Linux that is the
+ * program the script fetches, not the 16 KB script. An estimate that drifts with a release is fine;
+ * one that is out by a hundredfold is not, because it is what the owner said yes to.
+ */
+const ollamaDownloadSize: Record<string, number> = {
+  darwin: 190 * 1024 ** 2,        // Ollama-darwin.zip
+  win32: 1500 * 1024 ** 2,        // OllamaSetup.exe, which is what winget installs too
+  linux: 1400 * 1024 ** 2,        // install.sh, then ollama-linux-<arch>.tar.zst from ollama.com
+};
 
 export interface ToolsPresent {
   /** Where `brew` is, when this Mac (or Linux) has Homebrew. */
@@ -87,7 +100,10 @@ const mac = (runner: InstallableRunner) => ({ publisher: runner === "ollama" ? "
 
 /** The plan as one line, so a yes can only ever agree to the plan that was shown. */
 export function planFingerprint(plan: Omit<InstallPlan, "fingerprint">): string {
-  const facts = JSON.stringify([plan.runner, plan.platform, plan.via, plan.source, plan.fetch, plan.steps, plan.instead]);
+  // How big it is and how Branch knows it is the publisher's are part of the plan the owner read, so
+  // a yes that was given for 190 MB checked against a signature cannot carry to something else.
+  const facts = JSON.stringify([plan.runner, plan.platform, plan.via, plan.source, plan.approxBytes,
+    plan.verify, plan.fetch, plan.steps, plan.instead]);
   return createHash("sha256").update(facts).digest("hex").slice(0, 32);
 }
 const finish = (plan: Omit<InstallPlan, "fingerprint">): InstallPlan => ({ ...plan, fingerprint: planFingerprint(plan) });
@@ -123,7 +139,7 @@ function homebrewPlan(runner: InstallableRunner, at: LaunchEnv, brew: string): I
   return finish({
     runner, name: runtimeInfo[runner].name, platform: at.platform, via: "homebrew", ...mac(runner),
     source: `Homebrew (${runner === "ollama" ? "the ollama formula" : "the lm-studio cask"})`,
-    approxBytes: runner === "ollama" ? 30 * 1024 ** 2 : 700 * 1024 ** 2,
+    approxBytes: runner === "ollama" ? 30 * 1024 ** 2 : 600 * 1024 ** 2,
     verify: "Homebrew checks the download against the checksum in its own package description before it installs anything.",
     fetch: null, steps: [{ what: `Install ${runtimeInfo[runner].name} with Homebrew`, command }],
     after: runner === "lm-studio" ? openOnce : "", instead: null,
@@ -136,7 +152,7 @@ function wingetPlan(runner: InstallableRunner, at: LaunchEnv, winget: string): I
     "--accept-package-agreements", "--accept-source-agreements"];
   return finish({
     runner, name: runtimeInfo[runner].name, platform: at.platform, via: "winget", ...mac(runner),
-    source: `winget (${id})`, approxBytes: runner === "ollama" ? 700 * 1024 ** 2 : 700 * 1024 ** 2,
+    source: `winget (${id})`, approxBytes: runner === "ollama" ? ollamaDownloadSize.win32! : 600 * 1024 ** 2,
     verify: "winget checks the download against the checksum in Microsoft's package list before it installs anything.",
     fetch: null, steps: [{ what: `Install ${runtimeInfo[runner].name} with winget`, command }],
     after: runner === "lm-studio" ? openOnce : "", instead: null,
@@ -147,9 +163,9 @@ function wingetPlan(runner: InstallableRunner, at: LaunchEnv, winget: string): I
 function downloadPlan(at: LaunchEnv, asset: string): InstallPlan {
   const fetch: InstallFetch = { url: `${ollamaRelease}/${asset}`, checksums: `${ollamaRelease}/sha256sum.txt`, asset };
   const common = { runner: "ollama" as const, name: "Ollama", platform: at.platform, via: "download" as const, ...mac("ollama"),
-    source: `${ollamaRelease}/${asset}`, fetch, instead: null };
+    source: `${ollamaRelease}/${asset}`, approxBytes: ollamaDownloadSize[at.platform] ?? 0, fetch, instead: null };
   if (at.platform === "darwin") return finish({
-    ...common, approxBytes: 1200 * 1024 ** 2,
+    ...common,
     verify: "Branch checks the download against the SHA-256 Ollama publishes beside it, then asks macOS itself whether the program is signed by its publisher and notarised by Apple. Anything that does not match is thrown away.",
     steps: [
       { what: "Unpack it", command: ["/usr/bin/ditto", "-x", "-k", "{file}", "{unpacked}"] },
@@ -160,14 +176,18 @@ function downloadPlan(at: LaunchEnv, asset: string): InstallPlan {
     after: "Open Ollama once from your Applications folder if macOS asks you to allow it.",
   });
   if (at.platform === "win32") return finish({
-    ...common, approxBytes: 700 * 1024 ** 2,
+    ...common,
     verify: "Branch checks the download against the SHA-256 Ollama publishes beside it, and throws it away if it does not match.",
     steps: [{ what: "Open Ollama's own installer", command: ["{file}"] }],
     after: "Ollama's own installer opens. Branch waits while you click through it, then checks that Ollama really arrived.",
   });
+  // The script Branch checks is 16 KB; the program it then fetches from ollama.com is most of a
+  // gigabyte and a half. The owner is told the size and the address of both, because they agree to
+  // the whole of it, not to the part Branch happens to download itself.
   return finish({
-    ...common, approxBytes: 16 * 1024,
-    verify: "Branch checks Ollama's install script against the SHA-256 Ollama publishes beside it, saves it to a file, and runs that file. Nothing is piped into a shell.",
+    ...common,
+    source: `${ollamaRelease}/${asset}, which then fetches Ollama itself from ${ollamaLinuxPayload}`,
+    verify: "Branch checks Ollama's install script against the SHA-256 Ollama publishes beside it, saves it to a file, and runs that file. Nothing is piped into a shell. The script then fetches Ollama itself from ollama.com over its own secure connection and checks it the way its publisher does.",
     steps: [{ what: "Run Ollama's install script", command: ["/bin/sh", "{file}"] }],
     after: "The script may ask for your password so it can put Ollama in place.",
   });
@@ -326,5 +346,7 @@ function stepFailure(plan: InstallPlan, step: InstallStep, error: unknown): stri
 }
 
 /** How big the download is, in plain words, for the sentence the owner reads before saying yes. */
-export const planSize = (plan: InstallPlan): string => plan.approxBytes >= 1024 ** 3
-  ? `about ${gb(plan.approxBytes)} GB` : `about ${Math.max(1, Math.round(plan.approxBytes / 1024 ** 2))} MB`;
+export const planSize = (plan: Pick<InstallPlan, "approxBytes">): string => plan.approxBytes >= 1024 ** 3
+  ? `about ${gb(plan.approxBytes)} GB`
+  : plan.approxBytes >= 1024 ** 2 ? `about ${Math.round(plan.approxBytes / 1024 ** 2)} MB`
+    : `about ${Math.round(plan.approxBytes / 1024)} KB`;
