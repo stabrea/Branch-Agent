@@ -175,6 +175,22 @@ const compactionKeep = 6;
 /** Hard cap on one request's estimated tokens; kept well above the compaction threshold so that
  *  three clipped tool results still fit after the catalog. Raised with the threshold (wave 5). */
 export const contextLimit = 20000;
+
+/**
+ * The most one reply may be, in tokens.
+ *
+ * This used to be 2048, which was enough for an answer and a tool call and nothing else. A model
+ * that reasons spends its reply allowance on the thinking block *before* it writes either, so on a
+ * local qwen3 the allowance ran out while the model was still thinking: the content came back
+ * empty, the round was recorded as incomplete, and the task failed with "Provider stream ended
+ * without a complete response" — a sentence that blames the provider for a ceiling of ours. The
+ * real limit on a round is the budget, which is checked on the next line; this is only the guard
+ * that stops one reply eating a whole task's room.
+ */
+export const replyCeiling = 8192;
+
+/** How long a task runs when nobody said. A caller that names a deadline is not overruled by it. */
+export const runFallbackTimeoutMs = 120000;
 /** Toolboxes the model is always shown, before the guess at what this task needs. */
 const alwaysOpenGroups = ["core", "files"] as const;
 const tooLong = "This conversation has grown too long to continue. Start a new conversation and mention what matters from this one.";
@@ -784,10 +800,15 @@ ${run.output.slice(0, 6000)}`;
     this.controllers.set(run.id, controller);
     this.activeSessions.add(run.sessionId);
     if (!parent) this.restoreCarried(run);
+    // The two minutes below are a floor for a task nobody put a clock on, not a ceiling on every
+    // task. They used to be added unconditionally, which meant a caller that asked for longer — the
+    // CLI's own `--timeout` among them — was overruled without being told, and any task needing more
+    // than two minutes came back "cancelled: the operation was aborted due to timeout". On a fast
+    // hosted model that is rare; against a local model at fifty tokens a second it is most real
+    // work. A caller that named a deadline gets the deadline it named.
     const signal = AbortSignal.any([
       controller.signal,
-      options.signal ?? new AbortController().signal,
-      AbortSignal.timeout(120000),
+      ...(options.signal ? [options.signal] : [AbortSignal.timeout(runFallbackTimeoutMs)]),
     ]);
     const context = this.scopeToSession(run, parent
       ? { ...parent, runId: run.id, signal, scratchRoot: parent.scratchRoot ?? parent.runId }
@@ -1809,7 +1830,7 @@ ${run.output.slice(0, 6000)}`;
     // written down as an attempt, so a round that never reached the provider really does cost
     // nothing — in the inspector and in the figures alike. The step count still applies, so a task
     // cannot go round for ever on kept answers.
-    const maxTokens = Math.min(2048, Math.max(0, context.budget.remaining() - input));
+    const maxTokens = Math.min(replyCeiling, Math.max(0, context.budget.remaining() - input));
     const cacheKey: CacheKeyParts = {
       provider: preset.provider.name, model: preset.model, reasoning: reasoning ?? null, maxTokens,
       messages, tools: tools.map((tool) => ({ name: tool.name, description: tool.description })),
