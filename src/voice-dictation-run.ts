@@ -125,11 +125,22 @@ export function startDictation(deps: DictationDeps): LiveDictation {
   const now = () => Date.now();
   const tell = (settled: boolean) => deps.onHeard({ words, settled });
 
-  /** Everything that holds anything is let go of here, and nowhere else. */
+  /**
+   * Everything that holds anything is let go of here, and nowhere else.
+   *
+   * Integration review: ending the speech program is what tells Branch the program has ended, so
+   * this is re-entered by its own `stop()` — and the first version of it settled the phrase twice,
+   * the second time with nothing in it, which on the screen is the words appearing and then being
+   * wiped. So what is held is let go of *before* anything is ended, and a second call through the
+   * door finds nothing left to release and does nothing at all.
+   */
   const release = (settle: boolean): void => {
+    const going = speech, recording = recorder;
+    if (!going) return;
+    speech = null; recorder = null;
     if (ticker) { clearInterval(ticker); ticker = null; }
-    recorder?.stop(); recorder = null;
-    speech?.stop(); speech = null;
+    recording?.stop();
+    going.stop();
     room.forget();
     leftOver = new Uint8Array(0);
     if (settle) tell(true);

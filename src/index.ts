@@ -1454,6 +1454,7 @@ export async function createBranch(options: {
       asks.close(); // mac6/bucket-23: live pages stop asking their tools again
       devices.close(); // mac7/nodes: every device socket is closed
       await wake.stop(); // mac7/wake-mic: the microphone is let go of before the app closes
+      dictation.stop(); // mac7/live-voice: and so is the one dictation holds open
       runtime.keepAlive.stop(); // R17-050: no cache ping outlives the app
       await autonomy.close(); // r17-b: nothing more starts by itself, and a turn that is working gets a moment
       await trunks.close(); // R17-A: rooms stop between turns
