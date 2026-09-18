@@ -12,7 +12,8 @@ import { voiceSettings, type VoiceSettings } from "./voice.js";
  *
  *   • Listening happens on this computer only. The word is spotted by something already on this
  *     machine, and no sound ever leaves it. When this computer has nothing that can spot a word on
- *     its own, the switch stays off and the card says so, rather than sending sound to a service.
+ *     its own, nothing listens whatever the switch says, and the card says so, rather than
+ *     sending sound to a service.
  *   • Nothing is recorded before the word is heard. What the listener holds is a few seconds of
  *     sound in memory, thrown away every time the word is not there. No file is written, and
  *     nothing is kept, until the word has been heard.
@@ -164,8 +165,8 @@ const nothingHere = (platform: string): WakeSpotter => ({
   available: false,
   kind: "none",
   how: platform === "darwin"
-    ? "This Mac has nothing that spots a word on its own: macOS keeps its speech recognition inside apps with a window, and there is no command here that can be asked. Set up a speech program on this computer under Voice and the wake word can use that; until then it stays off, because the only other way would be sending what your microphone hears to a service, which is never done."
-    : "This computer has nothing that spots a word on its own: Linux ships no speech recognition. Set up a speech program on this computer under Voice and the wake word can use that; until then it stays off, because the only other way would be sending what your microphone hears to a service, which is never done.",
+    ? "This Mac has nothing that spots a word on its own: macOS keeps its speech recognition inside apps with a window, and there is no command here that can be asked. Set up a speech program on this computer under Voice and the wake word can use that; until then nothing listens here, whatever the switch says, because the only other way would be sending what your microphone hears to a service, which is never done."
+    : "This computer has nothing that spots a word on its own: Linux ships no speech recognition. Set up a speech program on this computer under Voice and the wake word can use that; until then nothing listens here, whatever the switch says, because the only other way would be sending what your microphone hears to a service, which is never done.",
   command: null,
 });
 
@@ -203,7 +204,7 @@ export type ProgramPresent = (name: string) => boolean;
  *
  *   • "recorder" — a recorder this system ships is run for one window and then ends.
  *   • "spotter-listens" — the spotter opens the microphone itself, so Branch never holds any sound.
- *   • "none" — nothing here can listen, and the switch stays off.
+ *   • "none" — nothing here can listen, whatever the switch says.
  */
 export type WakeCaptureKind = "recorder" | "spotter-listens" | "none";
 
@@ -255,11 +256,11 @@ export function wakeCapture(
     return recorder
       ? { kind: "recorder", available: true, command: recorder,
           how: `${recorder.file}, which is already on this computer, run for one window of sound at a time and then ended.` }
-      : cannotListen("This computer has no recorder a program can ask: neither arecord nor parecord is here. Install one of them yourself and the wake word can use it; until then it stays off, because Branch will not add a program of its own to open your microphone.");
+      : cannotListen("This computer has no recorder a program can ask: neither arecord nor parecord is here. Install one of them yourself and the wake word can use it; until then nothing listens here, whatever the switch says, because Branch will not add a program of its own to open your microphone.");
   }
   if (platform === "darwin")
-    return cannotListen("This Mac cannot listen for a word: macOS ships no recorder a program can ask for sound, and Branch will not install one to open your microphone. The switch stays off, whatever else is set up here.");
-  return cannotListen("This computer has no recorder a program can ask, so nothing can be listened for. The switch stays off.");
+    return cannotListen("This Mac cannot listen for a word: macOS ships no recorder a program can ask for sound, and Branch will not install one to open your microphone. Nothing listens here, whatever the switch says and whatever else is set up.");
+  return cannotListen("This computer has no recorder a program can ask, so nothing can be listened for, whatever the switch says.");
 }
 
 /* ---------- starting, and every reason not to ---------- */
@@ -288,6 +289,14 @@ export function wakeParts(
   const spotter = wakeSpotter(voice, wake, platform, true);
   return { wake, spotter, capture: wakeCapture(platform, present, spotter, wake.windowSeconds) };
 }
+
+/**
+ * Integration review: why nothing is listening while Branch is locked. Locking it lets go of the
+ * microphone as it lets go of everything else held only for "while I am here", and unlocking it
+ * starts listening again by itself.
+ */
+export const lockedRefusal =
+  "Branch is locked, so nothing is listening for your word. Unlock it and it listens again.";
 
 /** Why listening for the word is refused right now, or null. Every sentence is one the owner reads. */
 export function wakeRefusal(
@@ -371,6 +380,12 @@ export interface WakeHeard {
   heard: boolean;
   /** What the spotter wrote out, kept only long enough to compare it with the word. */
   text: string;
+  /**
+   * Integration review: whether the spotter ran at all. A spotter that fails the instant it starts
+   * — no PowerShell, a rule that blocks it, no microphone — is not a window that heard nothing, and
+   * the loop has to tell the two apart or it starts the failing program as fast as it can.
+   */
+  ok: boolean;
 }
 
 /** Whether what the spotter wrote out is the owner's word. Case and punctuation are ignored. */
@@ -386,14 +401,31 @@ export function isTheWord(text: string, word: string): boolean {
  * program on its standard input rather than being put anywhere on disk.
  */
 export async function askSpotter(runner: WakeRunner, spotter: WakeSpotter, word: string, sound: Uint8Array): Promise<WakeHeard> {
-  if (!spotter.command) return { heard: false, text: "" };
+  if (!spotter.command) return { heard: false, text: "", ok: false };
   const done = await runner(spotter.command.file, spotter.command.args, sound, spotter.command.env);
   const text = done.code === 0 ? done.stdout.trim().slice(0, 200) : "";
-  return { heard: isTheWord(text, word), text };
+  return { heard: isTheWord(text, word), text, ok: done.code === 0 };
 }
 
 /** A window of sound, and how many seconds of it there are. */
 export interface WakeChunk { sound: Uint8Array; seconds: number }
+
+/**
+ * Integration review: how long the listener waits after a window that failed. A recorder or a
+ * spotter that fails the instant it is started paces nothing, so without this the loop would start
+ * the failing program again as fast as it could turn — which on the one computer whose spotter
+ * opens its own microphone meant no timer in the whole app ever ran again.
+ */
+export const wakeBackoffMs = 2000;
+
+/**
+ * A wait between windows. Always a parameter, so a test drives the loop without real time passing.
+ * Even a wait of nothing waits: it hands the turn back to the app, so a listener can never hold on
+ * to it, and the wait is let go of by the app so it can never keep Branch running by itself.
+ */
+export type WakePause = (ms: number) => Promise<void>;
+export const waitBetweenWindows: WakePause = (ms) =>
+  new Promise((settle) => { setTimeout(settle, ms).unref(); });
 
 export interface WakeListenerDeps {
   store: Store;
@@ -401,6 +433,14 @@ export interface WakeListenerDeps {
   runner: WakeRunner;
   platform?: string;
   present?: ProgramPresent;
+  /** The wait after a window; the real one above unless a test hands in its own. */
+  pause?: WakePause;
+  /**
+   * Integration review: whether Branch is locked this moment. Locking it lets go of the microphone,
+   * and being locked is a state rather than a single push: while it is locked nothing may start
+   * listening again, whoever saves a setting — the card, a settings file or a preset.
+   */
+  locked?: () => boolean;
 }
 
 /**
@@ -416,8 +456,10 @@ export async function listenForWake(
 ): Promise<{ heard: boolean; text: string; refusal: string | null; windowsTried: number; windowsTooLong: number }> {
   const platform = deps.platform ?? process.platform;
   const present = deps.present ?? onThisComputer;
+  const pause = deps.pause ?? waitBetweenWindows;
   const refusal = wakeRefusal(deps.store, deps.owner, platform, present);
   if (refusal) return { heard: false, text: "", refusal, windowsTried: 0, windowsTooLong: 0 };
+  if (deps.locked?.()) return { heard: false, text: "", refusal: lockedRefusal, windowsTried: 0, windowsTooLong: 0 };
   let windowsTried = 0, windowsTooLong = 0;
   /** The only copy of any sound this function ever holds; replaced, never added to, never written. */
   let held: Uint8Array | null = null;
@@ -425,17 +467,21 @@ export async function listenForWake(
     // mac7/wake-mic: asked again before every window rather than once at the start. Lockdown coming
     // on, or the switch going off, stops the listener within one window whoever turned it — the app,
     // the command line, or another window — and the microphone is let go of with it.
-    const stop = wakeRefusal(deps.store, deps.owner, platform, present);
+    const stop = wakeRefusal(deps.store, deps.owner, platform, present)
+      ?? (deps.locked?.() ? lockedRefusal : null);
     if (stop) return { heard: false, text: "", refusal: stop, windowsTried, windowsTooLong };
     const { wake, spotter } = wakeParts(deps.store, deps.owner, platform, present);
     // More than the owner allowed to be held at once is dropped where it arrives, without being
     // looked at, so the promise on the card is kept however the sound is handed over.
-    if (chunk.seconds > wake.windowSeconds) { windowsTooLong += 1; continue; }
+    if (chunk.seconds > wake.windowSeconds) { windowsTooLong += 1; await pause(0); continue; }
     held = chunk.sound;
     windowsTried += 1;
     const answer = await askSpotter(deps.runner, spotter, wake.word, held);
     held = null; // thrown away before the next window, heard or not
     if (answer.heard) return { heard: true, text: answer.text, refusal: null, windowsTried, windowsTooLong };
+    // Integration review: the turn is always handed back to the app, and a spotter that failed
+    // rather than simply hearing nothing is waited out, so nothing here can ever spin.
+    await pause(answer.ok ? 0 : wakeBackoffMs);
   }
   return { heard: false, text: "", refusal: null, windowsTried, windowsTooLong };
 }
@@ -481,7 +527,13 @@ async function* windowsOfSound(deps: WakeWordDeps, signal: AbortSignal): AsyncIt
     const { wake, capture } = wakeParts(deps.store, deps.owner, platform, deps.present ?? onThisComputer);
     if (capture.kind === "spotter-listens") { yield { sound: new Uint8Array(0), seconds: wake.windowSeconds }; continue; }
     if (!capture.command) return;
-    let sound: Uint8Array | null = await deps.capture(capture.command, wake.windowSeconds, signal);
+    // Integration review: a recorder can fail — the machine woke from sleep with the sound card
+    // gone, a microphone was unplugged, the program is not there any more. That is one window lost,
+    // waited out and tried again, rather than a failure thrown out of the loop with nobody to catch
+    // it (which stopped the app) or a dead device asked again as fast as the loop could turn.
+    let sound: Uint8Array | null;
+    try { sound = await deps.capture(capture.command, wake.windowSeconds, signal); }
+    catch { await (deps.pause ?? waitBetweenWindows)(wakeBackoffMs); continue; }
     if (signal.aborted) return;
     const window = { sound, seconds: wake.windowSeconds };
     sound = null; // the one copy is the one handed on; this binding lets go of it here
@@ -513,7 +565,9 @@ export function startWakeWord(deps: WakeWordDeps): WakeWordListener {
   const listener: WakeWordListener = {
     get listening() { return running !== null; },
     refresh() {
-      if (wakeRefusal(deps.store, deps.owner, platform, present)) { void listener.stop(); return; }
+      // Integration review: being locked is a state, not a single push. A settings save — the card,
+      // a settings file, a preset — must not be a way back to the microphone on a locked Branch.
+      if (deps.locked?.() || wakeRefusal(deps.store, deps.owner, platform, present)) { void listener.stop(); return; }
       if (running) return;
       const controller = new AbortController();
       running = controller;

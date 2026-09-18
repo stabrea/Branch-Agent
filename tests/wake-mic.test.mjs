@@ -9,7 +9,7 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readdir } from "node:fs/promises";
+import { chmod, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
@@ -17,7 +17,12 @@ import { discardTemp } from "./temp-dir.mjs";
 import { createBranch, savePolicy } from "../dist/index.js";
 import { setLockdown } from "../dist/lockdown.js";
 import { saveVoiceSettings } from "../dist/voice.js";
-import { saveWakeWordSettings, startWakeWord, wakeParts, wakeRefusal, windowBytes } from "../dist/voice-wake.js";
+import { saveWakeWordSettings, startWakeWord, wakeParts, wakeRefusal, wakeWordSettings, wakeWordState, windowBytes } from "../dist/voice-wake.js";
+// Integration review (adversarial pass): the real runner, driven against fake programs in a
+// temporary folder. It is the only part of Branch that would start a recorder, so the promises
+// about killing and reaping one cannot be proved through a fake that stands in for it.
+import { wakeCaptureRunner } from "../dist/voice-wake-host.js";
+import { startServer } from "../dist/server.js";
 
 /** A recorder that never exists unless a test says it does. */
 const has = (...names) => (name) => names.includes(name);
@@ -263,5 +268,237 @@ test("M8 \"when needed\" says it is not wired up rather than listening all the t
   assert.equal(wake.listening, false, "\"when needed\" held the microphone open the whole time");
   assert.equal(microphone.mic.windows, 0);
   assert.match(wakeRefusal(store, owner, "linux", has("arecord")), /not wired up yet/);
+  await wake.stop();
+});
+
+/* ---------- integration review (adversarial pass): the promises under attack ---------- */
+
+/**
+ * A recorder that fails the way a real one does when it is not there, when the sound card is taken
+ * away, or when the machine wakes from sleep with the device gone: the promise is rejected.
+ */
+const brokenMicrophone = (why = "no such device") => {
+  const tries = { count: 0 };
+  // The one real pause: it lets a timer run, so a test watching this can fail rather than hang if
+  // the loop ever goes back to spinning. It is not what stops the spin; the listener is.
+  return { tries, capture: async () => {
+    tries.count += 1;
+    await new Promise((settle) => setImmediate(settle));
+    throw new Error(why);
+  } };
+};
+
+test("M9 a recorder that fails loses one window, and never stops the app or hammers the device", async (t) => {
+  const { store, owner } = await fixture(t);
+  saveWakeWordSettings(store, owner, { mode: "on", word: "branch" });
+  // Node's test runner fails this test if the listener leaves a rejection nobody handled, which is
+  // exactly what a recorder dying under it used to do: the loop's promise is only ever awaited by
+  // stop(), so a throw on the way in went nowhere until the process noticed.
+  const broken = brokenMicrophone(), spotter = fakeSpotter("");
+  const wake = listener(store, owner, { capture: broken.capture, runner: spotter.runner });
+  t.after(() => wake.stop());
+  await until(() => broken.tries.count >= 1, "the recorder was never asked for a window");
+  // A recorder can come back — the machine woke from sleep, a microphone was plugged back in — so
+  // the window is lost and tried again rather than the listener giving up and going quiet until
+  // some setting happens to be saved. What it must never do is hammer the dead device.
+  const after = broken.tries.count;
+  await new Promise((settle) => setTimeout(settle, 250));
+  assert.ok(broken.tries.count - after <= 2,
+    `a recorder that fails was retried ${broken.tries.count - after} times in a quarter of a second`);
+  await wake.stop();
+  // Stopping really stops it, however broken the recorder was.
+  const stopped = broken.tries.count;
+  await new Promise((settle) => setTimeout(settle, 120));
+  assert.equal(broken.tries.count, stopped, "a failed recorder kept being asked after the listener stopped");
+});
+
+test("M10 a spotter that fails at once cannot spin, on the one computer that opens its own microphone", async (t) => {
+  const { store, owner } = await fixture(t);
+  saveWakeWordSettings(store, owner, { mode: "on", word: "branch" });
+  // Windows' own engine opens the microphone itself, so no recorder paces the loop: nothing but the
+  // spotter's own run does. A spotter that fails the instant it starts (no PowerShell, a policy that
+  // blocks it, no microphone) therefore used to be started again as fast as the loop could turn.
+  const runs = { count: 0 };
+  // The one real pause, so a timer can run and this test can fail rather than hang the whole suite
+  // if the loop ever spins again. It is not what paces the loop; the listener is.
+  const runner = async () => {
+    runs.count += 1;
+    await new Promise((settle) => setImmediate(settle));
+    return { code: 1, stdout: "", stderr: "boom" };
+  };
+  const wake = startWakeWord({ store, owner, platform: "win32", present: has(),
+    runner, capture: async () => new Uint8Array(0), onHeard: () => {} });
+  t.after(() => wake.stop());
+  await until(() => runs.count >= 1, "the spotter was never asked");
+  await new Promise((settle) => setTimeout(settle, 250));
+  assert.ok(runs.count < 25, `a spotter that fails at once was run ${runs.count} times in a quarter of a second`);
+  await wake.stop();
+});
+
+/**
+ * The app's own listener, the one src/index.ts owns and wires to the lock — driven through the very
+ * option createBranch fills with the real recorder and the real spotter, so what is under test is
+ * the wiring itself rather than a second listener built beside it.
+ */
+async function appListener(t, answers = [""]) {
+  const microphone = fakeMicrophone(), spotter = fakeSpotter(...answers);
+  const { app, store, owner } = await fixture(t, { wake: {
+    runner: spotter.runner, capture: microphone.capture, present: has("arecord"), platform: "linux" } });
+  saveWakeWordSettings(store, owner, { mode: "on", word: "branch" });
+  app.wake.refresh();
+  return { app, store, owner, microphone, spotter, wake: app.wake };
+}
+
+test("M11 unlocking Branch starts listening again, without a settings save", async (t) => {
+  const { app, microphone, wake } = await appListener(t);
+  await until(() => wake.listening, "the listener never started");
+  app.sessionLock.lock();
+  await until(() => wake.listening === false, "locking Branch did not let go of the microphone");
+  const whileLocked = microphone.mic.windows;
+  await new Promise((settle) => setTimeout(settle, 80));
+  assert.equal(microphone.mic.windows, whileLocked, "a window was recorded while Branch was locked");
+  // The owner unlocks from their own app. Nothing else should be needed to hear the word again:
+  // before this it stayed silent until some setting happened to be saved.
+  app.sessionLock.unlock();
+  await until(() => wake.listening, "unlocking Branch left the wake word silent");
+  await wake.stop();
+});
+
+test("M12 a locked Branch does not reopen the microphone when a setting is saved", async (t) => {
+  const { app, store, owner, microphone, wake } = await appListener(t);
+  await until(() => wake.listening, "the listener never started");
+  app.sessionLock.lock();
+  await until(() => wake.listening === false, "locking Branch did not let go of the microphone");
+  const whileLocked = microphone.mic.windows;
+  // Saving the card, a settings file or a preset calls refresh(). While Branch is locked that must
+  // not be a way back to the microphone: the lock is a state, not a one-off push.
+  saveWakeWordSettings(store, owner, { sureness: 90 });
+  wake.refresh();
+  assert.equal(wake.listening, false, "a settings save reopened the microphone on a locked Branch");
+  await new Promise((settle) => setTimeout(settle, 80));
+  assert.equal(microphone.mic.windows, whileLocked, "a locked Branch recorded a window after a settings save");
+  await wake.stop();
+});
+
+/* ---------- the real recorder runner, against fake programs and never a microphone ---------- */
+
+/**
+ * A program written for this test and nothing else. It is a shell script in a temporary folder: it
+ * is not a recorder, it opens nothing, and it is only ever asked to do what a recorder that
+ * misbehaves would do. Skipped on Windows, which has no shell to run it with — and no recorder
+ * either, so there is nothing there for this runner to do.
+ */
+async function fakeProgram(root, name, script) {
+  const file = join(root, name);
+  await writeFile(file, `#!/bin/sh\n${script}\n`);
+  await chmod(file, 0o755);
+  return file;
+}
+
+/** True while a process is still there. `kill(pid, 0)` asks without sending anything. */
+const stillThere = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+
+const notWindows = { skip: process.platform === "win32" ? "no shell to write a fake recorder with" : false };
+
+test("M13 a recorder that will not stop is cut off at one window's bytes, and the program is ended", notWindows, async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-wake-host-"));
+  t.after(async () => { await discardTemp(root); });
+  const pidFile = join(root, "pid");
+  // Pours out far more than one window and never ends by itself: exactly the recorder the card
+  // promises cannot hold the microphone open or pile sound up in memory.
+  const program = await fakeProgram(root, "endless",
+    `echo $$ > ${pidFile}\nwhile :; do dd if=/dev/zero bs=65536 count=16 2>/dev/null; done`);
+  const runner = wakeCaptureRunner("linux");
+  const sound = await runner({ file: program, args: [] }, 2, new AbortController().signal);
+  // One window of sound and not a byte more, however much the program wrote.
+  assert.ok(sound.length <= windowBytes(2), `held ${sound.length} bytes, more than one window's ${windowBytes(2)}`);
+  const pid = Number((await readFile(pidFile, "utf8")).trim());
+  assert.ok(Number.isInteger(pid) && pid > 0, "the fake recorder never said which process it was");
+  t.after(() => { try { process.kill(pid, "SIGKILL"); } catch { /* already gone, which is the point */ } });
+  // The program that had the microphone is ended, not left running behind the answer.
+  await until(() => !stillThere(pid), "the recorder was still running after its window was over");
+});
+
+test("M14 a recorder that ignores being asked to stop is ended for good", notWindows, async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-wake-host-"));
+  t.after(async () => { await discardTemp(root); });
+  const pidFile = join(root, "pid");
+  // Turns a deaf ear to SIGTERM and holds on. Nothing may keep the microphone by refusing to go.
+  const program = await fakeProgram(root, "stubborn",
+    `trap '' TERM\necho $$ > ${pidFile}\nsleep 20`);
+  const runner = wakeCaptureRunner("linux");
+  const sound = await runner({ file: program, args: [] }, 1, new AbortController().signal);
+  assert.equal(sound.length, 0, "a recorder that wrote nothing somehow produced sound");
+  const pid = Number((await readFile(pidFile, "utf8")).trim());
+  t.after(() => { try { process.kill(pid, "SIGKILL"); } catch { /* already gone, which is the point */ } });
+  // It is asked first and ended for good a moment later, well before its own twenty seconds.
+  await until(() => !stillThere(pid), "a recorder that ignored SIGTERM was left holding the microphone");
+});
+
+test("M15 a recorder that ends early is not waited for, and leaves nothing behind", notWindows, async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-wake-host-"));
+  t.after(async () => { await discardTemp(root); });
+  const program = await fakeProgram(root, "quitter", "exit 0");
+  const runner = wakeCaptureRunner("linux");
+  const started = Date.now();
+  const sound = await runner({ file: program, args: [] }, 5, new AbortController().signal);
+  // It came back on the program ending rather than sitting out the whole five-second window.
+  assert.ok(Date.now() - started < 3000, "a recorder that ended at once still held the window open");
+  assert.equal(sound.length, 0);
+});
+
+test("M16 a recorder that is not there fails the window rather than hanging", notWindows, async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-wake-host-"));
+  t.after(async () => { await discardTemp(root); });
+  const runner = wakeCaptureRunner("linux");
+  await assert.rejects(
+    () => runner({ file: join(root, "not-here"), args: [] }, 1, new AbortController().signal),
+    "a recorder that does not exist was not reported as a failure");
+});
+
+test("M17 this Mac is never asked to record, whatever it is handed", async () => {
+  // The second lock on the same door: even if something got past the refusal, the runner on a Mac
+  // starts no program at all. The card's "this Mac cannot listen" is kept here as well as there.
+  await assert.rejects(() => wakeCaptureRunner("darwin")({ file: "arecord", args: [] }, 1, new AbortController().signal),
+    /no recorder/i);
+});
+
+/* ---------- who may set it, and what the card promises ---------- */
+
+test("M18 nobody but the owner can switch listening on, through any door", async (t) => {
+  const { app, root, store, owner } = await fixture(t);
+  saveWakeWordSettings(store, owner, { mode: "off", word: "branch" });
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  t.after(async () => { await server.close(); });
+  const profile = app.store.profiles.create({ name: "Sam", pin: "2468" });
+  app.store.profiles.switch({ profileId: profile.id, pin: "2468" });
+  const post = (path, body) => fetch(server.url + path, { method: "POST",
+    headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" },
+    body: JSON.stringify(body) });
+  // The card's own door.
+  assert.equal((await post("/api/voice/wake", { mode: "on" })).ok, false,
+    "somebody else on this computer switched the microphone on");
+  // And the door mac7/wake-mic opened: a settings file or a preset now starts and stops the
+  // listener, so it must be refused the same way rather than being a way round the card.
+  assert.equal((await post("/api/settings-kit/apply",
+    { plan: { source: "set", key: "wake-word", field: "mode", value: "on" }, accept: [] })).ok, false,
+    "a preset switched the microphone on for somebody who is not the owner");
+  assert.equal(wakeWordSettings(store, owner).mode, "off", "the switch moved after every door was refused");
+});
+
+test("M19 the card's word about this Mac is the word the code keeps", async (t) => {
+  const { store, owner } = await fixture(t);
+  // The owner saves it On, on a Mac, with a speech program of their own set up: the strongest case
+  // the card has to survive. Whatever the switch says, nothing listens and the sentence says why.
+  saveWakeWordSettings(store, owner, { mode: "on", word: "branch" });
+  const state = wakeWordState(store, owner, "darwin", false, has("arecord", "parecord", "sox", "rec", "ffmpeg"));
+  assert.equal(state.canListen, false, "a Mac said it could listen for a word");
+  assert.ok(state.refusal, "a Mac with the switch on gave no reason why nothing is listening");
+  const microphone = fakeMicrophone(), spotter = fakeSpotter("branch");
+  const wake = startWakeWord({ store, owner, platform: "darwin", present: has("arecord", "parecord"),
+    runner: spotter.runner, capture: microphone.capture, onHeard: () => {} });
+  t.after(() => wake.stop());
+  assert.equal(wake.listening, false, "a Mac started listening for a word");
+  assert.equal(microphone.mic.windows, 0, "a Mac recorded a window of sound");
   await wake.stop();
 });

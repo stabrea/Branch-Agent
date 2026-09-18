@@ -634,6 +634,13 @@ export async function createBranch(options: {
   // and lets go of anything an integration was holding on the owner's behalf — above all a browser
   // of theirs a task had borrowed.
   const releaseOnLock: (() => Promise<unknown>)[] = [];
+  /**
+   * Integration review (mac7/wake-mic): what comes back by itself when the lock ends. Letting go on
+   * the lock has to be answered here or it is one-way, and the owner is left with a part of Branch
+   * silently off until some setting happens to be saved.
+   */
+  const resumeOnUnlock: (() => void)[] = [];
+  sessionLock.onUnlock = () => { for (const resume of resumeOnUnlock) { try { resume(); } catch { /* one part coming back must not stop the rest */ } } };
   sessionLock.onLock = () => {
     runtime.approvals.forgetAll();
     // Wave 8: a connection that stays open would otherwise outlive the lock. Every live
@@ -1042,6 +1049,9 @@ export async function createBranch(options: {
   const wake = startWakeWord({
     store, owner: runtime.owner, runner: options.wake?.runner ?? wakeRunner(),
     capture: options.wake?.capture ?? wakeCaptureRunner(),
+    // Integration review: being locked is a state the listener asks about before every window and
+    // before every start, so a settings save cannot reopen the microphone on a locked Branch.
+    locked: () => sessionLock.locked(),
     ...(options.wake?.present ? { present: options.wake.present } : {}),
     ...(options.wake?.platform ? { platform: options.wake.platform } : {}),
     // The turn the word starts is an ordinary one: the same call a typed message makes, with no
@@ -1049,6 +1059,7 @@ export async function createBranch(options: {
     onHeard: (text) => { if (text.trim()) void runtime.run({ prompt: text.trim() }).catch(() => undefined); },
   });
   releaseOnLock.push(() => wake.stop()); // locking Branch lets go of the microphone
+  resumeOnUnlock.push(() => wake.refresh()); // ...and unlocking it listens again, with no save needed
   // ── end mac7/wake-mic ──
   // ── r17-i: reach and platform (src/reach/). Every part ships off. ──
   const reachParts = new Reach({ runtime, registry, router: channels, files, policy: web.policy, fetch: web.policy.guard(globalThis.fetch),

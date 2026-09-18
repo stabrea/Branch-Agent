@@ -7905,14 +7905,30 @@ Lockdown coming on, the switch going off, or the app closing stops it within one
 turned it — the card, the terminal, a settings file or another window — and the microphone is let go
 of when it stops. The recorder is **one program per window**: it is started, it ends when the window
 is up, and it is ended by the count of bytes as well, so only one window of sound is ever in memory
-and nothing can hold the microphone open between windows. The sound goes to the spotter on its
-standard input; no file name is ever an argument to either program, and no file is written.
+and nothing can hold the microphone open between windows. A recorder that will not go when it is
+asked is ended for good two seconds later. The sound goes to the spotter on its standard input; no
+file name is ever an argument to either program, and no file is written.
+
+**Locking Branch, and unlocking it (integration review).** Locking Branch lets go of the microphone
+along with everything else it holds only for "while I am here", and **unlocking it starts listening
+again by itself** — you do not have to save anything to get your word back. While it is locked
+nothing can start it: being locked is a state the listener asks about before every window and before
+every start, so a settings file, a preset or the card cannot reopen the microphone underneath the
+lock.
+
+**When something goes wrong (integration review).** A window that fails — the machine woke from
+sleep with the sound card gone, a microphone was unplugged, the spotter would not start — is one
+window lost. The listener waits two seconds and tries the next one: it does not stop the app, and it
+does not ask a dead device again as fast as it can. So sleeping and waking costs you the window it
+slept through and nothing else.
 
 - **macOS: this Mac cannot listen for a word, and the card says so.** macOS ships no recorder a
   program can ask for sound — there is no `arecord`, no `afrecord`, nothing — and Branch will not
-  install one of its own to open your microphone. So the switch stays **off** on a Mac whatever else
-  is set up here, including a speech program of your own: such a program can *spot* a word, but it
-  cannot *record* one. Spotting is not listening.
+  install one of its own to open your microphone. So on a Mac **nothing listens, whatever the switch
+  says** and whatever else is set up here, including a speech program of your own: such a program
+  can *spot* a word, but it cannot *record* one. Spotting is not listening. The switch is still
+  yours to move — it is saved, and the card shows it where you left it — but the line underneath
+  says this Mac cannot listen, and nothing is started.
 - **Linux** uses `arecord` (alsa-utils) when it is really on this computer, and `parecord`
   (PulseAudio) when it is not. Neither is assumed: the search path is looked at, and a Linux box with
   neither says so and stays off. `arecord` is given the window's length as well as being bounded by

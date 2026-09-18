@@ -143,7 +143,7 @@ test("W6 what each computer would really do, and the ones that say so and stay o
     const spotter = wakeSpotter(none, wake, platform);
     assert.equal(spotter.available, false, `${platform} claimed a spotter it does not have`);
     assert.equal(spotter.command, null);
-    assert.match(spotter.how, /stays off/);
+    assert.match(spotter.how, /nothing listens here/);
     assert.match(spotter.how, /never done/);
     assert.equal(wakeRefusal(store, owner, platform), spotter.how, `${platform} refuses in different words from the card`);
   }
@@ -164,12 +164,14 @@ test("W6 what each computer would really do, and the ones that say so and stay o
 
 test("W7 a spotter with nothing to run is asked nothing, and a failed run is never the word", async () => {
   const { runner, calls } = fakeRunner(["branch"]);
+  // `ok` says whether the spotter ran at all, which is not the same as hearing nothing: the loop
+  // waits out a spotter that failed rather than starting it again as fast as it can.
   assert.deepEqual(await askSpotter(runner, { available: false, how: "", command: null }, "branch", new Uint8Array(2)),
-    { heard: false, text: "" });
+    { heard: false, text: "", ok: false });
   assert.deepEqual(calls, []);
   const failing = async () => ({ code: 1, stdout: "branch", stderr: "no model" });
   assert.deepEqual(await askSpotter(failing, { available: true, how: "", command: { file: "x", args: [] } }, "branch", new Uint8Array(2)),
-    { heard: false, text: "" });
+    { heard: false, text: "", ok: false });
 });
 
 test("W8 the switch and how sure it must be are in the catalogue; the word itself never is", async () => {

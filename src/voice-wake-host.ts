@@ -60,6 +60,9 @@ export function wakeCaptureRunner(platform: NodeJS.Platform = process.platform):
     const stopper = setTimeout(() => done(Buffer.concat(pieces)), (windowSeconds + 1) * 1000);
     stopper.unref();
     child.stdout.on("data", (piece: Buffer) => {
+      // Integration review: once the window is answered, what the program is still writing on its
+      // way out is dropped where it arrives rather than piling up behind an answer already given.
+      if (finished) return;
       pieces.push(piece);
       held += piece.length;
       if (held >= most) { clearTimeout(stopper); done(Buffer.concat(pieces).subarray(0, most)); }
