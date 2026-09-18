@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { Updater, type UpdaterOptions } from "../desktop/updater.js";
 import { appEntryName, releaseAssetName } from "../desktop/release-assets.js";
 import { snapshotData, updateCanary } from "../never-break/canary.js";
+import { assertFormatReadable, dataOpenError, storeMigrations } from "../never-break/migrations.js";
 import { Store } from "../store.js";
 import { requestUpdateBackup } from "./background-engine.js";
 import { databaseName } from "./layout.js";
@@ -53,9 +54,18 @@ async function engineCall(dataDir: string, note: RunningInstance, path: string):
     body: "{}", signal: AbortSignal.timeout(180000) });
 }
 
-/** Opens the saved work directly, for when nothing is running that holds it. */
+/**
+ * Opens the saved work directly, for when nothing is running that holds it. mac7/install-torture:
+ * the format is read first, so an older `branch update --yes` run against work a newer Branch saved
+ * refuses while that work is still untouched — the store's own opening rewrites tasks that were
+ * running, throws temporary sessions away and adds columns, all before anything could refuse.
+ */
 async function withStore<T>(dataDir: string, use: (store: Store) => Promise<T>): Promise<T> {
-  const store = new Store(join(dataDir, databaseName));
+  const path = join(dataDir, databaseName);
+  assertFormatReadable(path, storeMigrations);
+  let store: Store;
+  try { store = new Store(path); }
+  catch (error) { throw dataOpenError(path, error); }
   try { return await use(store); } finally { store.close(); }
 }
 

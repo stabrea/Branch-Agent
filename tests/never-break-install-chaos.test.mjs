@@ -36,6 +36,7 @@ import {
 import { backupsToPrune, backupFileName, formatCopiesToPrune, writeUpdateBackup } from "../dist/install/update-backup.js";
 import { GatewayConfigSchema, loadGatewayConfig, promoteGood, saveGatewayConfig } from "../dist/never-break/gateway-config.js";
 import { openJournal } from "../dist/never-break/journal.js";
+import { headlessUpdate } from "../dist/install/headless-update.js";
 import { doctorFix } from "../dist/doctor-fix.js";
 import { builtInSpeech } from "../dist/speech-engines.js";
 
@@ -568,6 +569,69 @@ test(`data from a newer Branch is refused without a single byte being changed ($
     assert.throws(() => assertFormatReadable(join(dataDir, "branch.sqlite"), storeMigrations), DataTooNewError, label);
     outcomes.push(`${seed}:format-${ahead}`);
     const _ = before;
+  }
+  t.diagnostic(outcomes.join(" "));
+});
+
+/** Stamps a data folder as having been written by a Branch newer than this one. */
+function stampFromTheFuture(dataDir, ahead) {
+  const db = new DatabaseSync(join(dataDir, "branch.sqlite"));
+  try {
+    db.prepare("UPDATE tasks SET status='running', output=''").run();
+    db.exec("CREATE TABLE IF NOT EXISTS branch_format(id INTEGER PRIMARY KEY CHECK (id=1), version INTEGER NOT NULL, readable_by INTEGER NOT NULL, changed_at TEXT NOT NULL)");
+    db.prepare("INSERT INTO branch_format(id,version,readable_by,changed_at) VALUES(1,?,?,?) ON CONFLICT(id) DO UPDATE SET version=excluded.version, readable_by=excluded.readable_by")
+      .run(ahead, ahead - 1, new Date().toISOString());
+    db.exec(`PRAGMA user_version=${ahead}`);
+  } finally { db.close(); }
+}
+
+/** A release the headless updater can find, download and check, with nothing leaving this computer. */
+function releaseFor(archive) {
+  const digest = createHash("sha256").update(archive).digest("hex");
+  return async (url) => {
+    const text = String(url);
+    if (text.includes("releases/latest"))
+      return Response.json({ tag_name: "v2.0.0", name: null, body: "", published_at: null,
+        html_url: "https://example.invalid/releases/tag/v2.0.0",
+        assets: [{ name: "Branch-Agent-linux-x64.tar.gz", browser_download_url: "https://example.invalid/app.tgz", size: archive.length },
+          { name: "Branch-Agent-linux-x64.tar.gz.sha256", browser_download_url: "https://example.invalid/app.sha256", size: 64 }] });
+    if (text.endsWith("app.tgz")) return new Response(archive);
+    return new Response(`${digest}  Branch-Agent-linux-x64.tar.gz\n`);
+  };
+}
+
+test(`\`branch update --yes\` on data from a newer Branch refuses without touching it (${seeds} seeds)`, { skip: !posix && "POSIX shell" }, async (t) => {
+  const outcomes = [];
+  for (let seed = 1; seed <= seeds; seed++) {
+    const next = random(seed * 80021);
+    const root = await temp(t, `headless-${seed}`);
+    const { dataDir } = await ownersData(root);
+    const ahead = storeMigrations.at(-1).version + 1 + Math.floor(next() * 20);
+    stampFromTheFuture(dataDir, ahead);
+    const digest = async () => createHash("sha256").update(await readFile(join(dataDir, "branch.sqlite"))).digest("hex");
+    const wasAt = await digest();
+    // The safety copy and the copy for the check are the real ones, so they open the saved work the
+    // way `branch update --yes` does when nothing is running to hold it.
+    const lines = [];
+    const code = await headlessUpdate({
+      installRoot: join(root, "app"), dataDir, version: "1.0.0", platform: "linux", arch: "x64", yes: true,
+      print: (line) => lines.push(line),
+      deps: {
+        fetch: releaseFor(Buffer.from(`release-${seed}`)),
+        scratchDir: join(root, "scratch"),
+        running: async () => null,
+        extract: async (_file, into) => { await mkdir(join(into, "Branch-Agent-linux-x64"), { recursive: true }); await writeFile(join(into, "Branch-Agent-linux-x64", "branch-agent"), "new"); },
+        quit: async () => ({ stopped: true, wasRunning: false, pid: null, message: "" }),
+        runScript: () => { throw new Error(`seed ${seed}: the files were swapped although the saved work could not be read`); },
+      },
+    });
+    const label = `seed ${seed}, \`branch update --yes\` on data from format ${ahead}`;
+    assert.equal(code, 1, `${label}: the update went ahead`);
+    assert.equal(await digest(), wasAt, `${label}: the saved work was changed by an update that then refused`);
+    const said = lines.join("\n");
+    assert.match(said, /newer version of Branch|cannot read safely/, `${label}: ${said}`);
+    assert.doesNotMatch(said, systemWords, `${label}: ${said}`);
+    outcomes.push(`${seed}:format-${ahead}`);
   }
   t.diagnostic(outcomes.join(" "));
 });

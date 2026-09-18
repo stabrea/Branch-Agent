@@ -2096,7 +2096,10 @@ sentence "Nothing was changed" is true — before, the older version had already
 rewritten tasks that were running and thrown temporary sessions away by the time it said so. A
 damaged, unreadable or unwritable folder is said in plain words that name the file, say nothing was
 changed and point at the safety copies in `update-backups/` (`dataProblemSentence`), instead of
-SQLite's own "database disk image is malformed". A second Branch started on the same data folder
+SQLite's own "database disk image is malformed". `branch update --yes` reads the format the same
+way before it takes its safety copy or its copy for the check (`withStore` in
+`src/install/headless-update.ts`), so an older copy of Branch cannot rewrite newer work on its way
+to installing the newer one. A second Branch started on the same data folder
 refuses and says which folder is in use and what to do. A clock that jumped backwards no longer
 holds an update's watch open for ever or rolls a good version back on the first ordinary crash
 (`watchVerdict`), and no longer throws away the safety copy just written (`backupsToPrune`); the
