@@ -33,6 +33,9 @@ const openaiResponse = z.object({
       z.object({
         message: z.object({
           content: z.string().nullable().optional(),
+          // mac7/empty-completion: the thinking a reasoning model returns beside its answer.
+          reasoning_content: z.string().nullable().optional(),
+          reasoning: z.string().nullable().optional(),
           tool_calls: z
             .array(
               z.object({
@@ -310,7 +313,8 @@ export class OpenAIProvider implements Provider {
     const body = { ...plain, ...serviceTierPart(this.options.endpoint, request.serviceTier),
       ...openRouterBodyPart(this.options.endpoint, request.providerRouting) };
     if (request.onTextDelta) {
-      const stream = new OpenAIStream(request.onTextDelta);
+      // mac7/empty-completion: thinking goes to its own listener, never to the page.
+      const stream = new OpenAIStream(request.onTextDelta, request.onReasoningDelta);
       try {
         await post(this.options, "/chat/completions",
           { ...body, stream: true, stream_options: { include_usage: true } },
@@ -329,6 +333,7 @@ export class OpenAIProvider implements Provider {
       ),
     );
     const message = response.choices[0]!.message;
+    const thought = (message.reasoning_content ?? message.reasoning ?? "").length;
     return {
       content: message.content ?? "",
       toolCalls: (message.tool_calls ?? []).map((c) => ({
@@ -336,6 +341,7 @@ export class OpenAIProvider implements Provider {
         name: originalName(c.function.name, request),
         arguments: c.function.arguments,
       })),
+      ...(thought ? { reasoningChars: thought } : {}),
       ...(response.usage
         ? {
             usage: {
