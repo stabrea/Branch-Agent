@@ -259,3 +259,39 @@ test("a phone with the right pairing number gets in while a guesser is being mad
   const real = app.devices.book.invite();
   assert.equal((await pair(real.id, real.code)).status, 200, "a right number must never be held by somebody else's wrong ones");
 });
+
+// ---------------------------------------------------------------------------
+// 6. The old shape of address, which is the address a service was really given.
+// ---------------------------------------------------------------------------
+
+test("an address saved before the word existed is never turned away for somebody else's wrong tries", async (t) => {
+  const { server } = await twoServices(t);
+  // A stranger works through wrong words on this very name until that name's entry is waiting.
+  const statuses = [];
+  for (let i = 0; i < 5; i++) statuses.push((await unsignedPost(server, `/webhooks/chat/line/${wrongWord}`)).status);
+  assert.equal(statuses.at(-1), 429, "the name really is waiting");
+  // The grace for addresses saved before the word existed is on, and the door is on this computer,
+  // so this IS the address LINE was given. A wait must never be what stops it: the wait is read
+  // only after an address has been found wrong, and this one is right.
+  const good = await signedPost(server, "/webhooks/chat/line", "m-old");
+  assert.equal(good.status, 200, "the old shape, correctly signed, must still get through");
+  assert.deepEqual(await good.json(), { accepted: 1 });
+});
+
+test("the old shape is refused outright once the webhook door is carrying the internet", async (t) => {
+  const { server } = await twoServices(t);
+  const body = JSON.stringify({ events: [{ type: "message", message: { type: "text", id: "m-t", text: "hi" }, source: { type: "user", userId: "user-9" } }] });
+  const post = (headers) => fetch(`${server.url}/webhooks/chat/line`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-line-signature": createHmac("sha256", SECRET).update(body).digest("base64"), ...headers },
+    body,
+  });
+  // Straight off this computer the grace holds, exactly as the test above showed.
+  assert.equal((await post({})).status, 200);
+  // Wearing the door's mark it does not: an address anybody can find by guessing the name is worth
+  // less than the convenience the moment strangers can reach it, which is the same rule already
+  // applied when Branch listens beyond this computer. This is what makes it safe never to hold an
+  // old-shape post for waiting — the grace is only ever offered where strangers cannot knock.
+  assert.equal((await post({ [tunnelMark]: "1" })).status, 404,
+    "the old shape must not be answered through the public webhook door");
+});
