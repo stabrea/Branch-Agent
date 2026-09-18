@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { findOnPath } from "./voice-tts.js";
 import { FeatureModeSchema, type FeatureMode } from "./feature-switches.js";
 import { lockdownOverrides } from "./lockdown.js";
 import type { Store } from "./store.js";
@@ -62,6 +63,11 @@ export type WakeRunner = (
 export interface WakeSpotter {
   /** True when this computer can spot a word on its own. */
   available: boolean;
+  /**
+   * Which spotter this is. Windows' own engine can open the microphone for itself; a speech program
+   * the owner set up is handed sound by something else. The capture below turns on that difference.
+   */
+  kind: "windows-speech" | "own-program" | "none";
   /** What it would use, or why it cannot, in the owner's words. */
   how: string;
   /**
@@ -73,17 +79,22 @@ export interface WakeSpotter {
   command: { file: string; args: string[]; env: Record<string, string> } | null;
 }
 
-const windowsSpotter = (word: string, sureness: number): WakeSpotter => ({
+const windowsSpotter = (word: string, sureness: number, ownMicrophone: boolean, windowSeconds: number): WakeSpotter => ({
   available: true,
-  how: "Windows' own speech recognition, which runs on this computer and needs nothing installed.",
+  kind: "windows-speech",
+  how: ownMicrophone
+    ? "Windows' own speech recognition, which runs on this computer, opens the microphone itself and needs nothing installed."
+    : "Windows' own speech recognition, which runs on this computer and needs nothing installed.",
   command: {
     file: "powershell.exe",
     // The word is never put into the script text. PowerShell's -Command takes one string and glues
     // any words after it onto the end of that same string, so an argument there would be read as
     // PowerShell after all; the word is handed over in the environment instead, where it is only
     // ever a value (integration review, mac7/wake-pins).
-    args: ["-NoProfile", "-NonInteractive", "-Command", windowsScript],
-    env: wakeEnvironment(word, sureness),
+    args: ["-NoProfile", "-NonInteractive", "-Command", ownMicrophone ? windowsListeningScript : windowsScript],
+    env: ownMicrophone
+      ? { ...wakeEnvironment(word, sureness), BRANCH_WAKE_WINDOW: String(windowSeconds) }
+      : wakeEnvironment(word, sureness),
   },
 });
 
@@ -100,7 +111,7 @@ const wakeEnvironment = (word: string, sureness: number): Record<string, string>
  * grammar of exactly one phrase, and never reaches the network; the online Windows dictation
  * service is a different class and is not used.
  */
-const windowsScript = [
+const windowsGrammar = [
   "$Word = $env:BRANCH_WAKE_WORD",
   "$Sureness = [double]$env:BRANCH_WAKE_SURENESS",
   "Add-Type -AssemblyName System.Speech",
@@ -108,13 +119,35 @@ const windowsScript = [
   "$choices = New-Object System.Speech.Recognition.Choices($Word)",
   "$builder = New-Object System.Speech.Recognition.GrammarBuilder($choices)",
   "$engine.LoadGrammar((New-Object System.Speech.Recognition.Grammar($builder)))",
+];
+const windowsAnswer = "if ($heard -and $heard.Confidence -ge $Sureness) { Write-Output $heard.Text }";
+
+/** Sound handed in on standard input: what mac7/wake-pins wrote, unchanged. */
+const windowsScript = [
+  ...windowsGrammar,
   "$engine.SetInputToWaveStream([Console]::OpenStandardInput())",
   "$heard = $engine.Recognize()",
-  "if ($heard -and $heard.Confidence -ge $Sureness) { Write-Output $heard.Text }",
+  windowsAnswer,
+].join("; ");
+
+/**
+ * mac7/wake-mic: the same engine opening the microphone itself, for one window and no longer. The
+ * window is a number the owner chose between one and five, and it travels in the environment beside
+ * the word rather than being pasted into the script, exactly as the word does.
+ *
+ * One run is one window: the program ends when the window is up, which is what lets go of the
+ * microphone. Nothing is written down, and no sound ever reaches Branch at all on this path.
+ */
+const windowsListeningScript = [
+  ...windowsGrammar,
+  "$engine.SetInputToDefaultAudioDevice()",
+  "$heard = $engine.Recognize([TimeSpan]::FromSeconds([double]$env:BRANCH_WAKE_WINDOW))",
+  windowsAnswer,
 ].join("; ");
 
 const ownSpeechProgram = (settings: VoiceSettings, word: string): WakeSpotter => ({
   available: true,
+  kind: "own-program",
   // The word itself is never put in this sentence: the sentence is shown to whoever is using this
   // computer, and the owner's word is theirs alone (integration review, mac7/wake-pins).
   how: `The speech program you already set up on this computer (${settings.localSpeechKind}), asked only whether it heard your word. It writes out what it heard rather than saying how sure it is, so "how sure it must be" does nothing while this is what spots the word.`,
@@ -129,6 +162,7 @@ const ownSpeechProgram = (settings: VoiceSettings, word: string): WakeSpotter =>
 
 const nothingHere = (platform: string): WakeSpotter => ({
   available: false,
+  kind: "none",
   how: platform === "darwin"
     ? "This Mac has nothing that spots a word on its own: macOS keeps its speech recognition inside apps with a window, and there is no command here that can be asked. Set up a speech program on this computer under Voice and the wake word can use that; until then it stays off, because the only other way would be sending what your microphone hears to a service, which is never done."
     : "This computer has nothing that spots a word on its own: Linux ships no speech recognition. Set up a speech program on this computer under Voice and the wake word can use that; until then it stays off, because the only other way would be sending what your microphone hears to a service, which is never done.",
@@ -142,50 +176,157 @@ const nothingHere = (platform: string): WakeSpotter => ({
  */
 export function wakeSpotter(
   settings: VoiceSettings, wake: WakeWordSettings, platform: string = process.platform,
+  /** True when this spotter is the one opening the microphone, rather than being handed sound. */
+  ownMicrophone = false,
 ): WakeSpotter {
-  if (!wake.word) return { available: false, how: "No word has been chosen yet.", command: null };
+  if (!wake.word) return { available: false, kind: "none", how: "No word has been chosen yet.", command: null };
+  // mac7/wake-mic: when this spotter is the one opening the microphone, Windows' own engine is the
+  // only thing here that can, whatever speech program the owner has set up for writing out
+  // recordings — Windows ships no recorder to feed one.
+  if (ownMicrophone && platform === "win32") return windowsSpotter(wake.word, wake.sureness, true, wake.windowSeconds);
   if (settings.localSpeechExecutable && settings.localSpeechModel) return ownSpeechProgram(settings, wake.word);
-  if (platform === "win32") return windowsSpotter(wake.word, wake.sureness);
+  if (platform === "win32") return windowsSpotter(wake.word, wake.sureness, ownMicrophone, wake.windowSeconds);
   return nothingHere(platform);
+}
+
+/* ---------- what opens the microphone, on each computer ---------- */
+
+/**
+ * Whether a program is on this computer, asked without running it. Always passed in, so a test
+ * decides the answer and the result never depends on what happens to be installed on the machine
+ * running the tests.
+ */
+export type ProgramPresent = (name: string) => boolean;
+
+/**
+ * How the sound gets in.
+ *
+ *   • "recorder" — a recorder this system ships is run for one window and then ends.
+ *   • "spotter-listens" — the spotter opens the microphone itself, so Branch never holds any sound.
+ *   • "none" — nothing here can listen, and the switch stays off.
+ */
+export type WakeCaptureKind = "recorder" | "spotter-listens" | "none";
+
+export interface WakeCapture {
+  kind: WakeCaptureKind;
+  /** True when this computer can listen at all. */
+  available: boolean;
+  /** What it would use, or why it cannot, in the owner's words. */
+  how: string;
+  /** The recorder and its arguments, or null when nothing is run to record. */
+  command: { file: string; args: string[] } | null;
+}
+
+/** Sixteen thousand samples a second, two bytes each, one channel: what every recorder below is asked for. */
+export const wakeSampleRate = 16000;
+/** The most bytes one window may ever be, so a recorder that will not stop is stopped by the count. */
+export const windowBytes = (windowSeconds: number): number => wakeSampleRate * 2 * windowSeconds + 4096;
+
+const alsaRecorder = (windowSeconds: number): WakeCapture["command"] => ({
+  file: "arecord",
+  // `-d` ends it on its own after the window; the count of bytes ends it too, so a recorder that
+  // ignores the flag still cannot hold more than one window.
+  args: ["-q", "-f", "S16_LE", "-r", String(wakeSampleRate), "-c", "1", "-t", "wav", "-d", String(windowSeconds), "-"],
+});
+
+// parecord has no length of its own, so this one is ended by the count of bytes alone rather than
+// by a flag guessed at. Writing to "-" is standard output; no file name is ever an argument.
+const pulseRecorder = (): WakeCapture["command"] => ({
+  file: "parecord",
+  args: ["--file-format=wav", `--rate=${wakeSampleRate}`, "--channels=1", "--format=s16le", "-"],
+});
+
+const cannotListen = (how: string): WakeCapture => ({ kind: "none", available: false, how, command: null });
+
+/**
+ * What would really open the microphone here. Each system is asked about what it ships, never told:
+ * Linux is looked up on the search path, and neither recorder is assumed to be there.
+ */
+export function wakeCapture(
+  platform: string, present: ProgramPresent, spotter: WakeSpotter, windowSeconds: number,
+): WakeCapture {
+  if (!spotter.command)
+    return cannotListen("Nothing here can spot the word, so there is nothing to listen with either.");
+  if (spotter.kind === "windows-speech")
+    return { kind: "spotter-listens", available: true, command: null,
+      how: "Windows' own speech recognition opens the microphone itself, for one window at a time, and no sound ever reaches Branch." };
+  if (platform === "linux") {
+    const recorder = present("arecord") ? alsaRecorder(windowSeconds) : present("parecord") ? pulseRecorder() : null;
+    return recorder
+      ? { kind: "recorder", available: true, command: recorder,
+          how: `${recorder.file}, which is already on this computer, run for one window of sound at a time and then ended.` }
+      : cannotListen("This computer has no recorder a program can ask: neither arecord nor parecord is here. Install one of them yourself and the wake word can use it; until then it stays off, because Branch will not add a program of its own to open your microphone.");
+  }
+  if (platform === "darwin")
+    return cannotListen("This Mac cannot listen for a word: macOS ships no recorder a program can ask for sound, and Branch will not install one to open your microphone. The switch stays off, whatever else is set up here.");
+  return cannotListen("This computer has no recorder a program can ask, so nothing can be listened for. The switch stays off.");
 }
 
 /* ---------- starting, and every reason not to ---------- */
 
+/** The real answer on this computer: a look at the search path, which starts nothing. */
+export const onThisComputer: ProgramPresent = (name) => findOnPath(name) !== null;
+
+/**
+ * The settings, the spotter and the capture, worked out together and in that order. A spotter that
+ * opens the microphone itself is asked for a second time once the capture has said so, which is the
+ * only thing that changes about it; nothing here runs anything.
+ */
+export function wakeParts(
+  store: Store, owner: string, platform: string = process.platform, present: ProgramPresent = onThisComputer,
+): { wake: WakeWordSettings; spotter: WakeSpotter; capture: WakeCapture } {
+  const wake = wakeWordSettings(store, owner);
+  const voice = voiceSettings(store, owner);
+  const handedSound = wakeSpotter(voice, wake, platform);
+  const recorded = wakeCapture(platform, present, handedSound, wake.windowSeconds);
+  // Windows has nothing to record with, so a speech program of the owner's cannot be fed there; its
+  // own engine, which opens the microphone itself, is what listens instead.
+  if (recorded.available || platform !== "win32") return { wake, spotter: handedSound, capture: recorded };
+  const spotter = wakeSpotter(voice, wake, platform, true);
+  return { wake, spotter, capture: wakeCapture(platform, present, spotter, wake.windowSeconds) };
+}
+
 /** Why listening for the word is refused right now, or null. Every sentence is one the owner reads. */
-export function wakeRefusal(store: Store, owner: string, platform: string = process.platform): string | null {
+export function wakeRefusal(
+  store: Store, owner: string, platform: string = process.platform, present: ProgramPresent = onThisComputer,
+): string | null {
   const wake = wakeWordSettings(store, owner);
   if (wake.mode === "off")
     return lockdownOverrides(store, owner, wakeWordKey)
       ? "Lockdown is on, so nothing is listening for your word. Turn Lockdown off in Settings to allow this again."
       : "The wake word is switched off, so nothing is listening. Turn it on in Settings, Voice.";
   if (!wake.word) return "No word has been chosen yet, so there is nothing to listen for. Choose one in Settings, Voice.";
-  const spotter = wakeSpotter(voiceSettings(store, owner), wake, platform);
+  const { spotter, capture } = wakeParts(store, owner, platform, present);
   if (!spotter.available) return spotter.how;
+  // mac7/wake-mic: spotting the word is not listening for it. A computer with no way to record is
+  // refused here, after the spotter, so the sentence the owner reads names the real reason.
+  if (!capture.available) return capture.how;
   return null;
 }
 
-/**
- * The plain truth about this feature today, said on the card and in docs/configuration.md.
- *
- * Nothing opens the microphone. `listenForWake` is handed sound by its caller, and there is no
- * caller: no part of Branch records anything or feeds it. So however the switch is set and whatever
- * this computer could do, the wake word does nothing on its own yet, and the card must say so
- * rather than reading as though it were listening (integration review, mac7/wake-pins).
- */
-export const captureNote = "Branch does not open the microphone yet, so nothing is fed to this listener and the wake word does nothing on its own today. What is set here is remembered, and the card says what this computer would use once the microphone is wired up.";
+/** What this computer would really use to hear the word at all: the recorder, or the spotter itself. */
+export function wakeCaptureFor(
+  store: Store, owner: string, platform: string = process.platform, present: ProgramPresent = onThisComputer,
+): WakeCapture {
+  return wakeParts(store, owner, platform, present).capture;
+}
 
 /** What the card shows: the switch, the word, and what this computer would really do. */
-export function wakeWordState(store: Store, owner: string, platform: string = process.platform): {
-  settings: WakeWordSettings; spotter: WakeSpotter; refusal: string | null; mode: FeatureMode;
-  listening: boolean; capture: string;
+export function wakeWordState(
+  store: Store, owner: string, platform: string = process.platform,
+  /** Whether the listener is running this moment. Read from the listener itself, never guessed from the switch. */
+  listening = false, present: ProgramPresent = onThisComputer,
+): {
+  settings: WakeWordSettings; spotter: WakeSpotter; capture: WakeCapture; refusal: string | null;
+  mode: FeatureMode; listening: boolean; canListen: boolean;
 } {
-  const settings = wakeWordSettings(store, owner);
+  const { wake: settings, spotter, capture } = wakeParts(store, owner, platform, present);
   return {
-    settings, mode: settings.mode,
-    spotter: wakeSpotter(voiceSettings(store, owner), settings, platform),
-    refusal: wakeRefusal(store, owner, platform),
-    // Never true while nothing feeds the listener, whatever the switch says.
-    listening: false, capture: captureNote,
+    settings, mode: settings.mode, spotter, capture,
+    refusal: wakeRefusal(store, owner, platform, present),
+    /** Whether this computer can listen for a word at all, whatever the switch says. */
+    canListen: spotter.available && capture.available,
+    listening,
   };
 }
 
@@ -196,11 +337,13 @@ export function wakeWordState(store: Store, owner: string, platform: string = pr
  */
 export function wakeWordView(
   store: Store, owner: string, platform: string = process.platform, isOwner = true,
+  listening = false, present: ProgramPresent = onThisComputer,
 ): {
   settings: Omit<WakeWordSettings, "word"> & { word?: string }; spotter: { available: boolean; how: string };
-  refusal: string | null; mode: FeatureMode; listening: boolean; capture: string; wordChosen: boolean;
+  capture: { available: boolean; how: string }; refusal: string | null; mode: FeatureMode;
+  listening: boolean; canListen: boolean; wordChosen: boolean;
 } {
-  const state = wakeWordState(store, owner, platform);
+  const state = wakeWordState(store, owner, platform, listening, present);
   const { word, ...rest } = state.settings;
   return {
     ...state,
@@ -209,6 +352,8 @@ export function wakeWordView(
     settings: isOwner ? state.settings : rest,
     wordChosen: word.length > 0,
     spotter: { available: state.spotter.available, how: state.spotter.how },
+    // The recorder's own name is a thing of this computer's; the sentence is what the card shows.
+    capture: { available: state.capture.available, how: state.capture.how },
   };
 }
 
@@ -247,6 +392,7 @@ export interface WakeListenerDeps {
   owner: string;
   runner: WakeRunner;
   platform?: string;
+  present?: ProgramPresent;
 }
 
 /**
@@ -259,16 +405,21 @@ export interface WakeListenerDeps {
  */
 export async function listenForWake(
   deps: WakeListenerDeps, sound: AsyncIterable<WakeChunk>,
-): Promise<{ heard: boolean; refusal: string | null; windowsTried: number; windowsTooLong: number }> {
+): Promise<{ heard: boolean; text: string; refusal: string | null; windowsTried: number; windowsTooLong: number }> {
   const platform = deps.platform ?? process.platform;
-  const refusal = wakeRefusal(deps.store, deps.owner, platform);
-  if (refusal) return { heard: false, refusal, windowsTried: 0, windowsTooLong: 0 };
-  const wake = wakeWordSettings(deps.store, deps.owner);
-  const spotter = wakeSpotter(voiceSettings(deps.store, deps.owner), wake, platform);
+  const present = deps.present ?? onThisComputer;
+  const refusal = wakeRefusal(deps.store, deps.owner, platform, present);
+  if (refusal) return { heard: false, text: "", refusal, windowsTried: 0, windowsTooLong: 0 };
   let windowsTried = 0, windowsTooLong = 0;
   /** The only copy of any sound this function ever holds; replaced, never added to, never written. */
   let held: Uint8Array | null = null;
   for await (const chunk of sound) {
+    // mac7/wake-mic: asked again before every window rather than once at the start. Lockdown coming
+    // on, or the switch going off, stops the listener within one window whoever turned it — the app,
+    // the command line, or another window — and the microphone is let go of with it.
+    const stop = wakeRefusal(deps.store, deps.owner, platform, present);
+    if (stop) return { heard: false, text: "", refusal: stop, windowsTried, windowsTooLong };
+    const { wake, spotter } = wakeParts(deps.store, deps.owner, platform, present);
     // More than the owner allowed to be held at once is dropped where it arrives, without being
     // looked at, so the promise on the card is kept however the sound is handed over.
     if (chunk.seconds > wake.windowSeconds) { windowsTooLong += 1; continue; }
@@ -276,7 +427,97 @@ export async function listenForWake(
     windowsTried += 1;
     const answer = await askSpotter(deps.runner, spotter, wake.word, held);
     held = null; // thrown away before the next window, heard or not
-    if (answer.heard) return { heard: true, refusal: null, windowsTried, windowsTooLong };
+    if (answer.heard) return { heard: true, text: answer.text, refusal: null, windowsTried, windowsTooLong };
   }
-  return { heard: false, refusal: null, windowsTried, windowsTooLong };
+  return { heard: false, text: "", refusal: null, windowsTried, windowsTooLong };
+}
+
+/* ---------- mac7/wake-mic: the listener the app owns ---------- */
+
+/**
+ * Records one window of sound and hands it back. Always a parameter, so every test hands in a fake
+ * and no microphone is opened; the real one is in src/voice-wake-host.ts, and it keeps nothing.
+ */
+export type WakeCaptureRunner = (
+  command: { file: string; args: readonly string[] }, windowSeconds: number, signal: AbortSignal,
+) => Promise<Uint8Array>;
+
+export interface WakeWordListener {
+  /** Whether the listener is running this moment. The card reads this rather than guessing. */
+  readonly listening: boolean;
+  /** Start or stop, according to what the settings now say. Called whenever one of them changes. */
+  refresh(): void;
+  /** Stop listening and let go of the microphone. */
+  stop(): Promise<void>;
+}
+
+export interface WakeWordDeps extends WakeListenerDeps {
+  capture: WakeCaptureRunner;
+  /**
+   * What the spotter wrote out, once the word was in it. The caller starts an ordinary turn with
+   * it — the same one a typed message starts, with the same permissions and the same questions.
+   * Hearing the word grants nothing.
+   */
+  onHeard: (text: string) => void | Promise<void>;
+}
+
+/**
+ * One window of sound at a time, for as long as the listener runs. Each window is recorded by a
+ * program that ends when the window is up, so the microphone is held for the window and no longer,
+ * and only one window is ever in memory. Where the spotter opens the microphone itself, no sound
+ * reaches Branch at all and the window handed on is empty.
+ */
+async function* windowsOfSound(deps: WakeWordDeps, signal: AbortSignal): AsyncIterable<WakeChunk> {
+  const platform = deps.platform ?? process.platform;
+  while (!signal.aborted) {
+    const { wake, capture } = wakeParts(deps.store, deps.owner, platform, deps.present ?? onThisComputer);
+    if (capture.kind === "spotter-listens") { yield { sound: new Uint8Array(0), seconds: wake.windowSeconds }; continue; }
+    if (!capture.command) return;
+    let sound: Uint8Array | null = await deps.capture(capture.command, wake.windowSeconds, signal);
+    if (signal.aborted) return;
+    const window = { sound, seconds: wake.windowSeconds };
+    sound = null; // the one copy is the one handed on; this binding lets go of it here
+    yield window;
+  }
+}
+
+/** Listens, again and again, starting an ordinary turn each time the word is heard. */
+async function keepListening(deps: WakeWordDeps, controller: AbortController, done: () => void): Promise<void> {
+  try {
+    while (!controller.signal.aborted) {
+      const answer = await listenForWake(deps, windowsOfSound(deps, controller.signal));
+      if (controller.signal.aborted || answer.refusal || !answer.heard) return;
+      await deps.onHeard(answer.text);
+    }
+  } finally { done(); }
+}
+
+/**
+ * The listener the app owns. It runs only while the switch is on, a word is chosen, and this
+ * computer can really listen; it stops when any of those stops being true — Lockdown coming on, the
+ * owner turning the switch off, or the app closing — and lets go of the microphone when it does.
+ */
+export function startWakeWord(deps: WakeWordDeps): WakeWordListener {
+  const platform = deps.platform ?? process.platform;
+  const present = deps.present ?? onThisComputer;
+  let running: AbortController | null = null;
+  let loop: Promise<void> = Promise.resolve();
+  const listener: WakeWordListener = {
+    get listening() { return running !== null; },
+    refresh() {
+      if (wakeRefusal(deps.store, deps.owner, platform, present)) { void listener.stop(); return; }
+      if (running) return;
+      const controller = new AbortController();
+      running = controller;
+      loop = keepListening(deps, controller, () => { if (running === controller) running = null; });
+    },
+    async stop() {
+      const controller = running;
+      running = null;
+      controller?.abort();
+      await loop.catch(() => undefined);
+    },
+  };
+  listener.refresh();
+  return listener;
 }

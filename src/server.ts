@@ -947,6 +947,9 @@ async function api(
         "fly-core": (patch) => app.learningCore.configure(patch), reflection: (patch) => app.learningLoop.configure(patch),
         // Integration review: each through its own save, so a tool or a helper comes and goes at once.
         "security-check": (patch) => app.security.configure(patch),
+        // mac7/wake-mic: the switch reached through a settings file or a preset starts and stops
+        // the listener exactly as the card's own switch does.
+        "wake-word": (patch) => { saveWakeWordSettings(app.store, app.runtime.owner, patch); app.wake.refresh(); },
         ...Object.fromEntries((["analytics", "answer-engine", "runtimes", "nodes", "project-board"] as const)
           .map((part) => [`asks-${part}`, (patch: Record<string, unknown>) => { app.asks.setMode(part, patch); }])),
         // r17-i integration review: a reach switch saved through Reach, so its tools and the relay follow at once.
@@ -968,11 +971,15 @@ async function api(
   // The word that starts a turn. Reading it says what this computer could really do; changing it,
   // like every other setting, is the owner's.
   if (path === "/api/voice/wake") {
+    // mac7/wake-mic: whether it is listening this moment comes from the listener itself, so the
+    // card cannot say one thing while the microphone does another.
     if (request.method === "GET")
-      return wakeWordView(app.store, app.runtime.owner, process.platform, app.store.profiles.isOwner());
+      return wakeWordView(app.store, app.runtime.owner, process.platform, app.store.profiles.isOwner(), app.wake.listening);
     app.store.profiles.requireOwner("The word that starts a turn");
     saveWakeWordSettings(app.store, app.runtime.owner, await readBody(request));
-    return { settings: wakeWordSettings(app.store, app.runtime.owner), state: wakeWordView(app.store, app.runtime.owner) };
+    app.wake.refresh(); // the switch going on or off starts or stops the listener at once
+    return { settings: wakeWordSettings(app.store, app.runtime.owner),
+      state: wakeWordView(app.store, app.runtime.owner, process.platform, true, app.wake.listening) };
   }
   // ── end mac7/wake-pins ──
   if (request.method === "GET" && path === "/api/state") return state(app);

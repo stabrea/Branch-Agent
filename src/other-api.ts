@@ -56,6 +56,7 @@ async function lockdownApi(
   if (request.method !== "POST") return lockdownState(app.store, owner);
   const state = setLockdown(app.store, owner, await readBody(request));
   if (state.on) app.runtime.approvals.forgetAll();
+  app.wake.refresh(); // mac7/wake-mic: Lockdown coming on stops the listener and lets go of the microphone
   return state;
 }
 

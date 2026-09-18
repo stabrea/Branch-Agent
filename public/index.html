@@ -1025,7 +1025,7 @@
           <!-- mac7/wake-pins: a word that starts a turn, and the settings the owner has pinned. -->
           <form id="wake-word-form" class="card" data-home="settings:voice">
             <h2 data-t="settings.card.wake-word">A word that starts a turn</h2>
-            <p data-t="settings.wake-word.intro">Not finished yet: Branch does not open the microphone by itself, and nothing yet feeds this listener, so the wake word does nothing on its own today — what you set here is remembered and will work once the microphone is wired up. When it does: say your own word and Branch starts listening, instead of holding the Talk button. Listening happens on this computer only: no sound ever leaves it, and nothing is recorded or kept before your word has been heard. While the switch is off, nothing listens at all. Holding Talk stays the ordinary way in, and the word gives nothing away — whatever you say after it is asked about exactly as the same words typed into the box would be.</p>
+            <p data-t="settings.wake-word.intro">Say your own word and Branch starts a turn, instead of holding the Talk button. Listening happens on this computer only: no sound ever leaves it, no file is written, and nothing is recorded or kept before your word has been heard — one window of sound is held, asked about, and dropped. Not every computer can listen: the line below says what this one really does, and whether it is listening this moment. While the switch is off, nothing listens at all and the microphone is let go of. Holding Talk stays the ordinary way in, and the word gives nothing away — whatever you say after it is asked about exactly as the same words typed into the box would be.</p>
             <label for="wake-word-mode" data-t="field.wake-word-mode">Listening for your word</label>
             <select id="wake-word-mode" aria-describedby="wake-word-mode-note">
               <option value="off" data-t="switch.off">Off</option>
@@ -1039,6 +1039,7 @@
             <label for="wake-word-sureness" data-t="field.wake-word-sureness">How sure it must be before it answers</label>
             <input id="wake-word-sureness" type="number" min="50" max="99" step="1" aria-describedby="wake-word-sureness-note" />
             <p id="wake-word-sureness-note" class="field-note" data-t="settings.wake-word.sureness-note">Out of a hundred. Lower hears your word more often, and more often hears it when you did not say it.</p>
+            <p id="wake-word-listening" class="field-note" aria-live="polite"></p>
             <p id="wake-word-how" class="field-note" aria-live="polite"></p>
             <p id="wake-word-refusal" class="field-note" aria-live="polite"></p>
             <p id="wake-word-state" class="field-note" aria-live="polite"></p>

@@ -7881,17 +7881,9 @@ without the file and network wall (see above).
 - **A0602** (a helper that installs and manages an isolated plugin for another agent): built as the write / check /
   remove lifecycle of Branch's own plugin for Codex and Claude Code, in a folder the owner names (`src/add-ons/export.ts`).
 
-## A word that starts a turn (mac7/wake-pins)
+## A word that starts a turn (mac7/wake-pins, mac7/wake-mic)
 
-**Not finished yet: nothing feeds it.** Branch does not open the microphone by itself, and no part
-of Branch yet hands this listener any sound. So on every computer, however the switch is set and
-whatever that computer could do, **the wake word does nothing on its own today**. What is described
-here is the switch, the word and the spotter, all of which are built, saved and enforced; the
-microphone capture that would drive them is not wired up. The card says this too, so nobody reads it
-as though something were listening.
-
-Instead of holding **Talk**, you will be able to say a word of your own and have Branch start
-listening. It ships **off**, like everything else, and has the same three-way switch: **off** — nothing listens at all;
+Instead of holding **Talk**, say a word of your own and Branch starts a turn. It ships **off**, like everything else, and has the same three-way switch: **off** — nothing listens at all;
 **when needed** — it listens only while a conversation is open on the screen; **on** — it listens
 whenever Branch is running. Its card, **A word that starts a turn**, lives in Settings → Voice.
 Holding Talk stays the ordinary way in and is not going away.
@@ -7904,8 +7896,32 @@ spoken turn, asked about exactly as the same words typed into the message box wo
 approval rules and the same questions. While **Lockdown** is on the wake word is off whatever the
 switch says, and turning Lockdown off puts the switch back where it was.
 
-**What each computer can really do.** No new dependency is added for this, so a computer either has
-something that can spot a word without the internet or it says so and stays off.
+**What opens the microphone (mac7/wake-mic).** Branch owns one listener, started in `src/index.ts`
+beside the other long-lived parts. It runs only while the switch is on, a word is chosen, and this
+computer can really listen, and it asks again **before every window** rather than being told once, so
+Lockdown coming on, the switch going off, or the app closing stops it within one window whoever
+turned it — the card, the terminal, a settings file or another window — and the microphone is let go
+of when it stops. The recorder is **one program per window**: it is started, it ends when the window
+is up, and it is ended by the count of bytes as well, so only one window of sound is ever in memory
+and nothing can hold the microphone open between windows. The sound goes to the spotter on its
+standard input; no file name is ever an argument to either program, and no file is written.
+
+- **macOS: this Mac cannot listen for a word, and the card says so.** macOS ships no recorder a
+  program can ask for sound — there is no `arecord`, no `afrecord`, nothing — and Branch will not
+  install one of its own to open your microphone. So the switch stays **off** on a Mac whatever else
+  is set up here, including a speech program of your own: such a program can *spot* a word, but it
+  cannot *record* one. Spotting is not listening.
+- **Linux** uses `arecord` (alsa-utils) when it is really on this computer, and `parecord`
+  (PulseAudio) when it is not. Neither is assumed: the search path is looked at, and a Linux box with
+  neither says so and stays off. `arecord` is given the window's length as well as being bounded by
+  the count of bytes; `parecord` has no length of its own and is bounded by the count alone.
+- **Windows** needs no recorder: its own speech engine opens the microphone itself, for one window at
+  a time, so **no sound ever reaches Branch at all** on that path. Because Windows ships nothing to
+  record with, its own engine is what listens there even when you have set up a speech program of
+  your own for writing recordings out.
+
+**What each computer can really do to spot the word.** No new dependency is added for this, so a
+computer either has something that can spot a word without the internet or it says so and stays off.
 
 - **Windows** uses the speech recognition that ships with Windows (`System.Speech`), loaded with a
   grammar of exactly your one word. It runs on the machine and reaches no network. Your word is
@@ -7915,11 +7931,13 @@ something that can spot a word without the internet or it says so and stays off.
   nothing else — it never inherits this computer's own.
 - **macOS** has nothing a program can ask: macOS keeps its speech recognition inside apps with a
   window, and there is no command for it. So on a Mac the wake word stays **off** and the card says
-  why, unless you have already set up a speech program of your own under Voice (below).
-- **Linux** ships no speech recognition at all, so the same is true there.
+  why — and it stays off there even with a speech program of your own, because nothing on a Mac can
+  record the sound to give it.
+- **Linux** ships no speech recognition at all, so a speech program of your own is what spots the
+  word there. A Linux box needs both: something to record with and something to spot with.
 - **Any computer** where you have set up a speech program yourself (Settings → Voice, "a speech
   program already installed here": whisper.cpp or faster-whisper) uses that program, asked only
-  whether it heard your word. That is what makes the wake word possible on a Mac or on Linux.
+  whether it heard your word. On Linux that is what makes the wake word possible at all.
 
 Sending what your microphone hears to a service is never an option, on any computer, and there is no
 setting that turns it into one.
@@ -7938,10 +7956,12 @@ word is set by you, in the card, and nowhere else.
 
 **Your word stays yours.** `GET /api/voice/wake` is readable by anybody using this computer, so it
 never carries the word itself to anybody but you: somebody on a household profile is told only
-whether a word has been chosen (`wordChosen`), and the sentence about what this computer would use
-does not repeat the word either. Setting the word, and choosing the speech program that would spot
-it, are both refused for anybody but you. The answer also carries `listening` (always false today)
-and `capture`, the sentence saying the microphone is not wired up.
+whether a word has been chosen (`wordChosen`), and the sentences about what this computer would use
+do not repeat the word either. Setting the word, and choosing the speech program that would spot it,
+are both refused for anybody but you. The answer also carries `canListen` (whether this computer can
+listen for a word at all), `listening` (whether it is listening this moment, read from the listener
+itself rather than guessed from the switch) and `capture`, one sentence about what would really open
+the microphone here. Neither the recorder's path nor the spotter's ever travels.
 
 **API.** `GET /api/voice/wake` answers the settings, one sentence about what this computer would
 really use to spot the word and whether it has one at all, and why it is refused right now when it
@@ -7987,8 +8007,11 @@ profile is shown that a setting is pinned. `GET /api/settings-kit` now marks eac
 `POST /api/settings-kit/apply` answers `skipped` beside `applied`.
 
 macOS and Linux: nothing in either of these two sections depends on the operating system, except
-which spotter the wake word can use, which is set out above. The tests use fake programs and made-up
-sound only; no microphone is ever opened and no sound is ever played.
+which spotter and which recorder the wake word can use, both set out above. The tests
+(`tests/wake-word.test.mjs`, `tests/wake-mic.test.mjs`) hand in a fake recorder, a fake spotter and a
+fake answer to "is this program here", through the same options `createBranch` fills with the real
+ones, so what is tested is the real wiring: no microphone is ever opened, no program is ever run and
+no sound is ever played.
 
 ## Understandable settings (R17-S-A)
 

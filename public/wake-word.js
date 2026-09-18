@@ -3,7 +3,10 @@
  * the spotter must be, and — in the computer's own words — what this machine would really use to
  * spot it. Nothing here opens a microphone: the card only reads and writes the setting, and says
  * plainly when this computer has nothing that can spot a word without sending sound away.
- * Its home is Settings, Voice. See src/voice-wake.ts.
+ * mac7/wake-mic: the card now also says, honestly, whether this computer can listen at all and
+ * whether it is listening this moment. Both come from the app rather than from the switch, so the
+ * card cannot read as though it were listening when it is not. Its home is Settings, Voice.
+ * See src/voice-wake.ts.
  */
 import { api } from "/app.js";
 import { t } from "/i18n.js";
@@ -18,12 +21,18 @@ function show(state) {
   $("wake-word-sureness").value = state?.settings?.sureness ?? 80;
   // What this computer would really do, said whether the switch is on or off, because it is the
   // one thing that decides whether turning it on can work at all.
-  // Integration review (mac7/wake-pins): the plain truth first — nothing feeds this listener yet —
-  // then what this computer would use once something does. Taken from the answer rather than
-  // written here, so the card cannot drift from what src/voice-wake.ts actually says.
-  $("wake-word-how").textContent = [state?.capture, state?.spotter?.how].filter(Boolean).join(" ");
-  const blocked = state?.spotter?.available === false;
+  // mac7/wake-mic: what really opens the microphone here, then what really spots the word. Both
+  // sentences are taken from the answer rather than written here, so the card cannot drift from
+  // what src/voice-wake.ts actually says.
+  $("wake-word-how").textContent = [state?.capture?.how, state?.spotter?.how].filter(Boolean).join(" ");
+  const blocked = state?.canListen === false;
   $("wake-word-how").classList.toggle("warn", blocked);
+  // Whether it is listening this moment, read from the listener itself and never guessed from the
+  // switch: a computer that cannot listen says so instead.
+  const line = $("wake-word-listening");
+  line.textContent = blocked ? t("settings.wake-word.cannot")
+    : state?.listening ? t("settings.wake-word.listening") : t("settings.wake-word.idle");
+  line.classList.toggle("warn", blocked);
   $("wake-word-refusal").textContent = state?.refusal ?? "";
 }
 
@@ -50,7 +59,8 @@ async function save(event) {
 
 $("wake-word-form")?.addEventListener("submit", save);
 /* A fresh window shows the safe state — off, no word — before anything is asked for. */
-show({ settings: { mode: "off", word: "", sureness: 80 }, spotter: { how: "", available: true }, refusal: "" });
+show({ settings: { mode: "off", word: "", sureness: 80 }, spotter: { how: "", available: true },
+  capture: { how: "", available: true }, canListen: true, listening: false, refusal: "" });
 load().catch(() => {});
 const workspace = document.getElementById("workspace");
 if (workspace) new MutationObserver(() => { if (!workspace.hidden) load().catch(() => {}); })

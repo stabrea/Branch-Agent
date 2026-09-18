@@ -97,6 +97,8 @@ import type { ReliabilityInput } from "./reliability.js";
 import { DocumentLibrary, registerDocuments } from "./documents.js";
 import { MediaTools, registerMedia } from "./media.js";
 import { VoiceService, registerVoice } from "./voice-service.js";
+import { startWakeWord, type ProgramPresent, type WakeCaptureRunner, type WakeRunner } from "./voice-wake.js"; // mac7/wake-mic
+import { wakeCaptureRunner, wakeRunner } from "./voice-wake-host.js"; // mac7/wake-mic
 // Bucket 17.
 import { MediaUnderstanding, registerMediaUnderstanding } from "./media-understand.js";
 import { SpeechEngineService } from "./speech-engine-service.js";
@@ -251,6 +253,11 @@ export async function createBranch(options: {
   snapshotGit?: GitCall | null;
   /** mac3/security-check: the home folder the security check looks under; this computer's own when left out. */
   home?: string;
+  /**
+   * mac7/wake-mic: fakes for the one part of Branch that opens a microphone. Left out, the real
+   * programs on this computer are used; a test hands in its own so no microphone is ever opened.
+   */
+  wake?: { runner?: WakeRunner; capture?: WakeCaptureRunner; present?: ProgramPresent; platform?: string };
 }) {
   const retryPolicy = parseRetryPolicy(options.retryPolicy);
   const workspace = resolve(options.workspace),
@@ -1027,6 +1034,22 @@ export async function createBranch(options: {
     lockdownRefusal: () => (lockedDown(store, runtime.owner) ? lockdownRefusal : null) });
   releaseOnLock.push(() => personal.close()); // locking Branch stops the tunnel and forgets spoken answers
   // ── end R17-C ──
+  // ── mac7/wake-mic: the word that starts a turn, actually listening. Ships off, like everything else. ──
+  // It runs only while the switch is on, a word is chosen, and this computer can really listen, and
+  // it asks again before every window, so Lockdown or the switch going off stops it within one
+  // window whoever turned it. Hearing the word starts an ordinary turn: the same run a typed
+  // message starts, with no permissions of its own and every question still asked.
+  const wake = startWakeWord({
+    store, owner: runtime.owner, runner: options.wake?.runner ?? wakeRunner(),
+    capture: options.wake?.capture ?? wakeCaptureRunner(),
+    ...(options.wake?.present ? { present: options.wake.present } : {}),
+    ...(options.wake?.platform ? { platform: options.wake.platform } : {}),
+    // The turn the word starts is an ordinary one: the same call a typed message makes, with no
+    // permissions of its own, nobody else's source, and every question still asked.
+    onHeard: (text) => { if (text.trim()) void runtime.run({ prompt: text.trim() }).catch(() => undefined); },
+  });
+  releaseOnLock.push(() => wake.stop()); // locking Branch lets go of the microphone
+  // ── end mac7/wake-mic ──
   // ── r17-i: reach and platform (src/reach/). Every part ships off. ──
   const reachParts = new Reach({ runtime, registry, router: channels, files, policy: web.policy, fetch: web.policy.guard(globalThis.fetch),
     secret: async (name, purpose) => (await store.secrets.resolve(runtime.owner, store.projects.active(runtime.owner).id, [name], { purpose }))[name]!,
@@ -1352,6 +1375,8 @@ export async function createBranch(options: {
         vetLaunch: (command: string, args: readonly string[]) => security.malware.vet(command, args),
       },
     },
+    /** mac7/wake-mic: the word that starts a turn. The card reads `listening` from this, never guesses it. */
+    wake,
     /** Sending traces and counters to an address the owner chose; off until they turn it on. */
     traceExport,
     /** Batch 20 (wave 8): short-lived keys for a script, an extension or the SDK. */
@@ -1382,6 +1407,7 @@ export async function createBranch(options: {
       mcpServer.close();
       asks.close(); // mac6/bucket-23: live pages stop asking their tools again
       devices.close(); // mac7/nodes: every device socket is closed
+      await wake.stop(); // mac7/wake-mic: the microphone is let go of before the app closes
       runtime.keepAlive.stop(); // R17-050: no cache ping outlives the app
       await autonomy.close(); // r17-b: nothing more starts by itself, and a turn that is working gets a moment
       await trunks.close(); // R17-A: rooms stop between turns

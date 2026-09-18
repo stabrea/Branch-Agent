@@ -42,6 +42,10 @@ function fakeRunner(answers) {
   };
 }
 
+/** Program-is-here answers the test decides, so nothing depends on what this machine has installed. */
+const has = (...names) => (name) => names.includes(name);
+const never = () => false;
+
 const chunks = async function* (count) {
   for (let index = 0; index < count; index += 1) yield { sound: new Uint8Array([1, 2, 3, index]), seconds: 2 };
 };
@@ -79,7 +83,7 @@ test("W3 the word is heard, once, and the listener stops there", async (t) => {
   saveWakeWordSettings(store, owner, { mode: "on", word: "Branch" });
   const { runner, calls } = fakeRunner(["", "hey Branch!", "should never be asked"]);
   const heard = await listenForWake({ store, owner, runner, platform: "win32" }, chunks(3));
-  assert.deepEqual(heard, { heard: true, refusal: null, windowsTried: 2, windowsTooLong: 0 });
+  assert.deepEqual(heard, { heard: true, text: "hey Branch!", refusal: null, windowsTried: 2, windowsTooLong: 0 });
   assert.equal(calls.length, 2, "it kept listening after it had heard the word");
   assert.ok(isTheWord("Hey, Branch.", "branch"), "punctuation and capitals stopped the word being recognised");
   assert.ok(!isTheWord("nothing like it", "branch"), "a sentence without the word counted as the word");
@@ -151,7 +155,11 @@ test("W6 what each computer would really do, and the ones that say so and stay o
     assert.equal(spotter.available, true);
     assert.equal(spotter.command.file, "/opt/whisper/main");
   }
-  assert.equal(wakeWordState(store, owner, "darwin").refusal, null, "the owner's own speech program was not used");
+  // mac7/wake-mic: spotting the word is not listening for it. A speech program that could spot the
+  // word does not give this Mac a way to record one, so it is still refused — in those words.
+  assert.match(wakeWordState(store, owner, "darwin", false, never).refusal, /macOS ships no recorder/);
+  assert.equal(wakeWordState(store, owner, "linux", false, has("arecord")).refusal, null,
+    "the owner's own speech program and a recorder that is really here were not used");
 });
 
 test("W7 a spotter with nothing to run is asked nothing, and a failed run is never the word", async () => {
@@ -183,7 +191,7 @@ test("W9 a piece of sound longer than the owner allowed is dropped where it arri
     yield { sound: new Uint8Array(2), seconds: 2 };   // within the window
   };
   const heard = await listenForWake({ store, owner, runner, platform: "win32" }, mixed());
-  assert.deepEqual(heard, { heard: true, refusal: null, windowsTried: 1, windowsTooLong: 1 });
+  assert.deepEqual(heard, { heard: true, text: "branch", refusal: null, windowsTried: 1, windowsTooLong: 1 });
   assert.deepEqual(calls.map((call) => call.bytes), [2], "the over-long piece was handed to the spotter");
 });
 
@@ -246,14 +254,35 @@ test("W13 the word is handed to the spotter as its own thing, never pasted into 
   assert.deepEqual(Object.keys(spotter.command.env).sort(), ["BRANCH_WAKE_SURENESS", "BRANCH_WAKE_WORD"]);
 });
 
-test("W14 the card says plainly that nothing yet feeds the listener", async (t) => {
+test("W14 the card says honestly whether this computer can listen at all, and never claims to be", async (t) => {
   const { store, owner } = await fixture(t);
   saveVoiceSettings(store, owner, { localSpeechExecutable: "/opt/whisper/main", localSpeechModel: "/opt/m.bin" });
   saveWakeWordSettings(store, owner, { mode: "on", word: "branch" });
-  // Everything is set up and the switch is on, and still nothing listens: Branch never opens the
-  // microphone by itself. The card must say so rather than reading as though it were listening.
-  const view = wakeWordView(store, owner, "darwin");
-  assert.equal(view.listening, false, "the card claims to be listening when nothing feeds the listener");
-  assert.match(view.capture, /microphone/i);
-  assert.match(view.capture, /not|nothing/i);
+
+  // This Mac: everything else is set up and it still cannot listen, and the card says exactly that.
+  const mac = wakeWordView(store, owner, "darwin", true, false, never);
+  assert.equal(mac.canListen, false, "the card claims this Mac can listen for a word");
+  assert.equal(mac.listening, false);
+  assert.match(mac.capture.how, /macOS ships no recorder/);
+  assert.match(mac.refusal, /macOS ships no recorder/);
+
+  // A Linux box with a recorder really on it can listen, and says which one without naming its path.
+  const linux = wakeWordView(store, owner, "linux", true, true, has("arecord"));
+  assert.equal(linux.canListen, true);
+  assert.equal(linux.listening, true, "the card was told it is listening and said otherwise");
+  assert.match(linux.capture.how, /arecord/);
+  assert.equal(linux.refusal, null);
+
+  // A Linux box without one says so rather than reaching for a program of its own.
+  const bare = wakeWordView(store, owner, "linux", true, false, never);
+  assert.equal(bare.canListen, false);
+  assert.match(bare.capture.how, /neither arecord nor parecord/);
+
+  // Windows' own engine opens the microphone itself, so no recorder is needed and none is named.
+  const windows = wakeWordView(store, owner, "win32", true, false, never);
+  assert.equal(windows.canListen, true);
+  assert.equal(windows.capture.available, true);
+  // What travels is the sentence and whether there is one at all: never the program that would run.
+  assert.deepEqual(Object.keys(windows.capture).sort(), ["available", "how"]);
+  assert.equal(JSON.stringify(windows).includes("powershell"), false, "the capture's program travelled");
 });
