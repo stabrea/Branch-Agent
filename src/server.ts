@@ -1006,11 +1006,18 @@ async function api(
   // owner at this window, and all five are refused by the two guards below and by the fail-closed
   // rule for short-lived keys in src/short-lived-keys.ts, which never lists this path.
   if (path === "/api/voice/dictation" || path === "/api/voice/dictation/listen") {
-    if (request.method === "GET")
+    if (request.method === "GET") {
       // Whether the microphone is open comes from the listener itself, so the card cannot say one
       // thing while the microphone does another.
-      return dictationView(app.store, app.runtime.owner, process.platform, app.store.profiles.isOwner(), app.dictation.open);
-    app.store.profiles.requireOwner("Dictation");
+      const mine = app.store.profiles.isOwner();
+      const view = dictationView(app.store, app.runtime.owner, process.platform, mine, app.dictation.open);
+      // The words are screen state: they go to the window that is dictating and nowhere else. They
+      // are never written to disk, never traced, never kept past the phrase, and never sent. Anybody
+      // else on this computer is not shown them, because they are not shown any of this.
+      return mine ? { ...view, words: app.dictation.words, settled: app.dictation.settled } : view;
+    }
+    // Not `requireOwner`, whose sentence is about a setting belonging to the owner. This one is
+    // about a microphone, and a person reading it should be told that rather than something milder.
     if (!app.store.profiles.isOwner()) throw new HttpError(403, dictationOwnerOnlyRefusal);
     if (path === "/api/voice/dictation/listen") {
       const body = await readBody(request) as { on?: unknown };

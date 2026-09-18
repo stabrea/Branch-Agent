@@ -126,8 +126,11 @@ const streamingPrograms = [
 export function dictationEngine(
   voice: VoiceSettings, platform: string = process.platform, present: ProgramPresent = onThisComputer,
 ): DictationEngine {
-  const own = streamingPrograms.filter((program) => program.file).find((program) => present(program.file));
-  const found = own ?? (voice.localSpeechStream ? streamingPrograms[3] : undefined);
+  // A program the owner named themselves wins over one merely found on the search path: they chose
+  // it, and silently running something else because it happened to be on the path is the kind of
+  // substitution a person would never find out about.
+  const named = voice.localSpeechStream ? streamingPrograms[3] : undefined;
+  const found = named ?? streamingPrograms.filter((program) => program.file).find((program) => present(program.file));
   if (!found) return { available: false, kind: "none", command: null, how: missingProgram(platform) };
   const file = found.file || voice.localSpeechStream;
   if (!voice.localSpeechModel)

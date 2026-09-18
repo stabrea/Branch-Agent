@@ -23,6 +23,7 @@ import {
 import { failedWithinMs, mostCrashes, startDictation } from "../dist/voice-dictation-run.js";
 import { ownerOnlyRead, taskRouteFor } from "../dist/short-lived-keys.js";
 import { startServer } from "../dist/server.js";
+import { chromium } from "playwright";
 
 /** A program that is only ever there when a test says it is. */
 const has = (...names) => (name) => names.includes(name);
@@ -77,9 +78,24 @@ const until = async (check, what) => {
   throw new Error(`waited too long: ${what}`);
 };
 
+/**
+ * The speech program the whole app is built with in L19, so a real browser press runs the real
+ * route, the real listener and the real card — and still never opens a microphone or starts a
+ * program. `say` is how the test makes it "hear" something.
+ */
+const speaking = { say: () => {} };
+
 async function fixture(t, options = {}) {
   const root = await mkdtemp(join(tmpdir(), "branch-live-voice-"));
-  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), ...options });
+  const app = await createBranch({
+    workspace: join(root, "workspace"), dataDir: join(root, "data"),
+    // The one place the real app would touch the outside world, handed in as a fake.
+    dictation: { platform: "darwin", present: has("whisper-stream"),
+      speech: (command, onWords, onEnded) => {
+        speaking.say = (written) => onWords(written);
+        return { hear: () => true, stop: () => { speaking.say = () => {}; onEnded(null); } };
+      } },
+    ...options });
   t.after(async () => { await app.close(); await discardTemp(root); });
   // A streaming speech program and a model, neither of which is ever run: the program is a fake
   // handed in by each test, and whether it is "here" is a fake answer too.
@@ -389,6 +405,36 @@ test("L12 it ships off, and the switch alone never opens a microphone", async (t
   assert.deepEqual(parts.speech.started, [], "turning the switch on started a speech program");
 });
 
+test("L17 the words are there for the window to collect, and are dropped when the phrase ends", async (t) => {
+  const { store, owner } = await fixture(t);
+  saveDictationSettings(store, owner, { mode: "on", silenceSeconds: 30 });
+  const parts = fakeSpeech();
+  const live = listener(store, owner, { speech: parts.runner });
+  t.after(() => live.stop());
+  assert.equal(live.words, "", "something was being held before anything was said");
+  live.start();
+  parts.speech.say("the words on the screen");
+  // This is what the window reads, three times a second, to put the words in the message box.
+  assert.equal(live.words, "the words on the screen");
+  assert.equal(live.settled, false, "words settled while they were still being spoken");
+  live.stop();
+  assert.equal(live.settled, true, "the phrase never settled");
+  assert.equal(live.words, "the words on the screen", "the settled words were gone before anyone could read them");
+  // ...and the next press starts from nothing, so no phrase outlives the one after it.
+  live.start();
+  assert.equal(live.words, "", "the last phrase was still being held when the next one started");
+});
+
+test("L18 a speech program the owner named wins over one merely found on the search path", async (t) => {
+  const { store, owner } = await fixture(t);
+  saveVoiceSettings(store, owner, { localSpeechStream: "/opt/bin/chosen-by-me" });
+  // whisper-stream is right there on the path. The owner said which program they wanted, so that
+  // is the one that runs: quietly running something else instead is a substitution nobody would find.
+  const engine = dictationEngine(voiceSettings(store, owner), "darwin", has("whisper-stream"));
+  assert.equal(engine.command.file, "/opt/bin/chosen-by-me");
+  assert.equal(engine.kind, "reads-sound");
+});
+
 /* ---------- whose it is ---------- */
 
 test("L13 a chat task, a short-lived key, a Trunk and another computer are all refused", async (t) => {
@@ -404,9 +450,14 @@ test("L13 a chat task, a short-lived key, a Trunk and another computer are all r
 
   // A chat task, a Trunk and another computer all reach Branch through tools, and there is no tool
   // for this at all: nothing anywhere in the tool list can start, stop or change dictation.
-  const tools = app.registry.list?.() ?? app.registry.all?.() ?? [];
-  const names = tools.map((tool) => tool.name ?? tool.id ?? "").join(" ");
+  const tools = app.registry.names();
+  // ...and this check can still go off: an empty list would pass the regular expression trivially.
+  assert.ok(tools.length > 20, `only ${tools.length} tools were read, so this check cannot fail`);
+  const names = tools.join(" ");
   assert.equal(/dictat/i.test(names), false, `a tool could reach dictation: ${names}`);
+  // The same for the permissions: none of them is a way to open a microphone either.
+  assert.equal(/dictat|microphone/i.test(app.registry.permissions().join(" ")), false,
+    "a tool permission could reach the microphone");
 });
 
 test("L14 somebody else on this computer is not offered dictation at all", async (t) => {
@@ -456,7 +507,6 @@ test("L15 the view never carries the program's full path, and the card reads the
 test("L16 the recorder Branch would hold open is a real one, per system, and never for the other path", async (t) => {
   const { store, owner } = await fixture(t);
   saveDictationSettings(store, owner, { mode: "on" });
-  saveVoiceSettings(store, owner, { localSpeechStream: "/opt/bin/my-streamer" });
   // A program that opens the microphone itself needs no recorder from Branch at all.
   const ownMic = dictationEngine(voiceSettings(store, owner), "darwin", has("whisper-stream"));
   assert.equal(ownMic.kind, "own-microphone");
@@ -464,6 +514,7 @@ test("L16 the recorder Branch would hold open is a real one, per system, and nev
   assert.match(ownMic.how, /no sound ever reaches Branch at all/);
 
   // A program handed sound gets one recorder, held open, asked for the samples and nothing else.
+  saveVoiceSettings(store, owner, { localSpeechStream: "/opt/bin/my-streamer" });
   const fed = dictationEngine(voiceSettings(store, owner), "linux", has());
   assert.equal(fed.kind, "reads-sound");
   const linux = dictationCapture(fed, "linux", has("arecord"));
@@ -472,4 +523,56 @@ test("L16 the recorder Branch would hold open is a real one, per system, and nev
   assert.equal(linux.args.includes("-d"), false, "the recorder was still given one window's length");
   assert.equal(dictationCapture(fed, "linux", has()), null, "a recorder appeared that is not on this computer");
   assert.match(dictationRefusal(store, owner, "linux", has()), /no recording program/);
+});
+
+/* ---------- the press, the words on the screen, and the microphone let go of ---------- */
+
+test("L19 a person presses Dictate, sees the words appear, and the microphone closes when they stop", async (t) => {
+  const { app, root, store, owner } = await fixture(t);
+  saveDictationSettings(store, owner, { mode: "on", silenceSeconds: 30 });
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  const browser = await chromium.launch({ headless: true });
+  t.after(async () => { await browser.close(); await server.close(); });
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  const errors = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.goto(server.url);
+  await page.getByLabel("Session token", { exact: true }).fill(server.token);
+  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await page.locator("#workspace").waitFor({ state: "visible" });
+
+  // The control is there, because the switch says "on" and this computer has a speech program.
+  const dictate = page.locator("#voice-dictate");
+  await dictate.waitFor({ state: "visible", timeout: 15000 });
+  assert.equal(await dictate.getAttribute("aria-pressed"), "false", "it should not start pressed");
+  assert.equal(app.dictation.open, false, "a microphone was open before anybody pressed anything");
+
+  await dictate.click();
+  await page.waitForFunction(() => document.getElementById("voice-dictate").getAttribute("aria-pressed") === "true",
+    null, { timeout: 15000 });
+  assert.equal(app.dictation.open, true, "pressing Dictate did not open the microphone");
+  // The line under the box is on for exactly as long as the microphone is.
+  await page.locator("#voice-dictate-status").filter({ hasText: /microphone is open/i }).waitFor({ timeout: 15000 });
+
+  // The fake speech program says something, and the words turn up in the message box as provisional.
+  speaking.say("hello from the other side");
+  await page.waitForFunction(() => document.getElementById("prompt").value.includes("hello from the other side"),
+    null, { timeout: 15000 });
+  assert.equal(await page.locator("#prompt").evaluate((box) => box.classList.contains("dictating")), true,
+    "words still being heard were not shown as provisional");
+
+  // Nothing was sent: the words sit in the box and the conversation is still empty.
+  assert.equal(await page.locator("#conversation").evaluate((node) => node.children.length), 0,
+    "dictation sent the message instead of filling the box");
+
+  // Pressing again stops it, and the microphone closes with it.
+  await dictate.click();
+  await page.waitForFunction(() => document.getElementById("voice-dictate").getAttribute("aria-pressed") === "false",
+    null, { timeout: 15000 });
+  assert.equal(app.dictation.open, false, "the microphone was still open after the person stopped");
+  await page.waitForFunction(() => document.getElementById("voice-dictate-status").hidden === true,
+    null, { timeout: 15000 });
+  assert.equal(await page.locator("#prompt").inputValue(), "hello from the other side",
+    "the words the person spoke were lost when they stopped");
+  assert.deepEqual(errors, []);
 });

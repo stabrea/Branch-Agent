@@ -8267,8 +8267,10 @@ because the word outlives any key.
 Speak, and the words appear in the message box as you say them — on this computer, for nothing, and
 nothing is sent anywhere. Its card, **Speak and see the words**, lives in Settings → Voice. It ships
 **off**, like everything else, and has the same three-way switch: **off** — the Dictate control is
-not there and nothing can open the microphone; **when needed** — the control is there while a
-conversation is open; **on** — the control is always there. **"On" does not mean the microphone is
+not there and nothing can open the microphone; **when needed** — the control appears once a
+conversation is open on screen, which the app window really does know (this is not the wake word's
+unwired "when needed"); **on** — the control is always there. That is the whole difference between
+the three: which windows offer you the control. **"On" does not mean the microphone is
 open.** No setting in this feature ever opens a microphone: only pressing **Dictate** does, and only
 at the app window. Say that to yourself once before reading the rest, because it is the difference
 between this and every voice assistant that listens to a room.
@@ -8341,7 +8343,7 @@ it arrives** — never queued behind it — so a slow or dying program cannot pi
 
 | Setting (`live-dictation`) | What it does |
 | --- | --- |
-| `mode` | `off`, `when-needed` or `on`. Ships `off`. None of the three ever opens a microphone by itself. |
+| `mode` | `off`, `when-needed` or `on`. Ships `off`. All three decide only whether the Dictate control is offered; none of them ever opens a microphone by itself. |
 | `silenceSeconds` | How long a quiet room ends the phrase and lets go of the microphone. 4 by default, 1 to 30. |
 
 ## Settings you have pinned (mac7/wake-pins)

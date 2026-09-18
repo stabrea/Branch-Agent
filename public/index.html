@@ -271,6 +271,11 @@
               ><!-- Wave 8: the same button, live. It only appears when the connection you are using
                    can hold a live conversation; everything it does lives in public/voice-live.js. -->
               <button id="voice-live" type="button" class="text-button" hidden title="Talk and be answered as you go. Press again to cut in, and again to stop.">Talk live</button
+              ><!-- mac7/live-voice: speak and see the words. It only appears when the switch allows
+                   it and this computer has a streaming speech program; everything it does lives in
+                   public/dictation.js. While it is pressed the microphone is open, and the line
+                   under the box says so for exactly as long as it is. It never sends. -->
+              <button id="voice-dictate" type="button" class="text-button" hidden aria-pressed="false" title="Speak and the words appear in the box as you say them. Press again to stop. While it is on, the microphone is open. It fills the box; you press Send." data-t="action.dictate">Dictate</button
               ><label class="check composer-temporary" title="Nothing from a temporary conversation is searchable later, saved to memory, or kept once you start a new conversation."
                 ><input id="temporary-toggle" type="checkbox" /> Temporary</label
               ><label class="check composer-temporary" title="Before starting, it comes back with a few short questions and what it would assume if you say nothing. Short, plain requests skip this on their own."
@@ -286,6 +291,7 @@
           </form>
           <p class="composer-note"><span id="voice-talk-status" class="meta" hidden></span></p>
           <p class="composer-note"><span id="voice-live-status" class="meta" hidden></span></p>
+          <p class="composer-note"><span id="voice-dictate-status" class="meta" hidden></span></p>
           <!-- Wave 8: the helper line and the room meter share one quiet row under the box. -->
           <div class="composer-foot">
             <p class="composer-note"><span id="session-label">New conversation · tools leave a record</span></p>
@@ -1056,7 +1062,7 @@
               <option value="when-needed" data-t="switch.when-needed">When needed</option>
               <option value="on" data-t="switch.on">On</option>
             </select>
-            <p id="dictation-mode-note" class="field-note" data-t="settings.dictation.mode-note">Off, the Dictate control is not there and nothing can open the microphone. When needed, it is there while a conversation is open. On, it is always there. On does not mean the microphone is open — no setting here ever opens one: only pressing Dictate does, and only at this window. Lockdown switches it off whatever this says.</p>
+            <p id="dictation-mode-note" class="field-note" data-t="settings.dictation.mode-note">Off, the Dictate control is not there and nothing can open the microphone. When needed, it appears once a conversation is open on screen. On, it is always there. That is the whole difference: which windows offer the control. On does not mean the microphone is open — no setting here ever opens one: only pressing Dictate does, and only at this window. Lockdown switches it off whatever this says.</p>
             <label for="dictation-silence" data-t="field.dictation-silence">Seconds of quiet that end a phrase</label>
             <input id="dictation-silence" type="number" min="1" max="30" step="1" aria-describedby="dictation-silence-note" />
             <p id="dictation-silence-note" class="field-note" data-t="settings.dictation.silence-note">Nobody speaking for this long ends the phrase and lets go of the microphone. Branch does not hold a microphone open for a room that has gone quiet.</p>

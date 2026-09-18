@@ -94,6 +94,14 @@ export const failedWithinMs = 1500;
 export interface LiveDictation {
   /** Whether the microphone is open this moment. From the program's own liveness, never the switch. */
   readonly open: boolean;
+  /**
+   * The words of the phrase being spoken right now, for the window that is dictating. They live
+   * here, in memory, and nowhere else: never written to disk, never traced, never sent, and dropped
+   * the moment the phrase ends. Provisional until `settled`.
+   */
+  readonly words: string;
+  /** True once a quiet room, or a stop, has settled the words above. */
+  readonly settled: boolean;
   /** Start listening. Refused, with a sentence, when anything says it must not be. */
   start(): string | null;
   /** Stop listening and let go of the microphone. The words so far are settled. */
@@ -122,8 +130,11 @@ export function startDictation(deps: DictationDeps): LiveDictation {
   /** The one piece of sound ever held, overwritten in place rather than added to. */
   let leftOver: Uint8Array = new Uint8Array(0);
 
+  /** The last thing said, kept only until the next press, so the screen can collect the final words. */
+  let last: DictationHeard = { words: "", settled: true };
+
   const now = () => Date.now();
-  const tell = (settled: boolean) => deps.onHeard({ words, settled });
+  const tell = (settled: boolean) => { last = { words, settled }; deps.onHeard(last); };
 
   /**
    * Everything that holds anything is let go of here, and nowhere else.
@@ -183,6 +194,11 @@ export function startDictation(deps: DictationDeps): LiveDictation {
 
   const listener: LiveDictation = {
     get open() { return speech !== null; },
+    // What the screen reads. `last` holds the settled phrase for a moment after the microphone has
+    // closed, so the window that asked can still collect the final words; `words` is what is being
+    // said right now. Neither is ever written down.
+    get words() { return speech ? words : last.words; },
+    get settled() { return speech ? false : last.settled; },
     start() {
       if (speech) { listener.stop(); return null; }
       const refusal = mustStop();
@@ -194,6 +210,7 @@ export function startDictation(deps: DictationDeps): LiveDictation {
       startedAt = now();
       lastSpeechAt = now();
       words = "";
+      last = { words: "", settled: false };
       speech = deps.speech(engine.command, heardWords, ended);
       const capture = dictationCapture(engine, platform, present);
       if (capture) recorder = deps.sound(capture, listener.hear, ended);
