@@ -61,7 +61,12 @@ export function migrate(db: DatabaseSync, list: Migration[], options: MigrateOpt
   let backup: string | null = null;
   if (options.backupTo && found.version > 0) {
     if (existsSync(options.backupTo)) throw new Error(`A copy is already waiting at ${options.backupTo}; move it before trying again.`);
-    db.exec(`VACUUM INTO '${options.backupTo.replace(/'/g, "''")}'`);
+    // mac7/install-torture: the copy is taken first, so a disk with no room, or an `update-backups`
+    // that is not a folder any more, must stop the change in plain words rather than SQLite's.
+    try { db.exec(`VACUUM INTO '${options.backupTo.replace(/'/g, "''")}'`); }
+    catch (error) {
+      throw new Error(`Branch could not take the copy of your saved work that it takes before changing its shape, so nothing was changed. It tried to write it to ${options.backupTo}. Free some space on this disk, or move anything that is in the way out of the \`update-backups\` folder beside your data, and start Branch again.`);
+    }
     backup = options.backupTo;
   }
   db.exec("BEGIN IMMEDIATE");
@@ -110,21 +115,34 @@ export const storeMigrations: Migration[] = [
  * ("database disk image is malformed", "attempt to write a readonly database", "file is not a
  * database") say nothing about which file, whether anything was lost, or what to do next.
  */
+/** SQLite's own numbers for what went wrong, which are steadier than the words it puts with them. */
+const sqliteCode = (error: unknown): number =>
+  typeof (error as { errcode?: unknown }).errcode === "number" ? (error as { errcode: number }).errcode : 0;
+/** The low byte carries the family: 8 is read-only, 11 corrupt, 13 full, 14 cannot open, 26 not a database. */
+const family = (error: unknown): number => sqliteCode(error) & 0xff;
+
 export function dataProblemSentence(path: string, error: unknown): string | null {
   const why = (error instanceof Error ? error.message : String(error)).toLowerCase();
+  const kind = family(error);
   const restore = "Your last three safety copies are in the `update-backups` folder beside it; `branch restore` puts one back.";
-  if (/readonly|read-only|unable to open database|permission denied|attempt to write a readonly/.test(why))
-    return `Branch cannot write to its saved work at ${path}. Nothing was changed. Check that the folder still exists and that you are allowed to write to it (on a Mac, File menu → Get Info), then start Branch again.`;
-  if (/malformed|not a database|encrypted|corrupt|file is not a database/.test(why))
+  // The order matters: a disk with no room left and a folder that has gone can both come back as
+  // "unable to open database file", and neither is a permissions problem to send the owner chasing.
+  if (kind === 13 || /database or disk is full|no space|disk full/.test(why))
+    return `Branch could not write its saved work at ${path}: this disk has no room left. Nothing was changed. Free some space, or move Branch's folder to a disk that has room, and start Branch again.`;
+  if (kind === 11 || kind === 26 || /malformed|not a database|encrypted|corrupt/.test(why))
     return `Branch's saved work at ${path} is damaged and cannot be opened, so nothing was changed. ${restore}`;
-  if (/disk i\/o error|database or disk is full|no space/.test(why))
-    return `Branch could not read its saved work at ${path}: the disk is full or failing. Nothing was changed. Free some space, or move the folder to a healthy disk, and start Branch again.`;
+  if (kind === 8 || /readonly|read-only/.test(why))
+    return `Branch cannot write to its saved work at ${path}. Nothing was changed. Check that you are allowed to write to the folder it is in (on a Mac, select it in Finder and press Command-I), then start Branch again.`;
+  if (kind === 14 || /unable to open database|permission denied|no such file/.test(why))
+    return `Branch could not open its saved work at ${path}, so nothing was changed. The folder may have been moved, renamed or taken off this computer, the disk may be full, or you may not be allowed to read it. Put the folder back, or free some space, and start Branch again.`;
   return null;
 }
 
-/** True when another Branch is holding the file, rather than the file itself being wrong. */
-const heldByAnother = (error: unknown): boolean =>
-  /locked|busy/i.test(error instanceof Error ? error.message : String(error));
+/**
+ * True when another Branch is holding the file, rather than the file itself being wrong. SQLite's
+ * own numbers are used, not its words: 5 is busy and 6 is locked, and nothing else means "wait".
+ */
+const heldByAnother = (error: unknown): boolean => [5, 6].includes(family(error));
 
 /** Wraps whatever went wrong while the saved work was being opened in a sentence a person can act on. */
 export function dataOpenError(path: string, error: unknown): Error {

@@ -463,13 +463,20 @@ test(`Branch started on a broken machine either starts with everything there or 
   t.diagnostic(outcomes.join(" "));
 });
 
+/** What SQLite really hands back, message and number together, as its own tests would. */
+const sqliteError = (message, errcode) => Object.assign(new Error(message), { code: "ERR_SQLITE_ERROR", errcode, errstr: message });
+
 test("a refusal names the file, says nothing was changed, and says what to do next", () => {
   const path = "/home/someone/Branch/state/branch.sqlite";
   for (const [why, must] of [
-    [new Error("database disk image is malformed"), /damaged[\s\S]*nothing was changed[\s\S]*safety copies/i],
-    [new Error("file is not a database"), /damaged[\s\S]*safety copies/i],
-    [new Error("attempt to write a readonly database"), /cannot write[\s\S]*allowed to write/i],
-    [new Error("database or disk is full"), /disk is full or failing[\s\S]*Free some space/i],
+    [sqliteError("database disk image is malformed", 11), /damaged[\s\S]*nothing was changed[\s\S]*safety copies/i],
+    [sqliteError("file is not a database", 26), /damaged[\s\S]*safety copies/i],
+    [sqliteError("attempt to write a readonly database", 1544), /cannot write[\s\S]*allowed to write/i],
+    [sqliteError("database or disk is full", 13), /no room left[\s\S]*Free some space/i],
+    // A folder that has gone and a disk with no room both say this; it must not blame permissions alone.
+    [sqliteError("unable to open database file", 14), /moved, renamed[\s\S]*disk may be full[\s\S]*allowed to read it/i],
+    [new Error("database disk image is malformed"), /damaged/i],
+    [new Error("attempt to write a readonly database"), /cannot write/i],
   ]) {
     const sentence = dataProblemSentence(path, why);
     assert.ok(sentence, `no plain words for ${why.message}`);
@@ -480,6 +487,52 @@ test("a refusal names the file, says nothing was changed, and says what to do ne
   assert.equal(dataProblemSentence(path, new Error("something nobody expected")), null, "an unknown problem is not dressed up");
   const passed = dataOpenError(path, new DataTooNewError(9, 9, 1));
   assert.ok(passed instanceof DataTooNewError, "a refusal that already reads well is left alone");
+});
+
+test("only a database another Branch is holding makes the format check step aside", async (t) => {
+  const root = await temp(t, "held");
+  const { dataDir, workspace } = await ownersData(root);
+  const path = join(dataDir, "branch.sqlite");
+  // A message that merely mentions being busy is not a reason to skip the check: only SQLite's own
+  // numbers for busy (5) and locked (6) are, or an older Branch would write to newer data again.
+  const stamped = new DatabaseSync(path);
+  stamped.exec("CREATE TABLE IF NOT EXISTS branch_format(id INTEGER PRIMARY KEY CHECK (id=1), version INTEGER NOT NULL, readable_by INTEGER NOT NULL, changed_at TEXT NOT NULL)");
+  stamped.prepare("INSERT INTO branch_format(id,version,readable_by,changed_at) VALUES(1,99,98,?) ON CONFLICT(id) DO UPDATE SET version=99, readable_by=98").run(new Date().toISOString());
+  stamped.exec("PRAGMA user_version=99");
+  stamped.close();
+  assert.throws(() => assertFormatReadable(path, storeMigrations), DataTooNewError,
+    "the check must still refuse data from the future");
+  // With a Branch holding the file, the check steps aside and the store says the plain thing.
+  const first = await createBranch({ workspace, dataDir: join(root, "other") });
+  try {
+    const held = await createBranch({ workspace, dataDir: join(root, "other") }).then(() => null, (error) => error);
+    assertPlainRefusal("a second Branch", held);
+  } finally { await first.close(); }
+});
+
+test("a copy that cannot be taken before a change to the data's shape stops it in plain words", async (t) => {
+  const root = await temp(t, "no-copy");
+  const path = join(root, "x.sqlite");
+  const db = new DatabaseSync(path);
+  db.exec("CREATE TABLE notes(t TEXT)");
+  db.prepare("INSERT INTO notes VALUES('the owner''s memory')").run();
+  migrate(db, [{ version: 1, readableBy: 1, up: () => undefined, down: () => undefined }], { backupTo: null });
+  try {
+    // `update-backups` is a file, not a folder: the copy cannot be written, so nothing may change.
+    await writeFile(join(root, "update-backups"), "something is in the way");
+    const refused = (() => { try { migrate(db, newerVersionMigrations(), { backupTo: join(root, "update-backups", "before.sqlite") }); return null; } catch (error) { return error; } })();
+    assert.ok(refused, "the change went ahead with no copy to go back to");
+    assertPlainRefusal("no room for the copy", refused);
+    assert.match(refused.message, /could not take the copy[\s\S]*nothing was changed[\s\S]*update-backups/i, refused.message);
+    assert.equal(formatOf(db).version, 1, "the change was not half-applied");
+    assert.deepEqual(db.prepare("PRAGMA table_info(notes)").all().map((row) => row.name), ["t"], "nothing was added");
+    // With the way clear it goes through and the owner's memory is still there.
+    await rm(join(root, "update-backups"), { force: true });
+    await mkdir(join(root, "update-backups"), { recursive: true });
+    const report = migrate(db, newerVersionMigrations(), { backupTo: join(root, "update-backups", "before.sqlite") });
+    assert.equal(report.to, 3);
+    assert.equal(db.prepare("SELECT t FROM notes").get().t, "the owner's memory");
+  } finally { db.close(); }
 });
 
 /* ============================== 4. data from the wrong version ============================== */

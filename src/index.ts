@@ -1484,7 +1484,9 @@ function openNeverBreak(store: Store, dataDir: string): { journal: TaskJournal; 
     return openJournal(join(dataDir, "journal.sqlite"));
   } catch (error) {
     store.close();
-    throw error;
+    // mac7/install-torture: whatever went wrong here is about the owner's saved work, so it reaches
+    // them as a sentence rather than as the database's own words.
+    throw dataOpenError(join(dataDir, "branch.sqlite"), error);
   }
 }
 async function closeBranch(
