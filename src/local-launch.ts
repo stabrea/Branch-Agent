@@ -181,6 +181,12 @@ export class RuntimeLauncher {
     return port ? `http://127.0.0.1:${port}` : null;
   }
   find(id: RuntimeId): Promise<string | null> { return findRuntime(id, this.at, this.exists); }
+  /**
+   * mac7/one-click: the same runner and the same "is it really there" check the launcher itself
+   * uses, so installing a program (src/local-install.ts) goes through one place a test replaces.
+   */
+  get program(): Runner { return this.run; }
+  get fileExists(): Exists { return this.exists; }
   /** Which runtimes are installed here, and where. */
   async installed(): Promise<Record<RuntimeId, string | null>> {
     const found = await Promise.all(runtimeIds.map(async (id) => [id, await this.find(id)] as const));

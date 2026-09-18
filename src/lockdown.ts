@@ -94,6 +94,8 @@ const coveredSettings: readonly RegExp[] = [
   /^wake-word$/,
   // mac7/vault-autofill (R17-068): typing one of the owner's saved passwords into a page.
   /^vault-autofill$/,
+  // mac7/one-click (issue #107): installing a program changes the owner's own computer.
+  /^local-runner-install$/,
 ];
 
 /** True when Lockdown is on and this settings record is one it switches off. */

@@ -86,3 +86,32 @@ test("U2 at 400 px nothing scrolls sideways, and every word has a key and French
   await page.waitForFunction(() => document.querySelector("label[for=local-models-mode]")?.textContent === "Modèles sur cet ordinateur");
   assert.deepEqual(errors, []);
 });
+
+/* mac7/one-click (issue #107): the "Set one up for me" block. Nothing is installed: the fixture's
+   launcher says Ollama is already there, so the plan is never even worked out. */
+test("U3 the install switch ships off, every control says what it does, and it fits 400 px in French", async (t) => {
+  const { page, errors, app } = await fixture(t, 400);
+  await openSettingFor(page, "#local-oneclick");
+  await page.locator("#local-models-mode").waitFor({ state: "visible", timeout: 15000 });
+  await page.locator("#local-models-mode").selectOption("when-needed");
+  await page.locator("#local-install-mode").waitFor();
+  assert.equal(await page.locator("#local-install-mode").inputValue(), "off", "installing ships off on its own");
+  assert.ok(await page.locator("#local-install-mode").getAttribute("title"), "the switch says what it does");
+  const show = page.getByRole("button", { name: "Show me what this would do" });
+  assert.ok(await show.getAttribute("title"), "the button says what it does");
+  const wide = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
+  assert.equal(wide, false, "no sideways scrolling at 400 px");
+  const fits = await page.waitForFunction(() => {
+    const box = document.querySelector("#local-install-mode")?.getBoundingClientRect();
+    return box && box.width > 0 && box.x >= 0 && box.right <= 400;
+  }, undefined, { timeout: 5000 }).then(() => true, () => false);
+  assert.ok(fits, "the install switch fits inside 400 px");
+  await openPlace(page, "settings:appearance");
+  await page.locator("#appearance-language").selectOption("fr");
+  await openSettingFor(page, "#local-oneclick");
+  await page.waitForFunction(() => document.querySelector("label[for=local-install-mode]")?.textContent
+    === "Installer un programme qui fait tourner les modèles");
+  assert.equal(await page.locator("#local-install-mode").inputValue(), "off", "reading it never turns it on");
+  assert.deepEqual(errors, []);
+  assert.equal(app.store.get("settings", app.runtime.owner, "local-runner-install"), undefined, "nothing was saved by looking");
+});
