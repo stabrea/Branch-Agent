@@ -333,6 +333,19 @@ say(`- **Claude Code is not on this board and cannot be.** It talks only to Anth
 say(`- **The tool surfaces are not the same**, and nothing can make them the same. Each agent's is `
   + `recorded with its rows; a task can be won by having the right built-in tool rather than by `
   + `judging well.`);
+// Named on the page, not only in the findings file: a reader of the board should not have to go
+// looking to learn that the harness was, in one specific way, kinder to one contestant.
+const freeRetries = rows.filter((row) => row.retriedAfterRigFailure);
+if (freeRetries.length) {
+  const byWhom = new Map();
+  for (const row of freeRetries) byWhom.set(row.contestant, (byWhom.get(row.contestant) ?? 0) + 1);
+  say(`- **The harness was kinder to some rows than others.** ${freeRetries.length} run(s) were given a `
+    + `second attempt because their error looked like the model server failing rather than the agent `
+    + `(${[...byWhom].map(([name, count]) => `${contestantById[name]?.name.split(" (")[0] ?? name}: ${count}`).join(", ")}). `
+    + `At least some of those were the agent's own timeout rather than the server's — see FINDINGS.md, `
+    + `F6 and F7. No verdict changed, because every retried run failed again, but it is a thumb on the `
+    + `scale and it is named here rather than quietly removed.`);
+}
 say(`- **These timings do not transfer.** They were measured on one oversubscribed VM inside one `
   + `window. Only the differences measured inside that window mean anything, and only where the `
   + `ranges separate.`);

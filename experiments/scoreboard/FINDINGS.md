@@ -149,3 +149,43 @@ Hermes is therefore **not on the board**, and the reason is the rig, not the age
 about it before that point is worth recording anyway: in the discarded 64K pass it finished 0 of 10
 tasks and was stopped by the five-minute deadline on 7 of them. That is not a result about Hermes's
 quality — the window it ran in was the one being killed by the OOM cage — and no claim is made from it.
+
+## F6 — Branch's stall watchdog counts words, and a reasoning model is silent while it thinks
+
+Three of Branch's ten runs in the recorded pass failed with
+
+```
+run status failed: No response for 60 seconds
+```
+
+This is not the network. It is `withStallWatchdog` in `src/reliability.ts`, wired up in
+`runtime.ts`, which aborts a model call when nothing has been *streamed as text* for
+`modelStallMs`. The clock is reset by `onTextDelta` — that is, by words of the answer.
+
+A reasoning model produces no words of the answer while it is thinking. On a shared card, qwen3's
+think block regularly runs past a minute before the first character of content appears, and Branch
+calls that a stalled provider and gives up on a call that was working perfectly.
+
+Unlike F1 and F2, **this one is already a setting**: `modelStallMs` is part of
+`ReliabilityOptionsSchema`, adjustable from 5 s to 600 s, and merely defaults to 60 s. So it is not
+a bug to be fixed here — it is a default chosen for fast hosted models, and it was deliberately left
+alone rather than raised for the board, because raising it would be tuning one contestant. The three
+runs are counted as Branch failures, which is what they are.
+
+What would be worth changing is the *shape* of the check rather than its number: the watchdog could
+be reset by a reasoning delta as well as a text delta, so that a model which is visibly working is
+not mistaken for one that has died.
+
+## F7 — a bias in the harness, in Branch's favour, named rather than removed
+
+The runner gives a cell one more go when the **model server** fails, so that a bad minute on a
+shared machine is not scored as an agent losing. The pattern that decides "the model server failed"
+was widened to include `No response for \d+ seconds` — and, per F6, that string is Branch's own
+watchdog, not the server. The effect: Branch was given a second attempt on three cells that OpenClaw
+would not have been given for comparable slowness, since OpenClaw's equivalent is simply running into
+the deadline.
+
+It changed no verdict — all three failed again on the second attempt, and they are recorded as
+failures — but it is a thumb on the scale in Branch's favour and it is named here rather than
+quietly corrected after the fact. Correcting it means removing that one alternative from the pattern
+and running the window again.
