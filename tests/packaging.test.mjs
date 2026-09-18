@@ -212,3 +212,21 @@ test("the packed name of the command is the one the tarball is checked for", asy
   const manifest = JSON.parse(await readFile("package.json", "utf8"));
   assert.equal(pathInTarball(manifest.bin.branch), "package/dist/cli.js");
 });
+
+// ---- mac7/packaging-real: the release job has to compare names the way GitHub stores them ----
+// GitHub turns every character that is not a letter, a digit, a hyphen, an underscore or a dot into
+// a dot, so "Install Branch Agent.cmd" is attached as "Install.Branch.Agent.cmd". Comparing the
+// file's own name against the release therefore never matched for the two installer scripts, and a
+// re-run tried to upload a name that was already there. The rule the job uses is run here, not
+// restated, so the test fails if the line changes.
+test("the release job compares asset names the way GitHub writes them", { skip: process.platform === "win32" }, async () => {
+  const workflow = await readFile(join(".github", "workflows", "package.yml"), "utf8");
+  const rule = workflow.split(/\r?\n/).map((line) => line.trim()).find((line) => line.startsWith("as_attached()"));
+  assert.ok(rule, "package.yml no longer has an as_attached rule to compare names with");
+  const naming = (name) => execFileSync("sh", ["-c", `${rule}; as_attached "$1"`, "sh", name], { encoding: "utf8" });
+  assert.equal(naming("Install Branch Agent.cmd"), "Install.Branch.Agent.cmd");
+  // Everything else is already made of characters GitHub keeps, so nothing else moves.
+  for (const kept of ["install-branch-agent.sh", "Branch-Agent-macos-arm64.zip", "Branch-Agent-linux-x64.tar.gz",
+    "branch-agent-0.18.0.tgz", "branch-agent-0.18.0.tgz.sha256"])
+    assert.equal(naming(kept), kept);
+});
