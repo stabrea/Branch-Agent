@@ -63,7 +63,7 @@ async function startVoiceRecording() {
   // The microphone is asked for on the first press, never when the app opens.
   if (!mediaRecorder && !(await initVoiceRecording())) {
     /* Through the one shared notice, so its timer is the only one that can hide it. */
-    globalThis.toast(microphoneHelp());
+    globalThis.toast?.(microphoneHelp());
     return false;
   }
   if (isRecording) return true;
@@ -104,7 +104,7 @@ async function transcribeAudio(blob) {
     promptInput.value = text;
     promptInput.focus();
   } catch (e) {
-    globalThis.toast("Transcription failed: " + (e instanceof Error ? e.message : String(e)));
+    globalThis.toast?.("Transcription failed: " + (e instanceof Error ? e.message : String(e)));
   }
 }
 
@@ -173,7 +173,7 @@ async function speakWithProvider(text) {
     currentAudio = audio;
     await audio.play();
   } catch (e) {
-    globalThis.toast("Speech failed: " + (e instanceof Error ? e.message : String(e)));
+    globalThis.toast?.("Speech failed: " + (e instanceof Error ? e.message : String(e)));
   }
 }
 
