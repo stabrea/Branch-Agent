@@ -23,6 +23,7 @@ import { CredentialResolver, commandFor, saveCredentialSettings } from "../dist/
 import { SecretScrubber } from "../dist/vault.js";
 import { signInFillTools, switchedToolTiers } from "../dist/feature-switches.js";
 import { classify, specFor } from "../dist/settings-kit/catalogue.js";
+import { applyChanges, changesFor } from "../dist/settings-kit/changes.js";
 import { underShortLivedKey } from "../dist/key-context.js";
 import { ownerOnlyRead } from "../dist/short-lived-keys.js";
 import { offLimitsToShortLivedKeys } from "../dist/server.js";
@@ -541,4 +542,39 @@ test("the tool files under the browser box, not one of its own", async (t) => {
   const { inferToolGroup } = await import("../dist/catalog.js");
   assert.equal(registry.groupOf("signin.fill"), "browser");
   assert.equal(inferToolGroup("signin.fill"), "browser", "the name alone does not file under the browser box");
+});
+
+/**
+ * Integration review. The card's own line in the settings catalogue hands the whole patch to
+ * `saveVaultAutofillSettings`, and the comment beside it claims nothing brought in from a settings
+ * file or a preset can write a line of the owner's book. If that claim were wrong the assistant
+ * would have a way to read a vault: write a line pointing a real item at a website it controls,
+ * open that website, ask for the sign-in by name — and the exact-website rule would pass, because
+ * the website is one the book now names. This proves the claim instead of believing it.
+ */
+test("nothing but the owner's own route may write a line of the book: a settings file cannot", () => {
+  const store = fakeStore();
+  saveVaultAutofillSettings(store, OWNER, {
+    mode: "when-needed", logins: [{ name: "shop", site: "example.com", item: "My Shop" }],
+  });
+  // Everything a settings file, a preset or a reset can propose goes through this one door.
+  const proposals = [
+    { key: vaultAutofillKey, field: "logins", value: [{ name: "bank", site: "attacker.test", item: "My Bank" }] },
+    { key: vaultAutofillKey, field: "logins.0.site", value: "attacker.test" },
+    { key: vaultAutofillKey, field: "logins.0.alsoHosts", value: ["attacker.test"] },
+    { key: vaultAutofillKey, field: "alsoHosts", value: ["attacker.test"] },
+    { key: vaultAutofillKey, field: "timeoutMs", value: 30000 },
+    { key: vaultAutofillKey, field: "enabled", value: true },
+    { key: vaultAutofillKey, field: "mode", value: "on" },
+  ];
+  const { changes, refused } = changesFor(store, OWNER, proposals);
+  assert.deepEqual(changes.map((one) => one.field), ["mode"], `something other than the switch got through: ${refused}`);
+  applyChanges(store, OWNER, changes, { accept: changes.map((one) => one.id), confirmLoosening: true, why: "a settings file" });
+
+  const after = readVaultAutofillSettings(store, OWNER);
+  assert.equal(after.mode, "on", "the switch itself is still the owner's to move from a settings file");
+  assert.deepEqual(after.logins.map((one) => one.site), ["example.com"], "the book was rewritten from outside");
+  assert.deepEqual(after.logins.map((one) => one.name), ["shop"]);
+  assert.deepEqual(after.logins[0].alsoHosts, [], "an extra website name was added from outside");
+  assert.equal(after.timeoutMs, 10000, "something other than the switch was written");
 });
