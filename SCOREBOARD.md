@@ -1,6 +1,6 @@
 # The scoreboard
 
-Built 2026-09-18 21:00 UTC from `experiments/scoreboard/results.jsonl`.
+Built 2026-09-18 22:20 UTC from `experiments/scoreboard/results.jsonl`.
 
 Read **What this is not**, at the bottom, before quoting any number from here.
 
@@ -10,8 +10,8 @@ The evaluation suite was asked whether these contestants may be put beside each 
 
 | agent | tasks passed, per pass of the board | median run | stopped by the clock | model calls | tokens in/out | had to be rescued |
 |---|---|---|---|---|---|---|
-| Branch Agent 0.17.0 (+ the reply-ceiling fix) | **20%** (20%–20% over 1) | 182s (74s–300s) | 1 of 10 | 2.8 | 55171 / 14154 | 7 of 10 |
-| OpenClaw 2026.9.4 (3a9d69d) | **10%** (10%–10% over 1) | 301s (144s–301s) | 5 of 10 | 3.2 | 78969 / 21597 | 5 of 10 |
+| Branch Agent 0.17.0 (+ the reply-ceiling fix) | **20%** (20%–20% over 2) | 182s (55s–300s) | 1 of 20 | 2.6 | 114880 / 29594 | 14 of 20 |
+| OpenClaw 2026.9.4 (3a9d69d) | **10%** (10%–10% over 2) | 301s (144s–301s) | 13 of 20 | 3.6 | 116443 / 30505 | 13 of 20 |
 
 ### Task by task
 
@@ -19,16 +19,16 @@ How many of that agent's attempts at that one task passed.
 
 | task | what it is | Branch Agent 0.17.0 | OpenClaw 2026.9.4 |
 |---|---|---|---|
-| `fix-sum` | fix a failing test in a small repository | 0/1 | 0/1 |
-| `fix-slug` | fix a failing test in a small repository | 0/1 | 0/1 |
-| `find-retry` | find where something is implemented | 1/1 | 0/1 |
-| `explain-limit` | find something and explain it | 1/1 | 1/1 |
-| `script-total` | write a short script that runs | 0/1 | 0/1 |
-| `script-report` | write a short script that runs | 0/1 | 0/1 |
-| `count-todos` | read a folder and answer a question about it | 0/1 | 0/1 |
-| `summarise-docs` | summarise a folder of documents | 0/1 | 0/1 |
-| `rename-fee` | make the same change across several files | 0/1 | 0/1 |
-| `staged` | follow a two-step instruction with a hold in the middle | 0/1 | 0/1 |
+| `fix-sum` | fix a failing test in a small repository | 0/2 | 0/2 |
+| `fix-slug` | fix a failing test in a small repository | 0/2 | 0/2 |
+| `find-retry` | find where something is implemented | 2/2 | 0/2 |
+| `explain-limit` | find something and explain it | 2/2 | 2/2 |
+| `script-total` | write a short script that runs | 0/2 | 0/2 |
+| `script-report` | write a short script that runs | 0/2 | 0/2 |
+| `count-todos` | read a folder and answer a question about it | 0/2 | 0/2 |
+| `summarise-docs` | summarise a folder of documents | 0/2 | 0/2 |
+| `rename-fee` | make the same change across several files | 0/2 | 0/2 |
+| `staged` | follow a two-step instruction with a hold in the middle | 0/2 | 0/2 |
 
 ### What each task does and does not prove
 
@@ -56,9 +56,8 @@ How many of that agent's attempts at that one task passed.
 
 Two agents are only called apart here when the range of one does not touch the range of the other over the repeats. Everything else is a tie as far as this board can tell.
 
-- Tasks passed: **no claim between Branch Agent 0.17.0 and OpenClaw 2026.9.4** — the board was run through once (20% against 10%), and one pass has no range at all. A difference this size may be real or may be the afternoon. Run it again to find out.
-- Time: **Branch Agent 0.17.0 and OpenClaw 2026.9.4 overlap** (74s–300s against 144s–301s); no claim either way.
-
+- **Tasks passed: Branch Agent 0.17.0 is ahead of OpenClaw 2026.9.4**, and the ranges do not overlap (20%–20% against 10%–10%).
+- Time: **Branch Agent 0.17.0 and OpenClaw 2026.9.4 overlap** (55s–300s against 144s–301s); no claim either way.
 
 ## Shown, not scored
 
@@ -71,28 +70,28 @@ One pass over 10 tasks: **2 passed**. This is a single pass, so it has no spread
 - named src/limiter.js and the token bucket
 - run status needs_input: Where is the function calcFee defined in this repository?
 
+For comparison: that is **exactly as many as the fixed build managed on the same pass (2 of 10)**. So on these ten tasks the two changes bought no extra passes at all. They demonstrably changed what happens — the unfixed build stops at 2048 tokens with the provider blamed for it, and is cancelled at two minutes whatever it was asked for — but on this task set that did not turn into a single additional task finished, and saying otherwise would be inventing a result.
+
 ### How much of this is the clock
 
-6 of 30 runs were stopped by the harness at the deadline rather than finishing. Where that number is large for an agent, its score is **not** a statement about what it would eventually have produced — only that it did not produce it inside the deadline every contestant was given. A longer deadline was not affordable: the contestants have to be interleaved inside one window for the comparison to mean anything, and the window is already hours long. This board cannot tell slow apart from never-finishing.
+14 of 50 runs were stopped by the harness at the deadline rather than finishing. Where that number is large for an agent, its score is **not** a statement about what it would eventually have produced — only that it did not produce it inside the deadline every contestant was given. A longer deadline was not affordable: the contestants have to be interleaved inside one window for the comparison to mean anything, and the window is already hours long. This board cannot tell slow apart from never-finishing.
 
 Separately, some runs ended with the program reporting no error at all and returning an empty answer — which reads to a person as "it finished" when nothing was produced:
 
-- **Branch Agent 0.17.0 (+ the reply-ceiling fix)**: 2 of 10 runs
+- **Branch Agent 0.17.0 (+ the reply-ceiling fix)**: 3 of 20 runs
 
 ## Did anyone touch the marking?
 
-No. On every one of the 30 runs, the files that decide a task were exactly as they started. The check does not rely on that — the pristine copies are restored before marking regardless — but nothing had to be restored.
+No. On every one of the 50 runs, the files that decide a task were exactly as they started. The check does not rely on that — the pristine copies are restored before marking regardless — but nothing had to be restored.
 
 ## The load it ran under
 
-This machine runs the owner's own work and cannot be quietened. The contestants were therefore interleaved — one task at a time, each agent in turn, then round again — so that a quiet stretch could not be handed to whichever agent happened to be running in it. Load average over the whole window: **5.7 to 16.6** on 5 processors.
-
-> 1 result(s) from pass 2 and later were left out of everything above: that pass of the board did not finish, and a half-finished pass has a smaller denominator that would flatter whichever agent happened to be in it. They are still in the results file.
+This machine runs the owner's own work and cannot be quietened. The contestants were therefore interleaved — one task at a time, each agent in turn, then round again — so that a quiet stretch could not be handed to whichever agent happened to be running in it. Load average over the whole window: **5.7 to 26.5** on 5 processors.
 
 ## What this is not
 
 - **Cost is not compared.** There is no price on file for a model running on the owner's own card, so no money figure is printed at all; were one printed it would be part measured, part estimated — do not read this as a bill. The token counts above are what each program reported, and the three programs do not count the same things: one reports what the provider said, one adds its own estimate when the provider says nothing, and they disagree about whether a reasoning block is output. The columns are printed so the difference in prompt size is visible, not so the totals can be divided into money.
 - **Claude Code is not on this board and cannot be.** It talks only to Anthropic's API, so it cannot use the P40 at all. Putting it here would mean one contestant on a frontier hosted model and three on a 4B local one, which is a different contest, not a closer one.
 - **The tool surfaces are not the same**, and nothing can make them the same. Each agent's is recorded with its rows; a task can be won by having the right built-in tool rather than by judging well.
-- **The harness was kinder to some rows than others.** 4 run(s) were given a second attempt because their error looked like the model server failing rather than the agent (Branch Agent 0.17.0: 4). At least some of those were the agent's own timeout rather than the server's — see FINDINGS.md, F6 and F7. No verdict changed, because every retried run failed again, but it is a thumb on the scale and it is named here rather than quietly removed.
+- **The harness was kinder to some rows than others.** 8 run(s) were given a second attempt because their error looked like the model server failing rather than the agent (Branch Agent 0.17.0: 8). At least some of those were the agent's own timeout rather than the server's — see FINDINGS.md, F6 and F7. No verdict changed, because every retried run failed again, but it is a thumb on the scale and it is named here rather than quietly removed.
 - **These timings do not transfer.** They were measured on one oversubscribed VM inside one window. Only the differences measured inside that window mean anything, and only where the ranges separate.

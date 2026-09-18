@@ -249,6 +249,25 @@ if (demos.length) {
     const reasons = [...new Set(demoRows.map((row) => row.agentError ?? row.why))];
     for (const reason of reasons.slice(0, 4)) say(`- ${reason}`);
     say();
+    // The comparison the demonstration exists for, stated even when it is unflattering to the
+    // change being demonstrated. A fix that lets an agent get further without getting further *on
+    // the board* is worth knowing about, and burying it would be the exact flattery this whole
+    // exercise is meant to avoid.
+    const counterpart = real.find(([other]) => other !== name && name.startsWith(other));
+    if (counterpart) {
+      const mine = demoRows.filter((row) => row.passed).length;
+      const theirsRows = counterpart[1].filter((row) => row.repeat === 1);
+      const theirs = theirsRows.filter((row) => row.passed).length;
+      const verdict = mine === theirs
+        ? `**exactly as many as the fixed build managed on the same pass (${theirs} of ${theirsRows.length})**. `
+          + `So on these ten tasks the two changes bought no extra passes at all. They demonstrably changed `
+          + `what happens — the unfixed build stops at 2048 tokens with the provider blamed for it, and is `
+          + `cancelled at two minutes whatever it was asked for — but on this task set that did not turn into `
+          + `a single additional task finished, and saying otherwise would be inventing a result.`
+        : `against ${theirs} of ${theirsRows.length} for the fixed build on the same pass.`;
+      say(`For comparison: that is ${verdict}`);
+      say();
+    }
   }
 }
 
