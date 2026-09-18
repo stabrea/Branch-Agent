@@ -132,15 +132,15 @@ function adder() {
     "vault-autofill.hint.site", "Just the website name, such as example.com. Branch fills this sign-in on that site "
     + "and pages under it, and refuses anywhere else.", field("text", "", "example.com")));
   parts.push(...described("vault-autofill-service", "vault-autofill.field.service", "Where it is saved",
-    "vault-autofill.hint.service", "Which password manager holds it. Branch reads it through that manager's own "
-    + "command line, and can only read. A one-time code is read from Bitwarden only.",
+    "vault-autofill.hint.service", "Which password manager holds it. Branch reads it through the password-manager connection you switched on under “Reading passwords out of your password manager”, using that manager's own command line, and can only read. A one-time code is read from Bitwarden only.",
     chooser("vault-autofill-service", SERVICES, "bitwarden")));
   parts.push(...described("vault-autofill-item", "vault-autofill.field.item", "The item in your password manager",
     "vault-autofill.hint.item", "The item's name, exactly as it appears in your password manager. Branch never "
     + "guesses which item to use from what a page says.", field("text", "", "My Shop")));
   parts.push(...described("vault-autofill-address", "vault-autofill.field.address", "The sign-in page's address",
-    "vault-autofill.hint.address", "Optional. Branch will not fill a page it reached by following a link, because "
-    + "anyone can put a link on a page — unless the address is this one, written here by you.",
+    "vault-autofill.hint.address", "Optional. Branch will not fill a page that pressing something took it to on "
+    + "another website, because what it pressed was put there by whoever wrote the page — unless the address is "
+    + "this one, written here by you.",
     field("text", "", "https://example.com/login")));
   parts.push(...described("vault-autofill-code", "vault-autofill.field.code", "This item also holds the one-time code",
     "vault-autofill.hint.code", "Tick this when the same item holds your authenticator code. Branch then types the "

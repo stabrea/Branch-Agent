@@ -101,6 +101,18 @@ export function saveVaultAutofillSettings(store: Store, owner: string, input: un
 export const signInBoxes = ["password", "code"] as const;
 export type SignInBox = (typeof signInBoxes)[number];
 
+/** Where the task is, and how it got there. */
+export interface SignInWhere {
+  /** The address of the page this task is on. */
+  address: string;
+  /**
+   * Whether the task got here by pressing something on a page of another website, rather than by
+   * opening an address. Pressing "Sign in" on the site whose address was opened is not that: only a
+   * hop to a different website is, because the thing pressed was put there by whoever wrote the page.
+   */
+  acrossSites: boolean;
+}
+
 /**
  * The page the owner is looking at, as this feature needs it. The real one is the browser
  * (src/integrations/browser.ts); tests hand in a stand-in, so no real page is ever opened.
@@ -109,10 +121,7 @@ export type SignInBox = (typeof signInBoxes)[number];
  * a value could travel along, so nothing downstream of this call can have seen it.
  */
 export interface SignInPage {
-  /** The address of the page this task is on. */
-  address(context: ToolContext): Promise<string>;
-  /** Whether that page was reached by following something on another page, rather than by an address. */
-  followedLink(context: ToolContext): boolean;
+  where(context: ToolContext): Promise<SignInWhere>;
   /** Types the value into one box. Throws a plain sentence, never one carrying the value. */
   type(context: ToolContext, box: SignInBox, label: string | undefined, value: string): Promise<void>;
 }
@@ -155,11 +164,12 @@ export function siteHolds(site: string, host: string): boolean {
 }
 
 /**
- * Why this address is not one that entry may be filled into, or null. A page reached by following a
- * link is somewhere untrusted content sent Branch, so only the address the owner wrote down for
- * that entry will do.
+ * Why this address is not one that entry may be filled into, or null. A page the task was taken to
+ * from another website is somewhere untrusted content sent Branch — the site's own name may still
+ * match, because anything under it does — so only the address the owner wrote down for that entry
+ * will do there.
  */
-export function addressRefusal(entry: SignInEntry, address: string, followedLink: boolean): string | null {
+export function addressRefusal(entry: SignInEntry, address: string, acrossSites: boolean): string | null {
   let url: URL;
   try { url = new URL(address); } catch { return "Branch cannot tell what address this page is on, so it filled nothing."; }
   if (url.protocol !== "https:")
@@ -168,9 +178,9 @@ export function addressRefusal(entry: SignInEntry, address: string, followedLink
     return `That address carries a name and password of its own, so your "${entry.name}" sign-in was not filled.`;
   if (!siteHolds(entry.site, url.hostname))
     return `Your "${entry.name}" sign-in is saved for ${entry.site}, and this page is on ${url.hostname}, so nothing was filled.`;
-  if (!followedLink) return null;
+  if (!acrossSites) return null;
   if (entry.address && tidy(entry.address) === tidy(url.href)) return null;
-  return `Branch reached this page by following a link, and a link can be put there by anyone. `
+  return `Branch was taken to this page from another website, and what it pressed there could have been put there by anyone. `
     + `Open ${entry.address ? entry.address : `the sign-in page for ${entry.site}`} by its address yourself, `
     + `or write that address down for "${entry.name}" in Settings, and ask again.`;
 }
@@ -225,9 +235,9 @@ export class VaultAutofill {
       throw new Error(`Your "${entry.name}" sign-in is not marked as holding a one-time code. Tick that in Settings if it does.`);
     if (asked.box === "code" && entry.service !== "bitwarden")
       throw new Error("Branch reads a one-time code from Bitwarden only. Type this one yourself.");
-    const address = await this.deps.page.address(context);
-    const where = addressRefusal(entry, address, this.deps.page.followedLink(context));
-    if (where) { this.note(entry, asked.box, address, context, "refused"); throw new Error(where); }
+    const { address, acrossSites } = await this.deps.page.where(context);
+    const refused = addressRefusal(entry, address, acrossSites);
+    if (refused) { this.note(entry, asked.box, address, context, "refused"); throw new Error(refused); }
     await this.put(entry, asked, address, context);
     this.note(entry, asked.box, address, context, "filled");
     return { filled: asked.box, login: entry.name, site: entry.site, url: address,

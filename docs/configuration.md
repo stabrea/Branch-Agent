@@ -8153,9 +8153,11 @@ and nothing else will do.
 
 **Where it will fill.** Only on the line's own `site`, or a page under it — never a look-alike such as
 `evil-example.com` or `example.com.attacker.net`. Only on a secure address, and never on an address that carries a
-name and password of its own. And when Branch got to the page by pressing something on another page rather than by
-opening an address, it fills nothing unless that address is the `address` you wrote down yourself: anybody can put
-a link on a page, and a page's content is not something to be led by.
+name and password of its own. And when pressing something took the task away from the website whose address it
+opened, it fills nothing unless that address is the `address` you wrote down yourself: what it pressed was put
+there by whoever wrote the page, and a page's content is not something to be led by. Pressing "Sign in" on the
+website you opened is not that hop, so an ordinary sign-in — password, then the one-time code on the next page —
+works as it should.
 
 **Where the value can go.** Into the box on the page, and nowhere else. It is not in the answer the assistant gets,
 not in an event, not in the record of what the assistant was allowed to do (which names the sign-in, the box and
@@ -8169,6 +8171,11 @@ running Branch reaches this one), someone else using a household profile on this
 schedule, a trigger or another AI tool started are each refused in one plain sentence. Everything is refused while
 Lockdown is on. The book itself is the owner's too: a short-lived key may neither read `/api/vault-autofill/settings`
 nor change it.
+
+**Two switches, on purpose.** Branch reads through the password-manager connection you already had
+("Reading passwords out of your password manager", above): that has to be on, with the right manager
+ticked, before this one will fill anything. Turning on filling does not by itself let Branch read a
+vault, and the older switch by itself never types anything into a page.
 
 **The password manager.** Bitwarden is wired end to end, through its own command line (`bw --nointeraction --raw
 get password <item>`, and `get totp <item>` for a one-time code). 1Password items can be named for a password;

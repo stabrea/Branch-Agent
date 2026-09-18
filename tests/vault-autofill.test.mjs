@@ -25,6 +25,9 @@ import { classify, specFor } from "../dist/settings-kit/catalogue.js";
 import { underShortLivedKey } from "../dist/key-context.js";
 import { ownerOnlyRead } from "../dist/short-lived-keys.js";
 import { offLimitsToShortLivedKeys } from "../dist/server.js";
+import { ToolRegistry } from "../dist/registry.js";
+import { registerVaultAutofill } from "../dist/vault-autofill.js";
+import { findLeaks, redactLeaksIn } from "../dist/leak-guard.js";
 
 /** The one value in these tests. It must never turn up anywhere but the page's password box. */
 const THE_PASSWORD = "correct-horse-battery-staple-42";
@@ -58,12 +61,11 @@ function fakeManager(root, answers = { password: THE_PASSWORD, totp: THE_CODE })
 }
 
 /** A page that records which box it was asked to type into, and nothing about what went into it. */
-function fakePage(url, { followedLink = false, boxes = ["password", "code"] } = {}) {
+function fakePage(url, { acrossSites = false, boxes = ["password", "code"] } = {}) {
   const typed = [];
   return {
     typed,
-    address: async () => url,
-    followedLink: () => followedLink,
+    where: async () => ({ address: url, acrossSites }),
     type: async (_context, box, label, value) => {
       if (!boxes.includes(box)) throw new Error(`the page has no ${box} box; it was asked for "${label}"`);
       typed.push({ box, label, length: value.length, matched: value === THE_PASSWORD || value === THE_CODE });
@@ -133,16 +135,47 @@ test("a box that is not there fails with a sentence of Branch's own, never the p
   assert.ok(!everythingWritten(store).includes(THE_PASSWORD));
 });
 
-test("the tool takes no value of its own, so nothing the model writes can be typed into a page", async () => {
-  const { registerVaultAutofill } = await import("../dist/vault-autofill.js");
-  const registered = [];
-  registerVaultAutofill({ register: (definition) => registered.push(definition) }, {});
-  assert.equal(registered.length, 1);
-  const [definition] = registered;
+test("the tool takes no value of its own, so nothing the model writes can be typed into a page", async (t) => {
+  const { autofill } = await fixture(t);
+  const registry = new ToolRegistry();
+  registerVaultAutofill(registry, autofill);
+  const [definition] = registry.descriptions(new Set(registry.permissions()), { diet: false });
   assert.equal(definition.name, "signin.fill");
-  assert.deepEqual(Object.keys(definition.parameters.shape).sort(), ["box", "label", "login"]);
-  assert.ok(!/value|password|secret/i.test(JSON.stringify(Object.keys(definition.parameters.shape))));
+  assert.deepEqual(Object.keys(definition.parameters.properties).sort(), ["box", "label", "login"]);
   assert.deepEqual([...vaultAutofillTools], [...signInFillTools]);
+  // No field the model could write a value into. "password" appears only as the name of a box to
+  // fill and in the description; there is nothing it could put a value in.
+  const fields = Object.keys(definition.parameters.properties);
+  assert.ok(!fields.some((name) => /value|password|secret|code$/i.test(name)), `the tool offers a way in: ${fields}`);
+  assert.equal(definition.parameters.additionalProperties, false, "anything else the model writes is refused");
+  // Nothing the model can write reaches the page: the one word it may send is a name from the book.
+  await assert.rejects(() => registry.execute("signin.fill", { login: "shop", value: THE_PASSWORD },
+    context({ permissions: new Set(registry.permissions()), budget: { step: () => undefined } })), /nrecognized/);
+});
+
+test("the tool runs through the registry, with the permission an owner's own task really holds", async (t) => {
+  const { autofill, page } = await fixture(t);
+  const registry = new ToolRegistry();
+  registerVaultAutofill(registry, autofill);
+  assert.ok(registry.permissions().includes("signin.fill"), "the permission is one the registry hands to a task");
+  const budget = { step: () => undefined };
+  const answer = await registry.execute("signin.fill", { login: "shop" },
+    context({ permissions: new Set(registry.permissions()), budget }));
+  assert.equal(answer.filled, "password");
+  assert.deepEqual(page.typed.map((one) => one.box), ["password"]);
+  assert.ok(!JSON.stringify(answer).includes(THE_PASSWORD));
+  // A task that was not given it is refused by the registry itself, before the tool runs at all.
+  await assert.rejects(() => registry.execute("signin.fill", { login: "shop" },
+    context({ permissions: new Set(), budget })), /Permission denied: signin\.fill/);
+});
+
+test("the leak guard finds nothing to hide in what the model is told, because there is nothing there", async (t) => {
+  const { autofill } = await fixture(t);
+  const answer = await autofill.fill({ login: "shop" }, context());
+  assert.deepEqual(findLeaks(JSON.stringify(answer)), [], "the answer has nothing key-shaped in it");
+  const guarded = redactLeaksIn(answer);
+  assert.equal(guarded.kinds.size, 0, "the leak guard had nothing to hide");
+  assert.deepEqual(guarded.value, answer, "the leak guard changed nothing, because nothing was there");
 });
 
 /* ───────────────────────────── the site has to be the saved item's own ───────────────────────────── */
@@ -174,21 +207,37 @@ test("Branch never chooses the sign-in itself: an unknown name is a refusal nami
   assert.deepEqual(manager.calls, []);
 });
 
-test("a page reached by following a link is filled only at the address the owner wrote down", async (t) => {
-  const link = { page: { followedLink: true } };
-  const { autofill: strayed } = await fixture(t, { url: "https://example.com/somewhere", ...link });
-  await assert.rejects(() => strayed.fill({ login: "shop" }, context()), /following a link/);
+test("a page the task was taken to from another website is filled only at the address the owner wrote down", async (t) => {
+  const hop = { page: { acrossSites: true } };
+  const { autofill: strayed } = await fixture(t, { url: "https://example.com/somewhere", ...hop });
+  await assert.rejects(() => strayed.fill({ login: "shop" }, context()), /taken to this page from another website/);
 
   const written = await fixture(t, {
-    url: "https://example.com/login", ...link, entry: { address: "https://example.com/login" },
+    url: "https://example.com/login", ...hop, entry: { address: "https://example.com/login" },
   });
-  const answer = await written.autofill.fill({ login: "shop" }, context());
-  assert.equal(answer.filled, "password");
+  assert.equal((await written.autofill.fill({ login: "shop" }, context())).filled, "password");
 
   const elsewhere = await fixture(t, {
-    url: "https://example.com/other", ...link, entry: { address: "https://example.com/login" },
+    url: "https://example.com/other", ...hop, entry: { address: "https://example.com/login" },
   });
-  await assert.rejects(() => elsewhere.autofill.fill({ login: "shop" }, context()), /following a link/);
+  await assert.rejects(() => elsewhere.autofill.fill({ login: "shop" }, context()), /taken to this page from another website/);
+});
+
+test("pressing Sign in on the site whose address was opened is not a hop, so the one-time code still fills", async (t) => {
+  // The only sequence in which a code box exists: open the address, fill the password, press Sign in,
+  // and the code box appears on a page of the same website. Pressing there is not untrusted content.
+  const { autofill, page } = await fixture(t, { url: "https://example.com/two-factor", entry: { code: true } });
+  await autofill.fill({ login: "shop" }, context());
+  assert.equal((await autofill.fill({ login: "shop", box: "code" }, context())).filled, "code");
+  assert.deepEqual(page.typed.map((one) => one.box), ["password", "code"]);
+  assert.ok(page.typed.every((one) => one.matched));
+});
+
+test("the browser decides that hop by the website, not by the press, so a sign-in flow is not broken", async () => {
+  const source = await readFile(join(import.meta.dirname, "..", "src", "integrations", "browser.ts"), "utf8");
+  assert.match(source, /acrossSites: entry\.pressed && \(!host \|\| host !== entry\.typedHost\)/,
+    "a press within the website whose address was opened is not counted as a hop");
+  assert.match(source, /entry\.typedHost = new URL\(url\)\.hostname\.toLowerCase\(\)/, "an address sets the website");
 });
 
 /* ───────────────────────────── who may ask ───────────────────────────── */

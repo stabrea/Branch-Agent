@@ -65,11 +65,13 @@ interface RunEntry {
   /** The owner's own browser, while this task is borrowing it. */
   borrowed: AttachedBrowser | null;
   /**
-   * mac7/vault-autofill (R17-068): whether this task got to the page it is on by pressing something
-   * on another page, rather than by opening an address. A link can be put on a page by anybody, so
-   * a saved sign-in is not filled into such a page unless the owner wrote the address down first.
+   * mac7/vault-autofill (R17-068): the website of the last address this task opened by address, and
+   * whether it has pressed anything since. Together they say whether the page it is on now was
+   * reached from another website — which is what "a link in untrusted content" means here. Pressing
+   * "Sign in" on the site whose address was opened is not that, and 2FA would be impossible if it were.
    */
-  followedLink: boolean;
+  typedHost: string;
+  pressed: boolean;
 }
 /** Where the trace of one task is written, when the launch keeps traces. */
 export interface BrowserTracer {
@@ -150,7 +152,7 @@ export class BranchBrowser {
     const cancel = () => { void this.closeRun(context).catch(() => undefined); };
     context.signal.addEventListener('abort', cancel, { once: true });
     const created: RunEntry = { session, origins: new Set(), actions: 0, host: '', profile: null,
-      marks: new MarkRegistry(), borrowed: null, followedLink: false,
+      marks: new MarkRegistry(), borrowed: null, typedHost: '', pressed: false,
       detach: () => context.signal.removeEventListener('abort', cancel) };
     this.sessions.set(key, created);
     return created;
@@ -180,8 +182,9 @@ export class BranchBrowser {
     return this.operation(context, async page => {
       await page.goto(url, { waitUntil: 'domcontentloaded' });
       // Counted only once the page really opened, so a refused address costs the task nothing.
-      entry.origins.add(origin);
-      entry.followedLink = false; // mac7/vault-autofill: an address, not a link somebody put on a page
+      // mac7/vault-autofill: an address, not something somebody put on a page for Branch to press.
+      entry.typedHost = new URL(url).hostname.toLowerCase();
+      entry.pressed = false;
       entry.host = new URL(url).host;
       const site = await this.quirks(context, page, url);
       return { url: page.url(), title: await page.title(), ...(site ? { site } : {}) };
@@ -218,7 +221,7 @@ export class BranchBrowser {
       accessibility: (await page.locator('body').ariaSnapshot()).slice(0, 16000) }));
   }
   async click(role: 'button' | 'link', name: string, context: ToolContext) {
-    this.entry(context).followedLink = true; // mac7/vault-autofill: wherever this lands came off a page
+    this.entry(context).pressed = true; // mac7/vault-autofill: wherever this lands came off a page
     return this.operation(context, async page => {
       await page.getByRole(role, { name, exact: true }).click();
       return { url: page.url(), clicked: name };
@@ -285,7 +288,7 @@ export class BranchBrowser {
    */
   async act(input: HealTarget & { action: 'click' | 'fill' | 'check'; value?: string | undefined }, context: ToolContext) {
     const entry = this.entry(context);
-    if (input.action === 'click') entry.followedLink = true; // mac7/vault-autofill
+    if (input.action === 'click') entry.pressed = true; // mac7/vault-autofill
     return this.operation(context, async page => {
       const found = await healResolve(page, input, 2000,
         { keyOf: id => entry.marks.keyOf(id), liveKey: id => liveMarkKey(page, id) });
@@ -515,8 +518,14 @@ export class BranchBrowser {
   /** The page this task is on, as the sign-in filling needs it. Nothing here returns what it typed. */
   signInPage(): SignInPage {
     return {
-      address: (context) => this.operation(context, async page => ({ url: page.url() })).then(seen => seen.url),
-      followedLink: (context) => this.entry(context).followedLink,
+      where: (context) => this.operation(context, async page => {
+        const entry = this.entry(context), address = page.url();
+        let host = '';
+        try { host = new URL(address).hostname.toLowerCase(); } catch { /* an address Branch cannot read */ }
+        // Across sites, and only across sites: the same website the task opened by address is where
+        // a sign-in flow stays, and a hop away from it is what nobody but the owner may vouch for.
+        return { address, acrossSites: entry.pressed && (!host || host !== entry.typedHost) };
+      }),
       type: async (context, box, label, value) => {
         await this.operation(context, async page => {
           const found = await signInBox(page, box, label);

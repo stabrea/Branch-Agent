@@ -72,6 +72,7 @@ Inside a conversation there are no homes to add to, only two surfaces with stric
 | --- | --- |
 | Operating-system permissions screen (`mac2/desktop-ui`) | `settings:computer` |
 | Keychain entries Branch may read (`mac2/desktop-ui`) | `settings:secrets` |
+| Filling a saved sign-in into a page (`mac7/vault-autofill`, R17-068) | `settings:secrets`, beside the password managers it reads from |
 | Loop guard, trusted folders (`mac2/guards`) | `settings:permissions` |
 | Importing from another assistant (`mac2/move-in`) | `settings:data`, and offered once on first run |
 | Heartbeat and quiet jobs (`mac2/quiet-jobs`) | `automations:scheduled`; its interruptions setting in `settings:notifications` |
