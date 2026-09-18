@@ -144,29 +144,39 @@ export function macRequirementCommand(app) {
   return ["codesign", "-d", "-r-", app];
 }
 
-/** The `designated => ...` line out of whatever `codesign -d -r-` printed, without its label. */
+/**
+ * The `designated => ...` line out of whatever `codesign -d -r-` printed, without its label.
+ * An ad-hoc seal has its line commented out (`# designated => cdhash H"..."`), because codesign
+ * knows it is not a requirement anything can be held to. That line is read all the same: it is the
+ * one this is looking for, and saying "no requirement" instead of "it pins a cdhash" would hide the
+ * only fact that matters.
+ */
 export function macDesignatedRequirement(output) {
   for (const line of String(output).split(/\r?\n/)) {
-    const match = /^designated\s*=>\s*(.+)$/.exec(line.trim());
+    const match = /^#?\s*designated\s*=>\s*(.+)$/.exec(line.trim());
     if (match) return match[1].trim();
   }
   return null;
 }
 
 /**
- * Is this build's identity the stable kind? The requirement must name the bundle identifier and the
+ * Is this build's identity the stable kind? The requirement must name the bundle identifier and a
  * signing certificate, and must not name a code directory hash: `cdhash` means the identity is the
- * contents, which change every build, so every permission the owner granted resets on the update.
- * A release that ships that is worse than no release, so this refuses rather than warns.
+ * app's own contents, which change every build, so every permission the owner granted resets on the
+ * next update. A release that ships that is worse than no release, so this refuses rather than warns.
+ *
+ * Two anchors count. The free certificate the project makes itself produces `certificate root = H"…"`.
+ * A paid Developer ID produces `anchor apple generic … certificate leaf[subject.OU] = "TEAM"`, which
+ * is just as stable; refusing it would block the very upgrade this is meant to make easy.
  */
 export function macIdentityCheck(output) {
   const requirement = macDesignatedRequirement(output);
   if (!requirement) return { ok: false, requirement: null, reason: "codesign printed no designated requirement." };
   const named = new RegExp(`identifier\\s+"?${MAC_BUNDLE_ID.replace(/\./g, "\\.")}"?(\\s|$)`).test(requirement);
+  const anchored = requirement.includes("certificate root") || requirement.includes("anchor apple generic");
   if (requirement.includes("cdhash"))
     return { ok: false, requirement, reason: "the requirement pins a cdhash, so every update resets the owner's permissions." };
-  if (!requirement.includes("certificate root"))
-    return { ok: false, requirement, reason: "the requirement is not anchored to a signing certificate." };
+  if (!anchored) return { ok: false, requirement, reason: "the requirement is not anchored to a signing certificate." };
   if (!named) return { ok: false, requirement, reason: `the requirement does not name ${MAC_BUNDLE_ID}.` };
   return { ok: true, requirement, reason: null };
 }

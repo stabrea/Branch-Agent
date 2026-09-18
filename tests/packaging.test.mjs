@@ -168,14 +168,24 @@ test("a build whose identity would reset the owner's permissions is refused, not
   assert.equal(checked.ok, true);
   assert.equal(checked.reason, null);
   assert.match(checked.requirement, /^identifier "com\.keepoak\.branch-agent"/);
-  // What an ad-hoc build prints: the identity is the contents, so the next build is a different app.
-  const adHoc = mac.macIdentityCheck('designated => cdhash H"8df0439d" or cdhash H"a7ce609e"');
+  // Exactly what an ad-hoc build of this app prints, captured from one. codesign comments the line
+  // out because an ad-hoc seal is not a requirement anything can be held to, and the identity is the
+  // app's own contents, so the next build is a different app to macOS.
+  const adHoc = mac.macIdentityCheck([
+    "Executable=/x/Branch Agent.app/Contents/MacOS/Branch Agent",
+    '# designated => cdhash H"b1c5ae710ad3e59abfe30766fc5a5e0381cde28f"',
+  ].join("\n"));
   assert.equal(adHoc.ok, false);
   assert.match(adHoc.reason, /resets the owner's permissions/);
-  // Anchored to Apple rather than to a certificate root, which this check does not accept on its own.
-  const noRoot = mac.macIdentityCheck('designated => identifier "com.keepoak.branch-agent" and anchor apple generic');
-  assert.equal(noRoot.ok, false);
-  assert.match(noRoot.reason, /not anchored/);
+  assert.match(adHoc.requirement, /^cdhash/);
+  // A paid Developer ID anchors to Apple instead of to a certificate root and is just as stable, so
+  // it passes too: refusing it would block the upgrade this whole check exists to make easy.
+  const paid = mac.macIdentityCheck('designated => identifier "com.keepoak.branch-agent" and anchor apple generic and certificate leaf[subject.OU] = "TEAM"');
+  assert.equal(paid.ok, true);
+  // Neither anchor: nothing ties this signature to a certificate at all.
+  const noAnchor = mac.macIdentityCheck('designated => identifier "com.keepoak.branch-agent"');
+  assert.equal(noAnchor.ok, false);
+  assert.match(noAnchor.reason, /not anchored/);
   const renamed = mac.macIdentityCheck('designated => identifier "com.keepoak.branch" and certificate root = H"44"');
   assert.equal(renamed.ok, false);
   assert.match(renamed.reason, /com\.keepoak\.branch-agent/);

@@ -16,7 +16,10 @@ jobs:
     env:
       HAS_APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE_P12 != '' }}
       HAS_NOTARY_KEY: ${{ secrets.APPLE_API_KEY_P8 != '' }}
-      HAS_MAC_SIGNING_CERTIFICATE: ${{ secrets.MAC_SIGNING_P12_BASE64 != '' }}
+      # Both halves are needed: the .p12 puts the key on the runner, the SHA-1 is what the build
+      # names it by. Either one alone signs nothing and silently falls back to the ad-hoc seal.
+      HAS_MAC_SIGNING_CERTIFICATE: ${{ secrets.MAC_SIGNING_P12_BASE64 != '' && secrets.MAC_SIGNING_SHA1 != '' }}
+      HAS_APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY != '' }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -47,7 +50,7 @@ jobs:
       # app's own contents, so the next update looks like a different app and every permission is
       # asked for again. That failure is silent, so the release refuses to publish without it.
       - name: Refuse to publish a Mac release with no signing certificate
-        if: runner.os == 'macOS' && env.HAS_MAC_SIGNING_CERTIFICATE != 'true' && env.HAS_APPLE_CERTIFICATE != 'true'
+        if: runner.os == 'macOS' && env.HAS_MAC_SIGNING_CERTIFICATE != 'true' && !(env.HAS_APPLE_CERTIFICATE == 'true' && env.HAS_APPLE_SIGNING_IDENTITY == 'true')
         run: |
           echo "::error::No macOS signing certificate. Publishing now would reset every user's" \
             "microphone, screen recording and accessibility permission. Set MAC_SIGNING_P12_BASE64," \
@@ -55,8 +58,10 @@ jobs:
           exit 1
       # The certificate lives in a keychain made for this run only. It is never trusted: an untrusted
       # certificate signs perfectly well when it is named by its SHA-1, and trusting it would be a
-      # change to the machine's security settings for no gain. The keychain is added to the search
-      # list beside the ones already there, never in place of them.
+      # change to the machine's security settings for no gain. The keychain must be added to the
+      # search list: codesign's own --keychain is not enough to find the identity by SHA-1, and it
+      # fails with "no identity found" without this line. It is added beside the keychains already
+      # there, never in place of them.
       - name: Load the signing certificate
         if: runner.os == 'macOS' && env.HAS_MAC_SIGNING_CERTIFICATE == 'true'
         env:

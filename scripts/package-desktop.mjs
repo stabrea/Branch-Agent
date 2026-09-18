@@ -164,7 +164,7 @@ async function writeUnixInstaller() {
   console.log(script);
 }
 
-async function packageMac({ arch }) {
+async function packageMac({ arch, release }) {
   const [out] = await runPackager(packagerOptions("darwin", arch, await macIcon()));
   const app = join(out, `${mac.MAC_APP_NAME}.app`);
   const entitlements = join(RELEASE, "build", "entitlements.mac.plist");
@@ -174,7 +174,10 @@ async function packageMac({ arch }) {
   await rm(zip, { force: true });
   const plan = mac.macFinishPlan({ app, zip, nested, entitlements, env: process.env });
   for (const command of plan.commands) runCommand(command);
-  if (plan.signed) assertStableIdentity(app);
+  // A release is checked whether or not it thinks it signed: the failure worth catching is a build
+  // that lost the certificate, signed ad hoc, and looks perfectly fine until every user's
+  // permissions are gone. A plain local build stays ad-hoc and silent, as it always was.
+  if (plan.signed || release) assertStableIdentity(app);
   await writeChecksum(zip);
   await writeUnixInstaller();
   console.log(app);
