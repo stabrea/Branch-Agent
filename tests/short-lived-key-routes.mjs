@@ -935,6 +935,9 @@ export const ROUTES = {
   "/api/usage/counters": "owner POST",
   "/api/usage/counters/send": "owner POST",
   "/api/usage/export.csv": "look",
+  // mac7/usage-bar: what each connection has left is the owner's, and so is the switch behind it.
+  "/api/usage/limits": "secret-read",
+  "/api/usage/limits/settings": "secret-read",
   "/api/usage/metering": "owner POST",
   "/api/usage/metering/now": "other POST",
   "/api/usage/report": "owner POST",
@@ -981,6 +984,8 @@ export const OUTBOUND = [
   /^src\/channel-setup\/cli\.ts$/, // mac7/connect: `branch connect` calls the Set up routes of the running Branch
   // r17-i: callers of other computers' routes and of the relay's, not routes of this one.
   /^src\/reach\/(machines|remote-trunks|relay)\.ts$/,
+  // mac7/usage-bar: OpenRouter's own documented /api/v1/key, called outwards; not a route of ours.
+  /^src\/usage-limits-openrouter\.ts$/,
 ];
 
 export const SAMPLE_ID = "0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f";

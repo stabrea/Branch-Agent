@@ -212,6 +212,8 @@ import { guardsApi, handlesGuardsPath } from "./run-guards.js";
 import { handlesKnobsPath, knobsApi, KnobsApiError } from "./knobs/api.js";
 // R17-E: models, cheaper and smarter (src/model-savings/).
 import { handlesSavingsPath, savingsApi, SavingsApiError } from "./model-savings/api.js";
+// mac7/usage-bar: how much of each connection's allowance is left (src/usage-limits.ts).
+import { handlesUsageLimitsPath, usageLimitsRoute, UsageLimitsError } from "./usage-limits-api.js";
 import { savingsRefusal } from "./short-lived-keys.js";
 // R17-S-C: the comfort settings (src/comfort/); every change is the owner's.
 import { ComfortApiError, comfortApi, handlesComfortPath } from "./comfort/api.js";
@@ -1511,6 +1513,11 @@ async function api(
   if (["/api/usage/report", "/api/usage/report/settings", "/api/usage/counters", "/api/usage/counters/send"].includes(path))
     return usageReportRoute(app, request, path, () => readBody(request));
   // --- end bucket 14 ---
+  // --- mac7/usage-bar: what each connection has left, in its honest state; src/usage-limits-api.ts ---
+  if (handlesUsageLimitsPath(path))
+    return usageLimitsRoute(app, request, path, () => readBody(request))
+      .catch((error: unknown) => { throw error instanceof UsageLimitsError ? new HttpError(error.status, error.message) : error; });
+  // --- end mac7/usage-bar ---
   throw new HttpError(404, "Endpoint not found");
 }
 async function sessionApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
@@ -3485,6 +3492,9 @@ export function offLimitsToShortLivedKeys(method: string | undefined, path: stri
   // mac4/bucket-14 (integration review): the report shows every person's tasks, and the counters go out to the trace address.
   if (path.startsWith("/api/usage/report") || path.startsWith("/api/usage/counters"))
     return "A short-lived key cannot make the usage report, change it, or send the task counters. Do that in the app window.";
+  // mac7/usage-bar: what the owner's paid-for connections have left is the owner's business.
+  if (handlesUsageLimitsPath(path))
+    return "A short-lived key cannot see what each connection has left, or change how it is asked for. Do that in the app window.";
   // mac3/channels-parity (integration review): switching a chat app on lets outsiders reach the assistant.
   if (path === "/api/channels/parity") return "A short-lived key cannot switch chat apps on or off. Do that in the app window.";
   // mac4/bucket-13 (integration review): the recordings switch (and whether saved pages carry

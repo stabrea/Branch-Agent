@@ -15,6 +15,7 @@ import { saveSafetySwitch, type SafetyPart } from "../safety-extras/settings.js"
 import { writeBoardSwitch, type BoardPart } from "../flows-boards/settings.js"; // r17-h integration review
 import { saveComfort, type ComfortCard } from "../comfort/settings.js";
 import { saveChatPermissionSettings } from "../channels/chat-permissions.js"; // mac7/chat-allowlist
+import { saveUsageLimitsSettings } from "../usage-limits.js"; // mac7/usage-bar
 
 /**
  * R17-S-A (understandable settings): the settings that can be put back to how they started, set
@@ -166,6 +167,12 @@ const reach: SettingSpec[] = [
   one("media-programs", "Watching and saving videos", "settings-kit.name.video", "settings:models:media", "reach"),
   one("speech-engines", "Other speech services", "settings-kit.name.speech", "settings:voice", "reach"),
   one("execution-metrics", "Sending the counters", "settings-kit.name.counters", "settings:advanced", "reach", { keepsEnabled: true }),
+  // mac7/usage-bar: reading an allowance out of the headers on Branch's own answers is always on and
+  // costs nothing. This switch is only for the one service Branch may ask outright — OpenRouter's
+  // documented key endpoint — because that is a request made on a timer without being told to, so
+  // turning it up reaches further. It ships off. No plan account is ever asked, switch or no switch.
+  one("usage-limits", "Asking a service what is left", "settings-kit.name.usage-limits", "settings:data", "reach",
+    { keepsEnabled: true, write: (store, owner, patch) => { saveUsageLimitsSettings(store, owner, patch); } }),
   one("asks-analytics", "Counting how Branch is used", "settings-kit.name.analytics", "settings:data", "reach"),
   one("asks-answer-engine", "Quick answers from the web", "settings-kit.name.answers", "library:made", "reach"),
   one("asks-runtimes", "Other agents answering a conversation", "settings-kit.name.runtimes", "settings:models:connection", "reach"),

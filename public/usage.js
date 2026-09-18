@@ -40,6 +40,7 @@ let budget = null;
 let pricing = null;
 let statistics = null;
 let metering = null;
+let limits = null; // mac7/usage-bar
 
 /* ---------- Wave 7: this month, and what it is heading for ---------- */
 
@@ -330,6 +331,92 @@ async function writeMeteringNow() {
   } catch (e) { $("metering-status").textContent = e.message; }
 }
 
+
+/* ---------- mac7/usage-bar: what each connection has left ---------- */
+
+/** "4 min ago", or nothing at all when nobody said when. A number with no age is not shown. */
+function ageOf(measuredAt) {
+  if (!measuredAt) return null;
+  const seconds = Math.max(0, Math.round((Date.now() - new Date(measuredAt).getTime()) / 1000));
+  if (seconds < 90) return "as of just now";
+  const minutes = Math.round(seconds / 60);
+  return minutes < 90 ? `as of ${minutes} min ago` : `as of ${Math.round(minutes / 60)} h ago`;
+}
+
+/**
+ * One window. A measured share draws a bar; an estimate draws a lighter one and always says the
+ * word "estimate" and what it was worked out from. A remainder nobody gave us draws no bar at all,
+ * because a bar with no number behind it is exactly the invention this screen exists to avoid.
+ */
+function limitWindow(window) {
+  const row = el("div", undefined, `limit-window limit-${window.state}`);
+  row.append(el("span", window.title, "limit-window-title"));
+  const share = window.kind !== "money" && window.limit > 0 && window.remaining !== null
+    ? Math.max(0, Math.min(100, (window.remaining / window.limit) * 100)) : null;
+  if (share === null) {
+    row.append(el("span", window.remaining === null
+      ? "left: not said" : `${window.remaining} left of ${window.limit ?? "an unstated allowance"}`, "limit-figure"));
+  } else {
+    const bar = el("div", undefined, "limit-bar");
+    const fill = el("div", undefined, "limit-bar-fill");
+    fill.style.width = `${share.toFixed(1)}%`;
+    bar.append(fill);
+    row.append(bar, el("span", `${Math.round(share)}% left`, "limit-figure"));
+  }
+  const age = ageOf(window.measuredAt);
+  const said = window.state === "estimated" ? `estimate — ${window.from}` : window.from;
+  row.append(el("span", [said, age, window.resetAt ? `refills ${new Date(window.resetAt).toLocaleTimeString()}` : null]
+    .filter(Boolean).join(" · "), "limit-source subtle"));
+  return row;
+}
+
+/** One connection, or one account inside a connection. Never two accounts added together. */
+function limitRow(row) {
+  const card = el("article", undefined, `limit-row limit-${row.state}`);
+  const heading = row.accountLabel ? `${row.connectionName} — ${row.accountLabel}` : row.connectionName;
+  card.append(el("h3", row.inUse && row.accountLabel ? `${heading} (in use)` : heading));
+  if (row.state === "not_published") card.append(el("p", row.note, "limit-note"));
+  else {
+    for (const window of row.windows) card.append(limitWindow(window));
+    if (row.note) card.append(el("p", row.note, "limit-note subtle"));
+  }
+  return card;
+}
+
+/**
+ * The panel. It ships looking sparse, and the sparseness is the point: most services publish
+ * nothing a program may lawfully read, and saying so is a better answer than filling the gap.
+ */
+function renderLimits(view) {
+  const card = el("article", undefined, "table-card");
+  card.id = "usage-limits";
+  card.append(el("h2", "What each connection has left"));
+  card.append(el("p", "Only what a service actually told Branch, with the time it said it. Where a service publishes nothing, this says so rather than guessing. Accounts are listed one by one and never added together: subscriptions are not interchangeable, and keys in one organisation share a single limit."));
+  if (!limits || limits.empty) {
+    card.append(el("p", limits?.summary ?? "Nothing to show yet.", "limit-note"));
+    view.append(card);
+    return;
+  }
+  for (const row of limits.rows) card.append(limitRow(row));
+  card.append(el("p", limits.summary, "subtle"));
+  const ask = el("label", undefined, "check-row");
+  const box = el("input");
+  box.type = "checkbox";
+  box.id = "limits-ask";
+  box.checked = limits.settings?.enabled ?? false;
+  ask.append(box, document.createTextNode(" Ask OpenRouter what is left on its key, on a timer"));
+  card.append(ask);
+  card.append(el("p", "OpenRouter documents an endpoint for this, so asking is fair. No subscription account is ever asked: the question itself would spend the allowance it is measuring.", "subtle"));
+  box.addEventListener("change", () => void saveLimitsSwitch(box.checked));
+  view.append(card);
+}
+async function saveLimitsSwitch(on) {
+  try {
+    await api("usage/limits/settings", { mode: on ? "on" : "off", enabled: on });
+    limits = await api("usage/limits");
+  } catch (e) { say(e.message); }
+}
+
 /** Loads everything the screen shows and draws it. Safe to call again at any time. */
 async function render() {
   const view = $("usage");
@@ -342,11 +429,17 @@ async function render() {
     pricing = response.pricing ?? null;
     budget = (await api("usage/budget")).budget;
     metering = (await api("usage/metering")).metering;
+    // mac7/usage-bar: allowed to be missing — a household profile is refused these outright.
+    limits = await api("usage/limits").catch(() => null);
   } catch (e) { say("The usage figures could not be loaded: " + e.message); return; }
   view.replaceChildren();
   // Wave 8: every section opens by saying what it is for, in one line.
   view.append(el("p", t("usage.intro"), "section-intro"));
   summaryCards(view);
+  // mac7/usage-bar: what each connection has left, above the month, and never in the meter under the
+  // message box — that bar is this conversation's room against the model's context window, which is
+  // a different thing entirely and must not be conflated with a provider's allowance.
+  renderLimits(view);
   // Batch 19 (wave 7): this month first, because that is the question people actually ask.
   renderMonth(view);
   renderStatistics(view);
