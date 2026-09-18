@@ -94,6 +94,9 @@ const coveredSettings: readonly RegExp[] = [
   /^wake-word$/,
   // mac7/vault-autofill (R17-068): typing one of the owner's saved passwords into a page.
   /^vault-autofill$/,
+  // mac7/bind: a door open to the private network is Branch reaching past this computer, which is
+  // the very thing Lockdown shuts. It reads as "this computer" while Lockdown is on.
+  /^listen-address$/,
 ];
 
 /** True when Lockdown is on and this settings record is one it switches off. */

@@ -560,6 +560,9 @@ export const ROUTES = {
   "/api/lock/settings": "owner POST",
   "/api/lock/unlock": "owner POST",
   "/api/lockdown": "owner POST",
+  // mac7/bind (integration review): where Branch's own door listens. Reading it tells a caller
+  // where to knock, so looking is the owner's alone as much as moving it is.
+  "/api/listen": "owner GET,POST",
   "/api/log": "look",
   "/api/log/export": "look",
   "/api/logs": "look",

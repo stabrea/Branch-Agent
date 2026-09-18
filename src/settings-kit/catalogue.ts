@@ -1,4 +1,5 @@
 import { reachKey, reachLabels, reachParts, type ReachPart } from "../reach/settings.js";
+import { listenAsked, listenPlaces, saveListenSettings } from "../listen-address.js"; // mac7/bind
 import { savePolicy } from "../policy.js";
 import type { Store } from "../store.js";
 import { saveLoopGuardSettings } from "../loop-guard.js";
@@ -177,6 +178,21 @@ const reach: SettingSpec[] = [
   one("asks-answer-engine", "Quick answers from the web", "settings-kit.name.answers", "library:made", "reach"),
   one("asks-runtimes", "Other agents answering a conversation", "settings-kit.name.runtimes", "settings:models:connection", "reach"),
   one("asks-nodes", "Other computers running Branch", "settings-kit.name.nodes", "settings:computer", "reach"),
+  // mac7/bind: moving Branch's own door off this computer's loopback lets anything on the private
+  // network reach it, so raising it reaches further. It is a choice of two and never an address to
+  // type: nothing brought in from a file or a preset may name where this computer listens.
+  {
+    key: "listen-address", name: "Where Branch listens", t: "settings-kit.name.listen-address",
+    home: "settings:computer",
+    fields: [{ field: "where", label: "Where Branch listens", t: "settings-kit.field.listen-where",
+      guard: "reach", initial: "this-computer", kind: { type: "choice", options: [...listenPlaces] } }],
+    write: (store, owner, patch) => { saveListenSettings(store, owner, patch); },
+    // The kit shows what the door is really doing, the way it does for the wall: a container that was
+    // started with BRANCH_LISTEN has asked for the wider door whatever the saved record says, and
+    // that is what the owner should see here. Turning it off there is done where the container is
+    // started, not on this card.
+    read: (store, owner) => ({ where: listenAsked(store, owner) }),
+  },
   one("move-in-switch", "Looking at other assistants' folders", "settings-kit.name.move-in", "settings:data", "reach"),
   one("memory-history", "Keeping the history of what it remembers", "settings-kit.name.memory-history", "library:memory", "reach"),
   one("pull-request-hook", "Pull requests from changes", "settings-kit.name.pull-requests", "settings:advanced", "reach"),
