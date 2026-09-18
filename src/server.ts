@@ -2942,14 +2942,20 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
         // are not the whole answer. A place that keeps getting it wrong now waits, counted where
         // every other wrong key and PIN is counted — which is what the note by `authLimiter` above
         // has always said happens to pairing codes, and until now did not.
+        // mac7/lockout: the wait is read only after this device's own number has been found wrong,
+        // never before, so a phone typing the right number is let in while somebody else is being
+        // made to wait. The five tries per invitation, which burn the invitation, are the guard
+        // against guessing; this wait is the second one and must not stand in a real device's way.
+        // It matters most behind the never-break gateway, where every device on the private network
+        // reaches the engine from 127.0.0.1 and so shares one entry.
         const from = requestSource(request.socket?.remoteAddress, request.headers);
-        const pairingWait = authLimiter.refusal(from, "pairing code");
-        if (pairingWait) throw new HttpError(429, pairingWait);
         const answer = await openDevicesApi({ devices: app.devices, method: request.method ?? "GET", readBody: () => readBody(request, 4096) },
           path, from).catch((error: unknown) => {
           if (!(error instanceof DevicesHttpError)) throw error;
-          if (error.status === 403) noteAuthFailure(authLimiter, app.store, app.runtime.owner, from, "a device's pairing code");
-          throw new HttpError(error.status, error.message);
+          if (error.status !== 403) throw new HttpError(error.status, error.message);
+          const pairingWait = authLimiter.refusal(from, "pairing code");
+          noteAuthFailure(authLimiter, app.store, app.runtime.owner, from, "a device's pairing code");
+          throw new HttpError(pairingWait ? 429 : error.status, pairingWait ?? error.message);
         });
         authLimiter.succeed(from);
         send(response, 200, answer);

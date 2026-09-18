@@ -16,7 +16,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
-import { createHmac } from "node:crypto";
+import { createHmac, generateKeyPairSync } from "node:crypto";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -233,4 +233,29 @@ test("a trigger fired with the right secret gets through while another trigger i
   assert.equal((await fire(two.id, two.secret)).status, 200, "another trigger must not be held by this one's wait");
   // And the right secret on the very trigger being guessed at clears its own wait.
   assert.equal((await fire(one.id, one.secret)).status, 200, "the right secret is never turned away");
+});
+
+// ---------------------------------------------------------------------------
+// 5. The same shape next door: a device answering an invitation.
+// ---------------------------------------------------------------------------
+
+test("a phone with the right pairing number gets in while a guesser is being made to wait", async (t) => {
+  const { app, server } = await twoServices(t);
+  app.devices.book.setMode({ mode: "on" });
+  const key = generateKeyPairSync("ed25519").publicKey.export({ format: "der", type: "spki" }).toString("base64");
+  const pair = (offer, code) => fetch(`${server.url}/api/devices/pair`, {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ offer, code, name: "A phone", platform: "android", publicKey: key, offers: [] }),
+  });
+  // Somebody works through numbers on an invitation of their own until they are made to wait.
+  const guessed = app.devices.book.invite();
+  const statuses = [];
+  for (let i = 0; i < 5; i++) statuses.push((await pair(guessed.id, guessed.code === "000000" ? "111111" : "000000")).status);
+  assert.ok(statuses.includes(429), `a run of wrong numbers must end in a wait, saw ${statuses.join(",")}`);
+
+  // The owner's own phone, holding the number off the screen, is let in all the same. Behind the
+  // never-break gateway every device reaches the engine from 127.0.0.1, so before this they shared
+  // the guesser's entry and the owner simply could not pair their phone for five minutes.
+  const real = app.devices.book.invite();
+  assert.equal((await pair(real.id, real.code)).status, 200, "a right number must never be held by somebody else's wrong ones");
 });

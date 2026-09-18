@@ -4149,7 +4149,11 @@ body that is not even the right shape — comes back with one sentence and one 4
 work. Check the number on the computer and try again." The five tries still use the invitation up
 underneath; you simply are not told how many are left. On top of that, a place that keeps getting it
 wrong is now made to **wait**, counted where every wrong key and PIN is counted, which is what this
-page has always said happened to pairing codes and until now did not. Before it has proven itself a socket may hold at most 64 KiB. The device key opens only the device socket; it is not Branch's key.
+page has always said happened to pairing codes and until now did not. That wait is read only after a
+number has been found wrong, never before, so a phone typing the number off your screen is let in
+while somebody else is being made to wait. It matters most behind the never-break gateway, where
+every device on your network reaches the engine from `127.0.0.1` and so shares one count: before
+this a guesser could stop you pairing your own phone for five minutes. Before it has proven itself a socket may hold at most 64 KiB. The device key opens only the device socket; it is not Branch's key.
 Taking a picture, a sound, a place, a file or the clipboard, and running a command, asks you first
 even when no approval rule says so; a rule you write still decides first. A yes to the camera, the
 screen, the microphone or a command covers that one call unless you choose otherwise when answering.
