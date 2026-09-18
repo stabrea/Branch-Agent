@@ -29,7 +29,7 @@ import { Profiles } from "./profiles.js";
 import { ToolUsage } from "./tool-usage.js";
 import { SpanStore } from "./tracing.js";
 // mac7/wake-pins: settings the owner pinned. Imports nothing but zod and this file's own type.
-import { pinnedWriteRefusal } from "./settings-kit/pins.js";
+import { PinnedSettingError, pinnedWriteRefusal } from "./settings-kit/pins.js";
 
 type Row = Record<string, unknown>;
 export type RecordTable = "memory" | "specialists" | "procedures" | "schedules" | "settings" | "deliveries" | "governance" | "triggers" | "webhooks" | "workflows" | "flow_graphs";
@@ -532,7 +532,7 @@ export class Store {
     // preset and a tool the model calls. The owner is never refused here.
     if (table === "settings") {
       const refusal = pinnedWriteRefusal(this, this.profiles.ownerName, this.profiles.isOwner(), id, data);
-      if (refusal) throw new Error(refusal);
+      if (refusal) throw new PinnedSettingError(refusal);
     }
     const now = new Date().toISOString();
     this.db

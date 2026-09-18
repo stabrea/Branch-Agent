@@ -7917,15 +7917,20 @@ setting that turns it into one.
 **What is saved** (`src/voice-wake.ts`, record `wake-word`): `mode` (off / when-needed / on, off by
 default), `word` (your own word or short phrase, empty by default, so nothing is listened for),
 `sureness` (50–99, 80 by default — how sure the spotter must be out of a hundred; lower hears your
-word more often and more often hears it when you did not say it) and `windowSeconds` (1–5, 2 by
-default — how many seconds of sound are held in memory at a time before being thrown away). Only the
+word more often and more often hears it when you did not say it, and it does nothing when your own
+speech program is what spots the word, because such a program writes out what it heard rather than
+saying how sure it is) and `windowSeconds` (1–5, 2 by default — the longest piece of sound the
+listener will hold at once; a piece longer than this is dropped where it arrives, without being
+looked at, so no more than this is ever in memory, and it is thrown away again either way). Only the
 switch and `sureness` are in the settings catalogue, so a whole-app preset or a settings file can
 turn listening off or make it stricter but can **never choose what this computer listens for**: the
 word is set by you, in the card, and nowhere else.
 
-**API.** `GET /api/voice/wake` answers the settings, what this computer would really use to spot the
-word, and why it is refused right now when it is. `POST /api/voice/wake` saves it and is the owner's
-alone; a short-lived key is refused both.
+**API.** `GET /api/voice/wake` answers the settings, one sentence about what this computer would
+really use to spot the word and whether it has one at all, and why it is refused right now when it
+is. The program that would be run never travels: its full path is the owner's. `POST /api/voice/wake`
+saves the settings and is the owner's alone. A short-lived key is refused both, the read included,
+because the word outlives any key.
 
 ## Settings you have pinned (mac7/wake-pins)
 

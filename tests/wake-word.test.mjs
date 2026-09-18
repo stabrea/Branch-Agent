@@ -17,7 +17,8 @@ import { createBranch } from "../dist/index.js";
 import { setLockdown } from "../dist/lockdown.js";
 import { saveVoiceSettings } from "../dist/voice.js";
 import {
-  askSpotter, isTheWord, listenForWake, saveWakeWordSettings, wakeRefusal, wakeSpotter, wakeWordSettings, wakeWordState,
+  askSpotter, isTheWord, listenForWake, saveWakeWordSettings, wakeRefusal, wakeSpotter, wakeWordSettings,
+  wakeWordState, wakeWordView,
 } from "../dist/voice-wake.js";
 
 async function fixture(t) {
@@ -77,7 +78,7 @@ test("W3 the word is heard, once, and the listener stops there", async (t) => {
   saveWakeWordSettings(store, owner, { mode: "on", word: "Branch" });
   const { runner, calls } = fakeRunner(["", "hey Branch!", "should never be asked"]);
   const heard = await listenForWake({ store, owner, runner, platform: "win32" }, chunks(3));
-  assert.deepEqual(heard, { heard: true, refusal: null, windowsTried: 2 });
+  assert.deepEqual(heard, { heard: true, refusal: null, windowsTried: 2, windowsTooLong: 0 });
   assert.equal(calls.length, 2, "it kept listening after it had heard the word");
   assert.ok(isTheWord("Hey, Branch.", "branch"), "punctuation and capitals stopped the word being recognised");
   assert.ok(!isTheWord("nothing like it", "branch"), "a sentence without the word counted as the word");
@@ -167,4 +168,26 @@ test("W8 the switch and how sure it must be are in the catalogue; the word itsel
   assert.equal(classify("wake-word", "word"), "blocked");
   assert.deepEqual(specFor("wake-word").fields.map((field) => field.field), ["mode", "sureness"]);
   assert.equal(specFor("wake-word").home, "settings:voice");
+});
+
+test("W9 a piece of sound longer than the owner allowed is dropped where it arrives, unlooked at", async (t) => {
+  const { store, owner } = await fixture(t);
+  saveWakeWordSettings(store, owner, { mode: "on", word: "branch", windowSeconds: 2 });
+  const { runner, calls } = fakeRunner(["branch", "branch"]);
+  const mixed = async function* () {
+    yield { sound: new Uint8Array(9), seconds: 9 };   // far more than two seconds: never looked at
+    yield { sound: new Uint8Array(2), seconds: 2 };   // within the window
+  };
+  const heard = await listenForWake({ store, owner, runner, platform: "win32" }, mixed());
+  assert.deepEqual(heard, { heard: true, refusal: null, windowsTried: 1, windowsTooLong: 1 });
+  assert.deepEqual(calls.map((call) => call.bytes), [2], "the over-long piece was handed to the spotter");
+});
+
+test("W10 what goes over the wire never carries the program that would be run", async (t) => {
+  const { store, owner } = await fixture(t);
+  saveWakeWordSettings(store, owner, { mode: "on", word: "branch" });
+  const view = wakeWordView(store, owner, "win32");
+  assert.deepEqual(Object.keys(view.spotter).sort(), ["available", "how"]);
+  assert.equal(JSON.stringify(view).includes("powershell"), false, "the spotter's program travelled");
+  assert.equal(wakeWordState(store, owner, "win32").spotter.command.file, "powershell.exe", "the app itself still knows it");
 });

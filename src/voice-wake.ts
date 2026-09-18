@@ -29,7 +29,11 @@ export const WakeWordSettingsSchema = z.object({
   word: z.string().trim().max(40).default(""),
   /** How sure the spotter must be, out of a hundred. Lower hears the word more often, and more often wrongly. */
   sureness: z.number().int().min(50).max(99).default(80),
-  /** How many seconds of sound are held in memory at a time before being thrown away. */
+  /**
+   * The longest piece of sound the listener will hold at once, in seconds. A piece longer than this
+   * is dropped without being looked at, so however the sound arrives, no more than this is ever in
+   * memory, and it is thrown away again whether the word was in it or not.
+   */
   windowSeconds: z.number().int().min(1).max(5).default(2),
 }).strict();
 export type WakeWordSettings = z.infer<typeof WakeWordSettingsSchema>;
@@ -95,7 +99,7 @@ const windowsScript = [
 
 const ownSpeechProgram = (settings: VoiceSettings, word: string): WakeSpotter => ({
   available: true,
-  how: `The speech program you already set up on this computer (${settings.localSpeechKind}), asked only whether it heard "${word}".`,
+  how: `The speech program you already set up on this computer (${settings.localSpeechKind}), asked only whether it heard "${word}". It writes out what it heard rather than saying how sure it is, so "how sure it must be" does nothing while this is what spots the word.`,
   command: {
     file: settings.localSpeechExecutable,
     args: settings.localSpeechKind === "whisper-cpp"
@@ -153,6 +157,18 @@ export function wakeWordState(store: Store, owner: string, platform: string = pr
   };
 }
 
+/**
+ * The same, as it goes over the wire. The program that would be run never travels: its full path is
+ * a thing of the owner's, and the card only ever shows the sentence and whether there is a spotter
+ * at all. What is left is the switch, the word, that sentence, and why it is refused right now.
+ */
+export function wakeWordView(store: Store, owner: string, platform: string = process.platform): {
+  settings: WakeWordSettings; spotter: { available: boolean; how: string }; refusal: string | null; mode: FeatureMode;
+} {
+  const state = wakeWordState(store, owner, platform);
+  return { ...state, spotter: { available: state.spotter.available, how: state.spotter.how } };
+}
+
 /* ---------- the listener ---------- */
 
 export interface WakeHeard {
@@ -180,7 +196,7 @@ export async function askSpotter(runner: WakeRunner, spotter: WakeSpotter, word:
   return { heard: isTheWord(text, word), text };
 }
 
-/** A window of sound, and when it arrived. */
+/** A window of sound, and how many seconds of it there are. */
 export interface WakeChunk { sound: Uint8Array; seconds: number }
 
 export interface WakeListenerDeps {
@@ -200,21 +216,24 @@ export interface WakeListenerDeps {
  */
 export async function listenForWake(
   deps: WakeListenerDeps, sound: AsyncIterable<WakeChunk>,
-): Promise<{ heard: boolean; refusal: string | null; windowsTried: number }> {
+): Promise<{ heard: boolean; refusal: string | null; windowsTried: number; windowsTooLong: number }> {
   const platform = deps.platform ?? process.platform;
   const refusal = wakeRefusal(deps.store, deps.owner, platform);
-  if (refusal) return { heard: false, refusal, windowsTried: 0 };
+  if (refusal) return { heard: false, refusal, windowsTried: 0, windowsTooLong: 0 };
   const wake = wakeWordSettings(deps.store, deps.owner);
   const spotter = wakeSpotter(voiceSettings(deps.store, deps.owner), wake, platform);
-  let windowsTried = 0;
+  let windowsTried = 0, windowsTooLong = 0;
   /** The only copy of any sound this function ever holds; replaced, never added to, never written. */
   let held: Uint8Array | null = null;
   for await (const chunk of sound) {
+    // More than the owner allowed to be held at once is dropped where it arrives, without being
+    // looked at, so the promise on the card is kept however the sound is handed over.
+    if (chunk.seconds > wake.windowSeconds) { windowsTooLong += 1; continue; }
     held = chunk.sound;
     windowsTried += 1;
     const answer = await askSpotter(deps.runner, spotter, wake.word, held);
     held = null; // thrown away before the next window, heard or not
-    if (answer.heard) return { heard: true, refusal: null, windowsTried };
+    if (answer.heard) return { heard: true, refusal: null, windowsTried, windowsTooLong };
   }
-  return { heard: false, refusal: null, windowsTried };
+  return { heard: false, refusal: null, windowsTried, windowsTooLong };
 }

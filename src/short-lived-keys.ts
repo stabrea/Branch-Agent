@@ -118,6 +118,8 @@ const ownerOnlyReads: readonly RegExp[] = [
   /^\/api\/personal(\/|$)/,
   // r17-h integration review: the widgets' list carries each widget's frame address, which opens without a key.
   /^\/api\/flows-boards\/widgets$/,
+  // mac7/wake-pins: the wake word answer carries the owner's own word, which outlives any key.
+  /^\/api\/voice\/wake$/,
 ];
 
 /**

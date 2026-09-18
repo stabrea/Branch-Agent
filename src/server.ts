@@ -141,8 +141,8 @@ import { contextFileStatus, saveContextFileSettings, contextFileSettings } from 
 // mac3/reflection-skills: the learning loop's routes.
 import { reflectionApi } from "./reflection/api.js";
 import { handlesSettingsKitPath, settingsKitApi, settingsKitBodyBytes, SettingsKitError } from "./settings-kit/api.js"; // R17-S-A
-import { pins } from "./settings-kit/pins.js"; // mac7/wake-pins
-import { saveWakeWordSettings, wakeWordState } from "./voice-wake.js"; // mac7/wake-pins
+import { PinnedSettingError, pins } from "./settings-kit/pins.js"; // mac7/wake-pins
+import { saveWakeWordSettings, wakeWordSettings, wakeWordView } from "./voice-wake.js"; // mac7/wake-pins
 import { voiceSettings, saveVoiceSettings } from "./voice.js";
 import { voiceApi } from "./voice-api.js";
 // bucket-18: pull requests from changes (A0300), and which requests came with a short-lived key.
@@ -965,10 +965,10 @@ async function api(
   // The word that starts a turn. Reading it says what this computer could really do; changing it,
   // like every other setting, is the owner's.
   if (path === "/api/voice/wake") {
-    if (request.method === "GET") return wakeWordState(app.store, app.runtime.owner);
+    if (request.method === "GET") return wakeWordView(app.store, app.runtime.owner);
     app.store.profiles.requireOwner("The word that starts a turn");
-    return { settings: saveWakeWordSettings(app.store, app.runtime.owner, await readBody(request)),
-      state: wakeWordState(app.store, app.runtime.owner) };
+    saveWakeWordSettings(app.store, app.runtime.owner, await readBody(request));
+    return { settings: wakeWordSettings(app.store, app.runtime.owner), state: wakeWordView(app.store, app.runtime.owner) };
   }
   // ── end mac7/wake-pins ──
   if (request.method === "GET" && path === "/api/state") return state(app);
@@ -2935,7 +2935,9 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
       }
     } catch (e) {
       if (!response.headersSent)
-        send(response, e instanceof HttpError ? e.status : 400, {
+        // mac7/wake-pins: a setting the owner pinned is refused the way every other thing of
+        // theirs is, in the same words and with the same 403, wherever the write came from.
+        send(response, e instanceof HttpError ? e.status : e instanceof PinnedSettingError ? 403 : 400, {
           // A saved password or key can never travel back out in a failure message.
           error: app.runtime.hideSecrets(errorText(e)),
         });

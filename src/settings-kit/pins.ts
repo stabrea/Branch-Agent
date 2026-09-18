@@ -17,6 +17,14 @@ import type { Store } from "../store.js";
  */
 export const pinsKey = "settings-pins";
 
+/**
+ * A write refused because the owner pinned the setting. It carries the plain sentence and nothing
+ * else; src/server.ts answers it 403, the same as every other "this is the owner's" refusal.
+ */
+export class PinnedSettingError extends Error {
+  readonly status = 403;
+}
+
 export const PinSchema = z.object({
   key: z.string().min(1).max(80),
   field: z.string().min(1).max(80),

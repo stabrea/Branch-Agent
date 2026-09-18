@@ -13,6 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
+import { startServer } from "../dist/server.js";
 import { settingsKitApi, SettingsKitError } from "../dist/settings-kit/api.js";
 import { pinFor, pinnedIds, pins } from "../dist/settings-kit/pins.js";
 import { changesFor, applyWithPins } from "../dist/settings-kit/changes.js";
@@ -176,4 +177,46 @@ test("P8 nothing is pinned on a fresh install, and pinning is refused for a sett
   assert.deepEqual(applyWithPins(store, "local", changes, { accept: [changes[0].id], confirmLoosening: true, why: "test" }).skipped, []);
   await assert.rejects(() => ask("POST", "/api/settings-kit/pins", { key: "made-up", field: "mode", pinned: true }),
     (error) => error instanceof SettingsKitError && error.status === 404);
+});
+
+/* ---------- over HTTP, which is what a person actually meets ---------- */
+
+async function served(t) {
+  const root = await mkdtemp(join(tmpdir(), "branch-pinned-http-"));
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data") });
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  t.after(async () => { await server.close(); await app.close(); await discardTemp(root); });
+  const call = (method, path, body) => fetch(server.url + path, {
+    method, headers: { authorization: `Bearer ${server.token}`, ...(method === "GET" ? {} : { "content-type": "application/json" }) },
+    ...(method === "GET" ? {} : { body: JSON.stringify(body ?? {}) }),
+  }).then(async (response) => ({ status: response.status, body: await response.json().catch(() => ({})) }));
+  return { app, call };
+}
+
+test("P9 over HTTP: a household person is refused in the same plain words, with the owner's 403", async (t) => {
+  const { app, call } = await served(t);
+  assert.equal((await call("POST", "/api/settings-kit/pins", { key: "voice", field: "autoReadAloud", pinned: true })).status, 200);
+  await household(app);
+  const refused = await call("POST", "/api/voice/settings", { autoReadAloud: true });
+  assert.equal(refused.status, 403, "a pinned setting was not refused the way the owner's own things are");
+  assert.match(refused.body.error, /The owner pinned this setting \(Voice: Read replies aloud automatically\)/);
+  assert.match(refused.body.error, /Only the owner can unpin it/);
+  assert.equal(voiceSettings(app.store, "local").autoReadAloud, false);
+});
+
+test("P10 over HTTP: a household person sees the pinned setting and that it is pinned, and nothing more", async (t) => {
+  const { app, call } = await served(t);
+  saveWakeWordSettings(app.store, "local", { mode: "when-needed" });
+  await call("POST", "/api/settings-kit/pins", { key: "wake-word", field: "mode", pinned: true });
+  await household(app);
+
+  const seen = await call("GET", "/api/pins");
+  assert.equal(seen.status, 200);
+  assert.deepEqual(seen.body.pins, [{ key: "wake-word", field: "mode", value: "when-needed",
+    name: "A word that starts a turn", label: "Switch" }]);
+  // The settings list itself stays the owner's, which is how the card knows to stay read-only.
+  assert.equal((await call("GET", "/api/settings-kit")).status, 403);
+  assert.equal((await call("POST", "/api/settings-kit/pins", { key: "wake-word", field: "mode", pinned: false })).status, 403);
+  assert.equal((await call("POST", "/api/voice/wake", { mode: "on" })).status, 400, "the word is the owner's");
+  assert.equal(pins(app.store, "local").length, 1);
 });

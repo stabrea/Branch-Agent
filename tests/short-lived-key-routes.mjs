@@ -933,7 +933,7 @@ export const ROUTES = {
   "/api/voice/transcribe": "task POST",
   "/api/voice/voices": "look",
   // mac7/wake-pins: the word that starts a turn. Reading says what this computer could do; changing is the owner's.
-  "/api/voice/wake": "owner POST",
+  "/api/voice/wake": "secret-read",
   "/api/webhooks": "secret-read",
   "/api/webhooks/:id": "secret-read",
   "/api/webhooks/:id/enable": "owner POST",
