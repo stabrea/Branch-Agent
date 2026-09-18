@@ -85,7 +85,7 @@ export async function manageCommand(args: string[], context: ManageContext): Pro
   // mac7/safe-rollback: undoing the last update, or refusing to in words the person can act on.
   if (command === "rollback")
     return rollbackCommand({ dataDir: dataDirOf(context.env), version: context.version,
-      yes: rest.includes("--yes") || rest.includes("-y"), print: context.print,
+      platform: context.platform, yes: rest.includes("--yes") || rest.includes("-y"), print: context.print,
       ...(context.deps?.rollback ? { deps: context.deps.rollback } : {}) });
   if (command === "uninstall") return uninstall(context, rest);
   if (command !== "update") return null;

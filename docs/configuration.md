@@ -2096,7 +2096,9 @@ installed and of the one replacing it (a SHA-256 digest over the sorted tree —
 size and contents — plus where the file system keeps the folder), what format each database was in
 on both sides, which format changes ran, where the safety copies went, and **the newest data format
 the older version understood**, read from that version while it was still the one running. Only the
-newest activation is ever offered; earlier ones are marked superseded. A record that cannot be
+newest activation is ever offered; earlier ones are marked superseded. Both ways of updating write
+one — `branch update --yes` and the app's Update button — and the app's stays `staged` until the
+next start says which version came up, because the window quits into the hand-over script. A record that cannot be
 written stops the update, because an update nobody can undo is not worth making; a file that cannot
 be read is put aside and a new one started, and an undo with nothing recorded refuses rather than
 guesses.
@@ -2107,11 +2109,14 @@ what to do instead, when: there is no record; this update was already undone or 
 copy of Branch already holds the undo (the claim is a conditional update inside `BEGIN IMMEDIATE`,
 so two copies at once cannot both run one); `<program>.previous` is gone; its fingerprint is not the
 one the update put aside; the fingerprint could not be finished inside its time budget, so nothing
-was really checked; the installed program is not the version this entry activated; the saved work is
+was really checked, or the fingerprint written down at update time was itself unfinished; the
+installed program is not the version this entry activated; the saved work is
 not in the format the entry recorded (`state-moved-since`); or the saved work has been migrated to a
 shape the older version cannot read and there is no recorded, copied way back
 (`state-migrated-no-rollback`). Refusing is the whole point: restoring an older program on top of
-newer data is how a rollback costs more than the failure did. When it is safe, the kept version goes
+newer data is how a rollback costs more than the failure did. A Branch that will not close stops the undo
+outright with nothing touched, exactly as it stops an update. `branch rollback` is macOS and Linux
+only; on Windows it says to use the app's Updates screen. When it is safe, the kept version goes
 back, the failed one is kept as `<program>.failed`, the spare moves up, the data is left alone (or
 the recorded format changes are taken back out after a copy — and the message says what that costs),
 the gateway is started again and the person is told in plain words. Every step is appended to the

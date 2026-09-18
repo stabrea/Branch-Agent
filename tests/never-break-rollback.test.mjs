@@ -487,3 +487,82 @@ test("branch rollback says what it would do, and refuses with an exit code when 
   assert.match(said.join("\n"), /branch rollback --yes/);
   assert.equal(await readFile(join(target, "resources", "version.txt"), "utf8"), "2.0.0", "a check changes nothing");
 });
+
+/* ---------- preconditions, half-checked records and the app's own Update button ---------- */
+
+test("a Branch that will not close stops the undo with nothing touched", async (t) => {
+  const root = await temp(t);
+  const { journal, entry, target } = await stagedEntry(t, root);
+  const report = await performRollback(entry, {
+    journal, by: "test", observe: (one) => look(one),
+    stop: async () => { throw new Error("Branch Agent could not be closed (it is busy)."); },
+    swap: async () => assert.fail("the swap must never run under a live Branch"),
+  });
+  assert.equal(report.ok, false);
+  assert.match(report.message, /could not be closed/);
+  assert.match(report.message, /Nothing was changed/);
+  assert.match(report.message, /can be tried again once Branch has closed/);
+  assert.equal(await readFile(join(target, "resources", "version.txt"), "utf8"), "2.0.0");
+  assert.equal(await exists(`${target}.previous`), true);
+  assert.equal(journal.entry(entry.id).state, "activated", "the undo is handed back, not consumed");
+});
+
+test("a fingerprint the update never finished taking refuses as unchecked, not as tampered with", async (t) => {
+  const root = await temp(t);
+  const { target, previous } = await fakeInstall(root);
+  const journal = new ActivationJournal(join(root, "activation.sqlite"));
+  closeFirst(t, () => journal.close());
+  let clock = 0;
+  const id = journal.stage({
+    kind: "update", fromVersion: "1.0.0", toVersion: "2.0.0", target,
+    // Taken while the disk was busy: the walk stopped part-way, so the digest covers half a folder.
+    previous: await fingerprintTree(previous, { budgetMs: 1, now: () => (clock += 10) }),
+    candidate: await fingerprintTree(target), launcher: null, executableName: "branch-agent",
+    understood: 1, databases: [], backups: [],
+  });
+  journal.activated(id);
+  const entry = journal.entry(id);
+  assert.equal(entry.previous.partial, true);
+  const refusal = assessRollback(entry, await look(entry));
+  assert.equal(refusal.ok, false);
+  assert.equal(refusal.reason, "unverifiable", "not previous-changed: nothing was tampered with");
+  assert.match(refusal.message, /ran out of time/);
+  assert.ok(!/Download version/.test(refusal.message), "the owner is not sent chasing a re-download");
+});
+
+test("an update the app handed over to a script is settled by the version that comes up next", async (t) => {
+  const { settleActivation } = await import("../dist/never-break/activation.js");
+  const root = await temp(t);
+  const { target } = await fakeInstall(root);
+  const path = join(root, "activation.sqlite");
+  const stage = () => {
+    const journal = new ActivationJournal(path);
+    const id = journal.stage({ kind: "update", fromVersion: "1.0.0", toVersion: "2.0.0", target, previous: null,
+      candidate: null, launcher: null, executableName: "branch-agent", understood: 1, databases: [], backups: [] });
+    journal.close();
+    return id;
+  };
+  const stateOf = (id) => { const j = new ActivationJournal(path); const s = j.entry(id).state; j.close(); return s; };
+
+  // The swap landed: the version that came up is the one the update was going to.
+  const landed = stage();
+  assert.equal(settleActivation(path, "2.0.0"), "activated");
+  assert.equal(stateOf(landed), "activated");
+
+  // The swap did not land: the old version came up again, so there is nothing to undo.
+  const notLanded = stage();
+  assert.equal(settleActivation(path, "1.0.0"), "failed");
+  assert.equal(stateOf(notLanded), "failed");
+  assert.equal(settleActivation(path, "1.0.0"), "none", "a settled record is left alone");
+});
+
+test("branch rollback is not half-attempted on Windows", async () => {
+  const { manageCommand } = await import("../dist/install/manage-cli.js");
+  const said = [];
+  const code = await manageCommand(["rollback", "--yes"], {
+    env: { BRANCH_DATA_DIR: "C:\\nowhere" }, platform: "win32", version: "2.0.0", packageRoot: "C:\\nowhere",
+    print: (line) => said.push(line),
+  });
+  assert.equal(code, 1);
+  assert.match(said.join("\n"), /On Windows, go back to the previous version from the app/);
+});

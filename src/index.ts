@@ -196,7 +196,7 @@ import { loadGatewayConfig } from "./never-break/gateway-config.js";
 import { gatewayDryRun, registerNeverBreak } from "./never-break/api.js";
 import { journalHook, openJournal, type TaskJournal } from "./never-break/journal.js";
 import { formatOf, migrate, storeMigrations, type MigrateReport } from "./never-break/migrations.js";
-import { activationJournalName, openActivationJournal, type ActivationJournal } from "./never-break/activation.js";
+import { activationJournalName, openActivationJournal, settleActivation, type ActivationJournal } from "./never-break/activation.js";
 import { databaseName } from "./install/layout.js";
 import { recoverOnStart } from "./never-break/resume.js";
 import { connectGuidedTelegram, saveTelegramSetup, telegramSetupView } from "./never-break/telegram-setup.js";
@@ -1486,6 +1486,10 @@ function noteStoreMigration(dataDir: string, store: Store, report: MigrateReport
 /** mac3/never-break: stamps the store's data format and opens the journal; the store is closed if the stamp fails. */
 function openNeverBreak(store: Store, dataDir: string): { journal: TaskJournal; reset: string | null } {
   try {
+    // mac7/safe-rollback: an update the app handed over to a script never saw how it went; the
+    // version running now is the answer, so that is settled before anything else is written down.
+    try { settleActivation(join(dataDir, activationJournalName), String(createRequire(import.meta.url)("../package.json").version)); }
+    catch { /* a record that cannot be settled only means an undo is refused for want of one */ }
     const report = migrate(store.sqlite, storeMigrations, { backupTo: join(dataDir, "update-backups", `before-format-${Date.now()}.sqlite`) });
     // mac7/safe-rollback: the version that was just installed has moved the data on. The record of
     // what the update changed learns it, so an undo knows whether going back is still safe.

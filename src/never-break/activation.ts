@@ -212,6 +212,25 @@ export function openActivationJournal(path: string): { journal: ActivationJourna
   }
 }
 
+/**
+ * On every start, decides what became of an activation that was written down but never confirmed —
+ * the app's Update button hands over to a script and quits, so nothing in that process is left to
+ * say whether the swap landed. The version running now answers it: if it is the one the update was
+ * going to, the swap landed; anything else means it did not. Best effort throughout, and it never
+ * touches an entry that was already settled.
+ */
+export function settleActivation(path: string, runningVersion: string): "activated" | "failed" | "none" {
+  const { journal } = openActivationJournal(path);
+  try {
+    const staged = journal.recent(5).find((one) => one.state === "staged");
+    if (!staged) return "none";
+    if (staged.toVersion === runningVersion) { journal.activated(staged.id); return "activated"; }
+    journal.failed(staged.id);
+    return "failed";
+  } catch { return "none"; }
+  finally { journal.close(); }
+}
+
 export class ActivationJournal {
   private readonly db: DatabaseSync;
   /** Tests hand in a failure here to act out a full disk, as the task journal does. */

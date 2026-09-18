@@ -98,9 +98,14 @@ permissions and the owner's rules are the only defence against them:
 - `/gateway/health` answers without a key (only on this computer); it shows process ids, versions
   and the gateway's recent notes.
 
-On the undo side: the gate is only as good as the record, so an update applied by anything that does
-not write one (a copy installed by hand, a record put aside because it could not be read) leaves
-nothing to undo, and `branch rollback` says so rather than guessing. The fingerprint is over each
+On the undo side: the gate is only as good as the record. `branch update --yes` and the app's own
+Update button both write one; an update applied any other way (a copy unpacked by hand, a package
+manager, a record put aside because it could not be read) leaves nothing to undo, and `branch
+rollback` says so rather than guessing. The app's record stays `staged` until the next start
+confirms which version came up, because the window quits into the hand-over script and never sees
+how it went; a start on the older version marks it failed. `branch rollback` itself is macOS and
+Linux only — the Windows swap is a mirror run by a batch file, and going back there is the app's
+Updates screen, as installing is. The fingerprint is over each
 file's path, size and contents, so it does not notice a change only in permissions or in an extended
 attribute. Taking recorded format changes back out throws away whatever the newer version wrote in
 the new shape; the copy taken before them is kept and named in the message, and the undo refuses

@@ -25,6 +25,8 @@ export interface RollbackCliInput {
   /** The version running now, only used in what is printed. */
   version: string;
   yes: boolean;
+  /** Which system this is for; defaults to this computer's. */
+  platform?: NodeJS.Platform;
   print: (line: string) => void;
   deps?: RollbackCliDeps;
 }
@@ -77,6 +79,12 @@ const observer = (input: RollbackCliInput) => (entry: ActivationEntry) =>
 
 /** Answers with an exit code: 0 only when it did what it says, or when a check found nothing wrong. */
 export async function rollbackCommand(input: RollbackCliInput): Promise<number> {
+  // The Windows swap is a mirror run by a batch file, not the moves this does; going back there is
+  // the app's Updates screen, as installing is. Said plainly rather than half-attempted.
+  if ((input.platform ?? process.platform) === "win32") {
+    input.print("On Windows, go back to the previous version from the app: Settings, Updates. `branch rollback` works on macOS and Linux.");
+    return 1;
+  }
   const { journal, reset } = openActivationJournal(join(input.dataDir, activationJournalName));
   if (reset) input.print(reset);
   try {

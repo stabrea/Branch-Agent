@@ -99,11 +99,13 @@ function defaultSnapshot(dataDir: string, note: RunningInstance | null): () => P
  * it is that version's reach that decides whether going back stays safe.
  *
  * It is written with the same rule as the task journal: a record that cannot be written stops the
- * update, because an update nobody can undo is not one worth making.
+ * update, because an update nobody can undo is not one worth making. The entry stays `staged` until
+ * something has seen the swap land: `branch update --yes` sees the hand-over's exit code, and the
+ * app's Update button, which quits into the script, leaves it to the next start (`settleActivation`).
  */
 export async function recordActivation(input: {
   dataDir: string; installRoot: string; stagedDir: string; fromVersion: string; toVersion: string;
-  executableName: string; backups: string[];
+  executableName: string;
 }): Promise<{ id: number; activated: () => void; failed: () => void; close: () => void }> {
   const { journal } = openActivationJournal(join(input.dataDir, activationJournalName));
   try {
@@ -119,7 +121,7 @@ export async function recordActivation(input: {
       previous, candidate, launcher: null, executableName: input.executableName,
       understood: storeMigrations.at(-1)?.version ?? 0,
       databases: store ? [{ name: databaseName, before: store, after: store, ran: [], backup: null }] : [],
-      backups: input.backups,
+      backups: await backupPaths(input.dataDir),
     };
     const id = journal.stage(record);
     return {
@@ -186,8 +188,7 @@ export async function headlessUpdate(input: HeadlessUpdateInput): Promise<number
   let activation: Awaited<ReturnType<typeof recordActivation>> | null = null;
   try {
     activation = await recordActivation({ dataDir: input.dataDir, installRoot: input.installRoot, stagedDir,
-      fromVersion: input.version, toVersion: to, executableName: appEntryName(platform),
-      backups: await backupPaths(input.dataDir) });
+      fromVersion: input.version, toVersion: to, executableName: appEntryName(platform) });
   } catch (error) {
     input.print(`${error instanceof Error ? error.message : String(error)} Nothing was changed.`);
     return 1;

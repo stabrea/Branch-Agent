@@ -32,6 +32,8 @@ import { electronBannerWindow } from "./banner-window.js";
 // mac3/never-break: trying a new version on a copy of the data before an update.
 import { snapshotData, updateCanary } from "../never-break/canary.js";
 import { appEntryName } from "./release-assets.js";
+// mac7/safe-rollback: what an update changes is written down before the hand-over moves anything.
+import { recordActivation } from "../install/headless-update.js";
 
 let window: BrowserWindow | undefined;
 let tray: Tray | undefined;
@@ -161,6 +163,22 @@ async function folders(base: string): Promise<{ dataDir: string; workspace: stri
     workspace: process.env.BRANCH_WORKSPACE ?? location.workspace,
   };
 }
+/**
+ * mac7/safe-rollback: the app's Update button writes the same record `branch update --yes` does, so
+ * a person who updates from the window can go back afterwards. It stays `staged` until the next
+ * start says the swap landed, because this process quits into the hand-over script.
+ */
+function desktopRecord(dataDir: string): Pick<UpdateHooks, "record"> {
+  const installRoot = installedAppRoot(app.isPackaged, process.platform, process.execPath);
+  // A copy that cannot update itself never hands over, so there is nothing to write down.
+  if (!installRoot) return {};
+  return { record: async (stagedDir, toVersion) => {
+    const recorded = await recordActivation({ dataDir, installRoot, stagedDir, fromVersion: app.getVersion(),
+      toVersion, executableName: appEntryName(process.platform) });
+    recorded.close();
+  } };
+}
+
 async function start(): Promise<void> {
   const base = app.getPath("userData");
   const settings = await loadDesktopSettings(join(base, "model-settings.json"));
@@ -174,6 +192,7 @@ async function start(): Promise<void> {
       backup: () => requestUpdateBackup(running.url, running.token),
       stopDaemon: () => stopBackgroundEngine(dataDir).then((report) => report.pid),
       canary: desktopCanary(dataDir, () => engineSnapshot(running.url, running.token)), // mac3/never-break
+      ...desktopRecord(dataDir), // mac7/safe-rollback
     });
   const chatgpt = new ChatGPTAuth(new FileTokenVault(join(base, "chatgpt-auth.json"), {
     available: () => safeStorage.isEncryptionAvailable(),
@@ -230,6 +249,7 @@ async function start(): Promise<void> {
         writeUpdateBackup(dataDir, branch.store.backup(branch.version), branch.version).then(() => undefined),
       // mac3/never-break: the new version is tried on a copy of this data before it is used.
       canary: desktopCanary(dataDir, () => snapshotData({ dataDir, database: branch.store.sqlite, journal: branch.neverBreak.journal.database })),
+      ...desktopRecord(dataDir), // mac7/safe-rollback
     });
   } catch (error) {
     await stop();

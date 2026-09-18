@@ -100,9 +100,13 @@ export function assessRollback(entry: ActivationEntry | null, observed: Rollback
   /* ---- the files ---- */
   if (!observed.previous) return { ok: false, reason: "previous-missing",
     message: `Version ${entry.fromVersion} is not kept beside the installed program any more, so there is nothing to put back.${backupAdvice(entry)} Installing ${entry.fromVersion} again from its release page and then restoring that copy is the way back.` };
-  if (observed.previous.partial || observed.current?.partial)
+  // Either walk can have run out of its budget: the one taken now, or the one taken when the update
+  // was recorded. A digest over half a folder is not a fingerprint, and comparing two of them would
+  // tell the owner their files had been tampered with when all that happened is that a busy disk ran
+  // the check out of time. Both fall here.
+  if (observed.previous.partial || observed.current?.partial || entry.previous?.partial || entry.candidate?.partial)
     return { ok: false, reason: "unverifiable",
-      message: `Branch could not finish checking that the kept copy of version ${entry.fromVersion} is exactly the one it put aside — the check ran out of time, which usually means a slow or busy disk. It will not put back a version it has not checked.${forwardAdvice(entry)} Try again when the disk is quiet.` };
+      message: `Branch could not finish checking that the kept copy of version ${entry.fromVersion} is exactly the one it put aside — one of the checks ran out of time, which usually means a slow or busy disk. It will not put back a version it has not checked.${forwardAdvice(entry)} Try again when the disk is quiet.` };
   if (entry.previous && observed.previous.digest !== entry.previous.digest)
     return { ok: false, reason: "previous-changed",
       message: `The kept copy of version ${entry.fromVersion} is not the one this update put aside — its files have changed since. Branch will not put back a version it cannot vouch for.${forwardAdvice(entry)} Download version ${entry.fromVersion} again from its release page if you want it back.` };
@@ -298,9 +302,18 @@ export async function performRollback(entry: ActivationEntry | null, deps: Rollb
   note(entry.id, "checked whether going back is safe", true, decision.message);
   let failures = 0;
   // Everything below is attempted even when an earlier step failed, so the report is complete.
+  // Closing Branch first is a precondition, not a step to be collected: the swap must never run
+  // under a live Branch holding the program's files open. A stop that would not happen stops the
+  // undo outright, with nothing touched, exactly as the update does.
   if (deps.stop) {
     try { await deps.stop(); note(entry.id, "closed the running Branch", true, "nothing is holding the program's files"); }
-    catch (error) { failures += 1; note(entry.id, "closed the running Branch", false, String(error instanceof Error ? error.message : error)); }
+    catch (error) {
+      const why = error instanceof Error ? error.message : String(error);
+      note(entry.id, "closed the running Branch", false, why);
+      deps.journal.release(entry.id);
+      return { ok: false, reason: null, steps,
+        message: `${why} Nothing was changed; going back to version ${entry.fromVersion} can be tried again once Branch has closed.` };
+    }
   }
   if (decision.data.action === "take-down" && deps.takeDown) {
     try {
