@@ -369,7 +369,9 @@ export async function runInstall(plan: InstallPlan, deps: InstallDeps): Promise<
  * owner is told that instead of a promise about their computer that Branch cannot keep.
  */
 function stepFailure(plan: InstallPlan, step: InstallStep, error: unknown): string {
-  const said = String((error as { stderr?: string })?.stderr ?? (error as Error)?.message ?? "").trim().slice(0, 300);
+  // winget says why on its ordinary output, not on the error one, so both are looked at.
+  const told = error as { stderr?: string; stdout?: string };
+  const said = String(told?.stderr?.trim() || told?.stdout?.trim() || (error as Error)?.message || "").trim().slice(0, 300);
   const page = runtimeInfo[plan.runner].installPage;
   const after = plan.fetch
     ? `${plan.name}'s own installer ran, so it may have left part of itself in place. Installing it again, here or from ${page}, puts that right.`

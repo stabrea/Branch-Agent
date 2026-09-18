@@ -264,6 +264,14 @@ test("I7 a step that fails stops the rest and is reported honestly", async (t) =
   assert.equal(failed.installed, false);
   assert.match(failed.message, /could not install Ollama/);
   assert.match(failed.message, /No such keg/);
+
+  // winget says why on its ordinary output, not on the error one, so on a real Windows box the
+  // owner was told only that the step "did not work" and nothing at all about why.
+  const quiet = await runInstall(plan, {
+    at: at.darwin, exists: async () => true, library: async () => { throw new Error("no internet"); }, scratchDir: join(root, "y"),
+    run: async () => { throw Object.assign(new Error("exit 1"), { stdout: "No applicable upgrade found", stderr: "" }); },
+  });
+  assert.match(quiet.message, /No applicable upgrade found/);
   assert.match(failed.message, /Nothing was left half-installed/, "Homebrew tidies up after itself");
 
   const refused = await runInstall(installPlan("lm-studio", at.linux, noTools), {
