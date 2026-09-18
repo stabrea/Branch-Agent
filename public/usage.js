@@ -392,8 +392,9 @@ function renderLimits(view) {
   card.id = "usage-limits";
   card.append(el("h2", "What each connection has left"));
   card.append(el("p", "Only what a service actually told Branch, with the time it said it. Where a service publishes nothing, this says so rather than guessing. Accounts are listed one by one and never added together: subscriptions are not interchangeable, and keys in one organisation share a single limit."));
-  if (!limits || limits.empty) {
-    card.append(el("p", limits?.summary ?? "Nothing to show yet.", "limit-note"));
+  if (limits === null) return; // Refused, not empty: somebody other than the owner is looking.
+  if (limits.empty) {
+    card.append(el("p", limits.summary, "limit-note"));
     view.append(card);
     return;
   }
