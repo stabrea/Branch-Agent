@@ -10,7 +10,7 @@ npm run desktop
 npm run package:desktop
 ```
 
-The portable Windows folder is `release/Branch Agent-win32-x64/`; launch `Branch Agent.exe` inside it. Keep the whole folder together. Packaging is unsigned and does not install shortcuts, a startup service or automatic updates. Those distribution capabilities remain on the feature inventory.
+The portable Windows folder is `release/Branch Agent-win32-x64/`; launch `Branch Agent.exe` inside it. Keep the whole folder together. The Windows build is unsigned and does not install shortcuts, a startup service or automatic updates; the macOS build is signed with the project's own certificate, which is what keeps its permissions across updates (see below). Those distribution capabilities remain on the feature inventory.
 
 Electron is a development dependency because it supplies the native window, platform tray and bundled runtime. Electron Packager creates the distributable directory. Fontsource packages supply locally bundled typefaces; each font's license accompanies it. The package includes only runtime files, public assets, production dependencies, package metadata and notices.
 
@@ -25,6 +25,54 @@ Forest/Daylight preferences live in the application database, so they survive se
 ## Sign-in and updates
 
 `chatgpt-auth.json` in the user data folder holds the ChatGPT sign-in, encrypted with Electron `safeStorage`. The renderer only ever receives sign-in status, never tokens. Updates run in the main process (`updater.ts`): the GitHub release archive is downloaded to the temp folder, verified against the published SHA-256, expanded with PowerShell, and applied by `apply-update.cmd` after the app exits. The renderer may open only `https://auth.openai.com/` and the project's GitHub pages through `branch:open-external`.
+
+## macOS: the first open, and permissions that are kept
+
+The Mac download is signed with a certificate the project made itself, with
+`scripts/make-mac-signing-certificate.sh`. It costs nothing and it is not an Apple Developer ID. Here
+is exactly what it does and does not do, because the two are easy to confuse.
+
+**What it fixes.** macOS remembers a permission against the app's *identity*, not its name or its
+place on disk. An ad-hoc seal — what the build falls back to with no certificate — makes that identity
+a hash of the app's own contents, so every build is a different app and microphone, screen recording
+and accessibility are asked for again on every update. Signing with a certificate makes the identity
+the bundle identifier plus the certificate, neither of which changes between builds, so **permissions
+granted once are kept across every later update**. The bundle identifier `com.keepoak.branch-agent` is
+half of that identity: changing it throws away every grant, which is why a test pins its exact value.
+
+**What it does not fix.** Nothing about the first-open warning. macOS still refuses to open the app
+straight from a browser download, exactly as it does today. The way through, on macOS 15 and later
+(Apple removed the old Control-click shortcut):
+
+> **System Settings → Privacy & Security →** scroll to the message about Branch Agent **→ Open Anyway
+> → Open.**
+
+That is **once per install, not once per update** — the app the updater puts in place is not
+quarantined, so later versions open without it. Only a paid Apple Developer ID and notarisation remove
+the warning altogether; the packaging already prefers `APPLE_SIGNING_IDENTITY` and notarises with it
+if the project ever buys one, and nothing else would need to change.
+
+**The one release that asks again.** The release where the certificate first appears changes the app's
+identity once, so every person grants microphone, screen recording and accessibility one final time.
+Say so in that release's notes. Every update after it is silent.
+
+**Windows is different and is not fixed by this.** Windows has no permissions to lose, but it shows
+"Windows protected your PC" (More info → Run anyway) and, for an unsigned app, shows it again for
+**every new release** until SmartScreen reputation builds. A self-made certificate buys nothing at all
+on Windows — Microsoft treats it the same as no signature.
+
+**How the build proves it.** After signing, `scripts/package-desktop.mjs` reads back the requirement
+macOS will enforce (`codesign -d -r-`) and refuses the build unless it names
+`com.keepoak.branch-agent` and a `certificate root`, and never a `cdhash`. The requirement is printed
+as a one-line identity receipt, which belongs in the release notes:
+
+```
+Identity receipt: identifier "com.keepoak.branch-agent" and certificate root = H"…"
+```
+
+A release that would silently reset everyone's permissions therefore fails the build instead of
+shipping. The release workflow also refuses to publish a macOS download at all when no signing
+certificate is configured.
 
 ## Smart App Control and the executable
 

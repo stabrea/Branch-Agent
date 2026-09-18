@@ -127,6 +127,79 @@ test("with an identity the Mac copy is signed with the hardened runtime and nota
   assert.match(mac.macSigningNotice(signedOnly), /not notarised/);
 });
 
+test("the free certificate signs like the paid one but is never notarised", () => {
+  // Three things at once: MAC_SIGNING_SHA1 takes the hardened path, the keychain the build made goes
+  // on the command, and the notary profile sitting beside it is ignored, because Apple will not
+  // notarise a certificate it did not issue and trying would fail the whole release.
+  const env = { MAC_SIGNING_SHA1: "442C583281039E5DCA3FC0EE4A76924562FD1403", MAC_SIGNING_KEYCHAIN: "/t/s.keychain-db", APPLE_NOTARY_PROFILE: "branch" };
+  const plan = mac.macFinishPlan({ app: "A.app", zip: "A.zip", nested: ["A.app/H.app"], entitlements: "e.plist", env });
+  assert.deepEqual(plan.commands, [
+    ["codesign", "--deep", "--force", "--timestamp", "--options", "runtime", "--entitlements", "e.plist", "--keychain", "/t/s.keychain-db", "--sign", env.MAC_SIGNING_SHA1, "A.app/H.app"],
+    ["codesign", "--force", "--timestamp", "--options", "runtime", "--entitlements", "e.plist", "--keychain", "/t/s.keychain-db", "--sign", env.MAC_SIGNING_SHA1, "A.app"],
+    ["ditto", "-c", "-k", "--keepParent", "A.app", "A.zip"],
+  ]);
+  assert.equal(plan.signed, true);
+  assert.equal(plan.notarized, false);
+  assert.equal(plan.identitySource, "self-signed");
+  assert.match(mac.macSigningNotice(plan), /kept across updates/);
+  assert.doesNotMatch(mac.macSigningNotice(plan), /not notarised/);
+  // Without a keychain of its own the pair is left out entirely, never passed as an empty argument.
+  const noKeychain = mac.macFinishPlan({ app: "A.app", zip: "A.zip", nested: [], entitlements: "e", env: { MAC_SIGNING_SHA1: "AB" } });
+  assert.deepEqual(noKeychain.commands[0], ["codesign", "--force", "--timestamp", "--options", "runtime", "--entitlements", "e", "--sign", "AB", "A.app"]);
+  // The paid identity still wins, and still notarises.
+  const paid = mac.macFinishPlan({ app: "A.app", zip: "A.zip", nested: [], entitlements: "e", env: { APPLE_SIGNING_IDENTITY: "Developer ID Application: KeepOak (TEAM)", MAC_SIGNING_SHA1: "AB", APPLE_NOTARY_PROFILE: "branch" } });
+  assert.equal(paid.identitySource, "developer-id");
+  assert.equal(paid.notarized, true);
+  assert.ok(paid.commands[0].includes("Developer ID Application: KeepOak (TEAM)"));
+  assert.ok(!paid.commands[0].includes("--keychain"));
+  assert.equal(mac.macFinishPlan({ app: "A.app", zip: "A.zip", nested: [], entitlements: "e", env: {} }).identitySource, "ad-hoc");
+});
+
+test("the bundle identifier is half the app's identity and is pinned to its exact value", () => {
+  // Changing it makes macOS treat the update as a different app and throws away every permission the
+  // owner granted. It is not a name; it is part of the identity. Rename nothing here casually.
+  assert.equal(mac.MAC_BUNDLE_ID, "com.keepoak.branch-agent");
+  assert.equal(mac.macPackagerOptions({ arch: "arm64", icon: "i.icns" }).appBundleId, "com.keepoak.branch-agent");
+});
+
+test("a build whose identity would reset the owner's permissions is refused, not warned about", () => {
+  assert.deepEqual(mac.macRequirementCommand("A.app"), ["codesign", "-d", "-r-", "A.app"]);
+  const good = [
+    "Executable=/x/Branch Agent.app/Contents/MacOS/Branch Agent",
+    'designated => identifier "com.keepoak.branch-agent" and certificate root = H"442c583281039e5dca3fc0ee4a76924562fd1403"',
+  ].join("\n");
+  const checked = mac.macIdentityCheck(good);
+  assert.equal(checked.ok, true);
+  assert.equal(checked.reason, null);
+  assert.match(checked.requirement, /^identifier "com\.keepoak\.branch-agent"/);
+  // Exactly what an ad-hoc build of this app prints, captured from one. codesign comments the line
+  // out because an ad-hoc seal is not a requirement anything can be held to, and the identity is the
+  // app's own contents, so the next build is a different app to macOS.
+  const adHoc = mac.macIdentityCheck([
+    "Executable=/x/Branch Agent.app/Contents/MacOS/Branch Agent",
+    '# designated => cdhash H"b1c5ae710ad3e59abfe30766fc5a5e0381cde28f"',
+  ].join("\n"));
+  assert.equal(adHoc.ok, false);
+  assert.match(adHoc.reason, /resets the owner's permissions/);
+  assert.match(adHoc.requirement, /^cdhash/);
+  // A paid Developer ID anchors to Apple instead of to a certificate root and is just as stable, so
+  // it passes too: refusing it would block the upgrade this whole check exists to make easy.
+  const paid = mac.macIdentityCheck('designated => identifier "com.keepoak.branch-agent" and anchor apple generic and certificate leaf[subject.OU] = "TEAM"');
+  assert.equal(paid.ok, true);
+  // Neither anchor: nothing ties this signature to a certificate at all.
+  const noAnchor = mac.macIdentityCheck('designated => identifier "com.keepoak.branch-agent"');
+  assert.equal(noAnchor.ok, false);
+  assert.match(noAnchor.reason, /not anchored/);
+  const renamed = mac.macIdentityCheck('designated => identifier "com.keepoak.branch" and certificate root = H"44"');
+  assert.equal(renamed.ok, false);
+  assert.match(renamed.reason, /com\.keepoak\.branch-agent/);
+  const silent = mac.macIdentityCheck("Executable=/x/Branch Agent.app/Contents/MacOS/Branch Agent\n");
+  assert.equal(silent.ok, false);
+  assert.equal(silent.requirement, null);
+  // codesign does not always quote the identifier; both spellings are the same identity.
+  assert.equal(mac.macIdentityCheck('designated => identifier com.keepoak.branch-agent and certificate root = H"44"').ok, true);
+});
+
 test("nested code is signed frameworks first, helpers next, and ignores loose files", () => {
   const nested = mac.nestedCode("X.app", ["Squirrel.framework", "Branch Agent Helper.app", "Electron Framework.framework", "notes.txt"]);
   assert.deepEqual(nested, [

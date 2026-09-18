@@ -16,6 +16,10 @@ jobs:
     env:
       HAS_APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE_P12 != '' }}
       HAS_NOTARY_KEY: ${{ secrets.APPLE_API_KEY_P8 != '' }}
+      # Both halves are needed: the .p12 puts the key on the runner, the SHA-1 is what the build
+      # names it by. Either one alone signs nothing and silently falls back to the ad-hoc seal.
+      HAS_MAC_SIGNING_CERTIFICATE: ${{ secrets.MAC_SIGNING_P12_BASE64 != '' && secrets.MAC_SIGNING_SHA1 != '' }}
+      HAS_APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY != '' }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -41,6 +45,40 @@ jobs:
           security import "$RUNNER_TEMP/cert.p12" -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$keychain"
           security list-keychain -d user -s "$keychain"
           rm -f "$RUNNER_TEMP/cert.p12"
+      # The free certificate that keeps the owner's microphone, screen and accessibility permissions
+      # across updates. Without it the Mac copy falls back to the ad-hoc seal, whose identity is the
+      # app's own contents, so the next update looks like a different app and every permission is
+      # asked for again. That failure is silent, so the release refuses to publish without it.
+      - name: Refuse to publish a Mac release with no signing certificate
+        if: runner.os == 'macOS' && env.HAS_MAC_SIGNING_CERTIFICATE != 'true' && !(env.HAS_APPLE_CERTIFICATE == 'true' && env.HAS_APPLE_SIGNING_IDENTITY == 'true')
+        run: |
+          echo "::error::No macOS signing certificate. Publishing now would reset every user's" \
+            "microphone, screen recording and accessibility permission. Set MAC_SIGNING_P12_BASE64," \
+            "MAC_SIGNING_P12_PASSWORD and MAC_SIGNING_SHA1 (scripts/make-mac-signing-certificate.sh)."
+          exit 1
+      # The certificate lives in a keychain made for this run only. It is never trusted: an untrusted
+      # certificate signs perfectly well when it is named by its SHA-1, and trusting it would be a
+      # change to the machine's security settings for no gain. The keychain must be added to the
+      # search list: codesign's own --keychain is not enough to find the identity by SHA-1, and it
+      # fails with "no identity found" without this line. It is added beside the keychains already
+      # there, never in place of them.
+      - name: Load the signing certificate
+        if: runner.os == 'macOS' && env.HAS_MAC_SIGNING_CERTIFICATE == 'true'
+        env:
+          MAC_SIGNING_P12_BASE64: ${{ secrets.MAC_SIGNING_P12_BASE64 }}
+          MAC_SIGNING_P12_PASSWORD: ${{ secrets.MAC_SIGNING_P12_PASSWORD }}
+        run: |
+          keychain="$RUNNER_TEMP/branch-signing.keychain-db"
+          keychain_password="$(uuidgen)"
+          printf '%s' "$MAC_SIGNING_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/branch-signing.p12"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$RUNNER_TEMP/branch-signing.p12" -k "$keychain" -P "$MAC_SIGNING_P12_PASSWORD" -T /usr/bin/codesign -f pkcs12 >/dev/null
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain" >/dev/null
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d ' "')
+          rm -f "$RUNNER_TEMP/branch-signing.p12"
+          echo "MAC_SIGNING_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
       - if: runner.os == 'macOS' && env.HAS_NOTARY_KEY == 'true'
         env:
           APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
@@ -51,6 +89,7 @@ jobs:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          MAC_SIGNING_SHA1: ${{ secrets.MAC_SIGNING_SHA1 }}
         run: |
           if [ -f "$RUNNER_TEMP/notary-key.p8" ]; then export APPLE_API_KEY_PATH="$RUNNER_TEMP/notary-key.p8"; fi
           npm run package:desktop -- --release
@@ -58,8 +97,9 @@ jobs:
       - name: Remove the signing material
         if: always() && runner.os == 'macOS'
         run: |
-          rm -f "$RUNNER_TEMP/notary-key.p8" "$RUNNER_TEMP/cert.p12"
+          rm -f "$RUNNER_TEMP/notary-key.p8" "$RUNNER_TEMP/cert.p12" "$RUNNER_TEMP/branch-signing.p12"
           if [ -f "$RUNNER_TEMP/signing.keychain-db" ]; then security delete-keychain "$RUNNER_TEMP/signing.keychain-db"; fi
+          if [ -f "$RUNNER_TEMP/branch-signing.keychain-db" ]; then security delete-keychain "$RUNNER_TEMP/branch-signing.keychain-db"; fi
       # The phone download: the packed command the Termux script installs, with the checksum that
       # script insists on. Built on Linux only, so the three runners cannot produce three of it.
       - name: Build the phone download
