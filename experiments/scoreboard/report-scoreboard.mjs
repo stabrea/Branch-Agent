@@ -136,8 +136,12 @@ if (refusals.length) {
       + "and raised no objection: every row below was measured on one machine, against one model, with "
       + "one deadline, over one unchanged task set, marked by one unchanged set of programs.");
   say();
-  say(`| agent | tasks passed, per pass of the board | median run | model calls | tokens in/out | had to be rescued |`);
-  say(`|---|---|---|---|---|---|`);
+  // "Rescued" alone is not enough on a board where the clock does most of the failing. A run the
+  // harness had to stop and a run that came back in ninety seconds with the wrong answer are not
+  // the same fact, and a single column that covers both tells a reader nothing about which of the
+  // two an agent did. The deadline gets its own column.
+  say(`| agent | tasks passed, per pass of the board | median run | stopped by the clock | model calls | tokens in/out | had to be rescued |`);
+  say(`|---|---|---|---|---|---|---|`);
   for (const [name, contestantRows] of real) {
     const contestant = contestantById[name];
     const rate = passRateSpread(contestantRows);
@@ -145,8 +149,10 @@ if (refusals.length) {
     const middle = [...contestantRows].sort((a, b) => a.elapsedMs - b.elapsedMs)[Math.floor(contestantRows.length / 2)];
     const rescued = contestantRows.filter((row) => row.rescued).length;
     const calls = contestantRows.filter((row) => typeof row.modelCalls === "number");
+    const stopped = contestantRows.filter((row) => row.killed).length;
     say(`| ${contestant?.name ?? name} | **${pct(rate.mean)}** (${pct(rate.low)}–${pct(rate.high)} over ${rate.repeats}) `
       + `| ${secs(middle.elapsedMs)} (${secs(time.low)}–${secs(time.high)}) `
+      + `| ${stopped} of ${contestantRows.length} `
       + `| ${calls.length ? (sum(calls, (row) => row.modelCalls) / calls.length).toFixed(1) : "not reported"} `
       + `| ${sum(contestantRows, (row) => row.usage?.input)} / ${sum(contestantRows, (row) => row.usage?.output)} `
       + `| ${rescued} of ${contestantRows.length} |`);
@@ -242,6 +248,35 @@ if (demos.length) {
     say();
     const reasons = [...new Set(demoRows.map((row) => row.agentError ?? row.why))];
     for (const reason of reasons.slice(0, 4)) say(`- ${reason}`);
+    say();
+  }
+}
+
+// A board where the clock did most of the failing cannot tell slow apart from never-finishing, and
+// must say so rather than letting a 0% be read as an answer about quality.
+const stoppedByClock = rows.filter((row) => row.killed).length;
+if (stoppedByClock) {
+  say("### How much of this is the clock");
+  say();
+  say(`${stoppedByClock} of ${rows.length} runs were stopped by the harness at the deadline rather than `
+    + `finishing. Where that number is large for an agent, its score is **not** a statement about what `
+    + `it would eventually have produced — only that it did not produce it inside the deadline every `
+    + `contestant was given. A longer deadline was not affordable: the contestants have to be `
+    + `interleaved inside one window for the comparison to mean anything, and the window is already `
+    + `hours long. This board cannot tell slow apart from never-finishing.`);
+  say();
+  // An empty answer that the program itself calls a success is worse for a person than an error,
+  // so it is counted separately wherever it happens.
+  const quietlyEmpty = new Map();
+  for (const row of rows)
+    if (!row.answerChars && !row.agentError && !row.killed)
+      quietlyEmpty.set(row.contestant, (quietlyEmpty.get(row.contestant) ?? 0) + 1);
+  if (quietlyEmpty.size) {
+    say(`Separately, some runs ended with the program reporting no error at all and returning an `
+      + `empty answer — which reads to a person as "it finished" when nothing was produced:`);
+    say();
+    for (const [name, count] of quietlyEmpty)
+      say(`- **${contestantById[name]?.name ?? name}**: ${count} of ${byContestant.get(name).length} runs`);
     say();
   }
 }
