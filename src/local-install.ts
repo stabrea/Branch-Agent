@@ -217,19 +217,28 @@ export interface InstallDeps {
   signal?: AbortSignal;
 }
 
-const HttpsUrl = z.string().max(400).refine((value) => {
+// GitHub hands a release download on to a signed address about 900 characters long, so the bound is
+// the publisher's own length, not a guess. It is still a bound: an address is input like any other.
+const HttpsUrl = z.string().max(2000).refine((value) => {
   try { const url = new URL(value); return url.protocol === "https:" && installerHosts.test(url.hostname); } catch { return false; }
 }, "A program is only ever downloaded from its own publisher");
 
+/** The address, or a plain sentence. Never a validation error: the owner reads this. */
+function publisherUrl(value: string): string {
+  const seen = HttpsUrl.safeParse(value);
+  if (!seen.success) throw new Error("A program is only ever downloaded from its own publisher, and that address is not one of theirs, so Branch stopped.");
+  return seen.data;
+}
+
 /** Fetches one address from a publisher, following its redirects by hand and checking each hop. */
 async function openPublisher(url: string, call: typeof globalThis.fetch, signal?: AbortSignal): Promise<Response> {
-  let next = HttpsUrl.parse(url);
+  let next = publisherUrl(url);
   for (let hop = 0; hop < 6; hop++) {
     const response = await call(next, { redirect: "manual", ...(signal ? { signal } : {}) });
     const location = response.headers.get("location");
     if (response.status >= 300 && response.status < 400 && location) {
       await response.body?.cancel().catch(() => undefined);
-      next = HttpsUrl.parse(new URL(location, next).href);
+      next = publisherUrl(new URL(location, next).href);
       continue;
     }
     if (!response.ok) throw new Error(`${new URL(next).hostname} answered ${response.status}`);

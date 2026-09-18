@@ -165,6 +165,38 @@ test("I6 nothing is ever fetched from anywhere but the publisher", async (t) => 
   }), /only ever downloaded from its own publisher/, "a redirect off https is refused too");
 });
 
+test("I6b a real release redirect is followed: GitHub's signed asset address is ~900 characters", async (t) => {
+  // Found on a real Ubuntu box: github.com sends a release download on to
+  // release-assets.githubusercontent.com with a signed address about 900 characters long. A cap of
+  // 400 refused it, so the whole download path — Linux, and a Mac or Windows with no package
+  // manager — could never install anything. The cap stays, because an address is still bounded
+  // input; it is just no longer shorter than the publisher's own.
+  const root = await scratch("install-redirect");
+  t.after(async () => { await discardTemp(root); });
+  const body = Buffer.from("#!/bin/sh\nexit 0\n");
+  const sum = createHash("sha256").update(body).digest("hex");
+  const signed = (name) =>
+    `https://release-assets.githubusercontent.com/github-production-release-asset/658928958/${"a".repeat(40)}`
+    + `?sp=r&sv=2018-11-09&sr=b&rscd=attachment%3B+filename%3D${name}&sig=${"b".repeat(60)}&jwt=${"c".repeat(600)}`;
+  assert.ok(signed("install.sh").length > 700, "the stand-in is as long as the real thing");
+  const library = async (url) => {
+    if (url.startsWith("https://github.com/"))
+      return new Response(null, { status: 302, headers: { location: signed(url.split("/").pop()) } });
+    return new Response(url.includes("sha256sum.txt") ? `${sum}  ./install.sh\n` : body);
+  };
+  const plan = installPlan("ollama", at.linux, noTools);
+  const file = await fetchInstaller(plan, {
+    at: at.linux, run: async () => ({ stdout: "" }), exists: async () => false, library, scratchDir: join(root, "dl"),
+  });
+  assert.ok(file.endsWith("install.sh"));
+
+  // Still bounded, and still only the publisher's own hosts.
+  const tooLong = async () => new Response(null, { status: 302, headers: { location: signed("x") + "d".repeat(4000) } });
+  await assert.rejects(fetchInstaller(plan, {
+    at: at.linux, run: async () => ({ stdout: "" }), exists: async () => false, library: tooLong, scratchDir: join(root, "dl2"),
+  }), /only ever downloaded from its own publisher/);
+});
+
 test("I7 a step that fails stops the rest and is reported honestly", async (t) => {
   const root = await scratch("install-run");
   t.after(async () => { await discardTemp(root); });
