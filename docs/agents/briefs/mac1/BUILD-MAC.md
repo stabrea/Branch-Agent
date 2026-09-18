@@ -70,8 +70,8 @@ your brief owns and their tests (`grep -l <module> tests/*.mjs`).
 - **Measure a page in ONE step, and wait for the answer instead of asking once.** Find the element and
   then measure it in a second call (`const box = await card.boundingBox()`) and a card that redraws
   itself between the two calls hands you `null`, which reads as a bare "expected true" and costs the
-  next builder an afternoon proving it was not a real defect. It has bitten us four times now
-  (`local-oneclick-ui` on Linux, `add-ons-review` during the release, and the eleven files in
+  next builder an afternoon proving it was not a real defect. It has bitten us three times now
+  (`local-oneclick-ui` on Linux, `add-ons-review` during the release, and the twelve files swept in
   `mac7/flaky-measure`). Do the whole measurement inside the page and let Playwright wait:
   ```js
   const fits = await page.waitForFunction(() => {
