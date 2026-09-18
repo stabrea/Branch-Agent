@@ -163,6 +163,12 @@ import { currentPerson } from "./people/context.js";
 // bucket-18: code editor (A0098)
 import { handlesWorkspaceEditorPath, workspaceEditorApi, WorkspaceEditorApiError } from "./workspace-editor-api.js";
 import { protectedTarget } from "./never-break/protected.js"; // bucket-18 integration review
+// mac7/bind: where this door listens, and who may change that (src/listen-address.ts).
+import {
+  decideListen, fromThisComputer, type ListenDecision, listenAsked, listenChangeRefusal, listenKeyRefusal, listenView,
+  ownAddresses, saveListenSettings,
+} from "./listen-address.js";
+import { lockdownActive } from "./lockdown.js";
 import { parseModelCommand } from "./model-switch.js";
 import { pricingSettings, savePricingSettings, pricingTableInUse, estimateCost, formatCost } from "./pricing.js";
 import { usageReportRoute } from "./usage-report-api.js"; // bucket 14 (A0367)
@@ -331,16 +337,36 @@ async function sessionToken(dataDir: string): Promise<string> {
 }
 /**
  * Which addresses a request may claim it was sent to. Normally only this computer's own loopback
- * address; while "reach Branch from my phone" is on, also the private Tailscale address and name.
+ * address; while "reach Branch from my phone" is on, also the private Tailscale address and name;
+ * and while the door is open to the private network (mac7/bind, src/listen-address.ts), the names
+ * and addresses this computer answers on.
  * Everything else is refused, which is what stops a web page elsewhere talking to Branch.
  */
+/** The name part of a `host:port`, with an IPv6 address left in its brackets. */
+function hostOf(value: string): string {
+  const text = value.trim().toLowerCase();
+  if (text.startsWith("[")) { const end = text.indexOf("]"); return end < 0 ? text : text.slice(0, end + 1); }
+  const colon = text.indexOf(":");
+  return colon < 0 ? text : text.slice(0, colon);
+}
+/**
+ * An allowed entry that carries no port. Branch inside a container cannot know which port of the
+ * host it was published on, so a name it answers to is allowed whatever port the request arrived
+ * at. The port never kept anyone out; the local key does, and the name is still what stops a page
+ * elsewhere from pointing its own address at this computer.
+ */
+const anyPortEntry = (entry: string): boolean => (entry.startsWith("[") ? entry.endsWith("]") : !entry.includes(":"));
 export function hostAllowed(
   host: string | undefined, origin: string | undefined, url: string, extra: readonly string[] = [],
 ): boolean {
   const hosts = [new URL(url).host, ...extra];
-  if (!host || !hosts.includes(host)) return false;
+  const anyPort = extra.filter(anyPortEntry).map((entry) => entry.toLowerCase());
+  if (!host || (!hosts.includes(host) && !anyPort.includes(hostOf(host)))) return false;
+  if (!origin) return true;
   // bucket 19 (integration review): the same host served over TLS (a paired door behind https) is the same place.
-  return !origin || hosts.some((allowed) => origin === `http://${allowed}` || origin === `https://${allowed}`);
+  if (hosts.some((allowed) => origin === `http://${allowed}` || origin === `https://${allowed}`)) return true;
+  const from = /^https?:\/\/([^/?#]+)$/.exec(origin.trim())?.[1];
+  return !!from && anyPort.includes(hostOf(from));
 }
 function authorize(
   request: IncomingMessage, url: string, token: string, extra: readonly string[] = [],
@@ -839,6 +865,8 @@ async function api(
   request: IncomingMessage,
   path: string,
   dataDir: string,
+  /** mac7/bind: where this door ended up listening, and why, for `/api/listen` to show. */
+  listen: ListenDecision,
 ): Promise<unknown> {
   // Batch 19 (wave 6): the record of what it was allowed to do, approval kinds, ask-first,
   // the practice workspace, how passages are ordered, plugin model connections, issue context.
@@ -913,6 +941,17 @@ async function api(
     }).catch((error: unknown) => {
       throw error instanceof AccountsApiError ? new HttpError(error.status, error.message) : error;
     });
+  // mac7/bind: where Branch's own door listens (src/listen-address.ts). The owner's alone, in the
+  // app window: a short-lived key (which is how a Trunk's message arrives), a household person, a
+  // chat message's task and work another program started are all refused, and so is Lockdown.
+  if (path === "/api/listen") {
+    if (request.method === "GET") return listenView(app.store, app.runtime.owner, listen);
+    if (request.method !== "POST") throw new HttpError(405, "Use GET or POST here.");
+    const refused = listenChangeRefusal(app.store, app.runtime.owner);
+    if (refused) throw new HttpError(403, refused);
+    saveListenSettings(app.store, app.runtime.owner, await readBody(request, 4096));
+    return { ...listenView(app.store, app.runtime.owner, listen), note: "Saved. It takes effect the next time Branch starts." };
+  }
   // mac3/never-break: the gateway switch and the changes the assistant suggested for it.
   if (handlesNeverBreakPath(path))
     return neverBreakApi(dataDir, request, path, readBody, {
@@ -2641,6 +2680,15 @@ export async function startServer(
   // meant to handle.
   const executions = app.executions;
   const remote = new RemoteAccess(token);
+  // mac7/bind: where this door listens. 127.0.0.1 unless the owner said otherwise and every
+  // protection the wider door needs is really on; see src/listen-address.ts for what is refused.
+  const listen = decideListen({
+    where: listenAsked(app.store, app.runtime.owner),
+    lockdown: lockdownActive(app.store, app.runtime.owner),
+    token, addresses: ownAddresses(),
+  });
+  /** Every name a request may say it was sent to: the paired address, and the wider door's own. */
+  const allowedHosts = (): string[] => [...remote.allowedHosts(), ...listen.extraHosts];
   // Batch 20 (wave 8): what a phone must satisfy on the extra door, as a chain of named steps.
   const gateway = new GatewayAuth(app.store, app.runtime.owner);
   // Wrong keys, PINs and pairing codes are counted per place they came from; five in a row and that
@@ -2673,7 +2721,7 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
     try {
       const path = new URL(request.url ?? "/", url || "http://127.0.0.1")
         .pathname;
-      if (!hostAllowed(request.headers.host, undefined, url, remote.allowedHosts()))
+      if (!hostAllowed(request.headers.host, undefined, url, allowedHosts()))
         throw new HttpError(403, "Host rejected");
       if (viaRemote && widgetCors(app, request, response)) return;
       if (viaRemote && (await pairingRequest(remote, request, response, path, gateway))) return;
@@ -2706,7 +2754,7 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
       if (artifactPageRoute(request, response, path)) return;
       // ---- bucket 19: signing a person in needs no key yet; only this app's own pages may ask. ----
       if (path.startsWith("/api/people/sign-in")) {
-        if (!hostAllowed(request.headers.host, request.headers.origin, url, remote.allowedHosts()) || request.headers["sec-fetch-site"] === "cross-site")
+        if (!hostAllowed(request.headers.host, request.headers.origin, url, allowedHosts()) || request.headers["sec-fetch-site"] === "cross-site")
           throw new HttpError(403, "Origin rejected");
       }
       // Integration review: the identity service's way back is a navigation from its own site, so it
@@ -2719,7 +2767,7 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
       // ---- end bucket 19 ----
       // ---- mac7/nodes: a device answering an invitation has no key; its number and its signature are checked. ----
       if (openDevicePaths.includes(path)) {
-        if (request.headers.origin && !hostAllowed(request.headers.host, request.headers.origin, url, remote.allowedHosts()))
+        if (request.headers.origin && !hostAllowed(request.headers.host, request.headers.origin, url, allowedHosts()))
           throw new HttpError(403, "Origin rejected");
         const answer = await openDevicesApi({ devices: app.devices, method: request.method ?? "GET", readBody: () => readBody(request, 4096) },
           path, requestSource(request.socket?.remoteAddress)).catch((error: unknown) => {
@@ -2731,7 +2779,10 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
       // ---- end mac7/nodes ----
       // mac6/bucket-23 (A2240): a live page in the same sealed frame, under its own long random name;
       // only on this computer's own listener, since the name does not run out as an artifact's does.
-      if (!viaRemote && app.asks.surfaces.serve(request, response, path)) return;
+      // mac7/bind: and only to a caller on this very computer. Opening the door to the private
+      // network must not quietly widen a page whose whole secret is its address.
+      if (!viaRemote && fromThisComputer(request.socket?.remoteAddress)
+        && app.asks.surfaces.serve(request, response, path)) return;
       const triggerFireMatch = /^\/api\/triggers\/([a-f0-9-]{36})\/fire$/.exec(path);
       if (triggerFireMatch && request.method === "POST") {
         send(response, 200, await triggerFire(app, request, triggerFireMatch[1]!));
@@ -2739,7 +2790,7 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
       }
       // Wave mac3 (commands): a read key's command is sent with POST but only looks.
       let onlyLooking = false;
-      authorize(request, url, token, remote.allowedHosts(), {
+      authorize(request, url, token, allowedHosts(), {
         limiter: authLimiter,
         onFailure: (from) => noteAuthFailure(authLimiter, app.store, app.runtime.owner, from, "the local key"),
       }, (supplied) => {
@@ -2981,7 +3032,7 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
           const answer = await securityCheckApi(app.security, request.method ?? "GET", path, () => readBody(request), remote.status().enabled);
           if (answer !== undefined) { send(response, 200, answer); return; }
         }
-        send(response, 200, await api(app, request, path, options.dataDir));
+        send(response, 200, await api(app, request, path, options.dataDir, listen));
       } finally {
         place?.();
       }
@@ -3009,7 +3060,7 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
       const path = new URL(request.url ?? "/", url || "http://127.0.0.1").pathname;
       // ---- mac7/nodes: a device's socket. Its own signature is the key; never the window's key. ----
       if (path === deviceSocketPath) {
-        const hosts = remote.allowedHosts();
+        const hosts = allowedHosts();
         const refused = app.devices.hub.refusal(request, requestSource(request.socket?.remoteAddress),
           hostAllowed(request.headers.host, undefined, url, hosts), hostAllowed(request.headers.host, request.headers.origin, url, hosts));
         // Integration review: the door's chain is not run here. Its `token` and `device` steps are the
@@ -3037,7 +3088,7 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
       }
       const match = /^\/api\/runs\/([a-f0-9-]{36})\/ws$/.exec(path);
       const run = match && app.store.run(match[1]!);
-      const sameHost = hostAllowed(request.headers.host, request.headers.origin, url, remote.allowedHosts());
+      const sameHost = hostAllowed(request.headers.host, request.headers.origin, url, allowedHosts());
       if (!match || !run || run.owner !== app.store.profiles.scope() || !sameHost || !tokenFromProtocol(request, token)) {
         socket.end("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
         return;
@@ -3053,7 +3104,7 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
   startEventLoopWatch(app); // bucket 13: runs from the start only when the owner has it on
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
-    server.listen(options.port ?? 3210, "127.0.0.1", () => {
+    server.listen(options.port ?? 3210, listen.address, () => {
       server.off("error", reject);
       resolve();
     });
@@ -3061,7 +3112,13 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
   const address = server.address();
   if (!address || typeof address === "string")
     throw new Error("Failed to bind loopback server");
+  // mac7/bind: the address Branch tells everything else about stays this computer's own, whatever
+  // the door listens on: the window, the webhook door and every test reach Branch here as before.
   url = `http://127.0.0.1:${address.port}`;
+  if (listen.refusal) console.log(`Branch Agent: ${listen.refusal}`);
+  else if (listen.beyond)
+    console.log("Branch Agent is listening on every address this computer answers on, not only this computer."
+      + " Anyone who can reach it still needs the local session token.");
   app.personal.tunnel.localAddress = url; // R17-C: the webhook door passes requests on to this address
   app.scheduler.start();
   // mac3/never-break: a real start settles work a restart cut off (nothing, with the switch off).
@@ -3475,6 +3532,9 @@ export function offLimitsToShortLivedKeys(method: string | undefined, path: stri
   if (handlesComfortPath(path)) return comfortRefusal;
   // mac3/never-break: the gateway's settings are the owner's alone.
   if (handlesNeverBreakPath(path)) return "A short-lived key cannot change how Branch keeps itself running. Do that in the app window.";
+  // mac7/bind: opening Branch's door to the private network is the owner's alone. A Trunk's message
+  // from another computer arrives with such a key, so this is where a Trunk is refused too.
+  if (path === "/api/listen" && method !== "GET") return listenKeyRefusal;
   // mac7/connect: saving a chat app's token or switching setting-up on is the owner's alone.
   if (handlesChannelSetupPath(path)) return "A short-lived key cannot save a chat app's token or change how chat apps are set up. Do that in the app window.";
   // mac3/never-break (integration review): letting a new person reach the assistant is the owner's alone.

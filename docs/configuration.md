@@ -4014,6 +4014,80 @@ Routes: `GET /api/deployment`, `POST /api/deployment/autostart`, `POST /api/depl
 `POST /api/deployment/backup`, `GET /api/deployment/restore-points`,
 `POST /api/deployment/restore-point`, `POST /api/deployment/close` (macOS and Linux), and `POST /api/pair`. Interface files: `/deployment.js`,
 `/pair` and `/pair.js`.
+
+## Where Branch listens (mac7/bind)
+
+**What this is.** Branch's door has always been on `127.0.0.1`, this computer's own address, and
+that is still what a fresh install does and what an upgrade keeps. Nothing about your computer
+changes by moving to this version. `127.0.0.1` means only programs on this very computer can even
+open a connection to Branch: the window, your terminal, a script you ran yourself.
+
+**What you are choosing when you change it.** One setting, **Where Branch listens**, in
+Settings → Computer, with two positions:
+
+| `where` | What it means |
+| --- | --- |
+| `this-computer` | `127.0.0.1`. Only this computer can reach Branch. This is how it ships. |
+| `private-network` | Every address this computer answers on. Anything that can reach this computer over your private network — another machine in the house, the computer running a container, a phone on the same Wi-Fi — can now open a connection to Branch. |
+
+Be plain with yourself about the second one: you are moving Branch from "nobody but me, on this
+machine" to "anybody who is already on my network, if they have the key". That is a real change and
+it is why the setting ships off, why it is marked in the settings catalogue as a setting that
+reaches further when it is raised, and why it needs its own separate yes when a preset or a settings
+file would raise it.
+
+**What still protects Branch when it is listening wider.** Moving the door does not open it.
+
+- **The local session token.** Every API address past the door is refused without the 64-character
+  key Branch prints when it starts, compared in constant time. It is the same key the window uses.
+  Wrong keys are counted per place they came from: five in a row and that place waits five minutes,
+  with a line written into the record of what the assistant was allowed to do.
+- **The name you asked for.** A request has to say it was sent to a name this computer actually
+  answers to — `localhost`, `127.0.0.1`, or one of this computer's own private addresses — and a
+  page's `Origin` has to be one of those too. A website elsewhere pointing its own name at your
+  computer is refused before anything is read. A cross-site request is refused outright.
+- **Short-lived keys stay shut out of everything that matters.** `branch token create` keys can
+  start and steer a task and nothing else; every setting, secret, sandbox, network, channel,
+  pairing, backup and profile address refuses them, and anything not on the task list fails closed.
+  A Trunk's message from another of your computers arrives with such a key, so it is refused here
+  too.
+- **A household person reaches their own page and nothing else.**
+- **The paired phone door is separate and unchanged.** "Reach Branch from my phone" still listens on
+  its own Tailscale address and still runs its own chain (the key, a paired phone, that phone's
+  secret). The wider door is not that door and gets none of its exemptions; equally it grants none
+  of them, so the local key alone is what it asks for.
+- **A page whose only secret is its address stays on this computer.** The live pages Branch serves
+  under a long random name are only served to a caller on this very computer, whatever the door is
+  listening on.
+
+**What Branch refuses, even when you ask for it.** `private-network` is a request, not an order.
+Branch lands back on `127.0.0.1` and says why, on the start-up line, when:
+
+- **Lockdown is on.** Reaching past this computer is what Lockdown shuts, so the door does not move,
+  and the setting cannot be changed at all while Lockdown is on.
+- **This computer answers at an address that is not private.** A machine with a public address would
+  be putting Branch on the internet, which this setting is not for and will not do. "Private" is the
+  same idea the network rules already use for addresses the assistant may not reach
+  (`10.x`, `172.16–31.x`, `192.168.x`, `169.254.x`, link-local and unique-local IPv6), plus a
+  Tailscale address, which Branch already treats as private for the phone door.
+- **There is no local key.** Without the session token there would be nothing for the door to ask
+  for, so Branch will not open it.
+
+**Who may change it.** The owner, in the app window or their own terminal, and nobody else: a
+household person, a signed-in person, a short-lived key, a Trunk's message from another computer, a
+message from a chat app and work another assistant or program started are each refused in plain
+words before anything is written. The change takes effect the next time Branch starts.
+
+**In a container.** A container has no window to turn the setting on in, so it can be asked for with
+the environment name `BRANCH_LISTEN=private-network`. It asks for exactly the same thing the setting
+does and gets past exactly none of the refusals above. It is deliberately not one of the four names
+the gateway may hand its worker, so a change to the gateway's settings can never open this door.
+With it, `docker run -e BRANCH_LISTEN=private-network -p 3210:3210 …` works and you no longer need
+`--network host`.
+
+Routes: `GET /api/listen`, `POST /api/listen` (the owner's alone). The setting is saved under
+`listen-address`.
+
 ## Devices: your other computers and your phone lending Branch a hand
 
 *Customize, Channels, Your devices.* Ships **off**, and so does every capability of every device.
@@ -7475,9 +7549,12 @@ and PicoClaw (MIT; see `THIRD_PARTY_NOTICES.md`), written afresh.
 `packaging/docker/Dockerfile` (with `.dockerignore`), `flake.nix` and
 `packaging/termux/install-branch-termux.sh`; a test keeps the files in the repository equal to it.
 Nothing is built or run here. The image runs `node dist/cli.js start` as a user without rights, keeps
-data in `/data` and the workspace in `/workspace`, and downloads no browser. The engine inside only
-listens on 127.0.0.1, as everywhere: run the container with `--network host` on Linux to open the
-window, or reach it through chat apps. The flake reads `package-lock.json` directly, so it keeps no
+data in `/data` and the workspace in `/workspace`, and downloads no browser. The engine inside
+listens on 127.0.0.1 like everywhere else, so a published port reaches nothing until you say
+otherwise: run it with `-e BRANCH_LISTEN=private-network -p 3210:3210` and read **Where Branch
+listens** below first. The old advice to give the container the host's whole network
+(`--network host`) is gone: it put Branch's door straight onto the host's own loopback, which is
+not what a published port is for and not what anyone running a container expects. The flake reads `package-lock.json` directly, so it keeps no
 hash; `nix run github:stabrea/Branch-Agent -- start`. The Termux script installs the release's
 `branch-agent-<version>.tgz` after checking its `.sha256` (Node 24.14.0 or newer from `pkg`); `--uninstall`
 removes it, and a missing or wrong checksum stops it before anything is installed. Both files are now

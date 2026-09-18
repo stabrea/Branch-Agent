@@ -560,6 +560,8 @@ export const ROUTES = {
   "/api/lock/settings": "owner POST",
   "/api/lock/unlock": "owner POST",
   "/api/lockdown": "owner POST",
+  // mac7/bind: where Branch's own door listens. Looking is fine; moving it is the owner's alone.
+  "/api/listen": "owner POST",
   "/api/log": "look",
   "/api/log/export": "look",
   "/api/logs": "look",

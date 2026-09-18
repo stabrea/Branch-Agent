@@ -9,9 +9,11 @@
  * dist/cli.js`, the data folder and workspace are named by BRANCH_DATA_DIR and BRANCH_WORKSPACE, no
  * browser or Electron download happens, and nothing runs as root.
  *
- * The engine only ever listens on 127.0.0.1 (src/server.ts), and the image does not change that. To
- * open the window from the host, run the container with the host's network on Linux; elsewhere,
- * reach it through chat apps or a script with a short-lived key from inside the container.
+ * The engine listens on 127.0.0.1 unless it is told otherwise (mac7/bind, src/listen-address.ts), and
+ * the image does not tell it otherwise: nothing here sets BRANCH_LISTEN, so an image built and run as
+ * it comes behaves exactly as Branch always has. The run line shows how to ask for the wider door,
+ * because a container with no window is the one place the setting cannot be reached from a screen;
+ * asking for it still has to get past every refusal in src/listen-address.ts.
  *
  * The ideas are Hermes Agent's Termux, Nix and Docker guides (MIT); these files are written for Branch.
  */
@@ -34,8 +36,13 @@ export function dockerfileText(): string {
     "# syntax=docker/dockerfile:1",
     "# Branch Agent's container image. Written by src/install/container-files.ts; do not edit by hand.",
     "#   docker build -f packaging/docker/Dockerfile -t branch-agent .",
-    "#   docker run --network host -v branch-data:/data -v branch-work:/workspace branch-agent",
-    "# The engine listens on 127.0.0.1:3210 inside the container only; see docs/configuration.md.",
+    "#   docker run -e BRANCH_LISTEN=private-network -p 3210:3210 \\",
+    "#     -v branch-data:/data -v branch-work:/workspace branch-agent",
+    "# Branch listens on 127.0.0.1 unless you ask for more, and inside a container that address is the",
+    "# container's own, so a published port reaches nothing until you do. BRANCH_LISTEN=private-network",
+    "# asks for every address the container answers on, which is what makes -p work. It is refused if",
+    "# the container can be reached at a public address. Whoever reaches Branch still needs the local",
+    "# session token, printed on the first start. See docs/configuration.md before you use it.",
     `FROM node:${nodeMajor}-bookworm-slim AS build`,
     "ENV ELECTRON_SKIP_BINARY_DOWNLOAD=1 PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1",
     "WORKDIR /src",
