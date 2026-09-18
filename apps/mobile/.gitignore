@@ -9,7 +9,7 @@ android/app/src/main/res/values-fr/branch_strings.xml
 android/app/src/main/res/mipmap-*/ic_launcher*.png
 android/app/src/main/res/drawable*/splash.png
 ios/App/App/Assets.xcassets/Branch*.colorset/
-ios/App/App/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png
+ios/App/App/Assets.xcassets/AppIcon.appiconset/AppIcon-*.png
 ios/App/App/Assets.xcassets/LaunchMark.imageset/
 ios/App/App/branch-native.json
 ios/App/ShareExtension/branch-native.json

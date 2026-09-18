@@ -51,9 +51,20 @@ export function uninstallKey(hive = defaultUninstallHive): string {
 export const runKey = "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run";
 export const runValueName = "Branch Agent";
 
+/**
+ * mac7/app-icon: the KeepOak icon that travels inside the app, and what Windows shows when it is not
+ * there. The executable itself is the stock Electron one (see scripts/package-desktop.mjs, which
+ * copies it back over the packaged one so Smart App Control keeps recognising its hash), so it still
+ * carries Electron's own logo. Every shortcut and every list entry has to name the `.ico` instead.
+ */
+export const shippedIconPath = join("resources", "app", "public", "assets", "keepoak.ico");
+export function shortcutIcon(installRoot: string, executableName: string, hasIcon: boolean): string {
+  return hasIcon ? `${join(installRoot, shippedIconPath)},0` : `${join(installRoot, executableName)},0`;
+}
+
 /** What Add/Remove Programs shows, and how it removes the app again. */
 export function uninstallEntries(options: {
-  installRoot: string; executableName: string; version: string; uninstaller: string;
+  installRoot: string; executableName: string; version: string; uninstaller: string; icon?: string;
 }): RegistryValue[] {
   const quiet = `"${options.uninstaller}" /quiet`;
   return [
@@ -61,7 +72,7 @@ export function uninstallEntries(options: {
     { name: "DisplayVersion", type: "REG_SZ", value: options.version },
     { name: "Publisher", type: "REG_SZ", value: publisher },
     { name: "InstallLocation", type: "REG_SZ", value: options.installRoot },
-    { name: "DisplayIcon", type: "REG_SZ", value: join(options.installRoot, options.executableName) },
+    { name: "DisplayIcon", type: "REG_SZ", value: options.icon ?? join(options.installRoot, options.executableName) },
     { name: "UninstallString", type: "REG_SZ", value: `"${options.uninstaller}"` },
     { name: "QuietUninstallString", type: "REG_SZ", value: quiet },
     { name: "NoModify", type: "REG_DWORD", value: "1" },
@@ -142,6 +153,11 @@ function shortcutTargets(options: InstallOptions): { path: string; desktop: bool
   return targets;
 }
 
+/** Whether the copy that was just installed carries the KeepOak `.ico`. */
+async function hasShippedIcon(installRoot: string): Promise<boolean> {
+  return stat(join(installRoot, shippedIconPath)).then(() => true, () => false);
+}
+
 /** Copies the app into place, makes the shortcuts, registers Uninstall and brings older data along. */
 export async function performInstall(options: InstallOptions, deps: InstallDeps = {}): Promise<InstallReport> {
   const executable = join(options.installRoot, options.executableName);
@@ -150,10 +166,11 @@ export async function performInstall(options: InstallOptions, deps: InstallDeps 
   await cp(options.source, options.installRoot, { recursive: true, force: true });
   await mkdir(options.startMenuDir, { recursive: true });
   if (options.desktopDir) await mkdir(options.desktopDir, { recursive: true });
+  const iconLocation = shortcutIcon(options.installRoot, options.executableName, await hasShippedIcon(options.installRoot));
   const shortcuts = await createShortcuts(
     shortcutTargets(options).map((target) => ({
       path: target.path, target: executable, workingDirectory: options.installRoot,
-      description: "Branch Agent — your assistant on this computer",
+      description: "Branch Agent — your assistant on this computer", iconLocation,
     })), deps);
   const hive = options.uninstallHive ?? defaultUninstallHive;
   const uninstaller = join(options.installRoot, "Uninstall Branch Agent.cmd");
@@ -163,7 +180,7 @@ export async function performInstall(options: InstallOptions, deps: InstallDeps 
   }), "utf8");
   await writeRegistryValues(uninstallKey(hive), uninstallEntries({
     installRoot: options.installRoot, executableName: options.executableName,
-    version: options.version, uninstaller,
+    version: options.version, uninstaller, icon: iconLocation.replace(/,0$/, ""),
   }), deps);
   const target = installedLocation(options.userDataDir).dataDir;
   await mkdir(target, { recursive: true });
