@@ -18,6 +18,7 @@ import { createBranch } from "../dist/index.js";
 import { startServer, hostAllowed, offLimitsToShortLivedKeys } from "../dist/server.js";
 import { decideListen, fromThisComputer, listenReadRefusal, saveListenSettings } from "../dist/listen-address.js";
 import { tunnelMark } from "../dist/auth-limits.js";
+import { tokenFromProtocol } from "../dist/ws.js";
 import { setLockdown } from "../dist/lockdown.js";
 import { underShortLivedKey } from "../dist/key-context.js";
 import { asPerson } from "../dist/people/context.js";
@@ -232,4 +233,48 @@ test("X5 a page whose whole secret is its address is served to this computer onl
     const far = await ask(server, { host, path, tunnel: true });
     assert.equal(far.status, 401, `${path} must not be answered to a caller from beyond this computer`);
   }
+});
+
+/* ---------- X6 the key the whole wider door rests on ---------- */
+
+/** The middle value, which a busy machine's occasional long pause cannot drag around. */
+const median = (values) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)];
+
+test("X6 a wrong key tells an attacker nothing by how long it takes to be refused", () => {
+  // On a wider door the key is the only thing between the network and everything Branch can do, so
+  // a comparison that stops at the first wrong character would let it be guessed one character at a
+  // time. The two guesses below are both wrong; one is wrong in the first character and one only in
+  // the last, which is the shape that separates a constant-time comparison from `===`.
+  const real = "c".repeat(64);
+  const wrongFirst = "d" + "c".repeat(63);
+  const wrongLast = "c".repeat(63) + "d";
+  const timeOf = (guess) => {
+    const at = process.hrtime.bigint();
+    for (let i = 0; i < 2000; i += 1)
+      assert.equal(tokenFromProtocol({ headers: { "sec-websocket-protocol": `bearer, ${guess}` } }, real), false);
+    return Number(process.hrtime.bigint() - at);
+  };
+  const first = [], last = [];
+  for (let round = 0; round < 9; round += 1) { first.push(timeOf(wrongFirst)); last.push(timeOf(wrongLast)); }
+  const [a, b] = [median(first), median(last)];
+  // Generously wide on purpose: this must catch a comparison that gives the answer away, not
+  // measure this Mac. An early-exit comparison separates these by orders of magnitude.
+  assert.ok(Math.abs(a - b) / Math.max(a, b) < 0.5,
+    `refusing a key wrong in the first character (${a}ns) and in the last (${b}ns) must take alike`);
+  // The right key is still the right key, and nothing reads it from the address.
+  assert.equal(tokenFromProtocol({ headers: { "sec-websocket-protocol": `bearer, ${real}` } }, real), true);
+});
+
+test("X6 a wrong key is refused the same way whatever its length, and is counted", async (t) => {
+  const { server } = await fixture(t, { where: "private-network" });
+  const host = new URL(server.url).host;
+  const sameLength = await ask(server, { host, token: "d".repeat(64) });
+  const shorter = await ask(server, { host, token: "d" });
+  assert.equal(sameLength.status, 401);
+  assert.equal(shorter.status, 401);
+  assert.equal(sameLength.body, shorter.body, "the refusal says the same thing either way");
+  // Five in a row from one place and that place is made to wait, so the key cannot be guessed at speed.
+  let last = shorter;
+  for (let i = 0; i < 6; i += 1) last = await ask(server, { host, token: "e".repeat(64) });
+  assert.equal(last.status, 429, "wrong keys on the wider door are counted and then made to wait");
 });

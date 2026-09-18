@@ -4043,9 +4043,15 @@ file would raise it.
   Wrong keys are counted per place they came from: five in a row and that place waits five minutes,
   with a line written into the record of what the assistant was allowed to do.
 - **The name you asked for.** A request has to say it was sent to a name this computer actually
-  answers to — `localhost`, `127.0.0.1`, or one of this computer's own private addresses — and a
-  page's `Origin` has to be one of those too. A website elsewhere pointing its own name at your
-  computer is refused before anything is read. A cross-site request is refused outright.
+  answers to — `localhost`, `127.0.0.1`, or one of this computer's own private addresses. The port
+  it names is not checked, because Branch inside a container cannot know which port of the host it
+  was published on. A website elsewhere pointing its own name at your computer is refused before
+  anything is read, and a cross-site request is refused outright.
+- **The page that is asking.** A page's `Origin` is held to more than the name: it has to be the
+  very address *and port* the request arrived at, which is what Branch's own page always is, because
+  Branch served it. So another program listening on this same computer — a development server on
+  `127.0.0.1:8080`, another app's dashboard — cannot have its pages act as though they were Branch's
+  own, even though a browser calls a different port the same site.
 - **Short-lived keys stay shut out of everything that matters.** `branch token create` keys can
   start and steer a task and nothing else; every setting, secret, sandbox, network, channel,
   pairing, backup and profile address refuses them, and anything not on the task list fails closed.
@@ -4064,7 +4070,10 @@ file would raise it.
 Branch lands back on `127.0.0.1` and says why, on the start-up line, when:
 
 - **Lockdown is on.** Reaching past this computer is what Lockdown shuts, so the door does not move,
-  and the setting cannot be changed at all while Lockdown is on.
+  and the setting cannot be changed at all while Lockdown is on. Switching Lockdown **on while
+  Branch is already listening wider** does not merely refuse what arrives: the wider socket is
+  closed, anything connected to it from beyond this computer is dropped, and the door comes back on
+  `127.0.0.1` alone, there and then, without waiting for a restart.
 - **This computer answers at an address that is not private.** A machine with a public address would
   be putting Branch on the internet, which this setting is not for and will not do. "Private" is the
   same idea the network rules already use for addresses the assistant may not reach
@@ -4072,11 +4081,18 @@ Branch lands back on `127.0.0.1` and says why, on the start-up line, when:
   Tailscale address, which Branch already treats as private for the phone door.
 - **There is no local key.** Without the session token there would be nothing for the door to ask
   for, so Branch will not open it.
+- **This computer answers on no address beyond itself.** With no network address there is nowhere to
+  be reached from, so a wider socket buys nothing — and opening one on the strength of having found
+  nothing is exactly how a mistake turns into an open door.
 
-**Who may change it.** The owner, in the app window or their own terminal, and nobody else: a
+**Who may read it, and who may change it.** Both are the owner's, in the app window or their own
+terminal, and nobody else’s. Being told where the door is is being told where to knock, so looking
+is refused to exactly the same callers as moving it: a
 household person, a signed-in person, a short-lived key, a Trunk's message from another computer, a
 message from a chat app and work another assistant or program started are each refused in plain
-words before anything is written. The change takes effect the next time Branch starts.
+words. Lockdown is the one exception to the reading rule: the owner can still see their own card
+while Lockdown is on, because that card is where it says Lockdown is why Branch is narrow. A change
+takes effect the next time Branch starts.
 
 **In a container.** A container has no window to turn the setting on in, so it can be asked for with
 the environment name `BRANCH_LISTEN=private-network`. It asks for exactly the same thing the setting
@@ -4087,7 +4103,7 @@ With it, `docker run -e BRANCH_LISTEN=private-network -p 3210:3210 …` works an
 turned off from the card: the settings screen shows what the door is really doing, but you take the
 wider door away again by starting the container without that line, not by changing the setting.
 
-Routes: `GET /api/listen`, `POST /api/listen` (the owner's alone). The setting is saved under
+Routes: `GET /api/listen` and `POST /api/listen`, both the owner's alone. The setting is saved under
 `listen-address`.
 
 ## Devices: your other computers and your phone lending Branch a hand
