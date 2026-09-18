@@ -125,10 +125,16 @@ test("the phone will not pair over plain http off its own network, and keeps its
   // "run" is kept too although a phone never offers it: the refusal is the phone's own, not Branch's list.
   assert.deepEqual((await env.store.get("device")).never, ["camera", "listen", "run"]);
 
-  // Even switched on at the computer, a refused capability is turned away by the phone itself.
+  // Branch lets the owner switch on whatever the *platform* can do (DeviceBook.setSwitch reads
+  // offeredOn(platform), not what this phone offered), so a refused capability really can be
+  // switched on at the computer and really does reach the phone. This is why the phone keeps its
+  // own list: it turns the request away itself, with its own words, and nothing is opened.
   stopPhone = connectPhone(env, await env.store.get("device"), await phoneKey(env));
   await until(() => app.devices.hub.connected(deviceId), "the phone to connect");
-  await assert.rejects(app.runtime.executeTool("device.camera", {}, { mode: "owner" }), /not something this device can do|switched off|never allows/);
+  await call(`devices/${deviceId}/switch`, { capability: "camera", on: true });
+  await until(() => app.devices.book.device(deviceId).enabled.includes("camera"), "the camera to be switched on");
+  await assert.rejects(app.runtime.executeTool("device.camera", {}, { mode: "owner" }), /never allows/);
+  // Nothing else is touched: what the phone did not refuse still works once it is switched on.
   await call(`devices/${deviceId}/switch`, { capability: "speak", on: true });
   await until(async () => (await app.runtime.executeTool("device.speak", { text: "hello" }, { mode: "owner" }).then(() => true).catch(() => false)), "speaking to be allowed");
   assert.deepEqual(spoken, ["hello"]);

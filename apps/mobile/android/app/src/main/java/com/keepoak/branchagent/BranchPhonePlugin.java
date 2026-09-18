@@ -254,7 +254,11 @@ public class BranchPhonePlugin extends Plugin {
     /** What the page may know: whether this phone is lent, to which computer, and its refusals. */
     @PluginMethod
     public void deviceStatus(PluginCall call) {
-        call.resolve(JSObject.fromJSONObject(node.status()));
+        try {
+            call.resolve(JSObject.fromJSONObject(node.status()));
+        } catch (Exception error) {
+            call.reject(String.valueOf(error.getMessage()));
+        }
     }
 
     /** Answers the Devices card's invitation, then waits for the owner's yes on the computer. */

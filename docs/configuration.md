@@ -4072,9 +4072,11 @@ app's own storage, and signs with it there; the app's page never receives it, an
 which is given the public half alone. Everything is done on the native side because the app's page may
 only talk to itself (its Content-Security-Policy), and the address rule is checked there and in the
 page. The card also keeps the phone's own **never allow** list — the camera, a picture of the screen,
-the microphone and running programs — which the phone refuses by itself whatever this computer switches
-on, the phone's equivalent of `branch node never`. It only ever takes away, and changing it needs no
-pairing again. *Stop lending this phone* throws the key away on the phone; remove the device here too.
+the microphone and running programs — the phone's equivalent of `branch node never`. It only ever takes
+away. Today it keeps what it names out of what this phone offers Branch at all, so those switches never
+appear in the card; turning a request away again at the moment it arrives lives in
+`apps/mobile/web/phone-node.js` and starts working with the socket below (this computer lets the owner
+switch on whatever the *platform* can do, so the second look is not spare). *Stop lending this phone* throws the key away on the phone; remove the device here too.
 
 The phone app's device module (`apps/mobile/web/phone-node.js`) needs no new plugin for the
 camera, microphone, location, speech, opening pages and showing a page while the app is open;
@@ -4122,8 +4124,8 @@ open only the paired address; every other link goes to the phone's browser.
 your devices (see "Devices" above) without starting at the computer: scan the square from *Your
 devices*, type its six numbers, and wait for your yes on the computer. It shows which computer this
 phone is lent to and can stop lending. Its *never allow* ticks — the camera, a picture of the screen,
-the microphone, running programs — are the phone's own refusals, kept beside its key, and they hold
-whatever the computer switches on. The key is made and used only natively; the page never sees it.
+the microphone, running programs — are the phone's own refusals, kept beside its key. What they name is
+never offered to your computer at all, so it cannot be switched on there. The key is made and used only natively; the page never sees it.
 
 **On this phone.** Five switches, each *off*, *when needed* or *on*, and all off on a new install:
 

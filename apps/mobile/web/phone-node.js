@@ -149,7 +149,8 @@ export function connectPhone(env, device, key, onState = () => undefined) {
     const refuse = (error) => reply({ type: "result", id: frame.id, ok: false, error });
     if (!hexOk(frame.id, 32) || seen.has(frame.id)) return;
     seen.add(frame.id);
-    // Looked at again here, so a list changed after the hello holds without pairing again.
+    // Looked at again here: Branch switches a capability on by what the platform can do, not by what
+    // this phone offered, so a refused one can still arrive. The phone turns it away itself.
     if (never.includes(frame.capability)) return refuse("This phone never allows that.");
     if (!enabled.has(frame.capability)) return refuse("That is switched off on this phone.");
     if (typeof frame.deadline !== "number" || frame.deadline < env.now()) return refuse("The request came too late.");

@@ -177,7 +177,7 @@ public class BranchPhonePlugin: CAPPlugin, CAPBridgedPlugin {
             call.resolve(["paired": false, "error": BranchNative.word("phone.error.plainHttp", "That address is refused.")])
             return
         }
-        let never = BranchNode.keep(never: call.getArray("never") as? [String] ?? [])
+        let never = BranchNode.keep(never: call.getArray("never", String.self) ?? [])
         let name = (call.getString("name") ?? "").isEmpty ? UIDevice.current.name : call.getString("name")!
         Task {
             do {
@@ -192,7 +192,7 @@ public class BranchPhonePlugin: CAPPlugin, CAPBridgedPlugin {
     /// The phone's own refusals. They only take away, so no computer is asked about them.
     @objc func deviceNever(_ call: CAPPluginCall) {
         guard fromAppPage(call) else { return }
-        call.resolve(["never": BranchNode.setNever(call.getArray("never") as? [String] ?? [])])
+        call.resolve(["never": BranchNode.setNever(call.getArray("never", String.self) ?? [])])
     }
 
     /// Throws this phone's key away; its signature stops working at once.
