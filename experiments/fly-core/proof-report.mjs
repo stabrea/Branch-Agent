@@ -22,6 +22,7 @@
 import { execFileSync } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
 import { compare, failureCheckSuites, parseArguments, runRealEval, startedDirectly } from "./real-eval.mjs";
+import { comparisonRefusal } from "../../dist/evaluation-honesty.js";
 
 /** The figures judged, which way is better, and what a person calls each one. */
 export const metrics = [
@@ -91,6 +92,15 @@ export function combineReports(reports) {
     if (Boolean(other.selfTest) !== Boolean(first.selfTest))
       throw new Error("A self-test report cannot be read together with a real one");
   }
+  // mac7/eval-honesty: two saved reports were only ever checked for the same suites and the same
+  // number of passes. That let a run on one machine, one build and one model be read beside a run
+  // on another, with the difference called a result. Every arm is now checked against every other
+  // on everything that shapes a measurement, except the one thing the arms are meant to differ in.
+  const arms = reports.flatMap((report) => report.results.map((result) => ({ name: result.target, conditions: result.conditions })));
+  for (const other of arms.slice(1)) {
+    const refusal = armRefusal(arms[0], other);
+    if (refusal) throw new Error(refusal);
+  }
   const results = reports.flatMap((report) => report.results);
   const names = results.map((result) => result.target);
   if (new Set(names).size !== names.length) throw new Error(`Two reports have a target with the same name (${names.join(", ")})`);
@@ -107,6 +117,27 @@ export function combineReports(reports) {
   };
 }
 
+/**
+ * Why two arms may not be read against each other, or null when they may. Which arm an arm is —
+ * the learning core off or on, this build or the last, Branch or Hermes — is the whole point of
+ * the comparison, so `presets` and `models` are the two fields allowed to differ. Everything else
+ * must match, because a difference in any of it would be indistinguishable from the result.
+ */
+export function armRefusal(before, after) {
+  const same = (conditions) => (conditions ? { ...conditions, presets: [], models: [] } : conditions);
+  return comparisonRefusal(same(before.conditions), same(after.conditions), { before: before.name, after: after.name });
+}
+
+/** Every pass in which a whole suite failed to run, named, or an empty list when none did. */
+export function lostSuites(result) {
+  const lost = [];
+  for (const repeat of result.repeats ?? [])
+    for (const onePass of repeat.passes ?? [])
+      for (const problem of onePass.problems ?? [])
+        lost.push(`${result.target}, repeat ${repeat.repeat} pass ${onePass.pass}: ${problem.suite} (${problem.problem})`);
+  return lost;
+}
+
 function pick(results, name, fallback) {
   if (!name) return fallback;
   const found = results.find((result) => result.target === name);
@@ -121,6 +152,15 @@ export function judge(report, { baseline: baselineName, candidate: candidateName
   const baseline = pick(results, baselineName, results[0]);
   const candidate = pick(results, candidateName, results.at(-1));
   if (baseline === candidate) throw new Error("The baseline and the candidate are the same target");
+  // mac7/eval-honesty: refuse before judging, on the two things that make a number meaningless —
+  // arms measured differently, and an arm that silently lost a whole suite out of its denominator.
+  const mismatch = armRefusal({ name: baseline.target, conditions: baseline.conditions }, { name: candidate.target, conditions: candidate.conditions });
+  if (mismatch) throw new Error(mismatch);
+  const lost = [...lostSuites(baseline), ...lostSuites(candidate)];
+  if (lost.length)
+    throw new Error(`These two cannot be judged: a whole suite failed to run and its tasks are missing from the figures, `
+      + `which makes every rate here an average over whatever was left.\n${lost.map((one) => `- ${one}`).join("\n")}\n`
+      + `Fix whatever stopped that suite and measure again before reading any of these numbers.`);
   const comparison = compare([baseline, candidate], report.settings.passes);
   const [before, after] = comparison.rows;
   const figures = metrics.map((metric) => ({ ...metric, before: before[metric.field], after: after[metric.field],
@@ -132,7 +172,8 @@ export function judge(report, { baseline: baselineName, candidate: candidateName
     overall: overallVerdict(report, figures, tasks, safety, gate) };
 }
 
-const describe = (result) => ({ target: result.target, kind: result.kind, version: result.version ?? null, repeats: result.repeats.length });
+const describe = (result) => ({ target: result.target, kind: result.kind, version: result.version ?? null,
+  repeats: result.repeats.length, machine: result.conditions?.machine ?? null });
 
 function overallVerdict(report, figures, tasks, safety, gate) {
   if (report.selfTest) return { verdict: "NOT COMPARABLE", why: "this is a harness self-test with the offline demo provider; its numbers mean nothing" };
@@ -163,6 +204,7 @@ export function proofMarkdown(report, judged, meta = {}) {
     `- Candidate: ${who(judged.candidate)}`,
     `- Measured: ${report.startedAt} to ${report.finishedAt}; suites ${report.settings.suites.join(", ")}; last pass of ${report.settings.passes}`,
     `- Safety suites: ${failureCheckSuites.join(", ")}${report.settings.sharedDataFolder ? "; note: some arms shared one data folder" : ""}`,
+    `- Conditions checked: ${[judged.baseline, judged.candidate].map((side) => `${side.target} on ${side.machine ?? "an unrecorded machine"}`).join(" and ")}`,
     ...(meta.harness ? [`- Harness: ${meta.harness}`] : []),
     "", "## Figures", "",
     "A difference counts only when the spreads over repeats (low–high) do not overlap.", "",
