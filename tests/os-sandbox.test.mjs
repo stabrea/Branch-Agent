@@ -488,6 +488,12 @@ async function recordingSite(t) {
 const CRLF = "\r\n";
 const get = (host, extra = "", path = "/") => `GET http://${host}${path} HTTP/1.1${CRLF}Host: ${host}${CRLF}${extra}Connection: close${CRLF}${CRLF}`;
 const tunnelTo = (target) => `CONNECT ${target} HTTP/1.1${CRLF}Host: ${target}${CRLF}${CRLF}`;
+// A refused tunnel, either way the door says it. A tunnel to a real port other than 443 carries plain
+// words, so the door establishes it, dials nothing, and says 403 inside, where a program reading the
+// answer gets the reason in words instead of a bare network error. Everything else — 443, and a port
+// that is not a port — keeps the 403 on the tunnel's own reply.
+const tunnelRefusal = (why = "") =>
+  new RegExp(`^(?:HTTP/1\\.1 200 Connection Established\\r\\n\\r\\n)?HTTP/1\\.1 403[\\s\\S]*${why}`);
 
 test("R1 the door turns away any caller without this run's secret, and never passes the secret on", async (t) => {
   const site = await recordingSite(t);
@@ -514,7 +520,7 @@ test("R2 the door never reaches this computer, the cloud metadata address or a p
   const { raw, socks, proxy } = await door(t, { network: "open", decide: () => "allow", upstream,
     resolve: async (host) => names[host] ?? ["93.184.216.34"] });
   for (const target of ["127.0.0.1:80", "169.254.169.254:80", "[::1]:443", "10.1.2.3:22", "inner.test:443", "mixed.test:443", "v6.test:443"])
-    assert.match(await raw(tunnelTo(target)), /^HTTP\/1\.1 403[\s\S]*(private network|not a site)/, target);
+    assert.match(await raw(tunnelTo(target)), tunnelRefusal("(private network|not a site)"), target);
   assert.match(await raw(get("169.254.169.254", "", "/latest/meta-data/")), /^HTTP\/1\.1 403/);
   assert.match(await raw(get("inner.test")), /^HTTP\/1\.1 403/);
   assert.equal((await socks("169.254.169.254"))[2][1], 2, "SOCKS to the metadata address is refused");
@@ -522,7 +528,7 @@ test("R2 the door never reaches this computer, the cloud metadata address or a p
   // The system's own lookup: "localhost" and a number that means 127.0.0.1.
   const real = await door(t, { network: "open", decide: () => "allow", upstream, resolve: undefined });
   for (const name of ["localhost", "2130706433"])
-    assert.match(await real.raw(tunnelTo(`${name}:80`)), /^HTTP\/1\.1 403/, name);
+    assert.match(await real.raw(tunnelTo(`${name}:80`)), tunnelRefusal(), name);
   assert.equal(site.seen.length, 0, "nothing private was reached");
   assert.ok(proxy.refused.some((reason) => /private network/.test(reason)));
 });
