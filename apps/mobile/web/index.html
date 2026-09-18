@@ -86,6 +86,38 @@
           <div id="connect-body" class="phone-connect"></div>
         </section>
 
+        <!-- mac7/phone-pairing: this phone as one of the owner's devices (phone-device.js). -->
+        <section class="card" id="device-card">
+          <h2 data-t="phone.device.title">Lend this phone to Branch</h2>
+          <p data-t="phone.device.intro">On your computer open Customize, Channels, Your devices, and press Pair a device. Scan the square it shows, then type its six numbers. Everything starts switched off, and you switch things on from your computer.</p>
+          <div id="device-paired" hidden>
+            <p id="device-with" class="phone-origin"></p>
+            <button type="button" class="quiet-button" id="device-forget" data-t="phone.device.forget">Stop lending this phone</button>
+            <p class="field-note" data-t="phone.device.forgetNote">This phone's key is thrown away. Remove it on your computer as well.</p>
+          </div>
+          <div id="device-join">
+            <button type="button" class="quiet-button" id="device-scan" data-t="phone.device.scan">Scan the square code</button>
+            <video id="device-scan-view" playsinline muted hidden></video>
+            <label for="device-address" data-t="phone.device.address">Address from Your devices</label>
+            <input id="device-address" type="url" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" aria-describedby="device-address-note" />
+            <p class="field-note" id="device-address-note" data-t="phone.device.addressNote">Plain http only works on your own network or Tailscale. The square carries the address and the invitation, nothing else.</p>
+            <label for="device-code" data-t="phone.device.code">Six numbers from the computer</label>
+            <input id="device-code" inputmode="numeric" autocomplete="one-time-code" maxlength="7" aria-describedby="device-code-note" />
+            <p class="field-note" id="device-code-note" data-t="phone.device.codeNote">They last five minutes and work once. After five wrong tries, make a new invitation.</p>
+            <label for="device-label" data-t="phone.device.name">This phone's name on the list</label>
+            <input id="device-label" maxlength="80" autocomplete="off" aria-describedby="device-label-note" />
+            <p class="field-note" id="device-label-note" data-t="phone.device.nameNote">What you will see beside it in Your devices.</p>
+            <button type="button" id="device-pair" data-t="phone.device.connect">Ask to be let in</button>
+            <p class="field-note" id="device-unable" hidden data-t="phone.device.unable">This phone's system is too old to make the kind of key Branch asks for. Nothing can be lent from here.</p>
+          </div>
+          <fieldset id="device-never" class="phone-switch">
+            <legend data-t="phone.device.never.title">Never allow on this phone</legend>
+            <p data-t="phone.device.never.note">Ticked here, this phone refuses on its own, whatever your computer switches on. It only ever takes away, and you can change it at any time.</p>
+            <div id="device-never-list" class="phone-checks"></div>
+          </fieldset>
+          <p class="subtle" id="device-status" role="status"></p>
+        </section>
+
         <section class="card" id="phone-settings">
           <h2 data-t="phone.settings.title">On this phone</h2>
           <p data-t="phone.settings.intro">Everything here starts off. "When needed" keeps it out of the way until it is useful.</p>

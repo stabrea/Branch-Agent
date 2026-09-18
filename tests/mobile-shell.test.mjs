@@ -51,12 +51,15 @@ test("the native projects carry no typed colour outside the generated files", as
 
 test("every word on the phone has a key, in English and in real French", async () => {
   const [en, fr] = [await locale("en"), await locale("fr")];
-  const sources = await Promise.all(["index.html", "phone-home.js", "phone-pair.js", "phone-send.js", "phone.js", "rules.js", "vault.js", "phone-connect.js"]
+  const sources = await Promise.all(["index.html", "phone-home.js", "phone-pair.js", "phone-send.js", "phone.js", "rules.js", "vault.js",
+    "phone-connect.js", "phone-device.js"]
     .map((name) => readFile(join(WEB, name), "utf8")));
   const keys = new Set();
   for (const text of sources)
     for (const match of text.matchAll(/(?:data-t="|say\("|refusal\(")([a-zA-Z][\w.]*)"/g)) keys.add(match[1]);
   for (const name of ["lock", "notifications", "share", "voice", "push"]) keys.add(`phone.switch.${name}.title`).add(`phone.switch.${name}.note`);
+  // mac7/phone-pairing: the refusal rows are built from a table, so their keys are named here.
+  for (const name of ["camera", "screen", "listen", "run"]) keys.add(`phone.device.never.${name}.title`).add(`phone.device.never.${name}.note`);
   assert.ok(keys.size > 60, `only ${keys.size} keys were found; the pattern is looking in the wrong place`);
   const missing = [...keys].filter((key) => !en[key] || !fr[key]);
   assert.deepEqual(missing, []);
@@ -141,6 +144,16 @@ const fakePhone = () => {
     async openBranch(input) { globalThis.opened = input.at; },
     async notify() {},
     async unlock() { return { unlocked: true }; },
+    // mac7/phone-pairing: lending this phone to Branch. The key never comes back to the page.
+    async deviceStatus() { return { paired: Boolean(state.node), origin: state.node ?? "", never: state.never ?? [], canSign: true }; },
+    async devicePair(input) {
+      if (input.code !== "654321") return { paired: false, error: "That number is not right. 4 tries left." };
+      state.node = input.origin;
+      state.never = input.never;
+      return { paired: true, nodeId: "a1b2c3d4e5f60718" };
+    },
+    async deviceNever({ never }) { state.never = never; return { never }; },
+    async deviceForget() { state.node = null; },
   };
 };
 
@@ -183,6 +196,35 @@ test("the phone's page reads at 400 px: connect, then the five places and switch
   assert.equal(await page.locator('input[name="switch-voice"][value="on"]').isChecked(), true);
   await page.click('[data-go="inbox"]');
   assert.equal(await page.evaluate(() => globalThis.opened), "inbox");
+  // mac7/phone-pairing: lending this phone to Branch as one of the owner's devices.
+  const square = "a1b2c3d4e5f60718293a4b5c6d7e8f90";
+  await page.fill("#device-address", `http://8.8.8.8:3210/devices/pair?offer=${square}`);
+  await page.fill("#device-code", "654321");
+  await page.click("#device-pair");
+  await page.locator("#device-status.bad").waitFor();
+  assert.match(await page.locator("#device-status").textContent(), /Plain http/);
+  await page.fill("#device-address", `http://100.64.0.9:3210/pair?id=0f8b2c1e-7d3a-4b5c-9e6f-a1b2c3d4e5f6`);
+  await page.click("#device-pair");
+  assert.match(await page.locator("#device-status").textContent(), /Pair a device/);
+  // The phone's own refusals are ticked before pairing and go with the request.
+  await page.locator("#device-never-list input").nth(0).check();
+  await page.locator("#device-never-list input").nth(3).check();
+  await page.fill("#device-address", `http://100.64.0.9:3210/devices/pair?offer=${square}`);
+  await page.fill("#device-code", "111111");
+  await page.click("#device-pair");
+  await page.locator("#device-status.bad").waitFor();
+  assert.match(await page.locator("#device-status").textContent(), /4 tries left/);
+  await page.fill("#device-code", "654321");
+  await page.click("#device-pair");
+  await page.locator("#device-paired").waitFor({ state: "visible" });
+  assert.equal(await page.locator("#device-with").textContent(), "Lending to http://100.64.0.9:3210");
+  assert.equal(await page.locator("#device-join").isHidden(), true, "the card stops asking once the phone is lent");
+  assert.deepEqual(await page.evaluate(async () => (await globalThis.branchPhoneFake.deviceStatus()).never), ["camera", "run"]);
+  assert.equal(await page.locator("#device-code").inputValue(), "", "the six numbers are not left on the screen");
+  await page.click("#device-forget");
+  await page.locator("#device-join").waitFor({ state: "visible" });
+  assert.equal(await page.locator("#device-paired").isHidden(), true);
+
   const wide = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   assert.ok(wide <= 0, `the page scrolls sideways by ${wide}px`);
   const background = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);

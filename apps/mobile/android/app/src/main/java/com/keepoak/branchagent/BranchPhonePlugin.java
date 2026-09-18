@@ -29,10 +29,12 @@ import org.json.JSONObject;
 @CapacitorPlugin(name = "BranchPhone", permissions = { @Permission(alias = "notifications", strings = { "android.permission.POST_NOTIFICATIONS" }) })
 public class BranchPhonePlugin extends Plugin {
     private BranchVault vault;
+    private BranchNode node; // mac7/phone-pairing
 
     @Override
     public void load() {
         vault = new BranchVault(getContext());
+        node = new BranchNode(getContext());
         BranchWeb.install(getBridge(), vault.load());
         BranchShareInbox.applySwitch(getContext());
     }
@@ -244,6 +246,54 @@ public class BranchPhonePlugin extends Plugin {
     @PluginMethod
     public void clearShared(PluginCall call) {
         BranchShareInbox.take();
+        call.resolve();
+    }
+
+    // ---- mac7/phone-pairing: this phone as one of the owner's devices (src/devices/) ----
+
+    /** What the page may know: whether this phone is lent, to which computer, and its refusals. */
+    @PluginMethod
+    public void deviceStatus(PluginCall call) {
+        call.resolve(JSObject.fromJSONObject(node.status()));
+    }
+
+    /** Answers the Devices card's invitation, then waits for the owner's yes on the computer. */
+    @PluginMethod
+    public void devicePair(PluginCall call) {
+        String origin = BranchRules.checkOrigin(call.getString("origin", ""));
+        if (origin == null) {
+            call.resolve(result("paired", false).put("error", BranchWords.word(getContext(), "phone.error.plainHttp", "That address is refused.")));
+            return;
+        }
+        getBridge().execute(() -> {
+            try {
+                String name = call.getString("name", "");
+                String nodeId = node.pair(getContext(), origin, call.getString("offer", ""), call.getString("code", ""),
+                    name.isEmpty() ? Build.MODEL : name.substring(0, Math.min(80, name.length())),
+                    BranchNode.list(call.getArray("never", new com.getcapacitor.JSArray())));
+                call.resolve(result("paired", true).put("nodeId", nodeId));
+            } catch (Exception error) {
+                call.resolve(result("paired", false).put("error", String.valueOf(error.getMessage())));
+            }
+        });
+    }
+
+    /** The phone's own refusals. They only take away, so no computer is asked about them. */
+    @PluginMethod
+    public void deviceNever(PluginCall call) {
+        try {
+            JSObject out = new JSObject();
+            out.put("never", new org.json.JSONArray(node.setNever(BranchNode.list(call.getArray("never", new com.getcapacitor.JSArray())))));
+            call.resolve(out);
+        } catch (Exception error) {
+            call.reject(String.valueOf(error.getMessage()));
+        }
+    }
+
+    /** Throws this phone's key away; its signature stops working at once. */
+    @PluginMethod
+    public void deviceForget(PluginCall call) {
+        node.forget();
         call.resolve();
     }
 
