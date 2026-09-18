@@ -100,6 +100,15 @@ the last pass with the spread over repeats. `--dry-run` runs it against two thro
 the offline demo provider; that tests the harness only. `data/tool-evaluations/*` and the published
 benchmarks are not in it yet.
 
+**What the harness refuses (mac7/eval-honesty).** Every arm records the conditions it was measured
+under — the models, the settings, the version, the computer, a hash of the tasks and a digest of
+how they were marked — and `proof-report.mjs` refuses to judge two arms that differ in any of it
+except the one thing the arms are meant to differ in. That check now applies to saved reports read
+together with `--from` as well, which previously only compared the suite list and the pass count: a
+run on one machine and one build could be read beside a run on another and the difference called a
+result. A pass in which a whole suite failed to run also stops the verdict rather than vanishing —
+its tasks used to simply leave the denominator, making every rate an average over what was left.
+
 
 Goal: find out whether the core's advice makes real tasks go better, and whether it costs anything.
 
