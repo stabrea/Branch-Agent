@@ -114,6 +114,12 @@ const synonyms: Record<string, readonly string[]> = {
   // only thing web.search matched in "look up the prices online" was the word "up", which put it in
   // the index by accident and took it back out as soon as the ranking improved.
   online: ["web", "internet", "search"], internet: ["web", "online"],
+  // mac7/collisions: a person names the thing in their hand, not the category. "On my tablet" is
+  // the whole of what distinguishes "open a web page on my tablet" from "open a web page", and
+  // until the catalogue gained a tool literally called `web.page` nothing depended on it; after
+  // that, the one distinguishing word in the sentence was scoring nothing at all and the request
+  // read as if the owner's device had never been mentioned.
+  tablet: ["device", "phone"], phone: ["device", "tablet"], ipad: ["device", "tablet"], iphone: ["device", "phone"],
 };
 
 /** The query's own words plus the everyday words that mean the same thing. */
