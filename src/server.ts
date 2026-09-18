@@ -141,6 +141,8 @@ import { contextFileStatus, saveContextFileSettings, contextFileSettings } from 
 // mac3/reflection-skills: the learning loop's routes.
 import { reflectionApi } from "./reflection/api.js";
 import { handlesSettingsKitPath, settingsKitApi, settingsKitBodyBytes, SettingsKitError } from "./settings-kit/api.js"; // R17-S-A
+import { pins } from "./settings-kit/pins.js"; // mac7/wake-pins
+import { saveWakeWordSettings, wakeWordState } from "./voice-wake.js"; // mac7/wake-pins
 import { voiceSettings, saveVoiceSettings } from "./voice.js";
 import { voiceApi } from "./voice-api.js";
 // bucket-18: pull requests from changes (A0300), and which requests came with a short-lived key.
@@ -470,6 +472,8 @@ async function staticFile(
     // Wave mac2 (chat-live): the chat-app switches card under Customize, Chat apps.
     "/chat-live.js": ["chat-live.js", "text/javascript; charset=utf-8"],
     "/chat-permissions.js": ["chat-permissions.js", "text/javascript; charset=utf-8"], // mac7/chat-allowlist
+    "/wake-word.js": ["wake-word.js", "text/javascript; charset=utf-8"], // mac7/wake-pins
+    "/pins.js": ["pins.js", "text/javascript; charset=utf-8"], // mac7/wake-pins
     "/skill-revisions.js": ["skill-revisions.js", "text/javascript; charset=utf-8"],
     // Wave mac3 (channels-parity): the switches for the chat services added to match other assistants.
     "/channels-more.js": ["channels-more.js", "text/javascript; charset=utf-8"],
@@ -952,6 +956,21 @@ async function api(
     }, request.method ?? "GET", path, () => readBody(request, settingsKitBodyBytes)).catch((error: unknown) => {
       throw error instanceof SettingsKitError ? new HttpError(error.status, error.message) : error;
     });
+  // ── mac7/wake-pins ──
+  // Which settings the owner pinned, for anybody who uses this computer: somebody on a household
+  // profile is shown the pinned setting and told it is pinned, which is the whole point of a pin.
+  // Only the names and the fixed values are here, and every change goes through settings-kit above.
+  if (request.method === "GET" && path === "/api/pins")
+    return { pins: pins(app.store, app.store.profiles.ownerName).map(({ key, field, value, name, label }) => ({ key, field, value, name, label })) };
+  // The word that starts a turn. Reading it says what this computer could really do; changing it,
+  // like every other setting, is the owner's.
+  if (path === "/api/voice/wake") {
+    if (request.method === "GET") return wakeWordState(app.store, app.runtime.owner);
+    app.store.profiles.requireOwner("The word that starts a turn");
+    return { settings: saveWakeWordSettings(app.store, app.runtime.owner, await readBody(request)),
+      state: wakeWordState(app.store, app.runtime.owner) };
+  }
+  // ── end mac7/wake-pins ──
   if (request.method === "GET" && path === "/api/state") return state(app);
   // Wave 6: sharing, labels and notes, workflows, the waiting line, days off, and profiles.
   const collab = await collabApi(app, request, path, (maximumBytes) => readBody(request, maximumBytes));

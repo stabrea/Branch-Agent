@@ -169,6 +169,8 @@ Inside a conversation there are no homes to add to, only two surfaces with stric
 | The push-to-talk key and the longest recording (R17-S-C) | `settings:voice` |
 | How carefully the browser acts, the proxy and trusted certificates (R17-S-C) | `settings:computer` |
 | How long a tool server may take to start (R17-S-C) | `customize:connections` |
+| A word that starts a turn: the switch, the word, how sure it must be (`mac7/wake-pins`) | `settings:voice` |
+| Settings you have pinned, and unpinning them (`mac7/wake-pins`) | `settings:permissions` |
 
 When something new does not fit a row, apply the rule at the top and add a row here in the same
 change.

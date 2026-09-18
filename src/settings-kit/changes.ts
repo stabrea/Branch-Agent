@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { Store } from "../store.js";
 import { audit } from "../audit.js";
 import { securityShaped, secretShaped, settingsCatalogue, specFor, switchPositions, type FieldSpec, type SettingSpec } from "./catalogue.js";
+import { pinnedIds, pinnedRefusal, pinFor } from "./pins.js"; // mac7/wake-pins
 
 /**
  * R17-S-A: one list of changes, whoever proposed them — putting settings back, a whole-app preset,
@@ -25,6 +26,12 @@ export interface Change {
   to: Value;
   /** True when this change makes Branch less careful or lets it reach further. */
   loosens: boolean;
+  /**
+   * mac7/wake-pins: the owner pinned this setting. A whole-app preset, a settings file and putting
+   * everything back all step over it rather than failing, so one pinned switch never stops an
+   * import; the owner changes it by moving that one switch, or by unpinning it first.
+   */
+  pinned: boolean;
 }
 
 /** A value proposed for one field, before it has been checked. */
@@ -92,6 +99,7 @@ export function changesFor(store: Store, owner: string, proposals: readonly Prop
   const changes: Change[] = [];
   const refused: string[] = [];
   const seen = new Set<string>();
+  const pinned = pinnedIds(store, store.profiles.ownerName); // mac7/wake-pins
   for (const proposal of proposals.slice(0, 500)) {
     const spec = specFor(proposal.key);
     const field = spec?.fields.find((entry) => entry.field === proposal.field);
@@ -103,7 +111,7 @@ export function changesFor(store: Store, owner: string, proposals: readonly Prop
     if (from === to || seen.has(id)) continue;
     seen.add(id);
     changes.push({ id, key: spec.key, field: field.field, name: spec.name, nameT: spec.t, label: field.label, labelT: field.t,
-      home: spec.home, from, to, loosens: loosens(field, from, to, spec) });
+      home: spec.home, from, to, loosens: loosens(field, from, to, spec), pinned: pinned.has(id) });
   }
   return { changes, refused };
 }
@@ -134,6 +142,11 @@ export interface ApplyChoice {
   /** Where the changes came from, for the record. */
   why: string;
   /**
+   * mac7/wake-pins: the owner moving one switch on purpose, which a pinned setting allows. Off for
+   * a preset, a settings file or putting everything back: those step over a pinned setting.
+   */
+  pinnedAllowed?: boolean | undefined;
+  /**
    * Settings whose own save does more than write the record (a learning switch also adds or takes
    * away a tool) are saved through that, keyed by setting.
    */
@@ -145,8 +158,22 @@ export interface ApplyChoice {
  * cannot slip in a value the owner was never shown.
  */
 export function applyChanges(store: Store, owner: string, changes: readonly Change[], choice: ApplyChoice): Change[] {
+  return applyWithPins(store, owner, changes, choice).applied;
+}
+
+/**
+ * mac7/wake-pins: the same, saying which ticked changes were stepped over because the owner pinned
+ * them. Nothing here throws for a pin: an import of forty settings with one pinned among them makes
+ * the other thirty-nine and says which one it left alone.
+ */
+export function applyWithPins(store: Store, owner: string, changes: readonly Change[], choice: ApplyChoice): { applied: Change[]; skipped: { id: string; why: string }[] } {
   const accepted = new Set(choice.accept);
-  const picked = changes.filter((change) => accepted.has(change.id));
+  const wanted = changes.filter((change) => accepted.has(change.id));
+  const skipped = choice.pinnedAllowed ? [] : wanted.filter((change) => change.pinned)
+    .map((change) => ({ id: change.id, why: pinnedRefusal(pinFor(store, store.profiles.ownerName, change.key, change.field)
+      ?? { key: change.key, field: change.field, value: change.from, initial: change.from, keepsEnabled: false, name: change.name, label: change.label }) }));
+  const skippedIds = new Set(skipped.map((entry) => entry.id));
+  const picked = wanted.filter((change) => !skippedIds.has(change.id));
   const loose = picked.filter((change) => change.loosens);
   if (loose.length && !choice.confirmLoosening)
     throw new Error(`${loose.length} of these make Branch less careful (${loose.map((change) => change.label).join(", ")}). Tick "Yes, make it less careful" to go ahead, or untick them.`);
@@ -160,5 +187,5 @@ export function applyChanges(store: Store, owner: string, changes: readonly Chan
       reason: picked.map((change) => `${change.id}: ${String(change.from)} → ${String(change.to)}`).join("; ").slice(0, 500),
       outcome: "saved",
     });
-  return picked;
+  return { applied: picked, skipped };
 }

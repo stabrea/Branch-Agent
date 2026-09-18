@@ -1,0 +1,179 @@
+/**
+ * mac7/wake-pins: settings the owner pinned.
+ *
+ * A pin is only worth having if every way of writing a setting meets it, so each way in is driven
+ * here with a household profile switched on: the API the window uses, the settings screens that do
+ * not go through the settings kit at all, a settings file, a whole-app preset, and a tool the model
+ * calls. The owner is never refused. Nothing here opens a window or touches the machine.
+ */
+import test from "node:test";
+import assert from "node:assert/strict";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { discardTemp } from "./temp-dir.mjs";
+import { createBranch } from "../dist/index.js";
+import { settingsKitApi, SettingsKitError } from "../dist/settings-kit/api.js";
+import { pinFor, pinnedIds, pins } from "../dist/settings-kit/pins.js";
+import { changesFor, applyWithPins } from "../dist/settings-kit/changes.js";
+import { exportSettings } from "../dist/settings-kit/transfer.js";
+import { saveVoiceSettings, voiceSettings } from "../dist/voice.js";
+import { saveWakeWordSettings, wakeWordSettings } from "../dist/voice-wake.js";
+
+/** A household profile with its PIN, switched on. Switching back is one call with no PIN. */
+async function household(app) {
+  const profile = app.store.profiles.create({ name: "Sam", pin: "2468" });
+  app.store.profiles.switch({ profileId: profile.id, pin: "2468" });
+  assert.equal(app.store.profiles.isOwner(), false);
+  return profile;
+}
+const asOwner = (app) => { app.store.profiles.switch({ profileId: null }); };
+
+async function fixture(t) {
+  const root = await mkdtemp(join(tmpdir(), "branch-pinned-settings-"));
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data") });
+  t.after(async () => { await app.close(); await discardTemp(root); });
+  const deps = { store: app.store, owner: "local", workspace: join(root, "workspace"), appVersion: "test" };
+  const ask = (method, path, body) => settingsKitApi(deps, method, path, async () => body);
+  return { app, store: app.store, owner: "local", deps, ask };
+}
+
+/** Pins one field at whatever it is set to now, as the owner. */
+const pin = (ask, key, field) => ask("POST", "/api/settings-kit/pins", { key, field, pinned: true });
+
+test("P1 a pin fixes the setting at what it is now, and only the owner can make one", async (t) => {
+  const { app, store, ask } = await fixture(t);
+  saveWakeWordSettings(store, "local", { mode: "when-needed", word: "branch" });
+  const { pins: made } = await pin(ask, "wake-word", "mode");
+  assert.deepEqual(made.map(({ key, field, value }) => ({ key, field, value })),
+    [{ key: "wake-word", field: "mode", value: "when-needed" }]);
+  assert.equal(pinFor(store, "local", "wake-word", "mode").name, "A word that starts a turn");
+
+  await household(app);
+  await assert.rejects(() => ask("POST", "/api/settings-kit/pins", { key: "wake-word", field: "mode", pinned: false }),
+    (error) => error instanceof SettingsKitError && error.status === 403);
+  assert.equal(pins(store, "local").length, 1, "somebody else took the owner's pin off");
+});
+
+test("P2 a household person is refused through the settings screens that do not go through the kit", async (t) => {
+  const { app, store } = await fixture(t);
+  saveVoiceSettings(store, "local", { autoReadAloud: true });
+  // The voice card writes the owner's own record with no profile check of its own (src/server.ts):
+  // the pin is the only thing standing between a household person and this setting.
+  const { pins: made } = await settingsKitApi({ store, owner: "local", workspace: "", appVersion: "t" },
+    "POST", "/api/settings-kit/pins", async () => ({ key: "voice", field: "autoReadAloud", pinned: true }));
+  assert.equal(made.length, 1);
+
+  await household(app);
+  assert.throws(() => saveVoiceSettings(store, "local", { autoReadAloud: false }), /owner pinned this setting/);
+  assert.equal(voiceSettings(store, "local").autoReadAloud, true, "the pinned setting was changed anyway");
+  // Everything else on the same record is still theirs to change; only the pinned field is fixed.
+  saveVoiceSettings(store, "local", { speechRate: 1.5 });
+  assert.equal(voiceSettings(store, "local").speechRate, 1.5);
+  assert.equal(voiceSettings(store, "local").autoReadAloud, true);
+
+  asOwner(app);
+  saveVoiceSettings(store, "local", { autoReadAloud: false });
+  assert.equal(voiceSettings(store, "local").autoReadAloud, false, "the owner could not change their own pinned setting");
+});
+
+test("P3 dropping the field, or flipping the older yes/no beside the switch, is refused too", async (t) => {
+  const { app, store, ask } = await fixture(t);
+  // "Your screen and keyboard" keeps an older yes/no beside its switch (keepsEnabled), so a write
+  // that leaves `mode` out and sets `enabled` would mean "when needed" without ever naming it, and
+  // a write that drops the field altogether would mean whatever it started as.
+  store.save("settings", "local", "desktop-control", { mode: "on", enabled: true });
+  await pin(ask, "desktop-control", "mode");
+  assert.equal(pinFor(store, "local", "desktop-control", "mode").value, "on");
+
+  await household(app);
+  assert.throws(() => store.save("settings", "local", "desktop-control", { enabled: true }), /owner pinned this setting/);
+  assert.throws(() => store.save("settings", "local", "desktop-control", {}), /owner pinned this setting/);
+  assert.throws(() => store.save("settings", "local", "desktop-control", { mode: "off" }), /owner pinned this setting/);
+  assert.equal(store.get("settings", "local", "desktop-control").data.mode, "on");
+  // A write that leaves the pinned field exactly where the owner put it changes nothing about the
+  // pin, so the rest of the record is still theirs.
+  store.save("settings", "local", "desktop-control", { mode: "on", enabled: true, somethingElse: 1 });
+  assert.equal(store.get("settings", "local", "desktop-control").data.somethingElse, 1);
+});
+
+test("P4 the list of pins is nobody else's to write, whatever they send", async (t) => {
+  const { app, store, ask } = await fixture(t);
+  await pin(ask, "wake-word", "mode");
+  await household(app);
+  assert.throws(() => store.save("settings", "local", "settings-pins", { pins: [] }), /owner's alone/);
+  assert.equal(pinnedIds(store, "local").size, 1);
+});
+
+test("P5 a settings file and a whole-app preset step over a pinned setting and make all the rest", async (t) => {
+  const { store, owner, ask } = await fixture(t);
+  // Pinned somewhere other than where it starts, so putting everything back is a real change too.
+  saveWakeWordSettings(store, owner, { mode: "when-needed" });
+  await pin(ask, "wake-word", "mode");
+
+  // A file that would turn the pinned switch up and change two other things as well.
+  const file = exportSettings(store, owner, "test");
+  file.settings["wake-word"].mode = "on";
+  file.settings.voice.autoReadAloud = true;
+  file.settings["local-models"].mode = "when-needed";
+  const preview = await ask("POST", "/api/settings-kit/preview", { source: "import", file: JSON.stringify(file) });
+  const pinnedChange = preview.changes.find((change) => change.id === "wake-word.mode");
+  assert.equal(pinnedChange.pinned, true, "the preview did not mark the pinned setting");
+
+  const answer = await ask("POST", "/api/settings-kit/apply", {
+    plan: { source: "import", file: JSON.stringify(file) },
+    accept: preview.changes.map((change) => change.id), confirmLoosening: true,
+  });
+  assert.deepEqual(answer.skipped.map((entry) => entry.id), ["wake-word.mode"]);
+  assert.match(answer.skipped[0].why, /owner pinned this setting/);
+  assert.equal(wakeWordSettings(store, owner).mode, "when-needed", "the file changed a pinned setting");
+  assert.equal(voiceSettings(store, owner).autoReadAloud, true, "the rest of the file was thrown away with it");
+  assert.ok(answer.applied.some((change) => change.id === "local-models.mode"));
+
+  // A preset does the same, and so does putting everything back.
+  await ask("POST", "/api/settings-kit/apply",
+    { plan: { source: "preset", preset: "capable" }, accept: ["wake-word.mode"], confirmLoosening: true });
+  assert.equal(wakeWordSettings(store, owner).mode, "when-needed");
+  const back = await ask("POST", "/api/settings-kit/apply",
+    { plan: { source: "reset" }, accept: ["wake-word.mode", "voice.autoReadAloud"], confirmLoosening: true });
+  assert.deepEqual(back.skipped.map((entry) => entry.id), ["wake-word.mode"]);
+});
+
+test("P6 the owner still moves a pinned switch on purpose, one at a time", async (t) => {
+  const { store, owner, ask } = await fixture(t);
+  saveWakeWordSettings(store, owner, { mode: "off" });
+  await pin(ask, "wake-word", "mode");
+  const answer = await ask("POST", "/api/settings-kit/apply", {
+    plan: { source: "set", key: "wake-word", field: "mode", value: "on" },
+    accept: ["wake-word.mode"], confirmLoosening: true,
+  });
+  assert.deepEqual(answer.skipped, []);
+  assert.equal(wakeWordSettings(store, owner).mode, "on");
+  const view = answer.overview.settings.find((spec) => spec.key === "wake-word");
+  assert.equal(view.fields.find((field) => field.field === "mode").pinned, true, "the pin was lost by changing the value");
+});
+
+test("P7 a tool the model calls meets the same refusal, in the same words", async (t) => {
+  const { app, store, ask } = await fixture(t);
+  saveWakeWordSettings(store, "local", { mode: "off" });
+  await pin(ask, "wake-word", "mode");
+  await household(app);
+  // Whatever a tool does in the end, it writes a settings record; that is where the pin sits, so a
+  // tool nobody has written yet meets it too.
+  let refusal = null;
+  try { store.save("settings", "local", "wake-word", { mode: "on" }); }
+  catch (error) { refusal = error.message; }
+  assert.match(refusal ?? "", /The owner pinned this setting \(A word that starts a turn: Switch\)/);
+  assert.match(refusal, /Only the owner can unpin it/);
+  assert.equal(wakeWordSettings(store, "local").mode, "off");
+});
+
+test("P8 nothing is pinned on a fresh install, and pinning is refused for a setting that does not exist", async (t) => {
+  const { store, ask } = await fixture(t);
+  assert.deepEqual(pins(store, "local"), []);
+  const { changes } = changesFor(store, "local", [{ key: "voice", field: "autoReadAloud", value: true }]);
+  assert.equal(changes[0].pinned, false);
+  assert.deepEqual(applyWithPins(store, "local", changes, { accept: [changes[0].id], confirmLoosening: true, why: "test" }).skipped, []);
+  await assert.rejects(() => ask("POST", "/api/settings-kit/pins", { key: "made-up", field: "mode", pinned: true }),
+    (error) => error instanceof SettingsKitError && error.status === 404);
+});

@@ -1613,13 +1613,13 @@ Routes: `GET /api/voice/plan` (which service would do the work, where the sound 
 
 Speech is pluggable. **Settings → Voice → Other speech services** picks a service for writing speech out and one for reading replies aloud, instead of the usual choices above: **Deepgram** (both), **ElevenLabs** (both), **Azure speech** (both; give the region as `azureRegion`, for example `westeurope`, and writing out takes WAV only), or **a program on this computer** that reads aloud, such as Piper (name it by its full place and give its arguments one per line as `programArgs`, at most 20, with `{text}` for the file holding the words and `{out}` for the WAV file it must write; the words never travel as an argument). Each service's key stays in **Secrets** (the default project); the card only names the secret (`DEEPGRAM_API_KEY`, `ELEVENLABS_API_KEY`, `AZURE_SPEECH_KEY` by default), and it is taken out at the moment of the call. The switch ships **off**, and while it is off, or while no service is picked, the usual routes do the work exactly as before. "Keep audio on this computer" refuses every cloud service in plain words; only the program on this computer still works. No price is on file for these services, so none is shown. Other code can add its own engine or spoken command through `SpeechRegistry.register` / `addIntent` (`src/speech-engines.ts`).
 
-**Spoken commands.** While the switch is on, saying only "stop", "say that again", "slower" or "faster" (or "arrête", "répète", "plus lentement", "plus vite") into **Talk** is taken as a command rather than sent as a message: it stops reading aloud, reads the last answer again, or changes the speaking speed by a quarter. A longer sentence is always an ordinary message. There is still no wake word. API: `GET|POST /api/voice/engines`, `POST /api/voice/command`, and `POST /api/voice/transcribe` now answers with `command` (null when the phrase is not one, or while the switch is off).
+**Spoken commands.** While the switch is on, saying only "stop", "say that again", "slower" or "faster" (or "arrête", "répète", "plus lentement", "plus vite") into **Talk** is taken as a command rather than sent as a message: it stops reading aloud, reads the last answer again, or changes the speaking speed by a quarter. A longer sentence is always an ordinary message. A wake word is a separate switch, ships off, and is described under "A word that starts a turn" below. API: `GET|POST /api/voice/engines`, `POST /api/voice/command`, and `POST /api/voice/transcribe` now answers with `command` (null when the phrase is not one, or while the switch is off).
 
 **macOS and Linux.** The cloud services are the same everywhere. For a voice that never leaves the computer beyond `say` and `espeak-ng`, install Piper yourself and name it here.
 
 ### Live conversation (wave 8)
 
-A **live conversation** is the other way of talking to Branch: instead of holding a button, recording, and waiting, you press **Talk live** once and then simply talk. Your voice goes up while you are still saying it, the answer comes back while it is still being said, and pressing the button again cuts it off mid-sentence the way you would interrupt a person. There is still no wake word: nothing listens until you press the button, and pressing it again ends the conversation.
+A **live conversation** is the other way of talking to Branch: instead of holding a button, recording, and waiting, you press **Talk live** once and then simply talk. Your voice goes up while you are still saying it, the answer comes back while it is still being said, and pressing the button again cuts it off mid-sentence the way you would interrupt a person. Nothing listens until you press the button, and pressing it again ends the conversation; a live conversation is never started by a wake word, which is a separate switch of its own, described below.
 
 **What is sent.** While a live conversation is open, the sound of your microphone goes to the model service you are connected to, continuously, and its answer comes back as sound. Both sides are also written out in words, and those words go into the conversation on screen as ordinary messages, so afterwards you can read what was said. **The sound itself is not kept anywhere** — not in the database, not in a file, and there is no setting that changes that. It is sent, played and forgotten. The one setting near it, *Note in the task's record how much sound a live conversation carried*, writes down the size of each piece of sound and nothing else, so you can see how much went back and forth; switch it on only if you want that detail.
 
@@ -5278,8 +5278,6 @@ going to be built. They are written down here so nobody goes looking for them.
 - **No screen control on a Mac or Linux outside the app.** There the screen and keyboard tools work
   only inside the Branch Agent app, whose own window carries the Stop notice; see "Using this
   computer's screen and keyboard".
-- **No wake word.** Talk mode starts when you press the button or run the command. Nothing listens
-  to the room waiting for its name, because that means a microphone open all day.
 - **No outside vector databases.** Everything Branch remembers is searched in the SQLite file beside
   your own data. There are no connectors to Postgres, Redis, Qdrant, Pinecone, Chroma, Weaviate,
   MongoDB or Azure, because that would mean sending what you said to a server somewhere else.
@@ -7883,6 +7881,93 @@ without the file and network wall (see above).
 - **A0602** (a helper that installs and manages an isolated plugin for another agent): built as the write / check /
   remove lifecycle of Branch's own plugin for Codex and Claude Code, in a folder the owner names (`src/add-ons/export.ts`).
 
+## A word that starts a turn (mac7/wake-pins)
+
+Instead of holding **Talk**, you can say a word of your own and Branch starts listening. It ships
+**off**, like everything else, and has the same three-way switch: **off** — nothing listens at all;
+**when needed** — it listens only while a conversation is open on the screen; **on** — it listens
+whenever Branch is running. Its card, **A word that starts a turn**, lives in Settings → Voice.
+Holding Talk stays the ordinary way in and is not going away.
+
+**What it really does, and what it never does.** Listening happens on this computer. No sound leaves
+the machine for this, ever, and **nothing is recorded or kept before your word has been heard**: what
+the listener holds is a few seconds of sound in memory, thrown away every time your word is not in
+it. No file is written. Hearing the word grants nothing at all — what you say after it is an ordinary
+spoken turn, asked about exactly as the same words typed into the message box would be, with the same
+approval rules and the same questions. While **Lockdown** is on the wake word is off whatever the
+switch says, and turning Lockdown off puts the switch back where it was.
+
+**What each computer can really do.** No new dependency is added for this, so a computer either has
+something that can spot a word without the internet or it says so and stays off.
+
+- **Windows** uses the speech recognition that ships with Windows (`System.Speech`), loaded with a
+  grammar of exactly your one word. It runs on the machine and reaches no network. Your word is
+  passed as an argument, never pasted into the script.
+- **macOS** has nothing a program can ask: macOS keeps its speech recognition inside apps with a
+  window, and there is no command for it. So on a Mac the wake word stays **off** and the card says
+  why, unless you have already set up a speech program of your own under Voice (below).
+- **Linux** ships no speech recognition at all, so the same is true there.
+- **Any computer** where you have set up a speech program yourself (Settings → Voice, "a speech
+  program already installed here": whisper.cpp or faster-whisper) uses that program, asked only
+  whether it heard your word. That is what makes the wake word possible on a Mac or on Linux.
+
+Sending what your microphone hears to a service is never an option, on any computer, and there is no
+setting that turns it into one.
+
+**What is saved** (`src/voice-wake.ts`, record `wake-word`): `mode` (off / when-needed / on, off by
+default), `word` (your own word or short phrase, empty by default, so nothing is listened for),
+`sureness` (50–99, 80 by default — how sure the spotter must be out of a hundred; lower hears your
+word more often and more often hears it when you did not say it) and `windowSeconds` (1–5, 2 by
+default — how many seconds of sound are held in memory at a time before being thrown away). Only the
+switch and `sureness` are in the settings catalogue, so a whole-app preset or a settings file can
+turn listening off or make it stricter but can **never choose what this computer listens for**: the
+word is set by you, in the card, and nowhere else.
+
+**API.** `GET /api/voice/wake` answers the settings, what this computer would really use to spot the
+word, and why it is refused right now when it is. `POST /api/voice/wake` saves it and is the owner's
+alone; a short-lived key is refused both.
+
+## Settings you have pinned (mac7/wake-pins)
+
+Pin a setting and it is fixed. Somebody else who uses this computer — a household profile — still
+sees it, and sees that you pinned it, but cannot change it. **Pinning and unpinning are yours alone.**
+The card, **Settings you have pinned**, lives in Settings → Permissions; it lists what is pinned and
+what each one is fixed at, and a household profile sees that same list read-only.
+
+**Where it is enforced.** Not in the window: at the one place every setting is written
+(`Store.save`), so each of these meets the same refusal in the same words — the window, the API, the
+terminal, a settings file, a whole-app preset and a tool the assistant calls. The refusal says *"The
+owner pinned this setting (…), so it cannot be changed here. Only the owner can unpin it, in
+Settings."* This matters because several settings screens write the owner's own record without a
+profile check of their own; the pin is what stands in the way there.
+
+A pin is checked against what the record would **mean**, not against the text sent, so a write that
+leaves the field out, or that flips the older yes/no some records keep beside their switch, is
+refused too. Everything else on the same record is still the other person's to change: only the
+pinned field is fixed.
+
+**Presets and settings files step over a pinned setting rather than failing.** Bringing in a file of
+forty settings with one pinned among them makes the other thirty-nine and tells you which one it left
+alone; the same is true of a whole-app preset and of putting settings back. The owner still changes a
+pinned setting deliberately, one switch at a time, or unpins it first. The list of pins is itself a
+record nobody else may write, and it is on the never-touched list, so no preset or file can unpin
+anything.
+
+**What is saved** (`src/settings-kit/pins.ts`, record `settings-pins`): one entry per pinned field
+with the setting's key and field, the value it is fixed at, what the field falls back to when a
+record does not carry it, whether the record keeps an older yes/no beside its switch, and the
+setting's name and the field's label so the refusal can say which setting in plain words.
+
+**API.** `POST /api/settings-kit/pins` with `{ key, field, pinned }` pins or unpins one field, and is
+the owner's alone like the rest of the settings kit. `GET /api/pins` answers the list of pinned
+settings — names and fixed values only — to anybody who uses this computer, which is how a household
+profile is shown that a setting is pinned. `GET /api/settings-kit` now marks each field `pinned`, and
+`POST /api/settings-kit/apply` answers `skipped` beside `applied`.
+
+macOS and Linux: nothing in either of these two sections depends on the operating system, except
+which spotter the wake word can use, which is set out above. The tests use fake programs and made-up
+sound only; no microphone is ever opened and no sound is ever played.
+
 ## Understandable settings (R17-S-A)
 
 Every control in Settings has one sentence under it saying what it does and what changing it means,
@@ -8025,8 +8110,8 @@ and `morningBrief` (all on) and `maxCharacters` (1500). The email inbox: `host`,
 
 **Not built in this round.** *Live voice in Discord voice channels* (R17-023) is left out: Discord voice needs the Opus
 codec and Discord's end-to-end voice encryption (DAVE, built on MLS), neither of which Node ships, and new
-dependencies are not allowed. *A wake word* is left out on purpose until the owner decides how one could be built
-safely; nothing here ever listens by itself.
+dependencies are not allowed. *A wake word* is now built, separately and off,
+under "A word that starts a turn"; nothing in this round listens by itself.
 
 **macOS and Linux.** Everything above is plain HTTPS, IMAP and the owner's own programs started with an argument list,
 so it behaves the same on all three systems. The tunnel program is found by name on the search path or by the full

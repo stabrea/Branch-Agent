@@ -1022,6 +1022,40 @@
             <button data-t="action.save-chat-live">Save chat settings</button>
           </form>
           <!-- mac7/chat-allowlist: what a chat message's task may use. Its home is Customize, Chat apps. -->
+          <!-- mac7/wake-pins: a word that starts a turn, and the settings the owner has pinned. -->
+          <form id="wake-word-form" class="card" data-home="settings:voice">
+            <h2 data-t="settings.card.wake-word">A word that starts a turn</h2>
+            <p data-t="settings.wake-word.intro">Say your own word and Branch starts listening, instead of holding the Talk button. Listening happens on this computer only: no sound ever leaves it, and nothing is recorded or kept before your word has been heard. While the switch is off, nothing listens at all. Holding Talk stays the ordinary way in, and the word gives nothing away — whatever you say after it is asked about exactly as the same words typed into the box would be.</p>
+            <label for="wake-word-mode" data-t="field.wake-word-mode">Listening for your word</label>
+            <select id="wake-word-mode" aria-describedby="wake-word-mode-note">
+              <option value="off" data-t="switch.off">Off</option>
+              <option value="when-needed" data-t="switch.when-needed">When needed</option>
+              <option value="on" data-t="switch.on">On</option>
+            </select>
+            <p id="wake-word-mode-note" class="field-note" data-t="settings.wake-word.mode-note">Off, nothing listens. When needed, it listens only while a conversation is open on the screen. On, it listens whenever Branch is running. Lockdown switches it off whatever this says.</p>
+            <label for="wake-word-word" data-t="field.wake-word-word">Your word</label>
+            <input id="wake-word-word" type="text" maxlength="40" aria-describedby="wake-word-word-note" />
+            <p id="wake-word-word-note" class="field-note" data-t="settings.wake-word.word-note">Two or three syllables work best, and something you would not say by accident. With no word chosen there is nothing to listen for, so nothing listens.</p>
+            <label for="wake-word-sureness" data-t="field.wake-word-sureness">How sure it must be before it answers</label>
+            <input id="wake-word-sureness" type="number" min="50" max="99" step="1" aria-describedby="wake-word-sureness-note" />
+            <p id="wake-word-sureness-note" class="field-note" data-t="settings.wake-word.sureness-note">Out of a hundred. Lower hears your word more often, and more often hears it when you did not say it.</p>
+            <p id="wake-word-how" class="field-note" aria-live="polite"></p>
+            <p id="wake-word-refusal" class="field-note" aria-live="polite"></p>
+            <p id="wake-word-state" class="field-note" aria-live="polite"></p>
+            <button data-t="action.save-wake-word">Save the wake word</button>
+          </form>
+          <form id="pins-form" class="card" data-home="settings:permissions">
+            <h2 data-t="settings.card.pins">Settings you have pinned</h2>
+            <p data-t="settings.pins.intro">Pin a setting and it is fixed. Somebody else who uses this computer still sees it, and sees that you pinned it, but every way of changing it is refused in the same words: this window, the API, the terminal, a settings file, a whole-app preset and a tool the assistant calls. Pinning and unpinning are yours alone. A preset or a settings file steps over a pinned setting and makes all the rest, rather than failing.</p>
+            <div id="pins-list" class="card-list" aria-live="polite"></div>
+            <div id="pins-picker" hidden>
+              <label for="pins-setting" data-t="field.pins-setting">Which setting to pin</label>
+              <select id="pins-setting" aria-describedby="pins-setting-note"></select>
+              <p id="pins-setting-note" class="field-note" data-t="settings.pins.setting-note">It is pinned at whatever it is set to now, so set it the way you want it first. You can still change it yourself, one switch at a time, while it is pinned.</p>
+            </div>
+            <p id="pins-state" class="field-note" aria-live="polite"></p>
+            <button data-t="action.pin-setting">Pin this setting</button>
+          </form>
           <form id="chat-permissions-form" class="card" data-home="customize:channels">
             <h2 data-t="settings.card.chat-permissions">What a chat may do beyond talking</h2>
             <p data-t="settings.chat-permissions.intro">A message in a chat app cannot prove who is typing, so its task may only read and answer: ask you a question, read a file, read what Branch remembers, read a skill you installed, and look something up on the web. Everything else is refused until you allow it here.</p>
@@ -1865,6 +1899,8 @@
     <script src="/second-opinion.js" type="module"></script>
     <script src="/chat-live.js" type="module"></script>
     <script src="/chat-permissions.js" type="module"></script>
+    <script src="/wake-word.js" type="module"></script>
+    <script src="/pins.js" type="module"></script>
     <script src="/heartbeat.js" type="module"></script>
     <!-- Bucket 17: watching videos and speech plug-ins. -->
     <script src="/media-programs.js" type="module"></script>

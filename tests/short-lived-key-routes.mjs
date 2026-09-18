@@ -700,6 +700,7 @@ export const ROUTES = {
   "/api/plugins/sample/disable": "owner POST",
   "/api/plugins/sample/enable": "owner POST",
   "/api/plugins/sample/inspect": "owner POST",
+  "/api/pins": "look", // mac7/wake-pins: which settings the owner pinned, for everybody who uses this computer
   "/api/policy": "owner POST",
   "/api/policy/approve": "task POST",
   "/api/practice": "owner POST",
@@ -904,6 +905,8 @@ export const ROUTES = {
   "/api/settings-kit/files/sample": "secret-read",
   "/api/settings-kit/preview": "owner POST",
   "/api/settings-kit/apply": "owner POST",
+  // mac7/wake-pins: pinning a setting is the owner's alone; the list of pins is only names and values.
+  "/api/settings-kit/pins": "owner POST",
   "/api/triggers": "secret-read",
   "/api/triggers/:id": "secret-read",
   "/api/triggers/:id/enabled": "owner POST",
@@ -929,6 +932,8 @@ export const ROUTES = {
   "/api/voice/speak": "task POST",
   "/api/voice/transcribe": "task POST",
   "/api/voice/voices": "look",
+  // mac7/wake-pins: the word that starts a turn. Reading says what this computer could do; changing is the owner's.
+  "/api/voice/wake": "owner POST",
   "/api/webhooks": "secret-read",
   "/api/webhooks/:id": "secret-read",
   "/api/webhooks/:id/enable": "owner POST",
