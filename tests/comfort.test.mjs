@@ -7,6 +7,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
+import { connect as netConnect } from "node:net";
 import { once } from "node:events";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
@@ -19,6 +20,8 @@ import {
   createBranch, allComfort, readComfort, saveComfort, ComfortKeysSchema, proxyProblem, checkCertificate,
   validateNetwork, OutboundNetwork, processNetworkHooks, withBrowserConfirmation, ignoreRulesFor,
   statusLineText, updatePlan, noteUpdateCheck, evaluatePolicy, NetworkPolicy, Budget, ToolRegistry,
+  // mac7/node-floor
+  nodeFloor, nodeFloor25, nodeFloorRange, nodeIsTooOld, oldNodeNotice, sayOnceIfNodeIsTooOld, forgetOldNodeNotice,
 } from "../dist/index.js";
 import { WorkspaceFiles } from "../dist/files.js";
 import { startServer } from "../dist/server.js";
@@ -102,44 +105,116 @@ test("R17-S20: certificates are added to the computer's own list and never repla
 });
 
 /**
- * Whether this Node really sends `fetch` through a proxy it has been given. Node 24 has
- * `http.setGlobalProxyFromEnv` and honours it for `http.request`, but not for `fetch`: the call
- * never arrives at the proxy and never fails either, so the test below hung for its whole two
- * minutes. Proved outside Branch on Node 24.18 (macOS and Windows alike) and working on 26.5.
- * Asking the question rather than writing a version number down means this test starts running
- * again by itself the day the floor moves.
+ * Whether this Node really sends `fetch` through a proxy it has been given. Asking the question
+ * rather than writing a version number down means the test below can never claim a Node works when
+ * it does not — and the floor test further down asks that this answer and the version Branch
+ * declares in `engines` agree, so neither can drift from the other.
+ *
+ * A proxy is reached in one of two shapes and both count. Node 26.5 and newer send a plain `http://`
+ * call to the proxy as an ordinary request with the whole address in it. Everything from 24.14 to
+ * 26.4 opens a CONNECT tunnel for it instead — which raises `connect` on a Node http server, never
+ * `request`. An earlier reading here counted only `request`, and so reported a working proxy as a
+ * dead one; that is where "Node 24 proxies http.request only" came from.
  */
 async function proxyReachesFetch() {
   const { setGlobalProxyFromEnv } = await import("node:http");
   if (typeof setGlobalProxyFromEnv !== "function") return false;
-  const seen = [];
-  const server = createServer((request, response) => { seen.push(request.url); response.end("ok"); });
+  let reached = 0;
+  const server = createServer((request, response) => { reached += 1; response.end("ok"); });
+  server.on("connect", (request, socket) => { reached += 1; socket.destroy(); });
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
   const undo = setGlobalProxyFromEnv({ HTTP_PROXY: `http://127.0.0.1:${server.address().port}` });
   try { await fetch("http://branch-proxy-probe.example/", { signal: AbortSignal.timeout(3000) }); } catch { /* the answer is whether the proxy was reached */ }
   undo();
   server.close();
-  return seen.length > 0;
+  return reached > 0;
 }
 const proxiedFetch = await proxyReachesFetch();
 
-test("R17-S20: with a proxy set, a call the network rules allowed goes through the proxy",
-  { skip: !proxiedFetch && "this Node does not send fetch through a proxy it was given (Node 24 proxies http.request only)" }, async (t) => {
-  const seen = [];
-  const proxy = createServer((request, response) => { seen.push(request.url); response.end("through the proxy"); });
+/**
+ * A proxy that answers both shapes: an ordinary proxied request, and a CONNECT tunnel piped to a
+ * plain http server standing in for the far side. `reached` records what it was asked for.
+ */
+async function proxyServer(t, answer) {
+  const reached = [];
+  const origin = createServer((request, response) => response.end(answer));
+  origin.listen(0, "127.0.0.1");
+  await once(origin, "listening");
+  const proxy = createServer((request, response) => { reached.push(`request ${request.url}`); response.end(answer); });
+  proxy.on("connect", (request, socket, head) => {
+    reached.push(`CONNECT ${request.url}`);
+    const far = netConnect(origin.address().port, "127.0.0.1", () => {
+      socket.write("HTTP/1.1 200 Connection Established\r\n\r\n");
+      if (head?.length) far.write(head);
+      far.pipe(socket); socket.pipe(far);
+    });
+    far.on("error", () => socket.destroy());
+    socket.on("error", () => far.destroy());
+  });
   proxy.listen(0, "127.0.0.1");
   await once(proxy, "listening");
+  t.after(() => { proxy.close(); origin.close(); });
+  return { address: `http://127.0.0.1:${proxy.address().port}`, reached };
+}
+
+test("R17-S20: with a proxy set, a call the network rules allowed goes through the proxy",
+  { skip: !proxiedFetch && "this Node cannot be given a proxy at all, so it is below the floor in src/node-floor.ts" }, async (t) => {
+  const { address, reached } = await proxyServer(t, "through the proxy");
   const outbound = new OutboundNetwork(processNetworkHooks());
-  t.after(() => { outbound.reset(); proxy.close(); });
+  t.after(() => outbound.reset());
   const policy = new NetworkPolicy({}, async () => ["93.184.216.34"]);
-  outbound.apply({ proxy: `http://127.0.0.1:${proxy.address().port}`, noProxy: [], caCertificates: [] });
+  outbound.apply({ proxy: address, noProxy: [], caCertificates: [] });
   const guarded = policy.guard(globalThis.fetch);
   assert.equal(await (await guarded("http://branch-comfort.example/hello")).text(), "through the proxy");
-  assert.deepEqual(seen, ["http://branch-comfort.example/hello"]);
+  // Either shape counts: an ordinary proxied request (Node 26.5 and newer) or a CONNECT tunnel (older).
+  assert.ok(
+    reached.includes("request http://branch-comfort.example/hello") || reached.includes("CONNECT branch-comfort.example:80"),
+    `the proxy was asked for the call itself, not ${JSON.stringify(reached)}`,
+  );
   await assert.rejects(guarded("http://localhost/"), /this computer or a private network/, "the rules still come first");
   outbound.reset();
   await assert.rejects(guarded("http://branch-comfort.example/hello"), "without the proxy the made-up name goes nowhere");
+});
+
+/**
+ * mac7/node-floor. The capability check above can never claim a Node works when it does not; this
+ * asks the other half — that the version Branch writes down is the version where it starts working.
+ * Lower `engines.node`, or lower the constants, and this fails.
+ */
+test("mac7: the Node floor Branch declares and the Node that can really take a proxy are the same", async () => {
+  const declared = JSON.parse(await readFile(join(import.meta.dirname, "..", "package.json"), "utf8")).engines.node;
+  assert.equal(declared, nodeFloorRange, "package.json's engines.node must say exactly the floor in src/node-floor.ts");
+  assert.equal(nodeFloor, "24.14.0");
+  assert.equal(nodeFloor25, "25.4.0");
+  assert.equal(nodeIsTooOld("24.13.1"), true, "24.13.1 has no http.setGlobalProxyFromEnv");
+  assert.equal(nodeIsTooOld("24.14.0"), false, "24.14.0 is where the proxy switch arrived");
+  assert.equal(nodeIsTooOld("25.3.0"), true, "Node 25.0 to 25.3 carry a higher number but not the switch");
+  assert.equal(nodeIsTooOld("25.4.0"), false);
+  assert.equal(nodeIsTooOld("26.0.0"), false);
+  // The two halves meet here: on this Node, what Branch says and what Node can do must be one answer.
+  const { setGlobalProxyFromEnv } = await import("node:http");
+  const met = !nodeIsTooOld(process.versions.node);
+  assert.equal(typeof setGlobalProxyFromEnv === "function", met,
+    `Node ${process.versions.node}: the declared floor and this Node's proxy switch disagree`);
+  assert.equal(proxiedFetch, met, `Node ${process.versions.node}: the declared floor and a real proxied fetch disagree`);
+});
+
+test("mac7: a Node below the floor is told so plainly, once, and Branch carries on", () => {
+  const said = [];
+  forgetOldNodeNotice();
+  assert.equal(sayOnceIfNodeIsTooOld((line) => said.push(line), "24.13.1"), oldNodeNotice("24.13.1"));
+  assert.equal(sayOnceIfNodeIsTooOld((line) => said.push(line), "24.13.1"), null, "said once, not on every call");
+  assert.equal(said.length, 1);
+  assert.match(said[0], /Node 24\.13\.1/, "it names the Node this computer has");
+  assert.match(said[0], /Node 24\.14\.0 or newer/, "it names the version needed");
+  assert.match(said[0], /25\.4\.0 or newer/, "and the one the Node 25 line needs");
+  assert.match(said[0], /proxy/, "it says what will not work");
+  assert.match(said[0], /still start/, "and that everything else keeps working");
+  assert.doesNotMatch(said[0], /Error|error|Warning/, "it is a plain sentence, not a crash");
+  forgetOldNodeNotice();
+  assert.equal(sayOnceIfNodeIsTooOld((line) => said.push(line), "26.5.0"), null, "a Node above the floor is told nothing");
+  assert.equal(said.length, 1);
 });
 
 test("R17-S20: the settings route checks the proxy and certificates before keeping them, and only the owner may change them", async (t) => {
