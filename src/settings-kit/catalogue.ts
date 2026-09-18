@@ -1,5 +1,5 @@
 import { reachKey, reachLabels, reachParts, type ReachPart } from "../reach/settings.js";
-import { listenPlaces, saveListenSettings } from "../listen-address.js"; // mac7/bind
+import { listenAsked, listenPlaces, saveListenSettings } from "../listen-address.js"; // mac7/bind
 import { savePolicy } from "../policy.js";
 import type { Store } from "../store.js";
 import { saveLoopGuardSettings } from "../loop-guard.js";
@@ -187,6 +187,11 @@ const reach: SettingSpec[] = [
     fields: [{ field: "where", label: "Where Branch listens", t: "settings-kit.field.listen-where",
       guard: "reach", initial: "this-computer", kind: { type: "choice", options: [...listenPlaces] } }],
     write: (store, owner, patch) => { saveListenSettings(store, owner, patch); },
+    // The kit shows what the door is really doing, the way it does for the wall: a container that was
+    // started with BRANCH_LISTEN has asked for the wider door whatever the saved record says, and
+    // that is what the owner should see here. Turning it off there is done where the container is
+    // started, not on this card.
+    read: (store, owner) => ({ where: listenAsked(store, owner) }),
   },
   one("move-in-switch", "Looking at other assistants' folders", "settings-kit.name.move-in", "settings:data", "reach"),
   one("memory-history", "Keeping the history of what it remembers", "settings-kit.name.memory-history", "library:memory", "reach"),

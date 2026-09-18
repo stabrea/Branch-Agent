@@ -4083,7 +4083,9 @@ the environment name `BRANCH_LISTEN=private-network`. It asks for exactly the sa
 does and gets past exactly none of the refusals above. It is deliberately not one of the four names
 the gateway may hand its worker, so a change to the gateway's settings can never open this door.
 With it, `docker run -e BRANCH_LISTEN=private-network -p 3210:3210 …` works and you no longer need
-`--network host`.
+`--network host`. It is read when Branch starts, and it is the one thing on this card that cannot be
+turned off from the card: the settings screen shows what the door is really doing, but you take the
+wider door away again by starting the container without that line, not by changing the setting.
 
 Routes: `GET /api/listen`, `POST /api/listen` (the owner's alone). The setting is saved under
 `listen-address`.
