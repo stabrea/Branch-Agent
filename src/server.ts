@@ -2123,6 +2123,10 @@ interface ChatWebhookLimit {
 }
 /** A post that did not prove it came from the service is refused, and the refusal is written down. */
 function refusedChatPost(app: Branch, channel: string, kind: string, error: unknown, limit: ChatWebhookLimit): HttpError {
+  // mac7/lockout: read before this try is counted, so a run of wrong signatures is answered exactly
+  // as it was before each service got its own count. A correctly signed post never reaches this
+  // function at all, so no wait here can ever turn one away.
+  const waiting = limit.limiter.refusal(limit.from, "signature");
   // The post itself is never written down: it was not proved genuine, so nothing inside it is kept.
   noteWrongWebhook(app, limit, "a chat service's signature");
   // mac7/channel-leaks: a caller who never showed the word on the end of the address is told the
@@ -2135,7 +2139,9 @@ function refusedChatPost(app: Branch, channel: string, kind: string, error: unkn
     reason: "A message arrived claiming to come from that chat service, but it was not proved to have come from it",
     outcome: "refused",
   });
-  return new HttpError(401, errorText(error));
+  // A caller that has shown the word on the end is counted in an entry of its own, which nobody
+  // without the word can reach, so saying it is waiting cannot tell a stranger the name is real.
+  return new HttpError(waiting ? 429 : 401, waiting ?? errorText(error));
 }
 /** Messenger and Instagram answer Meta's one-off check and sign every later post, as WhatsApp does. */
 async function metaWebhook(app: Branch, adapter: MetaMessagingAdapter, request: IncomingMessage, response: ServerResponse, limit: ChatWebhookLimit): Promise<boolean> {
@@ -2194,11 +2200,11 @@ async function triggerFire(app: Branch, request: IncomingMessage, triggerId: str
   const verified = app.triggers.verify(against, request.headers, raw);
   const fresh = verified.valid ? app.triggers.checkFreshness(against, request.headers) : { valid: false };
   if (!trigger || !verified.valid || !fresh.valid) {
-    noteAuthFailure(limit.limiter, app.store, app.runtime.owner, limit.from, "a trigger's secret", Date.now(),
-      { actor: `posts to trigger ${limit.channel}`, subject: `a trigger's secret for ${limit.channel}` });
     // mac7/lockout: the wait is read only once this caller's own secret has been found wrong, so a
     // caller holding the right secret clears its wait rather than being held by it.
     const waiting = limit.limiter.waitMs(limit.from);
+    noteAuthFailure(limit.limiter, app.store, app.runtime.owner, limit.from, "a trigger's secret", Date.now(),
+      { actor: `posts to trigger ${limit.channel}`, subject: `a trigger's secret for ${limit.channel}` });
     throw new HttpError(waiting > 0 ? 429 : 401, triggerRefused);
   }
   limit.limiter.succeed(limit.from);

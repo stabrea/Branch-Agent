@@ -111,11 +111,22 @@ test("a right address gets through while a wrong one on the same service is bein
 test("a proven message clears its own wait", async (t) => {
   const { app, owner, server } = await twoServices(t);
   const word = webhookSecret(app.store, owner, "line");
-  // The service reaches the right address but signs wrongly — a mistyped shared secret. It counts.
-  for (let i = 0; i < 5; i++) assert.equal((await unsignedPost(server, `/webhooks/chat/line/${word}`)).status, 401);
-  // It is never turned away while it does so, and the moment one post is right the count is gone.
-  assert.equal((await signedPost(server, `/webhooks/chat/line/${word}`, "m-a")).status, 200);
+  // The service reaches the right address but signs wrongly — a mistyped shared secret. That is
+  // counted and eventually waits, as it always has; the limit is not being weakened here.
+  const statuses = [];
+  for (let i = 0; i < 5; i++) statuses.push((await unsignedPost(server, `/webhooks/chat/line/${word}`)).status);
+  assert.deepEqual(statuses.slice(0, 3), [401, 401, 401], "the service's own words come first");
+  assert.equal(statuses.at(-1), 429, "and then it is made to wait");
+  // But the wait is only ever read after a post has been found wrong, so the moment one post is
+  // right it goes straight through and the count is gone.
+  assert.equal((await signedPost(server, `/webhooks/chat/line/${word}`, "m-a")).status, 200,
+    "a correctly signed post is never turned away, even mid-wait");
   assert.equal((await signedPost(server, `/webhooks/chat/line/${word}`, "m-b")).status, 200);
+  assert.equal((await unsignedPost(server, `/webhooks/chat/line/${word}`)).status, 401,
+    "and the count really was cleared, not merely stepped over");
+  // A caller who never showed the word cannot feel any of that: the entry is a different one.
+  assert.equal((await unsignedPost(server, `/webhooks/chat/line/${wrongWord}`)).status, 404,
+    "a wait behind the right address must not tell a stranger the name is real");
 });
 
 // ---------------------------------------------------------------------------
