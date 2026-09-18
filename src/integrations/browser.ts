@@ -182,6 +182,7 @@ export class BranchBrowser {
     return this.operation(context, async page => {
       await page.goto(url, { waitUntil: 'domcontentloaded' });
       // Counted only once the page really opened, so a refused address costs the task nothing.
+      entry.origins.add(origin);
       // mac7/vault-autofill: an address, not something somebody put on a page for Branch to press.
       entry.typedHost = new URL(url).hostname.toLowerCase();
       entry.pressed = false;
