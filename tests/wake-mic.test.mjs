@@ -538,3 +538,38 @@ test("M20 a settings file or a preset switching it off really lets go of the mic
   await new Promise((settle) => setTimeout(settle, 120));
   assert.equal(microphone.mic.windows, after, "a window was recorded after a settings file switched it off");
 });
+
+test("M21 the turn carries only the window the word was in, and the card says so", async (t) => {
+  const { store, owner } = await fixture(t);
+  saveWakeWordSettings(store, owner, { mode: "on", word: "branch" });
+  // What starts the turn is exactly what the spotter wrote out for the one window the word was in.
+  // No second window is recorded for it, so nothing said after that window is ever heard.
+  const heard = [];
+  const microphone = fakeMicrophone(), spotter = fakeSpotter("branch, write a note");
+  const wake = listener(store, owner, { ...microphone, ...spotter }, (text) => { heard.push(text); });
+  t.after(() => wake.stop());
+  await until(() => heard.length >= 1, "the word was never heard");
+  await wake.stop();
+  assert.equal(heard[0], "branch, write a note", "the turn carried something other than that one window");
+
+  // On Windows the spotter is a grammar of exactly one phrase, so the only thing it can ever write
+  // out is the word itself: the turn's whole prompt is the wake word, and nothing said after it is
+  // heard at all. That is a real limit of that path, not a detail.
+  const windowsHeard = [];
+  const windowsWake = startWakeWord({ store, owner, platform: "win32", present: has(),
+    runner: async () => ({ code: 0, stdout: "branch", stderr: "" }),
+    capture: async () => new Uint8Array(0), onHeard: (text) => { windowsHeard.push(text); } });
+  t.after(() => windowsWake.stop());
+  await until(() => windowsHeard.length >= 1, "Windows never heard the word");
+  await windowsWake.stop();
+  assert.equal(windowsHeard[0], "branch", "Windows carried more than the one phrase its grammar allows");
+
+  // So the card must not promise that what is said *after* the word is heard, because on no
+  // computer is a second window recorded for the turn, and on Windows nothing but the word is heard.
+  const { readFile } = await import("node:fs/promises");
+  for (const file of ["public/locales/en.json", "public/locales/fr.json", "public/index.html"]) {
+    const text = await readFile(new URL(`../${file}`, import.meta.url), "utf8");
+    assert.equal(/whatever you say after it is asked about|ce que vous dites ensuite passe par/.test(text), false,
+      `${file} promises that what is said after the word is heard, which no computer does`);
+  }
+});

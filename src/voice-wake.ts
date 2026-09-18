@@ -17,8 +17,10 @@ import { voiceSettings, type VoiceSettings } from "./voice.js";
  *   • Nothing is recorded before the word is heard. What the listener holds is a few seconds of
  *     sound in memory, thrown away every time the word is not there. No file is written, and
  *     nothing is kept, until the word has been heard.
- *   • The word opens an ordinary spoken turn. It grants nothing: whatever is said after it is asked
- *     about exactly as the same words typed into the box would be.
+ *   • The word opens an ordinary spoken turn. It grants nothing: the turn is asked about exactly as
+ *     the same words typed into the box would be. What it carries is the one window the word was in
+ *     and nothing more — no further sound is recorded for it — and on Windows, whose engine listens
+ *     for that one phrase alone, that is the word by itself.
  *
  * Holding the Talk button (R17-S18) stays the way in. This ships off, like every other feature.
  */
@@ -479,8 +481,19 @@ export const wakeBackoffMs = 2000;
  * to it, and the wait is let go of by the app so it can never keep Branch running by itself.
  */
 export type WakePause = (ms: number) => Promise<void>;
-export const waitBetweenWindows: WakePause = (ms) =>
-  new Promise((settle) => { setTimeout(settle, ms).unref(); });
+export const waitBetweenWindows: WakePause = (ms) => new Promise((settle) => { setTimeout(settle, ms); });
+
+/**
+ * The same wait, cut short the moment the listener is told to stop. Integration review: a wait that
+ * outlived the stop held up closing the app for as long as it had left to run, and a wait the app
+ * had let go of was never serviced at all — `stop()` then never came back, and with it `close()`.
+ */
+const waitOrStop = (pause: WakePause, ms: number, signal: AbortSignal): Promise<void> =>
+  signal.aborted ? Promise.resolve() : new Promise((settle) => {
+    const done = () => { signal.removeEventListener("abort", done); settle(); };
+    signal.addEventListener("abort", done, { once: true });
+    void pause(ms).then(done);
+  });
 
 export interface WakeListenerDeps {
   store: Store;
@@ -611,6 +624,13 @@ async function keepListening(deps: WakeWordDeps, controller: AbortController, do
       const answer = await listenForWake(deps, windowsOfSound(deps, controller.signal));
       if (controller.signal.aborted || answer.refusal || !answer.heard) return;
       await deps.onHeard(answer.text);
+      // Integration review: the one path that had no wait in it at all. Hearing the word returns
+      // straight out of the loop above, so a spotter that keeps reporting the word — a stuck engine,
+      // or the tail of the same sentence heard again — started turn after turn as fast as the loop
+      // could turn, and on the computer whose spotter opens its own microphone that was pure
+      // microtask work: no timer in the whole app ever ran again. Waiting here also stops the same
+      // breath being heard twice.
+      await (deps.pause ?? waitBetweenWindows)(wakeBackoffMs);
     }
   } finally { done(); }
 }
@@ -634,7 +654,10 @@ export function startWakeWord(deps: WakeWordDeps): WakeWordListener {
       if (running) return;
       const controller = new AbortController();
       running = controller;
-      loop = keepListening(deps, controller, () => { if (running === controller) running = null; });
+      // Every wait this listener makes ends when the listener does, so stopping is never held up.
+      const paced: WakeWordDeps = { ...deps,
+        pause: (ms) => waitOrStop(deps.pause ?? waitBetweenWindows, ms, controller.signal) };
+      loop = keepListening(paced, controller, () => { if (running === controller) running = null; });
     },
     async stop() {
       const controller = running;

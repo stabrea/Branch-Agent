@@ -7893,9 +7893,19 @@ Holding Talk stays the ordinary way in and is not going away.
 **What it really does, and what it never does.** Listening happens on this computer. No sound leaves
 the machine for this, ever, and **nothing is recorded or kept before your word has been heard**: what
 the listener holds is a few seconds of sound in memory, thrown away every time your word is not in
-it. No file is written. Hearing the word grants nothing at all — what you say after it is an ordinary
-spoken turn, asked about exactly as the same words typed into the message box would be, with the same
-approval rules and the same questions. While **Lockdown** is on the wake word is off whatever the
+it. No file is written. Hearing the word grants nothing at all: the turn it starts is asked about exactly
+as the same words typed into the message box would be, with the same approval rules and the same
+questions.
+
+**What the turn actually carries (integration review).** The turn carries **the one window your word
+was in** — one to five seconds, two by default — as the spotter wrote it out, and nothing else. No
+further sound is recorded for it, so **nothing said after that window is heard**; to say more, say it
+inside the window or hold **Talk**. On **Windows** this is sharper still: its engine is loaded with a
+grammar of exactly one phrase, so the only thing it can ever write out is the word itself and the
+turn's whole prompt is your wake word. That is worth saying plainly rather than leaving the card to
+imply an instruction can follow the word: on Windows the word can start a turn, but it cannot carry
+one. Earlier wording promised that "whatever you say after it" was heard; no computer does that, and
+the card, the French and this reference have been corrected. While **Lockdown** is on the wake word is off whatever the
 switch says, and turning Lockdown off puts the switch back where it was.
 
 **What opens the microphone (mac7/wake-mic).** Branch owns one listener, started in `src/index.ts`
