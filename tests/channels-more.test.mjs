@@ -237,18 +237,27 @@ test("WhatsApp: the address is verified, an unsigned message is refused, and a l
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
   t.after(() => server.close());
 
+  // The whole address the owner pastes into Meta carries an unguessable word on the end.
+  const { webhookSecret } = await import("../dist/channels/webhook-address.js");
+  const word = webhookSecret(app.store, app.runtime.owner, "whatsapp");
+  const at = `/webhooks/whatsapp/whatsapp/${word}`;
   // Meta checks the address once, and expects the challenge back as plain text.
-  const good = await fetch(`${server.url}/webhooks/whatsapp/whatsapp?hub.mode=subscribe&hub.verify_token=let-me-in&hub.challenge=54321`, { headers: { origin: server.url } });
+  const good = await fetch(`${server.url}${at}?hub.mode=subscribe&hub.verify_token=let-me-in&hub.challenge=54321`, { headers: { origin: server.url } });
   assert.equal(good.status, 200);
   assert.equal(await good.text(), "54321");
-  const bad = await fetch(`${server.url}/webhooks/whatsapp/whatsapp?hub.mode=subscribe&hub.verify_token=wrong&hub.challenge=54321`, { headers: { origin: server.url } });
+  const bad = await fetch(`${server.url}${at}?hub.mode=subscribe&hub.verify_token=wrong&hub.challenge=54321`, { headers: { origin: server.url } });
   assert.equal(bad.status, 403);
+  // mac7/channel-leaks: without the word, the same wrong check says only that nothing is there,
+  // which is what an address nobody has ever connected says too.
+  const guessed = await fetch(`${server.url}/webhooks/whatsapp/whatsapp?hub.mode=subscribe&hub.verify_token=wrong&hub.challenge=54321`, { headers: { origin: server.url } });
+  assert.equal(guessed.status, 404);
+  assert.match((await guessed.json()).error, /No chat service is connected at that address/);
 
   const body = JSON.stringify({ object: "whatsapp_business_account", entry: [{ changes: [{ value: {
     contacts: [{ wa_id: "27123456789", profile: { name: "Thandi" } }],
     messages: [{ id: "wamid.in1", from: "27123456789", type: "text", text: { body: "what is the weather" } }] } }] }] });
   const sign = (secret) => "sha256=" + createHmac("sha256", secret).update(Buffer.from(body)).digest("hex");
-  const post = (headers) => fetch(`${server.url}/webhooks/whatsapp/whatsapp`, { method: "POST", body,
+  const post = (headers) => fetch(`${server.url}${at}`, { method: "POST", body,
     headers: { "content-type": "application/json", origin: server.url, ...headers } });
 
   assert.equal((await post({})).status, 401, "a message with no signature is refused");

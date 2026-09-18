@@ -49,8 +49,17 @@ export function androidColours(palette) {
     .map(([role, value]) => `    <color name="branch_${role.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`)}">${androidColour(value)}</color>`);
   return `<?xml version="1.0" encoding="utf-8"?>\n<!-- Made by apps/mobile/scripts/native-files.mjs from public/theme-catalogue.js. Do not edit. -->\n<resources>\n${rows.join("\n")}\n</resources>\n`;
 }
+/**
+ * Android only accepts a resource name of letters, digits and underscores that starts with a letter,
+ * so a key like `comfort.network.old-node` fails the release build. Everything else becomes `_`, and
+ * a name that would start with a digit is given a letter in front.
+ */
+export const resourceName = (key) => {
+  const name = key.replace(/[^A-Za-z0-9]/g, "_");
+  return /^[A-Za-z]/.test(name) ? name : `k_${name}`;
+};
 export function androidStrings(words) {
-  const rows = Object.entries(words).map(([key, text]) => `    <string name="${key.replace(/\./g, "_")}">${xmlText(text)}</string>`);
+  const rows = Object.entries(words).map(([key, text]) => `    <string name="${resourceName(key)}">${xmlText(text)}</string>`);
   return `<?xml version="1.0" encoding="utf-8"?>\n<!-- Made by apps/mobile/scripts/native-files.mjs from public/locales. Do not edit. -->\n<resources>\n${rows.join("\n")}\n</resources>\n`;
 }
 const component = (hex, at) => (parseInt(hex.slice(at, at + 2), 16) / 255).toFixed(3);

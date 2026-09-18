@@ -83,8 +83,13 @@ test("the card fits a 400-pixel window and reads in French", async (t) => {
   await openSettings(page, "secrets");
   const card = page.locator("#vault-autofill");
   await card.waitFor({ state: "visible" });
-  const box = await card.boundingBox();
-  assert.ok(box && box.x >= 0 && box.x + box.width <= 400, `the card spans ${box?.x}..${(box?.x ?? 0) + (box?.width ?? 0)}`);
+  // Measured inside the page in one step: the card redraws itself, and a box asked for in two
+  // steps (find the element, then measure it) can land on one that was just replaced (null).
+  const fits = await page.waitForFunction(() => {
+    const box = document.querySelector("#vault-autofill")?.getBoundingClientRect();
+    return box && box.width > 0 && box.x >= 0 && box.right <= 400;
+  }, undefined, { timeout: 5000 }).then(() => true, () => false);
+  assert.ok(fits, "the vault-autofill card fits inside 400 px");
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false);
   const unkeyed = await page.evaluate(() => [...document.querySelectorAll("#vault-autofill :is(p, label, button, span, h2, h3)")]
     .filter((node) => node.children.length === 0 && node.textContent.trim() && !node.dataset.t

@@ -79,8 +79,13 @@ test("U2 at 400 px nothing scrolls sideways, every word has a key, and French is
   await page.locator(`.accounts-pool[data-pool="${POOL}"]`).waitFor();
   const wide = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
   assert.equal(wide, false);
-  const box = await page.locator("#accounts-card").boundingBox();
-  assert.ok(box && box.x >= 0 && box.x + box.width <= 400);
+  // Measured inside the page in one step: the card redraws itself, and a box asked for in two
+  // steps (find the element, then measure it) can land on one that was just replaced (null).
+  const fits = await page.waitForFunction(() => {
+    const box = document.querySelector("#accounts-card")?.getBoundingClientRect();
+    return box && box.width > 0 && box.x >= 0 && box.right <= 400;
+  }, undefined, { timeout: 5000 }).then(() => true, () => false);
+  assert.ok(fits, "the accounts card fits inside 400 px");
   const unkeyed = await page.evaluate(() => [...document.querySelectorAll("#accounts-card :is(p, label, option, button, a, span, strong, h2, h3)")]
     .filter((node) => node.children.length === 0 && node.textContent.trim() && !node.dataset.t && !node.dataset.tKey && !node.classList.contains("accounts-data") && node.getAttribute("role") !== "status" && !/^[\s·]*$/.test(node.textContent))
     .map((node) => node.textContent.trim()));

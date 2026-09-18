@@ -60,6 +60,8 @@ const CHOICE_WORDS = {
   "policy.preset": { "read-only": "Read only", "ask-before-changes": "Ask before changes", workspace: "Just do it inside my workspace", off: "No approvals", custom: "Your own rules" },
   "policy.unmatchedCommands": { ask: "Ask first", allow: "Let it through" },
   "os-sandbox.network": { none: "Nowhere", limited: "Only reading from sites you allow", "per-site": "Sites you allow", open: "Anywhere" },
+  // mac7/bind: where Branch's own door listens.
+  "listen-address.where": { "this-computer": "This computer only", "private-network": "The private network this computer is on" },
 };
 function valueWords(change, value) {
   const choices = CHOICE_WORDS[`${change.key}.${change.field}`];

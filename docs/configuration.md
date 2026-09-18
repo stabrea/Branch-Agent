@@ -1042,7 +1042,9 @@ Connect one by naming the service in the connections file:
 
 `service` is the id from the table (`mattermost`, `rocketchat`, `googlechat`, `msteams`, `zulip`, `feishu`, `dingtalk`, `wecom`, `line`, `viber`). The three `…Secret` settings name a secret in the **default project's** locker, or an environment variable of that name, exactly as every other channel does; nothing is written into the connections file. Give only the ones that service's row asks for: `webhookUrlSecret` for the services you paste an address for, `tokenSecret` for the ones with a proper API, and `secretSecret` for the shared word or signing key. `apiBase` is for the services your company hosts itself (Zulip, Mattermost). `botName` is what the bot is called in a group, so "reply when mentioned" knows what to look for; without it a group message is always answered.
 
-Point the service's outgoing webhook at `/webhooks/chat/<channel id>/<the word on your Connections card>`. **The address carries a long random word of its own**, 128 bits made on this computer the first time the Connections card shows it, because the part before it is a name you chose — "telegram", "work" — and a name a person picks is a name somebody else can guess. Guessing it was never a way in (every post still has to be signed), but it did let anyone on the internet find the door and knock; now they cannot find it. The card shows the whole address with a **Copy this address** button and a **Give it a new address** button for when you think somebody else has seen it. Addresses without the word on the end are still answered for one release, so you have time to change them over — the card gives the date they stop — and `POST /api/channels/addresses/settings {"acceptOldAddresses": false}` ends that early. The date itself is `oldAddressesEndOn`, written down the first time this copy of Branch makes an address, so the card can name a day rather than say "soon". After it, the old shape is 404, refused before the channel is even looked up, so a wrong address never says which channel names exist. `GET /api/channels/addresses` lists the addresses and `POST /api/channels/addresses/rotate {"channel": "telegram"}` makes a new one. The word for a channel is made the first time the Connections card asks for it and never by a post arriving from outside, so somebody knocking on names they invented cannot leave anything behind on this computer. That address carries no session key, like the WhatsApp one, so **the reverse proxy that exposes Branch must rewrite the `Host` header to the local bind address**. A post whose signature or shared word does not match is refused with 401 and nothing inside it is read; the refusal is written into the record of what the assistant was allowed to do, without the post itself, and somewhere that keeps posting rubbish is made to wait after five tries, counted separately from the app's own key so it can never shut you out of your own app. A service that sends the same message again because it did not hear back quickly is answered once, not twice: each connection remembers for two minutes what it has already taken in. Feishu asks the address to echo a word back once before it will send anything; Branch answers that automatically. Everything else is the same as every other channel: the pairing code for a stranger, the `allowlist`, "reply when mentioned", the delivery ledger with its retries and quiet hours, and the `reply y / a / n` answer to a question, because none of that lives in the connection.
+Point the service's outgoing webhook at `/webhooks/chat/<channel id>/<the word on your Connections card>`. **The address carries a long random word of its own**, 128 bits made on this computer the first time the Connections card shows it, because the part before it is a name you chose — "telegram", "work" — and a name a person picks is a name somebody else can guess. Guessing it was never a way in (every post still has to be signed), but it did let anyone on the internet find the door and knock; now they cannot find it. The card shows the whole address with a **Copy this address** button and a **Give it a new address** button for when you think somebody else has seen it. **Addresses without the word on the end are still answered**, so you have time to change them over — the card gives the date they stop — and `POST /api/channels/addresses/settings {"acceptOldAddresses": false}` ends that early. The date itself is `oldAddressesEndOn`, written down the first time this copy of Branch makes an address, so the card can name a day rather than say "soon".
+
+`acceptOldAddresses` still starts **on**, and here is exactly why, because it is the one setting that leaves a guessable door open. Version 0.15.0 shipped `/webhooks/chat/<name>` with no word on the end at all; 0.16.0 put the word there. Anybody who connected a chat service while running 0.15.0 has that older address pasted into the chat service's own settings, and turning this off by default would stop their messages arriving with nothing said and nothing they could see. So it stays on, and instead it now costs something you are told about: the card says in plain words that the old address is one anybody can find by guessing the name you gave the connection, and that you should switch it off once every service has its new address. Two things make that safe to live with. **A post that cannot prove itself gets the same answer at every name** — one 404 and one sentence, "No chat service is connected at that address", whether the name is connected, misspelt, or one nobody has ever used — so nobody can read off which chat services you use by trying names. And **the old shape is refused outright whenever Branch is listening beyond this computer** (see *Where Branch listens*), whatever this setting says: a guessable address is worth a great deal less than the convenience the moment the door is on a network. Before this, a post to a connected name came back with that service's own words — "the message was not signed by Slack", "no shared secret is saved" — and a post to a name nobody had used came back "no chat service with that name is connected", which is the difference this closes. `GET /api/channels/addresses` lists the addresses and `POST /api/channels/addresses/rotate {"channel": "telegram"}` makes a new one. The word for a channel is made the first time the Connections card asks for it and never by a post arriving from outside, so somebody knocking on names they invented cannot leave anything behind on this computer. **When a service is being turned away, you are told.** A line naming that service goes into the record of what the assistant was allowed to do, and a note appears on that service's own row on the Connections card, right beside the address it should be using: "posts to this address are being turned away for the next N minutes", or, when the address was right and only the signature was wrong, a note telling you to check the shared secret. Only a name you have actually made an address for is written onto the card, so somebody knocking on invented names cannot fill it; the record of refusals still shows that somebody was knocking. That address carries no session key, like the WhatsApp one, so **the reverse proxy that exposes Branch must rewrite the `Host` header to the local bind address**. A post that carries the right word on the end but whose signature does not match is refused with 401 in the service's own words, and the refusal is written into the record of what the assistant was allowed to do, without the post itself. A post that never showed the word gets the one sentence above and leaves **no row behind at all**: the record is yours, and somebody knocking from a network must not be able to fill it. Either way somewhere that keeps posting rubbish is made to wait after five tries, counted separately from the app's own key so it can never shut you out of your own app. **That wait belongs to one chat service at a time.** Until 0.18.0 every post that arrived through the public webhook door was counted as a single sender called "tunnel", so one chat service retrying an address you had replaced — which happens by itself, with nobody attacking — put *every* chat service into the same five-minute wait, and your messages simply stopped arriving with nothing anywhere saying why. A sender is now **the place the post came from together with the service its address names**: the connection's own address (or the webhook door, and the door's mark is believed only on a connection from this computer, so nobody on your network can write that header and be counted as the door), and the name in the path, which is the thing being posted to rather than anything the caller claims about itself. Neither half can be forged into somebody else's count. **A post carrying the right word on the end of the address is never made to wait at all**, so a wrong address can never turn away a right one, even under the same name: the wait is read only after an address has been found wrong, and a service that proves itself clears its own count. A service that reaches the right address but signs wrongly is counted apart again, so it is never held up either and a stranger cannot learn from a wait that a name is really connected. The number of senders counted at once is capped (2048 by default); the least recently seen is dropped when that is passed, which can only ever end a wait early and never start one, so working through invented names buys a guesser fresh tries only at the price of pushing their own earlier ones out. The old shape of address with no word on the end is refused outright once the public webhook door is carrying the internet, exactly as it is once Branch listens beyond this computer — the same fact in both cases, and what makes it safe never to hold up an old address for waiting. The WhatsApp address (`/webhooks/whatsapp/...`) works exactly the same way, down to the wait. A service that sends the same message again because it did not hear back quickly is answered once, not twice: each connection remembers for two minutes what it has already taken in. Feishu asks the address to echo a word back once before it will send anything; Branch answers that automatically. Everything else is the same as every other channel: the pairing code for a stranger, the `allowlist`, "reply when mentioned", the delivery ledger with its retries and quiet hours, and the `reply y / a / n` answer to a question, because none of that lives in the connection.
 
 `activation`, `pairing`, `allowlist`, pairing codes and `POST /api/channels/link` all mean exactly what they mean on Telegram. Chat, sender and message ids longer than the delivery ledger allows are shortened to a stable handle (`chat:…`), which means such an id cannot be put on the `allowlist` by hand; that person pairs with a code instead.
 
@@ -3386,7 +3388,18 @@ A schedule is a reminder, a task, or a **check** (a task that receives its previ
 
 In the app these sit at the bottom of the **Schedules** screen, under *When something happens elsewhere* and *Let another app know*.
 
-**Inbound triggers** let another app start a task here. A trigger has a name, the prompt to run, an optional conversation to run it in, and a rate limit (30 a minute by default). Creating one produces the web address `POST /api/triggers/:id/fire` and a 24-byte secret. A request proves itself with either a bearer token (`Authorization: Bearer <secret>`) or a signature over the exact request bytes (`X-Branch-Signature: sha256=<hex>`, HMAC-SHA256 with the same secret); anything else is refused with 401. The prompt may contain `{{payload}}` (the whole body as JSON) and `{{field.path}}` (one value out of it, for example `{{user.name}}`), filled in before the task starts. A body over 256 KiB is refused with 413, a trigger that is switched off with 403, and one over its limit with 429. Every attempt is written to the trigger's log with a short summary of the body, the task id and how it ended. The fire route is the only route that does not need the session token, because it carries its own secret.
+**Inbound triggers** let another app start a task here. A trigger has a name, the prompt to run, an optional conversation to run it in, and a rate limit (30 a minute by default). Creating one produces the web address `POST /api/triggers/:id/fire` and a 24-byte secret. A request proves itself with either a bearer token (`Authorization: Bearer <secret>`) or a signature over the exact request bytes (`X-Branch-Signature: sha256=<hex>`, HMAC-SHA256 with the same secret); anything else is refused with 401. **That one 401 is the only answer**: a trigger id nobody has ever
+made, a wrong bearer token, a missing or badly built signature, a stale timestamp and a nonce already
+used all come back as "That request was not accepted", and an id that was never made is checked
+against a secret belonging to nothing so that it takes the same path as one that exists. This
+address answers before the key is asked for, so telling "not found" apart from "not signed" would
+have let anybody on the same network find out which triggers you really have by trying ids. A place
+that keeps getting it wrong is made to wait, counted on the same tally as the chat addresses rather
+than the app's own key, so a service set up with the wrong secret slows itself down and never stands
+between you and your app. That wait belongs to **one trigger at a time**: it is counted per trigger
+id and per place the request came from, so an app firing one trigger with a stale secret can never
+hold up another app firing a different one. The secret is checked before the wait is read, so a
+correctly signed fire is never turned away for waiting and clears its own count. The prompt may contain `{{payload}}` (the whole body as JSON) and `{{field.path}}` (one value out of it, for example `{{user.name}}`), filled in before the task starts. A body over 256 KiB is refused with 413, a trigger that is switched off with 403, and one over its limit with 429. Every attempt is written to the trigger's log with a short summary of the body, the task id and how it ended. The fire route is the only route that does not need the session token, because it carries its own secret.
 
 **Outbound webhooks** tell another app when something happens here. A webhook has a name, a web address, an optional shared secret, and the list of events it wants: `run.completed`, `run.failed`, `schedule.fired`, `delivery.failed` (a chat message the delivery ledger gave up on), `trigger.fired`, and `approval.needed` (the assistant stopped to ask you something). Each delivery is a JSON POST carrying the event name, a timestamp and the ids involved — never the task's own text, which stays here and can be read over the authenticated API. When a secret is set, the exact body sent is signed into `X-Branch-Signature`. A delivery that fails is tried three times in all, pausing 5 seconds and then 10 seconds between tries; once five deliveries in a row have given up the webhook switches itself off with a reason, and **Turn back on** clears that. A delivery that succeeds resets the count. Sending is fire-and-forget: a refused address, a dead endpoint or a slow one never delays or fails the work that caused the event.
 
@@ -4014,6 +4027,98 @@ Routes: `GET /api/deployment`, `POST /api/deployment/autostart`, `POST /api/depl
 `POST /api/deployment/backup`, `GET /api/deployment/restore-points`,
 `POST /api/deployment/restore-point`, `POST /api/deployment/close` (macOS and Linux), and `POST /api/pair`. Interface files: `/deployment.js`,
 `/pair` and `/pair.js`.
+
+## Where Branch listens (mac7/bind)
+
+**What this is.** Branch's door has always been on `127.0.0.1`, this computer's own address, and
+that is still what a fresh install does and what an upgrade keeps. Nothing about your computer
+changes by moving to this version. `127.0.0.1` means only programs on this very computer can even
+open a connection to Branch: the window, your terminal, a script you ran yourself.
+
+**What you are choosing when you change it.** One setting, **Where Branch listens**, in
+Settings → Computer, with two positions:
+
+| `where` | What it means |
+| --- | --- |
+| `this-computer` | `127.0.0.1`. Only this computer can reach Branch. This is how it ships. |
+| `private-network` | Every address this computer answers on. Anything that can reach this computer over your private network — another machine in the house, the computer running a container, a phone on the same Wi-Fi — can now open a connection to Branch. |
+
+Be plain with yourself about the second one: you are moving Branch from "nobody but me, on this
+machine" to "anybody who is already on my network, if they have the key". That is a real change and
+it is why the setting ships off, why it is marked in the settings catalogue as a setting that
+reaches further when it is raised, and why it needs its own separate yes when a preset or a settings
+file would raise it.
+
+**What still protects Branch when it is listening wider.** Moving the door does not open it.
+
+- **The local session token.** Every API address past the door is refused without the 64-character
+  key Branch prints when it starts, compared in constant time. It is the same key the window uses.
+  Wrong keys are counted per place they came from: five in a row and that place waits five minutes,
+  with a line written into the record of what the assistant was allowed to do.
+- **The name you asked for.** A request has to say it was sent to a name this computer actually
+  answers to — `localhost`, `127.0.0.1`, or one of this computer's own private addresses. The port
+  it names is not checked, because Branch inside a container cannot know which port of the host it
+  was published on. A website elsewhere pointing its own name at your computer is refused before
+  anything is read, and a cross-site request is refused outright.
+- **The page that is asking.** A page's `Origin` is held to more than the name: it has to be the
+  very address *and port* the request arrived at, which is what Branch's own page always is, because
+  Branch served it. So another program listening on this same computer — a development server on
+  `127.0.0.1:8080`, another app's dashboard — cannot have its pages act as though they were Branch's
+  own, even though a browser calls a different port the same site.
+- **Short-lived keys stay shut out of everything that matters.** `branch token create` keys can
+  start and steer a task and nothing else; every setting, secret, sandbox, network, channel,
+  pairing, backup and profile address refuses them, and anything not on the task list fails closed.
+  A Trunk's message from another of your computers arrives with such a key, so it is refused here
+  too.
+- **A household person reaches their own page and nothing else.**
+- **The paired phone door is separate and unchanged.** "Reach Branch from my phone" still listens on
+  its own Tailscale address and still runs its own chain (the key, a paired phone, that phone's
+  secret). The wider door is not that door and gets none of its exemptions; equally it grants none
+  of them, so the local key alone is what it asks for.
+- **A page whose only secret is its address stays on this computer.** The live pages Branch serves
+  under a long random name are only served to a caller on this very computer, whatever the door is
+  listening on.
+
+**What Branch refuses, even when you ask for it.** `private-network` is a request, not an order.
+Branch lands back on `127.0.0.1` and says why, on the start-up line, when:
+
+- **Lockdown is on.** Reaching past this computer is what Lockdown shuts, so the door does not move,
+  and the setting cannot be changed at all while Lockdown is on. Switching Lockdown **on while
+  Branch is already listening wider** does not merely refuse what arrives: the wider socket is
+  closed, anything connected to it from beyond this computer is dropped, and the door comes back on
+  `127.0.0.1` alone, there and then, without waiting for a restart.
+- **This computer answers at an address that is not private.** A machine with a public address would
+  be putting Branch on the internet, which this setting is not for and will not do. "Private" is the
+  same idea the network rules already use for addresses the assistant may not reach
+  (`10.x`, `172.16–31.x`, `192.168.x`, `169.254.x`, link-local and unique-local IPv6), plus a
+  Tailscale address, which Branch already treats as private for the phone door.
+- **There is no local key.** Without the session token there would be nothing for the door to ask
+  for, so Branch will not open it.
+- **This computer answers on no address beyond itself.** With no network address there is nowhere to
+  be reached from, so a wider socket buys nothing — and opening one on the strength of having found
+  nothing is exactly how a mistake turns into an open door.
+
+**Who may read it, and who may change it.** Both are the owner's, in the app window or their own
+terminal, and nobody else’s. Being told where the door is is being told where to knock, so looking
+is refused to exactly the same callers as moving it: a
+household person, a signed-in person, a short-lived key, a Trunk's message from another computer, a
+message from a chat app and work another assistant or program started are each refused in plain
+words. Lockdown is the one exception to the reading rule: the owner can still see their own card
+while Lockdown is on, because that card is where it says Lockdown is why Branch is narrow. A change
+takes effect the next time Branch starts.
+
+**In a container.** A container has no window to turn the setting on in, so it can be asked for with
+the environment name `BRANCH_LISTEN=private-network`. It asks for exactly the same thing the setting
+does and gets past exactly none of the refusals above. It is deliberately not one of the four names
+the gateway may hand its worker, so a change to the gateway's settings can never open this door.
+With it, `docker run -e BRANCH_LISTEN=private-network -p 3210:3210 …` works and you no longer need
+`--network host`. It is read when Branch starts, and it is the one thing on this card that cannot be
+turned off from the card: the settings screen shows what the door is really doing, but you take the
+wider door away again by starting the container without that line, not by changing the setting.
+
+Routes: `GET /api/listen` and `POST /api/listen`, both the owner's alone. The setting is saved under
+`listen-address`.
+
 ## Devices: your other computers and your phone lending Branch a hand
 
 *Customize, Channels, Your devices.* Ships **off**, and so does every capability of every device.
@@ -4035,7 +4140,20 @@ its key working at once.
 recorded answer is useless; wrong device names from one address, and failed proofs for one device,
 are limited to ten a minute (kept apart, so noise behind a gateway never locks a real device out),
 pairing to five wrong numbers per invitation, ten tries a minute per address and twenty overall, and
-each device to thirty requests a minute. Before it has proven itself a socket may hold at most 64 KiB. The device key opens only the device socket; it is not Branch's key.
+each device to thirty requests a minute. **The pairing answer says nothing at all.** The number is
+six digits, which is small enough that what the answer gives away matters as much as the number: it
+used to say whether *Pair a device* had been pressed at all, whether Devices was even switched on,
+and how many of the five tries were left. Now every way of getting it wrong — no invitation open,
+the wrong invitation, the wrong number, the fifth wrong number, a request that was never made, and a
+body that is not even the right shape — comes back with one sentence and one 403: "That did not
+work. Check the number on the computer and try again." The five tries still use the invitation up
+underneath; you simply are not told how many are left. On top of that, a place that keeps getting it
+wrong is now made to **wait**, counted where every wrong key and PIN is counted, which is what this
+page has always said happened to pairing codes and until now did not. That wait is read only after a
+number has been found wrong, never before, so a phone typing the number off your screen is let in
+while somebody else is being made to wait. It matters most behind the never-break gateway, where
+every device on your network reaches the engine from `127.0.0.1` and so shares one count: before
+this a guesser could stop you pairing your own phone for five minutes. Before it has proven itself a socket may hold at most 64 KiB. The device key opens only the device socket; it is not Branch's key.
 Taking a picture, a sound, a place, a file or the clipboard, and running a command, asks you first
 even when no approval rule says so; a rule you write still decides first. A yes to the camera, the
 screen, the microphone or a command covers that one call unless you choose otherwise when answering.
@@ -4623,9 +4741,13 @@ response carries an `x-branch-share-receipt` header saying exactly how many mess
 many were held back, and how much was blanked out. `POST /api/sessions/:id/share` makes the same
 page into a link this app serves itself at `/share/<id>`: it needs the six-character code shown to
 you once, works one time, and stops working at its expiry (`expiresInMinutes`, five minutes to a
-week). Five wrong codes close a link for good, so a six-character code cannot be guessed at.
-Nothing is published anywhere: the link only works on this computer, because the app listens
-on this machine's own address. `GET /api/shares` lists them and
+week). Five wrong codes close a link for good, so a six-character code cannot be guessed at. **The
+page itself says only that the link is not available**, with one 403 for all five reasons — no such
+link, the wrong code, already opened, expired, or closed after too many wrong codes. This address
+answers before any key is asked for, and the five reasons told somebody who was guessing at
+made-up links apart from somebody who had a real one; the reasons are still there underneath, for
+your own screens. Nothing is published anywhere: the link only works on this computer, because the
+app listens on this machine's own address unless you have said otherwise. `GET /api/shares` lists them and
 `POST /api/shares/:id/revoke` stops one. Shared copies belong to whoever is using the app: while
 somebody else's profile is switched on they can share only their own conversations, never yours.
 
@@ -5228,6 +5350,55 @@ only — nothing is sent anywhere.
 The file is named after the month (`usage-2026-09.csv`) and holds the same money columns as the
 export above. The scheduler's existing beat writes it; a folder it cannot write to is passed over
 quietly rather than stopping the rest of the scheduled work.
+
+### What each connection has left (mac7/usage-bar)
+
+The Usage screen has a panel above the month card called **What each connection has left**. It shows
+how much of each service's allowance is still there, one row per connection and one row per account
+where a connection has several.
+
+It is deliberately sparse, and the sparseness is the point. Every row is in one of three states:
+
+- **Measured** — a service actually said this, either in a header on an answer to a request Branch
+  was making anyway, or at an endpoint the service documents and Branch is allowed to call. The row
+  says which, and says when it was read: *"as of 4 min ago"*.
+- **Estimated** — Branch worked it out from its own counting, because the service gave a limit but
+  no remainder. The row says the word *estimate* and says what it was worked out from. An estimated
+  bar never looks like a measured one.
+- **Not published** — the service publishes nothing Branch may lawfully read. There is no bar at
+  all, only the sentence *"This service does not say what it allows."* That is a good answer, not a
+  failure, and it is what most rows will say.
+
+A model running on this computer says *"Runs on this computer. There is no limit to report."* —
+never 100%, never a full bar.
+
+**Accounts are never added together.** Two subscriptions are not interchangeable, and two API keys
+in one organisation share a single limit, so adding their remainders would make a number that is
+simply false. Each account is its own row, and the one that would be used next is marked.
+
+**Nothing is ever asked of a subscription account.** A request whose only purpose is to read the
+allowance spends the very allowance it is measuring. The one service Branch may ask outright is
+OpenRouter, which documents an endpoint for exactly this question; that asking is behind a switch
+(Settings → Data & usage → *Asking a service what is left*) and ships off. Every other figure on
+this panel arrived on traffic Branch was already sending.
+
+**What Branch will not do to fill a row**, whatever other tools in this space do: read another
+application's credential file or Keychain item, import a browser's cookies, call an endpoint a
+provider has not published, or drive a provider's own program to harvest a figure it prints.
+
+- `GET /api/usage/limits` — the rows, the three states, and the one-line summary
+  (*"3 of 5 connections report a limit. The other 2 do not publish one."*).
+- `GET /api/usage/limits/settings` / `POST /api/usage/limits/settings` — `{ mode, enabled }`, the
+  switch behind the one service Branch may ask.
+
+Both are the owner's alone: a household profile and a short-lived key are refused the whole answer,
+not shown a thinned-out one, because what a paid-for connection has left is the owner's spending
+seen from another angle. `branch usage` prints the same rows in the same words, and `--json` hands
+back the same shape the screen reads.
+
+Note what this panel is **not**. The meter under the message box measures how much of *this
+conversation's* room has been used against the model's context window. That is a different thing
+from a provider's allowance, and the two are deliberately kept apart.
 
 ## Specialists that work in different ways (batch 20, wave 7)
 
@@ -7449,9 +7620,12 @@ and PicoClaw (MIT; see `THIRD_PARTY_NOTICES.md`), written afresh.
 `packaging/docker/Dockerfile` (with `.dockerignore`), `flake.nix` and
 `packaging/termux/install-branch-termux.sh`; a test keeps the files in the repository equal to it.
 Nothing is built or run here. The image runs `node dist/cli.js start` as a user without rights, keeps
-data in `/data` and the workspace in `/workspace`, and downloads no browser. The engine inside only
-listens on 127.0.0.1, as everywhere: run the container with `--network host` on Linux to open the
-window, or reach it through chat apps. The flake reads `package-lock.json` directly, so it keeps no
+data in `/data` and the workspace in `/workspace`, and downloads no browser. The engine inside
+listens on 127.0.0.1 like everywhere else, so a published port reaches nothing until you say
+otherwise: run it with `-e BRANCH_LISTEN=private-network -p 3210:3210` and read **Where Branch
+listens** below first. The old advice to give the container the host's whole network
+(`--network host`) is gone: it put Branch's door straight onto the host's own loopback, which is
+not what a published port is for and not what anyone running a container expects. The flake reads `package-lock.json` directly, so it keeps no
 hash; `nix run github:stabrea/Branch-Agent -- start`. The Termux script installs the release's
 `branch-agent-<version>.tgz` after checking its `.sha256` (Node 24.14.0 or newer from `pkg`); `--uninstall`
 removes it, and a missing or wrong checksum stops it before anything is installed. Both files are now

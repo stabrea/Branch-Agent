@@ -93,13 +93,30 @@ export function orderFor(strategy: Strategy, available: Account[], states: Map<s
 }
 
 /**
+ * Where an account that has never reported its plan window sits in the running order: in the
+ * middle, ahead of one known to be nearly empty and behind one known to be nearly full. It is a
+ * tie-break for choosing, and nothing else.
+ *
+ * mac7/usage-bar: **this number must never reach a screen.** It is not a reading; nobody said it.
+ * Anything that shows the owner how much is left reads `AccountState.remaining` itself and renders
+ * `null` as the words "this service does not say what it allows" — see `remainingShown()` below
+ * and `src/usage-limits.ts`.
+ */
+export const unknownRemainingForOrder = 50;
+
+/** What a screen may show for a plan window: the reading, or nothing at all. Never a stand-in. */
+export const remainingShown = (state: AccountState | undefined): number | null =>
+  state?.remaining ?? null;
+
+/**
  * Sign-in accounts, when the owner allowed sharing work: the one with most of its plan window left,
  * then the one used longest ago. Pinned ones come first.
  */
 export function smartOrder(available: Account[], states: Map<string, AccountState>): Account[] {
   const state = (id: string) => states.get(id) ?? freshState();
+  const forOrder = (id: string) => state(id).remaining ?? unknownRemainingForOrder;
   return [...available].sort((a, b) =>
     Number(b.pinned) - Number(a.pinned)
-    || (state(b.id).remaining ?? 50) - (state(a.id).remaining ?? 50)
+    || forOrder(b.id) - forOrder(a.id)
     || state(a.id).lastUsedAt - state(b.id).lastUsedAt);
 }

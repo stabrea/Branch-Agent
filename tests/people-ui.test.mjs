@@ -64,8 +64,13 @@ test("P2 at 400 px the card fits and every word has a key with real French", asy
   await f.page.locator("#people-signin-admin").waitFor({ state: "visible" });
   const wide = await f.page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
   assert.equal(wide, false);
-  const box = await f.page.locator("#people-admin-mode").boundingBox();
-  assert.ok(box && box.x >= 0 && box.x + box.width <= 400);
+  // Measured inside the page in one step: the card redraws itself, and a box asked for in two
+  // steps (find the element, then measure it) can land on one that was just replaced (null).
+  const fits = await f.page.waitForFunction(() => {
+    const box = document.querySelector("#people-admin-mode")?.getBoundingClientRect();
+    return box && box.width > 0 && box.x >= 0 && box.right <= 400;
+  }, undefined, { timeout: 5000 }).then(() => true, () => false);
+  assert.ok(fits, "the people admin switch fits inside 400 px");
   const unkeyed = await f.page.evaluate(() => [...document.querySelectorAll("#people-signin-admin h2, #people-signin-admin p, #people-signin-admin label, #people-signin-admin button, #people-signin-admin span")]
     .filter((node) => node.children.length === 0 && node.textContent.trim() && !node.dataset.t && !node.dataset.tDrawn && !("given" in node.dataset) && !node.closest("[data-person]") && node.getAttribute("aria-live") !== "polite")
     .map((node) => node.textContent.trim()));

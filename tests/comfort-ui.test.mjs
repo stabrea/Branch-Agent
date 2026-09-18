@@ -182,6 +182,9 @@ test("R17-S17: updating by itself looks once, and installs only through the Upda
       modelSettings: async () => ({}), openExternal: async () => true,
     };
   });
+  /* The check's own settling point: its settings have been read. Asserting that nothing was
+     looked for is only meaningful once the answer to "did the owner want this?" is in. */
+  await refresh(page);
   await page.evaluate(() => globalThis.branchComfort.autoUpdate());
   assert.deepEqual(await page.evaluate(() => globalThis.__desktop), [], "off: nothing is looked for");
   saveComfort(app.store, "local", "notify", { autoUpdate: "check" });

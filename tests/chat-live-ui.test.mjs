@@ -50,8 +50,13 @@ test("the chat-app card fits a 400-pixel window without sideways scrolling", asy
   await openPlace(page, "customize:channels");
   const card = page.locator("#chat-live-form");
   await card.waitFor({ state: "visible" });
-  const box = await card.boundingBox();
-  assert.ok(box && box.x >= 0 && box.x + box.width <= 400, `the card spans ${box?.x}..${(box?.x ?? 0) + (box?.width ?? 0)}`);
+  // Measured inside the page in one step: the card redraws itself, and a box asked for in two
+  // steps (find the element, then measure it) can land on one that was just replaced (null).
+  const fits = await page.waitForFunction(() => {
+    const box = document.querySelector("#chat-live-form")?.getBoundingClientRect();
+    return box && box.width > 0 && box.x >= 0 && box.right <= 400;
+  }, undefined, { timeout: 5000 }).then(() => true, () => false);
+  assert.ok(fits, "the chat-app card fits inside 400 px");
   const sideways = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
   assert.equal(sideways, false);
   assert.deepEqual(errors, []);

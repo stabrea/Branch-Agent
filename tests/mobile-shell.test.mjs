@@ -232,3 +232,13 @@ test("the phone's page reads at 400 px: connect, then the five places and switch
   assert.equal(background, `rgb(${[1, 3, 5].map((at) => parseInt(ground.slice(at, at + 2), 16)).join(", ")})`);
   assert.deepEqual(problems, []);
 });
+
+/* Android refuses a resource name with anything but letters, digits and _, and it refuses one that
+   does not start with a letter. A locale key like comfort.network.old-node broke the release build. */
+test("every locale key becomes a resource name Android accepts", async () => {
+  const { androidStrings } = await import("../apps/mobile/scripts/native-files.mjs");
+  const words = await readFile(new URL("../public/locales/en.json", import.meta.url), "utf8").then(JSON.parse);
+  const xml = androidStrings(words);
+  const bad = [...xml.matchAll(/<string name="([^"]*)"/g)].map((m) => m[1]).filter((name) => !/^[A-Za-z][A-Za-z0-9_]*$/.test(name));
+  assert.deepEqual(bad, [], `Android refuses these resource names: ${bad.join(", ")}`);
+});

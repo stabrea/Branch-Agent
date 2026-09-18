@@ -73,12 +73,14 @@ test("pairing: one invitation, five tries, the owner's yes, a signed status, and
   const key = deviceKey();
   const offer = book.invite();
   const base = { offer: offer.id, name: "Laptop", platform: "linux", publicKey: key.publicKey, offers: ["screen", "camera", "canvas"] };
-  assert.throws(() => book.redeem({ ...base, code: "000000" === offer.code ? "111111" : "000000" }), /not right\. 4 tries left/);
+  // mac7/channel-leaks: every way of getting it wrong is the same sentence, and it never counts
+  // the tries down out loud. The five tries still burn the invitation; the test below proves it.
+  assert.throws(() => book.redeem({ ...base, code: "000000" === offer.code ? "111111" : "000000" }), /Check the number on the computer/);
   const { requestId } = book.redeem({ ...base, code: offer.code });
-  assert.throws(() => book.redeem({ ...base, code: offer.code }), /expired or is not the one/, "an invitation works once");
+  assert.throws(() => book.redeem({ ...base, code: offer.code }), /Check the number on the computer/, "an invitation works once");
   assert.equal(book.requests()[0].status, "waiting");
   assert.equal(book.devices().length, 0, "nothing is let in before the owner says yes");
-  assert.throws(() => book.requestStatus(requestId, deviceKey().sign(pairText(requestId, "status"))), /not made by this device/);
+  assert.throws(() => book.requestStatus(requestId, deviceKey().sign(pairText(requestId, "status"))), /Check the number on the computer/);
   assert.deepEqual(book.requestStatus(requestId, key.sign(pairText(requestId, "status"))), { status: "waiting", deviceId: null });
   const decided = book.decide(requestId, true);
   assert.deepEqual(book.requestStatus(requestId, key.sign(pairText(requestId, "status"))), { status: "approved", deviceId: decided.deviceId });
@@ -101,14 +103,15 @@ test("wrong numbers use up the invitation, and refusing leaves nothing behind", 
   const offer = book.invite();
   const wrong = offer.code === "999999" ? "999998" : "999999";
   const base = { offer: offer.id, name: "Phone", platform: "ios", publicKey: key.publicKey };
-  for (let i = 0; i < 5; i++) assert.throws(() => book.redeem({ ...base, code: wrong }), /not right/);
-  assert.throws(() => book.redeem({ ...base, code: offer.code }), /Too many wrong numbers/);
-  assert.equal(book.invitation(), null);
+  for (let i = 0; i < 5; i++) assert.throws(() => book.redeem({ ...base, code: wrong }), /Check the number on the computer/);
+  // The fifth wrong number really does burn the invitation underneath, even though nothing said so.
+  assert.throws(() => book.redeem({ ...base, code: offer.code }), /Check the number on the computer/);
+  assert.equal(book.invitation(), null, "the five tries still use the invitation up");
   const again = book.invite();
   const { requestId } = book.redeem({ ...base, offer: again.id, code: again.code });
   assert.equal(book.decide(requestId, false).status, "refused");
   assert.equal(book.devices().length, 0);
-  assert.throws(() => book.redeem({ ...base, offer: again.id, code: again.code, publicKey: `MCowBQYDK2VwAyEA${"A".repeat(40)}` }), /expired/);
+  assert.throws(() => book.redeem({ ...base, offer: again.id, code: again.code, publicKey: `MCowBQYDK2VwAyEA${"A".repeat(40)}` }), /Check the number on the computer/);
 });
 
 test("switches are per device and per capability, and a platform cannot be given what it cannot do", async (t) => {

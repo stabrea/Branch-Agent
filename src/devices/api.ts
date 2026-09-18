@@ -4,6 +4,7 @@ import { encodeQr } from "../remote/qr.js";
 import type { Store } from "../store.js";
 import { CapabilitySchema, capabilityInfo, capabilities, offeredOn } from "./capabilities.js";
 import type { Devices } from "./index.js";
+import { pairingBusy, pairingRefused } from "./book.js";
 import { pickDevice } from "./tools.js";
 
 /**
@@ -29,16 +30,27 @@ export interface DevicesHttpDeps {
   baseUrl: string;
 }
 
-/** A device answering an invitation, or asking how its request went. */
+/**
+ * A device answering an invitation, or asking how its request went.
+ *
+ * mac7/channel-leaks: nothing this route says depends on what is on this computer. Every refusal is
+ * `pairingRefused`, with the same 403, whether the method was wrong, the body was rubbish, the
+ * invitation was not the one on offer, the number was wrong, the five tries were used up, Devices
+ * is switched off or the request asked after was never made. The one other answer, 429, is about
+ * how fast the caller is going and so says nothing about Branch either.
+ */
 export async function openDevicesApi(deps: Omit<DevicesHttpDeps, "baseUrl" | "store" | "owner">, path: string, from: string): Promise<unknown> {
-  if (deps.method !== "POST") throw new DevicesHttpError(405, "Use POST.");
-  const body = await deps.readBody();
+  if (deps.method !== "POST") throw new DevicesHttpError(403, pairingRefused);
+  const body = await deps.readBody().catch(() => null);
   try {
     if (path === "/api/devices/pair") return deps.devices.book.redeem(body, from);
     const status = body as { requestId?: unknown; signature?: unknown } | null;
     return deps.devices.book.requestStatus(status?.requestId, status?.signature);
   } catch (error) {
-    throw new DevicesHttpError(error instanceof z.ZodError ? 400 : 403, error instanceof Error ? error.message : "Refused.");
+    const message = error instanceof Error ? error.message : "";
+    if (message === pairingBusy) throw new DevicesHttpError(429, pairingBusy);
+    // A body zod would not take, a wrong number and a request nobody made are one answer.
+    throw new DevicesHttpError(403, pairingRefused);
   }
 }
 

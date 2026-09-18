@@ -494,8 +494,11 @@ test("the release workflow never replaces a download that is already attached (b
   assert.match(attach, /if on_release "\$name"; then\n\s+echo "\$name is already on the release; it and its checksum are kept/, "a download that is there is kept, with its checksum");
   assert.equal([...attach.matchAll(/gh release upload/g)].length, 3, "only the three guarded uploads remain (downloads, the phone download, the scripts)");
   assert.match(attach, /if on_release "\$cli"; then\n\s+echo "\$cli is already on the release; it and its checksum are kept/, "a phone download that is there is kept");
-  // The skip is decided by exact name: a partial name must never count as "already there".
-  assert.match(attach, /grep -Fxq -- "\$1"/);
+  // The skip is still decided by an exact name, so a partial name never counts as "already there" —
+  // but GitHub renames an asset with spaces (Install Branch Agent.cmd becomes Install.Branch.Agent.cmd),
+  // so the name is put through that same rewrite before it is compared.
+  assert.match(attach, /grep -Fxq -- "\$\(as_attached "\$1"\)"/);
+  assert.match(attach, /as_attached\(\)/, "the rewrite GitHub applies to an asset name is named once");
 });
 
 test("on macOS and Linux the update folder must belong to this person and is closed to others", { skip: process.platform === "win32" && "POSIX owners" }, async (t) => {

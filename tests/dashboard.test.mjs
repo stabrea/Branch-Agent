@@ -275,9 +275,15 @@ test("the page shows every area, fits 400 px, and a key that may only look gets 
     assert.deepEqual(await page.locator(".db-map a").allTextContents(),
       ["Conversation", "Inbox", "Automations", "Library", "Customize", "Settings", "Dashboard"]);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth), 0, `sideways scroll at ${width}`);
-    assert.ok(await page.getByRole("button", { name: "Pause all automations" }).isVisible());
+    // isVisible() asks whether it is on the page this instant and never waits; waitFor() asks the
+    // same question and gives the grid time to finish drawing on a busy machine.
+    const pause = await page.getByRole("button", { name: "Pause all automations" })
+      .waitFor({ state: "visible", timeout: 5000 }).then(() => true, () => false);
+    assert.ok(pause, "the master key is offered Pause all automations");
     assert.equal(await page.locator("#db-controls button:not([hidden])").filter({ hasNotText: /Lockdown|Restart/ }).count(), 1, "one filled button");
-    assert.match(await page.locator("#db-activity").innerText(), /Started a task/);
+    const activity = await page.locator("#db-activity").filter({ hasText: /Started a task/ })
+      .waitFor({ timeout: 5000 }).then(() => true, () => false);
+    assert.ok(activity, "the activity area names the task that ran");
     assert.deepEqual(errors, []);
     await page.close();
   }
@@ -285,10 +291,14 @@ test("the page shows every area, fits 400 px, and a key that may only look gets 
   const { page } = await openDashboard(browser, f.server, read);
   await page.locator("#db-grid").waitFor();
   assert.equal(await page.getByRole("button", { name: "Pause all automations" }).count(), 0);
-  assert.match(await page.locator("#db-controls").innerText(), /may only look/);
+  const looksOnly = await page.locator("#db-controls").filter({ hasText: /may only look/ })
+    .waitFor({ timeout: 5000 }).then(() => true, () => false);
+  assert.ok(looksOnly, "a key that may only look is told so");
   await page.close();
   const none = await openDashboard(browser, f.server, "");
-  assert.ok(await none.page.locator("#db-signin").isVisible());
+  const signin = await none.page.locator("#db-signin")
+    .waitFor({ state: "visible", timeout: 5000 }).then(() => true, () => false);
+  assert.ok(signin, "a page with no key asks for one");
   await none.page.getByLabel("Session token").fill(f.server.token);
   await none.page.getByRole("button", { name: "Connect" }).click();
   await none.page.locator("#db-grid").waitFor();

@@ -76,8 +76,31 @@ export const offLine = "Using other devices is switched off. Switch it on in Cus
 interface Offer { id: string; code: string; expiresAt: number; attempts: number }
 const same = (a: string, b: string): boolean => a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
 
+/**
+ * mac7/channel-leaks: the one thing a device is ever told when a pairing try does not work.
+ *
+ * The number is six digits — twenty bits — so what the answer says about the try matters as much as
+ * the number itself. It used to say whether "Pair a device" had been pressed at all, whether Devices
+ * was even switched on, and how many of the five tries were left, which turns guessing from a shot
+ * in the dark into a thing you can plan. Now every way of getting it wrong ends here, in the same
+ * words with the same status: no window open, the wrong invitation, the wrong number, the fifth
+ * wrong number, a body that is not even the right shape, and a question about a request nobody made.
+ * The five tries still burn the invitation underneath, and the wait after repeated failures is
+ * counted where every other wrong key and PIN is counted (src/server.ts).
+ */
+export const pairingRefused = "That did not work. Check the number on the computer and try again.";
+/** Said when a caller is going too fast. It is about the caller, so it says nothing about Branch. */
+export const pairingBusy = "Too many pairing tries just now. Wait a minute and try again.";
+
 export class DeviceBook {
   private offer: Offer | null = null;
+  /**
+   * An invitation that matches nothing, made once per launch. A try that arrives when no window is
+   * open is compared against this rather than turned away, so both comparisons are made either way
+   * and the answer never comes back sooner because there was nothing to compare.
+   */
+  private readonly decoy: Offer = { id: randomBytes(16).toString("hex"),
+    code: String(randomInt(0, 1_000_000)).padStart(6, "0"), expiresAt: 0, attempts: 0 };
   private readonly listeners = new Set<(deviceId: string, why: "changed" | "removed") => void>();
   /** Twenty pairing tries a minute from anywhere at all, on top of the five per invitation. */
   private readonly tries = new WindowLimit(20, 60_000);
@@ -151,20 +174,31 @@ export class DeviceBook {
     return this.offer;
   }
 
-  /** A device answering an invitation. Burns the invitation and leaves a request for the owner. */
+  /**
+   * A device answering an invitation. Burns the invitation and leaves a request for the owner.
+   *
+   * Every refusal below is the same sentence. Whether Devices is switched on, whether a window is
+   * open, whether the invitation was the right one and how many tries are left are all state, and
+   * none of it is said to somebody who has not yet got the number right.
+   */
   redeem(input: unknown, from = "unknown"): { requestId: string; status: "waiting" } {
-    this.requireOn();
-    if (this.tries.full("all") || this.triesFrom.full(from)) throw new Error("Too many pairing tries just now. Wait a minute and try again.");
+    if (this.tries.full("all") || this.triesFrom.full(from)) throw new Error(pairingBusy);
     this.tries.add("all");
     this.triesFrom.add(from);
-    const body = RedeemSchema.parse(input);
-    const offer = this.liveOffer();
-    if (!offer || !same(body.offer, offer.id)) throw new Error("That invitation has expired or is not the one on offer. Make a new one on the computer.");
+    const parsed = RedeemSchema.safeParse(input);
+    const offer = this.mode() === "off" ? null : this.liveOffer();
+    // Compared against the decoy when there is no window, so both comparisons happen whatever the
+    // state is and neither branch returns before the other has done its work.
+    const against = offer ?? this.decoy;
+    const rightOffer = same(parsed.success ? parsed.data.offer : "", against.id);
+    const rightCode = same(parsed.success ? parsed.data.code : "", against.code);
+    if (!parsed.success || !offer || !rightOffer) throw new Error(pairingRefused);
+    const body = parsed.data;
     offer.attempts++;
-    if (offer.attempts > offerAttempts) { this.offer = null; throw new Error("Too many wrong numbers. Make a new invitation on the computer."); }
-    if (!same(body.code, offer.code)) {
+    if (offer.attempts > offerAttempts) { this.offer = null; throw new Error(pairingRefused); }
+    if (!rightCode) {
       this.note("auth.refused", `a device at ${from}`, "A wrong pairing number was typed", "refused");
-      throw new Error(`That number is not right. ${offerAttempts - offer.attempts} tries left.`);
+      throw new Error(pairingRefused);
     }
     this.offer = null;
     const request: PairRequest = { id: randomBytes(16).toString("hex"), name: body.name, platform: body.platform,
@@ -199,7 +233,8 @@ export class DeviceBook {
   requestStatus(requestId: unknown, signature: unknown): { status: string; deviceId: string | null } {
     const request = this.requests().find((each) => each.id === requestId);
     if (!request || typeof signature !== "string" || !signedBy(request.publicKey, pairText(request.id, "status"), signature))
-      throw new Error("There is no such request, or it was not made by this device.");
+      // The same sentence a wrong number gets: whether a request with that id exists is state too.
+      throw new Error(pairingRefused);
     return { status: request.status, deviceId: request.deviceId };
   }
 

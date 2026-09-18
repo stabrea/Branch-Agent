@@ -95,6 +95,7 @@ Inside a conversation there are no homes to add to, only two surfaces with stric
 | Requests for new packages and tool servers (`mac7/r17-h`) | `inbox:needs` |
 | What installed skills need on this computer (`mac7/r17-b`) | `customize:skills` |
 | Other computers side by side, using apps in the background, USB devices (`mac7/r17-i`) | `settings:computer` |
+| Where Branch listens (`mac7/bind`) | `settings:computer` |
 | Trunks on other computers (`mac7/r17-i`) | `customize:specialists`, beside the Trunks card |
 | Making videos (`mac7/r17-i`) | `settings:models:media` |
 | The chat relay, sending from a script and pausing chat apps (`mac7/r17-i`) | `customize:channels`; `/platform` lives in the message box |

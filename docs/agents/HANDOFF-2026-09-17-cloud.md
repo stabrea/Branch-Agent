@@ -77,7 +77,15 @@ decided and told them. Build all three; each ships off.
 - Pairing another computer with its key is API/CLI only, no card.
 - Fly-core has never run against a real model; no Hermes head-to-head scoreboard yet.
 - Mem0 and Honcho were tested against fake servers only; meaning search with a fake embedder only.
-- Docker, Nix and Termux packaging files were never built.
+- Docker, Nix and Termux packaging: all three were built for real on 2026-09-18 (mac7/packaging-real,
+  on the owner's NAS and the small Ubuntu VM). The image is 287 MB on x86_64, runs as uid 999 and
+  bakes in nothing; the flake builds against nixpkgs' nodejs 24.20.0 and its `branch` runs; the Termux
+  script refuses a wrong checksum, refuses a missing `.sha256`, refuses an old Node, and installs the
+  real tarball. Still unproven: a real Android phone (aarch64, `pkg install nodejs`, `termux-wake-lock`,
+  the global install into Termux's own prefix) and the image on arm64.
+- The Dockerfile's header documents `docker run --network host`, and that is the only run line that
+  works: src/server.ts:3056 binds 127.0.0.1 with no way to change it, so a published port reaches
+  nothing and host networking puts the listener on the NAS's own loopback. Product-side, not packaging.
 - `docs/features.md` is stale; issue #103 is stale.
 - `accounts` `viewAll` shows a household person pool metadata (kind, strategy, ChatGPT signed-in), no keys.
 - Monthly spend figure misses a video a still-running task is making.

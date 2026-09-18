@@ -62,10 +62,8 @@ async function initVoiceRecording() {
 async function startVoiceRecording() {
   // The microphone is asked for on the first press, never when the app opens.
   if (!mediaRecorder && !(await initVoiceRecording())) {
-    const toastEl = $("toast");
-    toastEl.textContent = microphoneHelp();
-    toastEl.hidden = false;
-    setTimeout(() => { toastEl.hidden = true; }, 4000);
+    /* Through the one shared notice, so its timer is the only one that can hide it. */
+    globalThis.toast?.(microphoneHelp());
     return false;
   }
   if (isRecording) return true;
@@ -88,7 +86,6 @@ function stopVoiceRecording() {
  */
 async function transcribeAudio(blob) {
   const promptInput = $("prompt");
-  const toastEl = $("toast");
   try {
     const response = await fetch("/api/voice/transcribe", {
       method: "POST",
@@ -107,11 +104,7 @@ async function transcribeAudio(blob) {
     promptInput.value = text;
     promptInput.focus();
   } catch (e) {
-    toastEl.textContent = "Transcription failed: " + (e instanceof Error ? e.message : String(e));
-    toastEl.hidden = false;
-    setTimeout(() => {
-      toastEl.hidden = true;
-    }, 6000);
+    globalThis.toast?.("Transcription failed: " + (e instanceof Error ? e.message : String(e)));
   }
 }
 
@@ -160,7 +153,6 @@ function speakWithBrowserSynthesis(text) {
  * Speak using the configured provider's TTS endpoint.
  */
 async function speakWithProvider(text) {
-  const toastEl = $("toast");
   try {
     const response = await fetch("/api/voice/speak", {
       method: "POST",
@@ -181,11 +173,7 @@ async function speakWithProvider(text) {
     currentAudio = audio;
     await audio.play();
   } catch (e) {
-    toastEl.textContent = "Speech failed: " + (e instanceof Error ? e.message : String(e));
-    toastEl.hidden = false;
-    setTimeout(() => {
-      toastEl.hidden = true;
-    }, 6000);
+    globalThis.toast?.("Speech failed: " + (e instanceof Error ? e.message : String(e)));
   }
 }
 

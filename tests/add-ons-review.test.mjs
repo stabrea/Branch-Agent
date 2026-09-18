@@ -454,8 +454,13 @@ test("review: the add-ons card opens in Customize → Plugins and fits 400 px wi
   await card.waitFor({ state: "visible" });
   assert.equal(await card.locator("h2").innerText(), "Add-ons other people wrote");
   assert.equal(await page.locator("#addons-packages").inputValue(), "on");
-  const box = await card.boundingBox();
-  assert.ok(box && box.x >= 0 && box.x + box.width <= 400, JSON.stringify(box));
+  // Measured inside the page in one step: the card redraws itself, and a box asked for in two steps
+  // (find the element, then measure it) can land on one that was just replaced (null on a busy runner).
+  const fits = await page.waitForFunction(() => {
+    const box = document.querySelector("#add-ons-card")?.getBoundingClientRect();
+    return box && box.width > 0 && box.x >= 0 && box.right <= 400;
+  }, undefined, { timeout: 5000 }).then(() => true, () => false);
+  assert.ok(fits, "the add-ons card fits inside 400 px");
   const wide = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
   assert.equal(wide, false, "no sideways scrolling at 400 px");
 });

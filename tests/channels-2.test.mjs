@@ -288,7 +288,11 @@ test("the chat address refuses a post that is not genuine, writes the refusal do
   t.after(() => server.close());
 
   const post = JSON.stringify(row.post({ text: "hello from outside", sender: "user-9", chat: "user-9", group: false }));
-  const refused = await fetch(`${server.url}/webhooks/chat/line`, {
+  // mac7/channel-leaks: the service's own words, and the row in the record, are for a caller who
+  // showed the word on the end of the address. That is the whole address the owner pastes in.
+  const { webhookSecret } = await import("../dist/channels/webhook-address.js");
+  const word = webhookSecret(app.store, app.runtime.owner, "line");
+  const refused = await fetch(`${server.url}/webhooks/chat/line/${word}`, {
     method: "POST", headers: { "content-type": "application/json", "x-line-signature": "AAAA" }, body: post,
   });
   assert.equal(refused.status, 401);
@@ -299,13 +303,14 @@ test("the chat address refuses a post that is not genuine, writes the refusal do
   assert.match(text, /webhooks\/chat\/line/, "the refusal is in the record of what was allowed");
   assert.match(text, /auth\.refused/);
 
-  const good = await fetch(`${server.url}/webhooks/chat/line`, {
+  const good = await fetch(`${server.url}/webhooks/chat/line/${word}`, {
     method: "POST",
     headers: { "content-type": "application/json", "x-line-signature": sign({ algorithm: "sha256", encoding: "base64", signs: "body", keyEncoding: "utf8" }, SECRET, Buffer.from(post, "utf8"), "") },
     body: post,
   });
   assert.equal(good.status, 200);
   assert.deepEqual(await good.json(), { accepted: 1 });
+
 
   const shown = await fetch(`${server.url}/api/channels`, { headers: { authorization: "Bearer " + server.token, origin: server.url } }).then((r) => r.text());
   assert.ok(!shown.includes(SECRET) && !shown.includes(TOKEN), "no secret is in what the app shows");
@@ -320,13 +325,27 @@ test("the chat address refuses a post that is not genuine, writes the refusal do
 
   // Nothing here carries the session key, so somewhere posting rubbish over and over is made to
   // wait rather than being allowed to fill the record of refusals.
-  const tryBadly = () => fetch(`${server.url}/webhooks/chat/line`, {
+  const tryBadly = () => fetch(`${server.url}/webhooks/chat/line/${word}`, {
     method: "POST", headers: { "content-type": "application/json", "x-line-signature": "AAAA" }, body: post,
   });
   const codes = [];
   for (let attempt = 0; attempt < 6; attempt++) codes.push((await tryBadly()).status);
   assert.deepEqual(codes.slice(0, 5), [401, 401, 401, 401, 401]);
   assert.equal(codes[5], 429, "a place that keeps posting rubbish is made to wait");
+
+  // mac7/channel-leaks: the old shape of address, which anybody can guess, gets one sentence and
+  // leaves nothing behind in the owner's record. Counted on its own limiter, which is now waiting,
+  // so this is checked on a second launch.
+  const second = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  t.after(() => second.close());
+  const rows = JSON.stringify(app.store.auditEntries?.(app.runtime.owner) ?? []).length;
+  const guessed = await fetch(`${second.url}/webhooks/chat/line`, {
+    method: "POST", headers: { "content-type": "application/json", "x-line-signature": "AAAA" }, body: post,
+  });
+  assert.equal(guessed.status, 404);
+  assert.match((await guessed.json()).error, /No chat service is connected at that address/);
+  assert.equal(JSON.stringify(app.store.auditEntries?.(app.runtime.owner) ?? []).length, rows,
+    "a caller who never showed the word cannot fill the owner's record");
   await adapter.stop();
 });
 

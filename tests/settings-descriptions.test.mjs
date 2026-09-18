@@ -40,7 +40,11 @@ async function fixture(t, viewport = { width: 1440, height: 1000 }) {
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
-  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  /* The page's own settling point is waited for on the very next line. The click itself
+     therefore does not also wait on Playwright's generic after-the-click step, which on
+     Chromium is a CDP round trip (`Page.enable`) and stalled for the whole thirty seconds on
+     the loaded Windows checker. Nothing is waited for less: a real signal replaces a proxy. */
+  await page.getByRole("button", { name: "Connect", exact: true }).click({ noWaitAfter: true });
   await page.locator("body.lx-ready").waitFor({ state: "attached", timeout: 120000 });
   await page.locator("#settings-kit-files").waitFor({ state: "attached", timeout: 60000 });
   return { page, errors };

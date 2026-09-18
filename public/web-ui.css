@@ -480,3 +480,16 @@ input.plan-step-title {
 .round-chart-bars { display: block; width: 100%; height: 6rem; }
 .round-chart-legend { display: flex; flex-wrap: wrap; gap: 0.35rem 0.8rem; font-size: 0.75rem; color: var(--muted); }
 .round-chart-legend i { display: inline-block; width: 0.6rem; height: 0.6rem; border-radius: 2px; margin-right: 0.3rem; }
+
+/* mac7/usage-bar: what each connection has left. A measured bar and an estimated bar never look
+   the same, and a row with nothing behind it draws no bar at all — only the sentence. */
+.limit-row { border-top: 1px solid var(--line); padding: 0.5rem 0 0.2rem; }
+.limit-row h3 { margin: 0 0 0.3rem; font-size: 0.95rem; }
+.limit-window { display: grid; grid-template-columns: 11rem 1fr auto; gap: 0.4rem; align-items: center; margin-bottom: 0.3rem; }
+.limit-window-title { color: var(--faint); }
+.limit-bar { height: 0.5rem; border-radius: 0.25rem; background: var(--line); overflow: hidden; }
+.limit-bar-fill { height: 100%; background: var(--accent, currentColor); }
+.limit-estimated .limit-bar-fill { opacity: 0.45; }
+.limit-source { grid-column: 1 / -1; font-size: 0.8rem; }
+.limit-note { color: var(--faint); margin: 0.2rem 0; }
+@media (max-width: 40rem) { .limit-window { grid-template-columns: 1fr; } }

@@ -1,8 +1,13 @@
 # syntax=docker/dockerfile:1
 # Branch Agent's container image. Written by src/install/container-files.ts; do not edit by hand.
 #   docker build -f packaging/docker/Dockerfile -t branch-agent .
-#   docker run --network host -v branch-data:/data -v branch-work:/workspace branch-agent
-# The engine listens on 127.0.0.1:3210 inside the container only; see docs/configuration.md.
+#   docker run -e BRANCH_LISTEN=private-network -p 3210:3210 \
+#     -v branch-data:/data -v branch-work:/workspace branch-agent
+# Branch listens on 127.0.0.1 unless you ask for more, and inside a container that address is the
+# container's own, so a published port reaches nothing until you do. BRANCH_LISTEN=private-network
+# asks for every address the container answers on, which is what makes -p work. It is refused if
+# the container can be reached at a public address. Whoever reaches Branch still needs the local
+# session token, printed on the first start. See docs/configuration.md before you use it.
 FROM node:24-bookworm-slim AS build
 ENV ELECTRON_SKIP_BINARY_DOWNLOAD=1 PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 WORKDIR /src

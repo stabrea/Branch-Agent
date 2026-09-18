@@ -80,13 +80,26 @@ test("the card holds its shape at 400 px and speaks French", async (t) => {
   await card.locator("#security-summary").filter({ hasText: /checks/ }).waitFor();
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   assert.ok(overflow <= 0, `the page scrolls sideways by ${overflow} px`);
-  const box = await card.boundingBox();
-  assert.ok(box && box.x >= 0 && box.x + box.width <= 400, "the card fits the window");
-  for (const control of ["#security-audit-mode", "#security-malware-mode"])
-    assert.ok((await card.locator(`label[for="${control.slice(1)}"]`).innerText()).trim().length > 0, `${control} has a name`);
+  // Measured inside the page in one step: the card redraws itself, and a box asked for in two
+  // steps (find the element, then measure it) can land on one that was just replaced (null).
+  const fits = await page.waitForFunction(() => {
+    const box = document.querySelector("#security-check")?.getBoundingClientRect();
+    return box && box.width > 0 && box.x >= 0 && box.right <= 400;
+  }, undefined, { timeout: 5000 }).then(() => true, () => false);
+  assert.ok(fits, "the card fits the window");
+  // Waited for, not read once: the check redraws the card, so a label can still be empty this instant.
+  for (const control of ["#security-audit-mode", "#security-malware-mode"]) {
+    const named = await card.locator(`label[for="${control.slice(1)}"]`).filter({ hasText: /\S/ })
+      .waitFor({ timeout: 5000 }).then(() => true, () => false);
+    assert.ok(named, `${control} has a name`);
+  }
 
   await page.evaluate(async () => { const { setLanguage } = await import("/i18n.js"); await setLanguage("fr"); });
   await page.locator("#security-check h2").filter({ hasText: "Contrôle de sécurité" }).waitFor();
-  assert.ok(await page.locator("#security-check").getByRole("button", { name: "Lancer le contrôle" }).isVisible());
+  // isVisible() asks whether it is on the page this instant and never waits; waitFor() asks the
+  // same question and gives the card time to finish being drawn again in French.
+  const french = await page.locator("#security-check").getByRole("button", { name: "Lancer le contrôle" })
+    .waitFor({ state: "visible", timeout: 5000 }).then(() => true, () => false);
+  assert.ok(french, "the French card offers Lancer le contrôle");
   assert.deepEqual(errors, []);
 });

@@ -132,10 +132,15 @@ test("WeChat Official Account: plain-text mode, forged, altered and old posts ar
   assert.equal((await postIt(old)).status, 401, "an hour-old post is refused");
   const foreign = signedPost(MP, "wxsomeoneelse00000", mpText("hello"), { mp: true });
   assert.equal((await postIt(foreign)).status, 401, "a post sealed for another app is refused");
-  const slowed = await postIt(signedPost(MP, MP.appId, mpText("hello"), { mp: true }));
-  assert.equal(slowed.status, 429, "after five refusals the address makes the sender wait, even with a good post");
+  // mac7/lockout: after five refusals the sender IS waiting — but the wait is read only once a post
+  // has been found wrong, so a properly sealed and properly signed post goes through anyway. A wait
+  // that turned this away would be the fault this wave closed: a stale address or a mistyped secret
+  // silencing real messages, with nothing telling the owner why they stopped arriving.
+  const good = await postIt(signedPost(MP, MP.appId, mpText("hello"), { mp: true }));
+  assert.equal(good.status, 200, "a correctly addressed, correctly sealed post is never made to wait");
+  assert.equal((await postIt(signedPost(MP, MP.appId, mpText("hello"), { mp: true, token: "not-the-token" }))).status, 401,
+    "and a wrong one is still refused; the good post cleared this sender's count rather than the limit going away");
   await delay(50);
-  assert.equal(api.sent.length, 0);
   assert.equal(context.provider.requests.length, 0);
 });
 

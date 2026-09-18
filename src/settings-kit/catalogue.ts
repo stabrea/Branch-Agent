@@ -1,4 +1,5 @@
 import { reachKey, reachLabels, reachParts, type ReachPart } from "../reach/settings.js";
+import { listenAsked, listenPlaces, saveListenSettings } from "../listen-address.js"; // mac7/bind
 import { savePolicy } from "../policy.js";
 import type { Store } from "../store.js";
 import { saveLoopGuardSettings } from "../loop-guard.js";
@@ -15,6 +16,7 @@ import { saveSafetySwitch, type SafetyPart } from "../safety-extras/settings.js"
 import { writeBoardSwitch, type BoardPart } from "../flows-boards/settings.js"; // r17-h integration review
 import { saveComfort, type ComfortCard } from "../comfort/settings.js";
 import { saveChatPermissionSettings } from "../channels/chat-permissions.js"; // mac7/chat-allowlist
+import { saveUsageLimitsSettings } from "../usage-limits.js"; // mac7/usage-bar
 
 /**
  * R17-S-A (understandable settings): the settings that can be put back to how they started, set
@@ -166,10 +168,31 @@ const reach: SettingSpec[] = [
   one("media-programs", "Watching and saving videos", "settings-kit.name.video", "settings:models:media", "reach"),
   one("speech-engines", "Other speech services", "settings-kit.name.speech", "settings:voice", "reach"),
   one("execution-metrics", "Sending the counters", "settings-kit.name.counters", "settings:advanced", "reach", { keepsEnabled: true }),
+  // mac7/usage-bar: reading an allowance out of the headers on Branch's own answers is always on and
+  // costs nothing. This switch is only for the one service Branch may ask outright — OpenRouter's
+  // documented key endpoint — because that is a request made on a timer without being told to, so
+  // turning it up reaches further. It ships off. No plan account is ever asked, switch or no switch.
+  one("usage-limits", "Asking a service what is left", "settings-kit.name.usage-limits", "settings:data", "reach",
+    { keepsEnabled: true, write: (store, owner, patch) => { saveUsageLimitsSettings(store, owner, patch); } }),
   one("asks-analytics", "Counting how Branch is used", "settings-kit.name.analytics", "settings:data", "reach"),
   one("asks-answer-engine", "Quick answers from the web", "settings-kit.name.answers", "library:made", "reach"),
   one("asks-runtimes", "Other agents answering a conversation", "settings-kit.name.runtimes", "settings:models:connection", "reach"),
   one("asks-nodes", "Other computers running Branch", "settings-kit.name.nodes", "settings:computer", "reach"),
+  // mac7/bind: moving Branch's own door off this computer's loopback lets anything on the private
+  // network reach it, so raising it reaches further. It is a choice of two and never an address to
+  // type: nothing brought in from a file or a preset may name where this computer listens.
+  {
+    key: "listen-address", name: "Where Branch listens", t: "settings-kit.name.listen-address",
+    home: "settings:computer",
+    fields: [{ field: "where", label: "Where Branch listens", t: "settings-kit.field.listen-where",
+      guard: "reach", initial: "this-computer", kind: { type: "choice", options: [...listenPlaces] } }],
+    write: (store, owner, patch) => { saveListenSettings(store, owner, patch); },
+    // The kit shows what the door is really doing, the way it does for the wall: a container that was
+    // started with BRANCH_LISTEN has asked for the wider door whatever the saved record says, and
+    // that is what the owner should see here. Turning it off there is done where the container is
+    // started, not on this card.
+    read: (store, owner) => ({ where: listenAsked(store, owner) }),
+  },
   one("move-in-switch", "Looking at other assistants' folders", "settings-kit.name.move-in", "settings:data", "reach"),
   one("memory-history", "Keeping the history of what it remembers", "settings-kit.name.memory-history", "library:memory", "reach"),
   one("pull-request-hook", "Pull requests from changes", "settings-kit.name.pull-requests", "settings:advanced", "reach"),
@@ -282,6 +305,10 @@ export const neverTouched: readonly RegExp[] = [
   /^lockdown$/, /^session-lock$/, /^model-connections/, /^local-model-connections$/, /^local-model-setups$/,
   /^secret/, /^credential/, /^people/, /^remote/, /pairing/, /^deferred:/, /^move-in:/,
   /^feature-switches-migration$/, /^webhook-addresses$/, /^sender-allowlist$/, /^telegram-setup$/,
+  // mac7/lockout: which chat service is being turned away, as the Connections card shows it.
+  // Branch writes it; a file or a preset that could write it could tell the owner a service was
+  // fine while it was being refused, or invent one that was not.
+  /^webhook-waits$/,
   // Integration review: accounts, add-on lists and their wall, the leak guard, what is passed on to
   // programs, never-break and its gateway, tunnels and the launch file are never reached from here.
   /^accounts?(-|$)/, /^add-?ons?/, /leak/, /^knobs?/, /env/, /^never-break/, /gateway/, /tunnel/, /launch/,
