@@ -264,7 +264,10 @@ export default { id: "narrow", name: "Narrow", permissions: ["files.read", "memo
   const names = app.registry.names().filter((name) => name.startsWith("plugin.narrow."));
   assert.deepEqual(names, ["plugin.narrow.look"], "memory.read was not allowed; shell.execute was never in the package's list");
   assert.ok(on.notes.some((line) => /model connections were left out/.test(line)));
-  assert.ok(on.notes.some((line) => /runs walled, with no internet/.test(line)));
+  // Windows has no wall around a program, and the note says so instead; both are checked, so
+  // neither wording can quietly disappear.
+  const wallNote = process.platform === "win32" ? /without the wall around your files/ : /runs walled, with no internet/;
+  assert.ok(on.notes.some((line) => wallNote.test(line)));
   assert.equal(await app.registry.execute("plugin.narrow.look", {}, app.runtime.context()), "answered plugin.narrow.look");
   assert.deepEqual(asked.at(-1).request, { kind: "call", tool: "plugin.narrow.look", args: {}, runId: asked.at(-1).request.runId });
   assert.ok(asked.every((entry) => entry.same && entry.hosts.length === 0));

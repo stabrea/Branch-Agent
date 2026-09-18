@@ -10,7 +10,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
@@ -284,7 +284,10 @@ test("P14 no setting the owner can pin is written straight to the database behin
     // src/never-break/resume.ts: tidies held channel replays, whose ids all begin "channel-replay:".
     ["never-break/resume.ts:DELETE FROM settings WHERE owner=? AND id LIKE 'channel-replay:%'", "channel-replay:<id>"],
   ]);
-  const names = (await readdir("src", { recursive: true })).filter((name) => name.endsWith(".ts"));
+  // readdir names a nested file the way the system does, so on Windows it arrives as
+  // never-break\resume.ts and matched none of the entries above, which are written with slashes.
+  const names = (await readdir("src", { recursive: true })).filter((name) => name.endsWith(".ts"))
+    .map((name) => name.split(sep).join("/"));
   const problems = [];
   for (const name of names) {
     if (name === "store.ts") continue; // the door itself
