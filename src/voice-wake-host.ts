@@ -39,11 +39,11 @@ function end(child: ReturnType<typeof spawn>): void {
  * recorder that would keep going cannot hold more than the owner allowed. The microphone is let go
  * of when this returns, because the program that had it has ended.
  */
-export function wakeCaptureRunner(platform: NodeJS.Platform = process.platform): WakeCaptureRunner {
+export function wakeCaptureRunner(): WakeCaptureRunner {
   return (command, windowSeconds, signal) => new Promise((settle, fail) => {
-    // macOS ships no recorder a program can ask, so nothing is ever started there. The listener
-    // refuses first; this is the second lock on the same door.
-    if (platform === "darwin") { fail(new Error("This Mac has no recorder to run.")); return; }
+    // mac7/wake-mac: a Mac used to be refused here, because macOS ships no recorder. It now runs the
+    // one the owner installed themselves, like every other system: which program that is, and
+    // whether there is one at all, is decided in src/voice-wake.ts and nothing is run without it.
     const most = windowBytes(windowSeconds);
     const child = spawn(located(command.file), [...command.args], { stdio: ["ignore", "pipe", "ignore"], env: {} });
     const pieces: Uint8Array[] = [];
