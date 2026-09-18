@@ -957,7 +957,7 @@
   "comfort.mcp.lead": "Combien de temps un serveur d'outils connecté peut mettre à démarrer et à lister ses outils avant que Branch abandonne.",
   "comfort.mcp.title": "Démarrage des serveurs d'outils",
   "comfort.network.lead": "Faire passer tout ce que Branch contacte par le proxy de votre organisation, et faire confiance à ses certificats en plus des habituels.",
-  "comfort.network.old-node": "La version de Node de cet ordinateur est trop ancienne pour utiliser un proxy dans Branch. Le proxy est enregistré et sera utilisé avec Node 25 ou plus récent.",
+  "comfort.network.old-node": "La version de Node de cet ordinateur est trop ancienne pour utiliser un proxy dans Branch. Le proxy est enregistré et sera utilisé avec Node 24.14.0 ou plus récent (sur la ligne Node 25, 25.4.0 ou plus récent).",
   "comfort.network.title": "Proxy et certificats de confiance",
   "comfort.note.appearance": "Ouvre la page Apparence.",
   "comfort.note.autoUpdate": "L'installation attend aussi qu'aucune tâche ne tourne, vérifie le téléchargement, essaie la nouvelle version sur une copie de votre travail et garde d'abord une copie de sécurité.",

@@ -1814,6 +1814,8 @@ export * from "./model-savings/mixture.js";
 // R17-S-C (comfort): shortcuts, status line, notifications, voice keys, browser care, proxy and certificates.
 export * from "./comfort/settings.js";
 export * from "./comfort/network.js";
+// mac7/node-floor: the oldest Node Branch is supported on, and what to say on an older one.
+export * from "./node-floor.js";
 export * from "./comfort/browser-safety.js";
 export * from "./comfort/ignore-files.js";
 export * from "./comfort/status-line.js";

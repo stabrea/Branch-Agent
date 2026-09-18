@@ -1,6 +1,6 @@
 # Branch Agent as a Nix flake. Written by src/install/container-files.ts; do not edit by hand.
 #   nix run github:stabrea/Branch-Agent -- start
-#   nix develop        (a shell with Node 24 for working on Branch)
+#   nix develop        (a shell with Node 24, whose newest patch is above Branch's floor of 24.14.0)
 {
   description = "Branch Agent, a local, inspectable personal assistant";
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";

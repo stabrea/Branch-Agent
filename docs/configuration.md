@@ -291,7 +291,23 @@ else" for one of those. The Kimi coding plan, the Z.ai coding plan and Amazon's 
 address are not offered, because their terms for other tools, or the address itself, could not be
 confirmed from the provider's own pages.
 
-#### macOS and Linux
+#### Which Node Branch needs
+
+Branch needs **Node 24.14.0 or newer**. On the Node 25 line it needs **25.4.0 or newer**, because Node 25.0 to 25.3
+carry a higher number but not the piece Branch needs. Node 26 and later are all new enough. `package.json` says this
+as `>=24.14.0 <25 || >=25.4.0`, and `npm` refuses to install on anything older.
+
+The floor used to be 24.0.0. It was raised because of the proxy above. Branch hands the proxy to Node through
+`http.setGlobalProxyFromEnv()`, which points every call Branch makes — including `fetch` to your AI providers — at
+that proxy. Node grew that function in 24.14.0, and on the 25 line in 25.4.0. On anything older Branch has no way to
+tell Node about a proxy at all, so someone on a work network could set one, see it saved, and have it cover nothing.
+Rather than let that happen quietly, the version Branch asks for is the version where the setting actually works.
+Nothing else Branch uses needed more than Node 24.0.0, which is why the floor moved by a patch and not by a whole major.
+
+Starting Branch on an older Node prints one plain line saying which version is needed and that the proxy will not
+work, and then carries on: everything except the proxy still runs. The proxy card in Settings says the same thing.
+
+### macOS and Linux
 
 Nothing in this section depends on the operating system. The coding-assistant rows run the
 program named on your `PATH` with fixed arguments and no shell on every system, and Windows behaves
@@ -7190,7 +7206,7 @@ data in `/data` and the workspace in `/workspace`, and downloads no browser. The
 listens on 127.0.0.1, as everywhere: run the container with `--network host` on Linux to open the
 window, or reach it through chat apps. The flake reads `package-lock.json` directly, so it keeps no
 hash; `nix run github:stabrea/Branch-Agent -- start`. The Termux script installs the release's
-`branch-agent-<version>.tgz` after checking its `.sha256` (Node 24 or newer from `pkg`); `--uninstall`
+`branch-agent-<version>.tgz` after checking its `.sha256` (Node 24.14.0 or newer from `pkg`); `--uninstall`
 removes it, and a missing or wrong checksum stops it before anything is installed. Both files are now
 attached to every version's release by the Package workflow, which builds the `.tgz` on the Linux runner
 and writes the checksum beside it; the release stops rather than ships if the file is missing, if its
@@ -8439,8 +8455,14 @@ turn installing on or off (a household profile and a short-lived key are refused
 **The proxy and certificates** apply to every call Branch itself makes, after the network rules have allowed the
 address. A proxy address may not carry a user name or password. A certificate must be a certificate authority, current
 and readable; it is added to the certificates this computer already trusts and never replaces them, and nothing here
-can turn certificate checks off. The proxy needs Node 25 or newer inside Branch; with an older Node it is kept and the
-card says so. Programs the assistant starts are not given the proxy. The card says plainly that a proxy passes on
+can turn certificate checks off. The proxy needs Node 24.14.0 or newer inside Branch (on the Node 25 line, 25.4.0 or
+newer) — see "Which Node Branch needs" below; with an older Node it is kept and the card says so.
+
+What the proxy covers: everything Branch itself sends — the calls to your AI providers, web reading, update checks,
+chat services. What it does not cover: anything Branch did not send. **Programs the assistant starts are not given the
+proxy**, so a command or a tool server it launches goes out however that program goes out. Neither is the browser the
+browser tools drive. And local model servers on this computer — Ollama, LM Studio, anything on `localhost`, `127.0.0.1`
+or `::1` — are always kept off the proxy on purpose, along with any host you list yourself. The card says plainly that a proxy passes on
 everything Branch sends, including requests carrying your provider keys, and that an added certificate lets whoever
 holds its private key read and change Branch's secure connections. Presets, "put back" and settings files never
 touch the proxy, the certificates, the browser's care or installing by itself.

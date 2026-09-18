@@ -956,7 +956,7 @@
   "comfort.mcp.lead": "How long a connected tool server may take to start and list its tools before Branch gives up on it.",
   "comfort.mcp.title": "Tool servers starting up",
   "comfort.network.lead": "Send everything Branch reaches through your organisation's proxy, and trust its own certificates as well as the usual ones.",
-  "comfort.network.old-node": "This computer's Node is too old to use a proxy from inside Branch. The proxy is saved and used once Node 25 or newer runs Branch.",
+  "comfort.network.old-node": "This computer's Node is too old to use a proxy from inside Branch. The proxy is saved and used once Node 24.14.0 or newer runs Branch (on the Node 25 line, 25.4.0 or newer).",
   "comfort.network.title": "Proxy and trusted certificates",
   "comfort.note.appearance": "Opens the Appearance page.",
   "comfort.note.autoUpdate": "Install also waits until no task is working, checks the download, tries the new version on a copy of your work and keeps a safety copy first.",

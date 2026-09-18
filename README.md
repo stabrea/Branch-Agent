@@ -24,7 +24,8 @@ allowed.](docs/images/conversation.png)
 Nothing else has to be installed first. To remove it, use **Add or remove programs**; your
 conversations and files are left where they are.
 
-Running from source instead: Node.js 24 and npm, then `npm ci && npm start`.
+Running from source instead: Node.js 24.14.0 or newer (on the Node 25 line, 25.4.0 or newer) and npm,
+then `npm ci && npm start`. Older Nodes are refused because Branch cannot hand them a proxy.
 
 ## The handbook
 
