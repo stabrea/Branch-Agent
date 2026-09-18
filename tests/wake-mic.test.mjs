@@ -342,11 +342,11 @@ test("M10 a spotter that fails at once cannot spin, on the one computer that ope
  */
 async function appListener(t, answers = [""]) {
   const microphone = fakeMicrophone(), spotter = fakeSpotter(...answers);
-  const { app, store, owner } = await fixture(t, { wake: {
+  const { app, root, store, owner } = await fixture(t, { wake: {
     runner: spotter.runner, capture: microphone.capture, present: has("arecord"), platform: "linux" } });
   saveWakeWordSettings(store, owner, { mode: "on", word: "branch" });
   app.wake.refresh();
-  return { app, store, owner, microphone, spotter, wake: app.wake };
+  return { app, root, store, owner, microphone, spotter, wake: app.wake };
 }
 
 test("M11 unlocking Branch starts listening again, without a settings save", async (t) => {
@@ -513,4 +513,28 @@ test("M19 the card's word about this Mac is the word the code keeps", async (t) 
   assert.equal(wake.listening, false, "a Mac started listening for a word");
   assert.equal(microphone.mic.windows, 0, "a Mac recorded a window of sound");
   await wake.stop();
+});
+
+test("M20 a settings file or a preset switching it off really lets go of the microphone", async (t) => {
+  const { app, root, store, owner, microphone, wake } = await appListener(t);
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  t.after(async () => { await server.close(); });
+  await until(() => wake.listening, "the listener never started");
+  const post = (path, body) => fetch(server.url + path, { method: "POST",
+    headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" },
+    body: JSON.stringify(body) }).then((answer) => answer.json());
+
+  // The owner's own route for a settings file, a preset or one switch moved from outside the card.
+  // It has to stop the listener exactly as the card's switch does, or a settings file would leave
+  // the microphone open while every screen said it was off.
+  const plan = { source: "set", key: "wake-word", field: "mode", value: "off" };
+  const { changes } = await post("/api/settings-kit/preview", plan);
+  assert.ok(changes.length >= 1, "turning the wake word off was not offered as a change at all");
+  const applied = await post("/api/settings-kit/apply", { plan, accept: changes.map((change) => change.id) });
+  assert.equal(applied.applied.length, 1, `the change was not made: ${JSON.stringify(applied)}`);
+  assert.equal(wakeWordSettings(store, owner).mode, "off");
+  assert.equal(wake.listening, false, "a settings file switched it off and the microphone stayed open");
+  const after = microphone.mic.windows;
+  await new Promise((settle) => setTimeout(settle, 120));
+  assert.equal(microphone.mic.windows, after, "a window was recorded after a settings file switched it off");
 });
