@@ -158,15 +158,29 @@ export class SandboxProxy {
       return;
     }
     const target = /^([^:\s]+|\[[0-9a-fA-F:]+\]):(\d{1,5})$/.exec(request.url ?? "");
+    // Port 443 is the secure tunnel; to any other port the program speaks plainly inside it. Saying
+    // otherwise would show the owner's network rules an https address for a plain one (the SOCKS
+    // door already reads the port this way).
+    const port = target ? Number(target[2]) : 0;
+    const secure = port === 443;
+    // A tunnel to a real port other than 443 carries plain words, so a refusal can be said inside it.
+    // A port that is not a port has no inside, so that one keeps the refusal on the tunnel's own reply.
+    const plain = Boolean(target) && port >= 1 && port <= 65535 && !secure;
     const admitted = !target ? { reason: "That is not a site and a port." }
       : this.options.network === "limited" ? { reason: "Programs may only read from sites, and a secure tunnel hides what it does. Ask for the plain address instead." }
-        : await this.admit(target[1]!, Number(target[2]), true);
+        : await this.admit(target[1]!, port, secure);
     if ("reason" in admitted || !target) {
-      socket.end(`HTTP/1.1 403 Forbidden\r\ncontent-type: text/plain\r\n\r\n${this.refuse("reason" in admitted ? admitted.reason : "")}\n`);
+      const reason = this.refuse("reason" in admitted ? admitted.reason : "");
+      // A program that opens a plain tunnel reads an ordinary answer inside it, so the reason reaches
+      // it in words rather than as a bare network error. Nothing is dialled and nothing leaves: the
+      // refusal is written here and the tunnel ends. A secure tunnel would only see a failed
+      // handshake, so that one keeps the refusal on the tunnel's own reply.
+      if (plain) { socket.write("HTTP/1.1 200 Connection Established\r\n\r\n"); socket.end(plainRefusal(reason)); return; }
+      socket.end(`HTTP/1.1 403 Forbidden\r\ncontent-type: text/plain\r\n\r\n${reason}\n`);
       return;
     }
     const host = target[1]!.replace(/^\[|\]$/g, "").toLowerCase();
-    this.dial(this.route({ host, address: admitted.address, port: Number(target[2]), secure: true }), socket, (upstream) => {
+    this.dial(this.route({ host, address: admitted.address, port, secure }), socket, (upstream) => {
       socket.write("HTTP/1.1 200 Connection Established\r\n\r\n");
       if (head.length) upstream.write(head);
       upstream.pipe(socket).pipe(upstream);
@@ -304,6 +318,12 @@ export class SandboxProxy {
     const body = textual ? Buffer.from(clean(raw.toString("utf8"))) : Buffer.from("Branch held back an answer it could not check for keys.\n");
     return { status: textual ? answer.statusCode ?? 502 : 502, headers: textual ? headers : { "content-type": "text/plain" }, body };
   }
+}
+
+/** A refusal a program reads as an ordinary answer, inside a plain tunnel it opened. */
+function plainRefusal(reason: string): string {
+  const body = `${reason}\n`;
+  return `HTTP/1.1 403 Forbidden\r\ncontent-type: text/plain\r\ncontent-length: ${Buffer.byteLength(body)}\r\nconnection: close\r\n\r\n${body}`;
 }
 
 function cleanHeaders(headers: IncomingMessage["headers"]): Record<string, string | string[]> {
