@@ -12,6 +12,7 @@ import { reachToolFeatures } from "./reach/settings.js"; // r17-i
 import { safetyToolFeatures } from "./safety-extras/settings.js"; // mac7/r17-g
 import { boardToolFeatures } from "./flows-boards/settings.js"; // r17-h
 import { learningToolFeatures } from "./learning-more/settings.js"; // R17-F
+import { learnToolFeatures } from "./learn/settings.js"; // mac7/learn
 
 /**
  * The owner's three-way switch for a feature: off, when needed, or on. Every one ships off.
@@ -138,6 +139,8 @@ const toolFeatures: { reason: string; tools: readonly string[]; hideWhenOff: boo
   ...boardToolFeatures.map(([key, reason, tools]) => ({ reason, tools, hideWhenOff: true, mode: (s: Reader, o: string) => savedMode(s, o, key) })),
   // ── R17-F: learning, deeper (src/learning-more/settings.ts keeps these lists). ──
   ...learningToolFeatures.map(([key, reason, tools]) => ({ reason, tools, hideWhenOff: true, mode: (s: Reader, o: string) => savedMode(s, o, key) })),
+  // ── mac7/learn: understanding something -- the map and the tour (src/learn/settings.ts). ──
+  ...learnToolFeatures.map(([key, reason, tools]) => ({ reason, tools, hideWhenOff: true, mode: (s: Reader, o: string) => savedMode(s, o, key) })),
   // mac7/vault-autofill (R17-068): filling a saved sign-in (src/vault-autofill.ts). Written out here
   // rather than imported, because that module reads this one for the three-way switch.
   { reason: "filling a saved sign-in is switched on", tools: signInFillTools, hideWhenOff: true, mode: (s, o) => savedMode(s, o, "vault-autofill") },
