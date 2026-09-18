@@ -235,6 +235,34 @@ test("scripts: a restart in the middle of a script puts it to the owner, and not
   await running.catch(() => undefined);
 });
 
+/**
+ * mac7/linux-fixes: the answer to a tool call was written straight down the script's stdin, with
+ * no check that anyone was still reading it and no listener for the write failing. A script that
+ * had gone away left a pipe with no reader, and the write threw where nothing could catch it,
+ * taking the run down with it. It went red on Linux, where a dead child's pipe is gone sooner;
+ * a stdin closed up front forces the same moment on any machine.
+ */
+test("scripts: an answer nobody is left to read is let go, not thrown", async (t) => {
+  const { app, run } = await scripted(t);
+  const deaf = new ToolScripts({ host: app.runtime, registry: app.registry, unreadable: () => [],
+    wallDeps: { platform: "darwin", exists: async () => true, realpath: async (path) => path },
+    start: (start) => {
+      const child = spawn(process.execPath, start.args.slice(start.args.indexOf("--no-warnings")),
+        { cwd: start.cwd, env: start.env, stdio: ["pipe", "pipe", "pipe", "pipe"] });
+      // A pipe whose reader has gone: it is no longer writable, and writing to it fails with EPIPE.
+      const gone = Object.create(child.stdin);
+      Object.defineProperties(gone, { writable: { value: false },
+        write: { value: () => { const error = new Error("write EPIPE"); error.code = "EPIPE"; throw error; } } });
+      Object.defineProperty(child, "stdin", { value: gone });
+      return child;
+    } });
+  const context = app.runtime.context({ runId: run.id });
+  const args = { source: `export default async (branch) => branch.call("notes.lookup", { q: "same" })`,
+    tools: ["notes.lookup"], timeoutMs: 1500 };
+  const result = await deaf.run(args, context);
+  assert.ok(result, "the run comes back instead of taking the process down");
+});
+
 /* ---------- the command scan ---------- */
 
 const kinds = (command) => scanCommand(command).map((finding) => finding.kind);
