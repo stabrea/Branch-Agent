@@ -95,6 +95,9 @@ export class DiscordAdapter implements ChannelAdapter {
       onMessage: (text) => void this.receive(text, onMessage).catch(() => undefined),
     });
     this.socket = socket;
+    // mac7/linux-fixes: a stop that arrived while this was still being opened found nothing to
+    // close, and the loop then waited for a close nobody would ask for. Let it go straight away.
+    if (this.stopping) socket.close();
     await socket.closed;
     if (this.heartbeat) clearInterval(this.heartbeat);
     if (!this.stopping) this.state = { state: "reconnecting", reason: "Discord closed the connection; reconnecting" };

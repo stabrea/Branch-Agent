@@ -172,3 +172,31 @@ test("KOOK: built from the connections file with a secret name, checked against 
   assert.equal(card.switch, "off");
   assert.equal(card.receives, "socket");
 });
+
+/**
+ * A channel asked to stop while it is part-way through opening its next socket used to wait for
+ * that socket to close for ever: `stop()` had already looked at `this.socket` and found nothing,
+ * and the loop went on to `await socket.closed` with nobody left to close it. Shutting the app
+ * down then never finished. The socket a stopping channel opens is closed as soon as it arrives.
+ */
+test("KOOK: stopping while the next socket is still being opened comes back", async (t) => {
+  const context = await fixture(t);
+  const world = await kookWorld(t);
+  let arrive = () => undefined;
+  const opening = new Promise((resolve) => { arrive = resolve; });
+  let asked = 0, closes = 0;
+  const connect = async () => {
+    asked++;
+    await opening;
+    let shut = () => undefined;
+    const closed = new Promise((resolve) => { shut = resolve; });
+    return { send: () => undefined, close: () => { closes++; shut(); }, closed };
+  };
+  const channel = world.channel({ connect });
+  await context.app.channels.attach(channel, { ...policy, pairing: false, allowlist: ["kook:U7"] });
+  await until(() => asked === 1, "the socket is being opened");
+  const stopped = channel.stop();
+  arrive();
+  await Promise.race([stopped, delay(3000).then(() => assert.fail("stop() never came back"))]);
+  assert.equal(closes, 1, "the socket that arrived after the stop is closed, not left open");
+});

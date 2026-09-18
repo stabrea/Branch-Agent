@@ -100,6 +100,9 @@ export class RevoltChannel implements ChannelAdapter {
       onMessage: (text) => this.receive(text, onMessage),
     });
     this.socket = socket;
+    // mac7/linux-fixes: a stop that arrived while this was still being opened found nothing to
+    // close, and the loop then waited for a close nobody would ask for. Let it go straight away.
+    if (this.stopping) socket.close();
     socket.send(JSON.stringify({ type: "Authenticate", token: this.options.token }));
     this.timer = setInterval(() => socket.send(JSON.stringify({ type: "Ping", data: Date.now() })), this.options.pingMs ?? 20000);
     this.timer.unref();

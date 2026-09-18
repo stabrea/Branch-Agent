@@ -83,6 +83,9 @@ export class SimplexChannel implements ChannelAdapter {
       try {
         const socket = await this.options.connect(this.options.address, { onMessage: (text) => this.onText(text) });
         this.socket = socket;
+        // mac7/linux-fixes: a stop that arrived while this was still being opened found nothing to
+        // close, and the loop then waited for a close nobody would ask for. Let it go straight away.
+        if (this.stopping) socket.close();
         this.state = { state: "connected" };
         void this.learnName();
         await socket.closed;
