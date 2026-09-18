@@ -7,12 +7,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
 import {
-  assetNameFor, checksumLine, includedInApp, needsAssetName, packagerOptions, parseArgs, windowsZipCommand,
+  assetNameFor, checksumLine, includedInApp, needsAssetName, packagerOptions, parseArgs, windowsZipCommand, writeLinuxIcons,
 } from "../scripts/package-desktop.mjs";
 import * as mac from "../scripts/package-macos.mjs";
 import * as linux from "../scripts/package-linux.mjs";
 import { WINDOW_ICON_SIZE, isTemplateTrayIcon, trayIconScales, trayIconSize } from "../dist/desktop/icon-sizes.js";
-import { LINUX_ICON_SIZES, iconFileName } from "../dist/install/unix-icons.js";
+import { LINUX_ICON_SIZES, iconFileName, iconFileSize } from "../dist/install/unix-icons.js";
 import { readPng, scale } from "../apps/mobile/scripts/png.mjs";
 
 const platforms = ["win32", "darwin", "linux"];
@@ -214,6 +214,22 @@ test("each place the mark appears asks for its own size, and only macOS wants a 
   }
   assert.deepEqual(trayIconScales("darwin"), [1, 2], "a Retina menu bar gets real pixels, not a stretch");
   assert.equal(isTemplateTrayIcon("darwin"), true, "so the mark suits a light and a dark menu bar");
+});
+
+test("the packager really writes every icon size into the Linux download, under the names the installer looks for", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-linux-icons-"));
+  t.after(() => discardTemp(root));
+  const into = await writeLinuxIcons(root);
+  assert.equal(into, join(root, "icons"));
+  assert.deepEqual((await readdir(into)).sort(), LINUX_ICON_SIZES.map((size) => iconFileName(linux.LINUX_EXECUTABLE, size)).sort());
+  for (const size of LINUX_ICON_SIZES) {
+    const file = join(into, iconFileName(linux.LINUX_EXECUTABLE, size));
+    // The installer only copies a name it recognises, so the two halves must agree exactly.
+    assert.equal(iconFileSize(linux.LINUX_EXECUTABLE, iconFileName(linux.LINUX_EXECUTABLE, size)), size);
+    const drawn = readPng(await readFile(file));
+    assert.equal(drawn.width, size);
+    assert.ok(drawn.data.some((byte) => byte !== 0), `${file} is really the mark, not an empty square`);
+  }
 });
 
 test("the mark really shrinks to every size a Linux menu asks for", async () => {

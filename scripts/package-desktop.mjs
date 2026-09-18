@@ -168,7 +168,7 @@ async function packageMac({ arch }) {
  * so a menu, a dock and a switcher each draw a mark made for their size instead of shrinking one big
  * picture. Made with the repository's own PNG code, so nothing has to be installed to build a release.
  */
-async function writeLinuxIcons(folder) {
+export async function writeLinuxIcons(folder) {
   const { LINUX_ICON_FOLDER, LINUX_ICON_SIZES, iconFileName } = await import("../dist/install/unix-icons.js");
   const { readPng, scale, writePng } = await import("../apps/mobile/scripts/png.mjs");
   const mark = readPng(await readFile("public/assets/keepoak-mark.png"));
