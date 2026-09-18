@@ -99,7 +99,7 @@ say("# The scoreboard");
 say();
 say(`Built ${new Date().toISOString().slice(0, 16).replace("T", " ")} UTC from \`${resultsPath}\`.`);
 say();
-say("Read the two paragraphs under **What this is not** before quoting any number below.");
+say("Read **What this is not**, at the bottom, before quoting any number from here.");
 say();
 
 if (refusals.length) {
@@ -207,7 +207,7 @@ if (demos.length) {
     say();
     say(`One pass over ${demoRows.length} tasks: **${demoRows.filter((row) => row.passed).length} passed**. `
       + `This is a single pass, so it has no spread and supports no claim that anything beats anything. `
-      + `It is here to show what one line of code was worth.`);
+      + `It is here to show what those changes were worth.`);
     say();
     const reasons = [...new Set(demoRows.map((row) => row.agentError ?? row.why))];
     for (const reason of reasons.slice(0, 4)) say(`- ${reason}`);
@@ -234,7 +234,9 @@ if (droppedRepeats) {
 say("## What this is not");
 say();
 const basis = combinedBasis(rows.map((row) => row.usage?.basis ?? "unknown"));
-say(`- **Cost is not compared.** The token counts above are ${costNote(basis, false)}, and the three `
+say(`- **Cost is not compared.** There is no price on file for a model running on the owner's own `
+  + `card, so no money figure is printed at all; were one printed it would be ${costNote(basis, true)}. `
+  + `The token counts above are what each program reported, and the three `
   + `programs do not count the same things: one reports what the provider said, one adds its own `
   + `estimate when the provider says nothing, and they disagree about whether a reasoning block is `
   + `output. The columns are printed so the difference in prompt size is visible, not so the totals `
