@@ -55,11 +55,19 @@ export function producedNothing(status: RunStatus, output: string, what: Produce
   if (what.reasoningChars > 0)
     return `The model${named} spent its whole reply thinking — ${what.reasoningChars.toLocaleString()} characters of it — `
       + `and never wrote an answer or asked for a tool, so nothing was done. Smaller local models often think `
-      + `until they run out of room. Try a larger model, ask for one step at a time, or raise the reply limit.`;
+      + `until they run out of room. Try a larger model, or ask for one step at a time.`;
   if (what.toolCalls > 0)
     return `Branch used ${what.toolCalls === 1 ? "one tool" : `${what.toolCalls} tools`} and then stopped without writing an answer, `
-      + `so there is nothing to show for the task. Ask again, or try a larger model: this is what a model too small for the `
-      + `task usually does.`;
+      + `so it cannot say whether the task is done. Check the activity for anything it changed, then ask again or try a `
+      + `larger model: this is what a model too small for the task usually does.`;
   return `The model${named} returned an empty reply — no answer, no tool, no change on disk — so nothing was done. `
     + `Ask again, or try a larger model.`;
+}
+
+/**
+ * integrate/empty-completion: the tokens a reply's thinking is charged as when the provider did not
+ * say. The text is never kept, only its length, so it is estimated the way every other output is.
+ */
+export function thinkingTokens(chars: number | undefined): number {
+  return chars && chars > 0 ? Math.ceil(chars / 4) : 0;
 }

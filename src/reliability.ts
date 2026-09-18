@@ -79,6 +79,29 @@ export async function withStallWatchdog<T>(
   }
 }
 
+/**
+ * integrate/empty-completion: thinking resets the stall clock, but only within the room the reply
+ * was given. A provider cannot legitimately send more thinking than `maxChars` (the reply's token
+ * allowance at a generous number of characters per token), nor keep thinking past `forMs`; beyond
+ * either, thinking is no longer taken as a sign of life and the ordinary watchdog decides. Without
+ * this, a connection that sends thinking for ever with no end would never be called stalled.
+ */
+export function thinkingKeepsAlive(
+  touch: () => void,
+  limits: { maxChars: number; forMs: number; now?: () => number },
+): (text: string) => void {
+  const now = limits.now ?? Date.now, started = now();
+  let heard = 0;
+  return (text) => {
+    heard += text.length;
+    if (heard <= limits.maxChars && now() - started < limits.forMs) touch();
+  };
+}
+/** How many characters one token of thinking may be, at most, when bounding a reply's thinking. */
+export const thinkingCharsPerToken = 16;
+/** How many stall windows thinking alone may keep one model call open. */
+export const thinkingStallWindows = 10;
+
 /** Shortens a serialised tool result that would crowd out the conversation; the full result stays in the trace. */
 export function clipToolResult(serialised: string, limit: number): { text: string; omitted: number } {
   if (serialised.length <= limit) return { text: serialised, omitted: 0 };

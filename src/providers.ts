@@ -12,7 +12,7 @@ import type {
 import { anthropicBatchApi, openaiBatchApi } from "./provider-batch.js";
 import { DemoProvider } from "./demo.js";
 import { rejectedHttpResponse } from "./provider-retry.js";
-import { AnthropicStream, OpenAIStream, readEventStream } from "./provider-stream.js";
+import { AnthropicStream, OpenAIStream, readEventStream, thinkingText } from "./provider-stream.js";
 import type { ModelPreset } from "./models.js";
 export { GeminiProvider } from "./providers/gemini.js";
 
@@ -34,8 +34,9 @@ const openaiResponse = z.object({
         message: z.object({
           content: z.string().nullable().optional(),
           // mac7/empty-completion: the thinking a reasoning model returns beside its answer.
-          reasoning_content: z.string().nullable().optional(),
-          reasoning: z.string().nullable().optional(),
+          // integrate/empty-completion: read loosely; only text counts (src/provider-stream.ts).
+          reasoning_content: z.unknown().optional(),
+          reasoning: z.unknown().optional(),
           tool_calls: z
             .array(
               z.object({
@@ -333,7 +334,7 @@ export class OpenAIProvider implements Provider {
       ),
     );
     const message = response.choices[0]!.message;
-    const thought = (message.reasoning_content ?? message.reasoning ?? "").length;
+    const thought = thinkingText(message.reasoning_content, message.reasoning).length;
     return {
       content: message.content ?? "",
       toolCalls: (message.tool_calls ?? []).map((c) => ({

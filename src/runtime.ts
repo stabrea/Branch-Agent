@@ -63,6 +63,7 @@ import { parseSessionSummary, summaryText } from "./session-summary.js";
 import { chatEngineSettings, condenseMessages, earlierTurns, shouldCondense, standaloneQuestion } from "./chat-engine.js"; // w911 (A0847)
 import {
   CheckError, StallError, ReliabilityOptionsSchema, CompletionCheckSchema, clipToolResult, evaluateChecks, shrinkToolResults, withStallWatchdog,
+  thinkingKeepsAlive, thinkingCharsPerToken, thinkingStallWindows,
   type CompletionCheck, type ReliabilityInput, type ReliabilityOptions,
 } from "./reliability.js";
 import {
@@ -105,7 +106,7 @@ import { estimateCost, formatCost, pricingSettings } from "./pricing.js";
 // --- R17-S-B: the owner's knobs, read fresh at each marked hook (src/knobs/apply.ts) ---
 import * as knobs from "./knobs/apply.js";
 import { thinkingFilter, withoutThinking } from "./knobs/thinking.js";
-import { produced, producedNothing } from "./empty-answer.js"; // mac7/empty-completion
+import { produced, producedNothing, thinkingTokens } from "./empty-answer.js"; // mac7/empty-completion
 // --- end R17-S-B ---
 // --- R17-E: models, cheaper and smarter (src/model-savings/hook.ts) ---
 import * as savings from "./model-savings/hook.js";
@@ -527,7 +528,8 @@ export class Runtime {
         run,
         scoped,
         status,
-        status === "completed" ? JSON.stringify(value) : errorText(failure),
+        // integrate/empty-completion: an operation that returns nothing still ran; `undefined` is not JSON.
+        status === "completed" ? JSON.stringify(value) ?? "null" : errorText(failure),
       );
       if (status !== "completed") throw failure;
       if (settled.status !== "completed") throw new Error(settled.output);
@@ -1829,7 +1831,9 @@ ${run.output.slice(0, 6000)}`;
         // provider and abandoning a call that was working. The thinking is heard, never shown.
         ? await withStallWatchdog(context.signal, this.reliability.modelStallMs, (signal, touch) =>
             preset.provider.complete({ ...request, signal, onTextDelta: (text: string) => { touch(); onTextDelta(text); },
-              onReasoningDelta: () => touch() }))
+              // integrate/empty-completion: only within the reply's room and a bounded window.
+              onReasoningDelta: thinkingKeepsAlive(touch, { maxChars: maxTokens * thinkingCharsPerToken,
+                forMs: this.reliability.modelStallMs * thinkingStallWindows }) }))
         : await preset.provider.complete({ ...request, signal: context.signal }));
       const { output, reported } = this.recordCompletion(run, context, raw, input);
       // R17-048 / R17-050: note the service's own count, and keep its cache warm if the owner asked.
@@ -1905,7 +1909,9 @@ ${run.output.slice(0, 6000)}`;
   ) {
     const usage = UsageSchema.safeParse(raw.usage),
       reported = usage.success ? usage.data : undefined;
-    const output = estimateTokens(raw);
+    // integrate/empty-completion: thinking is output the provider produced and charges for, even
+    // though the text is not kept; without a reported count it is estimated like any other output.
+    const output = estimateTokens(raw) + thinkingTokens(raw.reasoningChars);
     this.store.addUsage(run.id, 0, output, reported);
     context.budget.charge(
       Math.max(output, reported?.output ?? 0) +

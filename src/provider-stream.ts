@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { Completion, ToolCall, Usage } from "./contracts.js";
 import { estimateTokens, ProviderStreamError } from "./contracts.js";
+import { thinkingTokens } from "./empty-answer.js";
 
 const count = z.number().int().nonnegative();
 const index = count.max(15);
@@ -13,8 +14,11 @@ const openaiChunk = z.object({
       // OpenAI-shaped local servers (Ollama, llama.cpp, vLLM) use one of these two names. Dropping
       // them made a thinking model look silent: no text ever arrived, so the stall watchdog fired,
       // and a reply that was all thinking arrived as an empty answer with nothing to explain it.
-      reasoning_content: z.string().nullable().optional(),
-      reasoning: z.string().nullable().optional(),
+      // integrate/empty-completion: read loosely. A server that puts something other than text
+      // here (an object, a list of summaries) must behave exactly as it did before these fields
+      // were read — ignored — rather than fail every chunk.
+      reasoning_content: z.unknown().optional(),
+      reasoning: z.unknown().optional(),
       tool_calls: z.array(z.object({
         index,
         id: z.string().optional(),
@@ -98,7 +102,7 @@ export class OpenAIStream {
       if (this.finish) throw new Error("Provider sent choices after finish");
       const text = choice.delta.content;
       if (text) { this.content += text; this.emit(text); }
-      const thought = choice.delta.reasoning_content ?? choice.delta.reasoning;
+      const thought = thinkingText(choice.delta.reasoning_content, choice.delta.reasoning);
       if (thought) { this.thinking += thought.length; this.think(thought); }
       for (const fragment of choice.delta.tool_calls ?? []) {
         const call = this.calls.get(fragment.index) ?? { id: "", name: "", arguments: "" };
@@ -123,7 +127,7 @@ export class OpenAIStream {
     };
   }
   failure(cause: unknown): ProviderStreamError {
-    return streamFailure(cause, this.content, [...this.calls.values()], this.usage);
+    return streamFailure(cause, this.content, [...this.calls.values()], this.usage, this.thinking);
   }
 }
 
@@ -232,7 +236,12 @@ export class AnthropicStream {
   }
 }
 
-function streamFailure(cause: unknown, content: string, toolCalls: ToolCall[], usage?: Usage): ProviderStreamError {
-  const estimatedOutput = content || toolCalls.length ? estimateTokens({ content, toolCalls }) : 0;
+function streamFailure(cause: unknown, content: string, toolCalls: ToolCall[], usage?: Usage, thinking = 0): ProviderStreamError {
+  const estimatedOutput = (content || toolCalls.length ? estimateTokens({ content, toolCalls }) : 0) + thinkingTokens(thinking);
   return new ProviderStreamError(cause, estimatedOutput, usage);
+}
+/** integrate/empty-completion: the first of the thinking fields that is text; anything else is ignored. */
+export function thinkingText(...fields: unknown[]): string {
+  for (const field of fields) if (typeof field === "string" && field) return field;
+  return "";
 }

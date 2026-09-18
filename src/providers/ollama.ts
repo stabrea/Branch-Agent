@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { Completion, CompletionRequest, Message, Provider, ToolCall } from "../contracts.js";
 import { ProviderStreamError, estimateTokens } from "../contracts.js";
+import { thinkingTokens } from "../empty-answer.js";
 import { rejectedHttpResponse } from "../provider-retry.js";
 import { restoreToolNames, wireName } from "../providers.js";
 
@@ -114,7 +115,8 @@ export class OllamaProvider implements Provider {
         if (part.done && finished.usage) usage = finished.usage;
       }
     } catch (error) {
-      throw new ProviderStreamError(error, estimateTokens(text), usage);
+      // integrate/empty-completion: thinking that arrived before the failure was produced and is charged.
+      throw new ProviderStreamError(error, estimateTokens(text) + thinkingTokens(thinking), usage);
     }
     return restoreToolNames({ content: text, toolCalls: calls, ...(usage ? { usage } : {}), ...(thinking ? { reasoningChars: thinking } : {}) }, request);
   }
