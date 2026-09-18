@@ -237,6 +237,60 @@ const pulseRecorder = (): WakeCapture["command"] => ({
   args: ["--file-format=wav", `--rate=${wakeSampleRate}`, "--channels=1", "--format=s16le", "-"],
 });
 
+/**
+ * mac7/wake-mac: sox, which the owner installed themselves. `rec` is sox with the microphone
+ * already chosen; where only `sox` is here, `-d` is what chooses it, and the two are otherwise the
+ * same command. `trim 0 <window>` ends it after one window, and the count of bytes ends it too, so
+ * a build that ignored the effect still could not hold more than the owner allowed.
+ */
+const soxRecorder = (file: string, windowSeconds: number): WakeCapture["command"] => ({
+  file,
+  // Writing to "-" is standard output; no file name is ever an argument, and the word never is.
+  args: [
+    ...(file === "sox" ? ["-d"] : []),
+    "-q", "-c", "1", "-r", String(wakeSampleRate), "-b", "16", "-e", "signed-integer", "-t", "wav", "-",
+    "trim", "0", String(windowSeconds),
+  ],
+});
+
+/**
+ * mac7/wake-mac: ffmpeg, also the owner's own, for a Mac that has it and not sox. One window from
+ * the microphone macOS calls the default one, straight to standard output and no further.
+ */
+const ffmpegRecorder = (windowSeconds: number): WakeCapture["command"] => ({
+  file: "ffmpeg",
+  args: [
+    "-hide_banner", "-loglevel", "quiet", "-nostdin", "-f", "avfoundation", "-i", ":default",
+    "-t", String(windowSeconds), "-ac", "1", "-ar", String(wakeSampleRate), "-c:a", "pcm_s16le", "-f", "wav", "-",
+  ],
+});
+
+/** The recording programs a Mac is looked at for, best first. None is ever installed or bundled. */
+const macRecorders = ["rec", "sox", "ffmpeg"] as const;
+
+/**
+ * mac7/wake-mac: what would open the microphone on a Mac. macOS ships no recorder a program can
+ * ask, so Branch looks for one the owner already installed and runs nothing otherwise — it installs
+ * nothing, bundles nothing, and a Mac with none says which one to install and stays off.
+ *
+ * The sentence names the program it found, because macOS itself is about to ask the owner whether
+ * Branch may open the microphone and they should know what would be asking before they say yes.
+ */
+function macRecorder(present: ProgramPresent, windowSeconds: number): WakeCapture {
+  const file = macRecorders.find((name) => present(name));
+  if (!file)
+    return cannotListen("This Mac has no recording program on it: macOS ships no recorder a program can ask for sound, and Branch will not install one of its own to open your microphone. Install one yourself — `brew install sox` is the smallest — and the wake word can use it; until then the switch stays off.");
+  return {
+    kind: "recorder", available: true,
+    command: file === "ffmpeg" ? ffmpegRecorder(windowSeconds) : soxRecorder(file, windowSeconds),
+    // Integration review: "which you installed yourself" implied a check that is not made. Branch
+    // runs the first program of that name on the owner's own search path and does not look at what
+    // it is, so the card says so. What is really true of it is said beside it: it is given an
+    // argument array rather than anything a shell reads, and none of this computer's environment.
+    how: `${file}, run for one window of sound at a time and then ended, so the microphone is let go of every window. Branch runs the first program called ${file} on your search path and does not check what it is, so keep that path yours; it is given its arguments one by one, never a line for a shell to read, and none of this computer's own environment. The first time it runs, macOS itself will ask whether Branch may use your microphone: that question comes from macOS, it is yours to accept or refuse, and Branch cannot answer it for you — until you do, nothing is heard, and it keeps waiting rather than giving up.`,
+  };
+}
+
 const cannotListen = (how: string): WakeCapture => ({ kind: "none", available: false, how, command: null });
 
 /**
@@ -246,6 +300,9 @@ const cannotListen = (how: string): WakeCapture => ({ kind: "none", available: f
 export function wakeCapture(
   platform: string, present: ProgramPresent, spotter: WakeSpotter, windowSeconds: number,
 ): WakeCapture {
+  // mac7/wake-mac: a Mac is looked at before the spotter, so the card can say which recording
+  // program is here, or which to install, even while there is nothing to spot the word with yet.
+  if (platform === "darwin") return macRecorder(present, windowSeconds);
   if (!spotter.command)
     return cannotListen("Nothing here can spot the word, so there is nothing to listen with either.");
   if (spotter.kind === "windows-speech")
@@ -258,8 +315,6 @@ export function wakeCapture(
           how: `${recorder.file}, which is already on this computer, run for one window of sound at a time and then ended.` }
       : cannotListen("This computer has no recorder a program can ask: neither arecord nor parecord is here. Install one of them yourself and the wake word can use it; until then nothing listens here, whatever the switch says, because Branch will not add a program of its own to open your microphone.");
   }
-  if (platform === "darwin")
-    return cannotListen("This Mac cannot listen for a word: macOS ships no recorder a program can ask for sound, and Branch will not install one to open your microphone. Nothing listens here, whatever the switch says and whatever else is set up.");
   return cannotListen("This computer has no recorder a program can ask, so nothing can be listened for, whatever the switch says.");
 }
 
@@ -535,6 +590,14 @@ async function* windowsOfSound(deps: WakeWordDeps, signal: AbortSignal): AsyncIt
     try { sound = await deps.capture(capture.command, wake.windowSeconds, signal); }
     catch { await (deps.pause ?? waitBetweenWindows)(wakeBackoffMs); continue; }
     if (signal.aborted) return;
+    // Integration review (mac7/wake-mac): a window that carried no sound at all is not a window.
+    // It is what a recorder gives back while macOS is still asking the owner whether Branch may use
+    // the microphone, and what one gives back when the device is refused or gone: it ends at once
+    // instead of running its window, so nothing paces the loop. Without this the blocked recorder
+    // was started again as fast as the loop could turn — 174 times in a quarter of a second — and
+    // the spotter was asked about silence each time. It is waited out and tried again, so the word
+    // is heard the moment the owner says yes.
+    if (sound.length === 0) { sound = null; await (deps.pause ?? waitBetweenWindows)(wakeBackoffMs); continue; }
     const window = { sound, seconds: wake.windowSeconds };
     sound = null; // the one copy is the one handed on; this binding lets go of it here
     yield window;

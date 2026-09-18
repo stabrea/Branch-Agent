@@ -456,11 +456,23 @@ test("M16 a recorder that is not there fails the window rather than hanging", no
     "a recorder that does not exist was not reported as a failure");
 });
 
-test("M17 this Mac is never asked to record, whatever it is handed", async () => {
-  // The second lock on the same door: even if something got past the refusal, the runner on a Mac
-  // starts no program at all. The card's "this Mac cannot listen" is kept here as well as there.
-  await assert.rejects(() => wakeCaptureRunner("darwin")({ file: "arecord", args: [] }, 1, new AbortController().signal),
-    /no recorder/i);
+test("M17 a Mac with no recording program on it starts nothing", async (t) => {
+  // mac7/wake-mac: a Mac may now use a recording program the owner installed themselves, so the
+  // runner no longer refuses a Mac outright. What survives is the promise that matters: with none
+  // of the three on this computer, nothing is started and the card says which one would fix it.
+  const { store, owner } = await fixture(t);
+  saveWakeWordSettings(store, owner, { mode: "on", word: "branch" });
+  const { capture } = wakeParts(store, owner, "darwin", has());
+  assert.equal(capture.available, false, "a Mac with no recording program said it could listen");
+  assert.equal(capture.command, null, "a Mac with no recording program still had something to run");
+  assert.match(capture.how, /brew install sox/, "the card did not say what would fix it");
+  const microphone = fakeMicrophone(), spotter = fakeSpotter("branch");
+  const wake = startWakeWord({ store, owner, platform: "darwin", present: has(),
+    runner: spotter.runner, capture: microphone.capture, onHeard: () => {} });
+  t.after(() => wake.stop());
+  assert.equal(wake.listening, false, "a Mac with no recording program started listening");
+  assert.equal(microphone.mic.windows, 0, "a Mac with no recording program recorded a window");
+  await wake.stop();
 });
 
 /* ---------- who may set it, and what the card promises ---------- */
@@ -491,8 +503,8 @@ test("M19 the card's word about this Mac is the word the code keeps", async (t) 
   // The owner saves it On, on a Mac, with a speech program of their own set up: the strongest case
   // the card has to survive. Whatever the switch says, nothing listens and the sentence says why.
   saveWakeWordSettings(store, owner, { mode: "on", word: "branch" });
-  const state = wakeWordState(store, owner, "darwin", false, has("arecord", "parecord", "sox", "rec", "ffmpeg"));
-  assert.equal(state.canListen, false, "a Mac said it could listen for a word");
+  const state = wakeWordState(store, owner, "darwin", false, has("arecord", "parecord"));
+  assert.equal(state.canListen, false, "a Mac with no recording program said it could listen for a word");
   assert.ok(state.refusal, "a Mac with the switch on gave no reason why nothing is listening");
   const microphone = fakeMicrophone(), spotter = fakeSpotter("branch");
   const wake = startWakeWord({ store, owner, platform: "darwin", present: has("arecord", "parecord"),

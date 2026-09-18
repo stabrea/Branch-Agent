@@ -7881,7 +7881,7 @@ without the file and network wall (see above).
 - **A0602** (a helper that installs and manages an isolated plugin for another agent): built as the write / check /
   remove lifecycle of Branch's own plugin for Codex and Claude Code, in a folder the owner names (`src/add-ons/export.ts`).
 
-## A word that starts a turn (mac7/wake-pins, mac7/wake-mic)
+## A word that starts a turn (mac7/wake-pins, mac7/wake-mic, mac7/wake-mac)
 
 Instead of holding **Talk**, say a word of your own and Branch starts a turn. It ships **off**, like everything else, and has the same three-way switch: **off** — nothing listens at all;
 **on** — it listens whenever Branch is running; **when needed** — meant to listen only while a
@@ -7922,13 +7922,33 @@ window lost. The listener waits two seconds and tries the next one: it does not 
 does not ask a dead device again as fast as it can. So sleeping and waking costs you the window it
 slept through and nothing else.
 
-- **macOS: this Mac cannot listen for a word, and the card says so.** macOS ships no recorder a
-  program can ask for sound — there is no `arecord`, no `afrecord`, nothing — and Branch will not
-  install one of its own to open your microphone. So on a Mac **nothing listens, whatever the switch
-  says** and whatever else is set up here, including a speech program of your own: such a program
-  can *spot* a word, but it cannot *record* one. Spotting is not listening. The switch is still
-  yours to move — it is saved, and the card shows it where you left it — but the line underneath
-  says this Mac cannot listen, and nothing is started.
+- **macOS needs a recording program you already have (mac7/wake-mac).** macOS ships no recorder a
+  program can ask for sound — there is no `arecord`, no `afrecord`, nothing — and Branch still will
+  not install one of its own, bundle one, or add a dependency for one. What it does now is *look* on
+  your search path for one you installed yourself: `rec` (sox) first, then `sox` (`-d` is what
+  chooses the microphone there), then `ffmpeg` (`-f avfoundation -i :default`). Where one is found,
+  the card names it and a Mac listens exactly as Linux does. Where none is found, the card says so,
+  says that `brew install sox` is the smallest thing that would fix it — as something you might do,
+  never something Branch does — and **nothing listens, whatever the switch says**. A Mac still needs a spotter as well:
+  a speech program of your own can *spot* a word, and now there is also something that can *record*
+  one, and it takes both.
+- **macOS will ask you for the microphone, and only you can answer.** The first time a recording
+  program opens the microphone, macOS itself puts up its own permission question. That question
+  comes from the system, it is yours to accept or refuse, and **Branch cannot ask for you or answer
+  it for you**; until you accept it, nothing is heard. The card says this *before* you turn the
+  switch on, beside the name of the program it found. While that question is still on the screen the
+  recorder is refused the microphone and ends at once, giving back no sound. A window that carried
+  no sound is not a window: the spotter is not asked about it, nothing is written down about it, and
+  the listener waits two seconds before trying again — so it neither spins nor gives up, and it
+  hears your word the moment you say yes (integration review).
+- **Which program, exactly (integration review).** Branch runs the **first program of that name on
+  your search path** and does **not** check what it is — it is not verified, signed-checked or
+  compared against sox. A directory anybody can write to, early on your `PATH`, would therefore
+  decide what runs; that is true of every program Branch is told to use, and the card says so rather
+  than letting "one you installed yourself" imply a check that is not made. What *is* true of it:
+  it is given its arguments one at a time and never a line for a shell to read, it is given **none**
+  of this computer's own environment, no file name is ever an argument, and it is ended when its
+  window is up and ended for good two seconds later if it will not go.
 - **Linux** uses `arecord` (alsa-utils) when it is really on this computer, and `parecord`
   (PulseAudio) when it is not. Neither is assumed: the search path is looked at, and a Linux box with
   neither says so and stays off. `arecord` is given the window's length as well as being bounded by
@@ -7947,10 +7967,11 @@ computer either has something that can spot a word without the internet or it sa
   PowerShell's `-Command` glues any words after it onto the same command string, so an argument
   there would have been read as PowerShell after all. The spotter is given that environment and
   nothing else — it never inherits this computer's own.
-- **macOS** has nothing a program can ask: macOS keeps its speech recognition inside apps with a
-  window, and there is no command for it. So on a Mac the wake word stays **off** and the card says
-  why — and it stays off there even with a speech program of your own, because nothing on a Mac can
-  record the sound to give it.
+- **macOS** has nothing a program can ask to *spot* a word: macOS keeps its speech recognition
+  inside apps with a window, and there is no command for it. So a Mac uses a speech program of your
+  own, exactly as Linux does, and says so and stays **off** until you have set one up. A Mac needs
+  both halves — something to record with (above) and something to spot with — and says which half
+  is missing.
 - **Linux** ships no speech recognition at all, so a speech program of your own is what spots the
   word there. A Linux box needs both: something to record with and something to spot with.
 - **Any computer** where you have set up a speech program yourself (Settings → Voice, "a speech
@@ -8026,7 +8047,8 @@ profile is shown that a setting is pinned. `GET /api/settings-kit` now marks eac
 
 macOS and Linux: nothing in either of these two sections depends on the operating system, except
 which spotter and which recorder the wake word can use, both set out above. The tests
-(`tests/wake-word.test.mjs`, `tests/wake-mic.test.mjs`) hand in a fake recorder, a fake spotter and a
+(`tests/wake-word.test.mjs`, `tests/wake-mic.test.mjs`, `tests/wake-mac.test.mjs`) hand in a fake
+recorder, a fake spotter and a
 fake answer to "is this program here", through the same options `createBranch` fills with the real
 ones, so what is tested is the real wiring: no microphone is ever opened, no program is ever run and
 no sound is ever played.
