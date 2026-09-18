@@ -310,6 +310,37 @@ async function world(t, { mode = "when-needed", install = "when-needed", program
   return { store, root, here, ran, oneClick };
 }
 
+test("I7b a download that cannot happen is said in plain words, with nothing left behind", async (t) => {
+  // On a real Ubuntu box with no network the owner was told "fetch failed", and with the publisher
+  // unreachable, nothing more. A step that fails has always said what it was and what to do next;
+  // the download in front of the steps said whatever the network happened to throw.
+  const root = await scratch("install-offline");
+  t.after(async () => { await discardTemp(root); });
+  const plan = installPlan("ollama", at.linux, noTools);
+  const ran = [];
+  const outcome = await runInstall(plan, {
+    at: at.linux, exists: async () => false, scratchDir: join(root, "dl"),
+    library: async () => { throw new TypeError("fetch failed"); },
+    run: async (file, args) => { ran.push([file, ...args]); return { stdout: "" }; },
+  });
+  assert.equal(outcome.installed, false);
+  assert.deepEqual(ran, [], "nothing is run when the download never happened");
+  assert.match(outcome.message, /could not download Ollama/);
+  assert.match(outcome.message, /fetch failed/, "and what really went wrong is still in there");
+  assert.match(outcome.message, /Nothing was left half-installed/);
+  assert.match(outcome.message, /ollama\.com/, "and where to install it by hand");
+  assert.deepEqual(await readdir(join(root, "dl")).catch(() => []), [], "and no half a file on the disk");
+
+  // A file that arrives but is not the publisher's keeps its own sentence: it is a different thing.
+  const body = Buffer.from("not the real installer");
+  const wrong = async (url) => new Response(url.endsWith("sha256sum.txt") ? `${"a".repeat(64)}  ./install.sh\n` : body);
+  const refused = await runInstall(plan, {
+    at: at.linux, exists: async () => false, scratchDir: join(root, "dl2"), library: wrong,
+    run: async () => { throw new Error("a refused download must run nothing"); },
+  });
+  assert.match(refused.message, /did not match the checksum its publisher published/);
+});
+
 test("I8 the switch ships off, and Lockdown holds it off whatever is saved", async (t) => {
   const w = await world(t, { install: null });
   assert.equal(oneButtonMode(w.store, "owner"), "off");

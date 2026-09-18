@@ -267,6 +267,9 @@ async function openPublisher(url: string, call: typeof globalThis.fetch, signal?
   throw new Error("The publisher sent Branch round too many redirects");
 }
 
+/** Marks a refusal that already says everything the owner needs, so nothing wraps it again. */
+class CheckedRefusal extends Error {}
+
 /** Downloads the file into Branch's own folder and refuses it unless its checksum matches. */
 export async function fetchInstaller(plan: InstallPlan, deps: InstallDeps): Promise<string> {
   const want = plan.fetch;
@@ -283,9 +286,26 @@ export async function fetchInstaller(plan: InstallPlan, deps: InstallDeps): Prom
   const got = await sha256Of(target);
   if (got !== sha256) {
     await rm(target, { force: true });
-    throw new Error(`The ${plan.name} download did not match the checksum its publisher published, so it was thrown away and nothing was installed.`);
+    throw new CheckedRefusal(`The ${plan.name} download did not match the checksum its publisher published, so it was thrown away and nothing was installed.`);
   }
   return target;
+}
+
+/**
+ * The download, with anything half-written cleared away and whatever went wrong said in the same
+ * plain words a failed step uses. A network that is not there threw "fetch failed" at the owner.
+ */
+async function downloadFor(plan: InstallPlan, deps: InstallDeps): Promise<string> {
+  try {
+    return await fetchInstaller(plan, deps);
+  } catch (error) {
+    if (error instanceof CheckedRefusal) throw error;
+    const join = deps.at.platform === "win32" ? win32.join : posix.join;
+    if (plan.fetch) await rm(join(deps.scratchDir, plan.fetch.asset.replace(/[^A-Za-z0-9._-]/g, "_")), { force: true });
+    const said = String((error as Error)?.message ?? error).trim().slice(0, 200);
+    throw new CheckedRefusal(`Branch could not download ${plan.name}${said ? `: ${said}` : "."}. `
+      + `Nothing was left half-installed by Branch. You can install it yourself from ${runtimeInfo[plan.runner].installPage}.`);
+  }
 }
 
 async function writeTo(response: Response, target: string, total: number, deps: InstallDeps): Promise<void> {
@@ -322,7 +342,11 @@ export interface InstallOutcome { installed: boolean; message: string; ran: stri
 export async function runInstall(plan: InstallPlan, deps: InstallDeps): Promise<InstallOutcome> {
   if (plan.instead) return { installed: false, message: plan.instead, ran: [] };
   const join = deps.at.platform === "win32" ? win32.join : posix.join;
-  const file = plan.fetch ? await fetchInstaller(plan, deps) : "";
+  let file = "";
+  if (plan.fetch) {
+    try { file = await downloadFor(plan, deps); }
+    catch (error) { return { installed: false, ran: [], message: (error as Error).message }; }
+  }
   const unpacked = join(deps.scratchDir, "unpacked");
   if (plan.fetch && plan.platform === "darwin") await rm(unpacked, { recursive: true, force: true });
   const ran: string[][] = [];
