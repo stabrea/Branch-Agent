@@ -46,7 +46,7 @@ function pairOne(book, name = "Kitchen Mac") {
 }
 const fakeRequest = (device, from = "127.0.0.1") => ({ headers: { "x-branch-node": device }, url: "/api/devices/socket", socket: { remoteAddress: from } });
 
-test("device.run hands the walled program only the clean environment, never the node's own", async (t) => {
+test("device.run hands the walled program only the clean environment, never the node's own", { skip: process.platform === "win32" && "the macOS wall is planned around this computer's own folders, which are not POSIX paths here" }, async (t) => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "branch-node-env-")));
   t.after(() => discardTemp(root));
   const folder = join(root, "work");

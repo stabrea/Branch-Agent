@@ -36,7 +36,7 @@ test("only the host's own last line is read as the answer", () => {
   assert.throws(() => readAnswer("the plugin printed this and stopped"), /stopped without answering/);
 });
 
-test("what would be started: the system's sandbox, the plugin in a throwaway folder, no environment of Branch's", async (t) => {
+test("what would be started: the system's sandbox, the plugin in a throwaway folder, no environment of Branch's", { skip: process.platform === "win32" && "the macOS wall is planned around this computer's own folders, which are not POSIX paths here" }, async (t) => {
   process.env.BRANCH_TEST_ONLY_SECRET = "do-not-pass";
   t.after(() => { delete process.env.BRANCH_TEST_ONLY_SECRET; });
   const started = [];

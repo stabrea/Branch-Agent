@@ -46,7 +46,7 @@ async function served(t, steps = []) {
   return { app, api, root, looked, ran };
 }
 
-test("off refuses, Windows refuses, and what would be started is the wall with none of Branch's environment", async (t) => {
+test("off refuses, and Windows refuses", async (t) => {
   const { app, api } = await served(t);
   const context = app.runtime.context({ runId: app.store.createRun(app.runtime.owner, "x").id });
   await assert.rejects(app.safetyExtras.scripts.run({ source: "export default 1", tools: ["notes.lookup"], timeoutMs: 5000 }, context), /switched off/);
@@ -55,6 +55,15 @@ test("off refuses, Windows refuses, and what would be started is the wall with n
   assert.equal(app.registry.names().includes("tools.script"), true);
   const windows = new ToolScripts({ host: app.runtime, registry: app.registry, unreadable: () => [], wallDeps: { platform: "win32" } });
   await assert.rejects(windows.run({ source: "export default 1", tools: ["notes.lookup"], timeoutMs: 5000 }, context), new RegExp(windowsScriptRefusal.slice(0, 30)));
+});
+
+// Kept apart from the refusals above so that the two of them still run on Windows: only the plan
+// for a Mac's wall needs a computer whose own folders are POSIX paths.
+test("what would be started is the wall with none of Branch's environment",
+  { skip: process.platform === "win32" && "the macOS wall is planned around this computer's own folders, which are not POSIX paths here" }, async (t) => {
+  const { app, api } = await served(t);
+  const context = app.runtime.context({ runId: app.store.createRun(app.runtime.owner, "x").id });
+  await api("/api/safety-extras/switch", { part: "tool-scripts", mode: "on" });
 
   process.env.BRANCH_TEST_ONLY_SECRET = "do-not-pass";
   t.after(() => { delete process.env.BRANCH_TEST_ONLY_SECRET; });

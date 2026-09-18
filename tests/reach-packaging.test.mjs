@@ -18,7 +18,10 @@ const ROOT = join(import.meta.dirname, "..");
 test("the files in the repository are exactly what src/install/container-files.ts writes", async () => {
   for (const [path, text] of Object.entries(containerFiles()))
     assert.equal(await readFile(join(ROOT, path), "utf8"), text, `${path} was edited by hand or not regenerated`);
-  assert.ok(((await stat(join(ROOT, termuxScriptPath))).mode & 0o111) !== 0, "the Termux script can be run");
+  // Windows keeps no execute bit on a file, so there is nothing to read there; the generated text
+  // above is still checked on every system.
+  if (process.platform !== "win32")
+    assert.ok(((await stat(join(ROOT, termuxScriptPath))).mode & 0o111) !== 0, "the Termux script can be run");
 });
 
 test("the image builds without scripts or browsers, runs without rights, and keeps no secret", () => {
@@ -52,7 +55,7 @@ test("the flake reads the lock file, keeps no hash to go stale, and installs the
   assert.equal(opens, closes, "braces balance");
 });
 
-test("the Termux script checks the download before installing and refuses anywhere but Termux", () => {
+test("the Termux script checks the download before installing and refuses anywhere but Termux", { skip: process.platform === "win32" && "the script is run with sh and a Unix PATH, which this computer has not got" }, () => {
   const text = termuxScript();
   assert.match(text, /sha256sum "\$PACKAGE"/);
   assert.ok(text.indexOf("sha256sum") < text.indexOf("npm install -g"), "checked before installed");
@@ -73,7 +76,7 @@ test("the Termux script checks the download before installing and refuses anywhe
 
 // mac7/reach-leftovers: the release now attaches the .tgz with a .sha256 written by `sha256sum`,
 // so the script must read that exact format, and must still refuse when it is missing or wrong.
-test("the Termux script reads the release's own checksum file and refuses a file that does not match", async (t) => {
+test("the Termux script reads the release's own checksum file and refuses a file that does not match", { skip: process.platform === "win32" && "the script is run with sh and a Unix PATH, which this computer has not got" }, async (t) => {
   const { mkdtemp, writeFile } = await import("node:fs/promises");
   const { tmpdir } = await import("node:os");
   const { discardTemp } = await import("./temp-dir.mjs");
