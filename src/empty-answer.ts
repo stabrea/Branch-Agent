@@ -22,8 +22,12 @@ import type { Event, RunStatus } from "./contracts.js";
 
 /** What a task actually produced, read back from its own record. */
 export interface Produced {
-  /** How many tools were called, refused or failed — any of them counts as something happening. */
+  /** How many tool calls finished, whether they worked or not. */
   toolCalls: number;
+  /** How many of those returned a result: work was done, whatever the model said afterwards. */
+  toolResults: number;
+  /** How many file changes the task recorded. */
+  filesChanged: number;
   /** Characters of thinking the model wrote that were not part of any answer. */
   reasoningChars: number;
   /** The model that answered the last round, for the sentence. Null when none did. */
@@ -32,34 +36,41 @@ export interface Produced {
 
 /** Reads back what a task produced. Only its own events; nothing a caller could shape. */
 export function produced(events: readonly Event[]): Produced {
-  let toolCalls = 0, reasoningChars = 0, model: string | null = null;
+  const what: Produced = { toolCalls: 0, toolResults: 0, filesChanged: 0, reasoningChars: 0, model: null };
   for (const event of events) {
-    if (event.kind === "tool.started") toolCalls++;
+    if (event.kind === "tool.completed") { what.toolCalls++; what.toolResults++; }
+    if (event.kind === "tool.failed" || event.kind === "tool.stalled") what.toolCalls++;
+    if (event.kind === "file.changed") what.filesChanged++;
     if (event.kind !== "model.completed") continue;
     const chars = event.data.reasoningChars;
-    if (typeof chars === "number") reasoningChars += chars;
+    if (typeof chars === "number") what.reasoningChars += chars;
     const named = event.data.model;
-    if (typeof named === "string" && named) model = named;
+    if (typeof named === "string" && named) what.model = named;
   }
-  return { toolCalls, reasoningChars, model };
+  return what;
 }
 
 /**
  * The sentence a task that produced nothing ends with, or null when it produced something. Only a
  * run that claims to have *completed* is judged: one that already failed, was cancelled or is
  * waiting for the person has said what happened in its own words already.
+ *
+ * integrate/empty-completion: a result is empty only when there is no visible text, no tool that
+ * returned a result and no file changed. A task that wrote the file it was asked for and said
+ * nothing did the work; calling it a failure would also teach the learning loop the wrong lesson.
  */
 export function producedNothing(status: RunStatus, output: string, what: Produced): string | null {
   if (status !== "completed" || String(output ?? "").trim()) return null;
+  if (what.toolResults > 0 || what.filesChanged > 0) return null;
   const named = what.model ? ` (${what.model})` : "";
+  if (what.toolCalls > 0)
+    return `Branch tried ${what.toolCalls === 1 ? "one tool" : `${what.toolCalls} tools`}, none of them worked, and it stopped `
+      + `without writing an answer, so nothing was done. Ask again, or try a larger model: this is what a model too small `
+      + `for the task usually does.`;
   if (what.reasoningChars > 0)
     return `The model${named} spent its whole reply thinking — ${what.reasoningChars.toLocaleString()} characters of it — `
       + `and never wrote an answer or asked for a tool, so nothing was done. Smaller local models often think `
       + `until they run out of room. Try a larger model, or ask for one step at a time.`;
-  if (what.toolCalls > 0)
-    return `Branch used ${what.toolCalls === 1 ? "one tool" : `${what.toolCalls} tools`} and then stopped without writing an answer, `
-      + `so it cannot say whether the task is done. Check the activity for anything it changed, then ask again or try a `
-      + `larger model: this is what a model too small for the task usually does.`;
   return `The model${named} returned an empty reply — no answer, no tool, no change on disk — so nothing was done. `
     + `Ask again, or try a larger model.`;
 }

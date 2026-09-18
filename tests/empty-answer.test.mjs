@@ -62,9 +62,11 @@ test("a model that spends its whole reply thinking says so rather than reporting
   assert.match(run.output, /larger model/i);
 });
 
-test("a task that called tools and then said nothing is still a failure", async (t) => {
+test("a task whose tools all failed and then said nothing is still a failure", async (t) => {
+  // integrate/empty-completion: a tool that *worked* is work done (tests/empty-completion-adversarial.test.mjs);
+  // only a task whose every tool failed and that said nothing is empty.
   const { app } = await fixture(t, calls(
-    { content: "", toolCalls: [{ id: "one", name: "files.write", arguments: JSON.stringify({ path: "a.txt", content: "hi" }) }] },
+    { content: "", toolCalls: [{ id: "one", name: "files.write", arguments: "{\"path\": \"a.txt\", cont" }] },
     { content: "", toolCalls: [] },
   ));
   const run = await app.runtime.run({ prompt: "write a.txt" });
@@ -192,7 +194,7 @@ test("the guard reads only what the task recorded", () => {
   const events = (...rows) => rows.map((row, id) => ({ id, runId: "r", createdAt: "", ...row }));
   assert.deepEqual(
     produced(events({ kind: "tool.started", data: {} }, { kind: "model.completed", data: { reasoningChars: 12, model: "qwen3:4b" } })),
-    { toolCalls: 1, reasoningChars: 12, model: "qwen3:4b" },
+    { toolCalls: 0, toolResults: 0, filesChanged: 0, reasoningChars: 12, model: "qwen3:4b" },
   );
   assert.equal(producedNothing("completed", "an answer", { toolCalls: 0, reasoningChars: 0, model: null }), null);
   assert.equal(producedNothing("failed", "", { toolCalls: 0, reasoningChars: 0, model: null }), null,

@@ -199,12 +199,15 @@ test("a provider that sends its thinking in another shape behaves exactly as bef
   assert.deepEqual(reply, { content: "ok", toolCalls: [] });
 });
 
-test("the empty-answer sentence is true: it names no setting that does not exist and does not deny a change", () => {
+test("the empty-answer sentence is true, and anything that did real work is not empty", () => {
   const thought = producedNothing("completed", "", { toolCalls: 0, reasoningChars: 900, model: "qwen3:4b" });
   assert.doesNotMatch(thought, /reply limit/i, "there is no reply limit for the owner to raise");
-  const acted = producedNothing("completed", "", { toolCalls: 2, reasoningChars: 0, model: null });
-  assert.doesNotMatch(acted, /nothing to show/i, "a task that used tools may have changed something");
-  assert.match(acted, /activity/i);
+  const tried = producedNothing("completed", "", { toolCalls: 2, toolResults: 0, filesChanged: 0, reasoningChars: 0, model: null });
+  assert.match(tried, /none of them worked/i, "it says the tools were tried and failed");
+  assert.equal(producedNothing("completed", "", { toolCalls: 1, toolResults: 1, filesChanged: 0, reasoningChars: 0, model: null }), null,
+    "a tool that returned a result is work done");
+  assert.equal(producedNothing("completed", "", { toolCalls: 0, toolResults: 0, filesChanged: 1, reasoningChars: 0, model: null }), null,
+    "a changed file is work done");
   assert.equal(producedNothing("completed", "ok", { toolCalls: 0, reasoningChars: 0, model: null }), null, "short is not empty");
 });
 
@@ -236,4 +239,29 @@ test("a reply cut off while still thinking says so, rather than blaming the prov
   assert.doesNotMatch(error.message, /Provider stream ended/);
   assert.match(error.message, /thinking/i);
   assert.ok(error.estimatedOutput >= 1000);
+});
+
+test("a task that changed a file and said nothing did the work: it ends completed", async (t) => {
+  const replies = [
+    { content: "", toolCalls: [{ id: "one", name: "files.write", arguments: JSON.stringify({ path: "report.mjs", content: "console.log(1)\n" }) }] },
+    { content: "", toolCalls: [] },
+  ];
+  const { app, root } = await fixture(t, { name: "quiet", async complete() { return replies.shift() ?? { content: "", toolCalls: [] }; } });
+  const run = await app.runtime.run({ prompt: "write report.mjs" });
+  assert.equal(run.status, "completed");
+  assert.equal(await readFile(join(root, "workspace", "report.mjs"), "utf8"), "console.log(1)\n");
+  assert.ok(!app.store.events(run.id).some((e) => e.kind === "run.produced_nothing"));
+});
+
+test("a task that did nothing at all still ends failed, and so does one whose every tool failed", async (t) => {
+  const { app } = await fixture(t, { name: "empty", async complete() { return { content: "", toolCalls: [] }; } });
+  assert.equal((await app.runtime.run({ prompt: "do it" })).status, "failed");
+  const replies = [
+    { content: "", toolCalls: [{ id: "one", name: "no.such.tool", arguments: "{}" }] },
+    { content: "", toolCalls: [] },
+  ];
+  const second = await fixture(t, { name: "broken", async complete() { return replies.shift() ?? { content: "", toolCalls: [] }; } });
+  const run = await second.app.runtime.run({ prompt: "do it" });
+  assert.equal(run.status, "failed");
+  assert.match(run.output, /none of them worked|did not work/i);
 });
