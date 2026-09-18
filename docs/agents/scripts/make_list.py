@@ -6,6 +6,11 @@ from buckets import BUCKETS, NOT_APPLICABLE
 
 S = Path("C:/Users/bishi/AppData/Local/Temp/claude-session-files")
 rows = json.loads((S / "all-rows.json").read_text(encoding="utf-8"))
+
+# A row still marked "merged" has not been released yet, so it is attributed to the release being
+# prepared. This was a hard-coded "0.17.0" that nobody remembered to move, which silently credited
+# a new release's work to the previous one.
+NEXT_RELEASE = "0.18.0"
 info = {f"{r['issue']}:{r['id']}": r for r in rows}
 
 PLAIN = {
@@ -56,7 +61,7 @@ def versions_for(theme):
             v = (r["version"] or "").strip()
             m = re.match(r"^(\d+\.\d+\.\d+)$", v)
             if m: vs.add(m.group(1))
-            elif v.startswith("merged"): vs.add("0.17.0*")
+            elif v.startswith("merged"): vs.add(NEXT_RELEASE + "*")
     def key(x): return [int(p) for p in x.replace("*", "").split(".")]
     return sorted(vs, key=key)
 
