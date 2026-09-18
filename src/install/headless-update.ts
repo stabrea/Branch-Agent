@@ -6,6 +6,10 @@ import { join } from "node:path";
 import { Updater, type UpdaterOptions } from "../desktop/updater.js";
 import { appEntryName, releaseAssetName } from "../desktop/release-assets.js";
 import { snapshotData, updateCanary } from "../never-break/canary.js";
+import {
+  activationJournalName, databaseFormat, fingerprintTree, openActivationJournal, type ActivationRecord,
+} from "../never-break/activation.js";
+import { storeMigrations } from "../never-break/migrations.js";
 import { Store } from "../store.js";
 import { requestUpdateBackup } from "./background-engine.js";
 import { databaseName } from "./layout.js";
@@ -47,6 +51,12 @@ export interface HeadlessUpdateDeps {
   snapshot?: () => Promise<string>;
 }
 
+/** The safety copies this data folder holds, newest last, so a refusal can name one. */
+async function backupPaths(dataDir: string): Promise<string[]> {
+  const { listUpdateBackups } = await import("./update-backup.js");
+  return listUpdateBackups(dataDir).then((points) => points.map((one) => one.path).reverse(), () => []);
+}
+
 async function engineCall(dataDir: string, note: RunningInstance, path: string): Promise<Response> {
   const token = (await readFile(join(dataDir, sessionTokenFileName), "utf8")).trim();
   return fetch(`${note.url}${path}`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
@@ -79,6 +89,46 @@ function defaultSnapshot(dataDir: string, note: RunningInstance | null): () => P
     if (!response.ok || typeof body?.folder !== "string") throw new Error("The running Branch did not make a copy of your work.");
     return body.folder;
   };
+}
+
+/**
+ * mac7/safe-rollback: writes down what this update is about to change, before a single file moves.
+ * The fingerprints are taken of the program that is there now (which the hand-over keeps as
+ * `<target>.previous`) and of the unpacked version that will replace it, so an undo can tell whether
+ * either has moved since. `understood` is read here, in the version that is still running, because
+ * it is that version's reach that decides whether going back stays safe.
+ *
+ * It is written with the same rule as the task journal: a record that cannot be written stops the
+ * update, because an update nobody can undo is not one worth making.
+ */
+export async function recordActivation(input: {
+  dataDir: string; installRoot: string; stagedDir: string; fromVersion: string; toVersion: string;
+  executableName: string; backups: string[];
+}): Promise<{ id: number; activated: () => void; failed: () => void; close: () => void }> {
+  const { journal } = openActivationJournal(join(input.dataDir, activationJournalName));
+  try {
+    const [previous, candidate] = await Promise.all([
+      fingerprintTree(input.installRoot).catch(() => null),
+      fingerprintTree(input.stagedDir).catch(() => null),
+    ]);
+    let store: { version: number; readableBy: number } | null = null;
+    if (existsSync(join(input.dataDir, databaseName)))
+      store = await withStore(input.dataDir, async (opened) => databaseFormat(opened.sqlite)).catch(() => null);
+    const record: ActivationRecord = {
+      kind: "update", fromVersion: input.fromVersion, toVersion: input.toVersion, target: input.installRoot,
+      previous, candidate, launcher: null, executableName: input.executableName,
+      understood: storeMigrations.at(-1)?.version ?? 0,
+      databases: store ? [{ name: databaseName, before: store, after: store, ran: [], backup: null }] : [],
+      backups: input.backups,
+    };
+    const id = journal.stage(record);
+    return {
+      id,
+      activated: () => { try { journal.activated(id); } catch { /* the swap already happened; the record is best effort from here */ } },
+      failed: () => { try { journal.failed(id); } catch { /* see above */ } },
+      close: () => journal.close(),
+    };
+  } catch (error) { journal.close(); throw error; }
 }
 
 /** A process id that has already ended, so the hand-over script does not wait for anything. */
@@ -123,20 +173,37 @@ export async function headlessUpdate(input: HeadlessUpdateInput): Promise<number
   const to = status.release!.latestVersion;
   if (!input.yes) { input.print(`Version ${to} is ready (you have ${input.version}). Run \`branch update --yes\` to install it.`); return 0; }
   input.print(`Updating Branch Agent from ${input.version} to ${to}...`);
-  const { script } = await updater.install().catch((error: unknown) => {
+  const { script, stagedDir } = await updater.install().catch((error: unknown) => {
     input.print(error instanceof Error ? error.message : String(error));
-    return { script: null };
+    return { script: null, stagedDir: "" };
   });
   if (!script) return 1;
   if (!stopped.report || !stopped.report.stopped) {
     input.print(`${stopped.report?.message ?? "Branch Agent was not closed."} Nothing was changed; the update can be run again once Branch has closed.`);
     return 1;
   }
+  // mac7/safe-rollback: what this update changes is written down before anything moves.
+  let activation: Awaited<ReturnType<typeof recordActivation>> | null = null;
+  try {
+    activation = await recordActivation({ dataDir: input.dataDir, installRoot: input.installRoot, stagedDir,
+      fromVersion: input.version, toVersion: to, executableName: appEntryName(platform),
+      backups: await backupPaths(input.dataDir) });
+  } catch (error) {
+    input.print(`${error instanceof Error ? error.message : String(error)} Nothing was changed.`);
+    return 1;
+  }
   // The stop already happened (and was waited for) in the updater, so the script waits for nothing.
   const reopen = stopped.report?.wasRunning === true && note?.mode === "app";
   const code = (deps.runScript ?? runSh)(script, [String(stopped.report?.pid ?? endedPid()), ...(reopen ? [] : ["stay"])]);
   const log = join(deps.scratchDir ?? join(tmpdir(), "branch-agent-update"), "apply-update.log");
-  if (code !== 0) { input.print(`The update did not finish, so Branch stays on the version it had. What happened is in ${log}.`); return 1; }
+  if (code !== 0) {
+    activation.failed();
+    activation.close();
+    input.print(`The update did not finish, so Branch stays on the version it had. What happened is in ${log}.`);
+    return 1;
+  }
+  activation.activated();
+  activation.close();
   input.print(`Updated Branch Agent from ${input.version} to ${to}. The version before is kept beside it. Log: ${log}`);
   if (stopped.report?.wasRunning && !reopen) input.print("Branch was working in the background; start it again with `branch start` or by signing in again.");
   return 0;

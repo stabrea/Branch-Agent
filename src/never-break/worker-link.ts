@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { chmod, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { launchHandOver, posixRollbackScript, windowsRollbackScript } from "../desktop/hand-over.js";
@@ -5,6 +6,10 @@ import type { UpdateWatch } from "./canary.js";
 import { gatewayContract, GatewayMessageSchema } from "./contract.js";
 import { loadGatewayConfig } from "./gateway-config.js";
 import { Gateway } from "./gateway.js";
+import { activationJournalName, databaseFormat, openActivationJournal } from "./activation.js";
+import { storeMigrations } from "./migrations.js";
+import { assessRollback, observeForRollback } from "./rollback.js";
+import { databaseName } from "../install/layout.js";
 
 /**
  * The engine's side of the gateway. When the engine was started by a gateway it says where it is
@@ -54,7 +59,12 @@ export async function runGatewayIfSwitchedOn(input: { dataDir: string; script: s
   const { config } = await loadGatewayConfig(input.dataDir);
   if (config.mode === "off") return false;
   const gateway: Gateway = new Gateway({ ...input, presence: true,
-    rollBack: async (watch) => { await rollBackUpdate(watch, input.dataDir); void gateway.stop().finally(() => process.exit(1)); } });
+    rollBack: async (watch) => {
+      const allowed = await rollbackAllowed(watch, input.dataDir);
+      if (!allowed.ok) { console.error(allowed.message); return; }
+      await rollBackUpdate(watch, input.dataDir);
+      void gateway.stop().finally(() => process.exit(1));
+    } });
   const url = await gateway.start();
   console.log(`Branch gateway listening at ${url}\nThe engine runs behind it and is started again if it stops.`);
   let closing = false;
@@ -66,6 +76,42 @@ export async function runGatewayIfSwitchedOn(input: { dataDir: string; script: s
   process.once("SIGINT", stop);
   process.once("SIGTERM", stop);
   return true;
+}
+
+/**
+ * mac7/safe-rollback: before a single file moves, the same gate `branch rollback` uses is asked
+ * whether going back is still safe. A new version that crashed but has already moved the owner's
+ * work to a format the old one cannot read must **not** be swapped away underneath it — the crash
+ * loop is recoverable, a database the installed program cannot open is not. A refusal is written
+ * where the owner will see it and the gateway stays where it is.
+ */
+export async function rollbackAllowed(watch: UpdateWatch, dataDir: string): Promise<{ ok: true } | { ok: false; message: string }> {
+  const { journal } = openActivationJournal(join(dataDir, activationJournalName));
+  try {
+    const entry = journal.current();
+    // Nothing recorded (a version from before this was built, or a journal put aside) leaves the
+    // old behaviour alone: the files-only swap was already safe, and refusing here would take away
+    // the one recovery a crash loop has.
+    if (!entry || entry.toVersion !== watch.to) return { ok: true };
+    const observed = await observeForRollback(entry, {
+      runnerKnows: storeMigrations.at(-1)?.version ?? 0,
+      storeFormat: async () => readStoreFormat(dataDir),
+    });
+    const decision = assessRollback(entry, observed);
+    if (decision.ok) return { ok: true };
+    journal.step(entry.id, "checked whether going back is safe", false, `refused: ${decision.reason}`);
+    return { ok: false, message: decision.message };
+  } catch { return { ok: true }; }
+  finally { journal.close(); }
+}
+
+/** The saved work's format, read and closed again; null when there is none or it cannot be opened. */
+async function readStoreFormat(dataDir: string): Promise<{ version: number; readableBy: number } | null> {
+  const path = join(dataDir, databaseName);
+  if (!existsSync(path)) return null;
+  const { Store } = await import("../store.js");
+  const store = new Store(path);
+  try { return databaseFormat(store.sqlite); } catch { return null; } finally { store.close(); }
 }
 
 /**
