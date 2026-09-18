@@ -45,10 +45,10 @@ const card = (page, id) => page.locator(`#saved-list article[data-session-id="${
 /* One step, inside the page: the notice area is found and read in the same breath, so a redraw
    between the two cannot answer for an instant the notice was not up. */
 async function shown(page, pattern) {   // flagless patterns only: the source is rebuilt in the page
-
   await page.waitForFunction((source) => {
     const note = document.getElementById("toast");
-    return !!note && !note.hidden && new RegExp(source).test(note.textContent ?? "");
+    if (!note || !(note.checkVisibility?.() ?? !note.hidden)) return false;
+    return new RegExp(source).test(note.textContent ?? "");
   }, pattern.source);
 }
 async function ready(page) { await page.waitForFunction(() => !document.getElementById('send').disabled); }
