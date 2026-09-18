@@ -954,6 +954,11 @@ export const ROUTES = {
   "/api/web-pages": "owner POST", // w911 (A0743, A1452) hook: the switch for reading and crawling web pages
   // mac7/wake-pins: the word that starts a turn. Reading says what this computer could do; changing is the owner's.
   "/api/voice/wake": "secret-read",
+  // mac7/live-voice: speaking and seeing the words. Reading says which speech program is here and
+  // whether the microphone is open; starting it opens a microphone on the owner's own computer, so
+  // both are the owner's alone at the app window and neither is anything a key may do.
+  "/api/voice/dictation": "secret-read",
+  "/api/voice/dictation/listen": "secret-read",
   "/api/webhooks": "secret-read",
   "/api/webhooks/:id": "secret-read",
   "/api/webhooks/:id/enable": "owner POST",
