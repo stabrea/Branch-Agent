@@ -128,6 +128,11 @@ export const COMMANDS: readonly CatalogCommand[] = [
   entry("focus", [], "[on|off]", "show only what you asked and the final answers", W, "look"),
   entry("installs", ["install"], "[request npm|pypi <name> [why] | approve n | decline n]", "requests for new packages and tool servers; only the owner answers, and nothing installs itself", ALL, "look", { withArgument: "run" }),
   // ---- end r17-h ----
+  // mac7/adapt: what a stopped task is missing, and — on the owner's yes — getting it and carrying
+  // on. It installs and spends the owner's disk, so it is theirs alone and only where the owner is
+  // at this computer with its own key: never from a chat app, a phone or the browser dashboard,
+  // each of which reaches Branch as another computer does.
+  entry("adapt", ["unblock"], "[what it said | yes <line>]", "what a stopped task is missing, what would fix it and what that costs; with yes and the offer's line, get it and carry on", ["window", "terminal"], "owner", { bareLooks: true, route: { method: "POST", path: "/api/adapt/go" } }),
 ];
 
 const bare = (name: string): string => name.replace(/^\//, "").replace(/@[\w.-]+$/, "").toLowerCase();

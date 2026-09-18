@@ -7805,6 +7805,7 @@ the switch is off.
 | `/health` | `/doctor` | any key | new | new | new | — | new |
 | `/prompts [name]` | `/procedures`, `/workflows` | any key | new | new | new | new | new |
 | `/trunk [name] [message]` | `/trunks` | a key that may start tasks (on its own: any key) | new | new | new | — | — |
+| `/adapt [what it said \| yes <line>]` | `/unblock` | the key of this computer (on its own: any key) | new | — | new | — | — |
 
 ### Parity with other agents
 
@@ -8777,6 +8778,61 @@ On Windows both answer with the plain sentence pointing at *Add or remove progra
 running and whether a newer one exists — "Running 0.18.0, newest is 0.18.1", or "Running 0.18.0,
 which is the newest", or that Branch has not looked yet — from the same update check as before.
 Nothing installs itself: *Update and restart* is still a button you press.
+
+## Getting what a stopped task is missing (mac7/adapt)
+
+Settings → Models → *Getting what a stopped task is missing* is a three-way switch that ships
+**off**. When a task cannot go on because this computer has not got something, Branch works out what
+that is, tells you in plain words what would fix it and what that costs, and — only after you say
+yes — gets it and hands the task back the step it stopped on. In the message box and the terminal
+the same thing is `/adapt`.
+
+**Off, only when it is needed, on.** *Off*: Branch still says what is missing, exactly as it always
+did, and offers nothing. *Only when it is needed*: it offers a fix when a task has really stopped.
+*On*: it also names what is missing and what would fix it before you ask. In every position it
+fetches, installs and switches on **nothing** until you have said yes to the exact offer you read.
+
+**What it can place.** It invents no new error language: it reads the sentences Branch already says
+and says which kind of missing thing each one is — no program that runs models; no model of the kind
+the work needs (reading aloud, writing out speech, comparing passages by meaning, looking at
+pictures, drawing pictures); a program that is not installed (Git, Docker, a recorder, a speech
+program); a model service with no key; a switch left off; a permission this computer has not
+granted; not enough room on the disk; no connection to the internet. A sentence it cannot place is
+said plainly to be one it cannot place, and nothing is done.
+
+**What it offers for each.** For a missing program that runs models, and for a missing model when
+nothing here runs models yet, the offer is the one-button install's own plan — the publisher, the
+address, about how big, how the download is checked, and the exact commands — and the work is done
+by that same button, which asks the *Installing a program that runs models* switch again. So
+`/adapt` can never install a runner behind that switch's back. For a switch left off, it offers to
+turn on the one switch whose own sentence it can place exactly, and refuses to guess at any other.
+
+**What it refuses, honestly.** A permission is yours to grant and your computer will take it from
+nobody else; a key is yours to paste into the locker; a full disk is not Branch's to empty; a lost
+connection is not Branch's to bring back; and a program Branch has no publisher, checksum and plan
+for is not something it will fetch from wherever the internet happens to offer it. Each of those
+says so in one sentence, names what you could do yourself, and installs nothing. Branch never
+half-installs something and calls it done.
+
+**Nothing happens until you say yes.** Looking shows the offer and its own line (`fingerprint`).
+Your yes carries that line back (`/adapt yes <line>`, or the button on the card), and only that exact
+offer is then carried out; if it changed in between, nothing is fetched and you are shown the new
+one. The wording and the shape are the one-button install's, not a second set of its own.
+
+**Carrying on, not starting again.** A task that stops writes down what it was doing, the steps it
+had already finished and the one step it stopped on. When what was missing arrives, that record —
+not the original request — is handed back: the work starts at the step it stopped on, the finished
+steps are named as finished and are not done again, and the answer says what the task can now do
+that it could not before. The records survive Branch closing.
+
+**Yours alone.** A message from a chat app, a short-lived key (which is also how another computer
+reaches this one), somebody else using this computer under their own profile, a Trunk, and work a
+schedule or a trigger started are each refused in one sentence — the very checks the one-button
+install makes, asked of the same code — and everything here is held off while Lockdown is on. The
+assistant has no tool for this: it can mention `/adapt` in an answer, but it cannot run it, and
+neither can an automation. `GET /api/adapt` reads the switch and what is stopped; `POST
+/api/adapt/switch` `{ mode }`, `/api/adapt/stopped`, `/api/adapt/plan` and `/api/adapt/go` are the
+owner's own, in the app window, and refused to every short-lived key.
 
 ## Learning, deeper (R17-F)
 

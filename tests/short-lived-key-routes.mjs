@@ -42,6 +42,14 @@ export const ROUTES = {
   "/api/accounts/settings": "owner POST",
   "/api/accounts/switch": "owner POST",
   "/api/accounts/update": "owner POST",
+  // mac7/adapt: reading what is stopped is looking; everything that fetches, installs or switches
+  // something on is the owner's own step in the app window.
+  "/api/adapt": "look",
+  "/api/adapt/": "prefix",
+  "/api/adapt/go": "owner POST",
+  "/api/adapt/plan": "owner POST",
+  "/api/adapt/stopped": "owner POST",
+  "/api/adapt/switch": "owner POST",
   "/api/action": "task POST",
   "/api/activity": "look",
   "/api/agents": "prefix",
