@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import type { DatabaseSync } from "node:sqlite";
+import { DatabaseSync as DatabaseSyncClass, type DatabaseSync } from "node:sqlite";
 
 /**
  * Versioned changes to a database's shape. Each change has a way back, and says the oldest data
@@ -102,3 +102,60 @@ export function migrateDown(db: DatabaseSync, list: Migration[], to: number): Mi
 export const storeMigrations: Migration[] = [
   { version: 1, readableBy: 1, up: () => undefined, down: () => undefined },
 ];
+
+/* ---------- looking at the saved work before anything opens it (mac7/install-torture) ---------- */
+
+/**
+ * What is wrong with a saved-work file, in words the owner can act on. The raw words SQLite uses
+ * ("database disk image is malformed", "attempt to write a readonly database", "file is not a
+ * database") say nothing about which file, whether anything was lost, or what to do next.
+ */
+export function dataProblemSentence(path: string, error: unknown): string | null {
+  const why = (error instanceof Error ? error.message : String(error)).toLowerCase();
+  const restore = "Your last three safety copies are in the `update-backups` folder beside it; `branch restore` puts one back.";
+  if (/readonly|read-only|unable to open database|permission denied|attempt to write a readonly/.test(why))
+    return `Branch cannot write to its saved work at ${path}. Nothing was changed. Check that the folder still exists and that you are allowed to write to it (on a Mac, File menu → Get Info), then start Branch again.`;
+  if (/malformed|not a database|encrypted|corrupt|file is not a database/.test(why))
+    return `Branch's saved work at ${path} is damaged and cannot be opened, so nothing was changed. ${restore}`;
+  if (/disk i\/o error|database or disk is full|no space/.test(why))
+    return `Branch could not read its saved work at ${path}: the disk is full or failing. Nothing was changed. Free some space, or move the folder to a healthy disk, and start Branch again.`;
+  return null;
+}
+
+/** True when another Branch is holding the file, rather than the file itself being wrong. */
+const heldByAnother = (error: unknown): boolean =>
+  /locked|busy/i.test(error instanceof Error ? error.message : String(error));
+
+/** Wraps whatever went wrong while the saved work was being opened in a sentence a person can act on. */
+export function dataOpenError(path: string, error: unknown): Error {
+  if (error instanceof DataTooNewError) return error;
+  const sentence = dataProblemSentence(path, error);
+  return sentence ? new Error(sentence) : (error instanceof Error ? error : new Error(String(error)));
+}
+
+/**
+ * The format check that must happen BEFORE the saved work is opened for writing. Opening it first
+ * and checking afterwards means an older Branch has already added columns, rewritten tasks that
+ * were running and thrown temporary sessions away by the time it says "Nothing was changed".
+ * This reads the file only, and leaves it exactly as it was.
+ */
+export function assertFormatReadable(path: string, list: Migration[] = storeMigrations): void {
+  if (!existsSync(path)) return;
+  const newest = [...list].sort((a, b) => a.version - b.version).at(-1)?.version ?? 0;
+  let found: { version: number; readableBy: number };
+  let db: DatabaseSync;
+  try { db = new DatabaseSyncClass(path, { readOnly: true }); }
+  catch (error) {
+    // A Branch that is already open holds the file to itself; that is not damage, and the store's
+    // own refusal says it better, so this check steps aside.
+    if (heldByAnother(error)) return;
+    throw dataOpenError(path, error);
+  }
+  try { found = formatOf(db); }
+  catch (error) {
+    if (heldByAnother(error)) return;
+    throw dataOpenError(path, error);
+  }
+  finally { try { db.close(); } catch { /* already gone */ } }
+  if (found.version > newest && found.readableBy > newest) throw new DataTooNewError(found.version, found.readableBy, newest);
+}

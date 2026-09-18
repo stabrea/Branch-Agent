@@ -1,5 +1,5 @@
 import { mkdir } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync, rmSync } from "node:fs";
 import { resolve, join, relative, isAbsolute } from "node:path";
 import { Store } from "./store.js";
 import { ToolRegistry } from "./registry.js";
@@ -195,7 +195,8 @@ import { setFlyCoreMode, syncSuggestTool } from "./fly-core/tool.js";
 import { loadGatewayConfig } from "./never-break/gateway-config.js";
 import { gatewayDryRun, registerNeverBreak } from "./never-break/api.js";
 import { journalHook, openJournal, type TaskJournal } from "./never-break/journal.js";
-import { migrate, storeMigrations } from "./never-break/migrations.js";
+import { assertFormatReadable, dataOpenError, migrate, storeMigrations } from "./never-break/migrations.js";
+import { formatCopiesToPrune } from "./install/update-backup.js";
 import { recoverOnStart } from "./never-break/resume.js";
 import { connectGuidedTelegram, saveTelegramSetup, telegramSetupView } from "./never-break/telegram-setup.js";
 import { fileURLToPath } from "node:url";
@@ -278,7 +279,15 @@ export async function createBranch(options: {
   await files.checked(".", true);
   // mac2/desktop-ui: whether this is a new install decides whether the three-way switches start off.
   const existedBefore = existsSync(join(dataDir, "branch.sqlite"));
-  const store = new Store(join(dataDir, "branch.sqlite"));
+  // --- mac7/install-torture: the saved work is looked at before it is opened for writing, so data
+  // from a newer Branch is refused while it is still untouched, and a damaged or unwritable folder
+  // is said in plain words instead of SQLite's own. ---
+  const databasePath = join(dataDir, "branch.sqlite");
+  assertFormatReadable(databasePath, storeMigrations);
+  let store: Store;
+  try { store = new Store(databasePath); }
+  catch (error) { throw dataOpenError(databasePath, error); }
+  // --- end mac7/install-torture ---
   // --- mac3/never-break: the data format stamp (refuses data newer than this version can read) and
   // the task journal beside the database, flushed before every step.
   const { journal, reset: journalReset } = openNeverBreak(store, dataDir);
@@ -1457,10 +1466,20 @@ async function replayNamedRecipe(knowledge: Knowledge, store: Store, runtime: Ru
   if (!match) throw new Error(`No verified recipe called "${recipe}"`);
   await knowledge.replayProcedure(runtime.context({ runId }), match.id);
 }
+/** mac7/install-torture: keeps the newest few copies taken before a change to the database's shape. */
+function pruneFormatCopies(dir: string): void {
+  try {
+    for (const name of formatCopiesToPrune(readdirSync(dir))) rmSync(join(dir, name), { force: true });
+  } catch { /* tidying is never a reason not to start */ }
+}
+
 /** mac3/never-break: stamps the store's data format and opens the journal; the store is closed if the stamp fails. */
 function openNeverBreak(store: Store, dataDir: string): { journal: TaskJournal; reset: string | null } {
   try {
     migrate(store.sqlite, storeMigrations, { backupTo: join(dataDir, "update-backups", `before-format-${Date.now()}.sqlite`) });
+    // mac7/install-torture: those copies are whole databases; a change that keeps failing would
+    // otherwise leave one behind on every start until the disk filled up.
+    pruneFormatCopies(join(dataDir, "update-backups"));
     // A journal that cannot be read is put aside rather than stopping Branch from starting.
     return openJournal(join(dataDir, "journal.sqlite"));
   } catch (error) {
