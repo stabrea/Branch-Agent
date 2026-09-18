@@ -3812,7 +3812,7 @@
   "settings.wake-word.idle": "Not listening right now.",
   "settings.wake-word.intro": "Say your own word and Branch starts a turn, instead of holding the Talk button. Listening happens on this computer only: no sound ever leaves it, no file is written, and nothing is recorded or kept before your word has been heard — one window of sound is held, asked about, and dropped. Not every computer can listen: the line below says what this one really does, and whether it is listening this moment. While the switch is off, nothing listens at all and the microphone is let go of. Holding Talk stays the ordinary way in, and the word gives nothing away — whatever you say after it is asked about exactly as the same words typed into the box would be.",
   "settings.wake-word.listening": "Listening for your word right now.",
-  "settings.wake-word.mode-note": "Off, nothing listens. When needed, it listens only while a conversation is open on the screen. On, it listens whenever Branch is running. Lockdown switches it off whatever this says.",
+  "settings.wake-word.mode-note": "Off, nothing listens. On, it listens whenever Branch is running. When needed is not wired up yet — nothing tells the listener whether a conversation is open on the screen, so it says so rather than listening all the time. Lockdown switches it off whatever this says.",
   "settings.wake-word.saved": "Saved.",
   "settings.wake-word.sureness-note": "Out of a hundred. Lower hears your word more often, and more often hears it when you did not say it.",
   "settings.wake-word.word-note": "Two or three syllables work best, and something you would not say by accident. With no word chosen there is nothing to listen for, so nothing listens.",

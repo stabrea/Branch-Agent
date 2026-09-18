@@ -279,9 +279,12 @@ export function wakeParts(
   const voice = voiceSettings(store, owner);
   const handedSound = wakeSpotter(voice, wake, platform);
   const recorded = wakeCapture(platform, present, handedSound, wake.windowSeconds);
-  // Windows has nothing to record with, so a speech program of the owner's cannot be fed there; its
-  // own engine, which opens the microphone itself, is what listens instead.
-  if (recorded.available || platform !== "win32") return { wake, spotter: handedSound, capture: recorded };
+  // The spotter that opens the microphone is a different program from the one that is handed sound,
+  // so it is asked for once the capture has said which this is. Windows has nothing to record with,
+  // so its own engine is also what listens there when the owner has set up a speech program of
+  // their own: that program could spot the word, but nothing on Windows could feed it.
+  const listensItself = recorded.kind === "spotter-listens" || (!recorded.available && platform === "win32");
+  if (!listensItself) return { wake, spotter: handedSound, capture: recorded };
   const spotter = wakeSpotter(voice, wake, platform, true);
   return { wake, spotter, capture: wakeCapture(platform, present, spotter, wake.windowSeconds) };
 }
@@ -296,6 +299,11 @@ export function wakeRefusal(
       ? "Lockdown is on, so nothing is listening for your word. Turn Lockdown off in Settings to allow this again."
       : "The wake word is switched off, so nothing is listening. Turn it on in Settings, Voice.";
   if (!wake.word) return "No word has been chosen yet, so there is nothing to listen for. Choose one in Settings, Voice.";
+  // mac7/wake-mic: "when needed" means "only while a conversation is open on the screen", and
+  // nothing tells this listener that. Rather than listen all the time under a switch that promises
+  // otherwise, it says so and holds nothing open.
+  if (wake.mode === "when-needed")
+    return "\"When needed\" is not wired up yet: nothing tells the listener whether a conversation is open on the screen, so it would end up listening all the time, which is not what that setting says. Choose On, or leave it Off, in Settings, Voice.";
   const { spotter, capture } = wakeParts(store, owner, platform, present);
   if (!spotter.available) return spotter.how;
   // mac7/wake-mic: spotting the word is not listening for it. A computer with no way to record is

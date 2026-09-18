@@ -17,7 +17,7 @@ import { discardTemp } from "./temp-dir.mjs";
 import { createBranch, savePolicy } from "../dist/index.js";
 import { setLockdown } from "../dist/lockdown.js";
 import { saveVoiceSettings } from "../dist/voice.js";
-import { saveWakeWordSettings, startWakeWord, windowBytes } from "../dist/voice-wake.js";
+import { saveWakeWordSettings, startWakeWord, wakeParts, wakeRefusal, windowBytes } from "../dist/voice-wake.js";
 
 /** A recorder that never exists unless a test says it does. */
 const has = (...names) => (name) => names.includes(name);
@@ -222,4 +222,46 @@ test("M6 the turn the word starts carries no permission a typed one would not", 
   assert.equal(app.store.run(heardQuestion.runId).status, "needs_input");
   // Nothing was written, by either turn: both are still waiting to be asked.
   await assert.rejects(readdir(join(app.runtime.workspace, "notes")), /ENOENT/);
+});
+
+test("M7 Windows really listens: its own engine opens the microphone, and the word is never in the script", async (t) => {
+  const { store, owner } = await fixture(t);
+  saveWakeWordSettings(store, owner, { mode: "on", word: "branch" });
+  // `never` everywhere: Windows ships no recorder, and none is looked for.
+  const never = () => false;
+
+  // The speech program the fixture set up could spot the word, but nothing on Windows could record
+  // sound to give it, so Windows' own engine is what listens — the one that opens the microphone.
+  for (const label of ["with a speech program of the owner's", "without one"]) {
+    if (label === "without one") saveVoiceSettings(store, owner, { localSpeechExecutable: "", localSpeechModel: "" });
+    const { spotter, capture } = wakeParts(store, owner, "win32", never);
+    const script = spotter.command.args.join(" ");
+    assert.equal(capture.kind, "spotter-listens", `${label}: Windows went looking for a recorder`);
+    assert.equal(capture.command, null, `${label}: a recorder was going to be run on Windows`);
+    assert.equal(spotter.command.file, "powershell.exe", label);
+    assert.match(script, /SetInputToDefaultAudioDevice/, `${label}: the engine was left waiting on standard input`);
+    assert.match(script, /Recognize\(\[TimeSpan\]/, `${label}: the engine was not held to one window`);
+    assert.equal(script.includes("OpenStandardInput"), false, label);
+    // The word and the window are values the program reads, never text inside the command.
+    assert.equal(spotter.command.args.includes("branch"), false, `${label}: the word was on the command line`);
+    assert.deepEqual(Object.keys(spotter.command.env).sort(),
+      ["BRANCH_WAKE_SURENESS", "BRANCH_WAKE_WINDOW", "BRANCH_WAKE_WORD"], label);
+    assert.equal(spotter.command.env.BRANCH_WAKE_WORD, "branch", label);
+    assert.equal(spotter.command.env.BRANCH_WAKE_WINDOW, "2", label);
+    assert.equal(wakeRefusal(store, owner, "win32", never), null, `${label}: Windows refused to listen`);
+  }
+});
+
+test("M8 \"when needed\" says it is not wired up rather than listening all the time", async (t) => {
+  const { store, owner } = await fixture(t);
+  saveWakeWordSettings(store, owner, { mode: "when-needed", word: "branch" });
+  const microphone = fakeMicrophone(), spotter = fakeSpotter("branch");
+  const wake = listener(store, owner, { ...microphone, ...spotter });
+  t.after(() => wake.stop());
+  // The card promises that this setting listens only while a conversation is open on the screen,
+  // and nothing tells the listener that; it holds nothing open rather than break the promise.
+  assert.equal(wake.listening, false, "\"when needed\" held the microphone open the whole time");
+  assert.equal(microphone.mic.windows, 0);
+  assert.match(wakeRefusal(store, owner, "linux", has("arecord")), /not wired up yet/);
+  await wake.stop();
 });

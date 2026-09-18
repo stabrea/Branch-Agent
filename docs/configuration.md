@@ -7884,8 +7884,10 @@ without the file and network wall (see above).
 ## A word that starts a turn (mac7/wake-pins, mac7/wake-mic)
 
 Instead of holding **Talk**, say a word of your own and Branch starts a turn. It ships **off**, like everything else, and has the same three-way switch: **off** — nothing listens at all;
-**when needed** — it listens only while a conversation is open on the screen; **on** — it listens
-whenever Branch is running. Its card, **A word that starts a turn**, lives in Settings → Voice.
+**on** — it listens whenever Branch is running; **when needed** — meant to listen only while a
+conversation is open on the screen, and **not wired up**: nothing tells the listener whether one is,
+so it says so plainly rather than listening all the time under a switch that promises otherwise
+(mac7/wake-mic). Its card, **A word that starts a turn**, lives in Settings → Voice.
 Holding Talk stays the ordinary way in and is not going away.
 
 **What it really does, and what it never does.** Listening happens on this computer. No sound leaves
