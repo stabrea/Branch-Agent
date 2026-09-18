@@ -291,6 +291,21 @@ test("a chat task, a short-lived key, a Trunk, a schedule and Lockdown are each 
   assert.equal(autofillGuard(store, OWNER, context()), autofillStartedElsewhereRefusal);
   store.eventRows.delete(runId);
 
+  // Integration review: every way a task can be started that is not the owner's own, taken from the
+  // list of sources a task may record (src/contracts.ts, ToolContext.source). One left out here is
+  // one that could ask for a password, so the list is written out rather than sampled.
+  for (const source of ["trigger", "schedule", "mcp", "a2a", "acp"]) {
+    assert.equal(autofillGuard(store, OWNER, context({ source })), autofillStartedElsewhereRefusal,
+      `a task started by ${source} was allowed to fill a sign-in`);
+    store.eventRows.set(runId, [{ kind: "run.started", data: { source } }]);
+    assert.equal(autofillGuard(store, OWNER, context()), autofillStartedElsewhereRefusal,
+      `a task whose record says ${source} was allowed to fill a sign-in, even with no source on the context`);
+    await assert.rejects(() => autofill.fill({ login: "shop" }, context()), /Only work you started yourself/);
+    store.eventRows.delete(runId);
+  }
+  // "channel" is the chat refusal, which is its own sentence; the two together cover the whole list.
+  assert.equal(autofillGuard(store, OWNER, context({ source: "channel" })), autofillChatRefusal);
+
   store.save("settings", OWNER, "lockdown", { on: true, since: null, before: {} });
   assert.equal(autofillGuard(store, OWNER, context()), autofillLockdownRefusal);
   await assert.rejects(() => autofill.fill({ login: "shop" }, context()), new RegExp("Lockdown is on"));
