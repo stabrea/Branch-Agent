@@ -8724,6 +8724,53 @@ after it opens a picker of the connections.
 Nothing here differs by system. Cmd counts as Ctrl for the shortcuts on macOS. The sound is played by the window
 itself, not by a system program.
 
+## Removing Branch and everything it installed (mac7/clean-uninstall)
+
+Everything Branch fetches lives inside Branch, so deleting Branch takes all of it with it. The
+**danger zone** is the last card in Settings → Updates & about, marked in the warning colour, and it
+is the one place in the window that removes things that cannot be brought back.
+
+**What it shows, before anything goes.** A list with real sizes, walked on this computer at the
+moment you look: Branch Agent itself, the programs Branch downloaded to run models
+(`<data>/runners`), the models it downloaded (`<data>/models`, and the older `<data>/local-models`),
+downloads kept part-way through (`<data>/local-installers`), your conversations and settings, the
+entry that starts Branch when you sign in, the `branch` command, and on Linux the applications-menu
+entry. Underneath, **what Branch cannot remove**, each named with the honest reason: a copy of
+Branch its own installer did not put there (a Mac's shared `/Applications`), and any program that
+runs models that lives outside Branch, because a system installer put it there or because you
+installed it yourself. Branch leaves those alone and tells you where they are.
+
+**Two choices, not one.** *Keep my conversations and settings* keeps the folder holding your work;
+what Branch downloaded still goes, because gigabytes of models are Branch's doing, not yours. Left
+off, everything goes.
+
+**A misclick cannot pass.** The button stays off until you have typed `Branch Agent`, exactly, and
+your yes carries back the exact list you were shown (`agreedSurvey`); if what is really there has
+changed since you looked, nothing is removed and you are shown the new list.
+
+**Yours alone.** A message from a chat app, a short-lived key (which is also how another computer
+reaches this one), somebody else using this computer under their own profile, a Trunk, and work a
+schedule or a trigger started are each refused in one sentence. Unlike installing, this is *not*
+held off by Lockdown or by the install switch: taking Branch off your own computer stays yours.
+
+**It works while Branch is running.** The removal closes the running Branch (and the engine that
+keeps working with the window closed) first, waits until it has really gone, takes out the sign-in
+entry, and only then removes the files. It is the same remover as `branch uninstall [--delete-data]`
+on the command line — there is no second path — extended to the folders Branch fetches into.
+
+| Route | What it does |
+| --- | --- |
+| `POST /api/remove-branch/plan` | `{ "keepConversations": false }`: the list with sizes, what cannot be removed, the phrase to type, and the list's own line. Describes only; changes nothing. |
+| `POST /api/remove-branch` | `{ "keepConversations": false, "confirm": "Branch Agent", "agreedSurvey": "<the list's line>" }`. |
+
+On Windows both answer with the plain sentence pointing at *Add or remove programs* or
+`Uninstall Branch Agent.cmd /quiet`, because that is how Windows removes a program.
+
+**Which version this is.** The Updates card (Settings → Updates & about) says in plain words what is
+running and whether a newer one exists — "Running 0.18.0, newest is 0.18.1", or "Running 0.18.0,
+which is the newest", or that Branch has not looked yet — from the same update check as before.
+Nothing installs itself: *Update and restart* is still a button you press.
+
 ## Learning, deeper (R17-F)
 
 Nine parts under `src/learning-more/`, each with the owner's three-way switch (off, on, only when it

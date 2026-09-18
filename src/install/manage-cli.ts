@@ -3,7 +3,7 @@ import { join, resolve } from "node:path";
 import { daemonCommand, daemonLauncherName } from "./daemon.js";
 import { headlessUpdate, type HeadlessUpdateDeps } from "./headless-update.js";
 import { quitRunning, runningNow, type QuitDeps } from "./quit.js";
-import { performUnixUninstall, unixLayout, type UnixLayout } from "./unix-install.js";
+import { performUnixUninstall, unixLayout, type UnixLayout, type UnixUninstallReport } from "./unix-install.js";
 import type { RunTool } from "./windows.js";
 
 /**
@@ -45,15 +45,22 @@ async function quit(context: ManageContext): Promise<number> {
   return report.stopped ? 0 : 1;
 }
 
-async function uninstall(context: ManageContext, args: string[]): Promise<number> {
-  if (context.platform === "win32") {
-    context.print("On Windows, remove Branch under Add or remove programs, or run `Uninstall Branch Agent.cmd /quiet` from its folder (add --delete-data to remove conversations and files too).");
-    return 1;
-  }
-  if (context.platform !== "darwin" && context.platform !== "linux") { context.print("Removing Branch is not available on this kind of computer."); return 1; }
+export const windowsRemoveNote =
+  "On Windows, remove Branch under Add or remove programs, or run `Uninstall Branch Agent.cmd /quiet` from its folder (add --delete-data to remove conversations and files too).";
+
+export interface UninstallOutcome { ok: boolean; lines: string[]; report: UnixUninstallReport | null }
+
+/**
+ * The one remover (mac7/clean-uninstall). The command line and the danger zone in Settings both
+ * come through here, so there is never a second path that removes a different set of things.
+ */
+export async function runUninstall(context: ManageContext, options: { deleteData: boolean }): Promise<UninstallOutcome> {
+  if (context.platform === "win32") return { ok: false, lines: [windowsRemoveNote], report: null };
+  if (context.platform !== "darwin" && context.platform !== "linux")
+    return { ok: false, lines: ["Removing Branch is not available on this kind of computer."], report: null };
   const layout = context.deps?.layout ?? unixLayout(context.platform, context.env);
   const report = await performUnixUninstall({
-    layout, deleteData: args.includes("--delete-data"),
+    layout, deleteData: options.deleteData,
     stop: async () => {
       const closed = await quitRunning(layout.dataDir, context.deps?.quit);
       if (!closed.stopped) throw new Error(closed.message);
@@ -66,10 +73,16 @@ async function uninstall(context: ManageContext, args: string[]): Promise<number
       }, context.deps?.run ? { run: context.deps.run } : {});
     },
   });
-  context.print(report.removed.length ? `Branch Agent has been removed (${report.removed.length} places).` : "Branch Agent was not installed here; nothing needed removing.");
-  for (const copy of report.left) context.print(`${copy} was not put there by this installer, so it was left; remove it yourself if you want it gone.`);
-  context.print(report.dataKept ? `Your conversations and files are kept in ${report.dataKept}.` : "Your conversations and files were removed too.");
-  return 0;
+  const lines = [report.removed.length ? `Branch Agent has been removed (${report.removed.length} places).` : "Branch Agent was not installed here; nothing needed removing."];
+  for (const copy of report.left) lines.push(`${copy} was not put there by this installer, so it was left; remove it yourself if you want it gone.`);
+  lines.push(report.dataKept ? `Your conversations and files are kept in ${report.dataKept}.` : "Your conversations and files were removed too.");
+  return { ok: true, lines, report };
+}
+
+async function uninstall(context: ManageContext, args: string[]): Promise<number> {
+  const outcome = await runUninstall(context, { deleteData: args.includes("--delete-data") });
+  for (const line of outcome.lines) context.print(line);
+  return outcome.ok ? 0 : 1;
 }
 
 /** Answers with an exit code, or null when the command is not one of these (or `update` belongs to a Git checkout). */

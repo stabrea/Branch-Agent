@@ -908,8 +908,24 @@ $("chatgpt-logout").addEventListener("click", async () => {
   catch (e) { toast(e.message); }
 });
 let updatesTimer = null;
+/*
+ * mac7/clean-uninstall: what is running and whether a newer one exists, in plain words, from the
+ * update check that already runs. Nothing installs itself: "Update and restart" is still a button.
+ */
+function showVersions(status) {
+  const running = state.version;
+  const newest = status?.release?.latestVersion;
+  $("updates-version").textContent = `Branch Agent ${running}`;
+  const line = $("updates-newest");
+  if (!line) return;
+  if (status?.phase === "unsupported") line.textContent = `Running ${running}. This copy cannot check for newer versions.`;
+  else if (!newest) line.textContent = `Running ${running}. Branch has not looked for a newer one yet.`;
+  else if (status.release.available) line.textContent = `Running ${running}, newest is ${newest}.`;
+  else line.textContent = `Running ${running}, which is the newest.`;
+}
 function showUpdateStatus(status) {
   $("updates-status").textContent = status.message;
+  showVersions(status);
   const working = ["checking", "downloading", "verifying", "unpacking", "ready", "applying"].includes(status.phase);
   const installing = ["downloading", "verifying", "unpacking", "ready", "applying"].includes(status.phase);
   if (installing) window.branchUpdateScreen?.show(status); else window.branchUpdateScreen?.hide();
@@ -924,7 +940,7 @@ function showUpdateStatus(status) {
 }
 async function renderUpdates() {
   $("updates-card").hidden = !window.branchDesktop;
-  $("updates-version").textContent = `Branch Agent ${state.version}`;
+  showVersions(null);
   if (!window.branchDesktop) return;
   try { showUpdateStatus(await window.branchDesktop.updateStatus()); } catch (e) { $("updates-status").textContent = e.message; }
 }

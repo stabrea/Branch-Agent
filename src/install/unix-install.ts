@@ -215,6 +215,16 @@ export async function performUnixInstall(options: UnixInstallOptions): Promise<U
     version: elsewhere ? found!.version : options.version, dataDir: layout.dataDir };
 }
 
+/**
+ * mac7/clean-uninstall: the folders Branch fetches things into, inside its own data folder. They
+ * hold programs Branch downloaded and the models they read — gigabytes that are Branch's doing, not
+ * the person's work — so they go even when conversations and settings are kept. The names are
+ * fixed here and joined onto the layout's own data folder, so nothing outside it can be named.
+ */
+export const fetchedFolderNames = ["runners", "models", "local-installers", "local-models"] as const;
+export const fetchedFolders = (layout: UnixLayout): string[] =>
+  fetchedFolderNames.map((name) => join(layout.dataDir, name));
+
 export interface UnixUninstallOptions {
   layout: UnixLayout;
   deleteData?: boolean;
@@ -263,6 +273,12 @@ export async function performUnixUninstall(options: UnixUninstallOptions): Promi
   await options.stop();
   await options.removeService();
   await removeCopies(layout, removed, left);
+  // mac7/clean-uninstall: what Branch fetched goes whether or not the conversations are kept.
+  for (const folder of fetchedFolders(layout)) {
+    if (!(await lstat(folder).then(() => true, () => false))) continue;
+    await rm(folder, { recursive: true, force: true });
+    removed.push(folder);
+  }
   for (const [path, marker] of [[layout.launcher, launcherMarker], [layout.menuEntry, menuMarker]] as const) {
     if (!path || !(await lstat(path).then((found) => found.isFile(), () => false)) || !(await ours(path, marker))) continue;
     await rm(path, { force: true });

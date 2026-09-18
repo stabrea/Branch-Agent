@@ -756,6 +756,10 @@ export const ROUTES = {
   "/api/queue/:id/cancel": "task POST",
   "/api/queue/settings": "owner POST",
   "/api/receipts/verify": "task POST",
+  // mac7/clean-uninstall: the danger zone. Describing what would go names every folder on this
+  // computer with its size, and doing it removes Branch, so both are the owner's alone.
+  "/api/remove-branch": "owner POST",
+  "/api/remove-branch/plan": "owner POST",
   "/api/recordings": "owner POST",
   "/api/reflection": "look",
   "/api/reflection/batches/:id/accept": "other POST",

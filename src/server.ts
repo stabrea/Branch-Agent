@@ -38,6 +38,10 @@ import { testRouteFor } from "./provider-factory.js";
 import { connectFromPreset, forgetConnection } from "./connections-preset.js";
 import { catalogEntries, catalogEntry, providerCatalog } from "./provider-catalog.js";
 import { localModelsApi } from "./local-models-api.js";
+import { handlesRemovePath, removeBranchApi } from "./remove-branch.js";
+
+/** mac7/clean-uninstall: the folder holding this copy's package.json, as `branch uninstall` reads it. */
+const packageRootHere = (): string => dirname(dirname(fileURLToPath(import.meta.url)));
 import { localRuntimes } from "./local-runtimes.js";
 // Wave mac5 (local models): the one-click pieces kept beside this app's store.
 import { localKitFor } from "./local-kit.js";
@@ -421,6 +425,8 @@ async function staticFile(
     "/local-models.js": ["local-models.js", "text/javascript; charset=utf-8"],
     // Wave mac5 (local models): the one-click block inside the same card.
     "/local-oneclick.js": ["local-oneclick.js", "text/javascript; charset=utf-8"],
+    // mac7/clean-uninstall: the danger zone at the bottom of Settings.
+    "/danger-zone.js": ["danger-zone.js", "text/javascript; charset=utf-8"],
     // Wave 6: sharing, labels and notes, workflows, the waiting line, days off and people.
     "/collab.js": ["collab.js", "text/javascript; charset=utf-8"],
     "/automations.js": ["automations.js", "text/javascript; charset=utf-8"],
@@ -1113,6 +1119,14 @@ async function api(
     return localModelsApi(
       { runtimes: localRuntimes(), store: app.store, models: app.runtime.models, owner: app.runtime.owner, kit: localKitFor(app.store) },
       request.method ?? "GET", path, () => readBody(request),
+    );
+  // mac7/clean-uninstall: the danger zone — what removing Branch would take away, and removing it.
+  // The owner's alone, in the app window; the remover itself is the one `branch uninstall` uses.
+  if (handlesRemovePath(path))
+    return removeBranchApi(
+      { store: app.store, owner: app.runtime.owner, platform: process.platform, env: process.env,
+        manage: { env: process.env, platform: process.platform, version: app.version, packageRoot: packageRootHere(), print: () => undefined } },
+      request.method ?? "GET", path, () => readBody(request, 4 * 1024),
     );
   if (request.method === "POST" && path === "/api/onboarding") {
     const value = OnboardingSchema.parse(await readBody(request));
@@ -3491,6 +3505,9 @@ export function offLimitsToShortLivedKeys(method: string | undefined, path: stri
   // pictures) and the event-loop watch are the owner's settings.
   if (path === "/api/recordings" || path === "/api/event-loop")
     return "A short-lived key cannot change task recordings or the check on whether Branch is keeping up. Do that in the app window.";
+  // mac7/clean-uninstall: removing Branch, and even the list of what removing it would take away.
+  if (path === "/api/remove-branch" || path === "/api/remove-branch/plan")
+    return "A short-lived key cannot remove Branch from this computer, and neither can another computer reaching this one. Do that in the app window.";
   // mac5/local-models (integration review): the switch, downloading, starting a program and deleting a model.
   // mac7/one-click (issue #107): installing the program that runs the models is the owner's alone too.
   if (/^\/api\/local-models\/(switch|setup|pull|load|stop|remove|delete|unload|runtime|install|one-button|routing$)/.test(path))
