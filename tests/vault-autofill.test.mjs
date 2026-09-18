@@ -9,7 +9,7 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
@@ -28,6 +28,8 @@ import { offLimitsToShortLivedKeys } from "../dist/server.js";
 import { ToolRegistry } from "../dist/registry.js";
 import { registerVaultAutofill } from "../dist/vault-autofill.js";
 import { findLeaks, redactLeaksIn } from "../dist/leak-guard.js";
+import { createBranch } from "../dist/index.js";
+import { loadIntegrations } from "../dist/integrations/bootstrap.js";
 
 /** The one value in these tests. It must never turn up anywhere but the page's password box. */
 const THE_PASSWORD = "correct-horse-battery-staple-42";
@@ -337,6 +339,26 @@ test("commandFor still answers exactly as it did for a password, and adds only t
     { executable: "bw", args: ["--nointeraction", "--raw", "get", "totp", "GitHub"] });
   assert.deepEqual(commandFor({ service: "1password", item: "Private/GitHub/password" }, settings),
     { executable: "op", args: ["read", "--no-newline", "op://Private/GitHub/password"] });
+  // The fourth case is refused rather than quietly read as a password: a caller that asked for a
+  // code and got a password would type the wrong secret into the wrong box.
+  assert.throws(() => commandFor({ service: "1password", item: "Private/GitHub", field: "totp" }, settings),
+    /one-time code from Bitwarden only/);
+});
+
+test("the real wiring registers the tool: a launch with a browser really has signin.fill", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-vault-autofill-boot-"));
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data") });
+  t.after(async () => { await app.close(); await discardTemp(root); });
+  assert.ok(!app.registry.names().includes("signin.fill"), "with no browser there is nothing to fill");
+  const configPath = join(root, "integrations.json");
+  // A browser is made but never started: BranchBrowser opens Chromium only when a page is asked for.
+  await writeFile(configPath, JSON.stringify({ browser: { allowedOrigins: ["https://example.com"] } }));
+  const loaded = await loadIntegrations(app.registry, configPath, {}, app.secretsFor, app.channelHost);
+  t.after(() => loaded.close());
+  assert.ok(app.registry.names().includes("signin.fill"), "the tool is registered beside the browser tools");
+  assert.equal(app.registry.permissionOf("signin.fill"), "signin.fill");
+  // Still off, so a task is never offered it until the owner switches it on.
+  assert.deepEqual(switchedToolTiers(app.store, app.runtime.owner, app.registry.names()).hidden.includes("signin.fill"), true);
 });
 
 /* ───────────────────────────── the switch, the settings and the words ───────────────────────────── */

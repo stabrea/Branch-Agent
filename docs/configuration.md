@@ -8159,6 +8159,13 @@ there by whoever wrote the page, and a page's content is not something to be led
 website you opened is not that hop, so an ordinary sign-in — password, then the one-time code on the next page —
 works as it should.
 
+**What this does not catch.** The hop is noticed when Branch *presses* something. An address it opens
+directly is not a hop, so text on a page that talks the assistant into opening
+`https://pages.example.com/login` by address would still be filled, because anything under `example.com` is
+under your line's own site. The sign-in stays tied to the website you saved it for, which is the property that
+matters, and matching the website name exactly would refuse `www.` and ordinary sign-in subdomains. Write the
+`address` down for a line where that trade is not good enough for you.
+
 **Where the value can go.** Into the box on the page, and nowhere else. It is not in the answer the assistant gets,
 not in an event, not in the record of what the assistant was allowed to do (which names the sign-in, the box and
 the website only), not in a trace and not in an error message — a page library's own message is never passed on,

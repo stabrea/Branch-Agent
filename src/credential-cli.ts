@@ -89,8 +89,11 @@ export function commandFor(reference: CredentialRef, settings: CredentialSetting
   const field = reference.field ?? "password";
   if (reference.service === "bitwarden")
     return { executable: settings.bitwardenCommand || "bw", args: ["--nointeraction", "--raw", "get", field === "totp" ? "totp" : "password", reference.item] };
-  // 1Password reads a field by its address, and a one-time code is not at a path Branch can guess,
-  // so it is refused before it gets this far (src/vault-autofill.ts).
+  // 1Password reads a field by its address, and a one-time code is not at a path Branch can guess.
+  // It is refused here rather than quietly read as a password: a caller that asked for a code and
+  // was handed a password would type the wrong secret into the wrong box.
+  if (field === "totp")
+    throw new Error("Branch reads a one-time code from Bitwarden only. 1Password holds it at an address only you know.");
   const path = reference.item.startsWith("op://") ? reference.item : `op://${reference.item}`;
   return { executable: settings.onePasswordCommand || "op", args: ["read", "--no-newline", path] };
 }
