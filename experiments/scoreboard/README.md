@@ -101,10 +101,22 @@ RIG.md keeps a list of what the rig installed; this is what the board added on t
 | the Hermes virtualenv and its home | `/workspace/bench/hermes-venv`, `/workspace/bench/hermes-home` | `rm -rf` |
 | every run's workspace and state | `/workspace/bench/board/{work,state}` | `rm -rf` |
 
-Nothing was installed on the Mac, no system package was added to the VM, and the owner's own
-Hermes, OpenClaw and Codex installations were not run, configured or read. `~/.claude`,
-`~/.openclaw` and `~/.hermes` are checked before and after every window; the check and its result
-are in the board's own write-up.
+Checked after the last window, with everything above stopped:
+
+```
+2026-09-07T15:57:06+00:00  ~/.claude      (unchanged — the rig's own recorded baseline)
+2026-09-18T16:12:45+00:00  ~/.openclaw    (unchanged since before OPENCLAW_HOME was set)
+absent                     ~/.hermes      (still absent)
+hermes-dashboard hermes-gateway-default openclaw.service   -> active active active
+GPU: 155 MiB, the idle baseline. No model of ours resident.
+```
+
+`~/.openclaw` carries an afternoon timestamp because OpenClaw *was* writing into the owner's own
+installation before it was given `OPENCLAW_HOME` and `OPENCLAW_STATE_DIR` — `--isolated` covers the
+config only. It has not moved since, across a hundred-odd runs, which is what shows the isolation
+holds. Nothing was installed on the Mac, no system package was added to the VM, and the owner's own
+Hermes, OpenClaw and Codex installations were not run, configured or read. The loopback forwarder is
+deliberately left running and fixed, since it belongs to the rig rather than to this board.
 
 ## A gap in the fingerprint, stated rather than hidden
 
