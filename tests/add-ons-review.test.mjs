@@ -377,11 +377,12 @@ test("review: a filter for the connection a task falls back to holds the preview
     for (const piece of answer.split(" ")) request.onTextDelta?.(`${piece} `);
     return { content: answer, toolCalls: [] };
   } };
-  const root = await temp(t, "branch-addons-fallback-");
+  const root = await mkdtemp(join(tmpdir(), "branch-addons-fallback-"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"),
     presets: [{ id: "main", name: "Main", provider: main, model: "m" }, { id: "backup", name: "Backup", provider: backup, model: "b" }],
     retryPolicy: { maxRetries: 0, baseDelayMs: 1, maxDelayMs: 2 } });
-  t.after(() => app.close());
+  // One hook, app first: Windows will not delete a folder whose database is still open.
+  t.after(async () => { await app.close(); await discardTemp(root); });
   app.runtime.models.configure("local", { fallbackOrder: ["backup"] });
   app.addOns.filters.save({ id: "cards", name: "Cards", stage: "outlet", match: "4111", action: "redact", text: "[card]", models: ["Backup"] });
   const shown = [];

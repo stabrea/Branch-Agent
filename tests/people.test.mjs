@@ -756,7 +756,6 @@ test("B19-28 on the paired door, the identity service's way back passes the door
 
 test("B19-29 a person's task cut off by a restart carries on as that person, and their conversation stays theirs", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "branch-people-restart-"));
-  t.after(() => discardTemp(root));
   const dataDir = join(root, "data"), workspace = join(root, "workspace");
   await saveGatewayConfig(dataDir, GatewayConfigSchema.parse({ mode: "on" }));
   const quiet = { name: "scripted", async complete() { return { content: "Done.", toolCalls: [] }; } };
@@ -777,7 +776,8 @@ test("B19-29 a person's task cut off by a restart carries on as that person, and
     return { content: "Carried on.", toolCalls: [] };
   } };
   second = await createBranch({ workspace, dataDir, provider });
-  t.after(() => second.close());
+  // One hook, app first: Windows will not delete a folder whose database is still open.
+  t.after(async () => { await second.close(); await discardTemp(root); });
   assert.ok(second.store.ownsSession(`profile:${ada.id}`, run.sessionId), "handed back to her at start");
   assert.equal(second.store.profiles.isOwner(), true);
   const [report] = await second.neverBreak.recoverOnStart(dataDir);
@@ -795,9 +795,9 @@ test("B19-29 a person's task cut off by a restart carries on as that person, and
 
 test("B19-30 a step redone after a restart is held to the person's role, not the owner's", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "branch-people-redo-"));
-  t.after(() => discardTemp(root));
   const app = await createBranch({ workspace: join(root, "w"), dataDir: join(root, "d"), provider: { name: "s", async complete() { return { content: "ok", toolCalls: [] }; } } });
-  t.after(() => app.close());
+  // One hook, app first: Windows will not delete a folder whose database is still open.
+  t.after(async () => { await app.close(); await discardTemp(root); });
   const ada = app.store.profiles.create({ name: "Ada", pin: "1234" });
   app.runtime.roles.save(ada.id, { role: "child" });
   const run = app.store.createRun(app.runtime.owner, "write it");
