@@ -407,7 +407,7 @@ function renderLimits(view) {
   box.checked = limits.settings?.enabled ?? false;
   ask.append(box, document.createTextNode(" Ask OpenRouter what is left on its key, on a timer"));
   card.append(ask);
-  card.append(el("p", "OpenRouter documents an endpoint for this, so asking is fair. No subscription account is ever asked: the question itself would spend the allowance it is measuring.", "subtle"));
+  card.append(el("p", "OpenRouter publishes a web address for this, so asking is fair. No subscription account is ever asked: the question itself would spend the allowance it is measuring.", "subtle"));
   box.addEventListener("change", () => void saveLimitsSwitch(box.checked));
   view.append(card);
 }

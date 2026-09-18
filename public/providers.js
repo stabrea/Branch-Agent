@@ -48,7 +48,7 @@ export async function initProvidersUI() {
   }
 
   // Populate dropdown
-  dropdown.innerHTML = '<option value="">Custom endpoint</option>';
+  dropdown.innerHTML = `<option value="">${t("models.custom-address", "Another web address")}</option>`;
   for (const preset of presets) {
     const opt = document.createElement("option");
     opt.value = preset.id;
