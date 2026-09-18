@@ -3,7 +3,8 @@ import { posix, win32 } from "node:path";
 import { errorText } from "./contracts.js";
 import { findVariant, ollamaDownloadBytes, variantBytes, type CatalogueEntry, type CatalogueVariant } from "./local-catalogue.js";
 import { registerLocalConnection, smokeTest, type LocalConnectionDeps } from "./local-connections.js";
-import { assertRoomOnDisk, downloadFile, mlxFilesWanted, modelsFolder, repoFiles, resolveUrl, type StatFs } from "./local-files.js";
+import { assertRoomOnDisk, downloadFile, freeDiskBytes, mlxFilesWanted, modelsFolder, repoFiles, resolveUrl, type StatFs } from "./local-files.js";
+import { gb } from "./local-hardware.js";
 import { chooseContext, judgeFit, type MachineRoom } from "./local-fit.js";
 import { SetupJobs, SetupRequestSchema, assertLocalModelsOn, type SetupJob, type SetupRequest } from "./local-jobs.js";
 import { runtimeIds, runtimeInfo, type RuntimeId, type RuntimeLauncher } from "./local-launch.js";
@@ -12,6 +13,7 @@ import { localRuntimeFetch } from "./local-policy.js";
 import { detectTools, installPlan, isInstallable, planSize, runInstall, type InstallPlan, type InstallableRunner } from "./local-install.js";
 import {
   ButtonGoSchema, ButtonPlanSchema, installGuard, needsAgreementNote, notInstalledNote, planChangedNote, sizeChoices,
+  systemWideAllowed,
   type ButtonGo, type PressContext, type SizeChoice,
 } from "./local-one-button.js";
 
@@ -47,6 +49,10 @@ export interface OneButtonView {
   alreadyInstalled: boolean;
   install: InstallPlan | null;
   downloadNote: string;
+  /** mac7/clean-uninstall: where the models this button downloads will be kept. */
+  modelsFolder: string;
+  /** How much room is left where they go, in plain words. */
+  roomNote: string;
   choices: SizeChoice[];
   recommended: SizeChoice["size"] | null;
   /** Why this caller may not press it, or null. The plan itself is only ever a description. */
@@ -171,8 +177,22 @@ export class OneClick {
 
   private async checkDisk(resolved: Resolved): Promise<void> {
     if (!resolved.bytes) return;
-    const folder = modelsFolder(resolved.runtime, this.deps.launcher.at, this.deps.dataDir);
+    const folder = await this.modelsGoTo(resolved.runtime);
     await assertRoomOnDisk(folder, resolved.bytes, this.deps.launcher.at.platform, this.deps.statfs);
+  }
+
+  /** mac7/clean-uninstall: where this runtime's models land, inside Branch when Branch fetched it. */
+  async modelsGoTo(runtime: RuntimeId): Promise<string> {
+    return modelsFolder(runtime, this.deps.launcher.at, this.deps.dataDir, await this.deps.launcher.isOwn(runtime));
+  }
+
+  /** How much room is left where the models go, in plain words, before anything is downloaded. */
+  async roomNote(runtime: RuntimeId): Promise<string> {
+    const folder = await this.modelsGoTo(runtime);
+    try {
+      const free = await freeDiskBytes(folder, this.deps.launcher.at.platform, this.deps.statfs);
+      return `Models go to ${folder}. About ${gb(free)} GB is free on that disk.`;
+    } catch { return `Models go to ${folder}.`; }
   }
 
   /** Whether Ollama or LM Studio is answering now. */
@@ -298,10 +318,17 @@ export class OneClick {
     const program = await this.deps.launcher.find(runner);
     const room = await this.deps.room();
     const { choices, recommended } = sizeChoices(room, runner);
-    const plan = program ? null : installPlan(runner, this.deps.launcher.at, await detectTools(this.deps.launcher.at, this.deps.launcher.fileExists));
+    // mac7/clean-uninstall: the copy outside Branch is only ever offered when the owner switched
+    // "Allow installing outside Branch" on, or where it is the only honest option (LM Studio).
+    const wanted = ((input as { systemWide?: boolean } | null)?.systemWide ?? false)
+      && systemWideAllowed(this.deps.store, this.deps.owner);
+    const plan = program ? null : installPlan(runner, this.deps.launcher.at,
+      await detectTools(this.deps.launcher.at, this.deps.launcher.fileExists), this.deps.dataDir, wanted);
     return {
       runner, name: runtimeInfo[runner].name, alreadyInstalled: Boolean(program), install: plan,
       downloadNote: plan ? `${planSize(plan)} from ${plan.source}.` : "",
+      // mac7/clean-uninstall: where the download lands and how much of this disk is left for it.
+      modelsFolder: await this.modelsGoTo(runner), roomNote: await this.roomNote(runner),
       choices, recommended: recommended?.size ?? null, refusal,
     };
   }
@@ -321,7 +348,7 @@ export class OneClick {
     const wanted = ButtonGoSchema.parse(input ?? {});
     const refusal = installGuard(this.deps.store, this.deps.owner, context);
     if (refusal) throw new Error(refusal);
-    const view = await this.buttonPlan({ ...(wanted.runner ? { runner: wanted.runner } : {}) }, context);
+    const view = await this.buttonPlan({ ...(wanted.runner ? { runner: wanted.runner } : {}), ...(wanted.systemWide ? { systemWide: true } : {}) }, context);
     if (!view.alreadyInstalled) {
       const outcome = await this.install(view.install, wanted);
       if (outcome) return outcome;
@@ -341,7 +368,7 @@ export class OneClick {
         needsAgreement: plan, job: null, chose: null };
     const outcome = await runInstall(plan, {
       at: this.deps.launcher.at, run: this.deps.launcher.program, exists: this.deps.launcher.fileExists,
-      library: this.deps.library, scratchDir: this.installFolder(),
+      library: this.deps.library, scratchDir: this.installFolder(), dataDir: this.deps.dataDir,
     });
     if (!outcome.installed) throw new Error(outcome.message);
     if (!(await this.deps.launcher.find(plan.runner))) throw new Error(notInstalledNote(plan.name));

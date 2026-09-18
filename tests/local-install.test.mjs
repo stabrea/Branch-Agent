@@ -34,6 +34,8 @@ const at = {
   linux: { platform: "linux", arch: "x64", home: "/home/sam", env: { PATH: "/usr/bin" } },
   win32: { platform: "win32", arch: "x64", home: "C:\\Users\\sam", env: { Path: "C:\\Windows", LOCALAPPDATA: "C:\\Users\\sam\\AppData\\Local" } },
 };
+const DATA = "/Users/sam/Library/Application Support/Branch Agent/state";
+const RUNNER = `${DATA}/runners/ollama`;
 const noTools = { homebrew: null, winget: null };
 const room = (over = {}) => ({ totalMemoryBytes: 32 * GB, freeMemoryBytes: 20 * GB, graphicsLimitBytes: null, cores: 10,
   graphics: { name: "Apple M4", memoryBytes: null, sharedMemory: true }, summary: "", ...over });
@@ -46,32 +48,36 @@ async function scratch(label) {
 
 /* ------------------------------------------------------------------ the plan, on every system */
 
-test("I1 each system is installed its own way, and every command is an argument list", () => {
-  const brewOllama = installPlan("ollama", at.darwin, { homebrew: "/opt/homebrew/bin/brew", winget: null });
-  assert.equal(brewOllama.via, "homebrew");
+test("I1 every system unpacks the publisher's own archive inside Branch, with argument lists only", () => {
+  const brewOllama = installPlan("ollama", at.darwin, { homebrew: "/opt/homebrew/bin/brew", winget: null }, DATA, true);
+  assert.equal(brewOllama.via, "homebrew", "Homebrew only when the owner deliberately asks for it");
   assert.deepEqual(brewOllama.steps.map((step) => step.command), [["/opt/homebrew/bin/brew", "install", "ollama"]]);
-  const brewStudio = installPlan("lm-studio", at.darwin, { homebrew: "/opt/homebrew/bin/brew", winget: null });
+  const brewStudio = installPlan("lm-studio", at.darwin, { homebrew: "/opt/homebrew/bin/brew", winget: null }, DATA);
   assert.deepEqual(brewStudio.steps.map((step) => step.command), [["/opt/homebrew/bin/brew", "install", "--cask", "lm-studio"]]);
   assert.match(brewStudio.after, /Open LM Studio once/);
 
   const winget = "C:\\Users\\sam\\AppData\\Local\\Microsoft\\WindowsApps\\winget.exe";
-  const wingetOllama = installPlan("ollama", at.win32, { homebrew: null, winget });
+  const wingetOllama = installPlan("ollama", at.win32, { homebrew: null, winget }, DATA, true);
   assert.equal(wingetOllama.via, "winget");
   assert.deepEqual(wingetOllama.steps[0].command,
     [winget, "install", "--id", "Ollama.Ollama", "--exact", "--source", "winget", "--accept-package-agreements", "--accept-source-agreements"]);
-  assert.equal(installPlan("lm-studio", at.win32, { homebrew: null, winget }).steps[0].command[3], "ElementLabs.LMStudio");
+  assert.equal(installPlan("lm-studio", at.win32, { homebrew: null, winget }, DATA).steps[0].command[3], "ElementLabs.LMStudio");
 
-  const mac = installPlan("ollama", at.darwin, noTools);
+  const mac = installPlan("ollama", at.darwin, noTools, DATA);
   assert.equal(mac.via, "download");
+  assert.equal(mac.where, RUNNER);
   assert.deepEqual(mac.steps.map((step) => step.command), [
     ["/usr/bin/ditto", "-x", "-k", "{file}", "{unpacked}"],
     ["/usr/bin/codesign", "--verify", "--strict", "--deep", "{unpacked}/Ollama.app"],
     ["/usr/sbin/spctl", "--assess", "--type", "execute", "{unpacked}/Ollama.app"],
-    ["/usr/bin/ditto", "{unpacked}/Ollama.app", "/Applications/Ollama.app"],
-  ]);
-  const linux = installPlan("ollama", at.linux, noTools);
-  assert.deepEqual(linux.steps.map((step) => step.command), [["/bin/sh", "{file}"]], "the script is saved and run, never piped");
-  assert.deepEqual(installPlan("ollama", at.win32, noTools).steps.map((step) => step.command), [["{file}"]]);
+    ["/usr/bin/ditto", "{unpacked}/Ollama.app", "{root}/Ollama.app"],
+    ["/usr/bin/tmutil", "addexclusion", "{models}"],
+  ], "it lands inside Branch, never in /Applications");
+  const linux = installPlan("ollama", at.linux, noTools, DATA);
+  assert.deepEqual(linux.steps.map((step) => step.command), [["tar", "--zstd", "-xf", "{file}", "-C", "{root}"]],
+    "a plain archive, never an install script that needs a password");
+  assert.deepEqual(installPlan("ollama", at.win32, noTools, DATA).steps.map((step) => step.command),
+    [["C:\\Windows\\System32\\tar.exe", "-xf", "{file}", "-C", "{root}"]], "no publisher's installer runs");
 
   for (const plan of [brewOllama, brewStudio, wingetOllama, mac, linux]) {
     for (const step of plan.steps) {
@@ -80,11 +86,22 @@ test("I1 each system is installed its own way, and every command is an argument 
     }
     assert.ok(plan.verify.length > 20, "every plan says how the download is checked");
   }
+  // mac7/clean-uninstall: the default leaves nothing behind; a system installer says plainly that it does.
+  for (const plan of [mac, linux, installPlan("ollama", at.win32, noTools, DATA)]) {
+    assert.equal(plan.leavesBehind, false);
+    assert.ok(plan.where.replaceAll("\\", "/").startsWith(DATA), `${plan.where} is inside Branch`);
+    assert.match(plan.after, /removed with Branch/);
+  }
+  for (const plan of [brewOllama, brewStudio, wingetOllama]) {
+    assert.equal(plan.leavesBehind, true);
+    assert.equal(plan.where, "");
+    assert.match(plan.leavesBehindNote, /Removing Branch will not remove it/);
+  }
 });
 
 test("I2 what Branch cannot install safely it refuses, in plain words, with where to get it", () => {
   for (const platform of ["darwin", "win32", "linux"]) {
-    const plan = installPlan("lm-studio", at[platform], noTools);
+    const plan = installPlan("lm-studio", at[platform], noTools, DATA);
     assert.equal(plan.via, "none");
     assert.deepEqual(plan.steps, []);
     assert.equal(plan.fetch, null);
@@ -96,15 +113,15 @@ test("I2 what Branch cannot install safely it refuses, in plain words, with wher
 });
 
 test("I3 a yes only ever agrees to the plan that was shown", () => {
-  const mac = installPlan("ollama", at.darwin, noTools);
-  const linux = installPlan("ollama", at.linux, noTools);
+  const mac = installPlan("ollama", at.darwin, noTools, DATA);
+  const linux = installPlan("ollama", at.linux, noTools, DATA);
   assert.match(mac.fingerprint, /^[a-f0-9]{32}$/);
   assert.notEqual(mac.fingerprint, linux.fingerprint);
   assert.equal(planFingerprint(mac), mac.fingerprint, "the line is the plan's own facts, nothing else");
   const meddled = { ...mac, steps: [{ what: "x", command: ["/bin/sh", "-c", "curl x | sh"] }] };
   assert.notEqual(planFingerprint(meddled), mac.fingerprint);
   assert.match(planSize(mac), /GB$/);
-  assert.match(planSize(installPlan("ollama", at.linux, noTools)), /MB$/);
+  assert.notEqual(planFingerprint({ ...mac, where: "/Applications" }), mac.fingerprint, "where it goes is part of the plan");
 });
 
 test("I4 Homebrew and winget are looked for only where they really live", async () => {
@@ -125,11 +142,12 @@ test("I5 the publisher's checksum decides: a file that does not match is thrown 
   t.after(async () => { await discardTemp(root); });
   const body = Buffer.from("#!/bin/sh\necho hello\n");
   const good = createHash("sha256").update(body).digest("hex");
-  const list = `${good}  ./install.sh\n0000000000000000000000000000000000000000000000000000000000000000  ./other.zip\n`;
-  assert.equal(checksumFor(list, "install.sh"), good);
+  const asset = "ollama-linux-amd64.tar.zst";
+  const list = `${good}  ./${asset}\n0000000000000000000000000000000000000000000000000000000000000000  ./other.zip\n`;
+  assert.equal(checksumFor(list, asset), good);
   assert.throws(() => checksumFor(list, "missing.zip"), /not in the list of checksums/);
 
-  const plan = installPlan("ollama", at.linux, noTools);
+  const plan = installPlan("ollama", at.linux, noTools, DATA);
   const asked = [];
   const library = async (url) => {
     asked.push(url);
@@ -138,11 +156,11 @@ test("I5 the publisher's checksum decides: a file that does not match is thrown 
   };
   const deps = { at: at.linux, run: async () => ({ stdout: "" }), exists: async () => false, library, scratchDir: join(root, "dl") };
   const file = await fetchInstaller(plan, deps);
-  assert.ok(file.endsWith("install.sh"));
+  assert.ok(file.endsWith(asset));
   assert.ok(asked[0].endsWith("sha256sum.txt"), "the checksum is read before the file");
 
   const wrong = async (url) => url.endsWith("sha256sum.txt")
-    ? new Response(`${"a".repeat(64)}  ./install.sh\n`) : new Response(body);
+    ? new Response(`${"a".repeat(64)}  ./${asset}\n`) : new Response(body);
   await assert.rejects(fetchInstaller(plan, { ...deps, library: wrong, scratchDir: join(root, "bad") }),
     /did not match the checksum its publisher published/);
   assert.deepEqual(await readdir(join(root, "bad")), [], "nothing is left behind when it does not match");
@@ -151,7 +169,7 @@ test("I5 the publisher's checksum decides: a file that does not match is thrown 
 test("I6 nothing is ever fetched from anywhere but the publisher", async (t) => {
   const root = await scratch("install-host");
   t.after(async () => { await discardTemp(root); });
-  const plan = installPlan("ollama", at.linux, noTools);
+  const plan = installPlan("ollama", at.linux, noTools, DATA);
   const elsewhere = { ...plan, fetch: { ...plan.fetch, checksums: "https://example.invalid/sha256sum.txt" } };
   await assert.rejects(fetchInstaller(elsewhere, {
     at: at.linux, run: async () => ({ stdout: "" }), exists: async () => false,
@@ -168,7 +186,7 @@ test("I6 nothing is ever fetched from anywhere but the publisher", async (t) => 
 test("I7 a step that fails stops the rest and is reported honestly", async (t) => {
   const root = await scratch("install-run");
   t.after(async () => { await discardTemp(root); });
-  const plan = installPlan("ollama", at.darwin, { homebrew: "/opt/homebrew/bin/brew", winget: null });
+  const plan = installPlan("ollama", at.darwin, { homebrew: "/opt/homebrew/bin/brew", winget: null }, DATA, true);
   const ran = [];
   const ok = await runInstall(plan, {
     at: at.darwin, exists: async () => true, library: async () => { throw new Error("no internet"); }, scratchDir: join(root, "x"),
@@ -186,7 +204,7 @@ test("I7 a step that fails stops the rest and is reported honestly", async (t) =
   assert.match(failed.message, /No such keg/);
   assert.match(failed.message, /Nothing was left half-installed/);
 
-  const refused = await runInstall(installPlan("lm-studio", at.linux, noTools), {
+  const refused = await runInstall(installPlan("lm-studio", at.linux, noTools, DATA), {
     at: at.linux, exists: async () => true, library: async () => { throw new Error("no"); }, scratchDir: join(root, "x"),
     run: async () => { throw new Error("a refused plan must run nothing"); },
   });
@@ -303,16 +321,22 @@ test("I12 after installing, Branch checks the program really arrived rather than
   await assert.rejects(w.oneClick.buttonGo({ size: "small", agreedPlan: view.install.fingerprint }),
     /still is not on this computer/, "a half-install is never called a success");
   const scratch = join(w.root, "data", "local-installers");
+  const runner = join(w.root, "data", "runners", "ollama");
+  const models = join(w.root, "data", "models", "ollama");
   assert.deepEqual(w.ran, [
     ["/usr/bin/ditto", "-x", "-k", join(scratch, "Ollama-darwin.zip"), join(scratch, "unpacked")],
     ["/usr/bin/codesign", "--verify", "--strict", "--deep", `${join(scratch, "unpacked")}/Ollama.app`],
     ["/usr/sbin/spctl", "--assess", "--type", "execute", `${join(scratch, "unpacked")}/Ollama.app`],
-    ["/usr/bin/ditto", `${join(scratch, "unpacked")}/Ollama.app`, "/Applications/Ollama.app"],
-  ], "the exact commands, with the downloaded file and the unpacked folder filled in under Branch's own folder");
+    ["/usr/bin/ditto", `${join(scratch, "unpacked")}/Ollama.app`, `${runner}/Ollama.app`],
+    ["/usr/bin/tmutil", "addexclusion", models],
+  ], "the exact commands, filled in under Branch's own folder and nowhere else");
   for (const command of w.ran) for (const part of command) assert.doesNotMatch(part, /[{}]/, "nothing is left unfilled");
+  // mac7/clean-uninstall: the one place it may write is inside Branch.
+  for (const command of w.ran) for (const part of command.slice(1))
+    if (part.startsWith("/")) assert.ok(part.startsWith(w.root), `${part} is outside Branch's own folders`);
 });
 
-test("I12b a program macOS does not accept is never put in Applications", async (t) => {
+test("I12b a program macOS does not accept is never unpacked into Branch", async (t) => {
   const body = Buffer.from("not really a program");
   const sum = createHash("sha256").update(body).digest("hex");
   const library = async (url) => String(url).endsWith("sha256sum.txt")
@@ -321,8 +345,8 @@ test("I12b a program macOS does not accept is never put in Applications", async 
   const root = await scratch("install-signature");
   t.after(async () => { await discardTemp(root); });
   const ran = [];
-  const outcome = await runInstall(installPlan("ollama", at.darwin, noTools), {
-    at: at.darwin, exists: async () => false, library, scratchDir: join(root, "dl"),
+  const outcome = await runInstall(installPlan("ollama", at.darwin, noTools, join(root, "data")), {
+    at: at.darwin, exists: async () => false, library, scratchDir: join(root, "dl"), dataDir: join(root, "data"),
     run: async (file, args) => {
       ran.push([file, ...args]);
       if (file === "/usr/sbin/spctl") throw Object.assign(new Error("exit 3"), { stderr: "rejected: source=no usable signature" });
@@ -333,8 +357,10 @@ test("I12b a program macOS does not accept is never put in Applications", async 
   assert.match(outcome.message, /Check the signature|Check macOS accepts it/, "the message names the step that stopped it");
   assert.match(outcome.message, /no usable signature/);
   assert.equal(ran.length, 3, "it stopped at the check");
+  assert.equal(ran.some((command) => command.some((part) => part.endsWith("/runners/ollama/Ollama.app"))), false,
+    "nothing an unsigned download unpacked is ever put in place");
   assert.equal(ran.some((command) => command.includes("/Applications/Ollama.app")), false,
-    "nothing an unsigned download unpacked ever reaches Applications");
+    "and nothing ever reaches Applications");
 });
 
 test("I13 with the program already there the button goes straight to the model, and says so", async (t) => {

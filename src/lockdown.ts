@@ -96,6 +96,9 @@ const coveredSettings: readonly RegExp[] = [
   /^vault-autofill$/,
   // mac7/one-click (issue #107): installing a program changes the owner's own computer.
   /^local-runner-install$/,
+  // mac7/clean-uninstall: letting an installer put a program outside Branch reaches further still,
+  // so Lockdown reads it as no. (Removing Branch is not here: Lockdown must never trap the owner.)
+  /^local-runner-place$/,
 ];
 
 /** True when Lockdown is on and this settings record is one it switches off. */

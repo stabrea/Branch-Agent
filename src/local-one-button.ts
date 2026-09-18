@@ -33,6 +33,18 @@ export function oneButtonMode(store: Pick<Store, "get">, owner: string): Feature
   const saved = SavedSchema.safeParse(store.get("settings", owner, oneButtonSetting)?.data ?? {});
   return saved.success ? (saved.data.mode ?? "off") : "off";
 }
+/**
+ * mac7/clean-uninstall: whether Branch may use a system installer, which puts the program outside
+ * Branch and leaves it behind when Branch is removed. No by default; the card says so either way.
+ */
+export const runnerPlaceSetting = "local-runner-place";
+const PlaceSchema = z.object({ systemWide: z.boolean().optional() }).loose();
+export function systemWideAllowed(store: Pick<Store, "get">, owner: string): boolean {
+  if (lockdownActive(store, owner)) return false;
+  const saved = PlaceSchema.safeParse(store.get("settings", owner, runnerPlaceSetting)?.data ?? {});
+  return saved.success ? (saved.data.systemWide ?? false) : false;
+}
+
 export function saveOneButtonMode(store: Store, owner: string, input: unknown): { mode: FeatureMode } {
   const { mode } = OneButtonSettingsSchema.parse(input);
   store.save("settings", owner, oneButtonSetting, { mode });
@@ -136,9 +148,18 @@ export function sizeChoices(room: MachineRoom, runner: InstallableRunner): { cho
 /* ---------------------------------------------------------------- what the route takes */
 
 const runnerEnum = z.enum(installableRunners as unknown as [InstallableRunner, ...InstallableRunner[]]);
-export const ButtonPlanSchema = z.object({ runner: runnerEnum.optional() }).strict();
+export const ButtonPlanSchema = z.object({
+  runner: runnerEnum.optional(),
+  /**
+   * mac7/clean-uninstall: ask for the system-wide copy instead of the one inside Branch. Off by
+   * default, because a system installer leaves the program behind when Branch is removed.
+   */
+  systemWide: z.boolean().optional(),
+}).strict();
 export const ButtonGoSchema = z.object({
   runner: runnerEnum.optional(),
+  /** mac7/clean-uninstall: the owner deliberately chose the copy that lives outside Branch. */
+  systemWide: z.boolean().optional(),
   /** Which of the three the owner picked; the comfortable one when they picked none. */
   size: z.enum(["small", "medium", "large"]).optional(),
   /**

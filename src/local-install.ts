@@ -4,7 +4,7 @@ import { mkdir, rm, stat } from "node:fs/promises";
 import { posix, win32 } from "node:path";
 import { z } from "zod";
 import { gb } from "./local-hardware.js";
-import { runtimeInfo, type Exists, type LaunchEnv, type Runner, type RuntimeId } from "./local-launch.js";
+import { branchModelsFolder, branchRunnerRoot, runtimeInfo, type Exists, type LaunchEnv, type Runner, type RuntimeId } from "./local-launch.js";
 
 /**
  * mac7/one-click (issue #107): installing the program that runs the models, when the computer has
@@ -37,9 +37,19 @@ const installerHosts = /^(github\.com|objects\.githubusercontent\.com|release-as
 
 /** Ollama publishes a checksum for every file beside the files themselves, in each release. */
 const ollamaRelease = "https://github.com/ollama/ollama/releases/latest/download";
-const ollamaAsset: Record<string, string | null> = {
-  darwin: "Ollama-darwin.zip", win32: "OllamaSetup.exe", linux: "install.sh",
-};
+
+/**
+ * mac7/clean-uninstall: the plain archive for this computer, never a system installer. Each one is
+ * unpacked into Branch's own folder, so removing Branch removes the program with it.
+ */
+export function ollamaAssetFor(at: LaunchEnv): string | null {
+  const cpu = at.arch === "arm64" ? "arm64" : at.arch === "x64" ? "amd64" : null;
+  if (at.platform === "darwin") return "Ollama-darwin.zip";
+  if (!cpu) return null;
+  if (at.platform === "linux") return `ollama-linux-${cpu}.tar.zst`;
+  if (at.platform === "win32") return `ollama-windows-${cpu}.zip`;
+  return null;
+}
 
 export interface ToolsPresent {
   /** Where `brew` is, when this Mac (or Linux) has Homebrew. */
@@ -77,6 +87,15 @@ export interface InstallPlan {
   steps: InstallStep[];
   /** What is still left for the person afterwards, in plain words; empty when there is nothing. */
   after: string;
+  /**
+   * mac7/clean-uninstall: the folder this goes into, inside Branch's own data folder. Empty when a
+   * system installer puts it somewhere of its own choosing.
+   */
+  where: string;
+  /** True when a system installer puts this outside Branch, so removing Branch cannot take it away. */
+  leavesBehind: boolean;
+  /** Why it is outside Branch and what that means, in plain words; empty when it is inside Branch. */
+  leavesBehindNote: string;
   /** Set when Branch cannot install it here: the plain sentence saying what to do instead. */
   instead: string | null;
   /** The exact plan, in one line. The owner's yes carries it back, and only this plan then runs. */
@@ -87,27 +106,41 @@ const mac = (runner: InstallableRunner) => ({ publisher: runner === "ollama" ? "
 
 /** The plan as one line, so a yes can only ever agree to the plan that was shown. */
 export function planFingerprint(plan: Omit<InstallPlan, "fingerprint">): string {
-  const facts = JSON.stringify([plan.runner, plan.platform, plan.via, plan.source, plan.fetch, plan.steps, plan.instead]);
+  const facts = JSON.stringify([plan.runner, plan.platform, plan.via, plan.source, plan.fetch, plan.steps, plan.instead, plan.where]);
   return createHash("sha256").update(facts).digest("hex").slice(0, 32);
 }
 const finish = (plan: Omit<InstallPlan, "fingerprint">): InstallPlan => ({ ...plan, fingerprint: planFingerprint(plan) });
 
+const inside = { where: "", leavesBehind: false, leavesBehindNote: "" };
+
 const noWay = (runner: InstallableRunner, platform: string, instead: string): InstallPlan => finish({
-  runner, name: runtimeInfo[runner].name, platform, via: "none", ...mac(runner),
+  runner, name: runtimeInfo[runner].name, platform, via: "none", ...mac(runner), ...inside,
   source: runtimeInfo[runner].installPage, approxBytes: 0, verify: "", fetch: null, steps: [], after: "", instead,
 });
 
 /**
- * What installing this program means on this computer. Pure, so every system is checked on every
- * machine and a test never has to have Homebrew, winget or a package manager.
+ * mac7/clean-uninstall: what installing this program means on this computer. Pure, so every system
+ * is checked on every machine and a test never has to have Homebrew, winget or a package manager.
+ *
+ * The default is always the publisher's plain archive unpacked inside Branch's own folder
+ * (`dataDir`), never a system installer: that way removing Branch removes the program too, and
+ * nothing asks the person for permissions of its own. Homebrew and winget are still here, but only
+ * where they are the only honest option (LM Studio publishes no archive with a checksum) or where
+ * the owner deliberately asked for a system-wide copy; either way the plan says plainly that it
+ * will be left behind.
  */
-export function installPlan(runner: InstallableRunner, at: LaunchEnv, tools: ToolsPresent): InstallPlan {
-  if (tools.homebrew && at.platform === "darwin") return homebrewPlan(runner, at, tools.homebrew);
-  if (tools.winget && at.platform === "win32") return wingetPlan(runner, at, tools.winget);
-  if (runner === "lm-studio") return noWay(runner, at.platform, lmStudioByHand(at.platform));
-  const asset = ollamaAsset[at.platform];
-  if (!asset) return noWay(runner, at.platform, `Branch does not know how to install Ollama on ${at.platform}. Install it from ${runtimeInfo.ollama.installPage}.`);
-  return downloadPlan(at, asset);
+export function installPlan(
+  runner: InstallableRunner, at: LaunchEnv, tools: ToolsPresent, dataDir: string, systemWide = false,
+): InstallPlan {
+  const onlyWaySystemWide = runner === "lm-studio";
+  if (systemWide || onlyWaySystemWide) {
+    if (tools.homebrew && at.platform === "darwin") return homebrewPlan(runner, at, tools.homebrew);
+    if (tools.winget && at.platform === "win32") return wingetPlan(runner, at, tools.winget);
+    if (onlyWaySystemWide) return noWay(runner, at.platform, lmStudioByHand(at.platform));
+  }
+  const asset = ollamaAssetFor(at);
+  if (!asset) return noWay(runner, at.platform, `Branch does not know how to install Ollama on ${at.platform} (${at.arch}). Install it from ${runtimeInfo.ollama.installPage}.`);
+  return downloadPlan(at, asset, branchRunnerRoot(dataDir, "ollama", at.platform));
 }
 
 const lmStudioByHand = (platform: string): string => platform === "darwin"
@@ -118,6 +151,15 @@ const lmStudioByHand = (platform: string): string => platform === "darwin"
 
 const openOnce = "Open LM Studio once so it puts its `lms` command in place, then come back here.";
 
+/**
+ * mac7/clean-uninstall: the plain sentence every system-installer plan carries. This is the one
+ * thing Branch installs that removing Branch cannot take away again, so it says so before it runs.
+ */
+const leftBehind = (name: string, by: string): string =>
+  `${name} is installed by ${by}, which puts it outside Branch. Removing Branch will not remove it: `
+  + `the danger zone in Settings will name it and you can remove it yourself afterwards. `
+  + `It may also ask you for permissions of its own and start by itself when you sign in.`;
+
 function homebrewPlan(runner: InstallableRunner, at: LaunchEnv, brew: string): InstallPlan {
   const command = runner === "ollama" ? [brew, "install", "ollama"] : [brew, "install", "--cask", "lm-studio"];
   return finish({
@@ -127,6 +169,7 @@ function homebrewPlan(runner: InstallableRunner, at: LaunchEnv, brew: string): I
     verify: "Homebrew checks the download against the checksum in its own package description before it installs anything.",
     fetch: null, steps: [{ what: `Install ${runtimeInfo[runner].name} with Homebrew`, command }],
     after: runner === "lm-studio" ? openOnce : "", instead: null,
+    where: "", leavesBehind: true, leavesBehindNote: leftBehind(runtimeInfo[runner].name, "Homebrew"),
   });
 }
 
@@ -140,14 +183,22 @@ function wingetPlan(runner: InstallableRunner, at: LaunchEnv, winget: string): I
     verify: "winget checks the download against the checksum in Microsoft's package list before it installs anything.",
     fetch: null, steps: [{ what: `Install ${runtimeInfo[runner].name} with winget`, command }],
     after: runner === "lm-studio" ? openOnce : "", instead: null,
+    where: "", leavesBehind: true, leavesBehindNote: leftBehind(runtimeInfo[runner].name, "winget"),
   });
 }
 
-/** Ollama from Ollama's own release, checked against the checksum published beside it. */
-function downloadPlan(at: LaunchEnv, asset: string): InstallPlan {
+/**
+ * mac7/clean-uninstall: Ollama from Ollama's own release, checked against the checksum published
+ * beside it and unpacked into `{root}` — a folder inside Branch. No system installer runs, so
+ * nothing is asked for an administrator's password, nothing is registered to start by itself, and
+ * removing Branch removes the program. Branch runs the program straight out of that folder and
+ * never opens the bundle, which is what keeps macOS from registering it as an installed app.
+ */
+function downloadPlan(at: LaunchEnv, asset: string, root: string): InstallPlan {
   const fetch: InstallFetch = { url: `${ollamaRelease}/${asset}`, checksums: `${ollamaRelease}/sha256sum.txt`, asset };
   const common = { runner: "ollama" as const, name: "Ollama", platform: at.platform, via: "download" as const, ...mac("ollama"),
-    source: `${ollamaRelease}/${asset}`, fetch, instead: null };
+    source: `${ollamaRelease}/${asset}`, fetch, instead: null, where: root, leavesBehind: false, leavesBehindNote: "" };
+  const after = `Nothing else. Ollama lives in ${root} and is removed with Branch.`;
   if (at.platform === "darwin") return finish({
     ...common, approxBytes: 1200 * 1024 ** 2,
     verify: "Branch checks the download against the SHA-256 Ollama publishes beside it, then asks macOS itself whether the program is signed by its publisher and notarised by Apple. Anything that does not match is thrown away.",
@@ -155,23 +206,29 @@ function downloadPlan(at: LaunchEnv, asset: string): InstallPlan {
       { what: "Unpack it", command: ["/usr/bin/ditto", "-x", "-k", "{file}", "{unpacked}"] },
       { what: "Check the signature", command: ["/usr/bin/codesign", "--verify", "--strict", "--deep", "{unpacked}/Ollama.app"] },
       { what: "Check macOS accepts it", command: ["/usr/sbin/spctl", "--assess", "--type", "execute", "{unpacked}/Ollama.app"] },
-      { what: "Put it in Applications", command: ["/usr/bin/ditto", "{unpacked}/Ollama.app", "/Applications/Ollama.app"] },
+      { what: "Put it inside Branch", command: ["/usr/bin/ditto", "{unpacked}/Ollama.app", "{root}/Ollama.app"] },
+      // Gigabytes of models must not be swept into Time Machine by surprise; this needs no administrator.
+      { what: "Keep the models out of Time Machine", command: ["/usr/bin/tmutil", "addexclusion", "{models}"] },
     ],
-    after: "Open Ollama once from your Applications folder if macOS asks you to allow it.",
+    after,
   });
   if (at.platform === "win32") return finish({
     ...common, approxBytes: 700 * 1024 ** 2,
     verify: "Branch checks the download against the SHA-256 Ollama publishes beside it, and throws it away if it does not match.",
-    steps: [{ what: "Open Ollama's own installer", command: ["{file}"] }],
-    after: "Ollama's own installer opens. Branch waits while you click through it, then checks that Ollama really arrived.",
+    steps: [{ what: "Unpack it inside Branch", command: [windowsTar(at), "-xf", "{file}", "-C", "{root}"] }],
+    after,
   });
   return finish({
-    ...common, approxBytes: 16 * 1024,
-    verify: "Branch checks Ollama's install script against the SHA-256 Ollama publishes beside it, saves it to a file, and runs that file. Nothing is piped into a shell.",
-    steps: [{ what: "Run Ollama's install script", command: ["/bin/sh", "{file}"] }],
-    after: "The script may ask for your password so it can put Ollama in place.",
+    ...common, approxBytes: 1400 * 1024 ** 2,
+    verify: "Branch checks the download against the SHA-256 Ollama publishes beside it, and throws it away if it does not match. No install script runs and nothing asks for your password.",
+    steps: [{ what: "Unpack it inside Branch", command: ["tar", "--zstd", "-xf", "{file}", "-C", "{root}"] }],
+    after,
   });
 }
+
+/** Windows ships bsdtar as `tar.exe`, which unpacks a zip; it is named in full, never found on PATH. */
+const windowsTar = (at: LaunchEnv): string =>
+  win32.join(at.env.SystemRoot ?? at.env.SYSTEMROOT ?? "C:\\Windows", "System32", "tar.exe");
 
 /* ---------------------------------------------------------------- what this computer has */
 
@@ -213,6 +270,8 @@ export interface InstallDeps {
   library: typeof globalThis.fetch;
   /** A folder of Branch's own that the download goes into. */
   scratchDir: string;
+  /** mac7/clean-uninstall: Branch's own data folder, where the program and its models end up. */
+  dataDir?: string;
   onProgress?: (completed: number, total: number) => void;
   signal?: AbortSignal;
 }
@@ -296,14 +355,25 @@ export async function runInstall(plan: InstallPlan, deps: InstallDeps): Promise<
   const file = plan.fetch ? await fetchInstaller(plan, deps) : "";
   const unpacked = join(deps.scratchDir, "unpacked");
   if (plan.fetch && plan.platform === "darwin") await rm(unpacked, { recursive: true, force: true });
+  // mac7/clean-uninstall: a fresh folder inside Branch for the program, and one for its models, so
+  // the unpacking step has somewhere to land and a half-finished earlier try is not built upon.
+  const models = deps.dataDir ? join(branchModelsFolder(deps.dataDir, deps.at.platform), plan.runner) : "";
+  if (plan.where) {
+    await rm(plan.where, { recursive: true, force: true });
+    await mkdir(plan.where, { recursive: true });
+    if (models) await mkdir(models, { recursive: true });
+  }
   const ran: string[][] = [];
   for (const step of plan.steps) {
     deps.signal?.throwIfAborted();
-    const command = step.command.map((part) => part.replaceAll("{file}", file).replaceAll("{unpacked}", unpacked));
+    const command = step.command.map((part) =>
+      part.replaceAll("{file}", file).replaceAll("{unpacked}", unpacked).replaceAll("{root}", plan.where).replaceAll("{models}", models));
     ran.push(command);
     try {
       await deps.run(command[0]!, command.slice(1), { timeout: 20 * 60 * 1000, windowsHide: true });
     } catch (error) {
+      // Nothing half-unpacked is left inside Branch when a step fails.
+      if (plan.where) await rm(plan.where, { recursive: true, force: true });
       return { installed: false, ran, message: stepFailure(plan, step, error) };
     }
   }
