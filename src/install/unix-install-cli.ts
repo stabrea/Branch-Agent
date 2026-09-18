@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { shareableSections } from "../interop/agent-market.js";
 import { databaseName } from "./layout.js";
@@ -13,6 +13,7 @@ import { performUnixInstall, unixLayout, type UnixLayout, type UnixPlatform } fr
  * `install-branch-agent.sh`:
  *
  *   install --source <app> [--quiet] [--no-menu-entry] [--repair] [--assistant <file>]
+ *           [--applications | --no-applications]
  *
  * `--assistant` makes a custom distribution: an assistant file made with `branch export-agent` is
  * brought in on a fresh install, so everyone who installs from that folder starts with the same
@@ -21,6 +22,50 @@ import { performUnixInstall, unixLayout, type UnixLayout, type UnixPlatform } fr
  * that is already set up on this computer.
  *   uninstall [--delete-data]
  */
+/**
+ * mac7/app-icon. macOS treats a program as properly installed when it is in the Applications folder,
+ * and it marks anything that came from the internet until something takes the mark off — which is
+ * why an app unpacked from a download is refused. Branch can do both, but it asks first.
+ *
+ * The question is only ever put to a person at a terminal. `--applications` and `--no-applications`
+ * answer it in advance, and `--quiet` or a script with no terminal is never asked, so the installer
+ * keeps its promise that it asks nothing of anything that is not a person.
+ */
+export const applicationsQuestion = [
+  "",
+  "macOS treats a program as properly installed once it is in the Applications folder, and it marks",
+  "anything that came from the internet until something takes that mark off. Branch Agent can put",
+  "itself in Applications and take the mark off its own copy, so it opens like any other app.",
+  "",
+  "Put Branch Agent in the Applications folder? [Y/n] ",
+].join("\n");
+
+/** An answer already given on the command line, or null when nobody has said. */
+export function answeredApplications(args: string[]): boolean | null {
+  if (args.includes("--no-applications")) return false;
+  if (args.includes("--applications")) return true;
+  return null;
+}
+
+export type Ask = (question: string) => Promise<string>;
+
+/** Whether this install goes into the shared Applications folder. */
+export async function wantsApplications(
+  args: string[], platform: UnixPlatform, terminal: boolean, ask: Ask,
+): Promise<boolean> {
+  const answered = answeredApplications(args);
+  if (answered !== null) return answered;
+  if (platform !== "darwin" || args.includes("--quiet") || !terminal) return false;
+  const reply = (await ask(applicationsQuestion)).trim().toLowerCase();
+  return reply === "" || reply.startsWith("y");
+}
+
+const askOnTerminal: Ask = async (question) => {
+  const { createInterface } = await import("node:readline/promises");
+  const terminal = createInterface({ input: process.stdin, output: process.stdout });
+  try { return await terminal.question(question); } finally { terminal.close(); }
+};
+
 const flag = (args: string[], name: string): string | undefined => {
   const at = args.indexOf(`--${name}`);
   return at === -1 ? undefined : args[at + 1];
@@ -48,23 +93,42 @@ async function bringAssistant(file: string, report: { dataDir: string; launcher:
   print(`The assistant in ${file} was brought in.`);
 }
 
-export async function unixInstall(args: string[], layout: UnixLayout, print: (line: string) => void, run: RunBranch = runBranch): Promise<void> {
+export async function unixInstall(
+  args: string[], layout: UnixLayout, print: (line: string) => void, run: RunBranch = runBranch, ask: Ask = askOnTerminal,
+): Promise<void> {
   const source = flag(args, "source");
   if (!source) throw new Error("Tell the installer where the unpacked app is: --source <folder>");
   const assistant = flag(args, "assistant");
   if (assistant !== undefined && !existsSync(assistant)) throw new Error(`The assistant file ${assistant} was not found, so nothing was installed.`);
+  const applications = await wantsApplications(args, layout.platform, Boolean(process.stdin.isTTY), ask);
   const report = await performUnixInstall({
     layout, source, version: await versionOf(layout.platform, source),
-    menuEntry: !args.includes("--no-menu-entry"), repair: args.includes("--repair"),
+    menuEntry: !args.includes("--no-menu-entry"), repair: args.includes("--repair"), applications,
   });
   print(report.attached
     ? `Branch Agent ${report.version} was already installed in ${report.installRoot}; it is linked up again.`
     : `Branch Agent ${report.version} is installed in ${report.installRoot}.`);
+  if (report.movedFrom) print(`The copy that was in ${report.movedFrom} has been taken away, so there is only one.`);
   if (report.previousKept) print(`The version that was there is kept in ${report.previousKept}.`);
   print(`The \`branch\` command is ${report.launcher}.`);
   if (report.menuEntry) print(`It is in your applications menu (${report.menuEntry}).`);
+  if (report.icons.length) print(`Its icon is in your icon theme (${report.icons.length} sizes).`);
+  for (const line of afterInstallNotes(report, layout, applications, args)) print(line);
   if (assistant !== undefined) await bringAssistant(assistant, report, run, print);
   print(`Your conversations and files are kept in ${report.dataDir}.`);
+}
+
+/** What macOS did, and what was not done, said once in plain words rather than done silently. */
+export function afterInstallNotes(
+  report: { quarantineCleared: boolean; installRoot: string }, layout: UnixLayout, applications: boolean, args: string[],
+): string[] {
+  const lines: string[] = [];
+  if (report.quarantineCleared)
+    lines.push("macOS marks anything that came from the internet, and it has been taken off this copy, so Branch Agent opens like any other app.");
+  if (layout.platform !== "darwin" || applications || report.installRoot === layout.sharedRoot) return lines;
+  if (answeredApplications(args) === null && args.includes("--quiet"))
+    lines.push(`Branch Agent is in your own ${dirname(layout.installRoot)} folder. To put it in the shared Applications folder instead, run the installer again with --applications.`);
+  return lines;
 }
 
 export async function unixInstallMain(args: string[], env: NodeJS.ProcessEnv): Promise<void> {

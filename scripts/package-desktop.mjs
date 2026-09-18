@@ -163,6 +163,22 @@ async function packageMac({ arch }) {
   console.log(mac.macSigningNotice(plan));
 }
 
+/**
+ * mac7/app-icon: the ready-made icon sizes the Linux installer copies into this person's icon theme,
+ * so a menu, a dock and a switcher each draw a mark made for their size instead of shrinking one big
+ * picture. Made with the repository's own PNG code, so nothing has to be installed to build a release.
+ */
+async function writeLinuxIcons(folder) {
+  const { LINUX_ICON_FOLDER, LINUX_ICON_SIZES, iconFileName } = await import("../dist/install/unix-icons.js");
+  const { readPng, scale, writePng } = await import("../apps/mobile/scripts/png.mjs");
+  const mark = readPng(await readFile("public/assets/keepoak-mark.png"));
+  const into = join(folder, LINUX_ICON_FOLDER);
+  await mkdir(into, { recursive: true });
+  for (const size of LINUX_ICON_SIZES)
+    await writeFile(join(into, iconFileName(linux.LINUX_EXECUTABLE, size)), writePng(scale(mark, size)));
+  return into;
+}
+
 async function packageLinux({ arch }) {
   const [out] = await runPackager(packagerOptions("linux", arch, "public/assets/keepoak-mark.png"));
   const folder = join(RELEASE, linux.LINUX_FOLDER);
@@ -172,6 +188,7 @@ async function packageLinux({ arch }) {
   const manifest = JSON.parse(await readFile("package.json", "utf8"));
   await writeFile(join(folder, `${linux.LINUX_EXECUTABLE}.desktop`), linux.desktopEntry({ version: manifest.version }), "utf8");
   await copyFile("public/assets/keepoak-mark.png", join(folder, `${linux.LINUX_EXECUTABLE}.png`));
+  console.log(await writeLinuxIcons(folder));
   const archive = join(RELEASE, assetNameFor("linux", arch));
   await finishArchive(archive, linux.tarCommand({ releaseDir: RELEASE, folder: linux.LINUX_FOLDER, archive }), {
     env: { ...process.env, COPYFILE_DISABLE: "1" },
