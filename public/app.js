@@ -631,7 +631,7 @@ async function renderChannels() {
   let summary;
   try { summary = await api("channels"); } catch { return; }
   // The address each chat service posts to, with its own unguessable word on the end.
-  let posting = { addresses: [], settings: {} };
+  let posting = { addresses: [], settings: {}, waits: [] };
   try { posting = await api("channels/addresses"); } catch { /* older copies have none */ }
   const deliver = $("schedule-deliver");
   if (document.activeElement !== deliver) {
@@ -670,6 +670,16 @@ async function renderChannels() {
         toast("New address made. Paste it into the service, or it will stop hearing from you.");
         await renderChannels();
       }));
+      // mac7/lockout: a service being turned away used to be completely silent — the owner only
+      // saw their messages stop. Now it says so here, beside the address it should be using.
+      const wait = (posting.waits || []).find((entry) => entry.channel === channel.id);
+      if (wait) {
+        const minutes = Math.max(0, Math.ceil((wait.until - Date.now()) / 60000));
+        const key = minutes > 0
+          ? (wait.proven ? "channels.address.turned-away-signature" : "channels.address.turned-away")
+          : "channels.address.turned-away-was";
+        node.append(el("p", t(key, { minutes }), "meta"));
+      }
       // mac7/channel-leaks: while the old shape is still answered the card says so AND says what it
       // costs, because it is a door anybody can find by guessing the name.
       if (posting.settings.acceptOldAddresses) {

@@ -305,6 +305,10 @@ export const neverTouched: readonly RegExp[] = [
   /^lockdown$/, /^session-lock$/, /^model-connections/, /^local-model-connections$/, /^local-model-setups$/,
   /^secret/, /^credential/, /^people/, /^remote/, /pairing/, /^deferred:/, /^move-in:/,
   /^feature-switches-migration$/, /^webhook-addresses$/, /^sender-allowlist$/, /^telegram-setup$/,
+  // mac7/lockout: which chat service is being turned away, as the Connections card shows it.
+  // Branch writes it; a file or a preset that could write it could tell the owner a service was
+  // fine while it was being refused, or invent one that was not.
+  /^webhook-waits$/,
   // Integration review: accounts, add-on lists and their wall, the leak guard, what is passed on to
   // programs, never-break and its gateway, tunnels and the launch file are never reached from here.
   /^accounts?(-|$)/, /^add-?ons?/, /leak/, /^knobs?/, /env/, /^never-break/, /gateway/, /tunnel/, /launch/,

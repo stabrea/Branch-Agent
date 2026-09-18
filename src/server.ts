@@ -72,6 +72,7 @@ import { parityApi } from "./channels/parity-api.js";
 // Batch 20 (wave 8): the unguessable word on the end of every inbound webhook address.
 import { rotateWebhookSecret, saveWebhookAddressSettings, webhookAddress, webhookAddressVerdict,
   webhookAddressSettings, webhookSecret, wrongWebhookAddress } from "./channels/webhook-address.js";
+import { noteWebhookWait, webhookWaits } from "./channels/webhook-waits.js";
 import { channelEntries } from "./channels/catalog.js";
 import { MetaMessagingAdapter } from "./channels/meta-graph.js";
 import { standardSuite } from "./evaluation.js";
@@ -235,7 +236,7 @@ import { snapshotData } from "./never-break/canary.js";
 // Wave mac3 (tool-safety): the second look before an approval.
 import { reviewerView, saveReviewerSettings } from "./approval-reviewer.js";
 import { helpApi } from "./help.js";
-import { AuthLimiter, noteAuthFailure, requestSource } from "./auth-limits.js";
+import { AuthLimiter, noteAuthFailure, requestSource, tunnelSource, webhookLimitKey } from "./auth-limits.js";
 import { handlesOrchestrationPath, orchestrationApi, OrchestrationApiError } from "./orchestration-api.js";
 // Batch 21 (wave 8): the app's own OpenAPI description, Lockdown, kept answers, whole sets of
 // questions at once, and what each project has cost.
@@ -1930,14 +1931,12 @@ async function whatsAppWebhook(app: Branch, request: IncomingMessage, response: 
   if (!match) return false;
   // mac7/channel-leaks: this address carries no key either, so a place that keeps posting rubbish
   // to it is made to wait, exactly as the chat address's callers are.
-  const from = requestSource(request.socket?.remoteAddress, request.headers);
-  const waiting = limiter.refusal(from, "signature");
-  if (waiting) throw new HttpError(429, waiting);
   // The random word on the end of the address is what makes it unguessable. Checked before the
   // channel is even looked up, so a wrong address tells nobody which names exist.
-  const verdict = webhookAddressVerdict(app.store, app.runtime.owner, match[1]!, match[2], beyond());
-  const limit: ChatWebhookLimit = { limiter, from, proven: verdict === "proven" };
-  if (verdict === "refused") return refuseWebhookAddress(app, request, response, limit);
+  const verdict = webhookAddressVerdict(app.store, app.runtime.owner, match[1]!, match[2],
+    widerThanThisComputer(request, beyond));
+  const limit = chatWebhookLimit(request, limiter, "whatsapp", match[1]!, verdict);
+  if (verdict === "refused") return refuseWebhookAddress(app, request, response, limit, true);
   const adapter = app.channels.adapter(match[1]!);
   if (!(adapter instanceof WhatsAppAdapter)) {
     if (!limit.proven) return refuseWebhookAddress(app, request, response, limit);
@@ -1950,7 +1949,7 @@ async function whatsAppWebhook(app: Branch, request: IncomingMessage, response: 
       if (!limit.proven) return refuseWebhookAddress(app, request, response, limit);
       throw new HttpError(403, errorText(error));
     }
-    limiter.succeed(from);
+    limiter.succeed(limit.from);
     response.writeHead(200, { "content-type": "text/plain; charset=utf-8" });
     response.end(challenge);
     return true;
@@ -1967,7 +1966,7 @@ async function whatsAppWebhook(app: Branch, request: IncomingMessage, response: 
   const result = await adapter.receive(read.raw, typeof request.headers["x-hub-signature-256"] === "string"
     ? request.headers["x-hub-signature-256"] : undefined)
     .catch((error: unknown) => { throw refusedChatPost(app, match[1]!, "whatsapp", error, limit); });
-  limiter.succeed(from);
+  limiter.succeed(limit.from);
   send(response, 200, result);
   return true;
 }
@@ -1983,18 +1982,16 @@ async function chatWebhook(app: Branch, request: IncomingMessage, response: Serv
   if (!match) return false;
   // Nothing here carries the session key, so a place that keeps posting rubbish is made to wait,
   // exactly as somewhere guessing the key is. That also keeps a flood off the record of refusals.
-  const from = requestSource(request.socket?.remoteAddress, request.headers);
-  const waiting = limiter.refusal(from, "signature");
-  if (waiting) throw new HttpError(429, waiting);
   // The random word on the end of the address is what makes it unguessable. Checked before the
   // channel is even looked up, so a wrong address tells nobody which channel names exist.
-  const verdict = webhookAddressVerdict(app.store, app.runtime.owner, match[1]!, match[2], beyond());
+  const verdict = webhookAddressVerdict(app.store, app.runtime.owner, match[1]!, match[2],
+    widerThanThisComputer(request, beyond));
   // mac7/channel-leaks: everything below asks `limit.proven` before it says anything at all. A
   // caller who has shown the word on the end holds a secret only this computer and the chat service
   // have, so it is worth telling them what is wrong; a caller who has not gets one sentence,
   // whether the name is connected, misspelt or was never used by anybody.
-  const limit: ChatWebhookLimit = { limiter, from, proven: verdict === "proven" };
-  if (verdict === "refused") return refuseWebhookAddress(app, request, response, limit);
+  const limit = chatWebhookLimit(request, limiter, "chat", match[1]!, verdict);
+  if (verdict === "refused") return refuseWebhookAddress(app, request, response, limit, true);
   const adapter = app.channels.adapter(match[1]!);
   if (adapter instanceof MetaMessagingAdapter) return metaWebhook(app, adapter, request, response, limit);
   // mac6/bucket-16: WeChat and WeCom check the address with a GET and sign XML posts in the query.
@@ -2016,7 +2013,7 @@ async function chatWebhook(app: Branch, request: IncomingMessage, response: Serv
   }
   const result = await adapter.receive(read.raw, request.headers)
     .catch((error: unknown) => { throw refusedChatPost(app, match[1]!, adapter.kind, error, limit); });
-  limiter.succeed(from);
+  limiter.succeed(limit.from);
   // Some services will not send anything until the address echoes a word back once.
   send(response, 200, result.challenge === undefined ? { accepted: result.accepted } : { challenge: result.challenge });
   return true;
@@ -2032,11 +2029,53 @@ async function chatWebhook(app: Branch, request: IncomingMessage, response: Serv
  * anybody at all could otherwise fill that record with names they made up.
  */
 async function refuseWebhookAddress(app: Branch, request: IncomingMessage, response: ServerResponse,
-  limit: ChatWebhookLimit): Promise<true> {
+  limit: ChatWebhookLimit, wrongAddress = false): Promise<true> {
   await readBodyWithRaw(request, 256 * 1024).catch(() => undefined);
-  noteAuthFailure(limit.limiter, app.store, app.runtime.owner, limit.from, "a webhook address");
-  send(response, 404, { error: wrongWebhookAddress });
+  noteWrongWebhook(app, limit, "a webhook address");
+  // mac7/lockout: the wait is read here, after the address was found to be wrong, and never before.
+  // A caller that has shown the word on the end of the address never reaches this line at all, so
+  // no wait can ever turn away a correctly addressed post — which is the whole point of counting
+  // each service separately. A caller that has not is told it is waiting, in the same words for
+  // every name, only once its own wrong tries have earned that.
+  const waiting = wrongAddress ? limit.limiter.waitMs(limit.from) : 0;
+  if (waiting > 0) send(response, 429, { error: `${wrongWebhookAddress}. Wait ${Math.ceil(waiting / 60000)} minute(s).` });
+  else send(response, 404, { error: wrongWebhookAddress });
   return true;
+}
+/**
+ * mac7/lockout: who this post is counted as. The place it came from AND the service its address
+ * names, so a chat service retrying an address the owner has replaced slows only itself down.
+ * See `webhookLimitKey` in src/auth-limits.ts for why neither half can be forged.
+ */
+function chatWebhookLimit(request: IncomingMessage, limiter: AuthLimiter, kind: string, channel: string,
+  verdict: ReturnType<typeof webhookAddressVerdict>): ChatWebhookLimit {
+  const proven = verdict === "proven";
+  const source = requestSource(request.socket?.remoteAddress, request.headers);
+  return { limiter, from: webhookLimitKey(source, kind, channel, proven), proven, channel };
+}
+/**
+ * mac7/lockout: the old shape of address — no word on the end at all — is refused outright once
+ * the webhook door is carrying the internet, exactly as it is once Branch listens beyond this
+ * computer. Both are the same fact: an address anybody can find by guessing the name is worth less
+ * than the convenience the moment strangers can reach it. Keeping the grace loopback-only is also
+ * what makes it safe never to turn an old-shape post away for waiting (see `refuseWebhookAddress`).
+ */
+function widerThanThisComputer(request: IncomingMessage, beyond: () => boolean): boolean {
+  return beyond() || requestSource(request.socket?.remoteAddress, request.headers) === tunnelSource;
+}
+/**
+ * One wrong try at a webhook address, counted, and — when it starts a wait — written where the
+ * owner will see it: a line in the record of refusals naming the service, and a note on that
+ * service's own row on the Connections card. A service being turned away for five minutes at a
+ * time used to be completely silent; the owner only saw their messages stop.
+ */
+function noteWrongWebhook(app: Branch, limit: ChatWebhookLimit, what: string): void {
+  const now = Date.now();
+  const state = noteAuthFailure(limit.limiter, app.store, app.runtime.owner, limit.from, what, now, {
+    actor: `posts to the ${limit.channel} address`,
+    subject: `${what} for ${limit.channel}`,
+  });
+  if (state.until) noteWebhookWait(app.store, app.runtime.owner, limit.channel, state.until, limit.proven, now);
 }
 /** Wave mac3 (channels-parity): hands the exact bytes to a service that checks its own signature. */
 async function postedChatWebhook(app: Branch, adapter: ChannelAdapter & PostedChannel, request: IncomingMessage, response: ServerResponse, limit: ChatWebhookLimit): Promise<boolean> {
@@ -2077,11 +2116,15 @@ async function signedQueryWebhook(app: Branch, adapter: ChannelAdapter & SignedQ
  * whether the caller showed the word on the end of the address — which decides whether they are
  * told anything beyond the one sentence.
  */
-interface ChatWebhookLimit { limiter: AuthLimiter; from: string; proven: boolean }
+interface ChatWebhookLimit {
+  limiter: AuthLimiter; from: string; proven: boolean;
+  /** The service the address named, for the line the owner reads and for the Connections card. */
+  channel: string;
+}
 /** A post that did not prove it came from the service is refused, and the refusal is written down. */
 function refusedChatPost(app: Branch, channel: string, kind: string, error: unknown, limit: ChatWebhookLimit): HttpError {
   // The post itself is never written down: it was not proved genuine, so nothing inside it is kept.
-  noteAuthFailure(limit.limiter, app.store, app.runtime.owner, limit.from, "a chat service's signature");
+  noteWrongWebhook(app, limit, "a chat service's signature");
   // mac7/channel-leaks: a caller who never showed the word on the end of the address is told the
   // one sentence and leaves no row behind. The service's own words — "not signed by Slack", "no
   // shared secret is saved", "too old" — name the service and say whether it is set up, and the
@@ -2151,8 +2194,12 @@ async function triggerFire(app: Branch, request: IncomingMessage, triggerId: str
   const verified = app.triggers.verify(against, request.headers, raw);
   const fresh = verified.valid ? app.triggers.checkFreshness(against, request.headers) : { valid: false };
   if (!trigger || !verified.valid || !fresh.valid) {
-    noteAuthFailure(limit.limiter, app.store, app.runtime.owner, limit.from, "a trigger's secret");
-    throw new HttpError(401, triggerRefused);
+    noteAuthFailure(limit.limiter, app.store, app.runtime.owner, limit.from, "a trigger's secret", Date.now(),
+      { actor: `posts to trigger ${limit.channel}`, subject: `a trigger's secret for ${limit.channel}` });
+    // mac7/lockout: the wait is read only once this caller's own secret has been found wrong, so a
+    // caller holding the right secret clears its wait rather than being held by it.
+    const waiting = limit.limiter.waitMs(limit.from);
+    throw new HttpError(waiting > 0 ? 429 : 401, triggerRefused);
   }
   limit.limiter.succeed(limit.from);
 
@@ -2315,6 +2362,8 @@ async function channelsApi(app: Branch, request: IncomingMessage, path: string):
 function channelAddresses(app: Branch, owner: string): {
   addresses: { channel: string; kind: string; address: string }[];
   settings: ReturnType<typeof webhookAddressSettings>;
+  /** mac7/lockout: services whose posts are being turned away, so the card can say so. */
+  waits: ReturnType<typeof webhookWaits>;
 } {
   const addresses = app.channels.summary().channels
     .filter((channel) => channel.kind === "whatsapp" || app.channels.adapter(channel.id) instanceof WebhookChatAdapter
@@ -2325,7 +2374,7 @@ function channelAddresses(app: Branch, owner: string): {
       address: webhookAddress(channel.kind === "whatsapp" ? "whatsapp" : "chat", channel.id,
         webhookSecret(app.store, owner, channel.id)),
     }));
-  return { addresses, settings: webhookAddressSettings(app.store, owner) };
+  return { addresses, settings: webhookAddressSettings(app.store, owner), waits: webhookWaits(app.store, owner) };
 }
 async function chatgptApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
   const auth = app.chatgpt, owner = app.runtime.owner;
@@ -2911,10 +2960,14 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
       if (triggerFireMatch && request.method === "POST") {
         // Counted on the webhook limiter, not the key's: a service set up with the wrong secret
         // slows itself down and never stands between the owner and their own app.
-        const from = requestSource(request.socket?.remoteAddress, request.headers);
-        const triggerWait = webhookLimiter.refusal(from, "secret");
-        if (triggerWait) throw new HttpError(429, triggerWait);
-        send(response, 200, await triggerFire(app, request, triggerFireMatch[1]!, { limiter: webhookLimiter, from, proven: false }));
+        // mac7/lockout: and counted per trigger, not per door. Every trigger fired through the
+        // webhook door used to share one entry with every chat service, so one caller with a stale
+        // secret silenced all of them. The wait is now read inside `triggerFire`, after the
+        // signature has been checked, so a correctly signed fire is never turned away by it.
+        const from = webhookLimitKey(requestSource(request.socket?.remoteAddress, request.headers),
+          "trigger", triggerFireMatch[1]!);
+        send(response, 200, await triggerFire(app, request, triggerFireMatch[1]!,
+          { limiter: webhookLimiter, from, proven: false, channel: triggerFireMatch[1]! }));
         return;
       }
       // Wave mac3 (commands): a read key's command is sent with POST but only looks.
