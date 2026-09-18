@@ -2119,9 +2119,6 @@ async function metaWebhook(app: Branch, adapter: MetaMessagingAdapter, request: 
   send(response, 200, result);
   return true;
 }
-function tryOr<T>(work: () => T, status: number): T {
-  try { return work(); } catch (error) { throw new HttpError(status, errorText(error)); }
-}
 const triggerBodyLimit = 256 * 1024;
 /**
  * mac7/channel-leaks: the one answer a caller who has not proved a trigger gets. The route used to

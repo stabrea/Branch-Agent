@@ -222,19 +222,19 @@ test("a webhook address carries an unguessable word, which can be changed and ne
 
 test("the old shape of address is answered while the grace lasts, and 404s once it is off", async (t) => {
   const { app } = await fixture(t);
-  const { webhookAddressRefusal, webhookSecret, saveWebhookAddressSettings } = await import("../dist/channels/webhook-address.js");
+  const { webhookAddressVerdict, webhookSecret, saveWebhookAddressSettings } = await import("../dist/channels/webhook-address.js");
   const owner = app.runtime.owner;
   const secret = webhookSecret(app.store, owner, "telegram");
-  // The right word is always answered; the wrong word never is; none is answered only in the grace.
-  assert.equal(webhookAddressRefusal(app.store, owner, "telegram", secret), null);
-  assert.match(webhookAddressRefusal(app.store, owner, "telegram", "0".repeat(32)) ?? "", /No chat service is connected/);
-  assert.equal(webhookAddressRefusal(app.store, owner, "telegram", undefined), null, "while the grace lasts");
+  // The right word proves the caller; the wrong word never does; none is allowed only in the grace.
+  assert.equal(webhookAddressVerdict(app.store, owner, "telegram", secret), "proven");
+  assert.equal(webhookAddressVerdict(app.store, owner, "telegram", "0".repeat(32)), "refused");
+  assert.equal(webhookAddressVerdict(app.store, owner, "telegram", undefined), "old", "while the grace lasts");
   saveWebhookAddressSettings(app.store, owner, { acceptOldAddresses: false });
-  assert.match(webhookAddressRefusal(app.store, owner, "telegram", undefined) ?? "", /No chat service is connected/);
-  assert.equal(webhookAddressRefusal(app.store, owner, "telegram", secret), null, "the new shape keeps working");
-  // A wrong address says nothing about which channel names exist: the same sentence either way.
-  assert.equal(webhookAddressRefusal(app.store, owner, "telegram", "0".repeat(32)),
-    webhookAddressRefusal(app.store, owner, "nothing-here", "0".repeat(32)));
+  assert.equal(webhookAddressVerdict(app.store, owner, "telegram", undefined), "refused");
+  assert.equal(webhookAddressVerdict(app.store, owner, "telegram", secret), "proven", "the new shape keeps working");
+  // A wrong address says nothing about which channel names exist: the same verdict either way.
+  assert.equal(webhookAddressVerdict(app.store, owner, "telegram", "0".repeat(32)),
+    webhookAddressVerdict(app.store, owner, "nothing-here", "0".repeat(32)));
 });
 
 test("the whole webhook route answers the new shape and refuses a guessed one", async (t) => {

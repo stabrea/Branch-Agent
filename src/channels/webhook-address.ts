@@ -148,13 +148,3 @@ export function webhookAddressVerdict(
   return webhookAddressSettings(store, owner).acceptOldAddresses ? "old" : "refused";
 }
 
-/**
- * Why a post to this address is not answered, or null when it may be. Kept as the plain question
- * `webhookAddressVerdict` answers, for the places that only need a yes or a no.
- */
-export function webhookAddressRefusal(
-  store: Store, owner: string, channel: string, supplied: string | undefined, beyondThisComputer = false,
-): string | null {
-  return webhookAddressVerdict(store, owner, channel, supplied, beyondThisComputer) === "refused"
-    ? wrongWebhookAddress : null;
-}
