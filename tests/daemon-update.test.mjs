@@ -99,6 +99,10 @@ test("an update through a joined engine stops with advice when the copy cannot b
 
 const noteFor = (dataDir, pid, mode = "daemon") =>
   writeRunning(dataDir, { port: 3210, pid, url: "http://127.0.0.1:3210", mode, version: "1.0.0" });
+// Windows: what tasklist says about a process id, so only Branch's own program is ever ended.
+const tasklist = (file, args, image = "Branch Agent.exe") =>
+  file.endsWith("tasklist.exe") ? `"${image}","${args[1].replace("PID eq ", "")}","Console","1","90,000 K"\r\n` : null;
+const nothingListening = async () => { throw new Error("nothing is listening"); };
 
 test("the background engine is asked to close, forced if it will not, and the note is cleared", async (t) => {
   const root = await scratch(t);
@@ -106,10 +110,10 @@ test("the background engine is asked to close, forced if it will not, and the no
   const calls = [];
   let living = true;
   const report = await stopBackgroundEngine(root, {
-    run: async (file, args) => { calls.push([file, args]); living = false; return ""; },
+    run: async (file, args) => tasklist(file, args) ?? (calls.push([file, args]), living = false, ""),
     alive: () => living,
     sleep: async () => {},
-    platform: "win32",
+    platform: "win32", fetch: nothingListening,
   });
   assert.deepEqual(report, {
     pid: 40404, stopped: true, forced: false,
@@ -127,24 +131,39 @@ test("an engine that ignores the polite ask is ended, and one that never goes do
   const args = [];
   let living = true;
   const forced = await stopBackgroundEngine(root, {
-    run: async (_file, called) => {
+    run: async (file, called) => {
+      if (tasklist(file, called)) return tasklist(file, called);
       args.push(called);
       if (!called.includes("/F")) throw new Error("This process can only be terminated forcefully");
       living = false;
       return "";
     },
-    alive: () => living, sleep: async () => {}, platform: "win32",
+    alive: () => living, sleep: async () => {}, platform: "win32", fetch: nothingListening,
   });
   assert.deepEqual(args, [["/PID", "50505", "/T"], ["/PID", "50505", "/T", "/F"]]);
   assert.deepEqual([forced.pid, forced.stopped, forced.forced], [50505, true, true]);
 
   await noteFor(root, 60606);
   const stubborn = await stopBackgroundEngine(root, {
-    run: async () => "", alive: () => true, sleep: async () => {}, waitMs: 0, platform: "win32",
+    run: async (file, args) => tasklist(file, args) ?? "", alive: () => true, sleep: async () => {}, waitMs: 0, platform: "win32",
+    fetch: nothingListening,
   });
   assert.deepEqual([stubborn.pid, stubborn.stopped], [60606, false]);
   assert.match(stubborn.message, /did not close in time; the update will close it/);
   assert.notEqual(await readRunning(root), null, "a note for an engine still running is left alone");
+});
+
+test("Windows: a note left by a crash that names another program's process id never ends that program", async (t) => {
+  const root = await scratch(t);
+  await noteFor(root, 80808);
+  const killed = [];
+  const report = await stopBackgroundEngine(root, {
+    run: async (file, args) => tasklist(file, args, "WINWORD.EXE") ?? (killed.push(args), ""),
+    alive: () => true, sleep: async () => {}, platform: "win32", fetch: nothingListening,
+  });
+  assert.deepEqual(killed, [], "taskkill is never run");
+  assert.deepEqual([report.pid, report.stopped], [null, false]);
+  assert.equal(await readRunning(root), null, "the stale note is cleared");
 });
 
 test("a window that runs its own engine has nothing to close", async (t) => {
@@ -165,7 +184,11 @@ test("waiting for the engine watches a real process until it is really gone", as
   const report = await stopBackgroundEngine(root, {
     // Windows: taskkill ends the child. macOS and Linux: the system names the engine script for that
     // process id, nothing answers on the noted address, so the stop signal ends the child.
-    run: async (file) => { if (file === "/bin/ps") return "/opt/app/resources/app/dist/cli.js start"; child.kill(); return ""; },
+    run: async (file, args) => {
+      if (file === "/bin/ps") return "/opt/app/resources/app/dist/cli.js start";
+      if (tasklist(file, args)) return tasklist(file, args);
+      child.kill(); return "";
+    },
     fetch: async () => { throw new Error("nothing is listening"); },
   });
   await ended;
