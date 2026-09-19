@@ -2,9 +2,9 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { ToolContext } from "../contracts.js";
 import type { ToolRegistry } from "../registry.js";
-import type { Runtime } from "../runtime.js";
+import type { FollowUpCarry, Runtime } from "../runtime.js";
 import type { Store } from "../store.js";
-import { startedFromChat } from "../key-context.js";
+import { runOrigin, startedFromChat } from "../key-context.js";
 import type { Trunk, TrunkRecords } from "./record.js";
 import { isPass } from "./room-plan.js";
 import { requireTrunkPart } from "./settings.js";
@@ -47,7 +47,10 @@ export interface Receipt {
   depth: number;
   attempts: number;
   runId: string | null;
-  /** The task that sent it (for the cap per task). */
+  /**
+   * The task that sent it (for the cap per task); for a reply, the task that answered. The task that
+   * reads it carries that task on: its origin and no more than its tools (mac7/outside-review).
+   */
   fromRunId?: string | null;
   reply: string | null;
   error: string | null;
@@ -132,8 +135,18 @@ export class TrunkMessages {
     const receipt: Receipt = { id: randomUUID(), kind, from: from.id, to: to.id, sessionId: to.chatSessionId, prompt, status: "queued",
       depth, attempts: 1, runId: null, fromRunId, reply: null, error: null, at: now, updatedAt: now };
     this.save([...this.receipts().reverse(), receipt]);
-    this.runtime.followUp(to.chatSessionId, prompt);
+    this.runtime.followUp(to.chatSessionId, prompt, null, this.carryFrom(fromRunId));
     return receipt;
+  }
+  /**
+   * mac7/outside-review: a message one Trunk queues for another starts as the task that queued it, not
+   * as the owner's own. A task from outside (a schedule, another program, a chat) stays held as that,
+   * and a Trunk kept to fewer tools cannot reach more through another Trunk. A task with no record of
+   * its tools passes on none.
+   */
+  private carryFrom(runId: string | null | undefined): FollowUpCarry {
+    if (!runId) return {};
+    return { originFrom: runId, permissions: runOrigin(this.store, runId).permissions ?? [] };
   }
 
   /** Follows the task that reads each message, and sends its answer back. */
@@ -159,7 +172,7 @@ export class TrunkMessages {
     }
     if (receipt.attempts < 2 && transient.test(output)) {
       this.update(receipt.id, { status: "queued", attempts: receipt.attempts + 1, runId: null, error: output.slice(0, 500) });
-      this.runtime.followUp(receipt.sessionId, receipt.prompt);
+      this.runtime.followUp(receipt.sessionId, receipt.prompt, null, this.carryFrom(receipt.fromRunId)); // mac7/outside-review
       return;
     }
     this.update(receipt.id, { status: "failed", error: output.slice(0, 500) });
@@ -171,7 +184,7 @@ export class TrunkMessages {
     const prompt = kind === "reply"
       ? `Reply from ${from.name} (@${from.handle}) to your message:\n${output.slice(0, 4000)}`
       : `Your message to @${from.handle} could not be answered: ${output.slice(0, 300)}`;
-    this.deliver(kind, from, to, prompt, receipt.depth);
+    this.deliver(kind, from, to, prompt, receipt.depth, receipt.runId); // mac7/outside-review: as the task that answered
   }
 }
 
