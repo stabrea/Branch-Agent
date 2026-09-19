@@ -5,12 +5,19 @@ import type {
   ToolDescription,
 } from "./contracts.js";
 import { policyTarget } from "./policy.js";
+import { resourceOf, type PolicyResource } from "./policy-resources.js";
 import { inferToolGroup, slimTool } from "./catalog.js";
 import { underTask } from "./task-scope.js"; // household-followups
 
 export class ToolRegistry {
   private readonly tools = new Map<string, ToolDefinition>();
   private readonly runFinished = new Set<(context: ToolContext) => Promise<void>>();
+  /**
+   * Integration (hardening-3): the folder of the workspace a tool's paths are read inside right now
+   * (the active project's folder or a task's working copy; "" for the workspace itself). Set once at
+   * start-up to the same answer the file tools use.
+   */
+  pathScope: () => string = () => "";
   onRunFinished(listener: (context: ToolContext) => Promise<void>): void {
     this.runFinished.add(listener);
   }
@@ -91,10 +98,40 @@ export class ToolRegistry {
   permissionOf(name: string): string {
     return this.tools.get(name)?.permission ?? "";
   }
-  /** What a call would touch, for the approval policy: the tool's own answer, or one read from the arguments. */
+  /**
+   * What a call would touch, for the approval policy: the tool's own answer, or one read from the
+   * arguments. hardening-3: read from the arguments the tool will really run with (`runArgs`), so a
+   * name the tool maps (`file_path` for `path`) or a space it trims cannot walk past a rule.
+   */
   targetOf(name: string, args: unknown, context: ToolContext): string {
-    const own = this.tools.get(name)?.target?.(args, context);
-    return (own ?? policyTarget(name, args)) || "";
+    const seen = this.runArgs(name, args);
+    const own = this.tools.get(name)?.target?.(seen, context);
+    return (own ?? policyTarget(name, seen)) || "";
+  }
+  /**
+   * hardening-3: the arguments a call will really run with — the tool's own schema applied, with
+   * the names it maps, the spaces it trims and the defaults it fills — for everything that judges or
+   * shows a call (the rules, the approval card, the second look, the loop guard). The tool itself
+   * parses the same arguments with the same schema, so what was judged is what runs. A call whose
+   * arguments do not parse is refused by the tool, so it is judged as it was sent.
+   */
+  runArgs(name: string, args: unknown): unknown {
+    const tool = this.tools.get(name);
+    if (!tool) return args;
+    try {
+      const parsed = tool.parameters.safeParse(args);
+      return parsed.success ? parsed.data : args;
+    } catch { return args; }
+  }
+  /**
+   * Integration (hardening-3): what a call is about, for the rules. A path is also given as written
+   * from the workspace when the file tools read paths inside one of its folders, so a folder rule
+   * (written about the workspace) holds whichever folder is active.
+   */
+  resourceOf(name: string, target: string, args: unknown): PolicyResource | null {
+    const resource = resourceOf(name, this.permissionOf(name), target, args);
+    const scope = this.pathScope();
+    return resource?.kind === "path" && scope ? { ...resource, inWorkspace: `${scope}/${resource.value}` } : resource;
   }
   permissions(): string[] {
     return [...new Set([...this.tools.values()].map((t) => t.permission))];

@@ -1,5 +1,5 @@
 import { accountsServiceFor } from "../accounts/service.js";
-import { dismissNotice, switchAccount, updateAccount, viewSession } from "../accounts/manage.js";
+import { connectionName, dismissNotice, switchAccount, updateAccount, viewSession } from "../accounts/manage.js";
 import { poolingNotice } from "../accounts/settings.js";
 import type { Call, Reply } from "./handlers.js";
 
@@ -53,5 +53,5 @@ export async function accountCommand(call: Call): Promise<Reply> {
 function noticeOnce(service: NonNullable<ReturnType<typeof accountsServiceFor>>, pool: string, markRead: boolean): string[] {
   if (!service.settings().poolingNotices.includes(pool)) return [];
   if (markRead) dismissNotice(service, { pool });
-  return [poolingNotice(pool === "chatgpt" ? "ChatGPT" : service.deps.models.presets.get(pool)?.name ?? pool), ""];
+  return [poolingNotice(connectionName(service, pool)), ""]; // hardening-3: the same name the window shows
 }

@@ -136,7 +136,11 @@ function accountRow(pool, account) {
   main.append(node("span", `accounts-dot ${tone}`), head);
   const shown = ring(account);
   if (shown) main.append(shown);
-  row.append(main, state, quickButtons(pool, account));
+  row.append(main, state);
+  // Integration (hardening-3): a household person is shown the account, not the owner's buttons
+  // (every change here is the owner's, and sign-in state is not sent to them).
+  if (pool.strategy === undefined) return row;
+  row.append(quickButtons(pool, account));
   if (pool.kind !== "api-key") row.append(separateBlock(pool, account));
   row.append(moreBlock(pool, account));
   return row;
@@ -299,7 +303,10 @@ function poolBlock(pool) {
   list.append(...pool.accounts.map((account) => accountRow(pool, account)));
   box.append(poolHead(pool));
   if (pool.notice) box.append(noticeBlock(pool));
-  box.append(poolControls(pool), list, addBlock(pool), termsLine(pool));
+  // hardening-3: a household person is sent only the accounts shared with them, not how the list is run.
+  // The owner's lists always carry a strategy (it has a default in src/accounts/settings.ts).
+  const owners = pool.strategy !== undefined;
+  box.append(...(owners ? [poolControls(pool)] : []), list, ...(owners ? [addBlock(pool)] : []), termsLine(pool));
   return box;
 }
 /** mac7/account-pooling: said once, why sharing between the owner's own plans stopped. */
@@ -344,6 +351,8 @@ function draw(view) {
   if (!view.pools.length) target.append(worded("p", "accounts.empty", "empty-state"));
   target.append(...searchBox(view), ...view.pools.map(poolBlock));
   applySearch();
+  // hardening-3: someone else is sent lists without how they are run; the fallback order and the Trunks are the owner's.
+  if (view.pools.some((pool) => pool.strategy === undefined)) { $("accounts-low-card")?.remove(); $("accounts-trunks-card")?.remove(); return; }
   drawLow(view);
   void drawTrunks(view);
 }
