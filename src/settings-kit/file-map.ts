@@ -113,7 +113,7 @@ export function saveFile(store: Store, owner: string, workspace: string, input: 
   const before = place.exists ? readFileSync(place.path, "utf8") : null;
   const after = text.endsWith("\n") || !text ? text : `${text}\n`;
   writeWhole(place.path, place.exists, after);
-  store.save("settings", owner, undoKey(slot), { path: place.path, before, after, at: new Date().toISOString() } satisfies UndoRecord);
+  store.save("settings", owner, undoKey(slot), { path: place.path, at: new Date().toISOString(), text: { before, after } } satisfies UndoRecord);
   return openFile(store, owner, workspace, slot);
 }
 function writeWhole(path: string, exists: boolean, text: string): void {
@@ -126,13 +126,18 @@ function writeWhole(path: string, exists: boolean, text: string): void {
 
 /* ---------- phase2/accounts (critique #40): undo of the last save made here ---------- */
 
-interface UndoRecord { path: string; before: string | null; after: string; at: string }
+/**
+ * Integration review: the two texts sit one level down, so the diagnostics summary (which keeps only a
+ * record's top-level switch-like values, src/diagnostic-api.ts) never copies a word of the file.
+ */
+interface UndoRecord { path: string; at: string; text: { before: string | null; after: string } }
 const undoKey = (slot: SlotKey): string => `settings-kit-file-undo-${slot}`;
 export const FileUndoSchema = z.object({ slot: SlotSchema }).strict();
 
 /** When the last save here was made, while it can still be undone; null when there is nothing to undo. */
 export function lastSave(store: Store, owner: string, slot: SlotKey): string | null {
-  return (store.get("settings", owner, undoKey(slot))?.data as UndoRecord | undefined)?.at ?? null;
+  const record = store.get("settings", owner, undoKey(slot))?.data as UndoRecord | undefined;
+  return record?.text ? record.at : null;
 }
 
 /**
@@ -143,14 +148,20 @@ export function lastSave(store: Store, owner: string, slot: SlotKey): string | n
 export function undoFile(store: Store, owner: string, workspace: string, input: unknown, guard?: (target: string) => string | null): OpenedFile {
   const { slot } = FileUndoSchema.parse(input);
   const record = store.get("settings", owner, undoKey(slot))?.data as UndoRecord | undefined;
-  if (!record) throw new Error("There is no save here to undo.");
+  if (!record?.text) throw new Error("There is no save here to undo.");
+  // Integration review: only where this file is today, and only while it may be written here (the
+  // project folder or its trust may have changed since the save).
+  const place = placeFor(store, owner, workspace, slot);
+  if (!place || resolve(place.path) !== resolve(record.path) || !openFile(store, owner, workspace, slot).editable)
+    throw new Error("This file is no longer where it was saved, or may no longer be changed here, so nothing was undone.");
+  const { before, after } = record.text;
   const found = lstatSync(record.path, { throwIfNoEntry: false });
-  if (!found?.isFile() || found.nlink > 1 || readFileSync(record.path, "utf8") !== record.after)
+  if (!found?.isFile() || found.nlink > 1 || readFileSync(record.path, "utf8") !== after)
     throw new Error("The file changed after it was saved here, so nothing was undone.");
   const refused = resolve(dirname(record.path)) === resolve(store.folder) ? null : guard?.(record.path);
   if (refused) throw new Error(refused);
-  if (record.before === null) unlinkSync(record.path);
-  else writeWhole(record.path, true, record.before);
+  if (before === null) unlinkSync(record.path);
+  else writeWhole(record.path, true, before);
   store.delete("settings", owner, undoKey(slot));
   return openFile(store, owner, workspace, slot);
 }

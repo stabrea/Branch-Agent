@@ -57,3 +57,18 @@ test("M4 the marks' colours live in the script, never in a stylesheet", async ()
   const source = await readFile(join(PUBLIC, "brand-marks.js"), "utf8");
   assert.doesNotMatch(source, /fetch\(|https?:\/\/(?!www\.w3\.org)/, "nothing is fetched from the network");
 });
+
+// Integration review: a mark file is exactly one title and one path, and a path is only drawing
+// commands and numbers, so no mark can carry a script, a foreign object, a style or an outside link.
+test("M5 every mark is plain drawing: no script, foreign object, style, event or outside reference", async () => {
+  const shape = /^<svg role="img" viewBox="0 0 24 24" xmlns="http:\/\/www\.w3\.org\/2000\/svg"><title>[^<>]+<\/title><path d="[^"]+"\/><\/svg>\s*$/;
+  for (const name of (await readdir(join(PUBLIC, "assets", "brands"))).filter((file) => file.endsWith(".svg"))) {
+    const text = await readFile(join(PUBLIC, "assets", "brands", name), "utf8");
+    assert.match(text, shape, `${name} holds something besides its title and one path`);
+    assert.doesNotMatch(text, /script|foreignObject|href|url\(|style|\bon[a-z]+=|<!|&(?!amp;)/i, name);
+  }
+  for (const [slug, [title, , d]] of Object.entries(MARKS)) {
+    assert.match(d, /^[MmLlHhVvCcSsQqTtAaZz0-9.,\s-]+$/, `${slug}: a path is only drawing commands and numbers`);
+    assert.doesNotMatch(title, /[<>"]/, slug);
+  }
+});

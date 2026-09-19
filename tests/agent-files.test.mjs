@@ -119,3 +119,29 @@ test("F4 the card: eight files, an editor with a preview and a counter, Save, an
     await page.close();
   }
 });
+
+// Integration review: undo re-checks where the file is and whether it may be written, and the saved
+// texts never reach the diagnostics summary.
+test("F5 undo refuses once the file moved or its folder lost trust, and the diagnostics summary holds no text", async (t) => {
+  const { app, call } = await served(t);
+  const { settingsSummary } = await import("../dist/diagnostic-api.js");
+  const { saveFolderTrustSettings, decideFolder } = await import("../dist/folder-trust.js");
+  await writeFile(join(app.store.folder, "SOUL.md"), "calm");
+  assert.equal((await call("POST", "/api/settings-kit/files", { slot: "soul", text: "Be kind." })).status, 200);
+  assert.ok(!JSON.stringify(settingsSummary(app)).includes("calm"), "the text before a save is not in the diagnostics summary");
+  // A SOUL.md now in the project is the one Branch reads, so the saved one is no longer "this file".
+  await writeFile(join(app.runtime.workspace, "SOUL.md"), "Project soul.\n");
+  const moved = await call("POST", "/api/settings-kit/files/undo", { slot: "soul" });
+  assert.equal(moved.status, 409);
+  assert.match(moved.body.error, /no longer where it was saved/);
+  assert.equal(await readFile(join(app.store.folder, "SOUL.md"), "utf8"), "Be kind.\n");
+  assert.equal(await readFile(join(app.runtime.workspace, "SOUL.md"), "utf8"), "Project soul.\n");
+  // A project file saved while the folder was trusted is not put back after the owner distrusts it.
+  const saved = await call("POST", "/api/settings-kit/files", { slot: "tools", text: "Use the NAS." });
+  assert.equal(saved.status, 200, saved.body.error);
+  saveFolderTrustSettings(app.store, app.runtime.owner, { mode: "on" });
+  decideFolder(app.store, app.runtime.owner, app.runtime.workspace, { folder: "", decision: "distrust" });
+  const distrusted = await call("POST", "/api/settings-kit/files/undo", { slot: "tools" });
+  assert.equal(distrusted.status, 409);
+  assert.equal(await readFile(join(app.runtime.workspace, "TOOLS.md"), "utf8"), "Use the NAS.\n", "nothing written in a folder that is not trusted");
+});

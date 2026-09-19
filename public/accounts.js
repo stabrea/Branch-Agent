@@ -278,8 +278,10 @@ function addBlock(pool) {
 function termsLine(pool) {
   const line = node("p", "subtle terms-line");
   line.append(worded("strong", "terms.label"), node("span", "", " "), worded("span", pool.terms.key), node("span", "", " "));
+  // Integration review: several links each say whose terms they are, never "Read the terms" twice.
+  const several = pool.terms.links.length > 1;
   for (const link of pool.terms.links) {
-    const anchor = worded("a", "terms.read");
+    const anchor = several ? node("a", "", `${link.label} ↗`) : worded("a", "terms.read");
     anchor.href = link.url;
     anchor.target = "_blank";
     anchor.rel = "noopener noreferrer";
@@ -341,18 +343,24 @@ function searchBox(view) {
   return [input];
 }
 
+/** hardening-3 + integration review: someone else is sent only what is shared with them, maybe nothing. */
+const forSomeoneElse = (view) => view.household === true || view.pools.some((pool) => pool.strategy === undefined);
+
 function draw(view) {
   const target = card("accounts-card");
   const status = node("p", "subtle", said);
   status.setAttribute("role", "status");
+  const household = forSomeoneElse(view);
+  // The switch is the owner's: someone else is told how it is set, without a list they cannot change.
+  const mode = household ? [worded("p", `accounts.mode.${view.mode}`, "field-note")] : modeControls(view.mode);
   target.replaceChildren(worded("h2", "settings.card.accounts"), worded("p", "accounts.lead"),
-    worded("p", "accounts.honest", "accounts-honest"), ...modeControls(view.mode), status);
+    worded("p", "accounts.honest", "accounts-honest"), ...mode, status);
   if (view.mode === "off") { $("accounts-low-card")?.remove(); $("accounts-trunks-card")?.remove(); return; }
   if (!view.pools.length) target.append(worded("p", "accounts.empty", "empty-state"));
   target.append(...searchBox(view), ...view.pools.map(poolBlock));
   applySearch();
   // hardening-3: someone else is sent lists without how they are run; the fallback order and the Trunks are the owner's.
-  if (view.pools.some((pool) => pool.strategy === undefined)) { $("accounts-low-card")?.remove(); $("accounts-trunks-card")?.remove(); return; }
+  if (household) { $("accounts-low-card")?.remove(); $("accounts-trunks-card")?.remove(); return; }
   drawLow(view);
   void drawTrunks(view);
 }

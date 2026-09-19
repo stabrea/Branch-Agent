@@ -37,12 +37,15 @@ export function applyThinking(select, preset, emptyWords, saved) {
   const held = saved ?? select.value;
   const levels = thinking.levels ?? [];
   const shown = ["", ...levels];
-  if (held && !levels.includes(held)) shown.push(held);
+  const unused = Boolean(held) && !levels.includes(held);
+  if (unused) shown.push(held);
+  // Integration review: where the provider still sends a saved level (`sent`), say so, never "unused".
+  const unusedKey = thinking.sent ? "thinking.level.sent" : "thinking.level.unused";
   const options = shown.map((level) => {
     const option = document.createElement("option");
     option.value = level;
     option.textContent = level && !levels.includes(level)
-      ? t("thinking.level.unused", { level: words("effort", level) })
+      ? t(unusedKey, { level: words("effort", level) })
       : level ? words(thinking.how, level) : (emptyWords ?? words(thinking.how, ""));
     return option;
   });
@@ -50,9 +53,10 @@ export function applyThinking(select, preset, emptyWords, saved) {
   select.value = held;
   select.dataset.thinking = thinking.how;
   const note = noteFor(select);
-  note.textContent = thinking.how === "none" ? t("thinking.note.none", { model: preset.model })
-    : held && !levels.includes(held) ? t("thinking.note.unused", { model: preset.model })
-      : thinking.how === "budget" ? t("thinking.note.budget") : "";
+  note.textContent = unused && thinking.sent ? t("thinking.note.sent", { model: preset.model })
+    : thinking.how === "none" ? t("thinking.note.none", { model: preset.model })
+      : unused ? t("thinking.note.unused", { model: preset.model })
+        : thinking.how === "budget" ? t("thinking.note.budget") : "";
   note.hidden = !note.textContent;
 }
 

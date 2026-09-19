@@ -4516,6 +4516,8 @@
   "thinking.level.unused": "{level} (ce modèle ne s'en sert pas)",
   "thinking.note.none": "{model} ne prend pas de réglage de réflexion : il n'y a rien à choisir ici.",
   "thinking.note.unused": "Le niveau enregistré ici est gardé, mais {model} ne s'en sert pas. Choisissez-en un qu'il prend, ou laissez-le pour quand vous changerez de modèle.",
+  "thinking.level.sent": "{level} (ce modèle peut le refuser)",
+  "thinking.note.sent": "Branch envoie toujours le niveau enregistré ici, mais {model} n'est pas connu pour en accepter un : le service peut refuser la demande. Choisissez une autre option pour changer cela.",
   "thinking.note.budget": "Pour ce modèle, réfléchir veut dire un court temps de réflexion avant de répondre. Plus long coûte plus et prend plus de temps.",
   "agent-files.title": "Les fichiers de votre assistant",
   "agent-files.edit-named": "Modifier {name} ici",

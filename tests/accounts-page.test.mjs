@@ -72,6 +72,9 @@ test("A1 Accounts is its own page after Models, with each service's mark and a s
   assert.equal(await page.locator(".accounts-row", { hasText: "Work plan" }).isVisible(), true);
   await search.fill("");
   assert.equal(await page.locator(".accounts-row").count() >= 8, true);
+  // Integration review: a terms line with several links names each one, never "Read the terms" twice.
+  const termLinks = await page.locator('.accounts-pool[data-pool="openai-work"] .terms-line a').allInnerTexts();
+  assert.deepEqual(termLinks, ["OpenAI terms ↗", "Google API terms ↗", "Anthropic terms ↗"]);
   assert.deepEqual(errors, []);
 });
 
@@ -142,5 +145,24 @@ test("A5 Secrets and chat apps show marks and plain names, and a service that as
   await page.locator("#chat-services-list summary .brand-mark").first().waitFor({ timeout: 20000 });
   assert.equal(await page.locator("#chat-services-list summary", { hasText: "Mattermost" }).locator(".brand-mark").getAttribute("data-mark"), "mattermost");
   assert.equal(await page.locator("#chat-services-list summary", { hasText: "Microsoft Teams" }).locator(".brand-mark").getAttribute("data-neutral"), "chat");
+  assert.deepEqual(errors, []);
+});
+
+// Integration review: someone on a household profile with nothing shared is shown none of the owner's
+// cards (the fallback order, the Trunks' keys) and no switch they cannot change, and nothing asks for them.
+test("A6 a household person with nothing shared sees no owner cards and no switch they cannot change", async (t) => {
+  const { call, page, errors, open } = await fixture(t);
+  await call("/api/accounts/settings", { mode: "on" }); // no list saved, so nothing can be shared with Sam
+  await call("/api/trunks/switch", { part: "trunks", mode: "on" });
+  await call("/api/trunks", { name: "Scout" });
+  const sam = (await call("/api/profiles", { name: "Sam", pin: "2468" })).body;
+  assert.equal((await call("/api/profiles/switch", { profileId: sam.id, pin: "2468" })).status, 200);
+  await open();
+  await page.locator("#accounts-card .accounts-honest").waitFor({ state: "attached", timeout: 30000 });
+  await page.waitForTimeout(500);
+  assert.equal(await page.locator("#accounts-card .accounts-pool").count(), 0, "nothing is shared with Sam");
+  assert.equal(await page.locator("#accounts-mode").count(), 0, "the switch is the owner's");
+  // drawTrunks makes its card whatever the answer, so no card means the page never asked for the Trunks.
+  assert.equal(await page.locator("#accounts-low-card, #accounts-trunks-card").count(), 0);
   assert.deepEqual(errors, []);
 });

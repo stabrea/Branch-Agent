@@ -76,7 +76,7 @@ So Branch does this, and the card says it in one Terms line with the links:
 
 ### Thinking levels that follow the model (redesign phase 2)
 
-The *Thinking* lists (Settings › Models, each conversation's own, and the per-model levels under Defaults) offer only the levels the chosen model really takes; `thinking` on each model in `/api/state` and `/api/knobs` says which (`src/thinking-levels.ts`). Branch sends a level from three places only: the OpenAI-shaped connection (`reasoning_effort`), the Responses API connection and the ChatGPT sign-in (`reasoning.effort`), and the Anthropic connection (a thinking budget of 1,024 / 4,096 / 8,192 tokens, also Claude on Vertex). Within those, the reasoning families take levels: OpenAI's o-series, GPT-5 and gpt-oss (Quick, Balanced, Thorough), xAI's grok-3-mini (Quick and Thorough only), Gemini 2.5 and later over the OpenAI-shaped address, and Claude 3.7 Sonnet and every Claude 4 and later (Off, then three budgets). Every other model is offered none, with a sentence saying so. A level saved earlier that the model does not take is kept, marked "(this model does not use it)", and not cleared. Nothing about what is sent changed.
+The *Thinking* lists (Settings › Models, each conversation's own, and the per-model levels under Defaults) offer only the levels the chosen model really takes; `thinking` on each model in `/api/state` and `/api/knobs` says which (`src/thinking-levels.ts`). Branch sends a level from three places only: the OpenAI-shaped connection and Azure OpenAI, which builds the same request (`reasoning_effort`), the Responses API connection and the ChatGPT sign-in (`reasoning.effort`), and the Anthropic connection (a thinking budget of 1,024 / 4,096 / 8,192 tokens, also Claude on Vertex). Within those, the reasoning families take levels: OpenAI's o-series, GPT-5 and gpt-oss (Quick, Balanced, Thorough; not o1-mini, o1-preview or the GPT-5 chat models, which refuse it), xAI's grok-3-mini (Quick and Thorough only), Gemini 2.5 and later over the OpenAI-shaped address, and Claude 3.7 Sonnet and every Claude 4 and later (Off, then three budgets). Every other model is offered none, with a sentence saying so. A level saved earlier that the model does not take is kept and not cleared. Where the connection still sends it (the three above, `sent` in `thinking`), it is marked "(this model may refuse it)" with a sentence saying Branch still sends it and the service may refuse the request; elsewhere it is marked "(this model does not use it)". Nothing about what is sent changed.
 
 ### Service marks (redesign phase 2)
 
@@ -9101,9 +9101,10 @@ with a second name (hard link), or a file in an untrusted project folder is not 
 project's file is checked against the never-break guard before it is written. **Undo the last save**
 (`POST /api/settings-kit/files/undo { slot }`) puts back what the file held before the last save made
 here, or takes the file away again when that save made it; only while the file still holds exactly what
-was saved, so a change made since in another editor or by a task is never overwritten. One save per
+was saved, so a change made since in another editor or by a task is never overwritten, and only while it is
+still the file Branch reads for that slot and may be written here (a project that changed or lost its trust is refused). One save per
 file is kept for this (`settings-kit-file-undo-<slot>` setting, with the earlier text; a backup copies it with the
-other settings, and the settings file never does). The card is
+other settings, and neither the settings file nor the diagnostics report ever does). The card is
 marked for the Advanced level of detail (`data-level="advanced"`) for the Settings level control.
 
 After first run, a card under the conversation offers Say hello, Watch me once (turns on recording

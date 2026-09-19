@@ -4515,6 +4515,8 @@
   "thinking.level.unused": "{level} (this model does not use it)",
   "thinking.note.none": "{model} does not take a thinking setting, so there is nothing to choose here.",
   "thinking.note.unused": "The level saved here is kept, but {model} does not use it. Pick one it takes, or leave it for when you switch back.",
+  "thinking.level.sent": "{level} (this model may refuse it)",
+  "thinking.note.sent": "Branch still sends the level saved here, but {model} is not known to take one, so the service may refuse the request. Choose another option to change that.",
   "thinking.note.budget": "For this model, thinking means a short private think before it answers. Longer thinking costs more and takes longer.",
   "agent-files.title": "Your assistant's files",
   "agent-files.edit-named": "Change {name} here",
