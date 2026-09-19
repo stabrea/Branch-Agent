@@ -73,6 +73,16 @@ STATUS-ci-flakes.md and STATUS-ci-flakes-2.md.
   the older look flashed back until the next refresh. `adoptSaved` now also skips an answer asked for
   before the window's latest change. New test holds such answers (fails before: 60 applied over 100).
 
+## After residuals merged (run 35472658073 on d7e7de13: every shard green but one)
+- mac2-desktop-ui "the cards go to their homes…" (macOS, 'off' instead of 'when-needed'): PRODUCT BUG,
+  the same family again. app.js redraws the screen-control card on every 3-second refresh, and these
+  cards redraw with it, writing the saved answer into the three choosers (Your computer's own voice,
+  screen sharing, Keychain). A choice made and not yet saved was replaced by the old one within 3 s,
+  and Save then sent the old value back and said "Saved." Now the saved answer is written in only
+  while the choice on screen is still the one this file last wrote. Reproduced: with a 3.5 s wait
+  between choosing and saving, trunk's file fails with exactly 'off' !== 'when-needed', the fix passes.
+  The test keeps that wait.
+
 ## Progress
 - [x] fixes above: b45e1070, 1f2de612, 8e9df59b, the walk-rules spelling test, bf8073a5
 - [x] after merging trunk 2674e2ae (settings redesign): clean dist, tsc, the 14 touched files +
@@ -87,5 +97,5 @@ STATUS-ci-flakes.md and STATUS-ci-flakes-2.md.
       CI failures reproduces on this machine by repetition, which is why each one was instead
       reproduced by making the one slow step slow (see the findings: /api/state held 3 s, the
       finishing step held 4 s, a 3.5 s wait past a refresh, a 21 s old page).
-- [ ] merged into trunk, pushed
+- [x] merged into trunk: 7a7c5fb5 (run 35472328214, cancelled by the residuals push), then the rest
 - [ ] two consecutive full green Checks runs on trunk

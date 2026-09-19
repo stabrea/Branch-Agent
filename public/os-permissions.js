@@ -61,6 +61,7 @@ function switchCard(id, home, name, save) {
   button.addEventListener("click", async () => {
     try {
       await save($(`${id}-mode`).value);
+      choiceSaved(`${id}-mode`);
       status(id, t("keychain.status.saved"));
     } catch (e) {
       status(id, e.message);
@@ -69,11 +70,27 @@ function switchCard(id, home, name, save) {
   return section;
 }
 
+/**
+ * ci-flakes-3: these cards are drawn again by the window's refresh every 3 seconds. A choice made here
+ * and not yet saved must survive that: the saved answer is written in only while the choice on screen
+ * is still the one this file last wrote. Otherwise Save sent the old value back.
+ */
+const lastDrawn = new Map();
+function showChoice(id, value) {
+  const choice = $(id);
+  if (!choice) return;
+  if (lastDrawn.has(id) && choice.value !== lastDrawn.get(id)) return; // their own unsaved choice
+  choice.value = value;
+  lastDrawn.set(id, choice.value);
+}
+/** Once a choice is saved it is the one on screen, so the next refresh may write over it again. */
+const choiceSaved = (id) => lastDrawn.set(id, $(id)?.value);
+
 async function renderSwitches() {
   const screen = await api("desktop/settings");
-  $("screen-switch-card-mode").value = screen.mode ?? (screen.enabled ? "when-needed" : "off");
+  showChoice("screen-switch-card-mode", screen.mode ?? (screen.enabled ? "when-needed" : "off"));
   const voice = await api("voice/plan");
-  $("system-voice-card-mode").value = voice.settings?.systemVoice ?? "off";
+  showChoice("system-voice-card-mode", voice.settings?.systemVoice ?? "off");
 }
 
 /* ---------- what this computer allows ---------- */
@@ -138,7 +155,8 @@ function keychainCard() {
   const add = worded("button", "action.add-keychain-entry", { type: "button", id: "keychain-add", className: "quiet-button" });
   const save = worded("button", "action.save-keychain-list", { type: "button", id: "keychain-save" });
   add.addEventListener("click", addEntry);
-  save.addEventListener("click", () => void saveKeychain({ mode: $("keychain-card-mode").value, entries: keychain.entries }));
+  save.addEventListener("click", () => void saveKeychain({ mode: $("keychain-card-mode").value, entries: keychain.entries })
+    .finally(() => choiceSaved("keychain-card-mode")));
   const section = card("keychain-card", "settings:secrets", "keychain",
     ...modeSelect("keychain-card-mode"),
     el("div", { id: "keychain-list", className: "card-list" }),
@@ -161,7 +179,7 @@ function entryRow(entry, index) {
 }
 
 function showKeychain() {
-  $("keychain-card-mode").value = keychain.mode ?? (keychain.enabled ? "when-needed" : "off");
+  showChoice("keychain-card-mode", keychain.mode ?? (keychain.enabled ? "when-needed" : "off"));
   const rows = keychain.entries.map(entryRow);
   $("keychain-list").replaceChildren(...(rows.length ? rows : [worded("p", "keychain.empty", { className: "subtle" })]));
 }

@@ -532,6 +532,9 @@ test("the cards go to their homes, and a settings link opens only on a click", a
   assert.equal(readDesktopSettings(app.store, app.runtime.owner).mode, "on");
   await openAndSettle(page, () => openSettingFor(page, "#system-voice-card"));
   await page.locator("#system-voice-card-mode").selectOption("when-needed");
+  // The window draws these cards again every 3 seconds: a choice not yet saved stays (ci-flakes-3).
+  await page.waitForTimeout(3500);
+  assert.equal(await page.locator("#system-voice-card-mode").inputValue(), "when-needed", "the choice is still theirs");
   await page.locator("#system-voice-card button").click();
   await page.waitForFunction(() => document.getElementById("system-voice-card-status").textContent === "Saved.");
   assert.equal(voiceSettings(app.store, app.runtime.owner).systemVoice, "when-needed");
