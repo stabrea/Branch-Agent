@@ -10,7 +10,7 @@
  * The card also keeps the phone's own "never allow" list: things this phone refuses whatever Branch
  * switches on. It can only take away, and it is kept next to the key so a page cannot lose it.
  */
-import { DEVICE_REFUSALS, readDeviceInvitation, readNever, sixDigits } from "/rules.js";
+import { DEVICE_REFUSALS, keyCheck, readDeviceInvitation, readNever, sixDigits } from "/rules.js";
 import { startScan } from "/scan.js";
 import { $, describe, plugin, say, status } from "/phone-common.js";
 
@@ -64,7 +64,7 @@ export async function pairDevice() {
   let code;
   try { code = sixDigits($("device-code").value); } catch (error) { status("device-status", describe(error), true); return; }
   $("device-pair").disabled = true;
-  status("device-status", say("phone.device.waiting", "Waiting for you to press Let it in on your computer."));
+  status("device-status", await waitingWords());
   try {
     const never = readNever(await kept());
     const answer = await plugin.devicePair({ ...invitation, code, name: $("device-label").value.trim(), never });
@@ -77,6 +77,18 @@ export async function pairDevice() {
     $("device-pair").disabled = false;
     await drawDevice();
   }
+}
+
+/**
+ * mac7/residuals: while it waits, the phone shows the check code the computer shows beside its request,
+ * made from this phone's own key, so the owner can compare the two before pressing Let it in.
+ */
+async function waitingWords() {
+  const key = await plugin.deviceKey?.().catch(() => null);
+  const check = key?.publicKey ? await keyCheck(globalThis.crypto, key.publicKey).catch(() => null) : null;
+  return check
+    ? say("phone.device.waitingCheck", "Waiting for you to press Let it in on your computer. Check code {check}: your computer shows the same code beside this phone's request.", { check })
+    : say("phone.device.waiting", "Waiting for you to press Let it in on your computer.");
 }
 
 export async function unpairDevice() {

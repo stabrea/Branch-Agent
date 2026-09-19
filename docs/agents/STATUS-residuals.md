@@ -65,7 +65,16 @@ branch: an integrator reviews it. Every new test is in `tests/residuals.test.mjs
 - [ ] 7. Mode menu and usage list 98% opaque, like the glass dropdown.
 - [ ] 8. Achievement names and descriptions in French.
 - [x] 9. Room member conversations in Recents; "needs you" banner names the Trunk — already fixed (below).
-- [ ] 10. Phone app shows the pairing check code.
+- [x] 10. Phone app shows the pairing check code.
+  While "Lend this phone to Branch" waits, the status line reads "… Check code XXXX XXXX: your computer shows the
+  same code beside this phone's request" (en + fr, `phone.device.waitingCheck`). The code is made on the phone from
+  its own key (apps/mobile/web/rules.js `keyCheck`, the same SHA-256 as src/devices/protocol.ts), never taken from
+  the computer. The page gets the public half through a new native method `deviceKey` (iOS BranchPhonePlugin.swift,
+  guarded by `fromAppPage` like the rest; Android BranchPhonePlugin.java + `BranchNode.publicKey()`, which makes
+  and keeps the key early so `pair()` reuses it). An older native build without it falls back to the old sentence.
+  Test 10 (phone and server codes agree on five keys; the page uses it; both natives offer it);
+  tests/mobile-rules.test.mjs method count 18 → 19. **Not proven:** the Java and Swift were not compiled or run
+  (no Android SDK or Xcode on this machine).
 - [ ] 11. Overview and People: bottom padding the height of the floating composer.
 - [ ] 12. Trunks strip switched off: first paint uses the last known switch value.
 - [x] 13. Pairing: "Let it in" only after the owner ticks "The code matches".

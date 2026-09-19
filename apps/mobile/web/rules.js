@@ -112,6 +112,16 @@ export function readDeviceInvitation(text) {
 }
 
 /** The six numbers showing on the computer, with the spaces people type taken out. */
+/**
+ * mac7/residuals: the check code Branch shows beside this phone's request (src/devices/protocol.ts
+ * keyCheck): the first eight hex letters of SHA-256 over the public key as sent, in two groups of four.
+ */
+export async function keyCheck(crypto, publicKey) {
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(publicKey)));
+  const hex = [...digest.slice(0, 4)].map((byte) => byte.toString(16).padStart(2, "0")).join("").toUpperCase();
+  return `${hex.slice(0, 4)} ${hex.slice(4)}`;
+}
+
 export function sixDigits(code) {
   const digits = String(code ?? "").replace(/\s+/g, "");
   if (!/^\d{6}$/.test(digits)) throw refusal("phone.error.code", "Type the six numbers showing on your computer.");

@@ -283,6 +283,20 @@ public class BranchPhonePlugin extends Plugin {
         }
     }
 
+    /** mac7/residuals: this phone's public key (never the private half), for the check code the computer shows too. */
+    @PluginMethod
+    public void deviceKey(PluginCall call) {
+        getBridge().execute(() -> {
+            try {
+                JSObject out = new JSObject();
+                out.put("publicKey", node.publicKey());
+                call.resolve(out);
+            } catch (Exception error) {
+                call.reject(String.valueOf(error.getMessage()));
+            }
+        });
+    }
+
     /** Answers the Devices card's invitation, then waits for the owner's yes on the computer. */
     @PluginMethod
     public void devicePair(PluginCall call) {

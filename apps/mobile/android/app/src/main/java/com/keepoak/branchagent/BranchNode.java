@@ -221,6 +221,18 @@ final class BranchNode {
         return Base64.encodeToString(signature.sign(), Base64.NO_WRAP);
     }
 
+    /** mac7/residuals: this phone's public key, made and kept now when it has none, so the page can show the check code. */
+    String publicKey() throws Exception {
+        JSONObject record = load();
+        if (record == null) record = new JSONObject().put("never", new JSONArray());
+        if (!record.has("publicKey")) {
+            JSONObject made = newKey();
+            for (String field : new String[] {"key", "keystore", "publicKey"}) if (made.has(field)) record.put(field, made.get(field));
+            save(record);
+        }
+        return record.getString("publicKey");
+    }
+
     /**
      * Sends the invitation's number and this phone's public key, then asks how it went until the
      * owner answers on the computer. Each ask is signed, which is how Branch knows it is this phone.

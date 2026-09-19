@@ -19,6 +19,8 @@ public class BranchPhonePlugin: CAPPlugin, CAPBridgedPlugin {
         "openBranch", "look", "notify", "lastSeen", "takeShared", "clearShared",
         // mac7/phone-pairing: lending this phone to Branch as one of the owner's devices.
         "deviceStatus", "devicePair", "deviceNever", "deviceForget",
+        // mac7/residuals: the public half of this phone's key, for the check code both screens show.
+        "deviceKey",
     ].map { CAPPluginMethod(name: $0, returnType: CAPPluginReturnPromise) }
 
     /// Capacitor on iOS answers its bridge from whatever page the window shows, and the window also
@@ -168,6 +170,17 @@ public class BranchPhonePlugin: CAPPlugin, CAPBridgedPlugin {
                       "never": node?.never ?? [], "canSign": true])
     }
 
+    /// mac7/residuals: this phone's public key (made now when it has none), so the page can show the
+    /// check code the computer shows beside the request. The private half never leaves BranchNode.
+    @objc func deviceKey(_ call: CAPPluginCall) {
+        guard fromAppPage(call) else { return }
+        do {
+            call.resolve(["publicKey": try BranchNode.publicKey()])
+        } catch {
+            call.reject(BranchNative.word("phone.device.failed", "That did not work."))
+        }
+    }
+
     /// Answers the Devices card's invitation, then waits for the owner's yes on the computer.
     @objc func devicePair(_ call: CAPPluginCall) {
         guard fromAppPage(call) else { return }
@@ -292,6 +305,12 @@ enum BranchNode {
         let record = Record(seed: made.rawRepresentation, never: load()?.never ?? [])
         try save(record)
         return (made, record)
+    }
+
+    /// mac7/residuals: the public half of the key, as it is sent with the invitation's number.
+    static func publicKey() throws -> String {
+        let (signing, _) = try key()
+        return (spkiPrefix + signing.publicKey.rawRepresentation).base64EncodedString()
     }
 
     /// Never follows a redirect, as Android does not (BranchNode.java): the invitation, the six

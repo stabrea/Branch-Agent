@@ -4,7 +4,7 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
@@ -171,4 +171,19 @@ test("4a. process.start is judged by command rules on the command it really runs
   assert.equal(judge({ program: "dev", args: ["--host", "0.0.0.0"] }), "deny", "the call's own arguments are read");
   assert.equal(judge({ program: "dev", args: ["--port", "3000"] }), "allow", "a listed program no rule is about still goes ahead");
   assert.equal(app.registry.targetOf("process.start", { program: "dev", args: [] }, app.runtime.context({})), "dev", "the card is unchanged");
+});
+
+test("10. the phone app works out the same check code the computer shows beside its request", async () => {
+  const { generateKeyPairSync } = await import("node:crypto");
+  const { keyCheck: serverCheck } = await import("../dist/devices/protocol.js");
+  const { keyCheck: phoneCheck } = await import("../apps/mobile/web/rules.js");
+  for (let i = 0; i < 5; i++) {
+    const key = generateKeyPairSync("ed25519").publicKey.export({ format: "der", type: "spki" }).toString("base64");
+    assert.equal(await phoneCheck(globalThis.crypto, key), serverCheck(key));
+  }
+  const device = await readFile(new URL("../apps/mobile/web/phone-device.js", import.meta.url), "utf8");
+  assert.match(device, /status\("device-status", await waitingWords\(\)\)/, "the waiting line is the one with the code");
+  for (const native of ["../apps/mobile/ios/App/App/BranchPhonePlugin.swift",
+    "../apps/mobile/android/app/src/main/java/com/keepoak/branchagent/BranchPhonePlugin.java"])
+    assert.match(await readFile(new URL(native, import.meta.url), "utf8"), /deviceKey/, `${native} hands the page the public key`);
 });

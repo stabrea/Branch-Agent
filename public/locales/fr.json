@@ -3086,6 +3086,7 @@
   "phone.device.title": "Prêter ce téléphone à Branch",
   "phone.device.unable": "Le système de ce téléphone est trop ancien pour créer le type de clé que Branch demande. Rien ne peut être prêté d'ici.",
   "phone.device.waiting": "En attente : appuyez sur Le laisser entrer sur votre ordinateur.",
+  "phone.device.waitingCheck": "En attente : appuyez sur Le laisser entrer sur votre ordinateur. Code de contrôle {check} : votre ordinateur affiche le même code à côté de la demande de ce téléphone.",
   "phone.error.code": "Tapez les six chiffres affichés sur votre ordinateur.",
   "phone.error.credentials": "Une adresse qui contient un nom et un mot de passe est refusée.",
   "phone.error.damaged": "Ce lien d’invitation est abîmé. Affichez de nouveau le code carré.",

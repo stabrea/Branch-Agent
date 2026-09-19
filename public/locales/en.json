@@ -3085,6 +3085,7 @@
   "phone.device.title": "Lend this phone to Branch",
   "phone.device.unable": "This phone's system is too old to make the kind of key Branch asks for. Nothing can be lent from here.",
   "phone.device.waiting": "Waiting for you to press Let it in on your computer.",
+  "phone.device.waitingCheck": "Waiting for you to press Let it in on your computer. Check code {check}: your computer shows the same code beside this phone's request.",
   "phone.error.code": "Type the six numbers showing on your computer.",
   "phone.error.credentials": "An address with a name and password in it is refused.",
   "phone.error.damaged": "That invitation link is damaged. Show the square code again.",
