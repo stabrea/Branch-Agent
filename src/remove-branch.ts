@@ -40,7 +40,11 @@ export const removePersonRefusal =
 export const removeStartedElsewhereRefusal =
   "Only you can remove Branch, in the Branch app. A schedule, a trigger or another AI tool cannot.";
 
-export interface RemoveContext { source?: string | undefined; runId?: string | undefined; trunkKeys?: unknown }
+export interface RemoveContext {
+  source?: string | undefined; runId?: string | undefined; trunkKeys?: unknown;
+  /** profile-audit: the household profile the app window is switched to, when it is. */
+  person?: string | null | undefined;
+}
 type Events = { events(runId: string): { kind: string; data: Record<string, unknown> }[] };
 
 /**
@@ -50,7 +54,7 @@ type Events = { events(runId: string): { kind: string; data: Record<string, unkn
  */
 export function removalGuard(
   store: Pick<Store, "get"> & Partial<Events>, context: RemoveContext,
-  person: string | null = currentPerson()?.profileId ?? null,
+  person: string | null = currentPerson()?.profileId ?? context.person ?? null,
 ): string | null {
   const events = store as unknown as Events;
   const origin = context.runId && typeof events.events === "function" ? runOrigin(events, context.runId) : null;

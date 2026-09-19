@@ -142,8 +142,14 @@ It is off until you switch it on, and it never blocks a message when the check i
 **Profiles** give somebody else a name and a PIN of four to eight digits. While their profile is
 switched on, the conversation list, saved conversations and **Memory** are theirs and not yours, a
 task they start is filed under their name, and the locker, projects, saved workflows, the waiting line
-and your own shared copies are all refused in plain words. Five wrong PINs in a row stop that profile
-accepting any for five minutes.
+and your own shared copies are all refused in plain words — and so is every other part of Branch
+that is yours alone: settings of every kind, approval rules, sign-ins, chat apps, devices, add-ons,
+backups, updates and removing Branch. They are told *"This belongs to the owner. Switch back to the
+owner's profile to use it."* Five wrong PINs in a row stop that profile accepting any for five minutes.
+
+Going back to your profile needs no PIN, so this keeps somebody out of your things by default — no
+accident, no child exploring Settings — but it does not stop anybody at the keyboard who decides to
+press "switch back".
 
 **Be honest about what this is:** separation on one computer, not separate accounts. There is no
 syncing, and the assistant still works as the owner — it uses the owner's models and tools. Anyone who

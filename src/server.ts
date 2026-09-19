@@ -232,6 +232,7 @@ import { handlesSavingsPath, savingsApi, SavingsApiError } from "./model-savings
 // mac7/usage-bar: how much of each connection's allowance is left (src/usage-limits.ts).
 import { handlesUsageLimitsPath, usageLimitsRoute, UsageLimitsError } from "./usage-limits-api.js";
 import { savingsRefusal } from "./short-lived-keys.js";
+import { householdMaySend, householdRefusalFor } from "./household-routes.js"; // profile-audit
 // R17-S-C: the comfort settings (src/comfort/); every change is the owner's.
 import { ComfortApiError, comfortApi, handlesComfortPath } from "./comfort/api.js";
 import { comfortRefusal } from "./short-lived-keys.js";
@@ -1235,7 +1236,7 @@ async function api(
       { store: app.store, owner: app.runtime.owner, platform: process.platform, env: process.env,
         sourceCheckout: existsSync(join(packageRootHere(), ".git")),
         manage: { env: process.env, platform: process.platform, version: app.version, packageRoot: packageRootHere(), print: () => undefined } },
-      request.method ?? "GET", path, () => readBody(request, 4 * 1024),
+      request.method ?? "GET", path, () => readBody(request, 4 * 1024), windowCaller(app),
     );
   if (request.method === "POST" && path === "/api/onboarding") {
     const value = OnboardingSchema.parse(await readBody(request));
@@ -1675,7 +1676,7 @@ async function sessionApi(app: Branch, request: IncomingMessage, path: string): 
     if (request.method === "GET") return { followUps: app.runtime.queued(match[1]!) };
     if (request.method === "POST") {
       const { prompt } = z.object({ prompt: z.string().trim().min(1).max(16000) }).strict().parse(await readBody(request));
-      return app.runtime.followUp(match[1]!, prompt);
+      return app.runtime.followUp(match[1]!, prompt, windowCaller(app).person ?? null);
     }
   }
   if (match && request.method === "GET" && !match[2]) return app.store.sessionView(owner, match[1]!);
@@ -3083,6 +3084,13 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
         const refused = gateway.check(request, true);
         if (refused) throw new HttpError(401, refused);
       }
+      // profile-audit: a window switched to a household profile is that person. Every owner-only
+      // route is refused to them here, in one sentence, before its own code runs (src/household-routes.ts).
+      if (!app.store.profiles.isOwner()) {
+        const refused = offLimitsToHousehold(request.method, path);
+        // 400, as every `requireOwner` refusal over HTTP has always been answered.
+        if (refused) throw new HttpError(400, refused);
+      }
       // Doing something counts as activity; merely looking does not, or the app's own three-second
       // refresh of the screen would keep it awake for ever and it would never lock itself.
       if (request.method !== "GET" && path !== "/api/lock" && !onlyLooking) app.sessionLock.touch();
@@ -3921,6 +3929,15 @@ export function offLimitsToShortLivedKeys(method: string | undefined, path: stri
   if (!taskRouteFor(method, path) && interopOffLimits(method, path) === null) return generalShortLivedKeyRefusal;
   // mac4/bucket-20: switching those parts, bringing an assistant in, and handing a conversation on.
   return interopOffLimits(method, path);
+}
+/**
+ * profile-audit: what a household person at the window is refused. Whatever a short-lived key is
+ * refused, they are too — settings, permissions, secrets, pairing, backups, updates, the danger
+ * zone — except their own things and the ways out listed in src/household-routes.ts.
+ */
+export function offLimitsToHousehold(method: string | undefined, path: string): string | null {
+  if (householdMaySend(method, path)) return null;
+  return offLimitsToShortLivedKeys(method, path) === null ? null : householdRefusalFor(path);
 }
 /**
  * mac5/key-sweep + mac5/manual-actions (integration review): a tool run by hand with a short-lived

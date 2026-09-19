@@ -112,10 +112,10 @@ test("a household profile cannot change any of the owner's knobs, and nobody but
     ["memory", { aboutYou: "changed" }], ["reasoning", { showReasoning: true }], ["subtasks", { parallelSubtasks: 8 }],
     ["compaction", { autoCompact: false }]]) {
     const refused = await call("POST", { card, values });
-    assert.equal(refused.status, 403, `${card} ${JSON.stringify(values)}`);
+    assert.equal(refused.status, 400, `${card} ${JSON.stringify(values)}`); // profile-audit: refused at one place in src/server.ts, as requireOwner answers
   }
-  assert.equal((await call("POST", { card: "limits", reset: true })).status, 403);
-  assert.equal((await call("POST", { card: "memory", memoryProvider: "branch" })).status, 403);
+  assert.equal((await call("POST", { card: "limits", reset: true })).status, 400);
+  assert.equal((await call("POST", { card: "memory", memoryProvider: "branch" })).status, 400);
   app.store.profiles.switch({ profileId: null });
   assert.equal(readKnobs(app.store, owner, "limits").spendCapDollars, 1);
   assert.match(readKnobs(app.store, owner, "memory").aboutYou, /Oak Lane/);

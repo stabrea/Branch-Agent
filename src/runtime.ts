@@ -430,14 +430,16 @@ export class Runtime {
    * Queues a message for a conversation; it runs, in order, as soon as the conversation is free,
    * so a person can steer a task that is still working without waiting for it to finish.
    */
-  followUp(sessionId: string, prompt: string): { id: string; position: number; queued: number } {
+  followUp(sessionId: string, prompt: string, windowPerson: string | null = null): { id: string; position: number; queued: number } {
     RunInputSchema.parse({ prompt, sessionId });
+    // profile-audit: queued from the app window switched to a household profile, it runs as them.
+    const person = currentPerson()?.profileId ?? windowPerson;
     if (!this.store.ownsSession(this.owner, sessionId)) throw new Error("Session not found");
     // bucket-18 (A0300): a message queued with a short-lived key starts later, so the mark is kept with it.
     const items = [...this.queued(sessionId), { id: randomUUID(), prompt, createdAt: new Date().toISOString(),
       ...(startedWithShortLivedKey() ? { shortLivedKey: true } : {}),
       ...(shortLivedKeyMark().keyId ? { shortLivedKeyId: shortLivedKeyMark().keyId } : {}),
-      ...(currentPerson() ? { personProfileId: currentPerson()!.profileId } : {}) }];
+      ...(person ? { personProfileId: person } : {}) }];
     this.store.save("settings", this.owner, `followups:${sessionId}`, { items });
     this.drainFollowUps(sessionId);
     const left = this.queued(sessionId);
@@ -734,6 +736,17 @@ ${run.output.slice(0, 6000)}`;
     this.store.event(run.id, "session.temporary", { memoryWrites: false });
     return { ...context, permissions: new Set([...context.permissions].filter((p) => p !== "memory.write")) };
   }
+  /**
+   * bucket 19 + profile-audit: the household person a task is started for — a person's own key, or
+   * the app window switched to their profile. Only work the window starts counts the window's
+   * switch; a schedule, trigger or chat message arriving meanwhile is not that person's.
+   */
+  private startedFor(source?: string): string | null {
+    const person = currentPerson();
+    if (person) return person.profileId;
+    if ((source ?? "owner") !== "owner" || this.store.profiles.isOwner()) return null;
+    return this.store.profiles.active()?.id ?? null;
+  }
   /** bucket-18 (A0300): who started the task, and whether a short-lived key was behind it or its parent. */
   private originMarks(options: RunOptions, context: ToolContext, parent?: ToolContext): Record<string, unknown> {
     const inherited = [parent?.runId, options.resumeFrom].some((id) => !!id && runOrigin(this.store, id).shortLivedKey);
@@ -743,7 +756,7 @@ ${run.output.slice(0, 6000)}`;
       ...(startedWithShortLivedKey() || inherited ? { shortLivedKey: true } : {}),
       // bucket 19: which key, so only that key may answer the questions this task asks.
       ...(shortLivedKeyMark().keyId ? { shortLivedKeyId: shortLivedKeyMark().keyId } : {}),
-      ...(currentPerson() ? { personProfileId: currentPerson()!.profileId } : {}),
+      ...(this.startedFor(context.source) ? { personProfileId: this.startedFor(context.source) } : {}),
       ...(options.lentTo ? { lentTo: options.lentTo } : {}),
     };
   }
