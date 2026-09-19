@@ -139,6 +139,11 @@ export function initAppearance(save) {
   applyAppearance(current);
 }
 
+/** phase2/settings: change part of the look (for example the Settings level) and keep it, as a click here does. */
+export function changeAppearance(patch) {
+  change(patch);
+}
+
 /** What the Save button sends. */
 export function currentAppearance() {
   return { ...current };

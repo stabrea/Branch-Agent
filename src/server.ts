@@ -638,6 +638,11 @@ async function staticFile(
     "/conversation-mode.js": ["conversation-mode.js", "text/javascript; charset=utf-8"],
     "/suggestions.js": ["suggestions.js", "text/javascript; charset=utf-8"],
     "/glass-select.js": ["glass-select.js", "text/javascript; charset=utf-8"],
+    // phase2/settings: Settings grown up (groups, levels, search over every setting).
+    "/settings-grown.js": ["settings-grown.js", "text/javascript; charset=utf-8"],
+    "/settings-buckets.js": ["settings-buckets.js", "text/javascript; charset=utf-8"],
+    "/settings-index.js": ["settings-index.js", "text/javascript; charset=utf-8"],
+    "/settings-grown.css": ["settings-grown.css", "text/css; charset=utf-8"],
     "/playground.js": ["playground.js", "text/javascript; charset=utf-8"],
     "/tool-catalog.js": ["tool-catalog.js", "text/javascript; charset=utf-8"],
     "/i18n.js": ["i18n.js", "text/javascript; charset=utf-8"],

@@ -18,11 +18,11 @@ const HIDDEN_WHEN_CALM = [
   "#lx-pane-tabs", "#lx-clear", "#lx-shield", "#thread-labels", "#aside-toggle", "#connection",
   "#composer-media", "#composer-attach", "#voice-record", "#voice-talk", "#temporary-toggle",
   "#ask-first-toggle", "#composer-specialist", "#new-session", "#meter-row", "#session-label",
-  "#saved-conversations", "#rail-find", "#cmd-open", "#owner-menu-button", "#context-panel",
+  "#saved-conversations", "#rail-find", "#cmd-open", "#context-panel",
   "#keepoak-acorn", ".lx-model-chip",
 ];
-/* What the calm window always shows. */
-const ALWAYS = ["#prompt", "#send", "#rail-new", "#lx-settings-row", "#lx-more"];
+/* What the calm window always shows. phase2/settings: the account row now shows too, with the Settings cog after it (#37). */
+const ALWAYS = ["#prompt", "#send", "#rail-new", "#lx-settings-row", "#lx-more", "#owner-menu-button"];
 
 /** A model that answers at once, or waits for `release()` when asked to sort the Downloads folder. */
 function slowModel() {

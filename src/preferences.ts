@@ -19,6 +19,8 @@ export const PreferencesSchema = z
     showEverything: z.boolean().default(false),
     /** The microphone and Talk buttons beside the message box. Off by default. */
     showVoice: z.boolean().default(false),
+    /** phase2/settings: how much Settings shows. Unset means "regular", or "advanced" for someone who had Show everything on. */
+    settingsLevel: z.enum(["regular", "advanced", "technical"]).optional(),
   })
   .strict();
 export type Preferences = z.infer<typeof PreferencesSchema>;

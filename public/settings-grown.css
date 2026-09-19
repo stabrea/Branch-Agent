@@ -1,0 +1,358 @@
+/* phase2/settings: Settings, grown up (public/settings-grown.js). Theme tokens only.
+   The window fills the screen, pages use its width, groups carry a heading, and the level decides
+   what shows. */
+
+/* ---------- the window uses the whole screen (#24) ---------- */
+@media (min-width: 861px) {
+  .lx-settings-win {
+    inset: 10px;
+    max-width: none;
+    grid-template-columns: 252px minmax(0, 1fr);
+  }
+}
+.lx-page {
+  max-width: none;
+}
+.lx-page-intro {
+  max-width: 72ch;
+}
+/* Two columns of cards on a wide screen; each group's heading spans both. */
+@media (min-width: 1200px) {
+  .lx-page:not(#lx-page-models),
+  .lx-subpanel {
+    column-count: 2;
+    column-gap: 18px;
+  }
+  .lx-page > *,
+  .lx-subpanel > * {
+    break-inside: avoid;
+  }
+  .lx-page-title,
+  .lx-page-intro,
+  .lx-subtabs,
+  .sg-head,
+  .lx-page > .lx-look,
+  .sg-solo,
+  #sg-found {
+    column-span: all;
+  }
+}
+
+/* ---------- a group's heading ---------- */
+.sg-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 22px 0 12px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+.lx-page-intro + .sg-head,
+.lx-subtabs + .lx-subpanel > .sg-head:first-child,
+.lx-subpanel > .sg-head:first-child {
+  margin-top: 6px;
+  padding-top: 0;
+  border-top: 0;
+}
+.sg-head.sg-empty,
+.sg-head.lx-miss {
+  display: none;
+}
+.sg-tile {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border: 1px solid var(--copper-edge);
+  border-radius: 11px;
+  background: var(--copper-tint);
+  color: var(--copper-text);
+}
+.sg-tile .sg-icon {
+  width: 20px;
+  height: 20px;
+}
+.sg-head-words {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.sg-head-title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 680;
+  line-height: 1.2;
+}
+.sg-head-line {
+  margin: 0;
+  color: var(--text-2);
+  font-size: 13px;
+}
+.sg-more {
+  flex: none;
+  margin-left: auto;
+  padding: 5px 10px;
+  border: 1px solid var(--line-2);
+  border-radius: 999px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--copper-text);
+  font-size: 12.5px;
+  font-weight: 560;
+  white-space: nowrap;
+}
+.sg-more:hover {
+  background: var(--hover);
+}
+.sg-icon {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* ---------- how much to show ---------- */
+:root[data-settings-level="regular"] body:not(.lx-settings-searching) .lx-settings :is([data-level="advanced"], [data-level="technical"]):not([data-sg-peek]),
+:root[data-settings-level="advanced"] body:not(.lx-settings-searching) .lx-settings [data-level="technical"]:not([data-sg-peek]) {
+  display: none !important;
+}
+.sg-keys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  margin: 12px 0 0;
+  padding-top: 8px;
+  border-top: 1px dashed var(--line);
+  color: var(--text-3);
+  font-size: 11.5px;
+}
+.sg-keys code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+}
+:root:not([data-settings-level="technical"]) .sg-keys {
+  display: none;
+}
+
+/* ---------- the list of pages ---------- */
+.lx-settings-link {
+  gap: 9px;
+}
+.lx-settings-link .sg-icon {
+  color: var(--text-3);
+}
+.lx-settings-link[aria-current="true"] .sg-icon {
+  color: var(--copper-text);
+}
+.sg-nav-group {
+  margin: 12px 0 2px;
+  padding: 0 10px;
+  color: var(--text-3);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.sg-picker {
+  display: none;
+}
+.sg-level {
+  display: grid;
+  gap: 6px;
+  margin-top: auto;
+  padding: 12px 10px 4px;
+  border-top: 1px solid var(--line);
+}
+.sg-nav-group + .sg-level,
+.sg-place-link + .sg-picker + .sg-level {
+  margin-top: 16px;
+}
+.sg-level-label {
+  margin: 0;
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 600;
+}
+.sg-level-seg {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--well);
+}
+.sg-level-option {
+  min-width: 0;
+  padding: 6px 4px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 540;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sg-level-option[aria-checked="true"] {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 0 0 1px var(--line-2);
+  font-weight: 650;
+}
+.sg-level-note {
+  margin: 0;
+  color: var(--text-3);
+  font-size: 11.5px;
+  line-height: 1.35;
+}
+
+/* ---------- a phone: one choice of page, the search and the level, nothing that scrolls sideways ---------- */
+@media (max-width: 860px) {
+  .lx-settings-nav {
+    flex-wrap: wrap;
+    gap: 8px;
+    overflow: visible;
+  }
+  .lx-settings-nav .lx-settings-link,
+  .lx-settings-nav .sg-nav-group,
+  .sg-level-label,
+  .sg-level-note {
+    display: none;
+  }
+  .lx-settings-nav .lx-search {
+    flex: 1 1 150px;
+  }
+  .sg-picker {
+    display: block;
+    flex: 1 1 150px;
+    min-width: 0;
+  }
+  .sg-picker select {
+    width: 100%;
+  }
+  .sg-level {
+    flex: 1 1 100%;
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+  .sg-head {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .sg-more {
+    margin-left: 50px;
+  }
+}
+
+/* ---------- search: what the pages hold, and what sits elsewhere or behind a switch ---------- */
+.sg-found {
+  margin: 0 0 20px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--well);
+}
+.sg-found-title {
+  margin: 0 0 8px;
+  font-size: 14px;
+  font-weight: 650;
+}
+.sg-found-list {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.sg-found-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 0;
+  border-top: 1px solid var(--line);
+}
+.sg-found-item:first-child {
+  border-top: 0;
+}
+.sg-found-words {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+}
+.sg-found-words b {
+  font-weight: 560;
+  overflow-wrap: anywhere;
+}
+.sg-found-words small {
+  color: var(--text-3);
+  font-size: 12px;
+}
+.sg-found-go {
+  flex: none;
+  padding: 5px 12px;
+  font-size: 12.5px;
+}
+.sg-found-more {
+  margin: 8px 0 0;
+  color: var(--text-3);
+  font-size: 12px;
+}
+.sg-flash {
+  outline: 2px solid var(--copper);
+  outline-offset: 3px;
+  border-radius: 6px;
+  transition: outline-color 1.6s ease;
+}
+:root[data-motion="reduced"] .sg-flash {
+  transition: none;
+}
+
+/* ---------- the account row, then the cog (#37) ---------- */
+.sg-foot-line {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.sg-foot-line .owner-row {
+  flex: 1;
+  min-width: 0;
+}
+.sg-foot-line .sg-gear {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-2);
+}
+.sg-foot-line .sg-gear:hover,
+.sg-foot-line .sg-gear[aria-expanded="true"] {
+  background: var(--rail-hover);
+  color: var(--text);
+}
+.sg-foot-line .sg-gear .sg-icon {
+  width: 19px;
+  height: 19px;
+}
+/* The calm window shows the account row too, so the cog has something to sit after. */
+:root:not([data-everything="on"]) .rail-foot .sg-foot-line > #owner-menu-button {
+  display: flex !important;
+}
+:root:not([data-everything="on"]) .rail-foot .sg-foot-line > #lx-settings-row {
+  display: grid !important;
+}
