@@ -40,7 +40,16 @@ condition. Also any other test that failed more than once in the last ~15 trunk 
   draw itself is a small product wart (a hover or an opened table in the first drawing is lost after
   one request); not changed here because the send flow in app.js is being reworked by the redesign.
 
+- glass-select "the list sits flush under the select…" (macOS, trunk 677e7d34, gap -388.53): PRODUCT
+  BUG. The list had not opened above: it had closed, and a hidden list measures 0, so gap = -select
+  bottom. The window's refresh every 3 s re-writes the policy preset choices (approvals.js
+  `renderPresets`), the same ones, and the list closed on any change to its select's options, so an
+  open list shut under the person within 3 s. Placement (below at 549 px of room) was right.
+
 ## Progress
+- [x] glass-select: closes only when the choices are really different (value, label, greyed, group);
+      the test says "still open" before measuring; new test: a refresh writing the same choices leaves
+      the list open (fails before). Loops, flush test, 3 copies: before 21/30 (9 closed), after 30/30.
 - [x] artifacts-ui W2: waits for `branch-run-finished`, then for its own chart's reading (file 9/9).
       With only that, 1 of 30 loop runs still read '' after the reading had shown (a later clear, cause
       not caught: 0 of 148 traced runs failed). The check is now one wait for "Tue: 7" on that chart's
