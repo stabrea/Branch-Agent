@@ -78,9 +78,36 @@ Grouped by where the thing a rule is about comes from. "own" = the tool's `targe
   answer.page (`source(s)` are names or citations, not files); tools.script (`source` is code, judged as code.execute);
   board.card_handoff, channels.broadcast, conversation.handoff (`to` is a person, channel or agent); flow.search (`save`
   is a switch).
-- **Nothing a path/site/command rule is about (194):** memory, todos, schedules, workflows, specialists, delegate,
-  knowledge search/ask, browser reads of the current page, brief, boards, procedures, status and list tools, etc.
-  (full list in the builder's scratch audit; each has no key naming a file, site or command).
+- **No argument names a file, site or command (194; the browser ones act on the page already open, whose site
+  was judged when it was opened; shell.execute and the kept-open command lines are judged as commands, above):** agents.remote, answer.ask, artifacts.forget, artifacts.list, automation.ideas,
+  automation.propose, board.card_add, board.card_move, board.cards, brief.configure, brief.preview, brief.send,
+  brief.send_voice, brief.spoken, browser.annotate, browser.extract, browser.notes, browser.pdf, browser.profile,
+  browser.recording, browser.screenshot, browser.shape, browser.site, browser.snapshot, browser.unmark, browser.wait,
+  channels.digest, checklist.read, checklist.write, code.check, context.list, data.chart, data.describe, data.query,
+  debug.step, debug.stop, debug.variables, delegate.debate, delegate.handoff, delegate.parallel, delegate.route,
+  delegate.supervise, delegate.swarm, device.list, documents.list, documents.remove, documents.search, files.find,
+  files.patch, files.restore, fleet.send, fleet.status, fleet.stop, flow.steps, flows.list, gateway.propose, git.pull,
+  git.push, github.checks, github.create_issue, github.create_repo, github.issues, github.open_pull_request,
+  github.release, gitlab.issues, gitlab.pipelines, gitlab.releases, heartbeat.respond, hindsight.recall,
+  hindsight.reflect, hindsight.retain, history.read, history.search, install.requests, instructions.list,
+  instructions.propose, intent.route, issues.comment, issues.get, issues.search, knowledge.ask, knowledge.collections,
+  knowledge.graph, knowledge.list, knowledge.manage, knowledge.map, knowledge.propose, knowledge.refresh,
+  knowledge.reindex, knowledge.search, knowledge.summarise, learn.cost, learn.map, learn.tour, lessons.list,
+  machines.list, mail.attachments, mail.save_attachment, mail.search, mcp.dry_run, mcp.servers, memory.at,
+  memory.block_edit, memory.block_view, memory.delete, memory.keep, memory.label, memory.outside_ask,
+  memory.outside_keep, memory.outside_recall, memory.search, memory.tidy, memory.timeline, memory.version_note,
+  memory.versions, mode.list, mode.task, monitor.check, monitor.list, monitor.remove, monitors.screen.check,
+  monitors.screen.create, nodes.status, notes.list, notes.rewrite, obsidian.read, obsidian.sync, orders.list,
+  orders.propose, output.read, procedures.auto.list, procedures.auto.propose, procedures.propose, procedures.replay,
+  procedures.replay_checked, procedures.verify, process.list, process.read, process.stop, project.route,
+  projects.notes, research.list, review.checks, runs.export, schedules.create, schedules.list, schedules.pause,
+  schedules.remove, scratch.read, scratch.set, scratch.text.add, scratch.text.list, scratch.text.search, sdk.routes,
+  sdk.starter, sessions.branch, sessions.tree, shell.execute, shell.session.close, shell.session.list, skills.list,
+  skills.read, skills.readiness, skills.usage, sources.list, specialists.delegate, specialists.evaluate,
+  specialists.fanout, specialists.promote, specialists.propose, specialists.rollback, spotify.control, spotify.now,
+  spotify.search, templates.export, templates.import, todos.add, todos.done, todos.list, tools.services,
+  trunks.remote.roster, usb.devices, user.ask, user.task, web.search, widgets.list, widgets.propose, workflows.create,
+  workflows.list, workflows.pause, workflows.resume, workflows.run, workspace.snapshot, x.search
 - **Outside tools (MCP servers, plugins, skill HTTP tools, OpenAPI tools):** `z.record` or generated strict schemas;
   `clean()` skips `z.record` by design and the outside server judges its own arguments. `runArgs` returns the same record.
 
