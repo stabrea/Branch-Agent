@@ -1,48 +1,53 @@
 # Coding bench — status (2026-09-19)
 
-## Window 5 — started 2026-09-19 16:04 UTC, running unattended on taofik-ai
+## Window 6 — started 2026-09-19 19:06 UTC, running unattended on taofik-ai
 
-**Read this first: the two Branch rows stop at the new tests question.** In the first cells both
-Branch rows ended `needs_input` after 1–2 model calls with no edit, on
-"Let Branch run this project's tests? It would run node --test in <cell folder>." (mac7/coding-next
-item 4). With the run-scripts switch off, `code.check`'s `node --test` stand-in now asks instead of
-answering "no check is set up", and `branch run` has nobody to answer, so the run ends. Until that is
-answered (e.g. a row that stores the owner's "Always for this folder" `code.tests` rule, or a CLI
-answer), these rows measure "stops at the first code.check", not the coding fixes, and the read-first
-comparison is confounded. The window was left running (Branch cells cost ~1–2 min each); stop it with
-`pkill -f 'run-scoreboard.mjs.*window5'` on the VM if it is not wanted.
-
-- Build: trunk `cc212bf5` (coding-next merged: `read-first` switch, unknown arguments dropped, 300 s
-  local first reply, tests question), copied with `git archive` to `/workspace/bench/cg/after3`,
-  `npm ci && npm run build` with `/workspace/bench/node` (log `/workspace/bench/cg/after3-build.log`).
-  `before/experiments/` was already byte-identical to trunk's `experiments/` (md5 checked), so not re-copied.
-- Rows (VM only, not in git): `before/experiments/scoreboard/contestants.mjs` (original kept as
-  `contestants.mjs.pre-window5`) gained an optional `prepScript` in `branchContestant` — the same
-  `/bin/sh -c "node <prep> && exec node dist/cli.js run …"` path `scriptsOn` uses, with `scriptsOn` still
-  mapping to `scripts-on.mjs`, so earlier rows are unchanged — and two rows:
+- Build: trunk `f5b8d582` (mac7/tests-unattended: an unattended `branch run` skips the project's tests
+  with a note and carries on; `branch run --allow-tests` lets that one run run them), copied with
+  `git archive` to `/workspace/bench/cg/after4`, `npm ci && npm run build` with `/workspace/bench/node`
+  (log `/workspace/bench/cg/after4-build.log`). `before/experiments/` still matches trunk apart from the rows below.
+- Rows (VM only, not in git): `before/experiments/scoreboard/contestants.mjs` (window5's version kept as
+  `contestants.mjs.window5`, the original as `contestants.mjs.pre-window5`). `branchContestant` has two
+  optional fields: `prepScript` (window5, see below) and `runArgs`, extra `branch run` flags placed before
+  `--timeout`. Rows without them run exactly as before. The window6 rows:
   ```js
-  branchContestant({ id: "branch-after3", name: "Branch (trunk cc212bf5, coding-next)", root: `${BENCH}/cg/after3`,
-    note: "trunk after mac7/coding-next, every switch as shipped" }),
-  branchContestant({ id: "branch-after3-readfirst", name: "Branch (trunk cc212bf5, read-first on)", root: `${BENCH}/cg/after3`,
-    note: "branch-after3 with the read-before-edit switch (coding part read-first) on", prepScript: "experiments/coding-bench/readfirst-on.mjs" }),
+  branchContestant({ id: "branch-after4", name: "Branch (trunk f5b8d582)", root: `${BENCH}/cg/after4`,
+    note: "trunk after mac7/tests-unattended, every switch as shipped (unattended: project tests skipped)" }),
+  branchContestant({ id: "branch-after4-tests", name: "Branch (trunk f5b8d582, --allow-tests)", root: `${BENCH}/cg/after4`,
+    note: "branch-after4 started with branch run --allow-tests, so it may run the project's tests", runArgs: ["--allow-tests"] }),
   ```
-  `after3/experiments/coding-bench/readfirst-on.mjs` (copy in `before/experiments/coding-bench/`) is
-  `scripts-on.mjs` with `app.store.save("settings", app.runtime.owner, "coding-read-first", { mode: "on" })`;
-  checked on a throwaway data folder (`codingMode` read back `on`).
-- Model warmed first (cold load 105 s); `/workspace/bench/keep-model-warm.sh qwen3-14b-16k` runs under
-  `timeout 8h` (log `/workspace/bench/board/keepwarm.log`).
-- Command (detached with `setsid -f`, output to `/workspace/bench/cg/window5.log`):
-  `cd /workspace/bench/cg && ./run.sh window5 branch-after3,branch-after3-readfirst,codex "" 1`
+  So the tests row runs `node dist/cli.js run --allow-tests --timeout 600000 "<prompt>"` in after4.
+- Model warm (the load took 22 ms at start). `keep-model-warm.sh qwen3-14b-16k` was restarted under `timeout 8h` at
+  19:06 UTC (log `/workspace/bench/board/keepwarm.log`).
+- Command (detached with `setsid -f`, output to `/workspace/bench/cg/window6.log`):
+  `cd /workspace/bench/cg && ./run.sh window6 branch-after4,branch-after4-tests,codex "" 1`
   — 36 cells, 3 rows × 12 tasks, round robin (codex first in each task).
-- First cells (fix-range): codex fail 265 s (tests fail); branch-after3 fail 113 s and
-  branch-after3-readfirst fail 65 s, both `needs_input` on the tests question, 0 edits.
-- Progress: `tail /workspace/bench/cg/window5.log`, `wc -l /workspace/bench/cg/window5/results.jsonl`
-  (36 when done), `pgrep -af run-scoreboard`. Per-cell databases in `window5/state/`, work trees in `window5/work/`.
-- Expected finish: ~18:30 UTC if Branch cells keep stopping early; at most ~21:10 UTC (36 × ~8 min).
+- First task (fix-range), all fail:
+  - codex: 147 s, tests fail.
+  - branch-after4: completed in 101 s after 2 model calls, with no question, 0 edits. The model tried
+    `code.run` (off as shipped), was refused, and ended by telling the owner to switch scripts on. Model
+    behaviour, not the rig.
+  - branch-after4-tests: stopped at the 600 s deadline, still working. The flag was accepted (stderr:
+    "this task may run the project's tests without asking"). One edit landed in `src/range.js`, then a
+    model turn was in progress. Model turns took ~70 s each at load ~11.
+- Progress: `tail /workspace/bench/cg/window6.log`, `wc -l /workspace/bench/cg/window6/results.jsonl`
+  (36 when done), `pgrep -af run-scoreboard`. Per-cell databases in `window6/state/`, logs in `window6/logs/`.
+- Expected finish: roughly 21:30–22:30 UTC at the first task's pace (~14 min a task, three cells).
+  Worst case is 36 × 10 min, about 01:10 UTC.
 - Report when done (from `/workspace/bench/cg/before`, `PATH=/workspace/bench/node/bin:$PATH`):
-  `node experiments/coding-bench/recount-edits.mjs ../window5/results.jsonl ../window5/state > ../window5/results-recounted.jsonl`
-  then `node experiments/coding-bench/report.mjs ../window5/results-recounted.jsonl`; copy the JSONL here as
-  `results-window5.jsonl` and write the section in `docs/agents/coding-bench.md`.
+  `node experiments/coding-bench/recount-edits.mjs ../window6/results.jsonl ../window6/state > ../window6/results-recounted.jsonl`
+  then `node experiments/coding-bench/report.mjs ../window6/results-recounted.jsonl`. Copy the JSONL here as
+  `results-window6.jsonl` and write the section in `docs/agents/coding-bench.md`.
+
+## Window 5 — stopped, invalid (do not report)
+
+Started 16:04 UTC on trunk `cc212bf5` (`/workspace/bench/cg/after3`), rows `branch-after3`,
+`branch-after3-readfirst` (a `prepScript`, `after3/experiments/coding-bench/readfirst-on.mjs`, that saves
+`settings/coding-read-first` `{ mode: "on" }`) and `codex`. The coordinator stopped it after 3 cells. Both
+Branch rows ended `needs_input` after 1–2 model calls with no edit, on "Let Branch run this project's
+tests?". `code.check` asked the tests question and `branch run` had nobody to answer. Fixed on trunk
+f5b8d582 (window 6). The 3 rows are in `/workspace/bench/cg/window5/results.jsonl` and are not a
+measurement. The read-first row is to be measured later.
 
 ## Earlier windows
 
