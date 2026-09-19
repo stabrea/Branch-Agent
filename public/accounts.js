@@ -108,7 +108,11 @@ function accountRow(pool, account) {
   const state = node("p", "subtle", `${statusOf(pool, account)} ${usageOf(pool, account)}`);
   state.dataset.tKey = "accounts.state";
   state.setAttribute("role", "status");
-  row.append(head, state, renameBlock(pool, account), buttonsFor(pool, account));
+  row.append(head, state);
+  // Integration (hardening-3): a household person is shown the account, not the owner's buttons
+  // (every change here is the owner's, and sign-in state is not sent to them).
+  if (pool.strategy === undefined) return row;
+  row.append(renameBlock(pool, account), buttonsFor(pool, account));
   if (pool.kind === "api-key") row.append(capBlock(pool, account));
   else row.append(separateBlock(pool, account));
   if (pool.kind === "cli" && account.home) row.append(programHelp(pool, account));
@@ -254,7 +258,10 @@ function poolBlock(pool) {
   list.append(...pool.accounts.map((account) => accountRow(pool, account)));
   box.append(heading);
   if (pool.notice) box.append(noticeBlock(pool));
-  box.append(poolControls(pool), list, addBlock(pool), termsLine(pool));
+  // hardening-3: a household person is sent only the accounts shared with them, not how the list is run.
+  // The owner's lists always carry a strategy (it has a default in src/accounts/settings.ts).
+  const owners = pool.strategy !== undefined;
+  box.append(...(owners ? [poolControls(pool)] : []), list, ...(owners ? [addBlock(pool)] : []), termsLine(pool));
   return box;
 }
 /** mac7/account-pooling: said once, why sharing between the owner's own plans stopped. */

@@ -33,6 +33,13 @@ export interface PolicyResource {
    * the target alone must not let it through (src/policy.ts).
    */
   cut?: boolean;
+  /**
+   * Integration (hardening-3): the same path written from the workspace itself, when the call's
+   * paths are read inside a folder of it (the active project's folder, or a task's working copy).
+   * Folder rules are written about the workspace, so a path rule is weighed against both: "never
+   * under finance" holds for "q1.txt" while the active project's folder is finance.
+   */
+  inWorkspace?: string;
 }
 
 const escaped = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -43,9 +50,21 @@ export function globMatches(pattern: string, value: string): boolean {
   return new RegExp("^" + pattern.split("*").map(escaped).join(".*") + "$", "is").test(value);
 }
 
-/** Paths are compared with forward slashes, without a leading or trailing slash, so Windows paths fit too. */
-const tidyPath = (value: string): string =>
-  value.replace(/\\/g, "/").replace(/^\.\//, "").replace(/^\/+/, "").replace(/\/+$/, "");
+/**
+ * Paths are compared with forward slashes, without a leading or trailing slash, so Windows paths fit
+ * too. Integration (hardening-3): and one name per folder: "." and empty steps are dropped and
+ * "a/.." folds away, so "././finance/q1.txt" is the finance folder a rule names. Only one leading
+ * "./" used to be taken off, and the rest read as a folder called ".", past "never under finance".
+ */
+function tidyPath(value: string): string {
+  const kept: string[] = [];
+  for (const part of value.replace(/\\/g, "/").split("/")) {
+    if (part === "" || part === ".") continue;
+    if (part === ".." && kept.length > 0 && kept[kept.length - 1] !== "..") kept.pop();
+    else kept.push(part);
+  }
+  return kept.join("/");
+}
 
 /** A folder pattern covers everything inside it: "finance" fits "finance/2026/q1.xlsx". */
 export function pathMatches(pattern: string, value: string): boolean {
@@ -109,7 +128,10 @@ export function resourceOf(tool: string, permission: string, target: string, arg
   // Otherwise the target itself says what kind of thing it is. Going by the target rather than the
   // arguments means a tool that reports what it touches through its own `target()` — which is how a
   // tool with no top-level `path` is meant to do it — is covered by a folder rule like any other.
-  return looksLikeHost(target) ? { kind: "host", value: target } : { kind: "path", value: target };
+  // Integration (hardening-3): a file tool's target without an address in the call is a file, even
+  // when its name has a dot in it: "q1.txt" is not a website, so a folder or file rule still holds.
+  const aboutFiles = /^(files|documents|media|data|code)\./.test(permission) && typeof a.url !== "string";
+  return looksLikeHost(target) && !aboutFiles ? { kind: "host", value: target } : { kind: "path", value: target };
 }
 
 /**
@@ -122,7 +144,9 @@ export function resourceMatches(
   matcher: ResourceMatcher, resource: PolicyResource | null | undefined, decision: "allow" | "ask" | "deny" = "allow",
 ): boolean {
   if (!resource || matcher.kind !== resource.kind) return false;
-  if (matcher.kind === "path") return pathMatches(matcher.pattern, resource.value);
+  if (matcher.kind === "path")
+    return pathMatches(matcher.pattern, resource.value)
+      || (resource.inWorkspace !== undefined && pathMatches(matcher.pattern, resource.inWorkspace));
   if (matcher.kind === "host") return hostMatches(matcher.pattern, resource.value);
   if (matcher.kind === "command")
     return matcher.exact ? !resource.cut && exactCommandPattern(resource.value) === matcher.pattern : commandCovers(matcher.pattern, resource.value, decision);
