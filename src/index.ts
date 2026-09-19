@@ -1,4 +1,6 @@
 import { mkdir } from "node:fs/promises";
+import { currentTaskRun, currentTool } from "./task-scope.js"; // mac7/walk-rules
+import { allowAll } from "./walk-rules.js"; // mac7/walk-rules
 import { existsSync, readdirSync, rmSync } from "node:fs";
 import { resolve, join, relative, isAbsolute, basename } from "node:path";
 import { Store } from "./store.js";
@@ -455,6 +457,12 @@ export async function createBranch(options: {
     options.reliability,
   );
   runtime.journal = journalHook(journal, (text) => runtime.hideSecrets(text)); // mac3/never-break: nothing secret is written down
+  // mac7/walk-rules: a task's folder walks are held to its rules for every file and folder (src/walk-rules.ts).
+  files.walkRules = (outside) => {
+    const runId = currentTaskRun();
+    if (!runId && !outside) return allowAll;
+    return runtime.pathCheck({ tool: currentTool() ?? "files.list", runId, source: outside?.source });
+  };
   runtime.artifacts = artifacts;
   // mac7/coding-next: "Let Branch run this project's tests?", answered through the ordinary questions.
   codeChanges.testsPermission = (context, folder) => projectTestsVerdict({ store, owner: runtime.owner,
