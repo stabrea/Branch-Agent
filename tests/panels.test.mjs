@@ -411,10 +411,9 @@ test("on a phone the one switch is there and opens the floating panel with its t
 
 test("a panel closed long ago in the full window still opens from the switch in the calm window; widths are per person", async (t) => {
   const f = await windowFixture(t);
-  await f.page.evaluate(() => localStorage.setItem("branch-aside", "closed"));
-  await f.page.reload();
-  await f.page.locator("body.lx-ready").waitFor({ state: "attached" });
-  await f.page.waitForFunction(() => globalThis.branchPanels);
+  /* What public/shell.js does at load for somebody who once closed the panel in the full window
+     (a reload here would count as wrong key tries on the login page and lock the test out). */
+  await f.page.evaluate(() => { localStorage.setItem("branch-aside", "closed"); document.body.classList.add("no-aside"); });
   await f.conversation();
   assert.equal(await f.page.evaluate(() => document.body.classList.contains("no-aside")), true, "the old choice is still written down");
   await f.page.locator("#aside-toggle").click();

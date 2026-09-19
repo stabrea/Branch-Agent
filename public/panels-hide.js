@@ -307,7 +307,14 @@ function start() {
   document.addEventListener("contextmenu", onContextMenu);
   document.addEventListener("pointerdown", (event) => { if (menu && !menu.contains(event.target)) closeMenu(); });
   document.addEventListener("keydown", (event) => { if (event.key === "Escape") closeMenu(); });
-  new MutationObserver(applySeeThrough).observe(root, { attributes: true, attributeFilter: ["style", "data-theme", "data-palette", "data-motion"] });
+  /* Not the style attribute: other parts of the window write to it all the time. A new theme always
+     writes data-palette (public/theme-bridge.js), and light or dark writes data-theme. */
+  let seeQueued = false;
+  new MutationObserver(() => {
+    if (seeQueued) return;
+    seeQueued = true;
+    requestAnimationFrame(() => { seeQueued = false; applySeeThrough(); });
+  }).observe(root, { attributes: true, attributeFilter: ["data-theme", "data-palette", "data-motion"] });
   new MutationObserver(() => floatGear(hiddenNow().has("side-list"))).observe($("workspace"), { attributes: true, attributeFilter: ["hidden"] });
   matchMedia("(prefers-reduced-transparency: reduce)").addEventListener?.("change", applySeeThrough);
   everythingNow();
