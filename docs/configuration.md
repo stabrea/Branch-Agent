@@ -3362,7 +3362,7 @@ Open a conversation and choose **Forget what this conversation saved to memory**
 
 ### First-run setup
 
-Until setup is marked done, the Conversation view opens with three doors: sign in with a ChatGPT plan, use an API key, or look around on the offline demonstration. **Test the connection** makes one real, tool-free completion through the model that will answer next and reports the reply and how long it took (`POST /api/models/test {preset?}`); nothing is added to your conversations. **Done, start chatting** records completion (`POST /api/onboarding {done: true}`).
+Until setup is marked done, the Conversation view opens with the doors: sign in with a ChatGPT plan, paste an API key, use the model on this computer (only when Ollama or LM Studio answers on 127.0.0.1, `GET /api/providers/local`), or try it without an account on the offline demonstration, which finishes setup in one click. **Test the connection** makes one real, tool-free completion through the model that will answer next and reports the reply and how long it took (`POST /api/models/test {preset?}`); nothing is added to your conversations. **Done, start chatting** records completion (`POST /api/onboarding {done: true}`).
 
 ### Stored facts
 
@@ -3876,9 +3876,30 @@ Local HTTP authorization is single-owner access, not a multi-user tenancy system
 record (`PreferencesSchema` in `src/preferences.ts`) holds `appearance` (`forest` or `daylight`),
 `followSystem`, `accent` (`copper`, `leaf`, `earth`, `slate`, `ink`), `textSize`
 (`small`/`medium`/`large`), `density` (`comfortable`/`compact`), `font` (`geist`/`system`),
-`reduceMotion` and `showAcorn`. Every field has a default, so a record saved by an older version
-still loads. Settings → Appearance changes all of them; each choice shows at once and Save keeps
-it.
+`reduceMotion`, `showAcorn` (the acorn toy in the side pane, off by default), `showEverything`
+and `showVoice`. Every field has a default, so a record saved by an older version still loads.
+Settings → Appearance changes all of them; each choice shows at once and Save keeps it.
+
+**The calm window.** Since 0.18.1 the window opens calm: one question ("What do you want done?")
+and one box with Send, plus New conversation, the recent conversations and Settings in the rail.
+Everything else is still on the page and still works; it is reached from the **More** button in
+the title bar (asking questions first, forgetting the conversation afterwards, attaching a
+document or a picture, who should answer, the Activity/Plan/Files/Memory panel, Inbox,
+Automations, Library, Customize, Find anything, labels, Lockdown, Clear the view, Help) or it
+shows only when it matters: the side panel slides in while a task runs and away when it
+finishes, Inbox appears in the rail while something waits in it, the Projects list only when
+there is more than one project, and a price under the box only when one is known. The window
+says the model is not connected once, as "Practice mode", and says nothing about its link to
+Branch unless that link is lost ("Branch stopped responding", with Restart). First run is one
+screen of choices (ChatGPT plan, a key, the model on this computer when Ollama or LM Studio
+answers there, or trying it without an account in one click); opening Branch at sign-in and
+reaching it from a phone are in Settings → General.
+
+`showEverything` (default `false`) brings back the full window — every tab, meter and switch,
+all the time — and is kept per person with the rest of this record ("Show everything" in
+Settings → Appearance, or at the foot of the More menu). `showVoice` (default `false`) shows the
+microphone and Talk buttons beside the message box in the calm window; the full window always
+shows them.
 
 Every section (Conversation, Activity, Usage, Memory, Skills, Specialists, Procedures, Schedules,
 Documents, Settings) is a row in the rail's "Sections" group on the left, so nothing hides behind a

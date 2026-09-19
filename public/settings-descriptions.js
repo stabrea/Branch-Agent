@@ -66,6 +66,8 @@ export const descriptions = [
   ["#appearance-language", "describe.language", "The language of this window, on this computer only. Replies follow the language you write in."],
   ["#appearance-motion", "describe.motion", "Stops things sliding and spinning. Nothing else changes."],
   ["#appearance-acorn", "describe.acorn", "Shows or hides the turning acorn. It is only a picture."],
+  ["#appearance-everything", "describe.everything", "Off, the window shows one question and one box, and everything else is under More. On, every tab, meter and switch shows all the time. Kept for you."],
+  ["#appearance-voice", "describe.voice-buttons", "Puts the microphone and Talk buttons beside the message box. Nothing listens until you press one."],
   ["#quiet-switch-news", "describe.quiet-news", "When on, a scheduled check only interrupts you when it found something new."],
   ["#heartbeat-second", "describe.heartbeat-second", "Another model reads the news first and it only reaches you if both agree it matters. This costs a little more."],
   ["#gemini-client-id", "describe.gemini-client", "The client id from your own Google project, used to sign in to Gemini. It is not secret."],

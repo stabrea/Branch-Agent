@@ -143,7 +143,8 @@ async function draw() {
     /* The count beside Activity is kept up to date even when the pane is folded away. */
     const running = await api("activity").catch(() => []);
     setActivityCount(running.length);
-    if (document.body.classList.contains("no-aside")) return;
+    /* The calm window can show the pane while work runs even when it was folded away by hand. */
+    if (document.body.classList.contains("no-aside") && !document.body.classList.contains("lx-aside")) return;
     const state = await api("state");
     await drawWorking();
     drawTasks(running);
@@ -170,3 +171,5 @@ new MutationObserver(() => {
   if (!workspace.hidden) void draw();
 }).observe(workspace, { attributes: true, attributeFilter: ["hidden"] });
 $("aside-toggle").addEventListener("click", () => setTimeout(draw, 0));
+/* public/layout.js asks for a fresh look the moment the pane slides in for running work. */
+document.addEventListener("branch-pane-draw", () => void draw());

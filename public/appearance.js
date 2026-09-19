@@ -1,5 +1,6 @@
 /* Appearance settings: theme, highlight colour, text size, spacing, lettering,
-   movement and the acorn. Every change shows at once; Save keeps it for next time.
+   movement and the acorn, and how much of the window shows (the calm window, or everything, and
+   the voice buttons). Every change shows at once; Save keeps it for next time.
    The record matches PreferencesSchema in src/preferences.ts. */
 import { t } from "/i18n.js";
 
@@ -11,7 +12,9 @@ export const defaultAppearance = {
   density: "comfortable",
   font: "geist",
   reduceMotion: false,
-  showAcorn: true,
+  showAcorn: false,
+  showEverything: false,
+  showVoice: false,
 };
 
 /* Wave 7: the buttons name their words with a key, so another language covers them too. */
@@ -27,6 +30,8 @@ const GROUPS = {
   density: "density-choices",
   font: "font-choices",
 };
+/* Switches that may sit on any Settings page but belong to this same record. */
+const SWITCHES = [["appearance-everything", "showEverything"], ["appearance-voice", "showVoice"]];
 const darkQuery = globalThis.matchMedia?.("(prefers-color-scheme: dark)");
 const $ = (id) => document.getElementById(id);
 let current = { ...defaultAppearance };
@@ -50,6 +55,9 @@ export function applyAppearance(value) {
   if (current.reduceMotion) root.motion = "reduced";
   else delete root.motion;
   root.acorn = current.showAcorn ? "on" : "off";
+  /* The calm window is the default; layout.css hides the rest unless this says "on". */
+  root.everything = current.showEverything ? "on" : "off";
+  root.voice = current.showVoice ? "on" : "off";
   render();
 }
 
@@ -60,6 +68,7 @@ function render() {
   $("appearance").disabled = current.followSystem;
   $("appearance-motion").checked = current.reduceMotion;
   $("appearance-acorn").checked = current.showAcorn;
+  for (const [id, key] of SWITCHES) if ($(id)) $(id).checked = current[key];
   for (const [key, id] of Object.entries(GROUPS))
     for (const button of $(id).children)
       button.setAttribute("aria-pressed", String(button.value === current[key]));
@@ -107,6 +116,8 @@ export function initAppearance(save) {
   $("appearance-acorn").addEventListener("change", () =>
     change({ showAcorn: $("appearance-acorn").checked }),
   );
+  for (const [id, key] of SWITCHES)
+    $(id)?.addEventListener("change", () => change({ [key]: $(id).checked }));
   darkQuery?.addEventListener("change", () => {
     if (current.followSystem) applyAppearance(current);
   });

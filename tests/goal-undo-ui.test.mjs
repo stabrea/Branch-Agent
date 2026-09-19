@@ -12,7 +12,7 @@ import { chromium } from "playwright";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch, saveGoalUndoSettings } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
-import { openPlace, openSettingFor } from "./places.mjs";
+import { openPlace, openSettingFor, showEverything } from "./places.mjs";
 
 async function signIn(page, server) {
   await page.goto(server.url);
@@ -33,6 +33,8 @@ async function setUp(t, name) {
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await signIn(page, server);
+  /* This file exercises the full window's own controls: "Show everything" since 0.18.1. */
+  await showEverything(page);
   return { app, page, errors };
 }
 const open = (page, sessionId) => page.evaluate((id) => import("/app.js").then((m) => m.openConversation(id)), sessionId);

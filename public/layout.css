@@ -1209,3 +1209,209 @@ body.lx .model-controls .text-button {
 .lx-ask-send:hover {
   background: var(--copper-hi);
 }
+
+/* ---------- the calm window (0.18.1) ----------
+   While <html data-everything> is not "on", the window shows one question and one box: New
+   conversation, the recent conversations and Settings on the left, the conversation, and More.
+   Everything below is only hidden: each control keeps its id and its module, is reached from More,
+   or shows when it matters. Settings → Appearance → "Show everything" brings the full window back. */
+/* the choices on first run, two by two, big enough to read from across the desk */
+@media (min-width: 821px) {
+  .first-run .doors {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.first-run .door strong {
+  font-size: 16px;
+}
+.first-run .door span {
+  font-size: 13.5px;
+}
+.first-run h2 {
+  margin-top: 0;
+}
+/* the side pane's headings read as words, not as code */
+body.lx .context-head,
+body.lx .rail-group h2,
+body.lx .group-head,
+.lx-eyebrow {
+  font-family: var(--body);
+  text-transform: none;
+  letter-spacing: 0;
+}
+/* "Connected" only ever meant this window reached Branch here: said only when that stopped. */
+body.lx #connection:not([data-state="lost"]) {
+  display: none;
+}
+body.lx #connection[data-state="lost"] {
+  color: var(--bad);
+  border-color: var(--bad);
+}
+.lx-restart {
+  flex: none;
+}
+/* the practice-mode line is the one place that says no model is connected */
+#demo-notice:not([hidden]) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+}
+#demo-notice .quiet-button {
+  margin-left: auto;
+}
+#demo-notice strong,
+#demo-notice span {
+  font-size: 14px;
+}
+#first-run:not([hidden]) ~ #demo-notice {
+  display: none;
+}
+/* More: one quiet button in the title bar, a short menu of everything the calm window keeps out of the way */
+.lx-more {
+  flex: none;
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text);
+  font-size: 13.5px;
+  font-weight: 550;
+}
+.lx-more:hover,
+.lx-more[aria-expanded="true"] {
+  background: var(--hover);
+  border-color: var(--line-strong);
+}
+.lx-more-menu {
+  right: 10px;
+  left: auto;
+  width: min(300px, calc(100vw - 24px));
+  max-height: min(70vh, 560px);
+  overflow-y: auto;
+  padding: 6px;
+}
+.lx-more-group + .lx-more-group {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--line);
+}
+.lx-more-head {
+  margin: 6px 10px 2px;
+  color: var(--faint);
+  font-size: 12px;
+}
+.lx-more-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 450;
+  text-align: left;
+}
+.lx-more-item:hover,
+.lx-more-item:focus-visible {
+  background: var(--hover);
+}
+.lx-more-item[aria-checked]::before {
+  content: "";
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border: 1.5px solid var(--line-strong);
+  border-radius: 4px;
+}
+.lx-more-item[aria-checked="true"]::before {
+  border-color: var(--copper);
+  background: var(--copper);
+  box-shadow: inset 0 0 0 2px var(--surface);
+}
+.lx-more-assistant {
+  display: grid;
+  gap: 4px;
+  padding: 6px 10px;
+  font-size: 14px;
+}
+.lx-more-assistant[hidden] {
+  display: none;
+}
+.lx-settings-row {
+  margin: 0 0 4px;
+}
+/* The full window keeps the controls it always had; More and the Settings row are the calm window's. */
+:root[data-everything="on"] .lx-more,
+:root[data-everything="on"] .lx-more-menu,
+:root[data-everything="on"] .lx-settings-row {
+  display: none !important;
+}
+
+/* What the calm window keeps out of sight. Nothing here is removed. */
+:root:not([data-everything="on"]) :is(
+  #cmd-open, #appearance-shortcut, .lx-gear, #rail-find,
+  #owner-menu-button, .rail-maker,
+  #thread-labels, #lx-pane-tabs, #lx-clear, #lx-shield, #aside-toggle,
+  #saved-conversations, #practice-card, #plan-controls, #model-controls,
+  .welcome > p, #suggestions,
+  #composer-media, #composer-attach, #voice-record, #voice-talk,
+  .composer-temporary, .composer-specialist, #new-session, .lx-model-chip,
+  .composer-foot, .context-stats, #session-context[data-kind="plain"], #activity, #first-run-next,
+  [data-t^="first-run-next.watch"]
+) {
+  display: none !important;
+}
+/* kept apart from the list above: inside :is() their weight would outweigh the voice rule below */
+:root:not([data-everything="on"]) #context-panel .context-block:is(:has(#context-provider), :has(#context-allowed)) {
+  display: none !important;
+}
+/* the places stay one click away in More; Inbox comes back to the rail while something waits in it */
+:root:not([data-everything="on"]) .lx-places .lx-place-link:not([data-place="inbox"]),
+:root:not([data-everything="on"]) body:not(.lx-inbox-waiting) .lx-places .lx-place-link[data-place="inbox"],
+:root:not([data-everything="on"]) .rail-group[data-group="sections"] > h2 {
+  display: none;
+}
+/* one project needs no list */
+:root:not([data-everything="on"]) .rail-group[data-group="projects"]:not(:has(#rail-projects > .rail-row + .rail-row)) {
+  display: none;
+}
+/* the voice buttons, only when voice is switched on */
+:root:not([data-everything="on"])[data-voice="on"] :is(#voice-record, #voice-talk) {
+  display: inline-flex !important;
+}
+/* while work runs on its own, the pane says only what is running */
+:root:not([data-everything="on"]) body.lx-calm-working #context-panel > .context-block:not(:has(#context-tasks)) {
+  display: none;
+}
+:root:not([data-everything="on"]) body.lx-calm-working #context-panel > .context-block:has(#context-tasks) {
+  display: block;
+}
+/* a reply's own buttons appear when the pointer is on it, where there is a pointer */
+@media (hover: hover) {
+  :root:not([data-everything="on"]) .message.assistant .message-controls {
+    opacity: 0;
+    transition: opacity 0.15s ease;
+  }
+  :root:not([data-everything="on"]) .message.assistant:is(:hover, :focus-within) .message-controls {
+    opacity: 1;
+  }
+}
+:root:not([data-everything="on"]) .rail-group h2 .group-head {
+  font-size: 13px;
+  color: var(--muted);
+}
+/* the composer: the box, then Send */
+:root:not([data-everything="on"]) body.lx #chat-form > div:last-child {
+  justify-content: flex-end;
+}
+:root:not([data-everything="on"]) .welcome {
+  padding-top: var(--s7);
+}

@@ -40,8 +40,8 @@ async function fixture(t, provider) {
 /** Walks past the first-run panel so the conversation column is what is on screen. */
 async function settle(page) {
   if (await page.locator("#first-run").isHidden()) return;
-  await page.getByRole("button", { name: /Just look around/ }).click();
-  await page.getByRole("button", { name: "Done, start chatting", exact: true }).click();
+  /* "Try it without an account" finishes first run in one click. */
+  await page.getByRole("button", { name: /Try it without an account/ }).click();
   await page.locator("#first-run").waitFor({ state: "hidden" });
 }
 /** A model that always answers with the same reply, so the card under test is predictable. */
@@ -206,10 +206,12 @@ test("W3 a message put to a specialist comes back signed with that specialist's 
   await page.reload();
   await page.locator("#workspace").waitFor({ state: "visible" });
 
-  const picker = page.locator("#composer-specialist");
-  await picker.waitFor();
   await page.waitForFunction(() => document.getElementById("composer-specialist").options.length > 1);
-  await picker.selectOption({ label: "The bookkeeper" });
+  /* The calm window keeps the picker under More; choosing there chooses the real one. */
+  await page.locator("#lx-more").click();
+  await page.locator("#lx-more-assistant").selectOption({ label: "The bookkeeper" });
+  await page.keyboard.press("Escape");
+  assert.equal(await page.locator("#composer-specialist").inputValue() !== "", true, "the real picker follows");
 
   await page.locator("#prompt").fill("File yesterday's invoices.");
   await page.locator("#send").click();

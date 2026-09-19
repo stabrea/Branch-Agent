@@ -1,5 +1,5 @@
 import test from 'node:test';
-import { openPlace } from "./places.mjs";
+import { openPlace, showEverything } from "./places.mjs";
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, rm, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -39,6 +39,8 @@ async function fixture(t, complete) {
   await page.getByLabel('Session token', { exact: true }).fill(server.token);
   await page.getByRole('button', { name: 'Connect', exact: true }).click();
   await page.locator('#workspace').waitFor({ state: 'visible' });
+  /* This file exercises the full window's own controls: "Show everything" since 0.18.1. */
+  await showEverything(page);
   return { app, page, source, original, errors };
 }
 async function readCheckpoint(page, query = 'Juniper checkpoint') {

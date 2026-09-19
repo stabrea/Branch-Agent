@@ -111,7 +111,7 @@
         </button>
       </header>
       <section id="login" class="card login">
-        <span class="eyebrow">// WELCOME TO BRANCH AGENT</span>
+        <span class="eyebrow">Welcome to Branch Agent</span>
         <h2>Make room for your next idea.</h2>
         <p>
           Paste the local session token printed by <code>npm start</code> to
@@ -138,23 +138,19 @@
         <section id="chat" class="view">
           <div id="attention" class="notice attention" hidden></div>
           <section id="first-run" class="card first-run" hidden>
-            <span class="eyebrow">// FIRST THINGS FIRST</span>
-            <h2 data-t="chat.card.choose-how-your-assistant-thinks">Choose how your assistant thinks.</h2>
-            <p class="first-run-lead">Pick one to start. You can change it any time in Settings.</p>
+            <h2 data-t="firstRun.title">How should Branch think?</h2>
+            <p class="first-run-lead" data-t="firstRun.lead">Pick one. You can change it later in Settings.</p>
             <div class="doors">
-              <button id="door-chatgpt" type="button" class="door"><strong>Use my ChatGPT plan</strong><span>Sign in on OpenAI's site with a short code. Nothing to paste. <em data-t="terms.chatgpt.door">Unofficial, and may stop working.</em></span></button>
-              <button id="door-key" type="button" class="door"><strong>Use an API key</strong><span>OpenAI-compatible or Anthropic. Set it up in Settings.</span></button>
-              <button id="door-demo" type="button" class="door"><strong>Just look around</strong><span>An offline demonstration that only writes and reads one greeting file.</span></button>
+              <button id="door-chatgpt" type="button" class="door"><strong data-t="firstRun.chatgpt">Use my ChatGPT plan</strong><span><span data-t="firstRun.chatgptNote">Sign in with the ChatGPT account you already pay for.</span> <em data-t="terms.chatgpt.door">Unofficial, and may stop working.</em></span></button>
+              <button id="door-key" type="button" class="door"><strong data-t="firstRun.key">Paste a key</strong><span data-t="firstRun.keyNote">From OpenAI, Anthropic, Google or another provider.</span></button>
+              <!-- Shown only when a model program (Ollama, LM Studio) answers on this computer (public/layout.js). -->
+              <button id="door-local" type="button" class="door" hidden><strong data-t="firstRun.local">Use the model on this computer</strong><span data-t="firstRun.localNote">Found on this computer. Nothing you type leaves it.</span></button>
+              <button id="door-demo" type="button" class="door"><strong data-t="firstRun.demo">Try it without an account</strong><span data-t="firstRun.demoNote">A short practice run to see how it works. It cannot do real work until you pick one of the others.</span></button>
             </div>
             <p id="first-run-status" role="status"></p>
             <div class="identity-actions">
-              <button id="first-run-test" type="button" class="quiet-button" data-t="action.test-the-connection">Test the connection</button>
+              <button id="first-run-test" type="button" class="quiet-button" hidden data-t="action.test-the-connection">Test the connection</button>
               <button id="first-run-done" type="button" hidden data-t="action.done-start-chatting">Done, start chatting</button>
-            </div>
-            <div id="first-run-extras" class="first-run-extras">
-              <label><input id="first-run-autostart" type="checkbox" /> <span data-t="field.open-branch-when-i-sign">Open Branch when I sign in to this computer</span></label>
-              <label><input id="first-run-phone" type="checkbox" /> <span data-t="field.let-me-reach-branch-from">Let me reach Branch from my phone</span></label>
-              <p id="first-run-extras-status" role="status"></p>
             </div>
           </section>
           <section id="practice-card" class="card" hidden>
@@ -178,12 +174,9 @@
             <button id="saved-more" type="button" class="text-button" hidden data-t="action.load-more-conversations">Load more conversations</button>
           </details>
           <div id="demo-notice" class="notice" hidden>
-            <strong>No model connected yet</strong
-            ><span
-              >Branch is running a small offline demonstration that can only
-              write, read and check one greeting file. Open Settings and
-              connect a model to get real help.</span
-            >
+            <strong data-t="practice.title">Practice mode</strong
+            ><span data-t="practice.body">Branch can't do real work yet. Choose how it thinks in Settings, then ask for anything.</span
+            ><button id="demo-connect" type="button" class="quiet-button" data-t="practice.connect">Choose how it thinks</button>
           </div>
           <div id="session-context" class="session-context" hidden></div>
           <div id="activity" class="activity" hidden></div>
@@ -202,7 +195,7 @@
             <div id="live-ask-slot"></div>
           </div>
           <div class="welcome">
-            <h2 id="greeting">What would you like to do?</h2>
+            <h2 id="greeting">What do you want done?</h2>
             <p>Ask for anything, or start from one of these.</p>
             <div class="chips" id="suggestions">
               <button id="demo-prompt" class="chip" type="button" data-t="action.try-the-file-workflow">Try the file workflow</button>
@@ -253,7 +246,7 @@
               id="prompt"
               required
               maxlength="16000"
-              placeholder="Describe what you want to do… (Enter sends, Shift+Enter for a new line)"
+              placeholder="Type here. Press Enter to send."
               data-t-placeholder="composer.placeholder"
               rows="3"
             ></textarea>
@@ -1001,6 +994,18 @@
                   ><input type="checkbox" id="appearance-acorn" />
                   <span data-t="appearance.showAcorn">Show the acorn</span></label
                 >
+              </div>
+              <div class="appearance-field">
+                <span id="calm-label" data-t="appearance.howMuch">How much to show</span>
+                <label class="check-row"
+                  ><input type="checkbox" id="appearance-everything" />
+                  <span data-t="appearance.showEverything">Show everything: every tab, meter and switch, all the time</span></label
+                >
+                <label class="check-row"
+                  ><input type="checkbox" id="appearance-voice" />
+                  <span data-t="appearance.showVoice">Show the microphone and Talk buttons beside the message box</span></label
+                >
+                <p class="field-note" data-t="appearance.calmNote">Off, the window shows one question and one box. Everything else is under More.</p>
               </div>
             </div>
             <p class="appearance-note" data-t="appearance.note">Saved with this workspace, so it looks the same the next time you open it.</p>

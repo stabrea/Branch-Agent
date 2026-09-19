@@ -48,9 +48,10 @@ function paint() {
   $("meter-fill").style.width = `${Math.round(share * 100)}%`;
   $("meter-button").setAttribute("aria-label", t("meter.of", { used: formatNumber(used), budget: formatNumber(stats.budget) }));
   $("meter-text").textContent = t("meter.of", { used: formatNumber(used), budget: formatNumber(stats.budget) });
-  /* A model with no price on file is said so outright, never as "about nothing so far". */
+  /* The price shows only when one is known. With no price on file the line under the box says
+     nothing about money (never "about nothing so far"); the numbers behind the meter still say so. */
   $("meter-cost").textContent = stats.cost === null || stats.cost === undefined
-    ? t("meter.noCost")
+    ? ""
     : t("meter.cost", { cost: money(stats.cost) });
   $("meter-row").hidden = false;
   $("meter-row").dataset.share = String(Math.round(share * 100));

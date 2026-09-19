@@ -37,8 +37,8 @@ async function fixture(t) {
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.locator("#workspace").waitFor({ state: "visible" });
   if (await page.locator("#first-run").isVisible()) {
-    await page.getByRole("button", { name: /Just look around/ }).click();
-    await page.getByRole("button", { name: "Done, start chatting", exact: true }).click();
+    /* "Try it without an account" finishes first run in one click. */
+    await page.getByRole("button", { name: /Try it without an account/ }).click();
     await page.locator("#first-run").waitFor({ state: "hidden" });
   }
   await openPlace(page, "procedures");
