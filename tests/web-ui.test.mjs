@@ -13,6 +13,7 @@ import { discardTemp } from "./temp-dir.mjs";
 import { chromium } from "playwright";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
+import { saveConversationModeSettings } from "../dist/conversation-mode.js";
 
 const FIXTURE = join(import.meta.dirname, "fixtures", "markdown-sample.md");
 
@@ -27,6 +28,10 @@ async function fixture(t, provider) {
     ...(provider ? { provider } : {}),
   });
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  /* Redesign phase 1: a conversation begun in the window starts on Ask first. These tests are about
+     something else, so their conversations follow the setting as before (tests/conversation-mode.test.mjs
+     covers Ask first). */
+  saveConversationModeSettings(app.store, app.runtime.owner, { newConversation: "follow" });
   const browser = await chromium.launch({ headless: true });
   t.after(async () => {
     await browser.close();

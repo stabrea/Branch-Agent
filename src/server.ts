@@ -232,7 +232,8 @@ import { handlesKnobsPath, knobsApi, KnobsApiError } from "./knobs/api.js";
 // R17-E: models, cheaper and smarter (src/model-savings/).
 import { handlesSavingsPath, savingsApi, SavingsApiError } from "./model-savings/api.js";
 // mac7/usage-bar: how much of each connection's allowance is left (src/usage-limits.ts).
-import { handlesUsageLimitsPath, usageLimitsRoute, UsageLimitsError } from "./usage-limits-api.js";
+import { conversationModeApi, ConversationModeError, handlesConversationModePath, modeRefusal, planAgreed } from "./conversation-mode-api.js";
+import { handlesUsageLimitsPath, usageGlance, usageGlancePath, usageLimitsRoute, UsageLimitsError } from "./usage-limits-api.js";
 import { savingsRefusal } from "./short-lived-keys.js";
 import { householdMaySend, householdRefusalFor } from "./household-routes.js"; // profile-audit
 // R17-S-C: the comfort settings (src/comfort/); every change is the owner's.
@@ -633,6 +634,10 @@ async function staticFile(
     "/live-run.js": ["live-run.js", "text/javascript; charset=utf-8"],
     "/plan-act.js": ["plan-act.js", "text/javascript; charset=utf-8"],
     "/token-meter.js": ["token-meter.js", "text/javascript; charset=utf-8"],
+    "/usage-glance.js": ["usage-glance.js", "text/javascript; charset=utf-8"],
+    "/conversation-mode.js": ["conversation-mode.js", "text/javascript; charset=utf-8"],
+    "/suggestions.js": ["suggestions.js", "text/javascript; charset=utf-8"],
+    "/glass-select.js": ["glass-select.js", "text/javascript; charset=utf-8"],
     "/playground.js": ["playground.js", "text/javascript; charset=utf-8"],
     "/tool-catalog.js": ["tool-catalog.js", "text/javascript; charset=utf-8"],
     "/i18n.js": ["i18n.js", "text/javascript; charset=utf-8"],
@@ -1335,7 +1340,12 @@ async function api(
     if (request.method === "POST" && match[2] === "plan") {
       const body = PlanAnswerSchema.parse(await readBody(request));
       // Saying yes answers here and now; saying no asks for another plan, which takes a model turn.
-      if (body.decision !== "reject") return app.runtime.orchestration.decidePlan(run.id, body);
+      if (body.decision !== "reject") {
+        const decided = await app.runtime.orchestration.decidePlan(run.id, body);
+        // Redesign phase 1: a Plan conversation may act once its plan is agreed (only after the answer landed).
+        planAgreed(app, run.sessionId);
+        return decided;
+      }
       const { plan, asked } = await app.runtime.answerPlan(run.id, body);
       return { ...plan, asked: asked ? { id: asked.id, status: asked.status, output: asked.output } : null };
     }
@@ -1533,6 +1543,9 @@ async function api(
   if (request.method === "POST" && path === "/api/run") {
     const input = RunInputSchema.parse(await readBody(request));
     requireBoundSession(shortLivedKeyMark().sessionId, input.sessionId); // bucket 19
+    // Redesign phase 1 (integration review): a new conversation's mode is held to what the picker allows here.
+    const modeRefused = input.mode && !input.sessionId ? modeRefusal(app, input.mode) : null;
+    if (modeRefused) throw new HttpError(403, modeRefused);
     // Wave 6: a task started while somebody's profile is switched on is filed under their name.
     return runForCurrentPerson(app, {
       prompt: input.prompt,
@@ -1543,8 +1556,13 @@ async function api(
       ...(input.images?.length ? { images: input.images } : {}),
       ...(input.plan !== undefined ? { plan: input.plan } : {}),
       ...(input.verify !== undefined ? { verify: input.verify } : {}),
+      ...(input.mode && !input.sessionId ? { conversationMode: input.mode } : {}),
     });
   }
+  // Redesign phase 1: the mode chip in the message box (src/conversation-mode-api.ts).
+  if (handlesConversationModePath(path))
+    return conversationModeApi(app, request.method ?? "GET", new URL(request.url ?? "/", "http://local"), () => readBody(request))
+      .catch((error: unknown) => { throw error instanceof ConversationModeError ? new HttpError(error.status, error.message) : error; });
   if (request.method === "POST" && path === "/api/action") {
     const action = actionSchema.parse(await readBody(request));
     // mac5/manual-actions: the owner pressed it in the app window (src/tool-gate.ts). A short-lived
@@ -1648,6 +1666,8 @@ async function api(
     return usageReportRoute(app, request, path, () => readBody(request));
   // --- end bucket 14 ---
   // --- mac7/usage-bar: what each connection has left, in its honest state; src/usage-limits-api.ts ---
+  // Redesign phase 1: the ring under the message box. Somebody other than the owner gets an empty answer, never an error.
+  if (path === usageGlancePath && request.method === "GET") return usageGlance(app);
   if (handlesUsageLimitsPath(path))
     return usageLimitsRoute(app, request, path, () => readBody(request))
       .catch((error: unknown) => { throw error instanceof UsageLimitsError ? new HttpError(error.status, error.message) : error; });
@@ -3936,6 +3956,8 @@ export function offLimitsToShortLivedKeys(method: string | undefined, path: stri
   // mac4/bucket-14 (integration review): the report shows every person's tasks, and the counters go out to the trace address.
   if (path.startsWith("/api/usage/report") || path.startsWith("/api/usage/counters"))
     return "A short-lived key cannot make the usage report, change it, or send the task counters. Do that in the app window.";
+  // Redesign phase 1: how much the assistant may do in a conversation is picked in the app window.
+  if (path.startsWith("/api/conversation-mode") && method !== "GET") return "A short-lived key cannot change how much the assistant may do in a conversation. Do that in the app window.";
   // mac7/usage-bar: what the owner's paid-for connections have left is the owner's business.
   if (handlesUsageLimitsPath(path))
     return "A short-lived key cannot see what each connection has left, or change how it is asked for. Do that in the app window.";

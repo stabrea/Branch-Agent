@@ -10,7 +10,10 @@ export const BRIDGE = {
   "--danger": "--bad", "--copper-low": "--copper-lo", "--rail-hover": "--press", "--bubble": "--copper-tint",
   "--composer-bg": "--glass-2", "--step-bg": "--well", "--border": "--line", "--text-dim": "--text-3",
 };
-export const themeById = (id) => THEMES.find((theme) => theme[0] === id) ?? THEMES[0];
+/* The theme a new install wears until somebody picks one (owner decision, redesign phase 1: Slate). */
+export const DEFAULT_THEME = "slate";
+export const themeById = (id) => THEMES.find((theme) => theme[0] === id)
+  ?? THEMES.find((theme) => theme[0] === DEFAULT_THEME) ?? THEMES[0];
 /** One theme's colours for light or dark, as { "--token": value }. */
 export function tokensFor(theme, mode, contrast = "standard") {
   const values = theme[3][`${mode}${contrast === "more" ? "-more" : ""}`];

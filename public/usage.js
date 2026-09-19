@@ -41,6 +41,7 @@ let pricing = null;
 let statistics = null;
 let metering = null;
 let limits = null; // mac7/usage-bar
+let glanceSettings = null; // redesign phase 1: the ring and the question at 95%
 
 /* ---------- Wave 7: this month, and what it is heading for ---------- */
 
@@ -409,7 +410,34 @@ function renderLimits(view) {
   card.append(ask);
   card.append(el("p", "OpenRouter publishes a web address for this, so asking is fair. No subscription account is ever asked: the question itself would spend the allowance it is measuring.", "subtle"));
   box.addEventListener("change", () => void saveLimitsSwitch(box.checked));
+  renderGlanceSettings(card);
   view.append(card);
+}
+/* Redesign phase 1: the ring under the message box can be hidden, and the question at 95% switched
+   off. Both are the owner's, and both are saved with the workspace (public/usage-glance.js reads them). */
+function glanceSwitch(id, key, checked, onChange) {
+  const row = el("label", undefined, "check-row");
+  const box = el("input");
+  box.type = "checkbox";
+  box.id = id;
+  box.checked = checked;
+  box.addEventListener("change", () => void onChange(box.checked));
+  row.append(box, document.createTextNode(" " + t(key)));
+  return row;
+}
+function renderGlanceSettings(card) {
+  if (!glanceSettings) return;
+  card.append(glanceSwitch("glance-ring", "glance.setting.ring", glanceSettings.ring !== "hidden",
+    (on) => saveGlance({ ring: on ? "shown" : "hidden" })));
+  card.append(glanceSwitch("glance-save-progress", "glance.setting.save", glanceSettings.saveProgress === "ask",
+    (on) => saveGlance({ saveProgress: on ? "ask" : "off" })));
+  card.append(el("p", t("glance.setting.saveNote"), "subtle"));
+}
+async function saveGlance(change) {
+  try {
+    glanceSettings = (await api("usage/glance/settings", change)).settings;
+    document.dispatchEvent(new CustomEvent("branch-usage-glance"));
+  } catch (e) { say(e.message); }
 }
 async function saveLimitsSwitch(on) {
   try {
@@ -432,6 +460,7 @@ async function render() {
     metering = (await api("usage/metering")).metering;
     // mac7/usage-bar: allowed to be missing — a household profile is refused these outright.
     limits = await api("usage/limits").catch(() => null);
+    glanceSettings = limits ? (await api("usage/glance/settings").catch(() => null))?.settings ?? null : null;
   } catch (e) { say("The usage figures could not be loaded: " + e.message); return; }
   view.replaceChildren();
   // Wave 8: every section opens by saying what it is for, in one line.

@@ -118,7 +118,8 @@ import * as savings from "./model-savings/hook.js";
 import { KeepAlive } from "./model-savings/keep-alive.js";
 // --- end R17-E ---
 import { Orchestration, type ConductOptions, type PlanAnswer, type StoredPlan } from "./orchestration.js";
-import { commandDifference, commandWords, correctionLabel, offPlanDifference, relatedCommand } from "./plan-act.js";
+import { commandDifference, commandWords, correctionLabel, offPlanDifference, relatedCommand, saveSessionPlanAct } from "./plan-act.js";
+import { heldMode, policyForMode, readConversationMode, saveConversationMode, type ConversationMode, type ConversationModeRecord } from "./conversation-mode.js"; // redesign phase 1
 import { type AnswerShape, askInShape, shapeInstructions, type ShapedAnswer } from "./answer-shape.js";
 import { advisorInstructions, advisorQuestion, adviceLine, readAdvice, secondOpinionSettings, type Advice } from "./second-opinion.js";
 import { styleShape, takeScratch, type SpecialistStyle } from "./specialist-styles.js";
@@ -254,6 +255,8 @@ export interface RunOptions {
   plan?: boolean;
   /** Have a reviewer check the finished answer before it is given. */
   verify?: boolean;
+  /** Redesign phase 1: the mode a conversation started here is given (src/conversation-mode.ts). */
+  conversationMode?: ConversationMode;
   /** The `traceparent` header of the request that asked for this task, so one trace crosses agents. */
   traceparent?: string | null;
   /** Internal: the working style of the specialist carrying out this run. */
@@ -654,7 +657,7 @@ export class Runtime {
    * exactly the inputs a conversation's call uses (see callTool). Never taken from the caller.
    */
   wallFor(tool: string, args: unknown, context: ToolContext, choice: PolicyCheck["sandbox"]): Pick<ToolContext, "osSandbox"> {
-    return wallContextFor({ store: this.store, owner: this.owner, policy: this.policy(context.source ?? "owner"),
+    return wallContextFor({ store: this.store, owner: this.owner, policy: this.policy(context.source ?? "owner", context.runId),
       approvals: this.approvals, context, tool, permission: this.registry.permissionOf(tool),
       target: this.registry.targetOf(tool, args, context), args, choice, untouchable: this.protectedAreas });
   }
@@ -827,7 +830,16 @@ ${run.output.slice(0, 6000)}`;
     });
     if (options.sessionId && this.activeSessions.has(options.sessionId))
       throw new Error("Session already has an active run");
-    return this.store.createRun(this.owner, options.prompt, options.sessionId, options.temporary ?? false);
+    const run = this.store.createRun(this.owner, options.prompt, options.sessionId, options.temporary ?? false);
+    // Redesign phase 1: only a conversation begun here is given a mode; one that exists keeps what it had.
+    if (!options.sessionId && options.conversationMode) this.startMode(run.sessionId, options.conversationMode);
+    return run;
+  }
+  /** Redesign phase 1: a new conversation's mode; Plan also means "Show me the plan first". */
+  startMode(sessionId: string, mode: ConversationMode): void {
+    const planSet = mode === "plan";
+    if (planSet) saveSessionPlanAct(this.store, this.owner, sessionId, this.store.projects.active(this.owner).id, { planMode: "show-plan" });
+    saveConversationMode(this.store, this.owner, sessionId, { mode, planSet });
   }
   private async execute(
     options: RunOptions,
@@ -2085,11 +2097,57 @@ ${run.output.slice(0, 6000)}`;
       return "This exact action already ran before the interruption and its outcome is unknown. Check the actual state first (read, list or verify), then decide whether to do it again.";
     return null;
   }
-  /** The owner's saved approval policy, held to "Ask before changes" for tasks they did not start. */
-  policy(source: RunSource = "owner"): Policy {
+  /**
+   * The owner's saved approval policy, held to "Ask before changes" for tasks they did not start.
+   * Redesign phase 1: given the task, the conversation's own mode (src/conversation-mode.ts) is put in
+   * before that hold, so a task from outside never gets more than Ask first whatever the mode says.
+   */
+  policy(source: RunSource = "owner", runId?: string): Policy {
     // Wave mac2 (guards): with folder trust on, a task in a folder the owner does not trust asks first.
     // R17-S19: with "confirm sensitive browser steps" on, those steps ask every time (src/comfort/browser-safety.ts).
-    return withBrowserConfirmation(this.guards.policy(cappedPolicy(readPolicy(this.store, this.owner), source)), this.store, this.owner);
+    return withBrowserConfirmation(this.guards.policy(cappedPolicy(this.conversationPolicy(runId), source)), this.store, this.owner);
+  }
+  /** Redesign phase 1: the owner's policy as this task's conversation has narrowed or widened it. */
+  private conversationPolicy(runId?: string): Policy {
+    const saved = readPolicy(this.store, this.owner);
+    const record = runId ? this.conversationModeOf(runId) : null;
+    if (!record) return saved;
+    const mode = heldMode(record, saved.preset, this.ownersOwnTask(runId!));
+    return mode ? policyForMode(saved, mode, lockdownActive(this.store, this.owner)) : saved;
+  }
+  /**
+   * Redesign phase 1 (integration review): the mode of the conversation a task belongs to. A helper
+   * or background specialist runs in a conversation of its own, so it is held to the nearest parent's.
+   */
+  private conversationModeOf(runId: string): ConversationModeRecord | null {
+    const seen = new Set<string>();
+    for (let id: string | null = runId; id && !seen.has(id) && seen.size < 20; id = this.parentOf(id)) {
+      seen.add(id);
+      const record = readConversationMode(this.store, this.owner, this.store.run(id)?.sessionId);
+      if (record) return record;
+    }
+    return null;
+  }
+  /** The task that started this one (a helper's parent), read once per task. */
+  private parentOf(runId: string): string | null {
+    if (this.taskParents.has(runId)) return this.taskParents.get(runId) ?? null;
+    const parent = this.store.events(runId).find((event) => event.kind === "run.started")?.data.parentRunId;
+    const found = typeof parent === "string" ? parent : null;
+    if (this.taskParents.size >= 500) this.taskParents.clear();
+    this.taskParents.set(runId, found);
+    return found;
+  }
+  private readonly taskParents = new Map<string, string | null>();
+  /**
+   * Redesign phase 1 (integration review): only the owner's own work, started by the owner's own hand
+   * and key, may have a mode looser than the owner's setting: never a household person's task, a
+   * short-lived key's, or one a chat app, trigger, schedule or other program started (or continued).
+   */
+  private ownersOwnTask(runId: string): boolean {
+    const person = this.taskPerson(runId);
+    if (person === undefined ? !!this.store.profiles.active() : person !== null) return false;
+    const origin = runOrigin(this.store, runId);
+    return origin.source === "owner" && !origin.shortLivedKey;
   }
   /**
    * Where answers already given are remembered for this piece of work: the conversation, or the
@@ -2126,7 +2184,7 @@ ${run.output.slice(0, 6000)}`;
     const locked = lockdownToolRefusal(this.store, this.owner, tool, permission);
     if (locked) return { decision: "deny", label, target, readOnly, remember: "never", sandbox: null, backend: null, paths: null, reason: locked };
     // mac2/leak-guard: an address carrying a key or password is asked about even where rules allow it.
-    const tightened = this.leakGuard.tighten(evaluatePolicy(this.policy(source), { tool, target, readOnly, resource }), args);
+    const tightened = this.leakGuard.tighten(evaluatePolicy(this.policy(source, context.runId), { tool, target, readOnly, resource }), args);
     const { rule, leak } = tightened;
     // --- R17-C integration review: the owner's mail, calendar and house (src/personal/guard.ts). Work the
     // owner did not start is asked about, and a lock or door always is, just this once — whatever the rules say.
@@ -2665,7 +2723,7 @@ ${run.output.slice(0, 6000)}`;
       ...(gated.backend ? { sandboxBackend: gated.backend } : {}),
       ...(gated.paths?.length ? { sandboxPaths: gated.paths } : {}),
       // wave mac3 (os-sandbox): the wall around programs, from the owner's switch; see src/sandbox-wall.ts.
-      ...wallContextFor({ store: this.store, owner: this.owner, policy: this.policy(context.source ?? "owner"),
+      ...wallContextFor({ store: this.store, owner: this.owner, policy: this.policy(context.source ?? "owner", context.runId),
         approvals: this.approvals, context, tool: call.name, permission: this.registry.permissionOf(call.name),
         target: this.registry.targetOf(call.name, args, context), args, choice: gated.sandbox, untouchable: this.protectedAreas }) };
     const span = this.tracer.start(context.runId, "tool", `tool ${call.name}`, {

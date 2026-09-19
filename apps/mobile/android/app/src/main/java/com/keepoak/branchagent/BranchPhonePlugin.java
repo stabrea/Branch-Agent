@@ -240,7 +240,7 @@ public class BranchPhonePlugin extends Plugin {
     @PluginMethod
     public void look(PluginCall call) {
         JSObject out = new JSObject();
-        out.put("theme", BranchWords.state(getContext()).getString("look-theme", "forest"));
+        out.put("theme", BranchWords.state(getContext()).getString("look-theme", "slate"));
         out.put("mode", BranchWords.state(getContext()).getString("look-mode", "dark"));
         call.resolve(out);
     }

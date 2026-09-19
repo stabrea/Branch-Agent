@@ -121,7 +121,7 @@ test("an unknown remaining never renders as a number anywhere on the panel", () 
   assert.ok(!/\b50\b/.test(text), `the routing stand-in leaked onto the screen:\n${text}`);
   assert.match(text, /Work \(in use\): This service does not say what it allows/);
   assert.match(text, /ChatGPT — Home:/);
-  assert.match(text, /1 of 2 connection\(s\) report a limit\. The other 1 do not publish one\./);
+  assert.match(text, /1 of 2 connections reports a limit\. The other one does not publish one\./);
 });
 
 test("a service that publishes nothing gets the honest sentence, and a local model its own", () => {

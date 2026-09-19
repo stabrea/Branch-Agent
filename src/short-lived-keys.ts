@@ -136,6 +136,8 @@ const ownerOnlyReads: readonly RegExp[] = [
   // is the owner's spending seen from another angle, so a household person and a script's key are
   // both refused the whole answer rather than shown a thinned-out one.
   /^\/api\/usage\/limits(\/|$)/,
+  // Redesign phase 1: the ring's own settings are the owner's too (the ring itself answers others with nothing).
+  /^\/api\/usage\/glance\/settings$/,
 ];
 
 /**

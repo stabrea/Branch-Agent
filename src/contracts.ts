@@ -333,6 +333,8 @@ export const RunInputSchema = z
     plan: z.boolean().optional(),
     /** Have a reviewer check the finished answer before it is given. */
     verify: z.boolean().optional(),
+    /** Redesign phase 1: how much it may do in a conversation this message starts (src/conversation-mode.ts). */
+    mode: z.enum(["ask", "plan", "auto", "full"]).optional(),
   })
   .strict();
 /** The same message without its pictures, for storing and for measuring how full the context is. */

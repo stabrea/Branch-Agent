@@ -190,13 +190,15 @@ export function limitsView(deps: LimitsDeps): LimitsView {
     }
   }
   const reporting = rows.filter((row) => row.state !== "not_published").length;
-  const silent = rows.length - reporting;
-  return {
-    rows, empty: rows.length === 0,
-    summary: rows.length === 0 ? "No model connection is set up yet."
-      : `${reporting} of ${rows.length} connection(s) report a limit.`
-        + (silent ? ` The other ${silent} do not publish one.` : ""),
-  };
+  return { rows, empty: rows.length === 0, summary: limitsSummary(reporting, rows.length) };
+}
+/** Redesign phase 1 (integration review): the summary line in plain singular and plural. */
+export function limitsSummary(reporting: number, total: number): string {
+  if (total === 0) return "No model connection is set up yet.";
+  if (total === 1) return reporting ? "Your one connection reports a limit." : "Your one connection does not publish a limit.";
+  const silent = total - reporting;
+  return `${reporting} of ${total} connections ${reporting === 1 ? "reports" : "report"} a limit.`
+    + (silent === 1 ? " The other one does not publish one." : silent ? ` The other ${silent} do not publish one.` : "");
 }
 
 /* ---------- the same rows in words, so every place says the same thing ---------- */
