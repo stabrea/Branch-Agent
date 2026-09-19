@@ -148,5 +148,8 @@ export function registerMailSearch(registry: Pick<ToolRegistry, "register">, mai
     parameters: AttachmentsSchema, execute: async (input) => mail.open(input) });
   registry.register({ name: "mail.save_attachment", permission: "files.write",
     description: "Save one attached file from a message in the email channel's inbox into the workspace's mail attachments folder.",
+    // mac7/residuals: it writes into the owner's attachments folder, so a folder rule judges it. The
+    // file's own name is only known once the message is fetched, so the folder is what is declared.
+    target: () => mail.settings().folder,
     parameters: SaveAttachmentSchema, execute: async (input) => mail.saveAttachment(input) });
 }

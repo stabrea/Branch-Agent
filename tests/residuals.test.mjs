@@ -123,3 +123,15 @@ test("4e. money a task started last month and still running has spent counts in 
   assert.equal(month.stillBeingMade, 2.5);
   assert.equal(month.estimatedCost, 2.5);
 });
+
+test("4c. mail.save_attachment says it writes into the attachments folder, so a folder rule judges it", async () => {
+  const { registerMailSearch } = await import("../dist/personal/mail-search.js");
+  const { resourceOf, resourceMatches } = await import("../dist/policy-resources.js");
+  const tools = {};
+  registerMailSearch({ register: (tool) => { tools[tool.name] = tool; } }, { settings: () => ({ folder: "finance/mail" }) });
+  const tool = tools["mail.save_attachment"];
+  const target = tool.target?.({ uid: 1, index: 0 }) ?? "";
+  assert.equal(target, "finance/mail");
+  const resource = resourceOf(tool.name, tool.permission, target, { uid: 1, index: 0 });
+  assert.equal(resourceMatches({ kind: "path", pattern: "finance" }, resource, "deny"), true, "never under finance holds");
+});

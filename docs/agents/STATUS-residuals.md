@@ -25,7 +25,10 @@ branch: an integrator reviews it. Every new test is in `tests/residuals.test.mjs
   starts" now seeds an A2A conversation. Test 3; each of the three checks fails it when taken out.
 - [ ] 4a. `process.start` arguments judged by command rules like a shell command.
 - [ ] 4b. `code.run` judged only by its permission.
-- [ ] 4c. `mail.save_attachment` declares its file target.
+- [x] 4c. `mail.save_attachment` declares its file target.
+  Its target is the owner's attachments folder (`mail.settings().folder`), so a folder rule ("never under finance")
+  judges it. The file's own name is known only after the message is fetched, so a rule on a file name or type
+  cannot see it (said in the code). Test 4c; taking the target out fails it.
 - [ ] 4d. Older match-style rules: the target is path-tidied before matching.
 - [x] 4e. In-flight spend counts every still-running task, whatever month it began.
   `UsageStore.inFlightSpend` no longer filters on `created_at` (running or waiting for a person, as before).
