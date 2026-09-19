@@ -75,6 +75,11 @@ Found and fixed (tests in `tests/panels.test.mjs`):
   and the corner gear sat on it. It is now on the What's on screen list ("Your computers and Trunks (the strip)";
   hidden, the window takes its room back), and the gear and the floating panel step clear of it (`--panels-left`,
   `--panels-foot` in public/panels.css). p2-shell's own Settings switch for the strip still works as before.
+- **p2-everywhere landed on trunk during this review**: on a phone the strip moves to the top and a places bar
+  holds the foot. The floating panel started over the title bar there, so its own switch could not close it
+  (the clip test caught it); it now starts under the title bar and stops above the places bar. The See-through
+  fill (`--comp-a`) moved from `<html>` to `<body>`, because public/look-early.js must paint every colour written
+  on `<html>` before the first frame (tests/phone-layout.test.mjs).
 - Look: a browser step says what it did ("Opened the page", "Took a picture of the page"), so two steps on one
   page no longer read as the same row; the address is not repeated in the printout and stays on one line.
   "See-through message box" used the small mono label face beside a proportional heading; spacing under

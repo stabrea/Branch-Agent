@@ -297,7 +297,7 @@ test("the conversation uses the width on a wide screen, and Comfortable brings t
 
 test("See-through never goes past readable, and stays solid when things are kept still", async (t) => {
   const f = await windowFixture(t, { seeded: false });
-  const alpha = () => f.page.evaluate(() => Number(document.documentElement.style.getPropertyValue("--comp-a")));
+  const alpha = () => f.page.evaluate(() => Number(document.body.style.getPropertyValue("--comp-a")));
   await f.look({ seeThrough: 0 });
   assert.equal(await alpha(), 1, "0 is solid");
   await f.look({ seeThrough: 100 });

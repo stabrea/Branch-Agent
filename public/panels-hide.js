@@ -163,7 +163,8 @@ function applySeeThrough() {
   const grounds = [ground, blend([255, 255, 255], ground, 0.3), blend([0, 0, 0], ground, 0.3)];
   const alpha = fillNeeded(rgbOf("var(--surface)"), [[rgbOf("var(--text)"), 4.5], [rgbOf("var(--text-3)"), 3]], grounds, want);
   const value = alpha.toFixed(2);
-  if (root.style.getPropertyValue("--comp-a") !== value) root.style.setProperty("--comp-a", value);
+  /* On <body>, not <html>: public/look-early.js paints <html>'s own colours before anything runs (phase2/everywhere). */
+  if (document.body.style.getPropertyValue("--comp-a") !== value) document.body.style.setProperty("--comp-a", value);
   const note = $("panels-see-note");
   if (note) note.textContent = seeNote(want, alpha);
 }
