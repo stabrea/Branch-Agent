@@ -483,8 +483,8 @@ async function refresh() {
 void refresh();
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") void refresh(); });
 document.addEventListener("branch-language", () => { if (last) draw(last); void drawChip(); });
-/* The fallback order is the owner's: the models arriving after the page was drawn for someone else must
-   not draw it for them (it was, whenever the models loaded after Accounts on a busy computer). */
+/* The fallback order is the owner's: the models, redrawn by the window's refresh every 3 s, must not draw
+   it for someone else (it was, within 3 s of Accounts opening for a household person). */
 document.addEventListener("branch-models", () => { if (last && last.mode !== "off" && !forSomeoneElse(last)) drawLow(last); });
 /** The workspace shows a moment before the key is kept, so wait for the key before the first look. */
 async function afterSignIn(tries = 20) {

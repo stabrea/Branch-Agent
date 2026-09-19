@@ -27,7 +27,10 @@ async function fixture(t, { width = 390, height = 844, connect = true } = {}) {
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider: asking });
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0, host: "127.0.0.1" });
   const browser = await chromium.launch({ headless: true });
+  let page = null;
   t.after(async () => {
+    /* A route still answering when the test ends (askOnPhone's route.fetch) failed on the closed browser. */
+    await page?.unrouteAll({ behavior: "ignoreErrors" }).catch(() => undefined);
     await browser.close();
     await server.close();
     await app.close();
@@ -39,7 +42,7 @@ async function fixture(t, { width = 390, height = 844, connect = true } = {}) {
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   }).then((response) => response.json());
   await call("/api/onboarding", { done: true });
-  const page = await browser.newPage({ viewport: { width, height }, hasTouch: width < 900 });
+  page = await browser.newPage({ viewport: { width, height }, hasTouch: width < 900 });
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   const signIn = async () => {
@@ -210,6 +213,15 @@ async function firstPaint(f, saved) {
   const page = await context.newPage();
   await page.route(/\.js(\?|$)/, (route) => (new URL(route.request().url()).pathname === "/look-early.js" ? route.continue() : route.abort()));
   await page.goto(f.url);
+  /* A style sheet's rules cannot be read until it has arrived (Windows once threw "Cannot access rules"
+     here); wait for every one, naming any that never can be. */
+  const unreadable = () => page.evaluate(() => [...document.styleSheets].filter((sheet) => {
+    try { return !sheet.cssRules; } catch { return true; }
+  }).map((sheet) => sheet.href));
+  for (let tries = 0; (await unreadable()).length; tries += 1) {
+    assert.ok(tries < 100, `style sheets whose rules cannot be read: ${(await unreadable()).join(", ")}`);
+    await page.waitForTimeout(100);
+  }
   const paint = await page.evaluate(() => {
     const style = getComputedStyle(document.documentElement);
     const values = {};

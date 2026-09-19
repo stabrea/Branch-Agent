@@ -135,6 +135,9 @@ test("the pet lives in the corner, works while a task works, and says one thing 
   assert.match(await f.page.locator("#pet").getAttribute("aria-label"), /Hazel the squirrel/);
   void f.call("/api/run", { prompt: "Sort my Downloads folder." }).catch(() => undefined);
   await f.page.locator("#pet-say:not([hidden])").waitFor({ timeout: 15000 });
+  /* On a slow machine the page is over 20 s old by now, so a tip (one at a time, up to 8 s) may be
+     showing when the task starts; the pet says it is working once the tip has had its time. */
+  await f.page.waitForFunction(() => document.getElementById("pet-say")?.textContent === "Working on it…", null, { timeout: 20000 });
   assert.equal(await f.page.locator("#pet-say").innerText(), "Working on it…");
   let most = 0;
   for (let i = 0; i < 8; i++) {
