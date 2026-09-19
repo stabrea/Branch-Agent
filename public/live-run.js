@@ -73,6 +73,23 @@ function controls(runId) {
 }
 const status = (message) => { $("live-status").textContent = message; };
 
+/**
+ * phase2/everywhere: one answer per question. The first press holds every answer on the card until
+ * the reply comes back, so a quick second tap (easy with a thumb on a phone's big buttons) sends
+ * nothing more; if the answer could not be sent, the buttons come back so it can be tried again.
+ */
+async function answerOnce(card, send) {
+  if (card.dataset.answering) return;
+  card.dataset.answering = "1";
+  const buttons = [...card.querySelectorAll("button")];
+  for (const one of buttons) one.disabled = true;
+  try { await send(); }
+  catch (error) {
+    delete card.dataset.answering;
+    for (const one of buttons) one.disabled = false;
+    status(error.message);
+  }
+}
 /** The question a paused task stopped on, answered without leaving the conversation. */
 function askCard(question) {
   const card = el("div", undefined, "live-ask");
@@ -91,16 +108,14 @@ function askCard(question) {
     if (remember === "always" && question.source !== "owner") continue;
     if (question.onceOnly && decision === "allow" && remember !== "never") continue;
     const choice = el("div", undefined, "live-ask-choice");
-    choice.append(button(label, decision === "deny" ? "danger" : "", async () => {
-      try {
-        /* The yes is tied to the exact bytes shown, so a changed request has to ask again. */
-        await api("policy/approve", {
-          sessionId: question.sessionId, decision, remember,
-          ...(question.fingerprint ? { fingerprint: question.fingerprint } : {}),
-        });
-        card.replaceChildren(el("p", decision === "allow" ? t("live.steered") : t("live.stopped"), "meta"));
-      } catch (error) { status(error.message); }
-    }));
+    choice.append(button(label, decision === "deny" ? "danger" : "", () => answerOnce(card, async () => {
+      /* The yes is tied to the exact bytes shown, so a changed request has to ask again. */
+      await api("policy/approve", {
+        sessionId: question.sessionId, decision, remember,
+        ...(question.fingerprint ? { fingerprint: question.fingerprint } : {}),
+      });
+      card.replaceChildren(el("p", decision === "allow" ? t("live.steered") : t("live.stopped"), "meta"));
+    })));
     /* Wave 7: say what this answer leaves behind before it is pressed, in the same words the
        "What is allowed right now" list uses for the same thing. */
     if (decision === "allow") choice.append(el("small", grantSentence(remember), "live-ask-grant"));

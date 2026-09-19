@@ -118,11 +118,23 @@
     max-width: none;
     justify-items: stretch;
   }
+  /* every answer the same height, whether its words take one line or two, so a row lines up */
   #live-ask .live-ask-choice > button {
     width: 100%;
-    min-height: 44px;
+    min-height: max(44px, calc(2.5em + 18px)); /* two lines of words, the padding and the edge */
     padding: 8px 10px;
+    line-height: 1.25;
     white-space: normal;
+  }
+  /* "No" reads as the quiet answer beside the yeses, as in the sample, not as a fourth yes */
+  #live-ask .live-ask-choice > button.danger {
+    border: 1px solid var(--line-strong);
+    background: transparent;
+    box-shadow: none;
+    color: var(--text);
+  }
+  #live-ask .live-ask-choice > button.danger:hover {
+    background: var(--hover);
   }
 }
 
@@ -153,5 +165,50 @@
   }
   body.lx.rail-open::after {
     display: none;
+  }
+}
+
+/* ---------- a phone's notch and home bar (index.html asks for viewport-fit=cover) ----------
+   The page now reaches under the notch, the rounded corners and the home bar, so each edge keeps
+   clear of them. env(safe-area-inset-*) is 0 on a computer and on any screen without them, so each
+   max() below is the computer's own value there and nothing on a computer moves. */
+body.lx {
+  padding: max(var(--pane-gap), env(safe-area-inset-top, 0px)) max(var(--pane-gap), env(safe-area-inset-right, 0px))
+    max(var(--pane-gap), env(safe-area-inset-bottom, 0px)) max(var(--pane-gap), env(safe-area-inset-left, 0px));
+}
+#toast {
+  bottom: calc(25px + env(safe-area-inset-bottom, 0px));
+}
+.offline-banner {
+  bottom: calc(0.75rem + env(safe-area-inset-bottom, 0px));
+}
+@media (max-width: 1180px) {
+  body.lx.lx-aside > .context-panel {
+    top: calc(max(var(--pane-gap), env(safe-area-inset-top, 0px)) + 60px);
+    bottom: calc(max(var(--pane-gap), env(safe-area-inset-bottom, 0px)) + 8px);
+  }
+}
+@media (max-width: 860px) {
+  body.lx {
+    padding: max(6px, env(safe-area-inset-top, 0px)) max(6px, env(safe-area-inset-right, 0px))
+      max(6px, env(safe-area-inset-bottom, 0px)) max(6px, env(safe-area-inset-left, 0px));
+  }
+  body.lx > .rail {
+    top: max(6px, env(safe-area-inset-top, 0px));
+    bottom: max(6px, env(safe-area-inset-bottom, 0px));
+    left: max(6px, env(safe-area-inset-left, 0px));
+  }
+  .lx-settings-win {
+    padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+  }
+  .lx-settings-close {
+    top: calc(8px + env(safe-area-inset-top, 0px));
+    right: calc(6px + env(safe-area-inset-right, 0px));
+  }
+}
+@media (max-width: 560px) {
+  /* the places bar carries the home bar's room itself (--ew-bar-h), so the page stops at the bar */
+  body.lx {
+    padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) 0 env(safe-area-inset-left, 0px);
   }
 }

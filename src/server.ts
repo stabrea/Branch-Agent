@@ -639,6 +639,7 @@ async function staticFile(
     // phase2/everywhere: the window at phone and tablet widths
     "/phone-layout.js": ["phone-layout.js", "text/javascript; charset=utf-8"],
     "/phone-layout.css": ["phone-layout.css", "text/css; charset=utf-8"],
+    "/look-early.js": ["look-early.js", "text/javascript; charset=utf-8"],
     "/suggestions.js": ["suggestions.js", "text/javascript; charset=utf-8"],
     "/glass-select.js": ["glass-select.js", "text/javascript; charset=utf-8"],
     "/playground.js": ["playground.js", "text/javascript; charset=utf-8"],

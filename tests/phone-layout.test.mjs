@@ -51,7 +51,7 @@ async function fixture(t, { width = 390, height = 844, connect = true } = {}) {
   await page.locator("body.lx-ready").waitFor({ state: "attached" });
   await page.locator("#ew-places").waitFor({ state: "attached" });
   if (connect) await signIn();
-  return { page, call, errors, app, signIn };
+  return { page, call, errors, app, signIn, browser, url: server.url };
 }
 const box = (page, selector) => page.locator(selector).first().boundingBox();
 const lit = (page) => page.locator('.ew-place[aria-current="page"]').getAttribute("data-place");
@@ -199,4 +199,171 @@ test("the bar's words come from the language files, in English and French", asyn
     assert.ok(fr[key], `French has ${key}`);
   }
   assert.notEqual(fr["ew.places"], en["ew.places"]);
+});
+
+/* ---------- integration (phase2/everywhere): the first paint, the safe areas, one answer per question ---------- */
+
+/** What the page paints before any of its modules has run: every script but look-early.js is held back. */
+async function firstPaint(f, saved) {
+  const context = await f.browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
+  if (saved) await context.addInitScript((id) => localStorage.setItem("branch-palette", id), saved);
+  const page = await context.newPage();
+  await page.route(/\.js(\?|$)/, (route) => (new URL(route.request().url()).pathname === "/look-early.js" ? route.continue() : route.abort()));
+  await page.goto(f.url);
+  const paint = await page.evaluate(() => {
+    const style = getComputedStyle(document.documentElement);
+    const values = {};
+    for (const sheet of document.styleSheets) for (const rule of sheet.cssRules) if (rule.style)
+      for (const name of rule.style) if (name.startsWith("--")) values[name] = style.getPropertyValue(name).trim();
+    return { palette: document.documentElement.getAttribute("data-palette"), values, body: getComputedStyle(document.body).backgroundColor };
+  });
+  await context.close();
+  return paint;
+}
+/** Every colour public/layout.js wore on the page once it ran. */
+const worn = (page) => page.evaluate(() => {
+  const style = document.documentElement.style;
+  return Object.fromEntries([...style].filter((name) => name.startsWith("--") && name !== "--composer-h").map((name) => [name, style.getPropertyValue(name).trim()]));
+});
+
+test("the first paint is already Slate for somebody who never chose, colour for colour, and a chosen Forest is Forest from the first frame", async (t) => {
+  const f = await fixture(t, { width: 1440, height: 950, connect: false });
+  const slate = await worn(f.page);
+  assert.equal(slate["--ground"], "#18242C", "the window wears Slate by default");
+  const fresh = await firstPaint(f, "");
+  assert.equal(fresh.palette, null, "nothing chosen, nothing named");
+  for (const [name, value] of Object.entries(slate)) assert.equal(fresh.values[name], value, `${name} is Slate's before anything runs`);
+  assert.equal(fresh.body, "rgb(24, 36, 44)", "and so is the page's own ground");
+  const forest = await firstPaint(f, "forest");
+  assert.equal(forest.palette, "forest", "a chosen theme is named before the first paint");
+  assert.equal(forest.values["--ground"], "#03140b", "so a chosen Forest paints Forest from the first frame, as before");
+  assert.equal(forest.values["--glass"], "rgba(10, 32, 20, 0.62)");
+  assert.equal((await firstPaint(f, "slate")).values["--ground"], "#18242C", "a chosen Slate is Slate too");
+  assert.equal((await firstPaint(f, "x\" onload=\"")).palette, null, "only a theme's own id is written on the page");
+  assert.deepEqual(f.errors, []);
+});
+
+test("the Slate first paint in tokens.css is the catalogue's Slate, dark and light, and cannot drift from it", async (t) => {
+  const f = await fixture(t, { connect: false });
+  const report = await f.page.evaluate(async () => {
+    const { themeById, tokensFor, solid, BRIDGE } = await import("/theme-bridge.js");
+    const css = await (await fetch("/tokens.css")).text();
+    const block = (selector) => {
+      const at = css.indexOf(`${selector} {`);
+      const body = css.slice(at, css.indexOf("}", at));
+      return Object.fromEntries([...body.matchAll(/^\s*(--[a-z0-9-]+):\s*([^;]+);/gm)].map((m) => [m[1], m[2].trim()]));
+    };
+    const expected = (mode) => {
+      const tokens = tokensFor(themeById("slate"), mode);
+      for (const [name, from] of Object.entries(BRIDGE)) if (tokens[from]) tokens[name] = tokens[from];
+      tokens["--surface"] = solid(tokens["--ground"], mode === "dark" ? tokens["--text"] : "#ffffff", mode === "dark" ? 0.07 : 0.55);
+      return tokens;
+    };
+    return {
+      dark: [block(':root[data-palette="slate"]'), expected("dark")],
+      light: [block(':root[data-palette="slate"][data-theme="daylight"]'), expected("light")],
+    };
+  });
+  for (const mode of ["dark", "light"]) {
+    const [written, catalogue] = report[mode];
+    assert.ok(Object.keys(catalogue).length > 50, `${mode}: the whole theme`);
+    for (const [name, value] of Object.entries(catalogue)) assert.equal(written[name], value, `${mode} ${name}`);
+  }
+});
+
+test("on a phone with a notch and a home bar nothing sits under either; a computer's margins do not move", async (t) => {
+  const f = await fixture(t, { connect: false });
+  const cdp = await f.page.context().newCDPSession(f.page);
+  await cdp.send("Emulation.setSafeAreaInsetsOverride", { insets: { top: 47, bottom: 34, left: 0, right: 0 } });
+  await f.signIn();
+  await f.page.locator("#ew-places").waitFor({ state: "visible" });
+  assert.match(await f.page.locator('meta[name="viewport"]').getAttribute("content"), /viewport-fit=cover/);
+  const head = await box(f.page, "header"), bar = await box(f.page, "#ew-places"), prompt = await box(f.page, "#prompt");
+  assert.ok(head.y >= 47, "the title bar starts under the notch");
+  assert.equal(await f.page.evaluate(() => getComputedStyle(document.getElementById("ew-places")).paddingBottom), "34px", "the bar keeps the home bar's room");
+  assert.ok(Math.abs(bar.y + bar.height - 844) <= 1 && bar.height >= 58 + 34, "and still sits at the foot");
+  assert.ok(prompt.y + prompt.height <= bar.y, "the message box stays above the bar");
+  await f.page.locator("#rail-toggle").click();
+  await f.page.waitForFunction(() => document.body.classList.contains("rail-open"));
+  assert.ok((await box(f.page, "body > .rail")).y >= 47, "the side list slides over under the notch, not behind it");
+  await cdp.send("Emulation.setSafeAreaInsetsOverride", { insets: { top: 0, bottom: 0, left: 0, right: 0 } });
+  for (const [width, height, padding] of [[1440, 950, "10px"], [1024, 700, "10px"], [820, 1180, "6px"], [390, 844, "0px"]]) {
+    await f.page.setViewportSize({ width, height });
+    const pads = await f.page.evaluate(() => { const s = getComputedStyle(document.body); return [s.paddingTop, s.paddingRight, s.paddingLeft]; });
+    assert.deepEqual(pads, [padding, padding, padding], `${width}: the page's margins are the ones it always had`);
+  }
+  assert.deepEqual(f.errors, []);
+});
+
+test("at every width from a phone to a wide screen nothing runs off sideways and nothing covers the message box", async (t) => {
+  const f = await fixture(t);
+  const sizes = [[390, 844], [560, 900], [561, 900], [699, 900], [700, 900], [820, 1180], [860, 1000], [861, 1000], [900, 1000], [1024, 700], [1440, 950]];
+  for (const [width, height] of sizes) {
+    await f.page.setViewportSize({ width, height });
+    await f.page.waitForTimeout(50);
+    const seen = await f.page.evaluate(() => {
+      const prompt = document.getElementById("prompt").getBoundingClientRect();
+      const top = document.elementFromPoint(prompt.left + prompt.width / 2, prompt.top + prompt.height / 2);
+      const rail = document.querySelector("body > .rail");
+      return {
+        sideways: document.documentElement.scrollWidth > innerWidth,
+        covered: !document.querySelector(".composer-dock").contains(top),
+        bar: getComputedStyle(document.getElementById("ew-places")).display !== "none",
+        docked: getComputedStyle(rail).position !== "fixed" && rail.getBoundingClientRect().width > 0,
+      };
+    });
+    assert.equal(seen.sideways, false, `${width}: nothing sideways`);
+    assert.equal(seen.covered, false, `${width}: the text field is on top`);
+    assert.equal(seen.bar, width <= 560, `${width}: the places bar only on a phone`);
+    assert.equal(seen.docked, width >= 700, `${width}: the side list is a column from 700 px`);
+  }
+  assert.deepEqual(f.errors, []);
+});
+
+/** Shows a question at 390 px, with the policy answer rewritten by `edit` on its way to the page. */
+async function askOnPhone(f, edit = (body) => body) {
+  await f.page.route("**/api/policy", async (route) => {
+    if (route.request().method() !== "GET") return route.continue();
+    const response = await route.fetch();
+    await route.fulfill({ response, json: edit(await response.json()) });
+  });
+  await f.call("/api/policy", { preset: "ask-before-changes" });
+  await f.page.locator("#prompt").fill("write a note for me");
+  await f.page.locator("#send").click();
+  const card = f.page.locator("#live-ask");
+  await card.waitFor({ state: "visible", timeout: 20000 });
+  return card;
+}
+
+test("a quick double tap on a phone's big answer sends one answer, not two", async (t) => {
+  const f = await fixture(t);
+  const card = await askOnPhone(f);
+  let sent = 0;
+  await f.page.route("**/api/policy/approve", async (route) => {
+    sent += 1;
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await route.continue();
+  });
+  const yes = card.getByRole("button", { name: "Yes, just now", exact: true });
+  await yes.tap();
+  await yes.tap({ force: true });
+  await card.getByRole("button", { name: "No", exact: true }).tap({ force: true });
+  await f.page.waitForFunction(() => /Noted/.test(document.getElementById("live-ask")?.textContent ?? ""), null, { timeout: 20000 });
+  assert.equal(sent, 1, "one answer left the phone");
+  assert.deepEqual(f.errors, []);
+});
+
+test("an answer that could not be sent gives the buttons back; No is the quiet answer; a task somebody else started has no Yes, always", async (t) => {
+  const f = await fixture(t);
+  const card = await askOnPhone(f, (body) => ({ ...body, waiting: body.waiting.map((question) => ({ ...question, source: "channel" })) }));
+  assert.deepEqual(await card.locator(".live-ask-choice > button").allInnerTexts(), ["Yes, just now", "Yes, for this conversation", "No"],
+    "a standing yes stays the owner's, on a phone as on a computer");
+  const heights = await card.locator(".live-ask-choice > button").evaluateAll((buttons) => buttons.map((b) => Math.round(b.getBoundingClientRect().height)));
+  assert.equal(new Set(heights).size, 1, `every answer is the same height (${heights.join(", ")})`);
+  const [yes, no] = await card.locator(".live-ask-choice > button").evaluateAll((buttons) => [buttons[0], buttons.at(-1)].map((b) => getComputedStyle(b).backgroundColor));
+  assert.notEqual(no, yes, "No does not look like a fourth yes");
+  await f.page.route("**/api/policy/approve", (route) => route.fulfill({ status: 500, json: { error: "The computer did not answer." } }));
+  await card.getByRole("button", { name: "Yes, just now", exact: true }).tap();
+  await f.page.waitForFunction(() => document.getElementById("live-status")?.textContent === "The computer did not answer.");
+  assert.equal(await card.getByRole("button", { name: "Yes, just now", exact: true }).isEnabled(), true, "it can be tried again");
 });
