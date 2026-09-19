@@ -2,7 +2,7 @@ import type { Completion, CompletionRequest, Provider } from "../contracts.js";
 import { ProviderHttpError } from "../provider-retry.js";
 import { currentAccountCall, trunkSignInRefusal, type AccountCall } from "./context.js";
 import {
-  type AccountState, failureFor, freshState, httpFailure, orderFor, rest, restMs, smartOrder, unavailable,
+  type AccountState, failureFor, freshState, httpFailure, orderFor, rest, restMs, rotationSet, smartOrder, unavailable,
 } from "./pool.js";
 import type { Account, Pool } from "./settings.js";
 
@@ -15,7 +15,9 @@ import type { Account, Pool } from "./settings.js";
  *
  * Sign-in accounts: the account is the conversation's choice, else the owner's default. When it
  * reaches its plan limit Branch stops and says so, naming the others; it moves on by itself only
- * when the owner turned on "share work between accounts" (see docs/configuration.md for why).
+ * when the owner turned on "share work between accounts", and then only to an account the owner
+ * marked "kept separate" — never between the owner's own plans (mac7/account-pooling, `rotationSet`;
+ * see docs/configuration.md for why).
  */
 export interface PoolHooks {
   owner: string;
@@ -167,7 +169,10 @@ export class AccountPoolProvider {
 
   private async shared(pool: Pool, usable: Account[], request: CompletionRequest, call: AccountCall | undefined): Promise<Completion> {
     const sticky = call?.sessionId ? this.hooks.sessionChoice(call.sessionId) : null;
-    const ready = smartOrder(usable.filter((account) => this.why(account) === null), this.hooks.states);
+    // mac7/account-pooling: at most one of the owner's own plans, plus the accounts kept separate.
+    const allowed = rotationSet(pool.kind, usable, pool.defaultAccount, sticky);
+    if (allowed.length < 2) return this.single(pool, usable, request, call);
+    const ready = smartOrder(allowed.filter((account) => this.why(account) === null), this.hooks.states);
     const first = ready.findIndex((account) => account.id === sticky);
     if (first > 0) ready.unshift(...ready.splice(first, 1));
     for (const account of ready) {
@@ -180,7 +185,7 @@ export class AccountPoolProvider {
         this.markLimited(account, error, call);
       }
     }
-    const fallback = usable.find((account) => account.id === sticky) ?? usable[0]!;
+    const fallback = allowed.find((account) => account.id === sticky) ?? allowed[0]!;
     throw this.limitError(pool, usable, fallback, "Every account of this connection has reached its plan limit.");
   }
 

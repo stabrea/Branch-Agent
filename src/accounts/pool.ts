@@ -1,6 +1,6 @@
 import { ProviderStreamError } from "../contracts.js";
 import { ProviderHttpError } from "../provider-retry.js";
-import type { Account, Strategy } from "./settings.js";
+import type { Account, AccountKind, Strategy } from "./settings.js";
 
 /**
  * Choosing an account and resting one that failed.
@@ -119,4 +119,20 @@ export function smartOrder(available: Account[], states: Map<string, AccountStat
     Number(b.pinned) - Number(a.pinned)
     || forOrder(b.id) - forOrder(a.id)
     || state(a.id).lastUsedAt - state(b.id).lastUsedAt);
+}
+
+/**
+ * mac7/account-pooling (owner decision 2026-09-19): which accounts may share work at all.
+ *
+ * API keys are pay-per-use and always may. Among sign-in accounts (subscription plans), the set holds
+ * at most ONE of the owner's own accounts — the conversation's own pick when that is one of theirs,
+ * else the owner's default, else the first in the list — plus every account the owner marked "kept
+ * separate" (someone else's, or work's). Branch never moves one person's work between their own
+ * identical plans to get past a limit; providers treat that as abuse.
+ */
+export function rotationSet(kind: AccountKind, usable: Account[], defaultAccount: string | null, sticky: string | null): Account[] {
+  if (kind === "api-key") return usable;
+  const own = usable.filter((account) => !account.keptSeparate && !account.disabled);
+  const self = own.find((account) => account.id === sticky) ?? own.find((account) => account.id === defaultAccount) ?? own[0];
+  return usable.filter((account) => account.keptSeparate || account === self);
 }
