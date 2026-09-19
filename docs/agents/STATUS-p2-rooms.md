@@ -53,7 +53,8 @@ conversation follows it** (capped by that Trunk's own limits: its tools, its rea
 ## Integration (adversarial review, Claude, 2026-09-19)
 
 Reviewed f071bc26, merged with trunk f5b8d582 (outside-review, tests-unattended; clean) and then 5d2af697/c39d9bed
-(p2-accounts; one conflict in public/index.html, the stylesheet links, both kept).
+(p2-accounts; one conflict in public/index.html, the stylesheet links, both kept), then d99fee1e (p2-shell:
+public/index.html kept both; public/trunks.js avatar() taken from p2-shell's faces.js, as agreed).
 Fixes in 9a1b43a4 and the commit after it. Verdict: **MERGE WITH FIXES** (applied). Every new security test was
 checked to fail with its fix taken out of `dist/` (7 of 7; the face test with the fix taken out of `public/`).
 
@@ -75,10 +76,9 @@ Fixed (tests marked "integration review" in tests/p2-rooms.test.mjs and tests/p2
 - [x] **Recents.** A room's inner conversations (first message: the room's instructions to that Trunk) are kept
   out of Recents, search and the phone list (`store.hiddenSessions`, a `NOT IN` in the query so pages stay whole).
 - [x] **"… needs you"** names the Trunk ("Ledger needs you in Price check") and Open leads to the room. en + fr.
-- [x] **Faces.** p2-shell is not on trunk, so this branch's avatar() stays. The `>>>` fix is right; the colours
-  were still refused by the window's content rules everywhere except rooms.js (the sidebar's faces drew black).
-  `shape()` in public/trunks.js now sets them through the element's style; rooms.js's `keepColours` is gone.
-  When p2-shell (faces.js) merges, take theirs and drop this.
+- [x] **Faces.** p2-shell (faces.js) reached trunk during this review, so avatar() is theirs: it colours through
+  the element's own style, which the window's content rules allow. This branch's `>>>` fix, its `shape()` fix and
+  its face test went with the old renderer; rooms.js's `keepColours` is gone (it was only for the old one).
 - [x] **Switch off**: with "Choosing a Trunk" off nothing changes (tested by the builder); a conversation chosen
   before it was switched off can now be given back to your assistant (it was stuck).
 - [x] A room's last card clears the message box's fade on a phone (padding under 700 px).
@@ -102,6 +102,11 @@ Not fixed / notes:
   builder's f071bc26 too: a live conversation that began before the view's setting was read never opened the view
   (the event was spent). public/voice-view.js now shows the view after every read of the setting (`follow()`);
   3/3 in sequence, and it fails with that line taken out.
+- Trunk at d99fee1e fails two guard tests that are p2-shell's, not this branch's: tests/short-lived-keys.test.mjs
+  (`/api/devices/join`, `/api/devices/join/leave`, `/api/shell-look` not classified) and
+  tests/settings-descriptions.test.mjs (`#shell-look-strip`, `#shell-look-3d` have no description). Left to p2-shell's
+  integrator: classifying routes for keys is a security call on their code.
+- tests/p2-rooms-ui.test.mjs "@ in the message box" timed out once on this (busy) machine and passed on the rerun.
 - The room's own conversation still shows in Recents under the owner's first message; the Trunks' own chats show
   "Introduce yourself to the owner…" (pre-existing, not a room's).
 - The room UI offers Yes (holds for the hour, in the room) and No; no "just this once" (every re-taken turn would ask
