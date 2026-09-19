@@ -13,9 +13,10 @@
  */
 import { createHash } from "node:crypto";
 import type { Study, StudyRunResult, StudyComparison } from "./study.js";
+import { comparisonRefusal, type RunConditions } from "./evaluation-honesty.js";
 
 export const journalFormat = "branch-agent-study-journal";
-export const journalVersion = 1;
+export const journalVersion = 2;
 
 /** Everything that decides what a study measures, as opposed to what it found. */
 export interface JournalInputs {
@@ -35,6 +36,12 @@ export interface JournalInputs {
    * written before this existed, which keeps their fingerprints as they were.
    */
   datasetVersion?: string;
+  /**
+   * mac7/eval-honesty: everything about how the run was measured — which models answered, which
+   * model graded, which computer, which settings, how the tasks were marked. Missing on entries
+   * written before this existed, and that absence is itself a refusal: see `comparisonRefusal`.
+   */
+  conditions?: RunConditions;
 }
 
 /** Keys in a fixed order at every depth, so the same task always hashes the same. */
@@ -74,6 +81,9 @@ export function fingerprintOf(inputs: JournalInputs): string {
     maxTokens: inputs.study.maxTokens, tasks: inputs.tasks, scorerKinds: [...inputs.scorerKinds].sort(),
     benchmarksFolder: inputs.benchmarksFolder, version: inputs.version,
     ...(inputs.datasetVersion ? { datasetVersion: inputs.datasetVersion } : {}),
+    // mac7/eval-honesty: the scorer digest and the machine belong in the fingerprint, because a
+    // rubric rewritten to be kinder keeps its kind, and two computers are two measurements.
+    ...(inputs.conditions ? { conditions: inputs.conditions } : {}),
   };
   return createHash("sha256").update(JSON.stringify(ordered)).digest("hex").slice(0, 16);
 }
@@ -126,6 +136,9 @@ export function journalDiff(before: JournalEntry, after: JournalEntry): { same: 
   note("Benchmarks folder", x.benchmarksFolder || "the workspace only", y.benchmarksFolder || "the workspace only");
   note("Version of Branch Agent", x.version, y.version);
   note("Version of the tasks", x.datasetVersion ?? "not recorded", y.datasetVersion ?? "not recorded");
+  note("How the tasks were marked", x.conditions?.scorerDigest ?? "not recorded", y.conditions?.scorerDigest ?? "not recorded");
+  note("The model that graded", x.conditions?.judgeModel ?? "none recorded", y.conditions?.judgeModel ?? "none recorded");
+  note("The computer it ran on", x.conditions?.machine ?? "not recorded", y.conditions?.machine ?? "not recorded");
   return { same: changes.length === 0, changes };
 }
 
@@ -134,23 +147,36 @@ export function journalDiff(before: JournalEntry, after: JournalEntry): { same: 
  * what moved. The accuracy difference is only called real when a comparison is handed in, because
  * working out whether a difference is worth believing is the study's own job, not the journal's.
  */
-export function journalReport(before: JournalEntry, after: JournalEntry, comparison?: StudyComparison): string {
+export function journalReport(before: JournalEntry, after: JournalEntry, comparison?: StudyComparison, refusal?: string | null): string {
   const difference = journalDiff(before, after);
   const percent = (value: number): string => `${(value * 100).toFixed(1)}%`;
+  const head = [`### ${after.name}: this run against ${before.startedAt.slice(0, 10)}`, ""];
+  // A caller may hand in a refusal it worked out from the results themselves; when it does not,
+  // the entries carry enough to work one out here, so no caller can forget to ask.
+  refusal = refusal !== undefined ? refusal
+    : comparisonRefusal(before.inputs.conditions, after.inputs.conditions,
+      { before: `the run of ${before.startedAt.slice(0, 10)}`, after: "this run" });
+  // mac7/eval-honesty: when the two runs cannot honestly be compared, the refusal is the whole
+  // report. The accuracy line used to be printed underneath whatever changed, and that line is
+  // the one that gets quoted — so it is not printed at all. Silence and a plausible number is the
+  // failure this is removing.
+  if (refusal) return [...head, refusal, "", "Nothing about the two accuracies is printed here, because the comparison would not mean anything."].join("\n");
   const lines = [
-    `### ${after.name}: this run against ${before.startedAt.slice(0, 10)}`, "",
+    ...head,
     difference.same
       ? `Both runs measured the same thing (fingerprint ${after.fingerprint}).`
       : `These two runs did **not** measure the same thing. ${difference.changes.length} thing(s) changed:`,
   ];
-  if (!difference.same)
+  if (!difference.same) {
     lines.push("", "| What | Before | Now |", "| --- | --- | --- |",
-      ...difference.changes.map((change) => `| ${change.what} | ${change.before} | ${change.after} |`));
+      ...difference.changes.map((change) => `| ${change.what} | ${change.before} | ${change.after} |`),
+      "", "Change one thing at a time, and run both sides again. Until then these two runs measured different experiments, and no difference between their scores can be pinned on any one of the changes above.");
+    return lines.join("\n");
+  }
   lines.push("", `Accuracy went from ${percent(before.outcome.accuracy)} to ${percent(after.outcome.accuracy)}.`);
   if (comparison)
     lines.push(comparison.clear
       ? `Over the ${comparison.tasks} task(s) both ran that is ${percent(comparison.delta)}, and the range does not include zero, so it is worth believing.`
       : `Over the ${comparison.tasks} task(s) both ran that is ${percent(comparison.delta)}, and the range still includes zero, so it is not yet a real difference.`);
-  if (!difference.same) lines.push("", "Change one thing at a time, or the difference above cannot be pinned on any of them.");
   return lines.join("\n");
 }

@@ -2525,6 +2525,35 @@ result ids and reports the difference over the tasks both ran, with the range th
 very likely to be in, worked out by resampling the tasks two thousand times. When the range includes
 zero, nothing is claimed.
 
+**When a comparison is refused.** `compare` will not put two runs side by side unless both wrote
+down the conditions they ran under and those conditions match: the model choices and the models
+behind them, which model graded, the settings (`maxSteps`, `maxTokens`, `repeats`, `bestOfN`,
+`limit`, `retries`, where the tasks came from, the benchmarks folder), the version of Branch Agent,
+the computer, a hash of what every task actually says, and a digest of how the tasks were marked.
+Anything that differs is named in plain words with what you would have to do about it —
+"the model choices that answered: Before had fast, After had careful — run both sides with the same
+model choice". A result saved before this existed has no conditions at all, and that is refused
+too, because there is no way to tell what it measured. A run that lost a piece of work is refused
+on the same footing: a smaller denominator flatters whatever is left.
+
+This is deliberately a refusal rather than a footnote. A number with a caveat under it is still the
+number that gets quoted.
+
+**Repeats are a range.** With `repeats` above one, each model choice's row carries the spread its
+repeats covered as well as their mean, and the table prints both. One repeat has no spread and says
+so, which is what stops a single lucky run being read as a difference.
+
+**Where the money figure comes from.** Tokens are the provider's own reported count when the
+provider gave one, and Branch's own estimate only when it did not. The table says which, every
+time — "estimated: Branch counted the tokens itself and priced them from the table" is not the same
+claim as a bill, and is never printed as one.
+
+**A task nothing can decide.** A suite task with no checks, no scorers, no rubric and no "must not"
+list is refused when the suite is saved, and fails with that reason if an older suite still has one.
+It used to pass, whatever the answer said. A study also applies a suite task's own `checks` and
+`deny`, which it used to drop on the floor — so a task decided by checks is now decided by them in
+a study too, rather than passing for free.
+
 On the command line: `branch study list`, `branch study run <id> [--fresh] [--json]` (JSON is one
 result per line), `branch study compare <result id> <result id>`, and `branch study replay <id>`.
 
@@ -2550,6 +2579,52 @@ of what every task that ran says (its question, reference answer and scorers), n
 question reworded under the same id is a different dataset, so the two runs get different
 fingerprints and replay lists "Version of the tasks" among the changes. Entries written before this
 have no dataset version and keep the fingerprint they had. (A1082; `tests/chat-engine.test.mjs`.)
+
+**What replay prints when the two runs are not comparable.** It prints the refusal and nothing else.
+It used to print the table of what changed and then, underneath it, "Accuracy went from 0.0% to
+100.0%" — and that is the line a person quotes. Two runs whose conditions differ now get the reason
+they cannot be compared and no accuracy at all; two runs whose conditions match but whose study
+inputs moved get the table and the advice, and still no accuracy. (mac7/eval-honesty;
+`tests/evaluation-honesty.test.mjs`.)
+
+**How the tasks were marked.** The fingerprint covers a digest of the scorers themselves, not only
+their kinds: a rubric rewritten to be kinder keeps the kind `rubric`, and without this the two runs
+would look like the same experiment. The digest also covers which model grades, and leaves out any
+field whose name looks like a key or a token, so rotating a credential never moves it.
+
+### The grader cannot be reached by what it is grading
+
+A task's answer is the one part of a grading prompt that the thing being measured wrote, so it is
+the one part that can try to talk to its own judge. Two things stop it.
+
+The answer is **fenced**: wrapped in markers carrying sixteen fresh random bytes chosen after the
+text is in hand, with a sentence inside the block saying it is data and not instructions. An answer
+that ends with a plausible closing marker cannot close the block — it would have had to guess the
+nonce — and the "this is data" statement travels inside the fence, so it survives being pasted into
+an evaluator prompt somebody else wrote.
+
+The grader's own task is **isolated**. It gets its question and nothing else: no memory snapshot, no
+context files, no project instructions, no installed or pinned skills, no standing orders, no
+passages from your documents, no conversation and no tools. Nothing it does is learned from by the
+learning core, reviewed, or written into the record of outcomes. The fence alone would not be
+enough: a task that writes a memory, drops a file in the workspace or edits a skill could otherwise
+reach the judge that marks it the long way round, and the mark would stop meaning anything.
+
+### What is called a regression, and what is not
+
+A suite run says a task has regressed when it passed in each of the three runs before this one and
+has just failed. "The three runs before this one" now means the three most recent runs **measured
+the same way** — same model choice, same models, same version, same computer, same tasks, same
+scorers. A run on a cheaper model after three on a stronger one used to announce that something
+which used to work had stopped, and the nightly run sent that out as a regression notice.
+
+When there are not three comparable runs, the result says so in the same line a build log reads:
+"Nothing is called a regression here: of the 9 earlier run(s) of this suite, only 1 was measured the
+same way, and three are needed." Nothing found and nobody looked must never read the same.
+
+The trend (`GET /api/evaluation/trend`) marks each point with whether it can honestly be read
+against the newest one, and why not when it cannot — a trend line drawn through runs measured
+differently is a picture of the settings changing, not of the assistant changing.
 
 ### Scoring the real work as it finishes
 

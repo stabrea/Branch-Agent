@@ -1628,6 +1628,7 @@ export * from "./skill-suggest.js";
 export * from "./skill-authoring.js";
 export * from "./plugins.js";
 export * from "./evaluation.js";
+export * from "./evaluation-honesty.js";
 export * from "./evaluation-suites.js";
 export * from "./evaluation-grading.js";
 export * from "./evaluation-runner.js";

@@ -246,6 +246,12 @@ export interface ToolContext {
   scratchRoot?: string;
   /** Practice run: tools that would change something report what they would have done instead. */
   dryRun?: boolean;
+  /**
+   * mac7/eval-honesty: a question asked in isolation — a grader marking work Branch itself did.
+   * Nothing the owner has remembered, written down, installed or asked for standing reaches it, and
+   * nothing it does is learned from. See `RunOptions.isolated`.
+   */
+  isolated?: boolean;
   /** Who started this task; anything but the owner is held to the "Ask before changes" policy. */
   source?: "owner" | "trigger" | "schedule" | "mcp" | "a2a" | "acp" | "channel";
   /**
