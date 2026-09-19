@@ -29,6 +29,11 @@ body.lx.lx-strip {
   box-shadow: var(--shadow);
   color: var(--text);
 }
+/* its room is kept from the first paint; it shows once the window is ready (not over the sign-in) */
+body:not(.lx-ready) .strip,
+body:has(#workspace[hidden]) .strip {
+  visibility: hidden;
+}
 :root[data-quiet] .strip {
   opacity: 0;
   pointer-events: none;

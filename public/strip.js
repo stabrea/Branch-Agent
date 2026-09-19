@@ -180,9 +180,21 @@ function focusedInStrip() {
   const id = node.closest("[data-strip-id]")?.dataset.stripId;
   return id ? `[data-strip-id="${id}"] .${node.classList[0]}` : `.${node.classList[0]}`;
 }
+/** The window takes the strip's room once, as it opens, rather than moving under the person later. */
+const REMEMBERED = "branch-strip";
+function remembered() { try { return localStorage.getItem(REMEMBERED) !== "off"; } catch { return true; } }
+function remember(on) { try { localStorage.setItem(REMEMBERED, on ? "on" : "off"); } catch { /* a private window forgets */ } }
+function reserveRoom() {
+  if (!remembered() || $("trunk-strip")) return;
+  document.body.classList.add("lx-strip");
+  const nav = make("nav", "strip");
+  nav.id = "trunk-strip";
+  document.body.append(nav);
+}
 export function drawStrip() {
   const focused = focusedInStrip();
   const on = shell.look.strip !== "off";
+  remember(on);
   document.body.classList.toggle("lx-strip", on);
   let nav = $("trunk-strip");
   if (!on) { nav?.remove(); return; }
@@ -378,6 +390,7 @@ function whenReady(work) {
   watch.observe(document.body, { attributes: true, attributeFilter: ["class"] });
   if ($("workspace")) watch.observe($("workspace"), { attributes: true, attributeFilter: ["hidden"] });
 }
+reserveRoom();
 whenReady(() => {
   wireGestures();
   void refresh();
