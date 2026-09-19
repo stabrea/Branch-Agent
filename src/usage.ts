@@ -26,6 +26,11 @@ export interface UsageStats {
   /** US dollars for the tasks this month that have a price, and how many had none. */
   estimatedCost: number;
   unpricedRuns: number;
+  /**
+   * hardening-3: dollars already spent on something still being made by a task that has not finished
+   * (a video), included in `estimatedCost` so the month is never understated while it runs.
+   */
+  stillBeingMade: number;
 }
 
 /** One finished task reduced to what the usage views need: who ran it, on what, for how many tokens. */
@@ -108,6 +113,14 @@ export class UsageStore {
       total += Number(data.dollars ?? 0) || 0;
     }
     return total;
+  }
+
+  /** hardening-3: money recorded this month by tasks that have not finished yet (running or waiting for a person). */
+  private inFlightSpend(monthStart: string): number {
+    const runs = this.db
+      .prepare(`SELECT id FROM tasks WHERE status IN ('running', 'needs_input') AND created_at >= ?`)
+      .all(monthStart) as Array<{ id: string }>;
+    return runs.reduce((total, run) => total + this.runSpend(run.id), 0);
   }
 
   /** Which model answered, how many tools ran, and how many of them failed, from the run's events. */
@@ -350,13 +363,17 @@ export class UsageStore {
       cost += this.runSpend(run.id);
     }
 
+    // hardening-3: a task still running has already paid for what it asked a service to make (a video
+    // is recorded before the service is asked), so that money is in the month now, not when it ends.
+    const stillBeingMade = this.inFlightSpend(monthStart);
     const alert80 = maxMonthlyTokens ? total >= maxMonthlyTokens * 0.8 : false;
     return {
       currentMonthlyTokens: total,
       monthStart: monthStart.split("T")[0] || monthStart,
       budgetAlert80Percent: alert80,
-      estimatedCost: Math.round(cost * 1_000_000) / 1_000_000,
+      estimatedCost: Math.round((cost + stillBeingMade) * 1_000_000) / 1_000_000,
       unpricedRuns,
+      stillBeingMade: Math.round(stillBeingMade * 1_000_000) / 1_000_000,
     };
   }
 

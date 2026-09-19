@@ -320,6 +320,7 @@ export async function createBranch(options: {
   const registry = new ToolRegistry();
   // mac7/r17-d: a task working in its own copy of the project (src/coding/worktrees.ts) reads and writes there.
   files.scope = () => worktreeScope() ?? store.projects.active(options.owner ?? "local").folder;
+  registry.pathScope = () => files.scope(); // integration (hardening-3): folder rules see the path from the workspace too
   // mac7/coding-next: read before edit (src/coding/read-first.ts), the owner's switch, off as shipped.
   const readFirst = new ReadFirstGuard(() => codingOn(store, options.owner ?? "local", "read-first"));
   files.readFirst = readFirst;

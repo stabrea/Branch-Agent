@@ -8,7 +8,7 @@ import {
   newAccountId, poolId, poolOf, poolingNotice, primaryAccount, programSignInLine, saveAccountsSettings, saveSessionChoice,
   sessionChoice, strategies,
 } from "./settings.js";
-import { accountHomeVariables, rowFor } from "../providers/cli-agent.js";
+import { accountHomeVariables, cliAgentCatalog, rowFor } from "../providers/cli-agent.js";
 import { accountTerms } from "./terms.js";
 
 /**
@@ -248,6 +248,19 @@ function programHome(service: AccountsService, pool: string, account: string) {
   return { home, ...(variable ? { signInLine: programSignInLine(variable, home, rowFor({ id: pool.slice(4) }).command) } : {}) };
 }
 
+/**
+ * hardening-3: the name a person knows a connection by, for the window and `/account` alike: the
+ * connection's own name, "ChatGPT", or the program's name for one not set up right now — never the
+ * internal id unless nothing else is known.
+ */
+export function connectionName(service: AccountsService, pool: string): string {
+  if (pool === "chatgpt") return "ChatGPT";
+  for (const preset of service.deps.models.presets.values())
+    if (service.poolFor(preset)?.pool === pool) return preset.name;
+  const program = pool.startsWith("cli-") ? cliAgentCatalog.find((row) => row.id === pool.slice(4)) : undefined;
+  return program?.name ?? pool;
+}
+
 /** Every connection that can have several accounts, with its list (a list of one until more are added). */
 export async function viewAll(service: AccountsService) {
   const settings = service.settings();
@@ -257,7 +270,9 @@ export async function viewAll(service: AccountsService) {
     const found = service.poolFor(preset);
     if (found && !seen.has(found.pool)) seen.set(found.pool, { name: found.kind === "chatgpt" ? "ChatGPT" : preset.name, kind: found.kind });
   }
-  for (const pool of settings.pools) if (!seen.has(pool.pool)) seen.set(pool.pool, { name: pool.pool, kind: pool.kind });
+  for (const pool of settings.pools) if (!seen.has(pool.pool)) seen.set(pool.pool, { name: connectionName(service, pool.pool), kind: pool.kind });
+  // hardening-3: a household person sees the accounts shared with them and nothing of the owner's lists.
+  if (someoneElse(service)) return { mode: settings.mode, pools: sharedWithPerson(service, seen) };
   const pools = [];
   for (const [id, about] of seen) {
     const draft = { ...settings, pools: [...settings.pools] };
@@ -269,6 +284,21 @@ export async function viewAll(service: AccountsService) {
     pools.push({ ...view, name: about.name, notice, signedIn: signIn?.signedIn ?? null, signInProblems: signIn?.problems ?? null });
   }
   return { mode: settings.mode, pools };
+}
+/**
+ * hardening-3: what a household person is shown: only lists holding an account shared with them,
+ * and of those only the name, the service's terms and the shared accounts — not how the owner's
+ * list is run (its strategy, sharing, default, notices) nor which sign-ins the owner has.
+ */
+function sharedWithPerson(service: AccountsService, seen: Map<string, { name: string; kind: AccountKind }>) {
+  const settings = service.settings(), pools = [];
+  for (const [id, about] of seen) {
+    const saved = settings.pools.find((pool) => pool.pool === id);
+    if (!saved) continue;
+    const { accounts, terms } = viewPool(service, saved);
+    if (accounts.length) pools.push({ pool: id, name: about.name, kind: about.kind, terms, accounts });
+  }
+  return pools;
 }
 /** Whether each ChatGPT account is signed in, and why the last sign-in failed (never a token). */
 async function signInState(service: AccountsService, ids: string[]) {
