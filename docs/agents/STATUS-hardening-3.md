@@ -5,7 +5,7 @@ Every fix has a test that was checked to fail with the fix taken out of `dist/` 
 
 - [x] 1. Permission rules see what the tool uses
 - [x] 2. Loop guard compares cleaned arguments
-- [ ] 3. Hung local model: one retry, capped first-reply wait, plain message
+- [x] 3. Hung local model: one retry, capped first-reply wait, plain message
 - [ ] 4. `code.rename` held to read-before-edit
 - [ ] 5. Malware check: over 10 pages is "not checked", not clean
 - [ ] 6. Monthly spend includes a video still being made
@@ -96,3 +96,23 @@ Grouped by where the thing a rule is about comes from. "own" = the tool's `targe
   so it is read once. `canonicalArguments` still sorts keys.
 - Test "2 …": eight `files.read` calls that only change a junk key are warned about and then refused (loop guard on).
   Proved: with the guard handed `call` again in `dist/runtime.js`, the test fails.
+
+## 3. Hung local model
+- Before: a first-reply timeout on a local model was an ordinary stall, retried twice (`recoverStall`), each attempt
+  waiting the whole first-reply window again: 3 x 300 s, then "No response for 300 seconds".
+- Now (`Runtime.recoverLocalFirstReply`, src/runtime.ts): `StallError` says whether anything had been heard
+  (`beforeFirstWord`, set by `withStallWatchdog`). A local model (`presetRunsLocally`) that never started is tried
+  again **once**, and that retry's first window is only what is left of `localFirstReplySeconds` plus a grace (a tenth
+  of the wait, at most 30 s: `localFirstReplyGraceMs`, src/reliability.ts; `FirstReplyWait.capMs` lets the window be
+  shorter than the ordinary stall time). Then the next connection when `stallRecovery` allows falling back, else
+  `LocalModelSilentError`: "The model on this computer didn't start answering after 5 minutes. It may still be
+  loading, or it may be too big for this computer's memory. Check that the program running it (such as Ollama or LM
+  Studio) is open …; or choose a smaller model; or give it longer under Settings, Advanced: …".
+- `stallRecovery: "fail"` fails at once with the same sentence. A stall *after* the first word, and hosted models, go
+  through `recoverStall` as before. The owner's "when stuck" choice (`stuckAction`) is not consulted for this case:
+  the task now ends after one short retry, so there is no second full stall to ask about.
+- Engine message in English like the other model errors (it is the task's failure text, not a UI string).
+- Docs: docs/configuration.md reliability paragraph.
+- Tests "3 …": a silent server on 127.0.0.1 gets exactly 2 requests, the recoveries are `retry` then `fail`, the retry
+  window is at most the grace, the whole run ends in < 2 s with a 1 s wait (was > 3 s), and the output is the plain
+  sentence; the grace figure. Proved: with the local branch disabled in `dist/runtime.js` the first test fails.

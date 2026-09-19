@@ -120,3 +120,44 @@ test("2 the loop guard sees a call that only changes a junk key each round as th
     "the repeats were noticed although the junk key changed every time");
   assert.ok(eventsOf(app, run, "loop.blocked").length > 0, "and the repeated call was refused");
 });
+
+// ------------------------------------------------------------------ 3. a hung model on this computer
+
+/** An OpenAI-shaped server on this computer that never says anything; counts the requests it gets. */
+async function silentLocalServer(t) {
+  const { createServer } = await import("node:http");
+  const seen = { requests: 0 };
+  const server = createServer((request, response) => { seen.requests++; request.resume(); response.on("close", () => undefined); });
+  await new Promise((done) => server.listen(0, "127.0.0.1", done));
+  t.after(() => new Promise((done) => { server.closeAllConnections?.(); server.close(() => done()); }));
+  return { endpoint: `http://127.0.0.1:${server.address().port}/v1`, seen };
+}
+
+test("3 a model on this computer that never starts answering is tried again once, briefly, then the task says what to try", async (t) => {
+  const { app } = await fixture(t);
+  const { OpenAIProvider } = await import("../dist/providers.js");
+  const { endpoint, seen } = await silentLocalServer(t);
+  app.runtime.models.register({ id: "on-this-computer", name: "Local", model: "m",
+    provider: new OpenAIProvider({ endpoint, model: "m", apiKey: "local" }) });
+  // Shortened for the test (shipped: 60 s and 300 s, grace 30 s): a 1 s first-reply wait, grace 100 ms.
+  app.runtime.reliability.modelStallMs = 300;
+  app.runtime.reliability.localFirstReplyMs = 1000;
+  const started = Date.now();
+  const run = await app.runtime.run({ prompt: "hi", model: "on-this-computer", onTextDelta: () => undefined });
+  const took = Date.now() - started;
+  assert.equal(run.status, "failed");
+  assert.match(run.output ?? "", /model on this computer didn't start answering/);
+  assert.match(run.output ?? "", /smaller model/);
+  assert.equal(seen.requests, 2, "asked once, and tried again once");
+  const recoveries = app.store.events(run.id).filter((event) => event.kind === "model.stall_recovery").map((event) => event.data);
+  assert.deepEqual(recoveries.map((one) => one.action), ["retry", "fail"]);
+  assert.ok(recoveries[0].waitMs <= 100, `the retry waits only the grace (${recoveries[0].waitMs} ms)`);
+  assert.ok(took < 2000, `the whole wait stays near the first-reply wait plus the grace, not three full waits (${took} ms)`);
+});
+
+test("3 the grace is a tenth of the first-reply wait, at most 30 seconds", async () => {
+  const { localFirstReplyGraceMs } = await import("../dist/reliability.js");
+  assert.equal(localFirstReplyGraceMs(300_000), 30_000);
+  assert.equal(localFirstReplyGraceMs(1_800_000), 30_000);
+  assert.equal(localFirstReplyGraceMs(60_000), 6_000);
+});

@@ -66,7 +66,7 @@ import { memoryScope } from "./memory.js";
 import { parseSessionSummary, summaryText } from "./session-summary.js";
 import { chatEngineSettings, condenseMessages, earlierTurns, shouldCondense, standaloneQuestion } from "./chat-engine.js"; // w911 (A0847)
 import {
-  CheckError, StallError, ReliabilityOptionsSchema, CompletionCheckSchema, clipToolResult, evaluateChecks, shrinkToolResults, withStallWatchdog,
+  CheckError, StallError, LocalModelSilentError, localFirstReplyGraceMs, ReliabilityOptionsSchema, CompletionCheckSchema, clipToolResult, evaluateChecks, shrinkToolResults, withStallWatchdog,
   type FirstReplyWait,
   thinkingKeepsAlive, thinkingCharsPerToken, thinkingStallWindows,
   type CompletionCheck, type ReliabilityInput, type ReliabilityOptions,
@@ -1802,6 +1802,7 @@ ${run.output.slice(0, 6000)}`;
     onTextDelta?: (text: string) => void,
   ): Promise<Completion> {
     let stalls = 0;
+    const firstReply: LocalFirstReply = { started: Date.now(), retried: false }; // hardening-3
     for (let retriesUsed = 0; ; retriesUsed++) {
       let observedText = false;
       const emit = onTextDelta
@@ -1812,7 +1813,7 @@ ${run.output.slice(0, 6000)}`;
         : undefined;
       const preset = route.candidates[route.index]!;
       try {
-        return await this.complete(run, messages, context, preset, route.reasoning, emit);
+        return await this.complete(run, messages, context, preset, route.reasoning, emit, undefined, firstReply.capMs);
       } catch (error) {
         const ceiling = this.replyCeilings.get(run.id) ?? baseReplyCeiling;
         if (isOutOfRoomThinking(error) && ceiling < maxReplyCeiling && !context.signal.aborted) {
@@ -1822,6 +1823,7 @@ ${run.output.slice(0, 6000)}`;
           continue;
         }
         if (error instanceof StallError) {
+          if (error.beforeFirstWord && presetRunsLocally(preset)) { this.recoverLocalFirstReply(run, context, route, error, firstReply); retriesUsed = -1; continue; }
           if (this.recoverStall(run, context, route, error, stalls++)) { retriesUsed = -1; continue; }
           throw error;
         }
@@ -1845,6 +1847,27 @@ ${run.output.slice(0, 6000)}`;
         await waitForRetry(retry.delayMs, context.signal);
       }
     }
+  }
+  /**
+   * hardening-3: a model on this computer that has not said its first word. It is tried again once,
+   * and only for what is left of the owner's first-reply wait plus a short grace (it may have just
+   * finished loading); after that the next connection is used when the owner allows falling back,
+   * and otherwise the task ends with a plain sentence saying what to try. Returns only to carry on.
+   */
+  private recoverLocalFirstReply(run: Run, context: ToolContext, route: ModelRoute, error: StallError, wait: LocalFirstReply): void {
+    const preset = route.candidates[route.index]!;
+    const firstMs = knobs.localFirstReplyMs(this.store, this.owner, this.reliability), grace = localFirstReplyGraceMs(firstMs);
+    const left = firstMs + grace - (Date.now() - wait.started);
+    const retry = !context.signal.aborted && !wait.retried && this.reliability.stallRecovery !== "fail" && left > 0;
+    if (retry) {
+      Object.assign(wait, { retried: true, capMs: Math.min(grace, left) });
+      this.store.event(run.id, "model.stall_recovery", { action: "retry", stalls: 1, afterMs: error.afterMs, preset: preset.id, firstReply: true, waitMs: wait.capMs });
+      return;
+    }
+    const moved = !context.signal.aborted && this.reliability.stallRecovery !== "fail" && this.fallBack(run, context, route, error);
+    this.store.event(run.id, "model.stall_recovery", { action: moved ? "fallback" : "fail", stalls: wait.retried ? 2 : 1, afterMs: error.afterMs, preset: preset.id, firstReply: true });
+    if (!moved) throw new LocalModelSilentError(Date.now() - wait.started);
+    Object.assign(wait, { started: Date.now(), retried: false, capMs: undefined });
   }
   /** After a stalled model call: try again (twice at most), move to the next preset, or give up, as configured. */
   private recoverStall(run: Run, context: ToolContext, route: ModelRoute, error: StallError, stalls: number): boolean {
@@ -1899,6 +1922,7 @@ ${run.output.slice(0, 6000)}`;
     reasoning: ReasoningEffort | null,
     onTextDelta?: (text: string) => void,
     shape?: AnswerShape,
+    firstCapMs?: number,
   ): Promise<Completion> {
     context.budget.step(context.signal);
     // R17-S09: a task that has reached the owner's spending cap for one task stops here.
@@ -1954,7 +1978,7 @@ ${run.output.slice(0, 6000)}`;
             preset.provider.complete({ ...request, signal, onTextDelta: (text: string) => { touch(); onTextDelta(text); },
               // integrate/empty-completion: only within the reply's room and a bounded window.
               onReasoningDelta: thinkingKeepsAlive(touch, { maxChars: maxTokens * thinkingCharsPerToken,
-                forMs: this.reliability.modelStallMs * thinkingStallWindows }) }), this.firstReplyWait(run, preset))
+                forMs: this.reliability.modelStallMs * thinkingStallWindows }) }), this.firstReplyWait(run, preset, firstCapMs))
         : await preset.provider.complete({ ...request, signal: context.signal }));
       const { output, reported } = this.recordCompletion(run, context, raw, input);
       // R17-048 / R17-050: note the service's own count, and keep its cache warm if the owner asked.
@@ -1998,10 +2022,10 @@ ${run.output.slice(0, 6000)}`;
    * that first silence may last longer (the owner's setting, 300 s as shipped), and after a short
    * while the person is told why nothing has appeared yet. Hosted models wait exactly as before.
    */
-  private firstReplyWait(run: Run, preset: ModelPreset): FirstReplyWait {
+  private firstReplyWait(run: Run, preset: ModelPreset, capMs?: number): FirstReplyWait {
     if (!presetRunsLocally(preset)) return {};
     const firstMs = knobs.localFirstReplyMs(this.store, this.owner, this.reliability);
-    return { firstMs, quiet: { afterMs: Math.min(localQuietMs, this.reliability.modelStallMs), notify: () =>
+    return { firstMs, ...(capMs === undefined ? {} : { capMs }), quiet: { afterMs: Math.min(localQuietMs, this.reliability.modelStallMs), notify: () =>
       this.store.event(run.id, "model.loading", { preset: preset.id, model: preset.model, waitSeconds: Math.round(firstMs / 1000),
         message: "Waiting for the model on this computer to start. It may be loading into memory." }) } };
   }
@@ -2742,6 +2766,8 @@ export function channelSource(answeredOn: string | undefined): AuditSource | nul
 }
 
 /** mac7/coding-next: the one line a model is told when some of its arguments were not used. */
+/** hardening-3: how long a model on this computer has been waited for in this round, and whether it was tried again. */
+interface LocalFirstReply { started: number; retried: boolean; capMs?: number | undefined }
 /** hardening-3: a model's call as the runtime reads it once (see `Runtime.prepareCall`). */
 export interface PreparedCall {
   /** What the tool is handed: the call without the keys it does not take. */
