@@ -17,11 +17,25 @@ critiques #44, #53). Screenshots and terminal frames: `claude-session-files/bran
       phase2/everywhere); tests/terminal-everywhere.test.mjs; snapshot diffs: only the 120x40 chat views gained the
       key line, plus the new chat-everywhere view. Answers are headed "<assistant name>:" instead of "Assistant:"
       (tests/cli-tui.test.mjs regexes updated). Frames as text + pictures in phase2-shots/everywhere/terminal/
-- [ ] 3. Phone and tablet layout of the web window (public/phone-layout.js + .css): bottom places bar,
-      approvals answerable, true proportions at 390x844 and 820x1180
-- [ ] 4. Merge latest trunk, rebuild, retest, push
+- [x] 3. Phone and tablet layout of the web window (public/phone-layout.js + .css): bottom places bar,
+      approvals answerable, true proportions at 390x844 and 820x1180. Hooks in shared files, each marked
+      phase2/everywhere: index.html (one link, one script), src/server.ts (two allowlist rows), public/shell.js
+      (the side list slides over under 700 px instead of 860, so an upright tablet keeps it docked).
+      tests/phone-layout.test.mjs.
+- [x] 4. Merged origin/mac/cross-platform (677e7d34), rebuilt, ran 51 files (419 tests: 400 pass, 0 fail,
+      19 skipped): every UI file that sets a narrow viewport, the shell/calm/web/ui/redesign-phase1 suites,
+      static-assets, index-structure, handbook, all terminal suites, mobile-shell/-rules, conversation-mode.
 
 ## Notes for the integrator
+
+- Coordinated with p2-panels: they leave shell.js and the rail breakpoints alone; their drag handles only show
+  from 861 px; they will lift their floating gear by var(--ew-bar-h, 0px) at 560 px and under.
+- Left out on purpose: the sample's Trunks strip across the top of the phone (p2-shell owns the Trunks rail; the
+  phone shows it in the slide-over side list). Customize is not in the bar (the sample's bar has Settings in its
+  place); it stays in the side list.
+- The window's viewport has no viewport-fit=cover, so env(safe-area-inset-bottom) is 0 in the phone app and the
+  bar sits above the home indicator as the rest of the page does. Not changed (it would move the title bar too).
+- Terminal answers are now headed "<assistant name>:" (was "Assistant:").
 
 - The "early errors" in the proof script (401/429 and two CSP inline-style warnings) all come from the sign-in
   screen before the session token is entered; they exist on trunk too. Errors after the window settles are counted
