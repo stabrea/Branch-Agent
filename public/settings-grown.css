@@ -518,6 +518,12 @@
 .lx-look-row:has(#lx-mode) .lx-look-label {
   flex: 1 1 auto;
 }
+/* A tile with a tag under its name is a line taller; the others in its row keep their name level with its name. */
+#lx-theme-gallery .lx-tile {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+}
 .sg-tile-tag {
   display: block;
   margin-top: 1px;
