@@ -20,6 +20,7 @@ import { AUTONOMY_HANDLERS } from "../autonomy/commands.js"; // r17-b
 import { initCommand } from "../coding/commands.js"; // mac7/r17-d
 import { REACH_HANDLERS } from "../reach/commands.js"; // r17-i
 import { learnCommand } from "../learn/commands.js"; // mac7/learn
+import { adaptCommand } from "../adapt/commands.js"; // mac7/adapt
 
 /**
  * What each command does when it is carried out for a surface that has no code of its own for it:
@@ -261,6 +262,7 @@ export const HANDLERS: Record<string, Handler> = {
   account: accountCommand, // mac6/accounts
   ...AUTONOMY_HANDLERS, // r17-b: /loop, /heartbeat, /subgoal, /bg, /handoff, /suggestions, /blueprint
   init: initCommand, // mac7/r17-d
+  adapt: adaptCommand, // mac7/adapt: get what a stopped task is missing, then carry it on
   ...REACH_HANDLERS, // r17-i: /platform
   ...BOARD_HANDLERS, // r17-h: /queue, /busy, /focus, /installs
   learn: learnCommand, // mac7/learn

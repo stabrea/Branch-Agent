@@ -46,6 +46,7 @@ const packageRootHere = (): string => dirname(dirname(fileURLToPath(import.meta.
 import { localRuntimes } from "./local-runtimes.js";
 // Wave mac5 (local models): the one-click pieces kept beside this app's store.
 import { localKitFor } from "./local-kit.js";
+import { adaptApi, handlesAdaptPath } from "./adapt/api.js"; // mac7/adapt
 import { streamOwnerEvents, streamRunEvents } from "./streams.js";
 // Web app (wave 6): "Look inside" a task, and "Try a tool" in the developer playground.
 import { inspectRun } from "./inspect.js";
@@ -1219,6 +1220,12 @@ async function api(
       { runtimes: localRuntimes(), store: app.store, models: app.runtime.models, owner: app.runtime.owner, kit: localKitFor(app.store) },
       request.method ?? "GET", path, () => readBody(request),
     );
+  // mac7/adapt: what a stopped task is missing, and getting it on the owner's yes. Looking only
+  // describes; everything that fetches or changes anything is the owner's own step in the window.
+  if (handlesAdaptPath(path))
+    return adaptApi({ store: app.store, owner: app.runtime.owner,
+      requireOwner: (what) => app.store.profiles.requireOwner(what) },
+    request.method ?? "GET", path, () => readBody(request, 16 * 1024), { source: "owner" });
   // mac7/clean-uninstall: the danger zone — what removing Branch would take away, and removing it.
   // The owner's alone, in the app window; the remover itself is the one `branch uninstall` uses.
   if (handlesRemovePath(path))
@@ -3849,6 +3856,10 @@ export function offLimitsToShortLivedKeys(method: string | undefined, path: stri
   // Lockdown is exactly that; without this a script's key could switch Lockdown off.
   if (path === "/api/lockdown")
     return "A short-lived key cannot switch Lockdown on or off. Do that in the app window or with the key of this computer.";
+  // mac7/adapt: getting what a stopped task is missing installs programs and spends the owner's
+  // disk, so no short-lived key — and so no other computer reaching this one — may ask for it.
+  if (handlesAdaptPath(path))
+    return "A short-lived key cannot have Branch fetch or install what a stopped task is missing. Do that in the app window.";
   // mac7/vault-autofill (R17-068): which saved sign-in Branch may type into a page is the owner's alone.
   if (path.startsWith("/api/vault-autofill"))
     return "A short-lived key cannot change which saved sign-ins Branch may fill. Do that in the app window.";

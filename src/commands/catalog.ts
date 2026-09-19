@@ -132,6 +132,11 @@ export const COMMANDS: readonly CatalogCommand[] = [
   // a map reads a whole folder and a tour may ask a model, and every /api/learn route is the owner's,
   // so the command asks the same; /learn on its own only says what the feature is.
   entry("learn", ["understand", "map"], "[code|documents] [folder or knowledge base]", "a map of something and a guided walk through it, in plain words", [...W, "terminal", "dashboard"], "owner", { bareLooks: true, route: { method: "POST", path: "/api/learn/map" } }),
+  // mac7/adapt: what a stopped task is missing, and — on the owner's yes — getting it and carrying
+  // on. It installs and spends the owner's disk, so it is theirs alone and only where the owner is
+  // at this computer with its own key: never from a chat app, a phone or the browser dashboard,
+  // each of which reaches Branch as another computer does.
+  entry("adapt", ["unblock"], "[what it said | yes <line>]", "what a stopped task is missing, what would fix it and what that costs; with yes and the offer's line, get it and carry on", ["window", "terminal"], "owner", { bareLooks: true, route: { method: "POST", path: "/api/adapt/go" } }),
 ];
 
 const bare = (name: string): string => name.replace(/^\//, "").replace(/@[\w.-]+$/, "").toLowerCase();

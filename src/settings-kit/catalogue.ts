@@ -250,6 +250,11 @@ const comfort: SettingSpec[] = [
     t: "settings-kit.name.local-runner-place", home: "settings:models:local",
     fields: [yesNo("systemWide", "Allow installing outside Branch", "settings-kit.field.system-wide", "reach")],
   },
+  // mac7/adapt: getting what a stopped task is missing installs programs and spends the owner's
+  // disk, so turning it up reaches further. The install itself still goes through the one button
+  // above, which asks its own switch again, so this can never install behind that switch's back.
+  one("adapt", "Getting what a stopped task is missing", "settings-kit.name.adapt",
+    "settings:models:local", "reach"),
   one("usage-report", "Usage report", "settings-kit.name.usage-report", "settings:data", "plain", { keepsEnabled: true }),
   one("event-loop-watch", "Whether Branch is keeping up", "settings-kit.name.event-loop", "settings:advanced", "plain",
     { write: (store, owner, patch) => { eventLoopWatch.follow(saveEventLoopSettings(store, owner, { ...eventLoopSettings(store, owner), ...patch })); } }),
