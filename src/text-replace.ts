@@ -21,6 +21,8 @@ export function replaceText(
   before: string, find: string, replace: string,
   expected: number | "all", refusal: string,
 ): Replaced {
+  // An empty `find` means "add this": it goes on the end of the file.
+  if (find === "") return { after: before + (before && !before.endsWith("\n") ? "\n" : "") + replace, found: 1, tolerant: null };
   const found = before.split(find).length - 1;
   if (found > 0 && (expected === "all" || found === expected))
     return { after: before.split(find).join(replace), found, tolerant: null };
@@ -73,19 +75,28 @@ function reindent(replace: string, wanted: string[], actual: string[], shift: bo
   });
 }
 
-/** One line of help: the line in the file that looks most like the first line being looked for. */
+/**
+ * Help for a refused edit: the file's own text where the model was most likely aiming, so it can copy
+ * it exactly. A one-line hint was not enough — on the coding bench qwen3:14b sent the same invented
+ * text four times over after being shown only the closest line; it had never read the file.
+ */
 function closest(before: string, find: string): string {
   const first = find.split("\n").map((line) => line.trim()).find(Boolean);
-  if (!first) return "";
   const lines = before.split(/\r?\n/);
   let best = -1, score = 0;
-  lines.forEach((line, i) => {
+  if (first) lines.forEach((line, i) => {
     const text = line.trim();
     let shared = 0;
     while (shared < text.length && shared < first.length && text[shared] === first[shared]) shared++;
     const value = text.includes(first) || first.includes(text) && text.length > 3 ? first.length : shared;
     if (value > score) { score = value; best = i; }
   });
-  if (best < 0 || score < Math.min(6, first.length)) return " Read the file again and copy the text exactly.";
-  return ` The closest line is ${best + 1}: ${JSON.stringify(lines[best]!.slice(0, 160))}. Read the file again and copy the text exactly.`;
+  const found = best >= 0 && score >= Math.min(6, first?.length ?? 0);
+  const span = find.split("\n").length;
+  const from = found ? Math.max(0, best - 3) : 0;
+  const to = found ? Math.min(lines.length, best + span + 3) : Math.min(lines.length, 20);
+  let excerpt = lines.slice(from, to).join("\n");
+  if (excerpt.length > 1500) excerpt = `${excerpt.slice(0, 1500)}…`;
+  const where = found ? `The closest line is ${best + 1}: ${JSON.stringify(lines[best]!.slice(0, 160))}. ` : "";
+  return ` ${where}The file's lines ${from + 1}-${to} read exactly:\n${excerpt}\nCopy \`find\` from this text.`;
 }

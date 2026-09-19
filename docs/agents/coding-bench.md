@@ -137,6 +137,37 @@ over trunk. What the window does show, from each cell's own record:
 - Tokens: Branch sends a far smaller prompt per round (~2.7K tokens in, 18 of 214 tools shown) than
   Codex (~15K); over 8 tasks Codex used 243K input tokens to Branch-after's 115K.
 
+### Window 4 — the build with the adaptive reply ceiling
+
+The two after2 rows alone (not interleaved with the others — compare with window 3 only loosely),
+first 4 tasks, stopped by plan after 8 cells (`results-window4.jsonl`).
+
+| contestant | finished (tests pass) | median wall time | tokens in / out (reported) | edits refused / tried | rescued |
+|---|---|---|---|---|---|
+| branch-after2 | **0 / 4** | 600 s | 8172 / 0 | 3 / 3 | 4 |
+| branch-after2-scripts | **0 / 4** | 600 s | 13620 / 5883 | 12 / 12 | 3 |
+
+| task | branch-after2 | branch-after2-scripts |
+|---|---|---|
+| fix-range | fail 187 s | fail 600 s |
+| add-median | fail 600 s | fail 566 s |
+
+**No task passed.** What changed is *how* Branch fails: in window 3 the after-rows ended early, cut
+off mid-thought; here the ceiling rose when needed (`model.ceiling_raised` in 3 cells) and 6 of 8
+cells worked until the 600-second deadline — reading, editing, running the check — on a model that
+takes 40–110 s per round on this shared card. One cell died to the stall watchdog while the model
+was cold-loading (F6, a first-token wait of over 60 s after the card had gone idle).
+
+The window also measured the next gap directly: **all 15 edits Branch tried were refused.** The
+refusals show why — the model never read the files and invented the text for `find` (e.g.
+`function formatPrice(price) { return \`$${price.toFixed(2)}\`; }` for a file that says
+`(cents / 100).toFixed(2)`), then sent the same invented text again four times despite the
+closest-line hint; twice it sent an empty `find` meaning "add this". Two fixes followed, with unit
+tests but **not re-measured**: a refused edit now quotes the file's real lines around the closest
+match (up to 1,500 characters) so the next try can copy them, and an empty `find` appends to the
+file, or creates it. The read-before-write guard (plan item 7) is the stronger fix for the same
+behaviour and is next.
+
 ### What the stopped windows showed (mechanisms, not scores)
 
 Windows 0–2 were each stopped after a few cells because a cell exposed a defect worth fixing first;
@@ -182,8 +213,16 @@ with tests (`tests/coding-gap-edits.test.mjs`, plus updated `tests/empty-answer.
    7 of 16 after-cells in window 3 ended cut off mid-thought. *Done:* the constant stays the
    starting point (the owner kept it for 0.18.1); a run whose reply is cut off while thinking retries
    that round at 4,096 and then 8,192 tokens, for that run only.
-7. **No read-before-write guard.** `files.write` overwrites a file the model never read; Claude Code
-   refuses. Not measured here. *Next:* refuse a whole-file write over an existing file not read (or
-   changed since read) in this run, with a sentence saying to read it first.
-8. **Tool-call robustness on small models** — Branch showed 18 of 214 tools and every tool call
-   parsed; OpenClaw's all failed. Nothing to fix; worth keeping as a regression check.
+7. **Edits written blind — measured in window 4: 15 of 15 edits refused**, because the model invented
+   `find` text for files it never read. *Done:* the refusal quotes the file's real lines; an empty
+   `find` appends or creates. *Next:* a read-before-edit guard, as Claude Code has — refuse an edit
+   or whole-file write to an existing file not read (or changed since it was read) in this run, with
+   a sentence saying to read it first. This touches every task that writes files, so it wants its own
+   review.
+8. **Strict tool schemas reject a small model's extra keys.** Every call parsed, but several were
+   refused over an unexpected key (`workspace.checkpoint` called with `path`/`query`, `documents.write`
+   with `format: "js"`). *Next:* say which keys a tool takes in the refusal, or drop unknown keys on
+   read-only tools.
+9. **The stall watchdog kills a cold-loading local model** (window 4, one cell: no first token within
+   60 s while the model loaded after the card went idle). *Next:* a longer first-token wait for local
+   connections than for hosted ones.

@@ -59,7 +59,7 @@ test("replaceText refusals say how many there are, or show the closest line", ()
   assert.throws(() => replaceText("v = 1\nv = 1\n", "v = 1", "v = 2", 1, "Edit refused: \"c\""),
     /contains that text 2 time\(s\), but 1 was expected\. Include more of the surrounding lines.*expectedOccurrences to 2/);
   assert.throws(() => replaceText("const total = items.length;\n", "const total = item.length;", "x", 1, "Edit refused: \"c\""),
-    /0 time\(s\).*closest line is 1: "const total = items.length;"/);
+    /0 time\(s\).*closest line is 1: "const total = items.length;".*read exactly:\nconst total = items.length;/s);
   assert.equal(replaceText("v = 1\nv = 1\n", "v = 1", "v = 2", "all", "x").after, "v = 2\nv = 2\n");
 });
 
@@ -171,4 +171,23 @@ test("the ceiling stops at 8,192: a model that never fits still fails with the s
   assert.equal(run.status, "failed");
   assert.match(run.output, /whole reply allowance thinking/);
   assert.deepEqual(asked.slice(0, 3), [2048, 4096, 8192]);
+});
+
+test("a refused edit shows the file's real lines, and an empty find appends or creates", async (t) => {
+  const file = "function formatPrice(cents) {\n  return \"$\" + (cents / 100).toFixed(2);\n}\n\nexport const x = 1;\n";
+  assert.throws(() => replaceText(file, "function formatPrice(price) {\n  return `$${price.toFixed(2)}`;\n}", "x", 1, "Edit refused: \"c\""),
+    (error) => error.message.includes("read exactly:\nfunction formatPrice(cents) {\n  return \"$\" + (cents / 100).toFixed(2);\n}"));
+  assert.equal(replaceText("a\n", "", "b\n", 1, "x").after, "a\nb\n");
+  assert.equal(replaceText("a", "", "b", 1, "x").after, "a\nb");
+  const root = await mkdtemp(join(tmpdir(), "branch-coding-gap-"));
+  const workspace = join(root, "workspace");
+  await mkdir(workspace, { recursive: true });
+  const app = await createBranch({ dataDir: join(root, "data"), workspace });
+  t.after(async () => { await app.close(); await discardTemp(root); });
+  const made = await app.runtime.executeTool("files.edit", { path: "src/new.js", find: "", replace: "export const one = 1;\n" });
+  assert.equal(made.created, true);
+  assert.equal(await readFile(join(workspace, "src/new.js"), "utf8"), "export const one = 1;\n");
+  await app.runtime.executeTool("files.edit", { path: "src/new.js", find: "", replace: "export const two = 2;\n" });
+  assert.equal(await readFile(join(workspace, "src/new.js"), "utf8"), "export const one = 1;\nexport const two = 2;\n");
+  await assert.rejects(app.runtime.executeTool("files.edit", { path: "missing.js", find: "x", replace: "y" }), /does not exist/);
 });

@@ -118,11 +118,13 @@ export class CodeEditor {
     input: { path: string; find: string; replace: string; expectedOccurrences: number; replaceAll?: boolean },
     context: ToolContext,
   ): Promise<ChangeSummary & { matched?: string }> {
-    const before = await this.original(input.path);
-    if (before === null) throw new Error(`Edit refused: "${input.path}" does not exist`);
+    const existing = await this.original(input.path);
+    // An empty `find` on a file that is not there yet creates it, as other agents' edit tools do.
+    if (existing === null && input.find !== "") throw new Error(`Edit refused: "${input.path}" does not exist`);
+    const before = existing ?? "";
     const result = replaceText(before, input.find, input.replace, input.replaceAll ? "all" : input.expectedOccurrences, `Edit refused: "${input.path}"`);
     await this.save(input.path, result.after, context);
-    const summary = summarise(input.path, before, result.after, []);
+    const summary = summarise(input.path, existing, result.after, []);
     return result.tolerant ? { ...summary, matched: `ignoring ${result.tolerant}` } : summary;
   }
 }
@@ -208,7 +210,7 @@ const editParameters = z.preprocess((raw) => {
   return input;
 }, z.object({
   path: pathSchema,
-  find: z.string().min(1).max(32768),
+  find: z.string().max(32768),
   replace: z.string().max(32768),
   expectedOccurrences: z.number().int().min(1).max(100).default(1),
   replaceAll: z.boolean().default(false),
@@ -222,7 +224,7 @@ export function registerCodeEdit(registry: ToolRegistry, files: WorkspaceFiles, 
   });
   registry.register({
     name: "files.edit", permission: "files.write",
-    description: "Replace text in a workspace file. `find` is copied from the file (add nearby lines so it is unique); `replace` is the new text. Set replaceAll to change every copy.",
+    description: "Replace text in a file. Read it first and copy `find` from it, with nearby lines so it is unique; `replace` is the new text. Empty `find` appends (or creates the file).",
     parameters: editParameters,
     execute: async (a, c: ToolContext) => editor.edit(a, c),
   });
