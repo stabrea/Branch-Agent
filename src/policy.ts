@@ -107,7 +107,7 @@ interface PresetDefinition { label: string; description: string; rules: z.input<
 const presetDefinitions: Record<Exclude<PolicyPresetName, "custom">, PresetDefinition> = {
   off: {
     label: "No approvals",
-    description: "Branch Agent gets on with whatever its tools allow, without stopping to ask. This is how it behaves until you pick something else.",
+    description: "Tasks you start yourself get on with it; anything started from outside — a trigger, a chat app, another program — still asks before it changes anything.",
     rules: [],
   },
   "ask-before-changes": {
@@ -266,12 +266,14 @@ function unmatched(policy: Policy, request: PolicyRequest): PolicyOutcome {
 }
 
 /**
- * Tasks the owner did not start themselves (a trigger, a schedule, another AI tool over MCP) never
- * get more freedom than "Ask before changes": standing yeses do not apply to them. While no preset
- * is chosen there is nothing to hold them to, and they behave as before.
+ * Tasks the owner did not start themselves (a trigger, a schedule, a chat app, another AI tool over
+ * MCP, A2A or ACP) never get more freedom than "Ask before changes": standing yeses do not apply to
+ * them. That holds under "No approvals" too (0.18.1): the default setting frees the owner's own
+ * tasks, never something started from outside. A schedule counts as outside even when the owner
+ * made it — nobody is there when it runs — so its change waits in the owner's window.
  */
 export function cappedPolicy(policy: Policy, source: RunSource): Policy {
-  if (source === "owner" || policy.preset === "off") return policy;
+  if (source === "owner") return policy;
   return { ...policy, rules: [...policy.rules.filter((rule) => rule.decision !== "allow"), ...presetRules("ask-before-changes")] };
 }
 

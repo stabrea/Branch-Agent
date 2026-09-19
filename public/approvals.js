@@ -35,8 +35,9 @@ function renderPresets() {
   if (state.policy.preset === "custom") picker.append(new Option("Rules I set myself", "custom"));
   picker.value = state.policy.preset;
   const chosen = state.presets.find((preset) => preset.id === state.policy.preset);
+  const localDescription = chosen ? t(`policy.preset.${chosen.id}.description`) : "";
   $("policy-description").textContent = chosen
-    ? chosen.description
+    ? (localDescription.startsWith("policy.preset.") ? chosen.description : localDescription)
     : "Your own rules are in force. Pick a starting point above to replace them.";
 }
 

@@ -274,7 +274,9 @@ test("C3: a dry run says what would happen and changes nothing", async (t) => {
   assert.equal(plan.changesThings, true);
   assert.deepEqual(plan.files, ["made-up.txt"]);
   assert.match(plan.cost, /Nothing/);
-  assert.match(plan.wouldHappen, /straight away/);
+  // 0.18.1 (deliberate update): this used to expect "straight away" — "No approvals" let an MCP caller's
+  // write through. A caller is now held to "Ask before changes" under every setting, so the plan says so.
+  assert.match(plan.wouldHappen, /would ask you first/);
 
   const files = await app.files.list();
   assert.ok(!JSON.stringify(files).includes("made-up.txt"), "the dry run wrote nothing");

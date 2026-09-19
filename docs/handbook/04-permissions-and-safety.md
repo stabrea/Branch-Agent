@@ -20,10 +20,13 @@ it is asked. Read this before you let it change anything.
 
 | Choice | What it means |
 | --- | --- |
-| **No approvals** | The starting point. Nothing is checked with you and nothing is refused. |
+| **No approvals** | The starting point. Tasks you start yourself get on with it; anything started from outside — a trigger, a chat app, another program — still asks before it changes anything. |
 | **Ask before changes** | Reading is free. Anything that changes a file, runs a command or acts on a web page stops and waits for your yes. |
 | **Just do it inside my workspace** | Writing files is fine. Running a command, and clicking or typing on a web page, wait for your yes; a website it has not used before is checked with you once and then remembered. |
 | **Read only** | It may look at things and answer, but may not change a file, run a command or act on a web page. A refusal is explained in the answer; the task is not killed. |
+
+Whatever you pick, a task started from outside — a trigger, a schedule, a chat app, another program —
+never gets more than *Ask before changes*, and its question waits for you in Branch's own window.
 
 **Pick one before you do anything else in this chapter.** Several other protections here only have
 something to hold on to once you have chosen something other than *No approvals*.

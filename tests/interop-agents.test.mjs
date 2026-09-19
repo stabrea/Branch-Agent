@@ -402,8 +402,14 @@ test("branch acp-serve speaks the protocol on standard input and output", async 
   child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id: 2, method: "session/new", params: {} })}\n`);
   const opened = (await until(2))[1];
   child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id: 3, method: "session/prompt", params: { sessionId: opened.result.sessionId, prompt: [{ type: "text", text: "run the fixture" }] } })}\n`);
-  const answered = (await until(3)).find((line) => line.id === 3);
-  assert.equal(answered.result.stopReason, "end_turn");
+  // 0.18.1: an editor's task is held to "Ask before changes" even under "No approvals", so the demo's
+  // file write is put to the editor first (the ACP way of asking). The editor says yes and the turn ends.
+  const asked = (await until(3)).find((line) => line.method === "session/request_permission");
+  assert.ok(asked, "the editor was not asked before the change");
+  child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id: asked.id, result: { outcome: { outcome: "selected", optionId: "allow" } } })}\n`);
+  let answered;
+  for (let i = 0; i < 400 && !answered; i++) { answered = lines().find((line) => line.id === 3 && !line.method); if (!answered) await delay(50); }
+  assert.equal(answered?.result?.stopReason, "end_turn", stdout);
   assert.match(stderr, /ready for a code editor/);
   const exited = new Promise((resolve) => child.once("exit", resolve));
   child.stdin.end();

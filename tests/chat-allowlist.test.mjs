@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
 import { discardTemp } from "./temp-dir.mjs";
-import { createBranch, savePolicy } from "../dist/index.js";
+import { createBranch, readPolicy, savePolicy } from "../dist/index.js";
 import { chatPermissionsOf } from "../dist/channels/router.js";
 import { chatSafePermissions, chatExtraPermissions, neverFromChat, neverFromChatFamilies,
   grantableToChat, chatApprovablePermissions } from "../dist/channels/chat-permissions.js";
@@ -41,7 +41,7 @@ const standIns = [
 async function fixture(t, script) {
   const root = await mkdtemp(join(tmpdir(), "branch-chat-allowlist-"));
   const calls = [];
-  const provider = { name: "scripted", complete: async (request) => { calls.push(request); return script(calls.length); } };
+  const provider = { name: "scripted", complete: async (request) => { calls.push(request); return script(calls.length, request); } };
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider });
   t.after(async () => { await app.close(); await discardTemp(root); });
   // Whatever this copy does not already register (the screen and commands are behind switches) is
@@ -60,9 +60,21 @@ async function fixture(t, script) {
 let nextId = 1;
 const message = (text, extra = {}) => ({ channel: "chat", chatId: "c1", chatKind: "direct", senderId: "owner",
   senderName: "Sam", text, addressed: true, messageId: `m${nextId++}`, ...extra });
-/** A model that calls one tool and then answers. */
-const callsTool = (name) => (turn) =>
-  turn === 1 ? { content: "", toolCalls: [{ id: "t1", name, arguments: "{}" }] } : { content: "Done.", toolCalls: [] };
+/** A model that calls one tool for each message it is sent, and answers once the tool has had its say. */
+const callsTool = (name) => (turn, request) =>
+  request.messages.at(-1)?.role === "tool" ? { content: "Done.", toolCalls: [] }
+    : { content: "", toolCalls: [{ id: `t${turn}`, name, arguments: "{}" }] };
+/**
+ * 0.18.1: under "No approvals" a chat's task is still held to "Ask before changes", so a change it
+ * tries first waits for the owner. These tests are about the chat's list, not the question: the owner
+ * says yes in their own window and the chat sends the message again, so the call reaches the list.
+ */
+async function ownerSaysYes(app, text) {
+  const waiting = app.store.run(lastRun(app).id);
+  assert.equal(waiting.status, "needs_input", "a chat's change did not wait for the owner under No approvals");
+  app.runtime.approve(waiting.sessionId, "allow", "session");
+  assert.equal(await app.channels.handle(message(text)), "replied");
+}
 /** The permissions the task the router started was given. */
 const lastRun = (app) => app.store.runs(app.runtime.owner)[0];
 const startedWith = (app) =>
@@ -82,6 +94,7 @@ test("the short list a chat always has only looks at things", () => {
 test("a chat sender's task is never handed running code, the screen or stopping programs", async (t) => {
   const { app } = await fixture(t, callsTool("code.run"));
   assert.equal(await app.channels.handle(message("run this for me")), "replied");
+  await ownerSaysYes(app, "run this for me");
   const given = startedWith(app);
   for (const refused of ["code.execute", "desktop.control", "desktop.view", "desktop.clipboard", "process.manage",
     "shell.execute", "remote.execute", "files.write", "channels.send", "invented.power"])
@@ -102,6 +115,7 @@ test("a chat sender's task can still answer, look things up and read a file", as
 test("a permission nobody thought of is refused: the list is what is allowed, not what is taken away", async (t) => {
   const { app } = await fixture(t, callsTool("demo.invented"));
   assert.equal(await app.channels.handle(message("use the new thing")), "replied");
+  await ownerSaysYes(app, "use the new thing");
   assert.equal(startedWith(app).includes("invented.power"), false, "a permission added later was handed over by default");
   assert.equal(toolOutcome(app).kind, "tool.failed");
   // The pure function says the same, whatever else is registered.
@@ -113,6 +127,7 @@ test("the owner's list allows exactly what it names, for that app and that perso
   app.channels.setPermissionSettings({ extras: true,
     rules: [{ channel: "chat", sender: "owner", allow: ["invented.power"], note: "my own phone" }] });
   assert.equal(await app.channels.handle(message("use the new thing")), "replied");
+  await ownerSaysYes(app, "use the new thing");
   const given = startedWith(app);
   assert.equal(given.includes("invented.power"), true, "the line the owner wrote was not honoured");
   assert.equal(toolOutcome(app).kind, "tool.completed");
@@ -132,6 +147,7 @@ test("the switch off means the lines do nothing, and no line can name what a cha
     rules: [{ channel: "*", sender: "*", allow: [...neverFromChat, "devices.read"], note: "everything" }] });
   assert.deepEqual(chatExtraPermissions(app.channels.permissionSettings(), "chat", "owner"), []);
   assert.equal(await app.channels.handle(message("run a command")), "replied");
+  await ownerSaysYes(app, "run a command");
   assert.equal(startedWith(app).includes("shell.execute"), false, "a line handed a chat a command on this computer");
   assert.equal(toolOutcome(app).kind, "tool.failed");
 });
@@ -173,11 +189,15 @@ test("putting the settings back turns the switch off and leaves the owner's own 
 test("a chat's task can load a skill, and the skill cannot smuggle it a tool the chat may not use", async (t) => {
   // Turn 1 reads the installed skills (skills.read); turn 2 does what such a document might tell it
   // to do next. The words are just words: the tool is still checked against the chat's own list.
-  const { app } = await fixture(t, (turn) =>
-    turn === 1 ? { content: "", toolCalls: [{ id: "t1", name: "skills.list", arguments: "{}" }] }
-      : turn === 2 ? { content: "", toolCalls: [{ id: "t2", name: "code.run", arguments: "{}" }] }
-        : { content: "Done.", toolCalls: [] });
+  // Counted from the latest message the chat sent, so sending it again after the owner's yes replays both steps.
+  const { app } = await fixture(t, (turn, request) => {
+    const since = request.messages.length - 1 - request.messages.findLastIndex((m) => m.role === "user");
+    return since === 0 ? { content: "", toolCalls: [{ id: `s${turn}`, name: "skills.list", arguments: "{}" }] }
+      : since === 2 ? { content: "", toolCalls: [{ id: `c${turn}`, name: "code.run", arguments: "{}" }] }
+        : { content: "Done.", toolCalls: [] };
+  });
   assert.equal(await app.channels.handle(message("follow the skill for this")), "replied");
+  await ownerSaysYes(app, "follow the skill for this");
   assert.equal(startedWith(app).includes("skills.read"), true, "a chat's task cannot read the skills it is meant to follow");
   const events = app.store.events(lastRun(app).id).filter((e) => e.kind === "tool.completed" || e.kind === "tool.failed");
   assert.equal(events.find((e) => e.data.name === "skills.list")?.kind, "tool.completed", "reading the skills was refused");
@@ -273,6 +293,22 @@ async function stoppedOnAsk(t, rules) {
   assert.equal(app.store.run(lastRun(app).id).status, "needs_input", "the granted thing did not wait for a yes");
   return { app, chat };
 }
+
+test("under the default No approvals a chat's change waits for the owner's window, and only the switch lets the chat answer", async (t) => {
+  for (const approvals of [false, true]) {
+    const { app, chat } = await fixture(t, callsTool("demo.invented"));
+    app.channels.setPermissionSettings({ extras: true, rules: [line({ approvals })] });
+    assert.equal(readPolicy(app.store, app.runtime.owner).preset, "off", "the preset under test is the default");
+    assert.equal(await app.channels.handle(message("use the new thing")), "replied");
+    assert.equal(app.store.run(lastRun(app).id).status, "needs_input", `approvals ${approvals}: the change did not wait`);
+    assert.equal(await app.channels.handle(message("y")), "replied");
+    if (approvals) assert.match(chat.sent.at(-1), /Noted/, "the switch did not let the chat's yes land");
+    else {
+      assert.match(chat.sent.at(-1), /Branch app window/, "the chat was not told the yes belongs in the window");
+      assert.equal(app.store.run(lastRun(app).id).status, "needs_input", "a chat answered its own question");
+    }
+  }
+});
 
 test("a line may say yes from the chat only when the owner turned that on, and it starts off", async (t) => {
   // A line written without the switch reads back with it off, so an older saved line stays as it was.
