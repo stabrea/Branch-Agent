@@ -27,7 +27,9 @@ branch: an integrator reviews it. Every new test is in `tests/residuals.test.mjs
 - [ ] 4b. `code.run` judged only by its permission.
 - [ ] 4c. `mail.save_attachment` declares its file target.
 - [ ] 4d. Older match-style rules: the target is path-tidied before matching.
-- [ ] 4e. In-flight spend counts every still-running task, whatever month it began.
+- [x] 4e. In-flight spend counts every still-running task, whatever month it began.
+  `UsageStore.inFlightSpend` no longer filters on `created_at` (running or waiting for a person, as before).
+  Test 4e (a task dated 40 days back); putting the month filter back fails it.
 - [ ] 5. ChatGPT single sign-in: a plain warning in the fallback settings when the order holds a Codex program.
 - [ ] 6. Coding-next notes (hung local model, read-set after 500 tasks, short names / case).
 

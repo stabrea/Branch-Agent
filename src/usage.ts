@@ -115,11 +115,15 @@ export class UsageStore {
     return total;
   }
 
-  /** hardening-3: money recorded this month by tasks that have not finished yet (running or waiting for a person). */
-  private inFlightSpend(monthStart: string): number {
+  /**
+   * hardening-3: money recorded by tasks that have not finished yet (running or waiting for a person).
+   * mac7/residuals: every one of them, whatever month it began: a task started last month and still
+   * going has not been counted in any month's finished figures, so it belongs in this one's.
+   */
+  private inFlightSpend(): number {
     const runs = this.db
-      .prepare(`SELECT id FROM tasks WHERE status IN ('running', 'needs_input') AND created_at >= ?`)
-      .all(monthStart) as Array<{ id: string }>;
+      .prepare(`SELECT id FROM tasks WHERE status IN ('running', 'needs_input')`)
+      .all() as Array<{ id: string }>;
     return runs.reduce((total, run) => total + this.runSpend(run.id), 0);
   }
 
@@ -365,7 +369,7 @@ export class UsageStore {
 
     // hardening-3: a task still running has already paid for what it asked a service to make (a video
     // is recorded before the service is asked), so that money is in the month now, not when it ends.
-    const stillBeingMade = this.inFlightSpend(monthStart);
+    const stillBeingMade = this.inFlightSpend();
     const alert80 = maxMonthlyTokens ? total >= maxMonthlyTokens * 0.8 : false;
     return {
       currentMonthlyTokens: total,

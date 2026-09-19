@@ -111,3 +111,15 @@ test("3. A2A, ACP and the app-server carry on only conversations they began; the
   await assert.rejects(threads.onRequest("turn/start", { threadId: mine.sessionId, input: [{ type: "text", text: "x" }] }), refused);
   assert.equal(app.store.runs(owner).filter((run) => run.sessionId === mine.sessionId).length, 1, "nothing ran in the owner's conversation");
 });
+
+test("4e. money a task started last month and still running has spent counts in this month's figure", async (t) => {
+  const { app } = await fixture(t);
+  const store = app.store;
+  const running = store.createRun(app.runtime.owner, "make a long video");
+  const lastMonth = new Date(Date.now() - 40 * 86_400_000).toISOString();
+  store.sqlite.prepare("UPDATE tasks SET created_at=? WHERE id=?").run(lastMonth, running.id);
+  store.event(running.id, "spend.recorded", { dollars: 2.5, what: "a video", estimate: false });
+  const month = store.usageStore().getMonthlyStats();
+  assert.equal(month.stillBeingMade, 2.5);
+  assert.equal(month.estimatedCost, 2.5);
+});
