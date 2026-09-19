@@ -1741,6 +1741,10 @@ body.lx #connection[data-state="lost"] {
 .status-bar[hidden] {
   display: none;
 }
+.status-bar[data-state="waiting"] {
+  min-height: 30px;
+  visibility: hidden;
+}
 .usage-ring {
   display: inline-flex;
   align-items: center;
@@ -2004,4 +2008,228 @@ body.lx .composer-dock:has(.usage-pop:not([hidden])) {
 }
 .save-progress .quiet-button:hover {
   background: var(--hover);
+}
+
+/* ---------- redesign phase 1: how much it may do, one chip in the message box ----------
+   (public/conversation-mode.js) The sample's mode picker: a quiet chip beside Send, opening a sheet
+   of glass with four choices. A choice that cannot be made is greyed with its reason, never hidden. */
+.mode-wrap {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+}
+.mode-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 180px;
+  height: 32px;
+  padding: 0 8px 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-2);
+  font-size: 13px;
+  font-weight: 520;
+  white-space: nowrap;
+}
+.mode-chip:hover,
+.mode-chip[aria-expanded="true"] {
+  background: var(--hover);
+  color: var(--text);
+}
+.mode-chip:focus-visible {
+  outline: 2px solid var(--copper);
+  outline-offset: 2px;
+}
+.mode-chip[data-following="true"] {
+  border-style: dashed;
+}
+.mode-chip[data-mode="full"][data-locked="false"] {
+  border-color: var(--bad);
+  color: var(--bad);
+}
+.mode-chip[data-locked="true"] {
+  border-color: var(--bad);
+  background: var(--bad-tint);
+  color: var(--bad);
+}
+.mode-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mode-icon {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.mode-chip .mode-icon:last-child {
+  width: 12px;
+  height: 12px;
+  opacity: 0.7;
+}
+.mode-menu {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 12px);
+  z-index: 60;
+  width: min(340px, calc(100vw - 24px));
+  max-height: min(70vh, 520px);
+  overflow-y: auto;
+  padding: 6px;
+  border: 1px solid var(--glass-edge);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--surface) 95%, transparent);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  box-shadow: var(--card-shadow, var(--shadow));
+  text-align: left;
+}
+.mode-menu[hidden] {
+  display: none;
+}
+body.lx .composer-dock:has(.mode-menu:not([hidden])) {
+  z-index: 8;
+}
+.mode-heading {
+  margin: 0;
+  padding: 6px 10px 4px;
+  color: var(--text-3);
+  font-size: 11.5px;
+  font-weight: 560;
+}
+.mode-item {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) 16px;
+  align-items: start;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text);
+  font-weight: 450;
+  text-align: left;
+}
+.mode-item:hover:not([aria-disabled="true"]),
+.mode-item:focus-visible {
+  background: var(--hover);
+  outline: none;
+}
+.mode-item[aria-checked="true"] {
+  background: var(--copper-tint);
+}
+.mode-item[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.mode-item .mode-icon {
+  margin-top: 2px;
+}
+.mode-item[data-mode="full"] b {
+  color: var(--bad);
+}
+.mode-words b {
+  display: block;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.mode-words small {
+  display: block;
+  margin-top: 2px;
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.mode-menu hr {
+  margin: 5px 4px;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+.mode-note {
+  margin: 6px 10px 4px;
+  color: var(--text-3);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.mode-confirm {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 4px 10px 8px;
+}
+.mode-confirm p {
+  flex-basis: 100%;
+  margin: 0 0 4px;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.mode-confirm button {
+  min-height: 30px;
+  padding: 4px 12px;
+  border-radius: 9px;
+  box-shadow: none;
+  font-size: 13px;
+}
+.mode-confirm .mode-danger {
+  border-color: var(--bad);
+  background: var(--bad);
+  color: var(--on-copper);
+}
+.mode-confirm .quiet-button {
+  border-color: var(--line-2);
+  background: transparent;
+  color: var(--text);
+}
+@media (max-width: 560px) {
+  .mode-chip .mode-label,
+  .mode-chip .mode-icon:last-child {
+    display: none;
+  }
+  .mode-chip {
+    width: 32px;
+    padding: 0;
+    justify-content: center;
+  }
+}
+/* On a narrow screen the chip sits at the right of the box, so its menu is measured from the box
+   itself rather than from the chip, and never runs off the left edge. */
+@media (max-width: 560px) {
+  body.lx #chat-form {
+    position: relative;
+  }
+  .mode-wrap {
+    position: static;
+  }
+  .mode-menu {
+    right: 0;
+    left: 0;
+    width: auto;
+  }
+}
+/* in the full window the ring is the last thing on the line under the box */
+.composer-foot > .status-bar {
+  flex: 0 1 auto;
+  margin: 0 0 0 auto;
+}
+.composer-foot > .status-bar {
+  min-height: 0;
+}
+.composer-foot > .status-bar .usage-ring {
+  height: 18px;
+  padding: 0 6px 0 2px;
+}
+.composer-foot > .status-bar .glance-ring {
+  width: 15px;
+  height: 15px;
 }

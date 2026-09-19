@@ -53,6 +53,8 @@ function ringWords(tightest) {
 function paintRing() {
   const bar = $("status-bar"), button = $("usage-ring");
   const show = glance.available && glance.settings?.ring !== "hidden";
+  /* Until the first answer the row keeps its room without showing, so the box does not jump when it fills. */
+  bar.dataset.state = "ready";
   bar.hidden = !show;
   if (!show) return;
   const tight = glance.tightest;
@@ -188,6 +190,7 @@ export async function refreshGlance() {
   clearTimeout(timer);
   if ($("workspace")?.hidden !== false || !sessionStorage.getItem("branch-token")) { timer = setTimeout(refreshGlance, 5000); return; }
   try { glance = await api("usage/glance"); } catch { glance = { available: false }; }
+  if (!$("status-bar")) return;
   paintRing();
   if (!$("usage-pop").hidden) paintPopover();
   const crossing = nextCrossing(glance, askedKeys());
@@ -200,5 +203,19 @@ document.addEventListener("branch-profile", () => void refreshGlance());
 document.addEventListener("branch-usage-glance", () => void refreshGlance());
 document.addEventListener("branch-language", () => paintRing());
 document.addEventListener("visibilitychange", () => { if (!document.hidden) void refreshGlance(); });
+/* In the full window the line under the box is already there, so the ring joins it at the end instead
+   of adding a row of its own; in the calm window, where that line is hidden, it sits just under it. */
+function placeBar() {
+  const bar = $("status-bar"), foot = document.querySelector(".composer-foot");
+  if (!bar || !foot) return;
+  const full = document.documentElement.dataset.everything === "on";
+  if (full && bar.parentElement !== foot) foot.append(bar);
+  if (!full && bar.parentElement === foot) foot.after(bar);
+}
+new MutationObserver(placeBar).observe(document.documentElement, { attributes: true, attributeFilter: ["data-everything"] });
+placeBar();
+/* The first look happens as soon as the window is unlocked, not on the next tick of the timer. */
+new MutationObserver(() => { if ($("workspace")?.hidden === false) void refreshGlance(); })
+  .observe($("workspace"), { attributes: true, attributeFilter: ["hidden"] });
 void refreshGlance();
 globalThis.branchUsageGlance = { refresh: refreshGlance };

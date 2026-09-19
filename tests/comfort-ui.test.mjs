@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch, readComfort, saveComfort } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
+import { saveConversationModeSettings } from "../dist/conversation-mode.js";
 import { openPlace, openSettingFor, closeSettings } from "./places.mjs";
 
 const homes = {
@@ -30,6 +31,10 @@ async function openApp(t, width = 1280) {
   const root = await mkdtemp(join(tmpdir(), "branch-comfort-ui-"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data") });
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  /* Redesign phase 1: a conversation begun in the window starts on Ask first. These tests are about
+     something else, so their conversations follow the setting as before (tests/conversation-mode.test.mjs
+     covers Ask first). */
+  saveConversationModeSettings(app.store, app.runtime.owner, { newConversation: "follow" });
   const browser = await chromium.launch({ headless: true });
   t.after(async () => { await browser.close(); await server.close(); await app.close(); await discardTemp(root); });
   const page = await browser.newPage({ viewport: { width, height: 900 } });

@@ -280,6 +280,10 @@
                 ><select id="composer-specialist" aria-label="Who should answer"><option value="" data-t="composer.assistantItself">Your assistant</option></select></label
               ><button id="new-session" type="button" class="text-button">
                 New conversation</button
+              ><!-- Redesign phase 1: how much it may do in this conversation (public/conversation-mode.js). -->
+              <span class="mode-wrap"><button id="mode-chip" class="mode-chip" type="button" aria-haspopup="menu" aria-expanded="false"
+                aria-label="How much may it do in this conversation?" data-t-label="mode.question"></button
+                ><div id="mode-menu" class="mode-menu" role="menu" aria-label="How much may it do in this conversation?" data-t-label="mode.question" hidden></div></span
               ><button id="send">Send ↗</button
               ><button id="followup-send" type="button" hidden title="The assistant is busy; this message will be handled as soon as it finishes" data-t="action.send-when-it-finishes">Send when it finishes</button>
             </div>
@@ -303,7 +307,7 @@
           </div>
           <!-- Redesign phase 1: what the tightest connection has left, and the list behind it
                (public/usage-glance.js). Only the owner's window ever fills it; hidden in Settings › Data & usage. -->
-          <div id="status-bar" class="status-bar" hidden>
+          <div id="status-bar" class="status-bar" data-state="waiting">
             <button id="usage-ring" class="usage-ring" type="button" aria-haspopup="dialog" aria-expanded="false"
               title="What each connection has left" data-t-title="glance.title"></button>
             <div id="usage-pop" class="usage-pop" role="dialog" aria-label="What each connection has left" data-t-label="glance.title" hidden></div>
@@ -1395,6 +1399,13 @@
             <label for="policy-preset" data-t="field.how-should-branch-behave">How should Branch behave?</label>
             <select id="policy-preset"></select>
             <p id="policy-description" class="subtle"></p>
+            <!-- Redesign phase 1: what a conversation begun in the window starts on (public/conversation-mode.js). -->
+            <label for="mode-new-conversation" data-t="mode.setting.label">New conversations start on</label>
+            <select id="mode-new-conversation">
+              <option value="ask" data-t="mode.setting.ask">Ask first (recommended)</option>
+              <option value="follow" data-t="mode.setting.follow">The setting above</option>
+            </select>
+            <p class="subtle" data-t="mode.setting.note">Each conversation can then be changed from the chip beside Send. Conversations from before keep following the setting above.</p>
             <h3>What that means</h3>
             <ul id="policy-rules" class="check-list"></ul>
             <p id="policy-rules-empty" class="subtle" hidden>Nothing is checked with you and nothing is refused.</p>
@@ -1968,6 +1979,7 @@
     <script src="/studies.js" type="module"></script>
     <script src="/usage.js" type="module"></script>
     <script src="/usage-glance.js" type="module"></script>
+    <script src="/conversation-mode.js" type="module"></script>
     <script src="/diagnostics.js" type="module"></script>
     <script src="/documents.js" type="module"></script>
     <script src="/knowledge.js" type="module"></script>

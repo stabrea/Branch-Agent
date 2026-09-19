@@ -14,7 +14,7 @@ bars and update cards, #56 Slate, #20 mode picker, #29 glass dropdowns and toolt
 | 1 | Usage ring + "What each connection has left" popover; 95% save-progress prompt | [x] done: src/usage-glance.ts, GET /api/usage/glance (non-owner: `{available:false}`), POST /api/usage/save-progress (steers running tasks), settings ring/saveProgress on the Usage screen; public/usage-glance.js; tests in tests/redesign-phase1.test.mjs |
 | 2 | Suggestion bars (background, updates), quit-while-needed warning, Updates choice cards | not started |
 | 3 | Default theme Slate | [x] done: default slate (window, terminal, phone fallbacks); a picked theme is always written down; a Forest the shared record holds is adopted by a window with no choice of its own; tests in tests/redesign-phase1.test.mjs |
-| 4 | Permission-mode chip in the composer | not started |
+| 4 | Permission-mode chip in the composer | [x] done: src/conversation-mode.ts (+ -api.ts), enforced in runtime.policy(source, runId) before the outside hold; /api/conversation-mode(/settings); POST /api/run `mode`; public/conversation-mode.js; tests/conversation-mode.test.mjs. New owner setting `newConversation` (ask/follow); UI tests about other things set it to follow |
 | 5 | Glass dropdown replacing native selects; icon-button tooltips | not started |
 
 ## How to continue

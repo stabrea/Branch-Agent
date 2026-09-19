@@ -5736,6 +5736,49 @@ Routes:
 - `POST /api/usage/save-progress` — sends the note to each of the owner's running tasks and says how
   many were asked, `{ "asked": 2 }`. The owner's alone.
 
+### How much it may do in one conversation (redesign phase 1)
+
+Beside **Send** there is one chip that says how much the assistant may do in *this* conversation, and
+opens a short menu of four choices:
+
+- **Ask first** — reading is free; changing a file, running a command or acting on the web waits for
+  your yes. It is the same as the *Ask before changes* setting, for this conversation only.
+- **Plan** — it reads and proposes a plan, and changes nothing: a change is refused, not asked about.
+  Picking Plan also turns on *Show me the plan first* for the conversation. Once you agree a plan, the
+  conversation moves to Ask first so the plan can be carried out, still asking before each change.
+- **Auto** — changes inside the workspace go ahead; commands, the web and anything else ask. It is the
+  *Just do it inside my workspace* setting, for this conversation only.
+- **Full access** — nothing is checked with you (commands that no rule covers still ask, as always). It
+  shows a plain warning before it is given.
+
+A choice that cannot be made right now is shown greyed with the reason, never hidden. **Use my
+setting** puts the conversation back on *When to check with me*.
+
+What decides what a task may do, in order:
+
+1. A conversation with no mode of its own follows *When to check with me*, exactly as before. Every
+   conversation from before this change is one of those, and keeps behaving as it did.
+2. A conversation begun in the window starts on **Ask first**, unless the owner chose otherwise under
+   *When to check with me → New conversations start on*.
+3. A mode replaces the preset part of the owner's setting for that conversation. Refusals the owner
+   wrote still apply; Ask first and Plan also drop every standing yes.
+4. The owner may pick a mode looser than their setting. A household person never can: their choice is
+   refused, and a task of theirs keeps the owner's setting if a mode would be looser.
+5. It sits under everything that was already stronger: Lockdown (the looser modes are greyed; only Plan
+   can tighten it further), the hold on tasks started from outside (a chat app, a trigger, a schedule,
+   another program: never more than Ask first), roles, and the protected parts of Branch.
+
+The enforcement is in the runtime's own policy check, not in the window.
+
+- `newConversation` — `ask` (default) or `follow`: what a conversation begun in the window starts on.
+- `GET /api/conversation-mode?sessionId=…` — this conversation's mode (`null` while it follows the
+  setting), what it follows, whether Lockdown is on, and every choice with the reason one is greyed.
+- `POST /api/conversation-mode` — `{ sessionId, mode }`, where `mode` is `ask`, `plan`, `auto`, `full`
+  or `null`. A looser choice is refused while Lockdown is on, and always to a household person.
+- `GET /api/conversation-mode/settings` / `POST /api/conversation-mode/settings` — `{ newConversation }`.
+  Changing it is the owner's alone.
+- `POST /api/run` takes `mode` for the message that starts a conversation.
+
 ## Specialists that work in different ways (batch 20, wave 7)
 
 A specialist now says how it works, not just what it knows. Pick one in Specialists → Propose a
