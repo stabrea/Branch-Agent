@@ -386,21 +386,37 @@ test("the desktop restart channel answers only its own window's page, and relaun
   assert.equal(handlers.has(restartChannel), false, "the channel goes with its window");
 });
 
-test("the moon clears the sidebar's edge, so it never glows in the sidebar or shows in the gap beside it", async (t) => {
+test("the calm window leaves the moon out behind its panes, softens the oak in the gaps, and brings both back with the sky", async (t) => {
   const f = await fixture(t, { onboarded: true });
   await f.page.waitForTimeout(400);
-  /* The brightest column of the sky's top half, in screen pixels, is the moon's centre. */
-  const found = await f.page.evaluate(() => {
-    const wall = document.getElementById("wall"), paint = wall.getContext("2d");
-    const { data, width, height } = paint.getImageData(0, 0, wall.width, Math.floor(wall.height / 2));
-    let best = -1, at = 0;
-    for (let x = 0; x < width; x++) for (let y = 0; y < height; y++) {
-      const i = (y * width + x) * 4, light = data[i] + data[i + 1] + data[i + 2];
-      if (light > best) { best = light; at = x; }
-    }
-    const rail = document.querySelector("body.lx > .rail").getBoundingClientRect();
-    return { x: at * innerWidth / width, railRight: rail.right };
-  });
-  assert.ok(found.x > found.railRight + 60, `the moon (${Math.round(found.x)}px) is clear of the sidebar edge (${found.railRight}px)`);
+  const look = () => f.page.evaluate(() => ({ moon: document.getElementById("wall").dataset.moon, filter: getComputedStyle(document.getElementById("wall")).filter }));
+  const calmLook = await look();
+  assert.equal(calmLook.moon, "hidden", "no moon glowing through a pane");
+  assert.match(calmLook.filter, /blur/, "no raw pixels in the gaps between panes");
+  await f.page.evaluate(() => document.documentElement.setAttribute("data-quiet", "1"));
+  await f.page.waitForFunction(() => document.getElementById("wall").dataset.moon === "shown");
+  assert.equal((await look()).filter, "none", "Clear the view shows the oak and its moon as they are");
+  assert.deepEqual(f.errors, []);
+});
+
+test("calm: a running task reads under its message, with a real Stop, and its conversation is in Recents at once", async (t) => {
+  const model = slowModel();
+  const f = await fixture(t, { provider: model.provider, onboarded: true });
+  await f.page.locator("#prompt").fill("Sort my Downloads folder. Delete nothing.");
+  await f.page.locator("#send").click();
+  await f.page.locator("#live-stop").waitFor({ state: "visible", timeout: 15000 });
+  const mine = await f.page.locator(".message.user").last().boundingBox();
+  const card = await f.page.locator("#live-row").boundingBox();
+  assert.ok(card.y > mine.y + mine.height - 1, "the working card is under the person's message");
+  assert.ok(card.y - (mine.y + mine.height) < 80, "and right under it");
+  assert.ok(card.height < 110, `the card is as tall as what it says (${card.height}px)`);
+  const stop = await f.page.locator("#live-stop").evaluate((node) => { const s = getComputedStyle(node); return { border: s.borderTopWidth, height: node.getBoundingClientRect().height }; });
+  assert.ok(parseFloat(stop.border) >= 1 && stop.height >= 30, "Stop is a button, not a small link");
+  const row = f.page.locator('#rail-list .rail-line[data-running="true"]');
+  await row.waitFor({ timeout: 10000 });
+  assert.match(await row.innerText(), /Sort my Downloads folder[\s\S]*Working/);
+  model.release();
+  await f.page.locator('#rail-list .rail-line[data-running="true"]').waitFor({ state: "detached", timeout: 15000 });
+  assert.equal(await f.page.locator("#rail-list .rail-item").count(), 1, "still in Recents once finished");
   assert.deepEqual(f.errors, []);
 });

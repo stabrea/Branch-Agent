@@ -1333,3 +1333,27 @@ details.tool-step > summary:hover {
 
 .rail-home { color: inherit; text-decoration: none; }
 .rail-home:hover, .rail-home:focus-visible { text-decoration: underline; }
+
+/* A conversation with a task at work, in Recents (public/shell.js railItem). */
+.rail-line[data-running] .rail-item {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.rail-running {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  margin: 0 8px 0 4px;
+  white-space: nowrap;
+  color: var(--copper-text, var(--copper));
+  font-size: 11.5px;
+  font-weight: 550;
+}
+.rail-running::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--copper);
+}

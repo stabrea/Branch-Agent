@@ -1384,6 +1384,55 @@ body.lx #connection[data-state="lost"] {
 :root:not([data-everything="on"]) .rail-group[data-group="projects"]:not(:has(#rail-projects > .rail-row + .rail-row)) {
   display: none;
 }
+/* The gaps between the panes: seen through them the oak was raw pixels (a hard strip beside the
+   conversation). In the calm window the oak behind is softened like the glass itself, so the gaps
+   read as the same soft sky; a cleared view shows it sharp as always. */
+:root:not([data-everything="on"]):not([data-quiet]) .lx-wall {
+  filter: blur(14px) saturate(1.2);
+}
+/* The Activity panel joins the conversation as one sheet of glass (as in the calm mockup), so no
+   strip of the oak shows between them. A narrow window floats it over the conversation instead. */
+@media (min-width: 1181px) {
+  :root:not([data-everything="on"]) body.lx.lx-aside > main {
+    border-right-color: transparent;
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+  }
+  :root:not([data-everything="on"]) body.lx.lx-aside > .context-panel {
+    margin-left: 0;
+    border-left-color: var(--line);
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
+  }
+}
+/* The task at work reads after what was asked: the person's message, then the working card under it. */
+:root:not([data-everything="on"]) #chat > #live-row {
+  order: 1;
+  margin: var(--s3) 0 0;
+}
+:root:not([data-everything="on"]) #chat:has(> #live-row:not([hidden])) > #conversation {
+  flex: 0 0 auto;
+}
+/* The working card: Stop is a plain button, the other two read as things to press. */
+:root:not([data-everything="on"]) #live-row .live-controls .text-button {
+  min-height: 32px;
+  padding: 4px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  color: var(--text);
+  font-size: 13.5px;
+  font-weight: 550;
+  text-decoration: none;
+}
+:root:not([data-everything="on"]) #live-row .live-controls .text-button:hover {
+  background: var(--hover);
+}
+:root:not([data-everything="on"]) #live-row .live-controls #live-stop {
+  margin-left: auto;
+  border-color: var(--bad);
+  background: var(--bad-tint);
+  color: var(--bad);
+}
 /* while Lockdown is on, its shield stays in the title bar beside the red banner */
 :root:not([data-everything="on"]) body.lx-locked #lx-shield {
   display: grid !important;
@@ -1491,5 +1540,12 @@ body.lx #connection[data-state="lost"] {
   color: var(--text-2);
 }
 :root[data-everything="on"] .lx-tip {
+  display: none;
+}
+
+/* The working card is as tall as what it says: its empty status line and question slot take no room. */
+#live-row > #live-status:empty,
+#live-row > #live-ask-slot:empty,
+#live-row > #live-controls-slot:empty {
   display: none;
 }

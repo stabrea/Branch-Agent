@@ -3897,7 +3897,9 @@ screen of choices (ChatGPT plan, a key, the model on this computer when Ollama o
 answers there, or trying it without an account in one click); opening Branch at sign-in and
 reaching it from a phone are in Settings → General, and after the first task ever to finish one
 line under the conversation offers both (each opens its switch; "Not now" closes it, and it is not
-shown again). The calm window keeps the same glass over the pixel oak; while Lockdown is on its
+shown again). The calm window keeps the same glass over the pixel oak (softened where it shows between
+panes, with the moon only in a cleared view, and the Activity panel joined to the conversation);
+while Lockdown is on its
 shield stays in the title bar beside the red banner. When the link to Branch is lost, Restart in the
 desktop app starts the whole app again, and with it Branch's local server; in a browser it loads
 the page again.
