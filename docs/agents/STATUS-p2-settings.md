@@ -137,8 +137,9 @@ p2-delight, p2-everywhere), fixed on the branch, then pushed to `mac/cross-platf
 
 ### Merged and tested
 - Pushed `19c6d4ad` to `mac/cross-platform` (four trunk merges, last at 97ead378); Checks run 35470311313.
-- Final runs on the merged code (verify worktree, build-fast): 25 targeted files 174/175 (one p2-panels test,
-  "It's lonely over here", timed out waiting for the corner gear under load; passed alone and in its whole file, 19/19);
+- Final runs on the merged code (verify worktree, build-fast): 25 targeted files 293/294 before the last S14 fix
+  (S14 rightly caught p2-delight's two switches), then 13 of them again 174/175 (one p2-panels test, "It's lonely over
+  here", timed out waiting for the corner gear under load; passed alone and in its whole file, 19/19);
   the 55 other UI files that use tests/places.mjs 406 pass, 0 fail, 16 skipped; automation.test.mjs alone 5/5;
   pre-push set at the pushed SHA (settings-grown, static-assets, index-structure, handbook, catalog-diet, calm-ui,
   shell-ui, glass-select, hardening-3) 120/120.
