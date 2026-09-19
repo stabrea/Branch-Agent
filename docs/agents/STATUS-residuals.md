@@ -29,7 +29,12 @@ branch: an integrator reviews it. Every new test is in `tests/residuals.test.mjs
   Its target is the owner's attachments folder (`mail.settings().folder`), so a folder rule ("never under finance")
   judges it. The file's own name is known only after the message is fetched, so a rule on a file name or type
   cannot see it (said in the code). Test 4c; taking the target out fails it.
-- [ ] 4d. Older match-style rules: the target is path-tidied before matching.
+- [x] 4d. Older match-style rules: the target is path-tidied before matching.
+  src/policy.ts `matchesTarget`: the raw glob first (unchanged), then, when the call is about a file, the rule's
+  `match` and the target both through `tidyPath`, and the target inside the active project folder
+  (`inWorkspace`). A `*` rule is not re-read. Test 4d ("././finance/q1.txt", "finance\\q1.txt",
+  "notes/../finance/q1.txt", "finance//q1.txt", "q1.txt" in the finance project); the old one-line check fails it.
+  policy suites (hardening 1-3, multi-target, tool-safety, walk-rules, outside hold): 152/152.
 - [x] 4e. In-flight spend counts every still-running task, whatever month it began.
   `UsageStore.inFlightSpend` no longer filters on `created_at` (running or waiting for a person, as before).
   Test 4e (a task dated 40 days back); putting the month filter back fails it.

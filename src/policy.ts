@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { audit } from "./audit.js";
-import { globMatches, isCommandTool, ResourceMatcherSchema, resourceMatches, type PolicyResource } from "./policy-resources.js";
+import { globMatches, isCommandTool, ResourceMatcherSchema, resourceMatches, tidyPath, type PolicyResource } from "./policy-resources.js";
 import { commandPrefix, exactCommandPattern, plainWords } from "./command-prefix.js";
 import { sandboxChoices } from "./sandbox.js";
 import { sandboxBackends } from "./sandbox-backends.js";
@@ -223,9 +223,21 @@ export interface PolicyOutcome { decision: PolicyDecision; rule: PolicyRule | nu
 function ruleCovers(rule: PolicyRule, request: PolicyRequest): boolean {
   if (rule.applies === "changes" && request.readOnly) return false;
   if (!globMatches(rule.tool, request.tool)) return false;
-  if (!globMatches(rule.match, request.target) && !namesWholeCall(rule, request)) return false;
+  if (!matchesTarget(rule.match, request) && !namesWholeCall(rule, request)) return false;
   if (!rule.resource && rule.decision === "allow" && rule.match !== "*" && !commandTargetTrusted(request)) return false;
   return rule.resource ? resourceMatches(rule.resource, request.resource, rule.decision) : true;
+}
+/**
+ * A rule's `match` against what the call would touch. mac7/residuals: when that is a file, both sides
+ * are path-tidied first (hardening-3's `tidyPath`), so an older rule "finance/*" holds for
+ * "././finance/q1.txt" and "finance\q1.txt" as well, and for the file inside the active project folder.
+ */
+function matchesTarget(match: string, request: PolicyRequest): boolean {
+  if (globMatches(match, request.target)) return true;
+  const resource = request.resource;
+  if (match === "*" || resource?.kind !== "path") return false;
+  const rule = tidyPath(match);
+  return [request.target, resource.inWorkspace].some((path) => path !== undefined && globMatches(rule, tidyPath(path)));
 }
 /**
  * mac7/multi-target: a standing answer given for the whole call ("2 files: a, b") counts for each

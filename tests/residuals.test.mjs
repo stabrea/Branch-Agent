@@ -135,3 +135,18 @@ test("4c. mail.save_attachment says it writes into the attachments folder, so a 
   const resource = resourceOf(tool.name, tool.permission, target, { uid: 1, index: 0 });
   assert.equal(resourceMatches({ kind: "path", pattern: "finance" }, resource, "deny"), true, "never under finance holds");
 });
+
+test("4d. an older match-style rule reads the file path tidied, and inside the active project folder", async () => {
+  const { PolicySchema, evaluatePolicy } = await import("../dist/policy.js");
+  const { resourceOf } = await import("../dist/policy-resources.js");
+  const policy = PolicySchema.parse({ preset: "custom", rules: [{ tool: "files.write", match: "finance/*", decision: "deny" }] });
+  const judge = (target, inWorkspace) => {
+    const resource = { ...resourceOf("files.write", "files.write", target, { path: target }), ...(inWorkspace ? { inWorkspace } : {}) };
+    return evaluatePolicy(policy, { tool: "files.write", target, readOnly: false, resource }).decision;
+  };
+  assert.equal(judge("finance/q1.txt"), "deny");
+  for (const sneaky of ["././finance/q1.txt", "finance\\q1.txt", "notes/../finance/q1.txt", "finance//q1.txt"])
+    assert.equal(judge(sneaky), "deny", sneaky);
+  assert.equal(judge("q1.txt", "finance/q1.txt"), "deny", "the file inside the active project folder");
+  assert.notEqual(judge("notes/q1.txt"), "deny", "another folder is not covered");
+});
