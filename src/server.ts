@@ -3350,15 +3350,19 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
       }
     } catch (e) {
       // mac7/diagnostics: every failed request is one line in the activity log, with an id of its own.
+      // An unexpected failure carries the same id back, so what the window saw can be found in the log.
       const status = e instanceof HttpError ? e.status : e instanceof PinnedSettingError ? 403 : 400;
+      const requestId = newRequestId();
       diagnose("gateway", status >= 500 || !(e instanceof HttpError) ? "warn" : "info", `${request.method ?? "GET"} ${new URL(request.url ?? "/", "http://local").pathname} failed (${status})`,
-        { requestId: newRequestId(), fields: { error: errorText(e).slice(0, 300) } });
+        { requestId, fields: { error: errorText(e).slice(0, 300) } });
       if (!response.headersSent)
         // mac7/wake-pins: a setting the owner pinned is refused the way every other thing of
         // theirs is, in the same words and with the same 403, wherever the write came from.
         send(response, e instanceof HttpError ? e.status : e instanceof PinnedSettingError ? 403 : 400, {
           // A saved password or key can never travel back out in a failure message.
           error: app.runtime.hideSecrets(errorText(e)),
+          // Only on unexpected failures: a refusal (a wrong key, say) must read the same every time.
+          ...(e instanceof HttpError ? {} : { requestId }),
         });
       else response.end();
     }
