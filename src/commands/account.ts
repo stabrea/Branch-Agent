@@ -23,7 +23,7 @@ export async function accountCommand(call: Call): Promise<Reply> {
   const words = call.argument.trim();
   if (!words || words === "?" || words === "list") {
     const lines = view.accounts!.map((account) => `${account.id === view.account ? "→ " : "  "}${account.label}${account.keptSeparate ? " (kept separate)" : ""}`);
-    return { text: [...noticeOnce(service, view.pool), "Type /account followed by a name:", ...lines].join("\n") };
+    return { text: [...noticeOnce(service, view.pool, call.access === "full"), "Type /account followed by a name:", ...lines].join("\n") };
   }
   const mark = /^(separate|not-separate)\s+/i.exec(words)?.[1]?.toLowerCase();
   const asDefault = /^default\s+/i.test(words);
@@ -46,9 +46,12 @@ export async function accountCommand(call: Call): Promise<Reply> {
   return { text: result.message, client: { do: "refresh-model" } };
 }
 
-/** mac7/account-pooling: the one-time notice, said once here and then marked as read. */
-function noticeOnce(service: NonNullable<ReturnType<typeof accountsServiceFor>>, pool: string): string[] {
+/**
+ * mac7/account-pooling: the one-time notice. Marked as read only where the owner has full access; a
+ * read-only look (a dashboard, a phone key) shows it and leaves it for the owner.
+ */
+function noticeOnce(service: NonNullable<ReturnType<typeof accountsServiceFor>>, pool: string, markRead: boolean): string[] {
   if (!service.settings().poolingNotices.includes(pool)) return [];
-  dismissNotice(service, { pool });
+  if (markRead) dismissNotice(service, { pool });
   return [poolingNotice(pool === "chatgpt" ? "ChatGPT" : service.deps.models.presets.get(pool)?.name ?? pool), ""];
 }

@@ -131,3 +131,28 @@ test("U3 a sign-in list says once why sharing stopped, and an account can be mar
   assert.equal(await pool.getByLabel(/Kept separate/).count(), 2, "every sign-in has the box");
   assert.deepEqual(errors, []);
 });
+
+test("U4 the notice and the Kept separate box fit at 400 px, carry keys, and read in French", async (t) => {
+  const { page, errors } = await fixture(t, 400, oldSharedList);
+  await openCard(page);
+  const pool = page.locator('.accounts-pool[data-pool="cli-claude-code"]');
+  await pool.locator(".accounts-notice").waitFor();
+  const wide = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
+  assert.equal(wide, false, "nothing scrolls sideways");
+  const keyed = await page.evaluate(() => [...document.querySelectorAll('.accounts-pool[data-pool="cli-claude-code"] :is(.accounts-notice p, .accounts-notice button, label span)')]
+    .every((node) => node.dataset.t || node.dataset.tKey));
+  assert.ok(keyed, "the notice, its button and the box's words come from keys");
+  await openPlace(page, "settings:appearance");
+  await page.locator("#appearance-language").selectOption("fr");
+  await openSettingFor(page, "#accounts-card");
+  await page.waitForFunction(() => /Tenu à part/.test(document.querySelector('.accounts-pool[data-pool="cli-claude-code"]')?.innerText ?? ""));
+  const text = await pool.innerText();
+  assert.match(text, /Branch ne passe plus d'un de vos abonnements .+ à un autre/);
+  assert.match(text, /Compris/);
+  assert.match(text, /Tenu à part : ce compte appartient/);
+  assert.equal(text.match(/\{[a-z]+\}/g), null, "no {placeholder} is ever shown");
+  assert.equal(await pool.getByLabel(/Tenu à part/).count(), 2, "the box survives the language change");
+  const stillNarrow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
+  assert.equal(stillNarrow, false, "the longer French words still fit");
+  assert.deepEqual(errors, []);
+});

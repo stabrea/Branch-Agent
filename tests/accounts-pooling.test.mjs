@@ -229,6 +229,9 @@ test("P6 the mark and the notice are the owner's: routes, /account, household an
   assert.equal(service.settings().pools[0].accounts.find((a) => a.id === second).keptSeparate, false);
   // /account: the notice once, then the mark on and off; from a phone with a "run" key it is refused.
   const host = { runtime: app.runtime, requireOwner: (what) => app.store.profiles.requireOwner(what) };
+  const looked = await executeCommand(host, { surface: "dashboard", line: "/account", access: "read" });
+  assert.match(looked.text, /no longer switches between your own/);
+  assert.deepEqual(service.settings().poolingNotices, [POOL], "a read-only look leaves the notice for the owner");
   const listed = await executeCommand(host, { surface: "window", line: "/account", access: "full" });
   assert.match(listed.text, /no longer switches between your own/);
   assert.doesNotMatch((await executeCommand(host, { surface: "window", line: "/account", access: "full" })).text, /no longer switches/);
