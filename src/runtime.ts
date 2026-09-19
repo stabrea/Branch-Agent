@@ -2389,7 +2389,6 @@ ${run.output.slice(0, 6000)}`;
     const { decision: ruled, label, target, readOnly, remember, sandbox, backend, paths, reason } =
       await reviewCall(this, this.checkPolicy(call.name, args, context, fingerprint), { call: shown, args, context, fingerprint });
     const held = { sandbox, backend, paths };
-    const files = this.cardFiles(call.name, args, context); // mac7/multi-target
     if (context.dryRun && !readOnly) {
       this.store.event(context.runId, "tool.simulated", { name: call.name, id: call.id, label, target, decision: ruled });
       return { refusal: simulatedResult(label), ...held };
@@ -2405,7 +2404,7 @@ ${run.output.slice(0, 6000)}`;
     if (aside) {
       this.orchestration.pausePlan(this.sessionOf(context));
       return this.askApproval(context, { tool: call.name, label: aside, target, source: context.source ?? "owner",
-        remember, sandbox, bytes: this.hideSecrets(shown.arguments).slice(0, 2000), fingerprint, files }, call.id);
+        remember, sandbox, bytes: this.hideSecrets(shown.arguments).slice(0, 2000), fingerprint, files: this.cardFiles(call.name, args, context) }, call.id);
     }
     if (decision === "allow") return { refusal: null, ...held };
     if (decision === "deny") {
@@ -2418,9 +2417,9 @@ ${run.output.slice(0, 6000)}`;
     return this.askApproval(context, { tool: call.name, label: asked, target, source, remember, sandbox,
       // The exact request, cleaned of any saved password or key, is what the person is shown and
       // what their yes is bound to.
-      bytes: this.hideSecrets(shown.arguments).slice(0, 2000), fingerprint, files }, call.id);
+      bytes: this.hideSecrets(shown.arguments).slice(0, 2000), fingerprint, files: this.cardFiles(call.name, args, context) }, call.id);
   }
-  /** mac7/multi-target: the files a call touches, for the question card; none for a call that names one thing. */
+  /** mac7/multi-target: the files a call touches, for the question card (worked out only when it asks); none for a call that names one thing. */
   private cardFiles(tool: string, args: unknown, context: ToolContext): PendingApproval["files"] {
     return (this.targetsOrNone(tool, args, context) ?? []).map((one) => ({ kind: one.kind, path: targetText(one) }))
       .filter((one, at, all) => one.path && all.findIndex((other) => other.path === one.path && other.kind === one.kind) === at);
