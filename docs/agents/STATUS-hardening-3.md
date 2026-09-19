@@ -12,7 +12,7 @@ Every fix has a test that was checked to fail with the fix taken out of `dist/` 
 - [x] 7. Docker: `BRANCH_BIND` — already on trunk as `BRANCH_LISTEN` (no change)
 - [x] 8. `/account` notice shows the connection's name (not reproducible; names unified)
 - [x] 9. `accounts viewAll`: a household person sees only their own accounts
-- [ ] Merge latest `origin/mac/cross-platform`, rebuild, retest, push
+- [x] Merge latest `origin/mac/cross-platform`, rebuild, retest, push
 
 ## 1. Permission rules see what the tool uses
 
@@ -216,3 +216,9 @@ Grouped by where the thing a rule is about comes from. "own" = the tool's `targe
   P6 updated: they asserted the owner's list was still sent (empty) to the person.
 - Test "9 …": with nothing shared the person gets no lists and no strategy/autoSwitch/signedIn/default at all.
   Proved: with the early return removed in `dist/`, it fails.
+
+## Merge and final run
+- Merged `origin/mac/cross-platform` (one docs commit, no conflicts); `dist/` deleted and rebuilt; `npx tsc --noEmit` clean.
+- 50 targeted files at `--test-concurrency=2`: 730 tests, 727 pass, 0 fail, 3 skipped (the files for every area
+  touched, plus static-assets, index-structure, handbook, server, ui, shell-ui); `tests/automation.test.mjs` alone: 5/5.
+- Not merged into trunk (the integrator does that).
