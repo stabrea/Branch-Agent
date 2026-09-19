@@ -2,6 +2,7 @@ import test from "node:test";
 import { showEverything } from "./places.mjs";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
+import { Duplex } from "node:stream";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -649,12 +650,12 @@ test("a client on the run socket sends sound up and gets the answer's sound back
   const run = liveRun(app);
 
   const server = createServer((_request, response) => response.writeHead(404).end());
-  const upgraded = [];
+  const upgraded = [], served = [];
   server.on("upgrade", (request, socket) => {
     upgraded.push(socket);
-    void serveRunSocket(app.store, run.id, request, socket, {
+    served.push(serveRunSocket(app.store, run.id, request, socket, {
       ...liveHooks(live, run.id, run.sessionId), pollMs: 20, maxMs: 4000,
-    });
+    }));
   });
   await new Promise((done) => server.listen(0, "127.0.0.1", done));
   t.after(() => { for (const socket of upgraded) socket.destroy(); return new Promise((done) => server.close(done)); });
@@ -663,6 +664,9 @@ test("a client on the run socket sends sound up and gets the answer's sound back
   // client that offers none is refused by the socket layer itself. This one speaks as the app does.
   const client = new WebSocket(`ws://127.0.0.1:${server.address().port}/api/runs/${run.id}/ws`, ["bearer", "token"]);
   client.binaryType = "arraybuffer";
+  // Listened for from the start: once the conversation is over and the task's 4 s have passed, the
+  // server may close the socket itself, before the test asks it to.
+  const closed = new Promise((done) => client.addEventListener("close", done, { once: true }));
   const notices = [], frames = [];
   client.addEventListener("message", (event) => {
     if (event.data instanceof ArrayBuffer) { frames.push(readAudioFrame(Buffer.from(event.data))); return; }
@@ -698,7 +702,24 @@ test("a client on the run socket sends sound up and gets the answer's sound back
 
   client.send(JSON.stringify({ live: "stop" }));
   await until(() => live.get(run.id) === undefined, "the conversation end when stopped");
+  // The socket's loop reads the task's events until it sees the close; it has to be over before the
+  // app (and its database) closes behind this test (CI run 35453102759).
   client.close();
+  await closed;
+  await Promise.all(served);
+});
+
+test("a run socket still open when the app closes stops reading the closed database, and says goodbye", async (t) => {
+  const app = await fixture(t);
+  const run = liveRun(app);
+  const written = [];
+  const socket = new Duplex({ read() {}, write(chunk, _encoding, done) { written.push(chunk); done(); } });
+  t.after(() => socket.destroy());
+  const served = serveRunSocket(app.store, run.id, { headers: { "sec-websocket-key": "abc" } }, socket, { pollMs: 20, maxMs: 4000 });
+  await until(() => written.length > 0, "the handshake");
+  await app.close();
+  await served; // before the fix this rejected with "database is not open" (CI run 35453102759)
+  assert.deepEqual([...written.at(-1)], [0x88, 0x00], "the socket is closed with a close frame");
 });
 
 /* ---------- the button's own states ---------- */

@@ -72,6 +72,8 @@ export class Store {
   private spanStore: SpanStore | undefined;
   private closed = false;
   get sqlite() { return this.db; }
+  /** False once the app has closed the database, so something still running can stop instead of reading it. */
+  get isOpen(): boolean { return !this.closed; }
   /**
    * The folder the database lives in, which is also where things that belong to the owner rather
    * than to one piece of work are kept — their SOUL.md and USER.md, for instance, which should

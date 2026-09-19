@@ -44,16 +44,18 @@ async function fixture(t, { onboarded = true } = {}) {
   const page = await browser.newPage({ viewport: { width: 1440, height: 950 } });
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  /* Opening the window again: the token is kept for the tab, so only the first time asks for it. */
+  /* Opening the window again: the token is kept for the tab, so only the first time asks for it.
+     The page can take well over 30 s to load on a busy Windows runner (trunk 73f73153 timed out here),
+     so it gets the same 120 s as tests/places.mjs gives the window to be ready. */
   const open = async () => {
     await page.goto(server.url);
     await page.waitForFunction(() => document.getElementById("workspace")?.hidden === false
-      || document.getElementById("token")?.offsetParent !== null);
+      || document.getElementById("token")?.offsetParent !== null, null, { timeout: 120000 });
     if (await page.locator("#token").isVisible()) {
       await page.getByLabel("Session token", { exact: true }).fill(server.token);
       await page.getByRole("button", { name: "Connect", exact: true }).click();
     }
-    await page.locator("body.lx-ready").waitFor({ state: "attached" });
+    await page.locator("body.lx-ready").waitFor({ state: "attached", timeout: 120000 });
   };
   return { app, server, call, page, errors, open };
 }

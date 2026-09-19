@@ -281,7 +281,15 @@ test("Nostr: NIP-04 messages round-trip between two keys, events verify, and an 
   const sealed = nip04Encrypt(alice, publicKeyOf(bob).toString("hex"), "meet at noon ✓");
   assert.match(sealed, /^[A-Za-z0-9+/=]+\?iv=[A-Za-z0-9+/=]{24}$/);
   assert.equal(nip04Decrypt(bob, publicKeyOf(alice).toString("hex"), sealed), "meet at noon ✓");
-  assert.throws(() => nip04Decrypt(bob, publicKeyOf(bob).toString("hex"), sealed));
+  // NIP-04 has no MAC: the wrong key passes the padding check about once in 256 (CI run 35453102759),
+  // so what holds is that it never gives the message back, and that noise is refused as text.
+  for (let i = 0; i < 2000; i++) {
+    const again = nip04Encrypt(alice, publicKeyOf(bob).toString("hex"), "meet at noon ✓");
+    let opened = null;
+    try { opened = nip04Decrypt(bob, publicKeyOf(bob).toString("hex"), again); } catch { /* the usual outcome */ }
+    assert.notEqual(opened, "meet at noon ✓", "the wrong key never reads the message");
+    assert.ok(opened === null || !opened.includes("\uFFFD"), "undecodable bytes are refused, not turned into text");
+  }
   const event = signEvent({ created_at: 1700000000, kind: 4, tags: [["p", "ab"]], content: "line\n\"quoted\"" }, alice);
   assert.equal(verifyEvent(event), true);
   assert.equal(verifyEvent({ ...event, content: "changed" }), false, "a changed event fails its id");

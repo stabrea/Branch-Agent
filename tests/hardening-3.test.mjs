@@ -139,8 +139,14 @@ test("3 a model on this computer that never starts answering is tried again once
   const { app } = await fixture(t);
   const { OpenAIProvider } = await import("../dist/providers.js");
   const { endpoint, seen } = await silentLocalServer(t);
-  app.runtime.models.register({ id: "on-this-computer", name: "Local", model: "m",
-    provider: new OpenAIProvider({ endpoint, model: "m", apiKey: "local" }) });
+  const provider = new OpenAIProvider({ endpoint, model: "m", apiKey: "local" });
+  /* Counted where the runtime asks, not where the server hears: the second try is cut off after the
+     100 ms grace, which on a loaded Windows runner can end before its request reaches the stand-in
+     (trunk 98beb5d8: the server heard 1). Shipped, the grace is 30 s, so that cannot happen to a person. */
+  const asked = { times: 0 };
+  const complete = provider.complete.bind(provider);
+  provider.complete = (request) => { asked.times++; return complete(request); };
+  app.runtime.models.register({ id: "on-this-computer", name: "Local", model: "m", provider });
   // Shortened for the test (shipped: 60 s and 300 s, grace 30 s): a 1 s first-reply wait, grace 100 ms.
   app.runtime.reliability.modelStallMs = 300;
   app.runtime.reliability.localFirstReplyMs = 1000;
@@ -150,7 +156,8 @@ test("3 a model on this computer that never starts answering is tried again once
   assert.equal(run.status, "failed");
   assert.match(run.output ?? "", /model on this computer didn't start answering/);
   assert.match(run.output ?? "", /smaller model/);
-  assert.equal(seen.requests, 2, "asked once, and tried again once");
+  assert.equal(asked.times, 2, "asked once, and tried again once");
+  assert.ok(seen.requests >= 1, "the first request reached the model's server");
   const recoveries = app.store.events(run.id).filter((event) => event.kind === "model.stall_recovery").map((event) => event.data);
   assert.deepEqual(recoveries.map((one) => one.action), ["retry", "fail"]);
   assert.ok(recoveries[0].waitMs <= 100, `the retry waits only the grace (${recoveries[0].waitMs} ms)`);
