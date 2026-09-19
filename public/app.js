@@ -2089,7 +2089,9 @@ import("./collab.js").then((module) => {
 }).catch(() => {});
 function renderCollab() {
   const container = $("collab-container");
-  if (!container || !collab || !state) return;
+  if (!collab || !state) return;
+  collab.showProfileBadge(state, { el, api, toast, refresh }); // household-followups
+  if (!container) return;
   container.replaceChildren(collab.showCollab(state, { el, api, toast, refresh }));
 }
 setInterval(() => {
