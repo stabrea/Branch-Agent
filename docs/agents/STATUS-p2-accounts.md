@@ -17,6 +17,11 @@ Screenshots: `claude-session-files/branch/phase2-shots/accounts/` (harness: `cla
       accounts, accounts-more, accounts-low, files, files-edit, thinking, usage-pop, secrets, channels at 1440/1024/390 × light/dark:
       no sideways overflow, zero console errors after load (the ~47 before settling are the app's own load-time CSP/401/429 noise)
 
+## Last merge
+- Trunk merged again at 2a866c8e (hardening-3 had changed public/accounts.js: its household rule is kept in the new page:
+  someone else sees shared accounts only, no buttons, list controls, fallback order or Trunks). Rebuilt from an empty dist;
+  16 files 132/132 and tests/hardening-3.test.mjs 17/17 green.
+
 ## For the integrator
 - When the settings builder's level control lands, `globalThis.branchSettingsLevel() === "regular"` hides "Your assistant's
   files" (as the brief asks). Today R17-S05's list shows at every level, so a Regular owner loses it from sight then.
