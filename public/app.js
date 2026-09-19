@@ -69,9 +69,30 @@ async function api(path, body, method) {
     ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
   });
   const data = await response.json();
-  if (!response.ok) throw new Error(data.error || "Request failed");
+  if (!response.ok) {
+    const error = new Error(data.error || "Request failed");
+    /* household-followups: the owner's own things, refused because the window is on somebody else's
+       profile. That is expected, so the page never reports it as something that went wrong. */
+    if (response.status === 400 && /belongs to the owner\. Switch back to the owner's profile/.test(error.message)) error.household = true;
+    throw error;
+  }
   return data;
 }
+/* household-followups: whether the window is the owner's, as <html data-household> and a
+   "branch-profile" event when it changes, so owner-only cards stop loading while it is not and load
+   again once it is. A refusal they still meet in between is expected and never a page error. */
+export function ownerAtWindow() {
+  return document.documentElement.dataset.household !== "on";
+}
+function noteProfile(profile) {
+  const household = !!profile && profile.isOwner === false;
+  if (ownerAtWindow() === !household) return;
+  document.documentElement.dataset.household = household ? "on" : "off";
+  document.dispatchEvent(new CustomEvent("branch-profile", { detail: { owner: !household } }));
+}
+window.addEventListener("unhandledrejection", (event) => {
+  if (event.reason?.household === true) event.preventDefault();
+});
 async function action(tool, args) {
   const result = await api("action", { tool, args });
   await refresh();
@@ -515,6 +536,7 @@ function renderSchedules() {
 }
 async function refresh() {
   state = await api("state");
+  noteProfile(state.collab?.profile); // household-followups
   $("login").hidden = true;
   $("workspace").hidden = false;
   $("lock").hidden = desktop;
@@ -556,8 +578,11 @@ async function refresh() {
   renderUpdates();
   renderFirstRun();
   renderProjects();
-  void renderSecrets();
-  void renderChannels();
+  /* household-followups: the locker and the chat apps are the owner's; not asked for while the window is somebody else's. */
+  if (ownerAtWindow()) {
+    void renderSecrets();
+    void renderChannels();
+  }
   renderSnapshots();
   renderAttention();
   void window.branchMcp?.render();

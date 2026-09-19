@@ -4,7 +4,7 @@
 // locker and switches the app on only when asked. The work happens on the server (src/channel-setup/).
 // Its card lives in Customize, Chat apps; the Telegram card and each "More chat apps" row get the same
 // panel. The square codes are drawn black on white on purpose, like the phone code in deployment.js.
-import { api } from "/app.js";
+import { api, ownerAtWindow } from "/app.js";
 import { t } from "/i18n.js";
 
 const $ = (id) => document.getElementById(id);
@@ -355,13 +355,13 @@ async function hookTelegram() {
 
 let hooking = false;
 function hookSoon() {
-  if (hooking) return;
+  if (hooking || !ownerAtWindow()) return;
   hooking = true;
-  requestAnimationFrame(() => { hooking = false; hookRows(); void hookTelegram(); });
+  requestAnimationFrame(() => { hooking = false; hookRows(); hookTelegram().catch(() => {}); });
 }
 
 async function load() {
-  if (!sessionStorage.getItem("branch-token")) return;
+  if (!sessionStorage.getItem("branch-token") || !ownerAtWindow()) return;
   try { state.list = await api("channel-setup"); } catch { return; }
   state.panels.clear();
   await drawCard();
@@ -376,9 +376,18 @@ function addStyles() {
 addStyles();
 void load();
 new MutationObserver(hookSoon).observe(document.body, { childList: true, subtree: true });
+/* household-followups: the chat apps are the owner's. Switched to somebody else, the panels go; back
+   to the owner, they are loaded afresh. */
+document.addEventListener("branch-profile", (event) => {
+  if (event.detail?.owner) { void load(); return; }
+  state.list = null;
+  state.panels.clear();
+  document.querySelectorAll(".channel-setup-telegram, .channel-setup-row").forEach((node) => node.remove());
+  $("channel-setup-card")?.replaceChildren();
+});
 document.addEventListener("branch-language", () => {
   document.querySelectorAll(".channel-setup-telegram").forEach((node) => node.remove());
-  void drawCard().then(hookSoon);
+  drawCard().then(hookSoon, () => {});
 });
 const signedIn = $("workspace");
 if (signedIn) new MutationObserver(() => { if (!signedIn.hidden) setTimeout(() => void load(), 300); })

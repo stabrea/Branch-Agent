@@ -4,7 +4,7 @@
  * keeping code whole). It only reads and writes the saved switches; see
  * src/channels/chat-live-settings.ts for what each setting does. Its home is Customize, Chat apps.
  */
-import { api } from "/app.js";
+import { api, ownerAtWindow } from "/app.js";
 import { t } from "/i18n.js";
 
 const $ = (id) => document.getElementById(id);
@@ -16,7 +16,7 @@ function show(live) {
 }
 
 async function load() {
-  if (!$("chat-live-form")) return;
+  if (!$("chat-live-form") || !ownerAtWindow()) return; // household-followups: the chat apps are the owner's
   show((await api("channels")).live);
 }
 
@@ -38,3 +38,5 @@ load().catch(() => {});
 const signedIn = document.getElementById("workspace");
 if (signedIn) new MutationObserver(() => { if (!signedIn.hidden) load().catch(() => {}); })
   .observe(signedIn, { attributes: true, attributeFilter: ["hidden"] });
+/* household-followups: loaded again once the window is the owner's. */
+document.addEventListener("branch-profile", (event) => { if (event.detail?.owner) load().catch(() => {}); });
