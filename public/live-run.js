@@ -73,11 +73,31 @@ function controls(runId) {
 }
 const status = (message) => { $("live-status").textContent = message; };
 
+/* mac7/multi-target: every file a question's call touches, the first few named and the rest folded away. */
+function filesBlock(question, tone) {
+  const files = Array.isArray(question.files) ? question.files : [];
+  if (files.length < 2) return null;
+  const line = (file) => el("li", t(file.kind === "read" ? "live.fileRead" : file.kind === "delete" ? "live.fileDelete" : "live.fileWrite", { path: file.path }));
+  const shown = el("ul");
+  for (const file of files.slice(0, 5)) shown.append(line(file));
+  const box = el("div");
+  box.append(el("p", t("live.files", { count: files.length }), tone), shown);
+  if (files.length > 5) {
+    const more = el("details"), rest = el("ul");
+    for (const file of files.slice(5)) rest.append(line(file));
+    more.append(el("summary", t("live.filesMore", { count: files.length - 5 })), rest);
+    box.append(more);
+  }
+  return box;
+}
+
 /** The question a paused task stopped on, answered without leaving the conversation. */
 function askCard(question) {
   const card = el("div", undefined, "live-ask");
   card.id = "live-ask";
   card.append(el("strong", t("live.askTitle")), el("p", question.question));
+  const listed = filesBlock(question, "meta");
+  if (listed) card.append(listed);
   /* mac7/coding-next: "Let Branch run this project's tests?" has answers of its own. */
   const answers = question.kind === "project-tests" ? [
     [t("live.testsAlways"), "allow", "always"], [t("live.testsOnce"), "allow", "never"], [t("live.no"), "deny", "session"],
