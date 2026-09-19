@@ -155,8 +155,8 @@ test("integration review: the list sits flush under the select and fully covers 
     /* phase2/settings: on a phone the Settings list is a search, a page choice and the level above the page,
        so "if needed" left the select at the very bottom, where the list rightly opens upwards. Room below it: */
     await f.page.locator("#policy-preset").evaluate((node) => node.scrollIntoView({ block: "center" }));
-    /* ...and once the window has finished rising into place, so the click does not chase a moving select. */
-    await f.page.locator(".lx-settings-win").evaluate((node) => Promise.all(node.getAnimations().map((a) => a.finished)));
+    /* Pressed at once, while the window may still be rising into place: the list follows the select there
+       (public/glass-select.js placeWhenSettled), as it must for a person who taps straight away. */
     await f.page.locator("#policy-preset").click();
     await f.page.locator("#glass-list").waitFor({ state: "visible" });
     await f.page.waitForTimeout(300); // the opening glide is over
@@ -211,5 +211,27 @@ test("integration review: groups, greyed choices, one change event, the form's v
   await list.waitFor({ state: "hidden" });
   assert.equal(await select.inputValue(), "c", "a list that changed under the pointer closes and chooses nothing");
   assert.deepEqual(await f.page.evaluate(() => globalThis.__probe), ["c"]);
+  assert.deepEqual(f.errors, []);
+});
+
+test("phase2/settings integration: a list opened while the Settings window is still rising lands flush under its select", async (t) => {
+  const f = await fixture(t);
+  await openSettingFor(f.page, "#policy-preset");
+  await f.page.locator(".lx-settings-close").click();
+  /* Opened and pressed in one go, the way a quick tap lands while the window rises for a fifth of a second. */
+  const rising = await f.page.evaluate(() => {
+    globalThis.branchLayout.go("settings:permissions");
+    const moving = document.querySelector(".lx-settings-win").getAnimations().some((animation) => animation.playState === "running");
+    document.getElementById("policy-preset").dispatchEvent(new MouseEvent("mousedown", { button: 0, bubbles: true, cancelable: true }));
+    return moving;
+  });
+  assert.equal(rising, true, "the window was still rising when the select was pressed");
+  await f.page.locator("#glass-list").waitFor({ state: "visible" });
+  await f.page.waitForTimeout(500);
+  const gap = await f.page.evaluate(() => {
+    const select = document.getElementById("policy-preset").getBoundingClientRect(), list = document.getElementById("glass-list").getBoundingClientRect();
+    return list.top >= select.bottom - 1 ? list.top - select.bottom : select.top - list.bottom;
+  });
+  assert.ok(Math.abs(gap) <= 2, `the list was left where the select was while it moved (gap ${gap})`);
   assert.deepEqual(f.errors, []);
 });

@@ -86,9 +86,20 @@ function close({ focus = false } = {}) {
   entry = null;
   if (focus) select.focus();
 }
+/**
+ * phase2/settings integration: a select inside something still moving into place (the Settings window rises
+ * for a fifth of a second) is placed again once it settles, so the list never stays where the select was.
+ */
+function placeWhenSettled(select) {
+  for (const animation of document.getAnimations()) {
+    if (!animation.effect?.target?.contains?.(select)) continue;
+    animation.finished.then(() => { if (openFor === select) place(select); }).catch(() => {});
+  }
+}
 function open(select) {
   fill(select);
   place(select);
+  placeWhenSettled(select);
   panel.hidden = false;
   openFor = select;
   select.setAttribute("aria-expanded", "true");

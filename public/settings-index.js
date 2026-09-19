@@ -130,7 +130,7 @@ export const SETTINGS_INDEX = [
   ["channels-more-bluesky","customize:channels","channels-more-form","Bluesky",null,null,"More chat apps",true],
   ["channels-more-reddit","customize:channels","channels-more-form","Reddit",null,null,"More chat apps",true],
   ["channels-more-discourse","customize:channels","channels-more-form","Discourse",null,null,"More chat apps",true],
-  ["channels-more-x-dm","customize:channels","channels-more-form","X",null,null,"More chat apps",true],
+  ["channels-more-x-dm","customize:channels","channels-more-form","X direct messages",null,null,"More chat apps",true],
   ["channels-more-twist","customize:channels","channels-more-form","Twist",null,null,"More chat apps",true],
   ["channels-more-nextcloud-talk","customize:channels","channels-more-form","Nextcloud Talk",null,null,"More chat apps",true],
   ["channels-more-sms","customize:channels","channels-more-form","Text messages (Twilio)",null,null,"More chat apps",true],
