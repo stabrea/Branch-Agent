@@ -144,3 +144,24 @@ test("11. Overview and People keep room at their end as tall as the floating ask
     assert.ok(grown.clear >= 0, `${view}: at the end, the last line is above the box`);
   }
 });
+
+test("12. with the strip switched off, a browser that knew so never gives the strip room, even before the first answer", async (t) => {
+  const { page, server } = await fixture(t);
+  const post = (path, body) => page.evaluate(async ([path, body, token]) => (await fetch(path, { method: "POST",
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify(body) })).json(), [path, body, server.token]);
+  await post("/api/shell-look", { strip: "off" });
+  await page.reload();
+  await page.locator("body.lx-ready").waitFor({ state: "attached", timeout: 120000 });
+  await page.waitForFunction(() => localStorage.getItem("branch-strip") === "off");
+  // Next time the window opens, anything that gives the strip room is written down as it happens.
+  await page.addInitScript(() => {
+    globalThis.__stripSeen = [];
+    new MutationObserver(() => {
+      if (document.getElementById("trunk-strip") || document.body?.classList.contains("lx-strip")) globalThis.__stripSeen.push(performance.now());
+    }).observe(document, { subtree: true, childList: true, attributes: true, attributeFilter: ["class"] });
+  });
+  await page.reload();
+  await page.locator("body.lx-ready").waitFor({ state: "attached", timeout: 120000 });
+  await page.waitForTimeout(500);
+  assert.deepEqual(await page.evaluate(() => globalThis.__stripSeen), [], "the strip's room was never taken");
+});

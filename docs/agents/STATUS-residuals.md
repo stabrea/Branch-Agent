@@ -84,7 +84,12 @@ branch: an integrator reviews it. Every new test is in `tests/residuals.test.mjs
   `.shell-page` ends with that plus the gap (public/studio.css). While scrolling, a floating box still sits over
   what is under it, as the conversation's box does; padding cannot change that. tests/residuals-ui.test.mjs 11
   (box grown to 180 px at 390 px: room ≥ box, last line above it, both pages); the old 96 px fails it.
-- [ ] 12. Trunks strip switched off: first paint uses the last known switch value.
+- [x] 12. Trunks strip switched off: first paint uses the last known switch value. **Already on trunk, untested.**
+  public/strip.js (edb3a4b4, p2-shell integration) keeps the last switch value in `localStorage["branch-strip"]` and
+  `reserveRoom` takes no room when it says off. A truly brand-new browser has nothing remembered, so it still
+  reserves the room until the first answer; nothing local can know better. Added the missing test:
+  tests/residuals-ui.test.mjs 12 (switched off, reloaded: the strip's element and class never appear, watched from
+  before the page's own scripts); taking out the `remembered()` line fails it.
 - [x] 13. Pairing: "Let it in" only after the owner ticks "The code matches".
   Both desktop places that let a device in: the studio's Let it in step (public/pairing.js `codesMatch`) and the
   Devices card's waiting row (public/devices.js `matchBox`, the tick kept across its 5-second redraw). Only when
