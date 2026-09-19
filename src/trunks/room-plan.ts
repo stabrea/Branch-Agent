@@ -36,6 +36,11 @@ export interface RoomEvent {
   seen?: number;
   /** For "waiting": the owner has answered, so the turn is taken again. */
   answered?: boolean;
+  /**
+   * phase2/rooms: for "user", the message came with a short-lived key (and which), so the turns it
+   * starts are that key's work, whoever's drive runs them, and never get the owner's looser mode.
+   */
+  byKey?: { keyId?: string; sessionId?: string };
 }
 export interface RoomMember { id: string; handle: string; name: string }
 export interface RoomTask { memberId: string; round: number; discussion: number; seen: number; prompt: string }

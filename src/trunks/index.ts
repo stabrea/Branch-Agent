@@ -52,6 +52,8 @@ export class Trunks {
   readonly teaching: TrunkTeaching;
   readonly accounts: TrunkAccountsPort;
   private owned = new Map<string, { trunkId: string; canonical: boolean }>();
+  /** phase2/rooms: a room member's conversation → the room's own conversation (whose mode it follows). */
+  private followsRoom = new Map<string, string>();
   private readonly introductions = new Set<Promise<unknown>>();
 
   constructor(private readonly deps: TrunksDeps) {
@@ -69,6 +71,7 @@ export class Trunks {
       scrub: (value) => runtime.hideSecrets(value) });
     this.refresh();
     runtime.trunkShape = (options) => this.shapeOf(options);
+    runtime.modeFollows = (sessionId) => this.followsRoom.get(sessionId) ?? null; // phase2/rooms
     byRuntime.set(runtime, this);
     scheduler.routeRun = (id) => this.routines.route(id, this.mode("routines") !== "off");
     this.syncTools();
@@ -103,6 +106,7 @@ export class Trunks {
     }
     for (const [session, trunkId] of this.rooms.memberConversations()) owned.set(session, { trunkId, canonical: false });
     this.owned = owned;
+    this.followsRoom = this.rooms.memberRooms(); // phase2/rooms
   }
   /** True for a conversation that must never be swept away by the history rule. */
   keeps(sessionId: string): boolean {

@@ -1133,6 +1133,11 @@ ${run.output.slice(0, 6000)}`;
    * connects it; on its own every task is an ordinary one.
    */
   trunkShape: (options: RunOptions) => TrunkRunShape | null = () => null;
+  /**
+   * phase2/rooms: the conversation whose mode this one follows. A Trunk's turn in a room runs in that
+   * Trunk's own conversation for the room, so it is held to the room's conversation (src/trunks/).
+   */
+  modeFollows: (sessionId: string) => string | null = () => null;
   private sendSpans(runId: string): void {
     // A runtime that is shutting down refuses new background work, and a send that cannot start is
     // simply not made. Nothing here — refused, failed or off — may reach the task's own result.
@@ -2112,7 +2117,9 @@ ${run.output.slice(0, 6000)}`;
     const seen = new Set<string>();
     for (let id: string | null = runId; id && !seen.has(id) && seen.size < 20; id = this.parentOf(id)) {
       seen.add(id);
-      const record = readConversationMode(this.store, this.owner, this.store.run(id)?.sessionId);
+      const session = this.store.run(id)?.sessionId;
+      const record = readConversationMode(this.store, this.owner, session)
+        ?? (session ? readConversationMode(this.store, this.owner, this.modeFollows(session)) : null); // phase2/rooms
       if (record) return record;
     }
     return null;

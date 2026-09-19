@@ -4,6 +4,7 @@ import type { Run } from "../contracts.js";
 import type { PolicyRemember } from "../policy.js";
 import type { Runtime } from "../runtime.js";
 import type { Store } from "../store.js";
+import { shortLivedKeyMark, startedWithShortLivedKey, underShortLivedKey } from "../key-context.js"; // phase2/rooms
 import type { TrunkRecords } from "./record.js";
 import {
   asksForOwner, isPass, maxRoomMembers, minRoomMembers, nextRoomTurn,
@@ -140,6 +141,10 @@ export class TrunkRooms {
   memberConversations(): Map<string, string> {
     return new Map(this.list().flatMap((room) => Object.entries(room.memberSessions).map(([trunk, session]) => [session, trunk] as const)));
   }
+  /** phase2/rooms: member conversation → the room's own conversation, whose mode every member follows. */
+  memberRooms(): Map<string, string> {
+    return new Map(this.list().flatMap((room) => Object.values(room.memberSessions).map((session) => [session, room.sessionId] as const)));
+  }
   roster(room: Room): RoomMember[] {
     return room.members.flatMap((id) => {
       const trunk = this.deps.records.find(id);
@@ -160,7 +165,7 @@ export class TrunkRooms {
   /** The owner speaks. The turns it starts run in the background; `settled` waits for them. */
   send(id: string, input: unknown): { seq: number } {
     const { text } = z.object({ text: z.string().trim().min(1).max(8000) }).strict().parse(input);
-    const room = this.append(id, { kind: "user", text });
+    const room = this.append(id, { kind: "user", text, ...(startedWithShortLivedKey() ? { byKey: shortLivedKeyMark() } : {}) }); // phase2/rooms
     this.put({ ...room, needsYou: this.waiting(id).length > 0 });
     this.deps.store.message(room.sessionId, { role: "user", content: text });
     this.kick(id);
@@ -197,8 +202,11 @@ export class TrunkRooms {
     const sessionId = room.memberSessions[task.memberId];
     if (!member || !sessionId) { this.append(room.id, { kind: "failed", text: "This Trunk is gone", memberId: task.memberId, round: task.round, discussion: task.discussion, seen: task.seen }); return; }
     let run: Run;
+    // phase2/rooms: a turn answering a short-lived key's message is that key's work.
+    const byKey = room.events.find((e) => e.seq === task.discussion)?.byKey;
+    const start = () => this.deps.runtime.run({ prompt: task.prompt, sessionId, onStarted: (started) => this.running.set(room.id, started.id), onTextDelta: () => undefined });
     try {
-      run = await this.deps.runtime.run({ prompt: task.prompt, sessionId, onStarted: (started) => this.running.set(room.id, started.id), onTextDelta: () => undefined });
+      run = await (byKey ? underShortLivedKey(start, byKey) : start());
     } catch (error) {
       if (this.closing) return;
       this.append(room.id, { kind: "failed", text: error instanceof Error ? error.message : String(error), memberId: member.id, round: task.round, discussion: task.discussion, seen: task.seen });
