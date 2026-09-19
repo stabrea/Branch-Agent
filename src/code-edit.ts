@@ -91,8 +91,8 @@ export class CodeEditor {
 
   /**
    * Writes every planned file; a failure part-way puts the files already written back as they were.
-   * `readFirst` holds the change to the read-before-edit rule (the model's own edits and patches);
-   * a change worked out elsewhere, such as a language server's rename, is not held to it.
+   * `readFirst` holds the change to the read-before-edit rule (the model's own edits and patches,
+   * and since hardening-3 a language server's rename too).
    */
   async writeAll(
     planned: PlannedChange[],
