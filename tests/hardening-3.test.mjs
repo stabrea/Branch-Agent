@@ -201,3 +201,41 @@ test("4 read-first on: after the file is read, code.rename goes through; with th
   const plain = await off.app.runtime.run({ prompt: "rename it" });
   assert.equal(toolAnswers(off.app, plain)[0].ok, true);
 });
+
+// ------------------------------------------------------------------ 5. the malware check reads to the end
+
+/** A stand-in for OSV that always has one more page and never names malware; counts the pages. */
+function endlessOsv(malwareOnPage = null) {
+  const seen = { pages: 0 };
+  const fetcher = async () => {
+    seen.pages++;
+    const vulns = seen.pages === malwareOnPage ? [{ id: "MAL-2026-1", summary: "bad" }] : [{ id: "GHSA-1" }];
+    return new Response(JSON.stringify({ vulns, next_page_token: `p${seen.pages}` }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  return { fetcher, seen };
+}
+
+test("5 an answer longer than ten pages is 'not checked', never clean", async (t) => {
+  const { malwareAdvisories, MalwareCheck } = await import("../dist/security-audit/index.js");
+  const endless = endlessOsv();
+  await assert.rejects(malwareAdvisories({ ecosystem: "npm", name: "huge", version: null }, endless.fetcher, "https://osv.test/v1/query"),
+    /more than 10 pages .* huge was not checked/);
+  assert.equal(endless.seen.pages, 10);
+  // Malware found in what was read still refuses.
+  const listed = endlessOsv(3);
+  assert.deepEqual(await malwareAdvisories({ ecosystem: "npm", name: "huge", version: null }, listed.fetcher, "https://osv.test/v1/query"),
+    [{ id: "MAL-2026-1", summary: "bad" }]);
+  // The check before an outside server starts says so plainly, and does not keep it as a clean answer.
+  const check = new MalwareCheck({ mode: () => "on", fetch: () => endlessOsv().fetcher, endpoint: "https://osv.test/v1/query" });
+  await check.vet("npx", ["-y", "huge-mcp"]);
+  assert.match(check.status().problem, /not read to the end and huge-mcp was not checked/);
+  // Where the owner decides, it is not clean: an install request is "unchecked" and a plain yes is refused.
+  const { app } = await fixture(t);
+  app.flowsBoards.setMode("install-requests", { mode: "on" });
+  const { InstallRequests } = await import("../dist/flows-boards/install-requests.js");
+  const installs = new InstallRequests({ store: app.store, owner: app.runtime.owner, fetch: () => endlessOsv().fetcher, endpoint: "https://osv.test/v1/query" });
+  const asked = await installs.request({ kind: "package", ecosystem: "npm", name: "huge", why: "x" }, "assistant", "the assistant");
+  assert.equal(asked.check.state, "unchecked");
+  assert.match(asked.check.note, /not read to the end/);
+  await assert.rejects(installs.answer(asked.id, true), /did not give a full answer/);
+});

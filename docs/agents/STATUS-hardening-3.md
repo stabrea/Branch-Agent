@@ -7,7 +7,7 @@ Every fix has a test that was checked to fail with the fix taken out of `dist/` 
 - [x] 2. Loop guard compares cleaned arguments
 - [x] 3. Hung local model: one retry, capped first-reply wait, plain message
 - [x] 4. `code.rename` held to read-before-edit
-- [ ] 5. Malware check: over 10 pages is "not checked", not clean
+- [x] 5. Malware check: over 10 pages is "not checked", not clean
 - [ ] 6. Monthly spend includes a video still being made
 - [ ] 7. Docker: `BRANCH_BIND`
 - [ ] 8. `/account` notice shows the connection's name
@@ -153,3 +153,16 @@ Grouped by where the thing a rule is about comes from. "own" = the tool's `targe
 - Tests "4 …" (real fake language server, scripted model): refused unread with a sentence about reading, file
   unchanged; goes through after `files.read`; goes through with the switch off. Proved: with `settle(..., true)`
   reverted in `dist/code-change.js` the refusal test fails. `tests/code-ide.test.mjs` (rename tests) still pass.
+
+## 5. Malware check: more than 10 pages is "not checked"
+- `malwareAdvisories` (src/security-audit/malware-check.ts) returned what it had after 10 pages even with more to
+  come, so a package with a long answer was counted clean. Now, unless a `MAL-` advisory was found in what was read,
+  it throws "the list of harmful packages had more than 10 pages of answers about X, so it was not read to the end and
+  X was not checked". Both callers already treat a throw as not checked: the server-start check (`MalwareCheck`) keeps
+  the reason for the Settings card and does not cache it as clean (the server still starts, as for any failed
+  lookup — documented fail-open); an install request (src/flows-boards/install-requests.ts), where the owner's
+  decision matters, is `unchecked` and a plain yes is refused ("could not be asked, or did not give a full answer").
+- Docs: docs/configuration.md security-check paragraph.
+- Test "5 …": 10 pages read then refused as unchecked; malware on page 3 of an endless answer still found; the card's
+  problem text; the install request is `unchecked` and a plain yes rejected. Proved: with the throw removed in
+  `dist/`, it fails. `tests/security-malware.test.mjs`, `flows-boards*.test.mjs` still pass.
