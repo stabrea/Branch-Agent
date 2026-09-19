@@ -437,7 +437,7 @@ const brokenStates = [
   { id: "the-settings-are-not-valid-json", must: "started",
     make: async ({ dataDir }) => { await writeFile(join(dataDir, "gateway.json"), "{ half a settings file,,,"); } },
   { id: "the-note-about-what-is-running-is-rubbish", must: "started",
-    make: async ({ dataDir }) => { await writeFile(join(dataDir, "running.json"), "  not json"); } },
+    make: async ({ dataDir }) => { await writeFile(join(dataDir, "running.json"), "\x00\x00not json"); } },
   { id: "the-note-about-the-last-update-is-rubbish", must: "started",
     make: async ({ dataDir }) => { await writeFile(join(dataDir, "update-watch.json"), "{"); } },
   { id: "the-device-key-was-cut-off-half-written", must: "started",
@@ -793,7 +793,7 @@ test(`a second Branch on the same folder refuses cleanly and the first keeps wor
 const extraStates = [
   { id: "deleted", seen: true, make: async (path) => { await rm(path, { force: true }); } },
   { id: "half-downloaded", seen: true, make: async (path) => { await writeFile(path, ""); await chmod(path, 0o755); } },
-  { id: "corrupted", seen: false, make: async (path) => { await writeFile(path, "  broken"); await chmod(path, 0o755); } },
+  { id: "corrupted", seen: false, make: async (path) => { await writeFile(path, "\x00\x00broken"); await chmod(path, 0o755); } },
 ];
 
 test(`a fetched extra that is missing or half-there says why, and Branch still starts (${extraStates.length} states x ${seeds} seeds)`, async (t) => {

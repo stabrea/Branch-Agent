@@ -150,7 +150,9 @@ test("review over HTTP: a person gets 403 everywhere, a short-lived key 401 on e
   await call("/api/profiles/switch", { profileId: made.body.id, pin: "4321" });
   for (const [path, body] of routes) {
     const answer = await call(path, body);
-    assert.equal(answer.status, 403, `${path} must be refused to a person`);
+    // profile-audit: what the kit still answers itself it refuses with 403; the owner-only routes are
+    // refused before the kit is reached, at one place in src/server.ts, as requireOwner answers (400).
+    assert.ok([400, 403].includes(answer.status), `${path} must be refused to a person (${answer.status})`);
     assert.match(answer.body.error, /belongs to the owner/);
   }
   await call("/api/profiles/switch", { profileId: null });

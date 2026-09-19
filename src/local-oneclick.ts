@@ -307,7 +307,7 @@ export class OneClick {
    * (where from, how big, how it is checked), and a small, a middle and a large model sized for
    * this computer. The owner reads this, then presses again with the plan's own line to agree.
    */
-  async buttonPlan(input: unknown, context: PressContext = {}): Promise<OneButtonView> {
+  async buttonPlan(input: unknown, context: PressContext): Promise<OneButtonView> {
     ButtonPlanSchema.parse(input ?? {});
     const refusal = installGuard(this.deps.store, this.deps.owner, context);
     const runner = ((input as { runner?: InstallableRunner } | null)?.runner) ?? await this.pickInstallable();
@@ -340,7 +340,7 @@ export class OneClick {
    * and only after saying so — then checks the program really arrived, and hands straight over to
    * the ordinary setup, which downloads the model, loads it, asks it one question and connects it.
    */
-  async buttonGo(input: unknown, context: PressContext = {}): Promise<OneButtonAnswer> {
+  async buttonGo(input: unknown, context: PressContext): Promise<OneButtonAnswer> {
     const wanted = ButtonGoSchema.parse(input ?? {});
     const refusal = installGuard(this.deps.store, this.deps.owner, context);
     if (refusal) throw new Error(refusal);

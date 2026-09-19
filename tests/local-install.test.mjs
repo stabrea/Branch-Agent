@@ -27,10 +27,13 @@ import {
 } from "../dist/local-install.js";
 import {
   installChatRefusal, installGuard, installLockdownRefusal, installOffRefusal, installShortLivedRefusal,
-  installTrunkRefusal, oneButtonMode, saveOneButtonMode, sizeChoices,
+  installPersonRefusal, installTrunkRefusal, oneButtonMode, saveOneButtonMode, sizeChoices,
 } from "../dist/local-one-button.js";
+import { localModelsApi } from "../dist/local-models-api.js";
 
 const GB = 1024 ** 3;
+/** The owner in the app window, as the server hands it to the one button. */
+const owner = { source: "owner", person: null, shortLivedKey: false };
 const at = {
   darwin: { platform: "darwin", arch: "arm64", home: "/Users/sam", env: { PATH: "/usr/bin" } },
   linux: { platform: "linux", arch: "x64", home: "/home/sam", env: { PATH: "/usr/bin" } },
@@ -419,6 +422,47 @@ test("I9 it is the owner's alone: a chat, a key, another computer, a Trunk and a
   assert.equal(installGuard(w.store, "owner", {}), null, "the owner in the app window may");
 });
 
+test("I9b the guard itself refuses every caller but the owner, from what the caller hands in", async (t) => {
+  // Called directly, with no request marks at all: these would fail if only the server blocked them.
+  const w = await world(t);
+  const callers = {
+    "a household profile": [{ ...owner, person: "profile-kid" }, installPersonRefusal],
+    "a short-lived key": [{ ...owner, shortLivedKey: true }, installShortLivedRefusal],
+    "a chat app": [{ source: "channel" }, installChatRefusal],
+    "a Trunk": [{ source: "owner", trunkKeys: { id: "trunk-1" } }, installTrunkRefusal],
+  };
+  assert.equal(installGuard(w.store, "owner", owner), null, "the owner may");
+  for (const [who, [context, refusal]] of Object.entries(callers))
+    assert.equal(installGuard(w.store, "owner", context), refusal, who);
+  setLockdown(w.store, "owner", { on: true });
+  for (const context of [owner, ...Object.values(callers).map(([one]) => one)])
+    assert.equal(installGuard(w.store, "owner", context), installLockdownRefusal, "Lockdown refuses everyone, the owner too");
+});
+
+test("I9c both routes hand the caller to the guard and refuse in the same words", async (t) => {
+  const w = await world(t, { programs: [] });
+  const call = (caller, path, body = {}) => localModelsApi(
+    { runtimes: {}, store: w.store, models: null, owner: "owner", kit: { oneClick: w.oneClick }, caller },
+    "POST", path, async () => body);
+  const callers = [
+    [{ ...owner, person: "profile-kid" }, installPersonRefusal],
+    [{ ...owner, shortLivedKey: true }, installShortLivedRefusal],
+    [{ source: "channel" }, installChatRefusal],
+    [{ source: "owner", trunkKeys: { id: "trunk-1" } }, installTrunkRefusal],
+  ];
+  for (const [caller, refusal] of callers) {
+    assert.equal((await call(caller, "/api/local-models/one-button/plan")).refusal, refusal);
+    await assert.rejects(call(caller, "/api/local-models/one-button", { size: "small" }), { message: refusal });
+  }
+  assert.equal((await call(owner, "/api/local-models/one-button/plan")).refusal, null, "the owner is not refused");
+  setLockdown(w.store, "owner", { on: true });
+  for (const caller of [owner, ...callers.map(([one]) => one)]) {
+    assert.equal((await call(caller, "/api/local-models/one-button/plan")).refusal, installLockdownRefusal);
+    await assert.rejects(call(caller, "/api/local-models/one-button", { size: "small" }), { message: installLockdownRefusal });
+  }
+  assert.deepEqual(w.ran, [], "nothing was ever run");
+});
+
 test("I10 three sizes are offered, all able to use tools, with plain words and a suggestion", () => {
   const roomy = sizeChoices(room({ freeMemoryBytes: 40 * GB, totalMemoryBytes: 64 * GB }), "ollama");
   assert.equal(roomy.choices.length, 3);
@@ -440,19 +484,19 @@ test("I10 three sizes are offered, all able to use tools, with plain words and a
 
 test("I11 the button installs nothing until the owner agrees to the exact plan it showed", async (t) => {
   const w = await world(t);
-  const view = await w.oneClick.buttonPlan({});
+  const view = await w.oneClick.buttonPlan({}, owner);
   assert.equal(view.runner, "ollama");
   assert.equal(view.alreadyInstalled, false);
   assert.equal(view.install.via, "download", "no Homebrew in this stand-in world");
   assert.equal(view.refusal, null);
   assert.equal(view.choices.length, 3);
 
-  const asked = await w.oneClick.buttonGo({ size: "small" });
+  const asked = await w.oneClick.buttonGo({ size: "small" }, owner);
   assert.equal(asked.needsAgreement.fingerprint, view.install.fingerprint);
   assert.match(asked.message, /press the button again/);
   assert.deepEqual(w.ran, [], "nothing at all was run");
 
-  const stale = await w.oneClick.buttonGo({ size: "small", agreedPlan: "0".repeat(32) });
+  const stale = await w.oneClick.buttonGo({ size: "small", agreedPlan: "0".repeat(32) }, owner);
   assert.match(stale.message, /has changed since you looked/);
   assert.deepEqual(w.ran, []);
 });
@@ -465,8 +509,8 @@ test("I12 after installing, Branch checks the program really arrived rather than
     ? new Response(`${sum}  ./Ollama-darwin.zip\n`)
     : new Response(body, { headers: { "content-length": String(body.length) } });
   const w = await world(t, { programs: [], library });
-  const view = await w.oneClick.buttonPlan({});
-  await assert.rejects(w.oneClick.buttonGo({ size: "small", agreedPlan: view.install.fingerprint }),
+  const view = await w.oneClick.buttonPlan({}, owner);
+  await assert.rejects(w.oneClick.buttonGo({ size: "small", agreedPlan: view.install.fingerprint }, owner),
     /still is not on this computer/, "a half-install is never called a success");
   const scratch = join(w.root, "data", "local-installers");
   const runner = join(w.root, "data", "runners", "ollama");
@@ -513,10 +557,10 @@ test("I12b a program macOS does not accept is never unpacked into Branch", async
 
 test("I13 with the program already there the button goes straight to the model, and says so", async (t) => {
   const w = await world(t, { programs: ["/opt/homebrew/bin/ollama"] });
-  const view = await w.oneClick.buttonPlan({});
+  const view = await w.oneClick.buttonPlan({}, owner);
   assert.equal(view.alreadyInstalled, true);
   assert.equal(view.install, null, "nothing would be installed, so nothing is proposed");
-  const answer = await w.oneClick.buttonGo({ size: "small" });
+  const answer = await w.oneClick.buttonGo({ size: "small" }, owner);
   assert.equal(answer.runner, "ollama");
   assert.ok(answer.chose, "it chose a size");
   assert.match(answer.message, /Setting up/);
@@ -528,7 +572,7 @@ test("I13b the size on the screen is the one sentence the server worked out", as
   // to download" and a 190 MB one read "0.2 GB". The sentence the server already writes is the one
   // shown, and it picks the unit that fits.
   const w = await world(t, { programs: [] });
-  const view = await w.oneClick.buttonPlan({});
+  const view = await w.oneClick.buttonPlan({}, owner);
   assert.ok(view.install, "a Mac with no Homebrew is offered the download");
   assert.equal(view.downloadNote, `${planSize(view.install)} from ${view.install.source}.`);
   assert.match(view.downloadNote, /^about 190 MB from https:\/\/github\.com\//);

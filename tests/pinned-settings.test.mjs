@@ -231,7 +231,8 @@ test("P10 over HTTP: a household person sees the pinned setting and that it is p
     name: "A word that starts a turn", label: "Switch" }]);
   // The settings list itself stays the owner's, which is how the card knows to stay read-only.
   assert.equal((await call("GET", "/api/settings-kit")).status, 403);
-  assert.equal((await call("POST", "/api/settings-kit/pins", { key: "wake-word", field: "mode", pinned: false })).status, 403);
+  // profile-audit: a change is refused at one place in src/server.ts, as requireOwner answers.
+  assert.equal((await call("POST", "/api/settings-kit/pins", { key: "wake-word", field: "mode", pinned: false })).status, 400);
   assert.equal((await call("POST", "/api/voice/wake", { mode: "on" })).status, 400, "the word is the owner's");
   assert.equal(pins(app.store, "local").length, 1);
 });

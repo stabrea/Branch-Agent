@@ -72,13 +72,30 @@ export const installPersonRefusal =
 export const installStartedElsewhereRefusal =
   "Only work you started yourself may install a program on this computer. A schedule, a trigger or another AI tool cannot.";
 
-export interface PressContext { source?: string | undefined; runId?: string | undefined; trunkKeys?: unknown }
+/**
+ * Who pressed it. Every route and tool that reaches the button says so here, so the guard decides
+ * from what the caller handed in and does not lean on a block somewhere upstream.
+ * - `source`: "owner" for the owner's own app window; "channel" for a chat app; "schedule",
+ *   "trigger", "mcp" and the rest for work that started on its own.
+ * - `person`: the household profile using the app (the window's profile switch or a person's own
+ *   key); null or absent for the owner.
+ * - `shortLivedKey`: the request came with a short-lived key, which is also how another computer
+ *   reaches this one.
+ * - `trunkKeys`: set when a Trunk is asking.
+ */
+export interface PressContext {
+  source?: string | undefined;
+  runId?: string | undefined;
+  trunkKeys?: unknown;
+  person?: string | null | undefined;
+  shortLivedKey?: boolean | undefined;
+}
 type Events = { events(runId: string): { kind: string; data: Record<string, unknown> }[] };
 
 /** Why this caller may not install a program, or null. Checked before anything is fetched or run. */
 export function installGuard(
   store: Pick<Store, "get"> & Partial<Events>, owner: string, context: PressContext,
-  person: string | null = currentPerson()?.profileId ?? null,
+  person?: string | null,
 ): string | null {
   if (lockdownActive(store, owner)) return installLockdownRefusal;
   if (oneButtonMode(store, owner) === "off") return installOffRefusal;
@@ -93,14 +110,16 @@ export function installGuard(
  */
 export function callerGuard(
   store: Pick<Store, "get"> & Partial<Events>, context: PressContext,
-  person: string | null = currentPerson()?.profileId ?? null,
+  person?: string | null,
 ): string | null {
   const events = store as unknown as Events;
   const origin = context.runId && typeof events.events === "function" ? runOrigin(events, context.runId) : null;
-  if (startedWithShortLivedKey() || origin?.shortLivedKey) return installShortLivedRefusal;
+  // Whichever says "somebody else" wins: what the caller handed in, or what the request carries.
+  const who = person ?? context.person ?? currentPerson()?.profileId ?? null;
+  if (context.shortLivedKey || startedWithShortLivedKey() || origin?.shortLivedKey) return installShortLivedRefusal;
   if (typeof events.events === "function" && startedFromChat(context, events)) return installChatRefusal;
   if (context.trunkKeys) return installTrunkRefusal;
-  if (person || origin?.personProfileId || origin?.lentTo) return installPersonRefusal;
+  if (who || origin?.personProfileId || origin?.lentTo) return installPersonRefusal;
   if ((context.source ?? "owner") !== "owner" || (origin && origin.source !== "owner")) return installStartedElsewhereRefusal;
   return null;
 }
