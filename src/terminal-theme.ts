@@ -71,7 +71,8 @@ export function over(value: string | undefined, under: Rgb): Rgb {
 export function paletteFor(
   table: ThemeCatalogue, themeId: string, mode: LookMode, contrast: "standard" | "more" = "standard",
 ): TerminalPalette {
-  const theme = table.THEMES.find((entry) => entry[0] === themeId) ?? table.THEMES[0]!;
+  const theme = table.THEMES.find((entry) => entry[0] === themeId)
+    ?? table.THEMES.find((entry) => entry[0] === DEFAULT_THEME) ?? table.THEMES[0]!;
   const values = theme[3][`${mode}${contrast === "more" ? "-more" : ""}`] ?? theme[3][mode]!;
   const token = (name: string): string | undefined => values[table.TOKEN_NAMES.indexOf(name)];
   const ground = over(token("--ground"), mode === "dark" ? [0, 0, 0] : [255, 255, 255]);
@@ -208,9 +209,11 @@ export function terminalMode(env: NodeJS.ProcessEnv): LookMode | undefined {
  * the window can tell whether the terminal changed them since it last looked.
  */
 export const THEME_ID = /^[a-z0-9-]{1,40}$/;
+/* Redesign phase 1 (owner decision): a new install wears Slate. Forest and the rest stay. The window's
+   copy of this name is DEFAULT_THEME in public/theme-bridge.js. */
+export const DEFAULT_THEME = "slate";
 export const LookSchema = z.object({
-  /* Redesign phase 1 (owner decision): a new install wears Slate. Forest and the rest stay. */
-  theme: z.string().regex(THEME_ID).default("slate"),
+  theme: z.string().regex(THEME_ID).default(DEFAULT_THEME),
   contrast: z.enum(["standard", "more"]).default("standard"),
   language: z.enum(["auto", "en", "fr"]).default("auto"),
   changedAt: z.string().max(40).default(""),

@@ -82,7 +82,7 @@ test("every one of the 44 themes gives a full terminal palette in light and dark
   const forest = paletteFor(table, "forest", "dark");
   assert.deepEqual(forest.ground, [3, 20, 11], "Forest's ground is the window's #03140B");
   assert.deepEqual(forest.accent, [224, 112, 51], "copper is the window's #E07033");
-  assert.equal(paletteFor(table, "no-such-theme", "dark").theme, "forest", "an unknown theme falls back to the first");
+  assert.equal(paletteFor(table, "no-such-theme", "dark").theme, "slate", "an unknown theme falls back to the default, Slate (redesign phase 1)");
 });
 
 test("colours are written for each depth, and see-through colours are laid over the ground", () => {

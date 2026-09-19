@@ -46,7 +46,7 @@ export const androidColour = (hex) => `#FF${opaque(hex).slice(1)}`;
  * The native palette for one theme in one mode: { ground, text, muted, … } as #RRGGBB, plus
  * `statusBar` ("light" text on a dark ground, "dark" on a light one).
  */
-export function nativePalette(catalogue, themeId = "forest", mode = "dark") {
+export function nativePalette(catalogue, themeId = "slate", mode = "dark") {
   const { THEMES, TOKEN_NAMES } = catalogue;
   const theme = THEMES.find((entry) => entry[0] === themeId) ?? THEMES[0];
   const values = theme[3][mode === "light" ? "light" : "dark"];
@@ -59,5 +59,5 @@ export function nativePalette(catalogue, themeId = "forest", mode = "dark") {
 }
 
 /** Both modes at once, which is what a build-time file (splash, launch colour) needs. */
-export const nativePalettes = (catalogue, themeId = "forest") =>
+export const nativePalettes = (catalogue, themeId = "slate") =>
   ({ dark: nativePalette(catalogue, themeId, "dark"), light: nativePalette(catalogue, themeId, "light") });

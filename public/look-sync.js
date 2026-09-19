@@ -23,6 +23,7 @@ async function api(body) {
   return response.json();
 }
 const html = document.documentElement;
+const chosenHere = () => { try { return Boolean(localStorage.getItem("branch-palette")); } catch { return false; } };
 const contrastBox = () => document.getElementById("lx-contrast");
 
 /** Chooses what the terminal chose, through the same controls a person would use. */
@@ -36,6 +37,9 @@ function adopt(look) {
 async function pull() {
   const look = await api();
   if (look.changedBy === "terminal" && look.changedAt > remember.get()) adopt(look);
+  /* A window that has never been given a theme of its own wears the one the workspace wrote down, so
+     somebody who chose Forest before Slate became the default keeps Forest. */
+  else if (look.changedAt && !chosenHere() && html.dataset.palette !== look.theme) adopt(look);
   else if (!look.changedAt && html.dataset.palette && html.dataset.palette !== look.theme) await push({ theme: html.dataset.palette });
   remember.set(look.changedAt);
 }

@@ -107,7 +107,9 @@ function applyLook() {
 }
 function setLook(patch) {
   Object.assign(look, patch);
-  store.set("branch-palette", look.family === DEFAULT_THEME ? null : look.family);
+  /* A picked theme is written down even when it is the default, so a later change of default never
+     takes it away (redesign phase 1: Slate became the default; a chosen Forest stays Forest). */
+  if (patch.family) store.set("branch-palette", patch.family);
   store.set("branch-season", look.season || null);
   store.set("branch-contrast", look.contrast === "more" ? "more" : null);
   applyLook();

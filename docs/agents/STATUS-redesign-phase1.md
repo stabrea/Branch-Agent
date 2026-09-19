@@ -1,6 +1,6 @@
 # Redesign phase 1: status
 
-Branch `mac7/redesign-phase1`, worktree `/Volumes/512GB SSD/branch-wt/redesign-phase1`, cut from
+Branch `mac7/redesign-phase1`, worktree `C:/Users/bishi/Code/wt/redesign-phase1` (Legion; earlier `/Volumes/512GB SSD/branch-wt/redesign-phase1` on the Mac), cut from
 `mac/cross-platform` at 926eb454 (0.18.1). Not merged: an integrator merges it.
 
 Design sample: `~/Library/Caches/claude-session-files/branch-grown-up/index.html` (parts in `parts/`),
@@ -13,7 +13,7 @@ bars and update cards, #56 Slate, #20 mode picker, #29 glass dropdowns and toolt
 |---|---|---|
 | 1 | Usage ring + "What each connection has left" popover; 95% save-progress prompt | not started |
 | 2 | Suggestion bars (background, updates), quit-while-needed warning, Updates choice cards | not started |
-| 3 | Default theme Slate | not started |
+| 3 | Default theme Slate | [x] done: default slate (window, terminal, phone fallbacks); a picked theme is always written down; a Forest the shared record holds is adopted by a window with no choice of its own; tests in tests/redesign-phase1.test.mjs |
 | 4 | Permission-mode chip in the composer | not started |
 | 5 | Glass dropdown replacing native selects; icon-button tooltips | not started |
 

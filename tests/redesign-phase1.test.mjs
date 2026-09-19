@@ -58,3 +58,21 @@ test("a new window wears Slate, and a picked Forest is remembered over the new d
   assert.equal(await f.page.evaluate(() => document.documentElement.dataset.palette), "forest");
   assert.deepEqual(f.errors, []);
 });
+
+test("a Forest the workspace wrote down before Slate became the default is kept, not replaced", async (t) => {
+  const f = await fixture(t);
+  assert.equal(await f.page.evaluate(() => localStorage.getItem("branch-palette")), null, "nothing chosen, nothing written");
+  // What an older copy left behind: the choice in the shared record, nothing in this browser.
+  await f.call("/api/look", { theme: "forest", changedBy: "window" });
+  await f.page.reload();
+  await f.page.locator("body.lx-ready").waitFor({ state: "attached" });
+  await f.page.waitForFunction(() => document.documentElement.dataset.palette === "forest");
+  assert.equal(await f.page.evaluate(() => localStorage.getItem("branch-palette")), "forest");
+  assert.equal((await f.call("/api/look")).theme, "forest");
+  assert.deepEqual(f.errors, []);
+});
+
+test("dark mode is its own setting and does not move with the new default palette", async () => {
+  const { PreferencesSchema } = await import("../dist/preferences.js");
+  assert.equal(PreferencesSchema.parse({}).appearance, "forest", "the stored light-or-dark choice still means dark");
+});
