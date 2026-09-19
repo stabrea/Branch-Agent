@@ -154,7 +154,12 @@ Found and fixed:
   repository folder when no file is named; a knowledge source of kind folder), and a path rule that asks or refuses
   about a folder that could lie inside it counts (`innerFolderRule`, src/policy-targets.ts); the refusal names the
   inner folder. An allow for an inner folder never lets the whole folder through; a read-only folder still lets a
-  diff through and stops a commit. `knowledge.add` now declares its target for this.
+  diff through and stops a commit. `knowledge.add` now declares its target for this. A plain folder name is a whole
+  name ("fin" is not inside "finance"); a pattern with `*` counts when its fixed start could lead inside.
+  **Visible change beyond the builder's**: an owner with any rule that refuses (or asks about) a folder now gets
+  that refusal (or question) for the git tools on the whole workspace — `folder` defaults to "." — and for a
+  knowledge base of the whole workspace, because they reach that folder. Git on a folder beside it, or naming the
+  files (`git.log path`, `git.commit paths`), is judged on those as before.
 - **Speed**: a 500-file patch took ~1.5–2.3 s per `checkPolicy`, almost all in `protectedTarget` following each path
   through the file system (each path was checked twice, as target and as `args.path`). Now once per distinct path:
   ~0.25–0.35 s on this machine. Not held by a test (a timing test would be a CI flake); measured with a probe.

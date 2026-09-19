@@ -325,6 +325,8 @@ test("integration: a whole folder holding a refused folder is refused; naming a 
   refusedNaming(judge(app, "knowledge.create", { name: "All", sources: [{ kind: "folder", path: "." }] }), "finance");
   assert.equal(judge(app, "knowledge.create", { name: "One", sources: [{ kind: "file", path: "notes.md" }] }).decision, "allow");
   refusedNaming(judge(app, "knowledge.add", { collection: "c", source: { kind: "folder", path: "./" } }), "finance");
+  addPolicyRule(app.store, "local", { tool: "*", match: "*", decision: "deny", remember: "always", resource: { kind: "path", pattern: "sr" } });
+  assert.equal(judge(app, "git.diff", { folder: "src" }).decision, "allow", "a folder called sr is not inside src");
 });
 
 test("integration: a read-only folder inside a repository stops saving the whole copy, not looking at it", async (t) => {

@@ -68,8 +68,11 @@ function innerFolderRule(policy: Policy, call: TargetsCall, target: ToolTarget):
 /** Whether a folder pattern ("finance", "*.csv", "fin*") can name something inside `folder` ("" is the workspace). */
 function couldBeInside(pattern: string, folder: string): boolean {
   if (folder === "" || folder === ".") return true;
-  const fixed = pattern.split("*")[0]!, within = `${folder}/`;
-  return fixed.length <= within.length ? within.startsWith(fixed) : fixed.startsWith(within);
+  const within = `${folder}/`, star = pattern.indexOf("*");
+  // A plain folder name is a whole name: "fin" is not inside "finance".
+  if (star < 0) return `${pattern}/`.startsWith(within) || within.startsWith(`${pattern}/`);
+  const fixed = pattern.slice(0, star);
+  return within.startsWith(fixed) || fixed.startsWith(within);
 }
 
 const verbs: Record<ToolTarget["kind"], string> = { read: "read", write: "change", delete: "delete" };
