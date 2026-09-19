@@ -40,10 +40,14 @@ export interface IdentityDeps {
 
 export interface IdentityReport { updated: string[]; displayIcon: boolean }
 
-/** The Start-menu and desktop shortcuts the installer makes (src/install/install-cli.ts). */
+/**
+ * The Start-menu and desktop shortcuts the installer makes (src/install/install-cli.ts), and the one
+ * Windows makes when a person pins Branch to the taskbar, which keeps its own copy of the icon.
+ */
 export function shortcutPaths(env: NodeJS.ProcessEnv): string[] {
   const appData = env.APPDATA ?? join(env.USERPROFILE ?? "C:\\Users\\Default", "AppData", "Roaming");
-  const paths = [join(appData, "Microsoft", "Windows", "Start Menu", "Programs", shortcutName)];
+  const paths = [join(appData, "Microsoft", "Windows", "Start Menu", "Programs", shortcutName),
+    join(appData, "Microsoft", "Internet Explorer", "Quick Launch", "User Pinned", "TaskBar", shortcutName)];
   if (env.USERPROFILE) paths.push(join(env.USERPROFILE, "Desktop", shortcutName));
   return paths;
 }

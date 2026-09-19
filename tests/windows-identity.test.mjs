@@ -14,12 +14,14 @@ const root = "C:\\Users\\p\\AppData\\Local\\Programs\\Branch Agent";
 const exe = join(root, "Branch Agent.exe");
 const ico = join(root, shippedIconPath);
 const env = { APPDATA: "C:\\Users\\p\\AppData\\Roaming", USERPROFILE: "C:\\Users\\p" };
-const [startMenu, desktop] = shortcutPaths(env);
+const [startMenu, pinned, desktop] = shortcutPaths(env);
 
 test("the app ID is fixed: shortcuts and the running app must carry the same one, release after release", () => {
   assert.equal(windowsAppId, "KeepOak.BranchAgent");
   assert.equal(refreshShortcutsFlag, "--refresh-shortcuts");
   assert.equal(startMenu, join(env.APPDATA, "Microsoft", "Windows", "Start Menu", "Programs", "Branch Agent.lnk"));
+  assert.equal(pinned, join(env.APPDATA, "Microsoft", "Internet Explorer", "Quick Launch", "User Pinned", "TaskBar", "Branch Agent.lnk"),
+    "a Branch pinned to the taskbar keeps its own shortcut, and its icon, there");
   assert.equal(desktop, join(env.USERPROFILE, "Desktop", "Branch Agent.lnk"));
 });
 
@@ -53,11 +55,12 @@ function fakes({ files, shortcuts, registry }) {
 test("an update fixes the shortcuts and the Add or remove programs icon a 0.18.0 install left behind", async () => {
   const f = fakes({
     files: new Set([ico]),
-    shortcuts: { [startMenu]: { target: exe, icon: exe, iconIndex: 0 }, [desktop]: { target: exe, icon: exe, iconIndex: 0 } },
+    shortcuts: { [startMenu]: { target: exe, icon: exe, iconIndex: 0 }, [pinned]: { target: exe, icon: exe, iconIndex: 0 },
+      [desktop]: { target: exe, icon: exe, iconIndex: 0 } },
     registry: { InstallLocation: root, DisplayIcon: exe },
   });
   const report = await refreshWindowsIdentity({ installRoot: root, executableName: "Branch Agent.exe", env, hive: "HKCU\\T" }, f.deps);
-  assert.deepEqual(report, { updated: [startMenu, desktop], displayIcon: true });
+  assert.deepEqual(report, { updated: [startMenu, pinned, desktop], displayIcon: true });
   for (const [, fields] of f.written) assert.deepEqual(fields, { target: exe, appUserModelId: windowsAppId, icon: ico, iconIndex: 0 });
   assert.deepEqual(f.regWrites, [[uninstallKey("HKCU\\T"), [{ name: "DisplayIcon", type: "REG_SZ", value: ico }]]]);
 });
