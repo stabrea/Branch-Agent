@@ -22,3 +22,19 @@ bars and update cards, #56 Slate, #20 mode picker, #29 glass dropdowns and toolt
 - `npm run build`, `npx tsc --noEmit`, `node --test --test-concurrency=2 <explicit files>`.
 - Never run tests/desktop*.test.mjs or tests/screen-control.test.mjs on the Mac.
 - `dashboard-card.js` stays directly before `layout.js` in public/index.html.
+
+## State at hand-over (2026-09-19, Legion)
+
+- All five pieces built; `origin/mac/cross-platform` merged in at 2e6aa010 (no conflicts). Not merged into trunk.
+- Run on the merged commit in a separate checkout: 650 tests across every `*ui*` file (desktop excluded) and the
+  policy, household, short-lived-key, comfort, terminal, mobile, usage and new-piece suites: 645 pass, 0 fail, 5 skipped.
+- Not run (they open windows on the owner's PC): tests/desktop*.test.mjs. Three of them send a message whose
+  practice run writes a file; they now switch `newConversation` to `follow` first (like the other UI tests that are
+  about something else). Please run them on a machine where windows may open.
+- Proof pictures: `C:/Users/bishi/AppData/Local/Temp/claude-session-files/branch/redesign-shots/` (made by
+  `claude-session-files/branch/rp1/shots.mjs <worktree> <scene...>`).
+- Behaviour changes to know about: a conversation begun in the window starts on Ask first (owner setting
+  `newConversation` ask/follow under When to check with me); the update suggestion bar shows once per launch in any
+  onboarded window until answered (tests that are about something else may need `POST /api/deployment/suggestion
+  {id, answer: "never"}`); every select is dressed as a glass list (native select kept, so `selectOption` works).
+
