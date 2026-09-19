@@ -186,7 +186,7 @@ async function windowFixture(t, script = () => ({ content: "Done.", toolCalls: [
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("body.lx-ready").waitFor({ state: "attached" });
+  await page.locator("body.lx-ready").waitFor({ state: "attached", timeout: 120000 });
   return { app, server, call, page, errors };
 }
 

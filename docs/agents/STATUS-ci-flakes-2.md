@@ -67,7 +67,16 @@ condition. Also any other test that failed more than once in the last ~15 trunk 
   30 s, so a person's retry count cannot differ this way. Reproduced: old test 58/60 under load, same
   "1 !== 2".
 
+- trunk 73f73153: glass-select flush (Linux, macOS: gap -388.53; Windows: list never seen) and
+  conversation-mode arrows (Windows) are the two refresh bugs above, fixed on this branch, not yet on
+  trunk when that run went. suggestions "background engine cannot be set up" (Windows, 74 s): the
+  fixture's wait for the page to show its login or workspace timed out at 30 s; tests/places.mjs
+  already gives the window 120 s because a busy Windows runner can take over 30 s to load it. Not
+  reproduced here (0 of 40 traced runs).
+
 ## Progress
+- [x] phase-1 fixtures (suggestions, glass-select, conversation-mode, redesign-phase1) wait up to 120 s
+      for the page, as tests/places.mjs does; four files once: 52/52.
 - [x] hardening-3: the tries are counted where the runtime asks the provider (2), the server must have
       heard at least the first; the retry/fail events and the 100 ms cap are still checked. Loops
       (3 copies): old 58/60, new 60/60.
