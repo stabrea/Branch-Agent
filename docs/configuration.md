@@ -3885,15 +3885,22 @@ and one box with Send, plus New conversation, the recent conversations and Setti
 Everything else is still on the page and still works; it is reached from the **More** button in
 the title bar (asking questions first, forgetting the conversation afterwards, attaching a
 document or a picture, who should answer, the Activity/Plan/Files/Memory panel, Inbox,
-Automations, Library, Customize, Find anything, labels, Lockdown, Clear the view, Help) or it
-shows only when it matters: the side panel slides in while a task runs and away when it
-finishes, Inbox appears in the rail while something waits in it, the Projects list only when
+Automations, Library, Customize, Find anything, labels, what is allowed right now, Lockdown,
+Clear the view, Help) or it shows only when it matters: the side panel slides in while a task or
+a goal runs and away when it finishes (with any yes the conversation carries beside the work, and
+a goal's Resume and Stop), approval questions, "Your assistant needs you" and the Lockdown banner
+always show, Inbox appears in the rail while something waits in it, the Projects list only when
 there is more than one project, and a price under the box only when one is known. The window
 says the model is not connected once, as "Practice mode", and says nothing about its link to
 Branch unless that link is lost ("Branch stopped responding", with Restart). First run is one
 screen of choices (ChatGPT plan, a key, the model on this computer when Ollama or LM Studio
 answers there, or trying it without an account in one click); opening Branch at sign-in and
-reaching it from a phone are in Settings → General.
+reaching it from a phone are in Settings → General, and after the first task ever to finish one
+line under the conversation offers both (each opens its switch; "Not now" closes it, and it is not
+shown again). The calm window stands on the plain ground colour; the pixel oak behind the glass
+belongs to the full window and to Clear the view. When the link to Branch is lost, Restart in the
+desktop app starts the whole app again, and with it Branch's local server; in a browser it loads
+the page again.
 
 `showEverything` (default `false`) brings back the full window — every tab, meter and switch,
 all the time — and is kept per person with the rest of this record ("Show everything" in

@@ -1427,8 +1427,9 @@ body.lx #connection[data-state="lost"] {
   display: none;
 }
 /* The empty conversation: the question and the box together, in the middle of the pane. Once there is
-   a message the box goes back to the foot. public/shell.js keeps --composer-h at the dock's height. */
-@media (min-width: 821px) {
+   a message the box goes back to the foot. public/shell.js keeps --composer-h at the dock's height.
+   A short window keeps the box at the foot, so nothing above it can end up underneath. */
+@media (min-width: 821px) and (min-height: 600px) {
   :root:not([data-everything="on"]) body.lx #chat:has(> .welcome:not([hidden])) .composer-dock {
     top: 50%;
     bottom: auto;
@@ -1444,7 +1445,7 @@ body.lx #connection[data-state="lost"] {
     text-align: center;
   }
 }
-@media (max-width: 820px) {
+@media (max-width: 820px), (max-height: 599px) {
   :root:not([data-everything="on"]) body.lx #chat:has(> .welcome:not([hidden])) > #conversation {
     flex: 0 0 auto;
   }

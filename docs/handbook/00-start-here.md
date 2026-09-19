@@ -53,6 +53,7 @@ offers a few big choices:
 After a sign-in or a key, **Test the connection** makes one real, tool-free request and shows you the
 reply and how long it took. Nothing is added to your conversations. Then **Done, start chatting**.
 Opening Branch when you sign in, and reaching it from your phone, are switches in Settings → General.
+After your first task finishes, one line under the conversation offers both; it shows once.
 
 Now type something in the box at the bottom and press Enter. A good first request is something small
 and checkable: *"Write a file called hello.txt in my workspace saying hello, then read it back to me."*
@@ -65,8 +66,8 @@ You will see the answer, and a quiet row saying which tools it used.
 | The rail on the left | **New conversation**, your recent conversations, and **Settings** at the foot. **Inbox** appears here while something is waiting for you. |
 | The middle column | The question **What do you want done?**, then the conversation itself: what you asked and what it answered. |
 | The box at the bottom | Where you type, and **Send**. |
-| **More**, top right | Everything else, in plain words: ask me questions first, forget this conversation afterwards, attach a document or a picture, who should answer, the Activity, Plan, Files and Memory panel, Inbox, Automations, Library, Customize, Find anything, labels, Lockdown, Clear the view and Help. |
-| The pane on the right | Slides in by itself while a task is running and shows what is running; it goes away when the task finishes. |
+| **More**, top right | Everything else, in plain words: ask me questions first, forget this conversation afterwards, attach a document or a picture, who should answer, the Activity, Plan, Files and Memory panel, Inbox, Automations, Library, Customize, Find anything, labels, what is allowed right now, Lockdown, Clear the view and Help. |
+| The pane on the right | Slides in by itself while a task or a goal is running and shows what is running, anything you have said yes to for this conversation, and a goal's Resume and Stop; it goes away when the work finishes. |
 
 That calm window is the default. If you would rather see every tab, meter and switch all the time,
 turn on **Show everything** in Settings → Appearance (or at the foot of the More menu). The rest of
