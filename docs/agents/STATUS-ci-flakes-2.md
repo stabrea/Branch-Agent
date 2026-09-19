@@ -42,5 +42,13 @@ condition. Also any other test that failed more than once in the last ~15 trunk 
 - [x] Nostr: `nip04Decrypt` decodes UTF-8 strictly (noise is refused); test checks 2000 fresh IVs never
       give the message back or U+FFFD text (fails before). 0 / 20000 wrong-key decrypts return now.
 - [x] ai-comments: 400 ms quiet time (the watcher's default), waits 2 quiet times before asserting one task.
-- [ ] loops before/after
+- [x] voice test: the close listener is added when the client is made. Added only at the end, it hung
+      when the server had already ended the socket itself (task's 4 s passed): 3 of 3 loop copies hung
+      under load; proved with maxMs 50 (old: hangs, new: passes).
+- [x] loops, single test by name, 3 copies of each kind at once (machine loaded):
+      before (cc212bf5): ai-comments 75/75, voice client 75/75, IRC SASL 75/75 — none reproduced here;
+      the causes were shown instead by the scratch reproductions above (store close: throws every time;
+      IRC line order: JOIN before the SASL token every time; NIP-04: 67 / 20000 wrong-key decrypts returned).
+      after: ai-comments 75/75, all IRC tests 75/75 + 45/45, NIP-04 75/75 (2000 wrong keys each),
+      all run-socket voice tests 75/75 (after the close-listener fix).
 - [ ] merge into trunk
