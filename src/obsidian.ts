@@ -136,6 +136,12 @@ export function untouched(text: string): boolean {
 }
 
 export class ObsidianBridge {
+  /**
+   * mac7/walk-rules: for a notes folder inside the workspace, whether the owner's rules let this task
+   * read a note (or go into a folder) there, by its full address. Set at start-up; outside the
+   * workspace the rules, which are about the workspace's folders, have nothing to say.
+   */
+  readRules: () => (absolute: string, folder: boolean) => boolean = () => () => true;
   constructor(private readonly store: Store, private readonly owner: string) {}
   private settings(): ObsidianSettings {
     const value = obsidianSettings(this.store, this.owner);
@@ -172,13 +178,16 @@ export class ObsidianBridge {
     const { vault } = this.settings();
     const root = await insideVault(vault, ".");
     const found: { path: string; title: string; text: string }[] = [];
-    await walk(root, root, found, limit);
+    await walk(root, root, found, limit, this.readRules());
     return found;
   }
 }
 
 /** Walks the vault, never following a shortcut out of it, collecting only the tagged notes. */
-async function walk(root: string, at: string, found: { path: string; title: string; text: string }[], limit: number): Promise<void> {
+async function walk(
+  root: string, at: string, found: { path: string; title: string; text: string }[], limit: number,
+  may: (absolute: string, folder: boolean) => boolean,
+): Promise<void> {
   if (found.length >= limit) return;
   const entries = await readdir(at, { withFileTypes: true }).catch(() => []);
   for (const entry of entries) {
@@ -188,8 +197,8 @@ async function walk(root: string, at: string, found: { path: string; title: stri
     /* A folder or file reached through a shortcut is refused, exactly as a write would be. */
     const real = await insideVault(root, relative(root, here)).catch(() => null);
     if (!real) continue;
-    if (entry.isDirectory()) { await walk(root, real, found, limit); continue; }
-    if (!entry.name.endsWith(".md")) continue;
+    if (entry.isDirectory()) { if (may(real, true)) await walk(root, real, found, limit, may); continue; }
+    if (!entry.name.endsWith(".md") || !may(real, false)) continue;
     const text = await readFile(real, "utf8").catch(() => "");
     if (!/(^|\s)#branch(\s|$)/m.test(text)) continue;
     found.push({ path: real, title: entry.name.replace(/\.md$/, ""), text: text.slice(0, 200_000) });

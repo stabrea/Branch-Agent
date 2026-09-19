@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { WalkRules } from "./walk-rules.js"; // mac7/walk-rules
 import { readFile, writeFile, mkdir, readdir, lstat, rm } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
@@ -93,11 +94,16 @@ export class WorkspaceHistory {
     await writeFile(target, content, { mode: 0o600 });
     return { path, bytes: content.length, restored: true };
   }
-  /** Records every readable workspace file (bounded) under one snapshot id. */
-  async snapshot(input: unknown): Promise<Snapshot> {
+  /**
+   * Records every readable workspace file (bounded) under one snapshot id. mac7/walk-rules: a snapshot
+   * a task takes leaves out what the owner's rules keep that task out of, and says so; one the owner
+   * takes from the window keeps everything, as before (it stays on this computer).
+   */
+  async snapshot(input: unknown): Promise<Snapshot & { leftOut?: string }> {
     const { label } = z.object({ label: z.string().trim().min(1).max(120).default("Snapshot") }).strict().parse(input ?? {});
     const id = randomUUID(); let files = 0, bytes = 0;
-    for (const path of await this.walk()) {
+    const rules = new WalkRules(this.files.walkRules());
+    for (const path of await this.walk(this.files.root, [], rules)) {
       const content = await readFile(join(this.files.root, path));
       if (content.length > snapshotLimits.fileBytes) continue;
       if (files >= snapshotLimits.files || bytes + content.length > snapshotLimits.totalBytes) throw new Error(`The workspace is too large to snapshot (limit ${snapshotLimits.files} files, ${snapshotLimits.totalBytes / 1048576} MB)`);
@@ -105,7 +111,7 @@ export class WorkspaceHistory {
     }
     const snapshot: Snapshot = { id, label, files, bytes, createdAt: new Date().toISOString() };
     this.db.prepare("INSERT INTO workspace_snapshots VALUES(?,?,?,?,?,?)").run(id, this.owner, label, files, bytes, snapshot.createdAt);
-    return snapshot;
+    return rules.noted(snapshot);
   }
   snapshots(): Snapshot[] {
     return this.db.prepare("SELECT * FROM workspace_snapshots WHERE owner=? ORDER BY created_at DESC LIMIT 50").all(this.owner)
@@ -203,12 +209,12 @@ export class WorkspaceHistory {
     await writeFile(target, Buffer.from(String(row.content), "base64"), { mode: 0o600 });
   }
 
-  private async walk(dir = this.files.root, out: string[] = []): Promise<string[]> {
+  private async walk(dir: string, out: string[], rules: WalkRules): Promise<string[]> {
     for (const entry of await readdir(dir, { withFileTypes: true })) {
       const full = join(dir, entry.name), rel = relative(this.files.root, full).split("\\").join("/");
       if (secretName.test(entry.name)) continue;
-      if (entry.isDirectory()) { if (!skipDirs.has(entry.name)) await this.walk(full, out); continue; }
-      if (entry.isFile() && !(await lstat(full)).isSymbolicLink()) out.push(rel);
+      if (entry.isDirectory()) { if (!skipDirs.has(entry.name) && rules.folder(rel)) await this.walk(full, out, rules); continue; }
+      if (entry.isFile() && !(await lstat(full)).isSymbolicLink() && rules.file(rel)) out.push(rel);
       if (out.length > snapshotLimits.files) break;
     }
     return out;

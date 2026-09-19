@@ -1,4 +1,5 @@
 import { lstatSync } from "node:fs";
+import { WalkRules } from "../walk-rules.js"; // mac7/walk-rules
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
@@ -43,7 +44,10 @@ async function readSmall(files: WorkspaceFiles, name: string): Promise<string> {
 
 /** What the project's own files say about it, read only through the workspace's checks. */
 export async function projectFacts(files: WorkspaceFiles): Promise<Facts> {
-  const entries = await readdir(files.base, { withFileTypes: true }).catch(() => []);
+  // mac7/walk-rules: a folder or file the owner's rules keep this task out of is neither named nor read.
+  const rules = new WalkRules(files.walkRules());
+  const entries = (await readdir(files.base, { withFileTypes: true }).catch(() => []))
+    .filter((entry) => (entry.isDirectory() ? rules.folder(entry.name) : rules.file(entry.name)));
   const names = new Set(entries.map((entry) => entry.name));
   const folders = entries.filter((entry) => entry.isDirectory() && !entry.name.startsWith(".") && entry.name !== "node_modules")
     .map((entry) => entry.name).sort().slice(0, 20);

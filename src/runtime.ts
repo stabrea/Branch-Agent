@@ -3,6 +3,7 @@ import { currentAccountCall, withAccountCall } from "./accounts/context.js"; // 
 import { lockdownActive, lockdownToolRefusal, lowersRiskOnly } from "./lockdown.js"; // mac7/lockdown-fix
 import { isSignInConnection, trunkCandidates, trunkSignInRefusal } from "./accounts/trunk-guard.js"; // mac7/lockdown-fix
 import { protectedAreas, protectedTarget, cwdOf, type ProtectedAreas } from "./never-break/protected.js"; // mac3/never-break
+import { unreadable, unreadableInside } from "./never-break/protected.js"; // mac7/walk-rules
 import { noJournal, type JournalHook } from "./never-break/journal.js"; // mac3/never-break
 import { neverBreakModeSync } from "./never-break/gateway-config.js"; // mac3/never-break
 import { runOrigin, shortLivedKeyMark, startedWithShortLivedKey, underShortLivedKey } from "./key-context.js"; // bucket-18 (A0300), bucket 19
@@ -141,6 +142,9 @@ import { learnAfterTask } from "./reflection/hook.js";
 import { advisedPreload } from "./fly-core/apply.js";
 import { autonomyPrompt } from "./autonomy/hooks.js"; // r17-b
 import { learningOpening } from "./learning-more/hook.js"; // R17-F: memory blocks and lessons
+import { walkCheck, type PathCheck } from "./walk-rules.js"; // mac7/walk-rules
+import { underTask } from "./task-scope.js"; // mac7/walk-rules
+import { resolve as resolvePath } from "node:path"; // mac7/walk-rules
 
 // R17-S11: sub-tasks at once is the owner's `parallelSubtasks` setting (shipped as 4, src/knobs/settings.ts).
 /** What the approval policy says about one tool call, before anything is done about it. */
@@ -1566,7 +1570,9 @@ ${run.output.slice(0, 6000)}`;
       "branch.retrieval.source": "documents",
     });
     try {
-      const found = await this.documents.contextFor(context.owner, await this.searchQuestion(run, context, messages), context.signal); // w911 (A0847) hook
+      const question = await this.searchQuestion(run, context, messages);
+      // mac7/walk-rules: looked up as part of this task, so its rules decide which files' passages may come in.
+      const found = await underTask(run.id, () => this.documents!.contextFor(context.owner, question, context.signal)); // w911 (A0847) hook
       if (!found) { span?.end("ok", "", { "branch.retrieval.passages": 0 }); return; }
       const at = ids.findIndex((id) => id !== null), position = at < 0 ? messages.length : at;
       messages.splice(position, 0, { role: "system", content:
@@ -2321,6 +2327,25 @@ ${run.output.slice(0, 6000)}`;
     return { decision: answered ?? decision, label: leak ? `${noted}, and the address carries ${leak}` : hold ? `${noted}. ${hold.reason}` : noted, target, readOnly,
       remember: hold?.onceOnly ? "never" : extra.exact ? "session" : source === "owner" ? rule?.remember ?? "session" : "session",
       sandbox: rule?.sandbox ?? null, backend: rule?.backend ?? null, paths: rule?.paths ?? null, ...(extra.code ? { needsCode: true } : {}) };
+  }
+  /**
+   * mac7/walk-rules: what a tool that walks a folder may list or read, entry by entry (src/walk-rules.ts):
+   * the rules this task is held to right now, the same ones `checkPolicy` weighs (the conversation's
+   * mode, folder trust, the hold on outside work, a household person's role, Lockdown), read once for
+   * the walk. Branch's own files are never read, as for any call.
+   */
+  pathCheck(input: { tool: string; runId?: string | undefined; source?: RunSource | undefined }): PathCheck {
+    const permission = this.registry.permissionOf(input.tool) || "files.read";
+    if (this.roleRefusal(input.tool, permission, input.runId) || lockdownToolRefusal(this.store, this.owner, input.tool, permission))
+      return () => false;
+    const source = this.sourceOf({ source: input.source, runId: input.runId });
+    const scope = this.registry.pathScope(), base = resolvePath(this.protectedAreas.workspace, scope);
+    const guarded = unreadableInside(this.protectedAreas, base)
+      ? (path: string) => unreadable(this.protectedAreas, resolvePath(base, path)) : undefined;
+    return walkCheck({
+      policy: this.policy(source, input.runId), tool: input.tool, scope,
+      resourceOf: (tool, path) => this.registry.resourceOf(tool, path, { path }), ...(guarded ? { guarded } : {}),
+    });
   }
   /**
    * mac7/multi-target: every thing a call touches, for a tool that names more than one; null for one
