@@ -676,6 +676,12 @@ async function staticFile(
       // worker-src and manifest-src let the installable web app register its service worker.
       // phase2/delight: blob: lets the owner's own background picture or video, kept in the window's own
       // storage, be shown without ever being sent anywhere. Only the page's own script can make one.
+      // Integration review: blob: is allowed for pictures and sound/video only, never for scripts,
+      // workers, frames, objects or connections, and it stays on for everyone rather than following the
+      // background switch: reading answers aloud (public/voice.js, voice-talk.js) plays blob: sound too,
+      // which the old media rule silently refused; img-src already takes data:, which untrusted text could
+      // reach more easily than blob: (a blob: address is minted only by this page's own script, every
+      // artifact frame is sandboxed without scripts, and chat text renders no pictures).
       "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
   });
   response.end(body);

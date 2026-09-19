@@ -140,8 +140,11 @@ function updateMotion() {
 
 function resize() {
   const box = canvas.getBoundingClientRect();
-  canvas.width = Math.max(40, Math.min(150, Math.round(box.width / 2.5)));
-  canvas.height = Math.max(40, Math.min(150, Math.round(box.height / 2.5)));
+  // phase2/delight (integration review): the corner's small acorn is drawn a pixel per screen pixel, as in
+  // the approved sample (56 in a 58px tile); 40 stretched to 56 made uneven pixels. A big one stays chunky.
+  const scale = box.width > 0 && box.width <= 80 ? 1 : 2.5;
+  canvas.width = Math.max(40, Math.min(150, Math.round(box.width / scale)));
+  canvas.height = Math.max(40, Math.min(150, Math.round(box.height / scale)));
   draw();
 }
 

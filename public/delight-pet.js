@@ -155,7 +155,7 @@ const TIPS = [
   ["calm", "delight.tip.more", "More, at the top right, holds everything the calm window keeps out of sight."],
   ["chat", "delight.tip.lockdown", "Lockdown keeps its own rules, whatever a conversation is set to."],
   ["settings", "delight.tip.search", "The search at the top of Settings finds a setting by what it says."],
-  ["appearance", "delight.tip.themes", "There are 44 themes, each by daylight and by moonlight."],
+  ["appearance", "delight.tip.themes", "There are 44 themes, each in light and dark."],
   ["appearance", "delight.tip.still", "Keep things still stops every animation, me included."],
   ["any", "delight.tip.menu", "Right-click me for my own little menu."],
   ["acorn", "delight.tip.acorn", "Drag the acorn to turn it."],
@@ -185,7 +185,8 @@ function maybeTip() {
 }
 /** Now and then a hint at a Bronze or Silver achievement, never a Gold one or higher, at most hourly. */
 function maybeHint() {
-  const at = Number(localStorage.getItem(HINT_AT) ?? 0);
+  let at = Date.now();
+  try { at = Number(localStorage.getItem(HINT_AT) ?? 0); } catch { /* no storage here: no hints, rather than one every half second */ }
   if (!on("achievements") || !["Bronze", "Silver"].includes(state.rank) || Date.now() - at < 3600000) return;
   const hint = (state.hints ?? []).find((a) => (a.tier === "Bronze" || a.tier === "Silver") && a.desc && a.desc !== "???");
   if (!hint) return;
@@ -258,9 +259,13 @@ function step() {
   pet.style.setProperty("--pet-x", `${walk.x}px`);
   pet.classList.toggle("left", walk.dir < 0);
   const hop = Date.now() < walk.hopUntil && !still() ? 2 : 0;
-  if (!pet3d) drawPet(pet.querySelector("canvas"), state.settings.pets.kind, now, still() ? 0 : walk.frame, false, hop);
+  const frame = still() ? 0 : walk.frame;
+  /* Kept still, the picture only changes with the mood or the theme, so it is drawn only then. */
+  const look = `${state.settings.pets.kind}:${now}:${frame}:${hop}:${root.dataset.theme}:${root.dataset.palette}:${root.dataset.accent}`;
+  if (!pet3d && look !== drawn) { drawn = look; drawPet(pet.querySelector("canvas"), state.settings.pets.kind, now, frame, false, hop); }
   placeTail();
 }
+let drawn = "";
 /** The bubble sits over the pet but always inside the corner, so it is never cut off. */
 function placeTail() {
   const pet = $("pet"), bubble = $("pet-say"), lane = $("pet-lane");
@@ -282,7 +287,7 @@ export function applyPet() {
   const show = on("pets"), corner = $("delight-corner");
   corner?.classList.toggle("has-pet", show);
   const as = show ? `${state.settings.pets.kind}:${state.settings.look?.style}` : "";
-  if (as !== builtAs) { pet3d?.stop(); pet3d = null; $("pet")?.remove(); $("pet-say")?.remove(); builtAs = as; }
+  if (as !== builtAs) { pet3d?.stop(); pet3d = null; $("pet")?.remove(); $("pet-say")?.remove(); builtAs = as; drawn = ""; }
   if (!show) { stop(); return; }
   build();
   label();

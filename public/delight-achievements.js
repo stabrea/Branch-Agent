@@ -32,7 +32,8 @@ export async function checkAchievements() {
     void api("delight/told", { ids: fresh.map((a) => a.id) }).catch(() => undefined);
     enqueue(fresh);
   }
-  timer = setTimeout(checkAchievements, 5 * 60000);
+  /* A long past is counted a batch at a time; while it is, look again soon (src/achievement-tallies.ts). */
+  timer = setTimeout(checkAchievements, latest.behind ? 2000 : 5 * 60000);
   document.dispatchEvent(new CustomEvent("branch-achievements", { detail: latest }));
   return latest;
 }
@@ -119,12 +120,17 @@ export function preview(tier) {
 }
 
 /* ---------- every achievement, in a sheet of its own ---------- */
+/** "2026-09-19" as the window's language writes a date. */
+const day = (iso) => {
+  const at = new Date(`${iso}T12:00:00`);
+  return Number.isNaN(at.getTime()) ? iso : at.toLocaleDateString(document.documentElement.lang || undefined, { dateStyle: "medium" });
+};
 const view = { tier: "all", query: "", more: false };
 function card(a) {
   const tile = el("div", `ach${a.got ? " got" : ""}${a.name ? "" : " blank"}`);
   tile.append(badge(a.tier, Boolean(a.got)), el("b", "", a.name || " "), el("small", "tier-n", tierWord(a.tier)));
   if (a.desc) tile.append(el("small", "", a.desc));
-  if (a.got) tile.append(el("span", "pill ok", say("delight.ach.gotOn", "Earned {date}", { date: a.got })));
+  if (a.got) tile.append(el("span", "pill ok", say("delight.ach.gotOn", "Earned {date}", { date: day(a.got) })));
   else if (a.goal > 1 && a.now > 0) {
     const bar = el("div", "ach-bar"), fillBar = el("i");
     fillBar.style.setProperty("--done", `${Math.round((a.now / a.goal) * 100)}%`);

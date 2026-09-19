@@ -135,17 +135,21 @@ function program(gl) {
   if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error("3D could not start here.");
   return p;
 }
-/** All the parts in one set of buffers: position, normal and colour for each corner. */
+/** All the parts in one set of buffers: position, normal and colour for each corner. Copied value by
+    value, never spread into push, which a big model overflows (integration review). */
 function merge(parts) {
-  const pos = [], nor = [], col = [], idx = [];
+  const corners = parts.reduce((n, part) => n + part.positions.length, 0), count = parts.reduce((n, part) => n + part.indices.length, 0);
+  const pos = new Float32Array(corners), nor = new Float32Array(corners), col = new Float32Array(corners), idx = new Uint32Array(count);
+  let at = 0, i = 0;
   for (const part of parts) {
-    const base = pos.length / 3;
-    pos.push(...part.positions);
-    nor.push(...part.normals);
-    for (let i = 0; i < part.positions.length / 3; i++) col.push(...part.color);
-    for (const i of part.indices) idx.push(base + i);
+    const base = at / 3;
+    pos.set(part.positions, at);
+    nor.set(part.normals, at);
+    for (let k = 0; k < part.positions.length; k++) col[at + k] = part.color[k % 3] ?? 0.8;
+    for (const index of part.indices) idx[i++] = base + index;
+    at += part.positions.length;
   }
-  return { pos: new Float32Array(pos), nor: new Float32Array(nor), col: new Float32Array(col), idx: new Uint32Array(idx) };
+  return { pos, nor, col, idx };
 }
 function upload(gl, prog, parts) {
   const data = merge(parts);
@@ -169,9 +173,13 @@ export function view3d(canvas, parts, { distance = 3.2, still = () => false, spi
     ?? canvas.getContext("webgl", { alpha: true, antialias: true, preserveDrawingBuffer: true });
   if (!gl) return null;
   if (!(globalThis.WebGL2RenderingContext && gl instanceof WebGL2RenderingContext) && !gl.getExtension("OES_element_index_uint")) return null;
-  const prog = program(gl);
-  gl.useProgram(prog);
-  let count = upload(gl, prog, parts), yaw = 0.6, pitch = 0.18, frame = 0, last = 0, drag = null;
+  let prog, count;
+  try {
+    prog = program(gl);
+    gl.useProgram(prog);
+    count = upload(gl, prog, parts);
+  } catch { return null; } // no 3D here: the caller keeps the pixel look
+  let yaw = 0.6, pitch = 0.18, frame = 0, last = 0, drag = null;
   const where = (name) => gl.getUniformLocation(prog, name);
   function draw() {
     const w = canvas.width = Math.max(1, Math.round(canvas.clientWidth * Math.min(devicePixelRatio || 1, 2)));
@@ -214,55 +222,138 @@ export function view3d(canvas, parts, { distance = 3.2, still = () => false, spi
 }
 
 /* ---------- the owner's own .glb ---------- */
+/* The file comes from anywhere, so nothing in it is trusted (integration review): every length, offset,
+   count and index is checked against the file before it is used, the node tree is walked without
+   recursion and each node at most once (a loop or a shared branch cannot grow it), and the whole model
+   has a size limit. A damaged or hostile file is refused in plain words; it never hangs the window. */
+export const GLB_LIMITS = { bytes: 5 * 1024 * 1024, corners: 300_000, indices: 900_000, parts: 10_000, nodes: 4096 };
+const GLB_WORDS = {
+  notGlb: "That is not a .glb 3D model.",
+  tooBig: "That model is bigger than {limit} MB.",
+  noShapes: "That .glb has no shapes Branch can read.",
+  compressed: "That model is compressed in a way Branch cannot read yet. Export it without compression.",
+  packed: "That model is packed in a way Branch cannot read yet.",
+  broken: "That .glb is damaged: part of it points outside the file.",
+  tooDetailed: "That model is too detailed to turn smoothly here. Choose one with fewer than {limit} corners.",
+};
+/** A refusal with its words' key, so the window can say it in its own language. */
+export class GlbError extends Error {
+  constructor(what, values) {
+    super(GLB_WORDS[what].replace(/\{(\w+)\}/g, (whole, name) => String(values?.[name] ?? whole)));
+    this.key = `delight.glb.${what}`;
+    this.values = values;
+  }
+}
+const refuse = (what, values) => { throw new GlbError(what, values); };
+const tooDetailed = () => refuse("tooDetailed", { limit: GLB_LIMITS.corners.toLocaleString() });
+const isCount = (n) => Number.isInteger(n) && n >= 0;
+const item = (list, index) => (Array.isArray(list) && isCount(index) ? list[index] : undefined);
+const numbers = (value, length) => (Array.isArray(value) && value.length === length && value.every(Number.isFinite) ? value : null);
+const IDENTITY = moved(0, 0, 0);
+
+/** The JSON and the binary chunk, each checked to lie inside the file. */
+function unpack(buffer) {
+  const data = new DataView(buffer);
+  if (buffer.byteLength < 20 || data.getUint32(0, true) !== 0x46546c67) refuse("notGlb");
+  if (data.getUint32(4, true) !== 2) refuse("packed");
+  const end = Math.min(buffer.byteLength, data.getUint32(8, true));
+  let at = 12, json = null, bin = null;
+  while (at + 8 <= end) {
+    const length = data.getUint32(at, true), type = data.getUint32(at + 4, true);
+    if (at + 8 + length > end) refuse("broken");
+    if (type === 0x4e4f534a && !json) json = new Uint8Array(buffer, at + 8, length);
+    if (type === 0x004e4942 && !bin) bin = buffer.slice(at + 8, at + 8 + length);
+    at += 8 + length;
+  }
+  if (!json || !bin) refuse("noShapes");
+  let gltf = null;
+  try { gltf = JSON.parse(new TextDecoder().decode(json)); } catch { refuse("broken"); }
+  if (!gltf || typeof gltf !== "object" || Array.isArray(gltf)) refuse("broken");
+  return { gltf, bin };
+}
 const COMPONENTS = { 5121: Uint8Array, 5123: Uint16Array, 5125: Uint32Array, 5126: Float32Array };
-const WIDTH = { SCALAR: 1, VEC3: 3, VEC4: 4 };
-function accessor(gltf, bin, index) {
-  const a = gltf.accessors?.[index], view = a && gltf.bufferViews?.[a.bufferView ?? -1];
-  const Kind = a && COMPONENTS[a.componentType];
-  if (!a || !view || !Kind || view.byteStride) throw new Error("That model is packed in a way Branch cannot read yet.");
-  return new Kind(bin, (view.byteOffset ?? 0) + (a.byteOffset ?? 0), a.count * (WIDTH[a.type] ?? 1));
+const WIDTH = { SCALAR: 1, VEC3: 3 };
+/** One accessor's values, copied out of the binary chunk after its whole range is checked. */
+function accessor(gltf, bin, index, types, width) {
+  const a = item(gltf.accessors, index), view = a && item(gltf.bufferViews, a.bufferView);
+  const Kind = a && types.includes(a.componentType) ? COMPONENTS[a.componentType] : undefined;
+  if (!a || !view || !Kind || WIDTH[a.type] !== width || a.sparse || (view.buffer ?? 0) !== 0) refuse("packed");
+  const size = Kind.BYTES_PER_ELEMENT * width, start = view.byteOffset ?? 0, offset = a.byteOffset ?? 0;
+  if (view.byteStride !== undefined && view.byteStride !== size) refuse("packed");
+  if (![start, view.byteLength, offset, a.count].every(isCount)) refuse("broken");
+  if (start + view.byteLength > bin.byteLength || offset + a.count * size > view.byteLength) refuse("broken");
+  return new Kind(bin.slice(start + offset, start + offset + a.count * size));
 }
 /** A node's own placing: its matrix, or its move, turn and size. */
 function local(node) {
-  if (node.matrix) return node.matrix;
-  const [x, y, z, w] = node.rotation ?? [0, 0, 0, 1], [sx, sy, sz] = node.scale ?? [1, 1, 1], [tx, ty, tz] = node.translation ?? [0, 0, 0];
+  if (node.matrix !== undefined) return numbers(node.matrix, 16) ?? IDENTITY;
+  const [x, y, z, w] = numbers(node.rotation, 4) ?? [0, 0, 0, 1], [sx, sy, sz] = numbers(node.scale, 3) ?? [1, 1, 1];
+  const [tx, ty, tz] = numbers(node.translation, 3) ?? [0, 0, 0];
   return [(1 - 2 * (y * y + z * z)) * sx, 2 * (x * y + z * w) * sx, 2 * (x * z - y * w) * sx, 0,
     2 * (x * y - z * w) * sy, (1 - 2 * (x * x + z * z)) * sy, 2 * (y * z + x * w) * sy, 0,
     2 * (x * z + y * w) * sz, 2 * (y * z - x * w) * sz, (1 - 2 * (x * x + y * y)) * sz, 0, tx, ty, tz, 1];
 }
 const apply = (m, [x, y, z], w = 1) => [0, 1, 2].map((r) => m[r] * x + m[4 + r] * y + m[8 + r] * z + m[12 + r] * w);
 function faceNormals(positions, indices) {
-  const normals = new Array(positions.length).fill(0);
-  for (let i = 0; i < indices.length; i += 3) {
-    const [a, b, c] = [indices[i], indices[i + 1], indices[i + 2]].map((k) => positions.slice(k * 3, k * 3 + 3));
-    const u = b.map((v, k) => v - a[k]), v = c.map((w, k) => w - a[k]);
+  const normals = new Array(positions.length).fill(0), p = (k, d) => positions[k * 3 + d];
+  for (let i = 0; i + 2 < indices.length; i += 3) {
+    const [a, b, c] = [indices[i], indices[i + 1], indices[i + 2]];
+    const u = [0, 1, 2].map((d) => p(b, d) - p(a, d)), v = [0, 1, 2].map((d) => p(c, d) - p(a, d));
     const n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
-    for (const k of [indices[i], indices[i + 1], indices[i + 2]]) for (let d = 0; d < 3; d++) normals[k * 3 + d] += n[d];
+    for (const k of [a, b, c]) for (let d = 0; d < 3; d++) normals[k * 3 + d] += n[d];
   }
   for (let i = 0; i < normals.length; i += 3) { const len = Math.hypot(normals[i], normals[i + 1], normals[i + 2]) || 1; for (let d = 0; d < 3; d++) normals[i + d] /= len; }
   return normals;
 }
-function primitivePart(gltf, bin, primitive, matrix) {
-  const raw = accessor(gltf, bin, primitive.attributes.POSITION), positions = [];
-  for (let i = 0; i < raw.length; i += 3) positions.push(...apply(matrix, [raw[i], raw[i + 1], raw[i + 2]]));
-  const indices = primitive.indices === undefined ? [...Array(positions.length / 3).keys()] : [...accessor(gltf, bin, primitive.indices)];
-  let normals;
-  if (primitive.attributes.NORMAL === undefined) normals = faceNormals(positions, indices);
-  else {
-    const n = accessor(gltf, bin, primitive.attributes.NORMAL);
-    normals = [];
-    for (let i = 0; i < n.length; i += 3) { const t = apply(matrix, [n[i], n[i + 1], n[i + 2]], 0), len = Math.hypot(...t) || 1; normals.push(...t.map((v) => v / len)); }
-  }
-  const factor = gltf.materials?.[primitive.material ?? -1]?.pbrMetallicRoughness?.baseColorFactor ?? [0.8, 0.8, 0.8, 1];
-  return { positions, normals, indices, color: factor.slice(0, 3) };
+/** Whole triangles only, and every corner they name must exist. */
+function triangles(list, corners) {
+  const out = Array.from(list.subarray(0, list.length - (list.length % 3)));
+  if (out.some((index) => index >= corners)) refuse("broken");
+  return out;
 }
-function walk(gltf, bin, nodeIndex, parent, parts) {
-  const node = gltf.nodes?.[nodeIndex];
-  if (!node) return;
-  const matrix = multiply(parent, local(node));
-  for (const primitive of gltf.meshes?.[node.mesh ?? -1]?.primitives ?? [])
-    if ((primitive.mode ?? 4) === 4 && primitive.attributes?.POSITION !== undefined) parts.push(primitivePart(gltf, bin, primitive, matrix));
-  for (const child of node.children ?? []) walk(gltf, bin, child, matrix, parts);
+function placedNormals(gltf, bin, primitive, matrix, corners) {
+  const n = accessor(gltf, bin, primitive.attributes.NORMAL, [5126], 3), normals = [];
+  if (n.length !== corners * 3) refuse("broken");
+  for (let i = 0; i < n.length; i += 3) { const t = apply(matrix, [n[i], n[i + 1], n[i + 2]], 0), len = Math.hypot(...t) || 1; normals.push(t[0] / len, t[1] / len, t[2] / len); }
+  return normals;
+}
+function primitivePart(gltf, bin, primitive, matrix, budget) {
+  const raw = accessor(gltf, bin, primitive.attributes.POSITION, [5126], 3), corners = raw.length / 3, positions = [];
+  if ((budget.corners += corners) > GLB_LIMITS.corners || ++budget.parts > GLB_LIMITS.parts) tooDetailed();
+  for (let i = 0; i < raw.length; i += 3) positions.push(...apply(matrix, [raw[i], raw[i + 1], raw[i + 2]]));
+  if (!positions.every(Number.isFinite)) refuse("broken");
+  const indices = primitive.indices === undefined
+    ? Array.from({ length: corners - (corners % 3) }, (_, i) => i)
+    : triangles(accessor(gltf, bin, primitive.indices, [5121, 5123, 5125], 1), corners);
+  if ((budget.indices += indices.length) > GLB_LIMITS.indices) tooDetailed();
+  const normals = primitive.attributes.NORMAL === undefined ? faceNormals(positions, indices) : placedNormals(gltf, bin, primitive, matrix, corners);
+  const factor = numbers(item(gltf.materials, primitive.material)?.pbrMetallicRoughness?.baseColorFactor, 4);
+  return { positions, normals, indices, color: factor ? factor.slice(0, 3).map((v) => Math.min(1, Math.max(0, v))) : [0.8, 0.8, 0.8] };
+}
+/** The scene's own top nodes; without a scene, every node that is nobody's child. */
+function rootsOf(gltf) {
+  const scene = item(gltf.scenes, gltf.scene ?? 0);
+  if (Array.isArray(scene?.nodes)) return scene.nodes;
+  const nodes = Array.isArray(gltf.nodes) ? gltf.nodes : [];
+  const children = new Set(nodes.flatMap((node) => (Array.isArray(node?.children) ? node.children : [])));
+  return nodes.map((_, i) => i).filter((i) => !children.has(i));
+}
+/** Every node once, parents before children, with a list instead of recursion. */
+function walkNodes(gltf, bin) {
+  const parts = [], seen = new Set(), budget = { corners: 0, indices: 0, parts: 0 };
+  const roots = rootsOf(gltf);
+  if (roots.length > GLB_LIMITS.nodes) tooDetailed();
+  const stack = roots.map((index) => ({ index, matrix: IDENTITY }));
+  while (stack.length) {
+    const { index, matrix } = stack.pop(), node = item(gltf.nodes, index);
+    if (!node || typeof node !== "object" || seen.has(index)) continue;
+    if (seen.add(index).size > GLB_LIMITS.nodes) tooDetailed();
+    const placed = multiply(matrix, local(node)), mesh = item(gltf.meshes, node.mesh);
+    for (const primitive of Array.isArray(mesh?.primitives) ? mesh.primitives : [])
+      if (primitive && (primitive.mode ?? 4) === 4 && primitive.attributes?.POSITION !== undefined) parts.push(primitivePart(gltf, bin, primitive, placed, budget));
+    if (Array.isArray(node.children)) for (const child of node.children) stack.push({ index: child, matrix: placed });
+  }
+  return parts;
 }
 /** Centred and sized to fit the view, whatever units the model was made in. */
 function fitted(parts) {
@@ -272,22 +363,13 @@ function fitted(parts) {
   for (const part of parts) part.positions = part.positions.map((v, i) => ((v - middle[i % 3]) * 1.9) / size);
   return parts;
 }
-/** The shapes in a .glb file, with its own colours. Throws, in plain words, what it cannot read. */
+/** The shapes in a .glb file, with its own colours. Throws a GlbError, in plain words, for what it cannot read. */
 export function readGlb(buffer) {
-  const data = new DataView(buffer);
-  if (buffer.byteLength < 20 || data.getUint32(0, true) !== 0x46546c67) throw new Error("That is not a .glb 3D model.");
-  let at = 12, gltf = null, bin = null;
-  while (at + 8 <= buffer.byteLength) {
-    const length = data.getUint32(at, true), type = data.getUint32(at + 4, true), chunk = buffer.slice(at + 8, at + 8 + length);
-    if (type === 0x4e4f534a) gltf = JSON.parse(new TextDecoder().decode(chunk));
-    if (type === 0x004e4942) bin = chunk;
-    at += 8 + length;
-  }
-  if (!gltf || !bin) throw new Error("That .glb has no shapes Branch can read.");
-  if ((gltf.extensionsRequired ?? []).length) throw new Error("That model is compressed in a way Branch cannot read yet. Export it without compression.");
-  const parts = [];
-  const scene = gltf.scenes?.[gltf.scene ?? 0];
-  for (const node of scene?.nodes ?? gltf.nodes?.map((_, i) => i) ?? []) walk(gltf, bin, node, moved(0, 0, 0), parts);
-  if (!parts.length) throw new Error("That .glb has no shapes Branch can read.");
+  if (!(buffer instanceof ArrayBuffer)) refuse("notGlb");
+  if (buffer.byteLength > GLB_LIMITS.bytes) refuse("tooBig", { limit: GLB_LIMITS.bytes / 1048576 });
+  const { gltf, bin } = unpack(buffer);
+  if (gltf.extensionsRequired !== undefined && (!Array.isArray(gltf.extensionsRequired) || gltf.extensionsRequired.length)) refuse("compressed");
+  const parts = walkNodes(gltf, bin);
+  if (!parts.length) refuse("noShapes");
   return fitted(parts);
 }

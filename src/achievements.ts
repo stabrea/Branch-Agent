@@ -96,8 +96,8 @@ const draft = (metric: string, goal: number, kind: string, name: string, desc: s
 function themeDrafts(): Draft[] {
   const themes = themeNames();
   const out = themes.flatMap(([id, name], i) => [
-    draft(`noticed:theme:light:${id}`, 1, "Looks", `${name} by daylight`, `Wear ${name} in Daylight.`, 1 + i * 0.02),
-    draft(`noticed:theme:dark:${id}`, 1, "Looks", `${name} by moonlight`, `Wear ${name} in Moonlight.`, 1.4 + i * 0.02),
+    draft(`noticed:theme:light:${id}`, 1, "Looks", `${name} by daylight`, `Wear ${name} in light mode.`, 1 + i * 0.02),
+    draft(`noticed:theme:dark:${id}`, 1, "Looks", `${name} by moonlight`, `Wear ${name} in dark mode.`, 1.4 + i * 0.02),
   ]);
   const counts = [3, 5, 10, 20, 30, 40].filter((n) => n < themes.length).concat(themes.length ? [themes.length] : []);
   for (const n of counts)
@@ -198,7 +198,7 @@ const secretsOfSecrets = (leaves: number): Achievement[] => [
   ["streak", 3650, "Ten-year streak", "Finish a task every single day for ten years."],
   ["earned", 500, "The whole tree", "Earn every one of the other 500 achievements."],
   ["tasks", 1000000, "A million tasks", "Finish 1,000,000 tasks."],
-  ["noticed:leaves", leaves, "Every leaf, every season, every light", "Wear every theme by daylight and by moonlight in each of the four seasons."],
+  ["noticed:leaves", leaves, "Every leaf, every season, every light", "Wear every theme, light and dark, in each of the four seasons."],
   ["solstice", 1, "Solstice at midnight", "Finish a task in the first hour of 21 December."],
 ].map(([metric, goal, name, desc]) => ({ id: `sss:${metric}`, metric: String(metric), goal: Number(goal), name: String(name), desc: String(desc), kind: "Secrets", tier: "SSS+" as const }));
 

@@ -4,7 +4,7 @@ import { startedWithShortLivedKey } from "./key-context.js";
 import { currentPerson } from "./people/context.js";
 import {
   achievementCatalogue, backgroundKinds, measure, noticedFlags, petKinds, rankFor, seasons, themeNames,
-  type Achievement, type AchievementFacts, type Noticed,
+  type Achievement, type AchievementFacts,
 } from "./achievements.js";
 
 /**
@@ -62,12 +62,21 @@ const NoticedSchema = z.object({
   backgrounds: z.array(z.string()).max(4).default([]),
   flags: z.array(z.string()).max(40).default([]),
 });
+/** The events counted so far (src/achievement-tallies.ts), so each look reads only what is new. */
+const ScanSchema = z.object({
+  through: z.number().int().min(0).default(0),
+  tools: z.record(z.string(), z.number()).default({}),
+  events: z.record(z.string(), z.number()).default({}),
+});
 const ProgressSchema = z.object({
   /** Achievement id → the day it was earned (YYYY-MM-DD). */
   got: z.record(z.string(), z.string()).default({}),
   /** Earned, and not yet celebrated in the window. */
   fresh: z.array(z.string()).default([]),
   noticed: NoticedSchema.prefault({}),
+  scan: ScanSchema.prefault({}),
+  /** Still counting a long past (switched on after a busy year): what it brings is found quietly. */
+  counting: z.boolean().default(false),
 });
 type Progress = z.infer<typeof ProgressSchema>;
 const settingsKey = "delight", progressKey = "delight-achievements";
@@ -88,27 +97,31 @@ const today = (): string => {
 /* ---------- working out what is earned ---------- */
 const recordTables = ["schedules", "procedures", "specialists", "triggers", "webhooks", "workflows", "memory"] as const;
 type DelightStore = Pick<Store, "get" | "save" | "list" | "achievementTallies" | "audit">;
-function factsFor(store: DelightStore, owner: string, noticed: Noticed): Omit<AchievementFacts, "earned"> {
+/** What really happened. Moves `saved.scan` on; `caughtUp` is false while a long history is still being counted. */
+function factsFor(store: DelightStore, owner: string, saved: Progress): { facts: Omit<AchievementFacts, "earned">; caughtUp: boolean } {
   const audit: Record<string, number> = {};
   for (const row of store.audit.counts(owner)) audit[row.action] = row.count;
   const records: Record<string, number> = {};
   for (const table of recordTables) records[table] = store.list(table, owner).length;
-  return { tallies: store.achievementTallies(owner), audit, records, noticed };
+  const { tallies, caughtUp } = store.achievementTallies(owner, saved.scan);
+  return { facts: { tallies, audit, records, noticed: saved.noticed }, caughtUp };
 }
 let regularIds: Set<string> | null = null;
 const regular = (): Set<string> => (regularIds ??= new Set(achievementCatalogue().filter((a) => a.tier !== "SSS+").map((a) => a.id)));
 const earnedOf = (got: Record<string, string>): number => Object.keys(got).filter((id) => regular().has(id)).length;
 
-/** Writes down every achievement the facts now reach. Returns the ids earned just now. */
-function evaluate(store: DelightStore, owner: string, saved: Progress): string[] {
-  const base = factsFor(store, owner, saved.noticed), newly: string[] = [];
+interface Evaluated { newly: string[]; facts: AchievementFacts; caughtUp: boolean }
+/** Writes down every achievement the facts now reach, and which were earned just now. */
+function evaluate(store: DelightStore, owner: string, saved: Progress): Evaluated {
+  const { facts: base, caughtUp } = factsFor(store, owner, saved), newly: string[] = [];
+  let facts: AchievementFacts = { ...base, earned: earnedOf(saved.got) };
   for (let pass = 0; pass < 3; pass++) {
-    const facts: AchievementFacts = { ...base, earned: earnedOf(saved.got) };
     const reached = achievementCatalogue().filter((a) => !saved.got[a.id] && measure(a.metric, facts) >= a.goal);
     for (const a of reached) { saved.got[a.id] = today(); newly.push(a.id); }
+    facts = { ...base, earned: earnedOf(saved.got) };
     if (!reached.length) break;
   }
-  return newly;
+  return { newly, facts, caughtUp };
 }
 /** One achievement as the window may see it. The higher the tier, the less a locked one gives away. */
 function shown(a: Achievement, saved: Progress, facts: AchievementFacts): Record<string, unknown> {
@@ -122,16 +135,17 @@ function shown(a: Achievement, saved: Progress, facts: AchievementFacts): Record
 export function achievementsView(store: DelightStore, owner: string): Record<string, unknown> {
   const settings = delightSettings(store, owner);
   if (!settings.achievements.on) return { on: false };
-  const saved = progress(store, owner);
-  const newly = evaluate(store, owner, saved);
-  if (newly.length && !settings.achievements.quiet) saved.fresh = [...saved.fresh, ...newly].slice(-50);
-  if (newly.length) store.save("settings", owner, progressKey, saved);
-  const facts = { ...factsFor(store, owner, saved.noticed), earned: earnedOf(saved.got) };
+  const saved = progress(store, owner), through = saved.scan.through, counting = saved.counting;
+  const { newly, facts, caughtUp } = evaluate(store, owner, saved);
+  // What a long past brings while it is still being counted is found quietly, like switching on.
+  if (newly.length && !counting && caughtUp && !settings.achievements.quiet) saved.fresh = [...saved.fresh, ...newly].slice(-50);
+  saved.counting = !caughtUp;
+  if (newly.length || saved.scan.through !== through || saved.counting !== counting) store.save("settings", owner, progressKey, saved);
   const byId = new Map(achievementCatalogue().map((a) => [a.id, a]));
   const fresh = saved.fresh.map((id) => byId.get(id)).filter((a): a is Achievement => Boolean(a))
     .map((a) => ({ id: a.id, name: a.name, desc: a.desc, tier: a.tier, kind: a.kind }));
   return {
-    on: true, quiet: settings.achievements.quiet, earned: facts.earned, total: achievementCatalogue().length,
+    on: true, quiet: settings.achievements.quiet, earned: facts.earned, total: achievementCatalogue().length, behind: !caughtUp,
     rank: rankFor(facts.earned), list: achievementCatalogue().map((a) => shown(a, saved, facts)), fresh,
   };
 }
@@ -167,9 +181,10 @@ function settingsNoticed(store: DelightStore, owner: string, before: DelightSett
   if (next.pets.on && !next.pets.talks) add(seen.flags, "pet-talks-off");
   if (next.achievements.quiet) add(seen.flags, "quiet");
   if (next.look.style === "3d") add(seen.flags, "style-3d");
-  const newly = evaluate(store, owner, saved);
-  const quietly = !before.achievements.on || next.achievements.quiet;
+  const { newly, caughtUp } = evaluate(store, owner, saved);
+  const quietly = !before.achievements.on || next.achievements.quiet || saved.counting || !caughtUp;
   if (newly.length && !quietly) saved.fresh = [...saved.fresh, ...newly].slice(-50);
+  saved.counting = !caughtUp;
   store.save("settings", owner, progressKey, saved);
 }
 
@@ -186,7 +201,7 @@ const NoticeSchema = z.discriminatedUnion("what", [
 export function notice(store: DelightStore, owner: string, input: unknown): { kept: boolean } {
   if (!delightSettings(store, owner).achievements.on) return { kept: false };
   const said = NoticeSchema.parse(input ?? {});
-  const saved = progress(store, owner), seen = saved.noticed;
+  const saved = progress(store, owner), seen = saved.noticed, before = JSON.stringify(seen);
   const add = (list: string[], value: string, cap: number): void => { if (!list.includes(value) && list.length < cap) list.push(value); };
   if (said.what === "theme") {
     if (!themeNames().some(([id]) => id === said.theme)) throw new DelightError(400, "Branch has no theme by that name.");
@@ -198,7 +213,8 @@ export function notice(store: DelightStore, owner: string, input: unknown): { ke
   if (said.what === "pat") seen.pats = Math.min(seen.pats + 1, 1_000_000);
   if (said.what === "background") add(seen.backgrounds, said.kind, 4);
   if (said.what === "flag" && said.flag in noticedFlags) add(seen.flags, said.flag, 40);
-  store.save("settings", owner, progressKey, saved);
+  // Most reports repeat what is already known; only something new is written down.
+  if (JSON.stringify(seen) !== before) store.save("settings", owner, progressKey, saved);
   return { kept: true };
 }
 export function told(store: DelightStore, owner: string, input: unknown): { fresh: number } {

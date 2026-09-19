@@ -130,7 +130,7 @@ document.addEventListener("branch-achievements", () => paintAchievementsCard());
 /* ---------- your own background's card ---------- */
 function backgroundCard() {
   const box = card("delight-bg-card", "delight.bg.title", "Your own background", "delight.bg.note",
-    "A picture, a video or an animation behind the glass instead of the oak. It stays in this window on this computer and is never sent anywhere.");
+    "A picture, a video or an animation behind the glass instead of the oak. It stays in this window on this computer and is never sent anywhere. Switching it off forgets the file.");
   const more = part("delight-bg-more"), pick = el("label", "delight-field delight-file"), file = el("input");
   file.type = "file";
   file.id = "delight-bg-file";
@@ -161,9 +161,9 @@ function builtIns() {
   return row;
 }
 async function pickBuiltIn(model) {
-  await chooseBuiltIn(model);
-  if (!on("background")) await saveDelight({ background: { on: true } });
-  $("delight-bg-said").textContent = say("delight.bg.kept", "Kept on this computer. It is behind the glass now.");
+  const answer = await chooseBuiltIn(model);
+  if (answer.ok && !on("background")) await saveDelight({ background: { on: true } });
+  $("delight-bg-said").textContent = answer.ok ? say("delight.bg.kept", "Kept on this computer. It is behind the glass now.") : answer.why;
   await paintBackgroundCard();
 }
 function scrimRow() {
@@ -269,15 +269,23 @@ function noticeLook() {
   void notice({ what: "theme", mode, theme: root.dataset.palette, season });
   void notice({ what: "season", season });
 }
-function noticeFlags() {
-  if (!on("achievements")) return;
-  if (root.dataset.acorn === "on") void notice({ what: "flag", flag: "acorn-shown" });
-  if (root.dataset.motion === "reduced") void notice({ what: "flag", flag: "still" });
-  if (root.dataset.everything === "on") void notice({ what: "flag", flag: "everything" });
+/* Each flag is told once per window: the record keeps it, so saying it again changes nothing. */
+const told = new Set();
+function flag(name) {
+  if (!on("achievements") || told.has(name)) return;
+  told.add(name);
+  void notice({ what: "flag", flag: name });
 }
+function noticeFlags() {
+  if (root.dataset.acorn === "on") flag("acorn-shown");
+  if (root.dataset.motion === "reduced") flag("still");
+  if (root.dataset.everything === "on") flag("everything");
+  if ($("appearance-follow")?.checked) flag("follow-system");
+}
+document.addEventListener("change", (event) => { if (event.target?.id === "appearance-follow" && event.target.checked) flag("follow-system"); });
 new MutationObserver(() => { noticeLook(); noticeFlags(); })
   .observe(root, { attributes: true, attributeFilter: ["data-palette", "data-theme", "data-acorn", "data-motion", "data-everything"] });
-document.addEventListener("branch-language", (event) => { if (event.detail?.language && event.detail.language !== "en") void notice({ what: "flag", flag: "language" }); });
+document.addEventListener("branch-language", (event) => { if (event.detail?.language && event.detail.language !== "en") flag("language"); });
 document.addEventListener("click", (event) => {
   const page = event.target.closest?.(".lx-settings-link")?.dataset.page;
   if (page) void notice({ what: "page", page });
@@ -290,7 +298,7 @@ $("keepoak-acorn")?.addEventListener("pointermove", (event) => {
 });
 /* A hook for "hide anything": when everything that can be hidden is hidden, that part of the window
    says so with this event, and "It's lonely over here" is earned. */
-document.addEventListener("branch-everything-hidden", () => void notice({ what: "flag", flag: "lonely" }));
+document.addEventListener("branch-everything-hidden", () => flag("lonely"));
 onDelight(() => { lastLook = ""; noticeLook(); noticeFlags(); });
 
 /* ---------- starting ---------- */

@@ -1,7 +1,8 @@
 /* phase2/delight: your own background behind the glass (off unless switched on) — a picture, a video or
    an animation. The file is kept in this window's own storage on this computer (IndexedDB) and is never
    sent anywhere, not even to Branch's own server. A scrim in the theme's own ground colour lies over it
-   so text stays readable in every theme; how strong it is can be changed. Small files only. */
+   so text stays readable in every theme; how strong it is can be changed. Small files only. Switching
+   it off forgets the file: the window's storage for it is removed. */
 import { el, notice, on, onDelight, say, state, still } from "/delight-kit.js";
 import { acornModel, oakModel, readGlb, view3d } from "/delight-3d.js";
 
@@ -18,19 +19,47 @@ function openDb() {
     request.onerror = () => reject(request.error);
   });
 }
+/** One request in its own transaction. It is only done once the transaction is: a full disk shows up there. */
 async function withStore(mode, work) {
   const db = await openDb();
   try {
     return await new Promise((resolve, reject) => {
-      const request = work(db.transaction(STORE, mode).objectStore(STORE));
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
+      const transaction = db.transaction(STORE, mode), request = work(transaction.objectStore(STORE));
+      transaction.oncomplete = () => resolve(request.result);
+      transaction.onabort = transaction.onerror = () => reject(transaction.error ?? request.error);
     });
   } finally { db.close(); }
 }
 export const savedBackground = () => withStore("readonly", (store) => store.get(KEY)).catch(() => undefined);
-const keep = (value) => withStore("readwrite", (store) => store.put(value, KEY));
-export const forgetBackground = async () => { await withStore("readwrite", (store) => store.delete(KEY)); await applyBackground(); };
+let emptied = false;
+/** Keeps the file, or says in plain words why the window's storage would not take it. */
+async function keep(value) {
+  try {
+    await withStore("readwrite", (store) => store.put(value, KEY));
+    emptied = false;
+    return null;
+  } catch (error) {
+    return error?.name === "QuotaExceededError"
+      ? say("delight.bg.full", "There is no room left in this window's storage for that file. Choose a smaller one.")
+      : say("delight.bg.notKept", "That file could not be kept in this window. Nothing was changed.");
+  }
+}
+export const forgetBackground = async () => { await withStore("readwrite", (store) => store.delete(KEY)).catch(() => undefined); await applyBackground(); };
+/** Switched off, nothing is kept: the window's storage for the background is removed, if there is any. */
+async function forgetStored() {
+  if (emptied) return;
+  emptied = true;
+  clear();
+  const names = await indexedDB.databases?.().catch(() => null);
+  if (names && !names.some((db) => db.name === DB)) return;
+  await new Promise((resolve) => {
+    const request = indexedDB.deleteDatabase(DB);
+    request.onsuccess = request.onerror = request.onblocked = () => resolve();
+  });
+}
+
+/** A .glb the reader refused, in the window's language. */
+const glbWords = (error) => (error?.key ? say(error.key, error.message, error.values) : say("delight.glb.unreadable", "That 3D model could not be read."));
 
 /** Which kind a file is, from its type and, for WebP, whether it moves. Null when it can't go behind the glass. */
 export async function kindOf(file) {
@@ -53,10 +82,12 @@ export async function chooseBackground(file) {
   if (file.size > limit * 1024 * 1024)
     return { ok: false, why: say("delight.bg.tooBig", "That file is {size} MB. Keep it under {limit} MB for a {kind}.", { size: (file.size / 1048576).toFixed(1), limit, kind: say(`delight.bg.kind.${kind}`, kind) }) };
   if (kind === "3d") {
-    try { readGlb(await file.arrayBuffer()); } catch (error) { return { ok: false, why: error.message }; }
+    try { readGlb(await file.arrayBuffer()); } catch (error) { return { ok: false, why: glbWords(error) }; }
   }
-  await keep({ blob: file, kind, name: file.name.slice(0, 120), size: file.size, at: Date.now() });
-  await applyBackground();
+  const refused = await keep({ blob: file, kind, name: file.name.slice(0, 120), size: file.size, at: Date.now() });
+  if (refused) return { ok: false, why: refused };
+  /* Still switched off, the caller switches it on, and that shows it (switched off, nothing is kept). */
+  if (on("background")) await applyBackground();
   void notice({ what: "background", kind });
   return { ok: true, kind };
 }
@@ -64,8 +95,9 @@ export async function chooseBackground(file) {
 /** One of Branch's own 3D objects, turning slowly behind the glass. */
 export async function chooseBuiltIn(model) {
   if (!BUILT_IN[model]) return { ok: false, why: "" };
-  await keep({ kind: "3d", model, name: say(`delight.bg.model.${model}`, model === "oak" ? "The oak, in 3D" : "The acorn, in 3D"), at: Date.now() });
-  await applyBackground();
+  const refused = await keep({ kind: "3d", model, name: say(`delight.bg.model.${model}`, model === "oak" ? "The oak, in 3D" : "The acorn, in 3D"), at: Date.now() });
+  if (refused) return { ok: false, why: refused };
+  if (on("background")) await applyBackground();
   void notice({ what: "background", kind: "3d" });
   return { ok: true, kind: "3d" };
 }
@@ -116,6 +148,7 @@ function media(saved, url, fit) {
   return node;
 }
 export async function applyBackground() {
+  if (state.available && state.settings?.background?.on === false) return forgetStored();
   const saved = on("background") ? await savedBackground() : undefined;
   if (!saved?.blob && !saved?.model) return clear();
   const wall = layer(), background = state.settings.background;

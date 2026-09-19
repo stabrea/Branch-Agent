@@ -205,3 +205,91 @@ test("a household profile and a short-lived key see nothing and change nothing",
   assert.equal((await call("POST", "/api/profiles/switch", { profileId: null })).status, 200);
   assert.equal((await call("GET", "/api/delight")).body.settings.pets.on, true, "the owner's switch was never changed");
 });
+
+/* ---------- integration review: a big history, and writes only when something changed ---------- */
+
+test("a long history is counted a batch at a time, never all at once, and the past arrives quietly", async (t) => {
+  const { app, call } = await fixture(t);
+  const { eventBatch } = await import("../dist/achievement-tallies.js");
+  await app.runtime.run({ prompt: "one" });
+  const owner = app.runtime.owner, db = app.store.sqlite;
+  const runId = db.prepare("SELECT id FROM tasks WHERE owner=? LIMIT 1").get(owner).id;
+  const add = db.prepare("INSERT INTO events(run_id, kind, data, created_at) VALUES (?,?,?,?)");
+  const many = eventBatch * 2 + 10;
+  db.exec("BEGIN");
+  for (let i = 0; i < many; i++) add.run(runId, "tool.completed", JSON.stringify({ name: "web.search" }), "2026-01-01T00:00:00Z");
+  db.exec("COMMIT");
+  await call("POST", "/api/delight/settings", { achievements: { on: true } });
+  const scanned = () => app.store.get("settings", owner, "delight-achievements").data.scan;
+  assert.ok(scanned().through <= eventBatch + 1000, "switching on read one batch, not the whole history");
+  const views = [];
+  for (let i = 0; i < 6; i++) {
+    const view = (await call("GET", "/api/delight/achievements")).body;
+    views.push(view);
+    if (!view.behind) break;
+  }
+  assert.equal(views[0].behind, true, "the window is told the past is still being counted");
+  assert.equal(views.at(-1).behind, false, "caught up in a few looks");
+  assert.equal(scanned().tools["web.search"], many, "every event counted exactly once");
+  const web = views.at(-1).list.filter((a) => a.id.startsWith("tool:web:"));
+  assert.ok(web.some((a) => a.got), "the web lookups really earned something");
+  assert.deepEqual(views.flatMap((v) => v.fresh).filter((a) => a.id.startsWith("tool:")), [], "the past arrived without a party");
+  add.run(runId, "tool.completed", JSON.stringify({ name: "web.search" }), "2026-01-02T00:00:00Z");
+  await call("GET", "/api/delight/achievements");
+  assert.equal(scanned().tools["web.search"], many + 1, "a new event is added on the next look");
+});
+
+test("a report the record already holds is not written again", async (t) => {
+  const { app, call } = await fixture(t);
+  await call("POST", "/api/delight/settings", { achievements: { on: true } });
+  const save = app.store.save.bind(app.store);
+  let writes = 0;
+  app.store.save = (table, owner, id, data) => { if (id === "delight-achievements") writes++; return save(table, owner, id, data); };
+  t.after(() => { app.store.save = save; });
+  await call("POST", "/api/delight/noticed", { what: "flag", flag: "still" });
+  assert.equal(writes, 1);
+  for (let i = 0; i < 5; i++) await call("POST", "/api/delight/noticed", { what: "flag", flag: "still" });
+  assert.equal(writes, 1, "the same flag again changes nothing, so nothing is written");
+  await call("GET", "/api/delight/achievements");
+  const before = writes;
+  await call("GET", "/api/delight/achievements");
+  assert.equal(writes, before, "a look that finds nothing new writes nothing");
+});
+
+test("the tasks are counted by this computer's own clock, and counted again only when one finishes", async (t) => {
+  const { app } = await fixture(t);
+  const { achievementTallies } = await import("../dist/achievement-tallies.js");
+  const owner = app.runtime.owner, db = app.store.sqlite;
+  db.prepare("INSERT INTO sessions(id, owner, created_at) VALUES ('s-tally', ?, '2025-01-01T00:00:00Z')").run(owner);
+  const add = db.prepare("INSERT INTO tasks(id, session_id, owner, prompt, status, output, created_at, updated_at, source) VALUES (?, 's-tally', ?, 'p', ?, '', ?, ?, ?)");
+  const local = (...parts) => new Date(...parts).toISOString();
+  add.run("t1", owner, "completed", local(2025, 11, 21, 0, 30), local(2025, 11, 21, 0, 31), "web");
+  add.run("t2", owner, "completed", local(2025, 11, 20, 23, 50), local(2025, 11, 20, 23, 51), "schedule");
+  add.run("t3", owner, "completed", local(2025, 11, 20, 12, 10), local(2025, 11, 20, 12, 11), "web");
+  add.run("t4", owner, "cancelled", local(2025, 11, 22, 9, 0), local(2025, 11, 22, 9, 1), "web");
+  const scan = { through: 0, tools: {}, events: {} };
+  const first = achievementTallies(db, owner, scan).tallies;
+  assert.equal(first.tasks, 3);
+  assert.equal(first.stopped, 1);
+  assert.deepEqual(first.days, ["2025-12-20", "2025-12-21"]);
+  assert.deepEqual(first.hours, { "12": 1, "23": 1, "00": 1 });
+  assert.deepEqual(first.weekdays, { "6": 2, "0": 1 }, "20 December 2025 is a Saturday, the 21st a Sunday");
+  assert.deepEqual(first.bySource, { schedule: 1, web: 2 });
+  assert.equal(first.solstice, 1, "the first hour of 21 December, by this computer's clock");
+  add.run("t5", owner, "completed", local(2025, 11, 23, 5, 0), local(2025, 11, 23, 5, 1), "channel");
+  const next = achievementTallies(db, owner, scan).tallies;
+  assert.equal(next.tasks, 4, "a newly finished task is counted on the next look");
+  assert.equal(next.bySource.channel, 1);
+});
+
+test("blob: is allowed for pictures and sound only, never for scripts, workers, frames, objects or connections", async (t) => {
+  const { server } = await fixture(t);
+  const policy = (await fetch(server.url)).headers.get("content-security-policy");
+  const rules = Object.fromEntries(policy.split(";").map((rule) => rule.trim().split(/\s+/)).map(([name, ...values]) => [name, values]));
+  assert.ok(rules["img-src"].includes("blob:"), "your own picture");
+  assert.ok(rules["media-src"].includes("blob:"), "your own video, and answers read aloud");
+  for (const name of ["default-src", "script-src", "worker-src", "connect-src", "frame-src", "child-src", "object-src", "manifest-src"])
+    assert.ok(!(rules[name] ?? []).includes("blob:"), `${name} takes no blob:`);
+  assert.equal(rules["frame-src"] ?? rules["child-src"], undefined, "frames fall back to default-src 'self'");
+  assert.deepEqual(rules["default-src"], ["'self'"]);
+});
