@@ -146,3 +146,23 @@ test("Updates in Settings are three choice cards, the recommended one marked, an
   assert.equal(await f.page.locator('#comfort-updates-card select').count(), 0, "no hidden list any more");
   assert.deepEqual(f.errors, []);
 });
+
+test("integration review: when the background engine cannot be set up, the bar says so in plain words, never that it worked", async (t) => {
+  for (const reply of [
+    { json: { action: "install", installed: false, taskName: "Branch Agent", message: "Windows would not add the task." } },
+    { status: 500, json: { error: "The system list could not be read." } },
+  ]) {
+    const f = await fixture(t);
+    await f.page.route("**/api/deployment/suggestion", (route) => route.fulfill({ json: { bar: "background" } }));
+    await f.page.route("**/api/deployment/daemon", (route) => route.fulfill(reply));
+    await f.open();
+    const bar = f.page.locator("#suggest-bar");
+    await bar.waitFor({ state: "visible" });
+    await bar.getByRole("button", { name: "Yes", exact: true }).click();
+    await f.page.waitForFunction(() => /could not keep running in the background/.test(document.getElementById("toast")?.textContent ?? ""));
+    const said = await f.page.locator("#toast").innerText();
+    assert.match(said, reply.status ? /system list could not be read/ : /Windows would not add the task/);
+    assert.doesNotMatch(said, /now keeps running/);
+    assert.deepEqual(f.errors, []);
+  }
+});

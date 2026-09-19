@@ -57,7 +57,8 @@ function view(app: ModeApp, sessionId: string | null) {
   };
 }
 
-function refusal(app: ModeApp, mode: ConversationMode): string | null {
+/** Why this mode cannot be picked here now (Lockdown, not the owner, a short-lived key), or null. */
+export function modeRefusal(app: ModeApp, mode: ConversationMode): string | null {
   const preset = readPolicy(app.store, app.runtime.owner).preset;
   const choice = modeChoices(preset, { locked: lockdownActive(app.store, app.runtime.owner), owner: ownerHere(app.store) })
     .find((one) => one.mode === mode);
@@ -91,7 +92,7 @@ export async function conversationModeApi(app: ModeApp, method: string, url: URL
   const choice = ChoiceSchema.parse(await readBody());
   if (!app.store.ownsSession(app.store.profiles.scope(), choice.sessionId))
     throw new ConversationModeError(404, "That conversation was not found.");
-  const refused = choice.mode ? refusal(app, choice.mode) : null;
+  const refused = choice.mode ? modeRefusal(app, choice.mode) : null;
   if (refused) throw new ConversationModeError(403, refused);
   pickConversationMode(app, choice.sessionId, choice.mode);
   return view(app, choice.sessionId);

@@ -3,14 +3,15 @@
  *
  * Closing the window already keeps Branch in the tray (or the dock), so the moment work can be lost
  * is Quit itself. When a task is running and no background engine will carry on with it, Branch asks
- * in plain words first. An update, a restart the person asked for, and `branch quit` from a terminal
- * never ask: each of those is somebody having already decided.
+ * in plain words first. An update, a restart the person asked for, `branch quit` from a terminal and
+ * the computer shutting down or signing out never ask: each of those is somebody having already decided.
  *
  * Kept free of Electron so the decision can be tested on its own (tests/quit-guard.test.mjs); the
  * window's own code in src/desktop/main.ts shows the question and does what the answer says.
  */
 import type { Store } from "../store.js";
-export type QuitReason = "person" | "update" | "restart" | "command";
+/** "system": the computer is shutting down, restarting or signing out; that never waits for a question. */
+export type QuitReason = "person" | "update" | "restart" | "command" | "system";
 
 export interface QuitFacts {
   reason: QuitReason;

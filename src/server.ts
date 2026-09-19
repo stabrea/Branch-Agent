@@ -232,7 +232,7 @@ import { handlesKnobsPath, knobsApi, KnobsApiError } from "./knobs/api.js";
 // R17-E: models, cheaper and smarter (src/model-savings/).
 import { handlesSavingsPath, savingsApi, SavingsApiError } from "./model-savings/api.js";
 // mac7/usage-bar: how much of each connection's allowance is left (src/usage-limits.ts).
-import { conversationModeApi, ConversationModeError, handlesConversationModePath, planAgreed } from "./conversation-mode-api.js";
+import { conversationModeApi, ConversationModeError, handlesConversationModePath, modeRefusal, planAgreed } from "./conversation-mode-api.js";
 import { handlesUsageLimitsPath, usageGlance, usageGlancePath, usageLimitsRoute, UsageLimitsError } from "./usage-limits-api.js";
 import { savingsRefusal } from "./short-lived-keys.js";
 import { householdMaySend, householdRefusalFor } from "./household-routes.js"; // profile-audit
@@ -1541,6 +1541,9 @@ async function api(
   if (request.method === "POST" && path === "/api/run") {
     const input = RunInputSchema.parse(await readBody(request));
     requireBoundSession(shortLivedKeyMark().sessionId, input.sessionId); // bucket 19
+    // Redesign phase 1 (integration review): a new conversation's mode is held to what the picker allows here.
+    const modeRefused = input.mode && !input.sessionId ? modeRefusal(app, input.mode) : null;
+    if (modeRefused) throw new HttpError(403, modeRefused);
     // Wave 6: a task started while somebody's profile is switched on is filed under their name.
     return runForCurrentPerson(app, {
       prompt: input.prompt,

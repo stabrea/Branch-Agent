@@ -119,7 +119,7 @@ import { KeepAlive } from "./model-savings/keep-alive.js";
 // --- end R17-E ---
 import { Orchestration, type ConductOptions, type PlanAnswer, type StoredPlan } from "./orchestration.js";
 import { commandDifference, commandWords, correctionLabel, offPlanDifference, relatedCommand, saveSessionPlanAct } from "./plan-act.js";
-import { heldMode, policyForMode, readConversationMode, saveConversationMode, type ConversationMode } from "./conversation-mode.js"; // redesign phase 1
+import { heldMode, policyForMode, readConversationMode, saveConversationMode, type ConversationMode, type ConversationModeRecord } from "./conversation-mode.js"; // redesign phase 1
 import { type AnswerShape, askInShape, shapeInstructions, type ShapedAnswer } from "./answer-shape.js";
 import { advisorInstructions, advisorQuestion, adviceLine, readAdvice, secondOpinionSettings, type Advice } from "./second-opinion.js";
 import { styleShape, takeScratch, type SpecialistStyle } from "./specialist-styles.js";
@@ -2099,13 +2099,44 @@ ${run.output.slice(0, 6000)}`;
   /** Redesign phase 1: the owner's policy as this task's conversation has narrowed or widened it. */
   private conversationPolicy(runId?: string): Policy {
     const saved = readPolicy(this.store, this.owner);
-    const sessionId = runId ? this.store.run(runId)?.sessionId : undefined;
-    const record = readConversationMode(this.store, this.owner, sessionId);
+    const record = runId ? this.conversationModeOf(runId) : null;
     if (!record) return saved;
-    const person = this.taskPerson(runId!);
-    const byOwner = person === undefined ? !this.store.profiles.active() : person === null;
-    const mode = heldMode(record, saved.preset, byOwner);
+    const mode = heldMode(record, saved.preset, this.ownersOwnTask(runId!));
     return mode ? policyForMode(saved, mode, lockdownActive(this.store, this.owner)) : saved;
+  }
+  /**
+   * Redesign phase 1 (integration review): the mode of the conversation a task belongs to. A helper
+   * or background specialist runs in a conversation of its own, so it is held to the nearest parent's.
+   */
+  private conversationModeOf(runId: string): ConversationModeRecord | null {
+    const seen = new Set<string>();
+    for (let id: string | null = runId; id && !seen.has(id) && seen.size < 20; id = this.parentOf(id)) {
+      seen.add(id);
+      const record = readConversationMode(this.store, this.owner, this.store.run(id)?.sessionId);
+      if (record) return record;
+    }
+    return null;
+  }
+  /** The task that started this one (a helper's parent), read once per task. */
+  private parentOf(runId: string): string | null {
+    if (this.taskParents.has(runId)) return this.taskParents.get(runId) ?? null;
+    const parent = this.store.events(runId).find((event) => event.kind === "run.started")?.data.parentRunId;
+    const found = typeof parent === "string" ? parent : null;
+    if (this.taskParents.size >= 500) this.taskParents.clear();
+    this.taskParents.set(runId, found);
+    return found;
+  }
+  private readonly taskParents = new Map<string, string | null>();
+  /**
+   * Redesign phase 1 (integration review): only the owner's own work, started by the owner's own hand
+   * and key, may have a mode looser than the owner's setting: never a household person's task, a
+   * short-lived key's, or one a chat app, trigger, schedule or other program started (or continued).
+   */
+  private ownersOwnTask(runId: string): boolean {
+    const person = this.taskPerson(runId);
+    if (person === undefined ? !!this.store.profiles.active() : person !== null) return false;
+    const origin = runOrigin(this.store, runId);
+    return origin.source === "owner" && !origin.shortLivedKey;
   }
   /**
    * Where answers already given are remembered for this piece of work: the conversation, or the

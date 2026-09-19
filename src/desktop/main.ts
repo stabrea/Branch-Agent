@@ -3,6 +3,7 @@ import {
   BrowserWindow,
   dialog,
   Menu,
+  powerMonitor,
   Tray,
   nativeImage,
   shell,
@@ -157,6 +158,9 @@ async function createWindow(
     quitReason = "restart";
     app.quit();
   });
+  // Redesign phase 1 (integration review): Windows ending the session never waits for the quit question.
+  window.on("query-session-end", () => { quitReason = "system"; });
+  window.on("session-end", () => { quitReason = "system"; });
   window.on("close", (event) => {
     if (!quitting) {
       event.preventDefault();
@@ -350,6 +354,7 @@ async function askThenQuit(): Promise<void> {
     const parent = window?.isVisible() ? window : undefined;
     const { response } = parent ? await dialog.showMessageBox(parent, question) : await dialog.showMessageBox(question);
     const choice = quitChoice(response);
+    if (quitting) return; // an update, `branch quit` or the computer shutting down came first
     if (choice === "quit") return shutDown();
     if (choice === "keep") window?.hide();
     else { window?.show(); window?.focus(); }
@@ -435,11 +440,16 @@ else {
   app.on("before-quit", (event) => {
     if (quitting) return;
     event.preventDefault();
-    if (askingToQuit) return;
-    if (asksBeforeQuit({ reason: quitReason, runningTasks: runningNow(), engineInBackground: joinedBackground }))
-      return void askThenQuit();
+    // Integration review: an update, `branch quit` or the computer shutting down while the question is
+    // open quits at once; only another Quit from the person waits for the question already showing.
+    if (asksBeforeQuit({ reason: quitReason, runningTasks: runningNow(), engineInBackground: joinedBackground })) {
+      if (!askingToQuit) void askThenQuit();
+      return;
+    }
     shutDown();
   });
+  // macOS and Linux say so before the computer shuts down, restarts or signs out: never ask then.
+  void app.whenReady().then(() => powerMonitor.on("shutdown", () => { quitReason = "system"; }));
   void app
     .whenReady()
     .then(async () => { setMacMenu(); await refreshWindowsShortcuts(); return start(); })

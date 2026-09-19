@@ -18,6 +18,8 @@ panel.hidden = true;
 document.body.append(panel);
 let openFor = null;
 let entry = null;
+/* Integration review: a list whose choices change while it is open closes, so a press never picks by a stale position. */
+const changed = new MutationObserver(() => close());
 let typed = "", typedAt = 0;
 
 /* ---------- the list ---------- */
@@ -67,8 +69,9 @@ function place(select) {
   const below = innerHeight - box.bottom - 12, above = box.top - 12;
   const room = Math.max(120, Math.min(360, below >= 200 || below >= above ? below : above));
   panel.style.maxHeight = `${room}px`;
-  if (below >= 200 || below >= above) { panel.style.top = `${box.bottom + 4}px`; panel.style.bottom = ""; }
-  else { panel.style.top = ""; panel.style.bottom = `${innerHeight - box.top + 4}px`; }
+  /* Integration review: flush against the select, so no half line of the help under it shows between the two. */
+  if (below >= 200 || below >= above) { panel.style.top = `${box.bottom}px`; panel.style.bottom = ""; }
+  else { panel.style.top = ""; panel.style.bottom = `${innerHeight - box.top}px`; }
 }
 const options = () => [...panel.querySelectorAll(".glass-option:not([aria-disabled='true'])")];
 
@@ -76,6 +79,7 @@ function close({ focus = false } = {}) {
   if (!openFor) return;
   const select = openFor;
   openFor = null;
+  changed.disconnect();
   panel.hidden = true;
   select.setAttribute("aria-expanded", "false");
   entry?.close();
@@ -90,6 +94,7 @@ function open(select) {
   select.setAttribute("aria-expanded", "true");
   select.setAttribute("aria-controls", panel.id);
   entry = trackPopover(select, panel, () => { if (openFor === select) close(); });
+  changed.observe(select, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ["disabled", "label"] });
   (panel.querySelector(".glass-option[aria-selected='true']:not([aria-disabled='true'])") ?? options()[0])?.focus();
 }
 /** Picks through the select itself, so its own input and change events are what everything hears. */
@@ -120,6 +125,8 @@ panel.addEventListener("keydown", (event) => {
   if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) { event.preventDefault(); typeAhead(event.key); }
 });
 panel.addEventListener("click", (event) => pick(event.target.closest(".glass-option")));
+/* Integration review: pressing a greyed choice leaves the keyboard where it was, so the arrows carry on from there. */
+panel.addEventListener("mousedown", (event) => event.preventDefault());
 panel.addEventListener("mousemove", (event) => {
   const node = event.target.closest(".glass-option:not([aria-disabled='true'])");
   if (node && document.activeElement !== node) node.focus({ preventScroll: true });

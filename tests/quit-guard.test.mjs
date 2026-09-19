@@ -15,7 +15,7 @@ test("it asks only when a person quits while work runs and nothing in the backgr
   assert.equal(asksBeforeQuit(base), true);
   assert.equal(asksBeforeQuit({ ...base, runningTasks: 0 }), false, "nothing running, nothing to lose");
   assert.equal(asksBeforeQuit({ ...base, engineInBackground: true }), false, "the background engine carries on");
-  for (const reason of ["update", "restart", "command"])
+  for (const reason of ["update", "restart", "command", "system"])
     assert.equal(asksBeforeQuit({ ...base, reason }), false, `${reason} was already decided`);
 });
 
@@ -48,4 +48,15 @@ test("the window marks an update, a restart and `branch quit` so none of them as
   assert.match(main, /app\.relaunch\([\s\S]{0,120}quitReason = "restart";\s*app\.quit\(\);/);
   assert.match(main, /quit: \(\) => \{ quitReason = "command"; app\.quit\(\); \}/);
   assert.match(main, /asksBeforeQuit\(\{ reason: quitReason, runningTasks: runningNow\(\), engineInBackground: joinedBackground \}\)/);
+});
+
+test("integration review: the computer shutting down or signing out never waits for the question, nor does an update while it shows", async () => {
+  const main = await readFile(new URL("../src/desktop/main.ts", import.meta.url), "utf8");
+  assert.match(main, /powerMonitor\.on\("shutdown", \(\) => \{ quitReason = "system"; \}\)/, "macOS and Linux shutdown");
+  assert.match(main, /window\.on\("query-session-end", \(\) => \{ quitReason = "system"; \}\)/, "Windows ending the session");
+  assert.match(main, /window\.on\("session-end", \(\) => \{ quitReason = "system"; \}\)/);
+  const beforeQuit = main.slice(main.indexOf('app.on("before-quit"'), main.indexOf("powerMonitor.on("));
+  assert.doesNotMatch(beforeQuit, /if \(askingToQuit\) return;/, "a quit that was already decided is never swallowed by an open question");
+  assert.match(beforeQuit, /if \(!askingToQuit\) void askThenQuit\(\);\s*return;\s*\}\s*shutDown\(\);/);
+  assert.match(main, /if \(quitting\) return; \/\/ an update/, "an answer that arrives after the quit already began does nothing");
 });

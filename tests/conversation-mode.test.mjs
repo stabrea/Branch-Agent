@@ -271,3 +271,171 @@ test("in the window, a new conversation on Ask first stops before its first writ
   assert.equal(existsSync(join(f.app.runtime.workspace, "note.txt")), false, "nothing written before the yes");
   assert.deepEqual(f.errors, []);
 });
+
+/* ---------------------------------------------------------------- integration review */
+
+/** A model that calls `files.write` on `file` when the newest message asks to write, and says done after any tool result. */
+async function writerFixture(t, file) {
+  const root = await mkdtemp(join(tmpdir(), "branch-conversation-mode-"));
+  const provider = { name: "scripted", async complete(request) {
+    const last = request.messages[request.messages.length - 1];
+    const asked = String([...request.messages].reverse().find((m) => m.role === "user")?.content ?? "");
+    if (last?.role === "tool" || !/write/i.test(asked)) return { content: "done", toolCalls: [] };
+    return { content: "", toolCalls: [{ id: `w${Math.random().toString(36).slice(2, 8)}`, name: "files.write",
+      arguments: JSON.stringify({ path: file, content: "x" }) }] };
+  } };
+  const app = await createBranch({ dataDir: join(root, "data"), workspace: join(root, "ws"), provider });
+  t.after(async () => { await app.close(); await discardTemp(root); });
+  app.testRoot = root;
+  return app;
+}
+
+test("integration review: a helper started in an Ask first conversation is held to that conversation, not the owner's No approvals", async (t) => {
+  const app = await writerFixture(t, "helper.txt");
+  const parent = await app.runtime.run({ prompt: "hello", conversationMode: "ask" });
+  assert.equal(parent.status, "completed");
+  const context = app.runtime.context({ runId: parent.id });
+  const child = await app.runtime.delegate("write the helper file", context, [...context.permissions], "");
+  assert.notEqual(child.sessionId, parent.sessionId, "a helper works in a conversation of its own");
+  assert.equal(existsSync(join(app.runtime.workspace, "helper.txt")), false, "the helper did not write without a yes");
+  const childContext = app.runtime.context({ runId: child.id });
+  assert.equal(app.runtime.checkPolicy("files.write", { path: "helper.txt", content: "x" }, childContext).decision, "ask");
+  const { pickConversationMode } = await import("../dist/conversation-mode-api.js");
+  pickConversationMode(app, parent.sessionId, "plan");
+  assert.equal(app.runtime.checkPolicy("files.write", { path: "helper.txt", content: "x" }, childContext).decision, "deny",
+    "and it follows the conversation when the mode changes");
+});
+
+test("integration review: a short-lived key's task never gets a mode looser than the owner's setting", async (t) => {
+  const { underShortLivedKey } = await import("../dist/key-context.js");
+  const { modeRefusal } = await import("../dist/conversation-mode-api.js");
+  const app = await writerFixture(t, "key.txt");
+  savePolicy(app.store, app.runtime.owner, { preset: "ask-before-changes" });
+  const owners = await app.runtime.run({ prompt: "hello", conversationMode: "full" });
+  const byKey = await underShortLivedKey(() => app.runtime.run({ prompt: "write it", sessionId: owners.sessionId }));
+  assert.equal(byKey.status, "needs_input", "the key's task asks, as the owner's setting says");
+  assert.equal(existsSync(join(app.runtime.workspace, "key.txt")), false);
+  assert.match(underShortLivedKey(() => modeRefusal(app, "full")) ?? "", /Only the owner/, "and the key cannot start a Full access conversation");
+  assert.equal(underShortLivedKey(() => modeRefusal(app, "plan")), null, "a stricter one is fine");
+  const own = await app.runtime.run({ prompt: "write it", sessionId: owners.sessionId });
+  assert.equal(own.status, "completed", "the owner's own task in the same conversation still has Full access");
+  assert.equal(existsSync(join(app.runtime.workspace, "key.txt")), true);
+});
+
+test("integration review: a new conversation's mode sent with the message is checked like the chip", async (t) => {
+  const { app, call } = await served(t, () => ({ content: "done", toolCalls: [] }));
+  await call("/api/lockdown", { on: true });
+  const locked = await call("/api/run", { prompt: "hello", mode: "full" });
+  assert.equal(locked.status, 403, "Lockdown refuses Full access at the start too");
+  assert.match(locked.body.error, /Lockdown/);
+  assert.equal((await call("/api/run", { prompt: "hello", mode: "plan" })).status, 200, "Plan may start under Lockdown");
+  await call("/api/lockdown", { on: false });
+  savePolicy(app.store, app.runtime.owner, { preset: "ask-before-changes" });
+  const owners = (await call("/api/run", { prompt: "the owner's", mode: "full" })).body;
+  const person = app.store.profiles.create({ name: "Sam", pin: "1234" });
+  app.store.profiles.switch({ profileId: person.id, pin: "1234" });
+  const refused = await call("/api/run", { prompt: "hello", mode: "full" });
+  assert.equal(refused.status, 403, "a household person cannot start a conversation looser than the owner's setting");
+  const other = await call("/api/conversation-mode", { sessionId: owners.sessionId, mode: "plan" });
+  assert.equal(other.status, 404, "nor pick a mode for the owner's conversation");
+  app.store.profiles.switch({ profileId: null });
+  assert.equal(readConversationMode(app.store, app.runtime.owner, owners.sessionId).mode, "full", "which kept its own");
+});
+
+test("integration review: a Plan conversation refuses changes for tasks from other programs too", async (t) => {
+  const app = await writerFixture(t, "outside.txt");
+  const plan = await app.runtime.run({ prompt: "hello", conversationMode: "plan" });
+  for (const source of ["a2a", "acp", "mcp", "schedule", "trigger", "channel"]) {
+    const run = await app.runtime.run({ prompt: "write it", sessionId: plan.sessionId, source });
+    assert.notEqual(run.status, "needs_input", `${source}: a change is refused, not asked about`);
+    assert.ok(app.store.events(run.id).some((event) => event.kind === "policy.denied"), `${source}: refused`);
+    assert.equal(existsSync(join(app.runtime.workspace, "outside.txt")), false);
+  }
+});
+
+test("integration review: Auto writes inside the workspace and never outside it", async (t) => {
+  const inside = await writerFixture(t, "in.txt");
+  const done = await inside.runtime.run({ prompt: "write it", conversationMode: "auto" });
+  assert.equal(done.status, "completed");
+  assert.equal(existsSync(join(inside.runtime.workspace, "in.txt")), true, "inside the workspace it goes ahead");
+  const probe = await writerFixture(t, "x");
+  const outside = join(probe.testRoot, "not-the-workspace.txt");
+  const app = await writerFixture(t, outside);
+  const run = await app.runtime.run({ prompt: "write it", conversationMode: "auto" });
+  assert.equal(existsSync(outside), false, `Auto never writes outside the workspace (${run.status})`);
+  const escaped = await writerFixture(t, "../escaped.txt");
+  await escaped.runtime.run({ prompt: "write it", conversationMode: "auto" });
+  assert.equal(existsSync(join(escaped.testRoot, "escaped.txt")), false, "not by climbing out either");
+});
+
+test("integration review: switching the mode takes effect at the next tool call and changes nothing already done", async (t) => {
+  const { pickConversationMode } = await import("../dist/conversation-mode-api.js");
+  const app = await writerFixture(t, "first.txt");
+  const run = await app.runtime.run({ prompt: "write it", conversationMode: "full" });
+  assert.equal(run.status, "completed");
+  assert.equal(existsSync(join(app.runtime.workspace, "first.txt")), true);
+  const context = app.runtime.context({ runId: run.id });
+  const check = () => app.runtime.checkPolicy("files.write", { path: "second.txt", content: "x" }, context).decision;
+  assert.equal(check(), "allow");
+  pickConversationMode(app, run.sessionId, "ask");
+  assert.equal(check(), "ask", "the next call asks");
+  pickConversationMode(app, run.sessionId, "plan");
+  assert.equal(check(), "deny", "the next call is refused");
+  assert.equal(existsSync(join(app.runtime.workspace, "first.txt")), true, "what was done before stays done");
+});
+
+/* ------------- "Let Branch run this project's tests?" (mac7/coding-next) in each mode ------------- */
+
+async function testsProject(t, answers) {
+  let at = 0;
+  const app = await fixture(t, () => answers[Math.min(at++, answers.length - 1)]);
+  const { mkdir, writeFile } = await import("node:fs/promises");
+  await mkdir(join(app.runtime.workspace, "test"), { recursive: true });
+  await writeFile(join(app.runtime.workspace, "package.json"), JSON.stringify({ name: "p", type: "module" }));
+  await writeFile(join(app.runtime.workspace, "test", "a.test.mjs"), 'import test from "node:test";\ntest("adds", () => {});\n');
+  return app;
+}
+const checkCall = { content: "", toolCalls: [{ id: "k1", name: "code.check", arguments: "{}" }] };
+const doneCall = { content: "done", toolCalls: [] };
+const questions = (app, run) => app.store.events(run.id).filter((event) => event.kind === "policy.ask");
+const testsRan = (app, run) => app.store.events(run.id).some((event) => event.kind === "code.check");
+
+test("integration review: Plan never runs a project's tests and never asks", async (t) => {
+  /* Plan first asks the model for a plan (the first answer), then the task may only read. */
+  const app = await testsProject(t, [checkCall, checkCall, doneCall]);
+  const run = await app.runtime.run({ prompt: "check it", conversationMode: "plan" });
+  assert.equal(questions(app, run).length, 0, "no question");
+  assert.equal(testsRan(app, run), false, "no tests");
+  assert.ok(app.store.events(run.id).some((event) => event.kind === "policy.denied"));
+});
+
+test("integration review: Ask first asks before the tests run", async (t) => {
+  const app = await testsProject(t, [checkCall, doneCall]);
+  const run = await app.runtime.run({ prompt: "check it", conversationMode: "ask" });
+  assert.equal(run.status, "needs_input");
+  assert.equal(testsRan(app, run), false);
+  assert.equal(questions(app, run).length, 1);
+});
+
+test("integration review: Auto and Full access still ask once per folder; a plain yes is Once; Always is kept per folder", async (t) => {
+  const { readPolicy } = await import("../dist/policy.js");
+  for (const mode of ["auto", "full"]) {
+    const app = await testsProject(t, [checkCall, checkCall, doneCall, checkCall, checkCall, doneCall]);
+    const first = await app.runtime.run({ prompt: "check it", conversationMode: mode });
+    assert.equal(first.status, "needs_input", `${mode}: asked`);
+    const [question] = questions(app, first);
+    assert.equal(question.data.kind, "project-tests", `${mode}: the tests question itself, not a broad one`);
+    assert.equal(question.data.remember, "never", `${mode}: a plain yes is Once`);
+    assert.equal(testsRan(app, first), false);
+    app.runtime.approve(first.sessionId, "allow", question.data.remember);
+    assert.equal(readPolicy(app.store, app.runtime.owner).rules.some((rule) => rule.tool === "code.tests"), false,
+      `${mode}: a plain yes writes no rule`);
+    const second = await app.runtime.run({ prompt: "carry on", sessionId: first.sessionId });
+    assert.equal(testsRan(app, second), true, `${mode}: Once runs them`);
+    const third = await app.runtime.run({ prompt: "again", sessionId: first.sessionId });
+    assert.equal(third.status, "needs_input", `${mode}: and then asks again`);
+    app.runtime.approve(first.sessionId, "allow", "always");
+    assert.ok(readPolicy(app.store, app.runtime.owner).rules.some((rule) => rule.tool === "code.tests" && rule.decision === "allow"),
+      `${mode}: Always for this folder is written down`);
+  }
+});

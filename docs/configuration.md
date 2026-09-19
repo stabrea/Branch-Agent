@@ -5698,7 +5698,7 @@ application's credential file or Keychain item, import a browser's cookies, call
 provider has not published, or drive a provider's own program to harvest a figure it prints.
 
 - `GET /api/usage/limits` — the rows, the three states, and the one-line summary
-  (*"3 of 5 connections report a limit. The other 2 do not publish one."*).
+  (*"3 of 5 connections report a limit. The other 2 do not publish one."*, or *"Your one connection reports a limit."*).
 - `GET /api/usage/limits/settings` / `POST /api/usage/limits/settings` — `{ mode, enabled }`, the
   switch behind the one service Branch may ask.
 
@@ -5754,8 +5754,9 @@ opens a short menu of four choices:
 - **Plan** — it reads and proposes a plan, and changes nothing: a change is refused, not asked about.
   Picking Plan also turns on *Show me the plan first* for the conversation. Once you agree a plan, the
   conversation moves to Ask first so the plan can be carried out, still asking before each change.
-- **Auto** — changes inside the workspace go ahead; commands, the web and anything else ask. It is the
-  *Just do it inside my workspace* setting, for this conversation only.
+- **Auto** — changes inside the workspace go ahead; commands and the web ask. It is the *Just do it
+  inside my workspace* setting, for this conversation only. Branch's file tools never reach outside the
+  workspace in any mode.
 - **Full access** — nothing is checked with you (commands that no rule covers still ask, as always). It
   shows a plain warning before it is given.
 
@@ -5770,8 +5771,12 @@ What decides what a task may do, in order:
    *When to check with me → New conversations start on*.
 3. A mode replaces the preset part of the owner's setting for that conversation. Refusals the owner
    wrote still apply; Ask first and Plan also drop every standing yes.
-4. The owner may pick a mode looser than their setting. A household person never can: their choice is
-   refused, and a task of theirs keeps the owner's setting if a mode would be looser.
+4. The owner may pick a mode looser than their setting. A household person or a short-lived key never
+   can: their choice is refused, and a task of theirs, or one started (or carried on) by a chat app, a
+   trigger, a schedule or another program, keeps the owner's setting if a mode would be looser.
+   A helper or background specialist a task starts works in a conversation of its own and is held to
+   the mode of the conversation that started it. A changed mode applies from the next thing a task
+   does; nothing already done is undone.
 5. It sits under everything that was already stronger: Lockdown (the looser modes are greyed; only Plan
    can tighten it further), the hold on tasks started from outside (a chat app, a trigger, a schedule,
    another program: never more than Ask first), roles, and the protected parts of Branch.
@@ -5785,7 +5790,19 @@ The enforcement is in the runtime's own policy check, not in the window.
   or `null`. A looser choice is refused while Lockdown is on, and always to a household person.
 - `GET /api/conversation-mode/settings` / `POST /api/conversation-mode/settings` — `{ newConversation }`.
   Changing it is the owner's alone.
-- `POST /api/run` takes `mode` for the message that starts a conversation.
+- `POST /api/run` takes `mode` for the message that starts a conversation, refused (403) exactly as the
+  chip would refuse it.
+
+*Let Branch run this project's tests?* (the coding question asked once per folder) follows the mode:
+**Plan** never runs the tests and never asks (the check is refused as a change); **Ask first** asks;
+**Auto** and **Full access** still ask once per folder unless *Always for this folder* was given — a
+mode never stands in for that yes. A plain yes is *Once*, and only the owner in the app can give
+*Always*.
+
+Another program connected over MCP sees a list of tools and "what would happen" notes worked out from
+the owner's setting, not from any conversation's mode (they belong to no conversation). A task it
+starts, or an A2A/ACP task that joins a conversation, is held to that conversation's mode and to the
+hold on outside tasks, so a Plan conversation refuses its changes.
 
 ### Suggestions, updates as choice cards, and quitting while work runs (redesign phase 1)
 
@@ -5818,7 +5835,8 @@ as shipped.
 on. Quitting stops it, so when a task is running and no background engine would carry on with it,
 Branch asks first: *"A task is still working. Quitting now stops it."* with **Keep running in the
 background** (the window closes and Branch keeps working in the tray), **Quit anyway** and **Cancel**.
-An update, a restart you asked for and `branch quit` never ask.
+An update, a restart you asked for, `branch quit` and the computer shutting down, restarting or signing
+out never ask, and none of them waits on a question already showing.
 
 ## Specialists that work in different ways (batch 20, wave 7)
 

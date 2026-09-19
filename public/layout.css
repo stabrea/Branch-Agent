@@ -2375,7 +2375,8 @@ select.glass[aria-expanded="true"] {
   padding: 4px;
   border: 1px solid var(--glass-edge);
   border-radius: 12px;
-  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  /* Integration review: opaque enough that nothing under the list reads through it. */
+  background: color-mix(in srgb, var(--surface) 98%, transparent);
   -webkit-backdrop-filter: var(--blur);
   backdrop-filter: var(--blur);
   box-shadow: var(--card-shadow, var(--shadow));
@@ -2390,10 +2391,10 @@ select.glass[aria-expanded="true"] {
     animation: glass-open 0.12s ease-out;
   }
 }
+/* Integration review: it fades in where it will stay, so it never slides over the select it opened from. */
 @keyframes glass-open {
   from {
     opacity: 0;
-    transform: translateY(-3px);
   }
 }
 .glass-option {

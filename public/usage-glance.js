@@ -142,7 +142,7 @@ async function saveNow() {
   closePrompt();
   try {
     const { asked } = await api("usage/save-progress", {});
-    toast(asked ? t("glance.saveSent", { count: asked }) : t("glance.saveNone"));
+    toast(asked === 1 ? t("glance.saveSentOne") : asked ? t("glance.saveSent", { count: asked }) : t("glance.saveNone"));
   } catch (error) { toast(error.message); }
 }
 function promptBox(crossing) {
@@ -197,7 +197,20 @@ export async function refreshGlance() {
   if (crossing && !document.hidden) showPrompt(crossing);
   timer = setTimeout(refreshGlance, glance.running ? 20000 : 60000);
 }
-popover($("usage-ring"), $("usage-pop"), { onOpen: () => paintPopover() });
+/**
+ * Integration review: the list opens where it covers nothing you are typing into: under the ring when
+ * there is room there, otherwise above the message box rather than over it. Only a window too short for
+ * either (a phone held sideways) lets it sit over the box, as before.
+ */
+function placePopover() {
+  const pop = $("usage-pop"), bar = $("status-bar"), form = $("chat-form");
+  pop.style.top = pop.style.bottom = "";
+  if (!bar || !form) return;
+  const barBox = bar.getBoundingClientRect(), formBox = form.getBoundingClientRect(), height = pop.offsetHeight;
+  if (innerHeight - barBox.bottom - 16 >= height) { pop.style.top = "calc(100% + 8px)"; pop.style.bottom = "auto"; return; }
+  if (formBox.bottom <= barBox.top + 1 && formBox.top - 16 >= height) pop.style.bottom = `${barBox.bottom - formBox.top + 8}px`;
+}
+popover($("usage-ring"), $("usage-pop"), { onOpen: () => paintPopover(), afterOpen: () => placePopover() });
 document.addEventListener("branch-run-finished", () => void refreshGlance());
 document.addEventListener("branch-profile", () => void refreshGlance());
 document.addEventListener("branch-usage-glance", () => void refreshGlance());

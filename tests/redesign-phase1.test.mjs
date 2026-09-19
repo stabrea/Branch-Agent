@@ -200,7 +200,7 @@ test("at 95% used it asks once; Save progress steers every running task to write
   assert.match(await box.innerText(), new RegExp(`Almost out on ${escape(name)}\\. Ask running tasks to save their progress\\?`));
   assert.equal(await box.getAttribute("role"), "alertdialog");
   await box.getByRole("button", { name: "Save progress" }).click();
-  await f.page.locator("#toast").filter({ hasText: "Asked 1 running task" }).waitFor();
+  await f.page.locator("#toast").filter({ hasText: "Asked the running task to write down where it is" }).waitFor();
   const events = (await f.call(`/api/runs/${run.id}`)).events;
   const steered = events.find((event) => event.kind === "run.steered");
   assert.ok(steered, "the task was steered through the ordinary channel");
@@ -246,4 +246,34 @@ test("saving progress and the ring's settings are the owner's alone", async (t) 
   }
   f.app.store.profiles.switch({ profileId: null });
   assert.equal((await f.call("/api/usage/glance/settings")).settings.ring, "shown");
+});
+
+/* ---------------------------------------------------------------- integration review */
+
+test("integration review: the ring's list never covers the message box on a phone or a short laptop screen", async (t) => {
+  for (const [width, height] of [[390, 844], [1024, 700]]) {
+    const f = await fixture(t, { width, height, provider: { name: "scripted", async complete() { return { content: "ok", toolCalls: [] }; } } });
+    reportLeft(f.app, 12);
+    await refreshRing(f.page);
+    await f.page.locator("#usage-ring").click();
+    await f.page.locator("#usage-pop").waitFor({ state: "visible" });
+    const boxes = await f.page.evaluate(() => {
+      const box = (id) => document.getElementById(id).getBoundingClientRect();
+      const pop = box("usage-pop"), field = box("prompt");
+      return { overlaps: pop.left < field.right && pop.right > field.left && pop.top < field.bottom && pop.bottom > field.top,
+        inside: pop.top >= 0 && pop.bottom <= innerHeight };
+    });
+    assert.equal(boxes.overlaps, false, `the list leaves the text field clear at ${width}x${height}`);
+    assert.equal(boxes.inside, true, `and stays on screen at ${width}x${height}`);
+    assert.deepEqual(f.errors, []);
+  }
+});
+
+test("integration review: the summary under the list says one connection and several in plain words", async () => {
+  const { limitsSummary } = await import("../dist/usage-limits.js");
+  assert.equal(limitsSummary(1, 1), "Your one connection reports a limit.");
+  assert.equal(limitsSummary(0, 1), "Your one connection does not publish a limit.");
+  assert.equal(limitsSummary(1, 3), "1 of 3 connections reports a limit. The other 2 do not publish one.");
+  assert.equal(limitsSummary(2, 3), "2 of 3 connections report a limit. The other one does not publish one.");
+  assert.equal(limitsSummary(0, 0), "No model connection is set up yet.");
 });

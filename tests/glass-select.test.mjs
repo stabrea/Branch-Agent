@@ -145,3 +145,67 @@ test("on a touch-only phone the select keeps its own picker and no hover help ap
   assert.equal(await f.page.locator("#glass-tip").isVisible(), false, "no hover help from a touch");
   assert.deepEqual(f.errors, []);
 });
+
+/* ---------------------------------------------------------------- integration review */
+
+test("integration review: the list sits flush under the select and fully covers the help line under it", async (t) => {
+  for (const viewport of [{ width: 1440, height: 950 }, { width: 390, height: 844 }]) {
+    const f = await fixture(t, { viewport });
+    await openSettingFor(f.page, "#policy-preset");
+    await f.page.locator("#policy-preset").scrollIntoViewIfNeeded();
+    await f.page.locator("#policy-preset").click();
+    await f.page.locator("#glass-list").waitFor({ state: "visible" });
+    await f.page.waitForTimeout(300); // the opening glide is over
+    const seen = await f.page.evaluate(() => {
+      const select = document.getElementById("policy-preset").getBoundingClientRect();
+      const list = document.getElementById("glass-list");
+      const box = list.getBoundingClientRect();
+      const note = document.getElementById("policy-preset").nextElementSibling.getBoundingClientRect();
+      const probe = document.elementFromPoint(note.left + 20, Math.ceil(select.bottom) + 1);
+      return { gap: box.top - select.bottom, overNote: list.contains(probe), noteTop: note.top, listTop: box.top,
+        alpha: Number(/\/\s*([\d.]+)\)/.exec(getComputedStyle(list).backgroundColor)?.[1] ?? 1) };
+    });
+    assert.ok(seen.gap >= 0 && seen.gap <= 2, `flush under the select at ${viewport.width} (gap ${seen.gap})`);
+    assert.ok(seen.overNote, `the list, not the help line, is what shows right under the select at ${viewport.width}`);
+    assert.ok(seen.alpha >= 0.97, `the glass is opaque enough to read (${seen.alpha})`);
+    assert.deepEqual(f.errors, []);
+  }
+});
+
+test("integration review: groups, greyed choices, one change event, the form's value, and a list that changes while open", async (t) => {
+  const f = await fixture(t);
+  await openSettingFor(f.page, "#policy-preset");
+  await f.page.evaluate(() => {
+    const form = document.createElement("form");
+    form.id = "probe-form";
+    form.innerHTML = '<label for="probe">Pick one</label><select id="probe" name="pick">'
+      + '<optgroup label="Fruit"><option value="a">Apple</option><option value="b" disabled>Banana</option></optgroup>'
+      + '<optgroup label="Roots"><option value="c">Carrot</option></optgroup></select>';
+    document.getElementById("policy-preset").closest(".card").append(form);
+    globalThis.__probe = [];
+    form.querySelector("select").addEventListener("change", (event) => globalThis.__probe.push(event.target.value));
+  });
+  const select = f.page.locator("#probe"), list = f.page.locator("#glass-list");
+  await f.page.waitForFunction(() => document.getElementById("probe").classList.contains("glass"));
+  await select.scrollIntoViewIfNeeded();
+  await select.click();
+  await list.waitFor({ state: "visible" });
+  assert.equal(await list.getAttribute("aria-label"), "Pick one", "the list is named by the select's label");
+  assert.deepEqual(await list.locator("[role=group]").evaluateAll((groups) => groups.map((g) => g.getAttribute("aria-label"))), ["Fruit", "Roots"]);
+  assert.equal(await list.locator("[role=option]", { hasText: "Banana" }).getAttribute("aria-disabled"), "true");
+  await list.locator("[role=option]", { hasText: "Banana" }).click({ force: true });
+  assert.equal(await list.isVisible(), true, "a greyed choice does nothing");
+  await f.page.keyboard.press("ArrowDown");
+  assert.equal((await f.page.evaluate(() => document.activeElement.textContent)).trim(), "Carrot", "arrows skip a greyed choice");
+  await f.page.keyboard.press("Enter");
+  await list.waitFor({ state: "hidden" });
+  assert.deepEqual(await f.page.evaluate(() => globalThis.__probe), ["c"], "exactly one change event");
+  assert.equal(await f.page.evaluate(() => new FormData(document.getElementById("probe-form")).get("pick")), "c", "the form sends the chosen value");
+  await select.click();
+  await list.waitFor({ state: "visible" });
+  await f.page.evaluate(() => document.getElementById("probe").prepend(new Option("Aubergine", "z")));
+  await list.waitFor({ state: "hidden" });
+  assert.equal(await select.inputValue(), "c", "a list that changed under the pointer closes and chooses nothing");
+  assert.deepEqual(await f.page.evaluate(() => globalThis.__probe), ["c"]);
+  assert.deepEqual(f.errors, []);
+});

@@ -11,8 +11,10 @@ let asked = false;
 
 const BARS = {
   background: { words: "suggest.background", why: "suggest.backgroundWhy", yes: async () => {
-    const report = await api("deployment/daemon", { action: "install" });
-    toast(report?.installed ? t("suggest.backgroundOn") : report?.message || t("suggest.backgroundOn"));
+    /* Integration review: the result is said as it is; a failure never reads as success. */
+    const report = await api("deployment/daemon", { action: "install" })
+      .catch((error) => ({ installed: false, message: error.message }));
+    toast(report?.installed ? t("suggest.backgroundOn") : t("suggest.backgroundFailed", { why: report?.message || t("suggest.noReason") }));
   } },
   updates: { words: "suggest.updates", why: "suggest.updatesWhy", yes: async () => {
     await api("comfort", { card: "notify", values: { autoUpdate: "install" } });
