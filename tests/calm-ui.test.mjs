@@ -420,3 +420,57 @@ test("calm: a running task reads under its message, with a real Stop, and its co
   assert.equal(await f.page.locator("#rail-list .rail-item").count(), 1, "still in Recents once finished");
   assert.deepEqual(f.errors, []);
 });
+
+test("calm: the message box is one growing line with + on the left and one round button: quiet, then the accent, then Stop", async (t) => {
+  const model = slowModel();
+  t.after(() => model.release()); // registered before the fixture, so a failure never leaves the model holding Branch open
+  const f = await fixture(t, { provider: model.provider, onboarded: true });
+  const form = f.page.locator("#chat-form"), send = f.page.locator("#send");
+  const height = async () => (await form.boundingBox()).height;
+  assert.ok((await height()) <= 62, `the empty box is one line (${await height()}px)`);
+  assert.equal(await f.page.locator("#prompt").getAttribute("placeholder"), "Ask Branch to do something…");
+  assert.equal(await send.getAttribute("aria-label"), "Send");
+  const shape = await send.evaluate((node) => { const b = node.getBoundingClientRect(); return { w: b.width, h: b.height, r: getComputedStyle(node).borderRadius }; });
+  assert.ok(Math.abs(shape.w - 36) < 2 && Math.abs(shape.h - 36) < 2 && shape.r === "50%", "a round button of about 36px");
+  assert.equal(await send.evaluate((node) => node.classList.contains("lx-empty")), true, "quiet while the box is empty");
+  await f.page.waitForTimeout(300);
+  const quiet = await send.evaluate((node) => getComputedStyle(node).backgroundColor);
+  /* Pressing the quiet button sends nothing and puts you in the box. */
+  await send.click();
+  assert.equal(await f.page.evaluate(() => document.activeElement.id), "prompt");
+  await f.page.locator("#prompt").fill("one\ntwo\nthree\nfour");
+  assert.ok((await height()) > 100, "it grows with what is typed");
+  await f.page.locator("#prompt").fill("Sort my Downloads folder.");
+  assert.equal(await send.evaluate((node) => node.classList.contains("lx-empty")), false);
+  await f.page.waitForTimeout(300);
+  assert.notEqual(await send.evaluate((node) => getComputedStyle(node).backgroundColor), quiet, "the accent once there is something to send");
+  /* The + offers the same two ways to add something as More, and presses the real control. */
+  await f.page.locator("#lx-plus").click();
+  await f.page.locator("#lx-plus-menu").waitFor({ state: "visible" });
+  assert.deepEqual(await f.page.locator("#lx-plus-menu").getByRole("menuitem").allInnerTexts(), ["Attach a document…", "Add a picture or a sound…"]);
+  await f.page.keyboard.press("Escape");
+  await f.page.locator("#lx-plus-menu").waitFor({ state: "hidden" });
+  await send.click();
+  /* While the task works, the same place holds Stop, and Stop stops it. */
+  const stop = f.page.getByRole("button", { name: "Stop", exact: true }).and(f.page.locator("#lx-stop"));
+  await stop.waitFor({ state: "visible", timeout: 10000 });
+  assert.equal(await send.isVisible(), false);
+  await stop.click();
+  /* The stop is asked for at once; this scripted model only notices when its answer comes back. */
+  await f.page.locator("#live-status").getByText("Stopped.").waitFor({ timeout: 10000 });
+  model.release();
+  await f.page.locator("#lx-stop").waitFor({ state: "hidden", timeout: 15000 });
+  assert.equal(await send.isVisible(), true, "Send is back once the task has stopped");
+  assert.deepEqual(f.errors, []);
+});
+
+test("calm: the empty screen offers three starting points that fill the box without sending", async (t) => {
+  const f = await fixture(t, { onboarded: true });
+  const chips = f.page.locator("#lx-starters .lx-starter");
+  assert.deepEqual(await chips.allInnerTexts(), ["Tidy a folder", "Research something", "Plan my week"]);
+  await chips.first().click();
+  assert.match(await f.page.locator("#prompt").inputValue(), /Downloads folder/);
+  assert.equal(await f.page.locator(".message.user").count(), 0, "nothing was sent");
+  assert.equal(await f.page.locator("#send").evaluate((node) => node.classList.contains("lx-empty")), false);
+  assert.deepEqual(f.errors, []);
+});

@@ -329,7 +329,8 @@ test("Send keeps its label on one line and the helper note sits under the compos
     const send = await f.page.evaluate(() => {
       const button = document.getElementById("send");
       const range = document.createRange();
-      range.selectNodeContents(button);
+      /* Since 0.18.1 the words sit in their own span beside the calm window's arrow. */
+      range.selectNodeContents(button.querySelector(".lx-send-words") ?? button);
       return { lines: range.getClientRects().length, wrap: getComputedStyle(button).whiteSpace };
     });
     assert.equal(send.lines, 1, `Send is one line at ${size.width}`);
@@ -355,7 +356,7 @@ test("a Recents row lights up under the pointer in Daylight", async (t) => {
   await f.page.getByRole("button", { name: "Light", exact: true }).click();
   await f.page.locator(".lx-settings-close").click();
   await f.page.locator("#prompt").fill("Say hello");
-  await f.page.getByRole("button", { name: "Send ↗", exact: true }).click();
+  await f.page.getByRole("button", { name: "Send", exact: true }).click();
   await f.page.locator("#conversation .message.assistant").first().waitFor({ timeout: 30000 });
   /* The rail fills itself when the workspace opens, so it is read after a reload. */
   await f.page.reload();

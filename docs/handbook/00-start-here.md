@@ -65,7 +65,7 @@ You will see the answer, and a quiet row saying which tools it used.
 | --- | --- |
 | The rail on the left | **New conversation**, your recent conversations, and **Settings** at the foot. **Inbox** appears here while something is waiting for you. |
 | The middle column | The question **What do you want done?**, then the conversation itself: what you asked and what it answered. |
-| The box at the bottom | Where you type, and **Send**. |
+| The message box | One line that grows as you type. **+** on its left adds a document, a picture or a sound; the round button on its right sends (Enter), and becomes **Stop** while a task runs. With nothing in the conversation yet, the box sits under the question with three starting points (**Tidy a folder**, **Research something**, **Plan my week**) that only fill it in. |
 | **More**, top right | Everything else, in plain words: ask me questions first, forget this conversation afterwards, attach a document or a picture, who should answer, the Activity, Plan, Files and Memory panel, Inbox, Automations, Library, Customize, Find anything, labels, what is allowed right now, Lockdown, Clear the view and Help. |
 | The pane on the right | Slides in by itself while a task or a goal is running and shows what is running, anything you have said yes to for this conversation, and a goal's Resume and Stop; it goes away when the work finishes. |
 
