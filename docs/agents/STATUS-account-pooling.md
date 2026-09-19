@@ -31,3 +31,18 @@ person's own account).
 - [x] 6b trunk merged in twice (last: 5040c7d7), rebuilt from an empty dist, 139 targeted tests green
       (accounts x4, static-assets, index-structure, handbook, short-lived-keys, household-profile, commands x2,
       polish-observability, governance); pushed to mac/cross-platform.
+
+## Independent review (mac7/pooling-review, 2026-09-19)
+- [x] Mutation check: removing each guard (rotationSet, the limit sentence's group, the conversation's
+      kept pick, the API-key refusal, the read-only notice) fails a named test. The tests are real.
+- [x] Fixed: a helper or background sub-task a conversation started had a conversation of its own, so it
+      answered through the owner's default plan even when the conversation used another (own) plan that
+      had run out. Model calls now carry the conversation at the top of the task's tree (P10).
+- [x] Fixed: a model call a tool makes on the side (summary, document read) carried no conversation at
+      all and went to the default plan. Tool runs are now marked with their conversation (P9).
+- [x] Fixed: moved by hand onto an account kept separate after one own plan ran out, the conversation was
+      later moved (sharing on) or pointed (sharing off) to the owner's other plan. The own plan now leaves
+      the group for that conversation while another own plan is at its limit (`mayShare`, P11).
+- Left for the owner: with a single sign-in (no list), a ChatGPT 429 carrying Retry-After still moves the
+  task along the owner's own fallback order, which may list the Codex program signed in to a different
+  ChatGPT plan. Branch cannot see which plan a program is signed in to.

@@ -105,3 +105,40 @@ Windows (Legion):
 What branch `mac7/real-update` changes for the releases after 0.18.0 is in `tests/real-update.test.mjs`.
 Updating *from* 0.17.0 or 0.18.0 still runs those versions' own updater, so their failures above stay
 until a person is on a fixed version.
+
+## Second run: 0.18.0 to 0.18.1 (published), 2026-09-19
+
+Both machines ran the published 0.18.1 downloads, driven from the Mac (`~/ru-0181.log` there).
+Updating *from* 0.18.0 still runs 0.18.0's own updater, so its known faults are expected to show.
+
+Linux (Ubuntu 24.04, `branch-test-linux`):
+
+- `normal-stock` **failed as expected** (0.18.0's updater): the new copy's sandbox helper was not
+  root's, 0.18.1 did not start, the hand-over copied 0.18.0 back without the helper's root owner, and
+  neither version started. The work was untouched. Recovery is the documented `sudo chown root … &&
+  sudo chmod 4755 …` on `chrome-sandbox`, or the one-step installer.
+- `normal` passed (0.18.1, all four planted things unchanged, and again after a restart); 495 MB left in temp.
+- `corrupt` passed (stayed on 0.18.0, work intact; 134 MB left in temp).
+- `drop` passed, but the app still said only "settings: terminated" (0.18.0's wording; 55 MB left).
+- `kill-switch` passed: the switch-over was ended hard while copying; 0.18.0 was whole and started
+  with the work; a complete `…incoming` (0.18.1) copy was left beside it.
+- `installer` exited 0 and installed 0.18.1 in `~/.local/share/branch-agent/app`, but the harness only
+  lists files here; the unpacked 0.18.0 folder is left beside it (two copies). The same path was
+  proven by hand on the owner's taofik-ai VM the same day: data kept, 0.18.1 started.
+
+Windows (Legion, over `legion-branch`):
+
+- `normal` passed; 597 MB left in temp.
+- `corrupt` passed (171 MB left). `drop` passed (97 MB left).
+- `kill-switch` **failed as expected** (0.18.0's updater mirrors straight over the program folder):
+  neither version started after the kill. The work was untouched; the one-step installer repairs it.
+- `installer` passed (one copy, `.previous` kept, work intact).
+- `installer-open` passed: 0.18.0 was closed through its own route ("Branch Agent was open, so it was
+  closed first"), 0.18.1 installed, work intact. This was the raw `EPERM` failure in the first run.
+
+Owner machines, same day: Legion and taofik-ai were both moved from 0.18.0 to 0.18.1 with the
+one-step installer, data kept, both running.
+
+Still to prove: the same six scenarios from 0.18.1 to the next release, which is the first time the
+fixed updater (sandbox helper carried over, staged swap instead of a mirror, plain-words download
+errors) is the one doing the work.

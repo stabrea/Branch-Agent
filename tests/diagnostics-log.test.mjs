@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
-import { utimesSync } from "node:fs";
+import { utimesSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -25,26 +25,26 @@ const folder = async (t) => {
 
 test("D1 keys, tokens, bearer headers, emails and the home folder never survive the cleaner", () => {
   const dirty = [
-    "key sk-proj-abcdefghijklmnopqrstuvwx1234",
-    "github ghp_abcdefghijklmnopqrstuvwxyz0123456789",
+    "key sk-proj-abcdefghijklmnopqrstuvwx1234", // not-a-real-secret
+    "github ghp_abcdefghijklmnopqrstuvwxyz0123456789", // not-a-real-secret
     "Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.abcdefghijklmnopqrstu.abcdefghijklmnopqrstuv",
     "mail me at jane.doe@example.com please",
     `opened ${home}/Projects/secret-plan/notes.md`,
-    "slack xoxb-1234567890-abcdefghij",
+    "slack xoxb-1234567890-abcdefghij", // not-a-real-secret
   ].join("\n");
   const out = clean(dirty);
-  for (const leak of ["sk-proj-abcdefghijklmnop", "ghp_abcdefghij", "eyJhbGciOiJIUzI1NiJ9", "jane.doe@example.com", home, "xoxb-1234567890"])
+  for (const leak of ["sk-proj-abcdefghijklmnop", "ghp_abcdefghij", "eyJhbGciOiJIUzI1NiJ9", "jane.doe@example.com", home, "xoxb-1234567890"]) // not-a-real-secret
     assert.ok(!out.includes(leak), `${leak} survived: ${out}`);
   assert.match(out, /~\/Projects\/secret-plan/, "a home path becomes ~, so the shape stays readable");
   assert.match(out, /\[email removed\]/);
 });
 
 test("D2 fields named like secrets are removed whole, however innocent the value", () => {
-  const out = redactFields({ apiKey: "short", nested: { password: "x", note: `in ${home}/a` }, list: ["ok", "sk-abcdefghijklmnop1234"] }, clean);
+  const out = redactFields({ apiKey: "short", nested: { password: "x", note: `in ${home}/a` }, list: ["ok", "sk-abcdefghijklmnop1234"] }, clean); // not-a-real-secret
   assert.equal(out.apiKey, "[removed]");
   assert.equal(out.nested.password, "[removed]");
   assert.equal(out.nested.note, "in ~/a");
-  assert.ok(!JSON.stringify(out).includes("sk-abcdefghijklmnop1234"));
+  assert.ok(!JSON.stringify(out).includes("sk-abcdefghijklmnop1234")); // not-a-real-secret
 });
 
 test("D3 what reaches the disk is already clean", async (t) => {
@@ -294,4 +294,20 @@ test("D18 a script error in the window is a log line: nothing reaches the disk w
 test("D19 the issue link is still made when the returned about item is not JSON", () => {
   const url = new URL(issueUrl([{ id: "about", title: "About", why: "", text: "edited by hand" }], "It froze"));
   assert.match(url.searchParams.get("title"), /Branch \?\)$/);
+});
+
+test("D20 a crash after the database has closed is still written, and the handler never throws", async (t) => {
+  const dir = await folder(t);
+  const closed = () => { throw new Error("database is not open"); };
+  const log = new DiagnosticLog({ dir, settings: closed, clean });
+  assert.doesNotThrow(() => log.write({ level: "error", component: "engine", message: "late line" }));
+  // mac7/coding-next: crash notes are a switch now (off as shipped). With the database closed, the
+  // switch file beside the log answers for it: absent, no note; on, the note is still written.
+  assert.doesNotThrow(() => log.crash("engine", new Error("boom while closing")));
+  assert.equal(log.crashes(5).length, 0, "crash capture never switched on: no note");
+  writeFileSync(join(dir, "crash-capture.json"), JSON.stringify({ crashCapture: "on" }));
+  assert.doesNotThrow(() => log.crash("engine", new Error("boom while closing")));
+  assert.equal(log.crashes(5).length, 1, "switched on: the note is written without the database");
+  assert.equal(log.read().length, 0, "with no readable settings the log behaves as shipped: off");
+  assert.doesNotThrow(() => log.prune());
 });

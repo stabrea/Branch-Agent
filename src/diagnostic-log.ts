@@ -166,7 +166,7 @@ export class DiagnosticLog {
     const line = this.shape(entry);
     this.crumbs.push(line);
     if (this.crumbs.length > breadcrumbCount) this.crumbs.shift();
-    const { mode, maxMegabytes } = this.settings();
+    const { mode, maxMegabytes } = this.currentSettings();
     if (mode === "off") return;
     if (rank[line.level] < (mode === "on" ? rank.info : rank.warn)) return;
     try { this.append(this.file, JSON.stringify(line), (maxMegabytes * 1024 * 1024) / fileCount); } catch { /* a log line must never break Branch */ }
@@ -182,13 +182,13 @@ export class DiagnosticLog {
    */
   crash(component: string, error: unknown, origin = "uncaught"): void {
     const message = withoutQuotedText(error instanceof Error ? `${error.name}: ${error.message}` : String(error));
-    if (this.settings().crashCapture === "on") {
+    if (this.capturesCrashes()) {
       const stack = withoutQuotedText(error instanceof Error ? error.stack ?? "" : "");
       const line = this.shape({ level: "error", component, message, fields: { origin, stack: stack.slice(0, 4000) } });
       const record = { ...line, kind: "crash", breadcrumbs: this.breadcrumbs() };
       try { this.append(this.crashFile, JSON.stringify(record), 512 * 1024); } catch { /* never a second crash */ }
     }
-    this.write({ level: "error", component, message: `Crashed: ${message}`, fields: { origin } });
+    try { this.write({ level: "error", component, message: `Crashed: ${message}`, fields: { origin } }); } catch { /* never a second crash */ }
   }
 
   /** Lines newest first, across the rotated files, with the owner's filters. */
@@ -212,7 +212,7 @@ export class DiagnosticLog {
 
   /** Removes rotated files older than the owner's number of days. Returns how many went. */
   prune(): number {
-    const cutoff = this.now().getTime() - this.settings().keepDays * 86_400_000;
+    const cutoff = this.now().getTime() - this.currentSettings().keepDays * 86_400_000;
     let removed = 0;
     for (const file of [...this.files(this.file), ...this.files(this.crashFile)]) {
       try { if (statSync(file).mtimeMs < cutoff) { unlinkSync(file); removed += 1; } } catch { /* already gone */ }
@@ -224,6 +224,22 @@ export class DiagnosticLog {
   clear(): void {
     for (const file of [...this.files(this.file), ...this.files(this.crashFile)]) try { unlinkSync(file); } catch { /* gone */ }
     this.crumbs.length = 0;
+  }
+
+  /**
+   * The owner's settings, or the shipped ones (log off) when they cannot be read: a crash while
+   * Branch is closing arrives after its database has shut, and reading it then threw inside the
+   * crash handler, which ended the process with the wrong error.
+   */
+  private currentSettings(): DiagnosticLogSettings {
+    try { return this.settings(); } catch { return DiagnosticLogSettingsSchema.parse({}); }
+  }
+  /**
+   * mac7/coding-next: whether crash notes are kept. Once the database has closed the setting cannot be
+   * read, so the switch file beside the log (the one the desktop app reads at start) answers instead.
+   */
+  private capturesCrashes(): boolean {
+    try { return this.settings().crashCapture === "on"; } catch { return crashCaptureMarkedIn(this.dir); }
   }
 
   private shape(entry: LogWrite): LogLine {
@@ -324,6 +340,13 @@ export function componentOf(kind: string): string {
  */
 export const crashCaptureMarkFile = "crash-capture.json";
 const markPath = (dataDir: string): string => join(dataDir, "logs", crashCaptureMarkFile);
+/** The same switch, read from the log folder itself (`<data folder>/logs`). */
+function crashCaptureMarkedIn(logDir: string): boolean {
+  try {
+    const saved = JSON.parse(readFileSync(join(logDir, crashCaptureMarkFile), "utf8")) as { crashCapture?: unknown };
+    return saved.crashCapture === "on";
+  } catch { return false; }
+}
 export function writeCrashCaptureMark(dataDir: string, on: boolean): void {
   try {
     // Nothing to say while it is off and never was on: the folder is not made for nothing.
@@ -334,10 +357,7 @@ export function writeCrashCaptureMark(dataDir: string, on: boolean): void {
 }
 /** Whether the owner had crash capture on when the file was last written; off when unsure. */
 export function crashCaptureMarked(dataDir: string): boolean {
-  try {
-    const saved = JSON.parse(readFileSync(markPath(dataDir), "utf8")) as { crashCapture?: unknown };
-    return saved.crashCapture === "on";
-  } catch { return false; }
+  return crashCaptureMarkedIn(join(dataDir, "logs"));
 }
 /** What the desktop app starts Electron's crash reporter with at start, or null to leave it off. */
 export function crashReporterPlan(dataDir: string): ReturnType<typeof crashReporterOptions> | null {

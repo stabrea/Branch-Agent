@@ -169,7 +169,7 @@ export class AccountPoolProvider {
   private async shared(pool: Pool, usable: Account[], request: CompletionRequest, call: AccountCall | undefined): Promise<Completion> {
     const sticky = call?.sessionId ? this.hooks.sessionChoice(call.sessionId) : null;
     // mac7/account-pooling: at most one of the owner's own plans, plus the accounts kept separate.
-    const allowed = rotationSet(pool.kind, usable, pool.defaultAccount, sticky);
+    const allowed = this.mayShare(pool, usable, sticky);
     if (allowed.length < 2) return this.single(pool, usable, request, call);
     const ready = smartOrder(allowed.filter((account) => this.why(account) === null), this.hooks.states);
     // A conversation's own plan, once picked, is never replaced by Branch: were it overwritten by a
@@ -191,6 +191,21 @@ export class AccountPoolProvider {
     throw this.limitError(pool, usable, fallback, "Every account this connection may share work between has reached its plan limit.");
   }
 
+  /**
+   * `rotationSet`, less the owner's own plan while the conversation is on an account kept separate
+   * and another of the owner's own plans is at its limit (mac7/pooling-review). The conversation may
+   * have come from that plan (the owner switched it by hand), and Branch cannot tell, so it never
+   * moves it on, or points it, to a second of the owner's own plans.
+   */
+  private mayShare(pool: Pool, usable: Account[], current: string | null): Account[] {
+    const allowed = rotationSet(pool.kind, usable, pool.defaultAccount, current);
+    if (!usable.some((account) => account.id === current && account.keptSeparate)) return allowed;
+    const own = allowed.find((account) => !account.keptSeparate);
+    const otherOwnLimited = usable.some((account) => !account.keptSeparate && account.id !== own?.id
+      && this.state(account.id).limitedUntil > this.hooks.now());
+    return otherOwnLimited ? allowed.filter((account) => account.keptSeparate) : allowed;
+  }
+
   private markLimited(account: Account, error: unknown, call: AccountCall | undefined): void {
     const wait = httpFailure(error)?.retryAfterMs;
     const state = this.state(account.id);
@@ -205,7 +220,7 @@ export class AccountPoolProvider {
    */
   private limitError(pool: Pool, usable: Account[], account: Account, lead?: string): AccountLimitError {
     const until = new Date(this.state(account.id).limitedUntil).toISOString().slice(11, 16);
-    const allowed = rotationSet(pool.kind, usable, pool.defaultAccount, account.id);
+    const allowed = this.mayShare(pool, usable, account.id);
     const ready = (entry: Account) => entry.id !== account.id && this.why(entry) === null;
     const others = allowed.filter(ready).map((entry) => `"${entry.label}"`);
     const ownReady = usable.some((entry) => ready(entry) && !allowed.includes(entry));
