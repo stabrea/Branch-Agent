@@ -1243,7 +1243,8 @@ ${run.output.slice(0, 6000)}`;
       // mac7/coding-gap: a local reasoning model often thinks, then stops with no words and no tool
       // call. That is not an answer, and ending the task there wastes all the thinking; ask it once
       // or twice to act on what it worked out before the task is judged to have produced nothing.
-      if (!completion.toolCalls.length && !completion.content.trim() && emptyReplies < 2) {
+      // Only a reply that did think: an empty reply with no thinking ends the turn as it always did.
+      if (!completion.toolCalls.length && !completion.content.trim() && (completion.reasoningChars ?? 0) > 0 && emptyReplies < 2) {
         emptyReplies++;
         this.store.event(run.id, "model.empty_reply", { round: round + 1, nudge: emptyReplies });
         this.add(run, messages, ids, { role: "user", content: emptyReplyNudge });

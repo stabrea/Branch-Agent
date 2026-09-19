@@ -164,7 +164,9 @@ export class CodeChanges {
     const job = await jobWithin(this.jobs, { maxMemoryMb: 2048, maxCpuSeconds: 120 }, 1500);
     const result = await new ShellProcess({
       executable: command.executable, args: command.args, cwd: this.workspace,
-      env: { PATH: process.env.PATH ?? "", SYSTEMROOT: process.env.SYSTEMROOT ?? "", TEMP: process.env.TEMP ?? "" },
+      env: { PATH: process.env.PATH ?? "", SYSTEMROOT: process.env.SYSTEMROOT ?? "", TEMP: process.env.TEMP ?? "",
+        // Inside the desktop app this program is the app itself; this makes it run as plain Node.
+        ...(!configured && process.versions.electron ? { ELECTRON_RUN_AS_NODE: "1" } : {}) },
       signal: context.signal, timeoutMs: command.timeoutMs, maxOutputBytes: 8192,
       maxMemoryMb: 2048, maxCpuSeconds: 120, ...(job ? { job } : {}),
     }).run();

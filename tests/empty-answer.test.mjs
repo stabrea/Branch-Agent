@@ -44,9 +44,8 @@ async function sseFixture(t, frames) {
 }
 
 test("a round that produces nothing ends as a failure with a sentence, not completed", async (t) => {
-  // mac7/coding-gap: an empty reply is nudged twice before the task is judged, so the model stays empty three times here.
-  const empty = () => ({ content: "", toolCalls: [] });
-  const { app } = await fixture(t, calls(empty(), empty(), empty()));
+  // mac7/coding-gap: only a reply that thought is nudged; one with no thinking is judged at once, as before.
+  const { app } = await fixture(t, calls({ content: "", toolCalls: [] }));
   const run = await app.runtime.run({ prompt: "fix the failing test" });
   assert.notEqual(run.status, "completed");
   assert.equal(run.status, "failed");
@@ -71,7 +70,7 @@ test("a task whose tools all failed and then said nothing is still a failure", a
   // only a task whose every tool failed and that said nothing is empty.
   const { app } = await fixture(t, calls(
     { content: "", toolCalls: [{ id: "one", name: "files.write", arguments: "{\"path\": \"a.txt\", cont" }] },
-    { content: "", toolCalls: [] }, { content: "", toolCalls: [] }, { content: "", toolCalls: [] },
+    { content: "", toolCalls: [] },
   ));
   const run = await app.runtime.run({ prompt: "write a.txt" });
   assert.equal(run.status, "failed");

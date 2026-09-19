@@ -17,12 +17,32 @@ const passes: { name: NonNullable<Replaced["tolerant"]>; same: Compare }[] = [
 ];
 const indentOf = (line: string): string => /^[ \t]*/.exec(line)![0];
 
+/** One line of a file with the ending it really has ("" for a last line with none), so untouched lines keep theirs. */
+export interface FileLine { text: string; eol: string }
+export function splitLines(source: string): FileLine[] {
+  const parts = source.split("\n");
+  const lines = parts.map((part, i): FileLine => i === parts.length - 1 ? { text: part, eol: "" }
+    : part.endsWith("\r") ? { text: part.slice(0, -1), eol: "\r\n" } : { text: part, eol: "\n" });
+  if (lines.at(-1)?.text === "") lines.pop();
+  return lines;
+}
+/** Lines back into text: a line that was last and now is not gets the file's usual ending. */
+export function joinLines(lines: readonly FileLine[], ending: string): string {
+  return lines.map((line, i) => line.text + (i < lines.length - 1 ? line.eol || ending : line.eol)).join("");
+}
+/** The file's usual line ending. */
+export const endingOf = (source: string): string => source.includes("\r\n") ? "\r\n" : "\n";
+/** A file whose every line ends in CRLF: text the model sends with plain newlines is fitted to it. */
+const allCrlf = (source: string): boolean => source.includes("\r\n") && !/(^|[^\r])\n/.test(source);
+
 export function replaceText(
-  before: string, find: string, replace: string,
+  before: string, rawFind: string, rawReplace: string,
   expected: number | "all", refusal: string,
 ): Replaced {
+  const fit = (text: string): string => allCrlf(before) ? text.replace(/\r?\n/g, "\r\n") : text;
+  const find = fit(rawFind), replace = fit(rawReplace);
   // An empty `find` means "add this": it goes on the end of the file.
-  if (find === "") return { after: before + (before && !before.endsWith("\n") ? "\n" : "") + replace, found: 1, tolerant: null };
+  if (find === "") return { after: before + (before && !before.endsWith("\n") ? endingOf(before) : "") + replace, found: 1, tolerant: null };
   const found = before.split(find).length - 1;
   if (found > 0 && (expected === "all" || found === expected))
     return { after: before.split(find).join(replace), found, tolerant: null };
@@ -35,44 +55,48 @@ export function replaceText(
 }
 
 function tolerantReplace(before: string, find: string, replace: string, expected: number | "all"): Replaced | null {
-  const ending = before.includes("\r\n") ? "\r\n" : "\n";
-  const lines = before.replace(/\r\n/g, "\n").split("\n");
+  const ending = endingOf(before);
+  const lines = splitLines(before);
   const wanted = find.replace(/\r\n/g, "\n").replace(/\n$/, "").split("\n");
   if (!wanted.some((line) => line.trim())) return null;
+  const body = replace.replace(/\r\n/g, "\n").replace(/\n$/, "");
+  const added = body === "" ? [] : body.split("\n");
   for (const { name, same } of passes) {
     const starts: number[] = [];
     for (let at = 0; at + wanted.length <= lines.length; at++) {
-      if (wanted.every((text, i) => same(lines[at + i]!, text))) { starts.push(at); at += wanted.length - 1; }
+      if (wanted.every((text, i) => same(lines[at + i]!.text, text))) { starts.push(at); at += wanted.length - 1; }
     }
     if (!starts.length || (expected !== "all" && starts.length !== expected)) continue;
-    const out: string[] = [];
+    const out: FileLine[] = [];
     let cursor = 0;
     for (const at of starts) {
       out.push(...lines.slice(cursor, at));
-      out.push(...reindent(replace, wanted, lines.slice(at, at + wanted.length), name === "indentation"));
+      const matched = lines.slice(at, at + wanted.length);
+      const shift = name === "indentation" ? indentShift(wanted, matched.map((line) => line.text)) : (text: string) => text;
+      // The new lines take the file's ending; the last keeps the ending the replaced block had.
+      out.push(...added.map((text, i): FileLine => ({ text: shift(text), eol: i === added.length - 1 ? matched.at(-1)!.eol : ending })));
       cursor = at + wanted.length;
     }
     out.push(...lines.slice(cursor));
-    return { after: out.join(ending), found: starts.length, tolerant: name };
+    return { after: joinLines(out, ending), found: starts.length, tolerant: name };
   }
   return null;
 }
 
-/** The replacement's lines, moved from the indentation the model used to the one the file uses. */
-function reindent(replace: string, wanted: string[], actual: string[], shift: boolean): string[] {
-  const body = replace.replace(/\r\n/g, "\n").replace(/\n$/, "");
-  const lines = body === "" ? [] : body.split("\n");
-  if (!shift) return lines;
-  // Each indentation the model used, paired with the one the file really has on the same line.
+/**
+ * Moves a line from the indentation the model used to the one the file uses, given the model's
+ * lines and the file's lines they were matched against, pair by pair.
+ */
+export function indentShift(wanted: readonly string[], actual: readonly string[]): (line: string) => string {
   const map = new Map<string, string>();
   wanted.forEach((line, i) => {
-    if (line.trim() && !map.has(indentOf(line))) map.set(indentOf(line), indentOf(actual[i]!));
+    if (line.trim() && !map.has(indentOf(line))) map.set(indentOf(line), indentOf(actual[i] ?? ""));
   });
   const keys = [...map.keys()].sort((a, b) => b.length - a.length);
-  return lines.map((line) => {
+  return (line) => {
     const key = keys.find((indent) => line.startsWith(indent));
     return key === undefined ? line : map.get(key)! + line.slice(key.length);
-  });
+  };
 }
 
 /**

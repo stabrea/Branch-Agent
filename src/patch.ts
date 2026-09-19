@@ -1,17 +1,26 @@
+import { endingOf, indentShift, joinLines, splitLines, type FileLine } from "./text-replace.js";
 /**
  * A small unified-diff reader and applier. It is strict about *what* changes and forgiving about
  * *where*: every context and removed line must be in the file, but a hunk whose line number is off,
  * whose declared line counts are wrong, or whose header carries no numbers at all is still placed —
- * by searching for its lines, nearest to where the patch said, first exactly and then ignoring
- * trailing and then leading whitespace. That is what `git apply`/`patch` do with offsets and what
- * models get wrong most often. When the lines are nowhere in the file the patch is refused, naming
- * the file and the part, and nothing is written.
+ * by searching for its lines, first exactly and then ignoring trailing and then leading whitespace.
+ * That is what `git apply`/`patch` do with offsets and what models get wrong most often.
  *
- * Also reads the `*** Begin Patch` / `*** Update File:` form some models are trained to write.
+ * It never guesses. When the lines fit in more than one place, a hunk goes where its line number
+ * says if they fit there; otherwise only an exact match that is strictly nearest to that line is
+ * taken. A hunk with no line number, or one that only fits loosely, must fit exactly one place.
+ * Anything else is refused, naming the file and the part, and nothing is written. Each line keeps
+ * its own ending, so a Windows (CRLF) file stays one, and new lines take the file's usual ending.
+ *
+ * Also reads the `*** Begin Patch` / `*** Update File:` form some models are trained to write,
+ * including its `@@ line` anchors: the part's lines are looked for after that line.
  */
 export interface PatchLine { kind: " " | "-" | "+"; text: string }
-/** `oldStart` is null when the hunk header gave no line number. */
-export interface Hunk { index: number; oldStart: number | null; lines: PatchLine[]; endsWithoutNewline: boolean }
+/**
+ * `oldStart` is null when the hunk header gave no line number. `anchors` are the lines a header with
+ * no numbers names (`@@ class Cart`), found in order before the part's own lines are looked for.
+ */
+export interface Hunk { index: number; oldStart: number | null; anchors?: string[]; lines: PatchLine[]; endsWithoutNewline: boolean }
 export interface PatchFile { path: string; created: boolean; hunks: Hunk[] }
 
 const numbered = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
@@ -54,6 +63,14 @@ function target(spec: string): string | null {
   return stripped;
 }
 
+/** A `*** Update File:` path is written as it is: no `a/`/`b/` prefix to strip, so a folder named `b` stays. */
+function envelopePath(spec: string): string {
+  const path = spec.trim().replace(/^"|"$/g, "").replace(/\\/g, "/").replace(/^\.\//, "");
+  if (!path) throw new Error("Patch refused: a file header has no path");
+  checkPath(path);
+  return path;
+}
+
 /** Where a hunk's body stops when its declared counts cannot be trusted. */
 const endsBody = (lines: string[], at: number): boolean => {
   const line = lines[at]!;
@@ -68,7 +85,17 @@ const endsBody = (lines: string[], at: number): boolean => {
  */
 function readHunk(lines: string[], at: number, hunks: Hunk[]): number {
   const match = numbered.exec(lines[at]!);
-  const hunk: Hunk = { index: hunks.length + 1, oldStart: match ? Number(match[1]) : null, lines: [], endsWithoutNewline: false };
+  const anchors: string[] = [];
+  // Unnumbered headers stack (`@@ class Cart` then `@@ def total`): each narrows where to look.
+  while (!match && isHunkHeader(lines[at]!)) {
+    const anchor = lines[at]!.replace(/^@@\s?/, "").replace(/\s*@@\s*$/, "");
+    if (anchor.trim()) anchors.push(anchor);
+    if (!isHunkHeader(lines[at + 1] ?? "") || numbered.test(lines[at + 1]!)) break;
+    at++;
+  }
+  const hunk: Hunk = {
+    index: hunks.length + 1, oldStart: match ? Number(match[1]) : null, ...(anchors.length ? { anchors } : {}), lines: [], endsWithoutNewline: false,
+  };
   if (match) {
     const byCount = readCounted(lines, at + 1, match[2] === undefined ? 1 : Number(match[2]), match[4] === undefined ? 1 : Number(match[4]));
     if (byCount && (byCount.next >= lines.length || lines.slice(byCount.next).every((l) => l === "") || endsBody(lines, byCount.next))) {
@@ -127,8 +154,7 @@ function parseEnvelope(lines: string[]): PatchFile[] {
     if (/^\*\*\* Delete File: /.test(line)) throw new Error("Patch refused: removing a file is not supported");
     if (/^\*\*\* Move to: /.test(line)) throw new Error("Patch refused: moving a file is not supported");
     if (!update && !add) { at++; continue; }
-    const path = target((update ?? add)![1]!)!;
-    checkPath(path);
+    const path = envelopePath((update ?? add)![1]!);
     at++;
     if (add) {
       const added: PatchLine[] = [];
@@ -136,7 +162,7 @@ function parseEnvelope(lines: string[]): PatchFile[] {
         const text = lines[at++]!;
         if (text.startsWith("+")) added.push({ kind: "+", text: text.slice(1) });
       }
-      files.push({ path, created: true, hunks: [{ index: 1, oldStart: 1, lines: added, endsWithoutNewline: false }] });
+      files.push({ path, created: true, hunks: [{ index: 1, oldStart: 0, lines: added, endsWithoutNewline: false }] });
       continue;
     }
     const hunks: Hunk[] = [];
@@ -158,51 +184,90 @@ const comparisons: Compare[] = [
   (a, b) => a.trimEnd() === b.trimEnd(),
   (a, b) => a.trim() === b.trim(),
 ];
+/** How closely a hunk's lines matched the file: 0 exactly, 1 ignoring trailing, 2 ignoring all indentation. */
+interface Placed { at: number; tier: number }
 
-/** Where the hunk's old lines sit: at the named line if they fit there, else nearest to it. */
-function locate(lines: string[], old: string[], hint: number, cursor: number): { at: number; same: Compare } | null {
-  for (const same of comparisons) {
-    const fits = (at: number): boolean => old.every((text, i) => lines[at + i] !== undefined && same(lines[at + i]!, text));
-    if (hint >= cursor && fits(hint)) return { at: hint, same };
-    let best = -1;
-    for (let at = cursor; at + old.length <= lines.length; at++)
-      if (fits(at) && (best < 0 || Math.abs(at - hint) < Math.abs(best - hint))) best = at;
-    if (best >= 0) return { at: best, same };
+/** Every place at or after `from` where `old` fits, at the strictest comparison that finds any. */
+function candidates(lines: readonly string[], old: readonly string[], from: number): { at: number[]; tier: number } | null {
+  for (let tier = 0; tier < comparisons.length; tier++) {
+    const same = comparisons[tier]!;
+    const found: number[] = [];
+    for (let at = from; at + old.length <= lines.length; at++)
+      if (old.every((text, i) => same(lines[at + i]!, text))) found.push(at);
+    if (found.length) return { at: found, tier };
   }
   return null;
+}
+
+/** Where a hunk with old lines goes, or a refusal: nowhere, or more than one equally good place. */
+function place(file: PatchFile, hunk: Hunk, lines: readonly string[], old: readonly string[], from: number): Placed {
+  const found = candidates(lines, old, from);
+  if (!found) refuse(file, hunk, Math.min(from, lines.length) + 1, old[0]!);
+  if (found.at.length === 1) return { at: found.at[0]!, tier: found.tier };
+  const hint = hunk.oldStart === null ? null : Math.max(0, hunk.oldStart - 1);
+  if (hint !== null && found.at.includes(hint)) return { at: hint, tier: found.tier };
+  if (hint !== null && found.tier === 0) {
+    const [first, second] = [...found.at].sort((a, b) => Math.abs(a - hint) - Math.abs(b - hint));
+    if (Math.abs(first! - hint) < Math.abs(second! - hint)) return { at: first!, tier: 0 };
+  }
+  throw new Error(
+    `Patch refused: part ${hunk.index} of the patch for "${file.path}" fits the file in ${found.at.length} places `
+    + `(lines ${found.at.slice(0, 5).map((at) => at + 1).join(", ")}${found.at.length > 5 ? ", …" : ""}), so which one is meant is not clear; nothing was changed. `
+    + "Include more unchanged lines around the change, or the right line numbers, so it fits only one place.",
+  );
+}
+
+/** The line after a hunk's anchors (`@@ class Cart`), each looked for after the one before. */
+function afterAnchors(file: PatchFile, hunk: Hunk, lines: readonly string[], from: number): number {
+  let at = from;
+  for (const anchor of hunk.anchors ?? []) {
+    const found = candidates(lines, [anchor], at);
+    if (!found)
+      throw new Error(`Patch refused: part ${hunk.index} of the patch for "${file.path}" names the line ${JSON.stringify(anchor.slice(0, 120))}, which is not in the file; nothing was changed.`);
+    at = found.at[0]! + 1;
+  }
+  return at;
+}
+
+/** Where a hunk that only adds lines goes: after the line it names, or at the end when it names none. */
+function placeAddition(file: PatchFile, hunk: Hunk, lines: readonly string[], cursor: number): number {
+  if (hunk.anchors?.length)
+    throw new Error(`Patch refused: part ${hunk.index} of the patch for "${file.path}" only adds lines, so where they go is not clear; nothing was changed. Include an unchanged line before or after them.`);
+  if (hunk.oldStart === null) return Math.max(cursor, lines.length);
+  if (hunk.oldStart < cursor || hunk.oldStart > lines.length)
+    throw new Error(`Patch refused: part ${hunk.index} of the patch for "${file.path}" adds lines after line ${hunk.oldStart}, but that is not a place in the file it can go (it has ${lines.length} lines); nothing was changed.`);
+  return hunk.oldStart;
 }
 
 /** Applies every hunk, placing each where its lines are, or throws naming the file and the hunk. */
 export function applyHunks(file: PatchFile, before: string | null): string {
   const source = before ?? "";
-  const ending = source.includes("\r\n") ? "\r\n" : "\n";
-  const lines = source.length ? source.replace(/\r\n/g, "\n").replace(/\n$/, "").split("\n") : [];
+  const ending = endingOf(source);
+  const lines = splitLines(source);
+  const texts = lines.map((line) => line.text);
   let endsWithNewline = source.length === 0 || source.endsWith("\n");
-  const out: string[] = [];
+  const out: FileLine[] = [];
   let cursor = 0;
   for (const hunk of file.hunks) {
     const old = hunk.lines.filter((line) => line.kind !== "+").map((line) => line.text);
-    const hint = hunk.oldStart === null ? cursor : Math.max(0, hunk.oldStart - (old.length ? 1 : 0));
-    let start: number;
-    if (!old.length) {
-      start = Math.min(Math.max(hint, cursor), lines.length);
-    } else {
-      const found = locate(lines, old, hint, cursor);
-      if (!found) refuse(file, hunk, Math.min(Math.max(hint, cursor), lines.length) + 1, old[0]!);
-      start = found.at;
-    }
-    out.push(...lines.slice(cursor, start));
-    cursor = start;
+    const placed: Placed = old.length ? place(file, hunk, texts, old, afterAnchors(file, hunk, texts, cursor))
+      : { at: placeAddition(file, hunk, texts, cursor), tier: 0 };
+    out.push(...lines.slice(cursor, placed.at));
+    cursor = placed.at;
+    // Matched ignoring indentation: new lines move to the file's own indentation, as the context did.
+    const shift = placed.tier === 2 ? indentShift(old, texts.slice(placed.at, placed.at + old.length)) : (text: string) => text;
     for (const line of hunk.lines) {
-      if (line.kind === "+") { out.push(line.text); continue; }
-      // Context keeps the file's own text, so a whitespace-tolerant match never rewrites it.
+      if (line.kind === "+") { out.push({ text: shift(line.text), eol: ending }); continue; }
+      // Context keeps the file's own text and ending, so a whitespace-tolerant match never rewrites it.
       if (line.kind === " ") out.push(lines[cursor]!);
       cursor++;
     }
     if (hunk.endsWithoutNewline) endsWithNewline = cursor >= lines.length ? false : endsWithNewline;
   }
   out.push(...lines.slice(cursor));
-  return out.length ? out.join(ending) + (endsWithNewline ? ending : "") : "";
+  if (!out.length) return "";
+  out[out.length - 1] = { ...out.at(-1)!, eol: endsWithNewline ? out.at(-1)!.eol || ending : "" };
+  return joinLines(out, ending);
 }
 
 function refuse(file: PatchFile, hunk: Hunk, line: number, expected: string): never {

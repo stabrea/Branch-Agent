@@ -103,7 +103,7 @@ test("a reply that is all thinking is nudged to act, twice at most, before the t
   const thinker = (answerOn) => ({ name: "scripted", async complete(request) {
     calls++;
     seen.push(request.messages.at(-1)?.content ?? "");
-    return { content: calls === answerOn ? "Done." : "", toolCalls: [] };
+    return calls === answerOn ? { content: "Done.", toolCalls: [] } : { content: "", toolCalls: [], reasoningChars: 900 };
   } });
   const app = await createBranch({ dataDir: join(root, "data"), workspace: join(root, "w"), provider: thinker(2) });
   t.after(async () => { await app.close(); await discardTemp(root); });
@@ -190,4 +190,78 @@ test("a refused edit shows the file's real lines, and an empty find appends or c
   await app.runtime.executeTool("files.edit", { path: "src/new.js", find: "", replace: "export const two = 2;\n" });
   assert.equal(await readFile(join(workspace, "src/new.js"), "utf8"), "export const one = 1;\nexport const two = 2;\n");
   await assert.rejects(app.runtime.executeTool("files.edit", { path: "missing.js", find: "x", replace: "y" }), /does not exist/);
+});
+
+/* ---------------------------------------------------------------- integration review: never guess, keep the file's own shape */
+
+const patchFor = (path, header, ...body) => ["--- a/" + path, "+++ b/" + path, header, ...body, ""].join("\n");
+const refusedAsUnclear = /fits the file in \d+ places .*not clear; nothing was changed/;
+
+test("review: a part that fits two places with no line number is refused, never placed on the first", () => {
+  const twice = "function a() {\n  return x;\n}\nfunction b() {\n  return x;\n}\n";
+  assert.throws(() => apply(patchFor("m.js", "@@", "-  return x;", "+  return y;"), twice), refusedAsUnclear);
+  const envelope = ["*** Begin Patch", "*** Update File: m.js", "@@", "-  return x;", "+  return y;", "*** End Patch"].join("\n");
+  assert.throws(() => applyHunks(parsePatch(envelope)[0], twice), refusedAsUnclear);
+});
+
+test("review: with a line number, the named place wins, a strictly nearer exact match is taken, a tie is refused", () => {
+  const file = "a\nDUP\nb\nc\nd\nDUP\ne\n";
+  assert.equal(apply(patchFor("f", "@@ -6,1 +6,1 @@", "-DUP", "+NEW"), file), "a\nDUP\nb\nc\nd\nNEW\ne\n", "named line fits: taken");
+  assert.equal(apply(patchFor("f", "@@ -3,1 +3,1 @@", "-DUP", "+NEW"), file), "a\nNEW\nb\nc\nd\nDUP\ne\n", "one line off: nearest");
+  assert.throws(() => apply(patchFor("f", "@@ -4,1 +4,1 @@", "-DUP", "+NEW"), file), refusedAsUnclear, "equally far both ways");
+});
+
+test("review: a loose (whitespace-only) match must be the only one; the named line still decides when it fits", () => {
+  const file = "\tfoo();\n\tbar();\n\tfoo();\n";
+  assert.throws(() => apply(patchFor("f", "@@ -9,1 +9,1 @@", "-    foo();", "+    baz();"), file), refusedAsUnclear);
+  assert.equal(apply(patchFor("f", "@@ -3,1 +3,1 @@", "-    foo();", "+    baz();"), file), "\tfoo();\n\tbar();\n\tbaz();\n",
+    "matched ignoring indentation at the named line, and the new line takes the file's tab");
+});
+
+test("review: @@ anchors in the *** Begin Patch form say which of two identical blocks is meant", () => {
+  const twice = "class A {\n  run() {\n    return 1;\n  }\n}\nclass B {\n  run() {\n    return 1;\n  }\n}\n";
+  const envelope = (...head) => ["*** Begin Patch", "*** Update File: m.js", ...head, "-    return 1;", "+    return 2;", "*** End Patch"].join("\n");
+  const [file] = parsePatch(envelope("@@ class B {"));
+  assert.deepEqual(file.hunks[0].anchors, ["class B {"]);
+  assert.equal(applyHunks(file, twice), twice.replace(/(class B[\s\S]*?)return 1/, "$1return 2"));
+  assert.equal(applyHunks(parsePatch(envelope("@@ class B {", "@@   run() {"))[0], twice), twice.replace(/(class B[\s\S]*?)return 1/, "$1return 2"), "stacked anchors");
+  assert.throws(() => applyHunks(parsePatch(envelope("@@ class C {"))[0], twice), /names the line "class C \{", which is not in the file/);
+});
+
+test("review: a part that only adds lines goes after its line number, or at the end; never guessed", () => {
+  const file = "one\ntwo\nthree\n";
+  assert.equal(apply(patchFor("f", "@@ -2,0 +3,1 @@", "+inserted"), file), "one\ntwo\ninserted\nthree\n");
+  assert.throws(() => apply(patchFor("f", "@@ -40,0 +41,1 @@", "+late"), file), /adds lines after line 40.*nothing was changed/);
+  const add = (...head) => ["*** Begin Patch", "*** Update File: f", ...head, "+tail", "*** End Patch"].join("\n");
+  assert.equal(applyHunks(parsePatch(add("@@"))[0], file), "one\ntwo\nthree\ntail\n", "no line named: the end, as the *** form means");
+  assert.throws(() => applyHunks(parsePatch(add("@@ two"))[0], file), /only adds lines, so where they go is not clear/);
+});
+
+test("review: a Windows (CRLF) file stays CRLF through a patch, and a mixed file keeps each line's own ending", () => {
+  const crlf = "a\r\nb\r\nc\r\n";
+  const out = apply(patchFor("f", "@@ -2,1 +2,2 @@", "-b", "+B", "+B2"), crlf);
+  assert.equal(out, "a\r\nB\r\nB2\r\nc\r\n");
+  const mixed = "a\r\nb\nc\r\nd\n";
+  assert.equal(apply(patchFor("f", "@@ -3,1 +3,1 @@", "-c", "+C"), mixed), "a\r\nb\nC\r\nd\n", "untouched lines keep theirs");
+  assert.equal(apply(patchFor("f", "@@ -1,1 +1,1 @@", "-x", "+y"), "x"), "y", "no final newline stays that way");
+});
+
+test("review: *** Update File paths are taken as written, so a folder named b is not stripped", () => {
+  const [file] = parsePatch(["*** Begin Patch", "*** Add File: b/new.js", "+x", "*** End Patch"].join("\n"));
+  assert.equal(file.path, "b/new.js");
+  assert.equal(applyHunks(file, null), "x\n");
+  assert.throws(() => parsePatch(["*** Begin Patch", "*** Update File: ../out.js", "@@", "-a", "+b", "*** End Patch"].join("\n")), /not a workspace path/);
+});
+
+test("review: replaceText keeps a CRLF file CRLF, exact or tolerant, and a mixed file's other lines untouched", () => {
+  const crlf = "function f() {\r\n\treturn 1;\r\n}\r\n";
+  const exact = replaceText(crlf, "function f() {\n\treturn 1;\n}", "function f() {\n\treturn 2;\n}", 1, "x");
+  assert.equal(exact.tolerant, null, "plain newlines against a CRLF file are an exact match, not a whitespace slip");
+  assert.equal(exact.after, "function f() {\r\n\treturn 2;\r\n}\r\n");
+  const loose = replaceText(crlf, "function f() {\n    return 1;\n}", "function f() {\n    return 3;\n    // done\n}", 1, "x");
+  assert.equal(loose.tolerant, "indentation");
+  assert.equal(loose.after, "function f() {\r\n\treturn 3;\r\n\t// done\r\n}\r\n");
+  const mixed = "a\r\nkeep\n  x = 1\r\nz\n";
+  assert.equal(replaceText(mixed, "x = 1   ", "x = 2", 1, "x").after, "a\r\nkeep\n  x = 2\r\nz\n");
+  assert.equal(replaceText("a\r\nb", "", "c", 1, "x").after, "a\r\nb\r\nc", "appending to a CRLF file uses CRLF");
 });
