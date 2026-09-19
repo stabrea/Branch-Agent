@@ -1,6 +1,7 @@
 import { replaceText } from "./text-replace.js";
+import { codeRunSettings } from "./code-run.js";
 import { readFile, stat } from "node:fs/promises";
-import { isAbsolute } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { z } from "zod";
 import type { Store } from "./store.js";
 import type { ToolContext } from "./contracts.js";
@@ -145,23 +146,45 @@ export class CodeChanges {
       undo: mark ? { id: mark.id, note: "Ask to undo this, and the files go back to how they were just before." }
         : { id: "", note: "This folder is not kept in Git, so there is no way back to before the change." } };
   }
-  /** Runs the project's own check and reports it; a check that fails is news, not a failure. */
+  /**
+   * Runs the project's own check and reports it; a check that fails is news, not a failure. With no
+   * check set up, a Node project's own tests (`node --test`, with this app's Node) stand in — but
+   * only when the owner has switched script running on, since that runs the project's code too.
+   */
   async runCheck(context: ToolContext): Promise<CheckOutcome> {
     const setting = projectCheck(this.store, this.owner);
-    if (!setting.enabled || !setting.command) return { ran: false, ok: true, note: "No check is set up for this project." };
+    const scriptsOn = codeRunSettings(this.store, this.owner).enabled;
+    const configured = setting.enabled && !!setting.command;
+    const nodeTests = !configured && scriptsOn && await stat(join(this.workspace, "package.json")).then((info) => info.isFile(), () => false);
+    if (!configured && !nodeTests) return { ran: false, ok: true, note: noCheckNote(scriptsOn) };
+    const command = configured
+      ? { executable: setting.command, args: setting.args, timeoutMs: setting.timeoutMs }
+      : { executable: process.execPath, args: ["--test"], timeoutMs: 60000 };
     const job = await jobWithin(this.jobs, { maxMemoryMb: 2048, maxCpuSeconds: 120 }, 1500);
     const result = await new ShellProcess({
-      executable: setting.command, args: setting.args, cwd: this.workspace,
+      executable: command.executable, args: command.args, cwd: this.workspace,
       env: { PATH: process.env.PATH ?? "", SYSTEMROOT: process.env.SYSTEMROOT ?? "", TEMP: process.env.TEMP ?? "" },
-      signal: context.signal, timeoutMs: setting.timeoutMs, maxOutputBytes: 8192,
+      signal: context.signal, timeoutMs: command.timeoutMs, maxOutputBytes: 8192,
       maxMemoryMb: 2048, maxCpuSeconds: 120, ...(job ? { job } : {}),
     }).run();
     const ok = result.status === "completed";
     const output = `${result.stdout}${result.stderr}`.slice(0, 4000);
     if (context.runId) this.store.event(context.runId, "code.check", { ok, status: result.status, exitCode: result.exitCode });
+    const what = configured ? "The project's check" : "The project's tests (node --test)";
     return { ran: true, ok, exitCode: result.exitCode, output,
-      note: ok ? "The project's check passed after the change." : `The project's check did not pass after the change (${result.status}). Read the output and put it right.` };
+      note: ok ? `${what} passed.` : `${what} did not pass (${result.status}). Read the output and put it right.` };
   }
+}
+
+/**
+ * What the model is told when there is no check to run. "No check is set up" on its own was read by
+ * a small model as "this task cannot be done" and it stopped (docs/agents/coding-bench.md); the
+ * sentence now says what it can still do.
+ */
+export function noCheckNote(scriptsOn: boolean): string {
+  return "No check is set up for this project, so its tests cannot be run with this tool. That does not block the task: "
+    + "read the test files and the source with files.read, work out what the tests expect, and make the change"
+    + (scriptsOn ? ", or run a test file yourself with code.run." : ".");
 }
 
 const fileList = (paths: string[]): string =>

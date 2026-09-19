@@ -121,3 +121,22 @@ test("a reply that is all thinking is nudged to act, twice at most, before the t
   assert.equal(empty.status, "failed", "still judged to have produced nothing");
   assert.equal(calls, 3, "one reply and two nudges, no more");
 });
+
+test("code.check with nothing set up says the task can go on; with scripts on it runs node --test", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-coding-gap-"));
+  const workspace = join(root, "workspace");
+  await mkdir(join(workspace, "test"), { recursive: true });
+  await writeFile(join(workspace, "package.json"), JSON.stringify({ type: "module" }));
+  await writeFile(join(workspace, "test", "a.test.mjs"), "import test from 'node:test'; import assert from 'node:assert'; test('x', () => assert.equal(1, 2));\n");
+  const app = await createBranch({ dataDir: join(root, "data"), workspace });
+  t.after(async () => { await app.close(); await discardTemp(root); });
+  const off = await app.runtime.executeTool("code.check", {});
+  assert.equal(off.ran, false);
+  assert.match(off.note, /does not block the task: read the test files/);
+  app.store.save("settings", app.runtime.owner, "code-run", { enabled: true });
+  const on = await app.runtime.executeTool("code.check", {});
+  assert.equal(on.ran, true);
+  assert.equal(on.ok, false);
+  assert.match(on.note, /node --test/);
+  assert.match(on.output, /fail 1/);
+});
