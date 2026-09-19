@@ -115,9 +115,12 @@ function speaker(event: RoomEvent, members: readonly RoomMember[]): string {
 }
 
 /** The turn's message: what is new since this member last spoke, and the rules of the room. */
-export function roomPrompt(roomName: string, member: RoomMember, members: readonly RoomMember[], messages: readonly RoomEvent[], seen: number): string {
+export function roomPrompt(roomName: string, member: RoomMember, members: readonly RoomMember[], messages: readonly RoomEvent[], seen: number, context = ""): string {
   const peers = members.filter((m) => m.id !== member.id).map((m) => `@${m.handle}`).join(", ");
-  const opening = [`[Room "${roomName}"] You are @${member.handle}, talking with ${peers || "nobody else"} and the owner.`, "",
+  // phase2/rooms: a room made from a conversation hands its members what came before, once, on their first turn.
+  const earlier = seen === 0 && context
+    ? ["", "Earlier in the conversation this room was made from (for context only):", ...context.slice(0, 3000).split(/\r?\n/).map((l) => `  ${l}`)] : [];
+  const opening = [`[Room "${roomName}"] You are @${member.handle}, talking with ${peers || "nobody else"} and the owner.`, ...earlier, "",
     "New messages since your last turn (oldest first):"];
   const rules = ["", "How this room works:",
     "- Reply with one short message only when you have something new to add.",
@@ -141,7 +144,7 @@ export function roomPrompt(roomName: string, member: RoomMember, members: readon
 }
 
 /** Replays the whole log and answers with at most one next turn. */
-export function nextRoomTurn(roomName: string, members: readonly RoomMember[], events: readonly RoomEvent[]): RoomDecision {
+export function nextRoomTurn(roomName: string, members: readonly RoomMember[], events: readonly RoomEvent[], context = ""): RoomDecision {
   const discussion = pendingDiscussion(events);
   if (!discussion) return { status: "idle" };
   const d = discussion.seq;
@@ -159,7 +162,7 @@ export function nextRoomTurn(roomName: string, members: readonly RoomMember[], e
       if (done.has(`${round}:${member.id}`)) continue;
       const seen = watermark(events, member.id);
       if (!history.some((e) => e.seq > seen && e.seq <= seenThrough)) continue;
-      const prompt = roomPrompt(roomName, member, members, history.filter((e) => e.seq <= seenThrough), seen);
+      const prompt = roomPrompt(roomName, member, members, history.filter((e) => e.seq <= seenThrough), seen, context);
       return { status: "task", task: { memberId: member.id, round, discussion: d, seen: seenThrough, prompt } };
     }
     if (!spoken.some((e) => e.round === round)) return { status: "settled", reason: "silent_round", discussion: d };

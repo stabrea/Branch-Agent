@@ -52,6 +52,8 @@ export interface Room {
   pinned: boolean;
   section: string;
   order: number;
+  /** phase2/rooms: what came before, when the room was made from a conversation; each member reads it on its first turn. */
+  context?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -101,13 +103,14 @@ export class TrunkRooms {
     return run.sessionId;
   }
 
-  create(input: unknown): Room {
+  create(input: unknown, options: { context?: string } = {}): Room {
     const value = RoomCreateSchema.parse(input);
     this.checkMembers(value.members);
     if (this.list().some((r) => r.name.toLowerCase() === value.name.toLowerCase())) throw new Error("A room already has that name");
     const now = new Date().toISOString();
     const room: Room = { id: randomUUID(), name: value.name, members: value.members, sessionId: this.conversation(`Room: ${value.name}`),
-      memberSessions: {}, events: [], seq: 0, needsYou: false, picture: null, pinned: false, section: "", order: 0, createdAt: now, updatedAt: now };
+      memberSessions: {}, events: [], seq: 0, needsYou: false, picture: null, pinned: false, section: "", order: 0, createdAt: now, updatedAt: now,
+      ...(options.context ? { context: options.context.slice(0, 3000) } : {}) }; // phase2/rooms
     for (const id of room.members) room.memberSessions[id] = this.conversation(`Room ${value.name}: ${this.deps.records.get(id).name}`);
     this.deps.store.message(room.sessionId, { role: "system", content: `Room "${room.name}". ${this.roster(room).map((m) => `@${m.handle}`).join(", ")} and you.` });
     this.put(room);
@@ -191,7 +194,7 @@ export class TrunkRooms {
     // Each round has a hard cap, so this bound is only a guard against a log that cannot settle.
     for (let step = 0; step < 40 && !this.closing; step++) {
       const room = this.get(id);
-      const decision: RoomDecision = nextRoomTurn(room.name, this.roster(room), room.events);
+      const decision: RoomDecision = nextRoomTurn(room.name, this.roster(room), room.events, room.context); // phase2/rooms: context
       if (decision.status === "waiting") return this.flag(room, "A Trunk in the room is waiting for your answer");
       if (decision.status !== "task") return;
       await this.turn(room, decision.task);

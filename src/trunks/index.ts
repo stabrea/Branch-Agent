@@ -8,6 +8,10 @@ import { TrunkMessages, registerTrunkMessage } from "./messages.js";
 import { setSharedFacts, trunkAgent } from "./memory-scope.js";
 import { TrunkCreateSchema, TrunkRecords, TrunkSchema, type Trunk } from "./record.js";
 import { TrunkRooms } from "./rooms.js";
+import { TrunkConversations } from "./conversations.js"; // phase2/rooms
+
+/** Which Trunk a conversation belongs to, and how (phase2/rooms: `room` and `chosen`). */
+export interface Owned { trunkId: string; canonical: boolean; room?: boolean; chosen?: boolean }
 import { TrunkRoutines } from "./routines.js";
 import { allTrunkModes, requireTrunkPart, saveTrunkMode, trunkMode, trunkParts, trunkTools, type TrunkMode, type TrunkPart } from "./settings.js";
 import { shapeFor, type TrunkRunShape } from "./shape.js";
@@ -51,7 +55,10 @@ export class Trunks {
   readonly routines: TrunkRoutines;
   readonly teaching: TrunkTeaching;
   readonly accounts: TrunkAccountsPort;
-  private owned = new Map<string, { trunkId: string; canonical: boolean }>();
+  /** phase2/rooms: who answers in each conversation the owner chose a Trunk for (src/trunks/conversations.ts). */
+  readonly conversations: TrunkConversations;
+  /** `room`: a Trunk's side of a room; `chosen`: an ordinary conversation the owner chose it for (phase2/rooms). */
+  private owned = new Map<string, Owned>();
   /** phase2/rooms: a room member's conversation → the room's own conversation (whose mode it follows). */
   private followsRoom = new Map<string, string>();
   private readonly introductions = new Set<Promise<unknown>>();
@@ -65,6 +72,8 @@ export class Trunks {
       notify: (room, why) => {
         runtime.notifyEvent("approval.needed", { roomId: room.id, sessionId: room.sessionId, question: why });
       } });
+    this.conversations = new TrunkConversations({ store, owner, records: this.records, rooms: this.rooms, changed: () => this.refresh(),
+      owns: (sessionId) => store.ownsSession(store.profiles.scope(), sessionId) }); // phase2/rooms
     this.messages = new TrunkMessages(store, owner, this.records, runtime);
     this.routines = new TrunkRoutines(store, owner, this.records, scheduler, runtime);
     this.teaching = new TrunkTeaching({ store, owner, records: this.records, routines: this.routines, workflows: deps.workflows,
@@ -99,20 +108,22 @@ export class Trunks {
 
   /** Which conversations belong to a Trunk; asked on every task, so it is kept in memory. */
   private refresh(): void {
-    const owned = new Map<string, { trunkId: string; canonical: boolean }>();
+    const owned = new Map<string, Owned>();
+    // phase2/rooms: a conversation the owner chose a Trunk for runs as that Trunk; its own chat and its room seats win.
+    for (const [session, trunkId] of this.conversations.chosen()) owned.set(session, { trunkId, canonical: false, chosen: true });
     for (const trunk of this.records.list()) {
       owned.set(trunk.chatSessionId, { trunkId: trunk.id, canonical: true });
       setSharedFacts(trunkAgent(trunk.id), trunk.sharedFacts);
     }
-    for (const [session, trunkId] of this.rooms.memberConversations()) owned.set(session, { trunkId, canonical: false });
+    for (const [session, trunkId] of this.rooms.memberConversations()) owned.set(session, { trunkId, canonical: false, room: true });
     this.owned = owned;
     this.followsRoom = this.rooms.memberRooms(); // phase2/rooms
   }
   /** True for a conversation that must never be swept away by the history rule. */
   keeps(sessionId: string): boolean {
-    return this.owned.has(sessionId) || this.rooms.list().some((room) => room.sessionId === sessionId);
+    return (this.owned.has(sessionId) && !this.owned.get(sessionId)!.chosen) || this.rooms.list().some((room) => room.sessionId === sessionId);
   }
-  trunkForConversation(sessionId: string): { trunkId: string; canonical: boolean } | undefined {
+  trunkForConversation(sessionId: string): Owned | undefined {
     return this.owned.get(sessionId);
   }
 
@@ -128,7 +139,7 @@ export class Trunks {
     const sessionModel = options.sessionId ? !!runtime.models.session(this.owner, options.sessionId).preset : false;
     return shapeFor(trunk, this.records.list(), { available: registry.permissions(), caller: options.permissions,
       messaging: owned?.canonical === true && this.mode("messages") !== "off", sessionModel, agent: trunkAgent(trunk.id),
-      roomTurn: owned?.canonical === false });
+      roomTurn: owned?.room === true });
   }
 
   /** R17-007: the roster the rail shows — each Trunk with its latest message, when, and how many are unread. */
@@ -166,6 +177,10 @@ export class Trunks {
     const run = this.store.createRun(this.owner, title);
     this.store.finish(run.id, "completed", "Opened");
     return run.sessionId;
+  }
+  /** phase2/rooms: a new conversation that a chosen Trunk answers in. */
+  startConversation(input: unknown): { sessionId: string } {
+    return this.conversations.start(input, (title) => this.conversation(title));
   }
   /** R17-002: the three-field create. The Trunk then introduces itself in its own conversation. */
   create(input: unknown, extra: Partial<Trunk> = {}): Trunk {
@@ -209,6 +224,7 @@ export class Trunks {
       if (members.length >= 2) this.rooms.edit(room.id, { members });
       else this.rooms.remove(room.id);
     }
+    this.conversations.forget(id); // phase2/rooms: the conversations it answered in go back to your assistant
     const removed = this.records.remove(id);
     this.refresh();
     return { removed };

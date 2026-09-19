@@ -18,7 +18,7 @@ conversation follows it** (capped by that Trunk's own limits: its tools, its rea
 | # | Piece | State |
 |---|---|---|
 | 1 | Room turns follow the room conversation's mode (and a short-lived key's message never gets the owner's looser mode) | [x] done: `runtime.modeFollows` (src/runtime.ts) set by Trunks from `rooms.memberRooms()`; a key's message is recorded `byKey` and its turns run under that key (src/trunks/rooms.ts). tests/p2-rooms.test.mjs (4 tests; the key test fails with the fix taken out of dist) |
-| 2 | Choose which Trunk a conversation uses (new switch, ships off) | [ ] |
+| 2 | Choose which Trunk a conversation uses (new switch, ships off) | [x] backend done: part `conversations` (`trunks-conversations`, off), src/trunks/conversations.ts, routes under /api/trunks/conversations (owner only), a room made from a conversation carries its last messages (`Room.context`, room-plan `roomPrompt`). Also: Talk live route wired (it was never served) and made owner-only, refused in Trunk conversations and rooms. tests/p2-rooms.test.mjs. UI in piece 3 |
 | 3 | Rooms open as conversations in the chat: faces button, members popover, add/remove, @, replies signed, approvals, Stop | [ ] |
 | 4 | @mention picker in the composer for rooms (members first, "mentioning adds it") | [ ] |
 | 5 | Dictation bar in the composer | [ ] |
