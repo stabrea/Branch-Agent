@@ -70,7 +70,7 @@ class BranchViewController: CAPBridgeViewController, WKScriptMessageHandler {
               let body = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
         switch body["type"] as? String {
         case "home": goHome()
-        case "look": remember(theme: body["theme"] as? String ?? "forest", mode: body["mode"] as? String ?? "dark")
+        case "look": remember(theme: body["theme"] as? String ?? "slate", mode: body["mode"] as? String ?? "dark")
         default: break
         }
     }

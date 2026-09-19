@@ -54,7 +54,7 @@
 
   function reportLook() {
     var root = document.documentElement;
-    post({ type: "look", theme: root.dataset.palette || "forest", mode: root.dataset.theme === "daylight" ? "light" : "dark" });
+    post({ type: "look", theme: root.dataset.palette || "slate", mode: root.dataset.theme === "daylight" ? "light" : "dark" });
   }
   function addHomeButton() {
     var connection = document.getElementById("connection");

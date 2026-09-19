@@ -1745,9 +1745,12 @@ $("chat-form").addEventListener("submit", async (event) => {
     const startingTemporary = !sessionId && $("temporary-toggle").checked;
     // Pictures put on the composer travel with this one message and are then cleared (wave 5).
     const pictures = globalThis.branchAttachments?.() ?? [];
+    /* Redesign phase 1: a conversation begun here starts in the mode its chip shows (public/conversation-mode.js). */
+    const startMode = sessionId ? null : globalThis.branchConversationMode?.pending() ?? null;
     const run = await api("run", {
       prompt,
       ...(sessionId ? { sessionId } : {}),
+      ...(startMode ? { mode: startMode } : {}),
       ...(startingTemporary ? { temporary: true } : {}),
       ...(pictures.length ? { images: pictures } : {}),
     });

@@ -9,6 +9,14 @@ import { _electron } from 'playwright';
 import { saveConversationExport, saveMemoryExport } from '../dist/desktop/conversation-export.js';
 import { connected, desktopOptions, STARTUP_MS } from './fixtures/desktop-options.mjs';
 
+/* Redesign phase 1: a conversation begun in the window starts on Ask first, and the practice run writes
+   a file. This checks the desktop app, so its conversation follows the setting as before
+   (tests/conversation-mode.test.mjs covers Ask first). */
+const followSetting = (page) => page.evaluate(async () => {
+  await fetch("/api/conversation-mode/settings", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ newConversation: "follow" }) });
+  await globalThis.branchConversationMode?.refresh();
+});
+
 const archive = { format: 'branch-agent-conversation', version: 1, exportedAt: '2026-09-15T00:00:00.000Z',
   messages: [{ role: 'user', content: 'Export fixture' }, { role: 'assistant', content: 'Saved response' }] };
 const memoryArchive = { format: 'branch-agent-memory', version: 1, exportedAt: archive.exportedAt,
@@ -71,6 +79,7 @@ test('native conversation export uses guarded IPC and leaves the blanket downloa
     // "Connected" shows; a loaded CI Mac took longer than the ten-second default. Wait for the box
     // itself to take typing, with the same allowance as the start-up.
     await page.getByLabel('Your message', { exact: true }).fill('Export the demo conversation', { timeout: STARTUP_MS });
+    await followSetting(page);
     await page.locator('#send').click();
     // Waiting for a whole task to finish, not for the page to paint: the model answers, the reply is
     // written down and the conversation is saved before Send comes back. Ten seconds is enough on a

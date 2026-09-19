@@ -9,6 +9,14 @@ import { _electron } from "playwright";
 
 import { connected, desktopOptions } from "./fixtures/desktop-options.mjs";
 
+/* Redesign phase 1: a conversation begun in the window starts on Ask first, and the practice run writes
+   a file. This checks the desktop app, so its conversation follows the setting as before
+   (tests/conversation-mode.test.mjs covers Ask first). */
+const followSetting = (page) => page.evaluate(async () => {
+  await fetch("/api/conversation-mode/settings", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ newConversation: "follow" }) });
+  await globalThis.branchConversationMode?.refresh();
+});
+
 async function appearance(page, value) {
   await openSettingFor(page, "#appearance");
   await page.locator(`.lx-seg-button[data-t="look.mode.${value === "daylight" ? "light" : "dark"}"]`).click();
@@ -44,6 +52,7 @@ async function verifyWindow(electron, page, home) {
     await page.evaluate(() => sessionStorage.getItem("branch-token")),
     null,
   );
+  await followSetting(page);
   await page
     .getByLabel("Your message", { exact: true })
     .fill("Run the file workflow.");
