@@ -1,6 +1,6 @@
 {
   "name": "branch-agent-mobile",
-  "version": "0.18.1",
+  "version": "0.19.0",
   "private": true,
   "description": "Branch Agent on iPhone and Android: a native shell around the owner's own Branch window",
   "type": "module",
