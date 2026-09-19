@@ -11,7 +11,7 @@ Order worked: 5, 6, 3, 2, 1, 4 (2 before 1 because both touch `runtime.callTool`
 - [x] 2. Unknown tool arguments dropped (not refused), the model told; permission check sees cleaned arguments
 - [x] 1. Read before edit
 - [x] 4. "Let Branch run this project's tests?" asked once per folder
-- [ ] Merge latest `origin/mac/cross-platform`, rebuild, retest, push
+- [x] Merge latest `origin/mac/cross-platform`, rebuild, retest, push (trunk 81f9e022 merged as 2f4e8a73)
 
 ## Notes for the integrator
 
@@ -173,3 +173,20 @@ Tests: `tests/coding-next.test.mjs` "5 …" — the helper, and `code.run` with 
   runs without asking; No is remembered and the model gets the note; Always refused from a chat app and for a
   chat-started task (Once still works, no rule written); Lockdown refuses without asking; script switch on runs
   as before. These run a real `node --test` on a one-test temp project (no window).
+
+### Merge with trunk 81f9e022
+- One conflict, `src/diagnostic-log.ts` `crash()`: trunk's e1c540b8 (a crash after the database closes must
+  not throw) against item 6's switch. Kept both: the switch is read through `capturesCrashes()`, which falls
+  back to the switch file in the log folder when the settings cannot be read, and the log line keeps trunk's
+  `try`. Trunk's D20 asserted a crash note is always written; updated for the switch (off: none; on: written
+  without the database).
+- Clean `dist/` rebuild; checked `localFirstReplyMs`, `askable`, `capturesCrashes` are in `dist/`.
+- Tests on the merged tree: 33 files with `--test-concurrency=2` — 426 tests, 419 pass, 0 fail, 7 skipped
+  (platform skips), incl. static-assets, index-structure, handbook, source-hygiene, catalog-diet;
+  `tests/automation.test.mjs` alone 5/5. `npx tsc --noEmit` clean.
+
+## Not done / not proven
+- No benchmark re-run (as instructed); none of these has been measured on the coding bench.
+- Electron itself was not run: `crashReporter.start` placement and `ELECTRON_RUN_AS_NODE` are tested through
+  stubs (faked `process.versions.electron`, a stubbed spawner, `crashReporterPlan`).
+- Read-before-edit ships off, so it changes nothing until the owner switches it on.
