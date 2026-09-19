@@ -5,6 +5,7 @@ import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { z } from "zod";
 import { ShellProcess } from "./integrations/shell-process.js";
+import { runAsNode } from "./child-env.js";
 import { netlessEnvironment } from "./integrations/shell-config.js";
 import { defaultJobObjects, jobWithin, type JobObjects } from "./integrations/job-object.js";
 import type { HeldBySystem } from "./integrations/posix-limits.js";
@@ -159,7 +160,7 @@ export function defaultSandboxProbe(spawn: SandboxSpawn = defaultSandboxSpawn())
   return async (executable, args) => {
     const limits: SandboxLimits = { timeoutMs: 5000, maxMemoryMb: 256, maxCpuSeconds: 10, maxOutputBytes: 4096, network: false, job: false };
     try {
-      const out = await spawn({ executable, args, cwd: tmpdir(), env: { SYSTEMROOT: process.env.SYSTEMROOT ?? "", PATH: process.env.PATH ?? "" } },
+      const out = await spawn({ executable, args, cwd: tmpdir(), env: { SYSTEMROOT: process.env.SYSTEMROOT ?? "", PATH: process.env.PATH ?? "", ...runAsNode(executable) } },
         limits, AbortSignal.timeout(6000));
       return { code: out.exitCode, stdout: out.stdout, stderr: out.stderr, missing: out.status === "failed" && out.exitCode === null };
     } catch {
@@ -204,7 +205,7 @@ export class JobObjectBackend implements SandboxBackend {
   async prepare(slice: SandboxSlice): Promise<SandboxHandle> {
     const spawn = this.spawn, mount = slice.hostPath, wallDeps = this.wallDeps;
     const plainFor = async (command: SandboxCommand, limits: SandboxLimits): Promise<SandboxStart> =>
-      ({ executable: command.executable, args: command.args, cwd: mount, env: baseEnv(limits.network) });
+      ({ executable: command.executable, args: command.args, cwd: mount, env: { ...baseEnv(limits.network), ...runAsNode(command.executable) } });
     // wave mac3 (os-sandbox): a program left running goes behind the wall too, with no door open.
     const argvFor = async (command: SandboxCommand, limits: SandboxLimits): Promise<SandboxStart> =>
       limits.wall ? keptWall(await openWall(limits.wall, await plainFor(command, limits), { workspace: mount, proxy: false }, wallDeps))
@@ -585,7 +586,8 @@ async function linuxWall(plan: WallPlan, start: SandboxStart): Promise<{ start: 
     extraWrites, unreadable: plan.hidden, readOnly: plan.readOnly, temp: plan.temp, uid: process.getuid?.(),
     seccompFd: 9, kindOf }, command);
   const wrapped = withSeccomp(found.path, filter, args);
-  const env = { ...start.env, ...keyEnv(plan.keys), ...(door ? proxyEnvironment({ httpPort: insideDoorPorts.http, socksPort: insideDoorPorts.socks }, door.secret) : {}) };
+  // The door bridge is this program running a script, so it has to run as Node (see runAsNode).
+  const env = { ...start.env, ...keyEnv(plan.keys), ...(door ? { ...proxyEnvironment({ httpPort: insideDoorPorts.http, socksPort: insideDoorPorts.socks }, door.secret), ...runAsNode(process.execPath) } : {}) };
   return { door, start: { ...wrapped, cwd: start.cwd, env } };
 }
 

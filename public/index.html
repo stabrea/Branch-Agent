@@ -1749,7 +1749,7 @@
           <!-- mac7/diagnostics: the activity log (public/activity-log.js). Off unless the owner turns it on. -->
           <section id="activity-log-card" class="card">
             <h2 data-t="settings.card.activity-log">Activity log</h2>
-            <p id="activity-log-intro" data-t="activity-log.intro">A record, on this computer only, of what each part of Branch did: tasks, chat apps, outside tool servers, updates and the window. Keys, email addresses and your folder names are removed as it is written. Off unless you turn it on; crashes are always noted.</p>
+            <p id="activity-log-intro" data-t="activity-log.intro">A record, on this computer only, of what each part of Branch did: tasks, chat apps, outside tool servers, updates and the window. Keys, email addresses and your folder names are removed as it is written. Off unless you turn it on. Crash notes have their own switch below, also off.</p>
             <label for="activity-log-mode" data-t="field.activity-log-mode">Keep an activity log</label>
             <select id="activity-log-mode" aria-describedby="activity-log-intro">
               <option value="off" data-t="activity-log.mode.off">Off</option>
@@ -1758,6 +1758,12 @@
             </select>
             <label for="activity-log-days" data-t="field.activity-log-days">Keep it for this many days</label>
             <input id="activity-log-days" type="number" min="1" max="90" aria-describedby="activity-log-intro" />
+            <label for="activity-log-crashes" data-t="field.activity-log-crashes">Keep crash notes</label>
+            <select id="activity-log-crashes" aria-describedby="activity-log-crashes-help">
+              <option value="off" data-t="activity-log.crashes.off">Off</option>
+              <option value="on" data-t="activity-log.crashes.on">On</option>
+            </select>
+            <p id="activity-log-crashes-help" class="subtle" data-t="activity-log.crashes.help">When part of Branch crashes, write down on this computer what happened just before. Nothing is sent. For the app's own crash files, a change takes effect the next time Branch starts.</p>
             <button id="activity-log-save" type="button" data-t="action.activity-log-save">Save the activity log setting</button>
             <p id="activity-log-status" class="subtle" role="status"></p>
             <div class="row">

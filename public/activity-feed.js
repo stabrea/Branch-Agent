@@ -16,11 +16,12 @@ const el = (tag, text, className) => {
   return node;
 };
 /* The kinds worth putting in front of a person; everything else is noise on this screen. */
-const KINDS = ["run.started", "model.started", "model.completed", "tool.started", "tool.completed",
+const KINDS = ["run.started", "model.started", "model.loading", "model.completed", "tool.started", "tool.completed",
   "tool.failed", "policy.ask", "run.finished"];
 /** Plain words for each kind, so nobody has to read an event name. */
 const WORDS = {
   "run.started": "Started a task", "model.started": "Asked the model",
+  "model.loading": "Waiting for the model on this computer to load",
   "model.completed": "The model answered", "tool.started": "Started using a tool",
   "tool.completed": "Finished using a tool", "tool.failed": "A tool did not work",
   "policy.ask": "Stopped to ask you something", "run.finished": "Finished a task",

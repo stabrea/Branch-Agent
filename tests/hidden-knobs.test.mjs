@@ -53,7 +53,7 @@ test("every card ships as today's behaviour", (t) => {
   const store = { get: () => undefined };
   const values = allKnobs(store, owner);
   assert.deepEqual(values.compaction, { autoCompact: true, compactAtPercent: null, keepRecentMessages: 6, contextWindowTokens: null });
-  assert.deepEqual(values.limits, { maxSteps: 60, spendCapDollars: null, apiRetries: null });
+  assert.deepEqual(values.limits, { maxSteps: 60, spendCapDollars: null, apiRetries: null, localFirstReplySeconds: null });
   assert.deepEqual(values.commands, { toolAnswerChars: null, toolTimeoutSeconds: null, commandTimeoutSeconds: null, keptOpenShell: true, passEnvironment: [] });
   assert.deepEqual(values.subtasks, { subtaskModel: null, sideJobModel: null, parallelSubtasks: 4, subtaskTimeoutSeconds: 120 });
   assert.deepEqual(values.reasoning, { effortByModel: {}, showReasoning: true, serviceTier: "standard" });

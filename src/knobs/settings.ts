@@ -31,6 +31,11 @@ export const KnobTaskLimitsSettingsSchema = z.object({
   spendCapDollars: z.number().min(0.01).max(10000).nullable().default(null),
   /** How many times a failed request to the model service is tried again; null keeps the launch setting. */
   apiRetries: z.number().int().min(0).max(5).nullable().default(null),
+  /**
+   * mac7/coding-next: longest a model on this computer may take to start its reply, in seconds (it may
+   * be loading into memory); null keeps the launch setting (300).
+   */
+  localFirstReplySeconds: z.number().int().min(5).max(1800).nullable().default(null),
 }).strict();
 
 /**

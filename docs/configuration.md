@@ -2002,9 +2002,9 @@ Routes: `GET`/`POST /api/trace/settings` with `{ "enabled": boolean, "folder": s
 
 ### Activity log and Report a problem (mac7/diagnostics)
 
-**Settings → Advanced → Activity log** keeps one file of plain JSON lines, `<data folder>/logs/branch.jsonl`, that every part of Branch writes to: tasks, chat apps, outside tool servers, the updater, failed requests (each with a short request id) and script errors in the window. It is a three-way switch that ships **off**: *off* writes nothing, *when needed* writes warnings and errors, *on* writes everything from "info" up. Keys, tokens, sign-in headers, cookies, email addresses, your home folder and other people's, and network share names are removed as each line is written, never later. The log is kept to at most five files within `maxMegabytes` (1 to 200, default 20) and files older than `keepDays` (1 to 90, default 14) are removed. Stored in `settings/diagnostic-log` as `{ "mode": "off" | "when-needed" | "on", "keepDays": number, "maxMegabytes": number }`; `GET`/`POST /api/diagnostics/log/settings`, `GET /api/diagnostics/log?component=&level=&task=&limit=`, `POST /api/diagnostics/log/clear`. `branch report log` reads it from the terminal.
+**Settings → Advanced → Activity log** keeps one file of plain JSON lines, `<data folder>/logs/branch.jsonl`, that every part of Branch writes to: tasks, chat apps, outside tool servers, the updater, failed requests (each with a short request id) and script errors in the window. It is a three-way switch that ships **off**: *off* writes nothing, *when needed* writes warnings and errors, *on* writes everything from "info" up. Keys, tokens, sign-in headers, cookies, email addresses, your home folder and other people's, and network share names are removed as each line is written, never later. The log is kept to at most five files within `maxMegabytes` (1 to 200, default 20) and files older than `keepDays` (1 to 90, default 14) are removed. Stored in `settings/diagnostic-log` as `{ "mode": "off" | "when-needed" | "on", "keepDays": number, "maxMegabytes": number, "crashCapture": "off" | "on" }` (a save changes only the fields it sends); `GET`/`POST /api/diagnostics/log/settings`, `GET /api/diagnostics/log?component=&level=&task=&limit=`, `POST /api/diagnostics/log/clear`. `branch report log` reads it from the terminal.
 
-**Crashes are the one thing noted whatever the switch says**, on this computer only: an engine crash is written to `logs/crashes.jsonl` (at most five files of 512 KB) with the last 30 things that happened before it, and the desktop app starts Electron's crash reporter with uploading switched off, so crash files stay in the app's own crash folder. Nothing is ever sent anywhere.
+**Crash capture** (`crashCapture`, *Keep crash notes* on the same card) is a second switch, off / on, and ships **off** (mac7/coding-next). On, and on this computer only: an engine crash is written to `logs/crashes.jsonl` (at most five files of 512 KB) with the last 30 things that happened before it, and the desktop app starts Electron's crash reporter with uploading switched off, so crash files stay in the app's own crash folder. Nothing is ever sent anywhere. The engine's crash notes follow the switch at once; the desktop app reads it when it starts (from `logs/crash-capture.json`, which the engine writes whenever the setting is saved), so **for the app's own crash files a change applies at the next start**. Off, a crash still reaches the task record as it always did (`src/tracing.ts`) and, when the activity log is on, one "Crashed:" line in it; no crash note and no crash file is kept. Report a problem works either way: with crash capture off it simply has no crash notes or crash files to offer.
 
 **Settings → Updates & about → Report a problem** (or `branch report`) gathers what a developer needs: versions and system, health checks, what is running, which settings are on (switch-like values only; keys and free text left out), the recent activity log, crash notes and the names of crash files, updates and rollbacks, the shape of recent tasks (never your messages, replies or files), disk space and whether three common service names can be looked up (skipped under Lockdown). You read every part and remove any of it; then save a zip, or open GitHub's issue form in your browser with a title and a short description filled in and attach the zip yourself. Nothing is sent until you press Submit there. The routes (`POST /api/diagnostics/report`, `/report/save`, `/report/issue`) are the owner's alone: a short-lived key and a household profile are refused, reading included.
 
@@ -2086,7 +2086,7 @@ The `user.ask` tool lets the assistant stop when it cannot proceed without you. 
 
 ## Reliability
 
-`createBranch({ reliability })` accepts `modelStallMs` (5 s to 10 min, default 60 s: a model call that streams nothing for this long is treated as stalled), `stallRecovery` (`retry` twice then fall back, `fallback`, or `fail`), `toolTimeoutMs` (default 90 s: a single tool call is stopped after this), and `toolResultChars` (default 12,000: longer tool results are clipped for the model; the full result stays in the task's trace). Events: `model.stalled`, `model.stall_recovery`, `tool.stalled`, `tool.result_clipped`, `context.shrunk`.
+`createBranch({ reliability })` accepts `modelStallMs` (5 s to 10 min, default 60 s: a model call that streams nothing for this long is treated as stalled), `localFirstReplyMs` (5 s to 30 min, default 300 s: for a connection on this computer — Ollama, LM Studio, llama.cpp or any other at `localhost`/`127.0.0.1`/`::1` — the wait for the *first* piece of each reply, since the model may be loading into memory; after anything is heard the ordinary `modelStallMs` applies, and hosted connections are unchanged. After 10 seconds of silence the task shows "Waiting for the model on this computer…" (event `model.loading`). The owner changes it with `localFirstReplySeconds` on the knobs card below), `stallRecovery` (`retry` twice then fall back, `fallback`, or `fail`), `toolTimeoutMs` (default 90 s: a single tool call is stopped after this), and `toolResultChars` (default 12,000: longer tool results are clipped for the model; the full result stays in the task's trace). Events: `model.stalled`, `model.stall_recovery`, `tool.stalled`, `tool.result_clipped`, `context.shrunk`.
 
 `POST /api/run` accepts `checks`: `mustMention` (phrases), `mustMatch` (a regular expression), `resultSchema` (the answer must be JSON of that shape), `files` (workspace files that must exist) and `maxRetries` (0 to 2, default 1). A missed check is recorded as `run.check_failed`, the model is told what was missing and tries again; when the allowance is used up the task fails with a plain reason.
 
@@ -5861,11 +5861,19 @@ memory and processor ceilings a host command gets, and what it said comes straig
 assistant in the same step, so it sees what its own change broke before it does anything else.
 `code.check` runs it on its own, and needs the `code.execute` permission, because running your
 tests is running a program on this computer whatever else it does. Off by default.
-With no check set up and running small scripts switched on (Settings, the same switch as
-`code.run`), `code.check` runs a Node project's own tests instead (`node --test` in the workspace,
-one minute at most), with no way out to the internet unless scripts may reach it. Only `code.check`
-does this: after `code.patch` or `code.change_set` only a check you set up yourself runs, so
-writing a file never becomes running it.
+With no check set up, `code.check` can run a Node project's own tests instead (`node --test` in the
+workspace, one minute at most), with no way out to the internet unless scripts may reach it. With
+running small scripts switched on (Settings, the same switch as `code.run`) it does so as before.
+With that switch off — as shipped — **it asks first: "Let Branch run this project's tests?"**, once per
+workspace folder, as an ordinary question in the conversation (mac7/coding-next,
+`src/coding/project-tests.ts`). *Always for this folder* saves a standing rule for the tool name
+`code.tests` on exactly that folder (you can take it back under Settings, Permissions, like any
+rule); only the owner can give it, in the app — never from a chat app, never for a task somebody
+else in the house started. *Once* lets the next run of the tests in that conversation go ahead. *No*
+is remembered for the conversation, and the assistant is told to work from the test files instead.
+Lockdown refuses without asking. A broad "allow everything" rule does not stand in for this yes.
+Only `code.check` does this: after `code.patch` or `code.change_set` only a check you set up
+yourself runs, so writing a file never becomes running it.
 
 ## Programs left running (batch 20, wave 7)
 
@@ -8244,6 +8252,7 @@ short-lived key can read them but never change them.
 | How far one task may go (Settings, Permissions) | `maxSteps` | `60` | Model rounds in one task of the owner's (and in a background sub-task). |
 | | `spendCapDollars` | `null` | The task stops before its next model round once it has cost about this much, sub-tasks included. A model with no price on file cannot be checked; the task notes that once (`limits.spend_unpriced`). |
 | Trying the model service again (Settings, Advanced) | `apiRetries` | `null` (launch setting, 2) | Tries after a busy or failed request, 0 to 5. |
+| | `localFirstReplySeconds` | `null` (launch `localFirstReplyMs`, 300) | Longest a model on this computer may take to start each reply (it may be loading into memory), 5 to 1800. Hosted models are not affected. |
 | How much a tool may say (Settings, Advanced) | `toolAnswerChars` | `null` (launch `toolResultChars`) | Longest tool answer the model reads. |
 | | `toolTimeoutSeconds` | `null` (launch `toolTimeoutMs`) | Longest one tool call runs. |
 | How commands run (Settings, Computer) | `commandTimeoutSeconds` | `null` (the file's `shell.timeoutMs`) | Longest one command runs, for `shell.*` and nothing else. |
@@ -9058,7 +9067,7 @@ link: it is checked with `lstat` first, and opened with `O_NOFOLLOW` where the s
 
 ## Coding polish (mac7/r17-d)
 
-Eleven parts for work on code, each with the owner's three-way switch (off, on, only when it is
+Twelve parts for work on code, each with the owner's three-way switch (off, on, only when it is
 needed) and all off at first. The switches and their settings are one card in **Settings → Advanced**
 (`public/coding.js`), under `/api/coding/`, owner only. A short-lived "run" key may run the review
 checks and fork a conversation into its own copy (both only start work); it may read the rest except
@@ -9080,6 +9089,7 @@ said so, never asked.
 | Very long answers kept (`large-output`) | A tool answer over 64 KB, which used to fail the call, is kept (secrets hidden, at most 8 million characters) in `<data folder>/tool-output/`, for a week and at most 200 per person, and the model reads it in pieces with `output.read` | `src/coding/large-output.ts` |
 | Notebooks (`notebooks`) | `notebook.read` gives a `.ipynb` as numbered cells with their printed output; pictures are named, not carried | `src/coding/notebooks.ts` |
 | Review checks (`review-checks`) | `.agents/checks/*.md` (`name`, optional `paths`, the body says what to look for); `review.checks` hands each check and the current changes to a read-only helper, four at a time | `src/coding/review-checks.ts` |
+| Reading a file before changing it (`read-first`) | A guard, with no tool of its own; *when needed* and *on* both switch it on. `files.edit`, `files.patch`, `files.write`, `code.patch` and `code.change_set` refuse to change a file that already exists unless this task has read it with `files.read` since it last changed on disk — a change somebody or something else made in between counts — and say so in one sentence ("read it with files.read first"). A new file needs no read, and a file the task itself wrote counts as read as it is after the call (a formatter's tidying included). Only a fingerprint of what was read is kept, per task, and forgotten when the task ends. A language server's rename, `code.format`, `files.restore` and the undo tools are not held to it. Ships off, like every coding and safety part (see `src/safety-extras/settings.ts`: "every one ships off, the scans that can only tighten included") | `src/coding/read-first.ts` |
 
 The runtime asks these parts two things, in marked blocks of `src/runtime.ts`: where a task works (a
 fork's or helper's copy) and what to add to each round (the mentions once; the checklist and folder

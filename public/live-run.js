@@ -78,7 +78,10 @@ function askCard(question) {
   const card = el("div", undefined, "live-ask");
   card.id = "live-ask";
   card.append(el("strong", t("live.askTitle")), el("p", question.question));
-  const answers = [
+  /* mac7/coding-next: "Let Branch run this project's tests?" has answers of its own. */
+  const answers = question.kind === "project-tests" ? [
+    [t("live.testsAlways"), "allow", "always"], [t("live.testsOnce"), "allow", "never"], [t("live.no"), "deny", "session"],
+  ] : [
     [t("live.yesOnce"), "allow", "never"], [t("live.yesSession"), "allow", "session"],
     [t("live.yesAlways"), "allow", "always"], [t("live.no"), "deny", "session"],
   ];
@@ -180,6 +183,8 @@ function labelOf(kind, data) {
   if (kind === "tool.started") return `Using ${String(data.name ?? "a tool")}`;
   if (kind === "tool.completed") return `Finished ${String(data.name ?? "a tool")}`;
   if (kind === "model.started") return "Thinking";
+  /* mac7/coding-next: a model on this computer that has not said anything yet may be loading into memory. */
+  if (kind === "model.loading") return t("live.localLoading");
   if (kind === "policy.ask") return "Waiting for your answer";
   return t("live.working");
 }

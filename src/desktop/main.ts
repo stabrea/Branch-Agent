@@ -27,7 +27,7 @@ import { registerUpdaterIpc, type UpdateHooks } from "./updater-ipc.js";
 import { ChatGPTAuth, FileTokenVault } from "../chatgpt-auth.js";
 import { safeStorage } from "electron";
 import { crashReporter } from "electron"; // mac7/diagnostics
-import { crashReporterOptions, diagnose } from "../diagnostic-log.js"; // mac7/diagnostics
+import { crashReporterPlan, diagnose } from "../diagnostic-log.js"; // mac7/diagnostics, mac7/coding-next
 import type { DesktopSettings } from "./settings.js";
 import { registerConversationExportIpc } from "./conversation-export-ipc.js";
 // 0.18.1: "Branch stopped responding — Restart" relaunches the app, and with it the local server.
@@ -251,6 +251,7 @@ async function start(): Promise<void> {
   const base = app.getPath("userData");
   const settings = await loadDesktopSettings(join(base, "model-settings.json"));
   const { dataDir, workspace } = await folders(base);
+  startCrashReporter(dataDir);
   // An engine already working in the background is joined rather than started a second time.
   const running = await attachToRunning(dataDir);
   // Joining an engine means that engine owns the saved work and holds the program files open, so the
@@ -359,6 +360,21 @@ async function askThenQuit(): Promise<void> {
 }
 
 /**
+ * mac7/diagnostics: Electron's crash reporter keeps crash files (minidumps) on this computer only;
+ * uploading is switched off (src/diagnostic-log.ts). "Report a problem" lists them, never sends them.
+ * mac7/coding-next: only when the owner switched crash capture on. The switch is read here, at start,
+ * before any window exists, so a change applies at the next start.
+ */
+function startCrashReporter(dataDir: string): void {
+  const options = crashReporterPlan(dataDir);
+  if (!options) return;
+  try {
+    crashReporter.start(options);
+    process.env.BRANCH_CRASH_DUMPS = app.getPath("crashDumps");
+  } catch { /* a crash reporter that will not start must never stop the app */ }
+}
+
+/**
  * When the window or one of Electron's helper programs dies, that happens in another process, so
  * nothing the engine listens for ever hears about it. Electron tells this process instead, over
  * its own IPC; each report is written into the same record of failures the engine keeps, with the
@@ -406,12 +422,6 @@ app.setName("Branch Agent");
 if (process.platform === "win32") app.setAppUserModelId(windowsAppId);
 if (process.env.BRANCH_DESKTOP_HOME)
   app.setPath("userData", process.env.BRANCH_DESKTOP_HOME);
-// mac7/diagnostics: Electron's crash reporter keeps crash files (minidumps) on this computer only;
-// uploading is switched off (src/diagnostic-log.ts). "Report a problem" lists them, never sends them.
-try {
-  crashReporter.start(crashReporterOptions());
-  process.env.BRANCH_CRASH_DUMPS = app.getPath("crashDumps");
-} catch { /* a crash reporter that will not start must never stop the app */ }
 if (process.argv.includes(refreshShortcutsFlag)) {
   // The installer's one-off request: put the shortcuts right and quit, touching nothing else.
   void app.whenReady().then(refreshWindowsShortcuts).finally(() => app.exit(0));

@@ -239,6 +239,9 @@ import { leakOptions } from "./knobs/leak-options.js";
 import { syncMixtures } from "./model-savings/mixture.js";
 import { skillIdeaDraft } from "./fly-core/skill-idea.js";
 import { forgetLearning, learningCoreView } from "./fly-core-api.js";
+import { ReadFirstGuard } from "./coding/read-first.js"; // mac7/coding-next
+import { projectTestsVerdict } from "./coding/project-tests.js"; // mac7/coding-next
+import { codingOn } from "./coding/settings.js"; // mac7/coding-next
 
 export async function createBranch(options: {
   workspace: string;
@@ -317,6 +320,11 @@ export async function createBranch(options: {
   const registry = new ToolRegistry();
   // mac7/r17-d: a task working in its own copy of the project (src/coding/worktrees.ts) reads and writes there.
   files.scope = () => worktreeScope() ?? store.projects.active(options.owner ?? "local").folder;
+  // mac7/coding-next: read before edit (src/coding/read-first.ts), the owner's switch, off as shipped.
+  const readFirst = new ReadFirstGuard(() => codingOn(store, options.owner ?? "local", "read-first"));
+  files.readFirst = readFirst;
+  registry.afterWrites = (context) => readFirst.settle(context.runId);
+  registry.onRunFinished(async (context) => readFirst.forget(context.runId));
   const history = store.openWorkspaceHistory(files, options.owner ?? "local");
   let documents: DocumentLibrary | undefined;
   const writeObserver = {
@@ -447,6 +455,9 @@ export async function createBranch(options: {
   );
   runtime.journal = journalHook(journal, (text) => runtime.hideSecrets(text)); // mac3/never-break: nothing secret is written down
   runtime.artifacts = artifacts;
+  // mac7/coding-next: "Let Branch run this project's tests?", answered through the ordinary questions.
+  codeChanges.testsPermission = (context, folder) => projectTestsVerdict({ store, owner: runtime.owner,
+    approvals: runtime.approvals, sessionId: runtime.approvalSessionOf(context) }, folder);
   // Locking the app: after a quiet spell the locker stays shut until the owner unlocks it again.
   const sessionLock = new SessionLock(store, runtime.owner);
   store.secrets.gate = () => sessionLock.require();

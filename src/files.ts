@@ -5,6 +5,7 @@ import { z } from "zod";
 import type { ToolRegistry } from "./registry.js";
 import type { ToolContext } from "./contracts.js";
 import { ignoreMatcher, type IgnoreMatcher } from "./ignore.js";
+import type { ReadFirstGuard } from "./coding/read-first.js";
 
 const pathSchema = z.string().min(1).max(500);
 const secret =
@@ -34,7 +35,13 @@ export class WorkspaceFiles {
    * folder is written, and a change nobody can keep is worse than a plain refusal.
    */
   readOnly: (path: string) => string = () => "";
+  /** mac7/coding-next: the read-before-edit guard, when the app set one up (src/coding/read-first.ts). */
+  readFirst: ReadFirstGuard | undefined;
   constructor(readonly root: string) {}
+  /** The full address a workspace path stands for, as the read-before-edit guard keys it. */
+  addressOf(path: string): string {
+    return resolve(this.base, path);
+  }
   /** The same checks as `checked`, and then a refusal for a folder the assistant may only read. */
   async checkedForWrite(path: string): Promise<string> {
     const refusal = this.readOnly(path.replace(/^\.\//, "").replace(/\\/g, "/"));
@@ -240,7 +247,11 @@ export function registerFiles(
     description: "Read a UTF-8 workspace file, maximum 32 KiB.",
     permission: "files.read",
     parameters: z.object({ path: pathSchema }).strict(),
-    execute: async (a) => files.read(a.path),
+    execute: async (a, c: ToolContext) => {
+      const file = await files.read(a.path);
+      files.readFirst?.noteRead(c.runId, files.addressOf(a.path), file.content); // mac7/coding-next
+      return file;
+    },
   });
   registry.register({
     name: "files.list",
@@ -270,8 +281,11 @@ export function registerFiles(
       .object({ path: pathSchema, content: z.string().max(32768) })
       .strict(),
     execute: async (a, c: ToolContext) => {
+      // mac7/coding-next: an existing file is replaced only once this task has read it as it is now.
+      if (files.readFirst?.holds(c.runId)) await files.readFirst.require(c.runId, await files.checked(a.path), a.path);
       const token = observer ? await observer.before(a.path, c) : undefined;
       const result = await files.write(a.path, a.content, c.signal);
+      files.readFirst?.noteWritten(c.runId, files.addressOf(a.path));
       if (observer) await observer.after(a.path, c, token);
       return result;
     },

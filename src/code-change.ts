@@ -10,7 +10,10 @@ import type { WorkspaceFiles } from "./files.js";
 import { CodeEditor, type ChangeSummary, type PlannedChange } from "./code-edit.js";
 import { ShellProcess } from "./integrations/shell-process.js";
 import { netlessEnvironment } from "./integrations/shell-config.js";
+import { runAsNode } from "./child-env.js";
 import { defaultJobObjects, jobWithin, type JobObjects } from "./integrations/job-object.js";
+import { ApprovalRequiredError } from "./approvals.js";
+import { projectTestsLabel, projectTestsQuestion, projectTestsTool, type TestsVerdict } from "./coding/project-tests.js";
 
 /**
  * Changing several files at once, safely. A patch or a change set is worked out in full first, so
@@ -85,11 +88,17 @@ export class CodeChanges {
    * app; left alone, changes are written exactly as they were before this existed.
    */
   checkpoints: { before(folder: string, label: string, signal: AbortSignal): Promise<{ id: string } | null> } | undefined;
+  /**
+   * mac7/coding-next: whether this folder's own tests may run for this call — the person's answer to
+   * "Let Branch run this project's tests?" (src/coding/project-tests.ts). Set by the app; left alone,
+   * the tests run only with the script switch on, exactly as before.
+   */
+  testsPermission: ((context: ToolContext, folder: string) => TestsVerdict) | undefined;
   /** Applies a unified diff to the workspace, all of it or none of it. */
   async patch(input: z.infer<typeof PatchInputSchema>, context: ToolContext) {
     const planned = await this.editor.planPatch(input.patch);
     await this.refuseBinary(planned);
-    const settled = await this.settle(planned, input.dryRun, context);
+    const settled = await this.settle(planned, input.dryRun, context, true);
     // A patch going in is its own moment, apart from a file changing and a tool finishing, so a
     // hook can be set to fire on exactly that (issue #55, workflow-hooks).
     if (settled.applied) this.editor.notifyPatched(settled.files, context);
@@ -99,10 +108,12 @@ export class CodeChanges {
   async changeSet(input: z.infer<typeof ChangeSetInputSchema>, context: ToolContext) {
     if (new Set(input.edits.map((edit) => edit.path)).size !== input.edits.length)
       throw new Error("Change refused: name each file once; put several replacements for one file in one patch instead.");
+    // mac7/coding-next: "read it first" comes before "that text is not in the file", which it explains.
+    if (!input.dryRun) await this.editor.mustHaveRead(input.edits.map((edit) => edit.path), context);
     const planned: PlannedChange[] = [];
     for (const edit of input.edits) planned.push(await this.planEdit(edit));
     await this.refuseBinary(planned);
-    return { reason: input.reason, ...(await this.settle(planned, input.dryRun, context)) };
+    return { reason: input.reason, ...(await this.settle(planned, input.dryRun, context, true)) };
   }
   /**
    * A set of whole-file replacements that was worked out somewhere else — a language server's
@@ -132,7 +143,7 @@ export class CodeChanges {
     }
   }
   /** Shows the change, or writes it and runs the owner's check afterwards. */
-  private async settle(planned: PlannedChange[], dryRun: boolean, context: ToolContext) {
+  private async settle(planned: PlannedChange[], dryRun: boolean, context: ToolContext, readFirst = false) {
     if (dryRun)
       return { applied: false, dryRun: true, files: this.editor.preview(planned),
         note: "Nothing was written. Send the same change again without dryRun to apply it." };
@@ -141,7 +152,7 @@ export class CodeChanges {
     // put it back. A folder that is not kept in Git simply has no mark, and is told so.
     const mark = await this.checkpoints?.before(this.workspace, fileList(planned.map((item) => item.path)), context.signal)
       .catch(() => null) ?? null;
-    const files = await this.editor.writeAll(planned, context);
+    const files = await this.editor.writeAll(planned, context, { readFirst });
     const check = await this.runCheck(context);
     if (context.runId) this.store.event(context.runId, "code.changed", { files: files.map((f) => f.path), check: check.ran ? check.ok : null, undo: mark?.id ?? "" });
     return { applied: true, dryRun: false, files, check,
@@ -160,14 +171,16 @@ export class CodeChanges {
     const setting = projectCheck(this.store, this.owner);
     const scripts = codeRunSettings(this.store, this.owner);
     const configured = setting.enabled && !!setting.command;
-    const nodeTests = !configured && options.projectTests === true && scripts.enabled
+    const nodeTests = !configured && options.projectTests === true
       && await stat(join(this.workspace, "package.json")).then((info) => info.isFile(), () => false);
     if (!configured && !nodeTests) return { ran: false, ok: true, note: noCheckNote(scripts.enabled) };
+    const refused = nodeTests && !scripts.enabled ? this.testsRefusal(context) : null;
+    if (refused) return { ran: false, ok: true, note: refused };
     const command = configured
       ? { executable: setting.command, args: setting.args, timeoutMs: setting.timeoutMs, env: {} }
       : { executable: process.execPath, args: ["--test"], timeoutMs: 60000, env: {
         // Inside the desktop app this program is the app itself; this makes it run as plain Node.
-        ...(process.versions.electron ? { ELECTRON_RUN_AS_NODE: "1" } : {}),
+        ...runAsNode(process.execPath),
         ...(scripts.network ? {} : netlessEnvironment()) } };
     const job = await jobWithin(this.jobs, { maxMemoryMb: 2048, maxCpuSeconds: 120 }, 1500);
     const result = await new ShellProcess({
@@ -182,6 +195,22 @@ export class CodeChanges {
     const what = configured ? "The project's check" : "The project's tests (node --test)";
     return { ran: true, ok, exitCode: result.exitCode, output,
       note: ok ? `${what} passed.` : `${what} did not pass (${result.status}). Read the output and put it right.` };
+  }
+  /**
+   * mac7/coding-next: with the script switch off, a folder's own tests run only once the person has
+   * said yes. Not asked yet: the task stops on "Let Branch run this project's tests?" (thrown, so the
+   * runtime puts it the way it puts every question). Refused: the sentence the model is told instead.
+   */
+  private testsRefusal(context: ToolContext): string | null {
+    const verdict = this.testsPermission?.(context, this.workspace) ?? { refuse: noCheckNote(false) };
+    if (verdict === "run") return null;
+    // A tool run by hand ("Try a tool") has nowhere to put the question, so it is told as before.
+    if (verdict === "ask" && !context.askable && !context.approvalKey) return noCheckNote(false);
+    // "never": a plain yes with no choice made (the terminal's y, carrying a workflow on) is Once.
+    if (verdict === "ask")
+      throw new ApprovalRequiredError(projectTestsTool, this.workspace, projectTestsLabel, "never", undefined,
+        { question: projectTestsQuestion(this.workspace), kind: "project-tests" });
+    return verdict.refuse;
   }
 }
 

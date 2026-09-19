@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
-import { utimesSync } from "node:fs";
+import { utimesSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -102,7 +102,8 @@ test("D6 files older than the owner's number of days are removed", async (t) => 
 
 test("D7 a crash is written straight away with the breadcrumbs before it", async (t) => {
   const dir = await folder(t);
-  const log = new DiagnosticLog({ dir, settings: settings({ mode: "off" }), clean });
+  // mac7/coding-next: crash notes are their own switch now, off by default; this one has it on.
+  const log = new DiagnosticLog({ dir, settings: settings({ mode: "off", crashCapture: "on" }), clean });
   log.write({ level: "info", component: "tasks", message: "step one" });
   const stop = watchProcessCrashes(log, "engine");
   t.after(stop);
@@ -262,7 +263,7 @@ test("D16 every provider's key, cookies, sign-in headers, credential addresses, 
 
 test("D17 a crash note never quotes the text a failure choked on", async (t) => {
   const dir = await folder(t);
-  const log = new DiagnosticLog({ dir, settings: settings({ mode: "off" }), clean });
+  const log = new DiagnosticLog({ dir, settings: settings({ mode: "off", crashCapture: "on" }), clean });
   let parseError;
   try { JSON.parse("my private message to the doctor about the results"); } catch (e) { parseError = e; }
   log.crash("engine", parseError);
@@ -300,8 +301,13 @@ test("D20 a crash after the database has closed is still written, and the handle
   const closed = () => { throw new Error("database is not open"); };
   const log = new DiagnosticLog({ dir, settings: closed, clean });
   assert.doesNotThrow(() => log.write({ level: "error", component: "engine", message: "late line" }));
+  // mac7/coding-next: crash notes are a switch now (off as shipped). With the database closed, the
+  // switch file beside the log answers for it: absent, no note; on, the note is still written.
   assert.doesNotThrow(() => log.crash("engine", new Error("boom while closing")));
-  assert.equal(log.crashes(5).length, 1, "the crash note itself does not depend on the settings");
+  assert.equal(log.crashes(5).length, 0, "crash capture never switched on: no note");
+  writeFileSync(join(dir, "crash-capture.json"), JSON.stringify({ crashCapture: "on" }));
+  assert.doesNotThrow(() => log.crash("engine", new Error("boom while closing")));
+  assert.equal(log.crashes(5).length, 1, "switched on: the note is written without the database");
   assert.equal(log.read().length, 0, "with no readable settings the log behaves as shipped: off");
   assert.doesNotThrow(() => log.prune());
 });

@@ -46,6 +46,8 @@ import { steerMessage, steerNote } from "./steer.js";
 import { supportsImages } from "./providers.js";
 import { pinnedSkillInstructions, skillInstructions } from "./skill-tools.js";
 import type { ModelPlan, ModelPreset, ModelRouter, ReasoningEffort, RunModelOverride } from "./models.js";
+import { presetRunsLocally } from "./models.js"; // mac7/coding-next
+import { projectTestsTool } from "./coding/project-tests.js"; // mac7/coding-next
 import { checkResult, fanoutWaves, type FanoutTask, type ResultCheck } from "./delegation.js";
 import { describeToolCall, filePathOf } from "./activity.js";
 // Wave mac2 (guards): loop guard and folder trust; see src/run-guards.ts.
@@ -64,6 +66,7 @@ import { parseSessionSummary, summaryText } from "./session-summary.js";
 import { chatEngineSettings, condenseMessages, earlierTurns, shouldCondense, standaloneQuestion } from "./chat-engine.js"; // w911 (A0847)
 import {
   CheckError, StallError, ReliabilityOptionsSchema, CompletionCheckSchema, clipToolResult, evaluateChecks, shrinkToolResults, withStallWatchdog,
+  type FirstReplyWait,
   thinkingKeepsAlive, thinkingCharsPerToken, thinkingStallWindows,
   type CompletionCheck, type ReliabilityInput, type ReliabilityOptions,
 } from "./reliability.js";
@@ -168,6 +171,8 @@ export interface BackgroundResult { childRunId: string; parentRunId: string; sta
 export interface FanoutOutcome { waves: string[][]; tasks: Record<string, { runId: string; status: string; output: string; result: ResultCheck }> }
 /** Every reply may be this long; a run whose model runs out of room thinking may double it twice. */
 const baseReplyCeiling = 2048, maxReplyCeiling = 8192;
+/** mac7/coding-next: how long a model on this computer is silent before the person is told it may be loading. */
+const localQuietMs = 10_000;
 /** What the model is told after a reply that was all thinking: act on it now. */
 export const emptyReplyNudge = "Your last reply had thinking but no answer and no tool call, so nothing happened. "
   + "Act on what you worked out now: call the tool for the next step, or, if the task is finished, give your final answer.";
@@ -1955,7 +1960,7 @@ ${run.output.slice(0, 6000)}`;
             preset.provider.complete({ ...request, signal, onTextDelta: (text: string) => { touch(); onTextDelta(text); },
               // integrate/empty-completion: only within the reply's room and a bounded window.
               onReasoningDelta: thinkingKeepsAlive(touch, { maxChars: maxTokens * thinkingCharsPerToken,
-                forMs: this.reliability.modelStallMs * thinkingStallWindows }) }))
+                forMs: this.reliability.modelStallMs * thinkingStallWindows }) }), this.firstReplyWait(run, preset))
         : await preset.provider.complete({ ...request, signal: context.signal }));
       const { output, reported } = this.recordCompletion(run, context, raw, input);
       // R17-048 / R17-050: note the service's own count, and keep its cache warm if the owner asked.
@@ -1993,6 +1998,18 @@ ${run.output.slice(0, 6000)}`;
       span?.end("error", this.hideSecrets(errorText(e)), { "branch.model.outcome": kind });
       throw e;
     }
+  }
+  /**
+   * mac7/coding-next: a model on this computer may be loading into memory before its first word, so
+   * that first silence may last longer (the owner's setting, 300 s as shipped), and after a short
+   * while the person is told why nothing has appeared yet. Hosted models wait exactly as before.
+   */
+  private firstReplyWait(run: Run, preset: ModelPreset): FirstReplyWait {
+    if (!presetRunsLocally(preset)) return {};
+    const firstMs = knobs.localFirstReplyMs(this.store, this.owner, this.reliability);
+    return { firstMs, quiet: { afterMs: Math.min(localQuietMs, this.reliability.modelStallMs), notify: () =>
+      this.store.event(run.id, "model.loading", { preset: preset.id, model: preset.model, waitSeconds: Math.round(firstMs / 1000),
+        message: "Waiting for the model on this computer to start. It may be loading into memory." }) } };
   }
   /** R17-S12: with "show reasoning" off, no caller (task, side question, debate turn) gets the thinking. */
   private shownThinking(completion: Completion): Completion {
@@ -2214,6 +2231,11 @@ ${run.output.slice(0, 6000)}`;
   ): void {
     if (remember === "always" && about.source !== "owner")
       throw new Error("A task you did not start yourself cannot be given a standing yes; answer it just this once instead");
+    // Integration review (mac7/coding-next): a workflow or flow carried on past "Let Branch run this
+    // project's tests?" is held to the same rules as the question card: Always is the owner's alone,
+    // and a plain yes is a single pass for the next run of the tests.
+    if (about.tool === projectTestsTool && remember === "always") this.ownerAlwaysForTests(about, undefined);
+    if (about.tool === projectTestsTool && remember === "never") this.approvals.grantOnce(key, about.tool, about.target);
     if (remember !== "never")
       this.approvals.remember(key, about.tool, about.target, "allow",
         { fingerprint: about.fingerprint, label: about.label });
@@ -2264,14 +2286,15 @@ ${run.output.slice(0, 6000)}`;
    * The approval policy, checked once before a tool runs. A refused call comes back to the model as
    * a plain refusal; a call that needs a yes stops the task through the same pause as user.ask.
    */
-  private async gate(call: ToolCall, args: unknown, context: ToolContext): Promise<GateOutcome> {
+  private async gate(call: ToolCall, args: unknown, context: ToolContext, shown: ToolCall = call): Promise<GateOutcome> {
     // The exact bytes the model asked for. A yes is bound to them, so a command that changes by one
-    // character is a new question rather than something an earlier yes covers.
+    // character is a new question rather than something an earlier yes covers. What is shown (to the
+    // person and to the second model) is `shown`: the call without the arguments the tool does not take.
     const fingerprint = argumentFingerprint(call.arguments);
     // Wave mac3 (tool-safety): a second model may look at a risky or unknown call first; it can only
     // make the answer stricter, or confirm that a tool which does not say only reads (src/approval-reviewer.ts).
     const { decision: ruled, label, target, readOnly, remember, sandbox, backend, paths, reason } =
-      await reviewCall(this, this.checkPolicy(call.name, args, context, fingerprint), { call, args, context, fingerprint });
+      await reviewCall(this, this.checkPolicy(call.name, args, context, fingerprint), { call: shown, args, context, fingerprint });
     const held = { sandbox, backend, paths };
     if (context.dryRun && !readOnly) {
       this.store.event(context.runId, "tool.simulated", { name: call.name, id: call.id, label, target, decision: ruled });
@@ -2288,7 +2311,7 @@ ${run.output.slice(0, 6000)}`;
     if (aside) {
       this.orchestration.pausePlan(this.sessionOf(context));
       return this.askApproval(context, { tool: call.name, label: aside, target, source: context.source ?? "owner",
-        remember, sandbox, bytes: this.hideSecrets(call.arguments).slice(0, 2000), fingerprint }, call.id);
+        remember, sandbox, bytes: this.hideSecrets(shown.arguments).slice(0, 2000), fingerprint }, call.id);
     }
     if (decision === "allow") return { refusal: null, ...held };
     if (decision === "deny") {
@@ -2301,7 +2324,7 @@ ${run.output.slice(0, 6000)}`;
     return this.askApproval(context, { tool: call.name, label: asked, target, source, remember, sandbox,
       // The exact request, cleaned of any saved password or key, is what the person is shown and
       // what their yes is bound to.
-      bytes: this.hideSecrets(call.arguments).slice(0, 2000), fingerprint }, call.id);
+      bytes: this.hideSecrets(shown.arguments).slice(0, 2000), fingerprint }, call.id);
   }
   /**
    * Why this call is not what the plan the owner agreed said would happen here, or null when it is.
@@ -2357,6 +2380,8 @@ ${run.output.slice(0, 6000)}`;
       sandbox?: SandboxChoice | null;
       /** The exact request the person is shown, and the fingerprint their yes is bound to. */
       bytes?: string; fingerprint?: string;
+      /** mac7/coding-next: a question in words of its own, and its kind (for its own answers). */
+      question?: string; kind?: "project-tests";
     },
     callId?: string,
   ): never {
@@ -2364,7 +2389,7 @@ ${run.output.slice(0, 6000)}`;
     // A saved password or key can end up inside a command the assistant wants to run. The question
     // is shown on screen and kept in memory, so take the secrets back out here, once, for everyone.
     const label = this.hideSecrets(about.label), target = this.hideSecrets(about.target);
-    const question = approvalQuestion(label, target);
+    const question = about.question ? this.hideSecrets(about.question) : approvalQuestion(label, target);
     const sessionId = this.sessionOf(context);
     // A conversation can genuinely stop on more than one thing at once, so the question joins the
     // list rather than taking the place of whatever was already there. Only when the list is full
@@ -2372,13 +2397,15 @@ ${run.output.slice(0, 6000)}`;
     const dropped = this.approvals.ask({ runId: context.runId, sessionId, tool: about.tool, target,
       label, question, source, remember, askedAt: new Date().toISOString(),
       ...(about.sandbox ? { sandbox: about.sandbox } : {}),
+      ...(about.kind ? { kind: about.kind } : {}),
       ...(about.bytes === undefined ? {} : { bytes: about.bytes }),
       ...(about.fingerprint === undefined ? {} : { fingerprint: about.fingerprint }) });
     if (dropped) this.letOldestQuestionGo(dropped);
     // The exact bytes and their fingerprint travel with the event, so a phone or a chat channel
     // watching the socket sees the same question the app does and can answer under the same binding.
     this.store.event(context.runId, "policy.ask", { name: about.tool, id: callId, label, target, remember,
-      question, sandbox: about.sandbox ?? "", bytes: about.bytes ?? "", fingerprint: about.fingerprint ?? "" });
+      question, sandbox: about.sandbox ?? "", bytes: about.bytes ?? "", fingerprint: about.fingerprint ?? "",
+      ...(about.kind ? { kind: about.kind } : {}) });
     throw new NeedsInputError(question);
   }
   /**
@@ -2437,6 +2464,8 @@ ${run.output.slice(0, 6000)}`;
       throw new Error("That answer was for a different request. Look at what it wants to do now and answer again.");
     // mac7/r17-g: a yes the owner chose to guard needs a code from their authenticator app first.
     remember = safetyExtras.guardApproval(this.store, this.owner, waiting, sessionId, decision, remember);
+    // mac7/coding-next: only the owner, at the app, may let a folder's tests run for good.
+    if (waiting.tool === projectTestsTool && decision === "allow" && remember === "always") this.ownerAlwaysForTests(waiting, answeredOn);
     // Wave mac3 (tool-safety): a request the safety check advised against may be allowed only this once.
     this.approvals.settleOverrule(sessionId, waiting, decision, remember);
     this.approvals.resolve(sessionId, waiting.fingerprint);
@@ -2444,6 +2473,9 @@ ${run.output.slice(0, 6000)}`;
       this.approvals.remember(sessionId, waiting.tool, waiting.target, decision, {
         fingerprint: waiting.fingerprint, label: waiting.label,
       });
+    // mac7/coding-next: "Once" for the tests is a single pass for the next run of them.
+    if (waiting.tool === projectTestsTool && decision === "allow" && remember === "never")
+      this.approvals.grantOnce(sessionId, waiting.tool, waiting.target);
     if (remember === "always") addPolicyRule(this.store, this.owner, { tool: waiting.tool, match: waiting.target || "*", decision, remember: "always" });
     audit(this.store, this.owner, {
       action: "approval.decided", actor: this.owner, subject: `${waiting.tool}${waiting.target ? ` on ${waiting.target}` : ""}`,
@@ -2460,6 +2492,20 @@ ${run.output.slice(0, 6000)}`;
       outcome: decision === "allow" ? "allowed" : "refused",
     });
     return { tool: waiting.tool, target: waiting.target, decision, remembered: remember, fingerprint: waiting.fingerprint ?? null };
+  }
+  /**
+   * mac7/coding-next: "Always for this folder" to running a project's tests is the owner's alone:
+   * never from a chat app, never for a task somebody else in the house started, and never while the
+   * window is switched to somebody else's profile.
+   */
+  private ownerAlwaysForTests(waiting: { source: RunSource; runId?: string }, answeredOn: string | undefined): void {
+    const refusal = "Only the owner, in the app, can let Branch run this project's tests every time. Answer Once or No instead.";
+    if (answeredOn || waiting.source !== "owner" || (waiting.runId && this.taskPerson(waiting.runId))) throw new Error(refusal);
+    if (!this.store.profiles.isOwner()) throw new Error(refusal);
+  }
+  /** mac7/coding-next: where this call's answers are remembered (its conversation), for code outside the runtime. */
+  approvalSessionOf(context: ToolContext): string {
+    return this.sessionOf(context);
   }
   /**
    * The owner's answer to a plan waiting for them. Yes — with a step's wording changed, if they
@@ -2596,8 +2642,20 @@ ${run.output.slice(0, 6000)}`;
     call: ToolCall,
     context: ToolContext,
   ): Promise<unknown> {
-    let args: unknown, validArgs = true;
-    try { args = JSON.parse(call.arguments); } catch { validArgs = false; }
+    let parsed: unknown, validArgs = true;
+    try { parsed = JSON.parse(call.arguments); } catch { validArgs = false; }
+    // mac7/coding-next: keys the tool does not take are dropped here, before anything looks at the
+    // call — the policy, the approval, the wall and the tool all see only what is left — and the
+    // model is told in one line which ones were ignored. The approval's fingerprint and the bytes
+    // shown stay those of the exact request sent, which can only make a yes narrower, never wider.
+    const { args, ignored } = validArgs ? this.registry.clean(call.name, parsed) : { args: parsed, ignored: [] };
+    if (ignored.length) this.store.event(context.runId, "tool.arguments_ignored", { name: call.name, id: call.id, keys: ignored });
+    // Integration review: the person asked and the second model are shown what will run, not the junk.
+    const shown = ignored.length ? { ...call, arguments: JSON.stringify(args) } : call;
+    const outcome = await this.runToolCall(call, context, args, validArgs, shown);
+    return ignored.length && outcome && typeof outcome === "object" ? { ...outcome, note: ignoredNote(ignored) } : outcome;
+  }
+  private async runToolCall(call: ToolCall, context: ToolContext, args: unknown, validArgs: boolean, shown: ToolCall): Promise<unknown> {
     // The file a call is about is written down beside it — the path only — so that later the
     // assistant can notice which files this person keeps coming back to. See src/memory-learning.ts.
     const path = filePathOf(call.name, args);
@@ -2610,7 +2668,7 @@ ${run.output.slice(0, 6000)}`;
     const blocked = this.reconciliationBlock(context, call);
     if (blocked) { this.store.event(context.runId, "reconciliation.required", { name: call.name, id: call.id }); return { ok: false, error: blocked }; }
     await this.pace(context, "tool", this.policy().limits.toolCallsPerMinute);
-    const gated = await this.gate(call, args, context);
+    const gated = await this.gate(call, args, context, shown);
     if (gated.refusal) return gated.refusal;
     const limitMs = knobs.toolLimits(this.store, this.owner, this.reliability).toolTimeoutMs, timeout = AbortSignal.timeout(limitMs); // R17-S10
     // How tightly a program this call starts is held travels with the call, so a tool that starts
@@ -2618,7 +2676,7 @@ ${run.output.slice(0, 6000)}`;
     // wave mac3 (os-sandbox, integration review): the wall comes only from wallContextFor below, never
     // from whatever context this call was handed, so an outer wall (and its key sites) cannot ride along.
     const { osSandbox: _outerWall, ...unwalled } = context;
-    const scoped: ToolContext = { ...unwalled, signal: AbortSignal.any([context.signal, timeout]),
+    const scoped: ToolContext = { ...unwalled, askable: true, signal: AbortSignal.any([context.signal, timeout]),
       ...(gated.sandbox ? { sandbox: gated.sandbox } : {}),
       ...(gated.backend ? { sandboxBackend: gated.backend } : {}),
       ...(gated.paths?.length ? { sandboxPaths: gated.paths } : {}),
@@ -2655,7 +2713,7 @@ ${run.output.slice(0, 6000)}`;
       if (e instanceof ApprovalRequiredError) {
         span?.end("error", "waiting for the person");
         this.askApproval(context, { tool: e.tool, label: e.label, target: e.target,
-          source: context.source ?? "owner", remember: e.remember,
+          source: context.source ?? "owner", remember: e.remember, ...e.asked,
           ...(e.fingerprint === undefined ? {} : { fingerprint: e.fingerprint }) }, call.id);
       }
       if (e instanceof BudgetError || e instanceof NeedsInputError || context.signal.aborted) {
@@ -2687,6 +2745,11 @@ export function channelSource(answeredOn: string | undefined): AuditSource | nul
   const name = answeredOn.trim().toLowerCase();
   return (auditSources as readonly string[]).includes(name) && !["owner", "trigger", "schedule", "system", "channel"].includes(name)
     ? (name as AuditSource) : "chat";
+}
+
+/** mac7/coding-next: the one line a model is told when some of its arguments were not used. */
+export function ignoredNote(keys: readonly string[]): string {
+  return `Ignored ${keys.length === 1 ? "an argument" : "arguments"} this tool does not take: ${keys.join(", ")}.`;
 }
 
 export function argumentFingerprint(argumentBytes: string): string {

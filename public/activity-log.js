@@ -45,6 +45,7 @@ async function loadLog() {
     const data = await api("diagnostics/log?" + query.toString());
     if (document.activeElement !== $("activity-log-mode")) $("activity-log-mode").value = data.settings.mode;
     if (document.activeElement !== $("activity-log-days")) $("activity-log-days").value = String(data.settings.keepDays);
+    if (document.activeElement !== $("activity-log-crashes")) $("activity-log-crashes").value = data.settings.crashCapture || "off";
     fillComponents(data.components);
     const list = $("activity-log-lines");
     list.replaceChildren(...data.lines.map(lineItem));
@@ -71,7 +72,8 @@ function lineItem(line) {
 async function saveLogSettings() {
   const status = $("activity-log-status");
   try {
-    const saved = await api("diagnostics/log/settings", { mode: $("activity-log-mode").value, keepDays: Number($("activity-log-days").value) || 14 });
+    const saved = await api("diagnostics/log/settings", { mode: $("activity-log-mode").value, keepDays: Number($("activity-log-days").value) || 14,
+      crashCapture: $("activity-log-crashes").value === "on" ? "on" : "off" });
     status.textContent = saved.mode === "off" ? "Saved. The activity log is off." : "Saved. The activity log is on this computer only.";
   } catch (e) { status.textContent = e.message; }
 }

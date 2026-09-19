@@ -233,3 +233,10 @@ with tests (`tests/coding-gap-edits.test.mjs`, plus updated `tests/empty-answer.
 9. **The stall watchdog kills a cold-loading local model** (window 4, one cell: no first token within
    60 s while the model loaded after the card went idle). *Next:* a longer first-token wait for local
    connections than for hosted ones.
+
+*Follow-up on `mac7/coding-next` (2026-09-19, unit-tested, not measured on the bench):* item 7's
+read-before-edit guard is built as the coding part `read-first` (ships off); item 8 — unknown keys are
+dropped before the permission check and the model is told which; item 9 — a local connection's first
+reply may take 300 s (setting `localFirstReplySeconds`) with a "may be loading into memory" status line;
+item 1 — with the script switch off, `code.check` asks "Let Branch run this project's tests?" once per
+folder. See `docs/agents/STATUS-coding-next.md`.

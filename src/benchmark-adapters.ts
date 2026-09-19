@@ -13,6 +13,7 @@ import { join, dirname } from "node:path";
 import { parsePatch, applyHunks } from "./patch.js";
 import { normaliseAnswer } from "./evaluation-scorers.js";
 import { findBash, findGit, runBenchmarkCommand } from "./benchmark-shell.js";
+import { runAsNode } from "./child-env.js";
 import { nexusAdapter } from "./benchmark-nexus.js";
 import { miniwobAdapter } from "./benchmark-miniwob.js";
 import {
@@ -127,7 +128,7 @@ async function runCodeTests(task: BenchmarkTask, workspace: string): Promise<Ben
   if (language === "python") return judgeFail("This is a Python task. Branch Agent runs the JavaScript ones; point at a JavaScript split, or run the Python tests yourself.");
   const file = "benchmark-tests.mjs";
   await writeFile(join(workspace, file), body);
-  const outcome = await runBenchmarkCommand(process.execPath, [file], workspace);
+  const outcome = await runBenchmarkCommand(process.execPath, [file], workspace, { env: runAsNode(process.execPath) });
   if (outcome.status !== "completed")
     return judgeFail(`The tests did not finish (${outcome.status})`, outcome.stderr.slice(0, 300));
   return outcome.exitCode === 0 ? judgePass() : judgeFail(`The tests failed`, (outcome.stderr || outcome.stdout).slice(0, 300));
@@ -183,7 +184,7 @@ async function runSweTests(task: BenchmarkTask, workspace: string): Promise<Benc
   // a downloaded file must not be able to choose what runs on this computer.
   const names = [...asList(task.raw.FAIL_TO_PASS), ...asList(task.raw.PASS_TO_PASS)];
   if (!names.length) return judgeFail("This instance names no tests to run, so it cannot be marked");
-  const outcome = await runBenchmarkCommand(process.execPath, ["--test", ...names], workspace);
+  const outcome = await runBenchmarkCommand(process.execPath, ["--test", ...names], workspace, { env: runAsNode(process.execPath) });
   if (outcome.status !== "completed") return judgeFail(`The tests did not finish (${outcome.status})`, outcome.stderr.slice(0, 300));
   return outcome.exitCode === 0 ? judgePass() : judgeFail("The benchmark's tests still fail", (outcome.stderr || outcome.stdout).slice(0, 300));
 }

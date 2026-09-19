@@ -7,6 +7,7 @@ import { contractsMeet, gatewayContract, WorkerReadySchema, type WorkerReady } f
 import { loadGatewayConfig, promoteGood, restoreGood, sameAsGood, type GatewayConfig } from "./gateway-config.js";
 import { clearCrashes, markExited, markRunning, recordCrash } from "./gateway-state.js";
 import { clearWatch, readWatch, repairSwap, watchVerdict, type UpdateWatch } from "./canary.js";
+import { runAsNode } from "../child-env.js";
 
 /**
  * The gateway: a small process that keeps Branch's public address open and keeps one worker — the
@@ -38,7 +39,7 @@ export interface GatewayOptions {
 
 /** The engine, through this same runtime, with a message channel and no window on Windows. */
 const defaultSpawn = (script: string, args: string[], env: NodeJS.ProcessEnv): ChildProcess =>
-  spawn(process.execPath, [script, ...args], { env, stdio: ["ignore", "inherit", "inherit", "ipc"], windowsHide: true });
+  spawn(process.execPath, [script, ...args], { env: { ...env, ...runAsNode(process.execPath) }, stdio: ["ignore", "inherit", "inherit", "ipc"], windowsHide: true });
 
 interface Worker { child: ChildProcess; state: WorkerState; port: number | null; ready: WorkerReady | null; startedAt: number }
 

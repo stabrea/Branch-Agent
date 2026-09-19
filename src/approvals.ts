@@ -34,6 +34,11 @@ export interface PendingApproval {
    * overrule it only this once ("Yes, just now"), never for the conversation or for good.
    */
   onceOnly?: boolean;
+  /**
+   * mac7/coding-next: a question with answers of its own. "project-tests" is "Let Branch run this
+   * project's tests?", answered Always for this folder / Once / No (src/coding/project-tests.ts).
+   */
+  kind?: "project-tests";
 }
 
 /** Wave mac3 (tool-safety): what the owner is told when they try to keep a yes the safety check advised against. */
@@ -100,8 +105,10 @@ export class ApprovalRequiredError extends Error {
      * saved step whose arguments changed in between is asked about again rather than let past.
      */
     readonly fingerprint?: string,
+    /** mac7/coding-next: the question in words of its own, and which kind of question it is. */
+    readonly asked: { question?: string; kind?: "project-tests" } = {},
   ) {
-    super(approvalQuestion(label, target));
+    super(asked.question ?? approvalQuestion(label, target));
   }
 }
 
@@ -134,6 +141,17 @@ export class ApprovalGate {
   private readonly heldOnce = new Map<string, string>();
   /** Wave mac3 (tool-safety): one-time overrules the owner gave, as conversation and fingerprint. */
   private readonly overrules = new Set<string>();
+  /** mac7/coding-next: a "Once" given to a question that is used by the next attempt and then gone. */
+  private readonly passes = new Set<string>();
+  /** Keeps one pass for this conversation's next attempt at `tool` on `target`. */
+  grantOnce(sessionId: string, tool: string, target: string): void {
+    if (this.passes.size >= 500) this.passes.delete(this.passes.values().next().value!);
+    this.passes.add(`${sessionId}\u0000${answerKey(tool, target)}`);
+  }
+  /** Uses up that pass, if there is one. */
+  takeOnce(sessionId: string, tool: string, target: string): boolean {
+    return this.passes.delete(`${sessionId}\u0000${answerKey(tool, target)}`);
+  }
   /**
    * The answer already given in this conversation for the same tool and target. When a fingerprint
    * is supplied and the kept answer was given for a different one, there is no answer: the exact
@@ -195,6 +213,7 @@ export class ApprovalGate {
     const count = [...this.answers.values()].reduce((total, forSession) => total + forSession.size, 0);
     this.answers.clear();
     this.overrules.clear();
+    this.passes.clear();
     return count;
   }
   /**
@@ -253,6 +272,7 @@ export class ApprovalGate {
     this.answers.delete(sessionId);
     this.pending.delete(sessionId);
     for (const key of this.overrules) if (key.startsWith(sessionId + "\u0000")) this.overrules.delete(key);
+    for (const key of this.passes) if (key.startsWith(sessionId + "\u0000")) this.passes.delete(key);
   }
 
   /* ------------------------------------------ wave mac3 (tool-safety): overruling the safety check once */
