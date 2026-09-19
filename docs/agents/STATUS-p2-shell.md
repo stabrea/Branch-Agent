@@ -113,7 +113,8 @@ the notice; "Let it in"/"Refuse" were stacked; "Your phone" tab was cut off at 3
 "ready · needs you · off" wrapped into a column of dots (each face now captioned); Overview/People title
 was 16 px because layout.css won (now the sample's large condensed title); add-person PIN placeholder cut
 off at 390; "Leave" said while only waiting (now "Stop joining"); a strip switched off could be drawn
-before the first server answer (starts from the remembered choice).
+before the first server answer (starts from the remembered choice; its test passes with and without
+that line, so the fix is in but not independently proven).
 
 glass-select `-388` on trunk: **not caused by the strip** (strip.js is not on trunk). Root cause: app.js's
 3-second refresh re-renders `#policy-preset`'s options, glass-select's MutationObserver closes the open list,
@@ -124,13 +125,18 @@ Guide lightbulb (#36): confirmed there is no guide/tour/compass button in the re
 in More; the only "compass" is an emoji-picker entry in studio.js). Nothing to change.
 
 Rooms black-face fix: faces.js uses unsigned shifts throughout and sets colours through CSSOM
-(`style.setProperty`), which the `style-src 'self'` policy allows; a new test checks computed colours of
-80+ faces (strip, faces.js and trunks.js `avatar()`) are never black or empty.
+(`style.setProperty`, not a style attribute); a new test checks the computed colours of 80+ faces (strip,
+faces.js and trunks.js `avatar()`) are never black or empty. That proves the colours land; the UI fixture's
+console filter would not catch a CSP refusal itself (those report the page's address, not the module's).
+
+Merged into trunk at cd55d6d7 (one conflict, public/index.html CSS links, both kept); Checks run 35465260955.
+Trunk CI was already red before this push (73f73153, 98beb5d8: glass-select -388 on Linux+macOS, plus
+Windows failures in conversation-mode and a background-engine test), so read that run against it.
 
 Screenshots retaken as `*-fixed.png` (asking, studio, studio-computer, join-waiting, overview, people-page,
 menu, strip; light/dark, 1440/390): zero page errors after load, no sideways overflow.
 
-Audit verdicts: 1 strip VERIFIED; 2 look + own menu VERIFIED; 3 studio + pairing VERIFIED (with fixes);
+Audit verdicts: 1 strip VERIFIED; 2 look + own menu VERIFIED; 3 studio + pairing VERIFIED (with fixes; the check code is shown, not enforced);
 4 People/Overview VERIFIED; 5 reply faces VERIFIED; 6 3D stand-ins VERIFIED; 7 lightbulb N/A (no guide exists).
 
 Not done / notes: the check code is shown but not enforced (the owner compares); the phone app does not

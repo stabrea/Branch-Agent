@@ -1,5 +1,6 @@
 import type { ApprovalGate } from "./approvals.js";
-import type { ToolContext } from "./contracts.js";
+import type { ToolContext, ToolTarget } from "./contracts.js";
+import { judgeTargets } from "./policy-targets.js";
 import { evaluatePolicy, isReadOnlyPermission, type Policy } from "./policy.js";
 import { resourceOf } from "./policy-resources.js";
 import { wallApplies, wallNetworkFor, wallSettings, type SandboxChoice, type WallContext, type WallQuestion } from "./sandbox.js";
@@ -29,6 +30,8 @@ export interface WallCall {
   permission: string;
   target: string;
   args: unknown;
+  /** mac7/multi-target: every thing the call touches, when its tool names more than one (`ToolRegistry.targetsOf`). */
+  targets?: readonly ToolTarget[] | null | undefined;
   /** mac3/never-break's places: the wall makes the system itself refuse them too. */
   untouchable?: { noChange: readonly string[]; noRead: readonly string[] } | undefined;
   /** How tightly the matching rule wanted the program held, when it said. */
@@ -57,7 +60,10 @@ export function wallContextFor(call: WallCall): { osSandbox?: WallContext } {
   const resource = resourceOf(call.tool, call.permission, call.target, call.args);
   const readOnly = isReadOnlyPermission(call.permission);
   const risky = call.choice !== null
-    || evaluatePolicy(call.policy, { tool: call.tool, target: call.target, readOnly, resource }).decision !== "allow";
+    || evaluatePolicy(call.policy, { tool: call.tool, target: call.target, readOnly, resource }).decision !== "allow"
+    // mac7/multi-target: and when any one of the things it touches is not simply allowed.
+    || (!!call.targets && judgeTargets(call.policy, { tool: call.tool, permission: call.permission, callTarget: call.target, args: call.args,
+      resourceOf: (text) => resourceOf(call.tool, call.permission, text, call.args) }, call.targets).decision !== "allow");
   if (!wallApplies(settings.mode, risky)) return {};
   const { context, approvals, policy } = call;
   const sessionId = context.approvalKey ?? call.store.run(context.runId)?.sessionId ?? context.runId;
