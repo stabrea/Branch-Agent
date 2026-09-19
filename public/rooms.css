@@ -407,7 +407,7 @@ body.lx .composer-dock:has(> .rooms-mentions) {
 }
 .voice-view {
   position: absolute;
-  inset: 0;
+  inset: 62px 0 0;
   z-index: 40;
   display: grid;
   grid-template-rows: auto 1fr auto auto auto auto;
@@ -495,27 +495,36 @@ body.lx .composer-dock:has(> .rooms-mentions) {
 }
 /* Folded away: a small bar at the top of the conversation, so the chat and its questions are in reach. */
 .voice-view.mini {
-  inset: 8px 8px auto auto;
-  grid-template-rows: none;
-  grid-auto-flow: column;
+  inset: 70px auto auto 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-wrap: nowrap;
   align-items: center;
-  gap: 8px;
-  width: auto;
+  gap: 6px;
   max-width: calc(100% - 16px);
-  padding: 6px 8px;
+  padding: 4px 6px 4px 8px;
+  overflow: hidden;
   border: 1px solid var(--glass-edge);
   border-radius: 999px;
   box-shadow: var(--card-shadow, var(--shadow));
 }
+.voice-view.mini .voice-view-top,
 .voice-view.mini .voice-view-captions,
 .voice-view.mini .voice-view-note,
-.voice-view.mini .voice-view-top b,
-.voice-view.mini .voice-view-ask {
+.voice-view.mini .voice-view-ask,
+.voice-view.mini #voice-view-cut {
   display: none;
 }
 .voice-view.mini .voice-view-orb {
-  width: 32px;
+  flex: none;
+  width: 28px;
+}
+.voice-view.mini .voice-view-buttons {
+  flex-wrap: nowrap;
+  gap: 4px;
 }
 .voice-view.mini .voice-view-button {
   min-width: 0;
+  padding: 4px 10px;
+  white-space: nowrap;
 }
