@@ -10,7 +10,7 @@ Nothing here is tagged, published or merged into trunk. That is the coordinator'
 - [x] 2. Release notes `docs/agents/briefs/release-notes-0.19.0.md` (verification section left as a placeholder)
 - [ ] 3. Linux gate on `branch-test-linux`: desktop tests (xvfb, one at a time), full suite, chaos 200 seeds, install-torture 200 seeds
 - [ ] 4. macOS: build, tsc, every non-desktop test file at concurrency 2
-- [ ] 5. Windows: packaged desktop tests over `ssh legion-branch` (session 0, no visible window)
+- [x] 5. Windows: packaged desktop tests over `ssh legion-branch` (session 0, no visible window)
 - [x] 6. Commit and push `mac7/release-019` (not merged, not tagged)
 
 ## 1. Version
@@ -53,7 +53,16 @@ no window. Result: (pending).
 
 CI covers the suite on `windows-latest` in six shares. On top of that, the packaged desktop tests are run on
 Legion over `ssh mac-mini-tk1 ssh legion-branch` (session 0, no visible window), not through
-`desktop-bridge.ps1`, which is the visible session. Result: (pending).
+`desktop-bridge.ps1`, which is the visible session. Separate worktree
+`C:/Users/bishi/Code/wt/release-019-win` at d86268fb (same code as e08c98e4), own `npm ci` and build.
+
+**PASS: 8 tests, 8 pass, 0 fail, 34 s** (`tests/desktop.test.mjs`, `desktop-export`, `desktop-identity`,
+`desktop-settings`, concurrency 1). Log on Legion:
+`C:/Users/bishi/AppData/Local/Temp/claude-session-files/rel019-win-desktop2.log`.
+
+The first attempt showed 3 pass / 3 whole-file failures with no test output: `npm ci` had not fetched the
+Electron binary yet, so the files that started while it downloaded could not launch. Harness, not product —
+each of those files passes on its own and all four pass together on the re-run.
 
 ## Not run here, and why
 
