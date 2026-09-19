@@ -85,6 +85,14 @@ body.lx.lx-working #aside-toggle::after {
   display: none;
 }
 
+/* Below 1180 px the panel floats over the conversation; it stops above the message box, so the text
+   field is never covered. */
+@media (max-width: 1180px) {
+  body.lx.lx-chat.lx-aside > .context-panel {
+    bottom: calc(var(--composer-h, 150px) + var(--pane-gap, 10px) + 6px);
+  }
+}
+
 /* ---------- Browser and Terminal ---------- */
 .panels-work {
   display: grid;

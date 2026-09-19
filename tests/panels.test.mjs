@@ -366,8 +366,12 @@ test("footer, title bar and message box never clip at 1440, 1024 and 390, open o
         const clipped = (node) => node && node.checkVisibility() && (node.scrollWidth - node.clientWidth > 1);
         const box = document.getElementById("prompt").getBoundingClientRect();
         const over = [...document.querySelectorAll(".rail-foot, main > header, #chat-form, .lx-pane-head")].filter(clipped).map((n) => n.className || n.id);
-        return { over, page: document.documentElement.scrollWidth - document.documentElement.clientWidth, prompt: box.height, promptW: box.width };
+        const panel = document.getElementById("context-panel");
+        const pane = panel.checkVisibility() ? panel.getBoundingClientRect() : null;
+        const covers = Boolean(pane && pane.left < box.right && pane.right > box.left && pane.top < box.bottom && pane.bottom > box.top);
+        return { over, page: document.documentElement.scrollWidth - document.documentElement.clientWidth, prompt: box.height, promptW: box.width, covers };
       });
+      assert.equal(report.covers, false, `${width} ${open ? "open" : "closed"}: the panel covers the text box`);
       assert.deepEqual(report.over, [], `${width} ${open ? "open" : "closed"}: ${report.over}`);
       assert.equal(report.page, 0, `${width}: the page scrolls sideways`);
       assert.ok(report.prompt >= 30 && report.promptW >= 120, `${width}: the text box collapsed (${report.prompt}x${report.promptW})`);
