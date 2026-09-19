@@ -168,6 +168,7 @@ export const ICON_PATHS = {
   appearance: "M5 19C5 10 11 5 20 4c-1 9-6 15-15 15zM5 19l7-7",
   notifications: "M6 16V11a6 6 0 0112 0v5l2 2H4zM10 20a2 2 0 004 0",
   models: "M7 7h10v10H7zM10 3v4M14 3v4M10 17v4M14 17v4M3 10h4M3 14h4M17 10h4M17 14h4",
+  accounts: "M9 11a3.5 3.5 0 100-7 3.5 3.5 0 000 7zM2.5 20a6.5 6.5 0 0113 0M16 4.5a3.5 3.5 0 010 6.5M18 14a6.5 6.5 0 013.5 6",
   voice: "M12 3a3 3 0 013 3v5a3 3 0 01-6 0V6a3 3 0 013-3zM6 11a6 6 0 0012 0M12 17v4",
   permissions: "M12 3 5 6v6c0 4.5 3 7.5 7 9 4-1.5 7-4.5 7-9V6z",
   computer: "M3 4h18v12H3zM8 20h8M12 16v4",

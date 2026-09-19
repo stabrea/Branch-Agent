@@ -45,7 +45,9 @@ function tagTiles() {
     tag.className = "sg-tile-tag";
     tag.dataset.t = word[0];
     tag.textContent = say(...word);
-    tile.querySelector(".lx-mini")?.append(tag);
+    /* Under the name, where the words can wrap (on the colours they were cut short, and hid the preview). */
+    const name = tile.querySelector(".lx-tile-name");
+    if (name) name.after(tag); else tile.append(tag);
   }
 }
 

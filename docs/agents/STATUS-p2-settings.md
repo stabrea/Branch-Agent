@@ -80,3 +80,70 @@ Screenshots: `claude-session-files/branch/phase2-shots/settings/`. Scratch scrip
 
 - p2-panels' `#panels-onscreen` sits in Appearance › "What a conversation shows" (Regular). p2-shell's `#shell-look-card`
   sits in Appearance › "Theme and lettering" (Regular). New settings of theirs can add rows to settings-index.js.
+
+## Integration (adversarial review, 2026-09-19)
+
+Reviewed 9f8df897, merged trunk (to 26e5b47e: p2-accounts, p2-shell, p2-rooms), fixed on the branch, then pushed to
+`mac/cross-platform`. Screenshots retaken as `*-fixed.png` in `phase2-shots/settings/` (report-fixed.txt).
+
+### Found and fixed
+- [x] **CSP (coordinator's addition):** `settings-describe.js` and `settings-kit.js` wrote an inline `<style>` the page's
+      policy (`style-src 'self'`) refuses, so the "Applies to everything" scope chip was plain text on every card and
+      every load logged two CSP errors. Now `public/settings-kit.css` (allowlisted in `src/server.ts`, linked in
+      index.html; the CSP is unchanged). S16: zero CSP refusals from load through Settings, and the chip has its edge.
+- [x] **Regular hid safety controls:** a second look at approvals (`approval-reviewer-card`) and using apps in the
+      background (`reach-background-card`) were Advanced. Both Regular. S15 (1440 and 390, nothing peeked): Lockdown
+      in the More menu, what Branch may do, the stop switches, approvals, updates, background work, keep-running.
+      (`updates-card` is hidden in a browser by `app.js` — desktop only — not by the level; S15 checks its level.)
+- [x] **Search slop (#48):** 36 chat-app rows read "Switch", 8 read "Saved secret with its key", 3+3+2 "Your own
+      accounts" rows were alike, and 20 labels were placeholders ("(list of shares)", "short name | name | …").
+      Each now says which one it is. S1 fails on two rows that read the same or a placeholder label.
+- [x] **French:** search showed the index's English. A drawn control is now named from the (translated) words beside it,
+      its card from its heading. S19. Rows whose control is not drawn yet still show English (see not done).
+- [x] **Coverage going forward:** S14 reads every setting `src/` declares, with `scripts/check-docs.mjs`'s own reader
+      (`settingKeys`, now exported) — the list `docs/configuration.md` is held to — and fails for one with no search
+      entry and no stated reason. It found 12 real settings missing: the usage ring and save-progress prompt (phase 1),
+      the activity log's three, matching memories by meaning, the local first-reply wait, leak-guard exceptions,
+      add-ons on Windows without the wall, and after the merge the Trunks strip, 3D faces (p2-shell) and Talk live in
+      its own view (p2-rooms). All indexed; the live-voice limits now say where they are saved. S2 checks every row
+      added since the audit has a real control at the home it gives.
+- [x] **Other builders' cards:** Accounts (p2-accounts' own page) is grouped there at Regular; its two settings moved
+      to `settings:accounts` in the index and the audit fixture. The assistant's files (p2-accounts) stand in "Who your
+      assistant is" at Advanced. `agent-files.js` called `branchSettingsLevel` as a function (it is an object here) —
+      a page error once both branches met — and marked itself hidden at Regular for good; it now relies on
+      `data-level` alone. Dead `settings-kit-files` bucket entry removed.
+- [x] **Mirrors (#25):** below 1200 px they scrolled away with the themes; now they ride along at the top (smaller, an
+      opaque strip) at 1024 and 390. S18 at all three sizes: in sight at the last tile, not covering it, following it.
+- [x] **Mirror requests:** real iframes (about:blank, same origin, scripts/iframes/media stripped, inert, redrawn at most
+      once a second and only while on screen). The server answers files `no-store`, so the copy's two logos were
+      fetched again at every redraw. The copy is now cloned in the window and its pictures become data first. S20: no
+      request from a mirror across three redraws. Each frame still loads the stylesheets and fonts once, on first show.
+- [x] **Phone header (390):** the search box read "Search setting" and the picker "Computer & browse:"; each has a row.
+- [x] **glass-select:** the builder's wait masked a small real bug: a list opened while the Settings window rises
+      (0.22 s) stayed up to 8 px off. The list now follows its select frame by frame while anything around it moves
+      (`placeWhenSettled`); new test presses mid-rise. The flush test keeps a wait for the rise because Playwright's
+      own click retries with a scroll that closes the list — a mouse click at the same point does not (6/6).
+
+### Checked, no change
+- Cards that waited for the old Settings button: values load on opening Settings (`branch-place` fires on open and on
+  Go there, not on page clicks, so no reload per page). S17 sets 7000/2/90000, opens from the cog, saves untouched:
+  7000/2/90000 kept (the empty-box save used to send 0, which the server refused). S3 covers fresh-install defaults.
+- Household: level forced to Regular and greyed, `/api/preferences` owner-only, search leaves out every owner-only
+  row (all but `documents-repository`; the rows added here are owner-only) — S8.
+- `tests/places.mjs` peeks every card for the 32 UI files; Regular's own coverage is S5–S8, S11 and now S15.
+
+### Brief items (verdicts)
+1. Groups, full width, no "N settings" rows or chip bars — VERIFIED (settings-buckets.js; S9, screenshots).
+2. Regular / Advanced / Technical — VERIFIED (S6, S7, S8, S11, S15).
+3. Every setting reachable and searchable — VERIFIED for the audit's 530 + 12 added (S1–S4, S14); PARTIAL overall: see below.
+4. Cog after the account row, place kept — VERIFIED (S10, S11).
+5. Appearance with live light/dark mirrors — VERIFIED (S13, S18, S20).
+6. Chips never overflow — VERIFIED (S12 at three sizes, now including the scope chips).
+
+### Not done / for a successor
+- S14's `NOT_IN_SEARCH.notYetReviewed` holds 96 declared settings with no search entry that nobody has looked at one by
+  one (many are set through the assistant, a command or the API; some may have a control the sweep missed). Take names
+  off as they are indexed or given a reason; the list may only shrink. 47 more are launch-configuration keys, 8 are
+  written by Branch itself, 2 are switches beside the message box.
+- In French, a setting whose control is not drawn yet (behind a switch, in a place not visited) is named in English.
+- Mirror frames load the stylesheets and fonts once each on first show (about 20 requests, once).

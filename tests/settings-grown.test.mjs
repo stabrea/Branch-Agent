@@ -638,6 +638,14 @@ for (const [width, height] of [[1440, 950], [1024, 700], [390, 844]]) {
       return mirrors.top >= body.top - 2 && mirrors.bottom <= body.bottom + 2;
     });
     assert.equal(inSight, true, "scrolling down the themes took the mirrors out of sight");
+    if (width < 1200) {
+      /* Riding along, the strip sits right at the top: no half row of tiles shows above it. */
+      const above = await f.page.evaluate(() => document.querySelector(".sg-mirrors").getBoundingClientRect().top - document.getElementById("lx-settings-body").getBoundingClientRect().top);
+      assert.ok(Math.abs(above) <= 2, `the strip rides ${above}px below the top of the page`);
+    }
+    /* The plain-word tags are whole, never cut short. */
+    const cut = await f.page.evaluate(() => [...document.querySelectorAll(".sg-tile-tag")].filter((tag) => tag.scrollWidth > tag.clientWidth + 1 || tag.getBoundingClientRect().right > tag.closest(".lx-tile").getBoundingClientRect().right + 1).map((tag) => tag.textContent));
+    assert.deepEqual(cut, [], "a tile's tag is cut short");
     /* The tile you point at is not under the mirrors riding along above it, and they follow it. */
     const covered = await last.evaluate((tile) => {
       const box = tile.getBoundingClientRect(), top = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
