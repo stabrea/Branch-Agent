@@ -4,6 +4,7 @@
  * shows a cost of nothing for a model with no price on file — it says so in words instead.
  */
 import { t, formatNumber } from "/i18n.js";
+import { popover } from "/popover.js";
 
 const $ = (id) => document.getElementById(id);
 const el = (tag, text, className) => {
@@ -91,15 +92,8 @@ export async function refreshMeter() {
     if (!$("meter-popover").hidden) paintPopover();
   } catch { /* the meter keeps what it last showed */ }
 }
-$("meter-button").addEventListener("click", () => {
-  const box = $("meter-popover");
-  box.hidden = !box.hidden;
-  $("meter-button").setAttribute("aria-expanded", String(!box.hidden));
-  if (!box.hidden) paintPopover();
-});
-document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && !$("meter-popover").hidden) $("meter-button").click();
-});
+/* Its own button, Escape and a click elsewhere close it, as every popover does (public/popover.js). */
+popover($("meter-button"), $("meter-popover"), { afterOpen: () => paintPopover() });
 setInterval(() => void refreshMeter(), 6000);
 new MutationObserver(() => void refreshMeter()).observe($("conversation"), { attributes: true, attributeFilter: ["data-session-id"] });
 void refreshMeter();

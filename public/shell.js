@@ -3,6 +3,7 @@
    anything. No section hides behind a drop-down. */
 import { api, displayView, openConversation, titles } from "/app.js";
 import { t } from "/i18n.js";
+import { closePopovers, popover } from "/popover.js";
 /* Wave 7: labels as chips in Recents and in the Ctrl+K box, and a picker on the title. */
 import { conversationLabels, conversationsWithLabels, labelChips, openLabelPicker } from "/labels-ui.js";
 
@@ -111,27 +112,9 @@ pane("branch-aside", "aside-toggle", "no-aside");
 const closeRailOverlay = () => document.body.classList.remove("rail-open");
 
 /* ---------- the small menus ---------- */
+/* Opened, closed and kept one-at-a-time by public/popover.js; a pick inside closes it. */
 function menu(buttonId, menuId, fill) {
-  const trigger = $(buttonId), panel = $(menuId);
-  const close = () => {
-    panel.hidden = true;
-    trigger.setAttribute("aria-expanded", "false");
-  };
-  trigger.addEventListener("click", (event) => {
-    event.stopPropagation();
-    if (!panel.hidden) return close();
-    fill?.(panel);
-    panel.hidden = false;
-    trigger.setAttribute("aria-expanded", "true");
-  });
-  panel.addEventListener("click", () => close());
-  document.addEventListener("click", () => {
-    if (!panel.hidden) close();
-  });
-  document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && !panel.hidden) close();
-  });
-  return close;
+  return popover($(buttonId), $(menuId), { onOpen: fill, closeOnPick: true }).close;
 }
 menu("owner-menu-button", "owner-menu");
 menu("app-switcher", "app-menu", (panel) => {
@@ -483,7 +466,10 @@ function buildPalette() {
   root.querySelector("input").addEventListener("input", (event) => drawPalette(event.target.value));
   return root;
 }
+let paletteOpener = null;
 export function openPalette() {
+  closePopovers();
+  if (palette?.hidden !== false) paletteOpener = document.activeElement;
   palette ??= buildPalette();
   palette.hidden = false;
   const input = palette.querySelector("input");
@@ -515,7 +501,11 @@ async function drawPaletteLabels() {
   host.hidden = labelCatalog.length === 0;
 }
 function closePalette() {
-  if (palette) palette.hidden = true;
+  if (!palette || palette.hidden) return;
+  palette.hidden = true;
+  /* The keyboard goes back to wherever it was when the box opened. */
+  if (paletteOpener?.isConnected && paletteOpener !== document.body) paletteOpener.focus();
+  paletteOpener = null;
 }
 
 /* ---------- keyboard ---------- */

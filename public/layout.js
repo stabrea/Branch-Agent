@@ -14,6 +14,7 @@ import { t } from "/i18n.js";
 import { THEMES, THEME_GROUPS } from "/theme-catalogue.js";
 import { solid, themeById, tokensFor, wearTokens } from "/theme-bridge.js";
 import { paint as paintGrove, seasonToday } from "/grove.js";
+import { popover } from "/popover.js";
 
 const $ = (id) => document.getElementById(id);
 const root = document.documentElement;
@@ -775,16 +776,7 @@ function buildLockdown(shield) {
   pop.setAttribute("aria-label", say("lockdown.label", "Lockdown"));
   pop.append(worded("p", "lx-eyebrow", "lockdown.label", "Lockdown"), $("lockdown-panel"));
   shield.after(pop);
-  shield.addEventListener("click", (event) => {
-    event.stopPropagation();
-    pop.hidden = !pop.hidden;
-    shield.setAttribute("aria-expanded", String(!pop.hidden));
-  });
-  pop.addEventListener("click", (event) => event.stopPropagation());
-  document.addEventListener("click", () => {
-    pop.hidden = true;
-    shield.setAttribute("aria-expanded", "false");
-  });
+  popover(shield, pop);
   const banner = make("div", "lx-lockbanner");
   banner.id = "lx-lockbanner";
   banner.hidden = true;
@@ -932,8 +924,13 @@ function wireKeys() {
       closeSettings();
       return;
     }
-    if (event.key === "Escape" && !$("lx-lock-pop").hidden) $("lx-lock-pop").hidden = true;
-    if (event.key === "Escape" && document.body.classList.contains("lx-pane-float")) document.body.classList.remove("lx-pane-float");
+    /* The floating pane closes, and the keyboard goes back to what opened it. */
+    if (event.key === "Escape" && document.body.classList.contains("lx-pane-float")) {
+      const back = calm() ? $("lx-more") : document.querySelector('.lx-pane-tab[aria-pressed="true"]');
+      if (calm()) paneAsked = false;
+      document.body.classList.remove("lx-pane-float");
+      back?.focus();
+    }
   });
   const after = (id, view) => $(id)?.addEventListener("click", () => displayView(view));
   after("appearance-shortcut", "settings:appearance");
@@ -1121,7 +1118,8 @@ function buildMore() {
   menu.hidden = true;
   menu.setAttribute("role", "menu");
   menu.setAttribute("aria-label", say("more.label", "More"));
-  const close = () => { menu.hidden = true; trigger.setAttribute("aria-expanded", "false"); };
+  let pop = null;
+  const close = () => pop?.close();
   for (const [key, english, rows] of MORE) {
     const group = make("div", "lx-more-group");
     const head = worded("p", "lx-more-head", key, english);
@@ -1131,27 +1129,18 @@ function buildMore() {
     group.append(head, ...rows.map((row) => moreRow(row, close)));
     menu.append(group);
   }
-  const openMenu = (focusLast = false) => {
-    syncMoreChecks();
-    menu.hidden = false;
-    trigger.setAttribute("aria-expanded", "true");
-    const items = moreItems(menu);
-    items[focusLast ? items.length - 1 : 0]?.focus();
-  };
-  trigger.addEventListener("click", (event) => {
-    event.stopPropagation();
-    if (!menu.hidden) return close();
-    openMenu();
+  let focusLast = false;
+  pop = popover(trigger, menu, {
+    onOpen: syncMoreChecks,
+    afterOpen: () => { const items = moreItems(menu); items[focusLast ? items.length - 1 : 0]?.focus(); focusLast = false; },
   });
   trigger.addEventListener("keydown", (event) => {
     if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
     event.preventDefault();
-    openMenu(event.key === "ArrowUp");
+    focusLast = event.key === "ArrowUp";
+    if (!pop.isOpen()) pop.open();
   });
-  menu.addEventListener("click", (event) => event.stopPropagation());
   menu.addEventListener("keydown", (event) => moveInMore(event, menu, close));
-  document.addEventListener("click", close);
-  document.addEventListener("keydown", (event) => { if (event.key === "Escape" && !menu.hidden) { close(); trigger.focus(); } });
   $("aside-toggle").after(trigger, menu);
 }
 /** The rows a keyboard can land on: the visible items, and the assistant picker when it shows. */
@@ -1317,7 +1306,8 @@ function buildPlus() {
   menu.hidden = true;
   menu.setAttribute("role", "menu");
   menu.setAttribute("aria-label", plus.getAttribute("aria-label"));
-  const close = () => { menu.hidden = true; plus.setAttribute("aria-expanded", "false"); };
+  let pop = null;
+  const close = () => pop?.close();
   for (const [target, key, english] of [["composer-attach", "more.attach", "Attach a document…"], ["composer-media", "more.picture", "Add a picture or a sound…"]]) {
     const row = button("lx-more-item", key, english);
     row.setAttribute("role", "menuitem");
@@ -1325,18 +1315,11 @@ function buildPlus() {
     row.addEventListener("click", () => { close(); $(target)?.click(); });
     menu.append(row);
   }
-  plus.addEventListener("click", (event) => {
-    event.stopPropagation();
-    if (!menu.hidden) return close();
-    for (const row of menu.querySelectorAll(".lx-more-item")) row.disabled = Boolean($(row.dataset.target)?.disabled);
-    menu.hidden = false;
-    plus.setAttribute("aria-expanded", "true");
-    moreItems(menu)[0]?.focus();
+  pop = popover(plus, menu, {
+    onOpen: () => { for (const row of menu.querySelectorAll(".lx-more-item")) row.disabled = Boolean($(row.dataset.target)?.disabled); },
+    afterOpen: () => moreItems(menu)[0]?.focus(),
   });
-  menu.addEventListener("click", (event) => event.stopPropagation());
   menu.addEventListener("keydown", (event) => moveInMore(event, menu, close));
-  document.addEventListener("click", close);
-  document.addEventListener("keydown", (event) => { if (event.key === "Escape" && !menu.hidden) { close(); plus.focus(); } });
   wrap.append(plus, menu);
   return wrap;
 }

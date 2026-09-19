@@ -4,6 +4,7 @@
  * are reading. Every chip filters through the `labels` parameter the conversation search already
  * takes, so nothing new decides what matches.
  */
+import { trackPopover } from "/popover.js";
 
 const el = (tag, text, className) => {
   const node = document.createElement(tag);
@@ -64,10 +65,11 @@ export async function conversationsWithLabels(chosen) {
 
 /* ---------- the picker on the conversation's own title ---------- */
 
-let picker = null;
+let picker = null, tracked = null;
 function closePicker() {
-  picker?.remove();
-  picker = null;
+  const entry = tracked;
+  tracked = null;
+  entry?.close();
 }
 
 /** Puts a label on this conversation, or takes one off, without leaving the screen. */
@@ -118,13 +120,14 @@ export async function openLabelPicker(button, sessionId, afterChange) {
   };
   await draw();
   button.insertAdjacentElement("afterend", picker);
+  /* Its own button, Escape and a click elsewhere close it, as every popover does (public/popover.js). */
+  const shown = picker;
+  tracked = trackPopover(button, shown, () => {
+    shown.remove();
+    if (picker === shown) { picker = null; tracked = null; }
+    button.setAttribute("aria-expanded", "false");
+  });
+  button.setAttribute("aria-expanded", "true");
+  shown.addEventListener("click", (event) => event.stopPropagation());
   picker.querySelector("button, input")?.focus();
-  setTimeout(() => document.addEventListener("click", onceOutside), 0);
 }
-function onceOutside(event) {
-  if (picker && !picker.contains(event.target)) {
-    closePicker();
-    document.removeEventListener("click", onceOutside);
-  }
-}
-document.addEventListener("keydown", (event) => { if (event.key === "Escape") closePicker(); });

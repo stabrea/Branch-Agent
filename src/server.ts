@@ -518,6 +518,7 @@ async function staticFile(
     "/learning-more.js": ["learning-more.js", "text/javascript; charset=utf-8"], // R17-F
     "/adapt.js": ["adapt.js", "text/javascript; charset=utf-8"], // mac7/adapt
     "/learn.js": ["learn.js", "text/javascript; charset=utf-8"], // mac7/learn
+    "/popover.js": ["popover.js", "text/javascript; charset=utf-8"], // 0.18.1: how every popover opens and closes
     "/usage.js": ["usage.js", "text/javascript; charset=utf-8"],
     "/evaluation.js": ["evaluation.js", "text/javascript; charset=utf-8"],
     // Wave 7: written-down experiments, under the evaluation card.
