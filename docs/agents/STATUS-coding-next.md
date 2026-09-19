@@ -196,6 +196,12 @@ Tests: `tests/coding-next.test.mjs` "5 …" — the helper, and `code.run` with 
   (platform skips), incl. static-assets, index-structure, handbook, source-hygiene, catalog-diet;
   `tests/automation.test.mjs` alone 5/5. `npx tsc --noEmit` clean.
 
+- After the merge (trunk had not moved again), review fixes in 1f9ea91a: `code.format` notes the files it
+  tidied for the read-first guard (new test), the refusal no longer guesses who changed a file, and
+  `src/activity.ts` treats `model.loading` as the model's turn. Re-run: coding-next, coding-polish,
+  coding-polish-holes, interop, reach, handbook, static-assets, index-structure, source-hygiene — 89 tests,
+  88 pass, 0 fail, 1 skipped; tsc clean.
+
 ## Not done / not proven
 - No benchmark re-run (as instructed); none of these has been measured on the coding bench.
 - Electron itself was not run: `crashReporter.start` placement and `ELECTRON_RUN_AS_NODE` are tested through
