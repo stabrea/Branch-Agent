@@ -38,6 +38,8 @@ export interface InstallReport {
   /** mac7/real-update: a Branch that was open was closed through its own route before installing. */
   closedFirst: boolean;
   shortcuts: string[];
+  /** mac7/win-icon: whether the installed app gave the shortcuts the taskbar's app ID. */
+  shortcutsStamped: boolean;
   uninstallKey: string;
   uninstaller: string;
   data: MigrationReport;
@@ -49,6 +51,12 @@ export interface InstallDeps {
   /** mac7/real-update: whether Windows still holds the program file open. */
   locked?: (file: string) => Promise<boolean>;
   lockPauseMs?: number;
+  /**
+   * mac7/win-icon: asks the installed app to give its shortcuts the taskbar's app ID, which the
+   * script host cannot write (src/install/windows-identity.ts). A failure is not fatal: the shortcuts
+   * already carry the KeepOak icon, and the app adds the ID itself when it first starts.
+   */
+  stampShortcuts?: (executable: string) => Promise<void>;
 }
 
 /** Windows will not let a running program's file be opened for writing; nothing is written. */
@@ -224,11 +232,13 @@ export async function performInstall(options: InstallOptions, deps: InstallDeps 
     installRoot: options.installRoot, executableName: options.executableName,
     version: options.version, uninstaller, icon: iconLocation.replace(/,0$/, ""),
   }), deps);
+  const shortcutsStamped = deps.stampShortcuts
+    ? await deps.stampShortcuts(executable).then(() => true, () => false) : false;
   const target = installedLocation(options.userDataDir).dataDir;
   await mkdir(target, { recursive: true });
   const data = await migrateLegacyData(
     options.legacyDataDirs ?? legacyDataDirs(process.env), target);
-  return { installRoot: options.installRoot, executable, previousKept, closedFirst, shortcuts, uninstallKey: uninstallKey(hive), uninstaller, data };
+  return { installRoot: options.installRoot, executable, previousKept, closedFirst, shortcuts, shortcutsStamped, uninstallKey: uninstallKey(hive), uninstaller, data };
 }
 
 /** Removes the Add/Remove Programs entry; the folder itself is removed by the uninstall script. */
