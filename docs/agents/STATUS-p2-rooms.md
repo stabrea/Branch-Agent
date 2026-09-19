@@ -102,10 +102,10 @@ Not fixed / notes:
   builder's f071bc26 too: a live conversation that began before the view's setting was read never opened the view
   (the event was spent). public/voice-view.js now shows the view after every read of the setting (`follow()`);
   3/3 in sequence, and it fails with that line taken out.
-- Trunk at d99fee1e fails two guard tests that are p2-shell's, not this branch's: tests/short-lived-keys.test.mjs
-  (`/api/devices/join`, `/api/devices/join/leave`, `/api/shell-look` not classified) and
-  tests/settings-descriptions.test.mjs (`#shell-look-strip`, `#shell-look-3d` have no description). Left to p2-shell's
-  integrator: classifying routes for keys is a security call on their code.
+- Trunk at d99fee1e failed two guard tests that are p2-shell's: the key-route table (classified on trunk by
+  9d54e67a, merged here) and tests/settings-descriptions.test.mjs (`#shell-look-strip`, `#shell-look-3d` have no
+  description; not checked after 9d54e67a). Left to p2-shell's integrator.
+- Merged into trunk: 298d968c (CI run 35465957336).
 - tests/p2-rooms-ui.test.mjs "@ in the message box" timed out once on this (busy) machine and passed on the rerun.
 - The room's own conversation still shows in Recents under the owner's first message; the Trunks' own chats show
   "Introduce yourself to the owner…" (pre-existing, not a room's).
