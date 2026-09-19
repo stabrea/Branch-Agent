@@ -55,7 +55,10 @@ if (card) {
     for (const key of signInLabels)
       for (const node of document.querySelectorAll(`[data-t^="${key}"]`)) {
         node.dataset.t = signInKey(key, platform);
-        node.textContent = t(node.dataset.t);
+        // Before the words have loaded, t() answers with the key itself: keep the page's own words then
+        // (applyLanguage writes the right ones when they arrive, since data-t already names them).
+        const word = t(node.dataset.t);
+        if (word !== node.dataset.t) node.textContent = word;
       }
   }
   function render(state) {
