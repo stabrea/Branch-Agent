@@ -53,16 +53,20 @@ function lastJson(text) {
 }
 
 /** Shared by both Branch rows: the fixed build and the trunk build differ only in where they live. */
-function branchContestant({ id, name, root, note }) {
+function branchContestant({ id, name, root, note, scriptsOn = false }) {
   return {
     id, name, root, note,
-    toolSurface: "Branch's own built-in tools, its workspace confined to BRANCH_WORKSPACE",
+    toolSurface: scriptsOn
+      ? "Branch's own built-in tools with the owner's \"run scripts\" switch ON (ships off), its workspace confined to BRANCH_WORKSPACE"
+      : "Branch's own built-in tools, its workspace confined to BRANCH_WORKSPACE",
     limitsNote: "reply ceiling, run deadline and context window as that build ships them; up to 60 steps",
     invoke: ({ dir, prompt, model, endpoint, dataDir, timeoutSec }) => ({
-      file: process.execPath,
+      file: scriptsOn ? "/bin/sh" : process.execPath,
       // The same deadline every contestant gets, in the milliseconds this flag wants. The trunk
       // build is given it too and ignores it — see FINDINGS.md, F2 — which is the point of that row.
-      args: ["dist/cli.js", "run", "--timeout", String(timeoutSec * 1000), prompt],
+      args: scriptsOn
+        ? ["-c", `"${process.execPath}" experiments/coding-bench/scripts-on.mjs && exec "${process.execPath}" dist/cli.js run --timeout ${timeoutSec * 1000} "$0"`, prompt]
+        : ["dist/cli.js", "run", "--timeout", String(timeoutSec * 1000), prompt],
       cwd: root,
       env: {
         BRANCH_DATA_DIR: dataDir, BRANCH_WORKSPACE: dir,
@@ -225,6 +229,8 @@ contestants.push(
     note: "trunk as it stood when the coding bench was written, unmodified" }),
   branchContestant({ id: "branch-after", name: "Branch (mac7/coding-gap)", root: `${BENCH}/cg/after`,
     note: "the same tree with the coding-gap fixes; see docs/agents/coding-bench.md" }),
+  branchContestant({ id: "branch-after-scripts", name: "Branch (mac7/coding-gap, run-scripts switch on)", root: `${BENCH}/cg/after`,
+    note: "branch-after with the one owner switch that ships off turned on, so it can run the tests", scriptsOn: true }),
 );
 
 export const contestantById = Object.fromEntries(contestants.map((one) => [one.id, one]));
