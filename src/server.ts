@@ -119,6 +119,7 @@ import { PreferencesSchema, preferences } from "./preferences.js";
 import { asksApi, AsksHttpError, handlesAsksPath } from "./asks/api.js"; // mac6/bucket-23: the smaller asks
 import { autonomyApi, AutonomyHttpError, handlesAutonomyPath } from "./autonomy/api.js"; // r17-b
 import { handlesTrunksPath, trunksApi, TrunksHttpError } from "./trunks/api.js"; // R17-A: Trunks
+import { handlesShellLookPath, shellLookApi, ShellLookError } from "./shell-look.js"; // phase2/shell
 import { codingApi, CodingHttpError, handlesCodingPath } from "./coding/api.js"; // mac7/r17-d: coding polish
 import { handlesPersonalPath, personalApi, PersonalHttpError } from "./personal/api.js"; // R17-C
 import { handlesReachPath, reachApi, ReachHttpError } from "./reach/api.js"; // r17-i
@@ -513,6 +514,16 @@ async function staticFile(
     "/phone-app.js": ["phone-app.js", "text/javascript; charset=utf-8"], // mac7/phone-qr
     "/autonomy.js": ["autonomy.js", "text/javascript; charset=utf-8"], // r17-b
     "/trunks.js": ["trunks.js", "text/javascript; charset=utf-8"], // R17-A
+    // phase2/shell: faces, the Trunks strip, the studio, pairing, Overview and People
+    "/faces.js": ["faces.js", "text/javascript; charset=utf-8"],
+    "/faces.css": ["faces.css", "text/css; charset=utf-8"],
+    "/strip.js": ["strip.js", "text/javascript; charset=utf-8"],
+    "/strip.css": ["strip.css", "text/css; charset=utf-8"],
+    "/studio.js": ["studio.js", "text/javascript; charset=utf-8"],
+    "/studio.css": ["studio.css", "text/css; charset=utf-8"],
+    "/pairing.js": ["pairing.js", "text/javascript; charset=utf-8"],
+    "/overview.js": ["overview.js", "text/javascript; charset=utf-8"],
+    "/people-place.js": ["people-place.js", "text/javascript; charset=utf-8"],
     "/coding.js": ["coding.js", "text/javascript; charset=utf-8"], // mac7/r17-d
     "/personal.js": ["personal.js", "text/javascript; charset=utf-8"], // R17-C
     "/reach.js": ["reach.js", "text/javascript; charset=utf-8"], // r17-i
@@ -3276,6 +3287,14 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
           return;
         }
         // ---- end of the R17-A block ----
+        // ---- phase2/shell: the strip and 3D faces switches (src/shell-look.ts); changing them is the owner's. ----
+        if (handlesShellLookPath(path)) {
+          const answer = await shellLookApi(app.store, app.runtime.owner, request.method ?? "GET", () => readBody(request, 4096))
+            .catch((error: unknown) => { throw error instanceof ShellLookError ? new HttpError(error.status, error.message) : error; });
+          send(response, 200, answer);
+          return;
+        }
+        // ---- end phase2/shell ----
         // ---- R17-C: files, voice, devices and personal connectors under /api/personal (src/personal/api.ts). ----
         if (handlesPersonalPath(path)) {
           app.store.profiles.requireOwner("Your personal connectors");

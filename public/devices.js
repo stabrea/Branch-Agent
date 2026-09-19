@@ -120,6 +120,8 @@ function requestRow(request, status) {
   const box = document.createElement("div");
   box.className = "devices-request";
   box.append(line, row(button("devices.request.allow", "Let it in", answer(true), false), button("devices.request.refuse", "Refuse", answer(false))));
+  // phase2/shell integration review: the check code the device shows while it waits.
+  if (request.check) box.insertBefore(make("p", "subtle", "pair.check", `Check code ${request.check}. The other computer shows the same code while it waits. If they differ, press Refuse.`, { check: request.check }), line.nextSibling);
   return box;
 }
 
