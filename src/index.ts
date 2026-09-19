@@ -1,6 +1,6 @@
 import { mkdir } from "node:fs/promises";
 import { currentTaskRun, currentTool } from "./task-scope.js"; // mac7/walk-rules
-import { allowAll } from "./walk-rules.js"; // mac7/walk-rules
+import { allowAll, byFullAddress, WalkRules } from "./walk-rules.js"; // mac7/walk-rules
 import { existsSync, readdirSync, rmSync } from "node:fs";
 import { resolve, join, relative, isAbsolute, basename } from "node:path";
 import { Store } from "./store.js";
@@ -459,9 +459,9 @@ export async function createBranch(options: {
   runtime.journal = journalHook(journal, (text) => runtime.hideSecrets(text)); // mac3/never-break: nothing secret is written down
   // mac7/walk-rules: a task's folder walks are held to its rules for every file and folder (src/walk-rules.ts).
   files.walkRules = (outside) => {
-    const runId = currentTaskRun();
-    if (!runId && !outside) return allowAll;
-    return runtime.pathCheck({ tool: currentTool() ?? "files.list", runId, source: outside?.source });
+    const runId = currentTaskRun(), tool = currentTool();
+    if (!runId && !tool && !outside) return allowAll; // the owner's own window
+    return runtime.pathCheck({ tool: tool ?? "files.list", runId: runId || undefined, source: outside?.source });
   };
   runtime.artifacts = artifacts;
   // mac7/coding-next: "Let Branch run this project's tests?", answered through the ordinary questions.
@@ -858,6 +858,8 @@ export async function createBranch(options: {
   // Wave 8: the owner's notes folder, written into and read back from. A folder bridge, not an
   // Obsidian plugin: Obsidian keeps ordinary Markdown in an ordinary folder.
   const obsidian = new ObsidianBridge(store, runtime.owner);
+  // mac7/walk-rules: a notes folder inside the workspace is held to the rules like any other folder.
+  obsidian.readRules = () => byFullAddress(new WalkRules(files.walkRules()), files.base);
   registerObsidian(registry, obsidian);
   // One count of what is working at once, shared by the web routes and the waiting line.
   const executions = new ExecutionLimit();

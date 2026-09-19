@@ -208,3 +208,71 @@ test("a pull request made from the workspace's changes never sends a refused fil
   assert.deepEqual(opened.files, ["notes/open.txt"]);
   assert.ok(!calls.some((command) => command.includes("finance")), "git was never handed a finance file");
 });
+
+// ------------------------------------------------------------------ the other walkers
+
+test("another program reading the workspace through the MCP server's file list does not see finance", async (t) => {
+  const { app, root } = await fixture(t);
+  await financeRule(app);
+  const { startServer } = await import("../dist/server.js");
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  t.after(() => server.close());
+  const ask = async (body) => (await fetch(`${server.url}/mcp`, { method: "POST", body: JSON.stringify(body),
+    headers: { authorization: `Bearer ${server.token}`, origin: server.url, "content-type": "application/json", "mcp-session-id": "walk" } })).json();
+  await ask({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", clientInfo: { name: "t", version: "1" } } });
+  const read = await ask({ jsonrpc: "2.0", id: 2, method: "resources/read", params: { uri: "workspace://files" } });
+  const listing = JSON.parse(read.result.contents[0].text);
+  assert.deepEqual(listing.entries.map((entry) => entry.name).sort(), ["notes", "readme.md"]);
+  assert.match(listing.leftOut, /the folder finance/);
+});
+
+test("comments for the assistant in a refused file never start a task", async (t) => {
+  const { app, workspace } = await fixture(t);
+  await financeRule(app);
+  await writeFile(join(workspace, "finance", "calc.py"), "x = 1  # make this faster AI!\n");
+  await writeFile(join(workspace, "notes", "calc.py"), "y = 2  # explain this AI?\n");
+  const { AICommentScanner } = await import("../dist/ai-comments.js");
+  const report = await new AICommentScanner(app.files).scan(["finance/calc.py", "notes/calc.py"]);
+  assert.deepEqual(report.comments.map((comment) => comment.file), ["notes/calc.py"]);
+  assert.doesNotMatch(report.taskText, /finance/);
+});
+
+test("the facts a new project's instructions are drafted from leave out a refused folder", async (t) => {
+  const { app } = await fixture(t);
+  await financeRule(app);
+  const { projectFacts } = await import("../dist/coding/init.js");
+  const { underTask } = await import("../dist/task-scope.js");
+  const run = app.store.createRun("local", "draft instructions");
+  const facts = await underTask(run.id, () => projectFacts(app.files), "code.init");
+  assert.deepEqual(facts.folders, ["notes"]);
+});
+
+test("a language server's list of problems leaves out a file the rules now refuse", async (t) => {
+  const { app, workspace } = await fixture(t);
+  const { saveLanguageServerSettings } = await import("../dist/index.js");
+  const fake = join(import.meta.dirname, "fixtures", "fake-language-server.mjs");
+  await saveLanguageServerSettings(app.store, "local", { enabled: true, timeoutMs: 10000,
+    servers: { fake: { path: process.execPath, args: [fake], languages: ["TypeScript"] } } });
+  t.after(() => app.languageServers.stopAll());
+  await writeFile(join(workspace, "finance", "sums.ts"), "export const total = 1;\nconsole.log(total);\n");
+  await app.runtime.executeTool("code.diagnostics", { path: "finance/sums.ts", waitMs: 300 });
+  const before = await app.runtime.executeTool("code.diagnostics", { waitMs: 0 });
+  assert.equal(before.diagnostics.length, 1, "the server's complaint about the file is there before the rule");
+  await financeRule(app);
+  const after = await app.runtime.executeTool("code.diagnostics", { waitMs: 0 });
+  assert.equal(after.diagnostics.length, 0);
+  assert.match(after.leftOut ?? "", /1 file in finance/);
+});
+
+test("obsidian.read does not read a tagged note in a refused folder when the notes folder is the workspace", async (t) => {
+  const { app, workspace } = await fixture(t, [call("obsidian.read", {}), say("done")]);
+  await writeFile(join(workspace, "finance", "ledger.md"), `#branch\n${secretText}\n`);
+  await writeFile(join(workspace, "notes", "plan.md"), `#branch\n${openText}\n`);
+  const { saveObsidianSettings } = await import("../dist/obsidian.js");
+  await saveObsidianSettings(app.store, "local", { enabled: true, vault: workspace });
+  await financeRule(app);
+  const run = await app.runtime.run({ prompt: "read my notes" });
+  const [completed] = app.store.events(run.id).filter((event) => event.kind === "tool.completed");
+  assert.match(text(completed?.data.result), new RegExp(openText));
+  assert.doesNotMatch(text(completed?.data.result), new RegExp(secretText));
+});

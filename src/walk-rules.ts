@@ -1,3 +1,5 @@
+import { realpathSync } from "node:fs";
+import { isAbsolute, relative } from "node:path";
 import { evaluatePolicy, type Policy, type PolicyRule } from "./policy.js";
 import { globMatches, type PolicyResource } from "./policy-resources.js";
 
@@ -162,3 +164,19 @@ export const walkRefusal = (path: string): string =>
 
 /** Whether a passage kept from a file may be handed back under `rules`; an accepted fact card has no file. */
 export const passageVisible = (rules: WalkRules, docId: string): boolean => docId.startsWith("card:") || rules.file(docId);
+
+/**
+ * The same rules for a walker that goes by full addresses (a notes folder the owner named): a place
+ * inside `base` is judged by its path from there; a place outside it is not the workspace's, so the
+ * rules, which are about the workspace's folders, have nothing to say about it.
+ */
+export function byFullAddress(rules: WalkRules, base: string): (absolute: string, folder: boolean) => boolean {
+  let root = base;
+  try { root = realpathSync(base); } catch { /* a folder that is not there yet is compared as written */ }
+  return (absolute, folder) => {
+    const from = relative(root, absolute);
+    if (!from || from.startsWith("..") || isAbsolute(from)) return true;
+    const path = from.split(/[\\/]/).join("/");
+    return folder ? rules.folder(path) : rules.file(path);
+  };
+}

@@ -176,9 +176,9 @@ export class WorkspaceFiles {
    * by a walk over many folders; a single listing makes its own and says what it left out).
    */
   async list(
-    path = ".", rules?: WalkRules,
+    path = ".", rules?: WalkRules, outside?: { source: RunSource },
   ): Promise<{ entries: { name: string; type: string }[]; leftOut?: string }> {
-    const walk = rules ?? new WalkRules(this.walkRules());
+    const walk = rules ?? new WalkRules(this.walkRules(outside));
     walk.start(path);
     const target = await this.checked(path, true);
     const here = relative(this.root, target).replace(/\\/g, "/");
