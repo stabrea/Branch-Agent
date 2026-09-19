@@ -21,7 +21,7 @@ export interface ShellTarget {
   isolation: 'job-object' | 'sampling';
 }
 
-interface Operation { controller: AbortController; owner: string; runId: string; done: Promise<unknown> }
+interface Operation { controller: AbortController; owner: string; runId: string; done: Promise<unknown>; cleared: Promise<unknown> }
 export class BranchShell {
   private readonly config: ShellConfig;
   private readonly env: NodeJS.ProcessEnv;
@@ -44,12 +44,21 @@ export class BranchShell {
     if (this.pending.size) return Promise.reject(new Error('A host command is already active'));
     if (!context.owner || !context.runId) return Promise.reject(new Error('Host commands require an owner and run ID'));
     const parsed = ShellInputSchema.parse(input);
-    const operation: Operation = { controller: new AbortController(), owner: context.owner, runId: context.runId, done: Promise.resolve() };
+    const operation: Operation = { controller: new AbortController(), owner: context.owner, runId: context.runId, done: Promise.resolve(), cleared: Promise.resolve() };
     this.pending.add(operation);
     const done = this.perform(parsed, context, operation.controller.signal);
     operation.done = done;
-    void done.finally(() => this.pending.delete(operation)).catch(() => undefined);
+    operation.cleared = done.finally(() => this.pending.delete(operation)).catch(() => undefined);
     return done;
+  }
+  /** Resolves once no host command is running, so a caller can take its turn instead of guessing. */
+  async whenIdle(signal?: AbortSignal): Promise<void> {
+    const stopped = signal ? new Promise<void>(resolve => signal.addEventListener('abort', () => resolve(), { once: true })) : null;
+    while (this.pending.size && !signal?.aborted) {
+      const settled = Promise.allSettled([...this.pending].map(operation => operation.cleared));
+      await (stopped ? Promise.race([settled, stopped]) : settled);
+    }
+    signal?.throwIfAborted();
   }
   private async perform(input: ShellInput, context: ToolContext, stopping: AbortSignal) {
     const executable = Object.hasOwn(this.config.executables, input.executable) ? this.config.executables[input.executable] : undefined;
