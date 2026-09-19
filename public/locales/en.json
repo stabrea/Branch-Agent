@@ -4386,6 +4386,7 @@
   "trunks.unread": "{n} unread",
   "usage.card.limit": "Monthly limit",
   "usage.card.limitPurpose": "Stop starting new tasks once this month reaches a number of words, an amount of money, or either. Leave a box empty to not use it.",
+  "usage.stillBeingMade": "That includes about {money} for something still being made, such as a video a task that has not finished asked for.",
   "usage.intro": "What your assistant has done this month, what it cost, and the limits you have set. Figures are worked out on this computer from your own tasks.",
   "usage.report.lead": "A page you can keep or hand on: what your assistant did and what it probably cost over a stretch of days, beside the same stretch before it.",
   "usage.report.mode.off": "Off",

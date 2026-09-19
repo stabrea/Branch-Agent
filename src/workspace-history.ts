@@ -76,6 +76,11 @@ export class WorkspaceHistory {
   history(path: string): FileVersion[] {
     return this.db.prepare("SELECT * FROM file_versions WHERE owner=? AND path=? ORDER BY created_at DESC, rowid DESC LIMIT 50").all(this.owner, path).map((row) => this.toVersion(row));
   }
+  /** Integration (hardening-3): the file a kept version belongs to, so a folder rule is told which file a restore writes. */
+  pathOf(versionId: string): string | undefined {
+    const row = this.db.prepare("SELECT path FROM file_versions WHERE owner=? AND id=?").get(this.owner, versionId);
+    return row ? String(row.path) : undefined;
+  }
   /** Writes a kept version's exact bytes back; a version of a file that did not exist removes nothing but writes an empty file only if asked. */
   async restore(versionId: string): Promise<{ path: string; bytes: number; restored: boolean }> {
     const row = this.db.prepare("SELECT * FROM file_versions WHERE owner=? AND id=?").get(this.owner, versionId);
@@ -225,6 +230,8 @@ export function registerWorkspaceHistory(registry: ToolRegistry, history: Worksp
     name: "files.restore", permission: "files.write",
     description: "Put a workspace file back to a kept earlier version by that version's id (from files.history).",
     parameters: z.object({ versionId: z.string().uuid() }).strict(),
+    // Integration (hardening-3): the file is named by the version, so the rules are told which one it is.
+    target: ({ versionId }) => history.pathOf(versionId) ?? "",
     execute: async ({ versionId }) => history.restore(versionId),
   });
   registry.register({

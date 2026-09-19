@@ -119,13 +119,15 @@ export class CodeChanges {
    * A set of whole-file replacements that was worked out somewhere else — a language server's
    * rename, for instance — put through exactly the same gate as a change set the model wrote: the
    * files are checked, the person sees the change, it is written all at once or not at all, every
-   * file keeps its previous bytes, and the project's check runs afterwards.
+   * file keeps its previous bytes, and the project's check runs afterwards. hardening-3: and, with
+   * the read-before-edit switch on, every existing file it changes must have been read first, as for
+   * any other editing tool.
    */
   async applyPlanned(reason: string, planned: PlannedChange[], dryRun: boolean, context: ToolContext) {
     if (!planned.length) throw new Error("Change refused: there is nothing to change");
     for (const item of planned) await this.files.checked(item.path);
     await this.refuseBinary(planned);
-    return { reason, ...(await this.settle(planned, dryRun, context)) };
+    return { reason, ...(await this.settle(planned, dryRun, context, true)) };
   }
   private async planEdit(edit: z.infer<typeof editShape>): Promise<PlannedChange> {
     const absolute = await this.files.checked(edit.path);

@@ -145,6 +145,8 @@ export function registerDocumentAuthoring(registry: ToolRegistry, authoring: Doc
     name: "documents.edit", group: "documents", permission: "files.write",
     description: "Change a Word or spreadsheet file in place: replace wording, add a section, update a table, add or replace a sheet. Every part the change does not touch is kept exactly as it was.",
     parameters: EditDocumentSchema,
+    // hardening-3: the file written is `saveAs` when it is given, so that is what a folder rule is told.
+    target: (input) => input.saveAs || input.path,
     execute: async (input, context) => authoring.edit(input, context),
   });
 }

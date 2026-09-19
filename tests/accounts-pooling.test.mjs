@@ -225,7 +225,8 @@ test("P6 the mark and the notice are the owner's: routes, /account, household an
   app.store.profiles.switch({ profileId: person.id, pin: "1234" });
   assert.ok(await call("/api/accounts/update", server.token, { pool: POOL, account: second, keptSeparate: true }) >= 400, "a household person cannot mark the owner's account");
   assert.ok(await call("/api/accounts/notice", server.token, { pool: POOL }) >= 400);
-  assert.equal((await viewAll(service)).pools.find((pool) => pool.pool === POOL).notice, null, "the notice is the owner's to read");
+  // hardening-3: the whole list is the owner's; a household person is shown neither it nor its notice.
+  assert.equal((await viewAll(service)).pools.find((pool) => pool.pool === POOL), undefined, "the notice is the owner's to read");
   app.store.profiles.switch({ profileId: null });
   assert.equal(service.settings().pools[0].accounts.find((a) => a.id === second).keptSeparate, false);
   // /account: the notice once, then the mark on and off; from a phone with a "run" key it is refused.
