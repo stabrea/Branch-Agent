@@ -79,7 +79,7 @@ Fixed (tests in the named files, each marked "integration review"):
   mode chip answers no questions, so nothing here can give Always.
 
 Checked and fine: Lockdown greys Auto/Full and `policyForMode(locked)` keeps Lockdown's rules; Plan keeps the owner's
-refusals and drops every yes; a mode switch applies at the next tool call (tested); a household person cannot pick a
+refusals and drops every yes; agreeing a plan (owner-scoped run route) moves Plan to Ask first only after the answer lands; a mode switch applies at the next tool call (tested); a household person cannot pick a
 mode for the owner's conversation (404, tested); chat-app/trigger/schedule/MCP/A2A/ACP tasks joining a Plan conversation
 are refused, not asked (tested); `/api/usage/glance` gives others `{available:false}`, money is never a share; Slate:
 a picked theme is always written down, a Forest the shared record holds is adopted, dark mode untouched, terminal

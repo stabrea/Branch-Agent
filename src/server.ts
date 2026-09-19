@@ -1341,8 +1341,10 @@ async function api(
       const body = PlanAnswerSchema.parse(await readBody(request));
       // Saying yes answers here and now; saying no asks for another plan, which takes a model turn.
       if (body.decision !== "reject") {
-        planAgreed(app, run.sessionId); // redesign phase 1: a Plan conversation may act once its plan is agreed
-        return app.runtime.orchestration.decidePlan(run.id, body);
+        const decided = await app.runtime.orchestration.decidePlan(run.id, body);
+        // Redesign phase 1: a Plan conversation may act once its plan is agreed (only after the answer landed).
+        planAgreed(app, run.sessionId);
+        return decided;
       }
       const { plan, asked } = await app.runtime.answerPlan(run.id, body);
       return { ...plan, asked: asked ? { id: asked.id, status: asked.status, output: asked.output } : null };
