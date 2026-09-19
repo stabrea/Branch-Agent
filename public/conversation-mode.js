@@ -48,19 +48,28 @@ const chosen = () => (session() ? state?.mode ?? null : pending !== undefined ? 
 
 /* ---------- the chip ---------- */
 
+/* mac7/outside-review: a conversation carrying on work that came from outside the window (a chat app,
+   a trigger, a schedule, another program) asks before every change whatever is picked; this says why,
+   and how to work without being asked. */
+const OUTSIDE_FROM = { channel: "chat", trigger: "trigger", schedule: "schedule", mcp: "program", a2a: "program", acp: "program" };
+const outsideNote = () => (state?.outside ? t("mode.outsideNote", { from: t(`mode.outside.${OUTSIDE_FROM[state.outside] ?? "program"}`) }) : null);
+
 function paintChip() {
   const chip = $("mode-chip");
   if (!chip || !state) return;
   const mode = chosen();
-  const shown = mode ?? PRESET_AS_MODE[state.following.preset] ?? null;
+  const set = mode ?? PRESET_AS_MODE[state.following.preset] ?? null;
+  /* Work from outside is never more than Ask first here (Plan is stricter still), so the chip says that. */
+  const shown = state.outside && set !== "plan" ? "ask" : set;
   const label = shown ? t(`mode.${shown}`) : t("mode.yourRules");
   chip.replaceChildren(icon(state.locked ? "ask" : shown ?? "follow"), el("span", state.locked ? t("mode.lockdown") : label, "mode-label"), icon("chevron"));
   chip.dataset.mode = shown ?? "custom";
   chip.dataset.following = String(mode === null);
   chip.dataset.locked = String(state.locked);
+  chip.dataset.outside = String(Boolean(state.outside));
   const words = mode === null ? t("mode.followingChip", { setting: state.following.label }) : label;
   chip.setAttribute("aria-label", `${t("mode.question")} ${state.locked ? t("mode.lockdown") : words}`);
-  chip.title = state.locked ? t("mode.lockedNote") : words;
+  chip.title = state.locked ? t("mode.lockedNote") : outsideNote() ?? words;
 }
 
 /* ---------- the menu ---------- */
@@ -113,6 +122,7 @@ function paintMenu(menu = $("mode-menu")) {
   for (const id of ORDER) menu.append(choiceItem(state.choices.find((choice) => choice.mode === id), mode));
   menu.append(el("hr"), followItem(mode));
   if (state.locked) menu.append(el("p", t("mode.lockedNote"), "mode-note"));
+  else if (state.outside) menu.append(el("p", outsideNote(), "mode-note mode-outside"));
   else if (mode === null) menu.append(el("p", t("mode.followingNote", { setting: state.following.label }), "mode-note"));
 }
 /** Arrows move between the choices that can be made; Home and End go to either end. */
