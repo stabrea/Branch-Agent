@@ -36,7 +36,7 @@ export function checksumLine(digest, assetName) {
 export function includedInApp(path) {
   return (
     path === "" ||
-    /^\/(dist|public|node_modules)(\/|$)/.test(path) ||
+    /^\/(dist|public|node_modules|phone)(\/|$)/.test(path) ||
     /^\/(package\.json|package-lock\.json|LICENSE|THIRD_PARTY_NOTICES\.md|README\.md)$/.test(path)
   );
 }
@@ -82,10 +82,14 @@ export function runCommand([file, ...args], options = {}) {
   if (result.status !== 0) throw new Error(`${file} stopped with code ${result.status}.`);
 }
 
-async function writeChecksum(archive) {
+async function sha256Of(path) {
   const hash = createHash("sha256");
-  for await (const chunk of createReadStream(archive)) hash.update(chunk);
-  await writeFile(`${archive}.sha256`, checksumLine(hash.digest("hex"), basename(archive)), "utf8");
+  for await (const chunk of createReadStream(path)) hash.update(chunk);
+  return hash.digest("hex");
+}
+
+async function writeChecksum(archive) {
+  await writeFile(`${archive}.sha256`, checksumLine(await sha256Of(archive), basename(archive)), "utf8");
   console.log(`${archive}.sha256`);
 }
 
@@ -243,10 +247,36 @@ async function packageLinux({ arch }) {
   console.log(folder);
 }
 
+/**
+ * mac7/phone-qr: the signed Android app travels inside the desktop download, in `phone/`, so
+ * "Get Branch on your phone" can hand it to a phone from the person's own computer. Nothing is
+ * published, so there is nowhere else for an installed Branch to get it from. It is copied from
+ * where scripts/package-mobile.mjs put it, with its `.sha256`, and only when the two agree; without
+ * it the download is built as before and the card says the phone app is not included.
+ */
+export async function stagePhoneApp({
+  from = process.env.BRANCH_MOBILE_OUT ?? join(RELEASE, "mobile"), into = "phone", warn = console.warn,
+} = {}) {
+  const name = "Branch-Agent-android.apk";
+  await rm(into, { recursive: true, force: true });
+  const line = await readFile(join(from, `${name}.sha256`), "utf8").catch(() => "");
+  const expected = /^([a-f0-9]{64}) {2}/.exec(line)?.[1];
+  const actual = expected ? await sha256Of(join(from, name)).catch(() => null) : null;
+  if (!expected || actual !== expected) {
+    warn(`No checked phone app in ${from}; this download will not include it (run scripts/package-mobile.mjs --android first).`);
+    return false;
+  }
+  await mkdir(into, { recursive: true });
+  await copyFile(join(from, name), join(into, name));
+  await writeFile(join(into, `${name}.sha256`), checksumLine(expected, name));
+  return true;
+}
+
 async function main() {
   const options = parseArgs(process.argv.slice(2), process.arch);
   if (needsAssetName(process.platform, options.release) && !assetNameFor(process.platform, options.arch))
     throw new Error(`There is no desktop download for ${process.platform} ${options.arch}.`);
+  await stagePhoneApp();
   if (process.platform === "win32") return packageWindows(options);
   if (process.platform === "darwin") return packageMac(options);
   return packageLinux(options);

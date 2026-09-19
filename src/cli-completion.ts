@@ -43,6 +43,8 @@ export const cliCommands: { name: string; summary: string; options: string[] }[]
   { name: "uninstall", summary: "Remove the installed Branch; conversations and files stay unless --delete-data", options: ["--delete-data"] },
   // mac7/safe-rollback
   { name: "rollback", summary: "Go back to the version before the last update, or say plainly why that would lose your work; --yes does it", options: ["--yes"] },
+  // mac7/phone-qr: the "Get Branch on your phone" code in the terminal (src/phone-app/cli.ts).
+  { name: "phone", summary: "Show a code to scan with your phone to install the Branch app", options: ["--address", "--minutes"] },
   // Batch 20 (wave 8): short-lived keys, schedules over the running engine, and one task's trace.
   { name: "token", summary: "Short-lived keys for a script: token create | list | revoke <id>", options: ["--scope", "--minutes", "--name", "--json"] },
   { name: "schedule", summary: "Schedules on the engine already running: schedule add | list | remove <id>", options: ["--prompt", "--at", "--every", "--kind", "--json"] },

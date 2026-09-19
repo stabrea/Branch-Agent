@@ -391,6 +391,32 @@ test("the pairing door is shut on this computer's own address", async (t) => {
   assert.equal(body.installed, false, "running from source, so the switches say so");
   assert.equal(body.remote.enabled, false);
   assert.match(body.remote.message, /off/i);
+  assert.equal(body.platform, process.platform, "the window learns which system Branch runs on");
+});
+
+test("the sign-in switches name the system Branch runs on: Windows, your Mac, or this computer", async () => {
+  const { signInKey, signInSystem, opensWhenSignedIn } = await import("../public/deployment.js");
+  assert.equal(signInSystem("win32"), "windows");
+  assert.equal(signInSystem("darwin"), "mac");
+  assert.equal(signInSystem("linux"), "computer");
+  assert.equal(signInSystem(""), "computer", "not known yet: no system is guessed");
+  assert.equal(opensWhenSignedIn("win32"), "Branch will open when you sign in to Windows.");
+  assert.equal(opensWhenSignedIn("darwin", true), "Branch will open quietly when you sign in to your Mac.");
+  assert.equal(opensWhenSignedIn("linux"), "Branch will open when you sign in to this computer.");
+  const html = await readFile(new URL("../public/index.html", import.meta.url), "utf8");
+  const script = await readFile(new URL("../public/deployment.js", import.meta.url), "utf8");
+  assert.doesNotMatch(script, /sign in to Windows/, "no status line names Windows on every system");
+  const expected = { win32: /Windows$/, darwin: /(my Mac|mon Mac)$/, linux: /(this computer|cet ordinateur)$/ };
+  for (const language of ["en", "fr"]) {
+    const words = JSON.parse(await readFile(new URL(`../public/locales/${language}.json`, import.meta.url), "utf8"));
+    for (const key of ["field.open-branch-when-i-sign", "field.start-branch-when-i-sign"]) {
+      assert.ok(html.includes(`data-t="${key}"`), key);
+      assert.doesNotMatch(words[key], /Windows/, `${language} ${key}: the default names no system`);
+      for (const [platform, ending] of Object.entries(expected))
+        assert.match(words[signInKey(key, platform)] ?? "", ending, `${language} ${key} on ${platform}`);
+    }
+  }
+  assert.doesNotMatch(html, /sign in to Windows/);
 });
 
 // ---------------------------------------------------------------- P4: a safety copy before every update

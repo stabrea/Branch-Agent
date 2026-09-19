@@ -4301,6 +4301,32 @@ redesign, the 44 themes and every place look the same on the phone. The native p
 each phone ships (Keychain, `LocalAuthentication`, `BackgroundTasks`; Android Keystore,
 `BiometricPrompt`, `JobScheduler`), so there are no further plugins and no Google services.
 
+**Getting it onto the phone (mac7/phone-qr).** Nothing is published: no store, no public link, no
+release asset. The signed Android app travels inside the desktop download, in `phone/` with its
+`.sha256` (`scripts/package-desktop.mjs` copies it from where `scripts/package-mobile.mjs` built it;
+about 3.7 MB, around 2% of the download), and a copy that does not match its checksum is never
+offered. The app is read and checked each time a code is made, and the door sends exactly those
+checked bytes from memory, so a file changed on disk while the code is showing never reaches a phone. *Get Branch on your phone* (Customize, Channels) — or `branch phone` in a terminal — shows
+a code for the phone's ordinary camera. Pressing *Show the code* opens a separate little web server,
+not Branch's own door, on one home network address of this computer (the one its default route
+uses, but never a VPN or other tunnel's; Tailscale if there is none; never a public or every
+address) for fifteen minutes. While it is
+showing, anyone on that network can reach exactly two things with no key: `/get/<link>`, the install
+page, and `/get/<link>/Branch-Agent.apk`, the app, sent as
+`application/vnd.android.package-archive` with `Content-Disposition: attachment;
+filename="Branch-Agent.apk"`, its real `Content-Length`, `nosniff`, and no compression. Every other
+path, method or link, and the right link once it has expired or been stopped, gets one identical
+404, and then the port closes. The link is 18 random bytes. The page is in the phone's own language
+and says what to press: Download, allow installing from this source once, Install, Open; then how to
+connect it (the pairing code is never on this page, since anyone on the network can open it). An
+iPhone gets an honest page instead of the Android file: today the iPhone app is installed from a
+Mac with Xcode, and scanning to install is coming. Updating the phone is scanning again: the new
+app has the same name and the same signing key, so Android installs it over the old one and keeps
+its data, pairing included. Opening, reading and closing the link are the owner's alone, in the app
+window: a short-lived key and a household profile are refused, and Lockdown refuses to open it and
+closes one that is showing (a `branch phone` left running in a terminal notices within seconds). `BRANCH_PHONE_APP` names a signed app elsewhere (with its `.sha256`
+beside it), for a builder.
+
 **What it does.** The first screen connects to your Branch: switch on reaching Branch from your
 phone on the computer (see above), then scan its square code with the phone's camera (or paste its
 address) and type the six numbers. The phone makes the pairing request itself and keeps the key in

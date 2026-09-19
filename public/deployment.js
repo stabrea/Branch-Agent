@@ -1,7 +1,20 @@
 // "How Branch runs on this computer": start with Windows, keep working with the window closed,
 // reach Branch from a phone, and the safety copies taken before an update.
-const card = document.getElementById("deployment-card");
+import { t } from "./i18n.js"; // relative, so a test can import this file too; the same /i18n.js in the page
+
+/** Which system the person signs in to, from the platform Branch itself runs on (not the viewer's). */
+export const signInSystem = (platform) => (platform === "win32" ? "windows" : platform === "darwin" ? "mac" : "computer");
+/** The label key for that system: the plain key says "this computer", `.windows` and `.mac` name it. */
+export const signInKey = (key, platform) => (signInSystem(platform) === "computer" ? key : `${key}.${signInSystem(platform)}`);
+const signInPlace = { windows: "Windows", mac: "your Mac", computer: "this computer" };
+/** "Branch will open when you sign in to …", for the status lines under the switches. */
+export const opensWhenSignedIn = (platform, quietly = false) =>
+  `Branch will open${quietly ? " quietly" : ""} when you sign in to ${signInPlace[signInSystem(platform)]}.`;
+const signInLabels = ["field.open-branch-when-i-sign", "field.start-branch-when-i-sign"];
+
+const card = typeof document === "undefined" ? null : document.getElementById("deployment-card");
 if (card) {
+  let platform = "";
   const token = () => sessionStorage.getItem("branch-token") || "";
   const desktop = new URLSearchParams(location.search).get("desktop") === "1";
   const pick = (id) => document.getElementById(id);
@@ -37,7 +50,20 @@ if (card) {
     });
     canvas.hidden = false;
   }
+  /** The two "Open Branch when I sign in to …" labels name the system this Branch runs on. */
+  function nameTheSystem() {
+    for (const key of signInLabels)
+      for (const node of document.querySelectorAll(`[data-t^="${key}"]`)) {
+        node.dataset.t = signInKey(key, platform);
+        // Before the words have loaded, t() answers with the key itself: keep the page's own words then
+        // (applyLanguage writes the right ones when they arrive, since data-t already names them).
+        const word = t(node.dataset.t);
+        if (word !== node.dataset.t) node.textContent = word;
+      }
+  }
   function render(state) {
+    platform = state.platform ?? "";
+    nameTheSystem();
     pick("start-with-windows").checked = state.autostart.enabled;
     pick("start-minimised").checked = state.autostart.minimized;
     pick("keep-running").checked = state.daemon.installed;
@@ -62,7 +88,7 @@ if (card) {
     try {
       await call("/autostart", { enabled: event.target.checked, minimized: pick("start-minimised").checked });
       say("start-with-windows-status", event.target.checked
-        ? "Branch will open when you sign in to Windows."
+        ? opensWhenSignedIn(platform)
         : "Branch will not open by itself.");
     } catch (error) { event.target.checked = !event.target.checked; say("start-with-windows-status", error.message, true); }
   });
@@ -121,7 +147,7 @@ if (card) {
         await call("/autostart", { enabled: event.target.checked, minimized: true });
         pick("start-with-windows").checked = event.target.checked;
         say("first-run-extras-status", event.target.checked
-          ? "Branch will open quietly when you sign in to Windows."
+          ? opensWhenSignedIn(platform, true)
           : "Branch will not open by itself.");
       } catch (error) { event.target.checked = false; say("first-run-extras-status", error.message, true); }
     });
