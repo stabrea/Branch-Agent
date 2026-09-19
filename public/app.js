@@ -1063,6 +1063,9 @@ function renderModels() {
     ? `${models.presets.length} models available.`
     : "One model is configured. Add more with BRANCH_MODEL_PRESETS in the launch environment, or in the desktop connection settings.";
   presetOptions($("session-model"), models.presets, "Workspace default", sessionModel.preset);
+  // phase2/accounts: the Thinking lists offer only what the model takes (public/thinking-levels.js).
+  globalThis.branchModelsNow = models;
+  document.dispatchEvent(new CustomEvent("branch-models", { detail: models }));
 }
 /* The page's own rebuild of the model controls, so a test can watch what a rebuild leaves behind. */
 globalThis.branchRenderModels = () => renderModels();
@@ -1089,6 +1092,7 @@ async function loadSessionModel() {
   presetOptions($("session-model"), state.models?.presets ?? [], "Workspace default", value.preset);
   $("session-reasoning").value = value.reasoning ?? "";
   $("model-used").textContent = `Next reply: ${value.effective.presetName} · ${value.effective.model}`;
+  document.dispatchEvent(new CustomEvent("branch-session-model", { detail: value })); // phase2/accounts
 }
 async function saveSessionModel() {
   if (!sessionId) return;

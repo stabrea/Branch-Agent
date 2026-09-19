@@ -4484,5 +4484,18 @@
   "field.activity-log-task": "Identifiant de tâche",
   "action.activity-log-show": "Afficher",
   "action.activity-log-clear": "Vider le journal",
-  "help.report-a-problem": "Signaler un problème"
+  "help.report-a-problem": "Signaler un problème",
+  "thinking.level.default": "Réglage par défaut du modèle",
+  "thinking.level.off": "Désactivée : répond tout de suite",
+  "thinking.level.workspace": "Réglage par défaut de l'espace de travail",
+  "thinking.effort.low": "Rapide",
+  "thinking.effort.medium": "Équilibrée",
+  "thinking.effort.high": "Approfondie",
+  "thinking.budget.low": "Rapide : une courte réflexion d'abord",
+  "thinking.budget.medium": "Équilibrée : une vraie réflexion d'abord",
+  "thinking.budget.high": "Approfondie : la plus longue réflexion que Branch demande",
+  "thinking.level.unused": "{level} (ce modèle ne s'en sert pas)",
+  "thinking.note.none": "{model} ne prend pas de réglage de réflexion : il n'y a rien à choisir ici.",
+  "thinking.note.unused": "Le niveau enregistré ici est gardé, mais {model} ne s'en sert pas. Choisissez-en un qu'il prend, ou laissez-le pour quand vous changerez de modèle.",
+  "thinking.note.budget": "Pour ce modèle, réfléchir veut dire un court temps de réflexion avant de répondre. Plus long coûte plus et prend plus de temps."
 }
