@@ -775,4 +775,4 @@ label > input[type="radio"] {
 /* mac7/live-voice: words the speech program is still unsure of sit greyed in the message box, and
    settle to ordinary weight when a quiet room has ended the phrase. The box is never disabled while
    dictation runs: you can always type over it, and you are always the one who presses Send. */
-#prompt.dictating { color: var(--muted, #8a8a8a); font-style: italic; }
+#prompt.dictating { color: var(--muted); font-style: italic; }

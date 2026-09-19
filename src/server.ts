@@ -516,6 +516,8 @@ async function staticFile(
     "/vault-autofill.js": ["vault-autofill.js", "text/javascript; charset=utf-8"], // mac7/vault-autofill
     "/flows-boards.js": ["flows-boards.js", "text/javascript; charset=utf-8"], // r17-h
     "/learning-more.js": ["learning-more.js", "text/javascript; charset=utf-8"], // R17-F
+    "/adapt.js": ["adapt.js", "text/javascript; charset=utf-8"], // mac7/adapt
+    "/learn.js": ["learn.js", "text/javascript; charset=utf-8"], // mac7/learn
     "/usage.js": ["usage.js", "text/javascript; charset=utf-8"],
     "/evaluation.js": ["evaluation.js", "text/javascript; charset=utf-8"],
     // Wave 7: written-down experiments, under the evaluation card.
