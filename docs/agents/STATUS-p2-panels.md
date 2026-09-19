@@ -50,8 +50,9 @@ Proof pictures: `claude-session-files/branch/phase2-shots/panels/` (script `clau
 
 ## Integration (adversarial review, 2026-09-19) — verdict MERGE WITH FIXES
 
-Reviewed builder head 11313f13, fixed in ff7f4670, trunk merged in 0425641c (p2-accounts had landed; conflicts
-only in the two locale files and index.html's stylesheet list, both sides kept).
+Reviewed builder head 11313f13, fixed in ff7f4670, then trunk merged four times while p2-accounts, p2-shell and
+p2-rooms landed (0425641c, 72750f1f, 2424137a, cbd9d3d5; conflicts only in the two locale files and index.html's
+stylesheet list, both sides kept). p2-shell's Trunks strip needed a follow-up (see below).
 
 Found and fixed (tests in `tests/panels.test.mjs`):
 - **Keys in Browser and Terminal.** The route showed full command lines (read off the messages, which the event
@@ -66,6 +67,11 @@ Found and fixed (tests in `tests/panels.test.mjs`):
 - **Settings unreachable on a phone.** With the title bar (or the side-list button and More) hidden at 390 px,
   the side list could not be opened and no gear showed: Settings was gone. The gear now shows whenever Settings
   cannot be reached, and on a phone it sat over the message box's corner; it now sits just above the box.
+- **p2-shell's Trunks strip** (landed on trunk during this review): with everything hidden it still showed, on a
+  phone it lifted the message box so the floating panel covered the text field (the no-cover test caught it),
+  and the corner gear sat on it. It is now on the What's on screen list ("Your computers and Trunks (the strip)";
+  hidden, the window takes its room back), and the gear and the floating panel step clear of it (`--panels-left`,
+  `--panels-foot` in public/panels.css). p2-shell's own Settings switch for the strip still works as before.
 - Look: a browser step says what it did ("Opened the page", "Took a picture of the page"), so two steps on one
   page no longer read as the same row; the address is not repeated in the printout and stays on one line.
   "See-through message box" used the small mono label face beside a proportional heading; spacing under
@@ -99,7 +105,10 @@ Not changed (notes for the owner): the What's on screen rows are tick boxes, whe
 small map of where each part is; the full ("Show everything") window at 1024 px shows faint text of the plan row
 under the line beneath the message box, which is the dock's existing fade, not this work.
 
-Tests after the trunk merge: panels (18) + static-assets, index-structure, handbook, short-lived-keys,
+Tests after the first trunk merge: panels (18) + static-assets, index-structure, handbook, short-lived-keys,
 household-profile, web-ui, calm-ui, goal-undo-ui, shell-ui, settings-descriptions, redesign-phase1, glass-select,
 ui, server, catalog-diet, accounts-page, accounts-ui, agent-files, brand-marks, settings-kit-ui, profile-badge,
-suggestions: 194/194; automation alone 5/5. Pictures: `phase2-shots/panels/*-fixed.png`.
+suggestions: 194/194. After the last merge (cbd9d3d5, with the strip fix): panels, static-assets, index-structure,
+handbook, short-lived-keys, household-profile, web-ui, calm-ui, goal-undo-ui, shell-ui, settings-descriptions,
+redesign-phase1, glass-select, ui, server, catalog-diet, p2-shell-ui, p2-shell, accounts-ui, settings-kit-ui:
+192/192; automation alone 5/5. Pictures: `phase2-shots/panels/*-fixed.png` (taken before the strip landed).
