@@ -120,3 +120,12 @@ suggestions: 194/194. After the last merge (cbd9d3d5, with the strip fix): panel
 handbook, short-lived-keys, household-profile, web-ui, calm-ui, goal-undo-ui, shell-ui, settings-descriptions,
 redesign-phase1, glass-select, ui, server, catalog-diet, p2-shell-ui, p2-shell, accounts-ui, settings-kit-ui:
 192/192; automation alone 5/5. Pictures: `phase2-shots/panels/*-fixed.png` (taken before the strip landed).
+
+### Merged into trunk
+Pushed d22e1f80 to `mac/cross-platform` (fast-forward), Checks run 35467687170. Last targeted run on d22e1f80:
+225 tests across panels, static-assets, index-structure, handbook, short-lived-keys, household-profile, web-ui,
+calm-ui, goal-undo-ui, shell-ui, settings-descriptions, redesign-phase1, glass-select, ui, server, catalog-diet,
+p2-shell-ui, delight-ui, phone-layout, mobile-shell, accounts-ui, p2-rooms-ui: 224 pass, 1 fail. The failure is
+p2-shell-ui "on a phone the strip is a row at the foot", which fails the same way on a clean trunk a177aec4:
+phone-layout.css moved the strip to the top. It was reported to integrate-p2-everywhere and is not caused by
+this branch.
