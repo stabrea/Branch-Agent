@@ -280,3 +280,10 @@ not be tried: short-name creation is off on this volume (a `FINANC~1` path does 
   into the owner's configured folder with no target; legacy rules that match on the target (`match`) are not
   path-normalised; `inFlightSpend` counts only tasks created this month (a task started last month and still
   running is missing until the month's figures roll).
+
+**Merge into trunk.** Merged `origin/mac/cross-platform` at 7c456c73 (redesign-phase1). Two conflicts, both one
+line: trunk's `this.policy(source, context.runId)` (per-conversation permissions) kept together with this branch's
+`runArgs` in `wallFor` and `registry.resourceOf` in the reviewer. `dist/` deleted and rebuilt, `npx tsc --noEmit`
+clean. 48 files at `--test-concurrency=2` (the areas touched, conversation-mode, redesign-phase1, static-assets,
+index-structure, handbook, server, ui, shell-ui, catalog-diet): 709 tests, 704 pass, 0 fail, 5 skipped;
+`tests/automation.test.mjs` alone 5/5. Verdict: MERGE WITH FIXES.
