@@ -39,7 +39,7 @@ const SaveSchema = z.object({
 function requireOwnerHere(store: Store): void {
   if (startedWithShortLivedKey() || currentPerson())
     throw new SavingsApiError(403, "Only the owner can change how models are chosen and what they may spend, in the app window.");
-  try { store.profiles.requireOwner("How models are chosen"); } catch (error) { throw new SavingsApiError(403, (error as Error).message); }
+  try { store.profiles.requireOwner("How models are chosen"); } catch (error) { throw new SavingsApiError(400, (error as Error).message); }
 }
 
 function view(app: SavingsApp) {

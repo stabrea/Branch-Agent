@@ -53,7 +53,7 @@ test("P1 a pin fixes the setting at what it is now, and only the owner can make 
 
   await household(app);
   await assert.rejects(() => ask("POST", "/api/settings-kit/pins", { key: "wake-word", field: "mode", pinned: false }),
-    (error) => error instanceof SettingsKitError && error.status === 403);
+    (error) => error instanceof SettingsKitError && error.status === 400);
   assert.equal(pins(store, "local").length, 1, "somebody else took the owner's pin off");
 });
 
@@ -229,8 +229,9 @@ test("P10 over HTTP: a household person sees the pinned setting and that it is p
   assert.equal(seen.status, 200);
   assert.deepEqual(seen.body.pins, [{ key: "wake-word", field: "mode", value: "when-needed",
     name: "A word that starts a turn", label: "Switch" }]);
-  // The settings list itself stays the owner's, which is how the card knows to stay read-only.
-  assert.equal((await call("GET", "/api/settings-kit")).status, 403);
+  // The settings list itself stays the owner's, which is how the card knows to stay read-only. It is
+  // answered 400, as every other "belongs to the owner" refusal is (household-followups).
+  assert.equal((await call("GET", "/api/settings-kit")).status, 400);
   // profile-audit: a change is refused at one place in src/server.ts, as requireOwner answers.
   assert.equal((await call("POST", "/api/settings-kit/pins", { key: "wake-word", field: "mode", pinned: false })).status, 400);
   assert.equal((await call("POST", "/api/voice/wake", { mode: "on" })).status, 400, "the word is the owner's");
