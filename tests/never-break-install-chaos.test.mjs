@@ -421,9 +421,27 @@ test(`settings written over while Branch was being killed never stop it starting
  * The states a machine can be in before Branch even starts. Each one is made on a folder that
  * already holds the owner's work, so the rules can be checked against what was there.
  */
+/**
+ * A folder nobody may write in. Windows ignores the read-only mark on a folder, so chmod there makes
+ * nothing read-only and Branch rightly starts; the same state is made by denying writes in the
+ * folder's permissions, which is what a read-only folder is on Windows, and taken off again after.
+ */
+const everyone = "*S-1-1-0";
+const icacls = (...args) => {
+  const done = spawnSync(join(process.env.SystemRoot ?? "C:\\Windows", "System32", "icacls.exe"), args, { encoding: "utf8" });
+  assert.equal(done.status, 0, `icacls ${args.join(" ")}: ${done.stdout}${done.stderr}`);
+};
+async function makeReadOnly(dir) {
+  if (process.platform === "win32") icacls(dir, "/deny", `${everyone}:(OI)(CI)(W,D,DC)`);
+  else await chmod(dir, 0o500);
+}
+async function makeWritable(dir) {
+  if (process.platform === "win32") icacls(dir, "/remove:d", everyone);
+  else await chmod(dir, 0o700);
+}
 const brokenStates = [
   { id: "the-data-folder-is-read-only", must: "refused",
-    make: async ({ dataDir }) => { await chmod(dataDir, 0o500); }, undo: async ({ dataDir }) => { await chmod(dataDir, 0o700); } },
+    make: async ({ dataDir }) => { await makeReadOnly(dataDir); }, undo: async ({ dataDir }) => { await makeWritable(dataDir); } },
   { id: "the-database-was-cut-off-half-written", must: "refused",
     make: async ({ dataDir }) => { const p = join(dataDir, "branch.sqlite"); await truncate(p, Math.floor((await stat(p)).size / 2)); } },
   { id: "the-database-is-not-a-database", must: "refused",

@@ -11,7 +11,7 @@ import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, posix } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
 import { Store } from "../dist/store.js";
 import { startPlan } from "../dist/local-launch.js";
@@ -512,14 +512,16 @@ test("I12 after installing, Branch checks the program really arrived rather than
   const view = await w.oneClick.buttonPlan({}, owner);
   await assert.rejects(w.oneClick.buttonGo({ size: "small", agreedPlan: view.install.fingerprint }, owner),
     /still is not on this computer/, "a half-install is never called a success");
-  const scratch = join(w.root, "data", "local-installers");
-  const runner = join(w.root, "data", "runners", "ollama");
-  const models = join(w.root, "data", "models", "ollama");
+  // The plan is a Mac's, so it is written with a Mac's "/" whatever computer runs this test.
+  const data = join(w.root, "data");
+  const scratch = posix.join(data, "local-installers");
+  const runner = posix.join(data, "runners", "ollama");
+  const models = posix.join(data, "models", "ollama");
   assert.deepEqual(w.ran, [
-    ["/usr/bin/ditto", "-x", "-k", join(scratch, "Ollama-darwin.zip"), join(scratch, "unpacked")],
-    ["/usr/bin/codesign", "--verify", "--strict", "--deep", `${join(scratch, "unpacked")}/Ollama.app`],
-    ["/usr/sbin/spctl", "--assess", "--type", "execute", `${join(scratch, "unpacked")}/Ollama.app`],
-    ["/usr/bin/ditto", `${join(scratch, "unpacked")}/Ollama.app`, `${runner}/Ollama.app`],
+    ["/usr/bin/ditto", "-x", "-k", posix.join(scratch, "Ollama-darwin.zip"), posix.join(scratch, "unpacked")],
+    ["/usr/bin/codesign", "--verify", "--strict", "--deep", `${posix.join(scratch, "unpacked")}/Ollama.app`],
+    ["/usr/sbin/spctl", "--assess", "--type", "execute", `${posix.join(scratch, "unpacked")}/Ollama.app`],
+    ["/usr/bin/ditto", `${posix.join(scratch, "unpacked")}/Ollama.app`, `${runner}/Ollama.app`],
     ["/usr/bin/tmutil", "addexclusion", models],
   ], "the exact commands, filled in under Branch's own folder and nowhere else");
   for (const command of w.ran) for (const part of command) assert.doesNotMatch(part, /[{}]/, "nothing is left unfilled");
