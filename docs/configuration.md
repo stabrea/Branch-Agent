@@ -3869,7 +3869,10 @@ Such a task stays held however it is carried on (since 0.18.1, mac7/outside-resu
 next message in its conversation, *Do this again*, a branch or copy of its conversation, a flow or
 workflow it set going, and the mode picker (even *Full access*) all leave it asking before changes,
 and a chat's task still cannot do what only you may do. Nothing in the window turns it into your own
-work; to have Branch do it freely, ask for it in a new conversation of your own.
+work; to have Branch do it freely, ask for it in a new conversation of your own. The mode chip in
+such a conversation shows *Ask first* and says why. A message one Trunk sends another (and the reply)
+is read as the task that sent it: held the same way when that task came from outside, and with no more
+tools than the sending Trunk had (mac7/outside-review).
 **What the rules do not cover.** They apply to what the assistant decides to do on its own. A tool
 you run yourself from this app (`POST /api/action`) is your own action and goes straight through.
 **A practice run.** `POST /api/run` with `"dryRun": true`, or `node dist/cli.js run "..." --dry-run`,
