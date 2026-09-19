@@ -46,10 +46,10 @@ beside two live mirrors of your own window, one dark and one light. There is a n
 and the assistant's own instruction files can be edited on Settings → Assistant, with undo of the last
 save.
 
-**Your voice.** A dictation bar writes what you say into the message box as you say it, and
-**Talk live** can now open a view of its own — a circle that moves with the sound, what each side
-said, Mute, and End. Both are off until you turn them on, and Talk live needs a connection that
-offers it (OpenAI or Google Gemini today).
+**Your voice.** Dictation now has a bar of its own while you speak, instead of a control tucked away,
+and **Talk live** can open a view of its own — a circle that moves with the real sound, what each
+side said as it is said, Mute, Show the chat, and End. Both are off until you turn them on, and Talk
+live needs a connection that offers it (OpenAI or Google Gemini today).
 
 **Coding that gets it right more often.** The assistant reads a file before it changes it (a switch,
 off as shipped). An argument a tool does not take is dropped and the model told, instead of the whole
