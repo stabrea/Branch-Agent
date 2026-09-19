@@ -231,6 +231,10 @@ contestants.push(
     note: "the same tree with the coding-gap fixes; see docs/agents/coding-bench.md" }),
   branchContestant({ id: "branch-after-scripts", name: "Branch (mac7/coding-gap, run-scripts switch on)", root: `${BENCH}/cg/after`,
     note: "branch-after with the one owner switch that ships off turned on, so it can run the tests", scriptsOn: true }),
+  branchContestant({ id: "branch-after2", name: "Branch (mac7/coding-gap + adaptive reply ceiling)", root: `${BENCH}/cg/after2`,
+    note: "branch-after plus the reply ceiling that rises when the model is cut off mid-thought" }),
+  branchContestant({ id: "branch-after2-scripts", name: "Branch (mac7/coding-gap + adaptive reply ceiling, run-scripts on)", root: `${BENCH}/cg/after2`,
+    note: "branch-after2 with the run-scripts switch on", scriptsOn: true }),
 );
 
 export const contestantById = Object.fromEntries(contestants.map((one) => [one.id, one]));
