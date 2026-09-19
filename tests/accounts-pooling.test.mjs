@@ -19,7 +19,7 @@ import {
 } from "../dist/accounts/settings.js";
 import { firstChoice, rotationSet } from "../dist/accounts/pool.js";
 import {
-  addAccount, dismissNotice, setMode, updateAccount, updatePool, viewAll,
+  addAccount, dismissNotice, setMode, switchAccount, updateAccount, updatePool, viewAll,
 } from "../dist/accounts/manage.js";
 import { executeCommand } from "../dist/commands/execute.js";
 import { saveCommandSettings } from "../dist/commands/settings.js";
@@ -254,4 +254,33 @@ test("P7 API keys take no mark: they already share work", async (t) => {
   setMode(service, { mode: "on" });
   updatePool(service, { pool: "openai-pool", strategy: "priority" });
   await assert.rejects(updateAccount(service, { pool: "openai-pool", account: "primary", keptSeparate: true }), /API keys already share work/);
+});
+
+test("P8 a conversation switched by hand to the owner's second plan never reaches their first plan through the work account", async (t) => {
+  const fx = await fixture(t);
+  const { app, owner, service } = fx;
+  let workAnswers = 1;
+  const seen = [];
+  const spawn = async (row, prompt, signal, limits, home) => {
+    const who = home ? home.path.split(/[\\/]/).pop() : "primary";
+    seen.push(who);
+    if (who === ids.second) return limited;
+    if (who === ids.work) return workAnswers-- > 0 ? answer("from work") : limited;
+    return answer("from primary");
+  };
+  const ids = {};
+  registerCliAgent(app.runtime.models, { id: "claude-code" }, {}, spawn);
+  app.runtime.models.configure(owner, { activePreset: POOL });
+  service.deps.spawnAgent = spawn;
+  Object.assign(ids, await threeAccounts(fx));
+  const opened = await app.runtime.run({ prompt: "hello" });
+  assert.equal(opened.output, "from primary");
+  switchAccount(service, { pool: POOL, account: ids.second, sessionId: opened.sessionId });
+  const moved = await app.runtime.run({ prompt: "more", sessionId: opened.sessionId });
+  assert.equal(moved.output, "from work", "the second plan ran out: work moves to the account kept separate");
+  assert.equal(sessionChoice(app.store, owner, opened.sessionId)[POOL], ids.second, "the conversation's own plan is kept");
+  seen.length = 0;
+  const stopped = await app.runtime.run({ prompt: "and more", sessionId: opened.sessionId });
+  assert.equal(stopped.status, "failed");
+  assert.ok(!seen.includes("primary"), "never the owner's first plan: that would be moving between their own plans");
 });

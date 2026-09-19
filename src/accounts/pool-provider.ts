@@ -172,12 +172,15 @@ export class AccountPoolProvider {
     const allowed = rotationSet(pool.kind, usable, pool.defaultAccount, sticky);
     if (allowed.length < 2) return this.single(pool, usable, request, call);
     const ready = smartOrder(allowed.filter((account) => this.why(account) === null), this.hooks.states);
+    // A conversation's own plan, once picked, is never replaced by Branch: were it overwritten by a
+    // kept-separate account, the next limit would move the work on to the owner's default plan.
+    const keepPick = usable.some((account) => account.id === sticky && !account.keptSeparate);
     const first = ready.findIndex((account) => account.id === sticky);
     if (first > 0) ready.unshift(...ready.splice(first, 1));
     for (const account of ready) {
       try {
         const completion = await this.attempt(account, request, call);
-        if (call?.sessionId && account.id !== sticky) this.hooks.rememberChoice(call.sessionId, account.id);
+        if (call?.sessionId && account.id !== sticky && !keepPick) this.hooks.rememberChoice(call.sessionId, account.id);
         return completion;
       } catch (error) {
         if (!isLimit(error) || request.signal.aborted) throw error;
