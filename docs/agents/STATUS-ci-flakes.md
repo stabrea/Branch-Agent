@@ -29,5 +29,10 @@ condition. Also any other test that failed more than once in the last 40 Checks 
 - [x] KOOK: pong budget 1000 ms in the test (heartbeat stays 30 ms); product 6 s unchanged.
 - [x] watcher: test uses 400 ms quiet time (the AI-comments value) and waits two quiet times before
       asserting one run.
-- [ ] loops after the fix
-- [ ] merged into mac/cross-platform, CI run id
+- [x] loops, three kinds at once, three copies each (machine loaded), single test by name:
+      before: KOOK 66 pass / 9 fail of 75; governance 60/60; watcher 90/90.
+      after:  KOOK 75/75; watcher 90/90; governance (old + new race test) 59/60, then 100/100 in a second pass.
+      The one governance miss was the test process ending with no output at all before any test
+      reported (no crash event in the Windows log); it did not come back in 100 more runs.
+- [x] merged origin/mac/cross-platform (diagnostics work), clean build, tsc, governance + kook +
+      ai-comments + static-assets + index-structure + handbook: 31/31 pass. Pushed to mac/cross-platform.
