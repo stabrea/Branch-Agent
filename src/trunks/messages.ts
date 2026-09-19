@@ -157,7 +157,8 @@ export class TrunkMessages {
     if (!run) return;
     if (kind === "run.started") {
       const waiting = this.receipts().reverse().find((r) => r.status === "queued" && r.sessionId === run.sessionId && r.prompt === run.prompt)
-        ?? this.receipts().find((r) => r.status === "waiting" && r.sessionId === run.sessionId && r.runId !== runId);
+        // mac7/residuals: else the oldest message still waiting for a yes here, as the owner's answers go oldest first.
+        ?? this.receipts().reverse().find((r) => r.status === "waiting" && r.kind === "message" && r.sessionId === run.sessionId && r.runId !== runId);
       if (!waiting) return;
       this.update(waiting.id, { status: "delivered", runId });
       this.store.event(runId, depthEvent, { depth: waiting.depth });

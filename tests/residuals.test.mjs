@@ -85,6 +85,15 @@ test("2. A Trunk's message whose task stops to ask waits for a yes: not failed, 
   assert.equal(sent.length, 2);
   assert.equal(sent[1].sessionId, ann.chatSessionId);
   assert.match(sent[1].prompt, /^Reply from Ben \(@ben\) to your message:\nWritten\./);
+  // Two messages waiting in the same conversation: the owner's answers take the oldest first, one each.
+  for (const words of ["one", "two"]) {
+    messages.send({ ...app.runtime.context({ runId: own.id }), agent: `trunk:${ann.id}` }, { to: "ben", message: words });
+    task(sent.at(-1).prompt, "needs_input", "May I?");
+  }
+  const waiting = () => messages.receipts(ben.id).filter((r) => r.kind === "message" && r.status === "waiting").map((r) => r.prompt);
+  assert.equal(waiting().length, 2);
+  task("Yes to the first.", "completed", "First done.");
+  assert.deepEqual(waiting().map((p) => p.endsWith("two")), [true], "the older one was answered, the newer still waits");
 });
 
 test("3. A2A, ACP and the app-server carry on only conversations they began; the owner's is refused in plain words", async (t) => {

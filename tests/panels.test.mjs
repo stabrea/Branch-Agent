@@ -70,7 +70,7 @@ test("Browser and Terminal list what the conversation's tasks really did, newest
 test("a key in a command line or in what it printed never reaches the Terminal tab", async (t) => {
   const { app } = await world(t);
   const run = app.store.createRun(app.runtime.owner, "Check the account");
-  const typed = "AKIAIOSFODNN7EXAMPLE", printed = "sk-ant-api03-" + "x".repeat(40);
+  const typed = "AKIAIOSFODNN7EXAMPLE", printed = "sk-ant-api03-" + "x".repeat(40); // not-a-real-secret
   app.store.message(run.sessionId, { role: "assistant", content: "", toolCalls: [
     { id: "k1", name: "shell.execute", arguments: JSON.stringify({ executable: "aws", args: ["--key", typed, "s3", "ls"] }) },
   ] });

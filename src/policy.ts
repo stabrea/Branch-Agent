@@ -283,6 +283,8 @@ function unmatched(policy: Policy, request: PolicyRequest): PolicyOutcome {
     return { decision: "ask", rule: { tool: request.tool, match: request.target || "*", applies: "any", decision: "ask",
       remember: asksEveryTime(request.tool) ? "never" : "session" } };
   // ---- end mac7/nodes ----
+  // mac7/residuals: `listed` is a program the owner put on their own list (only process.start says so, through
+  // its `command` hook); a new tool declaring `command` gets this exemption too, so it must mean the same.
   if (request.resource?.kind !== "command" || request.resource.listed || policy.unmatchedCommands === "allow")
     return { decision: "allow", rule: null };
   return {

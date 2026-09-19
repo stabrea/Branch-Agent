@@ -1,7 +1,9 @@
 # mac7/residuals: leftovers reviewers found on 2026-09-19 but did not fix
 
 Branch `mac7/residuals`, from trunk `mac/cross-platform` at d366b45f. Not merged into trunk by this
-branch: an integrator reviews it. Every new test is in `tests/residuals.test.mjs` unless noted.
+branch: an integrator reviews it. New tests: `tests/residuals.test.mjs` (server) and `tests/residuals-ui.test.mjs`
+(headless window). Existing tests changed for new behaviour: tests/interop-agents, mobile-rules, devices-ui,
+p2-shell-ui, delight-ui; tests/panels.test.mjs line 73 marked `not-a-real-secret` (source-hygiene failed on trunk).
 
 ## Security / behaviour
 
@@ -13,7 +15,9 @@ branch: an integrator reviews it. Every new test is in `tests/residuals.test.mjs
   `TrunkMessages.finished`: `needs_input` makes the receipt `waiting` (a new status) and sends nothing back. The
   owner answers the question and sends the next message in that Trunk's conversation (that is how a yes carries
   on, public/approvals.js); that task takes the waiting receipt over, and its answer goes back as the reply (or
-  its failure as the notice, as before). Test 2 covers both halves; each fails with its line taken out of dist.
+  its failure as the notice, as before). Only a `message` receipt is taken over, and the oldest waiting one first
+  (the owner's answers go oldest first). Test 2 covers both halves and two waiting at once; each line taken out of
+  dist fails it (newest-first too).
 - [x] 3. A2A / ACP / app-server may only continue conversations they started; otherwise refused in plain words.
   `conversationBegunBy` (src/outside-origin.ts): the source of a conversation's first task (the row's own
   source for ACP/app-server openings, else its `run.started`). A2A `sessionFor` (now checked in `begin`, before
@@ -118,13 +122,18 @@ branch: an integrator reviews it. Every new test is in `tests/residuals.test.mjs
   background: … switching off keeps the file, Remove picture (after a yes)…" replaces the old "switching off
   removes" test; forgetting on off, or no confirm, each fails it.
 - [x] 16. `branch-everything-hidden` wired from the hide feature — already fixed (below).
+- [x] 17. Merge latest trunk, rebuild, retest, push. Merged origin/mac/cross-platform at 2674e2ae (p2-settings; clean),
+  dist deleted and rebuilt, tsc clean. 54 files at --test-concurrency=2: 765 tests, 749 pass, 2 fail, 14 skipped.
+  The two failures are trunk's own, not this branch's: source-hygiene flagged tests/panels.test.mjs:73 (fixed here
+  with the `not-a-real-secret` marker), and tests/panels.test.mjs "hiding everything earns It's lonely over here"
+  times out waiting for `#panels-float-gear` — it fails the same way on a clean checkout of trunk 2674e2ae (passes
+  when run alone with a name filter), so it comes from the p2-settings / p2-panels meeting, left for their owners.
 - [x] 18. (added by the coordinator) In French, Settings search named a setting whose control is not drawn yet in
   English. public/i18n.js `fromEnglish` finds the locale key whose English is exactly those words and gives the
   chosen language's; public/settings-grown.js falls back to it for a row's label and its card's title after the
   drawn words. 432 of the 550 index labels and 543 of 550 card titles have such a key; the rest stay English (mostly
   service names such as IRC or Mastodon, the same in French). tests/residuals-ui.test.mjs 18 (a row not drawn yet,
   searched in French, shows the French name); without the fallback it fails.
-- [ ] 17. Merge latest trunk, rebuild, retest, push.
 
 Left alone on purpose: settings-describe.js / settings-kit.js inline `<style>` (the p2-settings integrator is changing the settings files now).
 
