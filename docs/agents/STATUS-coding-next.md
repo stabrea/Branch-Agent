@@ -202,6 +202,51 @@ Tests: `tests/coding-next.test.mjs` "5 …" — the helper, and `code.run` with 
   coding-polish-holes, interop, reach, handbook, static-assets, index-structure, source-hygiene — 89 tests,
   88 pass, 0 fail, 1 skipped; tsc clean.
 
+## Integration (adversarial review, Claude, 2026-09-19)
+
+Reviewed 2a773919 against trunk 81f9e022; fixes in 5ba94e15. Verdict: **MERGE WITH FIXES** (applied).
+
+Fixed (each with a test in `tests/coding-next.test.mjs` "review …"; each test was checked to fail with its fix removed):
+- [x] **4, should have blocked:** the question was thrown with `remember: "always"`, which is the *default* answer
+  wherever no choice is made. Carrying a waiting workflow on (`POST /api/workflows/:id/resume` with no `remember`,
+  the documented "just this workflow" default) and a flow's approve wrote the standing `code.tests` rule, and the
+  terminal chat's plain `y` did too. Now `"never"` (a plain yes is Once), and `Runtime.grantApproval` treats
+  `code.tests` like the card: Always goes through the same owner-only check, Once is a single pass for that workflow.
+- [x] **2:** a dropped key could change meaning: `code.patch` with `dry_run: true` was applied for real, and the
+  approval card and the second-model reviewer showed the raw bytes (a person could say yes to what reads as a dry
+  run). Now a key that respells a declared one (`dry_run`, `replace_all`) or asks for nothing to really happen
+  (`preview`, `simulate`, `whatIf`, `noop`, `checkOnly`, `validateOnly`) is not dropped — the call is refused as
+  before; and the card/reviewer see the call as it will run. The fingerprint stays that of the bytes sent.
+- [x] **5:** `runSweTests` in `src/benchmark-adapters.ts` still started `process.execPath` without the variable. Fixed;
+  a source scan test now fails on any start of this program without `runAsNode`/`ELECTRON_RUN_AS_NODE` nearby.
+- [x] **1:** with the switch off, `files.write` and the editor still resolved the path through `checked()` before
+  the guard said "off", which could change which refusal a bad path got. Now `ReadFirstGuard.holds()` is asked
+  first and nothing else runs while off.
+- [x] **6:** a damaged/odd switch file (`{not json`, `"yes"`, a bare string, empty) means off, and a crash with the
+  database closed still never throws (tested). The desktop doc comment for the crash watcher was moved back onto it.
+- [x] **Plan (dry run):** `code.check` in a dry run is simulated by the gate — no question, no tests (tested).
+
+Per item: 1 VERIFIED, 2 VERIFIED (after fix), 3 VERIFIED, 4 VERIFIED (after fix), 5 VERIFIED (after fix), 6 VERIFIED
+(the Electron `crashReporter.start` call itself is untested; nothing else depends on it starting before `start()`:
+`BRANCH_CRASH_DUMPS` is set before the engine or any window exists).
+
+Checked and fine: MCP and client tools use `z.record` parameters, so `clean()` never touches them (the outside
+server judges its own arguments). `files.read` has no range, so a partial read cannot unlock an edit; editing
+tools share its 32 KiB cap. `checked()` refuses `..`, absolute paths, `\`, `:` and links before the guard sees a
+path, and both sides key on `resolve(base, path)`. Owner-only Always: short-lived keys are refused by the route,
+chat apps by `answeredOn`, household tasks/profiles by the builder's check (tested). A task nobody watches stops on
+the question (`needs_input`) like any other.
+
+Notes, not fixed (judgement calls, fail closed or pre-existing):
+- A hung local model now ends after up to 3 x 300 s (two stall retries by default) instead of 3 x 60 s; the message
+  is the ordinary "No response for 300 seconds", with "may be loading into memory" shown meanwhile.
+- The loop guard compares raw argument bytes, so a model varying a junk key each round is seen as not repeating.
+- `code.rename` and other changes through `applyPlanned` are not held but still count as reads afterwards.
+- Read-set: at most 500 tasks, evicted oldest-first, so a very long task can be asked to read again; short
+  (8.3) names or different letter case on macOS key differently and ask for a read (fail closed).
+- Pre-existing, not this branch: a tool whose schema is not `.strict()` strips extra keys silently, while
+  `policyTarget` still reads the raw `url`/`path`.
+
 ## Not done / not proven
 - No benchmark re-run (as instructed); none of these has been measured on the coding bench.
 - Electron itself was not run: `crashReporter.start` placement and `ELECTRON_RUN_AS_NODE` are tested through
