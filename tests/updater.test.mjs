@@ -83,14 +83,17 @@ test("check reports availability against the current version", async (t) => {
 test("install downloads, verifies, unpacks beside the install and writes the hand-over script", { skip: !windows && "Windows archive tooling" }, async (t) => {
   const { root, installDir, fetchViaFixture } = await releaseFixture(t);
   const updater = new Updater({ repo: "stabrea/Branch-Agent", currentVersion: "0.2.0", installDir, executableName: "Branch Agent Test.exe",
-    assetName: "Branch-Agent-windows-x64.zip", scratchDir: join(root, "scratch"), fetch: fetchViaFixture });
+    assetName: "Branch-Agent-windows-x64.zip", scratchDir: join(root, "scratch"), fetch: fetchViaFixture,
+    runOnceKey: "HKCU\\Software\\BranchAgentTest\\RunOnce" }); // never the real RunOnce key
+  t.after(() => run("reg.exe", ["delete", "HKCU\\Software\\BranchAgentTest", "/f"]).catch(() => undefined));
   const { script, stagedDir } = await updater.install();
   assert.equal(updater.status.phase, "ready");
   assert.equal(await readFile(join(stagedDir, "Branch Agent Test.exe"), "utf8"), "new executable");
   assert.equal(await readFile(join(stagedDir, "resources", "app.txt"), "utf8"), "new resources");
   assert.ok(!stagedDir.startsWith(installDir), "staging never lands inside the install");
   const text = await readFile(script, "utf8");
-  assert.match(text, /robocopy\.exe ".*unpacked.*" ".*installed" \/MIR/);
+  assert.match(text, /robocopy\.exe ".*unpacked.*" ".*installed\.incoming" \/MIR/, "the new version is copied in beside the old one");
+  assert.match(text, /move ".*installed" ".*installed\.previous"[\s\S]*move ".*installed\.incoming" ".*installed"/, "and the folders swap by renaming");
   assert.match(text, /robocopy\.exe ".*installed" ".*installed\.previous" \/MIR/, "previous version is kept");
   assert.match(text, /:restore[\s\S]*robocopy\.exe ".*installed\.previous" ".*installed" \/MIR/, "rollback path exists");
   assert.match(text, /start "" ".*installed\\Branch Agent Test\.exe"/);
@@ -106,7 +109,7 @@ test("install downloads, verifies, unpacks beside the install and writes the han
   assert.equal(await readFile(join(installDir, "Branch Agent Test.exe"), "utf8"), "new executable");
   assert.ok(await stat(join(installDir, "resources", "app.txt")));
   assert.equal(await readFile(join(installDir + ".previous", "Branch Agent Test.exe"), "utf8"), "old executable", "previous version kept beside the install");
-  assert.match(await readFile(join(root, "scratch", "apply-update.log"), "utf8"), /copying new version, attempt 1/, "log kept for diagnosis");
+  assert.match(await readFile(join(root, "scratch", "apply-update.log"), "utf8"), /copying new version beside the old one, attempt 1/, "log kept for diagnosis");
 });
 
 test("a checksum mismatch refuses to install", { skip: !windows && "Windows archive tooling" }, async (t) => {

@@ -225,7 +225,9 @@ test("cmd runs the two-wait script through to the copy", { skip: process.platfor
   await mkdir(installDir, { recursive: true });
   await writeFile(join(installDir, "Branch Agent.exe"), "old");
   // Neither process id exists, so both waits fall straight through; "stay" stops before anything starts.
-  const updater = await updaterFor(root, "scratch-run", { stopDaemon: async () => 999998 });
+  // Its own RunOnce key, so a run never registers anything for the next real sign-in.
+  const updater = await updaterFor(root, "scratch-run", { stopDaemon: async () => 999998, runOnceKey: "HKCU\\Software\\BranchAgentTest\\RunOnce" });
+  t.after(() => new Promise((resolve) => spawn("reg.exe", ["delete", "HKCU\\Software\\BranchAgentTest", "/f"], { stdio: "ignore", windowsHide: true }).on("close", resolve).on("error", resolve)));
   const { script } = await updater.install();
   await new Promise((resolve) => {
     const child = spawn("cmd.exe", ["/d", "/c", script, "999999", "stay"], { stdio: "ignore", windowsHide: true });
@@ -234,7 +236,7 @@ test("cmd runs the two-wait script through to the copy", { skip: process.platfor
   });
   assert.equal(await readFile(join(installDir, "Branch Agent.exe"), "utf8"), "new", "the new files landed");
   assert.match(await readFile(join(root, "scratch-run", "apply-update.log"), "utf8"),
-    /app closed[\s\S]*background engine closed[\s\S]*copying new version, attempt 1/,
+    /app closed[\s\S]*background engine closed[\s\S]*copying new version beside the old one, attempt 1/,
     "both waits were passed, in order, before the copy");
 });
 
