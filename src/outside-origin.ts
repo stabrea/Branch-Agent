@@ -67,3 +67,21 @@ export function heldSource(context: { source?: string | undefined; runId?: strin
   if (context.source && outside.includes(context.source)) return context.source as OutsideSource;
   return outsideSourceOf(store, context.runId) ?? "owner";
 }
+
+/**
+ * mac7/residuals: who began a conversation — the source its first task recorded ("a2a", "acp", ...),
+ * "owner" for the owner's own, or null when it has no task. Another program may carry on only a
+ * conversation it began itself: one that learns an id of the owner's cannot park work there.
+ */
+export function conversationBegunBy(store: Reader, sessionId: string): string | null {
+  const first = store.sqlite.prepare("SELECT id, source FROM tasks WHERE session_id=? ORDER BY created_at, rowid LIMIT 1")
+    .get(sessionId) as { id: string; source: string | null } | undefined;
+  if (!first) return null;
+  // A conversation a program opens with no task yet (ACP, the app-server) writes its source on the row itself.
+  if (first.source && first.source !== "web") return first.source;
+  return runOrigin(store, first.id).source;
+}
+
+/** The plain refusal when another program names a conversation it did not begin. */
+export const notYourConversation =
+  "Another program can only carry on a conversation it started itself. Leave out the conversation to start a new one.";

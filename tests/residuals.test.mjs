@@ -14,6 +14,9 @@ import { keyAnswerRefusal, runOrigin, underShortLivedKey } from "../dist/key-con
 import { accessRefusal, keyRefusal } from "../dist/devices/tools.js";
 import { TrunkMessages } from "../dist/trunks/messages.js";
 import { fixture as trunksFixture, on } from "./trunks-helpers.mjs";
+import { PassThrough } from "node:stream";
+import { AcpConnection } from "../dist/acp.js";
+import { AppServerConnection } from "../dist/asks/app-server.js";
 
 /** A model that calls the tool the newest message names ("please <tool> <json>"), then says it is done. */
 function scripted() {
@@ -82,4 +85,29 @@ test("2. A Trunk's message whose task stops to ask waits for a yes: not failed, 
   assert.equal(sent.length, 2);
   assert.equal(sent[1].sessionId, ann.chatSessionId);
   assert.match(sent[1].prompt, /^Reply from Ben \(@ben\) to your message:\nWritten\./);
+});
+
+test("3. A2A, ACP and the app-server carry on only conversations they began; the owner's is refused in plain words", async (t) => {
+  const { app } = await fixture(t);
+  const owner = app.runtime.owner;
+  const mine = await app.runtime.run({ prompt: "hello" });
+  const refused = /only carry on a conversation it started itself/;
+  const text = (words) => ({ role: "user", parts: [{ type: "text", text: words }] });
+  app.a2a.enabled = () => true;
+  await assert.rejects(app.a2a.send({ sessionId: mine.sessionId, message: text("park this") }, "other"), refused);
+  await assert.rejects(app.a2a.send({ sessionId: "not-a-conversation", message: text("hi") }, "other"), refused, "an unknown id reads the same");
+  const began = await app.a2a.send({ message: text("hi") }, "other");
+  assert.equal((await app.a2a.send({ sessionId: began.sessionId, message: text("more") }, "other")).sessionId, began.sessionId,
+    "its own conversation carries on");
+  const io = () => ({ input: new PassThrough(), output: new PassThrough(), log: () => {} });
+  const acp = new AcpConnection(app.runtime, app.store, io());
+  await acp.onRequest("initialize", { protocolVersion: 1 });
+  const words = [{ type: "text", text: "park this" }];
+  await assert.rejects(acp.onRequest("session/prompt", { sessionId: mine.sessionId, prompt: words }), refused);
+  const opened = await acp.onRequest("session/new", { cwd: ".", mcpServers: [] });
+  assert.equal((await acp.onRequest("session/prompt", { sessionId: opened.sessionId, prompt: words })).stopReason, "end_turn");
+  const threads = new AppServerConnection(app.runtime, io(), "test");
+  await threads.onRequest("initialize", {});
+  await assert.rejects(threads.onRequest("turn/start", { threadId: mine.sessionId, input: [{ type: "text", text: "x" }] }), refused);
+  assert.equal(app.store.runs(owner).filter((run) => run.sessionId === mine.sessionId).length, 1, "nothing ran in the owner's conversation");
 });

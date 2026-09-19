@@ -5,6 +5,7 @@ import { z } from "zod";
 import { errorText, type Run } from "../contracts.js";
 import type { Runtime } from "../runtime.js";
 import { askMode } from "./settings.js";
+import { conversationBegunBy, notYourConversation } from "../outside-origin.js";
 
 /**
  * A0032: the app-server protocol — the JSON-RPC shape Codex's own editor extensions and desktop app
@@ -124,6 +125,8 @@ export class AppServerConnection {
   private startTurn(params: z.infer<typeof TurnStartSchema>): unknown {
     const { threadId } = params;
     if (!this.runtime.store.ownsSession(this.runtime.owner, threadId)) throw new Error("That thread is not one of Branch's");
+    // mac7/residuals: only a thread a program opened here (thread/start); never the owner's own conversation.
+    if (conversationBegunBy(this.runtime.store, threadId) !== "acp") throw new Error(notYourConversation);
     const prompt = inputText(params.input);
     const turnId = randomUUID();
     void this.runTurn(threadId, turnId, prompt).catch((error: unknown) =>

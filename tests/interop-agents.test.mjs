@@ -429,7 +429,8 @@ test("a streamed task that never starts says so and leaves the app standing", as
     return { content: "late", toolCalls: [] };
   };
   // A conversation that is already busy: a second task on it cannot be created at all.
-  const seed = app.store.createRun(app.runtime.owner, "seed");
+  // mac7/residuals: an agent carries on only a conversation begun over A2A.
+  const seed = app.store.createRun(app.runtime.owner, "seed", undefined, false, "a2a");
   app.store.finish(seed.id, "completed", "seeded");
   const busy = app.runtime.run({ prompt: "keep this conversation busy", sessionId: seed.sessionId }).catch(() => undefined);
   for (let i = 0; i < 200; i++) {

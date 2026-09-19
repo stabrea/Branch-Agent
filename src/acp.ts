@@ -4,6 +4,7 @@ import { z } from "zod";
 import { errorText, type Run } from "./contracts.js";
 import type { Runtime } from "./runtime.js";
 import type { Store } from "./store.js";
+import { conversationBegunBy, notYourConversation } from "./outside-origin.js";
 
 /**
  * ACP, the protocol code editors use to talk to an assistant they start themselves. Branch speaks it
@@ -143,6 +144,8 @@ export class AcpConnection {
   private async prompt(params: z.infer<typeof PromptSchema>): Promise<{ stopReason: string }> {
     const { sessionId } = params;
     if (!this.store.ownsSession(this.runtime.owner, sessionId)) throw new Error("That conversation is not one of Branch's");
+    // mac7/residuals: only a conversation an editor opened here (session/new); never the owner's own.
+    if (conversationBegunBy(this.store, sessionId) !== "acp") throw new Error(notYourConversation);
     let prompt = promptText(params.prompt);
     for (let round = 0; round <= MAX_APPROVALS; round++) {
       const run = await this.turn(sessionId, prompt);

@@ -8,6 +8,7 @@ import type { McpServer, McpSharing } from "./mcp-server.js";
 import type { ToolRegistry } from "./registry.js";
 import type { Runtime } from "./runtime.js";
 import type { Store } from "./store.js";
+import { conversationBegunBy, notYourConversation } from "./outside-origin.js";
 
 /**
  * A2A, the agent-to-agent protocol: how an assistant made by someone else asks this one to do a
@@ -119,14 +120,21 @@ export class A2aServer {
     this.rates.record(agent);
   }
 
-  /** Continues the caller's conversation when it is really ours; otherwise a fresh one is started. */
+  /**
+   * The caller's conversation to carry on, or none for a fresh one. mac7/residuals: only one that an
+   * agent began over A2A; naming any other (the owner's own, or one that does not exist) is refused.
+   */
   private sessionFor(sessionId: string | undefined): string | undefined {
-    return sessionId && this.store.ownsSession(this.runtime.owner, sessionId) ? sessionId : undefined;
+    if (!sessionId) return undefined;
+    if (!this.store.ownsSession(this.runtime.owner, sessionId) || conversationBegunBy(this.store, sessionId) !== "a2a")
+      throw new A2aError(-32602, notYourConversation);
+    return sessionId;
   }
 
   /** Starts the Branch task behind an A2A task and remembers the pairing, without waiting for it. */
-  begin(params: SendParams, agent: string): { record: A2aTaskRecord; prompt: string } {
+  begin(params: SendParams, agent: string): { record: A2aTaskRecord; prompt: string; sessionId: string | undefined } {
     if (!this.enabled()) throw new A2aError(-32001, "This assistant is not answering other agents. Its owner can switch that on in Settings.");
+    const sessionId = this.sessionFor(params.sessionId);
     this.checkRate(agent);
     const prompt = taskText(params.message);
     const id = params.id ?? randomUUID();
@@ -135,13 +143,13 @@ export class A2aServer {
     // Only the most recent tasks stay findable, so a long-running install does not grow without end.
     for (const oldest of [...this.tasks.keys()].slice(0, this.tasks.size - maxRememberedTasks))
       this.tasks.delete(oldest);
-    return { record, prompt };
+    return { record, prompt, sessionId };
   }
 
   /** Runs one task to the end and answers with it. The caller waits; `sendSubscribe` streams instead. */
   async send(params: SendParams, agent: string, traceparent?: string | null): Promise<unknown> {
-    const { record, prompt } = this.begin(params, agent);
-    const run = await this.execute(record, prompt, this.sessionFor(params.sessionId), traceparent);
+    const { record, prompt, sessionId } = this.begin(params, agent);
+    const run = await this.execute(record, prompt, sessionId, traceparent);
     return this.taskView(record, run);
   }
 
@@ -206,14 +214,14 @@ export class A2aServer {
    * as an artifact and a last update marked final. The run's own event log is the source.
    */
   async sendSubscribe(params: SendParams, agent: string, id: string | number, response: ServerResponse): Promise<void> {
-    const { record, prompt } = this.begin(params, agent);
+    const { record, prompt, sessionId } = this.begin(params, agent);
     const write = (result: unknown) => response.write(`data: ${JSON.stringify({ jsonrpc: "2.0", id, result })}\n\n`);
     sseHead(response);
     write({ id: record.id, status: { state: "submitted", timestamp: nowIso() }, final: false });
     // A task that never starts is told to the caller below. The stream is already open, so there is
     // no error reply left to send, and a failure nobody is watching would take the whole app down.
     let settled = false, failure: unknown;
-    const finished = this.execute(record, prompt, this.sessionFor(params.sessionId)).then(
+    const finished = this.execute(record, prompt, sessionId).then(
       (run) => { settled = true; return run; },
       (error: unknown) => { settled = true; failure = error; return undefined; },
     );

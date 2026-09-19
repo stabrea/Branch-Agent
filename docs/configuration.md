@@ -3220,7 +3220,7 @@ The switch lives beside the one for other AI tools, in `settings/mcp-sharing` as
 
 **The card.** `GET /.well-known/agent.json` describes this assistant: its name, what it is, the address to send work to (`/a2a`), `authentication.schemes: ["bearer"]`, `capabilities.streaming: true`, and its skills. The skills are `branch.ask` — asking Branch for something in plain words, always offered — plus every tool you ticked in the shared list, so A2A never offers more than MCP does.
 
-**Tasks.** JSON-RPC 2.0 by `POST` to `/a2a`, with your session key as `Authorization: Bearer …` (the same key as every other route; the server listens on this computer only). `tasks/send` runs one task and answers with it. `tasks/get` finds one started earlier — in memory only, so a restart forgets tasks that were still running. `tasks/cancel` stops one. `tasks/sendSubscribe` answers with a stream instead: a `submitted` state, then one state update for every step Branch records, then the answer as an artifact and a last update marked `final`.
+**Tasks.** JSON-RPC 2.0 by `POST` to `/a2a`, with your session key as `Authorization: Bearer …` (the same key as every other route; the server listens on this computer only). `tasks/send` runs one task and answers with it. `tasks/get` finds one started earlier — in memory only, so a restart forgets tasks that were still running. `tasks/cancel` stops one. `tasks/sendSubscribe` answers with a stream instead: a `submitted` state, then one state update for every step Branch records, then the answer as an artifact and a last update marked `final`. A `sessionId` carries on a conversation only when an assistant began it over A2A; naming any other one — yours, or one that does not exist — is refused with "Another program can only carry on a conversation it started itself" (leave it out to start a new one), so a program that learns one of your conversation ids cannot leave work waiting in it.
 
 A task is a plain Branch task: it shows in Activity with the same signed receipts, its events carry `source: "a2a"`, and an `a2a.task` event names the assistant that asked. Because you did not start it, it never gets more freedom than **Ask before changes** — a standing yes of yours does not travel to a stranger, so anything that would change a file, run a command or act on a web page stops and waits for you, and the caller is told the task is `input-required`. This works the same way as MCP, and holds under **No approvals** too — the starting setting frees only the tasks you start yourself. Note too that the shared tool list shapes the card's skills but not what a task may do: `branch.ask` reaches the whole toolbox, within your approval setting.
 
@@ -3238,7 +3238,7 @@ A task is a plain Branch task: it shows in Activity with the same signed receipt
 
 `branch acp-serve` speaks the editor protocol as newline-delimited JSON-RPC on standard input and output; everything meant for a person goes to standard error, so the protocol stream stays clean, and it stops when the editor closes the connection. It answers `initialize` (protocol version 1), `session/new` (a real Branch conversation, so it is searchable afterwards), `session/prompt` — the answer streams back as `session/update` notifications with `agent_message_chunk` — and `session/cancel`.
 
-When a step needs your yes, Branch asks the **editor**, with `session/request_permission` naming the step in plain words and offering `allow` and `reject`. Your answer goes straight to the approval rules and the turn carries on or stops, and the turn ends with `end_turn`, `refusal` or `cancelled`. Tasks from an editor carry `source: "acp"` and are capped the same way A2A tasks are. Attachments are refused here too.
+When a step needs your yes, Branch asks the **editor**, with `session/request_permission` naming the step in plain words and offering `allow` and `reject`. Your answer goes straight to the approval rules and the turn carries on or stops, and the turn ends with `end_turn`, `refusal` or `cancelled`. Tasks from an editor carry `source: "acp"` and are capped the same way A2A tasks are. Attachments are refused here too. `session/prompt` (and the app-server's `turn/start`) works only in a conversation an editor or program opened here with `session/new` (`thread/start`); any other is refused the same way as over A2A.
 
 For **Zed**, add this to `settings.json` (Zed: Open Settings), replacing the two paths with your own:
 
@@ -5948,8 +5948,8 @@ mode never stands in for that yes. A plain yes is *Once*, and only the owner in 
 
 Another program connected over MCP sees a list of tools and "what would happen" notes worked out from
 the owner's setting, not from any conversation's mode (they belong to no conversation). A task it
-starts, or an A2A/ACP task that joins a conversation, is held to that conversation's mode and to the
-hold on outside tasks, so a Plan conversation refuses its changes.
+starts, or an A2A/ACP task that joins a conversation it began, is held to that conversation's mode and to the
+hold on outside tasks, so a Plan conversation refuses its changes. (A2A and ACP cannot join one of yours.)
 
 ### Suggestions, updates as choice cards, and quitting while work runs (redesign phase 1)
 

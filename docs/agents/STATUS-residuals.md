@@ -14,7 +14,15 @@ branch: an integrator reviews it. Every new test is in `tests/residuals.test.mjs
   owner answers the question and sends the next message in that Trunk's conversation (that is how a yes carries
   on, public/approvals.js); that task takes the waiting receipt over, and its answer goes back as the reply (or
   its failure as the notice, as before). Test 2 covers both halves; each fails with its line taken out of dist.
-- [ ] 3. A2A / ACP / app-server may only continue conversations they started; otherwise refused in plain words.
+- [x] 3. A2A / ACP / app-server may only continue conversations they started; otherwise refused in plain words.
+  `conversationBegunBy` (src/outside-origin.ts): the source of a conversation's first task (the row's own
+  source for ACP/app-server openings, else its `run.started`). A2A `sessionFor` (now checked in `begin`, before
+  a stream opens), ACP `session/prompt` and app-server `turn/start` refuse anything not begun by them with
+  "Another program can only carry on a conversation it started itself…"; an unknown A2A id reads the same (it
+  used to start fresh, which also told a caller which ids were real). The Agent Protocol already only carries on
+  the conversation its own task record holds (src/interop/agent-protocol.ts `runStep`), unchanged. No "shared with
+  a program" mechanism exists, so none is honoured. tests/interop-agents.test.mjs "a streamed task that never
+  starts" now seeds an A2A conversation. Test 3; each of the three checks fails it when taken out.
 - [ ] 4a. `process.start` arguments judged by command rules like a shell command.
 - [ ] 4b. `code.run` judged only by its permission.
 - [ ] 4c. `mail.save_attachment` declares its file target.
