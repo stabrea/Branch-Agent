@@ -407,6 +407,8 @@ test("integration review: switched off on the server, a fresh window keeps no ga
   await f.page.getByLabel("Session token", { exact: true }).fill(f.server.token);
   await f.page.getByRole("button", { name: "Connect", exact: true }).click();
   await f.page.locator("body.lx-ready").waitFor({ state: "attached" });
+  // layout.js marks lx-ready as the page loads, before the key is taken (ci-flakes-3).
+  await f.page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
   await f.page.waitForFunction(() => !document.getElementById("trunk-strip"), undefined, { timeout: 15000 });
   await f.page.waitForTimeout(500);
   const left = await f.page.locator("#conversation-rail").boundingBox();
@@ -416,6 +418,7 @@ test("integration review: switched off on the server, a fresh window keeps no ga
     .observe(document.documentElement, { subtree: true, attributes: true, attributeFilter: ["class"] }));
   await f.page.reload();
   await f.page.locator("body.lx-ready").waitFor({ state: "attached" });
+  await f.page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
   await f.page.waitForTimeout(2500);
   assert.equal(await f.page.evaluate(() => globalThis.__stripSeen === true), false, "and the next load never draws or reserves it, not even for a moment");
 });
