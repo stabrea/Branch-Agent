@@ -37,7 +37,7 @@ export const SetupRequestSchema = z.union([
 ]);
 export type SetupRequest = z.infer<typeof SetupRequestSchema>;
 
-export const stages = ["checking", "starting", "downloading", "loading", "connecting", "done", "failed", "stopped"] as const;
+export const stages = ["checking", "installing", "starting", "downloading", "loading", "connecting", "done", "failed", "stopped"] as const;
 export type Stage = (typeof stages)[number];
 const JobSchema = z.object({
   id: z.string().max(80),

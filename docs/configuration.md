@@ -334,7 +334,7 @@ for a Google Cloud project.
 
 **What one click does** (`POST /api/local-models/setup`, with `{ "model": "qwen3-8b", "quant": "Q4_K_M" }` from the list, or `{ "name": "qwen3:8b" }`, and an optional `runtime`):
 
-1. Picks the program: the one asked for, or the first installed of Ollama, LM Studio, llama.cpp, MLX. Branch only looks for programs where they are normally installed (`candidatePaths` in `src/local-launch.ts`). **It never installs one**: when none is there, the answer is `needsRuntime` with each program's official page.
+1. Picks the program: the one asked for, or the first installed of Ollama, LM Studio, llama.cpp, MLX. Branch only looks for programs where they are normally installed (`candidatePaths` in `src/local-launch.ts`). When none is there, the answer is `needsRuntime` with each program's official page, and the one button below can install one for you if you let it.
 2. Judges the fit on **free** memory (`vm_stat` on a Mac, `MemAvailable` on Linux, Node's figure on Windows), the graphics (a card's own memory, or on Apple silicon the shared memory, capped by `sysctl iogpu.wired_limit_mb` when the owner set it), and the room for words: weights × 1.1 + the model's key/value cache for that context + 256 MB. The largest context from 32,768 down to 4,096 that fits well is chosen. A size that will not fit is refused unless `force` is sent.
 3. Checks the disk that will hold the model (`fs.statfs` on Ollama's `OLLAMA_MODELS` or `~/.ollama/models`, LM Studio's `~/.lmstudio/models`, or Branch's own `local-models/` folder), keeping 2 GB spare.
 4. Starts Ollama (`ollama serve`) or LM Studio (`lms daemon up`, `lms server start --port 1234`) if it is installed and not answering. On Linux, when Ollama is a system service, Branch says `sudo systemctl start ollama` instead of starting a second copy.
@@ -353,12 +353,29 @@ Routes, all under `/api/local-models`:
 | `POST /api/local-models/offers` | `{ "runtime": … }`: the list, with a fit and a context per size, for that program. |
 | `POST /api/local-models/search` | `{ "runtime", "query" }`. Hugging Face's search for LM Studio (GGUF), llama.cpp (GGUF) and MLX. Ollama's library has no search API, so for Ollama the query is looked up as an exact name in its registry, with its download size. |
 | `POST /api/local-models/setup`, `/setup/stop` | One click, and stopping it. |
+| `POST /api/local-models/one-button/plan` | What the one button would do, with nothing done: the program it would install (publisher, address, size, how it is checked, the exact commands) and a small, a middle and a large model sized for this computer. |
+| `POST /api/local-models/one-button` | The button itself: `{ "size": "small" \| "medium" \| "large", "agreedPlan": "<the plan's line>", "systemWide": false }`. |
+| `POST /api/local-models/install/switch` | `{ "mode": "off" \| "when-needed" \| "on" }` for `settings/local-runner-install`. |
+| Settings → Models → On this computer | `settings/local-runner-place`, `systemWide`: whether Branch may use a system installer, which puts the program outside Branch. No by default. |
 | `POST /api/local-models/unload` | `{ "runtime", "id" }`: Ollama `keep_alive: 0`, LM Studio `POST /api/v1/models/unload` with the instance id, or stopping the llama.cpp or MLX server Branch started. |
 | `POST /api/local-models/delete` | `{ "runtime", "id" }`: removes a downloaded model (and Ollama's sized copies, and the connection that used it) and says how much space it freed. LM Studio offers no delete route, so that one is refused with where to do it. |
 | `POST /api/local-models/runtime/start`, `/runtime/stop` | Starts an installed program; stops LM Studio's server or a program Branch started itself. |
 | `GET /api/local-models/downloads`, `POST /pull`, `/stop`, `/remove`, `/details`, `/load` | The earlier Ollama download routes and LM Studio load, kept for scripts; the changing ones also obey the switch. |
 | `GET` / `POST /api/local-models/routing` | Reads and saves the per-task routing rules (`settings/routing`). |
 | `POST /api/local-models/routing/preview` | Says which model would take a given task, and why, without running it. |
+
+**Installing the program itself** (`settings/local-runner-install`, `mode`, off by default; Settings → Models → On this computer → "Set one up for me"). This is the one place Branch changes your computer, so it has its own switch, it always asks first, and it is yours alone.
+
+One button takes a computer with nothing on it to a model that answers: install the program if it is missing, choose a model that fits, download it with progress, connect it, and ask it one small question to prove it works.
+
+- **Nothing happens until you say yes.** Pressing the button first shows what would be installed, who publishes it, the address it comes from, about how big the download is, how Branch checks it really is theirs, and the exact commands it would run. Your yes carries that plan's own line (`agreedPlan`) back, and only that exact plan then runs; if anything about it changed in between, Branch installs nothing and shows you the new one.
+- **It goes inside Branch (mac7/clean-uninstall).** Everything Branch fetches lands in Branch's own data folder, so that removing Branch takes it with it and nothing asks you for permissions of its own. Ollama comes from Ollama's own release as a plain archive — `Ollama-darwin.zip` on a Mac, `ollama-linux-<cpu>.tar.zst` on Linux, `ollama-windows-<cpu>.zip` on Windows — unpacked into `<data>/runners/ollama`, with its models in `<data>/models/ollama`. Branch reads the SHA-256 the publisher publishes beside the file and throws the download away if the two do not match; on a Mac it then asks macOS itself (`codesign --verify --strict`, `spctl --assess`) whether the program is signed by its publisher and notarised by Apple before the checked copy is put in place. No install script runs and nothing asks for your password on Linux, and no publisher's installer runs on Windows. Nothing installed this way registers a service, an entry that starts it when you sign in, or a file association: Branch runs the program straight out of that folder and never opens the bundle. Every command is an argument list; there is no shell line anywhere in this path.
+- **A program you already have is used as it is.** Branch looks in its own folder **last**, after the search path, Homebrew's folders, `/Applications` and `~/.lmstudio`, so a copy you installed yourself always wins and a second one is never installed. Its model library is left exactly where it is; only a copy Branch fetched is told to keep its models inside Branch (`OLLAMA_MODELS`).
+- **Where the models go, and how much room is left.** The card says the folder and how much space is free on that disk before anything is downloaded, and refuses with a plain sentence when the disk cannot take it (keeping 2 GB spare). On a Mac Branch asks Time Machine to skip the models folder (`tmutil addexclusion`, which needs no administrator), so gigabytes are not swept into a backup by surprise. That one step is advisory: if it does not take, the install still stands and the message says which hint was missed — a backup hint never decides whether a checked, unpacked program is thrown away.
+- **When a system installer is the only honest option.** LM Studio publishes no archive with a checksum, so it is installed with Homebrew (`brew install --cask lm-studio`) or winget (`winget install --id ElementLabs.LMStudio`); without either, Branch says so and points at lmstudio.ai rather than fetching it. You can also ask for a system-wide Ollama (`brew install ollama`, `winget install --id Ollama.Ollama`) by switching `settings/local-runner-place`, `systemWide`, on — no by default. Either way the card says plainly, before you agree, that the program will be **left behind when Branch is removed**, may ask you for permissions of its own and may start by itself when you sign in. Where it goes is part of the plan's own line, so a yes to the copy inside Branch is never a yes to the one outside it.
+- **What Branch will not do.** It never fetches anything unchecked. Downloads only ever come from `github.com`, `objects.githubusercontent.com`, `release-assets.githubusercontent.com` and `ollama.com`, each redirect checked again by hand. When a step fails, Branch says which step and what the program said, and stops: it never reports success it has not seen. After an install it looks the program up again the ordinary way and refuses to carry on if it is not really there.
+- **Choosing the model.** The three choices come from Branch's own list, sized for this computer by the same free-memory and graphics reading as the rest of this section, and only models that can use tools are offered. The suggested one is the largest that fits comfortably. Each says in plain words what it means here and how big the download is.
+- **Yours alone.** A message from a chat app, a short-lived key (which is also how another computer reaches this one), somebody else using this computer under their own profile, a Trunk, and work a schedule or a trigger started are each refused in one sentence, and while Lockdown is on nothing is installed whatever the switch says.
 
 **The list** is `data/local-models.json`: ten models, most in two or three sizes (Q4_K_M, Q8_0, F16, or gpt-oss's own MXFP4), each with its Ollama tag, Hugging Face GGUF file and SHA-256, and MLX repository where one exists, their sizes, whether it can use tools (a model that cannot is shown with a warning), and the figures the memory estimate needs. Sizes and hashes were read from the registries on 2026-09-17.
 
@@ -9101,6 +9118,61 @@ after it opens a picker of the connections.
 
 Nothing here differs by system. Cmd counts as Ctrl for the shortcuts on macOS. The sound is played by the window
 itself, not by a system program.
+
+## Removing Branch and everything it installed (mac7/clean-uninstall)
+
+Everything Branch fetches lives inside Branch, so deleting Branch takes all of it with it. The
+**danger zone** is the last card in Settings → Updates & about, marked in the warning colour, and it
+is the one place in the window that removes things that cannot be brought back.
+
+**What it shows, before anything goes.** A list with real sizes, walked on this computer at the
+moment you look: Branch Agent itself, the programs Branch downloaded to run models
+(`<data>/runners`), the models it downloaded (`<data>/models`, and the older `<data>/local-models`),
+downloads kept part-way through (`<data>/local-installers`), your conversations and settings, the
+entry that starts Branch when you sign in, the `branch` command, and on Linux the applications-menu
+entry. Underneath, **what Branch cannot remove**, each named with the honest reason: a copy of
+Branch its own installer did not put there (a Mac's shared `/Applications`), and any program that
+runs models that lives outside Branch, because a system installer put it there or because you
+installed it yourself. Branch leaves those alone and tells you where they are.
+
+**Two choices, not one.** *Keep my conversations and settings* keeps the folder holding your work;
+what Branch downloaded still goes, because gigabytes of models are Branch's doing, not yours. It
+starts ticked, and a request that leaves `keepConversations` out keeps them too: only unticking it
+(`false`) takes your conversations and settings with everything else.
+
+**A misclick cannot pass.** The button stays off until you have typed `Branch Agent`, exactly, and
+your yes carries back the exact list you were shown (`agreedSurvey`); if what is really there has
+changed since you looked, nothing is removed and you are shown the new list.
+
+**Yours alone.** A message from a chat app, a short-lived key (which is also how another computer
+reaches this one), somebody else using this computer under their own profile, a Trunk, and work a
+schedule or a trigger started are each refused in one sentence. Unlike installing, this is *not*
+held off by Lockdown or by the install switch: taking Branch off your own computer stays yours.
+
+**Only a copy an installer put in place.** The card offers nothing when Branch is running from a
+source folder (a `.git` beside its `package.json`) or when no copy sits where its installer puts
+one; it says so plainly instead. That is a fact about the files, not an environment variable, so a
+window opened from the Dock is treated the same as one started from the `branch` command.
+
+**It works while Branch is running.** The removal closes the running Branch (and the engine that
+keeps working with the window closed) first, waits until it has really gone, takes out the sign-in
+entry, and only then removes the files. It is the same remover as `branch uninstall [--delete-data]`
+on the command line — there is no second path — extended to the folders Branch fetches into. That
+command now also prints which of those folders went, so "your conversations and files are kept"
+cannot be read as "nothing inside that folder was touched".
+
+| Route | What it does |
+| --- | --- |
+| `POST /api/remove-branch/plan` | `{ "keepConversations": true }` (the default): the list with sizes, what cannot be removed, the phrase to type, and the list's own line. Describes only; changes nothing. |
+| `POST /api/remove-branch` | `{ "keepConversations": true, "confirm": "Branch Agent", "agreedSurvey": "<the list's line>" }`. |
+
+On Windows both answer with the plain sentence pointing at *Add or remove programs* or
+`Uninstall Branch Agent.cmd /quiet`, because that is how Windows removes a program.
+
+**Which version this is.** The Updates card (Settings → Updates & about) says in plain words what is
+running and whether a newer one exists — "Running 0.18.0, newest is 0.18.1", or "Running 0.18.0,
+which is the newest", or that Branch has not looked yet — from the same update check as before.
+Nothing installs itself: *Update and restart* is still a button you press.
 
 ## Learning, deeper (R17-F)
 

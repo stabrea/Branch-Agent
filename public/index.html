@@ -1234,6 +1234,8 @@
           <section id="updates-card" class="card" hidden>
             <h2 data-t="settings.card.updates">Updates</h2>
             <p id="updates-version" class="subtle"></p>
+            <!-- mac7/clean-uninstall: in plain words, what is running and what the newest one is. -->
+            <p id="updates-newest" class="subtle"></p>
             <p id="updates-status" role="status"></p>
             <div id="updates-progress" class="progress" hidden><div id="updates-bar" class="progress-bar"></div></div>
             <div class="identity-actions">
@@ -1744,6 +1746,25 @@
               <button data-t="action.save-model-connection">Save model connection</button>
             </fieldset>
           </form>
+          <!-- mac7/clean-uninstall: the danger zone, last in Settings, like the delete-account area
+               in other products. It shows what would go before anything goes. -->
+          <section id="danger-zone" class="card danger-zone" data-home="settings:about">
+            <h2 data-t="danger.card.title">Danger zone</h2>
+            <p class="subtle" data-t="danger.intro">Removing Branch closes it, takes away the app, the programs it downloaded to run models, the models themselves, and the entry that starts it when you sign in. Nothing here can be undone.</p>
+            <p id="danger-status" role="status"></p>
+            <div id="danger-list" class="card-list"></div>
+            <p id="danger-total" class="subtle"></p>
+            <div id="danger-left"></div>
+            <label class="checkbox-row" for="danger-keep">
+              <input id="danger-keep" type="checkbox" checked />
+              <span data-t="danger.field.keep">Keep my conversations and settings</span>
+            </label>
+            <label for="danger-confirm" data-t="danger.field.confirm">Type Branch Agent to confirm</label>
+            <input id="danger-confirm" type="text" maxlength="60" autocomplete="off" spellcheck="false" />
+            <div class="identity-actions">
+              <button id="danger-remove" type="button" class="danger-button" disabled data-t="danger.action.remove">Remove Branch and everything it installed</button>
+            </div>
+          </section>
         </section>
       </div>
       <div id="toast" role="status" aria-live="polite" hidden></div>
@@ -1893,6 +1914,7 @@
     <script src="/skills-extra.js" type="module"></script>
     <script src="/local-models.js" type="module"></script>
     <script src="/local-oneclick.js" type="module"></script>
+    <script src="/danger-zone.js" type="module"></script>
     <!-- Wave 6. i18n loads first so every later module reads the chosen language. -->
     <script src="/web-ui.js" type="module"></script>
     <script src="/misc.js" type="module"></script>

@@ -546,7 +546,12 @@ export const ROUTES = {
   "/api/local-models/delete": "owner POST",
   "/api/local-models/details": "other POST",
   "/api/local-models/downloads": "look",
+  // mac7/one-click (issue #107): installing the program that runs the models is the owner's alone.
+  "/api/local-models/install": "prefix",
+  "/api/local-models/install/switch": "owner POST",
   "/api/local-models/load": "owner POST",
+  "/api/local-models/one-button": "owner POST",
+  "/api/local-models/one-button/plan": "owner POST",
   "/api/local-models/offers": "other POST",
   "/api/local-models/pull": "owner POST",
   "/api/local-models/remove": "owner POST",
@@ -759,6 +764,10 @@ export const ROUTES = {
   "/api/queue/:id/cancel": "task POST",
   "/api/queue/settings": "owner POST",
   "/api/receipts/verify": "task POST",
+  // mac7/clean-uninstall: the danger zone. Describing what would go names every folder on this
+  // computer with its size, and doing it removes Branch, so both are the owner's alone.
+  "/api/remove-branch": "owner POST",
+  "/api/remove-branch/plan": "owner POST",
   "/api/recordings": "owner POST",
   "/api/reflection": "look",
   "/api/reflection/batches/:id/accept": "other POST",

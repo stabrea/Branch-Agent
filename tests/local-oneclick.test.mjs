@@ -205,7 +205,7 @@ test("R1 each program is looked for where each system keeps it", () => {
 });
 
 test("R1 starting a program is an exact argument list, and Linux's Ollama service is left to the owner", () => {
-  assert.deepEqual(startPlan("ollama", "/usr/bin/ollama", {}, at.darwin), { commands: [], serve: ["/usr/bin/ollama", "serve"], instead: null });
+  assert.deepEqual(startPlan("ollama", "/usr/bin/ollama", {}, at.darwin), { commands: [], serve: ["/usr/bin/ollama", "serve"], instead: null, env: {} });
   assert.deepEqual(startPlan("ollama", "C:\\o\\ollama.exe", {}, at.win32).serve, ["C:\\o\\ollama.exe", "serve"]);
   const service = startPlan("ollama", "/usr/bin/ollama", {}, at.linux, true);
   assert.equal(service.serve, null);

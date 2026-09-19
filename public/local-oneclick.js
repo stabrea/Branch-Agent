@@ -159,6 +159,105 @@ function searchResults(found, runtime) {
   });
 }
 
+/* ---------------------------------------------- mac7/one-click (issue #107): the one button */
+
+let buttonPlan = null;
+
+/** The switch that says whether Branch may install a program that runs models. Ships off. */
+function installSwitch(mode) {
+  const label = keyed("label", "field.local-install-switch");
+  label.htmlFor = "local-install-mode";
+  const select = el("select");
+  select.id = "local-install-mode";
+  select.dataset.tTitle = "field.local-install-switch-title";
+  select.title = t(select.dataset.tTitle);
+  for (const [value, key] of positions) {
+    const option = keyed("option", key);
+    option.value = value;
+    option.selected = value === mode;
+    select.append(option);
+  }
+  select.addEventListener("change", () => {
+    buttonPlan = null;
+    void act("local-models/install/switch", { mode: select.value }, "local.oneclick.saved");
+  });
+  return [label, select, keyed("p", "local.install.switch-note", "field-note")];
+}
+
+/** What would be installed, in plain words, with the exact commands Branch would run. */
+function planDetail(plan) {
+  const nodes = [keyed("p", "local.install.what", "local-detail", { name: plan.name, publisher: plan.publisher }),
+    keyed("p", "local.install.from", "local-detail", { source: plan.source, size: gb(plan.approxBytes) }),
+    keyed("p", "local.install.checked", "local-detail", { how: plan.verify })];
+  for (const step of plan.steps) {
+    const line = el("div", undefined, "local-detail");
+    line.append(el("code", step.command.join(" ")));
+    nodes.push(line);
+  }
+  if (plan.after) nodes.push(keyed("p", "local.install.after", "local-detail", { after: plan.after }));
+  /*
+   * mac7/clean-uninstall: where it goes, and — when it goes outside Branch — the plain warning that
+   * removing Branch will not take it away. Said here, on the card, before the owner agrees.
+   */
+  if (plan.where) nodes.push(keyed("p", "local.install.inside", "local-detail", { where: plan.where }));
+  if (plan.leavesBehind) nodes.push(keyed("p", "local.install.leaves-behind", "local-warning", { why: plan.leavesBehindNote }));
+  return nodes;
+}
+
+/** The three sizes, with what each one means for this computer. */
+function choiceRow(choice, onPick, recommended) {
+  const row = el("div", undefined, "local-variant");
+  row.append(keyed("span", `local.size.${choice.size === "medium" ? "balanced" : choice.size === "large" ? "full" : "small"}`, "meta"));
+  row.append(el("strong", `${choice.name} ${choice.quant}`));
+  const badge = keyed("span", `local.fit.${choice.fit}`, "local-fit");
+  badge.dataset.fit = choice.fit;
+  row.append(badge);
+  row.append(keyed("span", "local.install.guidance", "local-detail", { guidance: choice.guidance, size: gb(choice.downloadBytes) }));
+  const pick = button(recommended ? "action.local-install-go-suggested" : "action.local-install-go", () => onPick(choice.size));
+  pick.dataset.tTitle = "action.local-install-go-title";
+  pick.title = t(pick.dataset.tTitle);
+  row.append(pick);
+  return row;
+}
+
+async function pressButton(body) {
+  const answer = await api("local-models/one-button", body).catch((error) => { toast(error.message); return null; });
+  if (!answer) return;
+  toast(answer.message);
+  // The plan changed between reading it and pressing: show the new one rather than install anything.
+  buttonPlan = answer.needsAgreement ? await api("local-models/one-button/plan", {}).catch(() => null) : null;
+  await drawOneClick();
+}
+
+/** The whole "do it all for me" block: the switch, the button, and what it would do. */
+function oneButtonBlock(view) {
+  const nodes = [keyed("h3", "local.section.one-button"), ...installSwitch(view.installMode)];
+  const show = button("action.local-one-button", async () => {
+    const answer = await api("local-models/one-button/plan", {}).catch((error) => { toast(error.message); return null; });
+    if (!answer) return;
+    buttonPlan = answer;
+    await drawOneClick();
+  });
+  show.dataset.tTitle = "action.local-one-button-title";
+  show.title = t(show.dataset.tTitle);
+  nodes.push(show);
+  const shown = buttonPlan;
+  if (!shown) return nodes;
+  const plan = shown.install ?? null;
+  if (shown.refusal) nodes.push(keyed("p", "local.install.refused", "local-warning", { why: shown.refusal }));
+  else if (plan) nodes.push(...planDetail(plan));
+  else nodes.push(keyed("p", "local.install.already", "local-detail", { name: shown.name ?? "" }));
+  // mac7/clean-uninstall: where the models will go and how much room is left, before downloading.
+  if (!shown.refusal && shown.modelsFolder)
+    nodes.push(keyed("p", shown.freeBytes === null ? "local.install.room-unknown" : "local.install.room", "local-detail",
+      { where: shown.modelsFolder, free: gb(shown.freeBytes ?? 0) }));
+  const choices = shown.choices ?? [];
+  const onPick = (size) => void pressButton({ size, ...(plan ? { agreedPlan: plan.fingerprint } : {}) });
+  for (const choice of choices) nodes.push(choiceRow(choice, onPick, choice.size === shown.recommended));
+  if (!choices.length) nodes.push(keyed("p", "local.offers.empty", "empty-state"));
+  return nodes;
+}
+
 function setupItem(job) {
   const node = el("div", undefined, "item");
   node.append(el("h3", job.label));
@@ -219,7 +318,7 @@ export async function drawOneClick() {
   }
   const one = view.oneClick;
   const { nodes: programNodes, current } = runtimeRow(one);
-  nodes.push(...programNodes, roomLine(one.room));
+  nodes.push(...programNodes, roomLine(one.room), ...oneButtonBlock({ ...one, installMode: view.installMode }));
   const offers = chosenRuntime && chosenRuntime !== one.chosen
     ? (await api("local-models/offers", { runtime: current.id }).catch(() => ({ offers: [] }))).offers : one.offers;
   nodes.push(...section("local.section.setups", one.setups.map(setupItem), "local.setups.empty"));
