@@ -90,6 +90,7 @@ function levelBox() {
   const box = make("div", "sg-level");
   box.append(worded("p", "sg-level-label", "settingsGrown.level.label", "How much to show"));
   const group = make("div", "sg-level-seg");
+  group.id = "sg-level-seg";
   group.setAttribute("role", "radiogroup");
   group.setAttribute("aria-label", say("settingsGrown.level.label", "How much to show"));
   for (const level of LEVELS) {

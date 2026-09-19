@@ -145,9 +145,11 @@ test("S2 every setting has a real control, where the audit says it lives", async
   assert.deepEqual(astray, [], "these controls are not where the audit says they live");
   /* Rows added since the audit point at a real control too, at the home they give. */
   const windowsOnly = new Set(["addons-windows-without-wall"]);
+  /* How much to show sits in the Settings list itself, beside every page rather than on one. */
+  const inTheList = new Set(["sg-level-seg"]);
   const since = SETTINGS_INDEX.filter((row) => !INVENTORY.some((s) => s.id === row[0]) && !(windowsOnly.has(row[0]) && process.platform !== "win32"));
   assert.ok(since.length >= 8, "the settings added at integration are in the index");
-  assert.deepEqual(since.filter((row) => where[row[0]] !== row[1]).map((row) => `${row[0]}: ${where[row[0]]} (index: ${row[1]})`), [],
+  assert.deepEqual(since.filter((row) => where[row[0]] !== (inTheList.has(row[0]) ? "elsewhere" : row[1])).map((row) => `${row[0]}: ${where[row[0]]} (index: ${row[1]})`), [],
     "these settings added since the audit have no control where the index says");
   assert.deepEqual(f.errors, []);
 });
@@ -471,10 +473,6 @@ const NOT_IN_SEARCH = {
   writtenByBranch: [
     "AnalyticsSettings.decidedAt", "AnalyticsSettings.lastSentAt", "BriefSettings.nextAt", "BriefSettings.lastSentAt",
     "AttachSettings.runId", "AttachSettings.grantedAt", "ConsolidationSettings.lastRunAt", "RelaySettings.machineId",
-  ],
-  /* How much to show: the level itself, at the foot of the Settings list on every page. */
-  inTheSettingsList: [
-    "Preferences.settingsLevel",
   ],
   /* Switches beside the message box (the More menu), not on a Settings page. */
   besideTheMessageBox: [

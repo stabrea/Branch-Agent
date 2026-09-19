@@ -555,4 +555,5 @@ export const SETTINGS_INDEX = [
   ["delight-pet-on","settings:appearance","delight-pet-card","Show a pet in the corner","delight.pets.on",null,"A pet",true],
   ["delight-ach-on","settings:appearance","delight-ach-card","Show achievements","delight.achievements.on",null,"Achievements",true],
   ["delight-bg-on","settings:appearance","delight-bg-card","Use my own background","delight.background.on",null,"Your own background",true],
+  ["sg-level-seg","settings:general",null,"How much to show: Regular, Advanced or Technical","preferences.settingsLevel","#sg-level-seg","How much to show",true],
 ];
