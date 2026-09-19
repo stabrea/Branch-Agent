@@ -3985,15 +3985,20 @@ short-lived key and a chat app never see them or change them.
   the rank (*Keep things still* shows the card without them). Locked ones give less away the higher
   they are: Gold hides its description, Diamond its name, Godly and SSS+ everything. They are kept in
   Branch's own settings on this computer and are never sent anywhere. While achievements are off,
-  nothing the window sees is written down. Fields: `on` (default `false`), `quiet` (default `false`:
+  nothing the window sees is written down. The events Branch writes for every task are counted a
+  batch at a time (25,000 per look, kept with the achievements as `scan`), so a long history never
+  stops Branch while it is counted; what that past brings arrives quietly, and `GET
+  /api/delight/achievements` says `behind: true` until it is all counted. Fields: `on` (default `false`), `quiet` (default `false`:
   earned without any pop-up).
 - **Your own background** (`background`) — a picture, a video, an animation (GIF, WebP or APNG) or
   a 3D object behind the glass instead of the oak. The 3D object is one of Branch's own (the acorn
   or the oak, drawn in the theme's colours and turning slowly) or a `.glb` model of your own: its
   shapes and base colours are drawn by Branch's own small WebGL drawer (no library, nothing
   fetched); textures and compressed models are not read, and a model that cannot be read is
-  refused in plain words. The file is kept in the window's own storage (IndexedDB) on this computer
-  and never reaches Branch's server or anywhere else. Pictures and animations up to 8 MB, videos up
+  refused in plain words (a `.glb` is checked piece by piece against the file and may hold at most
+  300,000 corners, 10,000 parts and 4,096 nodes). The file is kept in the window's own storage
+  (IndexedDB) on this computer and never reaches Branch's server or anywhere else; switching the
+  background off removes it from that storage, and a full disk is said in plain words. Pictures and animations up to 8 MB, videos up
   to 25 MB, 3D models up to 5 MB; anything else is refused in plain words. A scrim in the theme's ground
   colour lies over it so text stays readable in every theme. A video pauses for *Keep things still*
   and while the window is hidden. Fields: `on` (default `false`), `scrim` (20–90, how strongly the
@@ -4005,7 +4010,9 @@ short-lived key and a chat app never see them or change them.
 
 The window's page is allowed to show a `blob:` picture or video it made itself (`img-src` and
 `media-src` in its content security policy), which is how the background is shown without being
-sent anywhere.
+sent anywhere. It is allowed for pictures and sound or video only, never for scripts, workers,
+frames, objects or connections, and it stays allowed whether or not the background is on: answers
+read aloud are played as `blob:` sound as well.
 
 Routes (every one the owner's alone, at this computer's own window):
 
