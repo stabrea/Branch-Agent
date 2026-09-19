@@ -511,6 +511,7 @@ html:root[data-hide~="model"] body.lx .lx-model-chip,
 html:root[data-hide~="usage"] body.lx #status-bar,
 html:root[data-hide~="foot"] body.lx .composer-foot,
 html:root[data-hide~="acorn"] body.lx .acorn-art,
+html:root[data-hide~="pet"] body.lx #pet-lane,
 html:root[data-hide~="strip"] body.lx #trunk-strip {
   display: none !important;
 }

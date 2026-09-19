@@ -67,6 +67,9 @@ Found and fixed (tests in `tests/panels.test.mjs`):
 - **Settings unreachable on a phone.** With the title bar (or the side-list button and More) hidden at 390 px,
   the side list could not be opened and no gear showed: Settings was gone. The gear now shows whenever Settings
   cannot be reached, and on a phone it sat over the message box's corner; it now sits just above the box.
+- **p2-delight landed on trunk during this review**: "It's lonely over here" is now tested end to end (achievements
+  on, everything hidden, the server records `noticed:flag:lonely:1`). The acorn moved to the side list's corner, so
+  its row moved to "The side list" group, and the pet (`#pet-lane`) joined the list.
 - **p2-shell's Trunks strip** (landed on trunk during this review): with everything hidden it still showed, on a
   phone it lifted the message box so the floating panel covered the text field (the no-cover test caught it),
   and the corner gear sat on it. It is now on the What's on screen list ("Your computers and Trunks (the strip)";

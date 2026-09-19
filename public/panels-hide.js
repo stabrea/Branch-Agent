@@ -55,7 +55,8 @@ export const HIDE = [
   ["model", "onscreen.model", "The model chip", ".lx-model-chip", "box"],
   ["usage", "onscreen.usage", "The usage ring", "#status-bar", "box"],
   ["foot", "onscreen.foot", "The line under the box", ".composer-foot", "box"],
-  ["acorn", "onscreen.acorn", "The acorn", ".acorn-art", "box"],
+  ["acorn", "onscreen.acorn", "The acorn", ".acorn-art", "side"], // integrate/p2-panels: phase2/delight moved it to the side list's corner
+  ["pet", "onscreen.pet", "The pet, when one is switched on", "#pet-lane", "side"], // integrate/p2-panels: phase2/delight
 ];
 const GROUPS = [["frame", "onscreen.group.frame", "The frame"], ["side", "onscreen.group.side", "The side list"],
   ["title", "onscreen.group.title", "The title bar"], ["middle", "onscreen.group.middle", "The conversation"],

@@ -487,3 +487,24 @@ test("on a phone, hiding the title bar (where the side list opens) leaves the ge
   assert.equal(await f.page.locator("#panels-float-gear").count(), 0, "a wide window keeps Settings in the side list");
   assert.deepEqual(f.errors, []);
 });
+
+test("with achievements on, hiding everything earns \"It's lonely over here\" (phase2/delight)", async (t) => {
+  const f = await windowFixture(t, { seeded: false });
+  const lonely = async () => (await f.call("/api/delight/achievements")).list?.find((a) => a.id === "noticed:flag:lonely:1");
+  assert.equal(await lonely(), undefined, "achievements are off, so there is no list");
+  await f.call("/api/delight/settings", { achievements: { on: true } });
+  await f.page.reload(); // the window reads the switch when it starts
+  await f.page.locator("body.lx-ready").waitFor({ state: "attached" });
+  await f.page.waitForFunction(() => globalThis.branchOnscreen);
+  assert.equal((await lonely()).got, undefined, "not earned yet");
+  await f.look({ hidden: await f.page.evaluate(() => globalThis.branchOnscreen.ids()) });
+  await f.page.locator("#panels-float-gear").waitFor();
+  let got = false;
+  for (let tries = 0; !got && tries < 50; tries += 1) {
+    got = Boolean((await lonely())?.got);
+    if (!got) await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  assert.equal(got, true, "hiding everything is noticed and earned");
+  assert.equal((await lonely()).name, "It's lonely over here");
+  assert.deepEqual(f.errors, []);
+});
