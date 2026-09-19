@@ -22,7 +22,7 @@ import { call, fixture, on } from "./trunks-helpers.mjs";
 
 test("every part ships off, says so in one sentence, and advertises nothing", async (t) => {
   const { app } = await fixture(t);
-  assert.deepEqual(app.trunks.modes(), { trunks: "off", rooms: "off", messages: "off", routines: "off", teach: "off" });
+  assert.deepEqual(app.trunks.modes(), { trunks: "off", rooms: "off", messages: "off", routines: "off", teach: "off", conversations: "off" }); // phase2/rooms
   assert.throws(() => app.trunks.create({ name: "Ada" }), /Trunks, your named assistants is switched off/);
   assert.equal(app.registry.names().includes("trunk.message"), false);
   // A part cannot be on while Trunks themselves are off.

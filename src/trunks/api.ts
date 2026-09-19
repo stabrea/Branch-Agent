@@ -22,8 +22,31 @@ export interface TrunksHttpDeps {
 const SwitchSchema = z.object({ part: TrunkPartSchema, mode: z.enum(["off", "when-needed", "on"]) }).strict();
 const TextSchema = z.object({ text: z.string().trim().min(1).max(16000) }).strict();
 const trunkPath = /^\/api\/trunks\/([a-f0-9-]{36})(?:\/(remove|say|seen|retire|avatar|export|keys|routines|watch|teach))?$/;
-const roomPath = /^\/api\/trunks\/rooms\/([a-f0-9-]{36})(?:\/(remove|send|stop|answer))?$/;
+const roomPath = /^\/api\/trunks\/rooms\/([a-f0-9-]{36})(?:\/(remove|send|stop|answer|revoke))?$/; // phase2/rooms: revoke
 const routinePath = /^\/api\/trunks\/routines\/([a-f0-9-]{36})\/remove$/;
+/** phase2/rooms: who answers in a conversation (src/trunks/conversations.ts). */
+const conversationPath = /^\/api\/trunks\/conversations(?:\/([a-f0-9-]{36})(?:\/(room))?)?$/;
+
+async function conversationRoute(deps: TrunksHttpDeps, id: string | undefined, action: string | undefined): Promise<unknown> {
+  const { trunks } = deps, post = deps.method === "POST";
+  trunks.require("trunks");
+  if (!id) {
+    if (!post) return undefined;
+    trunks.require("conversations");
+    return trunks.startConversation(await deps.readBody());
+  }
+  if (!post) return trunks.conversations.info(id);
+  if (!action) {
+    // Integration review: giving a conversation back to your assistant works with the switch off too,
+    // so a Trunk chosen before it was switched off never holds the conversation for good.
+    const body = await deps.readBody();
+    if ((body as { trunkId?: unknown } | null)?.trunkId !== null) trunks.require("conversations");
+    return trunks.conversations.choose(id, body);
+  }
+  trunks.require("conversations");
+  trunks.require("rooms");
+  return { room: trunks.conversations.room(id, await deps.readBody()) };
+}
 
 function overview(trunks: Trunks) {
   const modes = trunks.modes();
@@ -87,12 +110,17 @@ async function roomRoute(deps: TrunksHttpDeps, id: string, action: string | unde
   if (action === "remove") return rooms.remove(id);
   if (action === "send") return rooms.send(id, await deps.readBody());
   if (action === "stop") return rooms.stop(id);
+  if (action === "revoke") return rooms.revoke(id, await deps.readBody()); // phase2/rooms (integration review)
   return { answered: rooms.answer(id, await deps.readBody()) };
 }
+
+const notFound = (): never => { throw new TrunksHttpError(404, "There is nothing at that address"); };
 
 /** Answers one request under /api/trunks. */
 export async function trunksApi(deps: TrunksHttpDeps, path: string): Promise<unknown> {
   try {
+    const conversation = conversationPath.exec(path); // phase2/rooms
+    if (conversation) return await conversationRoute(deps, conversation[1], conversation[2]) ?? notFound();
     const room = roomPath.exec(path);
     const trunk = room ? null : trunkPath.exec(path);
     const answer = room ? await roomRoute(deps, room[1]!, room[2])
