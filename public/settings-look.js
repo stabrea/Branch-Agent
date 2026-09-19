@@ -101,17 +101,44 @@ function prepare(frame) {
   doc.body.dataset.ready = "1";
   return doc;
 }
+/* Pictures already on screen, kept as data: the server answers every file "no-store", so a copy that named
+   them again would fetch them again at every redraw (integration review). */
+const pictures = new Map();
+function pictureOf(img) {
+  if (pictures.has(img.src)) return pictures.get(img.src);
+  if (!img.complete || !img.naturalWidth) return null;
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    canvas.getContext("2d").drawImage(img, 0, 0);
+    pictures.set(img.src, canvas.toDataURL());
+  } catch { pictures.set(img.src, null); }
+  return pictures.get(img.src);
+}
+/** Each copied picture shows the one on screen, or nothing; never a second request for it. */
+function keepPictures(pane, copy) {
+  const originals = pane.querySelectorAll("img"), copies = copy.querySelectorAll("img");
+  copies.forEach((img, at) => {
+    const data = originals[at] ? pictureOf(originals[at]) : null;
+    img.removeAttribute("srcset");
+    if (data) img.src = data; else img.removeAttribute("src");
+  });
+}
 /**
  * The window's panes as they are now, without hidden parts or anything that runs. The copy keeps its ids
- * so the same rules dress it; it lives in the frame's own document, where no id or name can clash.
+ * so the same rules dress it; it lives in the frame's own document, where no id or name can clash. It is
+ * cloned here, where a picture on screen is already loaded, and only moved into the frame once its
+ * pictures are data, so the frame never asks the server for one.
  */
 function copyPanes(doc) {
   const panes = [...document.querySelectorAll("body > .rail, body > main, body > .context-panel")].filter((pane) => pane.checkVisibility());
   return panes.map((pane) => {
-    const copy = doc.importNode(pane, true);
+    const copy = pane.cloneNode(true);
+    keepPictures(pane, copy);
     for (const node of [...copy.querySelectorAll("[hidden], script, iframe, video, audio, canvas, dialog")]) node.remove();
     for (const field of copy.querySelectorAll("input, textarea, button, select")) field.disabled = true;
-    return copy;
+    return doc.adoptNode(copy);
   });
 }
 /** Dresses a mirror in a theme for its own light or dark. */

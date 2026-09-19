@@ -668,3 +668,23 @@ test("S19 in French, a setting found elsewhere is named in French, from the word
   assert.equal(await row.textContent(), french);
   assert.deepEqual(f.errors, []);
 });
+
+/* ---------- S20: the mirrors never ask the server for anything again as they redraw ---------- */
+test("S20 the mirrors redraw without a single request of their own, pictures included", async (t) => {
+  const f = await fixture(t);
+  await openSettings(f.page, "appearance");
+  await f.page.waitForFunction(() => [...document.querySelectorAll(".sg-mirror iframe")].every((frame) => frame.contentDocument?.body?.children.length > 0));
+  await f.page.waitForTimeout(1500);
+  const asked = [];
+  f.page.on("request", (request) => { if (request.frame() !== f.page.mainFrame()) asked.push(request.url()); });
+  for (let round = 0; round < 3; round++) {
+    await f.page.evaluate((n) => { const note = document.createElement("p"); note.textContent = `change ${n}`; document.querySelector("body > main").append(note); }, round);
+    await f.page.waitForTimeout(1300);
+  }
+  const copies = await f.page.evaluate(() => [...document.querySelectorAll(".sg-mirror iframe")].map((frame) => frame.contentDocument.body.textContent.includes("change 2")));
+  assert.deepEqual(copies, [true, true], "the mirrors did not redraw");
+  assert.deepEqual(asked, [], "a mirror asked the server for something as it redrew");
+  const pictures = await f.page.evaluate(() => [...document.querySelector(".sg-mirror iframe").contentDocument.querySelectorAll("img[src]")].map((img) => img.getAttribute("src").slice(0, 5)));
+  assert.ok(pictures.every((src) => src === "data:"), "a copied picture still names a file");
+  assert.deepEqual(f.errors, []);
+});
