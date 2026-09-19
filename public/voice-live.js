@@ -24,6 +24,14 @@ let socket = null;
 let microphone = null;
 let player = null;
 let nextPlayAt = 0;
+/* phase2/rooms: the voice view (public/voice-view.js) listens in. Mute holds the sound back on this
+   computer; the two meters are read from the real sound, going up and coming back, never made up. */
+let muted = false;
+let inputMeter = null;
+let outputMeter = null;
+function tell(kind, detail) {
+  if (typeof document !== "undefined") document.dispatchEvent(new CustomEvent(kind, { detail }));
+}
 
 function show(next) {
   state = next;
@@ -31,6 +39,7 @@ function show(next) {
   if (row) { row.textContent = statusFor[state]; row.hidden = state === "idle"; }
   const button = $("voice-live");
   if (button) button.textContent = state === "idle" ? "Talk live" : state === "speaking" ? "Cut in" : "Stop";
+  tell("branch-live-state", { state }); // phase2/rooms
 }
 
 /* ---------- sound in: the microphone, turned into PCM16 as it is spoken ---------- */
@@ -60,9 +69,12 @@ async function openMicrophone(send) {
   const context = new AudioContext({ sampleRate: 16000 });
   await context.audioWorklet.addModule(URL.createObjectURL(new Blob([workletSource], { type: "text/javascript" })));
   const node = new AudioWorkletNode(context, "branch-mic");
-  node.port.onmessage = (event) => send(toPcm16(event.data).buffer);
-  context.createMediaStreamSource(stream).connect(node);
-  return { close: () => { stream.getTracks().forEach((track) => track.stop()); void context.close(); } };
+  node.port.onmessage = (event) => { if (!muted) send(toPcm16(event.data).buffer); }; // phase2/rooms: Mute
+  const source = context.createMediaStreamSource(stream);
+  inputMeter = context.createAnalyser(); // phase2/rooms
+  source.connect(inputMeter);
+  source.connect(node);
+  return { close: () => { inputMeter = null; stream.getTracks().forEach((track) => track.stop()); void context.close(); } };
 }
 
 /* ---------- sound out: each block played in the order it arrived ---------- */
@@ -79,13 +91,15 @@ function play(pcm16) {
   for (let i = 0; i < pcm16.length; i++) channel[i] = pcm16[i] / 0x8000;
   const source = player.createBufferSource();
   source.buffer = buffer;
-  source.connect(player.destination);
+  if (!outputMeter) { outputMeter = player.createAnalyser(); outputMeter.connect(player.destination); } // phase2/rooms
+  source.connect(outputMeter);
   nextPlayAt = Math.max(nextPlayAt, player.currentTime);
   source.start(nextPlayAt);
   nextPlayAt += buffer.duration;
 }
 function stopPlaying() {
   if (player) { void player.close(); player = null; }
+  outputMeter = null; // phase2/rooms
   nextPlayAt = 0;
 }
 
@@ -123,11 +137,12 @@ function receive(data) {
   if (payload.kind === "voice.live.refused" || payload.kind === "voice.live.problem") { say(body.message); end(body.message); return; }
   if (payload.kind === "voice.live.transcript") { transcript(body); return; }
   if (payload.kind === "voice.live.capped") { say(body.sentence); return; }
-  if (payload.kind === "voice.live.tool" && body.decision === "ask") say("It wants to do something — answer the question on screen.");
+  if (payload.kind === "voice.live.tool" && body.decision === "ask") { say("It wants to do something — answer the question on screen."); tell("branch-live-ask", body); }
   if (payload.kind === "voice.live.ended") end(body.reason);
 }
 /** What either side said, put in the conversation the moment a whole sentence has been heard. */
 function transcript(part) {
+  tell("branch-live-transcript", { who: part.who === "person" ? "you" : "them", text: String(part.text ?? ""), final: Boolean(part.final) }); // phase2/rooms
   if (!part.final) return;
   globalThis.branchAddSpokenMessage?.(part.who === "person" ? "user" : "assistant", part.text);
 }
@@ -157,6 +172,7 @@ function end(reason) {
   if (state === "idle") return;
   microphone?.close();
   microphone = null;
+  muted = false; // phase2/rooms
   stopPlaying();
   try { socket?.close(); } catch { /* already gone */ }
   socket = null;
@@ -179,6 +195,23 @@ globalThis.branchShowLive = function branchShowLive(picture) {
   return true;
 };
 globalThis.branchLiveState = () => state;
+/** phase2/rooms: how loud each side is right now (0 to 1), from the sound itself. */
+function loudness(meter) {
+  if (!meter) return 0;
+  const data = new Uint8Array(meter.fftSize);
+  meter.getByteTimeDomainData(data);
+  let sum = 0;
+  for (const value of data) sum += ((value - 128) / 128) ** 2;
+  return Math.min(1, Math.sqrt(sum / data.length) * 3);
+}
+/** phase2/rooms: what the voice view (public/voice-view.js) may do: the same press, stop, and Mute. */
+globalThis.branchLive = {
+  press: () => press(),
+  stop: () => { if (state !== "idle") stop(); },
+  mute: (on) => { muted = Boolean(on); return muted; },
+  muted: () => muted,
+  levels: () => ({ input: muted ? 0 : loudness(inputMeter), output: loudness(outputMeter) }),
+};
 
 /* ---------- showing the button at all ---------- */
 
@@ -189,7 +222,8 @@ export async function refreshLiveButton() {
   try {
     const response = await fetch("/api/voice/plan", { headers: { authorization: "Bearer " + token() } });
     const plan = await response.json();
-    button.hidden = !(plan.live?.available === true);
+    // phase2/rooms: never in a room or a conversation a Trunk answers in (the server refuses it there too).
+    button.hidden = !(plan.live?.available === true) || globalThis.branchRooms?.liveAllowed?.() === false;
     button.title = plan.live?.reason ?? button.title;
   } catch { button.hidden = true; }
 }

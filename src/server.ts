@@ -638,6 +638,8 @@ async function staticFile(
     "/conversation-mode.js": ["conversation-mode.js", "text/javascript; charset=utf-8"],
     "/rooms.js": ["rooms.js", "text/javascript; charset=utf-8"], // phase2/rooms
     "/rooms.css": ["rooms.css", "text/css; charset=utf-8"], // phase2/rooms
+    "/voice-bar.js": ["voice-bar.js", "text/javascript; charset=utf-8"], // phase2/rooms
+    "/voice-view.js": ["voice-view.js", "text/javascript; charset=utf-8"], // phase2/rooms
     "/suggestions.js": ["suggestions.js", "text/javascript; charset=utf-8"],
     "/glass-select.js": ["glass-select.js", "text/javascript; charset=utf-8"],
     "/playground.js": ["playground.js", "text/javascript; charset=utf-8"],

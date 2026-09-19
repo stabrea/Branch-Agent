@@ -67,6 +67,7 @@ async function refresh() {
   paintHero();
   if (inRoom()) await drawRoom();
   else { leaveRoom(); signReplies(); }
+  document.dispatchEvent(new CustomEvent("branch-rooms-changed", { detail: { kind: kind() } }));
 }
 
 /* ---------- faces ---------- */
@@ -664,7 +665,8 @@ function signReplies() {
 }
 
 /* ---------- starting, and staying current ---------- */
-globalThis.branchRooms = { handlesMentions, refresh, openRoom: (id) => openRoom(id) };
+/* Talk live runs its tools as your assistant, so it is only for a conversation your assistant answers. */
+globalThis.branchRooms = { handlesMentions, refresh, openRoom: (id) => openRoom(id), liveAllowed: () => kind() === "plain" };
 globalThis.branchOpenRoom = (id) => (on("rooms") ? openRoom(id) : false);
 function watch() {
   const box = $("conversation");
