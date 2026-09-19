@@ -276,3 +276,82 @@ test("obsidian.read does not read a tagged note in a refused folder when the not
   assert.match(text(completed?.data.result), new RegExp(openText));
   assert.doesNotMatch(text(completed?.data.result), new RegExp(secretText));
 });
+
+// ------------------------------------------------------------------ the check itself
+
+test("the check: a broad question already answered for the walk does not hide anything; a question about one folder does", async () => {
+  const { walkCheck, WalkRules } = await import("../dist/walk-rules.js");
+  const { PolicySchema } = await import("../dist/policy.js");
+  const { resourceOf } = await import("../dist/policy-resources.js");
+  const check = (rules, scope = "") => walkCheck({ policy: PolicySchema.parse({ rules }), tool: "files.grep", scope,
+    // As the registry answers: with the path as written from the workspace when a project folder is active.
+    resourceOf: (tool, path) => ({ ...resourceOf(tool, "files.read", path, { path }), ...(scope ? { inWorkspace: `${scope}/${path}` } : {}) }) });
+  const everything = { tool: "*", match: "*", decision: "ask" };
+  const finance = (decision, pattern = "finance") => ({ tool: "*", match: "*", decision, resource: { kind: "path", pattern } });
+  assert.equal(check([everything])("finance/q1.txt", "read"), true, "every call asks: the walk itself was asked about");
+  assert.equal(check([finance("ask"), everything])("finance/q1.txt", "read"), false, "a question about finance itself");
+  assert.equal(check([finance("deny")])("notes/open.txt", "read"), true);
+  assert.equal(check([finance("deny")])("Finance/Q1.TXT", "read"), false, "rules match whatever the letter case");
+  // An allow for a folder inside, written first, still lets that folder through (the rules' own order).
+  const inner = { tool: "*", match: "*", decision: "allow", resource: { kind: "path", pattern: "finance/public" } };
+  assert.equal(check([inner, finance("deny")])("finance/public/a.txt", "read"), true);
+  assert.equal(check([inner, finance("deny")])("finance/q1.txt", "read"), false);
+  // A pattern, not a folder: every folder is weighed.
+  assert.equal(check([finance("deny", "*.csv")])("notes/deep/a.csv", "read"), false);
+  assert.equal(check([finance("deny", "*.csv")])("notes/deep/a.txt", "read"), true);
+  // A rule about reading only, not listing, lets the name be listed but not the file be read.
+  const readOnlyRule = { tool: "files.read", match: "*", decision: "deny", resource: { kind: "path", pattern: "finance" } };
+  assert.equal(check([readOnlyRule])("finance/q1.txt", "list"), true);
+  assert.equal(check([readOnlyRule])("finance/q1.txt", "read"), false);
+  // Inside the active project's folder "finance", "q1.txt" is finance/q1.txt to the rules.
+  assert.equal(check([finance("deny")], "finance")("q1.txt", "read"), false);
+  assert.equal(check([finance("deny")], "notes")("q1.txt", "read"), true);
+  // The note names the folder and counts files, never naming a file.
+  const walk = new WalkRules(check([finance("deny"), finance("deny", "notes/*.key")]));
+  walk.folder("finance"); walk.file("notes/a.key"); walk.file("notes/b.key"); walk.file("notes/a.key");
+  assert.equal(walk.note(), "Some things were left out because the owner's rules keep this task out of them: the folder finance; 2 files in notes. Nothing from them is shown here.");
+  assert.throws(() => walk.start("finance/2026"), /do not allow looking in finance\/2026/);
+});
+
+test("a task started from outside (a trigger) is held to the same folder rule during a walk", async (t) => {
+  const { app } = await fixture(t, [call("files.grep", { query: "-", path: "." }), say("done")]);
+  await financeRule(app);
+  const run = await app.runtime.run({ prompt: "look", source: "trigger" });
+  const [completed] = app.store.events(run.id).filter((event) => event.kind === "tool.completed");
+  assertLeftOut(completed?.data.result, "files.grep for a trigger's task");
+});
+
+test("a rule against reading finance (listing allowed): walkers name its files but never read them", async (t) => {
+  const readRule = (app) => financeRule(app, "deny", { tool: "files.read" });
+  const grep = await runTool(t, "files.grep", { query: "-", path: "." }, readRule);
+  assert.doesNotMatch(text(grep.result), new RegExp(secretText), "files.grep");
+  assert.match(grep.result.leftOut ?? "", /1 file in finance/);
+  const search = await runTool(t, "files.search", { query: "-" }, readRule);
+  assert.doesNotMatch(text(search.result), new RegExp(secretText), "files.search");
+  assert.match(text(search.result), new RegExp(openText));
+  const listed = await runTool(t, "files.list", { path: "." }, readRule);
+  assert.ok(listed.result.entries.some((entry) => entry.name === "finance"), "listing is still allowed");
+  // The notes folder inside the workspace: a tagged note in finance is not read.
+  const { app, workspace } = await fixture(t, [call("obsidian.read", {}), say("done")]);
+  await writeFile(join(workspace, "finance", "ledger.md"), `#branch\n${secretText}\n`);
+  await writeFile(join(workspace, "notes", "plan.md"), `#branch\n${openText}\n`);
+  const { saveObsidianSettings } = await import("../dist/obsidian.js");
+  await saveObsidianSettings(app.store, "local", { enabled: true, vault: workspace });
+  await readRule(app);
+  const run = await app.runtime.run({ prompt: "read my notes" });
+  const [completed] = app.store.events(run.id).filter((event) => event.kind === "tool.completed");
+  assert.match(text(completed?.data.result), new RegExp(openText));
+  assert.doesNotMatch(text(completed?.data.result), new RegExp(secretText), "obsidian.read");
+});
+
+test("the map of names built before a rule no longer hands back finance's passages or links", async (t) => {
+  const { app, workspace } = await fixture(t);
+  await writeFile(join(workspace, "finance", "deal.md"), `# Deal\n\nAcme Holdings paid Zenith Partners. ${secretText}\n`);
+  const base = app.knowledgeBases.create("local", { name: "Everything", sources: [{ kind: "folder", path: "." }] });
+  await app.knowledgeBases.reindex("local", base.id);
+  const graph = app.knowledgeParts.graph;
+  await graph.build("local", base.id);
+  assert.match(text(graph.passagesAround("local", base.id, "Acme Holdings", 10)), new RegExp(secretText), "before the rule (control)");
+  await financeRule(app);
+  assert.doesNotMatch(text(graph.passagesAround("local", base.id, "Acme Holdings", 10)), new RegExp(secretText));
+});

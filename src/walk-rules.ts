@@ -53,36 +53,54 @@ export interface WalkCheckInput {
  * The check for one walk. A path is left out when a rule refuses it, or when a rule about that path
  * asks first (a walk cannot stop to ask about each file; the task can still ask for it by name). A
  * question every call gets anyway — the broad rules — was already answered for the walk itself.
- * Folders no rule can single out anything inside are remembered, so their files cost nothing more.
+ * Per folder, only the rules that could name something inside it are weighed (the others cannot
+ * match there), and a folder no rule can single out anything inside costs nothing more at all.
  */
 export function walkCheck(input: WalkCheckInput): PathCheck {
-  const specific = input.policy.rules.filter((rule) => singlesOut(rule, input.tool));
+  const tools = [input.tool, ...Object.values(accessTools)];
+  const specific = input.policy.rules.filter((rule) => singlesOut(rule, tools));
   const broad = new Map<string, PolicyRule | null>();
   const baseline = (tool: string): PolicyRule | null => {
     if (!broad.has(tool)) broad.set(tool, evaluatePolicy(input.policy, { tool, target: "", readOnly: true, resource: null }).rule);
     return broad.get(tool) ?? null;
   };
-  const clear = new Map<string, boolean>();
-  const folderIsClear = (folder: string): boolean => {
-    if (!clear.has(folder)) clear.set(folder, !specific.some((rule) => couldReachInside(rule, folder, input.scope ?? "")));
-    return clear.get(folder)!;
+  const folders = new Map<string, Policy | null>();
+  const policyIn = (folder: string): Policy | null => {
+    if (!folders.has(folder)) folders.set(folder, folderPolicy(input.policy, specific, tools, folder, input.scope ?? ""));
+    return folders.get(folder)!;
   };
   return (path, kind) => {
     const tidy = tidyWalkPath(path);
     if (input.guarded?.(tidy)) return false;
-    if (!specific.length || folderIsClear(parentOf(tidy))) return true;
+    const policy = specific.length ? policyIn(parentOf(tidy)) : null;
+    if (!policy) return true;
     return [...new Set([input.tool, accessTools[kind]])].every((tool) => {
-      const outcome = evaluatePolicy(input.policy, { tool, target: tidy, readOnly: true, resource: input.resourceOf(tool, tidy) });
+      const outcome = evaluatePolicy(policy, { tool, target: tidy, readOnly: true, resource: input.resourceOf(tool, tidy) });
       return outcome.decision === "allow" || (outcome.decision === "ask" && outcome.rule === baseline(tool));
     });
   };
 }
 
+/**
+ * The rules that can decide anything about a path directly inside `folder`, in the owner's order
+ * (the same objects, so an answer's rule can be compared), or null when none of them can single out
+ * anything there. A rule about another folder, or only about changes, cannot match a read in here.
+ */
+function folderPolicy(policy: Policy, specific: PolicyRule[], tools: string[], folder: string, scope: string): Policy | null {
+  if (!specific.some((rule) => couldReachInside(rule, folder, scope))) return null;
+  const rules = policy.rules.filter((rule) => rule.applies !== "changes"
+    && tools.some((name) => globMatches(rule.tool, name))
+    && (!namesPlace(rule) || couldReachInside(rule, folder, scope)));
+  return { ...policy, rules };
+}
+/** A rule about a particular path (a folder rule, or one whose match is not everything). */
+const namesPlace = (rule: PolicyRule): boolean => rule.resource ? rule.resource.kind === "path" : rule.match !== "*";
+
 /** A rule that can ask about or refuse a particular path while this walk reads or lists. */
-function singlesOut(rule: PolicyRule, tool: string): boolean {
+function singlesOut(rule: PolicyRule, tools: string[]): boolean {
   if (rule.decision === "allow" || rule.applies === "changes") return false;
-  if (![tool, ...Object.values(accessTools)].some((name) => globMatches(rule.tool, name))) return false;
-  return rule.resource ? rule.resource.kind === "path" : rule.match !== "*";
+  if (!tools.some((name) => globMatches(rule.tool, name))) return false;
+  return namesPlace(rule);
 }
 
 /** Whether a rule's folder or path pattern could name something inside `folder` ("" is the top). */
