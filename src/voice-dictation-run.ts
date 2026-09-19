@@ -110,6 +110,12 @@ export interface LiveDictation {
   refresh(): void;
   /** Hand in a piece of sound, for the path where Branch holds the recorder. Tests use it directly. */
   hear(piece: Uint8Array): void;
+  /**
+   * merge-queue review: the system and the program check this listener was built with, so the card
+   * describes the same computer the Dictate press will be refused or allowed on.
+   */
+  readonly platform: string;
+  readonly present: ProgramPresent | undefined;
 }
 
 /**
@@ -168,8 +174,12 @@ export function startDictation(deps: DictationDeps): LiveDictation {
   /** The tick: a silent microphone is asked about too, and a quiet room lets go of it. */
   const tick = (): void => {
     if (!speech) return;
-    if (mustStop()) { release(true); return; }
-    if (now() - lastSpeechAt >= quietFor()) release(true);
+    // merge-queue review: this runs on a timer, where a throw is an uncaught exception that takes
+    // Branch down. Anything that cannot be read (a store already closed) lets go of the microphone.
+    try {
+      if (mustStop()) { release(true); return; }
+      if (now() - lastSpeechAt >= quietFor()) release(true);
+    } catch { release(false); }
   };
 
   const ended = (): void => {
@@ -193,6 +203,7 @@ export function startDictation(deps: DictationDeps): LiveDictation {
   };
 
   const listener: LiveDictation = {
+    platform, present,
     get open() { return speech !== null; },
     // What the screen reads. `last` holds the settled phrase for a moment after the microphone has
     // closed, so the window that asked can still collect the final words; `words` is what is being

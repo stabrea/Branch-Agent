@@ -1075,7 +1075,7 @@ async function api(
       // Whether the microphone is open comes from the listener itself, so the card cannot say one
       // thing while the microphone does another.
       const mine = app.store.profiles.isOwner();
-      const view = dictationView(app.store, app.runtime.owner, process.platform, mine, app.dictation.open);
+      const view = dictationView(app.store, app.runtime.owner, app.dictation.platform, mine, app.dictation.open, app.dictation.present);
       // The words are screen state: they go to the window that is dictating and nowhere else. They
       // are never written to disk, never traced, never kept past the phrase, and never sent. Anybody
       // else on this computer is not shown them, because they are not shown any of this.
@@ -1091,12 +1091,12 @@ async function api(
       // — the switch, Lockdown, the lock, a missing speech program — says it must not.
       const refusal = body?.on === true ? app.dictation.start() : (app.dictation.stop(), null);
       return { open: app.dictation.open, refusal,
-        state: dictationView(app.store, app.runtime.owner, process.platform, true, app.dictation.open) };
+        state: dictationView(app.store, app.runtime.owner, app.dictation.platform, true, app.dictation.open, app.dictation.present) };
     }
     saveDictationSettings(app.store, app.runtime.owner, await readBody(request));
     app.dictation.refresh(); // the switch going off stops it and lets go of the microphone at once
     return { settings: dictationSettings(app.store, app.runtime.owner),
-      state: dictationView(app.store, app.runtime.owner, process.platform, true, app.dictation.open) };
+      state: dictationView(app.store, app.runtime.owner, app.dictation.platform, true, app.dictation.open, app.dictation.present) };
   }
   // ── end mac7/live-voice ──
   if (request.method === "GET" && path === "/api/state") return state(app);
