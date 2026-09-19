@@ -125,6 +125,9 @@ export const ROUTES = {
   "/api/comfort/status": "look", // R17-S-C
   "/api/comfort/update-plan": "owner POST", // R17-S-C
   "/api/commands": "look",
+  // Redesign phase 1: the mode chip. A household person picks for their own conversations, never looser than the owner's setting.
+  "/api/conversation-mode": "other POST",
+  "/api/conversation-mode/settings": "owner POST",
   "/api/commands/": "prefix",
   "/api/commands/run": "task POST",
   "/api/commands/settings": "owner POST",
@@ -157,6 +160,8 @@ export const ROUTES = {
   "/api/deployment/remote/invite": "owner POST",
   "/api/deployment/restore-point": "owner POST",
   "/api/deployment/restore-points": "look",
+  // Redesign phase 1: which suggestion bar to show; others are offered nothing, and Don't ask again is the owner's.
+  "/api/deployment/suggestion": "owner POST",
   "/api/desktop/settings": "owner POST",
   "/api/developer": "prefix",
   "/api/developer/": "prefix",
@@ -980,6 +985,10 @@ export const ROUTES = {
   // mac7/usage-bar: what each connection has left is the owner's, and so is the switch behind it.
   "/api/usage/limits": "secret-read",
   "/api/usage/limits/settings": "secret-read",
+  // Redesign phase 1: the ring hands anybody but the owner an empty answer; its settings and saving progress are the owner's.
+  "/api/usage/glance": "look",
+  "/api/usage/glance/settings": "secret-read",
+  "/api/usage/save-progress": "owner POST",
   "/api/usage/metering": "owner POST",
   "/api/usage/metering/now": "owner POST",
   "/api/usage/report": "owner POST",

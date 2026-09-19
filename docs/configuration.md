@@ -5703,7 +5703,7 @@ application's credential file or Keychain item, import a browser's cookies, call
 provider has not published, or drive a provider's own program to harvest a figure it prints.
 
 - `GET /api/usage/limits` — the rows, the three states, and the one-line summary
-  (*"3 of 5 connections report a limit. The other 2 do not publish one."*).
+  (*"3 of 5 connections report a limit. The other 2 do not publish one."*, or *"Your one connection reports a limit."*).
 - `GET /api/usage/limits/settings` / `POST /api/usage/limits/settings` — `{ mode, enabled }`, the
   switch behind the one service Branch may ask.
 
@@ -5715,6 +5715,133 @@ back the same shape the screen reads.
 Note what this panel is **not**. The meter under the message box measures how much of *this
 conversation's* room has been used against the model's context window. That is a different thing
 from a provider's allowance, and the two are deliberately kept apart.
+
+### The ring under the message box, and saving progress at 95% (redesign phase 1)
+
+Under the message box, the owner's window shows a small ring and one line: the connection with the
+least left, how much of its window is left, and when it refills — *"ChatGPT plan · 12% left · refills
+at 6:00 PM"*. Pressing it opens **What each connection has left** as a sheet of glass: the same rows,
+in the same three states, as the panel on the Usage screen, with **Open Usage** at the foot. The ring
+follows the Usage screen's rules exactly: a share is only worked out where a service gave both a limit
+and a remainder, money is never shown as a share, and where nothing was reported the ring is dashed and
+says *"No limits reported"*. It reads only what Branch already holds, so it never asks a service
+anything, however often it is refreshed.
+
+When a window a service **measured** reaches 95% used while tasks are running, a small question shows
+at the top for about five seconds: *"Almost out on ChatGPT plan. Ask running tasks to save their
+progress?"* with **Save progress** and **Not now**. It only asks. **Save progress** sends each of the
+owner's running tasks a note through the ordinary steering channel, asking it to write down what it has
+done, where it is and what is left, and then carry on. Nothing is paused or stopped (Branch has no
+pause). It asks at most once per connection per allowance window, and never for an estimate.
+
+Both are settings on the Usage screen, under *What each connection has left*, saved with the workspace:
+
+- `ring` — `shown` (default: the owner asked to see it) or `hidden`.
+- `saveProgress` — `ask` (default: it only ever asks) or `off`.
+
+Routes:
+
+- `GET /api/usage/glance` — what the ring and its list show. Anybody but the owner in the app window
+  (a household profile, a short-lived key) gets `{ "available": false }` and nothing else: not an
+  error, and never a number.
+- `GET /api/usage/glance/settings` / `POST /api/usage/glance/settings` — `{ ring, saveProgress }`.
+  The owner's alone.
+- `POST /api/usage/save-progress` — sends the note to each of the owner's running tasks and says how
+  many were asked, `{ "asked": 2 }`. The owner's alone.
+
+### How much it may do in one conversation (redesign phase 1)
+
+Beside **Send** there is one chip that says how much the assistant may do in *this* conversation, and
+opens a short menu of four choices:
+
+- **Ask first** — reading is free; changing a file, running a command or acting on the web waits for
+  your yes. It is the same as the *Ask before changes* setting, for this conversation only.
+- **Plan** — it reads and proposes a plan, and changes nothing: a change is refused, not asked about.
+  Picking Plan also turns on *Show me the plan first* for the conversation. Once you agree a plan, the
+  conversation moves to Ask first so the plan can be carried out, still asking before each change.
+- **Auto** — changes inside the workspace go ahead; commands and the web ask. It is the *Just do it
+  inside my workspace* setting, for this conversation only. Branch's file tools never reach outside the
+  workspace in any mode.
+- **Full access** — nothing is checked with you (commands that no rule covers still ask, as always). It
+  shows a plain warning before it is given.
+
+A choice that cannot be made right now is shown greyed with the reason, never hidden. **Use my
+setting** puts the conversation back on *When to check with me*.
+
+What decides what a task may do, in order:
+
+1. A conversation with no mode of its own follows *When to check with me*, exactly as before. Every
+   conversation from before this change is one of those, and keeps behaving as it did.
+2. A conversation begun in the window starts on **Ask first**, unless the owner chose otherwise under
+   *When to check with me → New conversations start on*.
+3. A mode replaces the preset part of the owner's setting for that conversation. Refusals the owner
+   wrote still apply; Ask first and Plan also drop every standing yes.
+4. The owner may pick a mode looser than their setting. A household person or a short-lived key never
+   can: their choice is refused, and a task of theirs, or one started (or carried on) by a chat app, a
+   trigger, a schedule or another program, keeps the owner's setting if a mode would be looser.
+   A helper or background specialist a task starts works in a conversation of its own and is held to
+   the mode of the conversation that started it. A changed mode applies from the next thing a task
+   does; nothing already done is undone.
+5. It sits under everything that was already stronger: Lockdown (the looser modes are greyed; only Plan
+   can tighten it further), the hold on tasks started from outside (a chat app, a trigger, a schedule,
+   another program: never more than Ask first), roles, and the protected parts of Branch.
+
+The enforcement is in the runtime's own policy check, not in the window.
+
+- `newConversation` — `ask` (default) or `follow`: what a conversation begun in the window starts on.
+- `GET /api/conversation-mode?sessionId=…` — this conversation's mode (`null` while it follows the
+  setting), what it follows, whether Lockdown is on, and every choice with the reason one is greyed.
+- `POST /api/conversation-mode` — `{ sessionId, mode }`, where `mode` is `ask`, `plan`, `auto`, `full`
+  or `null`. A looser choice is refused while Lockdown is on, and always to a household person.
+- `GET /api/conversation-mode/settings` / `POST /api/conversation-mode/settings` — `{ newConversation }`.
+  Changing it is the owner's alone.
+- `POST /api/run` takes `mode` for the message that starts a conversation, refused (403) exactly as the
+  chip would refuse it.
+
+*Let Branch run this project's tests?* (the coding question asked once per folder) follows the mode:
+**Plan** never runs the tests and never asks (the check is refused as a change); **Ask first** asks;
+**Auto** and **Full access** still ask once per folder unless *Always for this folder* was given — a
+mode never stands in for that yes. A plain yes is *Once*, and only the owner in the app can give
+*Always*.
+
+Another program connected over MCP sees a list of tools and "what would happen" notes worked out from
+the owner's setting, not from any conversation's mode (they belong to no conversation). A task it
+starts, or an A2A/ACP task that joins a conversation, is held to that conversation's mode and to the
+hold on outside tasks, so a Plan conversation refuses its changes.
+
+### Suggestions, updates as choice cards, and quitting while work runs (redesign phase 1)
+
+Now and then one quiet bar at the top of the conversation pane recommends a setting, the way the
+update question in the approved design does: *"Keep Branch up to date by itself? Recommended"*. There
+is only ever one, at most once each time the window opens, never before the first-run screen is done,
+and only in the owner's window. Each has **Yes**, **Not now** and **Don't ask again**, and nothing
+changes unless Yes is pressed. In order of how much they matter:
+
+1. **Keep Branch running in the background?** — offered where Branch is installed and the background
+   engine is not set up, because a Trunk on Telegram (or any chat app, or an automation) only answers
+   while Branch is running. Yes sets up the same background engine as *How Branch runs on this computer*.
+2. **Keep Branch up to date by itself?** — offered while updates are off. Yes sets `autoUpdate` to
+   `install`.
+
+**Not now** lasts until the window opens again; **Don't ask again** is kept with the workspace:
+
+- `background` — `ask` (default) or `never`.
+- `updates` — `ask` (default) or `never`.
+- `GET /api/deployment/suggestion` — `{ "bar": "background" | "updates" | null }`. Anybody but the
+  owner in the app window gets `null`.
+- `POST /api/deployment/suggestion` — `{ id, answer: "never" }`. The owner's alone.
+
+**Updates** in Settings is now three choice cards instead of a list: *Install updates by myself*,
+*Tell me when there's an update*, and *Keep Branch up to date by itself* (marked Recommended). Picking
+a card saves it at once. It is the same `autoUpdate` setting (`off`, `check`, `install`), still off
+as shipped.
+
+**Quitting while work runs.** Closing the window keeps Branch in the tray (or the dock), so work goes
+on. Quitting stops it, so when a task is running and no background engine would carry on with it,
+Branch asks first: *"A task is still working. Quitting now stops it."* with **Keep running in the
+background** (the window closes and Branch keeps working in the tray), **Quit anyway** and **Cancel**.
+An update, a restart you asked for, `branch quit` and the computer shutting down, restarting or signing
+out never ask, and none of them waits on a question already showing.
 
 ## Specialists that work in different ways (batch 20, wave 7)
 

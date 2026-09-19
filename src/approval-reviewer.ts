@@ -121,7 +121,7 @@ export interface ReviewerHost {
   readonly models: ModelRouter;
   readonly leakGuard: { tighten(outcome: PolicyOutcome, args: unknown): PolicyOutcome & { leak?: string } };
   hideSecrets: <T>(value: T) => T;
-  policy(source?: RunSource): Policy;
+  policy(source?: RunSource, runId?: string): Policy;
   completeAside(run: Run, context: ToolContext, preset: ModelPreset, question: string): Promise<string>;
 }
 export interface ReviewedCall { call: ToolCall; args: unknown; context: ToolContext; fingerprint: string }
@@ -161,7 +161,7 @@ const namedForChange = (tool: string): boolean => changeWords.test(tool.replace(
 function rawOutcome(host: ReviewerHost, check: PolicyCheck, about: ReviewedCall, readOnly: boolean): { outcome: PolicyOutcome & { leak?: string }; matched: boolean } {
   const { call, args, context } = about;
   const resource = host.registry.resourceOf(call.name, check.target, args);
-  const policy = host.policy(context.source ?? "owner");
+  const policy = host.policy(context.source ?? "owner", context.runId);
   const ruled = evaluatePolicy(policy, { tool: call.name, target: check.target, readOnly, resource });
   const outcome = host.leakGuard.tighten(ruled, args);
   // R17-C integration review: a second look never takes away the question a personal tool or a lock always gets.

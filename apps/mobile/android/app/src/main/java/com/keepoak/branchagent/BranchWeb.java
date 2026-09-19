@@ -104,7 +104,7 @@ final class BranchWeb {
         try {
             JSONObject message = new JSONObject(data == null ? "{}" : data);
             if ("home".equals(message.optString("type"))) bridge.getWebView().loadUrl(bridge.getAppUrl());
-            if ("look".equals(message.optString("type"))) remember(bridge, message.optString("theme", "forest"), message.optString("mode", "dark"));
+            if ("look".equals(message.optString("type"))) remember(bridge, message.optString("theme", "slate"), message.optString("mode", "dark"));
         } catch (Exception ignored) {
             // an unreadable message is ignored
         }

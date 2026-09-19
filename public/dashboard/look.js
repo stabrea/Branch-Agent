@@ -3,7 +3,7 @@
    storage keys public/layout.js writes). The theme's colours reach Branch's token names through
    /theme-bridge.js, the same module the window uses. */
 import { applyAppearance } from "/appearance.js";
-import { solid, themeById, tokensFor, wearTokens } from "/theme-bridge.js";
+import { DEFAULT_THEME, solid, themeById, tokensFor, wearTokens } from "/theme-bridge.js";
 import { paint as paintGrove, seasonToday } from "/grove.js";
 
 const root = document.documentElement;
@@ -11,7 +11,7 @@ const remembered = (key) => { try { return localStorage.getItem(key); } catch { 
 
 /** Writes the chosen theme's colours for the mode showing, then paints the oak in its season. */
 function applyTheme() {
-  const family = themeById(remembered("branch-palette") || "forest");
+  const family = themeById(remembered("branch-palette") || DEFAULT_THEME);
   const mode = root.dataset.theme === "daylight" ? "light" : "dark";
   const tokens = tokensFor(family, mode, remembered("branch-contrast") === "more" ? "more" : "standard");
   wearTokens(root, family, tokens);

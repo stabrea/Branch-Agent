@@ -4,6 +4,14 @@ import assert from "node:assert/strict";
 import { _electron } from "playwright";
 import { connected, desktopOptions } from "./fixtures/desktop-options.mjs";
 
+/* Redesign phase 1: a conversation begun in the window starts on Ask first, and the practice run writes
+   a file. This checks the desktop app, so its conversation follows the setting as before
+   (tests/conversation-mode.test.mjs covers Ask first). */
+const followSetting = (page) => page.evaluate(async () => {
+  await fetch("/api/conversation-mode/settings", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ newConversation: "follow" }) });
+  await globalThis.branchConversationMode?.refresh();
+});
+
 test("native identity settings survive restart and apply to a new task without exposing the local token", { timeout: 360000 }, async () => {
   const { options } = await desktopOptions();
   const first = await _electron.launch(options);
@@ -26,6 +34,7 @@ test("native identity settings survive restart and apply to a new task without e
     assert.equal(await page.getByLabel("Working instructions", { exact: true }).inputValue(), "Keep checked results concise.");
     await page.locator(".lx-settings-close").click();
     await page.getByLabel("Your message", { exact: true }).fill("Run the file workflow.");
+    await followSetting(page);
     await page.locator("#send").click();
     await page.waitForFunction(() => !document.getElementById("send").disabled);
     const result = await page.evaluate(async () => {

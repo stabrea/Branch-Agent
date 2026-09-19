@@ -1725,3 +1725,736 @@ body.lx #connection[data-state="lost"] {
 :root:not([data-everything="on"]) .lx-settings-win {
   background: var(--surface);
 }
+
+/* ---------- redesign phase 1: the ring under the message box and the list behind it ----------
+   (public/usage-glance.js) Copied from the approved sample: a quiet ring and one line of words,
+   opening a sheet of glass called "What each connection has left". Theme tokens only. */
+.status-bar {
+  position: relative;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin-top: 4px;
+}
+.status-bar[hidden] {
+  display: none;
+}
+.status-bar[data-state="waiting"] {
+  min-height: 30px;
+  visibility: hidden;
+}
+.usage-ring {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  min-width: 0;
+  height: 30px;
+  padding: 0 10px 0 6px;
+  border: 0;
+  border-radius: 16px;
+  background: none;
+  box-shadow: none;
+  color: var(--text-2);
+  font-size: 12.5px;
+  font-weight: 450;
+  white-space: nowrap;
+}
+.usage-ring:hover,
+.usage-ring[aria-expanded="true"] {
+  background: var(--hover);
+  color: var(--text);
+}
+.usage-ring:focus-visible {
+  outline: 2px solid var(--copper);
+  outline-offset: 2px;
+}
+.glance-words {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.glance-ring {
+  flex: none;
+}
+.glance-ring-track {
+  stroke: var(--line-2);
+}
+.glance-ring-arc {
+  stroke: var(--copper);
+}
+.usage-ring[data-low="true"] .glance-ring-arc,
+.glance-bar i[data-low="true"] {
+  stroke: var(--warn);
+  background: var(--warn);
+}
+.usage-pop {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  z-index: 60;
+  display: grid;
+  gap: 2px;
+  width: min(440px, calc(100vw - 20px));
+  max-height: min(70vh, 560px);
+  overflow-y: auto;
+  padding: 6px;
+  border: 1px solid var(--glass-edge);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  box-shadow: var(--card-shadow, var(--shadow));
+  text-align: left;
+}
+.usage-pop[hidden] {
+  display: none;
+}
+.glance-heading {
+  margin: 0;
+  padding: 6px 6px 8px;
+  color: var(--text-3);
+  font-size: 11.5px;
+  font-weight: 560;
+}
+.glance-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 9px 6px;
+  border-top: 1px solid var(--line);
+}
+.glance-heading + .glance-row {
+  border-top: 0;
+}
+.glance-row-body {
+  flex: 1;
+  min-width: 0;
+}
+.glance-row-body small {
+  display: block;
+  margin-top: 3px;
+  color: var(--text-3);
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+.glance-tile {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  background: var(--copper-tint);
+  color: var(--copper-text);
+  font-size: 12px;
+  font-weight: 650;
+}
+.glance-row-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+.glance-row-head b {
+  font-weight: 620;
+}
+.glance-muted {
+  color: var(--text-3);
+}
+.glance-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 560;
+  white-space: nowrap;
+}
+.glance-chip.ok {
+  background: var(--chip-ok-bg);
+  color: var(--chip-ok-fg);
+}
+.glance-chip.warn {
+  background: var(--chip-warn-bg);
+  color: var(--chip-warn-fg);
+}
+.glance-chip.idle {
+  background: var(--chip-idle-bg);
+  color: var(--chip-idle-fg);
+}
+.glance-window {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 90px auto;
+  align-items: center;
+  gap: 8px;
+  margin-top: 5px;
+  color: var(--text-2);
+  font-size: 12px;
+}
+.glance-window > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.glance-window > .glance-figure:nth-child(2) {
+  grid-column: 2 / -1;
+}
+.glance-bar {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--press);
+}
+.glance-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--copper);
+}
+.glance-bar.estimated,
+.glance-bar.estimated i {
+  background-image: repeating-linear-gradient(90deg, transparent 0 4px, var(--surface) 4px 6px);
+}
+.glance-summary {
+  margin: 8px 6px 4px;
+  color: var(--text-3);
+  font-size: 12px;
+}
+.glance-foot {
+  display: flex;
+  justify-content: flex-end;
+  padding: 8px 6px 2px;
+  border-top: 1px solid var(--line);
+}
+@media (max-width: 520px) {
+  .glance-window {
+    grid-template-columns: minmax(0, 1fr) 60px;
+  }
+  .glance-window > .glance-figure {
+    grid-column: 1 / -1;
+  }
+}
+
+/* the question at 95%: a small sheet of glass at the top, for about five seconds */
+.save-progress {
+  position: fixed;
+  top: 70px;
+  left: 50%;
+  z-index: 96;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  width: min(620px, calc(100vw - 20px));
+  padding: 10px 12px;
+  transform: translateX(-50%);
+  border: 1px solid var(--glass-edge);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  box-shadow: var(--shadow);
+}
+.save-progress-clock {
+  position: relative;
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+}
+.save-progress-clock .glance-ring {
+  position: absolute;
+  inset: 0;
+}
+.save-progress-count {
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 600;
+}
+.save-progress-words {
+  flex: 1;
+  min-width: 200px;
+}
+.save-progress-words b {
+  display: block;
+  font-size: 13.5px;
+  font-weight: 620;
+}
+.save-progress-words small {
+  color: var(--text-2);
+  font-size: 12px;
+}
+/* the list opens above the welcome question, never under it */
+body.lx .composer-dock:has(.usage-pop:not([hidden])) {
+  z-index: 8;
+}
+.glance-foot button,
+.save-progress button {
+  min-height: 30px;
+  padding: 4px 12px;
+  border-radius: 9px;
+  box-shadow: none;
+  font-size: 13px;
+}
+.save-progress .quiet-button {
+  border-color: var(--line-2);
+  background: transparent;
+  color: var(--text);
+}
+.save-progress .quiet-button:hover {
+  background: var(--hover);
+}
+
+/* ---------- redesign phase 1: how much it may do, one chip in the message box ----------
+   (public/conversation-mode.js) The sample's mode picker: a quiet chip beside Send, opening a sheet
+   of glass with four choices. A choice that cannot be made is greyed with its reason, never hidden. */
+.mode-wrap {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+}
+.mode-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 180px;
+  height: 32px;
+  padding: 0 8px 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-2);
+  font-size: 13px;
+  font-weight: 520;
+  white-space: nowrap;
+}
+.mode-chip:hover,
+.mode-chip[aria-expanded="true"] {
+  background: var(--hover);
+  color: var(--text);
+}
+.mode-chip:focus-visible {
+  outline: 2px solid var(--copper);
+  outline-offset: 2px;
+}
+.mode-chip[data-following="true"] {
+  border-style: dashed;
+}
+.mode-chip[data-mode="full"][data-locked="false"] {
+  border-color: var(--bad);
+  color: var(--bad);
+}
+.mode-chip[data-locked="true"] {
+  border-color: var(--bad);
+  background: var(--bad-tint);
+  color: var(--bad);
+}
+.mode-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mode-icon {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.mode-chip .mode-icon:last-child {
+  width: 12px;
+  height: 12px;
+  opacity: 0.7;
+}
+.mode-menu {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 12px);
+  z-index: 60;
+  width: min(340px, calc(100vw - 24px));
+  max-height: min(70vh, 520px);
+  overflow-y: auto;
+  padding: 6px;
+  border: 1px solid var(--glass-edge);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--surface) 95%, transparent);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  box-shadow: var(--card-shadow, var(--shadow));
+  text-align: left;
+}
+.mode-menu[hidden] {
+  display: none;
+}
+body.lx .composer-dock:has(.mode-menu:not([hidden])) {
+  z-index: 8;
+}
+.mode-heading {
+  margin: 0;
+  padding: 6px 10px 4px;
+  color: var(--text-3);
+  font-size: 11.5px;
+  font-weight: 560;
+}
+.mode-item {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) 16px;
+  align-items: start;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text);
+  font-weight: 450;
+  text-align: left;
+}
+.mode-item:hover:not([aria-disabled="true"]),
+.mode-item:focus-visible {
+  background: var(--hover);
+  outline: none;
+}
+.mode-item[aria-checked="true"] {
+  background: var(--copper-tint);
+}
+.mode-item[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.mode-item .mode-icon {
+  margin-top: 2px;
+}
+.mode-item[data-mode="full"] b {
+  color: var(--bad);
+}
+.mode-words b {
+  display: block;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.mode-words small {
+  display: block;
+  margin-top: 2px;
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.mode-menu hr {
+  margin: 5px 4px;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+.mode-note {
+  margin: 6px 10px 4px;
+  color: var(--text-3);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.mode-confirm {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 4px 10px 8px;
+}
+.mode-confirm p {
+  flex-basis: 100%;
+  margin: 0 0 4px;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.mode-confirm button {
+  min-height: 30px;
+  padding: 4px 12px;
+  border-radius: 9px;
+  box-shadow: none;
+  font-size: 13px;
+}
+.mode-confirm .mode-danger {
+  border-color: var(--bad);
+  background: var(--bad);
+  color: var(--on-copper);
+}
+.mode-confirm .quiet-button {
+  border-color: var(--line-2);
+  background: transparent;
+  color: var(--text);
+}
+@media (max-width: 560px) {
+  .mode-chip .mode-label,
+  .mode-chip .mode-icon:last-child {
+    display: none;
+  }
+  .mode-chip {
+    width: 32px;
+    padding: 0;
+    justify-content: center;
+  }
+}
+/* On a narrow screen the chip sits at the right of the box, so its menu is measured from the box
+   itself rather than from the chip, and never runs off the left edge. */
+@media (max-width: 560px) {
+  body.lx #chat-form {
+    position: relative;
+  }
+  .mode-wrap {
+    position: static;
+  }
+  .mode-menu {
+    right: 0;
+    left: 0;
+    width: auto;
+  }
+}
+/* in the full window the ring is the last thing on the line under the box */
+.composer-foot > .status-bar {
+  flex: 0 1 auto;
+  margin: 0 0 0 auto;
+}
+.composer-foot > .status-bar {
+  min-height: 0;
+}
+.composer-foot > .status-bar .usage-ring {
+  height: 18px;
+  padding: 0 6px 0 2px;
+}
+.composer-foot > .status-bar .glance-ring {
+  width: 15px;
+  height: 15px;
+}
+
+/* ---------- redesign phase 1: the suggestion bar above the message box, and the update cards ----------
+   (public/suggestions.js, public/comfort.js) Copied from the sample's "Keep Branch up to date by
+   itself? Recommended": a small glass bar with the KeepOak mark, the question and three answers. */
+.suggest-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px 10px;
+  width: min(680px, 100%);
+  margin: 4px auto 12px;
+  box-sizing: border-box;
+  padding: 8px 10px 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--surface) 90%, transparent);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  color: var(--text);
+  font-size: 13px;
+}
+.suggest-mark {
+  flex: none;
+  width: 22px;
+  height: 22px;
+}
+.suggest-words {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+.suggest-words b {
+  color: var(--ok);
+  font-weight: 600;
+}
+.suggest-words small {
+  display: block;
+  margin-top: 1px;
+  color: var(--text-3);
+  font-size: 12px;
+}
+.suggest-bar button {
+  min-height: 30px;
+  padding: 4px 12px;
+  border-radius: 9px;
+  box-shadow: none;
+  font-size: 13px;
+}
+.suggest-bar .quiet-button {
+  border-color: var(--line-2);
+  background: transparent;
+  color: var(--text);
+}
+.suggest-bar .text-button {
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  padding: 4px 6px;
+}
+.suggest-bar .quiet-button:hover,
+.suggest-bar .text-button:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.choice-cards {
+  display: grid;
+  gap: 8px;
+  margin: 8px 0;
+  padding: 0;
+  border: 0;
+}
+.choice-cards legend {
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+.choice-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 1px 10px;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  cursor: pointer;
+  color: var(--text);
+}
+.choice-card input {
+  margin-top: 4px;
+  accent-color: var(--copper);
+}
+.choice-card b {
+  display: block;
+  font-weight: 600;
+}
+.choice-card small {
+  display: block;
+  color: var(--text-3);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+.choice-card:has(input:checked) {
+  border-color: var(--copper-edge);
+  background: var(--copper-tint);
+}
+.choice-card:has(input:focus-visible) {
+  outline: 2px solid var(--copper);
+  outline-offset: 2px;
+}
+.choice-recommended {
+  display: inline-flex;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--chip-ok-bg);
+  color: var(--chip-ok-fg);
+  font-size: 11px;
+  font-weight: 560;
+  vertical-align: 1px;
+}
+
+/* ---------- redesign phase 1: glass lists for every select, and hover help for icon buttons ----------
+   (public/glass-select.js) The select itself stays, dressed with the theme's own chevron; the list it
+   opens is a sheet of glass whose highlight is the theme's tint, never the system's blue. */
+select.glass {
+  -webkit-appearance: none;
+  appearance: none;
+  padding-right: 32px;
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%), linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position: calc(100% - 17px) 52%, calc(100% - 12px) 52%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  cursor: pointer;
+}
+select.glass[aria-expanded="true"] {
+  border-color: var(--copper-edge);
+  box-shadow: 0 0 0 3px var(--copper-tint);
+}
+.glass-list {
+  position: fixed;
+  z-index: 95;
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--glass-edge);
+  border-radius: 12px;
+  /* Integration review: opaque enough that nothing under the list reads through it. */
+  background: color-mix(in srgb, var(--surface) 98%, transparent);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  box-shadow: var(--card-shadow, var(--shadow));
+  color: var(--text);
+  font-size: 13.5px;
+}
+.glass-list[hidden] {
+  display: none;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .glass-list:not([hidden]) {
+    animation: glass-open 0.12s ease-out;
+  }
+}
+/* Integration review: it fades in where it will stay, so it never slides over the select it opened from. */
+@keyframes glass-open {
+  from {
+    opacity: 0;
+  }
+}
+.glass-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 6px 10px 6px 28px;
+  border-radius: 8px;
+  cursor: pointer;
+  position: relative;
+  line-height: 1.35;
+}
+.glass-option[aria-selected="true"] {
+  background: var(--copper-tint);
+  font-weight: 560;
+}
+.glass-option[aria-selected="true"]::before {
+  content: "";
+  position: absolute;
+  left: 11px;
+  top: 50%;
+  width: 5px;
+  height: 9px;
+  margin-top: -6px;
+  border: solid var(--copper-text);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+.glass-option:focus,
+.glass-option:hover {
+  background: color-mix(in srgb, var(--copper) 12%, transparent);
+  outline: none;
+}
+.glass-option[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.glass-group-label {
+  padding: 8px 10px 3px;
+  color: var(--text-3);
+  font-size: 11.5px;
+  font-weight: 560;
+}
+.glass-tip {
+  position: fixed;
+  z-index: 99;
+  max-width: 260px;
+  padding: 6px 10px;
+  border: 1px solid var(--glass-edge);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  backdrop-filter: blur(16px) saturate(1.4);
+  box-shadow: var(--card-shadow, var(--shadow));
+  color: var(--text);
+  font-size: 12.5px;
+  line-height: 1.35;
+  pointer-events: none;
+}
+.glass-tip[hidden] {
+  display: none;
+}
