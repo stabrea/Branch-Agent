@@ -59,25 +59,24 @@ jobs:
         with:
           python-version: '3.12'
       - run: npm ci
-      # Downloading the browser took 3.2 minutes of every Windows run. It is kept between runs, keyed
-      # on the Playwright version in the lockfile, so a new version downloads a new browser.
+      # Downloading the browser took 3.2 minutes of every Windows run. The download is kept between
+      # runs, keyed on the Playwright version in the lockfile and on what is installed, so a new
+      # version or a different browser starts a new copy. The install still runs every time: with the
+      # browser already there it only checks it (Playwright marks a copy complete only once the whole
+      # download landed, so a partial one is fetched again rather than used), and on Linux it also
+      # puts in the system libraries, which are not in the kept folder. Nothing is restored from an
+      # older key, so a copy from another version is never used.
       - id: playwright
         shell: bash
         run: echo "version=$(node -p "require('playwright/package.json').version")" >> "$GITHUB_OUTPUT"
-      - id: browsers
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+      - uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         with:
           path: |
             ~/AppData/Local/ms-playwright
             ~/Library/Caches/ms-playwright
             ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
-      - if: steps.browsers.outputs.cache-hit != 'true'
-        run: npx playwright install --with-deps chromium --only-shell
-      # The system libraries Chromium needs on Linux are not in the kept folder, so they are always
-      # installed there.
-      - if: steps.browsers.outputs.cache-hit == 'true' && runner.os == 'Linux'
-        run: npx playwright install-deps chromium
+          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}-chromium-headless-shell
+      - run: npx playwright install --with-deps chromium --only-shell
       # Ubuntu 24.04 turns off unprivileged user namespaces, which is what Electron's own sandbox is
       # built on, so every desktop test died with "Process failed to launch!" before reaching a
       # single assertion. This relaxes it on the build machine only. The app is not changed: the

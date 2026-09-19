@@ -53,11 +53,15 @@ test("--shard names one share of the whole, and anything else is refused", () =>
   for (const bad of ["--shard=0/5", "--shard=6/5", "--shard=1/0", "--shard=x"]) assert.throws(() => parseShard([bad]));
 });
 
-test("the stored weights name only test files that exist", () => {
-  const all = new Set(Object.values(testGroups()).flat().map((file) => file.replace(/\\/g, "/")));
-  for (const platform of ["win32", "darwin", "linux"]) {
-    const stale = Object.keys(loadWeights(platform)).filter((file) => !all.has(file));
-    assert.deepEqual(stale, [], `${platform}: weights for files that are gone`);
+test("a renamed or new file still runs, and a weight for a file that is gone changes nothing", () => {
+  // The weights are only ever a guide to packing. A file renamed since they were measured is simply
+  // unmeasured, so it counts as the median and lands in a share like any other; the old name is
+  // never looked up. So stale weights cannot drop a file, and nobody has to refresh them to stay green.
+  const files = ["a", "renamed", "c"].map((name) => join("tests", `${name}.test.mjs`));
+  const weights = { "tests/a.test.mjs": 300, "tests/old-name.test.mjs": 900, "tests/c.test.mjs": 10 };
+  for (const total of [1, 2, 3, 4]) {
+    const shares = shards(files, total, weights);
+    assert.deepEqual(shares.flat().sort(), [...files].sort(), `${total}: every file once, the stale name nowhere`);
   }
 });
 
