@@ -10,7 +10,7 @@
      behind a switch, in a dialog or in another place is still found, with a way to go there.
    - Settings is a cog right after the account row; opening and moving about never loses your place.
    Nothing here changes what a setting does. */
-import { language, t } from "/i18n.js";
+import { fromEnglish, language, t } from "/i18n.js";
 import { changeAppearance, currentAppearance } from "/appearance.js";
 import { BUCKETS, ELSEWHERE, ICON_PATHS, NAV_GROUPS } from "/settings-buckets.js";
 import { SETTINGS_INDEX } from "/settings-index.js";
@@ -343,12 +343,16 @@ function shownBySearch(row) {
 }
 /** Words drawn on the page, in the language it is in (the index holds English). */
 const drawn = (node) => node?.textContent.replace(/\s+/g, " ").trim() || null;
-/** A setting's name: the index's English, or in another language the words beside its control when it is drawn. */
+/**
+ * A setting's name: the index's English, or in another language the words beside its control when it is drawn,
+ * else (mac7/residuals) the locale files' words for that English, so a control not drawn yet is named too.
+ */
 function labelOf(row) {
-  return language() === "en" ? row[3] : drawn($(row[0])?.labels?.[0]) ?? row[3];
+  return language() === "en" ? row[3] : drawn($(row[0])?.labels?.[0]) ?? fromEnglish(row[3]) ?? row[3];
 }
 function cardTitleOf(row) {
-  return language() === "en" || !row[2] ? row[6] : drawn($(row[2])?.querySelector(":scope > h2, :scope > h3")) ?? row[6];
+  if (language() === "en" || !row[6]) return row[6];
+  return (row[2] ? drawn($(row[2])?.querySelector(":scope > h2, :scope > h3")) : null) ?? fromEnglish(row[6]) ?? row[6];
 }
 /** Settings in the index that match and are not already on show, closest first: the label itself, then its start. */
 function matches(needle) {

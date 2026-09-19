@@ -118,6 +118,12 @@ branch: an integrator reviews it. Every new test is in `tests/residuals.test.mjs
   background: … switching off keeps the file, Remove picture (after a yes)…" replaces the old "switching off
   removes" test; forgetting on off, or no confirm, each fails it.
 - [x] 16. `branch-everything-hidden` wired from the hide feature — already fixed (below).
+- [x] 18. (added by the coordinator) In French, Settings search named a setting whose control is not drawn yet in
+  English. public/i18n.js `fromEnglish` finds the locale key whose English is exactly those words and gives the
+  chosen language's; public/settings-grown.js falls back to it for a row's label and its card's title after the
+  drawn words. 432 of the 550 index labels and 543 of 550 card titles have such a key; the rest stay English (mostly
+  service names such as IRC or Mastodon, the same in French). tests/residuals-ui.test.mjs 18 (a row not drawn yet,
+  searched in French, shows the French name); without the fallback it fails.
 - [ ] 17. Merge latest trunk, rebuild, retest, push.
 
 Left alone on purpose: settings-describe.js / settings-kit.js inline `<style>` (the p2-settings integrator is changing the settings files now).

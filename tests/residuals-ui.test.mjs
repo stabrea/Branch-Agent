@@ -182,3 +182,23 @@ test("8. switched to French, the window asks for the achievements in French and 
   await sheet.getByText("Pousse", { exact: true }).waitFor();
   assert.ok(asked.includes("?lang=fr"), asked.join(" "));
 });
+
+test("18. in French, Settings search names a setting whose control is not drawn yet in French too", async (t) => {
+  const { page, errors } = await fixture(t);
+  await page.evaluate(async () => (await import("/i18n.js")).setLanguage("fr"));
+  await page.waitForFunction(() => document.documentElement.lang === "fr");
+  const picked = await page.evaluate(async () => {
+    const { SETTINGS_INDEX } = await import("/settings-index.js");
+    const { fromEnglish } = await import("/i18n.js");
+    const row = SETTINGS_INDEX.find((r) => !document.getElementById(r[0]) && fromEnglish(r[3]) && fromEnglish(r[3]) !== r[3]
+      && fromEnglish(r[3]).length > 12);
+    return row ? { id: row[0], english: row[3], french: fromEnglish(row[3]) } : null;
+  });
+  assert.ok(picked, "a setting that is not drawn yet and has French words");
+  await openSettings(page, "general");
+  await page.locator("#lx-settings-search").fill(picked.french);
+  const row = page.locator(`#sg-found [data-setting="${picked.id}"] b`);
+  await row.waitFor();
+  assert.equal(await row.textContent(), picked.french, `${picked.id} is named in French, not "${picked.english}"`);
+  assert.deepEqual(errors, []);
+});

@@ -28,6 +28,17 @@ export function t(key, values) {
     : raw;
 }
 export const language = () => current;
+let byEnglish = new Map();
+/**
+ * mac7/residuals: English words the locale files hold, in the chosen language; null in English or when no
+ * key has exactly those words. For text that arrives in English (Settings search's index of every setting).
+ */
+export function fromEnglish(words) {
+  if (current === "en" || !words) return null;
+  if (!byEnglish.size) for (const [key, value] of Object.entries(english)) if (typeof value === "string" && !byEnglish.has(value)) byEnglish.set(value, key);
+  const key = byEnglish.get(words);
+  return key && typeof dictionary[key] === "string" ? dictionary[key] : null;
+}
 /** Dates and numbers follow the chosen language, never a hand-rolled format. */
 export const formatNumber = (value, options) => new Intl.NumberFormat(current, options).format(value);
 export const formatDate = (value, options = { dateStyle: "medium", timeStyle: "short" }) => {
