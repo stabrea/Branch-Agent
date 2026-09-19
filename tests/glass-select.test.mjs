@@ -152,7 +152,13 @@ test("integration review: the list sits flush under the select and fully covers 
   for (const viewport of [{ width: 1440, height: 950 }, { width: 390, height: 844 }]) {
     const f = await fixture(t, { viewport });
     await openSettingFor(f.page, "#policy-preset");
-    await f.page.locator("#policy-preset").scrollIntoViewIfNeeded();
+    /* phase2/settings: on a phone the Settings list is a search, a page choice and the level above the page,
+       so "if needed" left the select at the very bottom, where the list rightly opens upwards. Room below it: */
+    await f.page.locator("#policy-preset").evaluate((node) => node.scrollIntoView({ block: "center" }));
+    /* ...and once the window has risen into place. Playwright's click on a still-moving select retries with a
+       scroll of its own, and any scroll closes an open list (rightly); a person's click at the same point keeps
+       it open (checked 6 of 6 at 390, integration). A list opened mid-rise follows its select: the next test. */
+    await f.page.locator(".lx-settings-win").evaluate((node) => Promise.all(node.getAnimations().map((a) => a.finished)));
     await f.page.locator("#policy-preset").click();
     await f.page.locator("#glass-list").waitFor({ state: "visible" });
     await f.page.waitForTimeout(300); // the opening glide is over
@@ -228,5 +234,27 @@ test("an open list stays open when the window's refresh writes the same choices 
   await f.page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
   assert.equal(await list.isVisible(), true, "the same choices written again leave the list open");
   assert.equal(await select.getAttribute("aria-expanded"), "true");
+  assert.deepEqual(f.errors, []);
+});
+
+test("phase2/settings integration: a list opened while the Settings window is still rising lands flush under its select", async (t) => {
+  const f = await fixture(t);
+  await openSettingFor(f.page, "#policy-preset");
+  await f.page.locator(".lx-settings-close").click();
+  /* Opened and pressed in one go, the way a quick tap lands while the window rises for a fifth of a second. */
+  const rising = await f.page.evaluate(() => {
+    globalThis.branchLayout.go("settings:permissions");
+    const moving = document.querySelector(".lx-settings-win").getAnimations().some((animation) => animation.playState === "running");
+    document.getElementById("policy-preset").dispatchEvent(new MouseEvent("mousedown", { button: 0, bubbles: true, cancelable: true }));
+    return moving;
+  });
+  assert.equal(rising, true, "the window was still rising when the select was pressed");
+  await f.page.locator("#glass-list").waitFor({ state: "visible" });
+  await f.page.waitForTimeout(500);
+  const gap = await f.page.evaluate(() => {
+    const select = document.getElementById("policy-preset").getBoundingClientRect(), list = document.getElementById("glass-list").getBoundingClientRect();
+    return list.top >= select.bottom - 1 ? list.top - select.bottom : select.top - list.bottom;
+  });
+  assert.ok(Math.abs(gap) <= 2, `the list was left where the select was while it moved (gap ${gap})`);
   assert.deepEqual(f.errors, []);
 });

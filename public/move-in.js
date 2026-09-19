@@ -256,6 +256,8 @@ function offerWords() {
 
 /** Opens Settings on the data page, where the card lives, the way a person would. */
 function openCard() {
+  // phase2/settings: reveal opens the page and shows the card whatever "How much to show" is set to.
+  if (globalThis.branchLayout?.reveal("move-in-card")) return void $("move-in-card")?.scrollIntoView({ block: "start" });
   const panel = $("settings-window");
   if (panel) {
     if (panel.hidden || !panel.offsetParent) document.querySelector(".lx-gear")?.click();

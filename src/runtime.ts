@@ -1910,17 +1910,19 @@ ${run.output.slice(0, 6000)}`;
   }
   /**
    * hardening-3: a model on this computer that has not said its first word. It is tried again once,
-   * and only for what is left of the owner's first-reply wait plus a short grace (it may have just
-   * finished loading); after that the next connection is used when the owner allows falling back,
+   * and only for a short grace (it may have just finished loading); after that the next connection is used when the owner allows falling back,
    * and otherwise the task ends with a plain sentence saying what to try. Returns only to carry on.
    */
   private recoverLocalFirstReply(run: Run, context: ToolContext, route: ModelRoute, error: StallError, wait: LocalFirstReply): void {
     const preset = route.candidates[route.index]!;
     const firstMs = knobs.localFirstReplyMs(this.store, this.owner, this.reliability), grace = localFirstReplyGraceMs(firstMs);
-    const left = firstMs + grace - (Date.now() - wait.started);
-    const retry = !context.signal.aborted && !wait.retried && this.reliability.stallRecovery !== "fail" && left > 0;
+    // mac7/ci-flakes-2: whether it is tried again used to be measured by the clock from before the request
+    // was even built, so a busy computer (building the request, a late timer) could use up the grace and
+    // skip the one retry altogether. The owner's wait was used in full (the watchdog says so); the grace is
+    // what the retry gets, whatever the computer was doing meanwhile.
+    const retry = !context.signal.aborted && !wait.retried && this.reliability.stallRecovery !== "fail";
     if (retry) {
-      Object.assign(wait, { retried: true, capMs: Math.min(grace, left) });
+      Object.assign(wait, { retried: true, capMs: grace });
       this.store.event(run.id, "model.stall_recovery", { action: "retry", stalls: 1, afterMs: error.afterMs, preset: preset.id, firstReply: true, waitMs: wait.capMs });
       return;
     }

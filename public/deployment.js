@@ -140,4 +140,6 @@ if (card) {
     } catch (error) { say("doctor-report", error.message, true); }
   });
   if (token() || desktop) void refresh();
+  // phase2/settings: in a browser the page signs in after this runs, so read the real state when Settings opens.
+  document.addEventListener("branch-place", (event) => { if (String(event.detail?.view ?? "").startsWith("settings") && token()) void refresh(); });
 }

@@ -252,6 +252,10 @@ function wireSettings() {
   document
     .querySelector('.nav[data-view="settings"]')
     ?.addEventListener("click", () => loadMediaSettings().catch(() => undefined));
+  // phase2/settings: Settings opens from the calm window's cog and from links too, not only this old button.
+  document.addEventListener("branch-place", (event) => {
+    if (String(event.detail?.view ?? "").startsWith("settings")) loadMediaSettings().catch(() => undefined);
+  });
   document
     .querySelector('.nav[data-view="documents"]')
     ?.addEventListener("click", () => loadGallery().catch(() => undefined));

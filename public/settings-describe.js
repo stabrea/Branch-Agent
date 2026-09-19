@@ -119,12 +119,7 @@ function chip(card) {
   row.textContent = say(key, english);
 }
 
-const STYLE = `
-.card > p.kit-scope { width: fit-content; margin: 0 0 var(--s2, 8px); padding: 1px 8px; border-radius: 999px;
-  border: 1px solid var(--line); color: var(--muted); font-size: 0.75rem; line-height: 1.5; }
-.card > p.kit-scope[data-scope="project"], .card > p.kit-scope[data-scope="trunk"] { border-color: var(--accent-edge, var(--line)); color: var(--text); }
-.field-note.kit-describe { margin-top: 2px; }
-`;
+/* The chip's look lives in public/settings-kit.css: an inline <style> is refused by the page's Content Security Policy. */
 
 let queued = false;
 /**
@@ -149,9 +144,6 @@ function refresh() {
 }
 
 if (typeof document !== "undefined") {
-  const style = document.createElement("style");
-  style.textContent = STYLE;
-  document.head.append(style);
   const watch = () => {
     const body = document.getElementById("lx-settings-body");
     if (!body) return false;

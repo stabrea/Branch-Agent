@@ -60,7 +60,22 @@ export async function openPlace(page, view) {
 export async function openSettings(page, name) {
   await ready(page);
   if (!(await page.locator("#settings-window").isVisible())) await (await settingsEntry(page)).click();
-  if (name) await page.locator(`.lx-settings-link[data-page="${name}"]`).click();
+  if (name) {
+    /* phase2/settings: on a narrow window the pages are one choice under the search box. */
+    const link = page.locator(`.lx-settings-link[data-page="${name}"]`);
+    if (await link.isVisible()) await link.click();
+    else await page.locator("#sg-page-pick").selectOption(name);
+  }
+  await showEveryCard(page);
+}
+
+/**
+ * phase2/settings: Settings shows the cards of the chosen level (Regular by default). A test that is about
+ * one card shows every card of the open page, the way "Go there" and a link to a setting do, without
+ * changing the level (which would also change the calm window).
+ */
+export async function showEveryCard(page) {
+  await page.evaluate(() => globalThis.branchSettingsLevel.peekPage());
 }
 
 export async function closeSettings(page) {

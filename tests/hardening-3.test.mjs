@@ -140,9 +140,8 @@ test("3 a model on this computer that never starts answering is tried again once
   const { OpenAIProvider } = await import("../dist/providers.js");
   const { endpoint, seen } = await silentLocalServer(t);
   const provider = new OpenAIProvider({ endpoint, model: "m", apiKey: "local" });
-  /* Counted where the runtime asks, not where the server hears: the second try is cut off after the
-     100 ms grace, which on a loaded Windows runner can end before its request reaches the stand-in
-     (trunk 98beb5d8: the server heard 1). Shipped, the grace is 30 s, so that cannot happen to a person. */
+  /* Counted where the runtime asks as well as where the server hears: the second try is cut off after
+     the 100 ms grace, which can end before its request reaches the stand-in. */
   const asked = { times: 0 };
   const complete = provider.complete.bind(provider);
   provider.complete = (request) => { asked.times++; return complete(request); };
@@ -151,6 +150,9 @@ test("3 a model on this computer that never starts answering is tried again once
   app.runtime.reliability.modelStallMs = 300;
   app.runtime.reliability.localFirstReplyMs = 1000;
   const started = Date.now();
+  /* A busy computer: the event loop is held for longer than the grace just before the wait runs out, so
+     the silence is noticed late. The retry used to be skipped then (trunk d366b45f, Linux: asked once). */
+  setTimeout(() => { const until = Date.now() + 300; while (Date.now() < until); }, 900);
   const run = await app.runtime.run({ prompt: "hi", model: "on-this-computer", onTextDelta: () => undefined });
   const took = Date.now() - started;
   assert.equal(run.status, "failed");
@@ -160,7 +162,7 @@ test("3 a model on this computer that never starts answering is tried again once
   assert.ok(seen.requests >= 1, "the first request reached the model's server");
   const recoveries = app.store.events(run.id).filter((event) => event.kind === "model.stall_recovery").map((event) => event.data);
   assert.deepEqual(recoveries.map((one) => one.action), ["retry", "fail"]);
-  assert.ok(recoveries[0].waitMs <= 100, `the retry waits only the grace (${recoveries[0].waitMs} ms)`);
+  assert.equal(recoveries[0].waitMs, 100, "the retry waits the grace, however late the silence was noticed");
   assert.ok(took < 2000, `the whole wait stays near the first-reply wait plus the grace, not three full waits (${took} ms)`);
 });
 

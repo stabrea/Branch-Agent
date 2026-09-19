@@ -151,8 +151,9 @@ export async function drawAgentFiles() {
   const section = el("section", undefined, undefined, "card agent-files");
   section.id = "agent-files";
   section.dataset.home = "settings:assistant";
-  section.dataset.level = "advanced"; // hook: the settings level control (phase2/settings) hides this at Regular
-  section.hidden = globalThis.branchSettingsLevel?.() === "regular";
+  /* phase2/settings integration: the level itself hides this at Regular and shows it again at Advanced, so the card
+     never marks itself hidden (a hidden card stayed hidden after the level went up). */
+  section.dataset.level = "advanced";
   section.append(el("h2", "agent-files.title", "Your assistant's files"),
     el("p", "settings-kit.card.files-purpose", "The plain files you write to shape your assistant: what each one is for, where it is kept, and whether it is read right now. A file can change how it works, never what it is allowed to do."));
   const list = el("ul", undefined, undefined, "agent-files-list");

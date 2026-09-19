@@ -101,12 +101,16 @@ export function topLevelKeys(source) {
   return keys;
 }
 
-const SCHEMA = /export const (\w+(?:Settings|Preferences|Config))Schema\s*=\s*z[\s\S]{0,10}?\.object\(\{/g;
+// phase2/settings integration: `\w*`, not `\w+`, so the look's own `PreferencesSchema` (src/preferences.ts) counts too.
+const SCHEMA = /export const (\w*(?:Settings|Preferences|Config))Schema\s*=\s*z[\s\S]{0,10}?\.object\(\{/g;
 
-/** Every settable key, mapped to the schemas that declare it. */
-function settingKeys() {
+/**
+ * Every settable key, mapped to the schemas that declare it. Exported for tests/settings-grown.test.mjs
+ * (S14), which holds Settings search to the same list; `root` is the checkout to read.
+ */
+export function settingKeys(root = ".") {
   const keys = new Map();
-  for (const file of sourceFiles(SOURCE)) {
+  for (const file of sourceFiles(join(root, SOURCE))) {
     const source = readFileSync(file, "utf8");
     for (const hit of source.matchAll(SCHEMA)) {
       const body = objectBody(source, source.lastIndexOf("{", hit.index + hit[0].length));

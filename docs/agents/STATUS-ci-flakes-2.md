@@ -74,7 +74,17 @@ condition. Also any other test that failed more than once in the last ~15 trunk 
   already gives the window 120 s because a busy Windows runner can take over 30 s to load it. Not
   reproduced here (0 of 40 traced runs).
 
+- hardening-3 again (trunk d366b45f, Linux, "asked once", 1.4 s): my first reading was wrong. The runtime
+  itself asked only once: whether to try again was measured by the clock from before the request was
+  built, so setup time plus a late timer beyond the 100 ms grace skipped the retry. PRODUCT BUG (small):
+  with the smallest allowed wait (5 s) the grace is 500 ms, which a busy computer can use up the same way.
+  Reproduced exactly by holding the event loop 300 ms just before the wait ran out (1 !== 2, 1.4 s).
+
 ## Progress
+- [x] hardening-3: the one retry always gets the grace (the owner's wait was used in full, the watchdog
+      says so); the test holds the event loop 300 ms and still sees retry then fail, waitMs 100.
+      Fails on the old build, passes after. Loops (3 copies): 59/60 then 60/60 (the one miss: the
+      test process ended with no output at 1.2 s, no assertion). Related files 120/120.
 - [x] phase-1 fixtures (suggestions, glass-select, conversation-mode, redesign-phase1) wait up to 120 s
       for the page, as tests/places.mjs does; four files once: 52/52.
 - [x] hardening-3: the tries are counted where the runtime asks the provider (2), the server must have
@@ -117,3 +127,4 @@ condition. Also any other test that failed more than once in the last ~15 trunk 
       now leaves identical presets alone, so the test writes the same options itself (fails on trunk's
       glass-select.js, passes here; glass-select + conversation-mode files 33/33). Pushed without waiting
       for trunk Checks, per the coordinator's rule change.
+      Pushed to mac/cross-platform as 11cb301d; Checks run 35465758897.

@@ -52,5 +52,11 @@ document.querySelector('[data-view="settings"]')?.addEventListener("click", () =
   void drawObsidian();
   void drawEmbeds();
 });
+// phase2/settings: the two cards live in Library › Documents and Customize › Channels, which open without that old button.
+document.addEventListener("branch-place", (event) => {
+  const view = String(event.detail?.view ?? "");
+  if (view === "documents" || view === "library:documents") void drawObsidian();
+  if (view === "customize:channels") void drawEmbeds();
+});
 await drawObsidian();
 await drawEmbeds();
