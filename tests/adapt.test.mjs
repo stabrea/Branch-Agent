@@ -402,3 +402,14 @@ test("A7 the card lays out in one column, so it reads on a 400-pixel window", as
   const html = await readFile(join(import.meta.dirname, "..", "public", "index.html"), "utf8");
   assert.match(html, /id="adapt-card" class="card"/, "it is an ordinary card, which the window already lays out in one column");
 });
+
+test("merge-queue review: recording a stop and reading an offer are the owner's, like going ahead", async () => {
+  const { adaptApi } = await import("../dist/adapt/api.js");
+  const refused = new Error("Only the owner can use /adapt.");
+  let read = false;
+  const deps = { store: null, owner: OWNER, requireOwner: () => { throw refused; } };
+  const body = async () => { read = true; return {}; };
+  for (const path of ["/api/adapt/stopped", "/api/adapt/plan", "/api/adapt/go", "/api/adapt/switch"])
+    await assert.rejects(adaptApi(deps, "POST", path, body), refused, `${path} refuses somebody else`);
+  assert.equal(read, false, "nothing somebody else sent was even read");
+});

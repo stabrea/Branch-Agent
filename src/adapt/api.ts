@@ -4,9 +4,9 @@ import type { PressContext } from "../local-one-button.js";
 import type { Store } from "../store.js";
 
 /**
- * mac7/adapt: the `/api/adapt` family. Looking describes and changes nothing; the rest is the
- * owner's own step in the app window, which is why every one of these is "owner POST" in the table
- * of what a short-lived key may reach.
+ * mac7/adapt: the `/api/adapt` family. Looking (GET) describes and changes nothing, and shows the
+ * owner's stopped tasks to the owner only; every POST is the owner's own step in the app window,
+ * which is why each is "owner POST" in the table of what a short-lived key may reach.
  */
 export const handlesAdaptPath = (path: string): boolean => path === "/api/adapt" || path.startsWith("/api/adapt/");
 
@@ -20,14 +20,26 @@ export async function adaptApi(
   deps: AdaptApiDeps, method: string, path: string, body: () => Promise<unknown>, context: PressContext = {},
 ): Promise<unknown> {
   const { store, owner } = deps;
-  if (method === "GET" && path === "/api/adapt")
-    return { mode: adaptMode(store, owner), stops: adaptFor(store, owner).stops.waiting() };
+  // merge-queue review: the stopped tasks are the owner's work, so somebody else signed in on this
+  // computer under their own profile sees the switch and nothing of the owner's tasks.
+  if (method === "GET" && path === "/api/adapt") {
+    const mine = (() => { try { deps.requireOwner("/adapt"); return true; } catch { return false; } })();
+    return { mode: adaptMode(store, owner), stops: mine ? adaptFor(store, owner).stops.waiting() : [] };
+  }
   if (method === "POST" && path === "/api/adapt/switch") {
     deps.requireOwner("the /adapt switch");
     return saveAdaptSettings(store, owner, await body());
   }
-  if (method === "POST" && path === "/api/adapt/stopped") return adaptFor(store, owner).record(await body());
-  if (method === "POST" && path === "/api/adapt/plan") return adaptFor(store, owner).look(await body(), context);
+  // merge-queue review: writing a stop into the owner's list, and reading an offer for one, are the
+  // owner's too; the short-lived-key table already said "owner POST" and now the route agrees.
+  if (method === "POST" && path === "/api/adapt/stopped") {
+    deps.requireOwner("/adapt");
+    return adaptFor(store, owner).record(await body());
+  }
+  if (method === "POST" && path === "/api/adapt/plan") {
+    deps.requireOwner("/adapt");
+    return adaptFor(store, owner).look(await body(), context);
+  }
   if (method === "POST" && path === "/api/adapt/go") {
     deps.requireOwner("/adapt");
     const answer = await adaptFor(store, owner).go(await body(), context);
