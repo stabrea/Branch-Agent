@@ -149,6 +149,7 @@ import { reflectionApi } from "./reflection/api.js";
 import { handlesSettingsKitPath, settingsKitApi, settingsKitBodyBytes, SettingsKitError } from "./settings-kit/api.js"; // R17-S-A
 import { PinnedSettingError, pins } from "./settings-kit/pins.js"; // mac7/wake-pins
 import { saveWakeWordSettings, wakeWordSettings, wakeWordView } from "./voice-wake.js"; // mac7/wake-pins
+import { dictationOwnerOnlyRefusal, dictationSettings, dictationView, saveDictationSettings } from "./voice-dictation.js"; // mac7/live-voice
 import { voiceSettings, saveVoiceSettings } from "./voice.js";
 import { voiceApi } from "./voice-api.js";
 // bucket-18: pull requests from changes (A0300), and which requests came with a short-lived key.
@@ -526,6 +527,7 @@ async function staticFile(
     "/chat-live.js": ["chat-live.js", "text/javascript; charset=utf-8"],
     "/chat-permissions.js": ["chat-permissions.js", "text/javascript; charset=utf-8"], // mac7/chat-allowlist
     "/wake-word.js": ["wake-word.js", "text/javascript; charset=utf-8"], // mac7/wake-pins
+    "/dictation.js": ["dictation.js", "text/javascript; charset=utf-8"], // mac7/live-voice
     "/pins.js": ["pins.js", "text/javascript; charset=utf-8"], // mac7/wake-pins
     "/skill-revisions.js": ["skill-revisions.js", "text/javascript; charset=utf-8"],
     // Wave mac3 (channels-parity): the switches for the chat services added to match other assistants.
@@ -1024,6 +1026,10 @@ async function api(
         // mac7/wake-mic: the switch reached through a settings file or a preset starts and stops
         // the listener exactly as the card's own switch does.
         "wake-word": (patch) => { saveWakeWordSettings(app.store, app.runtime.owner, patch); app.wake.refresh(); },
+        // mac7/live-voice: the switch reached through a settings file or a preset stops dictation
+        // exactly as the card's own switch does. It can only ever stop it: nothing here — not a
+        // file, not a preset, not the card — opens a microphone without the owner pressing Dictate.
+        "live-dictation": (patch) => { saveDictationSettings(app.store, app.runtime.owner, patch); app.dictation.refresh(); },
         ...Object.fromEntries((["analytics", "answer-engine", "runtimes", "nodes", "project-board"] as const)
           .map((part) => [`asks-${part}`, (patch: Record<string, unknown>) => { app.asks.setMode(part, patch); }])),
         // r17-i integration review: a reach switch saved through Reach, so its tools and the relay follow at once.
@@ -1056,6 +1062,41 @@ async function api(
       state: wakeWordView(app.store, app.runtime.owner, process.platform, true, app.wake.listening) };
   }
   // ── end mac7/wake-pins ──
+  // ── mac7/live-voice: speak, and see the words as you say them ──
+  // Reading the card says what this computer could really do and whether the microphone is open
+  // this moment; everything else is the owner's, at this window. A chat's task, a short-lived key,
+  // a household profile, a Trunk and another computer all arrive here as something that is not the
+  // owner at this window, and all five are refused by the two guards below and by the fail-closed
+  // rule for short-lived keys in src/short-lived-keys.ts, which never lists this path.
+  if (path === "/api/voice/dictation" || path === "/api/voice/dictation/listen") {
+    if (request.method === "GET") {
+      // Whether the microphone is open comes from the listener itself, so the card cannot say one
+      // thing while the microphone does another.
+      const mine = app.store.profiles.isOwner();
+      const view = dictationView(app.store, app.runtime.owner, process.platform, mine, app.dictation.open);
+      // The words are screen state: they go to the window that is dictating and nowhere else. They
+      // are never written to disk, never traced, never kept past the phrase, and never sent. Anybody
+      // else on this computer is not shown them, because they are not shown any of this.
+      return mine ? { ...view, words: app.dictation.words, settled: app.dictation.settled } : view;
+    }
+    // Not `requireOwner`, whose sentence is about a setting belonging to the owner. This one is
+    // about a microphone, and a person reading it should be told that rather than something milder.
+    if (!app.store.profiles.isOwner()) throw new HttpError(403, dictationOwnerOnlyRefusal);
+    if (path === "/api/voice/dictation/listen") {
+      const body = await readBody(request) as { on?: unknown };
+      // Starting is the only thing that opens a microphone anywhere in this feature, and it happens
+      // here, once, on a press. It answers with the refusal rather than opening one when anything
+      // — the switch, Lockdown, the lock, a missing speech program — says it must not.
+      const refusal = body?.on === true ? app.dictation.start() : (app.dictation.stop(), null);
+      return { open: app.dictation.open, refusal,
+        state: dictationView(app.store, app.runtime.owner, process.platform, true, app.dictation.open) };
+    }
+    saveDictationSettings(app.store, app.runtime.owner, await readBody(request));
+    app.dictation.refresh(); // the switch going off stops it and lets go of the microphone at once
+    return { settings: dictationSettings(app.store, app.runtime.owner),
+      state: dictationView(app.store, app.runtime.owner, process.platform, true, app.dictation.open) };
+  }
+  // ── end mac7/live-voice ──
   if (request.method === "GET" && path === "/api/state") return state(app);
   // Wave 6: sharing, labels and notes, workflows, the waiting line, days off, and profiles.
   const collab = await collabApi(app, request, path, (maximumBytes) => readBody(request, maximumBytes));

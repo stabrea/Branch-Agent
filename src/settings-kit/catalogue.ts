@@ -216,6 +216,15 @@ const reach: SettingSpec[] = [
       { field: "sureness", label: "How sure it must be before it answers", t: "settings-kit.field.wake-sureness",
         guard: "guard", initial: 80, kind: { type: "number", min: 50, max: 99 } }],
   },
+  // mac7/live-voice: dictation holds the microphone open while it listens, so turning it up reaches
+  // further. Only the switch is a field, and the switch alone can never open a microphone: nothing
+  // brought in from a file or a preset starts it, because only a press at this window can.
+  {
+    key: "live-dictation", name: "Speak and see the words", t: "settings-kit.name.live-dictation", home: "settings:voice",
+    fields: [sw("mode", "Switch", "settings-kit.field.switch", "reach"),
+      { field: "silenceSeconds", label: "How long a quiet room ends it", t: "settings-kit.field.dictation-silence",
+        guard: "guard", initial: 4, kind: { type: "number", min: 1, max: 30 } }],
+  },
   one("sdk-kit", "Tools for building on Branch", "settings-kit.name.sdk-kit", "settings:advanced", "reach"),
   // r17-i integration review: every reach and platform switch reaches further when raised (src/reach/settings.ts).
   // src/server.ts saves them through Reach, so the tools and the relay follow the switch at once.
