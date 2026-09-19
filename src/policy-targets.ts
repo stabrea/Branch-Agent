@@ -1,7 +1,7 @@
 import type { ToolContext, ToolTarget } from "./contracts.js";
 import type { ToolRegistry } from "./registry.js";
 import { evaluatePolicy, type Policy, type PolicyDecision, type PolicyRule } from "./policy.js";
-import { globMatches, resourceOf, tidyPath } from "./policy-resources.js";
+import { globMatches, tidyPath, type PolicyResource } from "./policy-resources.js";
 
 /**
  * mac7/multi-target: a call that touches several things — a patch across files, two documents
@@ -30,19 +30,27 @@ export interface TargetsVerdict {
   target: ToolTarget | null;
 }
 
-export interface TargetsCall { tool: string; permission: string; callTarget: string; args: unknown }
+export interface TargetsCall {
+  tool: string; permission: string; callTarget: string; args: unknown;
+  /**
+   * Integration: what the rules see of one target's text — `ToolRegistry.resourceOf`, which also gives a
+   * path as written from the workspace while a project's folder is active, so a folder rule holds for
+   * every file in the call exactly as it does for a call with one.
+   */
+  resourceOf: (text: string) => PolicyResource | null;
+}
 
 /** Every target weighed by the rules; the strictest answer, and which target gave it. */
 export function judgeTargets(policy: Policy, call: TargetsCall, targets: readonly ToolTarget[]): TargetsVerdict {
   let worst: TargetsVerdict = { decision: "allow", rule: null, target: null };
   for (const target of targets) {
     const text = targetText(target);
+    const resource = call.resourceOf(text);
     const outcome = evaluatePolicy(policy, {
-      tool: call.tool, target: text, readOnly: target.kind === "read",
-      resource: resourceOf(call.tool, call.permission, text, call.args), callTarget: call.callTarget,
+      tool: call.tool, target: text, readOnly: target.kind === "read", resource, callTarget: call.callTarget,
     });
     if (stricterThan(outcome.decision, worst.decision)) worst = { decision: outcome.decision, rule: outcome.rule, target };
-    const inner = innerFolderRule(policy, call, target);
+    const inner = innerFolderRule(policy, call, target, resource?.inWorkspace);
     if (inner && stricterThan(inner.decision, worst.decision))
       worst = { decision: inner.decision, rule: inner, target: { kind: target.kind, path: inner.resource!.pattern } };
     if (worst.decision === "deny") break;
@@ -56,9 +64,10 @@ export function judgeTargets(policy: Policy, call: TargetsCall, targets: readonl
  * repository diff of the workspace that holds finance, which would show finance's lines. Only rules
  * that ask or refuse are read this way; an allow for a folder inside never lets the whole one through.
  */
-function innerFolderRule(policy: Policy, call: TargetsCall, target: ToolTarget): PolicyRule | null {
+function innerFolderRule(policy: Policy, call: TargetsCall, target: ToolTarget, inWorkspace: string | undefined): PolicyRule | null {
   if (!target.folder || target.path === undefined) return null;
-  const folder = tidyPath(target.path).toLowerCase();
+  // Inside a project's folder, "." is that folder: the rules are written about the workspace.
+  const folder = tidyPath(inWorkspace ?? target.path).toLowerCase();
   return policy.rules.find((rule) => rule.resource?.kind === "path" && rule.decision !== "allow"
     && !(rule.applies === "changes" && target.kind === "read")
     && globMatches(rule.tool, call.tool) && globMatches(rule.match, target.path!)
@@ -93,11 +102,12 @@ export const unknownTargetsRefusal = (problem: string): string =>
  * targets cannot be told is refused, as it would be when run.
  */
 export function everyTargetDecision(
-  registry: Pick<ToolRegistry, "targetsOf">, policy: Policy, call: TargetsCall, context: ToolContext, whole: PolicyDecision,
+  registry: Pick<ToolRegistry, "targetsOf" | "resourceOf">, policy: Policy, call: Omit<TargetsCall, "resourceOf">, context: ToolContext,
+  whole: PolicyDecision,
 ): { decision: PolicyDecision; targets: ToolTarget[] } {
   let targets: ToolTarget[] | null;
   try { targets = registry.targetsOf(call.tool, call.args, context); } catch { return { decision: "deny", targets: [] }; }
   if (!targets) return { decision: whole, targets: [] };
-  const spread = judgeTargets(policy, call, targets).decision;
+  const spread = judgeTargets(policy, { ...call, resourceOf: (text) => registry.resourceOf(call.tool, text, call.args) }, targets).decision;
   return { decision: stricterThan(spread, whole) ? spread : whole, targets };
 }

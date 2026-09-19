@@ -312,3 +312,68 @@ test("9 a household person is shown none of the owner's lists: no kind, no strat
   assert.deepEqual(theirs.pools, [], "nothing is shared with them, so there is nothing to show");
   assert.doesNotMatch(JSON.stringify(theirs), /strategy|autoSwitch|signedIn|defaultAccount|claude/i);
 });
+
+// ------------------------------------------------------------------ integration review (hardening-3)
+
+test("Integration: \"././\" or \"a/..\" in front of a path is still the folder a rule names", async (t) => {
+  const { pathMatches } = await import("../dist/policy-resources.js");
+  assert.ok(pathMatches("finance", "././finance/q1.txt"));
+  assert.ok(pathMatches("finance", "a/../finance/q1.txt"));
+  assert.ok(pathMatches("finance", String.raw`.\finance\q1.txt`));
+  assert.ok(pathMatches("./finance/", "finance//q1.txt"));
+  assert.ok(!pathMatches("finance", "../finance/q1.txt"), "a path outside the workspace is not the workspace's finance folder");
+  assert.ok(!pathMatches("finance", "financial/q1.txt"));
+  // A file at the top of the workspace is a file, not a website, whatever dots its name has...
+  const { resourceOf } = await import("../dist/policy-resources.js");
+  assert.equal(resourceOf("files.write", "files.write", "q1.txt", { path: "q1.txt" })?.kind, "path");
+  assert.equal(resourceOf("files.restore", "files.write", "q1.txt", { versionId: "x" })?.kind, "path");
+  // ...while a file tool reading an address, and any other tool, are judged by the site as before.
+  assert.equal(resourceOf("data.load", "data.read", "example.com", { url: "https://example.com/a.csv" })?.kind, "host");
+  assert.equal(resourceOf("home.call", "personal.write", "light.kitchen", {})?.kind, "host");
+  const provider = scripted([call("files.write", { path: "././finance/q1.txt", content: "PWNED" }), say("done")]);
+  const { app, workspace } = await fixture(t, { provider });
+  await mkdir(join(workspace, "finance"), { recursive: true });
+  await writeFile(join(workspace, "finance", "q1.txt"), "10\n");
+  await financeRule(app);
+  const run = await app.runtime.run({ prompt: "change it" });
+  assert.equal(await readFile(join(workspace, "finance", "q1.txt"), "utf8"), "10\n", "the file was not written");
+  assert.equal(eventsOf(app, run, "policy.denied").length, 1);
+});
+
+test("Integration: a folder rule holds while the active project's folder is inside it", async (t) => {
+  const provider = scripted([call("files.write", { path: "q1.txt", content: "PWNED" }), say("done"),
+    call("files.write", { path: "q1.txt", content: "fine" }), say("done")]);
+  const { app, workspace } = await fixture(t, { provider });
+  await mkdir(join(workspace, "finance"), { recursive: true });
+  await writeFile(join(workspace, "finance", "q1.txt"), "10\n");
+  await financeRule(app);
+  app.store.projects.save("local", { id: "money", name: "Money", folder: "finance" });
+  app.store.projects.setActive("local", { active: "money" });
+  const refused = await app.runtime.run({ prompt: "change it" });
+  assert.equal(await readFile(join(workspace, "finance", "q1.txt"), "utf8"), "10\n", "q1.txt in the project is finance/q1.txt");
+  assert.equal(eventsOf(app, refused, "policy.denied")[0]?.data.target, "q1.txt", "the question and the card still show the path as written");
+  // Another AI tool's dry run is answered for the project that is active, as the call would run.
+  const { dryRunPlan } = await import("../dist/mcp-policy.js");
+  assert.equal(dryRunPlan(app.registry, app.store, "local", workspace, { name: "files.write", arguments: { path: "q1.txt", content: "x" } }).decision, "deny");
+  // Another project's folder is not finance, so the same path there is written as before.
+  app.store.projects.save("local", { id: "garden", name: "Garden", folder: "garden" });
+  app.store.projects.setActive("local", { active: "garden" });
+  const allowed = await app.runtime.run({ prompt: "write it" });
+  assert.equal(eventsOf(app, allowed, "policy.denied").length, 0);
+  assert.equal(await readFile(join(workspace, "garden", "q1.txt"), "utf8"), "fine");
+});
+
+test("Integration: putting back a kept version is judged against the file that version belongs to", async (t) => {
+  let versionId = "";
+  const provider = scripted([() => ({ content: "", toolCalls: [{ id: "r1", name: "files.restore", arguments: JSON.stringify({ versionId }) }] }), say("done")]);
+  const { app, workspace } = await fixture(t, { provider });
+  await mkdir(join(workspace, "finance"), { recursive: true });
+  await writeFile(join(workspace, "finance", "q1.txt"), "10\n");
+  await app.runtime.executeTool("files.write", { path: "finance/q1.txt", content: "NOW" });
+  versionId = (await app.runtime.executeTool("files.history", { path: "finance/q1.txt" }))[0].id;
+  assert.equal(app.registry.targetOf("files.restore", { versionId }, {}), "finance/q1.txt");
+  await financeRule(app);
+  const run = await app.runtime.run({ prompt: "put it back" });
+  assert.equal(eventsOf(app, run, "policy.denied")[0]?.data.target, "finance/q1.txt");
+  assert.equal(await readFile(join(workspace, "finance", "q1.txt"), "utf8"), "NOW", "the old version was not written back");
+});

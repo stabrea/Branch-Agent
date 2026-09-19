@@ -3853,6 +3853,13 @@ wants to change something stops and waits, and stays waiting
 until you answer it in Settings. Branch Agent tells you it has: the pause appears under *Waiting for
 your yes*, and an outbound webhook subscribed to `approval.needed` is sent at the same time, so an
 unattended install can be told about it wherever you actually look.
+
+Such a task stays held however it is carried on (since 0.18.1, mac7/outside-resume): pressing
+*Continue* after a restart, Branch carrying it on by itself, answering its question and sending your
+next message in its conversation, *Do this again*, a branch or copy of its conversation, a flow or
+workflow it set going, and the mode picker (even *Full access*) all leave it asking before changes,
+and a chat's task still cannot do what only you may do. Nothing in the window turns it into your own
+work; to have Branch do it freely, ask for it in a new conversation of your own.
 **What the rules do not cover.** They apply to what the assistant decides to do on its own. A tool
 you run yourself from this app (`POST /api/action`) is your own action and goes straight through.
 **A practice run.** `POST /api/run` with `"dryRun": true`, or `node dist/cli.js run "..." --dry-run`,
@@ -5489,13 +5496,18 @@ website (`host`), a messaging account (`channel`) or a command (`command`). A ru
 these is looked at before the broader rules, so "never write anything under finance" beats "writing
 files is fine". A rule without one covers whatever the tool would touch, which is exactly how every
 rule written before this behaves — nothing you already had changes.
-A folder rule covers everything inside it, so `finance` fits `finance/2026/q1.xlsx`. A website rule
+A folder rule covers everything inside it, so `finance` fits `finance/2026/q1.xlsx`, however the path
+is written (`./finance/q1.xlsx`, `a/../finance/q1.xlsx`). Folders are named from the workspace itself:
+while a project with its own folder is active (or a task works in its own copy), a path the task gives
+inside it is weighed both as written and from the workspace, so with the project's folder set to
+`finance`, `q1.xlsx` is under `finance`. A website rule
 covers the site and anything under it, so `example.com` fits `shop.example.com`. A command rule
 covers the words it names and anything after them, so `rm` fits `rm -rf something` and `git status`
 fits `git status --short` but not `git push` (see "Always allow, per command" below). `*` still
 stands for any text.
 Which kind a call counts as is worked out from what the call says it would touch, not from its
-arguments: a bare website name is a website, and anything else is a folder or file. That means a
+arguments: a bare website name is a website, and anything else is a folder or file (a tool that works
+on files and was given no address is always about a file, so `q1.txt` is a file there). That means a
 tool that reports what it touches through its own `target()` — as a tool with no plain `path`
 argument is meant to — is covered by a folder rule like any other.
 Browser clicking, typing and uploading go through these same rules with the website as the thing

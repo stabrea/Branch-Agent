@@ -339,3 +339,24 @@ test("integration: a read-only folder inside a repository stops saving the whole
   financeRule(other, "ask");
   assert.equal(judge(other, "git.diff", { folder: "." }).decision, "ask");
 });
+
+test("integration: every file is judged as written from the workspace while a project's folder is active", async (t) => {
+  const { app, workspace } = await fixture(t);
+  // "Never anything under work/finance", while the active project's folder is work: "finance/q1.csv" in a
+  // patch is work/finance/q1.csv on disk.
+  addPolicyRule(app.store, "local", { tool: "*", match: "*", decision: "deny", remember: "always", resource: { kind: "path", pattern: "work/finance" } });
+  app.store.projects.save("local", { id: "work", name: "Work", folder: "work" });
+  app.store.projects.setActive("local", { active: "work" });
+  const patch = partFor("notes.txt") + partFor("finance/q1.csv");
+  refusedNaming(judge(app, "code.patch", { patch }), "finance/q1.csv");
+  refusedNaming(judge(app, "documents.compare", { file: "a.md", against: "finance/b.md" }), "finance/b.md");
+  refusedNaming(judge(app, "git.diff", { folder: "." }), "work/finance");
+  assert.equal(judge(app, "git.diff", { folder: "notes" }).decision, "allow", "a folder of the project beside finance");
+  const { dryRunPlan } = await import("../dist/mcp-policy.js");
+  assert.equal(dryRunPlan(app.registry, app.store, "local", workspace, { name: "files.patch", arguments: { patch } }).decision, "deny");
+  // In another project, the same names are not under work/finance.
+  app.store.projects.save("local", { id: "garden", name: "Garden", folder: "garden" });
+  app.store.projects.setActive("local", { active: "garden" });
+  assert.equal(judge(app, "code.patch", { patch }).decision, "allow");
+  assert.equal(judge(app, "git.diff", { folder: "." }).decision, "allow", "garden does not hold work/finance");
+});

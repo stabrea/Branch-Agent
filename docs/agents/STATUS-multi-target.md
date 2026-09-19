@@ -183,3 +183,31 @@ Checked and left as is:
 - `0332d8be` has no Co-Authored-By line; left alone (no force-push).
 - Not fixed, larger than this branch: `code.search` / `files.list` / `files.search` on "." still read inside a
   refused folder (they have one target); they would need their results filtered by the rules.
+
+### Merge with trunk (hardening-3 integrated, 98beb5d8)
+- Waited for hardening-3's integration to land on trunk (`98beb5d8`, with outside-resume), then merged it here.
+  Four conflicts, all at hardening-3's `registry.resourceOf` / outside-resume's `sourceOf`: the imports in
+  `approval-reviewer.ts`, `mcp-policy.ts`, `playground.ts`, `runtime.ts` (trunk's, plus `policy-targets`), the MCP
+  dry run (trunk's `registry.resourceOf` for the whole call, then every target), and the model's question card
+  (trunk's `this.sourceOf(context)` with this branch's `files`).
+- **Found by the merge (blocking, fixed)**: `judgeTargets` read each target with the bare `resourceOf`, so the path
+  as written from the workspace (hardening-3's `inWorkspace`, while a project's folder is active) was missing for
+  every file but the call's own. With the project folder `work` and "never anything under work/finance", the second
+  file of a patch (`finance/q1.csv`) went through. `TargetsCall.resourceOf` is now required: the runtime, the
+  reviewer, the MCP dry run and "Try a tool" hand it `registry.resourceOf`; the whole-folder check reads "." as the
+  project's folder. The sandbox wall keeps the bare reader, as its own whole-call check does (off on Windows).
+  Test: "integration: every file is judged as written from the workspace while a project's folder is active".
+- After the merge `./././finance/b.csv` in a patch is refused (hardening-3's `tidyPath`), which it was not before.
+
+### Runs after the merge
+`dist/` deleted and rebuilt, `npx tsc --noEmit` clean. 45 files at `--test-concurrency=2` (multi-target,
+hardening-2/3, approvals, code-*, coding-*, conversation-mode, docs-memory-2, documents, folder-trust, git,
+household-profile, knowledge, leak-guard, lockdown-*, manual-actions-gate, mcp-*, never-break-deny, os-sandbox,
+outside-resume, plan-act, policy-outside-hold, rag-vector, redesign-phase1, second-opinion, static-assets,
+index-structure, handbook, server, ui, shell-ui, calm-ui, chat-live, web-ui, catalog-diet, tool-safety,
+tracing-policy): 741 tests, 724 pass, 0 fail, 17 skipped; `tests/automation.test.mjs` alone 5/5. Before the merge,
+`git.test.mjs` "parallel copies stay inside .branch-worktrees" failed once under load ("Git could not do that")
+and passed alone (14/14) and in the run after the merge.
+Every fix here was checked by taking it out of `dist/` and seeing its test fail (6 mutations, 6 failures).
+
+Verdict: MERGE WITH FIXES.

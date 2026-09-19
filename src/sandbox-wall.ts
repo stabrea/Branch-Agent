@@ -62,7 +62,8 @@ export function wallContextFor(call: WallCall): { osSandbox?: WallContext } {
   const risky = call.choice !== null
     || evaluatePolicy(call.policy, { tool: call.tool, target: call.target, readOnly, resource }).decision !== "allow"
     // mac7/multi-target: and when any one of the things it touches is not simply allowed.
-    || (!!call.targets && judgeTargets(call.policy, { tool: call.tool, permission: call.permission, callTarget: call.target, args: call.args }, call.targets).decision !== "allow");
+    || (!!call.targets && judgeTargets(call.policy, { tool: call.tool, permission: call.permission, callTarget: call.target, args: call.args,
+      resourceOf: (text) => resourceOf(call.tool, call.permission, text, call.args) }, call.targets).decision !== "allow");
   if (!wallApplies(settings.mode, risky)) return {};
   const { context, approvals, policy } = call;
   const sessionId = context.approvalKey ?? call.store.run(context.runId)?.sessionId ?? context.runId;

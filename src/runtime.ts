@@ -7,6 +7,7 @@ import { noJournal, type JournalHook } from "./never-break/journal.js"; // mac3/
 import { neverBreakModeSync } from "./never-break/gateway-config.js"; // mac3/never-break
 import { runOrigin, shortLivedKeyMark, startedWithShortLivedKey, underShortLivedKey } from "./key-context.js"; // bucket-18 (A0300), bucket 19
 import { personalHold } from "./personal/guard.js"; // R17-C integration review
+import { conversationCarrier, outsideSourceOf, type OutsideSource } from "./outside-origin.js"; // mac7/outside-resume
 import { asPerson, currentPerson } from "./people/context.js"; // bucket 19
 import type { TrunkRunShape } from "./trunks/shape.js"; // R17-A (Trunks)
 import {
@@ -80,7 +81,6 @@ import {
   addPolicyRule, cappedPolicy, evaluatePolicy, isReadOnlyPermission, readPolicy,
   type Policy, type PolicyDecision, type PolicyRemember, type RunSource,
 } from "./policy.js";
-import { resourceOf } from "./policy-resources.js";
 import { judgeTargets, stricterThan, targetRefusal, targetText, unknownTargetsRefusal } from "./policy-targets.js"; // mac7/multi-target
 import { ProfileRoles, grantRefusal } from "./profile-roles.js";
 import { Handoffs } from "./orchestration-modes.js";
@@ -169,7 +169,9 @@ interface GateOutcome {
   backend: SandboxBackendName | null; paths: readonly string[] | null;
 }
 export interface DelegateOptions { timeoutMs?: number; resultSchema?: Record<string, unknown>; /** The shape this task wants back, declared in zod. A reply that misses it is re-asked once. */ shape?: AnswerShape; checks?: CompletionCheck; background?: boolean; /** Specialist id: limits memory reads to shared facts and its own. */ agent?: string; /** The specialist's working style; it changes how the loop runs. */ style?: SpecialistStyle }
-export interface FollowUp { id: string; prompt: string; createdAt: string; shortLivedKey?: boolean; shortLivedKeyId?: string; personProfileId?: string }
+export interface FollowUp { id: string; prompt: string; createdAt: string; shortLivedKey?: boolean; shortLivedKeyId?: string; personProfileId?: string;
+  /** mac7/outside-resume: the earlier task this message carries on for (a handed-over step's answer). */
+  originFrom?: string }
 export interface BackgroundResult { childRunId: string; parentRunId: string; status: string; output: string; finishedAt: string }
 export interface FanoutOutcome { waves: string[][]; tasks: Record<string, { runId: string; status: string; output: string; result: ResultCheck }> }
 /** Every reply may be this long; a run whose model runs out of room thinking may double it twice. */
@@ -248,6 +250,11 @@ export interface RunOptions {
   images?: ImagePart[];
   /** Internal: continue an interrupted run's transcript instead of adding a new prompt. */
   resumeFrom?: string;
+  /**
+   * mac7/outside-resume: the earlier task this one carries on for ("Do this again", a handed-over
+   * step's answer). When that task came from outside, this one is held as it was.
+   */
+  originFrom?: string;
   /** bucket 19 (integration review): whose conversation this is, when a person's own one is lent to the assistant. */
   lentTo?: string;
   /** Practice run: tools that would change something report what they would have done. */
@@ -410,8 +417,10 @@ export class Runtime {
   settleDeferred(id: string, outcome: string): { id: string; sessionId: string; queued: number } {
     const entry = this.deferrals.settle(id, outcome);
     if (entry.runId) this.store.event(entry.runId, "tool.deferred_settled", { id: entry.id, tool: entry.tool });
+    // mac7/outside-resume: the answer carries the task that handed the step over on, as that task.
     const queued = this.followUp(entry.sessionId,
-      `The "${entry.tool}" step you handed over earlier has finished${entry.description ? ` (${entry.description})` : ""}. What came of it: ${entry.outcome}`);
+      `The "${entry.tool}" step you handed over earlier has finished${entry.description ? ` (${entry.description})` : ""}. What came of it: ${entry.outcome}`,
+      null, entry.runId || undefined);
     return { id: entry.id, sessionId: entry.sessionId, queued: queued.queued };
   }
   /** The default preset's provider; individual runs may select another preset. */
@@ -469,7 +478,7 @@ export class Runtime {
    * Queues a message for a conversation; it runs, in order, as soon as the conversation is free,
    * so a person can steer a task that is still working without waiting for it to finish.
    */
-  followUp(sessionId: string, prompt: string, windowPerson: string | null = null): { id: string; position: number; queued: number } {
+  followUp(sessionId: string, prompt: string, windowPerson: string | null = null, originFrom?: string): { id: string; position: number; queued: number } {
     RunInputSchema.parse({ prompt, sessionId });
     // profile-audit: queued from the app window switched to a household profile, it runs as them.
     const person = currentPerson()?.profileId ?? windowPerson;
@@ -478,7 +487,7 @@ export class Runtime {
     const items = [...this.queued(sessionId), { id: randomUUID(), prompt, createdAt: new Date().toISOString(),
       ...(startedWithShortLivedKey() ? { shortLivedKey: true } : {}),
       ...(shortLivedKeyMark().keyId ? { shortLivedKeyId: shortLivedKeyMark().keyId } : {}),
-      ...(person ? { personProfileId: person } : {}) }];
+      ...(person ? { personProfileId: person } : {}), ...(originFrom ? { originFrom } : {}) }];
     this.store.save("settings", this.owner, `followups:${sessionId}`, { items });
     this.drainFollowUps(sessionId);
     const left = this.queued(sessionId);
@@ -489,7 +498,8 @@ export class Runtime {
     const [next, ...rest] = this.queued(sessionId);
     if (!next) return;
     this.store.save("settings", this.owner, `followups:${sessionId}`, { items: rest });
-    const start = () => this.track(() => this.execute({ prompt: next.prompt, sessionId, onTextDelta: () => undefined }));
+    const start = () => this.track(() => this.execute({ prompt: next.prompt, sessionId, onTextDelta: () => undefined,
+      ...(next.originFrom ? { originFrom: next.originFrom } : {}) }));
     const marked = () => (next.shortLivedKey ? underShortLivedKey(start, next.shortLivedKeyId ? { keyId: next.shortLivedKeyId } : {}) : start());
     // bucket 19: a message a household person queued runs as that person, held to their role.
     void (next.personProfileId ? asPerson({ profileId: next.personProfileId, keyId: "queued" }, marked) : marked()).catch(() => undefined);
@@ -530,10 +540,10 @@ export class Runtime {
     const lentTo = origin?.lentTo ?? null;
     if (!previous || !origin || (previous.owner !== this.owner && previous.owner !== lentTo)) throw new Error("Run not found");
     if (previous.status !== "interrupted") throw new Error("Only interrupted tasks can be continued");
-    // A chat message's task carries on as the chat's, with the same tools, never as the owner's own.
-    const chat = origin.source === "channel"
-      ? { source: "channel" as const, ...(origin.permissions ? { permissions: origin.permissions } : {}) } : {};
-    const again = { prompt: previous.prompt, sessionId: previous.sessionId, resumeFrom: previous.id, ...chat };
+    // A task from outside (a chat message, a trigger, a schedule, another program) carries on as it
+    // started, with the same tools, never as the owner's own: execute reads that from the record
+    // (carryOrigin, mac7/outside-resume), whoever pressed Continue.
+    const again = { prompt: previous.prompt, sessionId: previous.sessionId, resumeFrom: previous.id };
     const go = async () => {
       if (!lentTo) return this.execute(again);
       // Lent to the assistant for the resumed task, and handed back to the person after it.
@@ -809,12 +819,13 @@ ${run.output.slice(0, 6000)}`;
   }
   /** bucket-18 (A0300): who started the task, and whether a short-lived key was behind it or its parent. */
   private originMarks(options: RunOptions, context: ToolContext, parent?: ToolContext): Record<string, unknown> {
-    const inherited = [parent?.runId, options.resumeFrom].some((id) => !!id && runOrigin(this.store, id).shortLivedKey);
+    const inherited = [parent?.runId, options.resumeFrom, options.originFrom].some((id) => !!id && runOrigin(this.store, id).shortLivedKey);
     // household-followups: a specialist's task is its parent's person's, whatever the window says now.
     const person = parent?.runId ? runOrigin(this.store, parent.runId).personProfileId : this.startedFor(context.source);
     return {
       source: context.source ?? "owner",
       ...(options.resumeFrom ? { resumedFrom: options.resumeFrom } : {}),
+      ...(options.originFrom ? { originFrom: options.originFrom } : {}), // mac7/outside-resume
       ...(startedWithShortLivedKey() || inherited ? { shortLivedKey: true } : {}),
       // bucket 19: which key, so only that key may answer the questions this task asks.
       ...(shortLivedKeyMark().keyId ? { shortLivedKeyId: shortLivedKeyMark().keyId } : {}),
@@ -845,6 +856,7 @@ ${run.output.slice(0, 6000)}`;
     parent?: ToolContext,
     instructions = "",
   ): Promise<Run> {
+    options = this.carryOrigin(options, parent); // mac7/outside-resume
     // Check the monthly budget before creating the run
     if (!parent) {
       const refusal = this.monthlyBudgetRefusal();
@@ -902,6 +914,7 @@ ${run.output.slice(0, 6000)}`;
       // What this task was allowed to reach, so "Do this again" can hand it the very same tools.
       permissions: [...context.permissions].sort(),
     });
+    this.recordedSources.delete(run.id); // mac7/outside-resume: read again now that the start is written
     // ── mac2/fly-core: the learning core ranks what worked before as the task starts, and learns from
     // the outcome once it has settled (src/fly-core/hook.ts). Advice only; it never fails a task. ──
     const flyCoreSettled = parent || context.dryRun || context.isolated ? null : watchTask(this.store, run, context.owner);
@@ -949,6 +962,7 @@ ${run.output.slice(0, 6000)}`;
     // running — so every task lets go of its ids here, child runs included.
     this.tracer.forget(run.id);
     this.guards.forget(run.id); // wave mac2 (guards)
+    this.recordedSources.delete(run.id); // mac7/outside-resume
     safetyExtras.forgetProgress(this.store, run.id); // mac7/r17-g
     this.leaveSpend(run.id); // R17-S09
     if (!parent && !options.isolated && settled.status === "completed" && !options.resumeFrom) this.scheduleReview(run, context);
@@ -2130,7 +2144,9 @@ ${run.output.slice(0, 6000)}`;
   policy(source: RunSource = "owner", runId?: string): Policy {
     // Wave mac2 (guards): with folder trust on, a task in a folder the owner does not trust asks first.
     // R17-S19: with "confirm sensitive browser steps" on, those steps ask every time (src/comfort/browser-safety.ts).
-    return withBrowserConfirmation(this.guards.policy(cappedPolicy(this.conversationPolicy(runId), source)), this.store, this.owner);
+    // mac7/outside-resume: held by the task's own record too, so work carried on from outside stays held.
+    const held = source !== "owner" ? source : this.recordedSource(runId) ?? "owner";
+    return withBrowserConfirmation(this.guards.policy(cappedPolicy(this.conversationPolicy(runId), held)), this.store, this.owner);
   }
   /** Redesign phase 1: the owner's policy as this task's conversation has narrowed or widened it. */
   private conversationPolicy(runId?: string): Policy {
@@ -2175,6 +2191,37 @@ ${run.output.slice(0, 6000)}`;
     return origin.source === "owner" && !origin.shortLivedKey;
   }
   /**
+   * mac7/outside-resume: a task that carries on outside work keeps where that work came from. The
+   * task it resumes, the task it says it carries on for, or the outside task its conversation began
+   * with (or stopped on) is read from the record; whoever pressed Continue, answered the question
+   * or typed the next message does not change it. A resumed task keeps its own tools as well.
+   */
+  private carryOrigin(options: RunOptions, parent?: ToolContext): RunOptions {
+    if (parent || (options.source && options.source !== "owner")) return options;
+    const { originFrom: asked, ...rest } = options;
+    const carried = (id: string | null | undefined) => (id && outsideSourceOf(this.store, id) ? id : undefined);
+    const from = carried(options.resumeFrom) ?? carried(asked) ?? carried(conversationCarrier(this.store, options.sessionId));
+    const source = outsideSourceOf(this.store, from);
+    if (!from || !source) return rest;
+    const kept = from === options.resumeFrom && !options.permissions ? runOrigin(this.store, from).permissions : null;
+    return { ...rest, source, ...(from === options.resumeFrom ? {} : { originFrom: from }), ...(kept ? { permissions: kept } : {}) };
+  }
+  /** mac7/outside-resume: who a piece of work is held as — its context, or its task's record when that is stricter. */
+  private sourceOf(context: { source?: RunSource | undefined; runId?: string | undefined }): RunSource {
+    const given = context.source ?? "owner";
+    return given !== "owner" ? given : this.recordedSource(context.runId) ?? "owner";
+  }
+  /** The outside source a task's record carries, read once per task (forgotten when it settles). */
+  private recordedSource(runId: string | undefined): OutsideSource | null {
+    if (!runId) return null;
+    if (this.recordedSources.has(runId)) return this.recordedSources.get(runId) ?? null;
+    const found = outsideSourceOf(this.store, runId);
+    if (this.recordedSources.size >= 500) this.recordedSources.clear();
+    this.recordedSources.set(runId, found);
+    return found;
+  }
+  private readonly recordedSources = new Map<string, OutsideSource | null>();
+  /**
    * Where answers already given are remembered for this piece of work: the conversation, or the
    * name a workflow gave when there is no conversation behind it.
    */
@@ -2193,10 +2240,10 @@ ${run.output.slice(0, 6000)}`;
     const readOnly = isReadOnlyPermission(permission);
     const target = this.registry.targetOf(tool, args, context);
     const label = describeToolCall(tool, args);
-    const source: RunSource = context.source ?? "owner";
+    const source: RunSource = this.sourceOf(context); // mac7/outside-resume
     // What the call is about — a folder, a website, a messaging account, a command — so a rule the
     // owner wrote about that one thing is considered before the broad ones.
-    const resource = resourceOf(tool, permission, target, args);
+    const resource = this.registry.resourceOf(tool, target, args); // integration (hardening-3): with the workspace-written path
     // Somebody else in the house, working under their own profile, is held to their role first.
     // A role can only refuse; it never lets anything through that the rules would have stopped.
     // --- mac3/never-break: Branch's own program, gateway settings, database and updater can never be
@@ -2217,7 +2264,8 @@ ${run.output.slice(0, 6000)}`;
     const policy = this.policy(source, context.runId);
     const whole = this.leakGuard.tighten(evaluatePolicy(policy, { tool, target, readOnly, resource }), args);
     // mac7/multi-target: and each of them weighed by the rules; the strictest answer wins, and a refusal names it.
-    const spread = every && judgeTargets(policy, { tool, permission, callTarget: target, args }, every);
+    const spread = every && judgeTargets(policy,
+      { tool, permission, callTarget: target, args, resourceOf: (text) => this.registry.resourceOf(tool, text, args) }, every);
     if (spread?.decision === "deny" && spread.target)
       return { decision: "deny", label, target, readOnly, remember: "never", sandbox: null, backend: null, paths: null, reason: targetRefusal(label, spread.target) };
     const tightened = spread && stricterThan(spread.decision, whole.decision) ? { ...whole, decision: spread.decision, rule: spread.rule } : whole;
@@ -2408,7 +2456,7 @@ ${run.output.slice(0, 6000)}`;
       : this.offPlanQuestion(context, { label, target, readOnly }) ?? this.retriedCommandQuestion(call, args, context);
     if (aside) {
       this.orchestration.pausePlan(this.sessionOf(context));
-      return this.askApproval(context, { tool: call.name, label: aside, target, source: context.source ?? "owner",
+      return this.askApproval(context, { tool: call.name, label: aside, target, source: this.sourceOf(context),
         remember, sandbox, bytes: this.hideSecrets(shown.arguments).slice(0, 2000), fingerprint, files: this.cardFiles(call.name, args, context) }, call.id);
     }
     if (decision === "allow") return { refusal: null, ...held };
@@ -2417,7 +2465,7 @@ ${run.output.slice(0, 6000)}`;
         ...(verdict ? { hook: verdict.hook } : {}), ...(reason ? { reason } : {}) });
       return { refusal: { ok: false, error: reason || verdict?.reason || refusedByPolicy(label) }, ...held };
     }
-    const source: RunSource = context.source ?? "owner";
+    const source: RunSource = this.sourceOf(context); // mac7/outside-resume
     const asked = verdict?.reason ? `${label} — ${verdict.reason}` : label;
     return this.askApproval(context, { tool: call.name, label: asked, target, source, remember, sandbox,
       // The exact request, cleaned of any saved password or key, is what the person is shown and
@@ -2833,7 +2881,7 @@ ${run.output.slice(0, 6000)}`;
       if (e instanceof ApprovalRequiredError) {
         span?.end("error", "waiting for the person");
         this.askApproval(context, { tool: e.tool, label: e.label, target: e.target,
-          source: context.source ?? "owner", remember: e.remember, ...e.asked,
+          source: this.sourceOf(context), remember: e.remember, ...e.asked,
           ...(e.fingerprint === undefined ? {} : { fingerprint: e.fingerprint }) }, call.id);
       }
       if (e instanceof BudgetError || e instanceof NeedsInputError || context.signal.aborted) {

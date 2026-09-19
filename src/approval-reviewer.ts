@@ -6,7 +6,7 @@ import { checkResult } from "./delegation.js";
 import { FeatureSwitchSchema } from "./loop-guard.js";
 import { redactLeaks } from "./leak-guard.js";
 import { evaluatePolicy, type Policy, type PolicyOutcome, type RunSource } from "./policy.js";
-import { isCommandTool, resourceOf } from "./policy-resources.js";
+import { isCommandTool } from "./policy-resources.js";
 import { judgeTargets, stricterThan } from "./policy-targets.js"; // mac7/multi-target
 import type { ApprovalGate } from "./approvals.js";
 import type { ModelPreset, ModelRouter } from "./models.js";
@@ -161,7 +161,7 @@ const namedForChange = (tool: string): boolean => changeWords.test(tool.replace(
 /** What the rules alone say about the call, before any earlier answer is counted, and whether a rule said it. */
 function rawOutcome(host: ReviewerHost, check: PolicyCheck, about: ReviewedCall, readOnly: boolean): { outcome: PolicyOutcome & { leak?: string }; matched: boolean } {
   const { call, args, context } = about;
-  const resource = resourceOf(call.name, host.registry.permissionOf(call.name), check.target, args);
+  const resource = host.registry.resourceOf(call.name, check.target, args);
   const policy = host.policy(context.source ?? "owner", context.runId);
   const ruled = everyTarget(host, policy, evaluatePolicy(policy, { tool: call.name, target: check.target, readOnly, resource }), about, check.target);
   const outcome = host.leakGuard.tighten(ruled, args);
@@ -178,7 +178,9 @@ function everyTarget(host: ReviewerHost, policy: Policy, whole: PolicyOutcome, a
   let targets;
   try { targets = host.registry.targetsOf(about.call.name, about.args, about.context); } catch { return { decision: "deny", rule: null }; }
   if (!targets) return whole;
-  const spread = judgeTargets(policy, { tool: about.call.name, permission: host.registry.permissionOf(about.call.name), callTarget, args: about.args }, targets);
+  const tool = about.call.name;
+  const spread = judgeTargets(policy, { tool, permission: host.registry.permissionOf(tool), callTarget, args: about.args,
+    resourceOf: (text) => host.registry.resourceOf(tool, text, about.args) }, targets);
   return stricterThan(spread.decision, whole.decision) ? { decision: spread.decision, rule: spread.rule } : whole;
 }
 

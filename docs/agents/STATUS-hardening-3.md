@@ -230,3 +230,63 @@ Grouped by where the thing a rule is about comes from. "own" = the tool's `targe
 - 50 targeted files at `--test-concurrency=2`: 730 tests, 727 pass, 0 fail, 3 skipped (the files for every area
   touched, plus static-assets, index-structure, handbook, server, ui, shell-ui); `tests/automation.test.mjs` alone: 5/5.
 - Not merged into trunk (the integrator does that).
+
+## Integration (adversarial review, 2026-09-19)
+
+Integrator: Claude (Opus). Read the whole diff, probed the policy path on a running app with scripted models.
+
+**Verified as claimed:** `runArgs` feeds every judging layer (grep of `targetOf`/`policyTarget`/`evaluatePolicy`/
+`checkPolicy`/`wallFor`/`resourceOf`: every model call, workflow, flow, procedure, MCP server, realtime voice,
+web page, never-break resume, manual action, "Try a tool" and the MCP dry run go through `checkPolicy`/`wallFor`/
+`runArgs`); the approval fingerprint is still the exact bytes sent. The tool runs `parse(clean(sent))` and the
+rules saw `safeParse(clean(sent)).data`: the same schema on the same input, so the same value for any schema
+that gives the same answer twice. Of the five `preprocess`/`transform` uses in src, none makes a path-affecting
+value that varies between calls (read, not proved by a test), so nothing changes between the yes and the run. Loop guard, hung local model (300 s + 30 s grace, then fallback or
+the plain sentence), `code.rename`, malware "not checked" (both callers: server start stays documented
+fail-open and is never cached as clean; install request is `unchecked` and needs an on-purpose yes), in-flight
+spend (finished = `status NOT IN (running, needs_input)`, in flight = `IN`: disjoint, counted once; the video's
+own check no longer adds its task on top), Docker already on trunk, accounts names. A10 and P6 were made
+stricter, not weaker (A10 now also asserts the only keys a person gets).
+
+**Found and fixed here (all pre-existing on trunk, each proven to fail with the fix taken out of `dist/`):**
+- `"././finance/q1.txt"` wrote through "never under finance": `tidyPath` took off only one leading `./`.
+  It now folds `.`, empty and `a/..` steps (a leading `..` is kept, so outside the workspace never matches).
+- With an active project folder (or a task's working copy), `q1.txt` is `finance/q1.txt` on disk but the rule
+  saw `q1.txt`. `ToolRegistry.resourceOf` now adds `inWorkspace` (scope + path; `registry.pathScope` is the
+  file tools' own `files.scope`), and a path rule matches either. The target, the card and the yes keys are
+  unchanged. Used by `checkPolicy`, the reviewer, "Try a tool" and the MCP dry run (which is answered for the
+  project active when it is asked, as the call would run; tested).
+- A dotted file name with no folder (`q1.txt`) counted as a *website* for every tool, so no folder or file rule
+  could match it. A tool with a files/documents/media/data/code permission and no `url` argument is now about a
+  file. Checked for the opposite mistake: the only tools whose own target is a bare site name (OpenAPI tools,
+  `api.call`; skill HTTP tools, `skills.http`) have other permissions, so website rules on them still match.
+- `files.restore` had no target (the file comes from the version id): it now reports the version's file.
+- Household accounts window: a person's rows no longer show the owner's buttons (they all 403, and without
+  `signedIn` a shared ChatGPT account showed "Sign in").
+- Tests: `tests/hardening-3.test.mjs` "Integration: …" (3 tests).
+
+**Checked, no hole:** Windows case (rules match case-insensitively); `..`, `\`, `:` (drive, UNC, data streams),
+absolute paths, trailing dots/spaces, symlinks and junctions are refused by `WorkspaceFiles.checked`; `file://`
+addresses are refused by the browser and the network policy (http/https only). Windows 8.3 short names could
+not be tried: short-name creation is off on this volume (a `FINANC~1` path does not exist here).
+
+**Found, not fixed (for the next builder):**
+- Should fix: a tool that walks a folder is judged by its starting folder only. `files.grep {path: "."}`
+  returned `finance/q1.txt`'s text under "never under finance" (proved on a running app); the same holds for
+  files.search/list/glob, knowledge.add of a parent folder then a refresh, workspace.snapshot. Needs the walkers
+  to skip what a deny rule covers (like `.branchignore`), or multi-target judging.
+- Multi-target judging (documents.compare `against`, documents.edit's source, knowledge.create `sources[]`,
+  code.patch/change_set, files.patch) is not trivially small: `target` is one string that is also the approval
+  key, the card text and legacy `match`; every judging site would need list semantics.
+- Note: `process.start`'s arguments and alias are not matched by command rules (the program itself is on the
+  owner's own list); `code.run` is judged by its `code.execute` permission only; `mail.save_attachment` writes
+  into the owner's configured folder with no target; legacy rules that match on the target (`match`) are not
+  path-normalised; `inFlightSpend` counts only tasks created this month (a task started last month and still
+  running is missing until the month's figures roll).
+
+**Merge into trunk.** Merged `origin/mac/cross-platform` at 7c456c73 (redesign-phase1). Two conflicts, both one
+line: trunk's `this.policy(source, context.runId)` (per-conversation permissions) kept together with this branch's
+`runArgs` in `wallFor` and `registry.resourceOf` in the reviewer. `dist/` deleted and rebuilt, `npx tsc --noEmit`
+clean. 48 files at `--test-concurrency=2` (the areas touched, conversation-mode, redesign-phase1, static-assets,
+index-structure, handbook, server, ui, shell-ui, catalog-diet): 709 tests, 704 pass, 0 fail, 5 skipped;
+`tests/automation.test.mjs` alone 5/5. Verdict: MERGE WITH FIXES.
