@@ -46,7 +46,7 @@ async function fixture(t, viewport = { width: 1440, height: 1000 }) {
      the loaded Windows checker. Nothing is waited for less: a real signal replaces a proxy. */
   await page.getByRole("button", { name: "Connect", exact: true }).click({ noWaitAfter: true });
   await page.locator("body.lx-ready").waitFor({ state: "attached", timeout: 120000 });
-  await page.locator("#settings-kit-files").waitFor({ state: "attached", timeout: 60000 });
+  await page.locator("#agent-files").waitFor({ state: "attached", timeout: 60000 }); // phase2/accounts: was #settings-kit-files
   return { page, errors };
 }
 
