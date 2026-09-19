@@ -233,8 +233,10 @@ import { handlesKnobsPath, knobsApi, KnobsApiError } from "./knobs/api.js";
 // R17-E: models, cheaper and smarter (src/model-savings/).
 import { handlesSavingsPath, savingsApi, SavingsApiError } from "./model-savings/api.js";
 // mac7/usage-bar: how much of each connection's allowance is left (src/usage-limits.ts).
+import { panelsWork, panelsWorkPath } from "./panels-work.js"; // phase2/panels
 import { conversationModeApi, ConversationModeError, handlesConversationModePath, modeRefusal, planAgreed } from "./conversation-mode-api.js";
 import { handlesUsageLimitsPath, usageGlance, usageGlancePath, usageLimitsRoute, UsageLimitsError } from "./usage-limits-api.js";
+import { DelightError, delightRoute, handlesDelightPath } from "./delight.js"; // phase2/delight
 import { savingsRefusal } from "./short-lived-keys.js";
 import { householdMaySend, householdRefusalFor } from "./household-routes.js"; // profile-audit
 // R17-S-C: the comfort settings (src/comfort/); every change is the owner's.
@@ -441,6 +443,14 @@ async function staticFile(
 ): Promise<boolean> {
   const assets: Record<string, [string, string]> = {
     "/acorn.js": ["acorn.js", "text/javascript; charset=utf-8"],
+    // phase2/delight: the corner (acorn and pet), achievements and your own background.
+    "/delight.js": ["delight.js", "text/javascript; charset=utf-8"],
+    "/delight.css": ["delight.css", "text/css; charset=utf-8"],
+    "/delight-kit.js": ["delight-kit.js", "text/javascript; charset=utf-8"],
+    "/delight-pet.js": ["delight-pet.js", "text/javascript; charset=utf-8"],
+    "/delight-achievements.js": ["delight-achievements.js", "text/javascript; charset=utf-8"],
+    "/delight-background.js": ["delight-background.js", "text/javascript; charset=utf-8"],
+    "/delight-3d.js": ["delight-3d.js", "text/javascript; charset=utf-8"],
     "/look-sync.js": ["look-sync.js", "text/javascript; charset=utf-8"],
     "/assets/keepoak-mark.png": ["assets/keepoak-mark.png", "image/png"],
     "/assets/keepoak-mark-reversed.png": ["assets/keepoak-mark-reversed.png", "image/png"],
@@ -654,6 +664,10 @@ async function staticFile(
     "/token-meter.js": ["token-meter.js", "text/javascript; charset=utf-8"],
     "/usage-glance.js": ["usage-glance.js", "text/javascript; charset=utf-8"],
     "/conversation-mode.js": ["conversation-mode.js", "text/javascript; charset=utf-8"],
+    // phase2/everywhere: the window at phone and tablet widths
+    "/phone-layout.js": ["phone-layout.js", "text/javascript; charset=utf-8"],
+    "/phone-layout.css": ["phone-layout.css", "text/css; charset=utf-8"],
+    "/look-early.js": ["look-early.js", "text/javascript; charset=utf-8"],
     "/rooms.js": ["rooms.js", "text/javascript; charset=utf-8"], // phase2/rooms
     "/rooms.css": ["rooms.css", "text/css; charset=utf-8"], // phase2/rooms
     "/voice-bar.js": ["voice-bar.js", "text/javascript; charset=utf-8"], // phase2/rooms
@@ -668,6 +682,10 @@ async function staticFile(
     "/settings-grown.css": ["settings-grown.css", "text/css; charset=utf-8"],
     // phase2/settings integration: the scope chips' and settings kit's look (an inline <style> the CSP refused).
     "/settings-kit.css": ["settings-kit.css", "text/css; charset=utf-8"],
+    // phase2/panels: the side panel's tabs, resizable panes, see-through message box, hide anything.
+    "/panels.js": ["panels.js", "text/javascript; charset=utf-8"],
+    "/panels.css": ["panels.css", "text/css; charset=utf-8"],
+    "/panels-hide.js": ["panels-hide.js", "text/javascript; charset=utf-8"],
     "/playground.js": ["playground.js", "text/javascript; charset=utf-8"],
     "/tool-catalog.js": ["tool-catalog.js", "text/javascript; charset=utf-8"],
     "/i18n.js": ["i18n.js", "text/javascript; charset=utf-8"],
@@ -695,7 +713,15 @@ async function staticFile(
     "referrer-policy": "no-referrer",
     "content-security-policy":
       // worker-src and manifest-src let the installable web app register its service worker.
-      "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; worker-src 'self'; manifest-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+      // phase2/delight: blob: lets the owner's own background picture or video, kept in the window's own
+      // storage, be shown without ever being sent anywhere. Only the page's own script can make one.
+      // Integration review: blob: is allowed for pictures and sound/video only, never for scripts,
+      // workers, frames, objects or connections, and it stays on for everyone rather than following the
+      // background switch: reading answers aloud (public/voice.js, voice-talk.js) plays blob: sound too,
+      // which the old media rule silently refused; img-src already takes data:, which untrusted text could
+      // reach more easily than blob: (a blob: address is minted only by this page's own script, every
+      // artifact frame is sandboxed without scripts, and chat text renders no pictures).
+      "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
   });
   response.end(body);
   return true;
@@ -1602,6 +1628,9 @@ async function api(
       ...(input.mode && !input.sessionId ? { conversationMode: input.mode } : {}),
     });
   }
+  // phase2/panels: what the side panel's Browser and Terminal tabs show (src/panels-work.ts); owner only.
+  if (request.method === "GET" && path === panelsWorkPath)
+    return panelsWork(app.store, app.runtime.owner, new URL(request.url ?? "/", "http://local").searchParams.get("session") ?? "");
   // Redesign phase 1: the mode chip in the message box (src/conversation-mode-api.ts).
   if (handlesConversationModePath(path))
     return conversationModeApi(app, request.method ?? "GET", new URL(request.url ?? "/", "http://local"), () => readBody(request))
@@ -1715,6 +1744,10 @@ async function api(
     return usageLimitsRoute(app, request, path, () => readBody(request))
       .catch((error: unknown) => { throw error instanceof UsageLimitsError ? new HttpError(error.status, error.message) : error; });
   // --- end mac7/usage-bar ---
+  // phase2/delight: the pet, achievements and your own background; the owner's alone (src/delight.ts).
+  if (handlesDelightPath(path))
+    return delightRoute(app, request.method ?? "GET", path, () => readBody(request))
+      .catch((error: unknown) => { throw error instanceof DelightError ? new HttpError(error.status, error.message) : error; });
   throw new HttpError(404, "Endpoint not found");
 }
 async function sessionApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {

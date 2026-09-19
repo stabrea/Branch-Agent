@@ -441,3 +441,14 @@ const refusal = (what: string): string =>
   `This would ${what}. Branch never lets a task do that, whatever the rules or permissions say, so that it cannot break itself. If this really needs doing, do it yourself from Settings.`;
 const unsure =
   "This command removes or moves something it names only through a variable, so Branch cannot tell whether that is its own program, settings or saved work. Write the folder out in full and try again.";
+
+/**
+ * mac7/walk-rules: for a tool that walks a folder, whether one of the files no task may read lies in
+ * `folder` at all (so the walk need not look for them), and whether `path` is one of them or inside one.
+ */
+export function unreadableInside(areas: ProtectedAreas, folder: string): boolean {
+  return areas.noRead.some((place) => inside(place, folder, areas.platform));
+}
+export function unreadable(areas: ProtectedAreas, path: string): boolean {
+  return areas.noRead.some((place) => inside(path, place, areas.platform));
+}

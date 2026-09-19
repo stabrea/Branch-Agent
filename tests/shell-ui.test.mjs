@@ -172,6 +172,7 @@ test("every appearance control applies at once and survives a reload", async (t)
     everything: "on",
     voice: "off",
     settingsLevel: "advanced", // phase2/settings: Show everything is the Advanced level of Settings
+    convw: "wide", // phase2/panels: how wide the conversation grows (What's on screen)
   };
   assert.deepEqual(await look(f.page), chosen, "every choice shows straight away");
   assert.equal(await f.page.locator(".acorn-art").isVisible(), false);

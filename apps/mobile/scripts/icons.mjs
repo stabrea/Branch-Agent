@@ -6,7 +6,7 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { nativePalettes } from "../web/palette.js";
+import { NATIVE_THEME, nativePalettes } from "../web/palette.js";
 import { compose, readPng, trim, writePng } from "./png.mjs";
 
 const app = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -61,7 +61,7 @@ async function iosIcons(assets, reversed, normal, ground) {
 
 export async function writeIcons(root = app) {
   const catalogue = await import(pathToFileURL(join(repo, "public", "theme-catalogue.js")).href);
-  const { dark } = nativePalettes(catalogue, "forest");
+  const { dark } = nativePalettes(catalogue, NATIVE_THEME);
   const reversed = trim(readPng(await readFile(join(repo, "public", "assets", "keepoak-mark-reversed.png"))));
   const normal = trim(readPng(await readFile(join(repo, "public", "assets", "keepoak-mark.png"))));
   const res = join(root, "android", "app", "src", "main", "res");

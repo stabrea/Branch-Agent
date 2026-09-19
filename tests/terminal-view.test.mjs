@@ -108,6 +108,14 @@ const VIEWS = {
   "settings-models-defaults": () => model({ settings: "models", sub: "defaults" }, { rows: [{ title: "● Offline demonstration", detail: "demo · demo", tone: "ok" }] }),
   palette: () => model({ place: "chat", tab: "" }, { overlay: { kind: "palette", query: "mod", items: paletteItems(loadWords("en"), [], "mod"), selected: 1 } }),
   help: () => model({ place: "inbox", tab: "history" }, { overlay: { kind: "help", offset: 0, lines: ["Esc, then 1-5: the places", "Ctrl+K: find anything"] } }),
+  // phase2/everywhere: the rail, the question as a card, the conversation's title and the usage line.
+  "chat-everywhere": () => model({ place: "chat", tab: "" }, {
+    transcript: [TALK[0], TALK[1], { kind: "ask", text: "Branch needs your yes before it goes on" }, { kind: "askline", text: "Tool: files.write" },
+      { kind: "askline", text: "Exactly: branch-demo.txt" }],
+    composer: { text: "", cursor: 0, chips: ["Offline demonstration"], question: "y/n/a/s?" }, title: "write the demo file",
+    rail: [{ kind: "computer", name: "Legion", detail: "This computer", on: true }, { kind: "phone", name: "Pixel", detail: "Paired", on: false },
+      { kind: "trunk", name: "Scout", detail: "Research", on: false }],
+    usage: { name: "ChatGPT plan", percentLeft: 12, note: "resets at 18:00" } }),
 };
 const SIZES = [[80, 24], [120, 40]];
 const DEPTHS = ["truecolor", "ansi256", "ansi16", "none"];

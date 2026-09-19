@@ -2,9 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" /><!-- phase2/everywhere: the page reaches under a phone's notch and home bar; phone-layout.css keeps everything clear of them -->
     <meta name="color-scheme" content="dark light" />
     <title>Branch Agent — Your personal assistant</title>
+    <script src="/look-early.js"></script><!-- phase2/everywhere: a chosen theme is named before the first paint -->
     <link rel="stylesheet" href="/tokens.css" />
     <link rel="stylesheet" href="/style.css" />
     <link rel="stylesheet" href="/shell.css" />
@@ -16,6 +17,10 @@
     <link rel="stylesheet" href="/settings-grown.css" />
     <!-- phase2/settings integration: the scope chips and settings kit, once an inline <style> the CSP refused. -->
     <link rel="stylesheet" href="/settings-kit.css" />
+    <!-- phase2/panels: the side panel's tabs, resizable panes, the conversation's width, hiding parts of the window. -->
+    <link rel="stylesheet" href="/panels.css" />
+    <!-- phase2/delight: the corner, pets, achievements and your own background (public/delight.js). -->
+    <link rel="stylesheet" href="/delight.css" />
     <link rel="stylesheet" href="/rooms.css" /><!-- phase2/rooms -->
     <!-- phase2/shell: faces, the Trunks strip, the Add a Trunk studio, Overview and People. -->
     <link rel="stylesheet" href="/faces.css" />
@@ -23,6 +28,7 @@
     <link rel="stylesheet" href="/studio.css" />
     <link rel="stylesheet" href="/brand-marks.css" /><!-- phase2/accounts: service marks -->
     <link rel="stylesheet" href="/accounts.css" /><!-- phase2/accounts: Accounts, the assistant's files, Secrets -->
+    <link rel="stylesheet" href="/phone-layout.css" /><!-- phase2/everywhere -->
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" href="/assets/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/assets/icon-192.png" />
@@ -86,6 +92,17 @@
           <div id="rail-labels" class="label-chips-host" hidden></div>
           <div id="rail-list" class="rail-rows" aria-live="polite"></div>
         </section>
+      </div>
+      <!-- phase2/delight: the corner. The pixel acorn (no caption; "Drag to turn" is its tooltip) stays put
+           here, and a pet, when switched on, lives beside it (public/delight.js). -->
+      <div class="delight-corner" id="delight-corner">
+        <div class="acorn-art">
+          <canvas id="keepoak-acorn" width="40" height="40" role="img" tabindex="0" title="Drag to turn"
+            data-t-title="acorn.tip" aria-label="KeepOak acorn. Drag or use arrow keys to turn it."></canvas>
+          <button id="acorn-motion" class="acorn-motion" type="button" aria-label="Pause rotation" title="Pause rotation"
+            ><svg viewBox="0 0 24 24" aria-hidden="true"><path class="acorn-pause" d="M9 6v12M15 6v12" /><path class="acorn-play" d="M8 5l11 7-11 7z" /></svg></button>
+        </div>
+        <div class="pet-lane" id="pet-lane"></div>
       </div>
       <div class="rail-foot">
         <button id="owner-menu-button" class="owner-row" type="button" aria-haspopup="true" aria-expanded="false">
@@ -2002,12 +2019,6 @@
         <div><dt>Memories</dt><dd id="context-memory">—</dd></div>
         <div><dt>Tools</dt><dd id="context-tools">—</dd></div>
       </dl>
-      <div class="acorn-art">
-        <canvas id="keepoak-acorn" width="120" height="104" role="img" tabindex="0"
-          aria-label="KeepOak acorn. Drag or use arrow keys to turn it." aria-describedby="acorn-hint"></canvas>
-        <span id="acorn-hint" class="eyebrow">DRAG THE ACORN</span>
-        <button id="acorn-motion" class="acorn-motion" type="button" data-t="action.pause-rotation">Pause rotation</button>
-      </div>
     </aside>
     <div id="update-screen" class="update-screen" hidden role="dialog" aria-live="polite" aria-label="Updating">
       <div class="update-panel">
@@ -2050,6 +2061,7 @@
     <script src="/usage.js" type="module"></script>
     <script src="/usage-glance.js" type="module"></script>
     <script src="/conversation-mode.js" type="module"></script>
+    <script src="/phone-layout.js" type="module"></script><!-- phase2/everywhere -->
     <script src="/suggestions.js" type="module"></script>
     <script src="/glass-select.js" type="module"></script>
     <script src="/diagnostics.js" type="module"></script>
@@ -2065,6 +2077,8 @@
     <script src="/desktop.js" type="module"></script>
     <script src="/os-permissions.js" type="module"></script>
     <script src="/acorn.js" type="module"></script>
+    <!-- phase2/delight: the pet, achievements and your own background, all off until switched on. -->
+    <script src="/delight.js" type="module"></script>
     <script src="/look-sync.js" type="module"></script>
     <script src="/context-pane.js" type="module"></script>
     <script src="/memory-tidy.js" type="module"></script>
@@ -2176,5 +2190,8 @@
     <script src="/layout.js" type="module"></script>
     <script src="/settings-grown.js" type="module"></script><!-- phase2/settings -->
     <script src="/settings-look.js" type="module"></script><!-- phase2/settings -->
+    <!-- phase2/panels: Browser and Terminal, resizable panes, See-through and What's on screen (after layout.js). -->
+    <script src="/panels.js" type="module"></script>
+    <script src="/panels-hide.js" type="module"></script>
   </body>
 </html>

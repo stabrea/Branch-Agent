@@ -199,7 +199,7 @@ export class ToolRegistry {
     let result: unknown;
     try {
       // household-followups: an owner-only guard inside the tool judges by this task's person.
-      result = await underTask(context.runId, () => tool.execute(parsed, context));
+      result = await underTask(context.runId, () => tool.execute(parsed, context), name); // mac7/walk-rules: name
       context.signal.throwIfAborted();
       // ── mac7/r17-d: format and diagnostics after an edit, and a very long answer kept in a file. ──
       if (this.afterTool) result = await this.afterTool(name, parsed, result, context);

@@ -149,6 +149,13 @@ export const ROUTES = {
   "/api/dashboard/settings": "owner POST",
   "/api/deferred": "look",
   "/api/deferred/settle": "task POST",
+  // phase2/delight: somebody else is told only that there is nothing here for them; the achievements
+  // are the owner's alone, and every change is the owner's.
+  "/api/delight": "look",
+  "/api/delight/achievements": "secret-read",
+  "/api/delight/noticed": "owner POST",
+  "/api/delight/settings": "owner POST",
+  "/api/delight/told": "owner POST",
   "/api/deployment": "look",
   "/api/deployment/autostart": "owner POST",
   "/api/deployment/backup": "owner POST",
@@ -998,6 +1005,7 @@ export const ROUTES = {
   "/api/usage/limits": "secret-read",
   "/api/usage/limits/settings": "secret-read",
   // Redesign phase 1: the ring hands anybody but the owner an empty answer; its settings and saving progress are the owner's.
+  "/api/panels/work": "secret-read", // phase2/panels: commands the owner's tasks ran and what they printed
   "/api/usage/glance": "look",
   "/api/usage/glance/settings": "secret-read",
   "/api/usage/save-progress": "owner POST",

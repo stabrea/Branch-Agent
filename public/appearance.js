@@ -15,6 +15,11 @@ export const defaultAppearance = {
   showAcorn: false,
   showEverything: false,
   showVoice: false,
+  /* phase2/panels (public/panels-hide.js) */
+  seeThrough: 30,
+  conversationWidth: "wide",
+  hidden: [],
+  rightClickHide: false,
 };
 
 /* Wave 7: the buttons name their words with a key, so another language covers them too. */
@@ -58,8 +63,12 @@ export function applyAppearance(value) {
   /* The calm window is the default; layout.css hides the rest unless this says "on". */
   root.everything = current.showEverything ? "on" : "off";
   root.voice = current.showVoice ? "on" : "off";
+  root.convw = current.conversationWidth; // phase2/panels
   render();
+  document.dispatchEvent(new CustomEvent("branch-appearance", { detail: { ...current } })); // phase2/panels
 }
+/** phase2/panels: a change made from anywhere, saved like one made here. */
+export const changeAppearance = (patch) => change(patch);
 
 function render() {
   if (!$("appearance")) return;

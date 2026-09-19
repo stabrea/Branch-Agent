@@ -2819,20 +2819,22 @@ A recipe (`procedures.propose`) may declare `parameters` (`{ name: { type: "stri
 
 **Talking in the terminal.** `branch` on its own, in a terminal, opens the terminal view; `branch chat` opens the same view. (Run with no terminal attached — a launcher, a service, a pipe — `branch` on its own still starts the web app, exactly as before.) The view is the window's design in character cells (`docs/design.md`, `docs/places.md`):
 
-- **The head** carries the KeepOak mark and the assistant's name, the page you are on (`Inbox › Needs you`, `Settings › Models › Defaults`), the model that answers, and the Lockdown shield while Lockdown is on. While it is on, a red line under the head says so on every page.
+- **The head** carries the KeepOak mark and the assistant's name, the page you are on (`Inbox › Needs you`, `Settings › Models › Defaults`, or `Conversation › ` and the conversation's first words), the model that answers, and the Lockdown shield while Lockdown is on. While it is on, a red line under the head says so on every page.
+- **The rail** (redesign phase 2, from 100 columns): down the left, as in the window, one mark for this computer, one for each of the owner's paired devices (a phone or another computer) and one for each Trunk that is switched on and shown; the mark of the place you are in is lit, and a click says whose it is. A household profile sees only this computer.
+- **The usage line** (redesign phase 2): above the key hints, the connection with the least left, drawn as the window's ring under the message box draws it — a bar, the share left and when it refills. It follows the ring's own switch (Settings › Data & usage) and shows only a share a service reported; with nothing reported, or for anyone but the owner, there is no line.
 - **The tab row** holds the five places in the window's order and with the window's names — Conversation, Inbox (with a count of what waits for your yes), Automations, Library, Customize.
-- **The conversation** is one column of messages with the composer floating at its foot: the model chip first, then what the next message carries (the approval preset, attached files, practice run, a plan first). Each step the assistant takes is one short row — `· Writing notes.txt` while it happens, `ok Writing notes.txt` when it is done — and **Ctrl+E** shows what is behind those rows. The **side pane** (Activity, Plan, Files, Memory) opens with **Ctrl+P** or **F2**; under 100 columns it floats over the conversation, as the window's does under 1180 px.
+- **The conversation** is one column of messages with the composer floating at its foot: the model chip first, then what the next message carries (the approval preset, attached files, practice run, a plan first). Each step the assistant takes is one short row — `· Writing notes.txt` while it happens, `ok Writing notes.txt` when it is done — and **Ctrl+E** shows what is behind those rows. Each answer is headed with the assistant's own name. The **side pane** (Activity, Plan, Files, Memory) opens with **Ctrl+P** or **F2**; under 100 columns it floats over the conversation, as the window's does under 1180 px.
 - **Every other place** reads as the window's places do: its name, one sentence saying what it holds, its tabs, and its rows, each a title and one plain line. An empty tab says what the tab is for and what to do next. The ask box at the foot sends a question straight to the conversation.
 - **Settings** opens as a window over the place you were in, with its twelve pages down the left (in a strip along the top under 86 columns) and the five Models tabs. Appearance, Models › Defaults and Permissions can be changed right there; the other pages say what they hold and where the rest of the page is.
 - **Ctrl+K** (or **/** in an empty composer) opens the palette: every place and tab, every Settings page, the top actions, recent conversations and every slash command. Typing narrows it; Enter goes.
 
-**Keys.** **Enter** sends, **Alt+Enter** adds a line, the **up arrow** brings back a message you sent, **PgUp**/**PgDn** scroll the conversation, **Ctrl+C** stops the task in hand without closing anything, **Ctrl+N** starts a conversation, **Ctrl+L** draws everything again and **Ctrl+D** leaves. **Esc** steps out of the composer without touching what you typed; then **1** to **5** open the places (**Alt+1** to **Alt+5** work from anywhere). In a place, the up and down arrows choose a row, left and right change tab, **Enter** opens a row and **Tab** moves to the ask box; **Esc** goes back to the conversation. In Settings, left and right change page and **Tab** changes the Models tab. **F1**, `/help` or `/keys` lists all of this. A paste arrives whole, line breaks and all, rather than sending half of it. Nothing needs a mouse.
+**Keys.** On a terminal of 30 rows or more the conversation's foot adds the window's key line (Enter sends, Alt+Enter adds a line, Up recalls, Ctrl+E shows step details, Ctrl+C stops the task, Ctrl+D leaves). **Enter** sends, **Alt+Enter** adds a line, the **up arrow** brings back a message you sent, **PgUp**/**PgDn** scroll the conversation, **Ctrl+C** stops the task in hand without closing anything, **Ctrl+N** starts a conversation, **Ctrl+L** draws everything again and **Ctrl+D** leaves. **Esc** steps out of the composer without touching what you typed; then **1** to **5** open the places (**Alt+1** to **Alt+5** work from anywhere). In a place, the up and down arrows choose a row, left and right change tab, **Enter** opens a row and **Tab** moves to the ask box; **Esc** goes back to the conversation. In Settings, left and right change page and **Tab** changes the Models tab. **F1**, `/help` or `/keys` lists all of this. A paste arrives whole, line breaks and all, rather than sending half of it. Nothing needs a mouse.
 
 **Three switches, all off.** `/switch mouse`, `/switch sidePane` and `/switch oak` (or Settings › Appearance in the view) each take on, off or when needed, and a fresh install has all three off. *Clicks and the wheel*: on catches them everywhere; when needed only while the palette or Settings is open; off never, so your terminal's own text selection always works. *The side pane opens by itself*: on opens it when the view starts; when needed opens it while a task works and folds it when the task ends; off leaves it to Ctrl+P. *The oak*: the window's pixel oak, drawn on an empty conversation in the season of the year from the theme's own colours; on whenever it fits, when needed only on a terminal of 30 rows or more.
 
 The commands inside it are `/help` (and `/keys`), `/model [id]`, `/think <low|medium|high|default>`, `/preset [name]`, `/memory [words]`, `/skills`, `/plan`, `/verify`, `/dry-run`, `/attach <file>`, `/history`, `/export [file]`, `/new`, `/sessions [id]`, `/go <place>`, `/inbox`, `/automations`, `/library`, `/customize`, `/settings [page]`, `/theme`, `/default <id>`, `/switch`, `/pane`, `/lockdown [on|off]` and `/exit`. They live in one table (`src/terminal-command-table.ts`) that the help, the palette and the parser all read, and several answer to the names Hermes and OpenClaw use (`/reset`, `/clear`, `/models`, `/reasoning`, `/config`, `/tools`, `/cron`, `/skin`, `/pause`, `/quit`). `/plan`, `/verify` and `/dry-run` switch on and off and apply to every message after that. `/attach` takes a picture (PNG, JPEG, WebP or GIF) as a picture and any other text file as words added to your next message. `/export` writes the conversation to a Markdown file in your workspace. `/go` takes any place, tab or Settings page by id, English name or French name: `/go inbox finished`, `/go settings models defaults`, `/go Bibliothèque`.
 
-**When it stops to ask.** If your approval preset makes a task pause, the terminal shows the question with the tool and the exact file or command, and takes **y** (yes, remembered as the rule suggests), **n** (no), **a** (yes, always — written into your approval settings as a rule) or **s** (yes, for this conversation), then Enter. The answer goes through the same route as the app's **Settings → When to check with me** screen, and the task carries straight on.
+**When it stops to ask.** If your approval preset makes a task pause, the terminal shows the question as one card with a warning edge, as the window's "needs you" card, with the tool and the exact file or command (and Activity in the side pane says it is waiting for your yes), and takes **y** (yes, remembered as the rule suggests), **n** (no), **a** (yes, always — written into your approval settings as a rule) or **s** (yes, for this conversation), then Enter. The answer goes through the same route as the app's **Settings → When to check with me** screen, and the task carries straight on.
 
 **When the terminal cannot take it.** `branch chat` falls back to the plain streaming view when stdout is not a terminal or when you pass `--plain`. With `NO_COLOR` set, or `TERM=dumb`, the view prints plain lines and writes not a single escape sequence — no colour, no cursor movement, no window title, no progress indicator — and every slash command, place and Settings page still works, printed as lines. `FORCE_TTY=1` asks for the full view anyway (this is what the tests use), and `FORCE_TTY=0` asks for the plain one. `COLUMNS` and `LINES` override the window size; the view redraws itself when the window changes size and works from 80×24 up. The view is drawn on the terminal's second screen with line wrapping off, so leaving puts back exactly what was there. On a terminal that takes them, the window title names the place you are in and Windows Terminal's taskbar progress indicator (OSC 9;4) turns on while a task is working; `BRANCH_TUI_DECORATIONS=0` turns just those two off.
 
@@ -3912,7 +3914,7 @@ Local HTTP authorization is single-owner access, not a multi-user tenancy system
 record (`PreferencesSchema` in `src/preferences.ts`) holds `appearance` (`forest` or `daylight`),
 `followSystem`, `accent` (`copper`, `leaf`, `earth`, `slate`, `ink`), `textSize`
 (`small`/`medium`/`large`), `density` (`comfortable`/`compact`), `font` (`geist`/`system`),
-`reduceMotion`, `showAcorn` (the acorn toy in the side pane, off by default), `showEverything`
+`reduceMotion`, `showAcorn` (the pixel acorn in the rail's bottom corner, off by default), `showEverything`
 and `showVoice`. Every field has a default, so a record saved by an older version still loads.
 Settings → Appearance changes all of them; each choice shows at once and Save keeps it.
 
@@ -3966,6 +3968,37 @@ or in Inbox, Automations, Library or Customize is found too, under "Also found, 
 behind a switch", with Go there. Settings is the cog right after the account row at the foot of
 the rail, and closing and opening it, or pressing the page you are on, keeps your place.
 
+**The side panel, its tabs and panes you can resize (redesign phase 2, panels).** The title bar has one
+side-panel button (in the calm window too); the panel's tabs sit inside it: Activity, Plan, Files, Memory,
+Browser and Terminal. **Browser** lists the web pages the assistant opened in this conversation, with the last
+picture it took of a page; **Terminal** lists the commands it ran, what they printed, and the ones it was
+refused or is waiting on a yes for. Both read `GET /api/panels/work?session=<id>` (src/panels-work.ts), the
+conversation's last eight tasks; nothing there runs a command or opens a page. A key-shaped value in a
+command line or a printout is shown as `[hidden key-like value: …]` there, as it is in a chat app's copy. They are the owner's: a
+short-lived key and a household person are refused the route, and a household person's window does not offer
+the two tabs. The edge of the side list and of the side panel can be dragged (double-click resets, arrow keys
+move it, Enter folds it); Ctrl+B (Cmd+B on a Mac) folds the side list. Widths are kept in this browser only
+(`branch-pane-widths:<workspace>:<owner or household>` in local storage, so a household person at the same
+window keeps their own), not in the preferences record.
+
+**What's on screen (Settings → Appearance).** Four more fields of the preferences record:
+
+- `conversationWidth` (`comfortable`, `wide` or `full`; default `wide`): how wide the conversation and the
+  message box grow on a wide screen. `comfortable` is the old 760-pixel column.
+- `seeThrough` (0 to 100; default `30`): how see-through the message box is, from solid to glass. It never
+  goes past the fill that keeps the words readable over the theme's darkest and lightest oak, and it stays
+  solid when the computer asks for less transparency or "Keep things still" is on.
+- `hidden` (a list of part names; default empty): the parts of the window the person chose to hide — the
+  whole side list or title bar, the oak, the rows of the side list, the title bar's buttons, the question and
+  suggestions on a new conversation, the messages, the message box and the chips and lines around it, the acorn.
+  Questions it asks before it acts, the Lockdown banner, Stop while a task runs and Settings are never on the
+  list; with the side list hidden a small gear stays in the corner. A part name the list does not know (one
+  typed into the record by hand) is ignored, so nothing else can be hidden that way. When every part on the
+  list is hidden, the window says `branch-everything-hidden` on `document` once (the achievements'
+  "It's lonely over here" listens for it); it says it again only after something was brought back.
+- `rightClickHide` (default `false`): right-clicking a part of the window offers "Hide this" (with Undo in
+  the notice). Off, right-click behaves as it always has.
+
 Every section (Conversation, Activity, Usage, Memory, Skills, Specialists, Procedures, Schedules,
 Documents, Settings) is a row in the rail's "Sections" group on the left, so nothing hides behind a
 drop-down. Below it, "Projects" lists the workspace folders (`POST /api/projects/active` switches
@@ -3987,6 +4020,88 @@ It refreshes every five seconds while it is open and hides below 1180 px. The in
 `/tokens.css`, `/shell.css`, `/shell.js`, `/context-pane.js` and `/appearance.js` are served from
 the same local allowlist as the rest of the interface. See [design.md](design.md) for the tokens
 and the layout.
+
+### The corner: the acorn, a pet, achievements and your own background (redesign phase 2)
+
+**The acorn** (`showAcorn`, off by default) sits in the bottom corner of the rail, just above its
+foot, and stays there. It has no caption: *Drag to turn* is its tooltip, and a small pause button
+shows when the pointer is over it or it has the keyboard. *Keep things still* stops it turning.
+
+Three playful extras sit beside it. Each has its own switch in Settings → Appearance, and **all
+three are off** until the owner turns them on. They are the owner's alone: a household profile, a
+short-lived key and a chat app never see them or change them.
+
+- **A pet** (`pets`) — a small forest creature drawn like the acorn, in the theme's own colours, in
+  the corner beside it. It naps when nothing is happening, paces while a task works, hops when
+  something waits for your yes, jumps when a task finishes and shivers while Lockdown is on. It says
+  one thing at a time in one small bubble: a message stays for its reading time (three to eight
+  seconds) and goes; a status that stops being true goes at once; a click dismisses it. With *Tips*
+  on it now and then says one short, true tip about what is on screen, each only once, and fewer
+  as the owner's rank rises (Bronze: at most one every few minutes; Silver: at most one an hour;
+  Gold and above: none). Right-click it for its own menu (pat, no more tips, its settings, hide).
+  Pressing it pats it; when something waits for your yes, pressing it opens Inbox.
+  Fields: `on` (default `false`), `kind` (`squirrel`, `owl`, `hedgehog`, `fox`, `robin`, `rabbit`,
+  `snail`, `fawn`; default `squirrel`), `name` (1–20 characters, default `Hazel`), `talks` (default
+  `true`), `tips` (default `true`).
+- **Achievements** (`achievements`) — 505: Bronze, Silver, Gold, Diamond and Godly, exactly 100 of
+  each, and five near-impossible SSS+ ones. Every one is earned from something that really happened
+  and was written down: Branch's own records (finished tasks and where they came from, conversations,
+  the days and hours tasks finished, tools that ran, the audit log's answered approvals and other
+  moments, schedules, procedures, what is remembered, live voice calls) or a moment the owner's own
+  window saw and reported from a closed list (a theme worn, a season shown, a Settings page opened,
+  the acorn turned, a pet patted, a background chosen, *Keep things still*, *Show everything*, a new
+  language, and "It's lonely over here" when everything that can be hidden is hidden). Nothing is
+  granted for time passing. The tiers come from how long an everyday owner would take. A streak is
+  the best run of days in a row with a finished task, so it only ever pauses. Switching achievements
+  on finds the past without any pop-up; after that a Bronze or Silver one shows as a small note at
+  the top for about seven seconds, and Gold and above as a card with falling leaves that grows with
+  the rank (*Keep things still* shows the card without them). Locked ones give less away the higher
+  they are: Gold hides its description, Diamond its name, Godly and SSS+ everything. They are kept in
+  Branch's own settings on this computer and are never sent anywhere. While achievements are off,
+  nothing the window sees is written down. The events Branch writes for every task are counted a
+  batch at a time (25,000 per look, kept with the achievements as `scan`), so a long history never
+  stops Branch while it is counted; what that past brings arrives quietly, and `GET
+  /api/delight/achievements` says `behind: true` until it is all counted. Fields: `on` (default `false`), `quiet` (default `false`:
+  earned without any pop-up).
+- **Your own background** (`background`) — a picture, a video, an animation (GIF, WebP or APNG) or
+  a 3D object behind the glass instead of the oak. The 3D object is one of Branch's own (the acorn
+  or the oak, drawn in the theme's colours and turning slowly) or a `.glb` model of your own: its
+  shapes and base colours are drawn by Branch's own small WebGL drawer (no library, nothing
+  fetched); textures and compressed models are not read, and a model that cannot be read is
+  refused in plain words (a `.glb` is checked piece by piece against the file and may hold at most
+  300,000 corners, 10,000 parts and 4,096 nodes). The file is kept in the window's own storage
+  (IndexedDB) on this computer and never reaches Branch's server or anywhere else; switching the
+  background off removes it from that storage, and a full disk is said in plain words. Pictures and animations up to 8 MB, videos up
+  to 25 MB, 3D models up to 5 MB; anything else is refused in plain words. A scrim in the theme's ground
+  colour lies over it so text stays readable in every theme. A video pauses for *Keep things still*
+  and while the window is hidden. Fields: `on` (default `false`), `scrim` (20–90, how strongly the
+  theme's colour covers it; default `60`), `fit` (`fill`, `fit` or `tile`; default `fill`).
+
+- **Pixel or 3D** (`look`) — `style`: `pixel` (default: the acorn and the pet as they have always
+  been) or `3d` (the same acorn and pet as small turning 3D stand-ins in the theme's colours, drawn
+  by the same WebGL drawer; dragging turns them). Where WebGL is not available they stay pixel.
+
+The window's page is allowed to show a `blob:` picture or video it made itself (`img-src` and
+`media-src` in its content security policy), which is how the background is shown without being
+sent anywhere. It is allowed for pictures and sound or video only, never for scripts, workers,
+frames, objects or connections, and it stays allowed whether or not the background is on: answers
+read aloud are played as `blob:` sound as well.
+
+Routes (every one the owner's alone, at this computer's own window):
+
+- `GET /api/delight` — `{ available, settings, earned, rank }`. Anybody else gets
+  `{ "available": false }`: not an error, and nothing else.
+- `POST /api/delight/settings` — change any of the fields above, e.g. `{ "pets": { "on": true } }`.
+- `GET /api/delight/achievements` — every achievement as the window may show it, what was just
+  earned and not yet celebrated (`fresh`), how many are earned and the rank. Refused to a
+  short-lived key and to a household profile.
+- `POST /api/delight/noticed` — something the window saw, from the closed list above, e.g.
+  `{ "what": "theme", "mode": "dark", "theme": "forest", "season": "winter" }`. Ignored while
+  achievements are off.
+- `POST /api/delight/told` — `{ ids }`: these were celebrated, so they are not shown again.
+
+Another part of the window can earn "It's lonely over here" by dispatching the
+`branch-everything-hidden` event on `document` when everything that can be hidden is hidden.
 
 ## Skill packages, registry versions, plugins and suggestions
 

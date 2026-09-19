@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type { WalkRules } from "./walk-rules.js"; // mac7/walk-rules
 import { readFile, stat } from "node:fs/promises";
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
@@ -121,20 +122,23 @@ export class KnowledgePictures {
   async picturesIn(owner: string, collection: string): Promise<string[]> {
     const current = this.bases.one(owner, collection);
     if (!this.files) return [];
-    const found: string[] = [];
+    // mac7/walk-rules: nothing is looked at in a folder or file the owner's rules keep the assistant out of.
+    const found: string[] = [], rules = this.bases.readRules();
     for (const source of current.sources) {
-      if (source.kind === "file") { if (isPicture(source.path)) found.push(source.path.replace(/^\.\//, "")); continue; }
-      await this.walk(source.path.replace(/\/$/, ""), found, 0);
+      const path = source.kind === "file" ? source.path.replace(/^\.\//, "") : source.path.replace(/\/$/, "");
+      if (source.kind === "file") { if (isPicture(path) && rules.file(path)) found.push(path); continue; }
+      if (path && path !== "." && !rules.folder(path)) continue;
+      await this.walk(path === "." ? "" : path, found, 0, rules);
     }
     return [...new Set(found)].slice(0, maximumPictures);
   }
-  private async walk(folder: string, found: string[], depth: number): Promise<void> {
+  private async walk(folder: string, found: string[], depth: number, rules: WalkRules): Promise<void> {
     if (depth > 4 || found.length >= maximumPictures || !this.files) return;
-    const listing = await this.files.list(folder || ".").catch(() => ({ entries: [] as { name: string; type: string }[] }));
+    const listing = await this.files.list(folder || ".", rules).catch(() => ({ entries: [] as { name: string; type: string }[] }));
     for (const entry of listing.entries) {
       const path = folder ? `${folder}/${entry.name}` : entry.name;
-      if (entry.type === "directory") await this.walk(path, found, depth + 1);
-      else if (isPicture(path)) found.push(path);
+      if (entry.type === "directory") await this.walk(path, found, depth + 1, rules);
+      else if (isPicture(path) && rules.file(path)) found.push(path);
     }
   }
   private async bytesOf(path: string): Promise<{ bytes: Buffer | null; reason: string }> {

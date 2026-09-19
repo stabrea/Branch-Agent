@@ -5,6 +5,13 @@
  * function. Nothing on the phone writes a colour down by hand.
  */
 
+/**
+ * The theme the native pieces wear when nothing else is known: the splash screen, the launch colour,
+ * the app icon's ground, and the first paint before the window says which theme it shows. The same
+ * default the window uses (public/theme-bridge.js DEFAULT_THEME; redesign phase 1: Slate).
+ */
+export const NATIVE_THEME = "slate";
+
 /** The KeepOak token each native role reads, in the table's own names. */
 export const NATIVE_ROLES = Object.freeze({
   ground: "--ground",
@@ -46,7 +53,7 @@ export const androidColour = (hex) => `#FF${opaque(hex).slice(1)}`;
  * The native palette for one theme in one mode: { ground, text, muted, … } as #RRGGBB, plus
  * `statusBar` ("light" text on a dark ground, "dark" on a light one).
  */
-export function nativePalette(catalogue, themeId = "slate", mode = "dark") {
+export function nativePalette(catalogue, themeId = NATIVE_THEME, mode = "dark") {
   const { THEMES, TOKEN_NAMES } = catalogue;
   const theme = THEMES.find((entry) => entry[0] === themeId) ?? THEMES[0];
   const values = theme[3][mode === "light" ? "light" : "dark"];
@@ -59,5 +66,5 @@ export function nativePalette(catalogue, themeId = "slate", mode = "dark") {
 }
 
 /** Both modes at once, which is what a build-time file (splash, launch colour) needs. */
-export const nativePalettes = (catalogue, themeId = "slate") =>
+export const nativePalettes = (catalogue, themeId = NATIVE_THEME) =>
   ({ dark: nativePalette(catalogue, themeId, "dark"), light: nativePalette(catalogue, themeId, "light") });

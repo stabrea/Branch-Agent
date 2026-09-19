@@ -3,13 +3,15 @@
 // places in their order, and the page read at 400 px in a headless browser with a stand-in for the phone.
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { readdir, readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { createServer } from "node:http";
 import { extname, join } from "node:path";
 import test from "node:test";
 import * as catalogue from "../public/theme-catalogue.js";
-import { nativePalettes } from "../apps/mobile/web/palette.js";
-import { androidColours, androidStrings, capacitorConfig, iosColourSet } from "../apps/mobile/scripts/native-files.mjs";
+import { NATIVE_THEME, nativePalettes } from "../apps/mobile/web/palette.js";
+import { androidColours, androidStrings, capacitorConfig, iosColourSet, writeNativeFiles } from "../apps/mobile/scripts/native-files.mjs";
+import { writeIcons } from "../apps/mobile/scripts/icons.mjs";
 import { compose, readPng, writePng } from "../apps/mobile/scripts/png.mjs";
 
 const ROOT = join(import.meta.dirname, "..");
@@ -109,6 +111,28 @@ test("the app icon is the KeepOak mark over the theme's ground, with no see-thro
   assert.deepEqual(corner, [...[1, 3, 5].map((at) => parseInt(ground.slice(at, at + 2), 16)), 255]);
   const clear = readPng(writePng(compose(mark, 32, 0.5, null)));
   assert.equal(clear.data[3], 0);
+});
+
+/* phase2/everywhere: the Slate default reaches the pieces made at build time, not only the running app. */
+test("the splash, launch colour and icon ground wear the window's default theme, Slate", async (t) => {
+  const bridge = await readFile(join(PUBLIC, "theme-bridge.js"), "utf8");
+  assert.equal(NATIVE_THEME, /DEFAULT_THEME = "([a-z-]+)"/.exec(bridge)?.[1], "the phone's default is the window's default");
+  assert.equal(NATIVE_THEME, "slate");
+  const slate = nativePalettes(catalogue, "slate"), forest = nativePalettes(catalogue, "forest");
+  assert.notEqual(slate.dark.ground, forest.dark.ground, "the two themes can be told apart by their ground");
+  assert.deepEqual(nativePalettes(catalogue), slate, "no theme named means Slate");
+  const root = await mkdtemp(join(tmpdir(), "branch-native-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await mkdir(join(root, "android", "app", "src", "main", "res"), { recursive: true });
+  const { palettes } = await writeNativeFiles(root);
+  assert.equal(palettes.dark.ground, slate.dark.ground);
+  const config = JSON.parse(await readFile(join(root, "capacitor.config.json"), "utf8"));
+  assert.equal(config.backgroundColor, slate.dark.ground, "the launch colour is Slate's ground");
+  const night = await readFile(join(root, "android", "app", "src", "main", "res", "values-night", "branch_colors.xml"), "utf8");
+  assert.match(night, new RegExp(`<color name="branch_ground">#FF${slate.dark.ground.slice(1)}</color>`), "Android's splash ground is Slate's");
+  await writeIcons(root);
+  const icon = readPng(await readFile(join(root, "android", "app", "src", "main", "res", "mipmap-mdpi", "ic_launcher.png")));
+  assert.deepEqual([...icon.data.subarray(0, 3)], [1, 3, 5].map((at) => parseInt(slate.dark.ground.slice(at, at + 2), 16)), "the icon sits on Slate's ground");
 });
 
 /* ---------- the page itself, headless, at a phone's width ---------- */

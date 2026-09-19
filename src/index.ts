@@ -1,4 +1,6 @@
 import { mkdir } from "node:fs/promises";
+import { currentTaskRun, currentTool } from "./task-scope.js"; // mac7/walk-rules
+import { allowAll, byFullAddress, WalkRules } from "./walk-rules.js"; // mac7/walk-rules
 import { existsSync, readdirSync, rmSync } from "node:fs";
 import { resolve, join, relative, isAbsolute, basename } from "node:path";
 import { Store } from "./store.js";
@@ -456,6 +458,12 @@ export async function createBranch(options: {
     options.reliability,
   );
   runtime.journal = journalHook(journal, (text) => runtime.hideSecrets(text)); // mac3/never-break: nothing secret is written down
+  // mac7/walk-rules: a task's folder walks are held to its rules for every file and folder (src/walk-rules.ts).
+  files.walkRules = (outside) => {
+    const runId = currentTaskRun(), tool = currentTool();
+    if (!runId && !tool && !outside) return allowAll; // the owner's own window
+    return runtime.pathCheck({ tool: tool ?? "files.list", runId: runId || undefined, source: outside?.source });
+  };
   runtime.artifacts = artifacts;
   // mac7/coding-next: "Let Branch run this project's tests?", answered through the ordinary questions.
   codeChanges.testsPermission = (context, folder) => projectTestsVerdict({ store, owner: runtime.owner,
@@ -852,6 +860,8 @@ export async function createBranch(options: {
   // Wave 8: the owner's notes folder, written into and read back from. A folder bridge, not an
   // Obsidian plugin: Obsidian keeps ordinary Markdown in an ordinary folder.
   const obsidian = new ObsidianBridge(store, runtime.owner);
+  // mac7/walk-rules: a notes folder inside the workspace is held to the rules like any other folder.
+  obsidian.readRules = () => byFullAddress(new WalkRules(files.walkRules()), files.base);
   registerObsidian(registry, obsidian);
   // One count of what is working at once, shared by the web routes and the waiting line.
   const executions = new ExecutionLimit();
@@ -881,7 +891,8 @@ export async function createBranch(options: {
   // ---- end mac6/accounts ----
   // Nothing is shared with other AI tools until the owner turns it on in Settings.
   const mcpServer = await startMcpServer(registry, store, runtime, knowledge, files);
-  mcpServer.documents = { list: (who: string) => documents.list(who) as unknown[] };
+  // Integration (mac7/walk-rules): another program is not told the name of a document the owner's rules refuse.
+  mcpServer.documents = { list: (who: string) => documents.listFor(who, { source: "mcp" }).documents as unknown[] };
   // Somebody else's AI-tool server is opened only when a task first needs it, and closed when that
   // task ends. Each household profile keeps its own settings for how long and how many.
   const mcpConnections = new McpConnections(store, () => store.profiles.scope());

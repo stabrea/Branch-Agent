@@ -132,6 +132,7 @@ test("the recording page escapes a hostile recording even when built directly", 
   assert.ok(!html.includes("<img src=x"));
   assert.ok(!html.includes("</style><script>bad"), "a stylesheet cannot close the style block");
   assert.match(html, /data-theme="daylight"/);
+  assert.match(html, /<html[^>]* data-palette="forest"/, "a saved page keeps the Forest it always had, not tokens.css's Slate first paint");
   assert.match(pathPicture(recording), /var\(--bad\)/, "a failed step is drawn in the bad colour");
 });
 
