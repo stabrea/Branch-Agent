@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright";
 import { discardTemp } from "./temp-dir.mjs";
-import { closeSettings, openSettingFor } from "./places.mjs";
+import { closeSettings, openSettingFor, showEverything } from "./places.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 
@@ -472,5 +472,72 @@ test("calm: the empty screen offers three starting points that fill the box with
   assert.match(await f.page.locator("#prompt").inputValue(), /Downloads folder/);
   assert.equal(await f.page.locator(".message.user").count(), 0, "nothing was sent");
   assert.equal(await f.page.locator("#send").evaluate((node) => node.classList.contains("lx-empty")), false);
+  assert.deepEqual(f.errors, []);
+});
+
+/** Opens a popover by its button, then checks every way it closes (public/popover.js). */
+async function everyWayClosed(page, trigger, panel, label) {
+  const shown = () => page.locator(panel).first().isVisible();
+  const expanded = () => page.locator(trigger).getAttribute("aria-expanded");
+  /* Some fill themselves from Branch first (the label picker), so opening waits for it to show. */
+  const open = async () => { await page.locator(trigger).click(); await page.locator(panel).first().waitFor({ state: "visible", timeout: 5000 }); };
+  await open();
+  assert.equal(await expanded(), "true", `${label} says it is open`);
+  await page.locator(trigger).click();
+  assert.equal(await shown(), false, `${label} closes on its own button`);
+  assert.equal(await expanded(), "false", `${label} says it is closed`);
+  await open();
+  await page.keyboard.press("Escape");
+  assert.equal(await shown(), false, `${label} closes on Escape`);
+  assert.equal(await page.evaluate((css) => document.activeElement === document.querySelector(css), trigger), true, `${label} gives the keyboard back to its button`);
+  await open();
+  await page.locator("#conversation").click({ position: { x: 5, y: 5 } });
+  assert.equal(await shown(), false, `${label} closes on a click elsewhere`);
+}
+
+test("every menu and popover closes on its own button, on Escape and on a click elsewhere, and one at a time", async (t) => {
+  const f = await fixture(t, { onboarded: true });
+  await f.page.locator("#prompt").fill("hello");
+  await f.page.locator("#send").click();
+  await f.page.locator(".message.assistant").first().waitFor();
+  await everyWayClosed(f.page, "#lx-more", "#lx-more-menu", "More");
+  await everyWayClosed(f.page, "#lx-plus", "#lx-plus-menu", "the + in the message box");
+  /* Opening one closes the other. */
+  await f.page.locator("#lx-more").click();
+  await f.page.locator("#lx-plus").click();
+  assert.equal(await f.page.locator("#lx-more-menu").isVisible(), false, "More closes when + opens");
+  assert.equal(await f.page.locator("#lx-more").getAttribute("aria-expanded"), "false");
+  await f.page.keyboard.press("Escape");
+  /* Ctrl+K opens the box and Ctrl+K closes it, and the keyboard goes back where it was. */
+  await f.page.locator("#prompt").focus();
+  await f.page.keyboard.press("Control+k");
+  await f.page.locator("#cmd-input").waitFor({ state: "visible" });
+  await f.page.keyboard.press("Control+k");
+  await f.page.locator("#cmd-input").waitFor({ state: "hidden" });
+  assert.equal(await f.page.evaluate(() => document.activeElement.id), "prompt");
+  /* The side panel asked for from More closes from the same row. */
+  for (let round = 0; round < 2; round += 1) {
+    await f.page.locator("#lx-more").click();
+    await f.page.getByRole("menuitem", { name: "Plan", exact: true }).click();
+    assert.equal(await f.page.locator("#context-panel").isVisible(), round === 0);
+  }
+  /* The full window's own: the workspace and project menus, the Lockdown shield, the room meter, labels. */
+  await showEverything(f.page);
+  await everyWayClosed(f.page, "#owner-menu-button", "#owner-menu", "the workspace menu");
+  await everyWayClosed(f.page, "#app-switcher", "#app-menu", "the project menu");
+  await everyWayClosed(f.page, "#lx-shield", "#lx-lock-pop", "the Lockdown shield");
+  await everyWayClosed(f.page, "#meter-button", "#meter-popover", "the room meter");
+  await everyWayClosed(f.page, "#thread-labels", ".label-picker", "the label picker");
+  await f.page.locator("#owner-menu-button").click();
+  await f.page.locator("#lx-shield").click();
+  assert.equal(await f.page.locator("#owner-menu").isVisible(), false, "one popover at a time in the full window too");
+  await f.page.keyboard.press("Escape");
+  /* A pane tab is a switch: pressed again, it closes the pane it opened. */
+  const planTab = f.page.locator('.lx-pane-tab[data-pane="plan"]');
+  const before = await planTab.getAttribute("aria-pressed");
+  await planTab.click();
+  assert.notEqual(await planTab.getAttribute("aria-pressed"), before);
+  await planTab.click();
+  assert.equal(await planTab.getAttribute("aria-pressed"), before, "pressed again, it goes back");
   assert.deepEqual(f.errors, []);
 });
