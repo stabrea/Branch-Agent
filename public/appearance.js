@@ -94,9 +94,24 @@ function choiceButton(key, value) {
   return button;
 }
 
+/* Changes are saved one after another, so the last one made is the last one kept. */
+let saving = Promise.resolve();
+let unsaved = 0;
 function change(patch) {
   applyAppearance({ ...current, ...patch });
-  void persist(current).catch(() => {});
+  const value = { ...current };
+  unsaved += 1;
+  saving = saving.then(() => persist(value)).catch(() => {}).finally(() => { unsaved -= 1; });
+}
+
+/**
+ * The look as saved, from the window's regular refresh. While this window's own changes are still
+ * being saved it can only be older than what is on screen: applying it then undid the choices made
+ * after it, and the next save sent the undone value back (a lettering choice came back as the
+ * default in shell-ui). So it is taken only once nothing here is waiting to be saved.
+ */
+export function adoptSaved(value) {
+  if (unsaved === 0) applyAppearance(value);
 }
 
 /** Called once by public/app.js with the way to save a preferences record. */
