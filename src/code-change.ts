@@ -1,3 +1,4 @@
+import { replaceText } from "./text-replace.js";
 import { readFile, stat } from "node:fs/promises";
 import { isAbsolute } from "node:path";
 import { z } from "zod";
@@ -116,10 +117,8 @@ export class CodeChanges {
     const absolute = await this.files.checked(edit.path);
     const before = await readFile(absolute, "utf8").catch(() => null);
     if (before === null) throw new Error(`Change refused: "${edit.path}" does not exist, so nothing was changed`);
-    const found = before.split(edit.find).length - 1;
-    if (found !== edit.expectedOccurrences)
-      throw new Error(`Change refused: "${edit.path}" contains that text ${found} time(s), but ${edit.expectedOccurrences} was expected; nothing was changed`);
-    return { path: edit.path, before, after: before.split(edit.find).join(edit.replace) };
+    const { after } = replaceText(before, edit.find, edit.replace, edit.expectedOccurrences, `Change refused (nothing was changed): "${edit.path}"`);
+    return { path: edit.path, before, after };
   }
   private async refuseBinary(planned: PlannedChange[]): Promise<void> {
     for (const item of planned) {
@@ -171,10 +170,10 @@ const fileList = (paths: string[]): string =>
 export function registerCodeChanges(registry: ToolRegistry, changes: CodeChanges): void {
   registry.register({
     name: "code.patch", permission: "files.write", group: "code",
-    description: "Apply a unified diff across workspace files. Every part must fit exactly; if one does not, nothing at all is written. Set dryRun to see the whole change first without writing it. Binary files and anything outside the workspace are refused, and each file changed can be put back from its history.",
+    description: "Apply a unified diff (or *** Begin Patch block) across workspace files; parts are placed by their lines even when line numbers are off, and if any part's lines are missing nothing is written. Set dryRun to see the whole change first without writing it. Binary files and anything outside the workspace are refused, and each file changed can be put back from its history.",
     parameters: PatchInputSchema,
     target: (args) => {
-      const paths = [...String(args.patch).matchAll(/^\+\+\+ (?:b\/)?(\S+)/gm)].map((m) => m[1]!);
+      const paths = [...String(args.patch).matchAll(/^(?:\+\+\+ (?:b\/)?|\*\*\* (?:Update|Add) File: )(\S+)/gm)].map((m) => m[1]!);
       return args.dryRun ? "" : fileList(paths);
     },
     execute: (args, context) => changes.patch(args, context),

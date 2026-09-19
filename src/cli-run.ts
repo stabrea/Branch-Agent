@@ -153,6 +153,7 @@ export async function runForScripts(
     const run = await runtime.run({
       prompt: (flags.prompt || carried || "") + attachedText(attachments),
       signal: controller.signal,
+      ...(flags.timeoutMs ? { timeoutMs: flags.timeoutMs } : {}),
       ...conversation,
       ...(images.length ? { images } : {}),
       ...(flags.plan ? { plan: true } : {}), ...(flags.verify ? { verify: true } : {}),

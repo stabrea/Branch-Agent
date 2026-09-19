@@ -164,6 +164,11 @@ export interface DelegateOptions { timeoutMs?: number; resultSchema?: Record<str
 export interface FollowUp { id: string; prompt: string; createdAt: string; shortLivedKey?: boolean; shortLivedKeyId?: string; personProfileId?: string }
 export interface BackgroundResult { childRunId: string; parentRunId: string; status: string; output: string; finishedAt: string }
 export interface FanoutOutcome { waves: string[][]; tasks: Record<string, { runId: string; status: string; output: string; result: ResultCheck }> }
+/** A task's own deadline: two minutes unless the caller asked for another, within one day. */
+export function runDeadline(timeoutMs: number | undefined): number {
+  const asked = Number.isFinite(timeoutMs) ? Math.floor(timeoutMs!) : 0;
+  return asked > 0 ? Math.min(asked, 24 * 60 * 60 * 1000) : 120000;
+}
 const reviewInstructions = "You review a finished task. Reply with JSON only: {\"memories\":[{\"text\":\"a durable fact or preference about the person, in one sentence\",\"source\":\"why you believe it\"}],\"skills\":[{\"skillId\":\"id of an installed skill this task used\",\"note\":\"one improvement to its instructions\"}]}. Only include things worth keeping for future tasks; empty arrays are the normal answer.";
 // The conversation share alone is what triggers compaction now, and how much of it there is
 // depends on what the tool catalog and the answer leave over: see derivedCompactionThreshold in
@@ -212,6 +217,13 @@ export interface RunOptions {
   reasoning?: ReasoningEffort | null;
   permissions?: string[];
   signal?: AbortSignal;
+  /**
+   * How long this task may run, in milliseconds. Defaults to two minutes. A caller that asks for
+   * longer gets longer: the default used to be combined with the caller's own signal, so a
+   * `--timeout` could shorten a task but never lengthen it, and a local model — a minute a round —
+   * was cancelled after two rounds whatever was asked for (experiments/scoreboard/FINDINGS.md, F2).
+   */
+  timeoutMs?: number;
   budget?: BudgetOptions;
   onStarted?: (run: Run) => void;
   onTextDelta?: (text: string) => void;
@@ -811,7 +823,7 @@ ${run.output.slice(0, 6000)}`;
     const signal = AbortSignal.any([
       controller.signal,
       options.signal ?? new AbortController().signal,
-      AbortSignal.timeout(120000),
+      AbortSignal.timeout(runDeadline(options.timeoutMs)),
     ]);
     const context = this.scopeToSession(run, parent
       ? { ...parent, runId: run.id, signal, scratchRoot: parent.scratchRoot ?? parent.runId }
