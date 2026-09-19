@@ -2,6 +2,7 @@ import { randomUUID, randomBytes, scryptSync, timingSafeEqual } from "node:crypt
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 import { currentPerson } from "./people/context.js"; // bucket 19
+import { currentTaskRun } from "./task-scope.js"; // household-followups
 
 /**
  * Profiles for a household. Someone else who uses this computer can be given their own named
@@ -49,6 +50,12 @@ export class Profiles {
   private readonly wrongPins = new Map<string, { count: number; until: number }>();
   /** household-followups: whether the owner's PIN is set, read once and kept up to date here. */
   private ownerPinSet = false;
+  /**
+   * household-followups: who a task was started for — a profile id, null for the owner, or
+   * undefined when `runId` is not a task (src/runtime.ts installs it). Owner-only checks made while a
+   * task's tool runs answer for that person rather than for the window.
+   */
+  taskPerson?: (runId: string) => string | null | undefined;
   /** Overridden in tests so the wait can be stepped over without sleeping. */
   now: () => number = () => Date.now();
   constructor(private readonly db: DatabaseSync, private readonly owner: string) {
@@ -191,9 +198,9 @@ export class Profiles {
     const count = (this.wrongPins.get(profileId)?.count ?? 0) + 1;
     this.wrongPins.set(profileId, { count, until: this.now() + pinLockoutMs });
   }
-  /** Who is using the app right now: a profile, or the owner. */
+  /** Who is using the app right now (inside a task's tool: who the task is for): a profile, or the owner. */
   active(): Profile | null {
-    const id = this.who();
+    const id = this.judged();
     if (!id) return null;
     const found = this.list().find((profile) => profile.id === id) ?? null;
     // bucket 19: a person's key whose profile was removed is nobody, and never falls back to the owner.
@@ -203,6 +210,18 @@ export class Profiles {
   /** bucket 19: a signed-in person's request answers for them; otherwise the window's switch does. */
   private who(): string | null {
     return currentPerson()?.profileId ?? this.current;
+  }
+  /**
+   * household-followups: whom an owner-only check answers for. A signed-in person first; then,
+   * inside a tool call that belongs to a task, the person that task was started for; otherwise the
+   * window's switch. Where records are filed (scope) still follows the window, as it always has.
+   */
+  private judged(): string | null {
+    const person = currentPerson();
+    if (person) return person.profileId;
+    const runId = currentTaskRun();
+    const bound = runId ? this.taskPerson?.(runId) : undefined;
+    return bound === undefined ? this.current : bound;
   }
   /** The name records are saved under for whoever is using the app: separate per profile. */
   scope(): string {
@@ -214,11 +233,11 @@ export class Profiles {
     return this.owner;
   }
   isOwner(): boolean {
-    return this.who() === null;
+    return this.judged() === null;
   }
   /** Refuses anything only the owner may reach: their secrets, their projects, their settings. */
   requireOwner(what = "This"): void {
-    if (this.who() !== null)
+    if (this.judged() !== null)
       throw new Error(`${what} belongs to the owner. Switch back to the owner's profile to use it.`);
   }
 }
