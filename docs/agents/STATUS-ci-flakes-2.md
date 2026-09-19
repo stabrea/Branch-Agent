@@ -42,6 +42,10 @@ condition. Also any other test that failed more than once in the last ~15 trunk 
 
 ## Progress
 - [x] artifacts-ui W2: waits for `branch-run-finished`, then for its own chart's reading (file 9/9).
+      With only that, 1 of 30 loop runs still read '' after the reading had shown (a later clear, cause
+      not caught: 0 of 148 traced runs failed). The check is now one wait for "Tue: 7" on that chart's
+      own line, not a second read. Loops (4 copies): old test 30/30 (the double draw happens before
+      Playwright sees the chart here), fix 1: 29/30, final: 100/100.
 - [x] ws: `pollRun` stops when `Store.isOpen` is false and closes the socket with a close frame.
       New test: a run socket open when the app closes ends cleanly (fails before: database is not open).
       The client test now waits for the socket's close and for the server loop to end.

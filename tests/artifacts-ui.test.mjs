@@ -138,8 +138,9 @@ test("W2 a chart block is drawn in the page, reads out under the pointer and sho
 
   /* The number under the pointer is written out in words, for anyone who cannot hover. */
   await chart.locator("svg.chart-svg rect").nth(2).hover();
-  await chart.locator(".chart-reading", { hasText: ":" }).waitFor();
-  assert.match(await chart.locator(".chart-reading").innerText(), /Tue: 7/);
+  /* Waited for as one condition on this chart's own line: a later change of layout under a still
+     pointer may rightly clear it again, so it is not read a second time. */
+  await chart.locator(".chart-reading", { hasText: "Tue: 7" }).waitFor();
 
   /* The same numbers as a table, and back again. */
   assert.equal(await chart.locator(".md-table").isVisible(), false);
