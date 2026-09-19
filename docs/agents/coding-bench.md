@@ -60,7 +60,12 @@ average recorded either side of every cell.
 Contestants, all on that model:
 
 - **branch-before** — `mac/cross-platform` 36ee8abb, unmodified.
-- **branch-after** — this branch.
+- **branch-after** — this branch before the reply-ceiling fix (patch/edit, deadline, empty-reply
+  nudge, `code.check` note).
+- **branch-after-scripts** — the same build with the owner's "run scripts" switch turned on (it ships
+  off), so `code.check` runs `node --test`. It answers what that one switch is worth.
+- **branch-after2 / branch-after2-scripts** — the final build, adding the adaptive reply ceiling
+  (window 4).
 - **codex** — Codex CLI 0.155.1, fresh install, `codex exec --oss --local-provider ollama`,
   sandbox `workspace-write`, its own `CODEX_HOME` under `/workspace/bench`.
 - **openclaw** — OpenClaw 2026.9.4, the scoreboard's fresh install and settings.
@@ -74,8 +79,63 @@ wanted inside its sandbox.
 
 ## 3. Results
 
-_Window 3 is the counted window (60 cells, 5 rows × 12 tasks, one pass). Its table is pasted here
-from `experiments/coding-bench/report.mjs` when it lands; see `experiments/coding-bench/STATUS.md`._
+### Window 3 — the counted window
+
+Stopped by plan after 40 of 60 cells: all five rows on the first **8 tasks**, round-robin, one pass
+each (`experiments/coding-bench/results-window3.jsonl`, edits recounted from each cell's database by
+`recount-edits.mjs`). Load average 4.8–11.2 across the window.
+
+| contestant | finished (tests pass) | median wall time | tokens in / out (reported) | edits refused / tried | rescued |
+|---|---|---|---|---|---|
+| openclaw | **1 / 8** | 184 s | 74475 / 6291 | not reported | 0 |
+| codex | **1 / 8** | 234 s | 243108 / 15050 | 0 / 0 | 5 |
+| branch-before | **0 / 8** | 126 s | 25497 / 10355 | 0 / 0 | 8 |
+| branch-after | **1 / 8** | 208 s | 115253 / 28295 | 0 / 2 | 5 |
+| branch-after-scripts | **1 / 8** | 312 s | 76554 / 19490 | 1 / 4 | 6 |
+
+| task | openclaw | codex | branch-before | branch-after | branch-after-scripts |
+|---|---|---|---|---|---|
+| fix-range | fail 158 s | fail 255 s | fail 128 s | fail 325 s | PASS 316 s |
+| add-median | fail 184 s | fail 499 s | fail 128 s | fail 144 s | fail 140 s |
+| extract-helper | fail 203 s | fail 170 s | fail 88 s | fail 147 s | fail 308 s |
+| stack-trace | fail 184 s | fail 226 s | fail 125 s | fail 524 s | fail 600 s |
+| cli-flag | fail 266 s | fail 147 s | fail 125 s | fail 206 s | fail 141 s |
+| update-docs | PASS 217 s | fail 171 s | fail 125 s | PASS 230 s | fail 454 s |
+| rename | fail 161 s | PASS 243 s | fail 126 s | fail 210 s | fail 126 s |
+| flaky | fail 173 s | fail 365 s | fail 126 s | fail 143 s | fail 600 s |
+
+Pairwise, tasks one passed that the other failed (a win needs at least 3):
+
+- codex vs openclaw: 1 only codex (rename), 1 only openclaw (update-docs) — no claim
+- branch-before vs openclaw: 0 only branch-before (none), 1 only openclaw (update-docs) — no claim
+- branch-before vs codex: 0 only branch-before (none), 1 only codex (rename) — no claim
+- branch-after vs openclaw: 0 only branch-after (none), 0 only openclaw (none) — no claim
+- branch-after vs codex: 1 only branch-after (update-docs), 1 only codex (rename) — no claim
+- branch-after vs branch-before: 1 only branch-after (update-docs), 0 only branch-before (none) — no claim
+- branch-after vs branch-after-scripts: 1 only branch-after (update-docs), 1 only branch-after-scripts (fix-range) — no claim
+- branch-after-scripts vs openclaw: 1 only branch-after-scripts (fix-range), 1 only openclaw (update-docs) — no claim
+- branch-after-scripts vs codex: 1 only branch-after-scripts (fix-range), 1 only codex (rename) — no claim
+- branch-after-scripts vs branch-before: 1 only branch-after-scripts (fix-range), 0 only branch-before (none) — no claim
+
+**Reading it honestly:** every row finished at most one task in eight. No row is ahead of any other by
+the three tasks the rule asks for, so **no win is claimed** — not Branch over Codex, not the fixes
+over trunk. What the window does show, from each cell's own record:
+
+- **branch-before** was cancelled at ~125 s in 7 of 8 tasks — the 2-minute ceiling (F2). It never
+  got far enough to edit anything.
+- **branch-after** got past that, and then **7 of the 16 after-cells (both after-rows) ended "used its whole
+  reply allowance thinking"** — qwen3 thinking past Branch's 2,048-token reply ceiling (F1). That is
+  the biggest measured gap left, and the reason for the next fix (window 4).
+- **branch-after-scripts** is the only row to pass `fix-range`: it ran `code.check` (now `node --test`),
+  edited `src/range.js`, ran the tests again and stopped. That is the loop Codex runs by default.
+- **codex** ran commands freely, read the right files and often reasoned to the right fix — but in 5
+  of 8 tasks its final message was empty, and in `fix-range` it explained the right fix without making it. Its edits are made through shell
+  commands, so "edits refused / tried" is not measurable for it (0 / 0 is not "no failures").
+- **openclaw**'s calls went through its `tool_call` bridge; it passed `update-docs`.
+- Edits Branch tried and had refused: 1 of 6 across both after-rows (in `stack-trace`). Too few edits happened on this model for the patch/edit fixes to show in the numbers;
+  they rest on their unit tests.
+- Tokens: Branch sends a far smaller prompt per round (~2.7K tokens in, 18 of 214 tools shown) than
+  Codex (~15K); over 8 tasks Codex used 243K input tokens to Branch-after's 115K.
 
 ### What the stopped windows showed (mechanisms, not scores)
 
@@ -118,9 +178,10 @@ with tests (`tests/coding-gap-edits.test.mjs`, plus updated `tests/empty-answer.
    whole-line matching with re-indentation, used only when it finds exactly the expected number of
    places; refusals give the count and the fix, or the closest line; `old_string`/`new_string`/
    `file_path`/`replace_all` accepted.
-6. **2,048-token reply ceiling (F1).** Not hit in these windows (replies were 500–1,300 tokens) but a
-   longer think will hit it. *Next:* derive the ceiling from the model's window and remaining budget
-   rather than raise the constant — the owner kept the constant for 0.18.1.
+6. **2,048-token reply ceiling (F1) — measured as the biggest gap left once 2 and 3 were fixed**:
+   7 of 16 after-cells in window 3 ended cut off mid-thought. *Done:* the constant stays the
+   starting point (the owner kept it for 0.18.1); a run whose reply is cut off while thinking retries
+   that round at 4,096 and then 8,192 tokens, for that run only.
 7. **No read-before-write guard.** `files.write` overwrites a file the model never read; Claude Code
    refuses. Not measured here. *Next:* refuse a whole-file write over an existing file not read (or
    changed since read) in this run, with a sentence saying to read it first.
