@@ -27,13 +27,13 @@ export function outsideSourceOf(store: EventReader, runId: string | undefined): 
 
 /**
  * The earlier task a new message in this conversation carries on for, when that task came from
- * outside: the one that began the conversation (or the conversation it was branched from), or else
+ * outside: the one that began the conversation (or the one it was branched off or copied from), or else
  * the latest one when it stopped part way — waiting for an answer, or cut off. Null means the new
  * message is simply the owner's own.
  */
 export function conversationCarrier(store: Reader, sessionId: string | undefined): string | null {
   const seen = new Set<string>();
-  for (let id = sessionId; id && !seen.has(id) && seen.size < 10; id = branchedFrom(store, id)) {
+  for (let id = sessionId; id && !seen.has(id) && seen.size < 10; id = earlierConversation(store, id)) {
     seen.add(id);
     const tasks = store.sqlite.prepare("SELECT id, status FROM tasks WHERE session_id=? ORDER BY created_at, rowid")
       .all(id) as { id: string; status: string }[];
@@ -46,13 +46,16 @@ export function conversationCarrier(store: Reader, sessionId: string | undefined
   return null;
 }
 
-/** The conversation this one was branched off, when it was (src/sessions.ts). */
-function branchedFrom(store: Reader, sessionId: string): string | undefined {
-  try {
-    const row = store.sqlite.prepare("SELECT parent_session_id FROM session_branches WHERE session_id=?").get(sessionId) as
-      { parent_session_id?: string } | undefined;
-    return row?.parent_session_id ? String(row.parent_session_id) : undefined;
-  } catch { return undefined; }
+/** The conversation this one was branched off (src/sessions.ts) or copied from (src/session-library.ts), if any. */
+function earlierConversation(store: Reader, sessionId: string): string | undefined {
+  const read = (sql: string): string | undefined => {
+    try {
+      const row = store.sqlite.prepare(sql).get(sessionId) as { earlier?: unknown } | undefined;
+      return typeof row?.earlier === "string" && row.earlier ? row.earlier : undefined;
+    } catch { return undefined; }
+  };
+  return read("SELECT parent_session_id AS earlier FROM session_branches WHERE session_id=?")
+    ?? read("SELECT duplicated_from AS earlier FROM session_origins WHERE session_id=?");
 }
 
 /**
