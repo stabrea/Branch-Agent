@@ -879,6 +879,30 @@
             <button id="docs3-limits-go" type="button" data-t="action.check-the-limits">Check the limits</button>
             <div id="docs3-limits-result" role="status"></div>
           </div>
+          <div class="card" id="learn-card">
+            <h2 data-t="documents.card.understanding-something">Understanding something</h2>
+            <p class="subtle" data-t="documents.note.a-picture-of-what-is">A picture of what is in a folder of code or a knowledge base and how the parts connect, and a guided walk through it. Every claim names the line or the passage it came from, and a claim with nothing behind it says so.</p>
+            <div class="input-row">
+              <select id="learn-subject" data-t-label="field.what-to-understand" aria-label="What to understand">
+                <option value="code" data-t="field.a-folder-of-code">A folder of code</option>
+                <option value="documents" data-t="field.a-knowledge-base">A knowledge base</option>
+              </select>
+              <input id="learn-of" type="text" maxlength="200" placeholder="." data-t-label="field.which-folder-or-knowledge-base" aria-label="Which folder or knowledge base" />
+              <button id="learn-cost-go" type="button" data-t="action.what-would-this-cost">What would this cost</button>
+            </div>
+            <p id="learn-cost-result" role="status" class="meta"></p>
+            <div class="input-row">
+              <button id="learn-map-go" type="button" data-t="action.build-the-map">Build the map</button>
+              <button id="learn-tour-go" type="button" data-t="action.start-the-tour">Start the tour</button>
+            </div>
+            <label><input id="learn-use-model" type="checkbox" /> <span data-t="field.let-a-model-write-the">Let a model write the words on each stop (one call, priced above)</span></label>
+            <div id="learn-map-result" role="status"></div>
+            <div id="learn-tour-result" role="status"></div>
+            <div class="input-row" id="learn-tour-controls" hidden>
+              <button id="learn-tour-back" type="button" data-t="action.back">Back</button>
+              <button id="learn-tour-next" type="button" data-t="action.next">Next</button>
+            </div>
+          </div>
           <div class="card">
             <h2 data-t="documents.card.made-by-the-assistant">Made by the assistant</h2>
             <p class="subtle">Pictures the assistant has made or captured while working. They are kept privately beside its own database, not in your workspace, unless you asked for one to be saved.</p>
@@ -1965,6 +1989,7 @@
     <!-- bucket-18: code editor (A0098) -->
     <script src="/code-editor.js" type="module"></script>
     <script src="/docs-3.js" type="module"></script>
+    <script src="/learn.js" type="module"></script>
     <script src="/other.js" type="module"></script>
     <script src="/sandbox-remote.js" type="module"></script>
     <script src="/move-in.js" type="module"></script>

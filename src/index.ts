@@ -151,6 +151,8 @@ import { KnowledgeSummaries } from "./knowledge-summary.js";
 import { KnowledgeManagement } from "./knowledge-manage.js";
 import { KnowledgePictures } from "./knowledge-pictures.js";
 import { registerKnowledgeExtras, type KnowledgeParts } from "./knowledge-more.js";
+import { Learn, registerLearn } from "./learn/index.js"; // mac7/learn
+import { lookLanguage, readLook } from "./terminal-theme.js"; // mac7/learn: the workspace language for a tour
 import { MemoryMirror, readOnlyRefusal, registerMemoryMirror } from "./memory-mirror.js";
 // bucket-18: memory history (A2317)
 import { MemoryHistory, registerMemoryHistory } from "./memory-git.js";
@@ -918,6 +920,13 @@ export async function createBranch(options: {
     summaries: knowledgeSummaries, management: knowledgeManagement, pictures: knowledgePictures,
     cards: new KnowledgeCards(store, knowledgeBases, runtime.models) };
   registerKnowledgeExtras(registry, knowledgeParts, store);
+  // ── mac7/learn: "Understanding something" -- a map of a folder of code or a knowledge base and a
+  // guided walk through it, every claim carrying the line or passage it came from. Ships off. ──
+  const learn = new Learn({ store, registry, owner: runtime.owner, models: runtime.models,
+    bases: knowledgeBases, project: projectMap,
+    language: () => lookLanguage(readLook(store, runtime.owner), process.env) });
+  registerLearn(registry, learn);
+  // ── end mac7/learn ──
   // One hop through that map is another way of finding passages, beside words and meaning.
   retrieval.add(new GraphRetriever(knowledgeGraph, knowledgeBases));
   // Text pasted in for one job: searchable while the job runs, gone the moment it ends.
@@ -1194,6 +1203,8 @@ export async function createBranch(options: {
     flowsBoards,
     /** R17-F: learning, deeper (src/learning-more/); every part ships off. */
     learningMore,
+    /** mac7/learn: the map and the tour (src/learn/); ships off. */
+    learn,
     runtime,
     /** mac3/never-break: the task journal, and settling interrupted work after a restart. */
     neverBreak: {
@@ -1872,6 +1883,8 @@ export * from "./knowledge-summary.js";
 export * from "./knowledge-manage.js";
 export * from "./knowledge-pictures.js";
 export * from "./knowledge-more.js";
+export * from "./learn/index.js";
+export * from "./learn/api.js";
 export * from "./memory-mirror.js";
 export * from "./memory-ephemeral.js";
 // Batch 20 (wave 8): short-lived keys, the sources a saved password can come from, one list of who

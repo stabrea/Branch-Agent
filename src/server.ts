@@ -126,6 +126,7 @@ import { codesResting, confirmWithCode, restingRefusal } from "./safety-extras/c
 import { reservedProjectId } from "./projects.js"; // mac7/r17-g integration review
 import { flowsBoardsApi, FlowsBoardsHttpError, handlesFlowsBoardsPath } from "./flows-boards/api.js"; // r17-h
 import { handlesLearningMorePath, learningMoreApi, LearningMoreHttpError } from "./learning-more/api.js"; // R17-F
+import { handlesLearnPath, learnApi, LearnHttpError } from "./learn/api.js"; // mac7/learn
 // mac4/bucket-20: the Agent Protocol, programs lending tools, and the owner's interop routes.
 import { handleInterop, handlesInteropPath, interopOffLimits } from "./interop/api.js";
 import { clientToolsPath, serveClientToolSocket } from "./interop/client-tools.js";
@@ -3278,6 +3279,19 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
           return;
         }
         // ---- end R17-F ----
+        // ---- mac7/learn: the map and the tour under /api/learn (src/learn/api.ts); the owner's alone. ----
+        if (handlesLearnPath(path)) {
+          app.store.profiles.requireOwner("Understanding something");
+          const answer = await learnApi({
+            learn: app.learn, runtime: app.runtime, method: request.method ?? "GET",
+            scope: app.store.profiles.scope(), readBody: () => readBody(request, 131072),
+          }, path).catch((error: unknown) => {
+            throw error instanceof LearnHttpError ? new HttpError(error.status, error.message) : error;
+          });
+          send(response, 200, answer);
+          return;
+        }
+        // ---- end mac7/learn ----
         if (await rawApi(app, request, response, path)) return;
         if (path.startsWith("/api/deployment")) {
           // bucket 22: `branch quit`, from this computer with the master key only (src/install/quit.ts).
@@ -3938,6 +3952,8 @@ function isExecution(request: IncomingMessage, path: string): boolean {
     || (request.method !== "GET" && handlesFlowsBoardsPath(path))
     // R17-F: every change under /api/learning-more may ask a model or an outside service.
     || (request.method !== "GET" && handlesLearningMorePath(path))
+    // mac7/learn: building a map reads the whole folder, and a tour may ask a model.
+    || (request.method !== "GET" && handlesLearnPath(path))
   );
 }
 function configureLimits(server: Server): void {

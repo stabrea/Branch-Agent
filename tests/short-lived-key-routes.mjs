@@ -569,6 +569,13 @@ export const ROUTES = {
   "/api/lock": "owner POST",
   "/api/lock/settings": "owner POST",
   "/api/lock/unlock": "owner POST",
+  // mac7/learn: reading the switch only looks; a map reads the whole folder and a tour may ask a model.
+  "/api/learn": "look",
+  "/api/learn/": "prefix",
+  "/api/learn/cost": "other POST",
+  "/api/learn/map": "other POST",
+  "/api/learn/switch": "owner POST",
+  "/api/learn/tour": "other POST",
   "/api/lockdown": "owner POST",
   // mac7/bind (integration review): where Branch's own door listens. Reading it tells a caller
   // where to knock, so looking is the owner's alone as much as moving it is.

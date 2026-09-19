@@ -128,6 +128,10 @@ export const COMMANDS: readonly CatalogCommand[] = [
   entry("focus", [], "[on|off]", "show only what you asked and the final answers", W, "look"),
   entry("installs", ["install"], "[request npm|pypi <name> [why] | approve n | decline n]", "requests for new packages and tool servers; only the owner answers, and nothing installs itself", ALL, "look", { withArgument: "run" }),
   // ---- end r17-h ----
+  // mac7/learn: a map of a folder of code or a knowledge base, and a guided walk through it. Building
+  // a map reads a whole folder and a tour may ask a model, and every /api/learn route is the owner's,
+  // so the command asks the same; /learn on its own only says what the feature is.
+  entry("learn", ["understand", "map"], "[code|documents] [folder or knowledge base]", "a map of something and a guided walk through it, in plain words", [...W, "terminal", "dashboard"], "owner", { bareLooks: true, route: { method: "POST", path: "/api/learn/map" } }),
 ];
 
 const bare = (name: string): string => name.replace(/^\//, "").replace(/@[\w.-]+$/, "").toLowerCase();

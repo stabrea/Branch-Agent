@@ -19,6 +19,7 @@ import { BOARD_HANDLERS } from "../flows-boards/commands.js"; // r17-h
 import { AUTONOMY_HANDLERS } from "../autonomy/commands.js"; // r17-b
 import { initCommand } from "../coding/commands.js"; // mac7/r17-d
 import { REACH_HANDLERS } from "../reach/commands.js"; // r17-i
+import { learnCommand } from "../learn/commands.js"; // mac7/learn
 
 /**
  * What each command does when it is carried out for a surface that has no code of its own for it:
@@ -262,4 +263,5 @@ export const HANDLERS: Record<string, Handler> = {
   init: initCommand, // mac7/r17-d
   ...REACH_HANDLERS, // r17-i: /platform
   ...BOARD_HANDLERS, // r17-h: /queue, /busy, /focus, /installs
+  learn: learnCommand, // mac7/learn
 };
