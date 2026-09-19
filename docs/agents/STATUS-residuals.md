@@ -83,7 +83,11 @@ branch: an integrator reviews it. Every new test is in `tests/residuals.test.mjs
   the request carries a check code; en + fr "The code matches". The route is unchanged (the CLI approval still
   works). tests/devices-ui.test.mjs and tests/p2-shell-ui.test.mjs now assert the button is disabled, tick, then
   let it in; taking out either disabling line fails its test.
-- [ ] 14. Read-aloud: a headless test that a spoken reply plays (blob: src, no CSP violation).
+- [x] 14. Read-aloud: a headless test that a spoken reply plays (blob: src, no CSP violation).
+  tests/residuals-ui.test.mjs 14: a real reply, its "Read aloud" button, the voice service stood in by a quarter
+  second of silent WAV (`/api/voice/speak` routed); the window's audio gets a `blob:` src, no media-src/default-src
+  refusal, and plays to `ended`. Taking `blob:` out of `media-src` in dist/server.js fails it. (The same run sees the
+  settings kit's inline-style refusals, the item left to the settings integrator; the test ignores those.)
 - [x] 15. Own background: switching off keeps the file; a separate "Remove picture" deletes it (with a confirm).
   public/delight-background.js: off only takes it down (`clear`); `forgetBackground` removes the window's
   IndexedDB database; `savedBackground` looks with `indexedDB.databases()` first, so painting the card never makes

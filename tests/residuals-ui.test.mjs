@@ -13,11 +13,11 @@ import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 import { openSettings } from "./places.mjs";
 
-async function fixture(t, { viewport = { width: 1440, height: 1000 }, before } = {}) {
+async function fixture(t, { viewport = { width: 1440, height: 1000 }, before, provider, args = [] } = {}) {
   const root = await mkdtemp(join(tmpdir(), "branch-residuals-ui-"));
-  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data") });
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), ...(provider ? { provider } : {}) });
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
-  const browser = await chromium.launch({ headless: true });
+  const browser = await chromium.launch({ headless: true, args });
   t.after(async () => { await browser.close(); await server.close(); await app.close(); await discardTemp(root); });
   const page = await browser.newPage({ viewport });
   const errors = [];
@@ -53,4 +53,51 @@ test("5. the fallback list warns when a Codex program is in it next to a ChatGPT
   await note.waitFor({ state: "hidden", timeout: 10000 });
   await page.locator("#models-fallback input[value=\"cli-codex\"]").check();
   await note.waitFor({ state: "visible", timeout: 10000 });
+});
+
+/** A quarter of a second of silence as a WAV file: what a voice service sends back, without one. */
+function silentWav() {
+  const samples = 4000, data = Buffer.alloc(samples * 2), head = Buffer.alloc(44);
+  head.write("RIFF", 0); head.writeUInt32LE(36 + data.length, 4); head.write("WAVE", 8); head.write("fmt ", 12);
+  head.writeUInt32LE(16, 16); head.writeUInt16LE(1, 20); head.writeUInt16LE(1, 22); head.writeUInt32LE(16000, 24);
+  head.writeUInt32LE(32000, 28); head.writeUInt16LE(2, 32); head.writeUInt16LE(16, 34); head.write("data", 36); head.writeUInt32LE(data.length, 40);
+  return Buffer.concat([head, data]);
+}
+
+test("14. Read aloud on a reply really plays: a blob: sound, no content-rule refusal, played to the end", async (t) => {
+  const provider = { name: "scripted", async complete() { return { content: "The kettle is on.", toolCalls: [] }; } };
+  const { page, errors } = await fixture(t, { provider, args: ["--autoplay-policy=no-user-gesture-required"], before: async (page) => {
+    // The voice service is stood in for; everything after the answer is the window's own.
+    await page.route(/\/api\/voice\/speak$/, (route) => route.fulfill({ status: 200, contentType: "audio/wav", body: silentWav() }));
+    await page.addInitScript(() => {
+      globalThis.__heard = { played: [], ended: 0, refused: [] };
+      document.addEventListener("securitypolicyviolation", (event) => globalThis.__heard.refused.push(`${event.violatedDirective} ${event.blockedURI}`));
+      const play = HTMLMediaElement.prototype.play;
+      HTMLMediaElement.prototype.play = function () {
+        globalThis.__heard.played.push(this.src);
+        this.addEventListener("ended", () => { globalThis.__heard.ended += 1; }, { once: true });
+        return play.call(this);
+      };
+    });
+  } });
+  if (!(await page.locator("#first-run").isHidden())) {
+    await page.getByRole("button", { name: /Try it without an account/ }).click();
+    await page.locator("#first-run").waitFor({ state: "hidden" });
+  }
+  await page.locator("#prompt").fill("Is the kettle on?");
+  await page.locator("#send").click();
+  const reply = page.locator(".message.assistant").filter({ hasText: "The kettle is on." }).first();
+  await reply.waitFor();
+  await reply.getByRole("button", { name: "Read aloud" }).click();
+  // Only a refusal of the sound counts here: the settings kit's inline style is refused too, a known
+  // leftover the settings work is fixing (docs/agents/STATUS-residuals.md), and nothing to do with sound.
+  const aboutSound = (line) => /media-src|default-src|blob:/.test(line);
+  await page.waitForFunction((pattern) => globalThis.__heard.ended > 0 || globalThis.__heard.refused.some((line) => new RegExp(pattern).test(line)),
+    "media-src|default-src|blob:", { timeout: 15000 });
+  const heard = await page.evaluate(() => globalThis.__heard);
+  assert.deepEqual(heard.refused.filter(aboutSound), [], "the page's content rules let the sound through");
+  assert.equal(heard.played.length, 1);
+  assert.match(heard.played[0], /^blob:/, "the sound is the page's own blob:");
+  assert.equal(heard.ended, 1, "it played to the end");
+  assert.deepEqual(errors, []);
 });
