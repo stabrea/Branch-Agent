@@ -626,7 +626,8 @@
   display: grid;
   gap: 18px;
   max-width: 1100px;
-  padding: 8px 4px 96px;
+  /* mac7/residuals: room at the end as tall as the floating ask box (public/layout.js keeps --lx-ask-h), and its gap. */
+  padding: 8px 4px calc(var(--lx-ask-h, 64px) + var(--s5, 24px));
 }
 .shell-head,
 .ov-head {

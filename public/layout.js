@@ -369,6 +369,10 @@ function askDock(id, english) {
     $("prompt").value = text;
     $("chat-form").requestSubmit();
   });
+  // mac7/residuals: a page under the floating ask box keeps that much room at its end (--lx-ask-h).
+  new ResizeObserver(() => {
+    if (form.offsetHeight) document.documentElement.style.setProperty("--lx-ask-h", `${Math.ceil(form.offsetHeight)}px`);
+  }).observe(form);
   return form;
 }
 function awayCard() {

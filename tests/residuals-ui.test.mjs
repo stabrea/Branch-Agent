@@ -121,3 +121,26 @@ test("7. the mode menu and the usage list are as opaque as the glass dropdown", 
     assert.deepEqual(others, [dropdown, dropdown], `${theme}: the mode menu and the usage list match it`);
   }
 });
+
+test("11. Overview and People keep room at their end as tall as the floating ask box", async (t) => {
+  const { page } = await fixture(t, { viewport: { width: 390, height: 700 } });
+  for (const view of ["overview:here", "household:people"]) {
+    await page.evaluate((v) => globalThis.branchLayout.go(v), view);
+    const shell = page.locator(".lx-place:not([hidden]) .lx-panel:not([hidden]) .shell-page");
+    await shell.waitFor();
+    const measure = () => page.evaluate(() => {
+      const place = [...document.querySelectorAll(".lx-place")].find((node) => !node.hidden);
+      const ask = place.querySelector(".lx-ask"), shellPage = place.querySelector(".lx-panel:not([hidden]) .shell-page");
+      const scroller = document.getElementById("workspace");
+      scroller.scrollTop = scroller.scrollHeight;
+      const last = shellPage.lastElementChild.getBoundingClientRect().bottom;
+      return { ask: ask.offsetHeight, room: parseFloat(getComputedStyle(shellPage).paddingBottom), clear: ask.getBoundingClientRect().top - last };
+    });
+    // The box grows (a larger text size, a phone's own settings): the room grows with it.
+    await page.evaluate(() => { for (const box of document.querySelectorAll(".lx-ask")) box.style.setProperty("min-height", "180px"); });
+    await page.waitForFunction(() => parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--lx-ask-h")) >= 180);
+    const grown = await measure();
+    assert.ok(grown.room >= grown.ask, `${view}: the room at the end (${grown.room}px) is at least the box (${grown.ask}px)`);
+    assert.ok(grown.clear >= 0, `${view}: at the end, the last line is above the box`);
+  }
+});

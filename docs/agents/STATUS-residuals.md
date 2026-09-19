@@ -77,7 +77,13 @@ branch: an integrator reviews it. Every new test is in `tests/residuals.test.mjs
   Test 10 (phone and server codes agree on five keys; the page uses it; both natives offer it);
   tests/mobile-rules.test.mjs method count 18 → 19. **Not proven:** the Java and Swift were not compiled or run
   (no Android SDK or Xcode on this machine).
-- [ ] 11. Overview and People: bottom padding the height of the floating composer.
+- [x] 11. Overview and People: bottom padding the height of the floating composer.
+  Found: `.shell-page` already had a fixed 96 px (more than today's 65 px ask box), so at the end of the scroll
+  nothing was covered (measured at 1440x700 and 390x700); a fixed number stops holding once the box grows.
+  Now public/layout.js keeps `--lx-ask-h` at the ask box's real height (ResizeObserver, CSSOM only) and
+  `.shell-page` ends with that plus the gap (public/studio.css). While scrolling, a floating box still sits over
+  what is under it, as the conversation's box does; padding cannot change that. tests/residuals-ui.test.mjs 11
+  (box grown to 180 px at 390 px: room ≥ box, last line above it, both pages); the old 96 px fails it.
 - [ ] 12. Trunks strip switched off: first paint uses the last known switch value.
 - [x] 13. Pairing: "Let it in" only after the owner ticks "The code matches".
   Both desktop places that let a device in: the studio's Let it in step (public/pairing.js `codesMatch`) and the
