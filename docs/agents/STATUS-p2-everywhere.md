@@ -76,6 +76,10 @@ Verdict: MERGE WITH FIXES (fixes below, on `integrate/p2-everywhere`). The build
       removed for anyone; the calm window folds them into More) and carries the side list's own Inbox count.
 - [x] Fix: a saved run recording (src/run-recording-page.ts) names Forest on its page, so it keeps the look it always
       had instead of taking the new Slate first paint (tests/run-recording.test.mjs asserts it).
+- [x] After p2-shell landed: its Trunks strip (on by default) sat at a phone's foot under the places bar, two bars
+      stacked. At 560 px and under the strip now runs across the top under the notch, as in the approved phone frame
+      (faces across the top, places at the foot); a tablet keeps it at the foot. Tested (strip above the title bar,
+      the places bar alone at the foot, 820 unchanged).
 - Wider effect, on purpose: pages that load tokens.css and never name a theme (pair.html on a phone, people.html, the
   dashboard before it wears its theme) now paint Slate, the default, instead of Forest.
 - Not visible, so not changed: `src/desktop/main.ts` sets the Electron window's background to Forest, but the window is

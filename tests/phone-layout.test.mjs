@@ -287,10 +287,12 @@ test("on a phone with a notch and a home bar nothing sits under either; a comput
   await f.page.waitForFunction(() => document.body.classList.contains("rail-open"));
   assert.ok((await box(f.page, "body > .rail")).y >= 47, "the side list slides over under the notch, not behind it");
   await cdp.send("Emulation.setSafeAreaInsetsOverride", { insets: { top: 0, bottom: 0, left: 0, right: 0 } });
-  for (const [width, height, padding] of [[1440, 950, "10px"], [1024, 700, "10px"], [820, 1180, "6px"], [390, 844, "0px"]]) {
+  /* the edges the Trunks strip does not take (it takes the left on a computer, the foot on a tablet, the top on a phone) */
+  for (const [width, height, sides] of [[1440, 950, { top: "10px", right: "10px", bottom: "10px" }], [1024, 700, { top: "10px", right: "10px", bottom: "10px" }],
+    [820, 1180, { top: "6px", right: "6px", left: "6px" }], [390, 844, { right: "0px", left: "0px", bottom: "0px" }]]) {
     await f.page.setViewportSize({ width, height });
-    const pads = await f.page.evaluate(() => { const s = getComputedStyle(document.body); return [s.paddingTop, s.paddingRight, s.paddingLeft]; });
-    assert.deepEqual(pads, [padding, padding, padding], `${width}: the page's margins are the ones it always had`);
+    const pads = await f.page.evaluate((names) => Object.fromEntries(names.map((name) => [name, getComputedStyle(document.body)[`padding${name[0].toUpperCase()}${name.slice(1)}`]])), Object.keys(sides));
+    assert.deepEqual(pads, sides, `${width}: the page's margins are the ones it always had`);
   }
   assert.deepEqual(f.errors, []);
 });
@@ -337,6 +339,22 @@ test("a household person's bar offers exactly what their side list offers, and c
   assert.deepEqual(seen.bar.filter((place) => !["chat", "settings"].includes(place)), seen.side.filter((place) => place !== "customize"),
     "the bar lists the side list's places (the conversation and Settings in Customize's spot, as in the sample)");
   assert.equal(seen.barCount, seen.sideCount, "and the Inbox count is the side list's own");
+  assert.deepEqual(f.errors, []);
+});
+
+test("on a phone the Trunks strip runs across the top and the places hold the foot; a tablet keeps the strip at its foot", async (t) => {
+  const f = await fixture(t);
+  await f.page.locator("#trunk-strip").waitFor({ state: "visible" });
+  const strip = await box(f.page, "#trunk-strip"), head = await box(f.page, "header"), bar = await box(f.page, "#ew-places");
+  const prompt = await box(f.page, "#prompt");
+  assert.ok(strip.y + strip.height <= head.y, "the strip sits above the title bar, as in the phone frame");
+  assert.ok(Math.abs(bar.y + bar.height - 844) <= 1, "the places bar alone holds the foot");
+  assert.ok(prompt.y + prompt.height <= bar.y, "and the message box rides above it");
+  await f.page.setViewportSize({ width: 820, height: 1180 });
+  await f.page.waitForTimeout(100);
+  const tablet = await box(f.page, "#trunk-strip");
+  assert.ok(Math.abs(tablet.y + tablet.height + 6 - 1180) <= 1, "a tablet keeps the strip at its foot, where the shell puts it");
+  assert.equal(await noSideways(f.page), true);
   assert.deepEqual(f.errors, []);
 });
 
