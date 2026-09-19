@@ -115,17 +115,21 @@ export interface Glyphs {
   ok: string; fail: string; working: string; waiting: string; live: string; shield: string;
   h: string; v: string; tl: string; tr: string; bl: string; br: string;
   upper: string; lower: string; full: string; spinner: string[];
+  /** phase2/everywhere: the rail's marks and the usage line's empty part. */
+  computer: string; phone: string; trunk: string; shade: string;
 }
 const UNICODE: Glyphs = {
   mark: "\u2663", dot: "\u00b7", dash: "\u2014", ellipsis: "\u2026", crumb: "\u203a", pointer: "\u203a",
   ok: "\u2713", fail: "\u2717", working: "\u25cc", waiting: "\u25cf", live: "\u25cf", shield: "\u25c6",
   h: "\u2500", v: "\u2502", tl: "\u256d", tr: "\u256e", bl: "\u2570", br: "\u256f",
   upper: "\u2580", lower: "\u2584", full: "\u2588", spinner: ["\u25dc", "\u25dd", "\u25de", "\u25df"],
+  computer: "\u25a3", phone: "\u25af", trunk: "\u25c6", shade: "\u2591",
 };
 const ASCII: Glyphs = {
   mark: "*", dot: "-", dash: "--", ellipsis: "...", crumb: ">", pointer: ">",
   ok: "ok", fail: "x", working: "~", waiting: "!", live: "*", shield: "#",
   h: "-", v: "|", tl: "+", tr: "+", bl: "+", br: "+",
   upper: "", lower: "", full: "#", spinner: ["-", "\\", "|", "/"],
+  computer: "C", phone: "P", trunk: "@", shade: ".",
 };
 export const glyphsFor = (unicode: boolean): Glyphs => (unicode ? UNICODE : ASCII);

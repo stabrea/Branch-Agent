@@ -191,4 +191,5 @@ function clickOn(tui: Tui, action: string): void {
   if (kind === "sub") return tui.go({ settings: "models", sub: value });
   if (kind === "row") { tui.selected = Number(value); tui.focus = "list"; return openRow(tui); }
   if (kind === "item" && tui.overlay && tui.overlay.kind !== "help") { tui.overlay.selected = Number(value); return choose(tui); }
+  if (kind === "rail") return tui.railSay(Number(value)); // phase2/everywhere
 }

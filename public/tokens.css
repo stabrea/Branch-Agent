@@ -91,6 +91,148 @@
   /* site.css :root[data-theme="light"] --copper-text; --on-copper stays dark in both themes */
   --copper-text: #a3480f;
 }
+/* ---------- phase2/everywhere: the first paint is Slate ----------
+   Slate is the theme of everyone who has not chosen one (redesign phase 1, public/theme-bridge.js
+   DEFAULT_THEME), so the page is painted in it from the very first frame instead of Forest's
+   (#03140b) until public/layout.js wears the theme. These are exactly the values layout.js writes
+   for Slate (the catalogue's tokens, their Branch names from theme-bridge.js BRIDGE, and its opaque
+   --surface); tests/phone-layout.test.mjs checks they stay equal to the catalogue. A theme somebody
+   chose is named on the page by public/look-early.js before anything is drawn, so a chosen Forest
+   paints in the Forest values above as early as it always did. */
+:root:not([data-palette]),
+:root[data-palette="slate"] {
+  --ground: #18242C;
+  --glass: rgba(34,49,59,.62);
+  --glass-2: rgba(43,58,68,.78);
+  --glass-edge: rgba(227,238,243,.14);
+  --line: rgba(227,238,243,.13);
+  --line-2: rgba(227,238,243,.24);
+  --hover: rgba(227,238,243,.07);
+  --press: rgba(227,238,243,.12);
+  --well: rgba(0,0,0,.28);
+  --text: #E3EEF3;
+  --text-2: rgba(227,238,243,.86);
+  --text-3: rgba(177,197,208,1);
+  --copper: #B0D0E0;
+  --copper-hi: #C3E4F4;
+  --copper-lo: #7F9DAD;
+  --copper-tint: rgba(176,208,224,.16);
+  --copper-edge: rgba(176,208,224,.55);
+  --copper-text: #B0D0E0;
+  --on-copper: #1A1A1A;
+  --paper: #E6F1F6;
+  --paper-2: #F5FBFE;
+  --paper-text: #0C181D;
+  --paper-mute: rgba(12,24,29,.74);
+  --paper-copper: #53707F;
+  --paper-line: rgba(12,24,29,.18);
+  --ok: #6FD087;
+  --ok-tint: rgba(111,208,135,.14);
+  --warn: #E3B23F;
+  --warn-tint: rgba(227,178,63,.14);
+  --bad: #FEA19A;
+  --bad-tint: rgba(254,161,154,.14);
+  --chip-ok-bg: #26403B;
+  --chip-ok-fg: #6FD087;
+  --chip-warn-bg: #383B2F;
+  --chip-warn-fg: #E3B23F;
+  --chip-bad-bg: #3D383E;
+  --chip-bad-fg: #FEA19A;
+  --chip-idle-bg: #2A363E;
+  --chip-idle-fg: #E3EEF3;
+  --scrim: rgba(24,36,44,.66);
+  --shadow: 0 1px 0 rgba(255,255,255,.05) inset,0 24px 60px -18px rgba(0,0,0,.62),0 8px 20px -10px rgba(0,0,0,.5);
+  --card-shadow: 0 30px 60px -20px rgba(0,0,0,.59);
+  --panel: rgba(43,58,68,.78);
+  --panel-2: rgba(34,49,59,.62);
+  --muted: rgba(227,238,243,.86);
+  --faint: rgba(177,197,208,1);
+  --line-strong: rgba(227,238,243,.24);
+  --selected: rgba(227,238,243,.12);
+  --good: #6FD087;
+  --good-tint: rgba(111,208,135,.14);
+  --danger: #FEA19A;
+  --copper-low: #7F9DAD;
+  --rail-hover: rgba(227,238,243,.12);
+  --bubble: rgba(176,208,224,.16);
+  --composer-bg: rgba(43,58,68,.78);
+  --step-bg: rgba(0,0,0,.28);
+  --border: rgba(227,238,243,.13);
+  --text-dim: rgba(177,197,208,1);
+  --surface: rgb(38, 50, 58);
+  /* the page before public/layout.js dresses it (the flush-shell names below are Forest greens) */
+  --rail-bg: var(--ground);
+  --main-bg: var(--ground);
+  --head-bg: var(--ground);
+  color-scheme: dark;
+}
+:root:not([data-palette])[data-theme="daylight"],
+:root[data-palette="slate"][data-theme="daylight"] {
+  --ground: #EAF0F2;
+  --glass: rgba(247,250,251,.66);
+  --glass-2: rgba(255,255,255,.86);
+  --glass-edge: rgba(35,52,62,.14);
+  --line: rgba(35,52,62,.13);
+  --line-2: rgba(35,52,62,.24);
+  --hover: rgba(35,52,62,.07);
+  --press: rgba(35,52,62,.12);
+  --well: rgba(35,52,62,.05);
+  --text: #23343E;
+  --text-2: rgba(35,52,62,.84);
+  --text-3: rgba(69,91,102,1);
+  --copper: #3F6378;
+  --copper-hi: #4D7187;
+  --copper-lo: #1E4255;
+  --copper-tint: rgba(63,99,120,.16);
+  --copper-edge: rgba(63,99,120,.73);
+  --copper-text: #395D72;
+  --on-copper: #FFFFFF;
+  --paper: #0C1D26;
+  --paper-2: #182932;
+  --paper-text: #ECF3F8;
+  --paper-mute: rgba(236,243,248,.74);
+  --paper-copper: #64899F;
+  --paper-line: rgba(236,243,248,.18);
+  --ok: #00682D;
+  --ok-tint: rgba(0,104,45,.14);
+  --warn: #735601;
+  --warn-tint: rgba(115,86,1,.14);
+  --bad: #9D3532;
+  --bad-tint: rgba(157,53,50,.14);
+  --chip-ok-bg: #C5DAD2;
+  --chip-ok-fg: #00682D;
+  --chip-warn-bg: #D7D7CB;
+  --chip-warn-fg: #735601;
+  --chip-bad-bg: #DED2D3;
+  --chip-bad-fg: #9D3532;
+  --chip-idle-bg: #D8DFE2;
+  --chip-idle-fg: #23343E;
+  --scrim: rgba(234,240,242,.44);
+  --shadow: 0 1px 0 rgba(24,41,50,.6) inset,0 24px 60px -18px rgba(0,0,0,.3),0 8px 20px -10px rgba(0,0,0,.24);
+  --card-shadow: 0 30px 60px -20px rgba(0,0,0,.28);
+  --panel: rgba(255,255,255,.86);
+  --panel-2: rgba(247,250,251,.66);
+  --muted: rgba(35,52,62,.84);
+  --faint: rgba(69,91,102,1);
+  --line-strong: rgba(35,52,62,.24);
+  --selected: rgba(35,52,62,.12);
+  --good: #00682D;
+  --good-tint: rgba(0,104,45,.14);
+  --danger: #9D3532;
+  --copper-low: #1E4255;
+  --rail-hover: rgba(35,52,62,.12);
+  --bubble: rgba(63,99,120,.16);
+  --composer-bg: rgba(255,255,255,.86);
+  --step-bg: rgba(35,52,62,.05);
+  --border: rgba(35,52,62,.13);
+  --text-dim: rgba(69,91,102,1);
+  --surface: rgb(246, 248, 249);
+  /* the page before public/layout.js dresses it (the flush-shell names below are Forest greens) */
+  --rail-bg: var(--ground);
+  --main-bg: var(--ground);
+  --head-bg: var(--ground);
+  color-scheme: light;
+}
 /* Leaf — public-theme.css html[data-theme=light] / html[data-theme] --pk-accent */
 :root[data-accent="leaf"] {
   --copper: #d3e3b6;

@@ -8,7 +8,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { androidColour, nativePalettes } from "../web/palette.js";
+import { NATIVE_THEME, androidColour, nativePalettes } from "../web/palette.js";
 
 const app = join(dirname(fileURLToPath(import.meta.url)), "..");
 const repo = join(app, "..", "..");
@@ -81,7 +81,7 @@ async function put(path, text) {
 }
 export async function writeNativeFiles(root = app) {
   const catalogue = await import(pathToFileURL(join(repo, "public", "theme-catalogue.js")).href);
-  const palettes = nativePalettes(catalogue, "forest");
+  const palettes = nativePalettes(catalogue, NATIVE_THEME);
   const words = await nativeWords();
   const shared = `${JSON.stringify({ palettes, words, appGroup: APP_GROUP }, null, 2)}\n`;
   await put(join(root, "capacitor.config.json"), `${JSON.stringify(capacitorConfig(palettes, process.env.BRANCH_MOBILE_WEB_DEBUG === "1"), null, 2)}\n`);

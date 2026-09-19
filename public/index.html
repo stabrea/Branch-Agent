@@ -2,9 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" /><!-- phase2/everywhere: the page reaches under a phone's notch and home bar; phone-layout.css keeps everything clear of them -->
     <meta name="color-scheme" content="dark light" />
     <title>Branch Agent — Your personal assistant</title>
+    <script src="/look-early.js"></script><!-- phase2/everywhere: a chosen theme is named before the first paint -->
     <link rel="stylesheet" href="/tokens.css" />
     <link rel="stylesheet" href="/style.css" />
     <link rel="stylesheet" href="/shell.css" />
@@ -23,6 +24,7 @@
     <link rel="stylesheet" href="/studio.css" />
     <link rel="stylesheet" href="/brand-marks.css" /><!-- phase2/accounts: service marks -->
     <link rel="stylesheet" href="/accounts.css" /><!-- phase2/accounts: Accounts, the assistant's files, Secrets -->
+    <link rel="stylesheet" href="/phone-layout.css" /><!-- phase2/everywhere -->
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" href="/assets/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/assets/icon-192.png" />
@@ -2055,6 +2057,7 @@
     <script src="/usage.js" type="module"></script>
     <script src="/usage-glance.js" type="module"></script>
     <script src="/conversation-mode.js" type="module"></script>
+    <script src="/phone-layout.js" type="module"></script><!-- phase2/everywhere -->
     <script src="/suggestions.js" type="module"></script>
     <script src="/glass-select.js" type="module"></script>
     <script src="/diagnostics.js" type="module"></script>

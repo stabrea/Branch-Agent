@@ -664,6 +664,10 @@ async function staticFile(
     "/token-meter.js": ["token-meter.js", "text/javascript; charset=utf-8"],
     "/usage-glance.js": ["usage-glance.js", "text/javascript; charset=utf-8"],
     "/conversation-mode.js": ["conversation-mode.js", "text/javascript; charset=utf-8"],
+    // phase2/everywhere: the window at phone and tablet widths
+    "/phone-layout.js": ["phone-layout.js", "text/javascript; charset=utf-8"],
+    "/phone-layout.css": ["phone-layout.css", "text/css; charset=utf-8"],
+    "/look-early.js": ["look-early.js", "text/javascript; charset=utf-8"],
     "/rooms.js": ["rooms.js", "text/javascript; charset=utf-8"], // phase2/rooms
     "/rooms.css": ["rooms.css", "text/css; charset=utf-8"], // phase2/rooms
     "/voice-bar.js": ["voice-bar.js", "text/javascript; charset=utf-8"], // phase2/rooms

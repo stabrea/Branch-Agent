@@ -41,6 +41,8 @@ export class Conversation {
   private busy = false;
   private stream = "";
   closing = false;
+  /** phase2/everywhere: the name each answer is headed with, the assistant's own as in the window (#18). */
+  assistant = "Assistant";
 
   constructor(
     private readonly runtime: Runtime,
@@ -84,6 +86,11 @@ export class Conversation {
       ...(this.dryRun ? [say("terminal.chip.practice", "Practice run")] : []), ...(this.plan ? [say("terminal.chip.plan", "Plan first")] : [])];
   }
   modelName(): string { return this.chips()[0] ?? ""; }
+  /** phase2/everywhere: the conversation's title, as the window names it: its first message. */
+  title(): string | undefined {
+    const first = this.transcript.find((line) => line.kind === "you")?.text.replace(/\s+/g, " ").trim();
+    return first ? (first.length > 48 ? `${first.slice(0, 47)}…` : first) : undefined;
+  }
 
   /** Ctrl+C: stops the task in hand. Says so when nothing is working. */
   interrupt(): void {
@@ -168,7 +175,7 @@ export class Conversation {
     if (run.status === "completed") {
       this.stream = "";
       this.dropStreamed();
-      this.say("ok", "Assistant:");
+      this.say("ok", `${this.assistant}:`);
       this.say("assistant", run.output);
       const line = answerLine(runTotals(this.runtime, run.id, activeModel(this.runtime, this.model)));
       if (line) this.say("note", line);
@@ -187,11 +194,12 @@ export class Conversation {
   private askApproval(waiting: PendingApproval, prompt: string): void {
     this.awaiting = waiting;
     this.awaitingPrompt = prompt;
-    this.say("warn", "[Branch needs your yes before it goes on]");
-    this.say("warn", `What: ${waiting.label}`);
-    this.say("warn", `Tool: ${waiting.tool}`);
-    if (waiting.target) this.say("warn", `Exactly: ${waiting.target}`);
-    this.say("note", "Answer y (yes), n (no), a (yes, always) or s (yes, for this conversation), then Enter.");
+    // phase2/everywhere: drawn as one card with a warning edge, like the window's "needs you" card.
+    this.say("ask", "Branch needs your yes before it goes on");
+    this.say("askline", `What: ${waiting.label}`);
+    this.say("askline", `Tool: ${waiting.tool}`);
+    if (waiting.target) this.say("askline", `Exactly: ${waiting.target}`);
+    this.say("askline", "Answer y (yes), n (no), a (yes, always) or s (yes, for this conversation), then Enter.");
   }
   /** y / n / a / s, answered through the same policy route the app's settings screen uses. */
   private async answerApproval(text: string): Promise<void> {
@@ -233,8 +241,11 @@ export class Conversation {
   private activityRows(words: Words): Row[] {
     const policy = readPolicy(this.runtime.store, this.runtime.owner).preset;
     const working = this.steps.filter((step) => step.status === "working");
+    // phase2/everywhere: a question waiting for the owner is said at the top of Activity, as in the window.
+    const waiting = this.awaiting ? [{ title: words.t("terminal.pane.waiting", "Waiting for your yes"), detail: this.awaiting.label, tone: "warn" as const }] : [];
     return [
       { title: this.modelName(), detail: this.active ? words.t("terminal.pane.working", "working on it") : words.t("terminal.pane.ready", "ready"), tone: this.active ? "warn" as const : "ok" as const },
+      ...waiting,
       ...working.map((step) => ({ title: step.label, detail: step.tool })),
       { title: policyPresets().find((entry) => entry.id === policy)?.label ?? policy, detail: words.t("terminal.pane.policy", "when it checks with you") },
     ];
