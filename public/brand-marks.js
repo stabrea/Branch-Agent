@@ -66,8 +66,8 @@ export const MARKS = {
 /** The words that name each mark, checked in order against what a row says about itself. */
 const NAMES = [
   ["openai", /\b(openai|chatgpt|codex)\b/],
-  ["claude", /\bclaude\b/],
   ["anthropic", /\banthropic\b/],
+  ["claude", /\bclaude\b/],
   ["mistralai", /\bmistral\b/],
   ["openrouter", /\bopen ?router\b/],
   ["deepseek", /\bdeep ?seek\b/],

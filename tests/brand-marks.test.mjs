@@ -36,7 +36,7 @@ test("M2 every mark's source and licence is written down", async () => {
 test("M3 a row's own words find its mark, and services that ask for permission get a neutral tile", () => {
   const cases = [
     [["openai"], "openai"], [["chatgpt", "ChatGPT"], "openai"], [["OpenAI (work)"], "openai"],
-    [["cli-claude-code", "Claude Code"], "claude"], [["Anthropic"], "anthropic"],
+    [["cli-claude-code", "Claude Code"], "claude"], [["Anthropic"], "anthropic"], [["Anthropic · claude-sonnet-4-5"], "anthropic"], [["Claude on Google Vertex AI"], "claude"],
     [["OPENAI_API_KEY"], "openai"], [["TELEGRAM_BOT_TOKEN"], "telegram"], [["DISCORD_BOT_TOKEN"], "discord"],
     [["GH_TOKEN"], "github"], [["cli-copilot", "GitHub Copilot"], "githubcopilot"], [["ollama"], "ollama"],
     [["rocketchat", "Rocket.Chat"], "rocketdotchat"], [["line", "LINE"], "line"], [["Bitwarden"], "bitwarden"],

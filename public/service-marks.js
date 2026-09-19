@@ -48,16 +48,19 @@ function secretRow(node, secret) {
   node.prepend(markTile([secret.name], { size: 30, fallback: "key" }));
 }
 
-/* Chat apps: a mark before each listed name (their Set up panels, the connected list, the other services). */
-const PLACES = ["#lx-slot-customize-channels summary", "#lx-slot-customize-channels .record > strong:first-child"];
+/* Chat apps (their Set up panels, the connected list, the other services) and the model connections on
+   Settings › Models (the sign-in cards and the fallback list): a mark before each name. */
+const PLACES = ["#lx-slot-customize-channels summary", "#lx-slot-customize-channels .record > strong:first-child",
+  "#chatgpt-card > h2", "#gemini-signin-card > h2", "#models-fallback label"];
 function decorate() {
   for (const target of document.querySelectorAll(PLACES.join(", "))) {
-    if (target.querySelector(":scope > .brand-mark")) continue;
+    if (target.querySelector(":scope > .brand-mark")) continue; // already marked
     const text = target.textContent.trim();
     if (!text) continue;
-    const mark = markTile([text], { size: 22, fallback: "chat" });
+    const mark = markTile([text], { size: 22, fallback: target.closest("#lx-slot-customize-channels") ? "chat" : "service" });
     mark.classList.add("inline-mark");
-    target.prepend(mark);
+    const box = target.querySelector(":scope > input");
+    if (box) box.after(mark); else target.prepend(mark);
   }
 }
 let queued = false;
