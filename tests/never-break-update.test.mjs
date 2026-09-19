@@ -170,7 +170,8 @@ test("the Windows update keeps the version before the previous one too", async (
   await mkdir(join(root, "installed"), { recursive: true });
   const text = await readFile((await make("plain").install()).script, "utf8");
   assert.ok(text.indexOf("previous-2") < text.indexOf("keeping previous version"), "the older copy is kept first");
-  assert.match(text, /if exist "[^"]*installed\.previous\\" [^\r\n]*robocopy\.exe "[^"]*installed\.previous" "[^"]*installed\.previous-2" \/MIR/);
+  // mac7/real-update: the older copy is now renamed aside rather than mirrored.
+  assert.match(text, /if exist "[^"]*installed\.previous\\" if not exist "[^"]*installed\.previous-2\\" move "[^"]*installed\.previous" "[^"]*installed\.previous-2"/);
 
   // A canary that refuses stops the update before any safety copy or script.
   const order = [];

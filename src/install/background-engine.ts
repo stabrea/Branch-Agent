@@ -78,6 +78,13 @@ export async function stopBackgroundEngine(dataDir: string, deps: StopDeps = {})
   if ((deps.platform ?? process.platform) !== "win32") return stopPosixEngine(dataDir, instance, deps);
   const run = deps.run ?? runTool, taskkill = systemTool("taskkill.exe", deps.systemRoot);
   const pid = instance.pid;
+  // mac7/real-update review: the installer now reaches this too, with whatever note a crash left behind.
+  // Windows hands a dead engine's process id to the next program, and taskkill /T /F would end that
+  // program and everything it started, so nothing is ended that cannot be shown to be Branch.
+  if (!(await windowsStillTheEngine(dataDir, instance, deps))) {
+    await clearRunning(dataDir).catch(() => undefined);
+    return { pid: null, stopped: false, forced: false, message: "Nothing was working in the background." };
+  }
   const asked = await run(taskkill, ["/PID", String(pid), "/T"]).then(() => true, () => false);
   if (asked && (await waitForExit(pid, deps))) return finish(dataDir, pid, false);
   await run(taskkill, ["/PID", String(pid), "/T", "/F"]).catch(() => undefined);
@@ -130,6 +137,23 @@ async function stillTheEngine(dataDir: string, instance: { pid: number; url: str
   const run = deps.run ?? runTool;
   const command = await run("/bin/ps", ["-p", String(instance.pid), "-o", "command="]).catch(() => "");
   return /[\\/]dist[\\/]cli\.js\b/.test(command);
+}
+
+/** The program the background engine runs as on Windows (the app's own runtime, see daemon.ts). */
+export const windowsEngineImage = "Branch Agent.exe";
+
+/**
+ * Windows: true when the noted process is still Branch's engine: its address answers as Branch with
+ * the saved key, or Windows says that process id is running Branch's own program.
+ */
+async function windowsStillTheEngine(dataDir: string, instance: { pid: number; url: string }, deps: StopDeps): Promise<boolean> {
+  const state = await engineCall(dataDir, instance.url, "GET", "/api/state", deps);
+  const body = state?.ok ? ((await state.json().catch(() => null)) as { version?: unknown } | null) : null;
+  if (typeof body?.version === "string") return true;
+  const run = deps.run ?? runTool;
+  const listing = await run(systemTool("tasklist.exe", deps.systemRoot), ["/FI", `PID eq ${instance.pid}`, "/FO", "CSV", "/NH"]).catch(() => "");
+  const row = /^"([^"]*)","(\d+)"/m.exec(listing);
+  return Boolean(row) && Number(row![2]) === instance.pid && row![1]!.toLowerCase() === windowsEngineImage.toLowerCase();
 }
 
 /** One call to the engine's own loopback address with the saved key; null when it could not be made. */
