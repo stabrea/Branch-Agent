@@ -46,7 +46,26 @@ condition. Also any other test that failed more than once in the last ~15 trunk 
   `renderPresets`), the same ones, and the list closed on any change to its select's options, so an
   open list shut under the person within 3 s. Placement (below at 549 px of room) was right.
 
+- glass-select "arrows, Enter and type-ahead…" (Linux, trunk 98beb5d8, activeElement was the page): the
+  same refresh closing the list between Enter and "r" (the Lockdown text in the message is only the
+  hidden banner's words in body.textContent; Lockdown was off). Fixed by the glass-select change above.
+- conversation-mode "the chip starts a new conversation…" (macOS, trunk 98beb5d8, "arrows move between the
+  choices"): PRODUCT BUG, same family. The refresh every 3 s redraws the Lockdown switch
+  (other.js renderLockdown); the mode menu listens to that switch and redrew itself while open, which
+  threw the keyboard out of it, so ArrowDown did nothing. Shared cause of the phase-1 failures: the
+  3-second refresh rewrites things the open popovers listen to (preset choices, Lockdown switch), and
+  they closed or redrew on it. usage-glance also redraws its open popover, but only on its own 20-60 s
+  look, not the 3 s refresh; left as is.
+- Also seen once in the glass-select whole-file loop (1 of 36): opening Settings through the helper, the
+  Permissions link stayed hidden for 30 s. Not caught again in 60 runs of a probe that records every
+  close of the Settings window; cause unknown, not changed.
+
 ## Progress
+- [x] conversation-mode: an open menu is redrawn only when its state changed, and the keyboard stays on
+      the same choice. New test (fails before): a Lockdown-switch redraw leaves focus on Plan and the
+      arrows carry on. Loops (3 copies): conversation-mode file 30/30, redesign-phase1 18/18,
+      suggestions 18/18. glass-select type-ahead test before the fix 27/30; whole file after 35/36 (the
+      one miss is the Settings helper above).
 - [x] glass-select: closes only when the choices are really different (value, label, greyed, group);
       the test says "still open" before measuring; new test: a refresh writing the same choices leaves
       the list open (fails before). Loops, flush test, 3 copies: before 21/30 (9 closed), after 30/30.

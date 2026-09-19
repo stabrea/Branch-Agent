@@ -145,13 +145,22 @@ async function pick(mode, sure = false) {
 const ready = () => $("workspace")?.hidden === false && Boolean(sessionStorage.getItem("branch-token"));
 export async function refreshMode() {
   if (!ready()) return;
-  const here = session();
+  const here = session(), before = JSON.stringify(state);
   try { state = await api("conversation-mode" + (here ? `?sessionId=${encodeURIComponent(here)}` : "")); }
   catch { return; }
   if (!here && pending && state.choices.find((choice) => choice.mode === pending)?.available === false) pending = undefined;
   paintChip();
   paintDefault();
-  if (menuControl.isOpen()) paintMenu();
+  /* mac7/ci-flakes-2: this runs on every redraw of the Lockdown switch, which the window's refresh does every
+     3 s. Redrawing an open menu each time threw away the keyboard's place in it (arrows then did nothing), so
+     it is redrawn only when something changed, and the keyboard stays on the same choice. */
+  if (menuControl.isOpen() && JSON.stringify(state) !== before) repaintMenu();
+}
+function repaintMenu() {
+  const menu = $("mode-menu"), items = () => [...menu.querySelectorAll(".mode-item")];
+  const at = items().indexOf(document.activeElement);
+  paintMenu(menu);
+  if (at >= 0) items()[at]?.focus();
 }
 
 /* ---------- the owner's default, under When to check with me ---------- */

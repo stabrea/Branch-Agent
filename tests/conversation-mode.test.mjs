@@ -220,6 +220,22 @@ test("the chip starts a new conversation on Ask first, and its menu asks before 
   assert.deepEqual(f.errors, []);
 });
 
+test("the window's refresh redrawing the Lockdown switch leaves the open menu and the keyboard's place in it", async (t) => {
+  const f = await windowFixture(t);
+  await f.page.waitForFunction(() => document.getElementById("mode-chip")?.dataset.mode === "ask");
+  await f.page.locator("#mode-chip").click();
+  await f.page.locator("#mode-menu").waitFor({ state: "visible" });
+  await f.page.keyboard.press("ArrowDown");
+  assert.equal(await f.page.evaluate(() => document.activeElement?.dataset.mode), "plan");
+  /* What the refresh every 3 s does: the Lockdown switch is drawn again, which asks the menu to look again.
+     The menu used to be redrawn each time, and the keyboard fell out of it (trunk 98beb5d8, macOS). */
+  await f.page.evaluate(async () => { await window.branchOther.render(); await window.branchConversationMode.refresh(); });
+  assert.equal(await f.page.evaluate(() => document.activeElement?.dataset.mode), "plan", "the keyboard is still on Plan");
+  await f.page.keyboard.press("ArrowDown");
+  assert.equal(await f.page.evaluate(() => document.activeElement?.dataset.mode), "auto", "and the arrows carry on from there");
+  assert.deepEqual(f.errors, []);
+});
+
 test("under Lockdown the looser modes are greyed with the reason, not hidden, and cannot be picked", async (t) => {
   const f = await windowFixture(t);
   await f.call("/api/lockdown", { on: true });
