@@ -4,11 +4,12 @@
    owner's switches, and tells the owner's own record what the window really saw (a theme worn, the
    acorn turned) while achievements are on. Nobody but the owner sees any of it. */
 import { displayView, toast } from "/app.js";
-import { el, loadDelight, notice, on, onDelight, say, saveDelight, state } from "/delight-kit.js";
+import { el, loadDelight, notice, on, onDelight, say, saveDelight, state, still } from "/delight-kit.js";
 import { drawPet, PET_ART, PET_NAMES } from "/delight-pet.js";
 import { openSheet, preview, TIERS } from "/delight-achievements.js";
-import { chooseBackground, forgetBackground, LIMITS, savedBackground } from "/delight-background.js";
+import { chooseBackground, chooseBuiltIn, forgetBackground, LIMITS, savedBackground } from "/delight-background.js";
 import { seasonToday } from "/grove.js";
+import { acornModel, view3d } from "/delight-3d.js";
 
 const $ = (id) => document.getElementById(id);
 const root = document.documentElement;
@@ -67,13 +68,24 @@ function petCard() {
   more.append(tiles, nameRow,
     checkRow("delight-pet-talks", "delight.pet.talks", "Talks: one small bubble at a time, in plain words", (v) => saveDelight({ pets: { talks: v } })),
     checkRow("delight-pet-tips", "delight.pet.tips", "Tips now and then (fewer as your rank rises)", (v) => saveDelight({ pets: { tips: v } })));
-  box.append(checkRow("delight-pet-on", "delight.pet.on", "Show a pet in the corner", (v) => saveDelight({ pets: { on: v } })), more);
+  box.append(styleRow(), checkRow("delight-pet-on", "delight.pet.on", "Show a pet in the corner", (v) => saveDelight({ pets: { on: v } })), more);
   return box;
+}
+/** Pixel (the default) or 3D, for the acorn and the pet together. */
+function styleRow() {
+  const row = el("label", "delight-field"), select = el("select");
+  select.id = "delight-style";
+  for (const [value, key, english] of [["pixel", "delight.look.pixel", "Pixels, like the acorn has always been"], ["3d", "delight.look.3d", "3D"]])
+    select.append(Object.assign(el("option", "", say(key, english)), { value }));
+  select.addEventListener("change", () => void saveDelight({ look: { style: select.value } }));
+  row.append(el("span", "", say("delight.look.label", "How the acorn and the pet are drawn")), select);
+  return row;
 }
 function paintPetCard() {
   const pets = state.settings?.pets;
   if (!pets) return;
   $("delight-pet-on").checked = pets.on;
+  $("delight-style").value = state.settings.look?.style ?? "pixel";
   $("delight-pet-more").hidden = !pets.on;
   $("delight-pet-talks").checked = pets.talks;
   $("delight-pet-tips").checked = pets.tips;
@@ -122,18 +134,37 @@ function backgroundCard() {
   const more = part("delight-bg-more"), pick = el("label", "delight-field delight-file"), file = el("input");
   file.type = "file";
   file.id = "delight-bg-file";
-  file.accept = "image/png,image/jpeg,image/webp,image/gif,image/apng,image/avif,video/mp4,video/webm";
+  file.accept = "image/png,image/jpeg,image/webp,image/gif,image/apng,image/avif,video/mp4,video/webm,.glb,model/gltf-binary";
   file.addEventListener("change", () => void pickFile(file));
   pick.append(el("span", "", say("delight.bg.choose", "Choose a file")), file);
-  const limits = el("p", "field-note", say("delight.bg.limits", "Pictures and animations up to {picture} MB, videos up to {video} MB.", { picture: LIMITS.picture, video: LIMITS.video }));
+  const limits = el("p", "field-note", say("delight.bg.limits3d", "Pictures and animations up to {picture} MB, videos up to {video} MB, 3D models (.glb) up to {model} MB.", { picture: LIMITS.picture, video: LIMITS.video, model: LIMITS["3d"] }));
   const chosen = el("div", "delight-ach-line"), forget = el("button", "secondary", say("delight.bg.remove", "Remove it"));
   forget.type = "button";
   forget.id = "delight-bg-remove";
   forget.addEventListener("click", () => void forgetBackground().then(paintBackgroundCard));
   chosen.append(Object.assign(el("span", "delight-bg-name"), { id: "delight-bg-name" }), forget);
-  more.append(pick, limits, chosen, scrimRow(), fitRow(), statusLine("delight-bg-said"));
+  more.append(pick, limits, builtIns(), chosen, scrimRow(), fitRow(), statusLine("delight-bg-said"));
   box.append(checkRow("delight-bg-on", "delight.bg.on", "Use my own background", (v) => saveDelight({ background: { on: v } })), more);
   return box;
+}
+/** Branch's own 3D objects, for when there is no model file to hand. */
+function builtIns() {
+  const row = el("div", "delight-tries");
+  row.append(el("span", "", say("delight.bg.orObject", "Or one of Branch's own 3D objects:")));
+  for (const [model, key, english] of [["acorn", "delight.bg.model.acorn", "The acorn, in 3D"], ["oak", "delight.bg.model.oak", "The oak, in 3D"]]) {
+    const b = el("button", "secondary", say(key, english));
+    b.type = "button";
+    b.dataset.model = model;
+    b.addEventListener("click", () => void pickBuiltIn(model));
+    row.append(b);
+  }
+  return row;
+}
+async function pickBuiltIn(model) {
+  await chooseBuiltIn(model);
+  if (!on("background")) await saveDelight({ background: { on: true } });
+  $("delight-bg-said").textContent = say("delight.bg.kept", "Kept on this computer. It is behind the glass now.");
+  await paintBackgroundCard();
 }
 function scrimRow() {
   const row = el("label", "delight-field"), range = el("input");
@@ -194,6 +225,35 @@ document.addEventListener("branch-language", () => {
   for (const id of ["delight-pet-card", "delight-ach-card", "delight-bg-card"]) $(id)?.remove();
   paintCards();
 });
+
+/* ---------- the acorn in 3D ---------- */
+let acorn3d = null;
+const acornStill = () => still() || root.dataset.acorn !== "on" || $("acorn-motion")?.dataset.paused === "true";
+function applyStyle() {
+  const want = state.available && state.settings?.look?.style === "3d", art = document.querySelector("#delight-corner .acorn-art");
+  if (!want || !art) {
+    acorn3d?.stop();
+    acorn3d = null;
+    $("acorn-3d")?.remove();
+    delete root.dataset.delightStyle;
+    return;
+  }
+  if ($("acorn-3d")) return;
+  const canvas = el("canvas", "acorn-3d");
+  canvas.id = "acorn-3d";
+  canvas.setAttribute("role", "img");
+  canvas.setAttribute("aria-label", say("delight.look.acorn", "The acorn, in 3D. Drag to turn it."));
+  canvas.title = say("acorn.tip", "Drag to turn");
+  art.prepend(canvas);
+  acorn3d = view3d(canvas, acornModel(), { distance: 2.7, still: acornStill });
+  if (!acorn3d) { canvas.remove(); return; }
+  root.dataset.delightStyle = "3d";
+}
+onDelight(applyStyle);
+new MutationObserver(() => acorn3d?.start()).observe(root, { attributes: true, attributeFilter: ["data-acorn", "data-motion"] });
+new MutationObserver(() => acorn3d?.setParts(acornModel())).observe(root, { attributes: true, attributeFilter: ["data-palette", "data-theme"] });
+const pause = $("acorn-motion");
+if (pause) new MutationObserver(() => acorn3d?.start()).observe(pause, { attributes: true, attributeFilter: ["data-paused"] });
 
 /* ---------- what the window really saw, while achievements are on ---------- */
 let lastLook = "";

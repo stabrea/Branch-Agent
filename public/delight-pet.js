@@ -5,7 +5,9 @@
    through one queue, pops once, stays for its reading time, then goes; a status that stops being true
    goes at once. Tips are short, about what is on screen, each at most once, and get scarcer as your
    rank rises (#51): Bronze now and then, Silver at most hourly, Gold and up none. */
+import { api } from "/app.js";
 import { el, notice, on, onDelight, say, saveDelight, state, still } from "/delight-kit.js";
+import { petModel, view3d } from "/delight-3d.js";
 
 export const PET_ART = {
   squirrel: ["................", "..aa............", ".aaaa.......bb..", "aabbaa.....bbbb.", "aabbba....bbebbc", ".abbba...bbbbbb.", ".abbbaa.bbbbbb..", "..abbbaabbwwbb..", "..abbbbabbwwbb..", "...abbbbbbwwbb..", "....aabbbbbbbb..", "......bbb..bbb..", "................"],
@@ -70,12 +72,22 @@ function marks(put, P, mood, frame, W) {
 /* ---------- what is going on, read from the window itself ---------- */
 let doneAt = 0;
 document.addEventListener("branch-run-finished", (event) => { if (event.detail?.status === "completed") doneAt = Date.now(); });
+let wasWorking = false, busyElsewhere = false, lastLook = 0;
+/** Any of the owner's tasks at work, wherever it was started (a schedule, a chat app, this window). */
+async function lookForWork() {
+  if (Date.now() - lastLook < 4000) return;
+  lastLook = Date.now();
+  try { busyElsewhere = (await api("activity")).length > 0; } catch { busyElsewhere = false; }
+}
 function mood() {
-  if (document.body.classList.contains("lx-locked")) return "shiver";
-  if (document.body.classList.contains("lx-inbox-waiting")) return "needs";
+  const body = document.body.classList;
+  if (body.contains("lx-locked")) return "shiver";
+  if (body.contains("lx-inbox-waiting") || body.contains("lx-waiting")) return "needs";
+  const working = busyElsewhere || body.contains("lx-working") || $("new-session")?.disabled === true;
+  if (wasWorking && !working) doneAt = Date.now();
+  wasWorking = working;
   if (Date.now() - doneAt < 2600) return "done";
-  if ($("new-session")?.disabled) return "working";
-  return "nap";
+  return working ? "working" : "nap";
 }
 const moodWords = {
   needs: ["delight.pet.needs", "Something is waiting for your yes."], working: ["delight.pet.working", "Working on it…"],
@@ -195,6 +207,7 @@ function build() {
   const art = el("canvas", "pet-art");
   art.setAttribute("aria-hidden", "true");
   pet.append(art);
+  if (state.settings.look?.style === "3d") inThreeD(pet);
   const bubble = el("span", "pet-say");
   bubble.id = "pet-say";
   bubble.hidden = true;
@@ -204,6 +217,15 @@ function build() {
   pet.addEventListener("click", pat);
   pet.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); pat(); } });
   pet.addEventListener("contextmenu", openMenu);
+}
+/** The 3D look: the same pet, turning on its own canvas; the pixel one stays where WebGL is missing. */
+let pet3d = null;
+function inThreeD(pet) {
+  const canvas = el("canvas", "pet-3d");
+  canvas.setAttribute("aria-hidden", "true");
+  pet.append(canvas);
+  pet3d = view3d(canvas, petModel(state.settings.pets.kind), { distance: 2.5, still, spin: 0.0009 });
+  if (pet3d) pet.classList.add("in-3d"); else canvas.remove();
 }
 function label() {
   const pet = $("pet");
@@ -236,27 +258,32 @@ function step() {
   pet.style.setProperty("--pet-x", `${walk.x}px`);
   pet.classList.toggle("left", walk.dir < 0);
   const hop = Date.now() < walk.hopUntil && !still() ? 2 : 0;
-  drawPet(pet.querySelector("canvas"), state.settings.pets.kind, now, still() ? 0 : walk.frame, false, hop);
+  if (!pet3d) drawPet(pet.querySelector("canvas"), state.settings.pets.kind, now, still() ? 0 : walk.frame, false, hop);
   placeTail();
 }
-/** The bubble keeps inside the corner, so it is never cut off; its little tail points at the pet. */
+/** The bubble sits over the pet but always inside the corner, so it is never cut off. */
 function placeTail() {
-  const pet = $("pet"), bubble = $("pet-say");
-  if (!pet || !bubble || bubble.hidden) return;
-  bubble.style.setProperty("--tail-x", `${walk.x + pet.offsetWidth / 2}px`);
+  const pet = $("pet"), bubble = $("pet-say"), lane = $("pet-lane");
+  if (!pet || !bubble || !lane || bubble.hidden) return;
+  const room = lane.clientWidth - bubble.offsetWidth;
+  const left = Math.max(0, Math.min(room, walk.x + pet.offsetWidth / 2 - bubble.offsetWidth / 2));
+  bubble.style.setProperty("left", `${Math.round(left)}px`);
 }
 function start() {
   if (!tick) tick = setInterval(step, 160);
-  if (!talk) talk = setInterval(() => { watchMood(); maybeTip(); }, 500);
+  if (!talk) talk = setInterval(() => { void lookForWork(); watchMood(); maybeTip(); }, 500);
 }
 function stop() {
   clearInterval(tick); clearInterval(talk);
   tick = talk = 0;
 }
+let builtAs = "";
 export function applyPet() {
   const show = on("pets"), corner = $("delight-corner");
   corner?.classList.toggle("has-pet", show);
-  if (!show) { stop(); $("pet")?.remove(); $("pet-say")?.remove(); return; }
+  const as = show ? `${state.settings.pets.kind}:${state.settings.look?.style}` : "";
+  if (as !== builtAs) { pet3d?.stop(); pet3d = null; $("pet")?.remove(); $("pet-say")?.remove(); builtAs = as; }
+  if (!show) { stop(); return; }
   build();
   label();
   if (state.settings.pets.talks === false) { SAY.cur = null; SAY.q = []; paintSay(false); }

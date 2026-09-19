@@ -3,9 +3,11 @@
    sent anywhere, not even to Branch's own server. A scrim in the theme's own ground colour lies over it
    so text stays readable in every theme; how strong it is can be changed. Small files only. */
 import { el, notice, on, onDelight, say, state, still } from "/delight-kit.js";
+import { acornModel, oakModel, readGlb, view3d } from "/delight-3d.js";
 
 const $ = (id) => document.getElementById(id);
-export const LIMITS = { picture: 8, animation: 8, video: 25 };
+export const LIMITS = { picture: 8, animation: 8, video: 25, "3d": 5 };
+const BUILT_IN = { acorn: acornModel, oak: oakModel };
 const DB = "branch-delight", STORE = "files", KEY = "background";
 
 function openDb() {
@@ -33,6 +35,7 @@ export const forgetBackground = async () => { await withStore("readwrite", (stor
 /** Which kind a file is, from its type and, for WebP, whether it moves. Null when it can't go behind the glass. */
 export async function kindOf(file) {
   const type = file.type || "", name = file.name.toLowerCase();
+  if (name.endsWith(".glb") || type === "model/gltf-binary") return "3d";
   if (type.startsWith("video/")) return "video";
   if (type === "image/gif" || type === "image/apng" || name.endsWith(".apng")) return "animation";
   if (type === "image/webp") {
@@ -45,14 +48,26 @@ export async function kindOf(file) {
 /** Keeps a chosen file, or says in plain words why it can't. */
 export async function chooseBackground(file) {
   const kind = await kindOf(file);
-  if (!kind) return { ok: false, why: say("delight.bg.wrongKind", "That kind of file can't go behind the glass. Choose a picture, a video or an animation (GIF, WebP or APNG).") };
+  if (!kind) return { ok: false, why: say("delight.bg.wrongKind", "That kind of file can't go behind the glass. Choose a picture, a video, an animation (GIF, WebP or APNG) or a 3D model (.glb).") };
   const limit = LIMITS[kind];
   if (file.size > limit * 1024 * 1024)
     return { ok: false, why: say("delight.bg.tooBig", "That file is {size} MB. Keep it under {limit} MB for a {kind}.", { size: (file.size / 1048576).toFixed(1), limit, kind: say(`delight.bg.kind.${kind}`, kind) }) };
+  if (kind === "3d") {
+    try { readGlb(await file.arrayBuffer()); } catch (error) { return { ok: false, why: error.message }; }
+  }
   await keep({ blob: file, kind, name: file.name.slice(0, 120), size: file.size, at: Date.now() });
   await applyBackground();
   void notice({ what: "background", kind });
   return { ok: true, kind };
+}
+
+/** One of Branch's own 3D objects, turning slowly behind the glass. */
+export async function chooseBuiltIn(model) {
+  if (!BUILT_IN[model]) return { ok: false, why: "" };
+  await keep({ kind: "3d", model, name: say(`delight.bg.model.${model}`, model === "oak" ? "The oak, in 3D" : "The acorn, in 3D"), at: Date.now() });
+  await applyBackground();
+  void notice({ what: "background", kind: "3d" });
+  return { ok: true, kind: "3d" };
 }
 
 /* ---------- behind the glass ---------- */
@@ -68,11 +83,25 @@ function layer() {
   }
   return wall;
 }
+let turning = null, shownKey = "", shownModel = "";
 function clear() {
+  turning?.stop();
+  turning = null;
+  shownKey = shownModel = "";
   $("delight-wall")?.remove();
   delete document.documentElement.dataset.ownBackground;
   if (shownUrl) URL.revokeObjectURL(shownUrl);
   shownUrl = "";
+}
+/** The 3D object on its own canvas; a file that cannot be read shows the acorn instead of nothing. */
+async function object3d(saved) {
+  const canvas = el("canvas", "delight-3d");
+  let parts;
+  try { parts = saved.model ? BUILT_IN[saved.model]() : readGlb(await saved.blob.arrayBuffer()); } catch { parts = acornModel(); }
+  shownModel = saved.model ?? "";
+  const distance = { oak: 7, acorn: 3.8 }[saved.model] ?? 4.4;
+  requestAnimationFrame(() => { turning = view3d(canvas, parts, { distance, still, spin: 0.00025 }); });
+  return canvas;
 }
 function media(saved, url, fit) {
   if (fit === "tile" && saved.kind !== "video") {
@@ -88,22 +117,31 @@ function media(saved, url, fit) {
 }
 export async function applyBackground() {
   const saved = on("background") ? await savedBackground() : undefined;
-  if (!saved?.blob) return clear();
+  if (!saved?.blob && !saved?.model) return clear();
   const wall = layer(), background = state.settings.background;
-  if (shownUrl) URL.revokeObjectURL(shownUrl);
-  shownUrl = URL.createObjectURL(saved.blob);
-  const scrim = el("div", "delight-scrim");
-  scrim.style.setProperty("--own-scrim", String(background.scrim / 100));
-  wall.replaceChildren(media(saved, shownUrl, background.fit), scrim);
+  const key = `${saved.at}:${background.fit}`;
+  if (key !== shownKey) {
+    turning?.stop();
+    if (shownUrl) URL.revokeObjectURL(shownUrl);
+    shownUrl = saved.kind === "3d" ? "" : URL.createObjectURL(saved.blob);
+    const shown = saved.kind === "3d" ? await object3d(saved) : media(saved, shownUrl, background.fit);
+    wall.replaceChildren(shown, el("div", "delight-scrim"));
+    shownKey = key;
+  }
+  wall.querySelector(".delight-scrim")?.style.setProperty("--own-scrim", String(background.scrim / 100));
   document.documentElement.dataset.ownBackground = saved.kind;
   motion();
 }
 /** A video pauses for "Keep things still" and while the window is hidden. */
 function motion() {
+  if (turning) { if (still() || document.hidden) turning.stop(); else turning.start(); }
   const video = document.querySelector("#delight-wall video");
   if (!video) return;
   if (still() || document.hidden) video.pause(); else void video.play().catch(() => undefined);
 }
 document.addEventListener("visibilitychange", motion);
 new MutationObserver(motion).observe(document.documentElement, { attributes: true, attributeFilter: ["data-motion"] });
+/* Branch's own 3D objects wear the theme's colours, so a new theme paints them again. */
+new MutationObserver(() => { if (turning && BUILT_IN[shownModel]) turning.setParts(BUILT_IN[shownModel]()); })
+  .observe(document.documentElement, { attributes: true, attributeFilter: ["data-palette", "data-theme"] });
 onDelight(() => void applyBackground());

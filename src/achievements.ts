@@ -45,6 +45,7 @@ export const noticedFlags: Record<string, [string, string, string]> = {
   "pet-named": ["Name tag", "Give your pet a name.", "Pets"],
   "pet-talks-off": ["Quiet companion", "Ask your pet to stop talking.", "Pets"],
   quiet: ["Quiet please", "Keep achievements quiet (this one doesn't pop up).", "Secrets"],
+  "style-3d": ["Third dimension", "Draw the acorn and the pet in 3D.", "Looks"],
   lonely: ["It's lonely over here", "Hide everything that can be hidden.", "Secrets"],
 };
 
@@ -107,7 +108,7 @@ function looks(): Draft[] {
   const out = themeDrafts();
   for (const s of seasons) out.push(draft(`noticed:season:${s}`, 1, "Looks", `The oak in ${s}`, `See the oak in ${s}.`, 1.2));
   out.push(draft("noticed:seasons", 4, "Looks", "Four seasons", "See the oak in every season.", 3));
-  const bg: Record<(typeof backgroundKinds)[number], [string, string]> = { picture: ["Your own view", "a picture"], video: ["Moving pictures", "a video"], animation: ["Flip book", "an animation"], "3d": ["Third dimension", "a 3D object"] };
+  const bg: Record<(typeof backgroundKinds)[number], [string, string]> = { picture: ["Your own view", "a picture"], video: ["Moving pictures", "a video"], animation: ["Flip book", "an animation"], "3d": ["Sculpture garden", "a 3D object"] };
   for (const kind of backgroundKinds) out.push(draft(`noticed:bg:${kind}`, 1, "Looks", bg[kind][0], `Put ${bg[kind][1]} behind the glass.`, 2.5));
   for (const n of [1, 3, 6, 10]) out.push(draft("noticed:pages", n, "Explorer", n === 1 ? "Settled in" : `${n} Settings pages`, `Open ${plural(n, "page")} of Settings.`, n * 0.5));
   for (const [flag, [name, desc, kind]] of Object.entries(noticedFlags))
@@ -172,7 +173,7 @@ function times(): Draft[] {
   days.forEach((day, i) => out.push(draft(`weekday:${i}`, 1, "Every day", `A ${day} task`, `Finish a task on a ${day}.`, 3 + i * 0.1)));
   for (const n of [1, 10, 100, 1000]) out.push(draft("weekend", n, "Every day", n === 1 ? "Weekend worker" : `${plural(n, "weekend task")}`, `Finish ${plural(n, "task")} on a weekend.`, n * 2));
   for (const n of [10, 25, 50, 100, 150, 200, 250, 300, 350, 400, 450])
-    out.push(draft("earned", n, "Secrets", `Collector: ${number(n)}`, `Earn ${plural(n, "other achievement")}.`, n * 3));
+    out.push(draft("earned", n, "Secrets", `Collector: ${number(n)}`, `Earn ${plural(n, "other achievement")}.`, n * 0.8));
   return out;
 }
 

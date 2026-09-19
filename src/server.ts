@@ -448,6 +448,7 @@ async function staticFile(
     "/delight-pet.js": ["delight-pet.js", "text/javascript; charset=utf-8"],
     "/delight-achievements.js": ["delight-achievements.js", "text/javascript; charset=utf-8"],
     "/delight-background.js": ["delight-background.js", "text/javascript; charset=utf-8"],
+    "/delight-3d.js": ["delight-3d.js", "text/javascript; charset=utf-8"],
     "/look-sync.js": ["look-sync.js", "text/javascript; charset=utf-8"],
     "/assets/keepoak-mark.png": ["assets/keepoak-mark.png", "image/png"],
     "/assets/keepoak-mark-reversed.png": ["assets/keepoak-mark-reversed.png", "image/png"],

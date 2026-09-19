@@ -3980,13 +3980,21 @@ short-lived key and a chat app never see them or change them.
   Branch's own settings on this computer and are never sent anywhere. While achievements are off,
   nothing the window sees is written down. Fields: `on` (default `false`), `quiet` (default `false`:
   earned without any pop-up).
-- **Your own background** (`background`) — a picture, a video or an animation (GIF, WebP or APNG)
-  behind the glass instead of the oak. The file is kept in the window's own storage (IndexedDB) on
-  this computer and never reaches Branch's server or anywhere else. Pictures and animations up to
-  8 MB, videos up to 25 MB; anything else is refused in plain words. A scrim in the theme's ground
+- **Your own background** (`background`) — a picture, a video, an animation (GIF, WebP or APNG) or
+  a 3D object behind the glass instead of the oak. The 3D object is one of Branch's own (the acorn
+  or the oak, drawn in the theme's colours and turning slowly) or a `.glb` model of your own: its
+  shapes and base colours are drawn by Branch's own small WebGL drawer (no library, nothing
+  fetched); textures and compressed models are not read, and a model that cannot be read is
+  refused in plain words. The file is kept in the window's own storage (IndexedDB) on this computer
+  and never reaches Branch's server or anywhere else. Pictures and animations up to 8 MB, videos up
+  to 25 MB, 3D models up to 5 MB; anything else is refused in plain words. A scrim in the theme's ground
   colour lies over it so text stays readable in every theme. A video pauses for *Keep things still*
   and while the window is hidden. Fields: `on` (default `false`), `scrim` (20–90, how strongly the
   theme's colour covers it; default `60`), `fit` (`fill`, `fit` or `tile`; default `fill`).
+
+- **Pixel or 3D** (`look`) — `style`: `pixel` (default: the acorn and the pet as they have always
+  been) or `3d` (the same acorn and pet as small turning 3D stand-ins in the theme's colours, drawn
+  by the same WebGL drawer; dragging turns them). Where WebGL is not available they stay pixel.
 
 The window's page is allowed to show a `blob:` picture or video it made itself (`img-src` and
 `media-src` in its content security policy), which is how the background is shown without being

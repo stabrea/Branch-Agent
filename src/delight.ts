@@ -40,6 +40,10 @@ export const DelightSettingsSchema = z.object({
     /** Earned without any pop-up. */
     quiet: z.boolean().default(false),
   }).strict().prefault({}),
+  /** How the acorn and the pet are drawn: in pixels (the default) or in 3D. */
+  look: z.object({
+    style: z.enum(["pixel", "3d"]).default("pixel"),
+  }).strict().prefault({}),
   background: z.object({
     on: z.boolean().default(false),
     /** How strongly the theme's own colour is laid over the picture, so text stays readable (20–90). */
@@ -144,10 +148,11 @@ export function saveDelightSettings(store: DelightStore, owner: string, input: u
     pets: z.record(z.string(), z.unknown()).optional(),
     achievements: z.record(z.string(), z.unknown()).optional(),
     background: z.record(z.string(), z.unknown()).optional(),
+    look: z.record(z.string(), z.unknown()).optional(),
   }).strict().parse(input ?? {});
   const next = DelightSettingsSchema.parse({
     pets: { ...before.pets, ...wanted.pets }, achievements: { ...before.achievements, ...wanted.achievements },
-    background: { ...before.background, ...wanted.background },
+    background: { ...before.background, ...wanted.background }, look: { ...before.look, ...wanted.look },
   });
   store.save("settings", owner, settingsKey, next);
   if (next.achievements.on) settingsNoticed(store, owner, before, next);
@@ -161,6 +166,7 @@ function settingsNoticed(store: DelightStore, owner: string, before: DelightSett
   if (next.pets.on && next.pets.name !== before.pets.name) add(seen.flags, "pet-named");
   if (next.pets.on && !next.pets.talks) add(seen.flags, "pet-talks-off");
   if (next.achievements.quiet) add(seen.flags, "quiet");
+  if (next.look.style === "3d") add(seen.flags, "style-3d");
   const newly = evaluate(store, owner, saved);
   const quietly = !before.achievements.on || next.achievements.quiet;
   if (newly.length && !quietly) saved.fresh = [...saved.fresh, ...newly].slice(-50);
