@@ -230,7 +230,7 @@ import { handlesKnobsPath, knobsApi, KnobsApiError } from "./knobs/api.js";
 // R17-E: models, cheaper and smarter (src/model-savings/).
 import { handlesSavingsPath, savingsApi, SavingsApiError } from "./model-savings/api.js";
 // mac7/usage-bar: how much of each connection's allowance is left (src/usage-limits.ts).
-import { handlesUsageLimitsPath, usageLimitsRoute, UsageLimitsError } from "./usage-limits-api.js";
+import { handlesUsageLimitsPath, usageGlance, usageGlancePath, usageLimitsRoute, UsageLimitsError } from "./usage-limits-api.js";
 import { savingsRefusal } from "./short-lived-keys.js";
 import { householdMaySend, householdRefusalFor } from "./household-routes.js"; // profile-audit
 // R17-S-C: the comfort settings (src/comfort/); every change is the owner's.
@@ -630,6 +630,7 @@ async function staticFile(
     "/live-run.js": ["live-run.js", "text/javascript; charset=utf-8"],
     "/plan-act.js": ["plan-act.js", "text/javascript; charset=utf-8"],
     "/token-meter.js": ["token-meter.js", "text/javascript; charset=utf-8"],
+    "/usage-glance.js": ["usage-glance.js", "text/javascript; charset=utf-8"],
     "/playground.js": ["playground.js", "text/javascript; charset=utf-8"],
     "/tool-catalog.js": ["tool-catalog.js", "text/javascript; charset=utf-8"],
     "/i18n.js": ["i18n.js", "text/javascript; charset=utf-8"],
@@ -1639,6 +1640,8 @@ async function api(
     return usageReportRoute(app, request, path, () => readBody(request));
   // --- end bucket 14 ---
   // --- mac7/usage-bar: what each connection has left, in its honest state; src/usage-limits-api.ts ---
+  // Redesign phase 1: the ring under the message box. Somebody other than the owner gets an empty answer, never an error.
+  if (path === usageGlancePath && request.method === "GET") return usageGlance(app);
   if (handlesUsageLimitsPath(path))
     return usageLimitsRoute(app, request, path, () => readBody(request))
       .catch((error: unknown) => { throw error instanceof UsageLimitsError ? new HttpError(error.status, error.message) : error; });

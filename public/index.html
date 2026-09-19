@@ -301,6 +301,13 @@
               <div id="meter-popover" class="meter-popover" hidden role="dialog" aria-label="This conversation"></div>
             </div>
           </div>
+          <!-- Redesign phase 1: what the tightest connection has left, and the list behind it
+               (public/usage-glance.js). Only the owner's window ever fills it; hidden in Settings › Data & usage. -->
+          <div id="status-bar" class="status-bar" hidden>
+            <button id="usage-ring" class="usage-ring" type="button" aria-haspopup="dialog" aria-expanded="false"
+              title="What each connection has left" data-t-title="glance.title"></button>
+            <div id="usage-pop" class="usage-pop" role="dialog" aria-label="What each connection has left" data-t-label="glance.title" hidden></div>
+          </div>
           </div>
         </section>
         <section id="runs" class="view" hidden>
@@ -1960,6 +1967,7 @@
     <script src="/evaluation.js" type="module"></script>
     <script src="/studies.js" type="module"></script>
     <script src="/usage.js" type="module"></script>
+    <script src="/usage-glance.js" type="module"></script>
     <script src="/diagnostics.js" type="module"></script>
     <script src="/documents.js" type="module"></script>
     <script src="/knowledge.js" type="module"></script>

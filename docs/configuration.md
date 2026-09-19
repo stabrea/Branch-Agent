@@ -5703,6 +5703,39 @@ Note what this panel is **not**. The meter under the message box measures how mu
 conversation's* room has been used against the model's context window. That is a different thing
 from a provider's allowance, and the two are deliberately kept apart.
 
+### The ring under the message box, and saving progress at 95% (redesign phase 1)
+
+Under the message box, the owner's window shows a small ring and one line: the connection with the
+least left, how much of its window is left, and when it refills — *"ChatGPT plan · 12% left · refills
+at 6:00 PM"*. Pressing it opens **What each connection has left** as a sheet of glass: the same rows,
+in the same three states, as the panel on the Usage screen, with **Open Usage** at the foot. The ring
+follows the Usage screen's rules exactly: a share is only worked out where a service gave both a limit
+and a remainder, money is never shown as a share, and where nothing was reported the ring is dashed and
+says *"No limits reported"*. It reads only what Branch already holds, so it never asks a service
+anything, however often it is refreshed.
+
+When a window a service **measured** reaches 95% used while tasks are running, a small question shows
+at the top for about five seconds: *"Almost out on ChatGPT plan. Ask running tasks to save their
+progress?"* with **Save progress** and **Not now**. It only asks. **Save progress** sends each of the
+owner's running tasks a note through the ordinary steering channel, asking it to write down what it has
+done, where it is and what is left, and then carry on. Nothing is paused or stopped (Branch has no
+pause). It asks at most once per connection per allowance window, and never for an estimate.
+
+Both are settings on the Usage screen, under *What each connection has left*, saved with the workspace:
+
+- `ring` — `shown` (default: the owner asked to see it) or `hidden`.
+- `saveProgress` — `ask` (default: it only ever asks) or `off`.
+
+Routes:
+
+- `GET /api/usage/glance` — what the ring and its list show. Anybody but the owner in the app window
+  (a household profile, a short-lived key) gets `{ "available": false }` and nothing else: not an
+  error, and never a number.
+- `GET /api/usage/glance/settings` / `POST /api/usage/glance/settings` — `{ ring, saveProgress }`.
+  The owner's alone.
+- `POST /api/usage/save-progress` — sends the note to each of the owner's running tasks and says how
+  many were asked, `{ "asked": 2 }`. The owner's alone.
+
 ## Specialists that work in different ways (batch 20, wave 7)
 
 A specialist now says how it works, not just what it knows. Pick one in Specialists → Propose a

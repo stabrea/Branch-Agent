@@ -1725,3 +1725,283 @@ body.lx #connection[data-state="lost"] {
 :root:not([data-everything="on"]) .lx-settings-win {
   background: var(--surface);
 }
+
+/* ---------- redesign phase 1: the ring under the message box and the list behind it ----------
+   (public/usage-glance.js) Copied from the approved sample: a quiet ring and one line of words,
+   opening a sheet of glass called "What each connection has left". Theme tokens only. */
+.status-bar {
+  position: relative;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin-top: 4px;
+}
+.status-bar[hidden] {
+  display: none;
+}
+.usage-ring {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  min-width: 0;
+  height: 30px;
+  padding: 0 10px 0 6px;
+  border: 0;
+  border-radius: 16px;
+  background: none;
+  box-shadow: none;
+  color: var(--text-2);
+  font-size: 12.5px;
+  font-weight: 450;
+  white-space: nowrap;
+}
+.usage-ring:hover,
+.usage-ring[aria-expanded="true"] {
+  background: var(--hover);
+  color: var(--text);
+}
+.usage-ring:focus-visible {
+  outline: 2px solid var(--copper);
+  outline-offset: 2px;
+}
+.glance-words {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.glance-ring {
+  flex: none;
+}
+.glance-ring-track {
+  stroke: var(--line-2);
+}
+.glance-ring-arc {
+  stroke: var(--copper);
+}
+.usage-ring[data-low="true"] .glance-ring-arc,
+.glance-bar i[data-low="true"] {
+  stroke: var(--warn);
+  background: var(--warn);
+}
+.usage-pop {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  z-index: 60;
+  display: grid;
+  gap: 2px;
+  width: min(440px, calc(100vw - 20px));
+  max-height: min(70vh, 560px);
+  overflow-y: auto;
+  padding: 6px;
+  border: 1px solid var(--glass-edge);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  box-shadow: var(--card-shadow, var(--shadow));
+  text-align: left;
+}
+.usage-pop[hidden] {
+  display: none;
+}
+.glance-heading {
+  margin: 0;
+  padding: 6px 6px 8px;
+  color: var(--text-3);
+  font-size: 11.5px;
+  font-weight: 560;
+}
+.glance-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 9px 6px;
+  border-top: 1px solid var(--line);
+}
+.glance-heading + .glance-row {
+  border-top: 0;
+}
+.glance-row-body {
+  flex: 1;
+  min-width: 0;
+}
+.glance-row-body small {
+  display: block;
+  margin-top: 3px;
+  color: var(--text-3);
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+.glance-tile {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  background: var(--copper-tint);
+  color: var(--copper-text);
+  font-size: 12px;
+  font-weight: 650;
+}
+.glance-row-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+.glance-row-head b {
+  font-weight: 620;
+}
+.glance-muted {
+  color: var(--text-3);
+}
+.glance-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 560;
+  white-space: nowrap;
+}
+.glance-chip.ok {
+  background: var(--chip-ok-bg);
+  color: var(--chip-ok-fg);
+}
+.glance-chip.warn {
+  background: var(--chip-warn-bg);
+  color: var(--chip-warn-fg);
+}
+.glance-chip.idle {
+  background: var(--chip-idle-bg);
+  color: var(--chip-idle-fg);
+}
+.glance-window {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 90px auto;
+  align-items: center;
+  gap: 8px;
+  margin-top: 5px;
+  color: var(--text-2);
+  font-size: 12px;
+}
+.glance-window > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.glance-window > .glance-figure:nth-child(2) {
+  grid-column: 2 / -1;
+}
+.glance-bar {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--press);
+}
+.glance-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--copper);
+}
+.glance-bar.estimated,
+.glance-bar.estimated i {
+  background-image: repeating-linear-gradient(90deg, transparent 0 4px, var(--surface) 4px 6px);
+}
+.glance-summary {
+  margin: 8px 6px 4px;
+  color: var(--text-3);
+  font-size: 12px;
+}
+.glance-foot {
+  display: flex;
+  justify-content: flex-end;
+  padding: 8px 6px 2px;
+  border-top: 1px solid var(--line);
+}
+@media (max-width: 520px) {
+  .glance-window {
+    grid-template-columns: minmax(0, 1fr) 60px;
+  }
+  .glance-window > .glance-figure {
+    grid-column: 1 / -1;
+  }
+}
+
+/* the question at 95%: a small sheet of glass at the top, for about five seconds */
+.save-progress {
+  position: fixed;
+  top: 70px;
+  left: 50%;
+  z-index: 96;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  width: min(620px, calc(100vw - 20px));
+  padding: 10px 12px;
+  transform: translateX(-50%);
+  border: 1px solid var(--glass-edge);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  box-shadow: var(--shadow);
+}
+.save-progress-clock {
+  position: relative;
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+}
+.save-progress-clock .glance-ring {
+  position: absolute;
+  inset: 0;
+}
+.save-progress-count {
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 600;
+}
+.save-progress-words {
+  flex: 1;
+  min-width: 200px;
+}
+.save-progress-words b {
+  display: block;
+  font-size: 13.5px;
+  font-weight: 620;
+}
+.save-progress-words small {
+  color: var(--text-2);
+  font-size: 12px;
+}
+/* the list opens above the welcome question, never under it */
+body.lx .composer-dock:has(.usage-pop:not([hidden])) {
+  z-index: 8;
+}
+.glance-foot button,
+.save-progress button {
+  min-height: 30px;
+  padding: 4px 12px;
+  border-radius: 9px;
+  box-shadow: none;
+  font-size: 13px;
+}
+.save-progress .quiet-button {
+  border-color: var(--line-2);
+  background: transparent;
+  color: var(--text);
+}
+.save-progress .quiet-button:hover {
+  background: var(--hover);
+}

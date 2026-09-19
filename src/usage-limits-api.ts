@@ -7,6 +7,7 @@ import { remainingShown } from "./accounts/pool.js";
 import type { Store } from "./store.js";
 import { limitsView, saveUsageLimitsSettings, usageLimitsSettings, type LimitsAccount, type LimitsView } from "./usage-limits.js";
 import { askable, nextDelayMs, OpenRouterKeyReader } from "./usage-limits-openrouter.js";
+import { glanceFrom, saveProgressNote, saveUsageGlanceSettings, usageGlanceSettings, type UsageGlance } from "./usage-glance.js";
 
 /**
  * mac7/usage-bar: the screen's one way in.
@@ -26,7 +27,7 @@ export class UsageLimitsError extends Error {
 
 interface LimitsApp {
   store: Store;
-  runtime: { owner: string; models: ModelRouter };
+  runtime: { owner: string; models: ModelRouter; steer?: (runId: string, text: string) => unknown };
 }
 
 const readers = new WeakMap<ModelRouter, OpenRouterKeyReader>();
@@ -76,6 +77,10 @@ async function maybeRefresh(app: LimitsApp): Promise<void> {
 export async function usageLimits(app: LimitsApp): Promise<LimitsView> {
   requireOwnerHere(app.store);
   await maybeRefresh(app);
+  return limitsNow(app);
+}
+/** The rows from what Branch already holds. Asks nobody anything, so the ring may read it often. */
+function limitsNow(app: LimitsApp): LimitsView {
   const reader = readerFor(app.runtime.models);
   const busy = new Map(app.runtime.models.requests.rates().map((rate) => [rate.connection, rate.lastMinute]));
   return limitsView({
@@ -90,12 +95,49 @@ export async function usageLimits(app: LimitsApp): Promise<LimitsView> {
   });
 }
 
-export const usageLimitsPaths = ["/api/usage/limits", "/api/usage/limits/settings"] as const;
+/* ---------- redesign phase 1: the ring under the message box, and saving progress at 95% ---------- */
+
+const ownerHere = (store: Store): boolean => {
+  try { requireOwnerHere(store); return true; } catch { return false; }
+};
+const runningTasks = (app: LimitsApp) => app.store.runs(app.runtime.owner).filter((run) => run.status === "running");
+
+/**
+ * GET /api/usage/glance. Anybody but the owner in the app window is told only that there is nothing
+ * to show: not refused, so a household profile or a short-lived key never sees an error for it, and
+ * never a number either.
+ */
+export function usageGlance(app: LimitsApp, now = Date.now()): UsageGlance {
+  if (!ownerHere(app.store)) return { available: false };
+  return glanceFrom(limitsNow(app), usageGlanceSettings(app.store, app.runtime.owner), runningTasks(app).length, now);
+}
+/** Sends each of the owner's running tasks the note asking it to write down where it is. */
+function saveProgress(app: LimitsApp): { asked: number } {
+  let asked = 0;
+  for (const run of runningTasks(app)) {
+    try { app.runtime.steer?.(run.id, saveProgressNote); asked += 1; } catch { /* finished a moment ago */ }
+  }
+  return { asked };
+}
+export const usageGlancePath = "/api/usage/glance";
+
+export const usageLimitsPaths = ["/api/usage/limits", "/api/usage/limits/settings",
+  "/api/usage/glance/settings", "/api/usage/save-progress"] as const;
 export const handlesUsageLimitsPath = (path: string): boolean => (usageLimitsPaths as readonly string[]).includes(path);
 
 export async function usageLimitsRoute(app: LimitsApp, request: IncomingMessage, path: string,
   readBody: () => Promise<unknown>): Promise<unknown> {
   const method = request.method ?? "GET";
+  if (path === "/api/usage/glance/settings") {
+    requireOwnerHere(app.store);
+    if (method === "POST") return { settings: saveUsageGlanceSettings(app.store, app.runtime.owner, await readBody()) };
+    return { settings: usageGlanceSettings(app.store, app.runtime.owner) };
+  }
+  if (path === "/api/usage/save-progress") {
+    requireOwnerHere(app.store);
+    if (method !== "POST") throw new UsageLimitsError(405, "Use POST");
+    return saveProgress(app);
+  }
   if (path === "/api/usage/limits/settings") {
     requireOwnerHere(app.store);
     if (method === "POST") return { usageLimits: saveUsageLimitsSettings(app.store, app.runtime.owner, await readBody()) };
