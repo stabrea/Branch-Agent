@@ -257,7 +257,7 @@ export function settingsCard() {
   card.dataset.drawn = drawn;
   card.id = "shell-look-card";
   card.dataset.home = "settings:appearance";
-  card.replaceChildren(make("h3", "", "shellLook.title", "The strip and faces"),
+  card.replaceChildren(make("h2", "", "shellLook.title", "The strip and faces"),
     lookSwitch("shell-look-strip", "shellLook.strip", "Trunks strip", "shellLook.strip.note", "The narrow strip at the left edge with this computer, your other computers and your Trunks. Off gives the window without it.",
       shell.look.strip !== "off", (on) => ({ strip: on ? "on" : "off" })),
     lookSwitch("shell-look-3d", "shellLook.faces3d", "3D faces", "shellLook.faces3d.note", "Trunks set to the 3D stand-in show as a thick tile that turns slowly. Off, every face is flat.",

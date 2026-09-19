@@ -31,6 +31,12 @@ async function fixture(t, { width = 1440, height = 950 } = {}) {
   const page = await (await browser.newContext({ viewport: { width, height } })).newPage();
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
+  // A style the page's rules refuse, or a face drawn with a broken path, shows up here.
+  // (settings-describe.js and settings-kit.js already make CSP complaints of their own on trunk; those are not this work's.)
+  page.on("console", (message) => {
+    const mine = /\/(faces|strip|studio|pairing|overview|people-place|trunks)\.js/.test(message.location().url ?? "");
+    if (message.type() === "error" && (mine || /attribute d:/.test(message.text()))) errors.push(message.text().slice(0, 200));
+  });
   const open = async () => {
     await page.goto(server.url);
     await page.getByLabel("Session token", { exact: true }).fill(server.token);
@@ -253,5 +259,25 @@ test("replies show the assistant's own face, and a Trunk set to 3D is a 3D stand
   await face.waitFor({ timeout: 15000 });
   assert.equal(await face.evaluate((node) => node.nextElementSibling.tagName), "SMALL", "the face sits before the name");
   assert.equal(await f.page.locator('#conversation img[src*="keepoak-mark"]').count(), 0, "not Branch's logo");
+  assert.deepEqual(f.errors, []);
+});
+
+test("every name gives a face with one of the eight colours and a whole mouth", async (t) => {
+  const f = await fixture(t);
+  await f.open();
+  const broken = await f.page.evaluate(async () => {
+    const { assistantSpec, face, trunkSpec } = await import("/faces.js");
+    const bad = [];
+    for (let n = 0; n < 300; n++) {
+      const name = `Name ${n} ${String.fromCharCode(65 + (n % 26))}`;
+      for (const spec of [trunkSpec({ name }), assistantSpec(name)]) {
+        const drawn = face(spec, 28);
+        const mouth = drawn.querySelector(".fc-mouth")?.getAttribute("d") ?? "";
+        if (!/^var\(--series-[1-8]\)$/.test(spec.colour) || !/^M\d/.test(mouth)) bad.push(`${name}: ${spec.colour} ${mouth}`);
+      }
+    }
+    return bad;
+  });
+  assert.deepEqual(broken, []);
   assert.deepEqual(f.errors, []);
 });

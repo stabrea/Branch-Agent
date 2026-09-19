@@ -48,7 +48,7 @@ export function trunkSpec(trunk) {
   return {
     kind: "trunk", name: trunk.name, seed,
     face: photo ? "photo" : look.face ?? "drawn", photo, letters: look.letters || initialsOf(trunk.name), emoji: look.emoji || "",
-    shuffle: look.shuffle ?? 0, colour: colourVar(look.colour ?? ((seed >> 9) % 8) + 1),
+    shuffle: look.shuffle ?? 0, colour: colourVar(look.colour ?? ((seed >>> 9) % 8) + 1),
     shape: look.shape ?? (seed % 4 % 2 ? "squircle" : "circle"), motion: look.motion ?? "none", depth: look.depth ?? "flat",
   };
 }
@@ -61,7 +61,7 @@ export function computerSpec(device) {
 /** The assistant on this computer, or a specialist, drawn from its name: its own look on every reply. */
 export function assistantSpec(name) {
   const seed = hash(`${name}@assistant`);
-  return { kind: "assistant", name, seed, face: "drawn", colour: colourVar(((seed >> 9) % 8) + 1), shape: "squircle", motion: "none", depth: "flat" };
+  return { kind: "assistant", name, seed, face: "drawn", colour: colourVar(((seed >>> 9) % 8) + 1), shape: "squircle", motion: "none", depth: "flat" };
 }
 export function personSpec(person) {
   return { kind: "person", name: person.name, seed: hash(person.name), face: "letters", letters: initialsOf(person.name),
@@ -77,7 +77,7 @@ function node(tag, attributes = {}) {
 /** The face drawn from the name: two eyes and a mouth in the ground colour. */
 function drawnFace(seed) {
   const svg = node("svg", { viewBox: "0 0 32 32", class: "fc-drawn", "aria-hidden": "true" });
-  const eyes = (seed >> 3) % 4, mouth = (seed >> 6) % 4;
+  const eyes = (seed >>> 3) % 4, mouth = (seed >>> 6) % 4;
   for (const x of [11, 21]) svg.append(eyes % 2 ? node("circle", { cx: x, cy: 13, r: 1.5 + eyes / 2 }) : node("rect", { x: x - 2, y: 12, width: 4, height: 2 + eyes, rx: 1 }));
   const curve = ["M11 20 Q16 24 21 20", "M11 21 H21", "M12 20 Q16 23 20 20 Q16 22 12 20", "M13 21 Q16 19 19 21"][mouth];
   svg.append(node("path", { d: curve, class: "fc-mouth" }));
@@ -167,7 +167,7 @@ export function face(spec, size = 28, { status = null, working = false, ground =
   wrap.append(box);
   box.append(content(spec, box));
   if (spec.motion === "dots") wrap.append(Object.assign(document.createElement("b"), { className: "orb" }));
-  if (!flat && spec.depth === "3d" && document.documentElement.dataset.faces3d === "on") giveDepth(wrap);
+  if (!flat && spec.depth === "3d" && document.body.classList.contains("faces-3d")) giveDepth(wrap);
   return wrap;
 }
 

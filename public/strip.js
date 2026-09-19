@@ -54,7 +54,7 @@ export const platformWord = (platform) => say(...(PLATFORM[platform] ?? ["strip.
 
 export async function load() {
   shell.look = await api("shell-look").catch(() => shell.look);
-  document.documentElement.dataset.faces3d = shell.look.faces3d;
+  document.body.classList.toggle("faces-3d", shell.look.faces3d === "on");
   shell.profiles = await api("profiles").catch(() => null);
   const owner = ownerAtWindow() && shell.profiles?.isOwner !== false;
   shell.roster = owner ? await api("trunks").catch(() => null) : null;
@@ -350,7 +350,8 @@ function wireDragging() {
 /* ---------- keeping it current ---------- */
 export async function refresh() {
   await load();
-  drawStrip();
+  // An open menu keeps the faces it was opened from; the next refresh draws them again.
+  if (!$("strip-menu") && !$("who-menu")) drawStrip();
   document.dispatchEvent(new CustomEvent("branch-strip", { detail: shell }));
 }
 function whenReady(work) {
