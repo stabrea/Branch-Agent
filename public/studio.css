@@ -839,6 +839,14 @@
   }
 }
 
+/* mac7/residuals: the owner ticks that the codes match before "Let it in" can be pressed. */
+.pair-match {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
+  font-size: 13px;
+}
 /* Integration review: the check code both screens show while a computer asks to join. */
 .pair-check {
   padding: 8px 12px;

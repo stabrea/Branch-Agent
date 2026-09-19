@@ -68,7 +68,12 @@ branch: an integrator reviews it. Every new test is in `tests/residuals.test.mjs
 - [ ] 10. Phone app shows the pairing check code.
 - [ ] 11. Overview and People: bottom padding the height of the floating composer.
 - [ ] 12. Trunks strip switched off: first paint uses the last known switch value.
-- [ ] 13. Pairing: "Let it in" only after the owner ticks "The code matches".
+- [x] 13. Pairing: "Let it in" only after the owner ticks "The code matches".
+  Both desktop places that let a device in: the studio's Let it in step (public/pairing.js `codesMatch`) and the
+  Devices card's waiting row (public/devices.js `matchBox`, the tick kept across its 5-second redraw). Only when
+  the request carries a check code; en + fr "The code matches". The route is unchanged (the CLI approval still
+  works). tests/devices-ui.test.mjs and tests/p2-shell-ui.test.mjs now assert the button is disabled, tick, then
+  let it in; taking out either disabling line fails its test.
 - [ ] 14. Read-aloud: a headless test that a spoken reply plays (blob: src, no CSP violation).
 - [ ] 15. Own background: switching off keeps the file; a separate "Remove picture" deletes it (with a confirm).
 - [x] 16. `branch-everything-hidden` wired from the hide feature — already fixed (below).

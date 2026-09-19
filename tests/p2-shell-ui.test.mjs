@@ -312,6 +312,9 @@ test("a computer asking to join shows in the strip with a turning ring, and is l
   const dialog = f.page.locator("#studio");
   await dialog.getByText("Studio Mac (Mac computer) asks to join.").waitFor();
   assert.equal(await dialog.getByRole("tab", { name: "Another computer" }).getAttribute("aria-selected"), "true");
+  // mac7/residuals: "Let it in" waits until the owner ticks that the codes match.
+  assert.equal(await dialog.getByRole("button", { name: "Let it in" }).isDisabled(), true, "not before the codes are compared");
+  await dialog.getByLabel("The code matches").check();
   await dialog.getByRole("button", { name: "Let it in" }).click();
   await dialog.locator("#pair-name").fill("Studio");
   await dialog.getByRole("button", { name: "Next" }).click();

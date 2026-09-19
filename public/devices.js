@@ -113,15 +113,33 @@ function modeSwitch(view, status) {
   return [label, select];
 }
 
+/* mac7/residuals: "Let it in" waits until the owner ticks that the codes match; the tick outlives a redraw. */
+const codesMatched = new Set();
+function matchBox(request, allow) {
+  const label = make("label", "pair-match");
+  const box = document.createElement("input");
+  box.type = "checkbox";
+  box.checked = codesMatched.has(request.id);
+  allow.disabled = !box.checked;
+  box.addEventListener("change", () => {
+    if (box.checked) codesMatched.add(request.id); else codesMatched.delete(request.id);
+    allow.disabled = !box.checked;
+  });
+  label.append(box, make("span", "", "pair.check.matches", "The code matches"));
+  return label;
+}
+
 function requestRow(request, status) {
   const line = make("p", "", "devices.request.line", `${request.name} (${PLATFORMS[request.platform]}) asks to join.`,
     { name: request.name, platform: say(platformKey(request.platform), PLATFORMS[request.platform]) });
   const answer = (approve) => async () => { try { await api(`devices/requests/${request.id}`, { approve }); await draw(); } catch (error) { tell(status, error); } };
   const box = document.createElement("div");
   box.className = "devices-request";
-  box.append(line, row(button("devices.request.allow", "Let it in", answer(true), false), button("devices.request.refuse", "Refuse", answer(false))));
+  const allow = button("devices.request.allow", "Let it in", answer(true), false);
+  box.append(line, row(allow, button("devices.request.refuse", "Refuse", answer(false))));
   // phase2/shell integration review: the check code the device shows while it waits.
   if (request.check) box.insertBefore(make("p", "subtle", "pair.check", `Check code ${request.check}. The other computer shows the same code while it waits. If they differ, press Refuse.`, { check: request.check }), line.nextSibling);
+  if (request.check) box.insertBefore(matchBox(request, allow), box.lastChild);
   return box;
 }
 

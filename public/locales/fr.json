@@ -3442,6 +3442,7 @@
   "pair.asks": "{name} ({kind}) demande à entrer.",
   "pair.asks.note": "Ne le laissez entrer que si vous êtes en train de l'associer. Une fois entré, il ne peut rien faire tant que vous n'activez rien.",
   "pair.check": "Code de contrôle {check}. L'autre ordinateur affiche le même code pendant qu'il attend. S'ils diffèrent, appuyez sur Refuser.",
+  "pair.check.matches": "Le code correspond",
   "pair.refused": "Refusé. Rien n'a été ajouté.",
   "pair.paired": "Associé — {name} est dans votre liste.",
   "pair.name": "Comment vous l'appelez",

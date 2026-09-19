@@ -223,8 +223,21 @@ function letInStep(panel) {
     make("p", "studio-note", "pair.asks.note", "Let it in only if you are pairing it now. Once in, it can do nothing until you switch something on."),
     ...(request.check ? [checkLine("pair.check", "Check code {check}. The other computer shows the same code while it waits. If they differ, press Refuse.", request.check)] : []),
     make("div", "ov-acts"));
-  card.lastChild.append(button("studio-primary", "devices.request.allow", "Let it in", () => decide(true)), button("", "devices.request.refuse", "Refuse", () => decide(false)));
+  const allow = button("studio-primary", "devices.request.allow", "Let it in", () => decide(true));
+  if (request.check) card.insertBefore(codesMatch(allow), card.lastChild);
+  card.lastChild.append(allow, button("", "devices.request.refuse", "Refuse", () => decide(false)));
   panel.append(card);
+}
+/** mac7/residuals: with a check code, "Let it in" waits until the owner ticks that the two codes match. */
+function codesMatch(allow) {
+  const label = make("label", "pair-match");
+  const box = document.createElement("input");
+  box.type = "checkbox";
+  box.id = "pair-match";
+  allow.disabled = true;
+  box.addEventListener("change", () => { allow.disabled = !box.checked; });
+  label.append(box, make("span", "", "pair.check.matches", "The code matches"));
+  return label;
 }
 async function decide(approve) {
   const { request } = await api(`devices/requests/${pair.request.id}`, { approve });
