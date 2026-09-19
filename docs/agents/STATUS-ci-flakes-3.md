@@ -92,6 +92,14 @@ STATUS-ci-flakes.md and STATUS-ci-flakes-2.md.
   is not saved yet is kept. Reproduced: with a 3.5 s wait after picking, trunk's file fails ("the pick
   is still theirs"), the fix passes. The test keeps that wait.
 
+## Run 35475559161 on aeed473d (one shard red)
+- ai-comments A0344 "one burst of changes becomes one task…" (macOS, nothing at all within 60 s): a
+  folder watcher can miss what happens in the moment after it starts, and every one of the three
+  writes went in right after `watchAIComments` returned. The test now gives the watcher a change of no
+  interest first, and writes the burst again if nothing at all was heard (which cannot make a second
+  burst, since a heard burst starts its task in well under the 15 s it waits). Not reproducible here
+  (Windows): 15 runs, 3 at once, 90/90 before and after.
+
 ## Left for somebody: more of the same family, not failing CI today
 The window's refresh every 3 seconds redraws whole cards, and these write over what a person is in the
 middle of typing or choosing, so the value saved can be the old one:
