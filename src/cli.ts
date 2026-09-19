@@ -60,6 +60,7 @@ import { bringInShareable, shareableSections } from "./interop/agent-market.js";
 import { sendCommand } from "./reach/send-cli.js"; // r17-i: branch send
 import { qaCommand, qaDeps } from "./qa-api.js"; // w911 (A1753) hook.
 import { sayOnceIfNodeIsTooOld } from "./node-floor.js"; // mac7/node-floor
+import { phoneCommand } from "./phone-app/cli.js";
 
 async function configuredApp(options: Parameters<typeof createBranch>[0]) {
   const app = await createBranch(options);
@@ -260,6 +261,12 @@ async function main(): Promise<void> {
       return;
     }
     if (command === "token") { tokenCommand(app); return; }
+    // mac7/phone-qr: the "Get Branch on your phone" code, in the terminal (src/phone-app/cli.ts).
+    if (command === "phone") {
+      process.exitCode = await phoneCommand({ store: app.store, owner: app.runtime.owner, write: (line) => console.log(line),
+        colour: !process.env.NO_COLOR }, process.argv.slice(3));
+      return;
+    }
     // mac3/security-check: `branch security audit [--fix] [--json]` (src/security-audit/api.ts).
     if (command === "security") {
       const { text, urgent } = await securityAuditCommand(app.security, process.argv.slice(3));
