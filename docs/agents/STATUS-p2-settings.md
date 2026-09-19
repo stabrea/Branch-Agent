@@ -133,6 +133,21 @@ p2-delight, p2-everywhere), fixed on the branch, then pushed to `mac/cross-platf
       (`placeWhenSettled`); new test presses mid-rise. The flush test keeps a wait for the rise because Playwright's
       own click retries with a scroll that closes the list — a mouse click at the same point does not (6/6).
 
+- [x] **How much to show** is itself found by search now (it had a reason line instead; the one setting this branch added).
+
+### Merged and tested
+- Pushed `19c6d4ad` to `mac/cross-platform` (four trunk merges, last at 97ead378); Checks run 35470311313.
+- Final runs on the merged code (verify worktree, build-fast): 25 targeted files 174/175 (one p2-panels test,
+  "It's lonely over here", timed out waiting for the corner gear under load; passed alone and in its whole file, 19/19);
+  the 55 other UI files that use tests/places.mjs 406 pass, 0 fail, 16 skipped; automation.test.mjs alone 5/5;
+  pre-push set at the pushed SHA (settings-grown, static-assets, index-structure, handbook, catalog-diet, calm-ui,
+  shell-ui, glass-select, hardening-3) 120/120.
+- Screenshots: 13 scenes × 1440/1024/390 × light/dark as `*-fixed.png`, report-fixed.txt: no sideways scroll, no page
+  or console errors after settle, 0 CSP notes at load (the originals had 2).
+- Trunk-wide: `scripts/check-docs.mjs` now reads `PreferencesSchema` too, so a new field in `src/preferences.ts` must be in
+  `docs/configuration.md`, and S14 wants it in `public/settings-index.js` or named in `NOT_IN_SEARCH` with a reason.
+  A second helper exported from `public/appearance.js` under an existing name kills the whole page silently.
+
 ### Checked, no change
 - Cards that waited for the old Settings button: values load on opening Settings (`branch-place` fires on open and on
   Go there, not on page clicks, so no reload per page). S17 sets 7000/2/90000, opens from the cog, saves untouched:
