@@ -153,7 +153,7 @@ export class DiagnosticLog {
     const line = this.shape(entry);
     this.crumbs.push(line);
     if (this.crumbs.length > breadcrumbCount) this.crumbs.shift();
-    const { mode, maxMegabytes } = this.settings();
+    const { mode, maxMegabytes } = this.currentSettings();
     if (mode === "off") return;
     if (rank[line.level] < (mode === "on" ? rank.info : rank.warn)) return;
     try { this.append(this.file, JSON.stringify(line), (maxMegabytes * 1024 * 1024) / fileCount); } catch { /* a log line must never break Branch */ }
@@ -169,7 +169,7 @@ export class DiagnosticLog {
     const line = this.shape({ level: "error", component, message, fields: { origin, stack: stack.slice(0, 4000) } });
     const record = { ...line, kind: "crash", breadcrumbs: this.breadcrumbs() };
     try { this.append(this.crashFile, JSON.stringify(record), 512 * 1024); } catch { /* never a second crash */ }
-    this.write({ level: "error", component, message: `Crashed: ${message}`, fields: { origin } });
+    try { this.write({ level: "error", component, message: `Crashed: ${message}`, fields: { origin } }); } catch { /* never a second crash */ }
   }
 
   /** Lines newest first, across the rotated files, with the owner's filters. */
@@ -193,7 +193,7 @@ export class DiagnosticLog {
 
   /** Removes rotated files older than the owner's number of days. Returns how many went. */
   prune(): number {
-    const cutoff = this.now().getTime() - this.settings().keepDays * 86_400_000;
+    const cutoff = this.now().getTime() - this.currentSettings().keepDays * 86_400_000;
     let removed = 0;
     for (const file of [...this.files(this.file), ...this.files(this.crashFile)]) {
       try { if (statSync(file).mtimeMs < cutoff) { unlinkSync(file); removed += 1; } } catch { /* already gone */ }
@@ -205,6 +205,15 @@ export class DiagnosticLog {
   clear(): void {
     for (const file of [...this.files(this.file), ...this.files(this.crashFile)]) try { unlinkSync(file); } catch { /* gone */ }
     this.crumbs.length = 0;
+  }
+
+  /**
+   * The owner's settings, or the shipped ones (log off) when they cannot be read: a crash while
+   * Branch is closing arrives after its database has shut, and reading it then threw inside the
+   * crash handler, which ended the process with the wrong error.
+   */
+  private currentSettings(): DiagnosticLogSettings {
+    try { return this.settings(); } catch { return DiagnosticLogSettingsSchema.parse({}); }
   }
 
   private shape(entry: LogWrite): LogLine {
