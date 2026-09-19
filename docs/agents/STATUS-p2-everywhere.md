@@ -11,8 +11,12 @@ critiques #44, #53). Screenshots and terminal frames: `claude-session-files/bran
 
 - [x] 1. Phone apps: the Slate fallback in the native build files (splash/launch colour, Android colours,
       iOS colour sets, app icon ground) and the phone page's first paint; tests in tests/mobile-shell.test.mjs
-- [ ] 2. Terminal view in the desktop's design language (src/terminal-*.ts): rail of Trunks/computers,
-      approval card, Activity status, usage line, key hints; ASCII fallback; snapshots regenerated and read
+- [x] 2. Terminal view in the desktop's design language (src/terminal-*.ts): rail of Trunks/computers,
+      approval card, Activity status, usage line, key hints; ASCII fallback; snapshots regenerated and read.
+      New src/terminal-everywhere.ts (rail + usage data, owner only), drawing in src/terminal-screen.ts (marked
+      phase2/everywhere); tests/terminal-everywhere.test.mjs; snapshot diffs: only the 120x40 chat views gained the
+      key line, plus the new chat-everywhere view. Answers are headed "<assistant name>:" instead of "Assistant:"
+      (tests/cli-tui.test.mjs regexes updated). Frames as text + pictures in phase2-shots/everywhere/terminal/
 - [ ] 3. Phone and tablet layout of the web window (public/phone-layout.js + .css): bottom places bar,
       approvals answerable, true proportions at 390x844 and 820x1180
 - [ ] 4. Merge latest trunk, rebuild, retest, push

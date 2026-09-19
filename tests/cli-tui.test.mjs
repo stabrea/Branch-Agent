@@ -164,7 +164,7 @@ test("a no in the terminal view refuses the tool and the task says so", async (t
   await view.until(/Branch needs your yes/);
   view.type("n\r");
   await view.until(/noted: do not do that for files\.write/);
-  await view.until(/could not verify|task |Assistant:/);
+  await view.until(/could not verify|task |Branch Agent:/);
   view.type("");
   await view.exit();
 });
@@ -176,7 +176,7 @@ test("Alt+Enter adds a line and the up arrow brings the last message back", asyn
   view.type("/preset read-only\r");
   await view.until(/when to check with me: Read only/);
   view.type("first line\rsecond line\r");
-  await view.until(/Assistant:|task /);
+  await view.until(/Branch Agent:|task /);
   view.type("[A");
   await delay(200);
   assert.match(view.text(), /first line/, "the recalled message is drawn again");

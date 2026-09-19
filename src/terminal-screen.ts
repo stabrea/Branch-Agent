@@ -5,6 +5,7 @@ import type { Glyphs } from "./terminal-style.js";
 import type { TerminalPalette } from "./terminal-theme.js";
 import type { Words } from "./terminal-words.js";
 import { drawOak, type Season } from "./terminal-oak.js";
+import type { RailItem, UsageBar } from "./terminal-everywhere.js"; // phase2/everywhere
 
 /**
  * The terminal view, drawn from a plain description of what is on screen. It follows
@@ -13,7 +14,8 @@ import { drawOak, type Season } from "./terminal-oak.js";
  * title, one sentence, its tabs and its rows, and Settings as a window of twelve pages over it.
  * Nothing here reads the workspace or writes to the terminal: it only draws.
  */
-export interface TranscriptLine { kind: "you" | "assistant" | "step" | "note" | "warn" | "ok" | "bad"; text: string }
+/** phase2/everywhere: "ask" is the heading of a question a task stopped on, "askline" a line of it; drawn as one card. */
+export interface TranscriptLine { kind: "you" | "assistant" | "step" | "note" | "warn" | "ok" | "bad" | "ask" | "askline"; text: string }
 /** One choice in the palette or a picker; `run` is the slash command it stands for. */
 export interface PaletteItem { label: string; section: string; hint?: string; run: string }
 export type Overlay =
@@ -45,6 +47,10 @@ export interface ScreenModel {
   ask: string;
   overlay?: Overlay | undefined;
   toast?: string | undefined;
+  /* phase2/everywhere: the conversation's title in the head, the rail down the left, the usage line. */
+  title?: string | undefined;
+  rail?: RailItem[] | undefined;
+  usage?: UsageBar | undefined;
 }
 export interface Frame { lines: string[]; plain: string[]; cursor: { x: number; y: number } | null; hits: Hit[] }
 
@@ -60,13 +66,21 @@ export function renderScreen(model: ScreenModel, size: { columns: number; rows: 
   let top = drawHead(canvas, model);
   top = drawTabs(canvas, model, top);
   if (model.lockdown) top = drawLockdown(canvas, model, top);
-  const area = { x: 0, y: top, width: columns, height: rows - top - 1 };
+  const foot = footLines(model, rows);
+  const usageRow = model.usage && rows >= 16 ? 1 : 0;
+  const area = { x: 0, y: top, width: columns, height: rows - top - foot.length - usageRow };
   let cursor: Frame["cursor"] = null;
   const route = model.route;
+  if (!("settings" in route) && model.rail?.length && columns >= 100) {
+    drawRail(canvas, model, model.rail, { x: 0, y: area.y, height: area.height });
+    area.x += RAIL_WIDTH;
+    area.width -= RAIL_WIDTH;
+  }
   if ("settings" in route) cursor = drawSettings(canvas, model, area, route);
   else if (route.place === "chat") cursor = drawConversation(canvas, model, area);
   else cursor = drawPlace(canvas, model, area, route);
-  drawFoot(canvas, model, rows - 1);
+  if (usageRow && model.usage) drawUsage(canvas, model, model.usage, rows - foot.length - 1);
+  foot.forEach((line, index) => drawFoot(canvas, model, rows - foot.length + index, line));
   if (model.overlay) cursor = drawOverlay(canvas, model, model.overlay);
   return { lines: canvas.lines(palette, depth), plain: canvas.plain(), cursor, hits: canvas.hits };
 }
@@ -100,6 +114,7 @@ export function pageTitle(model: ScreenModel): string {
   }
   const place = PLACES.find((entry) => entry.id === route.place)!;
   const tab = place.tabs.find((entry) => entry.id === route.tab);
+  if (route.place === "chat" && model.title) return `${t(model, place.key, place.english)}${crumb}${model.title}`; // phase2/everywhere
   return tab ? `${t(model, place.key, place.english)}${crumb}${t(model, tab.key, tab.english)}` : t(model, place.key, place.english);
 }
 
@@ -131,10 +146,46 @@ function drawLockdown(canvas: Canvas, model: ScreenModel, y: number): number {
   canvas.text(1, y, fitText(words, canvas.columns - 2, model.glyphs.ellipsis), { fg: "ground", bg: "bad", bold: true });
   return y + 1;
 }
-function drawFoot(canvas: Canvas, model: ScreenModel, y: number): void {
+function drawFoot(canvas: Canvas, model: ScreenModel, y: number, hint: string): void {
   bar(canvas, y, "panel");
-  const hint = model.toast ?? footHint(model);
-  canvas.text(1, y, fitText(hint, canvas.columns - 2, model.glyphs.ellipsis), { fg: model.toast ? "accentText" : "faint" });
+  const toast = model.toast !== undefined && hint === model.toast;
+  canvas.text(1, y, fitText(hint, canvas.columns - 2, model.glyphs.ellipsis), { fg: toast ? "accentText" : "faint" });
+}
+/**
+ * phase2/everywhere: the foot. A tall terminal in the conversation adds the window's key line under the
+ * usual hints (Enter sends, Ctrl+C stops the task…), as the design's terminal shows it; anything else keeps one line.
+ */
+function footLines(model: ScreenModel, rows: number): string[] {
+  const first = model.toast ?? footHint(model);
+  const chat = "place" in model.route && model.route.place === "chat";
+  if (rows < 30 || !chat || model.focus !== "composer" || model.overlay) return [first];
+  return [first, t(model, "terminal.keys.line", "Enter sends · Alt+Enter adds a line · Up recalls · Ctrl+E shows step details · Ctrl+C stops the task · Ctrl+D leaves")];
+}
+
+/* ---------- phase2/everywhere: the rail and the usage line ---------- */
+const RAIL_WIDTH = 4;
+/** This computer, the owner's other devices and Trunks, one mark each, down the left as in the window. */
+function drawRail(canvas: Canvas, model: ScreenModel, items: RailItem[], box: { x: number; y: number; height: number }): void {
+  canvas.fill(box.x, box.y, RAIL_WIDTH, box.height, "panel");
+  for (let y = box.y; y < box.y + box.height; y++) canvas.text(box.x + RAIL_WIDTH - 1, y, model.glyphs.v, { fg: "line", bg: "panel" });
+  const room = Math.max(0, Math.floor((box.height - 1) / 2));
+  items.slice(0, room).forEach((item, index) => {
+    const y = box.y + 1 + index * 2;
+    const mark = model.glyphs[item.kind];
+    canvas.text(box.x, y, ` ${mark} `, item.on ? { fg: "accentText", bg: "accentTint", bold: true } : { fg: item.kind === "trunk" ? "accent" : "muted", bg: "panel" });
+    canvas.hit(box.x, y, RAIL_WIDTH - 1, 1, `rail:${index}`);
+  });
+  if (items.length > room && room > 0) canvas.text(box.x + 1, box.y + box.height - 1, "+", { fg: "faint", bg: "panel" });
+}
+/** What the tightest connection has left, drawn as the window's ring says it: a bar, the share, when it refills. */
+function drawUsage(canvas: Canvas, model: ScreenModel, usage: UsageBar, y: number): void {
+  const g = model.glyphs, cells = 20, used = Math.round(((100 - usage.percentLeft) / 100) * cells);
+  const tone: Paint = usage.percentLeft <= 5 ? "bad" : usage.percentLeft <= 20 ? "warn" : "accent";
+  let x = canvas.text(1, y, ` ${fitText(usage.name, 28, g.ellipsis)} `, { fg: "text", bold: true });
+  x = canvas.text(x + 1, y, g.full.repeat(used), { fg: tone });
+  x = canvas.text(x, y, g.shade.repeat(cells - used), { fg: "faint" });
+  const words = [t(model, "terminal.usage.left", "{n}% left", { n: usage.percentLeft }), usage.note].filter(Boolean).join(` ${g.dot} `);
+  canvas.text(x + 2, y, fitText(words, Math.max(0, canvas.columns - x - 3), g.ellipsis), { fg: usage.percentLeft <= 20 ? tone : "muted" });
 }
 function footHint(model: ScreenModel): string {
   const dot = ` ${model.glyphs.dot} `;
@@ -157,7 +208,9 @@ function drawConversation(canvas: Canvas, model: ScreenModel, area: { x: number;
   if (model.pane.open) drawPane(canvas, model, { x: area.x + area.width - paneWidth, y: area.y, width: paneWidth, height: docked ? area.height : area.height - composerHeight });
   return cursor;
 }
-const PREFIX: Record<TranscriptLine["kind"], Paint> = { you: "text", assistant: "text", step: "muted", note: "faint", warn: "warn", ok: "ok", bad: "bad" };
+const PREFIX: Record<TranscriptLine["kind"], Paint> = { you: "text", assistant: "text", step: "muted", note: "faint", warn: "warn", ok: "ok", bad: "bad",
+  ask: "warn", askline: "text" };
+const CARD = new Set<TranscriptLine["kind"]>(["you", "ask", "askline"]);
 /** Every transcript line wrapped to the reading column, newest at the foot. */
 export function wrapTranscript(lines: TranscriptLine[], width: number): { text: string; kind: TranscriptLine["kind"]; lead: boolean }[] {
   const out: { text: string; kind: TranscriptLine["kind"]; lead: boolean }[] = [];
@@ -172,11 +225,13 @@ function drawTranscript(canvas: Canvas, model: ScreenModel, box: { x: number; y:
   const end = Math.max(0, wrapped.length - model.scroll);
   const shown = wrapped.slice(Math.max(0, end - box.height), end);
   shown.forEach((line, index) => {
-    const y = box.y + index;
-    if (line.kind === "you") canvas.fill(left - 1, y, inner + 2, 1, "raised");
-    const lead = line.lead && line.kind === "you" ? model.glyphs.pointer : " ";
-    canvas.text(left - 1, y, lead, { fg: "accent", ...(line.kind === "you" ? { bg: "raised" } : {}) });
-    canvas.text(left + 1, y, line.text, { fg: PREFIX[line.kind], ...(line.kind === "you" ? { bg: "raised" } : {}), bold: line.kind === "you" && line.lead });
+    const y = box.y + index, card = CARD.has(line.kind);
+    if (card) canvas.fill(left - 1, y, inner + 2, 1, "raised");
+    /* phase2/everywhere: a question the task stopped on is a card with a warning edge, as in the window. */
+    const asking = line.kind === "ask" || line.kind === "askline";
+    const lead = asking ? model.glyphs.v : line.lead && line.kind === "you" ? model.glyphs.pointer : " ";
+    canvas.text(left - 1, y, lead, { fg: asking ? "warn" : "accent", ...(card ? { bg: "raised" } : {}), bold: asking });
+    canvas.text(left + 1, y, line.text, { fg: PREFIX[line.kind], ...(card ? { bg: "raised" } : {}), bold: (line.kind === "you" || line.kind === "ask") && line.lead });
   });
   if (model.scroll > 0) canvas.text(box.x + box.width - 12, box.y + box.height - 1, `${model.glyphs.crumb} PgDn`, { fg: "accentText" });
 }

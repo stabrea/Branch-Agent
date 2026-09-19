@@ -33,8 +33,8 @@
                                                                                     │
                                                                                     │
                                                                                     │
-                                                                                    │
  ╭─ Offline demonstration ─ Ask before changes ─ + notes.md ──────────────────────╮ │
  │ › and now the report                                                           │ │
  ╰────────────────────────────────────────────────────────────────────────────────╯ │
  9.7k in / 168 out · no price on file · Ctrl+P Side pane · Esc then 1-5 for places
+ Enter sends · Alt+Enter adds a line · Up recalls · Ctrl+E shows step details · Ctrl+C stops the task · Ctrl+D leaves

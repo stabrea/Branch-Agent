@@ -29,6 +29,7 @@ import { switchComfort, terminalStatus } from "./comfort/terminal.js";
 import { readComfort } from "./comfort/settings.js";
 import type { OutboundNetwork } from "./comfort/network.js";
 import { activeModel, sessionTotals } from "./terminal-commands.js";
+import { railItems, usageBar, type EverywhereApp, type RailItem, type UsageBar } from "./terminal-everywhere.js"; // phase2/everywhere
 
 export { usageLine, runCost, stepRow } from "./terminal-conversation.js";
 
@@ -95,6 +96,9 @@ export class Tui {
   private printed = 0;
   private lookReadAt = 0;
   private needs = 0;
+  /* phase2/everywhere: the rail and the usage line, read with the look (at most once a second). */
+  rail: RailItem[] = [];
+  private usage: UsageBar | undefined;
   private closing = false;
   private resolveDone: (() => void) | undefined;
 
@@ -153,7 +157,20 @@ export class Tui {
     if (language !== this.words.language) this.words = loadWords(language);
     if (this.catalogue) this.palette = paletteFor(this.catalogue, this.previewTheme ?? this.look.theme, lookMode(store, owner, this.env), this.look.contrast);
     this.needs = this.app ? needsCount(this.app) : 0;
+    this.readEverywhere();
     this.screen?.setMouse(this.switches.mouse === "on" || (this.switches.mouse === "when-needed" && (!!this.overlay || "settings" in this.route)));
+  }
+  /** phase2/everywhere: a failure to read either leaves it out rather than stopping the view. */
+  private readEverywhere(): void {
+    if (!this.app) return;
+    const app = this.app as unknown as EverywhereApp;
+    try { this.rail = railItems(app, this.words, this.conversation.sessionId); } catch { this.rail = []; }
+    try { this.usage = usageBar(app, this.words); } catch { this.usage = undefined; }
+  }
+  /** A click on the rail says what that mark is. */
+  railSay(index: number): void {
+    const item = this.rail[index];
+    if (item) this.say(`${item.name} ${this.style.unicode ? "·" : "-"} ${item.detail}`);
   }
   themeName(): string {
     return this.catalogue?.THEMES.find((theme) => theme[0] === this.look.theme)?.[1] ?? this.look.theme;
@@ -181,6 +198,7 @@ export class Tui {
     const { rows } = this.size();
     const oak = this.switches.oak === "on" || (this.switches.oak === "when-needed" && rows >= 30);
     const partial = this.conversation.partial;
+    this.conversation.assistant = this.app ? assistantName(this.app) : "Branch Agent"; // phase2/everywhere
     return {
       words: this.words, glyphs: glyphsFor(this.style.unicode), assistant: this.app ? assistantName(this.app) : "Branch Agent",
       model: this.conversation.modelName(), lockdown: lockdownState(this.runtime.store, this.runtime.owner).on,
@@ -196,6 +214,7 @@ export class Tui {
       oak: { show: oak && this.style.unicode, season: seasonOf(new Date()) },
       rows: this.rows, selected: this.selected, loading: this.loading,
       ask: this.focus === "ask" ? this.editor.text : this.drafts.ask, overlay: this.overlay, toast: this.toast,
+      title: this.conversation.title(), rail: this.rail, usage: this.usage, // phase2/everywhere
     };
   }
   say(text: string): void {
