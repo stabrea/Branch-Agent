@@ -198,14 +198,14 @@ export class Updater {
   private async download(release: ReleaseInfo, target: string): Promise<void> {
     this.set("downloading", "Downloading the new version…", 0, release);
     const response = await this.fetch(release.assetUrl, { headers: { "user-agent": `BranchAgent/${this.options.currentVersion}` } });
-    if (!response.ok || !response.body) throw new Error(`The download failed (HTTP ${response.status}).`);
+    if (!response.ok || !response.body) throw new Error(`Branch could not download the new version (the server answered ${response.status}), so nothing was changed. Check this computer's internet connection and try the update again.`);
     const total = Number(response.headers.get("content-length")) || release.assetBytes || 0;
     const file = createWriteStream(target, { flags: "wx" });
     let received = 0;
     try {
       for await (const chunk of response.body) {
         received += chunk.byteLength;
-        if (received > 1_500_000_000) throw new Error("The download is larger than expected.");
+        if (received > 1_500_000_000) throw new Error("The download of the new version was larger than the release says it should be, so Branch stopped it and changed nothing. Try the update again.");
         if (!file.write(chunk)) await new Promise<void>((resolve) => file.once("drain", resolve));
         if (total) this.set("downloading", "Downloading the new version…", Math.min(0.99, received / total), release, { received, total });
       }
@@ -214,13 +214,13 @@ export class Updater {
   private async verify(archive: string, release: ReleaseInfo): Promise<void> {
     this.set("verifying", "Checking the download is exactly what was published…", null, release);
     const response = await this.fetch(release.checksumUrl, { headers: { "user-agent": `BranchAgent/${this.options.currentVersion}` } });
-    if (!response.ok) throw new Error("The published checksum could not be read.");
+    if (!response.ok) throw new Error("Branch could not read the checksum published with the new version, so it did not install the download. Branch is still on the version it had, and nothing was changed. Check this computer's internet connection and try the update again.");
     const expected = /^([a-f0-9]{64})\b/i.exec((await response.text()).trim())?.[1]?.toLowerCase();
-    if (!expected) throw new Error("The published checksum is not readable.");
+    if (!expected) throw new Error("The checksum published with the new version did not arrive in full, so Branch did not install it. Branch is still on the version it had. Try the update again in a moment.");
     const hash = createHash("sha256");
     const { createReadStream } = await import("node:fs");
     for await (const chunk of createReadStream(archive)) hash.update(chunk as Buffer);
-    if (hash.digest("hex") !== expected) throw new Error("The download did not match the published checksum, so it was not installed.");
+    if (hash.digest("hex") !== expected) throw new Error("The download did not match the published checksum, so Branch did not install it. Branch is still on the version it had, and nothing was changed. Try the update again; if it keeps happening, download the new version from the releases page by hand.");
   }
   private async unpack(archive: string): Promise<string> {
     this.set("unpacking", "Unpacking…", null, this.status.release);
@@ -328,7 +328,7 @@ async function findBundle(root: string, bundleName: string): Promise<string> {
       if (!entry.name.endsWith(".app")) queue.push(join(dir, entry.name));
     }
   }
-  throw new Error("The download did not contain the app.");
+  throw new Error("The download did not contain a Branch to install, so nothing was changed. Branch is still on the version it had. Try the update again.");
 }
 
 async function findExecutableDir(root: string, executableName: string): Promise<string> {
@@ -339,7 +339,7 @@ async function findExecutableDir(root: string, executableName: string): Promise<
     if (entries.some((entry) => entry.isFile() && entry.name === executableName)) return dir;
     for (const entry of entries) if (entry.isDirectory()) queue.push(join(dir, entry.name));
   }
-  throw new Error("The download did not contain the app.");
+  throw new Error("The download did not contain a Branch to install, so nothing was changed. Branch is still on the version it had. Try the update again.");
 }
 type RunFile = (file: string, args: string[]) => Promise<unknown>;
 const runFile: RunFile = (file, args) => promisify(execFile)(file, args, { maxBuffer: 1048576 });

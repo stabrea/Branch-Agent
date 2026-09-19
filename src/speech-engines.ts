@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { z } from "zod";
@@ -209,6 +209,18 @@ export function programArguments(template: string[], textPath: string, outPath: 
   if (!template.some((arg) => arg.includes("{out}"))) throw new Error("The program's arguments must say where the sound goes, with {out}");
   return template.map((arg) => arg.replaceAll("{text}", textPath).replaceAll("{out}", outPath));
 }
+/**
+ * mac7/install-torture: a reading-aloud program that was removed, or whose download stopped
+ * half-way, otherwise comes back as the system's own "spawn … ENOENT", which says nothing about
+ * what is wrong or what to do. The file is only looked at once running it has already failed.
+ */
+async function speechProgramProblem(file: string, error: unknown): Promise<Error> {
+  const there = await stat(file).catch(() => null);
+  if (!there?.isFile() || there.size === 0)
+    return new Error(`The reading-aloud program at ${file} is not there any more (or its download did not finish). Install it again, or pick another engine under Settings → Voice.`);
+  return error instanceof Error ? error : new Error(String(error));
+}
+
 export const program: SpeechEngine = {
   id: "program", label: "A program on this computer", local: true,
   async speak(text, context) {
@@ -218,7 +230,8 @@ export const program: SpeechEngine = {
     try {
       const textPath = join(folder, "words.txt"), outPath = join(folder, "speech.wav");
       await writeFile(textPath, text, { encoding: "utf8", mode: 0o600 });
-      await context.run(file, programArguments(programArgs, textPath, outPath), context.signal);
+      await context.run(file, programArguments(programArgs, textPath, outPath), context.signal)
+        .catch(async (error: unknown) => { throw await speechProgramProblem(file, error); });
       const bytes = await readFile(outPath).catch(() => Buffer.alloc(0));
       if (!bytes.length) throw new Error("The reading-aloud program made no sound");
       return { bytes: new Uint8Array(bytes), mediaType: "audio/wav", voice: file.split(/[\\/]/).pop() ?? "program" };

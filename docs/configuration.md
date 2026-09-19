@@ -2130,6 +2130,26 @@ version by `repairRollback`, which the gateway's start-up tidy-up (`repairSwap`)
 gateway's own automatic rollback, after a new version fails to stay up, asks the same gate first: a
 crash loop is recoverable, a database the installed program cannot open is not.
 
+**Starting on a broken machine (macOS and Linux).** Before anything opens the saved work for
+writing, Branch looks at it (`assertFormatReadable` in `src/never-break/migrations.ts`): data whose
+format is newer than this version understands is refused while it is still untouched, so the
+sentence "Nothing was changed" is true — before, the older version had already added columns,
+rewritten tasks that were running and thrown temporary sessions away by the time it said so. A
+damaged, unreadable or unwritable folder is said in plain words that name the file, say nothing was
+changed and point at the safety copies in `update-backups/` (`dataProblemSentence`), instead of
+SQLite's own "database disk image is malformed". `branch update --yes` reads the format the same
+way before it takes its safety copy or its copy for the check (`withStore` in
+`src/install/headless-update.ts`), so an older copy of Branch cannot rewrite newer work on its way
+to installing the newer one. A second Branch started on the same data folder
+refuses and says which folder is in use and what to do. A clock that jumped backwards no longer
+holds an update's watch open for ever or rolls a good version back on the first ordinary crash
+(`watchVerdict`), and no longer throws away the safety copy just written (`backupsToPrune`); the
+copies taken before a format change are pruned to the newest three as well. A fetched extra that is
+missing or whose download stopped half-way (the private browser, a reading-aloud program) is
+reported as missing with the command that gets it back, and Branch itself still starts. The whole
+set is exercised by `tests/never-break-install-chaos.test.mjs`, a seeded round that kills Branch
+mid-update, mid-format-change and mid-start (`BRANCH_INSTALL_SEEDS=200` for the long run).
+
 **Telegram from a card.** `customize:channels` has a **Set up Telegram** card (`public/telegram-setup.js`, `src/never-break/telegram-setup.ts`): the BotFather steps in plain words, a password field whose token goes straight into the locker as `TELEGRAM_BOT_TOKEN` in the default project (checked for BotFather's shape, never sent back), the three-way switch (settings key `telegram-setup`, shipped off), and a box for the six-digit code the bot sends a new person, which approves the owner's own account through the ordinary pairing. `GET|POST /api/never-break/telegram { mode?, token? }`. On a real start with the switch not off, Branch connects that bot through the network rules, unless the integrations file already has a Telegram channel. No real token was used to build or test it.
 
 **macOS and Linux.** The gateway is the same program on every system. It starts the engine with the same runtime it runs on (the app's own on an installed copy), with no window on Windows. The sign-in entries (`launchd`, `systemd --user`, the Windows scheduled task) are unchanged: they run `branch start`, which becomes the gateway when the switch is on, so `KeepAlive`/`Restart=on-failure` look after the gateway and the gateway looks after the engine. An engine whose gateway is killed closes itself within seconds, so the database is never left held.

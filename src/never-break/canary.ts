@@ -163,7 +163,11 @@ export async function clearWatch(dataDir: string): Promise<void> {
  */
 export function watchVerdict(watch: UpdateWatch | null, input: { now: number; watchSeconds: number; runningVersion: string | null; failing: boolean }): "none" | "watching" | "done" | "roll-back" {
   if (!watch) return "none";
-  const inside = input.now - Date.parse(watch.startedAt) <= input.watchSeconds * 1000;
+  // mac7/install-torture: a clock that jumped backwards (or an unreadable time) puts the update's
+  // start in the future. Counting that as "still inside the window" would roll a good version back
+  // on the first ordinary crash and never let the watch finish, so it counts as outside instead.
+  const since = input.now - Date.parse(watch.startedAt);
+  const inside = Number.isFinite(since) && since >= 0 && since <= input.watchSeconds * 1000;
   if (input.failing && inside) return "roll-back";
   if (input.runningVersion !== watch.to) return inside ? "watching" : "none";
   return inside ? "watching" : "done";
