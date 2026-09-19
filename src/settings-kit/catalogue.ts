@@ -343,6 +343,8 @@ export const neverTouched: readonly RegExp[] = [
   /^comfort-(network|browser|update)/,
   // mac7/lockdown-fix: the limit a task put on a flow run it started is never loosened from here.
   /^flow-run-limit:/,
+  // mac7/outside-resume: nor is who set a flow run going from outside.
+  /^flow-run-source:/,
   // mac7/wake-pins: the list of settings the owner pinned. Pinning is the owner's alone, and a
   // preset or a settings file that named this record could otherwise unpin everything at once.
   /^settings-pins$/,

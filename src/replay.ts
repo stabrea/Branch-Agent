@@ -46,6 +46,8 @@ export async function replayRun(runtime: Runtime, store: Store, runId: string): 
     prompt: plan.prompt,
     ...(plan.permissions.length ? { permissions: plan.permissions } : {}),
     ...(plan.model ? { model: plan.model } : {}),
+    // mac7/outside-resume: a task that came from outside is done again as that, never as the owner's own.
+    originFrom: runId,
   });
   store.event(run.id, "run.replayed", { of: runId, permissions: plan.permissions.length, model: plan.model });
   return { original: runId, replay: run.id, plan, run };

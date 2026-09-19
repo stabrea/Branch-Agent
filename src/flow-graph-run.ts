@@ -63,6 +63,8 @@ interface NodeResult {
 type GraphWorkOptions = { source?: RunSource; chain?: readonly string[]; within?: readonly string[] };
 
 const limitKey = (runId: string): string => `flow-run-limit:${runId}`;
+/** mac7/outside-resume: who set a run going, when that was from outside (a schedule, a chat, another program). */
+const sourceKey = (runId: string): string => `flow-run-source:${runId}`;
 
 export class FlowGraphRunner {
   constructor(
@@ -99,6 +101,7 @@ export class FlowGraphRunner {
   async work(runId: string, compiled: CompiledGraph, options: GraphWorkOptions = {}): Promise<GraphRunView> {
     // mac7/lockdown-fix: a task's limit is kept with the run, so the owner's yes later does not widen it.
     if (options.within) this.store.save("settings", this.owner, limitKey(runId), { within: [...options.within] });
+    options = { ...options, source: this.holdSource(runId, options.source) }; // mac7/outside-resume
     const limit = compiled.definition.loopLimit;
     let saved = this.checkpoint(runId);
     let at = saved.nextNode, state = saved.state, loops = saved.loops, seq = this.lastSeq(runId);
@@ -253,6 +256,22 @@ export class FlowGraphRunner {
   }
   forgetLimit(runId: string): void {
     this.store.delete("settings", this.owner, limitKey(runId));
+    this.store.delete("settings", this.owner, sourceKey(runId)); // mac7/outside-resume
+  }
+  /**
+   * mac7/outside-resume: who a run is held as. A run set going from outside keeps that however it is
+   * carried on — the owner's yes, Carry on, Branch starting again, a copy from an earlier step.
+   */
+  sourceOf(runId: string): RunSource {
+    return (this.store.get("settings", this.owner, sourceKey(runId))?.data as { source?: RunSource } | undefined)?.source ?? "owner";
+  }
+  /** Keeps an outside source with the run, and answers the source the run is held as from now on. */
+  private holdSource(runId: string, given: RunSource | undefined): RunSource {
+    if (given && given !== "owner") {
+      this.store.save("settings", this.owner, sourceKey(runId), { source: given });
+      return given;
+    }
+    return this.sourceOf(runId);
   }
   /** mac7/lockdown-fix: the permissions a box holds under a task's limit; nothing to add otherwise. */
   private limited(options: { within?: readonly string[] | undefined }): { permissions?: string[] } {
