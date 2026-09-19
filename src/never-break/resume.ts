@@ -2,6 +2,7 @@ import { describeToolCall } from "../activity.js";
 import type { FeatureMode } from "../feature-switches.js";
 import type { Runtime } from "../runtime.js";
 import { runOrigin } from "../key-context.js"; // bucket 19 (integration review)
+import { outsideSourceOf } from "../outside-origin.js"; // mac7/outside-resume
 import { asPerson, currentPerson } from "../people/context.js"; // bucket 19 (integration review)
 import { scopeOf } from "../tool-gate.js";
 import type { Store } from "../store.js";
@@ -91,10 +92,12 @@ async function redoStep(input: RecoveryInput, runId: string, step: OpenStep): Pr
   if (step.redacted) return false;
   let args: unknown;
   try { args = JSON.parse(step.arguments); } catch { return false; }
-  // A chat message's step is checked as the chat's, with the chat's tools, never as the owner's own.
+  // A chat message's step is checked as the chat's, with the chat's tools, never as the owner's own;
+  // mac7/outside-resume: so is a trigger's, a schedule's or another program's, as that source.
   const origin = runOrigin(input.store, runId);
-  const context = input.runtime.context({ runId, ...(origin.source === "channel"
-    ? { source: "channel" as const, ...(origin.permissions ? { permissions: origin.permissions } : {}) } : {}) });
+  const outside = outsideSourceOf(input.store, runId);
+  const context = input.runtime.context({ runId, ...(outside
+    ? { source: outside, ...(origin.permissions ? { permissions: origin.permissions } : {}) } : {}) });
   const check = input.runtime.checkPolicy(step.tool, args, context);
   if (check.decision !== "allow") return false;
   try {
