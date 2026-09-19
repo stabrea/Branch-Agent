@@ -194,3 +194,65 @@ test("at phone width the corner stays inside the folded rail and nothing scrolls
   assert.equal(await f.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   assert.deepEqual(f.errors, []);
 });
+
+test("tips get scarcer as the rank rises: Bronze every few minutes, Silver hourly, Gold and up never", async (t) => {
+  const f = await fixture(t);
+  const gaps = await f.page.evaluate(async () => {
+    const { state } = await import("/delight-kit.js");
+    const { tipGap } = await import("/delight-pet.js");
+    return ["Bronze", "Silver", "Gold", "Diamond", "Godly"].map((rank) => { state.rank = rank; return tipGap(); });
+  });
+  assert.deepEqual(gaps, [180000, 3600000, null, null, null], "Infinity arrives as null");
+  assert.deepEqual(f.errors, []);
+});
+
+/** The smallest .glb there is: one triangle, no normals, one base colour. */
+function tinyGlb() {
+  const positions = new Float32Array([0, 0, 0, 2, 0, 0, 0, 2, 0]);
+  const bin = Buffer.from(positions.buffer);
+  const json = Buffer.from(JSON.stringify({
+    asset: { version: "2.0" }, scene: 0, scenes: [{ nodes: [0] }], nodes: [{ mesh: 0, translation: [5, 0, 0] }],
+    meshes: [{ primitives: [{ attributes: { POSITION: 0 }, material: 0 }] }], materials: [{ pbrMetallicRoughness: { baseColorFactor: [1, 0, 0, 1] } }],
+    buffers: [{ byteLength: bin.length }], bufferViews: [{ buffer: 0, byteOffset: 0, byteLength: bin.length }],
+    accessors: [{ bufferView: 0, componentType: 5126, count: 3, type: "VEC3", min: [0, 0, 0], max: [2, 2, 0] }],
+  }));
+  const padded = Buffer.concat([json, Buffer.alloc((4 - (json.length % 4)) % 4, 0x20)]);
+  const header = Buffer.alloc(12), jsonHead = Buffer.alloc(8), binHead = Buffer.alloc(8);
+  header.writeUInt32LE(0x46546c67, 0); header.writeUInt32LE(2, 4); header.writeUInt32LE(12 + 8 + padded.length + 8 + bin.length, 8);
+  jsonHead.writeUInt32LE(padded.length, 0); jsonHead.writeUInt32LE(0x4e4f534a, 4);
+  binHead.writeUInt32LE(bin.length, 0); binHead.writeUInt32LE(0x004e4942, 4);
+  return [...Buffer.concat([header, jsonHead, padded, binHead, bin])];
+}
+
+test("3D: the acorn and the pet turn in 3D when chosen, and a .glb of your own is read or refused in plain words", async (t) => {
+  const f = await fixture(t);
+  await f.call("/api/delight/settings", { pets: { on: true }, look: { style: "3d" } });
+  await switchOn(f.page, "appearance-acorn");
+  await f.page.locator("#acorn-3d").waitFor();
+  await f.page.locator("#pet .pet-3d").waitFor();
+  assert.equal(await f.page.locator("#keepoak-acorn").isVisible(), false, "the pixel acorn steps aside");
+  const drawn = await f.page.locator("#acorn-3d").evaluate((canvas) => {
+    const copy = document.createElement("canvas");
+    copy.width = canvas.width; copy.height = canvas.height;
+    const g = copy.getContext("2d");
+    g.drawImage(canvas, 0, 0);
+    return g.getImageData(0, 0, copy.width, copy.height).data.some((value, i) => i % 4 === 3 && value > 0);
+  });
+  assert.equal(drawn, true, "the 3D acorn is really drawn");
+  const read = await f.page.evaluate(async (bytes) => {
+    const { readGlb } = await import("/delight-3d.js");
+    const parts = readGlb(new Uint8Array(bytes).buffer);
+    let refused = "";
+    try { readGlb(new Uint8Array(40).buffer); } catch (error) { refused = error.message; }
+    return { count: parts.length, color: parts[0].color, x: Math.max(...parts[0].positions.filter((_, i) => i % 3 === 0)), refused };
+  }, tinyGlb());
+  assert.equal(read.count, 1);
+  assert.deepEqual(read.color, [1, 0, 0]);
+  assert.ok(Math.abs(read.x - 0.95) < 0.01, "moved to the middle and sized to fit, whatever its own units");
+  assert.equal(read.refused, "That is not a .glb 3D model.");
+  await f.call("/api/delight/settings", { look: { style: "pixel" } });
+  await f.page.evaluate(() => globalThis.branchDelight.reload());
+  await f.page.locator("#acorn-3d").waitFor({ state: "detached" });
+  assert.equal(await f.page.locator("#keepoak-acorn").isVisible(), true, "pixel is back");
+  assert.deepEqual(f.errors, []);
+});

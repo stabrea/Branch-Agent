@@ -181,6 +181,9 @@ test("the switches are checked: unknown fields, a long name and a scrim out of r
   const saved = (await call("POST", "/api/delight/settings", { pets: { on: true, kind: "owl", name: "Moss" } })).body.settings;
   assert.deepEqual(saved.pets, { on: true, kind: "owl", name: "Moss", talks: true, tips: true });
   assert.equal(saved.achievements.on, false, "the other switches are untouched");
+  assert.equal(saved.look.style, "pixel", "pixel is the default look");
+  assert.equal((await call("POST", "/api/delight/settings", { look: { style: "clay" } })).status, 400);
+  assert.equal((await call("POST", "/api/delight/settings", { look: { style: "3d" } })).body.settings.look.style, "3d");
 });
 
 /* ---------- nobody but the owner ---------- */

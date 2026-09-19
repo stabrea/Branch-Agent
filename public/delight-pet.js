@@ -146,7 +146,7 @@ function watchMood() {
 
 /* ---------- tips and hints, scarcer as the rank rises ---------- */
 /** Bronze: a tip every few minutes at most. Silver: at most one an hour. Gold and up: none. */
-function tipGap() {
+export function tipGap() {
   return state.rank === "Bronze" ? 3 * 60000 : state.rank === "Silver" ? 60 * 60000 : Infinity;
 }
 const TIPS = [

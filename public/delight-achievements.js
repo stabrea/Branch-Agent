@@ -127,7 +127,11 @@ function chip(label, active, act) {
   const b = el("button", "secondary", label);
   b.type = "button";
   b.setAttribute("aria-pressed", String(active));
-  b.addEventListener("click", act);
+  b.addEventListener("click", () => {
+    act();
+    /* The chips were drawn again, so the keyboard goes to the new one with the same words. */
+    [...document.querySelectorAll("#ach-sheet .ach-chips button")].find((x) => x.textContent === label)?.focus();
+  });
   return b;
 }
 function paintSheet() {
@@ -169,11 +173,13 @@ export async function openSheet() {
   panel.append(head, search, Object.assign(el("div", "ach-body"), { id: "ach-sheet-body" }));
   sheet.append(panel);
   sheet.addEventListener("click", (event) => { if (event.target === sheet) sheet.remove(); });
-  sheet.addEventListener("keydown", (event) => { if (event.key === "Escape") sheet.remove(); });
   document.body.append(sheet);
   paintSheet();
   close.focus();
 }
+
+/* Esc closes the sheet wherever the keyboard is, even after a chip redrew the part it was on. */
+document.addEventListener("keydown", (event) => { if (event.key === "Escape") $("ach-sheet")?.remove(); });
 
 let checkSoon = 0;
 const soon = () => { clearTimeout(checkSoon); checkSoon = setTimeout(checkAchievements, 1500); };
