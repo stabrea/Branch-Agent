@@ -112,7 +112,7 @@
   "tests/flows-boards-review.test.mjs": 45.328,
   "tests/flows-boards-ui.test.mjs": 22.262,
   "tests/flows-boards.test.mjs": 59.032,
-  "tests/fly-core-2.test.mjs": 662.583,
+  "tests/fly-core-2.test.mjs": 170.427,
   "tests/fly-core-real-eval.test.mjs": 50.946,
   "tests/fly-core-stream.test.mjs": 5.366,
   "tests/fly-core.test.mjs": 131.078,
