@@ -43,7 +43,8 @@ const CARDS = [
     auto("contextWindowTokens", 8000, 2000000, "contextWindowTokens")] },
   { id: "limits", card: "limits", home: "settings:permissions", fields: [
     num("maxSteps", 1, 500, 60), auto("spendCapDollars", 0.01, 10000, null, { step: "0.01" })] },
-  { id: "retries", card: "limits", home: "settings:advanced", fields: [auto("apiRetries", 0, 5, "apiRetries")] },
+  { id: "retries", card: "limits", home: "settings:advanced", fields: [auto("apiRetries", 0, 5, "apiRetries"),
+    auto("localFirstReplySeconds", 5, 1800, "localFirstReplySeconds")] },
   { id: "tools", card: "commands", home: "settings:advanced", fields: [
     auto("toolAnswerChars", 1000, 60000, "toolAnswerChars"), auto("toolTimeoutSeconds", 5, 600, "toolTimeoutSeconds")] },
   { id: "commands", card: "commands", home: "settings:computer", warn: "knobs.warn.environment", fields: [

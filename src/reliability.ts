@@ -54,6 +54,14 @@ export async function evaluateChecks(output: string, check: CompletionCheck, wor
 }
 
 /**
+ * mac7/coding-next: how the first piece of a reply is waited for. A model on this computer may have
+ * to be loaded into memory before it can say anything, which can take minutes, so its first silence
+ * gets `firstMs` instead of the ordinary stall time; once anything is heard the ordinary clock runs.
+ * `quiet` is told once if nothing at all has been heard after `afterMs`, so the person can be told why.
+ */
+export interface FirstReplyWait { firstMs?: number; quiet?: { afterMs: number; notify: () => void } }
+
+/**
  * Runs `work` with a signal that aborts when nothing has been heard for `stallMs`; `touch` resets
  * the clock and is meant to be called on every streamed piece of output.
  */
@@ -61,21 +69,26 @@ export async function withStallWatchdog<T>(
   parent: AbortSignal,
   stallMs: number,
   work: (signal: AbortSignal, touch: () => void) => Promise<T>,
+  first: FirstReplyWait = {},
 ): Promise<T> {
   const watchdog = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const arm = () => {
+  let heard = false;
+  const arm = (ms: number) => {
     if (timer) clearTimeout(timer);
-    timer = setTimeout(() => watchdog.abort(new StallError(stallMs)), stallMs);
+    timer = setTimeout(() => watchdog.abort(new StallError(ms)), ms);
   };
-  arm();
+  const touch = () => { heard = true; arm(stallMs); };
+  arm(Math.max(stallMs, first.firstMs ?? stallMs));
+  const quiet = first.quiet ? setTimeout(() => { if (!heard) first.quiet!.notify(); }, first.quiet.afterMs) : undefined;
   try {
-    return await work(AbortSignal.any([parent, watchdog.signal]), arm);
+    return await work(AbortSignal.any([parent, watchdog.signal]), touch);
   } catch (error) {
     if (watchdog.signal.aborted && !parent.aborted) throw watchdog.signal.reason;
     throw error;
   } finally {
     if (timer) clearTimeout(timer);
+    if (quiet) clearTimeout(quiet);
   }
 }
 
@@ -129,6 +142,11 @@ export function shrinkToolResults(messages: Message[], keepRecent: number): numb
 export const ReliabilityOptionsSchema = z.object({
   /** Abort a model call that stays silent this long (5 s to 10 min). */
   modelStallMs: z.number().int().min(5000).max(600000).default(60000),
+  /**
+   * mac7/coding-next: how long a model on this computer may stay silent before the first piece of
+   * its reply, since it may be loading into memory (5 s to 30 min). Hosted models keep `modelStallMs`.
+   */
+  localFirstReplyMs: z.number().int().min(5000).max(1_800_000).default(300_000),
   /** What to do after a stalled model call. */
   stallRecovery: z.enum(["retry", "fallback", "fail"]).default("retry"),
   /** Stop a single tool call after this long (5 s to 10 min). */

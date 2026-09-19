@@ -46,6 +46,7 @@ import { steerMessage, steerNote } from "./steer.js";
 import { supportsImages } from "./providers.js";
 import { pinnedSkillInstructions, skillInstructions } from "./skill-tools.js";
 import type { ModelPlan, ModelPreset, ModelRouter, ReasoningEffort, RunModelOverride } from "./models.js";
+import { presetRunsLocally } from "./models.js"; // mac7/coding-next
 import { checkResult, fanoutWaves, type FanoutTask, type ResultCheck } from "./delegation.js";
 import { describeToolCall, filePathOf } from "./activity.js";
 // Wave mac2 (guards): loop guard and folder trust; see src/run-guards.ts.
@@ -64,6 +65,7 @@ import { parseSessionSummary, summaryText } from "./session-summary.js";
 import { chatEngineSettings, condenseMessages, earlierTurns, shouldCondense, standaloneQuestion } from "./chat-engine.js"; // w911 (A0847)
 import {
   CheckError, StallError, ReliabilityOptionsSchema, CompletionCheckSchema, clipToolResult, evaluateChecks, shrinkToolResults, withStallWatchdog,
+  type FirstReplyWait,
   thinkingKeepsAlive, thinkingCharsPerToken, thinkingStallWindows,
   type CompletionCheck, type ReliabilityInput, type ReliabilityOptions,
 } from "./reliability.js";
@@ -167,6 +169,8 @@ export interface BackgroundResult { childRunId: string; parentRunId: string; sta
 export interface FanoutOutcome { waves: string[][]; tasks: Record<string, { runId: string; status: string; output: string; result: ResultCheck }> }
 /** Every reply may be this long; a run whose model runs out of room thinking may double it twice. */
 const baseReplyCeiling = 2048, maxReplyCeiling = 8192;
+/** mac7/coding-next: how long a model on this computer is silent before the person is told it may be loading. */
+const localQuietMs = 10_000;
 /** What the model is told after a reply that was all thinking: act on it now. */
 export const emptyReplyNudge = "Your last reply had thinking but no answer and no tool call, so nothing happened. "
   + "Act on what you worked out now: call the tool for the next step, or, if the task is finished, give your final answer.";
@@ -1929,7 +1933,7 @@ ${run.output.slice(0, 6000)}`;
             preset.provider.complete({ ...request, signal, onTextDelta: (text: string) => { touch(); onTextDelta(text); },
               // integrate/empty-completion: only within the reply's room and a bounded window.
               onReasoningDelta: thinkingKeepsAlive(touch, { maxChars: maxTokens * thinkingCharsPerToken,
-                forMs: this.reliability.modelStallMs * thinkingStallWindows }) }))
+                forMs: this.reliability.modelStallMs * thinkingStallWindows }) }), this.firstReplyWait(run, preset))
         : await preset.provider.complete({ ...request, signal: context.signal }));
       const { output, reported } = this.recordCompletion(run, context, raw, input);
       // R17-048 / R17-050: note the service's own count, and keep its cache warm if the owner asked.
@@ -1967,6 +1971,18 @@ ${run.output.slice(0, 6000)}`;
       span?.end("error", this.hideSecrets(errorText(e)), { "branch.model.outcome": kind });
       throw e;
     }
+  }
+  /**
+   * mac7/coding-next: a model on this computer may be loading into memory before its first word, so
+   * that first silence may last longer (the owner's setting, 300 s as shipped), and after a short
+   * while the person is told why nothing has appeared yet. Hosted models wait exactly as before.
+   */
+  private firstReplyWait(run: Run, preset: ModelPreset): FirstReplyWait {
+    if (!presetRunsLocally(preset)) return {};
+    const firstMs = knobs.localFirstReplyMs(this.store, this.owner, this.reliability);
+    return { firstMs, quiet: { afterMs: Math.min(localQuietMs, this.reliability.modelStallMs), notify: () =>
+      this.store.event(run.id, "model.loading", { preset: preset.id, model: preset.model, waitSeconds: Math.round(firstMs / 1000),
+        message: "Waiting for the model on this computer to start. It may be loading into memory." }) } };
   }
   /** R17-S12: with "show reasoning" off, no caller (task, side question, debate turn) gets the thinking. */
   private shownThinking(completion: Completion): Completion {

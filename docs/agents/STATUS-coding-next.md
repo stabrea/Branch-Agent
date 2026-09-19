@@ -7,7 +7,7 @@ Order worked: 5, 6, 3, 2, 1, 4 (2 before 1 because both touch `runtime.callTool`
 
 - [x] 5. `code.run` (and every other `process.execPath` spawn) runs as Node inside the desktop app
 - [x] 6. Crash capture switchable, ships off (engine crash notes + Electron crash reporter)
-- [ ] 3. Longer first-reply wait for local models, with a status line
+- [x] 3. Longer first-reply wait for local models, with a status line
 - [ ] 2. Unknown tool arguments dropped (not refused), the model told; permission check sees cleaned arguments
 - [ ] 1. Read before edit
 - [ ] 4. "Let Branch run this project's tests?" asked once per folder
@@ -59,3 +59,26 @@ Tests: `tests/coding-next.test.mjs` "5 …" — the helper, and `code.run` with 
   now switch crash capture on, since they test a crash note's content.
 - Not tested: the Electron call itself (cannot run Electron here); `startCrashReporter` is 8 lines around
   `crashReporterPlan`, which is tested.
+
+### 3. Local model first reply
+- Local = `presetRunsLocally` (src/models.ts), the app's existing test: the connection's own address is
+  `localhost`/`127.0.0.1`/`::1`. That covers Ollama (OllamaProvider), LM Studio and llama.cpp (OpenAI-shaped
+  at loopback). A model served from another machine on the network is treated as hosted, as everywhere else.
+- `withStallWatchdog` takes an optional `{ firstMs, quiet }`: the first silence may last `firstMs`; after the
+  first piece the ordinary `modelStallMs` runs. Applied per model call (each reply's first word), since a
+  local model can be unloaded between rounds (Ollama's keep-alive).
+- Setting: launch `reliability.localFirstReplyMs` (default 300 s) and the owner's knob
+  `localFirstReplySeconds` (limits card, Settings › Advanced, next to API retries; empty = launch figure).
+  Hosted connections are unchanged (60 s). Documented in docs/configuration.md (reliability paragraph and knobs table).
+- Status line: after 10 s of silence (or the stall time, if shorter) on a local connection, one `model.loading`
+  event; the live row shows "Waiting for the model on this computer to start. It may be loading into memory…"
+  (en + fr key `live.localLoading`), and the activity feed lists it. Chose a new event kind over a field on
+  `model.started` because a status on `model.started` would say "loading" on every local round, warm or not;
+  consumers that do not know the kind ignore it.
+- Deviation from "ships off": this changes the default wait for local connections (as the brief decided).
+- Tests: `tests/coding-next.test.mjs` "3 …" with a real slow HTTP server on 127.0.0.1 (completes inside the
+  longer window with one `model.loading`; stalls when the window is shorter), a hosted fake that still stalls
+  at the ordinary time with no `model.loading`, the watchdog unit, and the knob. `tests/hidden-knobs.test.mjs`
+  defaults updated for the new field.
+- Seen once: `tests/empty-completion-adversarial.test.mjs` failed at file level (no subtest failed) under
+  `--test-concurrency=2`; passed alone and twice more concurrently. Looks like a teardown flake, not this change.

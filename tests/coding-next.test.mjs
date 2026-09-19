@@ -18,6 +18,7 @@ async function fixture(t, options = {}) {
   const app = await createBranch({
     workspace: join(root, "workspace"), dataDir: join(root, "data"),
     presets: [{ id: "alpha", name: "Alpha", provider, model: "a" }],
+    ...(options.reliability ? { reliability: options.reliability } : {}),
   });
   t.after(async () => { await app.close(); await discardTemp(root); });
   return { app, root, workspace: join(root, "workspace") };
@@ -132,4 +133,94 @@ test("6 Report a problem still works with crash capture off: it just has no cras
     crashDumpsDir: null, resolve: null });
   const crashes = items.find((item) => item.id === "crashes");
   assert.match(crashes.title, /0 noted, 0 crash files/);
+});
+
+// ------------------------------------------------------------------ 3. a local model's first reply
+
+/** An OpenAI-shaped server on this computer that says nothing for `delay()` ms, then streams "hello". */
+async function slowLocalServer(t, delay) {
+  const { createServer } = await import("node:http");
+  const server = createServer((request, response) => {
+    request.resume();
+    const timer = setTimeout(() => {
+      response.writeHead(200, { "content-type": "text/event-stream" });
+      response.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: "hello" } }] })}\n\n`);
+      response.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: "stop" }] })}\n\n`);
+      response.end("data: [DONE]\n\n");
+    }, delay());
+    response.on("close", () => clearTimeout(timer));
+  });
+  await new Promise((done) => server.listen(0, "127.0.0.1", done));
+  t.after(() => new Promise((done) => { server.closeAllConnections?.(); server.close(() => done()); }));
+  return `http://127.0.0.1:${server.address().port}/v1`;
+}
+
+test("3 a model on this computer gets a longer first-reply wait, and the person is told it may be loading", async (t) => {
+  const { app } = await fixture(t, { reliability: { stallRecovery: "fail" } });
+  const { OpenAIProvider } = await import("../dist/providers.js");
+  const endpoint = await slowLocalServer(t, () => 900);
+  app.runtime.models.register({ id: "on-this-computer", name: "Local", model: "m",
+    provider: new OpenAIProvider({ endpoint, model: "m", apiKey: "local" }) });
+  // Shortened for the test (the shipped figures are 60 s and 300 s): silence for 300 ms is a stall,
+  // except before a local model's first word, which may take 2 s.
+  app.runtime.reliability.modelStallMs = 300;
+  app.runtime.reliability.localFirstReplyMs = 2000;
+  const run = await app.runtime.run({ prompt: "hi", model: "on-this-computer", onTextDelta: () => undefined });
+  assert.equal(run.status, "completed", run.output);
+  assert.equal(run.output, "hello");
+  const loading = app.store.events(run.id).filter((event) => event.kind === "model.loading");
+  assert.equal(loading.length, 1, "told once, while nothing had been heard");
+  assert.match(loading[0].data.message, /loading into memory/);
+  assert.ok(!app.store.events(run.id).some((event) => event.kind === "model.stalled"));
+
+  // With the first-reply wait shorter than the load, it is a stall, as before.
+  app.runtime.reliability.localFirstReplyMs = 500;
+  const stalled = await app.runtime.run({ prompt: "hi", model: "on-this-computer", onTextDelta: () => undefined });
+  assert.equal(stalled.status, "failed");
+  assert.ok(app.store.events(stalled.id).some((event) => event.kind === "model.stalled"));
+});
+
+test("3 a hosted model's wait is unchanged: its first silence is the ordinary stall time", async (t) => {
+  const { app } = await fixture(t, { reliability: { stallRecovery: "fail" } });
+  const slowHosted = { name: "hosted", async complete(request) {
+    await new Promise((done, fail) => {
+      const timer = setTimeout(done, 900);
+      request.signal.addEventListener("abort", () => { clearTimeout(timer); fail(request.signal.reason); }, { once: true });
+    });
+    request.onTextDelta?.("late");
+    return { content: "late", toolCalls: [] };
+  } };
+  app.runtime.models.register({ id: "hosted", name: "Hosted", provider: slowHosted, model: "h" });
+  app.runtime.reliability.modelStallMs = 300;
+  app.runtime.reliability.localFirstReplyMs = 5000;
+  const run = await app.runtime.run({ prompt: "hi", model: "hosted", onTextDelta: () => undefined });
+  assert.equal(run.status, "failed");
+  const kinds = app.store.events(run.id).map((event) => event.kind);
+  assert.ok(kinds.includes("model.stalled"));
+  assert.ok(!kinds.includes("model.loading"), "a hosted model is never said to be loading");
+});
+
+test("3 the watchdog: the first window can be longer; after the first piece the ordinary clock runs", async () => {
+  const { withStallWatchdog, StallError } = await import("../dist/reliability.js");
+  const never = new AbortController().signal;
+  const wait = (ms, signal) => new Promise((done, fail) => {
+    const timer = setTimeout(done, ms);
+    signal.addEventListener("abort", () => { clearTimeout(timer); fail(signal.reason); }, { once: true });
+  });
+  await assert.rejects(withStallWatchdog(never, 100, (signal) => wait(300, signal)), StallError);
+  assert.equal(await withStallWatchdog(never, 100, async (signal) => { await wait(300, signal); return "ok"; }, { firstMs: 1000 }), "ok");
+  // Once something was heard, a long silence is a stall again even though the first window was long.
+  await assert.rejects(withStallWatchdog(never, 100, async (signal, touch) => { touch(); await wait(300, signal); }, { firstMs: 1000 }), StallError);
+});
+
+test("3 the owner's setting: localFirstReplySeconds overrides the launch figure; empty keeps it", async (t) => {
+  const { app } = await fixture(t);
+  const { saveKnobs } = await import("../dist/knobs/settings.js");
+  const { localFirstReplyMs } = await import("../dist/knobs/apply.js");
+  assert.equal(app.runtime.reliability.localFirstReplyMs, 300_000, "ships at 300 s");
+  assert.equal(localFirstReplyMs(app.store, "local", app.runtime.reliability), 300_000);
+  saveKnobs(app.store, "local", "limits", { localFirstReplySeconds: 45 });
+  assert.equal(localFirstReplyMs(app.store, "local", app.runtime.reliability), 45_000);
+  saveKnobs(app.store, "local", "limits", { localFirstReplySeconds: null });
+  assert.equal(localFirstReplyMs(app.store, "local", app.runtime.reliability), 300_000);
 });

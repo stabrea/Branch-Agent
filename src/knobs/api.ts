@@ -30,7 +30,7 @@ export interface KnobsApp {
   runtime: {
     owner: string;
     models: { presets: ReadonlyMap<string, { id: string; name: string }> };
-    reliability: { toolResultChars: number; toolTimeoutMs: number };
+    reliability: { toolResultChars: number; toolTimeoutMs: number; localFirstReplyMs: number };
     retryPolicy: { maxRetries: number };
   };
 }
@@ -73,6 +73,7 @@ function view(app: KnobsApp) {
       toolAnswerChars: runtime.reliability.toolResultChars,
       toolTimeoutSeconds: Math.round(runtime.reliability.toolTimeoutMs / 1000),
       apiRetries: runtime.retryPolicy.maxRetries,
+      localFirstReplySeconds: Math.round(runtime.reliability.localFirstReplyMs / 1000), // mac7/coding-next
     },
   };
 }

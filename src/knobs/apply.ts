@@ -92,6 +92,12 @@ export function toolLimits(store: Reader, owner: string, launch: { toolResultCha
   };
 }
 
+/** mac7/coding-next: how long a model on this computer may take to start its reply, in milliseconds. */
+export function localFirstReplyMs(store: Reader, owner: string, launch: { localFirstReplyMs: number }): number {
+  const seconds = readKnobs(store, owner, "limits").localFirstReplySeconds;
+  return seconds === null ? launch.localFirstReplyMs : seconds * 1000;
+}
+
 /** R17-S11: which connection answers a sub-task, when the owner named one that exists. */
 export function subtaskModel(store: Reader, owner: string, known: (id: string) => boolean): string | undefined {
   const id = readKnobs(store, owner, "subtasks").subtaskModel;
