@@ -171,3 +171,40 @@ test("the document library does not hand back a document read in from a file tha
   assert.doesNotMatch(text(after), new RegExp(secretText));
   assert.match(text(after), new RegExp(openText));
 });
+
+// ------------------------------------------------------------------ snapshots and what leaves the computer
+
+test("a snapshot a task takes leaves finance out and says so; one the owner takes from the window keeps everything", async (t) => {
+  const { app, result } = await runTool(t, "workspace.snapshot", { label: "before" });
+  assert.equal(result.files, 2, "only the two allowed files");
+  assert.match(result.leftOut ?? "", /the folder finance/);
+  const kept = app.store.sqlite.prepare("SELECT path FROM file_versions WHERE snapshot_id=?").all(result.id).map((row) => row.path).sort();
+  assert.deepEqual(kept, ["notes/open.txt", "readme.md"]);
+  const owners = await app.store.openWorkspaceHistory(app.files, "local").snapshot({ label: "mine" });
+  assert.equal(owners.files, 4, "the owner's own snapshot from the window is unaffected");
+  assert.equal(owners.leftOut, undefined);
+});
+
+test("a pull request made from the workspace's changes never sends a refused file", async (t) => {
+  const { app } = await fixture(t);
+  await financeRule(app);
+  const { z } = await import("zod");
+  const { pullRequestFromChanges, savePullRequestHookSettings } = await import("../dist/pr-hook.js");
+  const { NetworkPolicy } = await import("../dist/index.js");
+  savePullRequestHookSettings(app.store, "local", { mode: "on" });
+  app.registry.register({ name: "github.open_pull_request", permission: "github.manage", description: "stand-in",
+    parameters: z.object({}).passthrough(), execute: async (args) => args });
+  const calls = [];
+  const answers = { "remote get-url": "git@github.com:acme/widgets.git", "symbolic-ref": "refs/remotes/origin/main",
+    "status": " M finance/q1.txt\n M notes/open.txt\n" };
+  const git = async (options) => {
+    calls.push(options.args.join(" "));
+    const key = Object.keys(answers).find((prefix) => options.args.join(" ").startsWith(prefix));
+    return { status: "completed", stdout: key === undefined ? "" : answers[key], stderr: "", exitCode: 0, command: "git" };
+  };
+  const opened = await pullRequestFromChanges({ store: app.store, owner: "local", files: app.files, git, registry: app.registry,
+    policy: new NetworkPolicy({ allowPrivateAddresses: true }), runTool: async () => ({ number: 7 }) },
+  { name: "x", title: "t", summary: "s", paths: null, signal: AbortSignal.timeout(10000) });
+  assert.deepEqual(opened.files, ["notes/open.txt"]);
+  assert.ok(!calls.some((command) => command.includes("finance")), "git was never handed a finance file");
+});
