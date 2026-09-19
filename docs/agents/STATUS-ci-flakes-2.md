@@ -117,3 +117,4 @@ condition. Also any other test that failed more than once in the last ~15 trunk 
       now leaves identical presets alone, so the test writes the same options itself (fails on trunk's
       glass-select.js, passes here; glass-select + conversation-mode files 33/33). Pushed without waiting
       for trunk Checks, per the coordinator's rule change.
+      Pushed to mac/cross-platform as 11cb301d; Checks run 35465758897.
