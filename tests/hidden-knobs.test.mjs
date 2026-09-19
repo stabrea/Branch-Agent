@@ -413,9 +413,9 @@ test("the knobs route: the owner saves, bad values and loosening from elsewhere 
   const person = app.store.profiles.create({ name: "Sam", pin: "4321" });
   app.store.profiles.switch({ profileId: person.id, pin: "4321" });
   const household = await call("POST", { card: "commands", values: { passEnvironment: ["BUILD_MODE"] } });
-  assert.equal(household.status, 403);
+  assert.equal(household.status, 400); // profile-audit: refused at one place in src/server.ts, as requireOwner answers
   // Integration review: every card is the owner's own setting (the spending cap included), so a profile changes none.
-  assert.equal((await call("POST", { card: "limits", values: { maxSteps: 30 } })).status, 403);
+  assert.equal((await call("POST", { card: "limits", values: { maxSteps: 30 } })).status, 400);
   app.store.profiles.switch({ profileId: null });
   assert.deepEqual(readKnobs(app.store, owner, "commands").passEnvironment, []);
   assert.equal((await call("POST", { card: "commands", values: { passEnvironment: ["BUILD_MODE"] } })).status, 200);

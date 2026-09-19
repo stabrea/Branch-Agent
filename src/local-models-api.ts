@@ -2,7 +2,7 @@ import { z } from "zod";
 import { offers, searchHuggingFace, lookUpOllama, searchQuery } from "./local-catalogue.js";
 import { savedLocalConnections } from "./local-connections.js";
 import { assertLocalModelsOn, localModelsMode, saveLocalModelsMode } from "./local-jobs.js";
-import { oneButtonMode, saveOneButtonMode } from "./local-one-button.js";
+import { oneButtonMode, saveOneButtonMode, type PressContext } from "./local-one-button.js";
 import type { LocalKit } from "./local-kit.js";
 import { runtimeIds, runtimeInfo, type RuntimeId } from "./local-launch.js";
 import { RuntimeSchema } from "./local-manage.js";
@@ -36,6 +36,11 @@ export interface LocalModelsDeps {
   owner: string;
   /** The one-click pieces; absent in a launch that did not set them up. */
   kit?: LocalKit | undefined;
+  /**
+   * Who is asking: the owner, a household profile, a short-lived key, a chat app or a Trunk. The
+   * one button's guard decides from this itself, so it holds whatever is in front of this route.
+   */
+  caller: PressContext;
 }
 
 export async function localModelsApi(
@@ -82,8 +87,8 @@ async function changes(deps: LocalModelsDeps, path: string, input: unknown): Pro
   switch (path) {
     case "/api/local-models/setup": return kit.oneClick.begin(input);
     // mac7/one-click (issue #107): what the button would do, and the button itself.
-    case "/api/local-models/one-button/plan": return kit.oneClick.buttonPlan(input);
-    case "/api/local-models/one-button": return kit.oneClick.buttonGo(input);
+    case "/api/local-models/one-button/plan": return kit.oneClick.buttonPlan(input, deps.caller);
+    case "/api/local-models/one-button": return kit.oneClick.buttonGo(input, deps.caller);
     case "/api/local-models/setup/stop": return kit.oneClick.stop(idBody.parse(input).id);
     case "/api/local-models/unload": return kit.manager.unload(input);
     case "/api/local-models/delete": return kit.manager.remove(input);

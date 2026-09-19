@@ -1015,7 +1015,7 @@ export const OUTBOUND = [
   /^src\/channels\/(?!parity-api\.ts)/, /^src\/providers\//,
   /^src\/(local-models|tracing-export|voice|provider-batch)\.ts$/,
   // Callers of our own routes, and the route description, rather than the routes themselves.
-  /^src\/(cli|cli-attach|api-openapi|short-lived-keys)\.ts$/, /^src\/install\//, /^src\/desktop\//,
+  /^src\/(cli|cli-attach|api-openapi|short-lived-keys|household-routes)\.ts$/, /^src\/install\//, /^src\/desktop\//,
   /^src\/never-break\/gateway\.ts$/, /^src\/commands\/catalog\.ts$/,
   /^src\/channel-setup\/cli\.ts$/, // mac7/connect: `branch connect` calls the Set up routes of the running Branch
   // r17-i: callers of other computers' routes and of the relay's, not routes of this one.

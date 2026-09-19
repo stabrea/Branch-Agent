@@ -87,6 +87,12 @@ const box = () => ask("prompt");
 /** Where the box was before dictation started, so the words are added to what you typed, not over it. */
 let typed = "";
 let asking = null;
+/**
+ * merge-queue review: the phrase already added to the box. The app keeps a settled phrase until the
+ * next press, and a question already on its way when the microphone closed answers with it again,
+ * so without this the words were written in twice.
+ */
+let settledAlready = null;
 
 const line = (text, open) => {
   const note = ask("voice-dictate-status");
@@ -101,9 +107,10 @@ function write(state) {
   const field = box();
   if (!field) return;
   const said = state?.words ?? "";
+  if (state?.settled && said && said === settledAlready) return;
   field.value = typed ? (said ? `${typed} ${said}` : typed) : said;
   field.classList.toggle("dictating", Boolean(state?.open) && !state?.settled);
-  if (state?.settled && said) typed = field.value; // the phrase is yours now; the next one follows it
+  if (state?.settled && said) { typed = field.value; settledAlready = said; } // the phrase is yours now; the next one follows it
 }
 
 async function collect() {
@@ -125,7 +132,7 @@ function stopAsking() {
 async function press() {
   const button = ask("voice-dictate");
   const on = button.getAttribute("aria-pressed") !== "true";
-  if (on) typed = (box()?.value ?? "").trim();
+  if (on) { typed = (box()?.value ?? "").trim(); settledAlready = null; }
   try {
     const answer = await api("voice/dictation/listen", { on });
     if (answer.refusal) { line(answer.refusal, false); stopAsking(); return; }

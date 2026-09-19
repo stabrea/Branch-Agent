@@ -39,6 +39,7 @@ import { testRouteFor } from "./provider-factory.js";
 import { connectFromPreset, forgetConnection } from "./connections-preset.js";
 import { catalogEntries, catalogEntry, providerCatalog } from "./provider-catalog.js";
 import { localModelsApi } from "./local-models-api.js";
+import type { PressContext } from "./local-one-button.js";
 import { handlesRemovePath, removeBranchApi } from "./remove-branch.js";
 
 /** mac7/clean-uninstall: the folder holding this copy's package.json, as `branch uninstall` reads it. */
@@ -231,6 +232,7 @@ import { handlesSavingsPath, savingsApi, SavingsApiError } from "./model-savings
 // mac7/usage-bar: how much of each connection's allowance is left (src/usage-limits.ts).
 import { handlesUsageLimitsPath, usageLimitsRoute, UsageLimitsError } from "./usage-limits-api.js";
 import { savingsRefusal } from "./short-lived-keys.js";
+import { householdMaySend, householdRefusalFor } from "./household-routes.js"; // profile-audit
 // R17-S-C: the comfort settings (src/comfort/); every change is the owner's.
 import { ComfortApiError, comfortApi, handlesComfortPath } from "./comfort/api.js";
 import { comfortRefusal } from "./short-lived-keys.js";
@@ -1217,7 +1219,8 @@ async function api(
   // Models on this computer: what is installed, downloads, hardware advice and task routing.
   if (path === "/api/local-models" || path.startsWith("/api/local-models/"))
     return localModelsApi(
-      { runtimes: localRuntimes(), store: app.store, models: app.runtime.models, owner: app.runtime.owner, kit: localKitFor(app.store) },
+      { runtimes: localRuntimes(), store: app.store, models: app.runtime.models, owner: app.runtime.owner, kit: localKitFor(app.store),
+        caller: windowCaller(app) },
       request.method ?? "GET", path, () => readBody(request),
     );
   // mac7/adapt: what a stopped task is missing, and getting it on the owner's yes. Looking only
@@ -1225,7 +1228,7 @@ async function api(
   if (handlesAdaptPath(path))
     return adaptApi({ store: app.store, owner: app.runtime.owner,
       requireOwner: (what) => app.store.profiles.requireOwner(what) },
-    request.method ?? "GET", path, () => readBody(request, 16 * 1024), { source: "owner" });
+    request.method ?? "GET", path, () => readBody(request, 16 * 1024), windowCaller(app));
   // mac7/clean-uninstall: the danger zone — what removing Branch would take away, and removing it.
   // The owner's alone, in the app window; the remover itself is the one `branch uninstall` uses.
   if (handlesRemovePath(path))
@@ -1233,7 +1236,7 @@ async function api(
       { store: app.store, owner: app.runtime.owner, platform: process.platform, env: process.env,
         sourceCheckout: existsSync(join(packageRootHere(), ".git")),
         manage: { env: process.env, platform: process.platform, version: app.version, packageRoot: packageRootHere(), print: () => undefined } },
-      request.method ?? "GET", path, () => readBody(request, 4 * 1024),
+      request.method ?? "GET", path, () => readBody(request, 4 * 1024), windowCaller(app),
     );
   if (request.method === "POST" && path === "/api/onboarding") {
     const value = OnboardingSchema.parse(await readBody(request));
@@ -1673,7 +1676,7 @@ async function sessionApi(app: Branch, request: IncomingMessage, path: string): 
     if (request.method === "GET") return { followUps: app.runtime.queued(match[1]!) };
     if (request.method === "POST") {
       const { prompt } = z.object({ prompt: z.string().trim().min(1).max(16000) }).strict().parse(await readBody(request));
-      return app.runtime.followUp(match[1]!, prompt);
+      return app.runtime.followUp(match[1]!, prompt, windowCaller(app).person ?? null);
     }
   }
   if (match && request.method === "GET" && !match[2]) return app.store.sessionView(owner, match[1]!);
@@ -3081,6 +3084,13 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
         const refused = gateway.check(request, true);
         if (refused) throw new HttpError(401, refused);
       }
+      // profile-audit: a window switched to a household profile is that person. Every owner-only
+      // route is refused to them here, in one sentence, before its own code runs (src/household-routes.ts).
+      if (!app.store.profiles.isOwner()) {
+        const refused = offLimitsToHousehold(request.method, path);
+        // 400, as every `requireOwner` refusal over HTTP has always been answered.
+        if (refused) throw new HttpError(400, refused);
+      }
       // Doing something counts as activity; merely looking does not, or the app's own three-second
       // refresh of the screen would keep it awake for ever and it would never lock itself.
       if (request.method !== "GET" && path !== "/api/lock" && !onlyLooking) app.sessionLock.touch();
@@ -3921,6 +3931,15 @@ export function offLimitsToShortLivedKeys(method: string | undefined, path: stri
   return interopOffLimits(method, path);
 }
 /**
+ * profile-audit: what a household person at the window is refused. Whatever a short-lived key is
+ * refused, they are too — settings, permissions, secrets, pairing, backups, updates, the danger
+ * zone — except their own things and the ways out listed in src/household-routes.ts.
+ */
+export function offLimitsToHousehold(method: string | undefined, path: string): string | null {
+  if (householdMaySend(method, path)) return null;
+  return offLimitsToShortLivedKeys(method, path) === null ? null : householdRefusalFor(path);
+}
+/**
  * mac5/key-sweep + mac5/manual-actions (integration review): a tool run by hand with a short-lived
  * key is decided by the one gate (src/tool-gate.ts: never-break, the role, the rules, the leak guard;
  * only "allow" runs). What that gate refuses for the key is answered as the key's refusal, a 401.
@@ -3933,6 +3952,14 @@ async function asKeyRefusal<T>(work: () => Promise<T>): Promise<T> {
       throw new HttpError(401, error.message);
     throw error;
   }
+}
+/**
+ * Who is asking over HTTP, for the guards that decide it themselves (the one button, `/adapt`): the
+ * app window, as whichever household profile it is switched to, and whether the request came with a
+ * short-lived key (a person's own key is one too). A chat app and a Trunk never arrive this way.
+ */
+function windowCaller(app: Branch): PressContext {
+  return { source: "owner", person: app.store.profiles.active()?.id ?? null, shortLivedKey: startedWithShortLivedKey() };
 }
 /** mac3/security-check: a server tried from Settings is looked up in the malware list before it starts. */
 async function vetTriedServer(app: Branch, input: unknown): Promise<void> {

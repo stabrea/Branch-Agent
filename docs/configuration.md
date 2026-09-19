@@ -5048,7 +5048,33 @@ removes one. Only the owner may add or remove people. Five wrong PINs in a row s
 accepting any for five minutes. While somebody's profile is switched on, the conversation list,
 saved conversations and the Memory view are theirs and not the owner's, a task they start is filed
 under their name, and the secrets locker, projects, saved workflows, the waiting line, days off and
-the owner's shared copies are all refused in plain words. **Be honest about what this is:** separation on one computer, not separate accounts. There
+the owner's shared copies are all refused in plain words.
+
+**Switched to somebody's profile, the window is that person (profile-audit).** Every owner-only
+address — every route `tests/short-lived-key-routes.mjs` marks `owner`, and every read it marks as
+carrying a secret or everybody's data — is refused to a window switched to a household profile, at
+one place in `src/server.ts` before the route's own code runs, in one sentence: *"This belongs to the
+owner. Switch back to the owner's profile to use it."* (the chat apps and their Set up panel name
+themselves in it: *"Your chat apps belongs to the owner …"*), answered with 400 as every
+`requireOwner` refusal always has been. That covers settings of every kind (the comfort cards, the
+knobs, appearance and the settings kit included), approval rules and the safety check, the locker,
+sign-ins and saved-password filling, the sandbox and network, chat apps and pairing, devices and
+the phone download, integrations, add-ons, skills and models on this computer, backups and
+restores, updates and restarts, the danger zone (removing Branch), Lockdown, pinning and unpinning,
+and the people here. The rule fails closed like the short-lived key's: a household person may use
+the task routes, read what anybody may read, and change only their own things (their
+conversations, what is remembered for them, documents, notes and lists, listed in
+`src/household-routes.ts`), plus the two ways out — switching profile and locking the window. The
+wake-word and dictation cards still answer them, with the owner's word and the microphone left out.
+A task the window starts while switched is written down as that person's (`personProfileId`), so a
+tool that asks where a task came from, a resumed task and a queued follow-up still see them after
+the window is switched back. `tests/household-profile.test.mjs` drives every owner-only route with
+the window switched and fails when a route is added to the table without being decided here.
+
+**This is a convenience, not a lock.** Going back to the owner's profile needs no PIN: anybody at
+the keyboard can press it. The refusals above keep a household person out of the owner's things by
+default, so nothing is changed by accident or by a child exploring; they do not stop somebody who
+decides to switch back. Only switching *into* a profile asks for a PIN. **Be honest about what this is:** separation on one computer, not separate accounts. There
 is no syncing, and the assistant still works as the owner: it uses the owner's models, tools and
 settings, it draws on the facts the owner has it remember while answering somebody else, and
 anything it decides to remember by itself during their task is filed under the owner, not them.
@@ -8791,8 +8817,9 @@ what each one is fixed at, and a household profile sees that same list read-only
 (`Store.save`), so each of these meets the same refusal in the same words — the window, the API, the
 terminal, a settings file, a whole-app preset and a tool the assistant calls. The refusal says *"The
 owner pinned this setting (…), so it cannot be changed here. Only the owner can unpin it, in
-Settings."* This matters because several settings screens write the owner's own record without a
-profile check of their own; the pin is what stands in the way there.
+Settings."* Over HTTP a household profile never reaches a settings screen at all (profile-audit, above);
+the pin is what stands in the way of the other ways in — the terminal, a settings file, a preset and
+a tool the assistant calls during somebody else's task.
 
 A pin is checked against what the record would **mean**, not against the text sent, so a write that
 leaves the field out, or that flips the older yes/no some records keep beside their switch, is

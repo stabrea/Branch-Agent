@@ -4,8 +4,10 @@ import {
   Menu,
   Tray,
   nativeImage,
+  shell,
   type NativeImage,
 } from "electron";
+import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 // Wave 5 (deployment): portable folders, joining a background engine, opening straight to the tray.
@@ -36,6 +38,8 @@ import { appEntryName } from "./release-assets.js";
 import { WINDOW_ICON_SIZE, isTemplateTrayIcon, trayIconScales, trayIconSize } from "./icon-sizes.js";
 // mac7/safe-rollback: what an update changes is written down before the hand-over moves anything.
 import { recordActivation } from "../install/headless-update.js";
+// mac7/win-icon: the taskbar shows the KeepOak mark, not Electron's atom.
+import { refreshShortcutsFlag, refreshWindowsIdentity, windowsAppId } from "../install/windows-identity.js";
 
 let window: BrowserWindow | undefined;
 let tray: Tray | undefined;
@@ -208,6 +212,21 @@ function desktopRecord(dataDir: string): Pick<UpdateHooks, "record"> {
   } };
 }
 
+/**
+ * mac7/win-icon: points this copy's Start-menu and desktop shortcuts, and its Add or remove programs
+ * entry, at the KeepOak mark and the app ID (src/install/windows-identity.ts). An update only swaps
+ * the program folder, so this runs at every start; it writes nothing when all is already right.
+ */
+async function refreshWindowsShortcuts(): Promise<void> {
+  const installRoot = installedAppRoot(app.isPackaged, process.platform, process.execPath);
+  if (process.platform !== "win32" || !installRoot) return;
+  await refreshWindowsIdentity({ installRoot, executableName: appEntryName(process.platform), env: process.env }, {
+    readShortcut: (path) => shell.readShortcutLink(path),
+    updateShortcut: (path, fields) => shell.writeShortcutLink(path, "update", fields),
+    exists: existsSync,
+  }).catch((error: Error) => console.error("Shortcuts:", error.message));
+}
+
 async function start(): Promise<void> {
   const base = app.getPath("userData");
   const settings = await loadDesktopSettings(join(base, "model-settings.json"));
@@ -327,9 +346,15 @@ function desktopProvider(settings: DesktopSettings) {
 }
 
 app.setName("Branch Agent");
+// mac7/win-icon: before any window, so the taskbar files every window under Branch's own ID (the
+// one its shortcuts carry) instead of guessing from the program file, which is Electron's.
+if (process.platform === "win32") app.setAppUserModelId(windowsAppId);
 if (process.env.BRANCH_DESKTOP_HOME)
   app.setPath("userData", process.env.BRANCH_DESKTOP_HOME);
-if (!app.requestSingleInstanceLock()) app.quit();
+if (process.argv.includes(refreshShortcutsFlag)) {
+  // The installer's one-off request: put the shortcuts right and quit, touching nothing else.
+  void app.whenReady().then(refreshWindowsShortcuts).finally(() => app.exit(0));
+} else if (!app.requestSingleInstanceLock()) app.quit();
 else {
   app.on("second-instance", () => {
     window?.show();
@@ -352,7 +377,7 @@ else {
   });
   void app
     .whenReady()
-    .then(() => { setMacMenu(); return start(); })
+    .then(async () => { setMacMenu(); await refreshWindowsShortcuts(); return start(); })
     .catch((error) => {
       console.error("Branch Agent could not start:", error.message);
       app.quit();
