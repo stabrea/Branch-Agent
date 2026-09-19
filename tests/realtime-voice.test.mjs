@@ -1,4 +1,5 @@
 import test from "node:test";
+import { showEverything } from "./places.mjs";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
@@ -768,6 +769,8 @@ test("the Talk live button appears only on a connection that can hold a live con
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.locator("#workspace").waitFor({ state: "visible" });
+  /* Since 0.18.1 the calm window shows the voice buttons once voice is switched on. */
+  await showEverything(page, { showVoice: true });
 
   // The connection this app starts with cannot hold one, so there is no button to press.
   assert.equal(await page.locator("#voice-live").isHidden(), true, "no button on a connection that cannot");

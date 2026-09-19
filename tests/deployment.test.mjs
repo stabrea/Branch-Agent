@@ -410,7 +410,9 @@ test("the sign-in switches name the system Branch runs on: Windows, your Mac, or
   for (const language of ["en", "fr"]) {
     const words = JSON.parse(await readFile(new URL(`../public/locales/${language}.json`, import.meta.url), "utf8"));
     for (const key of ["field.open-branch-when-i-sign", "field.start-branch-when-i-sign"]) {
-      assert.ok(html.includes(`data-t="${key}"`), key);
+      /* Since 0.18.1 first run has no tick boxes, so only the Settings switch is on the page; the
+         first-run words stay on file and must still name the right system. */
+      if (key === "field.start-branch-when-i-sign") assert.ok(html.includes(`data-t="${key}"`), key);
       assert.doesNotMatch(words[key], /Windows/, `${language} ${key}: the default names no system`);
       for (const [platform, ending] of Object.entries(expected))
         assert.match(words[signInKey(key, platform)] ?? "", ending, `${language} ${key} on ${platform}`);

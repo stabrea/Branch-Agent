@@ -16,7 +16,7 @@ import { attachToRunning } from "../install/running.js";
 import { writeUpdateBackup } from "../install/update-backup.js";
 import { requestUpdateBackup, stopBackgroundEngine } from "../install/background-engine.js";
 import { installedAppRoot } from "./install-root.js";
-import { startsMinimized } from "../install/autostart.js";
+import { minimizedFlag, startsMinimized } from "../install/autostart.js";
 import { createBranch } from "../index.js";
 import { defaultPreset, providerFromEnv } from "../providers.js";
 import { startServer } from "../server.js";
@@ -27,6 +27,9 @@ import { ChatGPTAuth, FileTokenVault } from "../chatgpt-auth.js";
 import { safeStorage } from "electron";
 import type { DesktopSettings } from "./settings.js";
 import { registerConversationExportIpc } from "./conversation-export-ipc.js";
+// 0.18.1: "Branch stopped responding — Restart" relaunches the app, and with it the local server.
+import { ipcMain } from "electron";
+import { registerRestartIpc } from "./restart-ipc.js";
 import { recordDesktopCrash, type SpanStore } from "../tracing.js";
 // mac2/desktop-ui: the Stop notice for screen control on macOS and Linux is a window of this app's own.
 import { screen } from "electron";
@@ -137,6 +140,11 @@ async function createWindow(
   registerSettingsIpc(window, url, settings, process.env.BRANCH_PROVIDER !== undefined);
   registerConversationExportIpc(window, url);
   registerUpdaterIpc(window, url, app.getVersion(), () => app.quit(), update);
+  // Asked for from an open window, so the new copy opens its window too, even after a quiet start.
+  registerRestartIpc(ipcMain, window, url, () => {
+    app.relaunch({ args: process.argv.slice(1).filter((arg) => arg !== minimizedFlag) });
+    app.quit();
+  });
   window.on("close", (event) => {
     if (!quitting) {
       event.preventDefault();

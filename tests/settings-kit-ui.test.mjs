@@ -7,7 +7,7 @@ import { chromium } from "playwright";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
-import { openSettings } from "./places.mjs";
+import { openSettings, showEverything } from "./places.mjs";
 import { loopGuardMode } from "../dist/loop-guard.js";
 import { recordingSettings } from "../dist/run-recording.js";
 
@@ -110,6 +110,8 @@ test("R17-S05: which file does what, and changing one without leaving the window
 
 test("R17-S06: after first run, an offer to say hello, watch once, or start from a suggested automation", async (t) => {
   const { app, page } = await fixture(t);
+  /* The calm window (0.18.1) leaves this card out; it belongs to the full window. */
+  await showEverything(page);
   await page.evaluate(() => { localStorage.removeItem("branch-first-run-next"); document.getElementById("first-run").hidden = true; globalThis.branchFirstRunDone(); });
   const card = page.locator("#first-run-next");
   await card.getByRole("heading", { name: "You're ready" }).waitFor();

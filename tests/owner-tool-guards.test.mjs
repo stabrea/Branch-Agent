@@ -1,0 +1,130 @@
+/**
+ * household-followups: every owner-only guard inside a tool judges by the person a task was started
+ * for, not by whoever the app window is switched to while the task runs.
+ *
+ * GUARDS lists each tool whose code refuses anybody but the owner, with one tool driven per guard.
+ * Each is run three ways through the registry, as a task's own call:
+ *   - a household person's task, after the window was switched back to the owner → refused;
+ *   - the owner's own task, while the window is switched to a household person → not refused as
+ *     "the owner's" (it may still fail for its own reasons: nothing is signed in, nothing connected);
+ *   - no task behind the call at all, with the window on the person → refused (the window decides).
+ *
+ * The last test reads src/ and fails when a file that defines or wires a tool gains an owner check
+ * (`requireOwner(` or `.isOwner()`) without being decided here, in GUARDS or NOT_TOOL_GUARDS.
+ */
+import test from "node:test";
+import assert from "node:assert/strict";
+import { mkdtemp, readFile, readdir } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, relative } from "node:path";
+import { discardTemp } from "./temp-dir.mjs";
+import { createBranch } from "../dist/index.js";
+import { VaultAutofill, registerVaultAutofill } from "../dist/vault-autofill.js";
+
+const ownersOnly = /belongs to the owner|Only the owner's own work|only the owner/i;
+
+/** Each guard, where it lives, the tool that meets it, and what switches that tool on. */
+const GUARDS = [
+  { file: "src/channels/connectors.ts", tool: "channels.broadcast", args: { text: "hello" } },
+  { file: "src/channels/connectors.ts", tool: "channels.digest", args: { channel: "telegram", chatId: "1" } },
+  { file: "src/workflows.ts", tool: "workflows.list", args: {} },
+  { file: "src/personal/guard.ts", tool: "gcal.events", args: {}, setup: (app) => app.personal.setMode("google", { mode: "on" }) },
+  { file: "src/personal/chat-files.ts", tool: "chat.send_file", args: { channel: "telegram", chatId: "1", path: "a.txt" },
+    setup: (app) => app.personal.setMode("chat-files", { mode: "on" }) },
+  { file: "src/flows-boards/tools.ts", tool: "board.cards", args: {}, setup: (app) => app.flowsBoards.setMode("kanban", { mode: "on" }) },
+  { file: "src/reach/tools.ts", tool: "machines.list", args: {}, setup: (app) => app.reachParts.setMode("machines", { mode: "on" }) },
+  { file: "src/vault-autofill.ts", tool: "signin.fill", args: { login: "bank" }, setup: (app) => registerVaultAutofill(app.registry,
+    new VaultAutofill({ store: app.store, owner: app.runtime.owner, page: { async fill() { return { filled: false }; } },
+      read: async () => { throw new Error("nothing saved"); }, requireOwner: (what) => app.store.profiles.requireOwner(what) })) },
+];
+/** Files with an owner check that is not a tool's guard, and why. */
+const NOT_TOOL_GUARDS = {
+  "src/session-tree.ts": "its requireOwner is about owning a conversation, not the profile switch",
+  "src/sessions.ts": "its requireOwner is about owning a conversation, not the profile switch",
+  "src/runtime.ts": "startedFor decides whom a new task is for; it records the person, it guards nothing",
+  "src/web-pages.ts": "the owner check guards the HTTP switch, not the tool",
+  "src/sdk-kit.ts": "the owner check guards the HTTP switch, not a tool",
+  "src/index.ts": "hands store.profiles.requireOwner to the guards listed above",
+  "src/integrations/bootstrap.ts": "hands store.profiles.requireOwner to signin.fill (listed above)",
+};
+
+async function fixture(t) {
+  const root = await mkdtemp(join(tmpdir(), "branch-owner-tool-guards-"));
+  const provider = { name: "scripted", async complete() { return { content: "Done.", toolCalls: [] }; } };
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider });
+  t.after(async () => { await app.close(); await discardTemp(root); });
+  const sam = app.store.profiles.create({ name: "Sam", pin: "2468" });
+  for (const guard of GUARDS) await guard.setup?.(app);
+  /** A task as the runtime writes one down: who it was started for is on its run.started. */
+  const task = (person) => {
+    const run = app.store.createRun(app.runtime.owner, "a task");
+    app.store.event(run.id, "run.started", { source: "owner", parentRunId: null, ...(person ? { personProfileId: person } : {}) });
+    return run.id;
+  };
+  const call = (tool, args, runId) => app.registry.execute(tool, args,
+    app.runtime.context({ runId, permissions: app.registry.permissions() })).then(() => null, (error) => error.message);
+  return { app, sam, task, call };
+}
+
+test("every owner-only tool guard refuses a person's task after the window is switched back to the owner", async (t) => {
+  const { app, sam, task, call } = await fixture(t);
+  app.store.profiles.switch({ profileId: sam.id, pin: "2468" });
+  const runId = task(sam.id);
+  app.store.profiles.switch({ profileId: null });
+  const through = [];
+  for (const { tool, args } of GUARDS) {
+    assert.ok(app.registry.inventory().some((entry) => entry.name === tool), `${tool} is not registered`);
+    const refused = await call(tool, args, runId);
+    if (!ownersOnly.test(refused ?? "")) through.push(`${tool}: ${refused ?? "ran"}`);
+  }
+  assert.deepEqual(through, [], "a household person's task got past an owner-only guard");
+});
+
+test("the owner's own task passes every owner-only tool guard while the window is on a person", async (t) => {
+  const { app, sam, task, call } = await fixture(t);
+  const runId = task(null);
+  app.store.profiles.switch({ profileId: sam.id, pin: "2468" });
+  const refused = [];
+  for (const { tool, args } of GUARDS) {
+    const answer = await call(tool, args, runId);
+    if (ownersOnly.test(answer ?? "")) refused.push(`${tool}: ${answer}`);
+  }
+  assert.deepEqual(refused, [], "the owner's task was refused as somebody else's");
+});
+
+test("with no task behind the call, the guards still judge by the window", async (t) => {
+  const { app, sam, call } = await fixture(t);
+  const bare = app.store.createRun(app.runtime.owner, "not a task").id; // no run.started
+  app.store.profiles.switch({ profileId: sam.id, pin: "2468" });
+  const through = [];
+  for (const { tool, args } of GUARDS) {
+    const refused = await call(tool, args, bare);
+    if (!ownersOnly.test(refused ?? "")) through.push(`${tool}: ${refused ?? "ran"}`);
+  }
+  assert.deepEqual(through, []);
+});
+
+async function sources(folder) {
+  const found = [];
+  for (const entry of await readdir(folder, { withFileTypes: true })) {
+    const path = join(folder, entry.name);
+    if (entry.isDirectory()) found.push(...await sources(path));
+    else if (entry.name.endsWith(".ts")) found.push(path);
+  }
+  return found;
+}
+
+test("every file that defines or wires a tool and checks for the owner is decided in this table", async () => {
+  const root = join(import.meta.dirname, "..");
+  const decided = new Set([...GUARDS.map((guard) => guard.file), ...Object.keys(NOT_TOOL_GUARDS)]);
+  const undecided = [];
+  for (const path of await sources(join(root, "src"))) {
+    const text = await readFile(path, "utf8");
+    const file = relative(root, path).split("\\").join("/");
+    if (file === "src/profiles.ts") continue;
+    const checks = /requireOwner\(|\.isOwner\(\)/.test(text);
+    const tools = /execute: async|ToolContext|registry\.register|\.register\(\{/.test(text);
+    if (checks && tools && !decided.has(file)) undecided.push(file);
+  }
+  assert.deepEqual(undecided, [], "a tool's owner check is not in tests/owner-tool-guards.test.mjs");
+});

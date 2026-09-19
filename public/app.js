@@ -519,6 +519,7 @@ async function refresh() {
   $("workspace").hidden = false;
   $("lock").hidden = desktop;
   $("connection").textContent = "Connected";
+  $("connection").dataset.state = "ok";
   const active = state.activeModel ?? { provider: state.provider, presetName: state.provider, model: "" };
   const demo = active.provider === "offline-demo-fixture";
   $("provider").textContent = demo ? "Offline demonstration" : `${active.presetName} · ${active.model}`;
@@ -816,19 +817,32 @@ form("secrets-form", async () => {
   $("secret-name").value = "";
   await renderSecrets();
 });
-let firstRunDoor = null, firstRunTimer = null;
+let firstRunDoor = null, firstRunTimer = null, firstRunLooked = false;
 function renderFirstRun() {
   const show = state.onboarding && !state.onboarding.done;
   $("first-run").hidden = !show;
   if (!show) { clearTimeout(firstRunTimer); return; }
+  if (!firstRunLooked) { firstRunLooked = true; void lookForLocalModel(); }
   const active = state.activeModel;
-  if (active && active.provider !== "offline-demo-fixture" && firstRunDoor !== "demo")
-    $("first-run-status").textContent = `Ready: ${active.presetName} will answer. Test it, then start chatting.`;
+  if (active && active.provider !== "offline-demo-fixture" && firstRunDoor !== "demo") {
+    $("first-run-status").textContent = `${active.presetName} is ready. Try it, or start straight away.`;
+    $("first-run-test").hidden = false;
+    $("first-run-done").hidden = false;
+  }
+}
+/* A model program already answering on this computer (Ollama, LM Studio) gets a door of its own. */
+async function lookForLocalModel() {
+  const found = await api("providers/local").catch(() => ({ local: [] }));
+  const first = found.local?.[0];
+  if (!first) return;
+  $("door-local").hidden = false;
+  $("door-local").dataset.runtime = first.runtime;
 }
 function chooseDoor(door) {
   firstRunDoor = door;
-  for (const id of ["door-chatgpt", "door-key", "door-demo"]) $(id).classList.toggle("selected", id === "door-" + door);
+  for (const id of ["door-chatgpt", "door-key", "door-local", "door-demo"]) $(id).classList.toggle("selected", id === "door-" + door);
   $("first-run-done").hidden = true;
+  $("first-run-test").hidden = door === "demo";
 }
 $("door-chatgpt").addEventListener("click", async () => {
   chooseDoor("chatgpt");
@@ -837,7 +851,7 @@ $("door-chatgpt").addEventListener("click", async () => {
   $("first-run-status").textContent = `Enter ${prompt.userCode} on the sign-in page that just opened (${prompt.verificationUrl}). This page updates by itself when you finish.`;
   const poll = async () => {
     const status = await api("chatgpt/status").catch(() => null);
-    if (status?.signedIn) { await refresh(); $("first-run-status").textContent = "Signed in. Test the connection, then start chatting."; return; }
+    if (status?.signedIn) { await refresh(); $("first-run-status").textContent = "Signed in. Try it, or start straight away."; $("first-run-done").hidden = false; return; }
     if ($("first-run").hidden) return;
     firstRunTimer = setTimeout(poll, 3000);
   };
@@ -846,18 +860,23 @@ $("door-chatgpt").addEventListener("click", async () => {
 $("door-key").addEventListener("click", () => {
   chooseDoor("key");
   $("first-run-status").textContent = window.branchDesktop
-    ? "Fill in Settings → Model connection, then come back here and test it."
-    : "Set BRANCH_PROVIDER, BRANCH_ENDPOINT, BRANCH_MODEL and BRANCH_API_KEY where you start Branch, restart it, then test here.";
+    ? "Paste your key in Settings → Models, then come back here and try it."
+    : "Set BRANCH_PROVIDER, BRANCH_ENDPOINT, BRANCH_MODEL and BRANCH_API_KEY where you start Branch, restart it, then try it here.";
   if (window.branchDesktop) { displayView("settings"); $("model-provider").focus(); }
 });
-$("door-demo").addEventListener("click", () => {
+$("door-local").addEventListener("click", () => {
+  chooseDoor("local");
+  $("first-run-status").textContent = "Pick the model in Settings → Models → On this computer, then come back here and try it.";
+  if (!globalThis.branchLayout?.reveal("local-models-card")) displayView("settings:models");
+});
+/* Trying it without an account is one click: no second button to find. */
+$("door-demo").addEventListener("click", async () => {
   chooseDoor("demo");
-  $("first-run-status").textContent = "You are on the offline demonstration. It can only write, read and check one greeting file, but everything else in the app works.";
-  $("first-run-done").hidden = false;
+  await finishFirstRun();
 });
 $("first-run-test").addEventListener("click", async () => {
   $("first-run-test").disabled = true;
-  $("first-run-status").textContent = "Testing…";
+  $("first-run-status").textContent = "Trying it…";
   try {
     const result = await api("models/test", {});
     $("first-run-status").textContent = `${result.presetName} answered in ${(result.ms / 1000).toFixed(1)} s${result.reply ? `: “${result.reply}”` : "."}`;
@@ -866,13 +885,14 @@ $("first-run-test").addEventListener("click", async () => {
     $("first-run-status").textContent = e.message;
   } finally { $("first-run-test").disabled = false; }
 });
-$("first-run-done").addEventListener("click", async () => {
+async function finishFirstRun() {
   try {
     await api("onboarding", { done: true }); await refresh(); toast("You're set. Say hello."); $("prompt").focus();
     globalThis.branchFirstRunDone?.(); // R17-S06: what to try next (public/first-run-next.js)
   }
   catch (e) { toast(e.message); }
-});
+}
+$("first-run-done").addEventListener("click", () => void finishFirstRun());
 let chatgptTimer = null, chatgptBusy = false;
 function chatgptPoll(active) {
   clearTimeout(chatgptTimer);
@@ -1315,6 +1335,8 @@ function renderConversationContext() {
   const context = $("session-context");
   context.replaceChildren();
   context.hidden = !sessionId;
+  /* The calm window shows this row only for a copied or imported conversation (public/layout.css). */
+  context.dataset.kind = currentBranch ? "branch" : currentImported ? "imported" : "plain";
   if (!sessionId) return;
   context.append(el("p", currentBranch
     ? "Conversation copied through the selected message. This branch shares workspace files and saved memory."
@@ -1525,11 +1547,17 @@ $("conversation-import").addEventListener("change", async () => {
 $("login-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   token = $("token").value.trim();
+  /* Kept before the workspace shows, not after: a reload in the gap used to find no token and put the
+     sign-in form back over a session that had just connected, and the parts that draw themselves the
+     moment it shows (Recents, the Lockdown switch) read it from here. Put back if the token is refused. */
+  const kept = sessionStorage.getItem("branch-token");
+  sessionStorage.setItem("branch-token", token);
   try {
-    await refresh();
-    /* Kept the moment the workspace shows, before anything else is waited on: a reload in the gap
-       used to find no token and put the sign-in form back over a session that had just connected. */
-    sessionStorage.setItem("branch-token", token);
+    try { await refresh(); }
+    catch (error) {
+      if (kept === null) sessionStorage.removeItem("branch-token"); else sessionStorage.setItem("branch-token", kept);
+      throw error;
+    }
     // Signing back in is what unlocks the secrets locker again.
     await api("lock/unlock", {}).catch(() => undefined);
     $("token").value = "";
@@ -1555,6 +1583,7 @@ $("lock").addEventListener("click", () => {
   $("login").hidden = false;
   $("lock").hidden = true;
   $("connection").textContent = "Locked";
+  $("connection").dataset.state = "locked";
 });
 /** Enter sends; Shift+Enter (or Ctrl/Cmd+Enter while busy) keeps typing on a new line, like most chat apps. */
 $("prompt").addEventListener("keydown", (event) => {
@@ -1712,6 +1741,12 @@ $("chat-form").addEventListener("submit", async (event) => {
     await loadConversation(run.sessionId, run.status);
     await refresh();
     await loadSessionModel();
+    /* The conversation is saved now: Recents (public/shell.js) and the calm window's one-time
+       suggestion (public/layout.js) hear it here, not only after New conversation or a reload. */
+    document.dispatchEvent(new CustomEvent("branch-run-finished", { detail: {
+      sessionId: run.sessionId, status: run.status, temporary: currentTemporary,
+      completedRuns: (state.runs ?? []).filter((entry) => entry.status === "completed").length,
+    } }));
     // Auto-read-aloud when setting is enabled
     if (typeof speakText !== "undefined") {
       try {

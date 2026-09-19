@@ -45,8 +45,11 @@ Arrow keys and Enter move through the palette. Tab walks the rail first, then th
 the messages, then the composer; the message column is a stop of its own so it can be scrolled
 from the keyboard.
 
-On a new workspace the welcome card is the greeting: "Choose how your assistant thinks", three
-equal tiles for the three ways in, and one primary action. The selected tile is marked with the
+On a new workspace the welcome card is the greeting: "How should Branch think?", equal tiles for
+the ways in (two by two; the "model on this computer" tile only when one answers there), and no
+tick boxes. Since 0.18.1 the window is calm by default: one question and one box, with every other
+control behind More or shown only when it matters, and "Show everything" brings the full window
+back (docs/configuration.md, "The calm window"). No label is styled as a code comment. The selected tile is marked with the
 accent ring, not a heavy border. Once that is done the card gives way to a short greeting and
 four suggestion chips. The chips use the owner's own recipes when there are any, and fall back to
 stock prompts otherwise.

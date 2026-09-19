@@ -39,15 +39,21 @@ conversations and files are left exactly where they are.
 
 ## Your first task
 
-When Branch opens for the first time, the conversation shows a welcome card with three ways in:
+When Branch opens for the first time, it asks one question — **How should Branch think?** — and
+offers a few big choices:
 
-1. **Sign in with a ChatGPT plan.** Use the models that come with a plan you already pay for.
-2. **Use a key from a model service.** Paste a key from any of the services Branch knows.
-3. **Look around on the offline demonstration.** No account, no cost, and no real answers — it writes,
-   reads and checks a greeting so you can see the shape of things.
+1. **Use my ChatGPT plan.** Use the models that come with a plan you already pay for.
+2. **Paste a key.** A key from any of the services Branch knows.
+3. **Use the model on this computer.** Shown only when a model program such as Ollama is already
+   running on this computer; nothing you type leaves it.
+4. **Try it without an account.** One click, no cost, and no real answers — a short practice run so
+   you can see the shape of things. The window says **Practice mode** until you choose one of the
+   others.
 
-Whichever you choose, **Test the connection** makes one real, tool-free request and shows you the
+After a sign-in or a key, **Test the connection** makes one real, tool-free request and shows you the
 reply and how long it took. Nothing is added to your conversations. Then **Done, start chatting**.
+Opening Branch when you sign in, and reaching it from your phone, are switches in Settings → General.
+After your first task finishes, one line under the conversation offers both; it shows once.
 
 Now type something in the box at the bottom and press Enter. A good first request is something small
 and checkable: *"Write a file called hello.txt in my workspace saying hello, then read it back to me."*
@@ -57,10 +63,15 @@ You will see the answer, and a quiet row saying which tools it used.
 
 | Where | What it is |
 | --- | --- |
-| The rail on the left | **New conversation**, **Find anything**, then three groups: **Sections** (every screen as a row), **Projects** (your workspace folders), and **Recents** (your conversations by day). Your own menu sits at the foot. |
-| The middle column | The conversation itself: what you asked, what it answered, and one quiet row per piece of tool work that opens when you press it. |
-| The box at the bottom | Where you type. Attach a document, speak your message, tick **Temporary**, and Send all live inside it. |
-| The pane on the right | The model that will answer, what we are doing, what is running now, what is allowed right now, receipts for this conversation, recently saved memory, and three counts. |
+| The rail on the left | **New conversation**, your recent conversations, and **Settings** at the foot. **Inbox** appears here while something is waiting for you. |
+| The middle column | The question **What do you want done?**, then the conversation itself: what you asked and what it answered. |
+| The box at the bottom | Where you type, and **Send**. |
+| **More**, top right | Everything else, in plain words: ask me questions first, forget this conversation afterwards, attach a document or a picture, who should answer, the Activity, Plan, Files and Memory panel, Inbox, Automations, Library, Customize, Find anything, labels, what is allowed right now, Lockdown, Clear the view and Help. |
+| The pane on the right | Slides in by itself while a task or a goal is running and shows what is running, anything you have said yes to for this conversation, and a goal's Resume and Stop; it goes away when the work finishes. |
+
+That calm window is the default. If you would rather see every tab, meter and switch all the time,
+turn on **Show everything** in Settings → Appearance (or at the foot of the More menu). The rest of
+this section describes that full window.
 
 The ten sections in the rail are **Conversation**, **Activity**, **Usage**, **Memory**, **Skills**,
 **Specialists**, **Procedures**, **Schedules**, **Documents** and **Settings**. Each one opens on a

@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { showEverything } from "./places.mjs";
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -39,6 +40,8 @@ async function fixture(t, provider) {
      the loaded Windows checker. Nothing is waited for less: a real signal replaces a proxy. */
   await page.getByRole('button', { name: 'Connect', exact: true }).click({ noWaitAfter: true });
   await page.locator('#workspace').waitFor({ state: 'visible' });
+  /* This file exercises the full window's own controls: "Show everything" since 0.18.1. */
+  await showEverything(page);
   return { app, page, root, sourceId, original, errors };
 }
 const card = (page, id) => page.locator(`#saved-list article[data-session-id="${id}"]`);

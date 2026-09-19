@@ -78,10 +78,11 @@ function paintSky(s) {
   const { W, P, horizon, U } = s;
   for (let y = 0; y < horizon; y++)
     for (let x = 0; x < W; x++) dithered(s, x, y, P.sky[0], P.sky[1], y / horizon);
-  /* the moon, or a pale sun, with a soft ring */
+  /* the moon, or a pale sun, with a soft ring, only where it can be seen as sky (see moonInView) */
   const cx = W * 0.18, cy = horizon * 0.24, r = Math.max(4, U * 0.045);
   const disc = P.dark ? mix(P.text, P.accent, 0.12) : mix([255, 255, 255], P.accent, 0.18);
-  for (let y = Math.floor(cy - r * 2.6); y < cy + r * 2.6; y++)
+  if (wall) wall.dataset.moon = moonInView() ? "shown" : "hidden";
+  if (wall?.dataset.moon === "shown") for (let y = Math.floor(cy - r * 2.6); y < cy + r * 2.6; y++)
     for (let x = Math.floor(cx - r * 2.6); x < cx + r * 2.6; x++) {
       const d = Math.hypot(x - cx, y - cy);
       if (d <= r) s.put(x, y, disc);
@@ -90,6 +91,15 @@ function paintSky(s) {
   if (!P.dark) return;
   const star = mix(P.sky[0], P.text, 0.6);
   for (let n = 0; n < W * horizon * 0.0016; n++) s.put(s.random() * W, s.random() * horizon * 0.8, star);
+}
+/**
+ * In the calm window the glass panes cover the whole sky, so wherever the moon sat it only showed as
+ * a stray glow through a pane or a sliver in a gap between two. It is left out there, and comes back
+ * with the sky itself: when the view is cleared, and in the full window as it always was.
+ */
+function moonInView() {
+  const root = document.documentElement.dataset;
+  return root.everything === "on" || Boolean(root.quiet);
 }
 function paintHills(s) {
   const { W, H, P, horizon } = s;
@@ -248,6 +258,11 @@ function wake() {
 }
 document.addEventListener("visibilitychange", wake);
 new MutationObserver(wake).observe(document.documentElement, { attributes: true, attributeFilter: ["data-quiet", "data-motion"] });
+/* The moon comes and goes with the calm window and a cleared view (moonInView). */
+new MutationObserver(() => {
+  const want = moonInView() ? "shown" : "hidden";
+  if (scene && wall?.dataset.moon !== want) paintGrove();
+}).observe(document.documentElement, { attributes: true, attributeFilter: ["data-quiet", "data-everything"] });
 let resizeTimer, seen = "";
 new ResizeObserver(() => {
   const size = `${innerWidth}x${innerHeight}`;

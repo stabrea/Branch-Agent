@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
 import { createBranch, readSavings, saveSavings } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
-import { openSettingFor } from "./places.mjs";
+import { openSettingFor, showEverything } from "./places.mjs";
 
 const homes = {
   "savings-phases-card": "#lx-models-defaults",
@@ -39,6 +39,8 @@ async function openApp(t, width = 1280) {
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.locator("#workspace").waitFor({ state: "visible" });
+  /* This file exercises the full window's own controls: "Show everything" since 0.18.1. */
+  await showEverything(page);
   await page.locator("#savings-mixtures-card").waitFor({ state: "attached" });
   return { app, page, errors };
 }

@@ -2,6 +2,7 @@
    the owner at the foot), one reading column, one context pane, and Ctrl+K to reach
    anything. No section hides behind a drop-down. */
 import { api, displayView, openConversation, titles } from "/app.js";
+import { t } from "/i18n.js";
 /* Wave 7: labels as chips in Recents and in the Ctrl+K box, and a picker on the title. */
 import { conversationLabels, conversationsWithLabels, labelChips, openLabelPicker } from "/labels-ui.js";
 
@@ -239,6 +240,14 @@ function railItem(entry) {
   open.className = "rail-item";
   open.textContent = (pinned.has(entry.sessionId) ? "📌 " : "") + name;
   open.title = name;
+  /* A conversation with a task at work says so in Recents (loadRail reads what is running). */
+  const mark = runningSessions.has(entry.sessionId) ? document.createElement("span") : null;
+  if (mark) {
+    mark.className = "rail-running";
+    mark.textContent = t("live.working") === "live.working" ? "Working" : t("live.working");
+    open.setAttribute("aria-label", `${name}, ${mark.textContent}`);
+    line.dataset.running = "true";
+  }
   open.addEventListener("click", async () => {
     displayView("chat");
     try {
@@ -255,7 +264,7 @@ function railItem(entry) {
     rowAction("📌", `Pin “${name}”`, () => togglePin(entry.sessionId)),
     rowAction("✕", `Remove “${name}” from this list`, () => hideConversation(entry, name)),
   );
-  line.append(open, actions);
+  line.append(open, ...(mark ? [mark] : []), actions);
   return line;
 }
 function rowAction(glyph, label, run) {
@@ -341,8 +350,15 @@ async function drawLabelChips() {
   host.hidden = labelCatalog.length === 0;
 }
 
+/** The conversations with a task at work right now, marked in Recents. */
+let runningSessions = new Set();
+async function readRunning() {
+  try { runningSessions = new Set((await api("activity")).map((run) => run.sessionId).filter(Boolean)); }
+  catch { runningSessions = new Set(); }
+}
 export async function loadRail() {
   try {
+    await readRunning();
     /* The same `labels` parameter the conversation search already takes does the filtering. */
     conversations = await conversationsWithLabels(chosenLabels);
     drawRail();
@@ -573,3 +589,7 @@ if (!workspace.hidden) void loadRail();
 new MutationObserver(() => {
   if (!workspace.hidden) void loadRail();
 }).observe(workspace, { attributes: true, attributeFilter: ["hidden"] });
+/* A finished task has saved its conversation: it belongs in Recents straight away (public/app.js). */
+document.addEventListener("branch-run-finished", () => void loadRail());
+/* ...and a task that has just started puts its conversation there at once, marked as working (public/live-run.js). */
+document.addEventListener("branch-run-started", () => void loadRail());

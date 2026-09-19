@@ -6,6 +6,7 @@ import type {
 } from "./contracts.js";
 import { policyTarget } from "./policy.js";
 import { inferToolGroup, slimTool } from "./catalog.js";
+import { underTask } from "./task-scope.js"; // household-followups
 
 export class ToolRegistry {
   private readonly tools = new Map<string, ToolDefinition>();
@@ -110,7 +111,8 @@ export class ToolRegistry {
       throw new Error(`Permission denied: ${tool.permission}`);
     context.budget.step(context.signal);
     const parsed = tool.parameters.parse(args);
-    let result = await tool.execute(parsed, context);
+    // household-followups: an owner-only guard inside the tool judges by this task's person.
+    let result = await underTask(context.runId, () => tool.execute(parsed, context));
     context.signal.throwIfAborted();
     // ── mac7/r17-d: format and diagnostics after an edit, and a very long answer kept in a file. ──
     if (this.afterTool) result = await this.afterTool(name, parsed, result, context);

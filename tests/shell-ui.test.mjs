@@ -7,7 +7,7 @@ import { discardTemp } from "./temp-dir.mjs";
 import { chromium } from "playwright";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
-import { openPlace, openSettingFor } from "./places.mjs";
+import { openPlace, openSettingFor, showEverything } from "./places.mjs";
 
 /* Wave 9 redesign: four places in the sidebar, and Settings behind the gear (public/layout.js). */
 const PLACES = ["Inbox", "Automations", "Library", "Customize"];
@@ -35,6 +35,9 @@ async function fixture(t) {
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.locator("#workspace").waitFor({ state: "visible" });
+  /* These tests are about the full shell: every rail row, icon, tab and meter. Since 0.18.1 that is
+     "Show everything"; the calm default has its own tests in calm-ui.test.mjs. */
+  await showEverything(page);
   return { page, server, errors };
 }
 const look = (page) => page.evaluate(() => ({ ...document.documentElement.dataset }));
@@ -160,6 +163,8 @@ test("every appearance control applies at once and survives a reload", async (t)
     font: "system",
     motion: "reduced",
     acorn: "off",
+    everything: "on",
+    voice: "off",
   };
   assert.deepEqual(await look(f.page), chosen, "every choice shows straight away");
   assert.equal(await f.page.locator(".acorn-art").isVisible(), false);
@@ -195,7 +200,8 @@ test("an unknown appearance value is refused and the saved look is unchanged", a
   assert.equal((await send({ accent: "purple" })).ok, false);
   const kept = await (await send({ appearance: "daylight" })).json();
   assert.equal(kept.accent, "copper", "fields left out keep their defaults");
-  assert.equal(kept.showAcorn, true);
+  assert.equal(kept.showAcorn, false, "the acorn starts off");
+  assert.equal(kept.showEverything, false, "the calm window is the default");
 });
 
 test("the shell fits a 400 pixel window without sideways scrolling", async (t) => {

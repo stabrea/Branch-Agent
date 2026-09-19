@@ -360,6 +360,8 @@ export class Runtime {
     this.tracer = new Tracer(store.spans, this.owner);
     this.deferrals = new Deferrals(store, this.owner);
     this.roles = new ProfileRoles(store, this.owner);
+    // household-followups: owner-only guards inside a task's tools judge by the task's person.
+    store.profiles.taskPerson = (runId) => this.taskPerson(runId);
     this.handoffs = new Handoffs(store, this.owner);
     this.requestCache = new RequestCache(store, this.owner);
     this.guards = new RunGuards(store, this.owner, workspace);
@@ -2097,11 +2099,22 @@ ${run.output.slice(0, 6000)}`;
    * is held to whoever the window is switched to now.
    */
   private heldTo(runId?: string): Profile | "removed" | null {
-    if (!runId || !this.store.events(runId).some((event) => event.kind === "run.started")) return this.store.profiles.active();
-    const person = runOrigin(this.store, runId).personProfileId;
+    const person = runId ? this.taskPerson(runId) : undefined;
+    if (person === undefined) return this.store.profiles.active();
     if (!person) return null;
     return this.store.profiles.list().find((profile) => profile.id === person) ?? "removed";
   }
+  /** household-followups: whom the task `runId` was started for (null: the owner), or undefined when it is no task. */
+  private taskPerson(runId: string): string | null | undefined {
+    // What a task wrote at its start never changes, so it is read once per task.
+    if (this.taskPeople.has(runId)) return this.taskPeople.get(runId);
+    if (!this.store.events(runId).some((event) => event.kind === "run.started")) return undefined;
+    const person = runOrigin(this.store, runId).personProfileId;
+    if (this.taskPeople.size >= 500) this.taskPeople.clear();
+    this.taskPeople.set(runId, person);
+    return person;
+  }
+  private readonly taskPeople = new Map<string, string | null>();
   /**
    * Records the owner's yes to a question something outside a conversation stopped on (a saved
    * workflow's step). "always" also writes it into the policy as a rule, exactly as answering a
