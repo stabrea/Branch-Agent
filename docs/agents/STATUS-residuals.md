@@ -65,7 +65,15 @@ branch: an integrator reviews it. Every new test is in `tests/residuals.test.mjs
 - [x] 7. Mode menu and usage list 98% opaque, like the glass dropdown.
   public/layout.css `.mode-menu` (was 95%) and `.usage-pop` (was 88%) now mix the surface at 98%, as `.glass-list`.
   tests/residuals-ui.test.mjs 7 compares the computed colours in light and dark; the old mode menu fails it.
-- [ ] 8. Achievement names and descriptions in French.
+- [x] 8. Achievement names and descriptions in French.
+  A server-side French table, src/achievements-fr.ts `inFrench`: words every one of the 505 again from its
+  measure and goal (French plurals and numbers, the themes' and pets' names from public/locales/fr.json, "la
+  chouette"/"l'écureuil"); the catalogue stays the one source of ids, goals and tiers, and a measure the table
+  does not know keeps its English. `GET /api/delight/achievements?lang=fr` (src/delight.ts, src/server.ts);
+  public/delight-achievements.js asks in the window's language and asks again when it changes. Tests:
+  tests/residuals.test.mjs 8 (every sentence French, same ids/order/tiers, spot checks) and
+  tests/residuals-ui.test.mjs 8 (switched to French, the list asks `?lang=fr` and shows "Pousse"); each fails
+  with its half taken out. docs/configuration.md says so.
 - [x] 9. Room member conversations in Recents; "needs you" banner names the Trunk — already fixed (below).
 - [x] 10. Phone app shows the pairing check code.
   While "Lend this phone to Branch" waits, the status line reads "… Check code XXXX XXXX: your computer shows the

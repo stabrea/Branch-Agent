@@ -1738,7 +1738,8 @@ async function api(
   // --- end mac7/usage-bar ---
   // phase2/delight: the pet, achievements and your own background; the owner's alone (src/delight.ts).
   if (handlesDelightPath(path))
-    return delightRoute(app, request.method ?? "GET", path, () => readBody(request))
+    return delightRoute(app, request.method ?? "GET", path, () => readBody(request),
+      new URL(request.url ?? "/", "http://local").searchParams.get("lang")) // mac7/residuals: the achievements' words in French
       .catch((error: unknown) => { throw error instanceof DelightError ? new HttpError(error.status, error.message) : error; });
   throw new HttpError(404, "Endpoint not found");
 }

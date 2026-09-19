@@ -165,3 +165,20 @@ test("12. with the strip switched off, a browser that knew so never gives the st
   await page.waitForTimeout(500);
   assert.deepEqual(await page.evaluate(() => globalThis.__stripSeen), [], "the strip's room was never taken");
 });
+
+test("8. switched to French, the window asks for the achievements in French and shows them so", async (t) => {
+  const { page, server } = await fixture(t);
+  await page.evaluate(async (token) => {
+    await fetch("/api/delight/settings", { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ achievements: { on: true } }) });
+    await globalThis.branchDelight.reload();
+  }, server.token);
+  const asked = [];
+  page.on("request", (request) => { if (request.url().includes("/api/delight/achievements")) asked.push(new URL(request.url()).search); });
+  await page.evaluate(async () => { const { setLanguage } = await import("/i18n.js"); await setLanguage("fr"); });
+  await page.waitForFunction(() => document.documentElement.lang === "fr");
+  await page.evaluate(async () => { const { openSheet } = await import("/delight-achievements.js"); await openSheet(); });
+  const sheet = page.locator("#ach-sheet");
+  await sheet.getByText("Pousse", { exact: true }).waitFor();
+  assert.ok(asked.includes("?lang=fr"), asked.join(" "));
+});

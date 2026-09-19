@@ -4074,8 +4074,9 @@ Routes (every one the owner's alone, at this computer's own window):
   `{ "available": false }`: not an error, and nothing else.
 - `POST /api/delight/settings` — change any of the fields above, e.g. `{ "pets": { "on": true } }`.
 - `GET /api/delight/achievements` — every achievement as the window may show it, what was just
-  earned and not yet celebrated (`fresh`), how many are earned and the rank. Refused to a
-  short-lived key and to a household profile.
+  earned and not yet celebrated (`fresh`), how many are earned and the rank. `?lang=fr` gives the
+  names and sentences in French (the window asks in its own language; anything else is English).
+  Refused to a short-lived key and to a household profile.
 - `POST /api/delight/noticed` — something the window saw, from the closed list above, e.g.
   `{ "what": "theme", "mode": "dark", "theme": "forest", "season": "winter" }`. Ignored while
   achievements are off.

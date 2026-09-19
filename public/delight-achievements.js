@@ -22,7 +22,9 @@ export function badge(tier, got, big = false) {
 export async function checkAchievements() {
   clearTimeout(timer);
   if (!on("achievements")) { latest = null; state.hints = []; return null; }
-  try { latest = await api("delight/achievements"); } catch { return null; }
+  // mac7/residuals: the achievements' own words come in the window's language (French or English).
+  const language = document.documentElement.lang === "fr" ? "fr" : "en";
+  try { latest = await api(`delight/achievements?lang=${language}`); } catch { return null; }
   if (!latest?.on) return latest;
   state.earned = latest.earned;
   state.rank = latest.rank;
@@ -204,3 +206,5 @@ document.addEventListener("branch-run-finished", soon);
 document.addEventListener("branch-delight-noticed", soon);
 onDelight(() => { if (on("achievements")) soon(); else { latest = null; state.hints = []; } });
 globalThis.branchAchievements = { check: checkAchievements, preview, openSheet };
+/* mac7/residuals: a new language asks again, so the achievements' own words follow it (an open list too). */
+document.addEventListener("branch-language", () => void checkAchievements().then(() => paintSheet()));

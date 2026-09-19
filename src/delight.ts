@@ -6,6 +6,7 @@ import {
   achievementCatalogue, backgroundKinds, measure, noticedFlags, petKinds, rankFor, seasons, themeNames,
   type Achievement, type AchievementFacts,
 } from "./achievements.js";
+import { inFrench } from "./achievements-fr.js";
 
 /**
  * phase2/delight: the playful extras — a pet in the acorn's corner, achievements, and your own
@@ -123,6 +124,9 @@ function evaluate(store: DelightStore, owner: string, saved: Progress): Evaluate
   }
   return { newly, facts, caughtUp };
 }
+/** mac7/residuals: the window's language for the achievements' own words ("fr", or English for anything else). */
+export type AchievementLanguage = "en" | "fr";
+const worded = (a: Achievement, language: AchievementLanguage): Achievement => (language === "fr" ? { ...a, ...inFrench(a) } : a);
 /** One achievement as the window may see it. The higher the tier, the less a locked one gives away. */
 function shown(a: Achievement, saved: Progress, facts: AchievementFacts): Record<string, unknown> {
   const got = saved.got[a.id];
@@ -132,7 +136,7 @@ function shown(a: Achievement, saved: Progress, facts: AchievementFacts): Record
   const now = Math.min(measure(a.metric, facts), a.goal);
   return { id: a.id, name: a.name, desc: a.tier === "Gold" ? "???" : a.desc, kind: a.kind, tier: a.tier, now, goal: a.goal };
 }
-export function achievementsView(store: DelightStore, owner: string): Record<string, unknown> {
+export function achievementsView(store: DelightStore, owner: string, language: AchievementLanguage = "en"): Record<string, unknown> {
   const settings = delightSettings(store, owner);
   if (!settings.achievements.on) return { on: false };
   const saved = progress(store, owner), through = saved.scan.through, counting = saved.counting;
@@ -141,12 +145,13 @@ export function achievementsView(store: DelightStore, owner: string): Record<str
   if (newly.length && !counting && caughtUp && !settings.achievements.quiet) saved.fresh = [...saved.fresh, ...newly].slice(-50);
   saved.counting = !caughtUp;
   if (newly.length || saved.scan.through !== through || saved.counting !== counting) store.save("settings", owner, progressKey, saved);
-  const byId = new Map(achievementCatalogue().map((a) => [a.id, a]));
+  const catalogue = achievementCatalogue().map((a) => worded(a, language));
+  const byId = new Map(catalogue.map((a) => [a.id, a]));
   const fresh = saved.fresh.map((id) => byId.get(id)).filter((a): a is Achievement => Boolean(a))
     .map((a) => ({ id: a.id, name: a.name, desc: a.desc, tier: a.tier, kind: a.kind }));
   return {
     on: true, quiet: settings.achievements.quiet, earned: facts.earned, total: achievementCatalogue().length, behind: !caughtUp,
-    rank: rankFor(facts.earned), list: achievementCatalogue().map((a) => shown(a, saved, facts)), fresh,
+    rank: rankFor(facts.earned), list: catalogue.map((a) => shown(a, saved, facts)), fresh,
   };
 }
 
@@ -234,12 +239,13 @@ function ownerHere(store: Store): boolean {
   if (startedWithShortLivedKey() || currentPerson()) return false;
   return store.profiles.isOwner();
 }
-export async function delightRoute(app: DelightApp, method: string, path: string, readBody: () => Promise<unknown>): Promise<unknown> {
+export async function delightRoute(app: DelightApp, method: string, path: string, readBody: () => Promise<unknown>,
+  language: string | null = null): Promise<unknown> {
   const { store } = app, owner = app.runtime.owner;
   // Somebody else only learns that there is nothing here for them, never an error in their window.
   if (path === "/api/delight" && method === "GET") return ownerHere(store) ? delightSummary(store, owner) : { available: false };
   if (!ownerHere(store)) throw new DelightError(403, "Only the owner can see or change these, in the app window.");
-  if (path === "/api/delight/achievements" && method === "GET") return achievementsView(store, owner);
+  if (path === "/api/delight/achievements" && method === "GET") return achievementsView(store, owner, language === "fr" ? "fr" : "en");
   if (method !== "POST") throw new DelightError(405, "Use POST to change this.");
   const body = await readBody();
   if (path === "/api/delight/settings") return { settings: saveDelightSettings(store, owner, body) };

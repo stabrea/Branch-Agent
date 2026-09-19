@@ -187,3 +187,23 @@ test("10. the phone app works out the same check code the computer shows beside 
     "../apps/mobile/android/app/src/main/java/com/keepoak/branchagent/BranchPhonePlugin.java"])
     assert.match(await readFile(new URL(native, import.meta.url), "utf8"), /deviceKey/, `${native} hands the page the public key`);
 });
+
+test("8. the achievements' names and sentences come in French when the window asks in French", async (t) => {
+  const { app } = await fixture(t);
+  const { delightRoute } = await import("../dist/delight.js");
+  const { achievementCatalogue } = await import("../dist/achievements.js");
+  const { inFrench } = await import("../dist/achievements-fr.js");
+  await delightRoute(app, "POST", "/api/delight/settings", async () => ({ achievements: { on: true } }));
+  const view = (language) => delightRoute(app, "GET", "/api/delight/achievements", async () => ({}), language);
+  const byId = (list, id) => list.find((a) => a.id === id);
+  const french = await view("fr"), english = await view(null);
+  assert.deepEqual(byId(french.list, "tasks:1"), { ...byId(english.list, "tasks:1"), name: "Pousse", desc: "Terminer 1 tâche." });
+  assert.equal(byId(english.list, "tasks:1").name, "Sprout", "without a language it stays English");
+  assert.deepEqual(french.list.map((a) => [a.id, a.tier]), english.list.map((a) => [a.id, a.tier]), "the same ones, in the same order");
+  // Every one of the 505 has French words; the few that read the same are the same in both languages.
+  const same = achievementCatalogue().filter((a) => inFrench(a).desc === a.desc);
+  assert.deepEqual(same, [], "every sentence is French");
+  const pets = achievementCatalogue().filter((a) => a.metric.startsWith("noticed:pet:")).map((a) => inFrench(a).name);
+  assert.ok(pets.includes("Rencontre avec la chouette") && pets.includes("Rencontre avec l'écureuil"), pets.join(", "));
+  assert.equal(inFrench(achievementCatalogue().find((a) => a.id === "noticed:theme:dark:forest:1")).name, "Forêt au clair de lune");
+});
