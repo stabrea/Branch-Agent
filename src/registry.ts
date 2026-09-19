@@ -91,10 +91,30 @@ export class ToolRegistry {
   permissionOf(name: string): string {
     return this.tools.get(name)?.permission ?? "";
   }
-  /** What a call would touch, for the approval policy: the tool's own answer, or one read from the arguments. */
+  /**
+   * What a call would touch, for the approval policy: the tool's own answer, or one read from the
+   * arguments. hardening-3: read from the arguments the tool will really run with (`runArgs`), so a
+   * name the tool maps (`file_path` for `path`) or a space it trims cannot walk past a rule.
+   */
   targetOf(name: string, args: unknown, context: ToolContext): string {
-    const own = this.tools.get(name)?.target?.(args, context);
-    return (own ?? policyTarget(name, args)) || "";
+    const seen = this.runArgs(name, args);
+    const own = this.tools.get(name)?.target?.(seen, context);
+    return (own ?? policyTarget(name, seen)) || "";
+  }
+  /**
+   * hardening-3: the arguments a call will really run with — the tool's own schema applied, with
+   * the names it maps, the spaces it trims and the defaults it fills — for everything that judges or
+   * shows a call (the rules, the approval card, the second look, the loop guard). The tool itself
+   * parses the same arguments with the same schema, so what was judged is what runs. A call whose
+   * arguments do not parse is refused by the tool, so it is judged as it was sent.
+   */
+  runArgs(name: string, args: unknown): unknown {
+    const tool = this.tools.get(name);
+    if (!tool) return args;
+    try {
+      const parsed = tool.parameters.safeParse(args);
+      return parsed.success ? parsed.data : args;
+    } catch { return args; }
   }
   permissions(): string[] {
     return [...new Set([...this.tools.values()].map((t) => t.permission))];

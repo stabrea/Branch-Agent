@@ -62,11 +62,13 @@ export async function tryTool(
   // developer screen must not be a way round what the owner said they may have Branch do.
   const held = personRefusal(input.name, permission);
   if (held) return { status: "refused", reason: held, tool: input.name, target: "" };
-  const target = registry.targetOf(input.name, input.arguments, context) || policyTarget(input.name, input.arguments);
+  // hardening-3: judged as the tool will run it, with the names it maps and the spaces it trims.
+  const seen = registry.runArgs(input.name, input.arguments);
+  const target = registry.targetOf(input.name, seen, context) || policyTarget(input.name, seen);
   // What the call is about goes in too, so trying a command by hand is decided exactly as a
   // command the assistant asked for would be — a command nobody has ruled on is asked about.
-  const resource = resourceOf(input.name, permission, target, input.arguments);
-  const verdict = gate?.(input.name, input.arguments, context);
+  const resource = resourceOf(input.name, permission, target, seen);
+  const verdict = gate?.(input.name, seen, context);
   const decision = verdict?.decision
     ?? evaluatePolicy(readPolicy(store, owner), { tool: input.name, target, readOnly: isReadOnlyPermission(permission), resource }).decision;
   if (decision === "deny")

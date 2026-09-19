@@ -12,6 +12,7 @@ import type { ToolRegistry } from "./registry.js";
 import type { Store } from "./store.js";
 import type { ToolContext } from "./contracts.js";
 import { Budget } from "./contracts.js";
+import { resourceOf } from "./policy-resources.js";
 import {
   cappedPolicy, evaluatePolicy, isReadOnlyPermission, policyTarget, readPolicy, type PolicyDecision,
 } from "./policy.js";
@@ -154,12 +155,15 @@ export function dryRunPlan(
 ): DryRunPlan {
   const tool = registry.inventory().find((entry) => entry.name === input.name);
   if (!tool) throw new Error(`There is no tool called ${input.name}.`);
-  const target = registry.targetOf(input.name, input.arguments, inertContext(owner, workspace))
-    || policyTarget(input.name, input.arguments);
+  const seen = registry.runArgs(input.name, input.arguments); // hardening-3: as the tool will run it
+  const target = registry.targetOf(input.name, seen, inertContext(owner, workspace))
+    || policyTarget(input.name, seen);
   const readOnly = isReadOnlyPermission(tool.permission);
+  // hardening-3: what the call is about goes in too, so a folder rule is weighed here as it is when the call runs.
+  const resource = resourceOf(input.name, tool.permission, target, seen);
   const { decision } = evaluatePolicy(cappedPolicy(readPolicy(store, owner), "mcp"),
-    { tool: input.name, target, readOnly });
-  const { files, hosts } = touched(input.arguments);
+    { tool: input.name, target, readOnly, resource });
+  const { files, hosts } = touched(seen as Record<string, unknown>);
   return {
     tool: input.name, description: tool.description, target, files, hosts, changesThings: !readOnly, decision,
     cost: priceNote(input.name),

@@ -1,0 +1,122 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { mkdtemp, mkdir, writeFile, readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { discardTemp } from "./temp-dir.mjs";
+import { createBranch } from "../dist/index.js";
+
+/**
+ * mac7/hardening-3: reliability and safety fixes found in reviews (docs/agents/STATUS-hardening-3.md).
+ * Nothing here opens a window or starts a real model: every model is a scripted fake.
+ */
+
+async function fixture(t, options = {}) {
+  const root = await mkdtemp(join(tmpdir(), "branch-hardening-3-"));
+  const provider = options.provider ?? { name: "scripted", async complete() { return { content: "done", toolCalls: [] }; } };
+  const app = await createBranch({
+    workspace: join(root, "workspace"), dataDir: join(root, "data"),
+    presets: [{ id: "alpha", name: "Alpha", provider, model: "a" }],
+    ...(options.reliability ? { reliability: options.reliability } : {}),
+  });
+  t.after(async () => { await app.close(); await discardTemp(root); });
+  const workspace = join(root, "workspace");
+  await mkdir(workspace, { recursive: true });
+  return { app, root, workspace };
+}
+function scripted(steps) {
+  const provider = { name: "scripted", requests: [], async complete(request) {
+    provider.requests.push(request);
+    return steps[Math.min(provider.requests.length - 1, steps.length - 1)](request);
+  } };
+  return provider;
+}
+const say = (content) => () => ({ content, toolCalls: [] });
+const call = (name, args) => () => ({ content: "", toolCalls: [{ id: `c${Math.random().toString(36).slice(2, 8)}`, name, arguments: JSON.stringify(args) }] });
+const eventsOf = (app, run, kind) => app.store.events(run.id).filter((event) => event.kind === kind);
+/** "Never allow anything under finance": the owner's folder rule, the one a renamed key must not walk past. */
+async function financeRule(app, decision = "deny") {
+  const { addPolicyRule } = await import("../dist/policy.js");
+  addPolicyRule(app.store, "local", { tool: "*", match: "*", decision, remember: "always", resource: { kind: "path", pattern: "finance" } });
+}
+
+// ------------------------------------------------------------------ 1. rules see what the tool uses
+
+test("1 runArgs: the arguments as the tool will run with them — mapped names, trimmed text, filled defaults", async (t) => {
+  const { app } = await fixture(t);
+  assert.deepEqual(app.registry.runArgs("files.edit", { file_path: "finance/a.txt", old_string: "x", new_string: "y" }),
+    { path: "finance/a.txt", find: "x", replace: "y", expectedOccurrences: 1, replaceAll: false });
+  const bad = { path: 5 };
+  assert.equal(app.registry.runArgs("files.read", bad), bad, "a call that does not parse is judged as it was sent");
+  assert.equal(app.registry.runArgs("no.such.tool", bad), bad);
+  assert.equal(app.registry.targetOf("files.edit", { file_path: "finance/a.txt", old_string: "x", new_string: "y" }, {}), "finance/a.txt");
+});
+
+test("1 a folder rule cannot be walked past by a name the tool maps (file_path for path)", async (t) => {
+  const provider = scripted([call("files.edit", { file_path: "finance/q1.txt", old_string: "10", new_string: "99" }), say("done")]);
+  const { app, workspace } = await fixture(t, { provider });
+  await mkdir(join(workspace, "finance"), { recursive: true });
+  await writeFile(join(workspace, "finance", "q1.txt"), "10\n");
+  await financeRule(app);
+  const run = await app.runtime.run({ prompt: "change it" });
+  assert.equal(await readFile(join(workspace, "finance", "q1.txt"), "utf8"), "10\n", "the file was not changed");
+  const [denied] = eventsOf(app, run, "policy.denied");
+  assert.equal(denied?.data.target, "finance/q1.txt");
+});
+
+test("1 a folder rule covers a tool whose file is called `file` (documents.analyse)", async (t) => {
+  const provider = scripted([call("documents.analyse", { file: "finance/report.md", question: "what is the total?" }), say("done")]);
+  const { app, workspace } = await fixture(t, { provider });
+  await mkdir(join(workspace, "finance"), { recursive: true });
+  await writeFile(join(workspace, "finance", "report.md"), "# Report\n\nThe total is 12.\n");
+  await financeRule(app);
+  const run = await app.runtime.run({ prompt: "read it" });
+  const [denied] = eventsOf(app, run, "policy.denied");
+  assert.equal(denied?.data.target, "finance/report.md");
+  assert.equal(eventsOf(app, run, "tool.completed").length, 0, "nothing was read");
+  // The same for a folder added to a knowledge base, whose path sits inside `source`.
+  assert.equal(app.registry.targetOf("knowledge.add", { collection: "notes", source: { kind: "folder", path: " finance " } }, {}), "finance");
+});
+
+test("1 the question shows the call as it will run: the mapped name, not the one sent; the yes stays bound to what was sent", async (t) => {
+  const sent = { file_path: "finance/q1.txt", old_string: "10", new_string: "99" };
+  const provider = scripted([call("files.edit", sent), say("done")]);
+  const { app, workspace } = await fixture(t, { provider });
+  await mkdir(join(workspace, "finance"), { recursive: true });
+  await writeFile(join(workspace, "finance", "q1.txt"), "10\n");
+  await financeRule(app, "ask");
+  const { argumentFingerprint } = await import("../dist/runtime.js");
+  const run = await app.runtime.run({ prompt: "change it" });
+  assert.equal(run.status, "needs_input");
+  const [question] = eventsOf(app, run, "policy.ask");
+  assert.equal(question.data.target, "finance/q1.txt");
+  assert.equal(JSON.parse(question.data.bytes).path, "finance/q1.txt");
+  assert.equal(question.data.fingerprint, argumentFingerprint(JSON.stringify(sent)));
+});
+
+test("1 trying a tool by hand and another AI tool's dry run judge the call as the tool will run it", async (t) => {
+  const { app, workspace } = await fixture(t);
+  await financeRule(app);
+  const { dryRunPlan } = await import("../dist/mcp-policy.js");
+  const plan = dryRunPlan(app.registry, app.store, "local", workspace, { name: "files.edit",
+    arguments: { file_path: "finance/q1.txt", old_string: "10", new_string: "99" } });
+  assert.equal(plan.target, "finance/q1.txt");
+  assert.equal(plan.decision, "deny");
+});
+
+// ------------------------------------------------------------------ 2. the loop guard compares cleaned calls
+
+test("2 the loop guard sees a call that only changes a junk key each round as the same call", async (t) => {
+  const steps = [];
+  for (let round = 0; round < 8; round++) steps.push(call("files.read", { path: "a.txt", [`junk${round}`]: round }));
+  steps.push(say("done"));
+  const provider = scripted(steps);
+  const { app, workspace } = await fixture(t, { provider });
+  await writeFile(join(workspace, "a.txt"), "hello\n");
+  const { saveLoopGuardSettings } = await import("../dist/loop-guard.js");
+  saveLoopGuardSettings(app.store, "local", { mode: "on" });
+  const run = await app.runtime.run({ prompt: "read it" });
+  assert.ok(eventsOf(app, run, "loop.warned").length + eventsOf(app, run, "loop.blocked").length > 0,
+    "the repeats were noticed although the junk key changed every time");
+  assert.ok(eventsOf(app, run, "loop.blocked").length > 0, "and the repeated call was refused");
+});

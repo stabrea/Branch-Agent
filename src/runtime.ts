@@ -50,6 +50,7 @@ import { presetRunsLocally } from "./models.js"; // mac7/coding-next
 import { projectTestsTool } from "./coding/project-tests.js"; // mac7/coding-next
 import { checkResult, fanoutWaves, type FanoutTask, type ResultCheck } from "./delegation.js";
 import { describeToolCall, filePathOf } from "./activity.js";
+import { canonicalArguments } from "./loop-guard.js";
 // Wave mac2 (guards): loop guard and folder trust; see src/run-guards.ts.
 import { RunGuards } from "./run-guards.js";
 import { browserConfirmationHold, holdsBrowserStep, withBrowserConfirmation } from "./comfort/browser-safety.js"; // R17-S19
@@ -644,7 +645,8 @@ export class Runtime {
    * mac5/manual-actions: the OS sandbox wall for a call made outside a conversation, worked out with
    * exactly the inputs a conversation's call uses (see callTool). Never taken from the caller.
    */
-  wallFor(tool: string, args: unknown, context: ToolContext, choice: PolicyCheck["sandbox"]): Pick<ToolContext, "osSandbox"> {
+  wallFor(tool: string, sent: unknown, context: ToolContext, choice: PolicyCheck["sandbox"]): Pick<ToolContext, "osSandbox"> {
+    const args = this.registry.runArgs(tool, sent); // hardening-3: as the tool will run it
     return wallContextFor({ store: this.store, owner: this.owner, policy: this.policy(context.source ?? "owner"),
       approvals: this.approvals, context, tool, permission: this.registry.permissionOf(tool),
       target: this.registry.targetOf(tool, args, context), args, choice, untouchable: this.protectedAreas });
@@ -1297,7 +1299,11 @@ ${run.output.slice(0, 6000)}`;
         this.rememberToolWork(run.id, call.name, round + 1);
         // mac3/never-break: each call is written to the task journal, flushed, before it runs.
         const result = await this.journal.around({ runId: run.id, sessionId: run.sessionId, call, workspace: context.workspace, signal: context.signal,
-          permission: this.registry.permissionOf(call.name) }, () => this.guards.call(run.id, call, () => this.callTool(call, context))); // wave mac2 (guards)
+          permission: this.registry.permissionOf(call.name) }, () => {
+          // hardening-3: the loop guard compares the call as the tool will run it, so a changing junk key is still a repeat.
+          const prepared = this.prepareCall(call);
+          return this.guards.call(run.id, { ...call, arguments: prepared.seenText }, () => this.callTool(call, context, prepared));
+        }); // wave mac2 (guards)
         const message: Message = { role: "tool", toolCallId: call.id, content: this.clipped(run, call, JSON.stringify(result)) };
         messages.push(message); ids.push(null);
         this.store.message(run.sessionId, message);
@@ -2092,7 +2098,9 @@ ${run.output.slice(0, 6000)}`;
    * account. The same reckoning a model's turn goes through, for the places that are not one: a
    * saved workflow's tool step, and every step of a procedure being replayed.
    */
-  checkPolicy(tool: string, args: unknown, context: ToolContext, fingerprint?: string): PolicyCheck {
+  checkPolicy(tool: string, sent: unknown, context: ToolContext, fingerprint?: string): PolicyCheck {
+    // hardening-3: judged as the tool will run it (the same schema, the same names), whatever the caller passed.
+    const args = this.registry.runArgs(tool, sent);
     const permission = this.registry.permissionOf(tool);
     const readOnly = isReadOnlyPermission(permission);
     const target = this.registry.targetOf(tool, args, context);
@@ -2611,29 +2619,42 @@ ${run.output.slice(0, 6000)}`;
     if (!app) return;
     this.store.event(context.runId, "mcp.app", { tool: call.name, server: call.name.split(".")[1] ?? call.name, ...app });
   }
+  /**
+   * hardening-3: a model's call read once — the arguments cleaned of keys the tool does not take
+   * (the tool gets these) and the arguments the tool will run with once its own schema has mapped
+   * names, trimmed spaces and filled defaults (everything that judges or shows the call gets these:
+   * the rules, the approval card, the second look, the wall, and the loop guard).
+   */
+  prepareCall(call: ToolCall): PreparedCall {
+    let parsed: unknown, validArgs = true;
+    try { parsed = JSON.parse(call.arguments); } catch { validArgs = false; }
+    const { args, ignored } = validArgs ? this.registry.clean(call.name, parsed) : { args: parsed, ignored: [] };
+    const seen = validArgs ? this.registry.runArgs(call.name, args) : args;
+    return { args, seen, ignored, validArgs, seenText: validArgs ? argumentsText(seen, call.arguments) : call.arguments };
+  }
   private async callTool(
     call: ToolCall,
     context: ToolContext,
+    prepared: PreparedCall = this.prepareCall(call),
   ): Promise<unknown> {
-    let parsed: unknown, validArgs = true;
-    try { parsed = JSON.parse(call.arguments); } catch { validArgs = false; }
-    // mac7/coding-next: keys the tool does not take are dropped here, before anything looks at the
-    // call — the policy, the approval, the wall and the tool all see only what is left — and the
-    // model is told in one line which ones were ignored. The approval's fingerprint and the bytes
-    // shown stay those of the exact request sent, which can only make a yes narrower, never wider.
-    const { args, ignored } = validArgs ? this.registry.clean(call.name, parsed) : { args: parsed, ignored: [] };
+    // mac7/coding-next: keys the tool does not take are dropped before anything looks at the call,
+    // and the model is told in one line which ones were ignored. The approval's fingerprint stays
+    // that of the exact request sent, which can only make a yes narrower, never wider.
+    const { ignored } = prepared;
     if (ignored.length) this.store.event(context.runId, "tool.arguments_ignored", { name: call.name, id: call.id, keys: ignored });
-    // Integration review: the person asked and the second model are shown what will run, not the junk.
-    const shown = ignored.length ? { ...call, arguments: JSON.stringify(args) } : call;
-    const outcome = await this.runToolCall(call, context, args, validArgs, shown);
+    // Integration review, hardening-3: the person asked and the second model are shown what will run.
+    const shown = canonicalArguments(prepared.seenText) === canonicalArguments(call.arguments) ? call : { ...call, arguments: prepared.seenText };
+    const outcome = await this.runToolCall(call, context, prepared, shown);
     return ignored.length && outcome && typeof outcome === "object" ? { ...outcome, note: ignoredNote(ignored) } : outcome;
   }
-  private async runToolCall(call: ToolCall, context: ToolContext, args: unknown, validArgs: boolean, shown: ToolCall): Promise<unknown> {
+  private async runToolCall(call: ToolCall, context: ToolContext, prepared: PreparedCall, shown: ToolCall): Promise<unknown> {
+    // `args` is what the tool is handed; `seen` is the same call as the tool will read it, for everything else.
+    const { args, seen, validArgs } = prepared;
     // The file a call is about is written down beside it — the path only — so that later the
     // assistant can notice which files this person keeps coming back to. See src/memory-learning.ts.
-    const path = filePathOf(call.name, args);
+    const path = filePathOf(call.name, seen);
     this.store.event(context.runId, "tool.started",
-      { name: call.name, id: call.id, label: describeToolCall(call.name, args), ...(path ? { path } : {}) });
+      { name: call.name, id: call.id, label: describeToolCall(call.name, seen), ...(path ? { path } : {}) });
     if (call.name === expandToolName) return this.openToolbox(call, context, args);
     if (call.name === toolSearchName) return this.searchTools(call, context, args);
     if (call.name === toolDescribeName) return this.describeTools(call, context, args);
@@ -2641,7 +2662,7 @@ ${run.output.slice(0, 6000)}`;
     const blocked = this.reconciliationBlock(context, call);
     if (blocked) { this.store.event(context.runId, "reconciliation.required", { name: call.name, id: call.id }); return { ok: false, error: blocked }; }
     await this.pace(context, "tool", this.policy().limits.toolCallsPerMinute);
-    const gated = await this.gate(call, args, context, shown);
+    const gated = await this.gate(call, seen, context, shown);
     if (gated.refusal) return gated.refusal;
     const limitMs = knobs.toolLimits(this.store, this.owner, this.reliability).toolTimeoutMs, timeout = AbortSignal.timeout(limitMs); // R17-S10
     // How tightly a program this call starts is held travels with the call, so a tool that starts
@@ -2656,7 +2677,7 @@ ${run.output.slice(0, 6000)}`;
       // wave mac3 (os-sandbox): the wall around programs, from the owner's switch; see src/sandbox-wall.ts.
       ...wallContextFor({ store: this.store, owner: this.owner, policy: this.policy(context.source ?? "owner"),
         approvals: this.approvals, context, tool: call.name, permission: this.registry.permissionOf(call.name),
-        target: this.registry.targetOf(call.name, args, context), args, choice: gated.sandbox, untouchable: this.protectedAreas }) };
+        target: this.registry.targetOf(call.name, seen, context), args: seen, choice: gated.sandbox, untouchable: this.protectedAreas }) };
     const span = this.tracer.start(context.runId, "tool", `tool ${call.name}`, {
       "branch.tool.name": call.name, "branch.tool.call_id": call.id,
       "branch.tool.permission": this.registry.permissionOf(call.name),
@@ -2672,9 +2693,9 @@ ${run.output.slice(0, 6000)}`;
       const receipt = await this.store.receipts.sign(context.runId, call.id, call.name, result);
       this.store.event(context.runId, "tool.completed", { name: call.name, id: call.id, result, receipt });
       // A command that ran but came back with a complaint is still a command that did not work.
-      this.noteCommandFailure(call, context, args, result);
+      this.noteCommandFailure(call, context, seen, result);
       // w911 (A0374) hook: with "fixing failed commands" on, a failed command is diagnosed, fixed and tried again.
-      const mended = await troubleshootInTask(this, context, call, args, result, (fix) => this.callTool(fix, context), () => this.failedCommands.delete(this.sessionOf(context)));
+      const mended = await troubleshootInTask(this, context, call, seen, result, (fix) => this.callTool(fix, context), () => this.failedCommands.delete(this.sessionOf(context)));
       if (mended) { span?.end("ok"); return mended; }
       const failure = this.toolWork.get(context.runId)?.failures.get(call.name);
       if (failure !== undefined) { this.toolWork.get(context.runId)!.failures.delete(call.name); this.learnFromRetry(context, call.name, failure); }
@@ -2696,7 +2717,7 @@ ${run.output.slice(0, 6000)}`;
       const stalled = timeout.aborted;
       const error = this.hideSecrets(stalled ? `The tool was stopped after ${limitMs / 1000} seconds without finishing` : errorText(e));
       this.store.event(context.runId, stalled ? "tool.stalled" : "tool.failed", { name: call.name, id: call.id, error });
-      this.noteCommandFailure(call, context, args);
+      this.noteCommandFailure(call, context, seen);
       this.toolWork.get(context.runId)?.failures.set(call.name, error);
       span?.end("error", error, { "branch.tool.outcome": stalled ? "stalled" : "failed" });
       return { ok: false, error };
@@ -2721,6 +2742,21 @@ export function channelSource(answeredOn: string | undefined): AuditSource | nul
 }
 
 /** mac7/coding-next: the one line a model is told when some of its arguments were not used. */
+/** hardening-3: a model's call as the runtime reads it once (see `Runtime.prepareCall`). */
+export interface PreparedCall {
+  /** What the tool is handed: the call without the keys it does not take. */
+  args: unknown;
+  /** The same call as the tool will read it, for the rules, the card, the second look and the loop guard. */
+  seen: unknown;
+  /** The same, as text. */
+  seenText: string;
+  ignored: string[];
+  validArgs: boolean;
+}
+/** Arguments as text, or the text that was sent when they cannot be written out. */
+function argumentsText(value: unknown, sent: string): string {
+  try { return JSON.stringify(value) ?? sent; } catch { return sent; }
+}
 export function ignoredNote(keys: readonly string[]): string {
   return `Ignored ${keys.length === 1 ? "an argument" : "arguments"} this tool does not take: ${keys.join(", ")}.`;
 }
