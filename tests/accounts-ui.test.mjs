@@ -1,5 +1,5 @@
 /**
- * mac6/accounts: the Accounts card in Settings › Models › Connection and the account chip in the
+ * mac6/accounts: the Accounts card (Settings › Accounts since redesign phase 2) and the account chip in the
  * title bar, opened the way a person opens them. A headless browser; the connection is a stand-in
  * and the extra key is never used, so nothing reaches a provider.
  */
@@ -49,10 +49,10 @@ async function openCard(page) {
   await page.locator("#accounts-mode").waitFor({ state: "visible", timeout: 15000 });
 }
 
-test("U1 the card lives in Settings › Models, starts off, and adding a key keeps the key off the page", async (t) => {
+test("U1 the card lives in Settings › Accounts, starts off, and adding a key keeps the key off the page", async (t) => {
   const { page, errors, app } = await fixture(t);
   await openCard(page);
-  assert.equal(await page.locator("#accounts-card").getAttribute("data-home"), "settings:models:connection");
+  assert.equal(await page.locator("#accounts-card").getAttribute("data-home"), "settings:accounts");
   assert.equal(await page.locator("#accounts-mode").inputValue(), "off");
   assert.equal(await page.locator("#accounts-card .accounts-pool").count(), 0, "while off there is no list");
   await page.locator("#accounts-mode").selectOption("on");
