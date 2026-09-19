@@ -5,7 +5,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { z } from "zod";
 import { reconnectDelay } from "../../channels/ws-client.js";
 import { capabilities, CapabilitySchema, mediaLimitBytes, type Capability, type DevicePlatform } from "../capabilities.js";
-import { helloText, mediaFrame, pairText, protocolVersion, WindowLimit } from "../protocol.js";
+import { helloText, keyCheck, mediaFrame, pairText, protocolVersion, WindowLimit } from "../protocol.js";
 import type { NodeActions } from "./actions.js";
 import { checkHubAddress, dialNode, RefusedError, type DialNode, type NodeSocket } from "./socket.js";
 export { checkHubAddress };
@@ -61,7 +61,10 @@ export function parsePairLink(link: string): { hub: string; offer: string } {
 export interface PairOptions {
   platform: DevicePlatform; offers: Capability[]; name?: string;
   fetch?: typeof fetch; intervalMs?: number; timeoutMs?: number; log?: (line: string) => void;
+  /** phase2/shell integration review: stops waiting for the yes (the window's Stop or Leave). */
+  signal?: AbortSignal;
 }
+export const pairingStopped = "Pairing was stopped on this computer.";
 async function post(fetcher: typeof fetch, url: string, body: unknown): Promise<Record<string, unknown>> {
   const response = await fetcher(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
   const answer = await response.json().catch(() => ({})) as Record<string, unknown>;
@@ -74,22 +77,26 @@ export async function pairNode(dir: string, link: string, code: string, options:
   const fetcher = options.fetch ?? fetch;
   const { hub, offer } = parsePairLink(link);
   let identity = await loadIdentity(dir);
+  if (options.signal?.aborted) throw new Error(pairingStopped);
   const name = options.name ?? identity.name;
   const sent = await post(fetcher, `${hub}/api/devices/pair`, { offer, code, name, platform: options.platform, publicKey: identity.publicKey, offers: options.offers });
   identity = { ...identity, hub, name, requestId: String(sent.requestId), deviceId: null };
   await saveIdentity(dir, identity);
   options.log?.("Waiting for the owner to let this computer in, on the computer running Branch (Customize, Channels, Devices).");
+  options.log?.(`Check code: ${keyCheck(identity.publicKey)}. The same code shows beside the request there; if it differs, it should be refused.`);
   const deadline = Date.now() + (options.timeoutMs ?? 10 * 60_000);
   while (Date.now() < deadline) {
+    if (options.signal?.aborted) throw new Error(pairingStopped);
     const status = await post(fetcher, `${hub}/api/devices/pair/status`,
       { requestId: identity.requestId, signature: signWith(identity, pairText(identity.requestId!, "status")) });
+    if (options.signal?.aborted) throw new Error(pairingStopped);
     if (status.status === "approved" && typeof status.deviceId === "string") {
       identity = { ...identity, deviceId: status.deviceId, requestId: null };
       await saveIdentity(dir, identity);
       return identity;
     }
     if (status.status === "refused") throw new Error("The owner refused this computer.");
-    await sleep(options.intervalMs ?? 3000);
+    await sleep(options.intervalMs ?? 3000, undefined, options.signal ? { signal: options.signal } : undefined).catch(() => undefined);
   }
   throw new Error("Nobody answered in time. Make a new invitation and try again.");
 }

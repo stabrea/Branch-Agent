@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import type { ToolTarget } from "./contracts.js";
 import { endingOf, indentShift, joinLines, splitLines, type FileLine } from "./text-replace.js";
 /**
  * A small unified-diff reader and applier. It is strict about *what* changes and forgiving about
@@ -21,7 +23,11 @@ export interface PatchLine { kind: " " | "-" | "+"; text: string }
  * no numbers names (`@@ class Cart`), found in order before the part's own lines are looked for.
  */
 export interface Hunk { index: number; oldStart: number | null; anchors?: string[]; lines: PatchLine[]; endsWithoutNewline: boolean }
-export interface PatchFile { path: string; created: boolean; hunks: Hunk[] }
+export interface PatchFile {
+  path: string; created: boolean; hunks: Hunk[];
+  /** mac7/multi-target: the other path a header's "---" line names (a rename), or null. The rules judge it too. */
+  oldPath: string | null;
+}
 
 const numbered = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
 const isHunkHeader = (line: string): boolean => line.startsWith("@@");
@@ -44,10 +50,49 @@ export function parsePatch(text: string): PatchFile[] {
     const hunks: Hunk[] = [];
     while (at < lines.length && isHunkHeader(lines[at]!)) at = readHunk(lines, at, hunks);
     if (!hunks.length) throw new Error(`Patch refused: "${to}" has no changes in the patch`);
-    files.push({ path: to, created: from === null, hunks });
+    files.push({ path: to, created: from === null, hunks, oldPath: from !== null && from !== to ? from : null });
   }
   if (!files.length) throw new Error("Patch refused: no file headers (\"--- \"/\"+++ \") were found");
   return files;
+}
+
+/**
+ * mac7/multi-target: every file a patch touches, read by `parsePatch` itself, so what the rules judge
+ * is exactly what will be applied. A rename's old path is judged as a change too, because the patch
+ * says that file moves. A dry run only reads. A patch that cannot be read throws, and is refused.
+ */
+export function patchTargets(text: string, dryRun = false): ToolTarget[] {
+  const kind = dryRun ? "read" as const : "write" as const;
+  return parsePatch(text).flatMap((file) => [
+    { kind, path: file.path },
+    ...(file.oldPath ? [{ kind, path: file.oldPath }] : []),
+  ]);
+}
+
+/**
+ * "2 files: a, b": how a call touching several files is named on a question and in a standing answer.
+ * Integration (multi-target): an "Always" is saved with this text as its match, so it must name one set
+ * of files and no other. A list too long to show whole (more than 7 files, or 300 characters) ends
+ * with a fingerprint of every path, so two sets that begin alike are never the same answer, and the
+ * text stays inside the 500 characters a rule's match may hold.
+ */
+export function fileList(paths: string[]): string {
+  const head = `${paths.length} file${paths.length === 1 ? "" : "s"}: `;
+  const whole = head + paths.join(", ");
+  if (paths.length <= 7 && whole.length <= 300) return whole;
+  const shown: string[] = [];
+  let length = head.length;
+  for (const path of paths.slice(0, 7)) {
+    if (length + path.length + 2 > 300) break;
+    shown.push(path);
+    length += path.length + 2;
+  }
+  const print = createHash("sha256").update(paths.join("\n")).digest("hex").slice(0, 16);
+  return `${head}${shown.map((path) => `${path}, `).join("")}and ${paths.length - shown.length} more (list ${print})`;
+}
+/** mac7/multi-target: the files a patch names, as it will be applied; empty when it cannot be read (it is then refused). */
+export function patchFileList(patch: string): string {
+  try { return fileList([...new Set(patchTargets(patch).map((one) => one.path ?? ""))]); } catch { return ""; }
 }
 
 function checkPath(path: string): void {
@@ -162,7 +207,7 @@ function parseEnvelope(lines: string[]): PatchFile[] {
         const text = lines[at++]!;
         if (text.startsWith("+")) added.push({ kind: "+", text: text.slice(1) });
       }
-      files.push({ path, created: true, hunks: [{ index: 1, oldStart: 0, lines: added, endsWithoutNewline: false }] });
+      files.push({ path, created: true, hunks: [{ index: 1, oldStart: 0, lines: added, endsWithoutNewline: false }], oldPath: null });
       continue;
     }
     const hunks: Hunk[] = [];
@@ -172,7 +217,7 @@ function parseEnvelope(lines: string[]): PatchFile[] {
     }
     while (at < lines.length && isHunkHeader(lines[at]!)) at = readHunk(lines, at, hunks);
     if (!hunks.length) throw new Error(`Patch refused: "${path}" has no changes in the patch`);
-    files.push({ path, created: false, hunks });
+    files.push({ path, created: false, hunks, oldPath: null });
   }
   if (!files.length) throw new Error("Patch refused: no \"*** Update File:\" or \"*** Add File:\" sections were found");
   return files;
