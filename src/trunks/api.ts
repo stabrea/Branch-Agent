@@ -24,6 +24,8 @@ const TextSchema = z.object({ text: z.string().trim().min(1).max(16000) }).stric
 const trunkPath = /^\/api\/trunks\/([a-f0-9-]{36})(?:\/(remove|say|seen|retire|avatar|export|keys|routines|watch|teach))?$/;
 const roomPath = /^\/api\/trunks\/rooms\/([a-f0-9-]{36})(?:\/(remove|send|stop|answer|revoke))?$/; // phase2/rooms: revoke
 const routinePath = /^\/api\/trunks\/routines\/([a-f0-9-]{36})\/remove$/;
+/** mac7/residuals (integration): Answer / Not now on a Trunk's message that waits for the owner. */
+const messagePath = /^\/api\/trunks\/messages\/([a-f0-9-]{36})\/(answer|decline)$/;
 /** phase2/rooms: who answers in a conversation (src/trunks/conversations.ts). */
 const conversationPath = /^\/api\/trunks\/conversations(?:\/([a-f0-9-]{36})(?:\/(room))?)?$/;
 
@@ -73,6 +75,8 @@ async function topRoute(deps: TrunksHttpDeps, path: string): Promise<unknown> {
   }
   const routine = routinePath.exec(path);
   if (routine) return trunks.routines.remove(routine[1]!);
+  const message = messagePath.exec(path);
+  if (message) return message[2] === "answer" ? { waiting: trunks.messages.answer(message[1]!) } : trunks.messages.decline(message[1]!);
   return undefined;
 }
 

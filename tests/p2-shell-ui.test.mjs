@@ -314,7 +314,10 @@ test("a computer asking to join shows in the strip with a turning ring, and is l
   assert.equal(await dialog.getByRole("tab", { name: "Another computer" }).getAttribute("aria-selected"), "true");
   // mac7/residuals: "Let it in" waits until the owner ticks that the codes match.
   assert.equal(await dialog.getByRole("button", { name: "Let it in" }).isDisabled(), true, "not before the codes are compared");
-  await dialog.getByLabel("The code matches").check();
+  // Integration: ticked from the keyboard (a real check box with its label), and the route is told so.
+  await dialog.getByLabel("The code matches").focus();
+  await f.page.keyboard.press("Space");
+  assert.equal(await dialog.getByLabel("The code matches").isChecked(), true, "Space ticks it");
   await dialog.getByRole("button", { name: "Let it in" }).click();
   await dialog.locator("#pair-name").fill("Studio");
   await dialog.getByRole("button", { name: "Next" }).click();

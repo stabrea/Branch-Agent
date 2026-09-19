@@ -70,6 +70,9 @@ function overview(deps: DevicesHttpDeps): unknown {
   };
 }
 
+/** mac7/residuals (integration): letting a device in without saying the check codes match. */
+export const codeNotConfirmed =
+  "Compare the check code first. The device shows the same code while it waits; let it in only once you have said the two match.";
 const deviceRoute = /^\/api\/devices\/([a-f0-9]{16})\/(switch|folder|share|rename|revoke)$/;
 const requestRoute = /^\/api\/devices\/requests\/([a-f0-9]{32})$/;
 const SwitchSchema = z.object({ capability: CapabilitySchema, on: z.boolean() }).strict();
@@ -127,7 +130,9 @@ export async function devicesApi(deps: DevicesHttpDeps, path: string): Promise<u
   }
   const request = requestRoute.exec(path);
   if (request) {
-    const body = z.object({ approve: z.boolean() }).strict().parse(await deps.readBody());
+    // mac7/residuals (integration): a yes says the owner compared the check code on both screens.
+    const body = z.object({ approve: z.boolean(), codeMatches: z.boolean().optional() }).strict().parse(await deps.readBody());
+    if (body.approve && body.codeMatches !== true) throw new DevicesHttpError(400, codeNotConfirmed);
     const { publicKey: _key, ...decided } = devices.book.decide(request[1]!, body.approve);
     return { request: decided };
   }

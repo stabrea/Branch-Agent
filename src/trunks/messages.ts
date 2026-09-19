@@ -43,8 +43,14 @@ export interface Receipt {
   /** Where it was delivered, and the exact words, so the task that reads it can be matched. */
   sessionId: string;
   prompt: string;
-  /** "waiting": the task that read it stopped to ask the owner a question (mac7/residuals); the next task in that conversation carries it on. */
+  /**
+   * "waiting": the task that read it stopped to ask the owner a question (mac7/residuals). It is carried
+   * on only once the owner presses Answer on its card (`armed`); then their next message in that
+   * conversation answers it. "Not now" ends it, and the sender is told.
+   */
   status: "queued" | "delivered" | "waiting" | "answered" | "failed";
+  /** mac7/residuals (integration): the owner said their next message in this conversation answers it. */
+  armed?: boolean;
   depth: number;
   attempts: number;
   runId: string | null;
@@ -58,6 +64,11 @@ export interface Receipt {
   at: string;
   updatedAt: string;
 }
+
+/** mac7/residuals (integration): a message waiting on the owner, as its card in the window shows it. */
+export interface WaitingMessage { id: string; from: string; to: string; sessionId: string; message: string; armed: boolean }
+/** What the sender is told when the owner says "Not now". */
+export const notNowAnswer = "its owner chose not to answer it now.";
 
 export const MessageSchema = z.object({
   to: z.string().trim().min(1).max(80).describe("The other Trunk's @name, or its name"),
@@ -157,8 +168,7 @@ export class TrunkMessages {
     if (!run) return;
     if (kind === "run.started") {
       const waiting = this.receipts().reverse().find((r) => r.status === "queued" && r.sessionId === run.sessionId && r.prompt === run.prompt)
-        // mac7/residuals: else the oldest message still waiting for a yes here, as the owner's answers go oldest first.
-        ?? this.receipts().reverse().find((r) => r.status === "waiting" && r.kind === "message" && r.sessionId === run.sessionId && r.runId !== runId);
+        ?? this.armedFor(run.sessionId, runId, data); // mac7/residuals (integration)
       if (!waiting) return;
       this.update(waiting.id, { status: "delivered", runId });
       this.store.event(runId, depthEvent, { depth: waiting.depth });
@@ -167,9 +177,45 @@ export class TrunkMessages {
     const receipt = this.receipts().find((r) => r.runId === runId && r.status === "delivered");
     if (receipt) this.finished(receipt, String(data.status ?? run.status), String(data.output ?? run.output ?? ""));
   }
+  /**
+   * mac7/residuals (integration): the waiting message the owner pressed Answer on, for the next task in
+   * its conversation. Never taken by a chat app's message or a short-lived key's: only the owner answers.
+   */
+  private armedFor(sessionId: string, runId: string, started: Record<string, unknown>): Receipt | undefined {
+    if (started.source === "channel" || started.shortLivedKey === true) return undefined;
+    return this.receipts().reverse().find((r) => r.status === "waiting" && r.kind === "message" && r.armed === true
+      && r.sessionId === sessionId && r.runId !== runId);
+  }
+  /** mac7/residuals (integration): messages whose task stopped to ask the owner, oldest first, for their cards. */
+  waiting(): WaitingMessage[] {
+    const name = (id: string) => this.records.find(id)?.name ?? "A Trunk";
+    return this.receipts().reverse().filter((r) => r.status === "waiting" && r.kind === "message").map((r) => ({
+      id: r.id, from: name(r.from), to: name(r.to), sessionId: r.sessionId, armed: r.armed === true,
+      message: r.prompt.replace(/^Message from [^\n]*\n/, "").slice(0, 300) }));
+  }
+  /** Answer: the owner's next message in that conversation answers this one (and no other waiting there). */
+  answer(id: string): WaitingMessage {
+    const receipt = this.waitingReceipt(id);
+    for (const other of this.receipts().filter((r) => r.armed && r.sessionId === receipt.sessionId && r.id !== id))
+      this.update(other.id, { armed: false });
+    this.update(id, { armed: true });
+    return this.waiting().find((item) => item.id === id)!;
+  }
+  /** Not now: the message ends unanswered and its sender is told so, in plain words. */
+  decline(id: string): { declined: true } {
+    const receipt = this.waitingReceipt(id);
+    this.update(id, { status: "failed", armed: false, error: notNowAnswer });
+    this.answerBack(receipt, "failure", notNowAnswer);
+    return { declined: true };
+  }
+  private waitingReceipt(id: string): Receipt {
+    const receipt = this.receipts().find((r) => r.id === id && r.kind === "message" && r.status === "waiting");
+    if (!receipt) throw Object.assign(new Error("That message is not waiting for your answer any more."), { status: 404 });
+    return receipt;
+  }
   private finished(receipt: Receipt, status: string, output: string): void {
-    // mac7/residuals: a task that stopped to ask the owner has not failed. It waits for a yes, and the
-    // answer goes back once the next task in that conversation (the one after the owner's answer) ends.
+    // mac7/residuals: a task that stopped to ask the owner has not failed. It waits for a yes; its card
+    // in the window offers Answer (the owner's next message there carries it on) and Not now.
     if (status === "needs_input") {
       this.update(receipt.id, { status: "waiting" });
       return;

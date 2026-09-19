@@ -132,7 +132,8 @@ function matchBox(request, allow) {
 function requestRow(request, status) {
   const line = make("p", "", "devices.request.line", `${request.name} (${PLATFORMS[request.platform]}) asks to join.`,
     { name: request.name, platform: say(platformKey(request.platform), PLATFORMS[request.platform]) });
-  const answer = (approve) => async () => { try { await api(`devices/requests/${request.id}`, { approve }); await draw(); } catch (error) { tell(status, error); } };
+  const said = (approve) => (approve ? { approve, codeMatches: codesMatched.has(request.id) } : { approve }); // mac7/residuals (integration)
+  const answer = (approve) => async () => { try { await api(`devices/requests/${request.id}`, said(approve)); await draw(); } catch (error) { tell(status, error); } };
   const box = document.createElement("div");
   box.className = "devices-request";
   const allow = button("devices.request.allow", "Let it in", answer(true), false);

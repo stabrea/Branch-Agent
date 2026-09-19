@@ -79,7 +79,12 @@ test("another computer joins from its window: the owner's yes, connected, then i
   assert.equal(started.status, 200);
   assert.equal(started.body.state, "waiting");
   const request = await until(async () => (await host.call("/api/devices")).body.requests.find((entry) => entry.name === "Kitchen laptop"), "the join request");
-  assert.equal((await host.call(`/api/devices/requests/${request.id}`, { approve: true })).status, 200);
+  // mac7/residuals (integration): the route, not only the window's tick, wants the owner's word that the codes match.
+  const unsaid = await host.call(`/api/devices/requests/${request.id}`, { approve: true });
+  assert.equal(unsaid.status, 400);
+  assert.match(JSON.stringify(unsaid.body), /Compare the check code first/);
+  assert.equal((await host.call("/api/devices")).body.requests.some((entry) => entry.id === request.id), true, "and the request still waits");
+  assert.equal((await host.call(`/api/devices/requests/${request.id}`, { approve: true, codeMatches: true })).status, 200);
   const joined = await until(async () => { const now = (await guest.call("/api/devices/join")).body; return now.connected ? now : null; }, "the guest to connect");
   assert.equal(joined.state, "joined");
   assert.equal(joined.hub, new URL(host.server.url).origin);
@@ -142,7 +147,7 @@ test("integration review: both screens show the same check code, an invitation w
   assert.equal((await host.call("/api/devices")).body.requests.length, 1, "a replayed invitation leaves no second request");
   // Stop before the yes: a yes that comes later must not connect this computer.
   assert.equal((await guest.call("/api/devices/join/leave", {})).body.state, "off");
-  assert.equal((await host.call(`/api/devices/requests/${request.id}`, { approve: true })).status, 200);
+  assert.equal((await host.call(`/api/devices/requests/${request.id}`, { approve: true, codeMatches: true })).status, 200);
   await wait(4500); // longer than one of the joining computer's three-second asks
   const after = (await guest.call("/api/devices/join")).body;
   assert.equal(after.state, "off");
@@ -181,7 +186,7 @@ test("integration review: Lockdown here cuts a joined computer off, and being ta
   const guest = await branch(t, "guest-revoke");
   await guest.call("/api/devices/join", { link: invite.link, code: invite.code, name: "Attic" });
   const request = await until(async () => (await host.call("/api/devices")).body.requests.find((entry) => entry.name === "Attic"), "the request");
-  await host.call(`/api/devices/requests/${request.id}`, { approve: true });
+  await host.call(`/api/devices/requests/${request.id}`, { approve: true, codeMatches: true });
   const device = await until(async () => (await host.call("/api/devices")).body.devices.find((entry) => entry.connected), "connected");
   await guest.call("/api/lockdown", { on: true });
   await until(async () => !(await host.call("/api/devices")).body.devices.find((entry) => entry.id === device.id).connected, "Lockdown to close the line");

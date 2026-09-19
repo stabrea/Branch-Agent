@@ -240,7 +240,8 @@ function codesMatch(allow) {
   return label;
 }
 async function decide(approve) {
-  const { request } = await api(`devices/requests/${pair.request.id}`, { approve });
+  // mac7/residuals (integration): the server wants the owner's word that the codes match, not only the tick.
+  const { request } = await api(`devices/requests/${pair.request.id}`, { approve, ...(approve ? { codeMatches: $("pair-match")?.checked === true } : {}) });
   pair.invite = null;
   if (!approve) { Object.assign(pair, { step: "pair", request: null }); toast(say("pair.refused", "Refused. Nothing was added.")); return redraw(); }
   await refresh();

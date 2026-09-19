@@ -202,3 +202,26 @@ test("18. in French, Settings search names a setting whose control is not drawn 
   assert.equal(await row.textContent(), picked.french, `${picked.id} is named in French, not "${picked.english}"`);
   assert.deepEqual(errors, []);
 });
+
+test("2 (integration). a Trunk's message waiting on the owner has a card: which Trunk, whose message, Answer and Not now", async (t) => {
+  let ann, ben;
+  const { app, page } = await fixture(t, { before: async (_page, app) => {
+    for (const part of ["trunks", "messages"]) app.trunks.setMode(part, { mode: "on" });
+    ann = app.trunks.create({ name: "Ann" }); ben = app.trunks.create({ name: "Ben" });
+    const now = new Date().toISOString();
+    app.store.save("settings", app.runtime.owner, "trunk-receipts", { items: [{ id: "0f8fad5b-d9cb-469f-a165-70867728950e", kind: "message",
+      from: ann.id, to: ben.id, sessionId: ben.chatSessionId, prompt: "Message from Ann (@ann):\nCan you check the invoice?", status: "waiting",
+      depth: 1, attempts: 1, runId: null, fromRunId: null, reply: null, error: null, at: now, updatedAt: now }] });
+  } });
+  const row = page.locator('#attention [data-waiting-message]');
+  await row.waitFor({ timeout: 30000 });
+  assert.match(await row.innerText(), /Ben is waiting for your answer/);
+  assert.match(await row.innerText(), /About Ann's message: “Can you check the invoice\?”/);
+  await row.getByRole("button", { name: "Answer", exact: true }).click();
+  await row.getByText(/Your next message in that conversation answers Ann's message/).waitFor({ timeout: 10000 });
+  assert.equal(app.trunks.messages.waiting()[0].armed, true, "the route was told");
+  await page.locator('#attention [data-waiting-message]').getByRole("button", { name: "Not now" }).click();
+  await row.waitFor({ state: "detached", timeout: 10000 });
+  assert.deepEqual(app.trunks.messages.waiting(), [], "ended; the sender is told (tests/residuals.test.mjs 2)");
+  assert.equal(app.trunks.messages.receipts(ben.id).find((r) => r.kind === "message").status, "failed");
+});

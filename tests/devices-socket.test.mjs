@@ -70,7 +70,7 @@ async function pairedNode(ctx, name = "Kitchen Mac") {
   await until(async () => (request = (await ctx.call("devices")).requests[0]), "the request to appear");
   assert.equal(request.name, name);
   assert.equal("publicKey" in request, false, "the card is not handed the key");
-  await ctx.call(`devices/requests/${request.id}`, { approve: true });
+  await ctx.call(`devices/requests/${request.id}`, { approve: true, codeMatches: true });
   const identity = await pairing;
   assert.match(identity.deviceId, /^[a-f0-9]{16}$/);
   return { dir, identity };

@@ -910,6 +910,8 @@ function state(app: Branch): unknown {
     activeModel: app.runtime.models.plan(owner, "").choice,
     onboarding: onboardingState(app),
     attention: attention(app),
+    // mac7/residuals (integration): a Trunk's message whose task stopped to ask; its card offers Answer and Not now. The owner's alone.
+    trunkWaiting: app.store.profiles.isOwner() && !startedWithShortLivedKey() ? app.trunks.messages.waiting() : [],
     project: { active: app.store.projects.active(owner), all: app.store.projects.list(owner) },
     version: app.version,
     chatgpt: { configured: Boolean(app.chatgpt) },

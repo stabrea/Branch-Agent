@@ -370,6 +370,9 @@ export const ROUTES = {
   "/api/trunks/from-specialist": "owner POST",
   "/api/trunks/rooms": "owner POST",
   "/api/trunks/routines/:id/remove": "owner POST",
+  // mac7/residuals (integration): Answer / Not now on a Trunk's message waiting for the owner.
+  "/api/trunks/messages/:id/answer": "owner POST",
+  "/api/trunks/messages/:id/decline": "owner POST",
   "/api/trunks/:id": "owner POST",
   "/api/trunks/:id/remove": "owner POST",
   "/api/trunks/:id/say": "task POST",

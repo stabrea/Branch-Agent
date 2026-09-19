@@ -605,11 +605,27 @@ function needsYouTitle(item) {
   if (!item.who) return t("attention.assistantNeedsYou");
   return item.room ? t("attention.trunkNeedsYouInRoom", { name: item.who, room: item.room }) : t("attention.trunkNeedsYou", { name: item.who });
 }
+/* mac7/residuals (integration): a Trunk's message whose task stopped to ask the owner: which Trunk, whose
+   message, in its words, with Answer (the owner's next message there answers it) and Not now (the sender is told). */
+function waitingMessageRow(item) {
+  const row = el("div", undefined, "attention-row");
+  const open = () => { displayView("chat"); openConversation(item.sessionId); };
+  const act = (what) => async () => {
+    try { await api(`trunks/messages/${item.id}/${what}`, {}); if (what === "answer") open(); await refresh(); } catch (e) { toast(e.message); }
+  };
+  row.dataset.waitingMessage = item.id;
+  row.append(el("strong", t("attention.trunkWaiting", { name: item.to })),
+    el("span", t(item.armed ? "attention.trunkWaitingArmed" : "attention.trunkWaitingAbout", { from: item.from, message: item.message })),
+    item.armed ? button(t("attention.openConversation"), open) : button(t("attention.answer"), act("answer")),
+    button(t("attention.notNow"), act("decline")));
+  return row;
+}
 function renderAttention() {
   const waiting = state.attention || [];
+  const messages = state.trunkWaiting || [];
   const banner = $("attention");
-  banner.hidden = !waiting.length;
-  banner.replaceChildren(...waiting.map((item) => {
+  banner.hidden = !waiting.length && !messages.length;
+  banner.replaceChildren(...messages.map(waitingMessageRow), ...waiting.map((item) => {
     const row = el("div", undefined, "attention-row");
     row.append(el("strong", needsYouTitle(item)), el("span", item.question),
       button(t(item.room ? "attention.openRoom" : "attention.openConversation"), () => { displayView("chat"); openConversation(item.open ?? item.sessionId); })); // phase2/rooms

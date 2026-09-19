@@ -53,7 +53,7 @@ test("a phone pairs, is switched on for its location and camera only, and answer
   const pairing = pairPhone(env, invite.link, invite.code, "Sam's phone");
   let request;
   await until(async () => (request = (await call("devices")).requests[0]), "the phone's request");
-  await call(`devices/requests/${request.id}`, { approve: true });
+  await call(`devices/requests/${request.id}`, { approve: true, codeMatches: true });
   const deviceId = await pairing;
   const [device] = (await call("devices")).devices;
   assert.equal(device.id, deviceId);
@@ -118,7 +118,7 @@ test("the phone will not pair over plain http off its own network, and keeps its
   const pairing = pairPhone(env, invite.link, invite.code, "Sam's phone", never);
   let request;
   await until(async () => (request = (await call("devices")).requests[0]), "the phone's request");
-  await call(`devices/requests/${request.id}`, { approve: true });
+  await call(`devices/requests/${request.id}`, { approve: true, codeMatches: true });
   const deviceId = await pairing;
   const [device] = (await call("devices")).devices;
   assert.deepEqual(device.offers, ["location", "open-url", "speak", "canvas"]);

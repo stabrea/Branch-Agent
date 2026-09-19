@@ -179,6 +179,8 @@ export interface FollowUp { id: string; prompt: string; createdAt: string; short
   /** mac7/outside-review: the tools the task that queued it had; the task reading it gets no more. */
   permissions?: string[] }
 /** mac7/outside-review: what a queued message keeps of the task that queued it (see FollowUp). */
+/** mac7/residuals (4b): why a script in an Ask first conversation is asked about every time. */
+export const scriptAskFirstHold = "In Ask first, every script is asked about on its own";
 export interface FollowUpCarry { originFrom?: string | undefined; permissions?: readonly string[] | null | undefined }
 export interface BackgroundResult { childRunId: string; parentRunId: string; status: string; output: string; finishedAt: string }
 export interface FanoutOutcome { waves: string[][]; tasks: Record<string, { runId: string; status: string; output: string; result: ResultCheck }> }
@@ -2181,10 +2183,22 @@ ${run.output.slice(0, 6000)}`;
   /** Redesign phase 1: the owner's policy as this task's conversation has narrowed or widened it. */
   private conversationPolicy(runId?: string): Policy {
     const saved = readPolicy(this.store, this.owner);
-    const record = runId ? this.conversationModeOf(runId) : null;
-    if (!record) return saved;
-    const mode = heldMode(record, saved.preset, this.ownersOwnTask(runId!));
+    const mode = this.heldConversationMode(saved, runId);
     return mode ? policyForMode(saved, mode, lockdownActive(this.store, this.owner)) : saved;
+  }
+  /** The mode this task's conversation holds it to, or null when it follows the owner's setting. */
+  private heldConversationMode(saved: Policy, runId?: string): ConversationMode | null {
+    const record = runId ? this.conversationModeOf(runId) : null;
+    return record ? heldMode(record, saved.preset, this.ownersOwnTask(runId!)) : null;
+  }
+  /**
+   * mac7/residuals (4b, the coordinator's decision): a script's target is only "a small script", so a
+   * yes kept for the conversation would cover every later script. In an Ask first conversation each
+   * one is asked about on its own (Once only). Lockdown refuses it before this; other modes are unchanged.
+   */
+  private scriptHold(tool: string, runId?: string): { reason: string; onceOnly: true } | null {
+    if (tool !== "code.run") return null;
+    return this.heldConversationMode(readPolicy(this.store, this.owner), runId) === "ask" ? { reason: scriptAskFirstHold, onceOnly: true } : null;
   }
   /**
    * Redesign phase 1 (integration review): the mode of the conversation a task belongs to. A helper
@@ -2309,8 +2323,9 @@ ${run.output.slice(0, 6000)}`;
     // owner did not start is asked about, and a lock or door always is, just this once — whatever the rules say.
     const personal = personalHold(tool, args, source);
     // R17-S-C integration review: with "confirm sensitive browser steps" on, those are once-only questions too.
-    const hold = personal ?? (holdsBrowserStep(this.store, this.owner, tool) ? { reason: browserConfirmationHold, onceOnly: true } : null);
-    const held = personal && tightened.decision === "allow" ? "ask" : tightened.decision;
+    const hold = personal ?? (holdsBrowserStep(this.store, this.owner, tool) ? { reason: browserConfirmationHold, onceOnly: true } : null)
+      ?? this.scriptHold(tool, context.runId); // mac7/residuals (4b)
+    const held = (personal || hold?.reason === scriptAskFirstHold) && tightened.decision === "allow" ? "ask" : tightened.decision;
     const guarded = held === "allow" && lockdownActive(this.store, this.owner) && !lowersRiskOnly(tool) ? "ask" : held; // mac7/lockdown-fix
     if (hold?.onceOnly && guarded === "ask" && fingerprint) this.approvals.holdOnce(fingerprint, hold.reason);
     // --- end R17-C ---

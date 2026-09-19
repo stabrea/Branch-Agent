@@ -56,7 +56,7 @@ test("1. Do this again on a short-lived key's task is held as that key's work, n
   assert.equal(started(app, own.id).originFrom, undefined);
 });
 
-test("2. A Trunk's message whose task stops to ask waits for a yes: not failed, no failure notice, answered after", async (t) => {
+test("2. A Trunk's message whose task stops to ask waits for a yes: not failed, no failure notice, answered only once the owner says so", async (t) => {
   const { app } = await trunksFixture(t);
   on(app, "messages");
   const ann = app.trunks.create({ name: "Ann" }), ben = app.trunks.create({ name: "Ben" });
@@ -67,33 +67,65 @@ test("2. A Trunk's message whose task stops to ask waits for a yes: not failed, 
     { followUp: (sessionId, prompt, _person, carry) => { sent.push({ sessionId, prompt, carry }); return { id: "q", position: 1, queued: 1 }; } });
   t.after(() => messages.close());
   const own = await app.runtime.run({ prompt: "hi", sessionId: ann.chatSessionId });
-  messages.send({ ...app.runtime.context({ runId: own.id }), agent: `trunk:${ann.id}` }, { to: "ben", message: "ping" });
-  const task = (prompt, status, output) => {
+  const send = (words) => messages.send({ ...app.runtime.context({ runId: own.id }), agent: `trunk:${ann.id}` }, { to: "ben", message: words });
+  const task = (prompt, status, output, started = {}) => {
     const run = app.store.createRun(app.runtime.owner, prompt, ben.chatSessionId);
-    app.store.event(run.id, "run.started", {});
+    app.store.event(run.id, "run.started", started);
     app.store.event(run.id, "run.finished", { status, output });
     return run;
   };
+  send("ping");
   task(sent[0].prompt, "needs_input", "May I write ben.txt?");
   const receipt = () => messages.receipts(ben.id).find((r) => r.kind === "message");
   assert.equal(receipt().status, "waiting", "waiting for a yes, not failed");
   assert.equal(sent.length, 1, "no failure notice goes back to Ann");
-  // The owner says yes and sends the next message in Ben's conversation; that task's answer is the reply.
+  // Its card names both Trunks and quotes the message.
+  assert.deepEqual(messages.waiting().map(({ from, to, message, armed }) => ({ from, to, message, armed })),
+    [{ from: "Ann", to: "Ben", message: "ping", armed: false }]);
+  // Integration: an unrelated message of the owner's in Ben's conversation is not taken as the answer.
+  task("What is on my calendar?", "completed", "Nothing today.");
+  assert.equal(receipt().status, "waiting", "not mis-routed");
+  assert.equal(sent.length, 1, "nothing of it reaches Ann");
+  // The owner presses Answer; a chat app's message or a short-lived key's still cannot take it.
+  assert.equal(messages.answer(receipt().id).armed, true);
+  task("from a chat", "completed", "chat words", { source: "channel" });
+  task("from a key", "completed", "key words", { shortLivedKey: true });
+  assert.equal(receipt().status, "waiting");
+  // The owner's next message there answers it; that task's answer is the reply.
   const next = task("Go ahead.", "completed", "Written.");
   assert.equal(receipt().status, "answered");
   assert.equal(receipt().runId, next.id);
   assert.equal(sent.length, 2);
   assert.equal(sent[1].sessionId, ann.chatSessionId);
   assert.match(sent[1].prompt, /^Reply from Ben \(@ben\) to your message:\nWritten\./);
-  // Two messages waiting in the same conversation: the owner's answers take the oldest first, one each.
-  for (const words of ["one", "two"]) {
-    messages.send({ ...app.runtime.context({ runId: own.id }), agent: `trunk:${ann.id}` }, { to: "ben", message: words });
-    task(sent.at(-1).prompt, "needs_input", "May I?");
-  }
-  const waiting = () => messages.receipts(ben.id).filter((r) => r.kind === "message" && r.status === "waiting").map((r) => r.prompt);
-  assert.equal(waiting().length, 2);
-  task("Yes to the first.", "completed", "First done.");
-  assert.deepEqual(waiting().map((p) => p.endsWith("two")), [true], "the older one was answered, the newer still waits");
+  // Two waiting in the same conversation: the one the owner chose is answered, the other still waits.
+  for (const words of ["one", "two"]) { send(words); task(sent.at(-1).prompt, "needs_input", "May I?"); }
+  const waiting = () => messages.waiting().map((item) => item.message);
+  assert.deepEqual(waiting(), ["one", "two"]);
+  messages.answer(messages.waiting()[1].id);
+  task("Yes to the second.", "completed", "Second done.");
+  assert.deepEqual(waiting(), ["one"], "the chosen one was answered, the other still waits");
+  // Not now: it ends unanswered and Ann is told in plain words; it cannot be answered after.
+  const [left] = messages.waiting();
+  messages.decline(left.id);
+  assert.deepEqual(waiting(), []);
+  assert.match(sent.at(-1).prompt, /^Your message to @ben could not be answered: its owner chose not to answer it now\./);
+  assert.equal(sent.at(-1).sessionId, ann.chatSessionId);
+  assert.throws(() => messages.answer(left.id), /not waiting for your answer/);
+});
+
+test("2 (routes). Answer and Not now are the owner's routes under /api/trunks/messages", async () => {
+  const { trunksApi } = await import("../dist/trunks/api.js");
+  const calls = [];
+  const trunks = { messages: { answer: (id) => (calls.push(["answer", id]), { id, armed: true }), decline: (id) => (calls.push(["decline", id]), { declined: true }) } };
+  const id = "0f8fad5b-d9cb-469f-a165-70867728950e";
+  const post = (path) => trunksApi({ trunks, method: "POST", readBody: async () => ({}) }, path);
+  assert.deepEqual(await post(`/api/trunks/messages/${id}/answer`), { waiting: { id, armed: true } });
+  assert.deepEqual(await post(`/api/trunks/messages/${id}/decline`), { declined: true });
+  assert.deepEqual(calls, [["answer", id], ["decline", id]]);
+  const { ROUTES } = await import("./short-lived-key-routes.mjs");
+  assert.equal(ROUTES["/api/trunks/messages/:id/answer"], "owner POST", "a short-lived key cannot answer for the owner");
+  assert.equal(ROUTES["/api/trunks/messages/:id/decline"], "owner POST");
 });
 
 test("3. A2A, ACP and the app-server carry on only conversations they began; the owner's is refused in plain words", async (t) => {
@@ -119,6 +151,38 @@ test("3. A2A, ACP and the app-server carry on only conversations they began; the
   await threads.onRequest("initialize", {});
   await assert.rejects(threads.onRequest("turn/start", { threadId: mine.sessionId, input: [{ type: "text", text: "x" }] }), refused);
   assert.equal(app.store.runs(owner).filter((run) => run.sessionId === mine.sessionId).length, 1, "nothing ran in the owner's conversation");
+});
+
+test("3 (restart). a program carries on its own conversation after Branch is closed and opened again", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-residuals-restart-"));
+  let app;
+  t.after(async () => { await app?.close(); await discardTemp(root); });
+  const open = () => createBranch({ workspace: join(root, "ws"), dataDir: join(root, "data"), provider: scripted(), home: join(root, "home") });
+  const text = (words) => ({ role: "user", parts: [{ type: "text", text: words }] });
+  const io = () => ({ input: new PassThrough(), output: new PassThrough(), log: () => {} });
+  app = await open();
+  app.a2a.enabled = () => true;
+  const began = await app.a2a.send({ message: text("hi") }, "other");
+  const acp = new AcpConnection(app.runtime, app.store, io());
+  await acp.onRequest("initialize", { protocolVersion: 1 });
+  const opened = await acp.onRequest("session/new", { cwd: ".", mcpServers: [] });
+  const threads = new AppServerConnection(app.runtime, io(), "test");
+  await threads.onRequest("initialize", {});
+  const { thread } = await threads.onRequest("thread/start", {});
+  await app.close();
+  app = await open();
+  app.a2a.enabled = () => true;
+  assert.equal((await app.a2a.send({ sessionId: began.sessionId, message: text("more") }, "other")).sessionId, began.sessionId, "A2A");
+  const again = new AcpConnection(app.runtime, app.store, io());
+  await again.onRequest("initialize", { protocolVersion: 1 });
+  const words = [{ type: "text", text: "more" }];
+  assert.equal((await again.onRequest("session/prompt", { sessionId: opened.sessionId, prompt: words })).stopReason, "end_turn", "ACP");
+  const threadsAgain = new AppServerConnection(app.runtime, io(), "test");
+  await threadsAgain.onRequest("initialize", {});
+  await threadsAgain.onRequest("turn/start", { threadId: thread.id, input: [{ type: "text", text: "more" }] });
+  const done = () => app.store.runs(app.runtime.owner).some((run) => run.sessionId === thread.id && run.prompt === "more" && run.status === "completed");
+  for (let i = 0; i < 200 && !done(); i++) await new Promise((resolve) => setTimeout(resolve, 25));
+  assert.equal(done(), true, "the app-server's own thread");
 });
 
 test("4e. money a task started last month and still running has spent counts in this month's figure", async (t) => {
@@ -180,6 +244,34 @@ test("4a. process.start is judged by command rules on the command it really runs
   assert.equal(judge({ program: "dev", args: ["--host", "0.0.0.0"] }), "deny", "the call's own arguments are read");
   assert.equal(judge({ program: "dev", args: ["--port", "3000"] }), "allow", "a listed program no rule is about still goes ahead");
   assert.equal(app.registry.targetOf("process.start", { program: "dev", args: [] }, app.runtime.context({})), "dev", "the card is unchanged");
+});
+
+test("4a (integration). in an Ask first conversation a listed program no rule is about still asks", async (t) => {
+  const { app } = await fixture(t);
+  app.store.save("settings", app.runtime.owner, "background-processes", { programs: { dev: { path: "/usr/bin/npm", args: ["run", "dev"] } } });
+  const ask = await app.runtime.run({ prompt: "hello", conversationMode: "ask" });
+  const full = await app.runtime.run({ prompt: "hello", conversationMode: "full" });
+  const decide = (run) => app.runtime.checkPolicy("process.start", { program: "dev", args: [] }, app.runtime.context({ runId: run.id })).decision;
+  assert.equal(decide(ask), "ask", "Ask first asks before any program starts");
+  assert.equal(decide(full), "allow", "Full access lets a listed program start, as before");
+});
+
+test("4b. code.run: Ask first asks every time (a kept yes does not carry), Lockdown refuses, otherwise as before", async (t) => {
+  const { app } = await fixture(t);
+  const { setLockdown } = await import("../dist/lockdown.js");
+  const script = { language: "javascript", source: "console.log(1)" };
+  const ask = await app.runtime.run({ prompt: "hello", conversationMode: "ask" });
+  const auto = await app.runtime.run({ prompt: "hello", conversationMode: "auto" });
+  const check = (run) => app.runtime.checkPolicy("code.run", script, app.runtime.context({ runId: run.id }), "a".repeat(32));
+  const first = check(ask);
+  assert.equal(first.decision, "ask");
+  assert.equal(first.remember, "never", "only Once is offered");
+  app.runtime.approvals.remember(ask.sessionId, "code.run", first.target, "allow", { fingerprint: "a".repeat(32) });
+  assert.equal(check(ask).decision, "ask", "a yes kept for the conversation does not let the next script through");
+  assert.equal(check(auto).decision, "allow", "Auto follows the scripts permission as today");
+  setLockdown(app.store, app.runtime.owner, { on: true });
+  assert.equal(check(ask).decision, "deny", "Lockdown refuses it");
+  assert.equal(check(auto).decision, "deny");
 });
 
 test("10. the phone app works out the same check code the computer shows beside its request", async () => {
