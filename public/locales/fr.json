@@ -4549,7 +4549,7 @@
   "onscreen.width.full": "Toute la largeur",
   "onscreen.width.wide": "Large",
   "pane.browser": "Navigateur",
-  "pane.terminal": "Terminal",
+  "pane.terminal": "Console",
   "panels.browser.empty": "Rien ici pour l'instant dans cette conversation. Quand l'assistant ouvre une page web, la page et ce qu'il y a fait s'affichent ici.",
   "panels.browser.lock": "Le verrouillage est activé : agir sur une page web vous est d'abord demandé.",
   "panels.browser.picture": "La dernière image qu'il a prise de la page",

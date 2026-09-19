@@ -15,14 +15,15 @@ import { saveConversationModeSettings } from "../dist/conversation-mode.js";
 
 /* What the calm window keeps out of sight until it is asked for. */
 const HIDDEN_WHEN_CALM = [
-  "#lx-pane-tabs", "#lx-clear", "#lx-shield", "#thread-labels", "#aside-toggle", "#connection",
+  "#lx-pane-tabs", "#lx-clear", "#lx-shield", "#thread-labels", "#connection",
   "#composer-media", "#composer-attach", "#voice-record", "#voice-talk", "#temporary-toggle",
   "#ask-first-toggle", "#composer-specialist", "#new-session", "#meter-row", "#session-label",
   "#saved-conversations", "#rail-find", "#cmd-open", "#owner-menu-button", "#context-panel",
   "#keepoak-acorn", ".lx-model-chip",
 ];
 /* What the calm window always shows. */
-const ALWAYS = ["#prompt", "#send", "#rail-new", "#lx-settings-row", "#lx-more"];
+/* phase2/panels: the one side-panel switch shows in the calm window too (owner critique #16). */
+const ALWAYS = ["#prompt", "#send", "#rail-new", "#lx-settings-row", "#lx-more", "#aside-toggle"];
 
 /** A model that answers at once, or waits for `release()` when asked to sort the Downloads folder. */
 function slowModel() {
@@ -573,12 +574,17 @@ test("every menu and popover closes on its own button, on Escape and on a click 
   await f.page.locator("#lx-shield").click();
   assert.equal(await f.page.locator("#owner-menu").isVisible(), false, "one popover at a time in the full window too");
   await f.page.keyboard.press("Escape");
-  /* A pane tab is a switch: pressed again, it closes the pane it opened. */
+  /* phase2/panels: the panel's one switch closes and opens it; a tab inside the panel never closes it. */
+  const toggle = f.page.locator("#aside-toggle");
+  const before = await toggle.getAttribute("aria-pressed");
+  await toggle.click();
+  assert.notEqual(await toggle.getAttribute("aria-pressed"), before);
+  await toggle.click();
+  assert.equal(await toggle.getAttribute("aria-pressed"), before, "pressed again, it goes back");
+  if (before !== "true") await toggle.click();
   const planTab = f.page.locator('.lx-pane-tab[data-pane="plan"]');
-  const before = await planTab.getAttribute("aria-pressed");
   await planTab.click();
-  assert.notEqual(await planTab.getAttribute("aria-pressed"), before);
   await planTab.click();
-  assert.equal(await planTab.getAttribute("aria-pressed"), before, "pressed again, it goes back");
+  assert.equal(await planTab.getAttribute("aria-pressed"), "true", "a tab pressed twice keeps its panel open");
   assert.deepEqual(f.errors, []);
 });

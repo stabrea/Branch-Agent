@@ -4,10 +4,9 @@
 
 /* ---------- one switch ---------- */
 /* The panel button is the one way to open the side panel, in the calm window too; its tabs are inside it. */
-:root:not([data-everything="on"]) body.lx.lx-chat #aside-toggle {
-  display: grid !important;
-}
+/* Shown at every width: below 1180 px the panel floats over the conversation, and this is how it opens. */
 :root body.lx.lx-chat #aside-toggle {
+  display: grid !important;
   position: relative;
 }
 #aside-toggle[aria-pressed="true"] {
@@ -56,7 +55,7 @@ body.lx.lx-working #aside-toggle::after {
   text-overflow: ellipsis;
 }
 /* Narrow: every tab is its picture, and the chosen one also says its name, so nothing wraps or clips. */
-@container (max-width: 400px) {
+@container (max-width: 560px) {
   .context-panel .lx-pane-tab .lx-words {
     display: none;
   }
@@ -305,6 +304,12 @@ body.lx .composer {
   min-height: 36px;
   padding: 6px 6px;
 }
+/* the full window's box starts at one line and grows as you type, instead of three empty lines */
+:root[data-everything="on"] body.lx #prompt {
+  field-sizing: content;
+  min-height: 44px;
+  max-height: 40vh;
+}
 @media (prefers-reduced-transparency: reduce) {
   body.lx .composer,
   :root:not([data-everything="on"]) body.lx #chat-form {
@@ -401,7 +406,10 @@ body.lx .composer {
   padding: 7px 0;
   border-bottom: 1px solid var(--line);
 }
-.panels-row > label,
+.panels-onscreen label.panels-row {
+  margin: 0;
+  align-items: center;
+}
 .panels-row > .panels-row-name {
   flex: 1 1 auto;
   min-width: 0;
@@ -416,12 +424,20 @@ body.lx .composer {
   color: var(--text-2);
 }
 .panels-see {
+  display: grid;
+  gap: 4px;
+  margin: 14px 0 6px;
+}
+.panels-see-line {
   display: flex;
   align-items: center;
   gap: 10px;
-  flex-wrap: wrap;
+  min-width: 0;
   font-size: 12.5px;
   color: var(--text-2);
+}
+.panels-see .field-note {
+  margin: 0;
 }
 .panels-see input[type="range"] {
   flex: 1 1 160px;
@@ -437,48 +453,48 @@ body.lx .composer {
 
 /* Parts of the window the person hid (Settings › Appearance › What's on screen; public/panels-hide.js keeps
    <html data-hide> in step). Last in the file, so a hidden part stays hidden whatever showed it above. */
-:root[data-hide~="title-bar"] body.lx > main > header,
-:root[data-hide~="oak"] body.lx .lx-wall,
-:root[data-hide~="new"] body.lx #rail-new,
-:root[data-hide~="find"] body.lx #rail-find,
-:root[data-hide~="places"] body.lx .rail-group[data-group="sections"],
-:root[data-hide~="projects"] body.lx .rail-group[data-group="projects"],
-:root[data-hide~="recents"] body.lx .rail-group[data-group="recents"],
-:root[data-hide~="owner"] body.lx #owner-menu-button,
-:root[data-hide~="maker"] body.lx .rail-maker,
-:root[data-hide~="page-title"] body.lx > main > header .head-title,
-:root[data-hide~="side-toggle"] body.lx #rail-toggle,
-:root[data-hide~="panel-button"] body.lx #aside-toggle,
-:root[data-hide~="more"] body.lx #lx-more,
-:root[data-hide~="labels"] body.lx #thread-labels,
-:root[data-hide~="clear"] body.lx #lx-clear,
-:root[data-hide~="shield"] body.lx #lx-shield,
-:root[data-hide~="connection"] body.lx #connection,
-:root[data-hide~="welcome"] body.lx #chat > .welcome,
-:root[data-hide~="starters"] body.lx #lx-starters,
-:root[data-hide~="suggest"] body.lx #suggest-bar,
-:root[data-hide~="messages"] body.lx #conversation,
-:root[data-hide~="composer"] body.lx #composer-dock,
-:root[data-hide~="mode"] body.lx #chat-form .mode-wrap,
-:root[data-hide~="model"] body.lx .lx-model-chip,
-:root[data-hide~="usage"] body.lx #status-bar,
-:root[data-hide~="foot"] body.lx .composer-foot,
-:root[data-hide~="acorn"] body.lx .acorn-art {
+html:root[data-hide~="title-bar"] body.lx > main > header,
+html:root[data-hide~="oak"] body.lx .lx-wall,
+html:root[data-hide~="new"] body.lx #rail-new,
+html:root[data-hide~="find"] body.lx #rail-find,
+html:root[data-hide~="places"] body.lx .rail-group[data-group="sections"],
+html:root[data-hide~="projects"] body.lx .rail-group[data-group="projects"],
+html:root[data-hide~="recents"] body.lx .rail-group[data-group="recents"],
+html:root[data-hide~="owner"] body.lx #owner-menu-button,
+html:root[data-hide~="maker"] body.lx .rail-maker,
+html:root[data-hide~="page-title"] body.lx > main > header .head-title,
+html:root[data-hide~="side-toggle"] body.lx #rail-toggle,
+html:root[data-hide~="panel-button"] body.lx #aside-toggle,
+html:root[data-hide~="more"] body.lx #lx-more,
+html:root[data-hide~="labels"] body.lx #thread-labels,
+html:root[data-hide~="clear"] body.lx #lx-clear,
+html:root[data-hide~="shield"] body.lx #lx-shield,
+html:root[data-hide~="connection"] body.lx #connection,
+html:root[data-hide~="welcome"] body.lx #chat > .welcome,
+html:root[data-hide~="starters"] body.lx #lx-starters,
+html:root[data-hide~="suggest"] body.lx #suggest-bar,
+html:root[data-hide~="messages"] body.lx #conversation,
+html:root[data-hide~="composer"] body.lx #composer-dock,
+html:root[data-hide~="mode"] body.lx #chat-form .mode-wrap,
+html:root[data-hide~="model"] body.lx .lx-model-chip,
+html:root[data-hide~="usage"] body.lx #status-bar,
+html:root[data-hide~="foot"] body.lx .composer-foot,
+html:root[data-hide~="acorn"] body.lx .acorn-art {
   display: none !important;
 }
 /* The side list keeps its place in the grid (so the conversation keeps its own) and gives its width back. */
-:root[data-hide~="side-list"] {
+html:root[data-hide~="side-list"] {
   --rail-w: 0px !important;
 }
-:root[data-hide~="side-list"] body.lx > #conversation-rail {
+html:root[data-hide~="side-list"] body.lx > #conversation-rail {
   visibility: hidden !important;
   overflow: hidden !important;
   padding: 0 !important;
   border: 0 !important;
 }
-:root[data-hide~="side-list"] body.lx > main {
+html:root[data-hide~="side-list"] body.lx > main {
   margin-left: 0 !important;
 }
-:root[data-hide~="side-list"] .panels-rz[data-rz="rail"] {
+html:root[data-hide~="side-list"] .panels-rz[data-rz="rail"] {
   display: none !important;
 }

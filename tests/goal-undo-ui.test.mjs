@@ -51,6 +51,8 @@ test("the goal strip shows the round, score, what is missing and Resume/Stop, an
   await open(page, run.sessionId);
   await openPlace(page, "chat");
   // The strip lives with the conversation's plan; on a narrow window that pane opens from the title bar.
+  // phase2/panels: the one panel switch opens it, then the Plan tab inside the panel.
+  await page.locator("#aside-toggle").click();
   await page.locator('.lx-pane-tab[data-pane="plan"]').click();
   const strip = page.locator("#goal-strip");
   await strip.waitFor({ state: "visible", timeout: 10_000 });

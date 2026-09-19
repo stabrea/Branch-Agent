@@ -205,15 +205,17 @@ test("the full window has one panel button too, and its tabs never wrap or clip 
   await f.conversation();
   await f.page.waitForFunction(() => document.documentElement.dataset.everything === "on");
   if (!(await paneShown(f.page))) await f.page.locator("#aside-toggle").click();
-  for (const width of [260, 320, 420, 640]) {
+  for (const width of [260, 320, 420, 480, 560, 640]) {
     await f.page.evaluate((w) => document.documentElement.style.setProperty("--aside-w", `${w}px`), width);
     await f.page.waitForTimeout(80);
     const fit = await f.page.evaluate(() => {
       const tabs = document.getElementById("lx-pane-tabs");
       const buttons = [...tabs.querySelectorAll(".lx-pane-tab")].filter((b) => b.offsetParent);
       const tops = new Set(buttons.map((b) => Math.round(b.getBoundingClientRect().top)));
-      return { rows: tops.size, over: tabs.scrollWidth - tabs.clientWidth, count: buttons.length };
+      const cut = [...tabs.querySelectorAll(".lx-words")].filter((w) => w.offsetParent && w.scrollWidth > w.clientWidth + 1).length;
+      return { rows: tops.size, over: tabs.scrollWidth - tabs.clientWidth, count: buttons.length, cut };
     });
+    assert.equal(fit.cut, 0, `a tab's name is cut short at ${width}px`);
     assert.equal(fit.rows, 1, `tabs wrap at ${width}px`);
     assert.ok(fit.over <= 1, `tabs clip at ${width}px`);
     assert.equal(fit.count, 6);
@@ -383,5 +385,26 @@ test("footer, title bar and message box never clip at 1440, 1024 and 390, open o
   const after = await f.page.evaluate(() => document.getElementById("chat-form").getBoundingClientRect().height);
   assert.ok(Math.abs(after - before) <= 2, `the box changed size after answering (${before} → ${after})`);
   assert.equal(await f.page.locator("#prompt").isVisible(), true);
+  assert.deepEqual(f.errors, []);
+});
+
+test("on a phone the one switch is there and opens the floating panel with its tabs; hiding the switch hides it", async (t) => {
+  const f = await windowFixture(t, { width: 390, height: 844 });
+  await f.conversation();
+  await f.page.locator("#aside-toggle").click();
+  await f.page.waitForFunction(() => document.body.classList.contains("lx-aside"));
+  assert.equal(await f.page.locator('#lx-pane-tabs [data-pane="terminal"]').isVisible(), true);
+  await f.page.locator('#lx-pane-tabs [data-pane="terminal"]').click();
+  await f.page.locator("#panels-terminal .panels-entry").first().waitFor();
+  const inside = await f.page.evaluate(() => {
+    const box = document.getElementById("context-panel").getBoundingClientRect();
+    return box.left >= 0 && box.right <= innerWidth && document.documentElement.scrollWidth <= innerWidth;
+  });
+  assert.ok(inside, "the floating panel fits the phone");
+  await f.page.keyboard.press("Escape");
+  await f.page.waitForFunction(() => !document.body.classList.contains("lx-aside"));
+  await f.look({ hidden: ["panel-button"] });
+  await f.page.waitForFunction(() => document.documentElement.dataset.hide === "panel-button");
+  assert.equal(await f.page.locator("#aside-toggle").isVisible(), false, "the person's choice wins over the calm window's own rule");
   assert.deepEqual(f.errors, []);
 });

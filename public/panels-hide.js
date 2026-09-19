@@ -202,14 +202,13 @@ function heading(tag, key, english, className) {
   node.dataset.t = key;
   return node;
 }
+/* The same tick-box row the rest of Appearance uses; ticked means shown. */
 function switchRow(id, key, english) {
-  const row = make("div", "panels-row");
+  const row = make("label", "check-row panels-row");
   const box = make("input");
   Object.assign(box, { type: "checkbox", id: `panels-show-${id}`, checked: !hiddenNow().has(id) });
   box.addEventListener("change", () => setHidden(id, !box.checked));
-  const label = make("label", "", say(key, english));
-  label.htmlFor = box.id;
-  row.append(label, box);
+  row.append(box, make("span", "", say(key, english)));
   return row;
 }
 function neverRow([key, english, whyKey, whyEnglish]) {
@@ -239,9 +238,11 @@ function seeRow() {
   range.addEventListener("input", () => changeAppearance({ seeThrough: Number(range.value) }));
   const label = heading("label", "onscreen.see", "See-through message box");
   label.htmlFor = range.id;
-  const note = make("span", "field-note");
+  const note = make("p", "field-note");
   note.id = "panels-see-note";
-  row.append(label, make("span", "", say("onscreen.see.solidWord", "Solid")), range, make("span", "", say("onscreen.see.glassWord", "Glass")), note);
+  const line = make("div", "panels-see-line");
+  line.append(make("span", "", say("onscreen.see.solidWord", "Solid")), range, make("span", "", say("onscreen.see.glassWord", "Glass")));
+  row.append(label, line, note);
   return row;
 }
 function rightClickRow() {
