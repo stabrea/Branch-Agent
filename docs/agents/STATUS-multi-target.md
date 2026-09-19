@@ -9,7 +9,7 @@ one target per call.
 - [x] 3. The other places a call is judged: second-model reviewer, sandbox wall, MCP dry run, "Try a tool"
 - [x] 4. The question card lists the files (first five, the rest folded away), en + fr
 - [x] 5. Tests, each checked to fail with the new check taken out of `dist/`
-- [ ] Merge latest `origin/mac/cross-platform` (with hardening-3 and the integrator's fixes), rebuild, retest, push
+- [x] Merge latest `origin/mac/cross-platform`, rebuild, retest, push — **hardening-3 was not in trunk yet** (below)
 
 ## What a target is
 `ToolTarget` (src/contracts.ts): `{ kind: "read" | "write" | "delete", path?, url? }`. A tool that touches more than
@@ -57,6 +57,9 @@ tool gate (hand-pressed tools, workflows, flows, procedures, voice, the MCP serv
 Other places:
 - Second-model reviewer (`rawOutcome`, src/approval-reviewer.ts): the rules' own answer is made stricter by the
   targets the same way, so it never "confirms" what a target refuses; targets it cannot tell count as a refusal.
+  For Branch's own (not outside) tools that are not commands this has no visible effect today — `rawOutcome` only
+  decides whether an owner's yes is second-guessed and whether an outside tool is re-read as look-only — so it is
+  kept for consistency and not tested.
 - Sandbox wall (`wallContextFor`): "risky" also when any target is not simply allowed. The walled tools
   (`shell.execute`, `code.run`, `process.start`) declare no targets today, and the wall is off on Windows, so this
   is not exercised by a test here (see "Not proved").
@@ -64,9 +67,22 @@ Other places:
   run's `files` lists every target.
 - Plan mode (`offPlanDifference`): judges whether a step changes anything, from the permission, which is already the
   strictest reading across the targets; the card's label and file list name them. No change.
-- Auto mode's workspace boundary: there is no such check in the code under that name. The nearest are the "Just do
-  it inside my workspace" preset (rules, so covered above) and each tool's own path confinement (`WorkspaceFiles`,
-  `parsePatch`'s `..` refusal). Nothing else to change.
+- The conversation's own mode (Ask first / Plan / Auto / Full, redesign phase 1, merged from trunk): each mode is a
+  policy (`policyForMode`: Plan = the read-only preset, Auto = "Just do it inside my workspace"), handed to
+  `checkPolicy`'s `policy` with the task's `runId`, so every target is weighed under the conversation's mode. There
+  is no separate workspace-boundary check for Auto: Auto is that preset's rules, and each tool keeps its own path
+  confinement (`WorkspaceFiles`, `parsePatch`'s `..` refusal). Tests: Auto lets workspace changes through but a patch
+  with a file in a refused folder is still refused; in Plan, comparing two files is fine unless one is refused.
+
+## Behaviour changes worth knowing
+- `files.patch` had no target at all (empty string). It is now "2 files: a, b". An "Always" given for it before
+  this change was saved as `match: "*"` and still covers every `files.patch`; a new "Always" is for that set of files.
+- `code.patch`'s target list is now read by `parsePatch` instead of a regular expression (same files for any patch
+  that applies; a rename now lists its old path too). A dry run of `code.patch` / `code.change_set` is now judged
+  on the files it reads, so "never anything under finance" refuses a dry run that would show a finance file.
+- `knowledge.create` now has a target (its sources, joined), shown on its question.
+- Cost: `checkPolicy` parses a patch once more (max 128 KiB) for the rules; the card's list is worked out only when
+  the call asks; the wall's clause parses it again only for the three walled tools, which declare no targets.
 
 ## The card
 `PendingApproval.files` and the `policy.ask` event carry `[{ kind, path }]`. The settings list (public/approvals.js)
@@ -100,6 +116,15 @@ targets, the dry-run/Try test fails; with the `callTarget` match taken out of `p
   policy-outside-hold, manual-actions-gate, folder-trust, leak-guard, never-break-deny, plan-act, git, documents,
   docs-memory-2, knowledge, rag-vector, mcp-server, mcp-mode, second-opinion, os-sandbox, static-assets,
   index-structure, handbook, ui, chat-live, calm-ui, shell-ui, server, catalog-diet): 661 tests, 644 pass, 0 fail, 17 skipped.
+
+- After the merge of trunk (`677e7d34`, redesign phase 1 and its UI fix; `0332d8be`, `f59e151f`): build and tsc
+  clean; the same 39 files plus conversation-mode, redesign-phase1 and web-ui: 717 tests, 700 pass, 0 fail, 17
+  skipped; after the last small change (the card's list only when asking) and the second merge: multi-target,
+  static-assets, index-structure, handbook, ui, redesign-phase1, conversation-mode: 67/67.
+- **Trunk did not contain hardening-3** when merged (`git merge-base --is-ancestor 33190532 origin/mac/cross-platform`
+  said no, twice). This branch therefore carries hardening-3's commits as well as its own; the integrator merging
+  it reviews both, unless hardening-3 lands first. The first merge commit (`0332d8be`) is missing the
+  Co-Authored-By line (pushed before it was noticed; not rewritten, to avoid a force-push).
 
 ## Not proved
 - The sandbox wall's new clause: no walled tool declares targets, and `wallContextFor` returns at once on Windows.
