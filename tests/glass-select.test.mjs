@@ -155,6 +155,8 @@ test("integration review: the list sits flush under the select and fully covers 
     /* phase2/settings: on a phone the Settings list is a search, a page choice and the level above the page,
        so "if needed" left the select at the very bottom, where the list rightly opens upwards. Room below it: */
     await f.page.locator("#policy-preset").evaluate((node) => node.scrollIntoView({ block: "center" }));
+    /* ...and once the window has finished rising into place, so the click does not chase a moving select. */
+    await f.page.locator(".lx-settings-win").evaluate((node) => Promise.all(node.getAnimations().map((a) => a.finished)));
     await f.page.locator("#policy-preset").click();
     await f.page.locator("#glass-list").waitFor({ state: "visible" });
     await f.page.waitForTimeout(300); // the opening glide is over

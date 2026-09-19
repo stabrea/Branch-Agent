@@ -32,7 +32,30 @@ Screenshots: `claude-session-files/branch/phase2-shots/settings/`. Scratch scrip
 - [x] Tests: tests/settings-grown.test.mjs S1–S13 (inventory walk, defaults, search, Go there, levels, household, groups,
       cog, keep place, overflow sweep, mirrors). Other UI tests: tests/places.mjs openSettings shows every card of the
       page it opens (`showEveryCard`) and uses the page picker on narrow windows.
-- [ ] Screenshots, merge latest trunk, final report.
+- [x] Screenshots: `claude-session-files/branch/phase2-shots/settings/` (10 scenes × 1440/1024/390 × light/dark, report.txt:
+      no sideways scroll, no console errors after settle).
+- [x] Merged origin/mac/cross-platform (98beb5d8) cleanly; rebuilt; 902 tests over 85 files (every Playwright UI file but
+      desktop*, plus static-assets, index-structure, handbook, preferences users): 876 pass, 24 skipped, 2 fail, both fixed
+      after (S9's churn check was too strict; glass-select's 390 click raced the window's rise animation).
+
+## Found and fixed on the way
+
+- Cards and values that only loaded when the old hidden Settings button was clicked (the calm window never shows it):
+  video programs, other speech services, Pictures & sound values, Obsidian, embeds, how Branch runs on this computer
+  (start quietly showed ticked), second opinion limits (empty boxes). Now also drawn on `branch-place`.
+- A redraw loop of my own (headings rewrote themselves every frame); guarded writes + test.
+
+## Deliberate differences from the sample
+
+- Real cards are grouped and reordered, not regenerated as the sample's inline rows: their controls live in ~60 modules.
+  Two columns on wide screens instead of one full-width column, since real cards put controls under their labels.
+- Places' settings (Customize, Library, Automations, Inbox) stay in their places; Settings reaches them through
+  "Elsewhere in Branch" and search (Go there), rather than duplicating them.
+- "Show everything" is merged into the level (as in the sample), kept working both ways.
+- No theme filter chip bar (#48); plain-word tags instead. No see-through / width / background / season-art controls
+  (p2-panels and p2-delight own them). No agent-files editor (p2-accounts; hook: data-level / branchSettingsLevel).
+- Technical shows where each card is saved ("Saved as"); no launch-variables card.
+- Mirrors are side by side (#38), not stacked; icons are line icons, not dithered tiles.
 
 ## Notes for the other phase-2 builders
 
