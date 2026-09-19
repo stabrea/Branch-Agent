@@ -66,6 +66,26 @@ async function fixture(t, { provider, onboarded = false, width = 1440, height = 
   return { page, server, call, errors, app };
 }
 const visible = (page, selector) => page.locator(selector).first().isVisible();
+/**
+ * Where things are, measured in one step inside the page once the layout has settled: the fonts are
+ * in and two frames running draw every box in the same place. Reading boxes one call at a time, or
+ * after a guessed pause, can catch the page between a font arriving and it being drawn again.
+ */
+function settledBoxes(page, selectors) {
+  return page.waitForFunction(async (names) => {
+    await document.fonts.ready;
+    const read = () => names.map((name) => {
+      const box = [...document.querySelectorAll(name)].at(-1)?.getBoundingClientRect(); // the last one named
+      return box ? { x: box.x, y: box.y, width: box.width, height: box.height } : null;
+    });
+    const frame = () => new Promise((done) => requestAnimationFrame(() => done()));
+    await frame();
+    const first = read();
+    await frame();
+    const second = read();
+    return second.every(Boolean) && JSON.stringify(first) === JSON.stringify(second) ? second : null;
+  }, selectors, { timeout: 15000 }).then((handle) => handle.jsonValue());
+}
 async function shown(page, selectors) {
   const out = {};
   for (const selector of selectors) out[selector] = await visible(page, selector);
@@ -335,11 +355,8 @@ test("calm: the offer opens the real switch rather than flipping it", async (t) 
 
 test("calm: the empty screen is the question over the box in the middle, over the same oak and glass", async (t) => {
   const f = await fixture(t, { onboarded: true });
-  await f.page.waitForTimeout(300);
+  const [main, heading, box] = await settledBoxes(f.page, ["main", "#greeting", "#chat-form"]);
   assert.equal(await visible(f.page, "#wall"), true, "the oak behind the glass stays (the approved KeepOak look)");
-  const main = await f.page.locator("main").boundingBox();
-  const heading = await f.page.locator("#greeting").boundingBox();
-  const box = await f.page.locator("#chat-form").boundingBox();
   const middle = (b) => b.x + b.width / 2;
   assert.ok(Math.abs(middle(heading) - middle(box)) < 4, "the question is centred over the box");
   assert.ok(box.y - (heading.y + heading.height) < 60, "the question sits just above the box");
@@ -388,7 +405,8 @@ test("the desktop restart channel answers only its own window's page, and relaun
 
 test("the calm window leaves the moon out behind its panes, softens the oak in the gaps, and brings both back with the sky", async (t) => {
   const f = await fixture(t, { onboarded: true });
-  await f.page.waitForTimeout(400);
+  /* The wall is told what to show once the calm window has drawn; wait for that, not for a pause. */
+  await f.page.waitForFunction(() => document.getElementById("wall")?.dataset.moon === "hidden", null, { timeout: 15000 }).catch(() => undefined);
   const look = () => f.page.evaluate(() => ({ moon: document.getElementById("wall").dataset.moon, filter: getComputedStyle(document.getElementById("wall")).filter }));
   const calmLook = await look();
   assert.equal(calmLook.moon, "hidden", "no moon glowing through a pane");
@@ -405,8 +423,7 @@ test("calm: a running task reads under its message, with a real Stop, and its co
   await f.page.locator("#prompt").fill("Sort my Downloads folder. Delete nothing.");
   await f.page.locator("#send").click();
   await f.page.locator("#live-stop").waitFor({ state: "visible", timeout: 15000 });
-  const mine = await f.page.locator(".message.user").last().boundingBox();
-  const card = await f.page.locator("#live-row").boundingBox();
+  const [mine, card] = await settledBoxes(f.page, [".message.user", "#live-row"]);
   assert.ok(card.y > mine.y + mine.height - 1, "the working card is under the person's message");
   assert.ok(card.y - (mine.y + mine.height) < 80, "and right under it");
   assert.ok(card.height < 110, `the card is as tall as what it says (${card.height}px)`);
@@ -426,24 +443,32 @@ test("calm: the message box is one growing line with + on the left and one round
   t.after(() => model.release()); // registered before the fixture, so a failure never leaves the model holding Branch open
   const f = await fixture(t, { provider: model.provider, onboarded: true });
   const form = f.page.locator("#chat-form"), send = f.page.locator("#send");
-  const height = async () => (await form.boundingBox()).height;
+  const height = () => form.evaluate((node) => node.getBoundingClientRect().height);
+  /* Colours are read once the button's own transitions have finished, not after a guessed pause. */
+  const settledColour = () => send.evaluate(async (node) => {
+    await Promise.all(node.getAnimations().map((animation) => animation.finished.catch(() => undefined)));
+    return getComputedStyle(node).backgroundColor;
+  });
   assert.ok((await height()) <= 62, `the empty box is one line (${await height()}px)`);
   assert.equal(await f.page.locator("#prompt").getAttribute("placeholder"), "Ask Branch to do something…");
   assert.equal(await send.getAttribute("aria-label"), "Send");
   const shape = await send.evaluate((node) => { const b = node.getBoundingClientRect(); return { w: b.width, h: b.height, r: getComputedStyle(node).borderRadius }; });
   assert.ok(Math.abs(shape.w - 36) < 2 && Math.abs(shape.h - 36) < 2 && shape.r === "50%", "a round button of about 36px");
   assert.equal(await send.evaluate((node) => node.classList.contains("lx-empty")), true, "quiet while the box is empty");
-  await f.page.waitForTimeout(300);
-  const quiet = await send.evaluate((node) => getComputedStyle(node).backgroundColor);
+  const quiet = await settledColour();
   /* Pressing the quiet button sends nothing and puts you in the box. */
   await send.click();
   assert.equal(await f.page.evaluate(() => document.activeElement.id), "prompt");
   await f.page.locator("#prompt").fill("one\ntwo\nthree\nfour");
-  assert.ok((await height()) > 100, "it grows with what is typed");
+  /* Measured in one step, as it is drawn: the box grows on the input event's next frame. */
+  const grown = await f.page.waitForFunction(() => {
+    const tall = document.getElementById("chat-form").getBoundingClientRect().height;
+    return tall > 100 ? tall : null;
+  }, null, { timeout: 5000 }).then((handle) => handle.jsonValue(), () => 0);
+  assert.ok(grown > 100, `it grows with what is typed (${await height()}px)`);
   await f.page.locator("#prompt").fill("Sort my Downloads folder.");
   assert.equal(await send.evaluate((node) => node.classList.contains("lx-empty")), false);
-  await f.page.waitForTimeout(300);
-  assert.notEqual(await send.evaluate((node) => getComputedStyle(node).backgroundColor), quiet, "the accent once there is something to send");
+  assert.notEqual(await settledColour(), quiet, "the accent once there is something to send");
   /* The + offers the same two ways to add something as More, and presses the real control. */
   await f.page.locator("#lx-plus").click();
   await f.page.locator("#lx-plus-menu").waitFor({ state: "visible" });
