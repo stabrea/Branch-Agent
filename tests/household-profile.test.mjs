@@ -109,9 +109,14 @@ test("generated over HTTP: the window switched to a household profile meets the 
 });
 
 test("generated over HTTP: the owner, switched back, never meets the household sentence", async (t) => {
-  const { call, toSam, back } = await served(t);
+  const { app, call, toSam, back } = await served(t);
   await toSam();
   await back();
+  // The routes that quit, restart, restore or remove Branch are not pressed here. They cannot meet the
+  // household sentence either: src/server.ts only asks offLimitsToHousehold while the window is not
+  // the owner's, and it is the owner's again now.
+  assert.equal(app.store.profiles.isOwner(), true);
+  assert.ok(ownerOnly().some(({ path }) => NOT_PRESSED_AS_OWNER.test(path)), "the skip list still names real routes");
   const refused = [];
   for (const { method, path } of ownerOnly()) {
     if (NOT_PRESSED_AS_OWNER.test(path)) continue;
