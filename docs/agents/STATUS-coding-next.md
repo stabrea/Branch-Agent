@@ -280,6 +280,9 @@ with one plain line and the task carries on.
   last two start the real CLI in a child process against a model on 127.0.0.1; `FORCE_TTY=1` stands in
   for a terminal). Mutation-checked by editing `dist/`: the unattended skip, the flag's verdict line.
 - [x] Targeted run on this branch (before merge): 14 files, 216 tests, 213 pass, 0 fail, 3 skipped.
+- [x] Merged trunk 7c456c73 (redesign-phase1: its Plan mode is a read-only policy, so `code.check` is refused
+  before the tests question; unchanged). Clean `dist/` rebuild; 15 files incl. redesign-phase1, 230 tests, 227 pass,
+  0 fail, 3 skipped.
 
 ## Not done / not proven
 - No benchmark re-run (as instructed); none of these has been measured on the coding bench.
