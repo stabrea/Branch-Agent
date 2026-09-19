@@ -39,6 +39,7 @@ import { testRouteFor } from "./provider-factory.js";
 import { connectFromPreset, forgetConnection } from "./connections-preset.js";
 import { catalogEntries, catalogEntry, providerCatalog } from "./provider-catalog.js";
 import { localModelsApi } from "./local-models-api.js";
+import type { PressContext } from "./local-one-button.js";
 import { handlesRemovePath, removeBranchApi } from "./remove-branch.js";
 
 /** mac7/clean-uninstall: the folder holding this copy's package.json, as `branch uninstall` reads it. */
@@ -1217,7 +1218,8 @@ async function api(
   // Models on this computer: what is installed, downloads, hardware advice and task routing.
   if (path === "/api/local-models" || path.startsWith("/api/local-models/"))
     return localModelsApi(
-      { runtimes: localRuntimes(), store: app.store, models: app.runtime.models, owner: app.runtime.owner, kit: localKitFor(app.store) },
+      { runtimes: localRuntimes(), store: app.store, models: app.runtime.models, owner: app.runtime.owner, kit: localKitFor(app.store),
+        caller: windowCaller(app) },
       request.method ?? "GET", path, () => readBody(request),
     );
   // mac7/adapt: what a stopped task is missing, and getting it on the owner's yes. Looking only
@@ -1225,7 +1227,7 @@ async function api(
   if (handlesAdaptPath(path))
     return adaptApi({ store: app.store, owner: app.runtime.owner,
       requireOwner: (what) => app.store.profiles.requireOwner(what) },
-    request.method ?? "GET", path, () => readBody(request, 16 * 1024), { source: "owner" });
+    request.method ?? "GET", path, () => readBody(request, 16 * 1024), windowCaller(app));
   // mac7/clean-uninstall: the danger zone — what removing Branch would take away, and removing it.
   // The owner's alone, in the app window; the remover itself is the one `branch uninstall` uses.
   if (handlesRemovePath(path))
@@ -3933,6 +3935,14 @@ async function asKeyRefusal<T>(work: () => Promise<T>): Promise<T> {
       throw new HttpError(401, error.message);
     throw error;
   }
+}
+/**
+ * Who is asking over HTTP, for the guards that decide it themselves (the one button, `/adapt`): the
+ * app window, as whichever household profile it is switched to, and whether the request came with a
+ * short-lived key (a person's own key is one too). A chat app and a Trunk never arrive this way.
+ */
+function windowCaller(app: Branch): PressContext {
+  return { source: "owner", person: app.store.profiles.active()?.id ?? null, shortLivedKey: startedWithShortLivedKey() };
 }
 /** mac3/security-check: a server tried from Settings is looked up in the malware list before it starts. */
 async function vetTriedServer(app: Branch, input: unknown): Promise<void> {
