@@ -96,7 +96,7 @@ owner half of the chat, replay, mode, workflow and flow tests, and the existing 
       (`#mode-new-conversation has no description`, a redesign phase 1 control in public/; this branch
       touches nothing in public/).
 - [x] Docs: configuration.md and handbook chapter 4 say an outside task stays held when carried on.
-- [ ] Merged into trunk.
+- [x] Merged into trunk `mac/cross-platform` (trunk at 677e7d34 merged in; its settings-descriptions fix makes that test pass here).
 
 ## Not done / notes
 
