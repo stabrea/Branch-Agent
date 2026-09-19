@@ -106,16 +106,26 @@ test("the strip sits at the left edge with this computer and each Trunk's own fa
   assert.deepEqual(f.errors, []);
 });
 
-test("on a phone the strip is a row at the foot that never covers the message box or scrolls the page sideways", async (t) => {
+/* phase2/everywhere (integration): on a phone the places bar holds the foot, so the strip is a row across the
+   top, under the notch, as in the approved phone frame; a tablet keeps it as a row at the foot. */
+test("on a phone the strip is a row across the top, a tablet's a row at the foot; neither covers the message box or scrolls the page sideways", async (t) => {
   const f = await fixture(t, { width: 390, height: 844 });
   await withTrunk(f);
   await f.open();
   const strip = await f.page.locator("#trunk-strip").boundingBox();
-  assert.ok(strip.y > 760 && strip.width > 350, "a row at the foot");
-  const prompt = await f.page.locator("#prompt").boundingBox();
-  assert.ok(prompt.y + prompt.height <= strip.y, "the message box stays above it");
+  assert.ok(strip.y < 20 && strip.width > 350, "a row across the top");
+  const head = await f.page.locator("header").first().boundingBox();
+  assert.ok(strip.y + strip.height <= head.y, "above the title bar, covering nothing");
+  const prompt = await f.page.locator("#prompt").boundingBox(), places = await f.page.locator("#ew-places").boundingBox();
+  assert.ok(prompt.y + prompt.height <= places.y, "the message box stays above the places bar at the foot");
   assert.equal(await f.page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth), 0);
   assert.ok(await f.page.locator("#send").isVisible());
+  await f.page.setViewportSize({ width: 820, height: 1180 });
+  await f.page.waitForTimeout(100);
+  const tablet = await f.page.locator("#trunk-strip").boundingBox(), tabletPrompt = await f.page.locator("#prompt").boundingBox();
+  assert.ok(tablet.y > 1100 && tablet.width > 780, "a tablet: a row at the foot");
+  assert.ok(tabletPrompt.y + tabletPrompt.height <= tablet.y, "the message box stays above it");
+  assert.equal(await f.page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth), 0);
   assert.deepEqual(f.errors, []);
 });
 
