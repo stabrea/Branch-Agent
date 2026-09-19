@@ -11,7 +11,7 @@ Branch `mac7/outside-review`, from trunk `mac/cross-platform` at 9faf5439 (outsi
 - [x] A message one Trunk sends another carries the sender's origin and tools (send, reply, second try, failure notice).
 - [x] An outside task cut off by its allowance (`budget_exceeded`) holds the owner's next message, like `interrupted`.
 - [x] Tests for both fixes; each fix taken out makes one fail.
-- [ ] Merged into trunk.
+- [x] Merged into trunk (trunk 98beb5d8 merged in cleanly; build, tsc, 271 targeted + 29 ui/shell-ui/server tests pass).
 
 ## Verdict: FIXED
 
@@ -62,8 +62,12 @@ the button, and nothing from outside can forge or clear it. Two holes are closed
 - `Runtime.followUp(sessionId, prompt, person, { originFrom, permissions })`: a queued message keeps the task
   it carries on and no more than that task's tools. `TrunkMessages` passes the sending task (a reply: the
   answering task) on send, reply, second try and failure notice; a task with no tools on record passes none.
-  The receiving Trunk's own shape intersects its list with that (`trunkPermissions`, `caller`).
-- `conversationCarrier`: `budget_exceeded` counts as cut off.
+  The receiving Trunk's own shape intersects its list with that (`trunkPermissions`, `caller`). Where no
+  Trunk shape applies (a retired chat on a second try), the list is used as it is; before, that task had
+  every tool, so it can only narrow.
+- `conversationCarrier`: `budget_exceeded` counts as cut off. This is the reviewer's own addition beyond the
+  brief (outside-resume held only `needs_input` and `interrupted`); one line in src/outside-origin.ts to take back.
+  The test sets the status in the record rather than running a task out of its allowance.
 - `/api/conversation-mode` view: `outside` (the source, or null). The chip then shows *Ask first* (or Plan),
   its title and menu say "This conversation carries on work that came from outside this window (...), so
   Branch asks before every change here, whatever you pick. To work without being asked, start a new
