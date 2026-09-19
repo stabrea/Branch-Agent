@@ -554,7 +554,8 @@ test("every menu and popover closes on its own button, on Escape and on a click 
   for (let round = 0; round < 2; round += 1) {
     await f.page.locator("#lx-more").click();
     await f.page.getByRole("menuitem", { name: "Plan", exact: true }).click();
-    assert.equal(await f.page.locator("#context-panel").isVisible(), round === 0);
+    /* The panel opens and closes on the next frame, so wait for it rather than read it once. */
+    await f.page.locator("#context-panel").waitFor({ state: round === 0 ? "visible" : "hidden", timeout: 10000 });
   }
   /* The full window's own: the workspace and project menus, the Lockdown shield, the room meter, labels. */
   await showEverything(f.page);
