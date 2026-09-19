@@ -6,7 +6,7 @@ Every fix has a test that was checked to fail with the fix taken out of `dist/` 
 - [x] 1. Permission rules see what the tool uses
 - [x] 2. Loop guard compares cleaned arguments
 - [x] 3. Hung local model: one retry, capped first-reply wait, plain message
-- [ ] 4. `code.rename` held to read-before-edit
+- [x] 4. `code.rename` held to read-before-edit
 - [ ] 5. Malware check: over 10 pages is "not checked", not clean
 - [ ] 6. Monthly spend includes a video still being made
 - [ ] 7. Docker: `BRANCH_BIND`
@@ -143,3 +143,13 @@ Grouped by where the thing a rule is about comes from. "own" = the tool's `targe
 - Tests "3 …": a silent server on 127.0.0.1 gets exactly 2 requests, the recoveries are `retry` then `fail`, the retry
   window is at most the grace, the whole run ends in < 2 s with a 1 s wait (was > 3 s), and the output is the plain
   sentence; the grace figure. Proved: with the local branch disabled in `dist/runtime.js` the first test fails.
+
+## 4. `code.rename` held to read-before-edit
+- `CodeChanges.applyPlanned` (src/code-change.ts; its only caller is `code.rename`) now settles with `readFirst`, so
+  with the switch on every existing file the rename changes must have been read by this task, exactly as for
+  `files.edit`/`files.patch`/`code.patch`/`code.change_set`; checked for all files before any is written. Chosen
+  literally ("same as other editing tools"): a rename that reaches 12 files asks for all 12 to be read. The switch
+  ships off, so nothing changes until the owner turns it on. A dry run is not held (nothing is written).
+- Tests "4 …" (real fake language server, scripted model): refused unread with a sentence about reading, file
+  unchanged; goes through after `files.read`; goes through with the switch off. Proved: with `settle(..., true)`
+  reverted in `dist/code-change.js` the refusal test fails. `tests/code-ide.test.mjs` (rename tests) still pass.

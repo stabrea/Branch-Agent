@@ -161,3 +161,43 @@ test("3 the grace is a tenth of the first-reply wait, at most 30 seconds", async
   assert.equal(localFirstReplyGraceMs(1_800_000), 30_000);
   assert.equal(localFirstReplyGraceMs(60_000), 6_000);
 });
+
+// ------------------------------------------------------------------ 4. code.rename reads first
+
+/** A scripted model, the fake language server switched on, and read-before-edit set to `mode`. */
+async function renameFixture(t, steps, mode) {
+  const { fileURLToPath } = await import("node:url");
+  const { saveLanguageServerSettings } = await import("../dist/index.js");
+  const { saveCodingMode } = await import("../dist/coding/settings.js");
+  const made = await fixture(t, { provider: scripted(steps) });
+  const fake = join(fileURLToPath(import.meta.url), "..", "fixtures", "fake-language-server.mjs");
+  await saveLanguageServerSettings(made.app.store, "local", {
+    enabled: true, servers: { fake: { path: process.execPath, args: [fake], languages: ["TypeScript"] } }, timeoutMs: 10000 });
+  t.after(() => made.app.languageServers.stopAll());
+  saveCodingMode(made.app.store, "local", "read-first", mode);
+  await mkdir(join(made.workspace, "src"), { recursive: true });
+  await writeFile(join(made.workspace, "src", "sums.ts"), "export const total = 1;\nconsole.log(total);\n");
+  return made;
+}
+const rename = call("code.rename", { path: "src/sums.ts", line: 1, character: 14, newName: "grandTotal" });
+const toolAnswers = (app, run) => app.store.messages(run.sessionId).filter((m) => m.role === "tool").map((m) => JSON.parse(m.content));
+
+test("4 read-first on: code.rename of a file the task has not read is refused, and nothing is written", async (t) => {
+  const { app, workspace } = await renameFixture(t, [rename, say("done")], "on");
+  const run = await app.runtime.run({ prompt: "rename it" });
+  const [answer] = toolAnswers(app, run);
+  assert.equal(answer.ok, false);
+  assert.match(answer.error, /read/i);
+  assert.equal(await readFile(join(workspace, "src", "sums.ts"), "utf8"), "export const total = 1;\nconsole.log(total);\n");
+});
+
+test("4 read-first on: after the file is read, code.rename goes through; with the switch off it goes through as before", async (t) => {
+  const read = call("files.read", { path: "src/sums.ts" });
+  const on = await renameFixture(t, [read, rename, say("done")], "on");
+  const run = await on.app.runtime.run({ prompt: "rename it" });
+  assert.equal(toolAnswers(on.app, run)[1].ok, true, JSON.stringify(toolAnswers(on.app, run)[1]));
+  assert.match(await readFile(join(on.workspace, "src", "sums.ts"), "utf8"), /grandTotal/);
+  const off = await renameFixture(t, [rename, say("done")], "off");
+  const plain = await off.app.runtime.run({ prompt: "rename it" });
+  assert.equal(toolAnswers(off.app, plain)[0].ok, true);
+});
