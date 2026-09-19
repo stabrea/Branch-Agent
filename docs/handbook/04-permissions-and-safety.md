@@ -147,9 +147,13 @@ that is yours alone: settings of every kind, approval rules, sign-ins, chat apps
 backups, updates and removing Branch. They are told *"This belongs to the owner. Switch back to the
 owner's profile to use it."* Five wrong PINs in a row stop that profile accepting any for five minutes.
 
-Going back to your profile needs no PIN, so this keeps somebody out of your things by default — no
-accident, no child exploring Settings — but it does not stop anybody at the keyboard who decides to
-press "switch back".
+Out of the box, going back to your profile needs no PIN, so this keeps somebody out of your things
+by default — no accident, no child exploring Settings — but it does not stop anybody at the keyboard
+who decides to press "switch back". If you want it to, set **a PIN for switching back to you** under
+**Settings → People** (off until you set one). Then switching back asks for your PIN, with the same
+five-tries rule, and the window stays on their profile if Branch is closed and reopened: a real lock
+against somebody at the keyboard. It is still not a lock against somebody who can open Branch's data
+folder on this computer.
 
 **Be honest about what this is:** separation on one computer, not separate accounts. There is no
 syncing, and the assistant still works as the owner — it uses the owner's models and tools. Anyone who

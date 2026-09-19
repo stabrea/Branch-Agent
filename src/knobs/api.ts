@@ -49,7 +49,7 @@ const SaveSchema = z.object({
 function requireOwnerHere(store: Store, what: string): void {
   if (startedWithShortLivedKey() || currentPerson())
     throw new KnobsApiError(403, `${what} can only be changed by the owner, in the app window.`);
-  try { store.profiles.requireOwner(what); } catch (error) { throw new KnobsApiError(403, (error as Error).message); }
+  try { store.profiles.requireOwner(what); } catch (error) { throw new KnobsApiError(400, (error as Error).message); }
 }
 
 /** Whether the one asking is the owner, in the owner's own profile and with the computer's own key. */
