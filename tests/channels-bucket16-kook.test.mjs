@@ -89,7 +89,11 @@ test("KOOK: pings carry the last number, a missing pong reconnects with resume, 
   const context = await fixture(t);
   const world = await kookWorld(t);
   const saved = { value: null, load: () => saved.value, save: (value) => { saved.value = value; } };
-  const channel = world.channel({ heartbeatMs: 30, pongWaitMs: 40 });
+  // The pong budget must outlast a stall of the whole process. At 40ms, answering "first" (a task
+  // written to the database) held the event loop long enough that the next beat found the pong still
+  // unread and closed the socket before any ping carried number 1 (CI run 35446096639, and 9 of 75
+  // runs here on a loaded machine). A second asks the same questions with room for that stall.
+  const channel = world.channel({ heartbeatMs: 30, pongWaitMs: 1000 });
   channel.catchUp = saved;
   await context.app.channels.attach(channel, { ...policy, pairing: false, allowlist: ["kook:U7"] });
   const link = await until(() => world.events.connections[0], "a socket");
