@@ -17,9 +17,19 @@ import { killProcessGroup, killWindowsTree } from "../dist/integrations/shell-pr
 const run = promisify(execFile);
 const clean = (text) => stripAnsi(text);
 
+/** The programs each test started, ended before its folder is removed. */
+const started = new WeakMap();
 async function workspace(t) {
   const root = await mkdtemp(join(tmpdir(), "branch-cli-tui-"));
-  t.after(() => discardTemp(root));
+  const children = [];
+  started.set(t, children);
+  // One hook, in this order: `after` hooks run first to last and stop at the first that throws, so
+  // removing the folder first failed on Windows (the program still had it open) and the program was
+  // then never ended.
+  t.after(async () => {
+    for (const child of children) await endBranch(child);
+    await discardTemp(root);
+  });
   return {
     root,
     env: { ...process.env, BRANCH_WORKSPACE: join(root, "ws"), BRANCH_DATA_DIR: join(root, "data"), NO_COLOR: undefined },
@@ -33,7 +43,8 @@ async function workspace(t) {
  */
 function startBranch(t, args, options) {
   const child = spawn(process.execPath, ["dist/cli.js", ...args], { ...options, detached: process.platform !== "win32" });
-  t.after(() => endBranch(child));
+  const children = started.get(t);
+  if (children) children.push(child); else t.after(() => endBranch(child));
   return child;
 }
 const running = (child) => child.exitCode === null && child.signalCode === null;
@@ -189,7 +200,9 @@ test("branch chat falls back to the plain view when there is no terminal", async
   const child = startBranch(t, ["chat"], { env: { ...env, FORCE_TTY: "0" } });
   let raw = "";
   child.stdout.on("data", (chunk) => { raw += chunk.toString(); });
-  for (let attempt = 0; attempt < 400 && !/terminal conversation/.test(raw); attempt++) await delay(25);
+  // As long as the terminal view is given to draw itself: a loaded build machine can take far longer
+  // than 10 seconds just to start the program.
+  for (const end = Date.now() + 60_000; Date.now() < end && !/terminal conversation/.test(raw);) await delay(25);
   assert.match(raw, /Branch Agent terminal conversation/, "the plain streaming view took over");
   child.stdin.end("/exit\n");
   await exitOf(child);
