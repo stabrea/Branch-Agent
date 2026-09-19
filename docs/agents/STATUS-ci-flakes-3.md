@@ -77,6 +77,15 @@ STATUS-ci-flakes.md and STATUS-ci-flakes-2.md.
 - [x] fixes above: b45e1070, 1f2de612, 8e9df59b, the walk-rules spelling test, bf8073a5
 - [x] after merging trunk 2674e2ae (settings redesign): clean dist, tsc, the 14 touched files +
       phone-layout + static-assets + index-structure + handbook at 3 at once: 170/170
-- [ ] loops before/after
+- [x] loops, 3 copies of a file at once on this loaded machine, in a separate worktree
+      (C:/Users/bishi/Code/wt/ci-flakes-3-loop at 7a7c5fb5), after the fixes:
+      panels 12 runs 240/240, p2-rooms-ui 15 runs 75/75, p2-voice-ui 15 runs 90/90,
+      delight-ui 12 runs 154 pass and one run whose process died before any test reported
+      (no output at all, machine under load; the same non-event ci-flakes saw once),
+      accounts-page 15 runs 90/90, phone-layout 12 runs 192/192, walk-rules 15 runs 435/435.
+      Before the fixes, these files pass here as well (rooms 12 runs 60/60 measured): none of the
+      CI failures reproduces on this machine by repetition, which is why each one was instead
+      reproduced by making the one slow step slow (see the findings: /api/state held 3 s, the
+      finishing step held 4 s, a 3.5 s wait past a refresh, a 21 s old page).
 - [ ] merged into trunk, pushed
 - [ ] two consecutive full green Checks runs on trunk
