@@ -1,6 +1,7 @@
 import { execFile, spawn } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import { win32 } from "node:path";
+import { portableFolder } from "../install/layout.js";
 
 /**
  * Starts the update hand-over script so that it outlives the app and stays invisible. A child started
@@ -69,6 +70,8 @@ export interface PosixHandOverPlan {
   daemonPid: number | null;
   /** How long the new version must stay up before the update counts as done (20 seconds). */
   settleSeconds?: number;
+  /** The downloaded archive, removed with the unpacked copy once the new version is up. */
+  archive?: string;
 }
 
 /** Quotes one word for sh; nothing inside single quotes is interpreted. */
@@ -110,9 +113,9 @@ export function posixHandOverScript(plan: PosixHandOverPlan): string {
   return [
     "#!/bin/sh", 'PID="$1"',
     `TARGET=${q(plan.target)}`, `STAGED=${q(plan.staged)}`, `LOG=${q(plan.log)}`,
-    'PREVIOUS="$TARGET.previous"', 'INCOMING="$TARGET.incoming"',
+    'PREVIOUS="$TARGET.previous"', 'INCOMING="$TARGET.incoming"', 'FAILED="$TARGET.failed"',
     'log() { printf \'[%s] %s\\n\' "$(date \'+%Y-%m-%d %H:%M:%S\')" "$1" >>"$LOG"; }',
-    ...posixWait,
+    ...posixWait, ...posixCarry(plan),
     'log "update started for pid $PID"',
     'wait_for "$PID" app',
     ...(plan.daemonPid ? [`wait_for ${plan.daemonPid} "background engine"`] : []),
@@ -123,12 +126,41 @@ export function posixHandOverScript(plan: PosixHandOverPlan): string {
     'log "keeping previous version"', 'rm -rf "$PREVIOUS-2"', 'if [ -e "$PREVIOUS" ]; then mv "$PREVIOUS" "$PREVIOUS-2"; fi', 'rm -rf "$PREVIOUS"',
     'if [ -e "$TARGET" ] && ! mv "$TARGET" "$PREVIOUS"; then log "old version could not be moved; nothing was changed"; rm -rf "$INCOMING"; exit 1; fi',
     'if ! mv "$INCOMING" "$TARGET"; then log "new version could not be moved in; restoring previous"; mv "$PREVIOUS" "$TARGET"; exit 1; fi',
+    'carry_person "$PREVIOUS" "$TARGET"',
     'if [ "$2" = stay ]; then exit 0; fi',
     'log "starting new version"', posixLaunch(plan, true), "STARTED=$!", `sleep ${plan.settleSeconds ?? 20}`,
-    'if kill -0 "$STARTED" 2>/dev/null; then log "new version is running"; exit 0; fi',
-    'log "new version did not start; restoring previous"',
-    'rm -rf "$TARGET"', posixCopy(plan, "$PREVIOUS", "$TARGET"), posixLaunch(plan, false), "exit 1", "",
+    `if kill -0 "$STARTED" 2>/dev/null; then log "new version is running"; rm -rf "$STAGED"${plan.archive ? ` ${q(plan.archive)}` : ""}; exit 0; fi`,
+    // mac7/real-update: the previous version is moved back whole, not copied, so what an administrator
+    // set up in it (Linux's sandbox helper, owned by root) still works; the new one is kept aside.
+    'log "new version did not start; restoring previous"', "carry_person \"$TARGET\" \"$PREVIOUS\"",
+    'rm -rf "$FAILED"', 'if mv "$TARGET" "$FAILED" && mv "$PREVIOUS" "$TARGET"; then log "previous version is back"; else log "previous version could not be moved back; copying it"; rm -rf "$TARGET"; ' + posixCopy(plan, "$PREVIOUS", "$TARGET") + "; fi",
+    posixLaunch(plan, false), "exit 1", "",
   ].join("\n");
+}
+
+/**
+ * mac7/real-update. What belongs to the person rather than to a version, moved from one copy of the
+ * program to the other when they swap: a portable copy's marker and its `Branch Data` folder (which
+ * live beside the program), and on Linux a sandbox helper an administrator made root's (see
+ * docs/configuration.md). Moving keeps the helper's owner, which a copy cannot; it is only moved when
+ * the new version brings the very same helper, because a different one would not be the one that was
+ * set up. Before this, an update left portable data behind in `<name>.previous` (deleted by the next
+ * update) and left Linux copies that need the helper unable to start.
+ */
+function posixCarry(plan: { platform: "darwin" | "linux" }): string[] {
+  const beside = plan.platform === "darwin" ? "Contents/MacOS/" : "";
+  return [
+    "carry_person() {",
+    `  for KEEP in portable.txt ${shellQuote(portableFolder)}; do`,
+    `    if [ -e "$1/${beside}$KEEP" ]; then rm -rf "$2/${beside}$KEEP"; mv "$1/${beside}$KEEP" "$2/${beside}$KEEP" && log "moved $KEEP to the version in use"; fi`,
+    "  done",
+    ...(plan.platform === "linux" ? [
+      '  if [ -u "$1/chrome-sandbox" ] && { [ ! -e "$2/chrome-sandbox" ] || { [ ! -u "$2/chrome-sandbox" ] && cmp -s "$1/chrome-sandbox" "$2/chrome-sandbox"; }; }; then',
+      '    mv "$1/chrome-sandbox" "$2/chrome-sandbox" && log "kept the sandbox helper an administrator set up"',
+      "  fi",
+    ] : []),
+    "}",
+  ];
 }
 
 // ------------------------------------------------------------------------------ rolling back (mac3/never-break)
@@ -152,13 +184,14 @@ export function posixRollbackScript(plan: RollbackPlan): string {
     `TARGET=${q(plan.target)}`, `LOG=${q(plan.log)}`,
     'PREVIOUS="$TARGET.previous"', 'FAILED="$TARGET.failed"',
     'log() { printf \'[%s] %s\\n\' "$(date \'+%Y-%m-%d %H:%M:%S\')" "$1" >>"$LOG"; }',
-    ...posixWait,
+    ...posixWait, ...posixCarry(plan),
     'log "going back to the previous version for pid $PID"',
     'wait_for "$PID" gateway',
     'if [ ! -e "$PREVIOUS" ]; then log "there is no previous version to go back to; nothing was changed"; exit 1; fi',
     'rm -rf "$FAILED"',
     'if [ -e "$TARGET" ] && ! mv "$TARGET" "$FAILED"; then log "the new version could not be moved aside; nothing was changed"; exit 1; fi',
     'if ! mv "$PREVIOUS" "$TARGET"; then log "the previous version could not be put back; restoring the new one"; mv "$FAILED" "$TARGET"; exit 1; fi',
+    'carry_person "$FAILED" "$TARGET"', // mac7/real-update
     'if [ -e "$PREVIOUS-2" ]; then mv "$PREVIOUS-2" "$PREVIOUS"; fi',
     'log "previous version is back"',
     'if [ "$2" = stay ]; then exit 0; fi',

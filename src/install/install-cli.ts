@@ -45,6 +45,7 @@ async function main(): Promise<void> {
     userDataDir: flag("user-data") ?? join(appData, "Branch Agent"),
     legacyDataDirs: legacyDataDirs(env),
   });
+  if (report.closedFirst) console.log("Branch Agent was open, so it was closed first. Open it again from the Start menu."); // mac7/real-update
   console.log(`Branch Agent is installed in ${report.installRoot}.`);
   console.log(`Shortcuts: ${report.shortcuts.join(", ")}`);
   if (report.previousKept) console.log(`The version that was there is kept in ${report.previousKept}.`);

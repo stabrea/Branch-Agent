@@ -1,6 +1,7 @@
-import { cp, mkdir, rm, stat, writeFile } from "node:fs/promises";
+import { cp, mkdir, open, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { installedLocation, legacyDataDirs, migrateLegacyData, type MigrationReport } from "./layout.js";
+import { quitRunning, type QuitReport } from "./quit.js";
+import { installedLocation, portableLocation, legacyDataDirs, migrateLegacyData, type MigrationReport } from "./layout.js";
 import { createShortcuts, regDeleteKeyArgs, runTool, systemTool, writeRegistryValues, type RegistryValue, type RunTool } from "./windows.js";
 
 /**
@@ -34,12 +35,52 @@ export interface InstallReport {
   installRoot: string;
   executable: string;
   previousKept: string | null;
+  /** mac7/real-update: a Branch that was open was closed through its own route before installing. */
+  closedFirst: boolean;
   shortcuts: string[];
   uninstallKey: string;
   uninstaller: string;
   data: MigrationReport;
 }
-export interface InstallDeps { run?: RunTool; systemRoot?: string }
+export interface InstallDeps {
+  run?: RunTool; systemRoot?: string;
+  /** mac7/real-update: asks a running Branch to close through its own route (src/install/quit.ts). */
+  quit?: (dataDir: string) => Promise<QuitReport>;
+  /** mac7/real-update: whether Windows still holds the program file open. */
+  locked?: (file: string) => Promise<boolean>;
+  lockPauseMs?: number;
+}
+
+/** Windows will not let a running program's file be opened for writing; nothing is written. */
+async function fileLocked(file: string): Promise<boolean> {
+  try { await (await open(file, "r+")).close(); return false; }
+  catch (error) { return ["EBUSY", "EPERM", "EACCES"].includes((error as { code?: string }).code ?? ""); }
+}
+
+/**
+ * mac7/real-update. Installing over the copy that is open failed half-way with a raw
+ * "EPERM: operation not permitted, unlink ...Branch Agent.exe". The copy that is running is now asked
+ * to close through its own route first; when it cannot be (0.17.0 has no such route) or something
+ * still holds the program open, the install stops before anything changes, and says what to do.
+ */
+async function closeRunningFirst(options: InstallOptions, deps: InstallDeps): Promise<boolean> {
+  const executable = join(options.installRoot, options.executableName);
+  let closed = false;
+  for (const dataDir of [installedLocation(options.userDataDir).dataDir, portableLocation(options.installRoot).dataDir]) {
+    const report = await (deps.quit ?? quitRunning)(dataDir).catch(() => null);
+    if (report?.wasRunning && !report.stopped) throw stillOpen();
+    closed ||= Boolean(report?.wasRunning);
+  }
+  const installed = await stat(executable).then(() => true, () => false);
+  const locked = deps.locked ?? fileLocked;
+  // The window's helper processes let go of the program a moment after the app itself has gone.
+  for (let tries = closed ? 30 : 0; installed && tries > 0 && await locked(executable); tries--)
+    await new Promise((resolve) => setTimeout(resolve, deps.lockPauseMs ?? 500));
+  if (installed && await locked(executable)) throw stillOpen();
+  return closed;
+}
+const stillOpen = () => new Error("Branch Agent is still open, so it was not replaced. Nothing was changed. "
+  + "Quit it first (right-click the Branch icon by the clock and choose Quit), then run the installer again.");
 
 export function defaultInstallRoot(env: NodeJS.ProcessEnv): string {
   const local = env.LOCALAPPDATA ?? join(env.USERPROFILE ?? "C:\\Users\\Default", "AppData", "Local");
@@ -145,6 +186,7 @@ function shortcutTargets(options: InstallOptions): { path: string; desktop: bool
 /** Copies the app into place, makes the shortcuts, registers Uninstall and brings older data along. */
 export async function performInstall(options: InstallOptions, deps: InstallDeps = {}): Promise<InstallReport> {
   const executable = join(options.installRoot, options.executableName);
+  const closedFirst = await closeRunningFirst(options, deps);
   const previousKept = await keepPrevious(options.installRoot, options.executableName);
   await mkdir(options.installRoot, { recursive: true });
   await cp(options.source, options.installRoot, { recursive: true, force: true });
@@ -169,7 +211,7 @@ export async function performInstall(options: InstallOptions, deps: InstallDeps 
   await mkdir(target, { recursive: true });
   const data = await migrateLegacyData(
     options.legacyDataDirs ?? legacyDataDirs(process.env), target);
-  return { installRoot: options.installRoot, executable, previousKept, shortcuts, uninstallKey: uninstallKey(hive), uninstaller, data };
+  return { installRoot: options.installRoot, executable, previousKept, closedFirst, shortcuts, uninstallKey: uninstallKey(hive), uninstaller, data };
 }
 
 /** Removes the Add/Remove Programs entry; the folder itself is removed by the uninstall script. */

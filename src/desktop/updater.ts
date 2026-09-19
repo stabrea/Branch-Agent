@@ -6,6 +6,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { z } from "zod";
 import { posixHandOverScript } from "./hand-over.js";
+import { portableFolder, portableMarker } from "../install/layout.js";
 import { checksumAssetName } from "./release-assets.js";
 
 /**
@@ -45,6 +46,8 @@ export interface UpdaterOptions {
    * swapped. Throws a plain sentence when the new version did not pass; the update then stops.
    */
   canary?: (stagedDir: string, version: string) => Promise<void>;
+  /** mac7/real-update: how long the download may go without a byte before it counts as dropped (60 s). */
+  stallMs?: number;
 }
 export interface ReleaseInfo {
   currentVersion: string;
@@ -141,6 +144,9 @@ export class Updater {
       return { script, stagedDir };
     } catch (error) {
       this.set("error", error instanceof Error ? error.message : String(error), null, release);
+      // mac7/real-update: a download that went wrong is 130 MB or more of nothing; it is not kept.
+      await rm(join(this.options.scratchDir, this.options.assetName!), { force: true }).catch(() => undefined);
+      await rm(join(this.options.scratchDir, "unpacked"), { recursive: true, force: true }).catch(() => undefined);
       throw error;
     } finally { this.busy = false; }
   }
@@ -197,19 +203,40 @@ export class Updater {
   }
   private async download(release: ReleaseInfo, target: string): Promise<void> {
     this.set("downloading", "Downloading the new version…", 0, release);
-    const response = await this.fetch(release.assetUrl, { headers: { "user-agent": `BranchAgent/${this.options.currentVersion}` } });
-    if (!response.ok || !response.body) throw new Error(`The download failed (HTTP ${response.status}).`);
+    // mac7/real-update: a connection that drops shows up as "terminated" and one that goes quiet
+    // hangs for minutes; both now end the same way, in plain words, with nothing changed.
+    const stalled = new AbortController();
+    let quiet: NodeJS.Timeout | undefined;
+    const listen = () => { clearTimeout(quiet); quiet = setTimeout(() => stalled.abort(), this.options.stallMs ?? 60000); };
+    const dropped = () => new Error("The download stopped before it finished, so nothing was changed. Check the internet connection and press Update again.");
+    listen();
+    let response: Response;
+    try {
+      response = await this.fetch(release.assetUrl, { headers: { "user-agent": `BranchAgent/${this.options.currentVersion}` }, signal: stalled.signal });
+    } catch { clearTimeout(quiet); throw dropped(); }
+    if (!response.ok || !response.body) { clearTimeout(quiet); throw new Error(`The download failed (HTTP ${response.status}).`); }
     const total = Number(response.headers.get("content-length")) || release.assetBytes || 0;
     const file = createWriteStream(target, { flags: "wx" });
     let received = 0;
+    const reader = response.body.getReader();
+    const next = () => new Promise<ReadableStreamReadResult<Uint8Array>>((resolve, reject) => {
+      stalled.signal.addEventListener("abort", () => reject(dropped()), { once: true });
+      reader.read().then(resolve, () => reject(dropped()));
+    });
     try {
-      for await (const chunk of response.body) {
-        received += chunk.byteLength;
+      for (let part = await next(); !part.done; part = await next()) {
+        listen();
+        received += part.value.byteLength;
         if (received > 1_500_000_000) throw new Error("The download is larger than expected.");
-        if (!file.write(chunk)) await new Promise<void>((resolve) => file.once("drain", resolve));
+        if (!file.write(part.value)) await new Promise<void>((resolve) => file.once("drain", resolve));
         if (total) this.set("downloading", "Downloading the new version…", Math.min(0.99, received / total), release, { received, total });
       }
-    } finally { await new Promise<void>((resolve, reject) => file.end((error?: Error | null) => error ? reject(error) : resolve())); }
+    } finally {
+      clearTimeout(quiet);
+      reader.cancel().catch(() => undefined);
+      await new Promise<void>((resolve, reject) => file.end((error?: Error | null) => error ? reject(error) : resolve()));
+    }
+    if (total && received < total) throw dropped();
   }
   private async verify(archive: string, release: ReleaseInfo): Promise<void> {
     this.set("verifying", "Checking the download is exactly what was published…", null, release);
@@ -238,7 +265,7 @@ export class Updater {
     // System32 paths: the script may inherit a PATH where "find" is a Unix tool. tasklist's image
     // filter misses names with spaces, so the CSV listing is searched instead.
     const sys = "%SystemRoot%\\System32\\";
-    const mirror = (from: string, to: string) => `${sys}robocopy.exe "${from}" "${to}" /MIR /R:10 /W:1 /NP /NFL /NDL >>"${log}" 2>&1`;
+    const mirror = (from: string, to: string, extra = "") => `${sys}robocopy.exe "${from}" "${to}" /MIR${extra} /R:10 /W:1 /NP /NFL /NDL >>"${log}" 2>&1`;
     const running = `${sys}tasklist.exe /NH /FO CSV 2>NUL | ${sys}find.exe /I "${image}" >NUL`;
     // `ping` is used as a sleep because `timeout` exits at once when standard input is not a console.
     const sleep = (seconds: number) => `${sys}ping.exe -n ${seconds + 1} 127.0.0.1 >NUL`;
@@ -256,16 +283,12 @@ export class Updater {
       // waited for too; it was already asked to close before this script was started.
       ...(daemonPid ? waitFor(String(daemonPid), "engine", "EWAITED", "background engine") : []),
       "set DRAIN=0", ":drain", running, `if not errorlevel 1 if %DRAIN% lss 15 ( set /a DRAIN+=1 & ${sleep(1)} & goto drain )`, sleep(2),
-      // mac3/never-break: the version before the previous one is kept too, so a rollback has one to spare.
-      `if exist "${previous}\\" ${mirror(previous, `${previous}-2`)}`,
-      `echo [%time%] keeping previous version >>"${log}"`, mirror(install, previous), "if errorlevel 8 exit /b 1",
-      ":copy", "set /a TRIES+=1", `echo [%time%] copying new version, attempt %TRIES% >>"${log}"`, mirror(stagedDir, install),
-      `if errorlevel 8 ( if %TRIES% lss 3 ( ${sleep(3)} & goto copy ) else goto restore )`,
-      'if "%~2"=="stay" exit /b 0',
-      `echo [%time%] starting new version >>"${log}"`, `start "" "${exe}"`, sleep(20), running, "if not errorlevel 1 exit /b 0",
-      sleep(15), running, "if not errorlevel 1 exit /b 0",
-      ":restore", `echo [%time%] new version did not start; restoring previous >>"${log}"`,
-      mirror(previous, install), `start "" "${exe}"`, "exit /b 1", "",
+      // mac7/real-update: the first real update showed that mirroring the new files straight over the
+      // program folder, when cut off part-way, leaves a folder that is neither version. The new version is
+      // now copied in beside the old one and the two folders swap by renaming, which is all or nothing.
+      // Only when the folder cannot be renamed (something has it open) is it copied over as before.
+      ...windowsSwap({ install, staged: stagedDir, previous, exe, log, sys, mirror, sleep, running,
+        archive: join(this.options.scratchDir, this.options.assetName!), unpacked: join(this.options.scratchDir, "unpacked") }),
     ].join("\r\n"), "utf8");
     return script;
   }
@@ -277,6 +300,7 @@ export class Updater {
       target: this.options.installDir!, staged: stagedDir,
       log: join(this.options.scratchDir, "apply-update.log"),
       executableName: this.options.executableName, daemonPid,
+      archive: join(this.options.scratchDir, this.options.assetName!),
     }), { encoding: "utf8", mode: 0o700 });
     return script;
   }
@@ -289,6 +313,56 @@ export class Updater {
     this.busy = true;
     return this.set("applying", "Closing to finish the update. The app opens again by itself in a moment.", 1, this.status.release);
   }
+}
+
+/**
+ * mac7/real-update. What belongs to the person or to the installer rather than to a version, carried
+ * from one copy of the program to the other when they swap, and never removed by a mirror: the
+ * uninstaller the installer wrote (Add or remove programs runs it), and a portable copy's marker and
+ * its `Branch Data` folder, which hold the person's work.
+ */
+export const windowsKeep = { files: ["Uninstall Branch Agent.cmd", portableMarker], folder: portableFolder } as const;
+
+interface WindowsSwapPlan {
+  install: string; staged: string; previous: string; exe: string; log: string; sys: string; archive: string; unpacked: string;
+  mirror: (from: string, to: string, extra?: string) => string; sleep: (seconds: number) => string; running: string;
+}
+
+/** The Windows swap: copy beside, rename twice, carry what is kept; the copy over the folder is the fallback. */
+export function windowsSwap(plan: WindowsSwapPlan): string[] {
+  const { install, previous, log, sys } = plan;
+  const incoming = `${install}.incoming`, failed = `${install}.failed`;
+  const keepOut = ` /XF ${windowsKeep.files.map((f) => `"${f}"`).join(" ")} /XD "${windowsKeep.folder}"`;
+  const note = (text: string) => `echo [%time%] ${text} >>"${log}"`;
+  const carry = (from: string, to: string) => [
+    ...windowsKeep.files.map((f) => `if exist "${from}\\${f}" copy /y "${from}\\${f}" "${to}\\" >NUL`),
+    `if exist "${from}\\${windowsKeep.folder}\\" move "${from}\\${windowsKeep.folder}" "${to}\\${windowsKeep.folder}" >NUL`,
+  ];
+  return [
+    ":copy", "set /a TRIES+=1", note("copying new version beside the old one, attempt %TRIES%"),
+    `rmdir /s /q "${incoming}" 2>NUL`, plan.mirror(plan.staged, incoming),
+    `if errorlevel 8 ( if %TRIES% lss 3 ( ${plan.sleep(3)} & goto copy ) else ( ${note("copy failed; nothing was changed")} & rmdir /s /q "${incoming}" 2>NUL & start "" "${plan.exe}" & exit /b 1 ) )`,
+    `if exist "${previous}-2\\" rmdir /s /q "${previous}-2"`,
+    `if exist "${previous}\\" move "${previous}" "${previous}-2" >NUL`,
+    note("keeping previous version"),
+    `move "${install}" "${previous}" >NUL 2>&1`, "if errorlevel 1 goto inplace",
+    `move "${incoming}" "${install}" >NUL 2>&1`,
+    `if errorlevel 1 ( ${note("new version could not be moved in; restoring previous")} & move "${previous}" "${install}" >NUL & start "" "${plan.exe}" & exit /b 1 )`,
+    ...carry(previous, install), "goto swapped",
+    ":inplace", note("the program folder is in use; copying over it instead"),
+    plan.mirror(install, previous), "if errorlevel 8 exit /b 1",
+    plan.mirror(incoming, install, keepOut), `if errorlevel 8 goto restore`, `rmdir /s /q "${incoming}" 2>NUL`,
+    ":swapped",
+    'if "%~2"=="stay" exit /b 0',
+    note("starting new version"), `start "" "${plan.exe}"`, plan.sleep(20), plan.running, "if not errorlevel 1 goto done",
+    plan.sleep(15), plan.running, "if not errorlevel 1 goto done",
+    ":restore", note("new version did not start; restoring previous"),
+    `rmdir /s /q "${failed}" 2>NUL`, `move "${install}" "${failed}" >NUL 2>&1`, "if errorlevel 1 goto restorecopy",
+    `move "${previous}" "${install}" >NUL`, ...carry(failed, install), "goto restored",
+    ":restorecopy", plan.mirror(previous, install, keepOut),
+    ":restored", note("previous version is back"), `start "" "${plan.exe}"`, "exit /b 1",
+    ":done", note("new version is running"), `rmdir /s /q "${plan.unpacked}" 2>NUL`, `del /q "${plan.archive}" 2>NUL`, "exit /b 0", "",
+  ];
 }
 
 const systemName = (platform: NodeJS.Platform): string =>

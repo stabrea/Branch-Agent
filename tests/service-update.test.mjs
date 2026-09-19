@@ -230,7 +230,8 @@ test("the Mac hand-over waits, ends a stuck app, keeps the previous bundle and r
   assert.match(text, /wait_for "\$PID" app\nwait_for 777 "background engine"\n/);
   assert.ok(text.indexOf("wait_for 777") < text.indexOf('mv "$TARGET" "$PREVIOUS"'), "both are gone before anything moves");
   assert.match(text, /\/usr\/bin\/open -n -W "\$TARGET" >\/dev\/null 2>&1 &\nSTARTED=\$!/);
-  assert.match(text, /new version did not start; restoring previous"\n[\s\S]*\/usr\/bin\/ditto "\$PREVIOUS" "\$TARGET"\n\/usr\/bin\/open -n "\$TARGET"/);
+  // mac7/real-update: the previous bundle is moved back whole (ditto only if that move fails).
+  assert.match(text, /new version did not start; restoring previous"\n[\s\S]*mv "\$TARGET" "\$FAILED" && mv "\$PREVIOUS" "\$TARGET"[\s\S]*\/usr\/bin\/ditto "\$PREVIOUS" "\$TARGET"; fi\n\/usr\/bin\/open -n "\$TARGET"/);
   assert.match(text, /^\/usr\/bin\/ditto "\$STAGED" "\$INCOMING" \|\|/m, "the bundle is copied with ditto");
   assert.match(text, /^sleep 20$/m, "the new version has twenty seconds to prove it stays up");
   assert.ok(!/osascript|Terminal|schtasks|wscript|cmd\.exe/.test(text), "no terminal window and nothing from Windows");
@@ -288,7 +289,7 @@ test("sh puts the previous version back when the new one does not stay up", { sk
   const code = await runScript(script, ["999999"]);
   assert.equal(code, 1);
   assert.equal(await readFile(join(target, "resources", "version.txt"), "utf8"), "old", "the previous version is back");
-  assert.equal(await readFile(join(`${target}.previous`, "resources", "version.txt"), "utf8"), "old", "and still kept");
+  assert.equal(await readFile(join(`${target}.failed`, "resources", "version.txt"), "utf8"), "new", "the one that failed is kept aside (mac7/real-update)");
   await new Promise((resolve) => setTimeout(resolve, 300));
   assert.deepEqual((await readFile(started, "utf8")).trim().split("\n"), ["new", "old"]);
   assert.match(await readFile(log, "utf8"), /starting new version[\s\S]*did not start; restoring previous/);
@@ -339,7 +340,7 @@ test("a Mac update fetches the Mac download, finds the app bundle and writes the
   const text = await readFile(script, "utf8");
   assert.equal(text, posixHandOverScript({
     platform: "darwin", target: installDir, staged: stagedDir, log: join(root, "scratch", "apply-update.log"),
-    executableName: "Branch Agent.app", daemonPid: 5150,
+    executableName: "Branch Agent.app", daemonPid: 5150, archive: join(root, "scratch", asset),
   }));
   assert.equal(updater.status.phase, "ready");
 });
