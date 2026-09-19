@@ -10,6 +10,7 @@
  */
 import type { Store } from "./store.js";
 import type { Event, Run } from "./contracts.js";
+import { redactLeaksIn } from "./leak-guard.js";
 
 export const panelsWorkPath = "/api/panels/work";
 /** How many of the conversation's latest tasks are read, and how much of any output is kept. */
@@ -57,8 +58,8 @@ export function describe(tool: string, args: Record<string, unknown>): string {
 function clipped(value: string): string {
   return value.length > OUTPUT ? value.slice(0, OUTPUT) + "…" : value;
 }
-/** What came back, as text: a command's printout, or the page's address and title. */
-export function outputOf(tool: string, result: unknown): string | null {
+/** What came back, as text: a command's printout, or the page's title and address (not again when `what` already says it). */
+export function outputOf(tool: string, result: unknown, what = ""): string | null {
   if (result === undefined || result === null) return null;
   if (typeof result === "string") return clipped(result);
   const r = result as Record<string, unknown>;
@@ -67,16 +68,38 @@ export function outputOf(tool: string, result: unknown): string | null {
     const exit = typeof r.exitCode === "number" && r.exitCode !== 0 ? `(finished with code ${r.exitCode})` : "";
     return clipped([printed, exit].filter(Boolean).join("\n")) || null;
   }
-  const page = [text(r.title), text(r.url)].filter(Boolean).join(" · ");
+  const page = [text(r.title), text(r.url) === what ? "" : text(r.url)].filter(Boolean).join(" · ");
   return page ? clipped(page) : null;
 }
 
-/** Each tool call's arguments, read back off the assistant messages by call id. */
-function argumentsById(store: Store, sessionId: string): Map<string, Record<string, unknown>> {
+/** The arguments of the calls these tasks made, read back off the assistant messages by call id. */
+function argumentsById(store: Store, sessionId: string, wanted: Set<string>): Map<string, Record<string, unknown>> {
   const found = new Map<string, Record<string, unknown>>();
+  if (!wanted.size) return found;
   for (const message of store.messages(sessionId))
-    for (const call of message.toolCalls ?? []) found.set(call.id, parsed(call.arguments));
+    for (const call of message.toolCalls ?? []) if (wanted.has(call.id)) found.set(call.id, parsed(call.arguments));
   return found;
+}
+/** The call ids of the browser and command steps in these events, so only their arguments are parsed. */
+function callIds(events: Event[]): Set<string> {
+  const ids = new Set<string>();
+  for (const event of events) {
+    const tool = text(event.data.name), id = text(event.data.id);
+    if (id && (isBrowserTool(tool) || isTerminalTool(tool))) ids.add(id);
+  }
+  return ids;
+}
+/**
+ * integrate/p2-panels: a command line or a printout can carry a key the assistant typed or a program
+ * printed. The event log is already scrubbed of saved secrets, but the command lines come off the
+ * messages, and neither catches a key-shaped value the locker never saw: both are cleaned here, as
+ * a chat app's copy is (src/index.ts, channels.hideLeaks).
+ */
+function cleaned(store: Store, entries: WorkEntry[]): WorkEntry[] {
+  return entries.map((entry) => {
+    const [what, output] = redactLeaksIn(store.secrets.scrubber.deep([entry.what, entry.output])).value;
+    return { ...entry, what: what ?? "", output: output ?? null };
+  });
 }
 const ENDED: Record<string, WorkState> = {
   "tool.completed": "done", "tool.failed": "failed", "tool.stalled": "stopped", "tool.simulated": "practice",
@@ -101,7 +124,7 @@ function entriesOf(events: Event[], given: Map<string, Record<string, unknown>>,
     // A browser step whose arguments named no page (a picture, a click) says which page it was on.
     const page = isBrowserTool(tool) && !said ? text(parsed(data.result).url) : "";
     if (page) entry.what = page;
-    entry.output = (page ? text(parsed(data.result).title) || null : outputOf(tool, data.result ?? data.error ?? data.reason)) ?? entry.output;
+    entry.output = (page ? text(parsed(data.result).title) || null : outputOf(tool, data.result ?? data.error ?? data.reason, entry.what)) ?? entry.output;
   }
   // A step left "running" in a task that is over never finished; a question left open still waits.
   if (!running) for (const entry of out) if (entry.state === "running") entry.state = "stopped";
@@ -123,17 +146,17 @@ export function panelsWork(store: Store, owner: string, sessionId: string): Pane
   const empty: PanelsWork = { running: false, browser: { entries: [], picture: null }, terminal: { entries: [] } };
   if (!sessionId || !store.ownsSession(owner, sessionId)) return empty;
   const runs: Run[] = store.runs(owner).filter((run) => run.sessionId === sessionId).slice(0, TASKS).reverse();
-  const given = argumentsById(store, sessionId);
+  const eventsOf = runs.map((run) => store.events(run.id));
+  const given = argumentsById(store, sessionId, callIds(eventsOf.flat()));
   const all: WorkEntry[] = [];
   let picture: string | null = null;
-  for (const run of runs) {
-    const events = store.events(run.id);
-    all.push(...entriesOf(events, given, run.status === "running"));
-    picture = lastPicture(events) ?? picture;
-  }
+  runs.forEach((run, i) => {
+    all.push(...entriesOf(eventsOf[i] ?? [], given, run.status === "running"));
+    picture = lastPicture(eventsOf[i] ?? []) ?? picture;
+  });
   return {
     running: runs.some((run) => run.status === "running"),
-    browser: { entries: all.filter((entry) => isBrowserTool(entry.tool)).slice(-ENTRIES), picture },
-    terminal: { entries: all.filter((entry) => isTerminalTool(entry.tool)).slice(-ENTRIES) },
+    browser: { entries: cleaned(store, all.filter((entry) => isBrowserTool(entry.tool)).slice(-ENTRIES)), picture },
+    terminal: { entries: cleaned(store, all.filter((entry) => isTerminalTool(entry.tool)).slice(-ENTRIES)) },
   };
 }

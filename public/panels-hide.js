@@ -74,11 +74,38 @@ const hiddenNow = () => new Set((currentAppearance().hidden ?? []).filter((id) =
 /* ---------- applying it ---------- */
 /* The rules are in public/panels.css, keyed on <html data-hide="…">: the page's own security rules refuse
    a stylesheet written here, and tests/panels.test.mjs checks every part on the list has its rule. */
+/* integrate/p2-panels: when everything that can be hidden is hidden, "branch-everything-hidden" is said on
+   document once (public/delight.js's "It's lonely over here" listens for it); again only after something came back. */
+let allHidden = false;
 function applyHidden() {
   const hidden = hiddenNow();
   if (hidden.size) root.dataset.hide = [...hidden].sort().join(" ");
   else delete root.dataset.hide;
-  floatGear(hidden.has("side-list"));
+  placeGear();
+  const all = hidden.size === HIDE.length;
+  if (all && !allHidden) document.dispatchEvent(new CustomEvent("branch-everything-hidden"));
+  allHidden = all;
+}
+/* integrate/p2-panels: the gear stands in whenever Settings cannot be reached any other way: the side list is
+   hidden, or (on a phone, where the list opens from the title bar) the button that opens it is hidden. */
+const seen = (selector) => {
+  const node = document.querySelector(selector);
+  return Boolean(node?.checkVisibility({ visibilityProperty: true }) && node.getBoundingClientRect().width > 0);
+};
+function placeGear() {
+  const reachable = !hiddenNow().has("side-list") && ["#lx-settings-row", "#rail-settings", "#rail-toggle"].some(seen);
+  floatGear(!reachable);
+  liftGear();
+}
+/* On a phone the message box reaches the corner: the gear then sits just above it, never over it. */
+function liftGear() {
+  const gear = $("panels-float-gear");
+  if (!gear) return;
+  gear.style.removeProperty("bottom");
+  if (!seen("#chat-form")) return;
+  const g = gear.getBoundingClientRect(), box = $("chat-form").getBoundingClientRect();
+  if (g.right <= box.left || g.left >= box.right || g.bottom <= box.top || g.top >= box.bottom) return;
+  gear.style.bottom = `${Math.round(innerHeight - box.top + 8)}px`;
 }
 const GEAR = "M12 15a3 3 0 100-6 3 3 0 000 6zM12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1";
 function floatGear(show) {
@@ -315,7 +342,10 @@ function start() {
     seeQueued = true;
     requestAnimationFrame(() => { seeQueued = false; applySeeThrough(); });
   }).observe(root, { attributes: true, attributeFilter: ["data-theme", "data-palette", "data-motion"] });
-  new MutationObserver(() => floatGear(hiddenNow().has("side-list"))).observe($("workspace"), { attributes: true, attributeFilter: ["hidden"] });
+  new MutationObserver(placeGear).observe($("workspace"), { attributes: true, attributeFilter: ["hidden"] });
+  new MutationObserver(placeGear).observe(document.body, { attributes: true, attributeFilter: ["class"] });
+  addEventListener("resize", placeGear);
+  if ($("chat-form")) new ResizeObserver(liftGear).observe($("chat-form"));
   matchMedia("(prefers-reduced-transparency: reduce)").addEventListener?.("change", applySeeThrough);
   everythingNow();
   globalThis.branchOnscreen = { hide: setHidden, hidden: () => [...hiddenNow()], ids: () => HIDE.map(([id]) => id) };

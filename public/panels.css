@@ -177,6 +177,17 @@ body.lx.lx-working #aside-toggle::after {
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+/* integrate/p2-panels: a web address stays on one line (the whole of it is in the tooltip) */
+.panels-work[data-pane="browser"] .panels-what {
+  -webkit-line-clamp: 1;
+  overflow-wrap: normal;
+  word-break: break-all;
+}
+.panels-step {
+  font-size: 11.5px;
+  font-weight: 560;
+  color: var(--text-2);
+}
 .panels-chip {
   flex: none;
   max-width: 50%;
@@ -328,9 +339,10 @@ body.lx .composer {
 /* ---------- hiding parts of the window ---------- */
 .panels-float-gear {
   position: fixed;
-  left: 14px;
+  /* integrate/p2-panels: clear of the window's rounded corner, not across it */
+  left: 22px;
   /* phase2/everywhere's bottom places bar sets --ew-bar-h on a phone; elsewhere it is 0 */
-  bottom: calc(14px + var(--ew-bar-h, 0px));
+  bottom: calc(22px + var(--ew-bar-h, 0px));
   z-index: 70;
   display: grid;
   place-items: center;
@@ -435,6 +447,17 @@ body.lx .composer {
   display: grid;
   gap: 4px;
   margin: 14px 0 6px;
+}
+/* integrate/p2-panels: the slider's name reads like the width choice's name above it, not the small mono label face */
+.panels-see > label {
+  margin: 0;
+  font-family: inherit;
+  font-size: inherit;
+  letter-spacing: normal;
+  color: inherit;
+}
+.panels-onscreen #panels-show-all {
+  margin: 12px 0 8px;
 }
 .panels-see-line {
   display: flex;

@@ -61,9 +61,28 @@ test("Browser and Terminal list what the conversation's tasks really did, newest
   assert.equal(work.terminal.entries[0].output, "Northline is cheaper");
   assert.deepEqual(work.browser.entries.map((e) => [e.what, e.state]),
     [["https://oakfield.example/prices", "done"], ["https://oakfield.example/prices", "done"]]);
+  assert.equal(work.browser.entries[0].output, "Price list", "the page's address is not said twice");
   assert.equal(work.browser.picture, picture, "the last picture the browser took");
   assert.ok(!JSON.stringify(work).includes("memory.search"), "other tools are left out");
   assert.deepEqual(panelsWork(app.store, "somebody-else", session).terminal.entries, [], "another owner's conversation is empty");
+});
+
+test("a key in a command line or in what it printed never reaches the Terminal tab", async (t) => {
+  const { app } = await world(t);
+  const run = app.store.createRun(app.runtime.owner, "Check the account");
+  const typed = "AKIAIOSFODNN7EXAMPLE", printed = "sk-ant-api03-" + "x".repeat(40);
+  app.store.message(run.sessionId, { role: "assistant", content: "", toolCalls: [
+    { id: "k1", name: "shell.execute", arguments: JSON.stringify({ executable: "aws", args: ["--key", typed, "s3", "ls"] }) },
+  ] });
+  app.store.event(run.id, "tool.started", { name: "shell.execute", id: "k1", label: "Running a command" });
+  app.store.event(run.id, "tool.completed", { name: "shell.execute", id: "k1", result: { exitCode: 0, stdout: `your key is ${printed}` } });
+  app.store.finish(run.id, "completed", "Done.");
+  const [entry] = panelsWork(app.store, app.runtime.owner, run.sessionId).terminal.entries;
+  const shown = JSON.stringify(entry);
+  assert.ok(!shown.includes(typed), "the key typed on the command line is hidden");
+  assert.ok(!shown.includes(printed), "the key the command printed is hidden");
+  assert.match(entry.what, /^aws --key \[hidden key-like value: [^\]]+\] s3 ls$/);
+  assert.match(entry.output, /^your key is \[hidden key-like value: [^\]]+\]$/);
 });
 
 test("a real task's command waiting on a yes shows in Terminal with the command it asked about", async (t) => {
@@ -180,7 +199,10 @@ test("one switch opens the side panel in the calm window, its tabs are inside it
   await f.page.locator('#lx-pane-tabs [data-pane="browser"]').click();
   await f.page.locator("#panels-browser .panels-picture img").waitFor();
   assert.match(await f.page.locator("#panels-browser img").getAttribute("src"), /^data:image\/png;base64,/);
-  assert.match(await f.page.locator("#panels-browser").innerText(), /oakfield\.example\/prices/);
+  const browserText = await f.page.locator("#panels-browser").innerText();
+  assert.match(browserText, /oakfield\.example\/prices/);
+  assert.match(browserText, /Opened the page/, "each browser step says what it did");
+  assert.match(browserText, /Took a picture of the page/);
   await f.page.locator("#aside-toggle").click();
   await f.page.waitForFunction(() => !document.body.classList.contains("lx-aside"));
   assert.equal(await f.page.locator("#aside-toggle").getAttribute("aria-pressed"), "false");
@@ -300,8 +322,16 @@ test("hiding: a switch hides a part, all hidden leaves a gear, Lockdown's banner
   await f.page.waitForFunction(() => document.documentElement.dataset.hide === "recents");
   assert.equal(await f.page.locator('.rail-group[data-group="recents"]').isVisible(), false);
   const ids = await f.page.evaluate(() => globalThis.branchOnscreen.ids());
+  await f.page.evaluate(() => { globalThis.lonely = 0; document.addEventListener("branch-everything-hidden", () => { globalThis.lonely += 1; }); });
+  await f.look({ hidden: ids.slice(1) });
+  await f.page.waitForTimeout(200);
+  assert.equal(await f.page.evaluate(() => globalThis.lonely), 0, "not while one part still shows");
   await f.look({ hidden: ids });
   await f.page.locator("#panels-float-gear").waitFor();
+  await f.page.waitForFunction(() => globalThis.lonely === 1);
+  await f.look({ seeThrough: 40 });
+  await f.page.waitForTimeout(200);
+  assert.equal(await f.page.evaluate(() => globalThis.lonely), 1, "said once, not again on every change after");
   const shown = await f.page.evaluate(() => [...document.querySelectorAll("body *")]
     .filter((node) => node.checkVisibility({ visibilityProperty: true, opacityProperty: true }) && node.getBoundingClientRect().width > 0)
     .filter((node) => !node.closest("#panels-float-gear, #toast, .panels-rz, #lx-lockbanner, .sr-only") && !node.children.length)
@@ -432,5 +462,28 @@ test("a panel closed long ago in the full window still opens from the switch in 
   assert.ok(mine, "the owner's width is set");
   await f.page.evaluate(() => { document.documentElement.dataset.household = "on"; document.dispatchEvent(new CustomEvent("branch-profile", { detail: { owner: false } })); });
   assert.equal(await f.page.evaluate(() => document.documentElement.style.getPropertyValue("--aside-w")), "", "a household person starts from the normal width");
+  assert.deepEqual(f.errors, []);
+});
+
+test("on a phone, hiding the title bar (where the side list opens) leaves the gear, and it never covers the message box", async (t) => {
+  const f = await windowFixture(t, { width: 390, height: 844 });
+  await f.conversation();
+  assert.equal(await f.page.locator("#panels-float-gear").count(), 0, "nothing extra while the title bar shows");
+  for (const hidden of [["title-bar"], ["side-toggle", "more"], ["title-bar", "starters", "foot", "usage"]]) {
+    await f.look({ hidden });
+    await f.page.locator("#panels-float-gear").waitFor();
+    const clash = await f.page.evaluate(() => {
+      const gear = document.getElementById("panels-float-gear").getBoundingClientRect();
+      const box = document.getElementById("chat-form").getBoundingClientRect();
+      return gear.right > box.left && gear.left < box.right && gear.bottom > box.top && gear.top < box.bottom;
+    });
+    assert.equal(clash, false, `the gear sits clear of the message box (${hidden.join(", ")})`);
+  }
+  await f.look({ hidden: [] });
+  await f.page.waitForFunction(() => !document.getElementById("panels-float-gear"));
+  await f.page.setViewportSize({ width: 1440, height: 950 });
+  await f.look({ hidden: ["title-bar"] });
+  await f.page.waitForTimeout(300);
+  assert.equal(await f.page.locator("#panels-float-gear").count(), 0, "a wide window keeps Settings in the side list");
   assert.deepEqual(f.errors, []);
 });

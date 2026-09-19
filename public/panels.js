@@ -67,9 +67,18 @@ function chip(state) {
   const node = make("span", `panels-chip panels-chip-${tone}`, say(key, english));
   return node;
 }
+/* integrate/p2-panels: what a browser step did, so two steps on the same page never read as the same row. */
+const STEPS = {
+  "browser.navigate": ["panels.step.opened", "Opened the page"], "browser.screenshot": ["panels.step.picture", "Took a picture of the page"],
+  "browser.snapshot": ["panels.step.read", "Read the page"], "browser.read": ["panels.step.read", "Read the page"],
+  "web.fetch": ["panels.step.read", "Read the page"], "web.search": ["panels.step.searched", "Searched the web"],
+  "browser.click": ["panels.step.clicked", "Clicked on the page"], "browser.fill": ["panels.step.filled", "Filled in the page"],
+  "browser.upload": ["panels.step.uploaded", "Gave the page a file"],
+};
 function entryRow(tab, entry) {
   const row = make("div", "panels-entry");
   row.dataset.state = entry.state;
+  if (STEPS[entry.tool]) row.append(make("span", "panels-step", say(...STEPS[entry.tool])));
   const head = make("div", "panels-entry-head");
   const what = make("code", "panels-what", (tab === "terminal" ? "$ " : "") + (entry.what || entry.tool));
   what.title = entry.what || entry.tool;

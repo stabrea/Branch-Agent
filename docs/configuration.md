@@ -3934,7 +3934,8 @@ side-panel button (in the calm window too); the panel's tabs sit inside it: Acti
 Browser and Terminal. **Browser** lists the web pages the assistant opened in this conversation, with the last
 picture it took of a page; **Terminal** lists the commands it ran, what they printed, and the ones it was
 refused or is waiting on a yes for. Both read `GET /api/panels/work?session=<id>` (src/panels-work.ts), the
-conversation's last eight tasks; nothing there runs a command or opens a page. They are the owner's: a
+conversation's last eight tasks; nothing there runs a command or opens a page. A key-shaped value in a
+command line or a printout is shown as `[hidden key-like value: …]` there, as it is in a chat app's copy. They are the owner's: a
 short-lived key and a household person are refused the route, and a household person's window does not offer
 the two tabs. The edge of the side list and of the side panel can be dragged (double-click resets, arrow keys
 move it, Enter folds it); Ctrl+B (Cmd+B on a Mac) folds the side list. Widths are kept in this browser only
@@ -3952,7 +3953,10 @@ window keeps their own), not in the preferences record.
   whole side list or title bar, the oak, the rows of the side list, the title bar's buttons, the question and
   suggestions on a new conversation, the messages, the message box and the chips and lines around it, the acorn.
   Questions it asks before it acts, the Lockdown banner, Stop while a task runs and Settings are never on the
-  list; with the side list hidden a small gear stays in the corner.
+  list; with the side list hidden a small gear stays in the corner. A part name the list does not know (one
+  typed into the record by hand) is ignored, so nothing else can be hidden that way. When every part on the
+  list is hidden, the window says `branch-everything-hidden` on `document` once (the achievements'
+  "It's lonely over here" listens for it); it says it again only after something was brought back.
 - `rightClickHide` (default `false`): right-clicking a part of the window offers "Hide this" (with Undo in
   the notice). Off, right-click behaves as it always has.
 
