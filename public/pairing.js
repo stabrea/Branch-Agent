@@ -177,8 +177,8 @@ async function lookForRequest() {
   Object.assign(pair, { step: "letin", request });
   redraw();
 }
-/** Closing, or leaving the tab, while an invitation is open asks first. */
-function askToStop() {
+/** Closing, or leaving the tab, while an invitation is open asks first; Stop pairing then carries on. */
+function askToStop(proceed) {
   if (!pair.invite) return true;
   if ($("pair-stop")) return false;
   const bar = make("div", "pair-stop");
@@ -189,8 +189,10 @@ function askToStop() {
     button("studio-danger", "pair.stop.go", "Stop pairing", async () => {
       await api("devices/invite/cancel", {}).catch(() => undefined);
       pair.invite = null;
-      closeDialog(true);
+      studio.closing = null;
+      stopTimers();
       toast(say("pair.stopped", "Pairing stopped. The invitation no longer works."));
+      (proceed ?? (() => closeDialog(true)))();
     }));
   document.querySelector("#studio .studio-panel")?.prepend(bar);
   bar.querySelector("button")?.focus();

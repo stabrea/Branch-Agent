@@ -15,11 +15,11 @@ import type { Store } from "./store.js";
  *   GET  /api/shell-look   the switches (anyone at the window, a household person included: they only say what to draw)
  *   POST /api/shell-look   { strip?, faces3d? } the owner's alone, at the window
  */
-export const ShellLookSchema = z.object({
+export const ShellLookSettingsSchema = z.object({
   strip: z.enum(["off", "on"]).default("on"),
   faces3d: z.enum(["off", "on"]).default("off"),
 }).strict();
-export type ShellLook = z.infer<typeof ShellLookSchema>;
+export type ShellLook = z.infer<typeof ShellLookSettingsSchema>;
 const key = "shell-look";
 
 export const handlesShellLookPath = (path: string): boolean => path === "/api/shell-look";
@@ -29,8 +29,8 @@ export class ShellLookError extends Error {
 }
 
 export function readShellLook(store: Pick<Store, "get">, owner: string): ShellLook {
-  const saved = ShellLookSchema.safeParse(store.get("settings", owner, key)?.data ?? {});
-  return saved.success ? saved.data : ShellLookSchema.parse({});
+  const saved = ShellLookSettingsSchema.safeParse(store.get("settings", owner, key)?.data ?? {});
+  return saved.success ? saved.data : ShellLookSettingsSchema.parse({});
 }
 
 /** Only the owner, in the owner's own profile and with this computer's own key. */
@@ -42,8 +42,8 @@ function requireOwnerHere(store: Store): void {
 
 export function saveShellLook(store: Store, owner: string, input: unknown): ShellLook {
   requireOwnerHere(store);
-  const change = ShellLookSchema.partial().strict().parse(input);
-  const next = ShellLookSchema.parse({ ...readShellLook(store, owner), ...change });
+  const change = ShellLookSettingsSchema.partial().strict().parse(input);
+  const next = ShellLookSettingsSchema.parse({ ...readShellLook(store, owner), ...change });
   store.save("settings", owner, key, next);
   return next;
 }

@@ -34,7 +34,7 @@ function button(className, key, english, handler, values) {
   return node;
 }
 export { button };
-/** Opens the dialog (or reuses the open one) with a title; `beforeClose` may keep it open. */
+/** Opens the dialog with a title. `studio.closing(proceed)` may keep it open (and call `proceed` later). */
 export function openDialog(key, english, values) {
   closeDialog(true);
   const dialog = make("dialog", "studio-dlg");
@@ -59,7 +59,7 @@ export function openDialog(key, english, values) {
 /** Closes the dialog; while an invitation is open it asks first, unless `force`. */
 export function closeDialog(force = false) {
   if (!studio.dialog) return;
-  if (!force && studio.closing && studio.closing() === false) return;
+  if (!force && studio.closing && studio.closing(() => closeDialog(true)) === false) return;
   studio.closing = null;
   studio.dialog.close();
   studio.dialog.remove();
@@ -83,7 +83,7 @@ function tabStrip() {
 export async function showTab(id) {
   const body = $("studio-body");
   if (!body) return;
-  if (studio.tab !== id && studio.closing && studio.closing() === false) return;
+  if (studio.tab !== id && studio.closing && studio.closing(() => { studio.closing = null; void showTab(id); }) === false) return;
   studio.closing = null;
   studio.tab = id;
   const panel = make("div", "studio-panel");
