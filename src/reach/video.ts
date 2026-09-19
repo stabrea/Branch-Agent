@@ -188,8 +188,8 @@ function priceAndRefusal(store: Store, owner: string, settings: VideoSettings, s
     throw new Error(`${said}, which would take this task past the limit of $${cap.toFixed(2)} for one task. Raise the limit in Settings, Permissions, if it should go further.`);
   const budget = store.get("settings", owner, "usage_budget")?.data as { maxMonthlyDollars?: number; pauseAtBudget?: boolean } | undefined;
   if (budget?.pauseAtBudget && budget.maxMonthlyDollars !== undefined) {
-    const month = store.usageStore().getMonthlyStats(undefined, pricingSettings(store, owner).overrides).estimatedCost
-      + (runId ? recordedSpend(store, [runId]) : 0);
+    // hardening-3: the month already counts what this and every other unfinished task has spent.
+    const month = store.usageStore().getMonthlyStats(undefined, pricingSettings(store, owner).overrides).estimatedCost;
     if (month + price.dollars >= budget.maxMonthlyDollars)
       throw new Error(`${said}, and this month's budget of $${budget.maxMonthlyDollars.toFixed(2)} is at about $${month.toFixed(2)} already. Visit the Usage screen to raise the budget.`);
   }

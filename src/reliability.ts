@@ -28,8 +28,31 @@ export class CheckError extends Error {
 }
 export class StallError extends Error {
   override name = "StallError";
-  constructor(readonly afterMs: number) { super(`No response for ${Math.round(afterMs / 1000)} seconds`); }
+  /** hardening-3: true when nothing at all had been heard, so the reply never started. */
+  constructor(readonly afterMs: number, readonly beforeFirstWord = false) { super(`No response for ${Math.round(afterMs / 1000)} seconds`); }
 }
+/**
+ * hardening-3: a model on this computer that never started answering, after its one retry. The task
+ * ends with this plain message instead of waiting through two more full windows (~15 minutes).
+ */
+export class LocalModelSilentError extends Error {
+  override name = "LocalModelSilentError";
+  constructor(readonly waitedMs: number) {
+    super(`The model on this computer didn't start answering after ${waitedSeconds(waitedMs)}. It may still be loading, or it may be too big for this computer's memory. `
+      + "Check that the program running it (such as Ollama or LM Studio) is open and the model has finished loading, then try again; "
+      + "or choose a smaller model; or give it longer under Settings, Advanced: \"Wait for a model on this computer to start answering\".");
+  }
+}
+const waitedSeconds = (ms: number): string => {
+  const seconds = Math.round(ms / 1000);
+  return seconds >= 120 && seconds % 60 === 0 ? `${seconds / 60} minutes` : `${seconds} seconds`;
+};
+/**
+ * hardening-3: the extra time a local model's one retry gets on top of the owner's first-reply wait:
+ * a tenth of it, at most 30 seconds (30 s for the shipped 300 s). Enough for a model that finished
+ * loading just as the wait ran out; never another full wait.
+ */
+export const localFirstReplyGraceMs = (firstMs: number): number => Math.min(30_000, Math.round(firstMs / 10));
 
 /** The first reason the answer fails its declared checks, or null when every check passes. */
 export async function evaluateChecks(output: string, check: CompletionCheck, workspace: string): Promise<string | null> {
@@ -59,7 +82,12 @@ export async function evaluateChecks(output: string, check: CompletionCheck, wor
  * gets `firstMs` instead of the ordinary stall time; once anything is heard the ordinary clock runs.
  * `quiet` is told once if nothing at all has been heard after `afterMs`, so the person can be told why.
  */
-export interface FirstReplyWait { firstMs?: number; quiet?: { afterMs: number; notify: () => void } }
+export interface FirstReplyWait {
+  firstMs?: number;
+  quiet?: { afterMs: number; notify: () => void };
+  /** hardening-3: the first window is exactly this long, even when shorter than the ordinary stall time (a retry's last grace). */
+  capMs?: number;
+}
 
 /**
  * Runs `work` with a signal that aborts when nothing has been heard for `stallMs`; `touch` resets
@@ -76,10 +104,10 @@ export async function withStallWatchdog<T>(
   let heard = false;
   const arm = (ms: number) => {
     if (timer) clearTimeout(timer);
-    timer = setTimeout(() => watchdog.abort(new StallError(ms)), ms);
+    timer = setTimeout(() => watchdog.abort(new StallError(ms, !heard)), ms);
   };
   const touch = () => { heard = true; arm(stallMs); };
-  arm(Math.max(stallMs, first.firstMs ?? stallMs));
+  arm(first.capMs ?? Math.max(stallMs, first.firstMs ?? stallMs));
   const quiet = first.quiet ? setTimeout(() => { if (!heard) first.quiet!.notify(); }, first.quiet.afterMs) : undefined;
   try {
     return await work(AbortSignal.any([parent, watchdog.signal]), touch);
