@@ -1,3 +1,4 @@
+import { thinkingLevels } from "../thinking-levels.js"; // phase2/accounts
 import type { IncomingMessage } from "node:http";
 import { z } from "zod";
 import type { Store } from "../store.js";
@@ -29,7 +30,7 @@ export interface KnobsApp {
   store: Store;
   runtime: {
     owner: string;
-    models: { presets: ReadonlyMap<string, { id: string; name: string }> };
+    models: { presets: ReadonlyMap<string, { id: string; name: string; model: string; provider: { name: string } }> };
     reliability: { toolResultChars: number; toolTimeoutMs: number; localFirstReplyMs: number };
     retryPolicy: { maxRetries: number };
   };
@@ -66,7 +67,9 @@ function view(app: KnobsApp) {
     values,
     aboutYouHidden: !ownerHere(store),
     memoryProvider: memoryProvider(store, runtime.owner),
-    connections: [...runtime.models.presets.values()].map((preset) => ({ id: preset.id, name: preset.name })),
+    // phase2/accounts (#22): which thinking levels each model really takes (src/thinking-levels.ts).
+    connections: [...runtime.models.presets.values()].map((preset) =>
+      ({ id: preset.id, name: preset.name, thinking: thinkingLevels(preset.provider.name, preset.model) })),
     leakKinds: leakKinds.filter((kind) => kind !== "private key"),
     launched: {
       contextWindowTokens: contextLimit,
