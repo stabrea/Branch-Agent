@@ -11,7 +11,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash, randomBytes } from "node:crypto";
 import { createServer, request } from "node:http";
-import { mkdir, mkdtemp, readFile, utimes, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -19,10 +19,10 @@ import { discardTemp } from "./temp-dir.mjs";
 import { readCode } from "./qr-reader.mjs";
 import { apkType, assertDoorAddress, doorHandler, doorRoute, fileHeaders, PhoneDoor } from "../dist/phone-app/door.js";
 import { candidateAddresses, defaultInterface, doorAddresses, homeNetworkAddress } from "../dist/phone-app/address.js";
-import { damagedReason, findPhoneApp, missingReason, phoneAppEnvName } from "../dist/phone-app/file.js";
+import { damagedReason, findPhoneApp, missingReason, phoneAppEnvName, readCheckedApp } from "../dist/phone-app/file.js";
 import { isApplePhone, loadDictionaries, pickLanguage } from "../dist/phone-app/page.js";
 import { PhoneApp, phoneAppApi, phoneLockdownRefusal, pickedAddressRefusal } from "../dist/phone-app/index.js";
-import { parsePhoneArgs, phoneCommand } from "../dist/phone-app/cli.js";
+import { parsePhoneArgs, phoneCommand, phoneLockdownClosed } from "../dist/phone-app/cli.js";
 import { encodeQr, qrTerminal } from "../dist/remote/qr.js";
 import { createBranch } from "../dist/index.js";
 import { offLimitsToShortLivedKeys, startServer } from "../dist/server.js";
@@ -51,7 +51,7 @@ async function door(t, { now = () => 1_000, expiresAt = 10_000 } = {}) {
   const app = await fakeApp(t);
   const found = await findPhoneApp(app.root, {});
   assert.ok(found.file, found.reason);
-  const state = { token: "Tok3n_-abcdefghijklmnopqrs", file: found.file, expiresAt, dictionaries: await loadDictionaries(locales), now };
+  const state = { token: "Tok3n_-abcdefghijklmnopqrs", file: found.file, bytes: app.bytes, expiresAt, dictionaries: await loadDictionaries(locales), now };
   const server = createServer(doorHandler(state));
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   t.after(() => new Promise((resolve) => server.close(resolve)));
@@ -162,7 +162,7 @@ test("a door past its time closes itself", async (t) => {
   const app = await fakeApp(t);
   const phone = new PhoneDoor();
   t.after(() => phone.stop());
-  await phone.start({ file: (await findPhoneApp(app.root, {})).file, address, dictionaries: {}, lifetimeMs: 50 });
+  await phone.start({ file: (await findPhoneApp(app.root, {})).file, bytes: app.bytes, address, dictionaries: {}, lifetimeMs: 50 });
   await Promise.race([phone.closed(), new Promise((_, reject) => setTimeout(() => reject(new Error("still open")), 5000))]);
   assert.equal(phone.view(), null);
 });
@@ -230,6 +230,10 @@ test("the door only ever opens on one home network or Tailscale address, the def
     assert.throws(() => assertDoorAddress(bad), /home network or Tailscale/, bad);
   for (const good of ["192.168.1.20", "10.0.0.2", "172.16.4.4", "100.100.1.1"]) assert.doesNotThrow(() => assertDoorAddress(good));
   assert.equal(homeNetworkAddress("172.31.255.1"), true);
+  // A work VPN carrying the default route hands out a 10.x address too; the door never goes there.
+  const vpn = [{ name: "utun4", address: "10.8.0.12", internal: false }, { name: "ppp0", address: "192.168.200.3", internal: false }, ...all];
+  assert.deepEqual(doorAddresses(vpn, "utun4"), ["10.20.86.3", "10.146.133.246", "100.118.59.45"]);
+  assert.deepEqual(doorAddresses([{ name: "tailscale0", address: "100.101.1.2", internal: false }], "eth0"), ["100.101.1.2"]);
   const said = [];
   const run = async (file, args) => { said.push([file, ...args]); return file === "route" ? "   route to: default\n  gateway: 10.146.133.1\n  interface: en1\n" : "default via 192.168.1.1 dev wlan0 proto dhcp\n"; };
   assert.equal(await defaultInterface("darwin", run), "en1");
@@ -254,11 +258,21 @@ test("the app comes from inside Branch and is refused unless it matches its chec
   assert.equal((await findPhoneApp(root, {})).reason, damagedReason);
 });
 
-test("a served file that changed after the code was made is refused, not sent", async (t) => {
-  const { port, state, path } = await door(t);
-  await writeFile(path, "different");
+test("a file swapped on disk after the code was made never reaches a phone, even keeping its size and time", async (t) => {
+  const { port, state, path, root, bytes } = await door(t);
+  const before = await stat(path);
+  const swapped = Buffer.concat([Buffer.from("PK"), randomBytes(bytes.length - 2)]);
+  await writeFile(path, swapped);
+  await utimes(path, before.atime, before.mtime);
   const got = await fetchRaw(port, `/get/${state.token}/Branch-Agent.apk`, { headers: { "user-agent": ANDROID } });
-  assert.equal(got.status, 404);
+  assert.equal(got.status, 200);
+  assert.ok(got.body.equals(bytes), "the bytes checked when the code was made are the bytes sent");
+  assert.ok(!got.body.equals(swapped));
+  // And a new code is not made from the swapped file, although it looks unchanged from outside.
+  assert.equal(await readCheckedApp(state.file), null);
+  const phone = new PhoneApp({ root, env: {}, addresses: async () => ["10.0.0.5"] });
+  await assert.rejects(phone.share({}), (error) => error.status === 409 && error.message === damagedReason);
+  assert.equal(phone.door.view(), null);
 });
 
 test("the desktop download carries the checked phone app in phone/, and builds without it when there is none", async (t) => {
@@ -302,6 +316,28 @@ test("only the owner in the app window opens it, never under Lockdown or a short
   assert.deepEqual(parsePhoneArgs(["--address", "10.0.0.5", "--minutes", "5"]), { address: "10.0.0.5", minutes: 5 });
 });
 
+test("branch phone closes its link when Lockdown is turned on in the window meanwhile", async () => {
+  let on = false;
+  const store = { get: (_kind, _owner, key) => (on && key ? { data: { on: true } } : undefined) };
+  const url = "http://10.0.0.5:40000/get/Tok3n_-abcdefghijklmnopqrs";
+  let stopped = 0;
+  const phone = {
+    share: async () => ({ url, address: "10.0.0.5", port: 40000, expiresAt: new Date(Date.now() + 60_000).toISOString(), qr: encodeQr(url) }),
+    addresses: async () => ["10.0.0.5"],
+    door: { closed: () => new Promise(() => undefined) },
+    stop: () => { stopped++; },
+  };
+  const lines = [];
+  const running = phoneCommand({ store, owner: "local", phone, write: (line) => lines.push(line), colour: false,
+    interrupted: new Promise(() => undefined), lockdownCheckMs: 10 }, []);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(stopped, 0, "still showing while Lockdown is off");
+  on = true;
+  assert.equal(await running, 0);
+  assert.equal(stopped, 1);
+  assert.ok(lines.includes(phoneLockdownClosed));
+});
+
 test("the window's card is wired: the owner sees whether the app is here, and nothing opens until asked", async (t) => {
   const { path } = await fakeApp(t);
   const previous = process.env[phoneAppEnvName];
@@ -320,6 +356,36 @@ test("the window's card is wired: the owner sees whether the app is here, and no
   assert.equal((await fetchRaw(port, "/api/phone-app")).status, 401, "not without the key");
   const script = await fetchRaw(port, "/phone-app.js");
   assert.equal(script.status, 200);
+  const owner = (method, path, body) => new Promise((resolve, reject) => {
+    const call = request({ hostname: "127.0.0.1", port, path, method, agent: false,
+      headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" } }, (response) => {
+      const chunks = [];
+      response.on("data", (chunk) => chunks.push(chunk));
+      response.on("end", () => resolve({ status: response.statusCode, body: JSON.parse(Buffer.concat(chunks).toString() || "null") }));
+    });
+    call.on("error", reject);
+    call.end(body === undefined ? undefined : JSON.stringify(body));
+  });
+  // A household profile in the window is refused, reads included.
+  const kid = app.store.profiles.create({ name: "Kid", pin: "2468" });
+  app.store.profiles.switch({ profileId: kid.id, pin: "2468" });
+  for (const [method, path] of [["GET", "/api/phone-app"], ["POST", "/api/phone-app/share"], ["POST", "/api/phone-app/stop"]]) {
+    const refused = await owner(method, path, method === "POST" ? {} : undefined);
+    assert.notEqual(refused.status, 200, `${method} ${path}`);
+    assert.match(refused.body.error, /belongs to the owner/, `${method} ${path}`);
+  }
+  app.store.profiles.switch({ profileId: null });
+  // Lockdown closes a link that is showing, and its port with it.
+  const address = (await candidateAddresses())[0];
+  if (!address) return t.diagnostic("no home network or Tailscale address here; the Lockdown close check is skipped");
+  const shared = await owner("POST", "/api/phone-app/share", {});
+  assert.equal(shared.status, 200);
+  const link = new URL(shared.body.share.url);
+  assert.equal((await fetchRaw(Number(link.port), link.pathname, { hostname: address, headers: { "user-agent": ANDROID } })).status, 200);
+  setLockdown(app.store, app.runtime.owner, { on: true });
+  assert.equal((await owner("GET", "/api/phone-app")).body.share, null);
+  await assert.rejects(fetchRaw(Number(link.port), link.pathname, { hostname: address }), /ECONNREFUSED/);
+  setLockdown(app.store, app.runtime.owner, { on: false });
 });
 
 /* ---------- updating is scanning again ---------- */

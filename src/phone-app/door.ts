@@ -1,6 +1,4 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
-import { createReadStream } from "node:fs";
-import { stat } from "node:fs/promises";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { isIP } from "node:net";
 import { encodeQr, type QrMatrix } from "../remote/qr.js";
@@ -31,6 +29,8 @@ export const apkType = "application/vnd.android.package-archive";
 export interface DoorState {
   token: string;
   file: PhoneAppFile;
+  /** The app's bytes, checked against its checksum when the code was made; what is sent. */
+  bytes: Buffer;
   expiresAt: number;
   dictionaries: Dictionaries;
   now: () => number;
@@ -71,26 +71,22 @@ function sendPage(request: IncomingMessage, response: ServerResponse, status: nu
   response.end(request.method === "HEAD" ? undefined : body);
 }
 
-async function sendFile(request: IncomingMessage, response: ServerResponse, file: PhoneAppFile): Promise<boolean> {
-  // The file checked when the code was made is the file sent: a changed one is refused, not guessed at.
-  const info = await stat(file.path).catch(() => null);
-  if (!info || info.size !== file.size || info.mtimeMs !== file.modified) return false;
-  response.writeHead(200, fileHeaders(file.size));
-  if (request.method === "HEAD") { response.end(); return true; }
-  createReadStream(file.path).on("error", () => response.destroy()).pipe(response);
-  return true;
+function sendFile(request: IncomingMessage, response: ServerResponse, bytes: Buffer): void {
+  // The bytes checked when the code was made are the bytes sent; the file on disk is not read again.
+  response.writeHead(200, fileHeaders(bytes.length));
+  response.end(request.method === "HEAD" ? undefined : bytes);
 }
 
 /** The whole of what the door does. It is handed nothing it could leak. */
 export function doorHandler(state: DoorState) {
-  return async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
+  return (request: IncomingMessage, response: ServerResponse): void => {
     const language = pickLanguage(request.headers["accept-language"], Object.keys(state.dictionaries));
     const say = wordsFor(state.dictionaries, language);
     const route = doorRoute(state, request.method, request.url);
     if (!route) return sendPage(request, response, 404, refusedPage(say, language));
     if (isApplePhone(request.headers["user-agent"])) return sendPage(request, response, 200, iphonePage(say, language));
     if (route === "page") return sendPage(request, response, 200, androidPage(say, language, `/get/${state.token}/${phoneAppDownloadName}`, state.file.size));
-    if (!(await sendFile(request, response, state.file))) sendPage(request, response, 404, refusedPage(say, language));
+    sendFile(request, response, state.bytes);
   };
 }
 
@@ -113,12 +109,12 @@ export class PhoneDoor {
     if (this.current && this.now() >= Date.parse(this.current.expiresAt)) this.stop();
     return this.server ? this.current : null;
   }
-  async start(input: { file: PhoneAppFile; address: string; dictionaries: Dictionaries; lifetimeMs?: number; port?: number }): Promise<DoorView> {
+  async start(input: { file: PhoneAppFile; bytes: Buffer; address: string; dictionaries: Dictionaries; lifetimeMs?: number; port?: number }): Promise<DoorView> {
     assertDoorAddress(input.address);
     this.stop();
     const token = randomBytes(18).toString("base64url");
     const expiresAt = this.now() + (input.lifetimeMs ?? doorLifetimeMs);
-    const state: DoorState = { token, file: input.file, expiresAt, dictionaries: input.dictionaries, now: this.now };
+    const state: DoorState = { token, file: input.file, bytes: input.bytes, expiresAt, dictionaries: input.dictionaries, now: this.now };
     const server = createServer(doorHandler(state));
     server.headersTimeout = 10_000;
     server.requestTimeout = 10 * 60_000;

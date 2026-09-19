@@ -5,7 +5,7 @@ import { lockdownActive } from "../lockdown.js";
 import type { Store } from "../store.js";
 import { candidateAddresses, type Runner, runQuietly } from "./address.js";
 import { PhoneDoor, type DoorView } from "./door.js";
-import { appRoot, findPhoneApp } from "./file.js";
+import { appRoot, damagedReason, findPhoneApp, readCheckedApp } from "./file.js";
 import { loadDictionaries } from "./page.js";
 
 /**
@@ -57,12 +57,14 @@ export class PhoneApp {
     const asked = ShareSchema.parse(input ?? {});
     const found = await findPhoneApp(this.root(), this.deps.env);
     if (!found.file) throw new PhoneAppRefusal(409, found.reason);
+    const bytes = await readCheckedApp(found.file);
+    if (!bytes) throw new PhoneAppRefusal(409, damagedReason);
     const addresses = await this.addresses();
     if (asked.address && !addresses.includes(asked.address)) throw new PhoneAppRefusal(400, pickedAddressRefusal);
     const address = asked.address ?? addresses[0];
     if (!address) throw new PhoneAppRefusal(409, noAddressRefusal);
     const dictionaries = await loadDictionaries(join(this.root(), "public", "locales"));
-    return this.door.start({ file: found.file, address, dictionaries, ...(asked.minutes ? { lifetimeMs: asked.minutes * 60_000 } : {}) });
+    return this.door.start({ file: found.file, bytes, address, dictionaries, ...(asked.minutes ? { lifetimeMs: asked.minutes * 60_000 } : {}) });
   }
   stop(): void { this.door.stop(); }
 }

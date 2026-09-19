@@ -29,6 +29,12 @@ export function homeNetworkAddress(address: string): boolean {
 
 /** Interfaces a phone never sits behind: container, virtual machine and Thunderbolt bridges. */
 const virtualInterface = /^(bridge|docker|br-|veth|vmnet|vboxnet|virbr|cni|flannel|lxc|podman)/i;
+/**
+ * Tunnels: a work VPN hands out 10.x addresses too, and when it carries the default route its
+ * address would otherwise come first, opening the door to the whole office network, where the phone
+ * is not. A tunnel is only ever used for its Tailscale address.
+ */
+const tunnelInterface = /^(utun|tun|tap|ppp|ipsec|wg|gpd|zt|tailscale)/i;
 
 /**
  * The addresses the door may use, best first: the default route's home address, other home
@@ -36,7 +42,7 @@ const virtualInterface = /^(bridge|docker|br-|veth|vmnet|vboxnet|virbr|cni|flann
  */
 export function doorAddresses(all: readonly NamedAddress[], defaultInterface: string | null): string[] {
   const usable = all.filter((entry) => !entry.internal && !virtualInterface.test(entry.name));
-  const home = usable.filter((entry) => homeNetworkAddress(entry.address));
+  const home = usable.filter((entry) => homeNetworkAddress(entry.address) && !tunnelInterface.test(entry.name));
   const first = home.filter((entry) => entry.name === defaultInterface);
   const rest = home.filter((entry) => entry.name !== defaultInterface);
   const tailnet = usable.filter((entry) => isTailnetAddress(entry.address));

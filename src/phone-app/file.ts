@@ -69,3 +69,15 @@ export async function findPhoneApp(root: string = appRoot(), env: NodeJS.Process
   checked.set(path, file);
   return { file, reason: null };
 }
+
+/**
+ * The bytes a door will hand out, read once and checked against the `.sha256` line as it is now.
+ * The door then serves these very bytes from memory, so nothing done to the file on disk while a
+ * code is showing (even a swap that keeps the size and the time stamp) can reach a phone.
+ */
+export async function readCheckedApp(file: PhoneAppFile): Promise<Buffer | null> {
+  const bytes = await readFile(file.path).catch(() => null);
+  if (!bytes) return null;
+  const digest = createHash("sha256").update(bytes).digest("hex");
+  return digest === file.sha256 && digest === (await expectedDigest(file.path)) ? bytes : null;
+}

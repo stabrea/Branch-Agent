@@ -4248,10 +4248,12 @@ each phone ships (Keychain, `LocalAuthentication`, `BackgroundTasks`; Android Ke
 release asset. The signed Android app travels inside the desktop download, in `phone/` with its
 `.sha256` (`scripts/package-desktop.mjs` copies it from where `scripts/package-mobile.mjs` built it;
 about 3.7 MB, around 2% of the download), and a copy that does not match its checksum is never
-offered. *Get Branch on your phone* (Customize, Channels) — or `branch phone` in a terminal — shows
+offered. The app is read and checked each time a code is made, and the door sends exactly those
+checked bytes from memory, so a file changed on disk while the code is showing never reaches a phone. *Get Branch on your phone* (Customize, Channels) — or `branch phone` in a terminal — shows
 a code for the phone's ordinary camera. Pressing *Show the code* opens a separate little web server,
 not Branch's own door, on one home network address of this computer (the one its default route
-uses; Tailscale if there is none; never a public or every address) for fifteen minutes. While it is
+uses, but never a VPN or other tunnel's; Tailscale if there is none; never a public or every
+address) for fifteen minutes. While it is
 showing, anyone on that network can reach exactly two things with no key: `/get/<link>`, the install
 page, and `/get/<link>/Branch-Agent.apk`, the app, sent as
 `application/vnd.android.package-archive` with `Content-Disposition: attachment;
@@ -4265,7 +4267,7 @@ Mac with Xcode, and scanning to install is coming. Updating the phone is scannin
 app has the same name and the same signing key, so Android installs it over the old one and keeps
 its data, pairing included. Opening, reading and closing the link are the owner's alone, in the app
 window: a short-lived key and a household profile are refused, and Lockdown refuses to open it and
-closes one that is showing. `BRANCH_PHONE_APP` names a signed app elsewhere (with its `.sha256`
+closes one that is showing (a `branch phone` left running in a terminal notices within seconds). `BRANCH_PHONE_APP` names a signed app elsewhere (with its `.sha256`
 beside it), for a builder.
 
 **What it does.** The first screen connects to your Branch: switch on reaching Branch from your

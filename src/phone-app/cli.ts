@@ -3,6 +3,8 @@ import { qrTerminal } from "../remote/qr.js";
 import type { Store } from "../store.js";
 import { PhoneApp, phoneLockdownRefusal, PhoneAppRefusal } from "./index.js";
 
+export const phoneLockdownClosed = "Lockdown was turned on, so the phone download link was closed.";
+
 /**
  * mac7/phone-qr: `branch phone [--address <ip>] [--minutes <n>]`.
  *
@@ -17,6 +19,8 @@ export interface PhoneCommandDeps {
   colour: boolean;
   /** How the command learns it should stop early; the real one is Ctrl+C. */
   interrupted?: Promise<void>;
+  /** How often to look whether Lockdown was turned on meanwhile. */
+  lockdownCheckMs?: number;
 }
 
 export function parsePhoneArgs(argv: readonly string[]): { address?: string; minutes?: number } {
@@ -42,8 +46,15 @@ export async function phoneCommand(deps: PhoneCommandDeps, argv: readonly string
   deps.write(`Or open: ${view.url}`);
   deps.write(`The link only downloads the Branch app, and stops working at ${new Date(view.expiresAt).toLocaleTimeString()}. Press Ctrl+C to stop it sooner.`);
   for (const other of others) deps.write(`Phone cannot open it? Try: branch phone --address ${other}`);
-  await Promise.race([phone.door.closed(), deps.interrupted ?? new Promise<void>((resolve) => process.once("SIGINT", () => resolve()))]);
+  // Lockdown turned on in the window (another process, the same store) ends this link too.
+  let watch: NodeJS.Timeout | undefined;
+  const lockedDown = new Promise<void>((resolve) => {
+    watch = setInterval(() => { if (lockdownActive(deps.store, deps.owner)) resolve(); }, deps.lockdownCheckMs ?? 2000);
+  });
+  await Promise.race([phone.door.closed(), lockedDown, deps.interrupted ?? new Promise<void>((resolve) => process.once("SIGINT", () => resolve()))]);
+  clearInterval(watch);
   phone.stop();
+  if (lockdownActive(deps.store, deps.owner)) deps.write(phoneLockdownClosed);
   deps.write("The phone download link is closed.");
   return 0;
 }
