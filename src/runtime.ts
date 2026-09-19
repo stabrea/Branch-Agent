@@ -102,7 +102,7 @@ import {
 // Wave 7: three tiers of tool, a hard ceiling on the tool section, and searching for the rest.
 import { ToolLoader, meaningSearchOn, toolDescribeName, toolNoteName, toolSearchName } from "./tool-loading.js";
 import {
-  carrySentences, readSessionCarry, rememberSessionCarry, restoreSessionCarry, type CarryDeps, type RestoredSession, // phase2/rooms: readSessionCarry
+  carrySentences, dropCarriedGrants, rememberSessionCarry, restoreSessionCarry, type CarryDeps, type RestoredSession, // phase2/rooms: dropCarriedGrants
 } from "./session-carry.js";
 import type { RunToolEmbedder, ToolEmbedder } from "./tool-index.js";
 import { mcpAppIn } from "./mcp-apps.js";
@@ -2683,8 +2683,7 @@ ${run.output.slice(0, 6000)}`;
   endGrants(sessionId: string): number {
     const grants = this.approvals.grants(sessionId);
     for (const grant of grants) this.revokeGrant(sessionId, grant.tool, grant.target);
-    const carried = readSessionCarry(this.store, this.owner, sessionId);
-    if (carried?.grants.length) rememberSessionCarry(this.carryDeps(), this.owner, sessionId, carried.toolboxes);
+    dropCarriedGrants(this.store, this.owner, sessionId);
     return grants.length;
   }
   /** Lists everything a practice run would have done, once it has finished. */

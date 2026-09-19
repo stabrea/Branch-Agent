@@ -38,6 +38,7 @@ async function refresh() {
   if (!ready()) return;
   plan = (await api("voice/plan").catch(() => null)) ?? plan; // a failed read keeps what was known
   paintSend();
+  follow(); // integration review: a live conversation that began before the setting was read is shown now
 }
 
 /* ---------- the send button, while the box is empty ---------- */
@@ -187,10 +188,8 @@ function caption(detail) {
 }
 
 /* ---------- following the conversation ---------- */
-document.addEventListener("branch-live-state", async (event) => {
-  liveState = event.detail?.state ?? "idle";
-  if (!plan && liveState !== "idle") await refresh();
-  paintSend();
+/** Shows the view as the live conversation stands now; also after a late read of the setting. */
+function follow() {
   if (!viewOn()) return;
   if (liveState === "idle") { closeView(); return; }
   openView();
@@ -199,6 +198,12 @@ document.addEventListener("branch-live-state", async (event) => {
   const cut = $("voice-view-cut");
   if (cut) cut.hidden = liveState !== "speaking";
   if (still()) draw();
+}
+document.addEventListener("branch-live-state", async (event) => {
+  liveState = event.detail?.state ?? "idle";
+  if (!plan && liveState !== "idle") await refresh();
+  paintSend();
+  follow();
 });
 document.addEventListener("branch-live-transcript", (event) => { if (viewNode()) caption(event.detail ?? {}); });
 /* A question mid-conversation: the view folds away so its card, in the conversation, can be answered. */
