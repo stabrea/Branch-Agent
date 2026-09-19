@@ -246,7 +246,11 @@ function lookSwitch(id, key, english, noteKey, note, on, change) {
     try { await api("shell-look", change(box.checked)); await refresh(); } catch (error) { box.checked = !box.checked; toast(error.message); }
   });
   const words = make("span");
-  words.append(make("b", "", key, english), make("small", "", noteKey, note));
+  // A screen reader reads the note with the switch, and the settings check finds its description.
+  const small = make("small", "field-note", noteKey, note);
+  small.id = `${id}-note`;
+  box.setAttribute("aria-describedby", small.id);
+  words.append(make("b", "", key, english), small);
   label.append(box, words);
   return label;
 }
