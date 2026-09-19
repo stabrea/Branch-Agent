@@ -47,3 +47,59 @@ Proof pictures: `claude-session-files/branch/phase2-shots/panels/` (script `clau
 - 48 `*ui*` files + suggestions, settings-descriptions, profile-badge, glass-select, panels: 300 tests, 297 pass, 0 fail, 3 skipped.
 - Core set (panels, static-assets, index-structure, handbook, short-lived-keys, household-profile, web-ui, calm-ui,
   goal-undo-ui, shell-ui, settings-descriptions, redesign-phase1, glass-select, ui): 142/142.
+
+## Integration (adversarial review, 2026-09-19) — verdict MERGE WITH FIXES
+
+Reviewed builder head 11313f13, fixed in ff7f4670, trunk merged in 0425641c (p2-accounts had landed; conflicts
+only in the two locale files and index.html's stylesheet list, both sides kept).
+
+Found and fixed (tests in `tests/panels.test.mjs`):
+- **Keys in Browser and Terminal.** The route showed full command lines (read off the messages, which the event
+  scrubber never sees) and up to 1200 characters of printout, unlike the Activity view, which never echoes
+  arguments. Both now go through the saved-secret scrubber and the leak guard (`[hidden key-like value: …]`),
+  as a chat app's copy does. Test: an AWS key typed on the command line and an Anthropic key printed are hidden.
+- **Work per poll.** Every 3-second refresh parsed the arguments of every tool call in the whole conversation;
+  now only the calls of the steps being shown.
+- **`branch-everything-hidden`** was not said. It is now dispatched on `document` once when every part on the
+  list is hidden (again only after something came back); documented in docs/configuration.md. p2-delight is not
+  on trunk yet, so it is tested by listening for the event, not through the achievement.
+- **Settings unreachable on a phone.** With the title bar (or the side-list button and More) hidden at 390 px,
+  the side list could not be opened and no gear showed: Settings was gone. The gear now shows whenever Settings
+  cannot be reached, and on a phone it sat over the message box's corner; it now sits just above the box.
+- Look: a browser step says what it did ("Opened the page", "Took a picture of the page"), so two steps on one
+  page no longer read as the same row; the address is not repeated in the printout and stays on one line.
+  "See-through message box" used the small mono label face beside a proportional heading; spacing under
+  "Show everything again"; the corner gear moved off the window's rounded corner.
+
+Checked and found sound:
+- Route: owner-only via `ownerOnlyReads` (short-lived keys 401, household 400 through `offLimitsToHousehold`);
+  scoped with `ownsSession`; the session id only reaches SQL lookups; the picture is served by
+  `/api/artifacts/file`, which only serves a path the artifacts list already holds, image/audio only, sandboxed.
+  Bounded: 8 tasks, 2000 events each, 40 entries per tab, 1200 characters per printout.
+- Never hidden: approvals (`#live-ask-slot` in `#live-row`, outside `#conversation` and the dock), the Lockdown
+  banner (placed after the header, not in it), Stop (`#live-stop` in `#live-row`) stay with everything hidden.
+  A hand-edited `hidden` id is ignored (client filters to known ids; CSS has rules only for listed ids).
+- See-through floor: measured at the clearest setting in all 44 themes, light and dark (88 cases): the message
+  box's words ≥ 4.5:1 and its faint text ≥ 3:1 over the modelled ground in every case. Solid under
+  "Keep things still" (tested) and `prefers-reduced-transparency` (CSS; not emulatable headless).
+- Resizable panes: keyboard (arrows, Shift, Home/End, Enter), min/max 200-440 and 260-640, per workspace and
+  per owner/household. A remembered width is applied in the same frame the redesigned layout first appears
+  (measured: 272 → 440 px at the frame `lx-ready` lands), so no visible jump.
+- Ctrl+B: the composer is a plain textarea (no bold), rich-text areas are skipped, the Terminal tab is read-only,
+  and no other Ctrl/Cmd+B binding exists in the app or the desktop shell.
+- Glass dropdown: `tests/glass-select.test.mjs` passed 10 of 10 runs on this branch (it already contained
+  trunk f5b8d582); the -388 failure reported on trunk did not reproduce here; left to ci-flakes-2.
+- Shared tests: the calm-ui, goal-undo-ui, shell-ui and short-lived-key-routes changes follow real behaviour
+  changes (the panel switch shows in the calm window per #16, tabs moved inside the panel, the new `data-convw`,
+  the new route). One caveat: calm-ui's new wait for the Show everything save may be covering extra work this
+  branch adds on every appearance change (a `branch-appearance` event and the contrast probe); it is a
+  wait-for-condition, not a widened product timeout.
+
+Not changed (notes for the owner): the What's on screen rows are tick boxes, where the sample uses switches with a
+small map of where each part is; the full ("Show everything") window at 1024 px shows faint text of the plan row
+under the line beneath the message box, which is the dock's existing fade, not this work.
+
+Tests after the trunk merge: panels (18) + static-assets, index-structure, handbook, short-lived-keys,
+household-profile, web-ui, calm-ui, goal-undo-ui, shell-ui, settings-descriptions, redesign-phase1, glass-select,
+ui, server, catalog-diet, accounts-page, accounts-ui, agent-files, brand-marks, settings-kit-ui, profile-badge,
+suggestions: 194/194; automation alone 5/5. Pictures: `phase2-shots/panels/*-fixed.png`.
