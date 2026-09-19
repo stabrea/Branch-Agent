@@ -64,7 +64,7 @@ records a plain sentence saying why that connection answered.
 
 ## Several accounts for one service
 
-**Settings → Models → Connection → Accounts** (off until you switch it on) lets one connection hold several API
+**Settings → Accounts** (off until you switch it on) lets one connection hold several API
 keys or sign-ins, each with a name; `/account` lists them and `/account <name>` switches the
 conversation. API keys move on to the next key by themselves when one is rate limited.
 

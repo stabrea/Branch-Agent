@@ -151,8 +151,10 @@ function checks(field, id, value, view) {
 function efforts(field, id, value, view) {
   const rows = view.connections.map((one) => {
     const select = document.createElement("select");
-    select.append(option("", "knobs.option.effort-default"),
-      ...["low", "medium", "high"].map((level) => option(level, `knobs.option.effort-${level}`)));
+    // phase2/accounts (#22): only the levels this model takes; a saved one it does not take stays shown.
+    const takes = one.thinking ? one.thinking.levels : ["low", "medium", "high"];
+    const levels = ["low", "medium", "high"].filter((level) => takes.includes(level) || value[one.id] === level);
+    select.append(option("", "knobs.option.effort-default"), ...levels.map((level) => option(level, `knobs.option.effort-${level}`)));
     select.value = value[one.id] ?? "";
     const label = Object.assign(document.createElement("label"), { textContent: one.name });
     label.htmlFor = select.id = `${id}-${kindSlug(one.id)}`;

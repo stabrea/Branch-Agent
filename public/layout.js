@@ -225,6 +225,7 @@ const SETTINGS_PAGES = [
   ["appearance", "settings.page.appearance", "Appearance", "Every KeepOak theme, light or dark, with the oak in any season. Changes show behind this window as you pick."],
   ["notifications", "settings.page.notifications", "Notifications", "When Branch may interrupt you, and the days it should leave you alone."],
   ["models", "settings.page.models", "Models", "Which models your assistant uses, and how it signs in to them."],
+  ["accounts", "settings.page.accounts", "Accounts", "Every sign-in and key Branch can use, which one answers, and what happens when one runs low."], // phase2/accounts
   ["voice", "settings.page.voice", "Voice", "Talking to your assistant and hearing it answer."],
   ["permissions", "settings.page.permissions", "Permissions", "What your assistant may do without asking, and how much it may do at once."],
   ["computer", "settings.page.computer", "Computer & browser", "What it may touch on this computer, in your browser and on your other machines."],

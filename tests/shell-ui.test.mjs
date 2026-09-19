@@ -102,8 +102,9 @@ test("every place opens from the sidebar in one click, and every Settings page f
   await f.page.getByRole("button", { name: "Settings", exact: true }).click();
   await f.page.locator("#settings-window").waitFor({ state: "visible" });
   const pages = f.page.locator(".lx-settings-link");
-  assert.equal(await pages.count(), 12, "Settings has twelve pages");
-  for (let index = 0; index < 12; index += 1) {
+  // phase2/accounts: Accounts became its own page after Models, so thirteen.
+  assert.equal(await pages.count(), 13, "Settings has thirteen pages");
+  for (let index = 0; index < 13; index += 1) {
     await pages.nth(index).click();
     assert.equal(await pages.nth(index).getAttribute("aria-current"), "true");
     assert.equal(await f.page.locator(".lx-page:not([hidden])").count(), 1, "one page at a time");

@@ -272,7 +272,9 @@ export async function viewAll(service: AccountsService) {
   }
   for (const pool of settings.pools) if (!seen.has(pool.pool)) seen.set(pool.pool, { name: connectionName(service, pool.pool), kind: pool.kind });
   // hardening-3: a household person sees the accounts shared with them and nothing of the owner's lists.
-  if (someoneElse(service)) return { mode: settings.mode, pools: sharedWithPerson(service, seen) };
+  // Integration review (phase2/accounts): `household` lets the page leave out the owner's cards even
+  // when nothing is shared with them (an empty list says nothing about whose view it is).
+  if (someoneElse(service)) return { mode: settings.mode, pools: sharedWithPerson(service, seen), household: true };
   const pools = [];
   for (const [id, about] of seen) {
     const draft = { ...settings, pools: [...settings.pools] };
