@@ -83,8 +83,8 @@ Screenshots: `claude-session-files/branch/phase2-shots/settings/`. Scratch scrip
 
 ## Integration (adversarial review, 2026-09-19)
 
-Reviewed 9f8df897, merged trunk (to 26e5b47e: p2-accounts, p2-shell, p2-rooms), fixed on the branch, then pushed to
-`mac/cross-platform`. Screenshots retaken as `*-fixed.png` in `phase2-shots/settings/` (report-fixed.txt).
+Reviewed 9f8df897, merged trunk twice (26e5b47e: p2-accounts, p2-shell, p2-rooms; then d366b45f: p2-panels,
+p2-delight, p2-everywhere), fixed on the branch, then pushed to `mac/cross-platform`. Screenshots retaken as `*-fixed.png` in `phase2-shots/settings/` (report-fixed.txt).
 
 ### Found and fixed
 - [x] **CSP (coordinator's addition):** `settings-describe.js` and `settings-kit.js` wrote an inline `<style>` the page's
@@ -102,7 +102,7 @@ Reviewed 9f8df897, merged trunk (to 26e5b47e: p2-accounts, p2-shell, p2-rooms), 
       its card from its heading. S19. Rows whose control is not drawn yet still show English (see not done).
 - [x] **Coverage going forward:** S14 reads every setting `src/` declares, with `scripts/check-docs.mjs`'s own reader
       (`settingKeys`, now exported) — the list `docs/configuration.md` is held to — and fails for one with no search
-      entry and no stated reason. It found 12 real settings missing: the usage ring and save-progress prompt (phase 1),
+      entry and no stated reason. Before the second merge it found 12 real settings missing: the usage ring and save-progress prompt (phase 1),
       the activity log's three, matching memories by meaning, the local first-reply wait, leak-guard exceptions,
       add-ons on Windows without the wall, and after the merge the Trunks strip, 3D faces (p2-shell) and Talk live in
       its own view (p2-rooms). All indexed; the live-voice limits now say where they are saved. S2 checks every row
@@ -112,6 +112,15 @@ Reviewed 9f8df897, merged trunk (to 26e5b47e: p2-accounts, p2-shell, p2-rooms), 
       assistant is" at Advanced. `agent-files.js` called `branchSettingsLevel` as a function (it is an object here) —
       a page error once both branches met — and marked itself hidden at Regular for good; it now relies on
       `data-level` alone. Dead `settings-kit-files` bucket entry removed.
+- [x] **Second trunk merge:** both this branch and p2-panels exported `changeAppearance` from `public/appearance.js`;
+      the module failed to load and the window never finished starting (no test had run yet — found by loading the
+      page). Kept p2-panels' one. p2-delight's pet, achievements and background cards stand together under Appearance ›
+      "Just for fun" (Regular: each is off until turned on). p2-panels' "What's on screen" was already placed by the builder.
+- [x] **The settings check missed the look:** `scripts/check-docs.mjs` needed a word before "Preferences", so
+      `src/preferences.ts`'s own `PreferencesSchema` (the look, Show everything, the level, p2-panels' four fields) was
+      held neither to `docs/configuration.md` nor to search. Now `\w*`; all 15 were already documented (322 settings,
+      check passes). S14 then found p2-panels' see-through, width and right-click-to-hide and p2-delight's switches:
+      indexed; the look rows now say where they are really saved (`preferences.*`).
 - [x] **Mirrors (#25):** below 1200 px they scrolled away with the themes; now they ride along at the top (smaller, an
       opaque strip) at 1024 and 390. S18 at all three sizes: in sight at the last tile, not covering it, following it.
 - [x] **Mirror requests:** real iframes (about:blank, same origin, scripts/iframes/media stripped, inert, redrawn at most
