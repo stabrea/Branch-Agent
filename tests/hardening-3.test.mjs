@@ -352,6 +352,9 @@ test("Integration: a folder rule holds while the active project's folder is insi
   const refused = await app.runtime.run({ prompt: "change it" });
   assert.equal(await readFile(join(workspace, "finance", "q1.txt"), "utf8"), "10\n", "q1.txt in the project is finance/q1.txt");
   assert.equal(eventsOf(app, refused, "policy.denied")[0]?.data.target, "q1.txt", "the question and the card still show the path as written");
+  // Another AI tool's dry run is answered for the project that is active, as the call would run.
+  const { dryRunPlan } = await import("../dist/mcp-policy.js");
+  assert.equal(dryRunPlan(app.registry, app.store, "local", workspace, { name: "files.write", arguments: { path: "q1.txt", content: "x" } }).decision, "deny");
   // Another project's folder is not finance, so the same path there is written as before.
   app.store.projects.save("local", { id: "garden", name: "Garden", folder: "garden" });
   app.store.projects.setActive("local", { active: "garden" });

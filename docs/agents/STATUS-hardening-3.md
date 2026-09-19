@@ -238,9 +238,10 @@ Integrator: Claude (Opus). Read the whole diff, probed the policy path on a runn
 **Verified as claimed:** `runArgs` feeds every judging layer (grep of `targetOf`/`policyTarget`/`evaluatePolicy`/
 `checkPolicy`/`wallFor`/`resourceOf`: every model call, workflow, flow, procedure, MCP server, realtime voice,
 web page, never-break resume, manual action, "Try a tool" and the MCP dry run go through `checkPolicy`/`wallFor`/
-`runArgs`); the approval fingerprint is still the exact bytes sent and the tool runs `parse(clean(sent))`, the
-same value the rules saw (schema transforms are idempotent; no non-deterministic defaults on a path), so
-nothing changes between the yes and the run. Loop guard, hung local model (300 s + 30 s grace, then fallback or
+`runArgs`); the approval fingerprint is still the exact bytes sent. The tool runs `parse(clean(sent))` and the
+rules saw `safeParse(clean(sent)).data`: the same schema on the same input, so the same value for any schema
+that gives the same answer twice. Of the five `preprocess`/`transform` uses in src, none makes a path-affecting
+value that varies between calls (read, not proved by a test), so nothing changes between the yes and the run. Loop guard, hung local model (300 s + 30 s grace, then fallback or
 the plain sentence), `code.rename`, malware "not checked" (both callers: server start stays documented
 fail-open and is never cached as clean; install request is `unchecked` and needs an on-purpose yes), in-flight
 spend (finished = `status NOT IN (running, needs_input)`, in flight = `IN`: disjoint, counted once; the video's
@@ -253,10 +254,12 @@ stricter, not weaker (A10 now also asserts the only keys a person gets).
 - With an active project folder (or a task's working copy), `q1.txt` is `finance/q1.txt` on disk but the rule
   saw `q1.txt`. `ToolRegistry.resourceOf` now adds `inWorkspace` (scope + path; `registry.pathScope` is the
   file tools' own `files.scope`), and a path rule matches either. The target, the card and the yes keys are
-  unchanged. Used by `checkPolicy`, the reviewer, "Try a tool" and the MCP dry run.
+  unchanged. Used by `checkPolicy`, the reviewer, "Try a tool" and the MCP dry run (which is answered for the
+  project active when it is asked, as the call would run; tested).
 - A dotted file name with no folder (`q1.txt`) counted as a *website* for every tool, so no folder or file rule
   could match it. A tool with a files/documents/media/data/code permission and no `url` argument is now about a
-  file.
+  file. Checked for the opposite mistake: the only tools whose own target is a bare site name (OpenAPI tools,
+  `api.call`; skill HTTP tools, `skills.http`) have other permissions, so website rules on them still match.
 - `files.restore` had no target (the file comes from the version id): it now reports the version's file.
 - Household accounts window: a person's rows no longer show the owner's buttons (they all 403, and without
   `signedIn` a shared ChatGPT account showed "Sign in").
