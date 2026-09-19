@@ -440,6 +440,9 @@ async function staticFile(
 ): Promise<boolean> {
   const assets: Record<string, [string, string]> = {
     "/acorn.js": ["acorn.js", "text/javascript; charset=utf-8"],
+    // phase2/delight: the corner (acorn and pet), achievements and your own background.
+    "/delight.js": ["delight.js", "text/javascript; charset=utf-8"],
+    "/delight.css": ["delight.css", "text/css; charset=utf-8"],
     "/look-sync.js": ["look-sync.js", "text/javascript; charset=utf-8"],
     "/assets/keepoak-mark.png": ["assets/keepoak-mark.png", "image/png"],
     "/assets/keepoak-mark-reversed.png": ["assets/keepoak-mark-reversed.png", "image/png"],

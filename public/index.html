@@ -12,6 +12,8 @@
     <link rel="stylesheet" href="/web-ui.css" />
     <!-- Wave 9 redesign: glass panes over the oak, the five places and the Settings window (public/layout.js). -->
     <link rel="stylesheet" href="/layout.css" />
+    <!-- phase2/delight: the corner, pets, achievements and your own background (public/delight.js). -->
+    <link rel="stylesheet" href="/delight.css" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" href="/assets/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/assets/icon-192.png" />
@@ -75,6 +77,17 @@
           <div id="rail-labels" class="label-chips-host" hidden></div>
           <div id="rail-list" class="rail-rows" aria-live="polite"></div>
         </section>
+      </div>
+      <!-- phase2/delight: the corner. The pixel acorn (no caption; "Drag to turn" is its tooltip) stays put
+           here, and a pet, when switched on, lives beside it (public/delight.js). -->
+      <div class="delight-corner" id="delight-corner">
+        <div class="acorn-art">
+          <canvas id="keepoak-acorn" width="40" height="40" role="img" tabindex="0" title="Drag to turn"
+            data-t-title="acorn.tip" aria-label="KeepOak acorn. Drag or use arrow keys to turn it."></canvas>
+          <button id="acorn-motion" class="acorn-motion" type="button" aria-label="Pause rotation" title="Pause rotation"
+            ><svg viewBox="0 0 24 24" aria-hidden="true"><path class="acorn-pause" d="M9 6v12M15 6v12" /><path class="acorn-play" d="M8 5l11 7-11 7z" /></svg></button>
+        </div>
+        <div class="pet-lane" id="pet-lane"></div>
       </div>
       <div class="rail-foot">
         <button id="owner-menu-button" class="owner-row" type="button" aria-haspopup="true" aria-expanded="false">
@@ -1984,12 +1997,6 @@
         <div><dt>Memories</dt><dd id="context-memory">—</dd></div>
         <div><dt>Tools</dt><dd id="context-tools">—</dd></div>
       </dl>
-      <div class="acorn-art">
-        <canvas id="keepoak-acorn" width="120" height="104" role="img" tabindex="0"
-          aria-label="KeepOak acorn. Drag or use arrow keys to turn it." aria-describedby="acorn-hint"></canvas>
-        <span id="acorn-hint" class="eyebrow">DRAG THE ACORN</span>
-        <button id="acorn-motion" class="acorn-motion" type="button" data-t="action.pause-rotation">Pause rotation</button>
-      </div>
     </aside>
     <div id="update-screen" class="update-screen" hidden role="dialog" aria-live="polite" aria-label="Updating">
       <div class="update-panel">

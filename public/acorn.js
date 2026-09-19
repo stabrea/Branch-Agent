@@ -1,4 +1,5 @@
 // KeepOak's analytic, dithered acorn artwork, adapted for Branch Agent.
+import { t } from "/i18n.js";
 const shapes = [
   { center: [0, -.26, 0], radius: [.66, .8, .66], material: 0 },
   { center: [0, -.94, 0], radius: [.24, .34, .24], material: 0 },
@@ -71,8 +72,9 @@ function channels(token, over = [0, 0, 0]) {
     .map((part, index) => Math.round(part * alpha + over[index] * (1 - alpha)));
 }
 function themePalette() {
-  const look = document.documentElement.dataset;
-  const key = `${look.theme}/${look.accent}`;
+  // phase2/delight: keyed by the colours themselves, since a theme's colours can land after its name.
+  const style = getComputedStyle(document.documentElement);
+  const key = ["--ground", "--text", "--copper", "--faint"].map((name) => style.getPropertyValue(name)).join("/");
   if (key !== paletteKey) {
     paletteKey = key;
     const ground = channels("--ground");
@@ -123,8 +125,14 @@ function animate(now) {
   frame = requestAnimationFrame(animate);
 }
 
+/** A word from the language file, or the English one while the file is still loading. */
+const say = (key, english) => (t(key) === key ? english : t(key));
 function updateMotion() {
-  toggle.textContent = paused ? "Resume rotation" : "Pause rotation";
+  // phase2/delight: the corner's pause is a small icon button, so its words are its name and tooltip.
+  const words = paused ? say("action.resume-rotation", "Resume rotation") : say("action.pause-rotation", "Pause rotation");
+  toggle.setAttribute("aria-label", words);
+  toggle.title = words;
+  toggle.dataset.paused = String(paused);
   toggle.setAttribute("aria-pressed", String(paused));
   if (shouldAnimate() && !frame) { last = 0; frame = requestAnimationFrame(animate); }
   if (!shouldAnimate() && frame) { cancelAnimationFrame(frame); frame = 0; }
@@ -161,9 +169,10 @@ canvas.addEventListener("keydown", (event) => {
 toggle.addEventListener("click", () => { paused = !paused; updateMotion(); });
 reduced.addEventListener("change", () => { paused = reduced.matches; updateMotion(); });
 document.addEventListener("visibilitychange", updateMotion);
+document.addEventListener("branch-language", updateMotion);
 window.addEventListener("blur", () => { drag = null; });
 new IntersectionObserver(([entry]) => { visible = entry.isIntersecting; updateMotion(); }).observe(canvas);
 new ResizeObserver(resize).observe(canvas);
-new MutationObserver(draw).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+new MutationObserver(draw).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "data-accent", "data-palette", "style"] });
 resize();
 updateMotion();

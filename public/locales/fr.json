@@ -375,6 +375,8 @@
   "appearance.reduceMotion": "Garder les choses immobiles (sans glissement ni rotation)",
   "appearance.save": "Enregistrer l'apparence",
   "appearance.showAcorn": "Afficher le gland",
+  "action.resume-rotation": "Reprendre la rotation",
+  "acorn.tip": "Faites-le glisser pour le tourner",
   "appearance.showEverything": "Tout afficher : chaque onglet, compteur et interrupteur, en permanence",
   "appearance.showVoice": "Afficher les boutons micro et Parler à côté de la zone de message",
   "appearance.textSize": "Taille du texte",

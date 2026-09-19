@@ -374,6 +374,8 @@
   "appearance.reduceMotion": "Keep things still (no sliding or spinning)",
   "appearance.save": "Save appearance",
   "appearance.showAcorn": "Show the acorn",
+  "action.resume-rotation": "Resume rotation",
+  "acorn.tip": "Drag to turn",
   "appearance.showEverything": "Show everything: every tab, meter and switch, all the time",
   "appearance.showVoice": "Show the microphone and Talk buttons beside the message box",
   "appearance.textSize": "Text size",
