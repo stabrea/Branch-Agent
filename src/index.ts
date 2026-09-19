@@ -1174,6 +1174,9 @@ export async function createBranch(options: {
   };
   // --- end bucket 14 ---
   let closing: Promise<void> | undefined;
+  // household-followups: with the owner's PIN set, the window comes back on the profile it was left
+  // on, once everything above has started as the owner.
+  store.profiles.resumeWhereLeft();
   return {
     store,
     registry,

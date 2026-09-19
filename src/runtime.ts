@@ -58,6 +58,7 @@ import * as safetyExtras from "./safety-extras/hooks.js"; // mac7/r17-g: the saf
 import { reviewCall } from "./approval-reviewer.js";
 import { routeForTask, routingSettings } from "./local-routing.js";
 import { routeByProfile } from "./model-profiles.js";
+import { profileScope, type Profile } from "./profiles.js"; // household-followups
 import { memoryScope } from "./memory.js";
 import { parseSessionSummary, summaryText } from "./session-summary.js";
 import { chatEngineSettings, condenseMessages, earlierTurns, shouldCondense, standaloneQuestion } from "./chat-engine.js"; // w911 (A0847)
@@ -528,7 +529,9 @@ export class Runtime {
           AbortSignal.timeout(120000),
         ]),
       };
-      this.store.event(run.id, "run.started", { source: "knowledge", label });
+      // household-followups: held to the role of whoever it was started for, like any task.
+      const person = this.startedFor();
+      this.store.event(run.id, "run.started", { source: "knowledge", label, ...(person ? { personProfileId: person } : {}) });
       let value: T | undefined,
         failure: unknown,
         status: Run["status"] = "completed";
@@ -750,13 +753,15 @@ ${run.output.slice(0, 6000)}`;
   /** bucket-18 (A0300): who started the task, and whether a short-lived key was behind it or its parent. */
   private originMarks(options: RunOptions, context: ToolContext, parent?: ToolContext): Record<string, unknown> {
     const inherited = [parent?.runId, options.resumeFrom].some((id) => !!id && runOrigin(this.store, id).shortLivedKey);
+    // household-followups: a specialist's task is its parent's person's, whatever the window says now.
+    const person = parent?.runId ? runOrigin(this.store, parent.runId).personProfileId : this.startedFor(context.source);
     return {
       source: context.source ?? "owner",
       ...(options.resumeFrom ? { resumedFrom: options.resumeFrom } : {}),
       ...(startedWithShortLivedKey() || inherited ? { shortLivedKey: true } : {}),
       // bucket 19: which key, so only that key may answer the questions this task asks.
       ...(shortLivedKeyMark().keyId ? { shortLivedKeyId: shortLivedKeyMark().keyId } : {}),
-      ...(this.startedFor(context.source) ? { personProfileId: this.startedFor(context.source) } : {}),
+      ...(person ? { personProfileId: person } : {}),
       ...(options.lentTo ? { lentTo: options.lentTo } : {}),
     };
   }
@@ -2026,7 +2031,7 @@ ${run.output.slice(0, 6000)}`;
     const untouchable = protectedTarget({ tool, readOnly, args, target, workspace: context.workspace, ...cwdOf(args) }, this.protectedAreas);
     if (untouchable) return { decision: "deny", label, target, readOnly, remember: "never", sandbox: null, backend: null, paths: null, reason: untouchable };
     // --- end mac3/never-break ---
-    const refusal = this.roleRefusal(tool, permission);
+    const refusal = this.roleRefusal(tool, permission, context.runId);
     if (refusal) return { decision: "deny", label, target, readOnly, remember: "session", sandbox: null, backend: null, paths: null, reason: refusal };
     // --- mac7/lockdown-fix: while Lockdown is on, commands, programs, the screen and the borrowed browser are
     // refused whatever a switch or rule says, and nothing is allowed without a yes, even under rules saved since.
@@ -2071,16 +2076,31 @@ ${run.output.slice(0, 6000)}`;
    * and the developer's "Try a tool" screen start one directly, and a role that only held for a
    * conversation would not be a role at all.
    */
-  roleRefusal(tool: string, permission: string): string | null {
-    const profile = this.store.profiles.active();
+  roleRefusal(tool: string, permission: string, runId?: string): string | null {
+    const profile = this.heldTo(runId);
     if (!profile) return null;
+    if (profile === "removed") return "The person this task was started for is no longer on this computer, so it cannot go on.";
     const grant = this.roles.effective(profile.id); // bucket 19: narrowed by the person's groups
     const spentToday = grant.dailySpendLimit > 0
-      ? this.roles.spentToday(this.store.profiles.scope(), this.models.presets.get(this.models.summary(this.owner).defaultPreset)?.model ?? "")
+      ? this.roles.spentToday(profileScope(profile.id), this.models.presets.get(this.models.summary(this.owner).defaultPreset)?.model ?? "")
       : 0;
     return grantRefusal(grant, profile.name, {
       category: categoryOf(tool, permission), project: this.store.projects.active(this.owner).id, spentToday,
     });
+  }
+  /**
+   * household-followups: whose role a tool call is held to. A task wrote down at its start who it was
+   * started for (`personProfileId` on its own `run.started`, or its parent's), and that answers for
+   * the whole task: switching the window back to the owner halfway through does not lift the
+   * person's limits, and switching it to somebody else does not put theirs on the owner's task.
+   * Only a call that is not part of a task (the developer's "Try a tool", another AI tool's server)
+   * is held to whoever the window is switched to now.
+   */
+  private heldTo(runId?: string): Profile | "removed" | null {
+    if (!runId || !this.store.events(runId).some((event) => event.kind === "run.started")) return this.store.profiles.active();
+    const person = runOrigin(this.store, runId).personProfileId;
+    if (!person) return null;
+    return this.store.profiles.list().find((profile) => profile.id === person) ?? "removed";
   }
   /**
    * Records the owner's yes to a question something outside a conversation stopped on (a saved

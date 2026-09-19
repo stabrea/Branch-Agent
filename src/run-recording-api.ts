@@ -164,7 +164,7 @@ async function eventLoop(app: RecordingApp, method: string, options: RecordingAp
   const owner = app.runtime.owner;
   if (method === "POST") {
     if (!app.store.profiles.isOwner())
-      throw Object.assign(new Error("The check on whether Branch is keeping up belongs to the owner. Switch back to the owner's profile to change it."), { status: 403 });
+      throw Object.assign(new Error("The check on whether Branch is keeping up belongs to the owner. Switch back to the owner's profile to change it."), { status: 400 });
     eventLoopWatch.follow(saveEventLoopSettings(app.store, owner, await options.readBody()));
   }
   const settings = eventLoopSettings(app.store, owner);

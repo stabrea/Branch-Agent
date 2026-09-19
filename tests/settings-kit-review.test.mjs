@@ -129,7 +129,7 @@ test("review: the file editor never writes through a second name, and Branch's o
   assert.equal(ok.text, "fine\n");
 });
 
-test("review over HTTP: a person gets 403 everywhere, a short-lived key 401 on every change and the private reads", async (t) => {
+test("review over HTTP: a person gets 400 everywhere, a short-lived key 401 on every change and the private reads", async (t) => {
   const { app, root } = await fixture(t);
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
   t.after(() => server.close());
@@ -150,9 +150,9 @@ test("review over HTTP: a person gets 403 everywhere, a short-lived key 401 on e
   await call("/api/profiles/switch", { profileId: made.body.id, pin: "4321" });
   for (const [path, body] of routes) {
     const answer = await call(path, body);
-    // profile-audit: what the kit still answers itself it refuses with 403; the owner-only routes are
-    // refused before the kit is reached, at one place in src/server.ts, as requireOwner answers (400).
-    assert.ok([400, 403].includes(answer.status), `${path} must be refused to a person (${answer.status})`);
+    // household-followups: the reads the kit answers itself and the owner-only routes src/server.ts
+    // refuses before the kit is reached carry the same status, 400, as requireOwner always has.
+    assert.equal(answer.status, 400, `${path} must be refused to a person the same way everywhere`);
     assert.match(answer.body.error, /belongs to the owner/);
   }
   await call("/api/profiles/switch", { profileId: null });

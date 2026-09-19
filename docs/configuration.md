@@ -5071,10 +5071,41 @@ tool that asks where a task came from, a resumed task and a queued follow-up sti
 the window is switched back. `tests/household-profile.test.mjs` drives every owner-only route with
 the window switched and fails when a route is added to the table without being decided here.
 
-**This is a convenience, not a lock.** Going back to the owner's profile needs no PIN: anybody at
-the keyboard can press it. The refusals above keep a household person out of the owner's things by
-default, so nothing is changed by accident or by a child exploring; they do not stop somebody who
-decides to switch back. Only switching *into* a profile asks for a PIN. **Be honest about what this is:** separation on one computer, not separate accounts. There
+**Out of the box this is a convenience, not a lock.** Going back to the owner's profile needs no PIN:
+anybody at the keyboard can press it. The refusals above keep a household person out of the owner's
+things by default, so nothing is changed by accident or by a child exploring; they do not stop
+somebody who decides to switch back. Only switching *into* a profile asks for a PIN.
+
+**A PIN for switching back (off by default).** Under **Settings → People** the owner can set a PIN
+of four to eight digits for switching back to them (`POST /api/profiles/owner-pin` with
+`{ "pin": "1234" }`; `{ "pin": null }` switches it off again; `GET /api/profiles` says `ownerPin:
+true` while it is set). It is checked exactly like a person's PIN: the same hashing (scrypt with its
+own salt, kept in the `household_owner_pin` table), the same five wrong tries before it waits five
+minutes, and the same answers (*"That PIN is not right"*, *"Too many wrong PINs. Wait a few minutes
+and try again."*). While it is set, the profile the window is on is also remembered, so closing and
+reopening Branch comes back on that person's profile rather than the owner's. Only the owner, in
+their own profile, can set it or switch it off; the route is owner-only, so a household person and a
+short-lived key are refused it. **With it on, the household restriction is a real lock against
+somebody at the keyboard** — they cannot get back to the owner's things without the PIN. It is still
+not a lock against somebody who can reach this computer's files: anyone who can open Branch's data
+folder (or read its local key there) can read everything and act as the owner.
+
+**Owner-only housekeeping (household-followups).** Clearing old conversations
+(`/api/retention/prune`), writing the usage file now (`/api/usage/metering/now`), sending the morning
+brief (`/api/brief/send`) and putting back an older file or a snapshot in the workspace
+(`/api/history/restore`, `/api/history/snapshots/:id/restore`) are the owner's: they work on the
+owner's records or reach the owner's chats. Importing conversations and remembered facts stays open to
+a household person, because both land only in their own profile.
+
+**A task keeps its person's limits (household-followups).** A task's role, projects and daily
+allowance are those of the person it was started for, read from the `personProfileId` it wrote
+down at its start (a specialist's task inherits its parent's). Switching the window back to the
+owner halfway through does not lift them, and switching it to somebody else does not put theirs on
+the owner's task. If that person is removed while the task runs, the rest of its tool calls are
+refused. Only a tool call that is not part of a task (the developer's *Try a tool*, another AI
+tool's server) is held to whoever the window is switched to at that moment.
+
+**Be honest about what this is:** separation on one computer, not separate accounts. There
 is no syncing, and the assistant still works as the owner: it uses the owner's models, tools and
 settings, it draws on the facts the owner has it remember while answering somebody else, and
 anything it decides to remember by itself during their task is filed under the owner, not them.
@@ -8876,7 +8907,7 @@ list as well. Working until a goal is met and writing new skills count as reachi
 the snapshots counts as taking a protection away. Guards are saved through their own module's save
 (the second look, loop guard, folder trust, security check, the wall, Keychain entries, retention, the
 smaller asks), so the change takes effect at once and is recorded. While Lockdown is on, nothing is
-changed from here. Every route is the owner's: a household profile gets 403. A short-lived key may read
+changed from here. Every route is the owner's: a household profile gets 400 (the same status as every other "belongs to the owner" refusal). A short-lived key may read
 the list of settings but not the file, the owner's own files, or any change (`src/short-lived-keys.ts`).
 
 **Which file does what** (Settings → General) lists SOUL, IDENTITY, USER, AGENTS, TOOLS, SOP, MEMORY
