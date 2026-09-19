@@ -73,6 +73,6 @@ condition. Also any other test that failed more than once in the last ~15 trunk 
       IRC line order: JOIN before the SASL token every time; NIP-04: 67 / 20000 wrong-key decrypts returned).
       after: ai-comments 75/75, all IRC tests 75/75 + 45/45, NIP-04 75/75 (2000 wrong keys each),
       all run-socket voice tests 75/75 (after the close-listener fix).
-- [x] merged origin/mac/cross-platform (redesign phase 1, bench notes), clean dist, tsc, the 7 files above +
-      source-hygiene + static-assets + index-structure + handbook: 117 pass, 0 fail, 1 skipped (macOS-only).
-      Waited for trunk run 35455476078 to finish before pushing; pushed to mac/cross-platform with this commit.
+- [x] merged origin/mac/cross-platform (up to the outside-resume work), clean dist, tsc, the 9 changed test
+      files + source-hygiene + static-assets + index-structure + handbook: 134 pass, 0 fail, 1 skipped
+      (macOS-only). Waited for the running trunk Checks run to finish before pushing.
