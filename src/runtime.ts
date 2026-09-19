@@ -2233,7 +2233,9 @@ ${run.output.slice(0, 6000)}`;
     const carried = (id: string | null | undefined) => (id && outsideSourceOf(this.store, id) ? id : undefined);
     const from = carried(options.resumeFrom) ?? carried(asked) ?? carried(conversationCarrier(this.store, options.sessionId));
     const source = outsideSourceOf(this.store, from);
-    if (!from || !source) return rest;
+    // mac7/residuals: "Do this again" on a short-lived key's task keeps naming it, so the copy is held
+    // as that key's work (its mark and its key id are read along `originFrom`), not as the owner's own.
+    if (!from || !source) return asked && runOrigin(this.store, asked).shortLivedKey ? { ...rest, originFrom: asked } : rest;
     const kept = from === options.resumeFrom && !options.permissions ? runOrigin(this.store, from).permissions : null;
     return { ...rest, source, ...(from === options.resumeFrom ? {} : { originFrom: from }), ...(kept ? { permissions: kept } : {}) };
   }

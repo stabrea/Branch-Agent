@@ -5,7 +5,10 @@ branch: an integrator reviews it. Every new test is in `tests/residuals.test.mjs
 
 ## Security / behaviour
 
-- [ ] 1. "Do this again" on a task started with a short-lived key carries the key's origin and limits.
+- [x] 1. "Do this again" on a task started with a short-lived key carries the key's origin and limits.
+  `Runtime.carryOrigin` dropped `originFrom` for anything not from outside, so the copy lost the key's mark.
+  It now keeps it when the named task was a short-lived key's: the copy records `shortLivedKey`, its key id is
+  read along the chain (only that key may answer its questions), owner-only tools refuse it. Test 1; fails with the line taken out of dist.
 - [ ] 2. A Trunk task that stops to ask: its message is "waiting for a yes", not failed, and no failure notice is sent.
 - [ ] 3. A2A / ACP / app-server may only continue conversations they started; otherwise refused in plain words.
 - [ ] 4a. `process.start` arguments judged by command rules like a shell command.
