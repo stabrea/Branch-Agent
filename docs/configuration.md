@@ -8050,6 +8050,14 @@ invitation to an address only this computer can reach (`127.0.0.1`) is said plai
 open Branch to your private network. Computers are renamed from their face (`POST
 /api/devices/:id/rename`).
 
+While a computer waits for the yes, it shows a **check code** (eight letters and digits made from its
+own key), and the owner's Branch shows the same code beside its request (studio, Devices card, and
+`branch node pair` prints it). If they differ, the request came from somewhere else: press Refuse.
+Stop (or Leave, or Lockdown) ends the wait at once, so a yes given later connects nothing and leaves
+no key; a computer taken off the other Branch's list forgets its key straight away. The invitation
+itself is unchanged: six digits, five minutes, one use, five tries, and only over https, this computer
+or Tailscale.
+
 **Overview** (Branch's mark, or a computer's face) shows what is working, what needs your yes, what
 finished lately, the schedules, who uses the computer and whether it is lent to another Branch; for
 one of your other computers, whether it is connected and what it may do; for a Trunk, its latest
