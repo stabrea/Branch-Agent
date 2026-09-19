@@ -3288,7 +3288,7 @@
   "pair.expired": "This invitation has run out. Press Back and start again, or switch tabs, for a new one.",
   "pair.clock": "Works once, for five minutes: {time} left.",
   "pair.phone.scan": "In the Branch app on your phone, press Lend this phone to Branch, then scan this square.",
-  "pair.phone.network": "Your phone reaches this computer over your private network (Tailscale), never the open internet. The square works once, for five minutes.",
+  "pair.phone.network": "Your phone reaches this computer over your private network (Tailscale), never the open internet.",
   "pair.phone.app": "No Branch app on the phone yet? Get it",
   "pair.stop": "Stop pairing?",
   "pair.stop.words": "The invitation stops working, and nothing is added.",

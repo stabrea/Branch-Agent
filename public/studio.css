@@ -96,10 +96,16 @@
   color: var(--text);
 }
 .studio-body {
-  display: grid;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
   gap: 16px;
   padding: 16px 20px 20px;
   overflow-y: auto;
+}
+/* Nothing in the dialog is squeezed when the window is short; the body scrolls instead. */
+.studio-body > * {
+  flex: none;
 }
 .studio-body.studio-small {
   max-width: 520px;

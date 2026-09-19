@@ -159,13 +159,13 @@
 
 /* the 3D stand-in: six slabs of the shape behind the face, in one block that tilts slowly */
 .face.is3d {
-  perspective: calc(var(--s) * 4);
+  perspective: calc(var(--s) * 3);
 }
 .face .depth {
   position: absolute;
   inset: 0;
   transform-style: preserve-3d;
-  transform: rotateX(14deg) rotateY(-18deg);
+  transform: rotateX(18deg) rotateY(-28deg);
 }
 .face.ringed .depth {
   inset: calc(var(--s) * 0.14);
@@ -178,7 +178,7 @@
 .face .depth .slab {
   inset: 0;
   background: var(--c);
-  transform: translateZ(calc(var(--z) * var(--s) * -0.018));
+  transform: translateZ(calc(var(--z) * var(--s) * -0.055));
   filter: brightness(calc(0.78 - var(--z) * 0.06));
 }
 
@@ -222,9 +222,9 @@
 @keyframes face-tilt {
   0%,
   100% {
-    transform: rotateX(14deg) rotateY(-26deg);
+    transform: rotateX(18deg) rotateY(-34deg);
   }
   50% {
-    transform: rotateX(10deg) rotateY(26deg);
+    transform: rotateX(12deg) rotateY(34deg);
   }
 }

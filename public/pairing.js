@@ -156,7 +156,7 @@ function phoneWays() {
   const wrap = make("div", "pair-phone");
   const words = make("div");
   words.append(make("b", "", "pair.phone.scan", "In the Branch app on your phone, press Lend this phone to Branch, then scan this square."),
-    make("p", "studio-note", "pair.phone.network", "Your phone reaches this computer over your private network (Tailscale), never the open internet. The square works once, for five minutes."),
+    make("p", "studio-note", "pair.phone.network", "Your phone reaches this computer over your private network (Tailscale), never the open internet."),
     clockLine(),
     button("", "pair.phone.app", "No Branch app on the phone yet? Get it", () => { closeDialog(true); displayView("customize:channels"); }));
   wrap.append(qrPicture(pair.invite.qr), words);

@@ -3289,7 +3289,7 @@
   "pair.expired": "Cette invitation a expiré. Appuyez sur Retour et recommencez, ou changez d'onglet, pour en avoir une nouvelle.",
   "pair.clock": "Fonctionne une fois, pendant cinq minutes : encore {time}.",
   "pair.phone.scan": "Dans l'appli Branch de votre téléphone, appuyez sur Prêter ce téléphone à Branch, puis scannez ce carré.",
-  "pair.phone.network": "Votre téléphone joint cet ordinateur par votre réseau privé (Tailscale), jamais par l'internet ouvert. Le carré fonctionne une fois, pendant cinq minutes.",
+  "pair.phone.network": "Votre téléphone joint cet ordinateur par votre réseau privé (Tailscale), jamais par l'internet ouvert.",
   "pair.phone.app": "Pas encore l'appli Branch sur le téléphone ? L'obtenir",
   "pair.stop": "Arrêter l'association ?",
   "pair.stop.words": "L'invitation ne fonctionne plus, et rien n'est ajouté.",
