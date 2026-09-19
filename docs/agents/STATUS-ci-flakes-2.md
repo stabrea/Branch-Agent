@@ -60,7 +60,17 @@ condition. Also any other test that failed more than once in the last ~15 trunk 
   Permissions link stayed hidden for 30 s. Not caught again in 60 runs of a probe that records every
   close of the Settings window; cause unknown, not changed.
 
+- hardening-3 "a model on this computer that never starts answering…" (Windows, trunk 98beb5d8, server
+  heard 1 request, not 2): TEST TIMING. The retry is capped at what is left of the wait plus the grace,
+  100 ms in the test; on a loaded runner that try can be cut off before its request reaches the
+  stand-in server, so the server's count missed a retry the runtime did make. Shipped, the grace is
+  30 s, so a person's retry count cannot differ this way. Reproduced: old test 58/60 under load, same
+  "1 !== 2".
+
 ## Progress
+- [x] hardening-3: the tries are counted where the runtime asks the provider (2), the server must have
+      heard at least the first; the retry/fail events and the 100 ms cap are still checked. Loops
+      (3 copies): old 58/60, new 60/60.
 - [x] conversation-mode: an open menu is redrawn only when its state changed, and the keyboard stays on
       the same choice. New test (fails before): a Lockdown-switch redraw leaves focus on Plan and the
       arrows carry on. Loops (3 copies): conversation-mode file 30/30, redesign-phase1 18/18,
