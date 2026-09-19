@@ -18,8 +18,13 @@ panel.hidden = true;
 document.body.append(panel);
 let openFor = null;
 let entry = null;
-/* Integration review: a list whose choices change while it is open closes, so a press never picks by a stale position. */
-const changed = new MutationObserver(() => close());
+/* Integration review: a list whose choices change while it is open closes, so a press never picks by a stale position.
+   mac7/ci-flakes-2: the window's refresh every 3 s writes some selects' choices again, the same ones; that is not a
+   change, and closing on it shut an open list under the person's pointer. Only different choices close it. */
+let shownChoices = "";
+const choicesOf = (select) => [select.disabled, ...[...select.options].map((option) =>
+  [option.value, option.label, option.disabled, option.parentElement?.label ?? "", option.parentElement?.disabled ?? ""].join("\u0000"))].join("\n");
+const changed = new MutationObserver(() => { if (openFor && choicesOf(openFor) !== shownChoices) close(); });
 let typed = "", typedAt = 0;
 
 /* ---------- the list ---------- */
@@ -94,6 +99,7 @@ function open(select) {
   select.setAttribute("aria-expanded", "true");
   select.setAttribute("aria-controls", panel.id);
   entry = trackPopover(select, panel, () => { if (openFor === select) close(); });
+  shownChoices = choicesOf(select);
   changed.observe(select, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ["disabled", "label"] });
   (panel.querySelector(".glass-option[aria-selected='true']:not([aria-disabled='true'])") ?? options()[0])?.focus();
 }

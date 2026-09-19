@@ -267,6 +267,19 @@ export interface ToolContext {
    */
   askable?: boolean;
   /**
+   * mac7/tests-unattended: nobody can answer a question while this task runs — a script's
+   * `branch run` or `branch headless` with no terminal to ask in. Only the "Let Branch run this
+   * project's tests?" question reads it: the tests are skipped and the task carries on, instead of
+   * the task ending on a question nobody will see. Every other question still stops the task.
+   */
+  unattended?: boolean;
+  /**
+   * mac7/tests-unattended: `branch run --allow-tests`. The project's tests may run in this one task,
+   * as if the owner had answered Once each time; nothing is saved. Honoured only for the owner's own
+   * task (src/coding/project-tests.ts), and never under Lockdown.
+   */
+  allowProjectTests?: boolean;
+  /**
    * How tightly a program this call starts is to be held, when an approval rule said so. It is set
    * by the runtime just before the tool runs; a tool no rule says anything about never sees it and
    * behaves exactly as it did before rules could say.
@@ -303,6 +316,26 @@ export interface ToolDefinition<T = unknown> {
   execute: (args: T, context: ToolContext) => Promise<unknown>;
   /** What this call would touch, for the approval policy, when the arguments alone do not say. */
   target?: (args: T, context: ToolContext) => string | null;
+  /**
+   * mac7/multi-target: every file, folder or address a call touches, when it touches more than one
+   * (a patch, two documents compared, a list of sources) or when its one path is not where the rules
+   * look (a repository `folder`). Each is judged by the rules on its own and the call goes ahead only
+   * when every one is allowed. Throws when they cannot be worked out, and the call is then refused.
+   */
+  targets?: (args: T, context: ToolContext) => ToolTarget[];
+}
+/** mac7/multi-target: one thing a call touches, and whether it only reads it, changes it or deletes it. */
+export interface ToolTarget {
+  kind: "read" | "write" | "delete";
+  /** A workspace path, as the tool will use it. */
+  path?: string;
+  /** A web address. */
+  url?: string;
+  /**
+   * Integration (multi-target): the call reaches everything inside this folder (a repository's whole
+   * working copy, a folder a knowledge base reads), so a rule about a folder inside it counts too.
+   */
+  folder?: boolean;
 }
 export const RunInputSchema = z
   .object({

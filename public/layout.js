@@ -215,6 +215,11 @@ const PLACES = {
   customize: { key: "place.customize", english: "Customize", intro: ["place.customize.intro", "What your assistant can do, and who can reach it."],
     tabs: [["skills", "place.customize.skills", "Skills", "skills"], ["specialists", "place.customize.specialists", "Specialists", "specialists"],
       ["plugins", "place.customize.plugins", "Plugins"], ["connections", "place.customize.connections", "Connections"], ["channels", "place.customize.channels", "Channels"]] },
+  // phase2/shell: two places reached from the Trunks strip (public/strip.js), not listed in the sidebar.
+  overview: { key: "place.overview", english: "Overview", strip: true, intro: ["place.overview.intro", "What a computer or a Trunk is doing, in one screen."],
+    tabs: [["here", "place.overview.here", "Overview"]] },
+  household: { key: "place.household", english: "People", strip: true, intro: ["place.household.intro", "Everyone who uses Branch here, and what each may do."],
+    tabs: [["people", "place.household.people", "People"]] },
 };
 const SETTINGS_PAGES = [
   ["general", "settings.page.general", "General", "How Branch starts and runs on this computer, your projects, and the people who use it."],
@@ -222,6 +227,7 @@ const SETTINGS_PAGES = [
   ["appearance", "settings.page.appearance", "Appearance", "Every KeepOak theme, light or dark, with the oak in any season. Changes show behind this window as you pick."],
   ["notifications", "settings.page.notifications", "Notifications", "When Branch may interrupt you, and the days it should leave you alone."],
   ["models", "settings.page.models", "Models", "Which models your assistant uses, and how it signs in to them."],
+  ["accounts", "settings.page.accounts", "Accounts", "Every sign-in and key Branch can use, which one answers, and what happens when one runs low."], // phase2/accounts
   ["voice", "settings.page.voice", "Voice", "Talking to your assistant and hearing it answer."],
   ["permissions", "settings.page.permissions", "Permissions", "What your assistant may do without asking, and how much it may do at once."],
   ["computer", "settings.page.computer", "Computer & browser", "What it may touch on this computer, in your browser and on your other machines."],
@@ -277,6 +283,7 @@ for (const [page] of SETTINGS_PAGES) ROUTES[`settings:${page}`] = { settings: pa
 
 let place = "chat";
 const lastTab = { inbox: "needs", automations: "scheduled", library: "memory", customize: "skills" };
+for (const [id, spec] of Object.entries(PLACES)) lastTab[id] ??= spec.tabs[0][0]; // phase2/shell
 let settingsPage = "general";
 
 /* ---------- building the places ---------- */
@@ -659,6 +666,7 @@ function buildRail() {
   const nav = $("sections-nav");
   for (const id of Object.keys(PLACES)) {
     const spec = PLACES[id];
+    if (spec.strip) continue; // phase2/shell: reached from the strip
     const row = button("lx-place-link", spec.key, spec.english);
     iconAndWords(row, id);
     row.dataset.place = id;

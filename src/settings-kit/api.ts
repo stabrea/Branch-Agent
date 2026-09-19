@@ -5,7 +5,8 @@ import { lockedDown } from "../lockdown.js";
 import { settingsCatalogue } from "./catalogue.js";
 import { applyWithPins, changesFor, currentValue, resetProposals, type Proposal, type Writer } from "./changes.js";
 import { pinnedIds, pinId, pins, savePins, type Pin } from "./pins.js"; // mac7/wake-pins
-import { fileMap, openFile, saveFile, SlotSchema } from "./file-map.js";
+import { fileMap, lastSave, openFile, saveFile, SlotSchema, undoFile } from "./file-map.js";
+import { perFileBytes } from "../context-files.js"; // phase2/accounts
 import { presetFor, presets } from "./presets.js";
 import { exportSettings, maximumSettingsFileBytes, readSettingsFile } from "./transfer.js";
 
@@ -137,7 +138,8 @@ export async function settingsKitApi(deps: SettingsKitDeps, method: string, path
   if (method === "GET" && slot) {
     const key = SlotSchema.safeParse(slot[1]);
     if (!key.success) throw new SettingsKitError(404, "There is no such file.");
-    return openFile(deps.store, deps.owner, deps.workspace, key.data);
+    // phase2/accounts: whether the last save here can be undone, and the most Branch reads.
+    return { ...openFile(deps.store, deps.owner, deps.workspace, key.data), lastSave: lastSave(deps.store, deps.owner, key.data), limit: perFileBytes };
   }
   if (method !== "POST") throw new SettingsKitError(404, "Not found");
   if (path === "/api/settings-kit/preview") {
@@ -150,6 +152,11 @@ export async function settingsKitApi(deps: SettingsKitDeps, method: string, path
     const input = await body();
     try { return saveFile(deps.store, deps.owner, deps.workspace, input, deps.guard); }
     catch (error) { throw error instanceof z.ZodError ? error : new SettingsKitError(400, (error as Error).message); }
+  }
+  if (path === "/api/settings-kit/files/undo") { // phase2/accounts: undo of the last save made here
+    const input = await body();
+    try { return undoFile(deps.store, deps.owner, deps.workspace, input, deps.guard); }
+    catch (error) { throw error instanceof z.ZodError ? error : new SettingsKitError(409, (error as Error).message); }
   }
   throw new SettingsKitError(404, "Not found");
 }

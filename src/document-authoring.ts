@@ -147,6 +147,8 @@ export function registerDocumentAuthoring(registry: ToolRegistry, authoring: Doc
     parameters: EditDocumentSchema,
     // hardening-3: the file written is `saveAs` when it is given, so that is what a folder rule is told.
     target: (input) => input.saveAs || input.path,
+    // mac7/multi-target: with `saveAs` the source is read and the new file written; without it the file is changed.
+    targets: (input) => (input.saveAs ? [{ kind: "read", path: input.path }, { kind: "write", path: input.saveAs }] : [{ kind: "write", path: input.path }]),
     execute: async (input, context) => authoring.edit(input, context),
   });
 }

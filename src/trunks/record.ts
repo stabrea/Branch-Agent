@@ -5,6 +5,7 @@ import { reasoningEfforts } from "../models.js";
 import { SpecialistStyleSchema } from "../specialist-styles.js";
 import type { Store } from "../store.js";
 import { AvatarSchema, settleAvatar } from "./avatar.js";
+import { TrunkLookSchema } from "./look.js"; // phase2/shell
 
 /**
  * R17-001 (T-01): the Trunk record. A Trunk is a named, long-lived agent that belongs to the owner.
@@ -23,6 +24,8 @@ export const TrunkCreateSchema = z.object({
 
 export const TrunkSchema = TrunkCreateSchema.extend({
   avatar: AvatarSchema.optional(),
+  /** phase2/shell: its colour, face, shape and movement (src/trunks/look.ts); absent looks as it always did. */
+  look: TrunkLookSchema.optional(),
   /** The model preset it answers with; empty follows the conversation, then the owner's default. */
   model: z.string().trim().max(64).default(""),
   reasoning: z.enum(reasoningEfforts).nullable().default(null),

@@ -8,12 +8,13 @@ import type { ToolContext } from "./contracts.js";
 import type { ToolRegistry } from "./registry.js";
 import type { WorkspaceFiles } from "./files.js";
 import { CodeEditor, type ChangeSummary, type PlannedChange } from "./code-edit.js";
+import { fileList, patchFileList, patchTargets } from "./patch.js";
 import { ShellProcess } from "./integrations/shell-process.js";
 import { netlessEnvironment } from "./integrations/shell-config.js";
 import { runAsNode } from "./child-env.js";
 import { defaultJobObjects, jobWithin, type JobObjects } from "./integrations/job-object.js";
 import { ApprovalRequiredError } from "./approvals.js";
-import { projectTestsLabel, projectTestsQuestion, projectTestsTool, type TestsVerdict } from "./coding/project-tests.js";
+import { nobodyToAsk, projectTestsLabel, projectTestsQuestion, projectTestsTool, testsSkippedNote, type TestsVerdict } from "./coding/project-tests.js";
 
 /**
  * Changing several files at once, safely. A patch or a change set is worked out in full first, so
@@ -202,12 +203,14 @@ export class CodeChanges {
    * mac7/coding-next: with the script switch off, a folder's own tests run only once the person has
    * said yes. Not asked yet: the task stops on "Let Branch run this project's tests?" (thrown, so the
    * runtime puts it the way it puts every question). Refused: the sentence the model is told instead.
+   * mac7/tests-unattended: when nobody can answer, the tests are skipped and the task carries on.
    */
   private testsRefusal(context: ToolContext): string | null {
     const verdict = this.testsPermission?.(context, this.workspace) ?? { refuse: noCheckNote(false) };
     if (verdict === "run") return null;
     // A tool run by hand ("Try a tool") has nowhere to put the question, so it is told as before.
     if (verdict === "ask" && !context.askable && !context.approvalKey) return noCheckNote(false);
+    if (verdict === "ask" && nobodyToAsk(context)) return testsSkippedNote(this.workspace);
     // "never": a plain yes with no choice made (the terminal's y, carrying a workflow on) is Once.
     if (verdict === "ask")
       throw new ApprovalRequiredError(projectTestsTool, this.workspace, projectTestsLabel, "never", undefined,
@@ -227,25 +230,31 @@ export function noCheckNote(scriptsOn: boolean): string {
     + (scriptsOn ? ", or run a test file yourself with code.run." : ".");
 }
 
-const fileList = (paths: string[]): string =>
-  `${paths.length} file${paths.length === 1 ? "" : "s"}: ${paths.slice(0, 7).join(", ")}${paths.length > 7 ? ", …" : ""}`;
+/** A dry run's name: it only looks, so a standing yes for it never covers the change itself. */
+const lookAt = (list: string): string => (list ? `look at ${list}` : "look at a patch that cannot be read");
 
 export function registerCodeChanges(registry: ToolRegistry, changes: CodeChanges): void {
   registry.register({
     name: "code.patch", permission: "files.write", group: "code",
     description: "Apply a unified diff (or *** Begin Patch block) across workspace files; parts are placed by their lines even when line numbers are off, and if any part's lines are missing nothing is written. Set dryRun to see the whole change first without writing it. Binary files and anything outside the workspace are refused, and each file changed can be put back from its history.",
     parameters: PatchInputSchema,
-    target: (args) => {
-      const paths = [...String(args.patch).matchAll(/^(?:\+\+\+ (?:b\/)?|\*\*\* (?:Update|Add) File: )(\S+)/gm)].map((m) => m[1]!);
-      return args.dryRun ? "" : fileList(paths);
-    },
+    // Integration (multi-target): a dry run is named too, as a look. With no name, "Always" on a dry run
+    // was saved as `*` and let every later patch, to any file, through without a question.
+    target: (args) => (args.dryRun ? lookAt(patchFileList(args.patch)) : patchFileList(args.patch)),
+    // mac7/multi-target: every file the patch names, read the way it will be applied; a dry run reads them.
+    targets: (args) => patchTargets(args.patch, args.dryRun),
     execute: (args, context) => changes.patch(args, context),
   });
   registry.register({
     name: "code.change_set", permission: "files.write", group: "code",
     description: "Change several files in one go: each entry replaces an exact piece of text in one file. The person is asked once, for the whole set, and sees which files it touches. All the files change or none of them do, and the project's check runs afterwards.",
     parameters: ChangeSetInputSchema,
-    target: (args) => (args.dryRun ? "" : fileList(args.edits.map((edit) => edit.path))),
+    target: (args) => {
+      const list = fileList(args.edits.map((edit) => edit.path));
+      return args.dryRun ? lookAt(list) : list;
+    },
+    // mac7/multi-target: every file in the set; a dry run only reads them.
+    targets: (args) => args.edits.map((edit) => ({ kind: args.dryRun ? "read" as const : "write" as const, path: edit.path })),
     execute: (args, context) => changes.changeSet(args, context),
   });
   registry.register({

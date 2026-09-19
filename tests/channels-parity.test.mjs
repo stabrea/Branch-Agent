@@ -196,15 +196,21 @@ test("IRC lines are read the way RFC 2812 and IRCv3 tags write them", () => {
   assert.deepEqual(lineChunks("one\n\ntwo words here", 5), ["one", "two", "words", "here"]);
 });
 
-/** A small IRC server: welcomes after NICK/USER, runs SASL PLAIN, and records everything. */
+/**
+ * A small IRC server that records everything. It runs SASL PLAIN and, as IRCv3 capability negotiation
+ * requires, holds registration until CAP END: the welcome (001) never arrives mid-negotiation. It used
+ * to welcome on USER, so the client joined before SASL was over and the order check below raced
+ * (CI run 35453102759). Like a real server it still welcomes after a refused sign-in.
+ */
 function ircServer(connection, { password } = {}) {
   connection.onLine = (line) => {
     if (line === "CAP REQ :sasl") connection.write(":srv CAP * ACK :sasl");
+    else if (line === "CAP REQ :account-tag") connection.write(":srv CAP * ACK :account-tag");
     else if (line === "AUTHENTICATE PLAIN") connection.write("AUTHENTICATE +");
     else if (line.startsWith("AUTHENTICATE ") && line !== "AUTHENTICATE +") {
       const [, , pass] = Buffer.from(line.slice(13), "base64").toString().split("\0");
       connection.write(pass === password ? ":srv 903 branch :SASL authentication successful" : ":srv 904 branch :SASL authentication failed");
-    } else if (line.startsWith("USER ")) connection.write(":srv 001 branch :Welcome");
+    } else if (line === "CAP END") connection.write(":srv 001 branch :Welcome");
   };
 }
 
@@ -217,8 +223,9 @@ test("IRC: signs in with SASL, joins, pairs a stranger, answers once approved, a
   t.after(() => channel.stop());
   const link = await until(() => server.connections[0], "a connection");
   await until(() => link.lines.includes("JOIN #room"), "joined after the welcome");
-  assert.ok(link.lines.indexOf("CAP END") > link.lines.findIndex((l) => l.startsWith("AUTHENTICATE ") && l !== "AUTHENTICATE PLAIN"),
-    "SASL finished before the capability talk ended");
+  const signedIn = link.lines.findIndex((l) => l.startsWith("AUTHENTICATE ") && l !== "AUTHENTICATE PLAIN");
+  assert.ok(signedIn >= 0 && link.lines.indexOf("CAP END") > signedIn, "SASL finished before the capability talk ended");
+  assert.ok(link.lines.indexOf("JOIN #room") > link.lines.indexOf("CAP END"), "no channel is joined before signing in");
   assert.equal(channel.health().state, "connected");
   link.write("PING :keepalive");
   await until(() => link.lines.includes("PONG :keepalive"), "answers a ping");
@@ -245,7 +252,7 @@ test("IRC: signs in with SASL, joins, pairs a stranger, answers once approved, a
 test("IRC: a stranger is refused when pairing is off, and a wrong password is reported plainly", async (t) => {
   const context = await fixture(t);
   const server = await lineServer(t, (connection) => ircServer(connection, { password: "something-else" }));
-  const channel = new IrcChannel({ id: "irc", nick: "branch", channels: [], password: IRC_PASSWORD,
+  const channel = new IrcChannel({ id: "irc", nick: "branch", channels: ["#room"], password: IRC_PASSWORD,
     dial: socketDial(localSocket(server.port), "irc.example.org", 6697, false), lineGapMs: 5 });
   await context.app.channels.attach(channel, { activation: "mention", pairing: false, allowlist: [] });
   t.after(() => channel.stop());
@@ -253,9 +260,12 @@ test("IRC: a stranger is refused when pairing is off, and a wrong password is re
   await until(() => channel.health().state === "needs attention", "the refused password is reported");
   assert.match(channel.health().reason, /did not accept the saved password/);
   assert.ok(!channel.health().reason.includes(IRC_PASSWORD));
-  link.write(":srv 001 branch :Welcome");
+  // The server welcomes after CAP END anyway; the stranger's line below arrives after that welcome.
+  await until(() => link.lines.includes("CAP END"), "the capability talk ended");
   const said = () => link.lines.filter((l) => l.startsWith("PRIVMSG ")).map((l) => l.slice(l.indexOf(" :") + 2));
   await refusalWalk(context, { label: "IRC", say: async (text) => link.write(`:mallory!m@host PRIVMSG branch :${text}`), sent: said });
+  assert.match(channel.health().reason, /did not accept the saved password/, "the welcome does not hide the refused password");
+  assert.ok(!link.lines.includes("JOIN #room"), "no channel is joined without the account");
   await assertNoSecret(context, [IRC_PASSWORD]);
 });
 

@@ -27,14 +27,15 @@ import type { AccountKind } from "./settings.js";
  * (someone else's, or work's; mac7/account-pooling, owner decision 2026-09-19). They are never
  * shared with other people on this computer.
  */
-export interface AccountTerms { text: string; links: { label: string; url: string }[] }
+/** `name` (integration review, phase2/accounts): whose page it is, for the window's own words; `guide` when it is not terms. */
+export interface AccountTerms { text: string; links: { label: string; url: string; name: string; guide?: true }[] }
 
-const openai = { label: "OpenAI terms", url: "https://openai.com/policies/row-terms-of-use/" };
-const anthropic = { label: "Anthropic terms", url: "https://www.anthropic.com/legal/consumer-terms" };
-const google = { label: "Google API terms", url: "https://developers.google.com/terms" };
-const github = { label: "GitHub terms", url: "https://docs.github.com/en/site-policy/github-terms/github-terms-of-service" };
-const claudeCode = { label: "Claude Code terms", url: "https://code.claude.com/docs/en/legal-and-compliance" };
-const geminiCli = { label: "Gemini CLI terms", url: "https://geminicli.com/docs/resources/tos-privacy/" };
+const openai = { label: "OpenAI terms", name: "OpenAI", url: "https://openai.com/policies/row-terms-of-use/" };
+const anthropic = { label: "Anthropic terms", name: "Anthropic", url: "https://www.anthropic.com/legal/consumer-terms" };
+const google = { label: "Google API terms", name: "Google API", url: "https://developers.google.com/terms" };
+const github = { label: "GitHub terms", name: "GitHub", url: "https://docs.github.com/en/site-policy/github-terms/github-terms-of-service" };
+const claudeCode = { label: "Claude Code terms", name: "Claude Code", url: "https://code.claude.com/docs/en/legal-and-compliance" };
+const geminiCli = { label: "Gemini CLI terms", name: "Gemini CLI", url: "https://geminicli.com/docs/resources/tos-privacy/" };
 
 export const termsKeys = {
   "api-key": "accounts.terms.api-key",
@@ -48,7 +49,7 @@ export function accountTerms(kind: AccountKind, pool: string): AccountTerms & { 
     text: "Add only keys you are entitled to use. When a key is refused or rate limited, Branch waits as long as the service asks before using that key again and tries your next key. Opening extra accounts only to get past a service's limits is against OpenAI's, Google's and other providers' terms.",
     links: [openai, google, anthropic],
   };
-  const links = kind === "chatgpt" ? [openai, { label: "ChatGPT sign-in (unofficial)", url: "https://learn.chatgpt.com/docs/auth" }]
+  const links = kind === "chatgpt" ? [openai, { label: "ChatGPT sign-in (unofficial)", name: "ChatGPT", guide: true as const, url: "https://learn.chatgpt.com/docs/auth" }]
     : pool === "cli-claude-code" ? [claudeCode, anthropic]
     : pool === "cli-gemini-cli" ? [geminiCli, google]
     : pool === "cli-copilot" ? [github] : [openai];
