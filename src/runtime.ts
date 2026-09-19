@@ -169,7 +169,11 @@ interface GateOutcome {
 export interface DelegateOptions { timeoutMs?: number; resultSchema?: Record<string, unknown>; /** The shape this task wants back, declared in zod. A reply that misses it is re-asked once. */ shape?: AnswerShape; checks?: CompletionCheck; background?: boolean; /** Specialist id: limits memory reads to shared facts and its own. */ agent?: string; /** The specialist's working style; it changes how the loop runs. */ style?: SpecialistStyle }
 export interface FollowUp { id: string; prompt: string; createdAt: string; shortLivedKey?: boolean; shortLivedKeyId?: string; personProfileId?: string;
   /** mac7/outside-resume: the earlier task this message carries on for (a handed-over step's answer). */
-  originFrom?: string }
+  originFrom?: string;
+  /** mac7/outside-review: the tools the task that queued it had; the task reading it gets no more. */
+  permissions?: string[] }
+/** mac7/outside-review: what a queued message keeps of the task that queued it (see FollowUp). */
+export interface FollowUpCarry { originFrom?: string | undefined; permissions?: readonly string[] | null | undefined }
 export interface BackgroundResult { childRunId: string; parentRunId: string; status: string; output: string; finishedAt: string }
 export interface FanoutOutcome { waves: string[][]; tasks: Record<string, { runId: string; status: string; output: string; result: ResultCheck }> }
 /** Every reply may be this long; a run whose model runs out of room thinking may double it twice. */
@@ -285,6 +289,10 @@ export interface RunOptions {
    * that marks it, and the mark stops meaning anything.
    */
   isolated?: boolean;
+  /** mac7/tests-unattended: nobody can answer a question while this task runs (see ToolContext.unattended). */
+  unattended?: boolean;
+  /** mac7/tests-unattended: `branch run --allow-tests`, for this one task (see ToolContext.allowProjectTests). */
+  allowProjectTests?: boolean;
 }
 export class Runtime {
   private readonly controllers = new Map<string, AbortController>();
@@ -418,7 +426,7 @@ export class Runtime {
     // mac7/outside-resume: the answer carries the task that handed the step over on, as that task.
     const queued = this.followUp(entry.sessionId,
       `The "${entry.tool}" step you handed over earlier has finished${entry.description ? ` (${entry.description})` : ""}. What came of it: ${entry.outcome}`,
-      null, entry.runId || undefined);
+      null, { originFrom: entry.runId || undefined });
     return { id: entry.id, sessionId: entry.sessionId, queued: queued.queued };
   }
   /** The default preset's provider; individual runs may select another preset. */
@@ -442,6 +450,9 @@ export class Runtime {
       scratchRoot?: string;
       /** Where answers already given are remembered, when this is not a conversation. */
       approvalKey?: string;
+      /** mac7/tests-unattended: see ToolContext.unattended and ToolContext.allowProjectTests. */
+      unattended?: boolean;
+      allowProjectTests?: boolean;
     } = {},
   ): ToolContext {
     return {
@@ -457,6 +468,8 @@ export class Runtime {
       ...(options.isolated ? { isolated: true } : {}),
       ...(options.source ? { source: options.source } : {}),
       ...(options.approvalKey ? { approvalKey: options.approvalKey } : {}),
+      ...(options.unattended ? { unattended: true } : {}),
+      ...(options.allowProjectTests ? { allowProjectTests: true } : {}),
     };
   }
   cancel(id: string): boolean {
@@ -476,7 +489,8 @@ export class Runtime {
    * Queues a message for a conversation; it runs, in order, as soon as the conversation is free,
    * so a person can steer a task that is still working without waiting for it to finish.
    */
-  followUp(sessionId: string, prompt: string, windowPerson: string | null = null, originFrom?: string): { id: string; position: number; queued: number } {
+  followUp(sessionId: string, prompt: string, windowPerson: string | null = null, carry: FollowUpCarry = {}): { id: string; position: number; queued: number } {
+    const { originFrom, permissions } = carry;
     RunInputSchema.parse({ prompt, sessionId });
     // profile-audit: queued from the app window switched to a household profile, it runs as them.
     const person = currentPerson()?.profileId ?? windowPerson;
@@ -485,7 +499,8 @@ export class Runtime {
     const items = [...this.queued(sessionId), { id: randomUUID(), prompt, createdAt: new Date().toISOString(),
       ...(startedWithShortLivedKey() ? { shortLivedKey: true } : {}),
       ...(shortLivedKeyMark().keyId ? { shortLivedKeyId: shortLivedKeyMark().keyId } : {}),
-      ...(person ? { personProfileId: person } : {}), ...(originFrom ? { originFrom } : {}) }];
+      ...(person ? { personProfileId: person } : {}), ...(originFrom ? { originFrom } : {}),
+      ...(permissions ? { permissions: [...permissions] } : {}) }];
     this.store.save("settings", this.owner, `followups:${sessionId}`, { items });
     this.drainFollowUps(sessionId);
     const left = this.queued(sessionId);
@@ -497,7 +512,7 @@ export class Runtime {
     if (!next) return;
     this.store.save("settings", this.owner, `followups:${sessionId}`, { items: rest });
     const start = () => this.track(() => this.execute({ prompt: next.prompt, sessionId, onTextDelta: () => undefined,
-      ...(next.originFrom ? { originFrom: next.originFrom } : {}) }));
+      ...(next.originFrom ? { originFrom: next.originFrom } : {}), ...(next.permissions ? { permissions: next.permissions } : {}) }));
     const marked = () => (next.shortLivedKey ? underShortLivedKey(start, next.shortLivedKeyId ? { keyId: next.shortLivedKeyId } : {}) : start());
     // bucket 19: a message a household person queued runs as that person, held to their role.
     void (next.personProfileId ? asPerson({ profileId: next.personProfileId, keyId: "queued" }, marked) : marked()).catch(() => undefined);
@@ -894,6 +909,8 @@ ${run.output.slice(0, 6000)}`;
           // A grader is given no tools at all, whatever it was asked for.
           ...(options.isolated ? { isolated: true, permissions: [] } : {}),
           ...(options.source ? { source: options.source } : {}),
+          ...(options.unattended ? { unattended: true } : {}),
+          ...(options.allowProjectTests ? { allowProjectTests: true } : {}),
         }), trunk);
     if (options.resumeFrom) instructions += this.resumeNote(run, options.resumeFrom);
     else this.store.message(run.sessionId, { role: "user", content: options.prompt + picturesNote(options.images) });

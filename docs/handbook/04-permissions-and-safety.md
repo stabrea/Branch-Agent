@@ -29,7 +29,8 @@ Whatever you pick, a task started from outside — a trigger, a schedule, a chat
 never gets more than *Ask before changes*, and its question waits for you in Branch's own window.
 That stays true when it is carried on: answering its question and typing in its conversation,
 *Continue*, *Do this again* or *Full access* on the conversation do not make it yours. To have Branch
-do the same thing freely, ask for it yourself in a new conversation.
+do the same thing freely, ask for it yourself in a new conversation. The mode chip beside Send says
+so in any conversation that carries on work from outside.
 
 **Pick one before you do anything else in this chapter.** Several other protections here only have
 something to hold on to once you have chosen something other than *No approvals*.

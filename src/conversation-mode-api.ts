@@ -5,6 +5,7 @@ import { startedWithShortLivedKey } from "./key-context.js";
 import { lockdownActive } from "./lockdown.js";
 import { clearSessionPlanAct, saveSessionPlanAct } from "./plan-act.js";
 import { policyPresets, readPolicy } from "./policy.js";
+import { conversationCarrier, outsideSourceOf } from "./outside-origin.js"; // mac7/outside-review
 import {
   ConversationModeSchema, clearConversationMode, conversationModeSettings, modeChoices, newConversationMode,
   readConversationMode, saveConversationMode, saveConversationModeSettings, type ConversationMode,
@@ -54,6 +55,9 @@ function view(app: ModeApp, sessionId: string | null) {
     newConversation: startable ? newConversationMode : null,
     following: { preset: policy.preset, label },
     locked, owner, choices, settings,
+    /* mac7/outside-review: where the work this conversation carries on came from, when that was outside
+       the window. It then asks before every change whatever is picked, and the chip says why. */
+    outside: sessionId ? outsideSourceOf(app.store, conversationCarrier(app.store, sessionId) ?? undefined) : null,
   };
 }
 
