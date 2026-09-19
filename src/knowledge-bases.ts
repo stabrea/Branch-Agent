@@ -12,6 +12,7 @@ import { fuseRanks } from "./document-embeddings.js";
 import { CachedEmbeddings, EmbeddingCache, embeddingConnection, embeddingsFor, noEmbeddingsMessage,
   textFingerprint, type EmbeddingLedger } from "./embeddings.js";
 import type { WorkspaceFiles } from "./files.js";
+import { allowAll, passageVisible, WalkRules } from "./walk-rules.js"; // mac7/walk-rules
 import type { ModelRouter } from "./models.js";
 import { filterIsSet, filterSql, nothingMatchedNote, RetrievalFilterSchema,
   type RetrievalFilter } from "./retrieval-filters.js";
@@ -283,15 +284,30 @@ export class KnowledgeBases {
 
   /** Every file a collection's folders and files come to, as workspace-relative paths. */
   async filesIn(owner: string, id: string): Promise<string[]> {
-    const current = this.one(owner, id);
-    if (!this.files) return [];
-    const found: string[] = [];
-    for (const source of current.sources) {
-      if (source.kind === "file") { found.push(source.path.replace(/^\.\//, "")); continue; }
-      await this.walk(source.path.replace(/\/$/, ""), found, 0);
-    }
-    return [...new Set(found)].slice(0, maximumFiles);
+    return (await this.sourceFiles(owner, id)).paths;
   }
+  /**
+   * mac7/walk-rules: the files a collection comes to under the owner's rules. Nothing is taken from a
+   * folder or file the rules keep the assistant out of — whoever asks for the reading, since what is
+   * read in is read back to the assistant — and `leftOut` says so.
+   */
+  private async sourceFiles(owner: string, id: string): Promise<{ paths: string[]; leftOut?: string }> {
+    const current = this.one(owner, id);
+    if (!this.files) return { paths: [] };
+    const rules = this.readRules(), found: string[] = [];
+    for (const source of current.sources) {
+      const path = source.kind === "file" ? source.path.replace(/^\.\//, "") : source.path.replace(/\/$/, "");
+      if (source.kind === "file") { if (rules.file(path)) found.push(path); continue; }
+      if (path && path !== "." && !rules.folder(path)) continue;
+      await this.walk(path === "." ? "" : path, found, 0, rules);
+    }
+    return rules.noted({ paths: [...new Set(found)].slice(0, maximumFiles) });
+  }
+  /** mac7/walk-rules: the rules for what may be read into, or back out of, a knowledge base right now. */
+  readRules(): WalkRules {
+    return new WalkRules(this.files?.walkRules({ source: "owner" }) ?? allowAll);
+  }
+
   /**
    * Folders the assistant writes itself, which are never the owner's own material. Set once at
    * start-up; the mirror of what is remembered is the one that uses it. Reading those back in would
@@ -299,14 +315,14 @@ export class KnowledgeBases {
    * owner's, which is a circle worth refusing rather than explaining afterwards.
    */
   skip: (path: string) => boolean = () => false;
-  private async walk(folder: string, found: string[], depth: number): Promise<void> {
+  private async walk(folder: string, found: string[], depth: number, rules: WalkRules): Promise<void> {
     if (depth > 4 || found.length >= maximumFiles || !this.files) return;
-    const listing = await this.files.list(folder || ".").catch(() => ({ entries: [] as { name: string; type: string }[] }));
+    const listing = await this.files.list(folder || ".", rules).catch(() => ({ entries: [] as { name: string; type: string }[] }));
     for (const entry of listing.entries) {
       const path = folder ? `${folder}/${entry.name}` : entry.name;
       if (this.skip(path)) continue;
-      if (entry.type === "directory") await this.walk(path, found, depth + 1);
-      else if (readableFile(path)) found.push(path);
+      if (entry.type === "directory") await this.walk(path, found, depth + 1, rules);
+      else if (readableFile(path) && rules.file(path)) found.push(path);
     }
   }
 
@@ -364,7 +380,7 @@ export class KnowledgeBases {
     signal: AbortSignal = AbortSignal.timeout(600000), runId?: string,
   ): Promise<IndexProgress> {
     const current = this.one(owner, id);
-    const paths = await this.filesIn(owner, current.id);
+    const { paths, leftOut } = await this.sourceFiles(owner, current.id); // mac7/walk-rules
     let progress: IndexProgress = { event: "knowledge.index.progress", collection: current.id, name: current.name,
       files: paths.length, filesDone: 0, chunks: 0, embedded: 0, unchanged: 0, tokens: 0, status: "Reading your files", finished: false };
     const report = (next: Partial<IndexProgress>) => { progress = { ...progress, ...next }; this.latest.set(current.id, progress); onProgress(progress); };
@@ -381,7 +397,7 @@ export class KnowledgeBases {
     // silence, so the owner can see why a folder came out smaller than they expected.
     const unread = this.unread(owner, current.id);
     const unreadNote = unread.length ? `${unread.length} file${unread.length === 1 ? "" : "s"} could not be read; open the knowledge base to see which.` : "";
-    const note = [meaning.note, unreadNote].filter(Boolean).join(" ");
+    const note = [meaning.note, unreadNote, leftOut ?? ""].filter(Boolean).join(" ");
     report({ embedded: meaning.embedded, tokens: meaning.tokens, status: note || "Ready", finished: true,
       ...(meaning.error ? { error: meaning.error } : {}) });
     this.db.prepare(`UPDATE kb_collections SET last_indexed_at=?, model=?, note=?, updated_at=?,
@@ -511,14 +527,18 @@ export class KnowledgeBases {
     const { collection, query, limit, filter } = KnowledgeSearchSchema.parse(input);
     const target = collection ? this.one(owner, collection) : null;
     const narrowing = filterIsSet(filter) ? filter : undefined;
-    const rows = this.candidateRows(owner, target?.id, query, narrowing);
+    // mac7/walk-rules: a passage from a file the rules now keep the assistant out of is never handed back.
+    const rules = this.readRules();
+    const rows = this.candidateRows(owner, target?.id, query, narrowing)
+      .filter((row) => passageVisible(rules, String(row.doc_id)));
+    const leftOut = rules.note() ?? "";
     if (!rows.length)
-      return { hits: [], note: narrowing ? nothingMatchedNote(narrowing, this.collectionWords(owner)) : "" };
+      return { hits: [], note: narrowing ? nothingMatchedNote(narrowing, this.collectionWords(owner)) : leftOut };
     const hits = await this.rankRows(owner, rows, { collection, query, limit }, signal);
     // Passages survived the filter but nothing came through the ranking or the active project's own
     // list: still an honest nothing, and still not a reason to answer from outside the filter.
     if (!hits.length && narrowing) return { hits, note: nothingMatchedNote(narrowing, this.collectionWords(owner)) };
-    return { hits, note: "" };
+    return { hits, note: leftOut };
   }
   /** Every name and id a filter may have meant, so an unknown one can be named back to the owner. */
   private collectionWords(owner: string): string[] {

@@ -511,6 +511,8 @@ const SHARED_WITH_FRENCH = new Set([
   "Conversation", "Conversations", "Documents", "Messages", "Gemini", "Secrets", "Diagnostics",
   // The password managers are called what their makers call them, in either language.
   "1Password", "Bitwarden",
+  // phase2/delight: the near-impossible achievements' rank is written the same way in French.
+  "SSS+",
 ]);
 test("Q6 French is a real translation, not the English file under another name", async (t) => {
   const english = JSON.parse(await readFile(join(PUBLIC, "locales", "en.json"), "utf8"));

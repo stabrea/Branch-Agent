@@ -15,6 +15,7 @@ import { Locker, type LockerKeySource } from "./locker.js";
 import { Secrets } from "./vault.js";
 import { Receipts } from "./receipts.js";
 import { AuditLog } from "./audit.js";
+import { achievementTallies, type AchievementTallies, type EventScan } from "./achievement-tallies.js"; // phase2/delight
 import { MemoryReview } from "./memory-review.js";
 import { SkillGovernance } from "./skill-governance.js";
 import { exportBackup, importBackup, type RestoreOptions } from "./backup.js";
@@ -265,6 +266,11 @@ export class Store {
   /** Completed top-level runs created after a moment, oldest first, for consolidation. */
   runsSince(owner: string, after: string, limit = 20): Run[] {
     return this.db.prepare("SELECT * FROM tasks WHERE owner=? AND status='completed' AND created_at>? ORDER BY created_at ASC LIMIT ?").all(owner, after, limit).map((row) => this.toRun(row));
+  }
+  /** phase2/delight: counts of the owner's own finished work, for achievements (src/achievement-tallies.ts).
+   *  `scan` carries the events already counted and is moved on by at most one batch. */
+  achievementTallies(owner: string, scan: EventScan): { tallies: AchievementTallies; caughtUp: boolean } {
+    return achievementTallies(this.db, owner, scan);
   }
   /** Workspace file history and snapshots for the given workspace. */
   openWorkspaceHistory(files: WorkspaceFiles, owner: string): WorkspaceHistory {

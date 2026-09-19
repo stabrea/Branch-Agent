@@ -6,6 +6,8 @@ import type { ToolRegistry } from "./registry.js";
 import type { ToolContext } from "./contracts.js";
 import { ignoreMatcher, type IgnoreMatcher } from "./ignore.js";
 import type { ReadFirstGuard } from "./coding/read-first.js";
+import { allowAll, WalkRules, type PathCheck } from "./walk-rules.js"; // mac7/walk-rules
+import type { RunSource } from "./policy.js";
 
 const pathSchema = z.string().min(1).max(500);
 const secret =
@@ -37,6 +39,12 @@ export class WorkspaceFiles {
   readOnly: (path: string) => string = () => "";
   /** mac7/coding-next: the read-before-edit guard, when the app set one up (src/coding/read-first.ts). */
   readFirst: ReadFirstGuard | undefined;
+  /**
+   * mac7/walk-rules: the rules one folder walk is held to, for every file and folder it lists or reads
+   * (src/walk-rules.ts). Set once at start-up: a task's walk gets its task's rules; a walk for work from
+   * outside names where it came from; anything else (the owner's own window) is not held.
+   */
+  walkRules: (outside?: { source: RunSource }) => PathCheck = () => allowAll;
   constructor(readonly root: string) {}
   /** The full address a workspace path stands for, as the read-before-edit guard keys it. */
   addressOf(path: string): string {
@@ -163,31 +171,41 @@ export class WorkspaceFiles {
     }
     return { path, bytes: Buffer.byteLength(content) };
   }
+  /**
+   * The entries of one folder. mac7/walk-rules: held to the rules one walk is under (`rules`, shared
+   * by a walk over many folders; a single listing makes its own and says what it left out).
+   */
   async list(
-    path = ".",
-  ): Promise<{ entries: { name: string; type: string }[] }> {
+    path = ".", rules?: WalkRules, outside?: { source: RunSource },
+  ): Promise<{ entries: { name: string; type: string }[]; leftOut?: string }> {
+    const walk = rules ?? new WalkRules(this.walkRules(outside));
+    walk.start(path);
     const target = await this.checked(path, true);
     const here = relative(this.root, target).replace(/\\/g, "/");
+    const from = relative(this.base, target).replace(/\\/g, "/");
     const entries: { name: string; type: string }[] = [];
     for (const e of (await readdir(target, { withFileTypes: true })).slice(0, 400)) {
       if (entries.length >= 200) break;
       if (e.isSymbolicLink() || isSecretEntry(here ? `${here}/${e.name}` : e.name)) continue;
       if (await this.hidden(here ? `${here}/${e.name}` : e.name, e.isDirectory()))
         continue;
+      const child = from ? `${from}/${e.name}` : e.name;
+      if (!(e.isDirectory() ? walk.folder(child) : walk.file(child, "list"))) continue;
       entries.push({ name: e.name, type: e.isDirectory() ? "directory" : "file" });
     }
-    return { entries };
+    return rules ? { entries } : walk.noted({ entries });
   }
   async search(
     query: string,
     path = ".",
-  ): Promise<{ matches: { path: string; line: number; text: string }[] }> {
+  ): Promise<{ matches: { path: string; line: number; text: string }[]; leftOut?: string }> {
     const matches: { path: string; line: number; text: string }[] = [];
+    const rules = new WalkRules(this.walkRules()); // mac7/walk-rules: one walk, one set of rules
     const queue = [path];
     let scanned = 0;
     while (queue.length && scanned < 200 && matches.length < 50) {
       const directory = queue.shift()!;
-      for (const entry of (await this.list(directory)).entries) {
+      for (const entry of (await this.list(directory, rules)).entries) {
         if (++scanned > 200 || matches.length >= 50) break;
         const child =
           directory === "." ? entry.name : `${directory}/${entry.name}`;
@@ -195,6 +213,7 @@ export class WorkspaceFiles {
           if (child.split("/").length < 6) queue.push(child);
           continue;
         }
+        if (!rules.file(child)) continue;
         try {
           const file = await this.read(child);
           file.content.split("\n").forEach((text, i) => {
@@ -210,7 +229,7 @@ export class WorkspaceFiles {
         }
       }
     }
-    return { matches };
+    return rules.noted({ matches });
   }
 }
 /**

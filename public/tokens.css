@@ -361,6 +361,15 @@
   --aside-w: 320px;
   --ring: 2px solid var(--copper-hi);
 }
+/* phase2/delight: the five achievement tiers and the near-impossible five, the same in every theme. */
+:root {
+  --tier-bronze: #b0703c;
+  --tier-silver: #9aa6ad;
+  --tier-gold: #d6a531;
+  --tier-diamond: #58b8d8;
+  --tier-godly: #9b6ad6;
+  --tier-sss: #e0457b;
+}
 :root[data-density="compact"] {
   --density: 0.75;
   --r1: 6px;

@@ -3914,7 +3914,7 @@ Local HTTP authorization is single-owner access, not a multi-user tenancy system
 record (`PreferencesSchema` in `src/preferences.ts`) holds `appearance` (`forest` or `daylight`),
 `followSystem`, `accent` (`copper`, `leaf`, `earth`, `slate`, `ink`), `textSize`
 (`small`/`medium`/`large`), `density` (`comfortable`/`compact`), `font` (`geist`/`system`),
-`reduceMotion`, `showAcorn` (the acorn toy in the side pane, off by default), `showEverything`
+`reduceMotion`, `showAcorn` (the pixel acorn in the rail's bottom corner, off by default), `showEverything`
 and `showVoice`. Every field has a default, so a record saved by an older version still loads.
 Settings → Appearance changes all of them; each choice shows at once and Save keeps it.
 
@@ -3969,6 +3969,88 @@ It refreshes every five seconds while it is open and hides below 1180 px. The in
 `/tokens.css`, `/shell.css`, `/shell.js`, `/context-pane.js` and `/appearance.js` are served from
 the same local allowlist as the rest of the interface. See [design.md](design.md) for the tokens
 and the layout.
+
+### The corner: the acorn, a pet, achievements and your own background (redesign phase 2)
+
+**The acorn** (`showAcorn`, off by default) sits in the bottom corner of the rail, just above its
+foot, and stays there. It has no caption: *Drag to turn* is its tooltip, and a small pause button
+shows when the pointer is over it or it has the keyboard. *Keep things still* stops it turning.
+
+Three playful extras sit beside it. Each has its own switch in Settings → Appearance, and **all
+three are off** until the owner turns them on. They are the owner's alone: a household profile, a
+short-lived key and a chat app never see them or change them.
+
+- **A pet** (`pets`) — a small forest creature drawn like the acorn, in the theme's own colours, in
+  the corner beside it. It naps when nothing is happening, paces while a task works, hops when
+  something waits for your yes, jumps when a task finishes and shivers while Lockdown is on. It says
+  one thing at a time in one small bubble: a message stays for its reading time (three to eight
+  seconds) and goes; a status that stops being true goes at once; a click dismisses it. With *Tips*
+  on it now and then says one short, true tip about what is on screen, each only once, and fewer
+  as the owner's rank rises (Bronze: at most one every few minutes; Silver: at most one an hour;
+  Gold and above: none). Right-click it for its own menu (pat, no more tips, its settings, hide).
+  Pressing it pats it; when something waits for your yes, pressing it opens Inbox.
+  Fields: `on` (default `false`), `kind` (`squirrel`, `owl`, `hedgehog`, `fox`, `robin`, `rabbit`,
+  `snail`, `fawn`; default `squirrel`), `name` (1–20 characters, default `Hazel`), `talks` (default
+  `true`), `tips` (default `true`).
+- **Achievements** (`achievements`) — 505: Bronze, Silver, Gold, Diamond and Godly, exactly 100 of
+  each, and five near-impossible SSS+ ones. Every one is earned from something that really happened
+  and was written down: Branch's own records (finished tasks and where they came from, conversations,
+  the days and hours tasks finished, tools that ran, the audit log's answered approvals and other
+  moments, schedules, procedures, what is remembered, live voice calls) or a moment the owner's own
+  window saw and reported from a closed list (a theme worn, a season shown, a Settings page opened,
+  the acorn turned, a pet patted, a background chosen, *Keep things still*, *Show everything*, a new
+  language, and "It's lonely over here" when everything that can be hidden is hidden). Nothing is
+  granted for time passing. The tiers come from how long an everyday owner would take. A streak is
+  the best run of days in a row with a finished task, so it only ever pauses. Switching achievements
+  on finds the past without any pop-up; after that a Bronze or Silver one shows as a small note at
+  the top for about seven seconds, and Gold and above as a card with falling leaves that grows with
+  the rank (*Keep things still* shows the card without them). Locked ones give less away the higher
+  they are: Gold hides its description, Diamond its name, Godly and SSS+ everything. They are kept in
+  Branch's own settings on this computer and are never sent anywhere. While achievements are off,
+  nothing the window sees is written down. The events Branch writes for every task are counted a
+  batch at a time (25,000 per look, kept with the achievements as `scan`), so a long history never
+  stops Branch while it is counted; what that past brings arrives quietly, and `GET
+  /api/delight/achievements` says `behind: true` until it is all counted. Fields: `on` (default `false`), `quiet` (default `false`:
+  earned without any pop-up).
+- **Your own background** (`background`) — a picture, a video, an animation (GIF, WebP or APNG) or
+  a 3D object behind the glass instead of the oak. The 3D object is one of Branch's own (the acorn
+  or the oak, drawn in the theme's colours and turning slowly) or a `.glb` model of your own: its
+  shapes and base colours are drawn by Branch's own small WebGL drawer (no library, nothing
+  fetched); textures and compressed models are not read, and a model that cannot be read is
+  refused in plain words (a `.glb` is checked piece by piece against the file and may hold at most
+  300,000 corners, 10,000 parts and 4,096 nodes). The file is kept in the window's own storage
+  (IndexedDB) on this computer and never reaches Branch's server or anywhere else; switching the
+  background off removes it from that storage, and a full disk is said in plain words. Pictures and animations up to 8 MB, videos up
+  to 25 MB, 3D models up to 5 MB; anything else is refused in plain words. A scrim in the theme's ground
+  colour lies over it so text stays readable in every theme. A video pauses for *Keep things still*
+  and while the window is hidden. Fields: `on` (default `false`), `scrim` (20–90, how strongly the
+  theme's colour covers it; default `60`), `fit` (`fill`, `fit` or `tile`; default `fill`).
+
+- **Pixel or 3D** (`look`) — `style`: `pixel` (default: the acorn and the pet as they have always
+  been) or `3d` (the same acorn and pet as small turning 3D stand-ins in the theme's colours, drawn
+  by the same WebGL drawer; dragging turns them). Where WebGL is not available they stay pixel.
+
+The window's page is allowed to show a `blob:` picture or video it made itself (`img-src` and
+`media-src` in its content security policy), which is how the background is shown without being
+sent anywhere. It is allowed for pictures and sound or video only, never for scripts, workers,
+frames, objects or connections, and it stays allowed whether or not the background is on: answers
+read aloud are played as `blob:` sound as well.
+
+Routes (every one the owner's alone, at this computer's own window):
+
+- `GET /api/delight` — `{ available, settings, earned, rank }`. Anybody else gets
+  `{ "available": false }`: not an error, and nothing else.
+- `POST /api/delight/settings` — change any of the fields above, e.g. `{ "pets": { "on": true } }`.
+- `GET /api/delight/achievements` — every achievement as the window may show it, what was just
+  earned and not yet celebrated (`fresh`), how many are earned and the rank. Refused to a
+  short-lived key and to a household profile.
+- `POST /api/delight/noticed` — something the window saw, from the closed list above, e.g.
+  `{ "what": "theme", "mode": "dark", "theme": "forest", "season": "winter" }`. Ignored while
+  achievements are off.
+- `POST /api/delight/told` — `{ ids }`: these were celebrated, so they are not shown again.
+
+Another part of the window can earn "It's lonely over here" by dispatching the
+`branch-everything-hidden` event on `document` when everything that can be hidden is hidden.
 
 ## Skill packages, registry versions, plugins and suggestions
 

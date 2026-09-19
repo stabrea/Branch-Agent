@@ -14,6 +14,8 @@ import { localEmbedder } from "./local-models.js";
 import { embeddingFetch } from "./embeddings.js";
 import { providerEmbeddings } from "./providers.js";
 import { errorText } from "./contracts.js";
+import { allowAll, WalkRules } from "./walk-rules.js"; // mac7/walk-rules
+import type { RunSource } from "./policy.js";
 import { Citations, type Citation } from "./citations.js";
 
 /**
@@ -309,8 +311,10 @@ export class DocumentLibrary {
   /** Best passages for a question: ranked word matches, meaning matches when available, combined. */
   async search(owner: string, input: unknown, signal = AbortSignal.timeout(30000)): Promise<DocumentPassage[]> {
     const { query, limit } = DocumentSearchSchema.parse(input);
-    const words = this.wordMatches(owner, query);
-    const meaning = await this.meaningMatches(owner, query, signal);
+    // mac7/walk-rules: a document read in from a workspace file the rules now keep the assistant out of is not searched.
+    const hidden = this.hiddenDocuments(owner);
+    const words = this.wordMatches(owner, query).filter((row) => !hidden.has(row.documentId));
+    const meaning = (await this.meaningMatches(owner, query, signal)).filter((row) => !hidden.has(row.documentId));
     if (!words.length && !meaning.length) return [];
     const lists = [words.map((row) => row.key), meaning.map((row) => row.key)].filter((list) => list.length);
     const fused = fuseRanks(lists);
@@ -325,6 +329,22 @@ export class DocumentLibrary {
           : meaning.some((m) => m.key === key) ? "meaning" : "words",
       };
     });
+  }
+  /** mac7/walk-rules: the documents whose workspace file the owner's rules keep the assistant out of right now. */
+  private hiddenDocuments(owner: string): Set<string> {
+    if (!this.files) return new Set();
+    const rules = new WalkRules(this.files.walkRules({ source: "owner" }));
+    return new Set(this.db.prepare("SELECT id, file_path FROM documents WHERE owner=? AND file_path IS NOT NULL").all(owner)
+      .filter((row) => !rules.file(String(row.file_path))).map((row) => String(row.id)));
+  }
+  /**
+   * Integration (mac7/walk-rules): the library as the assistant, or another program, may see it. A
+   * document read in from a workspace file the owner's rules keep it out of is not named; the answer
+   * says something was left out. The owner's own window still lists everything (`list`).
+   */
+  listFor(owner: string, outside: { source: RunSource } = { source: "owner" }): { documents: DocumentMetadata[]; leftOut?: string } {
+    const rules = new WalkRules(this.files ? this.files.walkRules(outside) : allowAll);
+    return rules.noted({ documents: this.list(owner).filter((document) => document.filePath === null || rules.file(document.filePath, "list")) });
   }
   private wordMatches(owner: string, query: string): Match[] {
     const words = query.match(/[\p{L}\p{N}]+/gu)?.slice(0, 32) ?? [];
@@ -415,7 +435,7 @@ export function registerDocuments(registry: ToolRegistry, library: DocumentLibra
     name: "documents.list", permission: "documents.read",
     description: "List the documents in the person's library with their state and how many passages each holds.",
     parameters: z.object({}).strict(),
-    execute: async (_input, context) => ({ documents: library.list(context.owner) }),
+    execute: async (_input, context) => library.listFor(context.owner), // integration: refused documents are not named
   });
   registry.register({
     name: "documents.add", permission: "documents.write",

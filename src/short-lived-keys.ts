@@ -104,6 +104,8 @@ export const shortLivedKeyTaskRoutes: readonly TaskRoute[] = [
 /** Reads a short-lived key may not make: what they return is a secret, or everybody's data. */
 const ownerOnlyReads: readonly RegExp[] = [
   /^\/api\/backup$/,
+  // phase2/delight: the owner's achievements are the owner's alone (src/delight.ts).
+  /^\/api\/delight\/achievements$/,
   new RegExp(`^/api/(triggers|webhooks)(/${id})?$`),
   /^\/api\/channels\/addresses$/,
   // integration review (bucket 16, merged into bucket 19): the waiting Slack events carry message text.
