@@ -218,4 +218,8 @@ Checked and left as is (probes run through a model's turn, then removed):
   catalog-diet, static-assets, index-structure, handbook, server, ui, shell-ui, approvals, plan-act, leak-guard):
   604 tests, 597 pass, 0 fail, 7 skipped. `tests/automation.test.mjs` alone: 5/5.
 
+- Trunk moved while committing (`26e5b47e`: voice, rooms, trunk conversations; no walker touched): merged again,
+  `dist/` rebuilt, tsc clean; walk-rules, multi-target, documents, knowledge, mcp-server, git, hardening-3,
+  catalog-diet, static-assets, index-structure, handbook, server, ui, shell-ui: 175/175.
+
 Verdict: MERGE WITH FIXES.
