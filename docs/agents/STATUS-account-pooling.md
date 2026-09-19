@@ -28,4 +28,6 @@ person's own account).
       presets of one pool (shared per-pool state, same own account), ChatGPT presets are per model not per account.
       Remaining by design: the owner changing their default by hand changes which own plan a conversation falls
       back to; that is the owner's own choice, not Branch rotating.
-- [ ] 6b merged into mac/cross-platform
+- [x] 6b trunk merged in twice (last: 5040c7d7), rebuilt from an empty dist, 139 targeted tests green
+      (accounts x4, static-assets, index-structure, handbook, short-lived-keys, household-profile, commands x2,
+      polish-observability, governance); pushed to mac/cross-platform.
