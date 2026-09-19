@@ -68,6 +68,6 @@ household rules refuse it (F3); the 8,000-byte limit is enforced on the server (
 Not fixed (trunk, not this branch): `settings-describe.js` and `settings-kit.js` add their CSS with an inline
 `<style>`, which the CSP blocks, so the "Applies to everything" scope chip shows as plain text on every Settings card;
 glass-select "flush under the select" fails the same way (gap -388) on a trunk-only checkout.
-Tests after merging trunk 73f73153: 26 files 230/230, automation 5/5 alone; build and tsc clean from an empty dist.
+Tests after merging trunk 73f73153: 26 files 230/230, automation 5/5 alone; after merging f5b8d582 (coding-next): 10 files 92/92. Build and tsc clean from an empty dist each time.
 Screenshots: `phase2-shots/accounts/*-fixed.png` (accounts-low with named terms links, thinking-sent), 1440/1024/390,
 light and dark, no sideways overflow, no console errors after load.
