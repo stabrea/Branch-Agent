@@ -1,0 +1,109 @@
+/* phase2/delight: your own background behind the glass (off unless switched on) — a picture, a video or
+   an animation. The file is kept in this window's own storage on this computer (IndexedDB) and is never
+   sent anywhere, not even to Branch's own server. A scrim in the theme's own ground colour lies over it
+   so text stays readable in every theme; how strong it is can be changed. Small files only. */
+import { el, notice, on, onDelight, say, state, still } from "/delight-kit.js";
+
+const $ = (id) => document.getElementById(id);
+export const LIMITS = { picture: 8, animation: 8, video: 25 };
+const DB = "branch-delight", STORE = "files", KEY = "background";
+
+function openDb() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB, 1);
+    request.onupgradeneeded = () => request.result.createObjectStore(STORE);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+async function withStore(mode, work) {
+  const db = await openDb();
+  try {
+    return await new Promise((resolve, reject) => {
+      const request = work(db.transaction(STORE, mode).objectStore(STORE));
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  } finally { db.close(); }
+}
+export const savedBackground = () => withStore("readonly", (store) => store.get(KEY)).catch(() => undefined);
+const keep = (value) => withStore("readwrite", (store) => store.put(value, KEY));
+export const forgetBackground = async () => { await withStore("readwrite", (store) => store.delete(KEY)); await applyBackground(); };
+
+/** Which kind a file is, from its type and, for WebP, whether it moves. Null when it can't go behind the glass. */
+export async function kindOf(file) {
+  const type = file.type || "", name = file.name.toLowerCase();
+  if (type.startsWith("video/")) return "video";
+  if (type === "image/gif" || type === "image/apng" || name.endsWith(".apng")) return "animation";
+  if (type === "image/webp") {
+    const head = new Uint8Array(await file.slice(0, 64).arrayBuffer());
+    return new TextDecoder().decode(head).includes("ANIM") ? "animation" : "picture";
+  }
+  if (type.startsWith("image/") && !type.includes("svg")) return "picture";
+  return null;
+}
+/** Keeps a chosen file, or says in plain words why it can't. */
+export async function chooseBackground(file) {
+  const kind = await kindOf(file);
+  if (!kind) return { ok: false, why: say("delight.bg.wrongKind", "That kind of file can't go behind the glass. Choose a picture, a video or an animation (GIF, WebP or APNG).") };
+  const limit = LIMITS[kind];
+  if (file.size > limit * 1024 * 1024)
+    return { ok: false, why: say("delight.bg.tooBig", "That file is {size} MB. Keep it under {limit} MB for a {kind}.", { size: (file.size / 1048576).toFixed(1), limit, kind: say(`delight.bg.kind.${kind}`, kind) }) };
+  await keep({ blob: file, kind, name: file.name.slice(0, 120), size: file.size, at: Date.now() });
+  await applyBackground();
+  void notice({ what: "background", kind });
+  return { ok: true, kind };
+}
+
+/* ---------- behind the glass ---------- */
+let shownUrl = "";
+function layer() {
+  let wall = $("delight-wall");
+  if (!wall) {
+    wall = el("div", "delight-wall");
+    wall.id = "delight-wall";
+    wall.setAttribute("aria-hidden", "true");
+    const anchor = $("wall-fx") ?? $("wall");
+    if (anchor) anchor.after(wall); else document.body.prepend(wall);
+  }
+  return wall;
+}
+function clear() {
+  $("delight-wall")?.remove();
+  delete document.documentElement.dataset.ownBackground;
+  if (shownUrl) URL.revokeObjectURL(shownUrl);
+  shownUrl = "";
+}
+function media(saved, url, fit) {
+  if (fit === "tile" && saved.kind !== "video") {
+    const tile = el("div", "delight-tile");
+    tile.style.setProperty("background-image", `url("${url}")`);
+    return tile;
+  }
+  const node = el(saved.kind === "video" ? "video" : "img", `delight-media fit-${fit === "fit" ? "fit" : "fill"}`);
+  node.src = url;
+  if (saved.kind === "video") Object.assign(node, { muted: true, loop: true, playsInline: true, autoplay: !still() });
+  else node.alt = "";
+  return node;
+}
+export async function applyBackground() {
+  const saved = on("background") ? await savedBackground() : undefined;
+  if (!saved?.blob) return clear();
+  const wall = layer(), background = state.settings.background;
+  if (shownUrl) URL.revokeObjectURL(shownUrl);
+  shownUrl = URL.createObjectURL(saved.blob);
+  const scrim = el("div", "delight-scrim");
+  scrim.style.setProperty("--own-scrim", String(background.scrim / 100));
+  wall.replaceChildren(media(saved, shownUrl, background.fit), scrim);
+  document.documentElement.dataset.ownBackground = saved.kind;
+  motion();
+}
+/** A video pauses for "Keep things still" and while the window is hidden. */
+function motion() {
+  const video = document.querySelector("#delight-wall video");
+  if (!video) return;
+  if (still() || document.hidden) video.pause(); else void video.play().catch(() => undefined);
+}
+document.addEventListener("visibilitychange", motion);
+new MutationObserver(motion).observe(document.documentElement, { attributes: true, attributeFilter: ["data-motion"] });
+onDelight(() => void applyBackground());

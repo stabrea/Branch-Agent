@@ -1,0 +1,227 @@
+import { z } from "zod";
+import type { Store } from "./store.js";
+import { startedWithShortLivedKey } from "./key-context.js";
+import { currentPerson } from "./people/context.js";
+import {
+  achievementCatalogue, backgroundKinds, measure, noticedFlags, petKinds, rankFor, seasons, themeNames,
+  type Achievement, type AchievementFacts, type Noticed,
+} from "./achievements.js";
+
+/**
+ * phase2/delight: the playful extras — a pet in the acorn's corner, achievements, and your own
+ * background. Each has its own switch and every one ships off.
+ *
+ * Everything here is the owner's and stays on this computer: the switches and the achievements are
+ * two records in Branch's own settings table, the owner's own picture never leaves the window at all
+ * (it is kept in the window's own storage, public/delight.js), and nothing is sent anywhere. A
+ * short-lived key, a household profile and a chat app are all refused before anything is read.
+ *
+ *   GET  /api/delight                 the switches, and how many achievements are earned
+ *   POST /api/delight/settings        change a switch
+ *   GET  /api/delight/achievements    every achievement, worked out from what really happened
+ *   POST /api/delight/noticed         the window saw something (a theme worn, the acorn turned…)
+ *   POST /api/delight/told            these achievements were celebrated, so they are not shown again
+ */
+export class DelightError extends Error {
+  constructor(readonly status: number, message: string) { super(message); }
+}
+export const DelightSettingsSchema = z.object({
+  pets: z.object({
+    on: z.boolean().default(false),
+    kind: z.enum(petKinds).default("squirrel"),
+    name: z.string().trim().min(1).max(20).default("Hazel"),
+    /** A small bubble in plain words about what Branch is doing. */
+    talks: z.boolean().default(true),
+    /** Now and then a short tip about what is on screen. Scarcer as the owner's rank rises. */
+    tips: z.boolean().default(true),
+  }).strict().prefault({}),
+  achievements: z.object({
+    on: z.boolean().default(false),
+    /** Earned without any pop-up. */
+    quiet: z.boolean().default(false),
+  }).strict().prefault({}),
+  background: z.object({
+    on: z.boolean().default(false),
+    /** How strongly the theme's own colour is laid over the picture, so text stays readable (20–90). */
+    scrim: z.number().int().min(20).max(90).default(60),
+    fit: z.enum(["fill", "fit", "tile"]).default("fill"),
+  }).strict().prefault({}),
+}).strict();
+export type DelightSettings = z.infer<typeof DelightSettingsSchema>;
+const NoticedSchema = z.object({
+  themes: z.array(z.string()).max(200).default([]),
+  leaves: z.array(z.string()).max(800).default([]),
+  seasons: z.array(z.string()).max(4).default([]),
+  pages: z.array(z.string()).max(60).default([]),
+  pets: z.array(z.string()).max(8).default([]),
+  pats: z.number().int().min(0).default(0),
+  backgrounds: z.array(z.string()).max(4).default([]),
+  flags: z.array(z.string()).max(40).default([]),
+});
+const ProgressSchema = z.object({
+  /** Achievement id → the day it was earned (YYYY-MM-DD). */
+  got: z.record(z.string(), z.string()).default({}),
+  /** Earned, and not yet celebrated in the window. */
+  fresh: z.array(z.string()).default([]),
+  noticed: NoticedSchema.prefault({}),
+});
+type Progress = z.infer<typeof ProgressSchema>;
+const settingsKey = "delight", progressKey = "delight-achievements";
+
+export function delightSettings(store: Pick<Store, "get">, owner: string): DelightSettings {
+  const saved = DelightSettingsSchema.safeParse(store.get("settings", owner, settingsKey)?.data ?? {});
+  return saved.success ? saved.data : DelightSettingsSchema.parse({});
+}
+function progress(store: Pick<Store, "get">, owner: string): Progress {
+  const saved = ProgressSchema.safeParse(store.get("settings", owner, progressKey)?.data ?? {});
+  return saved.success ? saved.data : ProgressSchema.parse({});
+}
+const today = (): string => {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+};
+
+/* ---------- working out what is earned ---------- */
+const recordTables = ["schedules", "procedures", "specialists", "triggers", "webhooks", "workflows", "memory"] as const;
+type DelightStore = Pick<Store, "get" | "save" | "list" | "achievementTallies" | "audit">;
+function factsFor(store: DelightStore, owner: string, noticed: Noticed): Omit<AchievementFacts, "earned"> {
+  const audit: Record<string, number> = {};
+  for (const row of store.audit.counts(owner)) audit[row.action] = row.count;
+  const records: Record<string, number> = {};
+  for (const table of recordTables) records[table] = store.list(table, owner).length;
+  return { tallies: store.achievementTallies(owner), audit, records, noticed };
+}
+let regularIds: Set<string> | null = null;
+const regular = (): Set<string> => (regularIds ??= new Set(achievementCatalogue().filter((a) => a.tier !== "SSS+").map((a) => a.id)));
+const earnedOf = (got: Record<string, string>): number => Object.keys(got).filter((id) => regular().has(id)).length;
+
+/** Writes down every achievement the facts now reach. Returns the ids earned just now. */
+function evaluate(store: DelightStore, owner: string, saved: Progress): string[] {
+  const base = factsFor(store, owner, saved.noticed), newly: string[] = [];
+  for (let pass = 0; pass < 3; pass++) {
+    const facts: AchievementFacts = { ...base, earned: earnedOf(saved.got) };
+    const reached = achievementCatalogue().filter((a) => !saved.got[a.id] && measure(a.metric, facts) >= a.goal);
+    for (const a of reached) { saved.got[a.id] = today(); newly.push(a.id); }
+    if (!reached.length) break;
+  }
+  return newly;
+}
+/** One achievement as the window may see it. The higher the tier, the less a locked one gives away. */
+function shown(a: Achievement, saved: Progress, facts: AchievementFacts): Record<string, unknown> {
+  const got = saved.got[a.id];
+  if (got) return { id: a.id, name: a.name, desc: a.desc, kind: a.kind, tier: a.tier, got };
+  if (a.tier === "Godly" || a.tier === "SSS+") return { id: a.id, name: "", desc: "", kind: a.kind, tier: a.tier };
+  if (a.tier === "Diamond") return { id: a.id, name: "???", desc: "???", kind: a.kind, tier: a.tier };
+  const now = Math.min(measure(a.metric, facts), a.goal);
+  return { id: a.id, name: a.name, desc: a.tier === "Gold" ? "???" : a.desc, kind: a.kind, tier: a.tier, now, goal: a.goal };
+}
+export function achievementsView(store: DelightStore, owner: string): Record<string, unknown> {
+  const settings = delightSettings(store, owner);
+  if (!settings.achievements.on) return { on: false };
+  const saved = progress(store, owner);
+  const newly = evaluate(store, owner, saved);
+  if (newly.length && !settings.achievements.quiet) saved.fresh = [...saved.fresh, ...newly].slice(-50);
+  if (newly.length) store.save("settings", owner, progressKey, saved);
+  const facts = { ...factsFor(store, owner, saved.noticed), earned: earnedOf(saved.got) };
+  const byId = new Map(achievementCatalogue().map((a) => [a.id, a]));
+  const fresh = saved.fresh.map((id) => byId.get(id)).filter((a): a is Achievement => Boolean(a))
+    .map((a) => ({ id: a.id, name: a.name, desc: a.desc, tier: a.tier, kind: a.kind }));
+  return {
+    on: true, quiet: settings.achievements.quiet, earned: facts.earned, total: achievementCatalogue().length,
+    rank: rankFor(facts.earned), list: achievementCatalogue().map((a) => shown(a, saved, facts)), fresh,
+  };
+}
+
+/* ---------- the switches ---------- */
+export function delightSummary(store: DelightStore, owner: string): Record<string, unknown> {
+  const settings = delightSettings(store, owner);
+  const earned = settings.achievements.on ? earnedOf(progress(store, owner).got) : 0;
+  return { available: true, settings, earned, rank: rankFor(earned) };
+}
+export function saveDelightSettings(store: DelightStore, owner: string, input: unknown): DelightSettings {
+  const before = delightSettings(store, owner);
+  const wanted = z.object({
+    pets: z.record(z.string(), z.unknown()).optional(),
+    achievements: z.record(z.string(), z.unknown()).optional(),
+    background: z.record(z.string(), z.unknown()).optional(),
+  }).strict().parse(input ?? {});
+  const next = DelightSettingsSchema.parse({
+    pets: { ...before.pets, ...wanted.pets }, achievements: { ...before.achievements, ...wanted.achievements },
+    background: { ...before.background, ...wanted.background },
+  });
+  store.save("settings", owner, settingsKey, next);
+  if (next.achievements.on) settingsNoticed(store, owner, before, next);
+  return next;
+}
+/** Changing a switch is a real moment too; switching achievements on finds the past without a party. */
+function settingsNoticed(store: DelightStore, owner: string, before: DelightSettings, next: DelightSettings): void {
+  const saved = progress(store, owner), seen = saved.noticed;
+  const add = (list: string[], value: string): void => { if (!list.includes(value)) list.push(value); };
+  if (next.pets.on) add(seen.pets, next.pets.kind);
+  if (next.pets.on && next.pets.name !== before.pets.name) add(seen.flags, "pet-named");
+  if (next.pets.on && !next.pets.talks) add(seen.flags, "pet-talks-off");
+  if (next.achievements.quiet) add(seen.flags, "quiet");
+  const newly = evaluate(store, owner, saved);
+  const quietly = !before.achievements.on || next.achievements.quiet;
+  if (newly.length && !quietly) saved.fresh = [...saved.fresh, ...newly].slice(-50);
+  store.save("settings", owner, progressKey, saved);
+}
+
+/* ---------- what the window saw ---------- */
+const windowFlags = ["acorn-shown", "acorn-turned", "still", "everything", "follow-system", "language", "lonely"] as const;
+const NoticeSchema = z.discriminatedUnion("what", [
+  z.object({ what: z.literal("theme"), mode: z.enum(["light", "dark"]), theme: z.string().max(40), season: z.enum(seasons).optional() }).strict(),
+  z.object({ what: z.literal("season"), season: z.enum(seasons) }).strict(),
+  z.object({ what: z.literal("page"), page: z.string().regex(/^[a-z0-9-]{1,40}$/) }).strict(),
+  z.object({ what: z.literal("pat") }).strict(),
+  z.object({ what: z.literal("background"), kind: z.enum(backgroundKinds) }).strict(),
+  z.object({ what: z.literal("flag"), flag: z.enum(windowFlags) }).strict(),
+]);
+export function notice(store: DelightStore, owner: string, input: unknown): { kept: boolean } {
+  if (!delightSettings(store, owner).achievements.on) return { kept: false };
+  const said = NoticeSchema.parse(input ?? {});
+  const saved = progress(store, owner), seen = saved.noticed;
+  const add = (list: string[], value: string, cap: number): void => { if (!list.includes(value) && list.length < cap) list.push(value); };
+  if (said.what === "theme") {
+    if (!themeNames().some(([id]) => id === said.theme)) throw new DelightError(400, "Branch has no theme by that name.");
+    add(seen.themes, `${said.mode}:${said.theme}`, 200);
+    if (said.season) add(seen.leaves, `${said.mode}:${said.theme}:${said.season}`, 800);
+  }
+  if (said.what === "season") add(seen.seasons, said.season, 4);
+  if (said.what === "page") add(seen.pages, said.page, 60);
+  if (said.what === "pat") seen.pats = Math.min(seen.pats + 1, 1_000_000);
+  if (said.what === "background") add(seen.backgrounds, said.kind, 4);
+  if (said.what === "flag" && said.flag in noticedFlags) add(seen.flags, said.flag, 40);
+  store.save("settings", owner, progressKey, saved);
+  return { kept: true };
+}
+export function told(store: DelightStore, owner: string, input: unknown): { fresh: number } {
+  const { ids } = z.object({ ids: z.array(z.string().max(80)).max(600) }).strict().parse(input ?? {});
+  const saved = progress(store, owner);
+  saved.fresh = saved.fresh.filter((id) => !ids.includes(id));
+  store.save("settings", owner, progressKey, saved);
+  return { fresh: saved.fresh.length };
+}
+
+/* ---------- the one way in ---------- */
+interface DelightApp { store: Store; runtime: { owner: string } }
+export const delightPaths = ["/api/delight", "/api/delight/settings", "/api/delight/achievements", "/api/delight/noticed", "/api/delight/told"] as const;
+export const handlesDelightPath = (path: string): boolean => (delightPaths as readonly string[]).includes(path);
+/** Nobody but the owner, at this computer's own window, gets anything here. */
+function ownerHere(store: Store): boolean {
+  if (startedWithShortLivedKey() || currentPerson()) return false;
+  return store.profiles.isOwner();
+}
+export async function delightRoute(app: DelightApp, method: string, path: string, readBody: () => Promise<unknown>): Promise<unknown> {
+  const { store } = app, owner = app.runtime.owner;
+  // Somebody else only learns that there is nothing here for them, never an error in their window.
+  if (path === "/api/delight" && method === "GET") return ownerHere(store) ? delightSummary(store, owner) : { available: false };
+  if (!ownerHere(store)) throw new DelightError(403, "Only the owner can see or change these, in the app window.");
+  if (path === "/api/delight/achievements" && method === "GET") return achievementsView(store, owner);
+  if (method !== "POST") throw new DelightError(405, "Use POST to change this.");
+  const body = await readBody();
+  if (path === "/api/delight/settings") return { settings: saveDelightSettings(store, owner, body) };
+  if (path === "/api/delight/noticed") return notice(store, owner, body);
+  if (path === "/api/delight/told") return told(store, owner, body);
+  throw new DelightError(404, "Endpoint not found");
+}
