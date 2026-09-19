@@ -262,6 +262,7 @@ function noticeLook() {
   const mode = root.dataset.theme === "daylight" ? "light" : "dark";
   let season = seasonToday();
   try { season = localStorage.getItem("branch-season") || season; } catch { /* the season of today, then */ }
+  if (!["spring", "summer", "autumn", "winter"].includes(season)) season = seasonToday();
   const key = `${mode}:${root.dataset.palette}:${season}`;
   if (key === lastLook) return;
   lastLook = key;
