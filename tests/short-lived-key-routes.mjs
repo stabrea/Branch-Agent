@@ -36,6 +36,7 @@ export const ROUTES = {
   "/api/accounts/add": "owner POST",
   "/api/accounts/chatgpt/login": "owner POST",
   "/api/accounts/chatgpt/logout": "owner POST",
+  "/api/accounts/notice": "owner POST", // mac7/account-pooling: the owner read why sharing stopped
   "/api/accounts/pool": "owner POST",
   "/api/accounts/remove": "owner POST",
   "/api/accounts/session": "look",

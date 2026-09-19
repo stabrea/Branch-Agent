@@ -21,4 +21,11 @@ person's own account).
 - [x] 4-5 docs/locales/tests: window (notice + Got it, Kept separate box, badge; the tick-box labels keep their
       box when the language is applied), en + fr, docs/configuration.md (terms decision item 2 rewritten, new
       keys), handbook chapter 01 section, tests/accounts-pooling.test.mjs P1-P7 + accounts-ui U3
-- [ ] 6 merged
+- [x] 6a self-review: fixed a chain where a hand-picked own plan was replaced by the work account and the next
+      limit then reached the owner's default plan (0bba5897, P8). Checked and closed: Trunks (sign-ins refused),
+      household/short-lived keys (routes owner-only, /account refused; notice route added to the key table),
+      schedules and background work (same pool provider, no other path picks an account), fallbacks between
+      presets of one pool (shared per-pool state, same own account), ChatGPT presets are per model not per account.
+      Remaining by design: the owner changing their default by hand changes which own plan a conversation falls
+      back to; that is the owner's own choice, not Branch rotating.
+- [ ] 6b merged into mac/cross-platform
