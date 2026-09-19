@@ -184,7 +184,7 @@ async function runSweTests(task: BenchmarkTask, workspace: string): Promise<Benc
   // a downloaded file must not be able to choose what runs on this computer.
   const names = [...asList(task.raw.FAIL_TO_PASS), ...asList(task.raw.PASS_TO_PASS)];
   if (!names.length) return judgeFail("This instance names no tests to run, so it cannot be marked");
-  const outcome = await runBenchmarkCommand(process.execPath, ["--test", ...names], workspace);
+  const outcome = await runBenchmarkCommand(process.execPath, ["--test", ...names], workspace, { env: runAsNode(process.execPath) });
   if (outcome.status !== "completed") return judgeFail(`The tests did not finish (${outcome.status})`, outcome.stderr.slice(0, 300));
   return outcome.exitCode === 0 ? judgePass() : judgeFail("The benchmark's tests still fail", (outcome.stderr || outcome.stdout).slice(0, 300));
 }

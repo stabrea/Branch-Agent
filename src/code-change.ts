@@ -206,8 +206,9 @@ export class CodeChanges {
     if (verdict === "run") return null;
     // A tool run by hand ("Try a tool") has nowhere to put the question, so it is told as before.
     if (verdict === "ask" && !context.askable && !context.approvalKey) return noCheckNote(false);
+    // "never": a plain yes with no choice made (the terminal's y, carrying a workflow on) is Once.
     if (verdict === "ask")
-      throw new ApprovalRequiredError(projectTestsTool, this.workspace, projectTestsLabel, "always", undefined,
+      throw new ApprovalRequiredError(projectTestsTool, this.workspace, projectTestsLabel, "never", undefined,
         { question: projectTestsQuestion(this.workspace), kind: "project-tests" });
     return verdict.refuse;
   }

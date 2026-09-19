@@ -118,6 +118,7 @@ export class ToolRegistry {
       if (parsed.success) return ignored.length ? { args: current, ignored } : { args, ignored: [] };
       const extra = parsed.error.issues.filter((issue) => issue.code === "unrecognized_keys");
       if (!extra.length || extra.length !== parsed.error.issues.length) break;
+      if (meantSomething(tool, extra.flatMap((issue) => (issue as { keys: string[] }).keys))) break;
       for (const issue of extra) {
         const holder = valueAt(current, issue.path);
         if (!holder || typeof holder !== "object") return { args, ignored: [] };
@@ -166,6 +167,27 @@ export class ToolRegistry {
   afterTool?: (name: string, args: unknown, result: unknown, context: ToolContext) => Promise<unknown>;
   /** mac7/r17-d (src/coding/large-output.ts): a replacement for an answer over 64 KiB, or undefined to refuse it. */
   oversized?: (name: string, result: unknown, context: ToolContext) => unknown;
+}
+
+/**
+ * Integration review (mac7/coding-next): an extra key is dropped only when it cannot have meant
+ * anything. One that respells a key the tool does take (`dry_run` for `dryRun`, `replace_all` for
+ * `replaceAll`), or that asks for nothing to really happen (`preview`, `simulate`), is left in place,
+ * so the call is refused as before instead of being carried out for real without it.
+ */
+const doNothingKeys = new Set(["dryrun", "preview", "simulate", "whatif", "noop", "checkonly", "validateonly"]);
+const squashed = (key: string): string => key.toLowerCase().replace(/[^a-z0-9]/g, "");
+function meantSomething(tool: ToolDefinition, keys: readonly string[]): boolean {
+  const declared = new Set<string>();
+  try { collectKeys(z.toJSONSchema(tool.parameters), declared); } catch { /* nothing to compare with */ }
+  return keys.some((key) => doNothingKeys.has(squashed(key)) || declared.has(squashed(key)));
+}
+/** Every property name anywhere in a JSON schema, squashed the same way. */
+function collectKeys(node: unknown, into: Set<string>): void {
+  if (!node || typeof node !== "object") return;
+  const properties = (node as { properties?: unknown }).properties;
+  if (properties && typeof properties === "object") for (const name of Object.keys(properties)) into.add(squashed(name));
+  for (const value of Object.values(node)) collectKeys(value, into);
 }
 
 /** The value at a zod issue's path inside `root`, or undefined when the path does not lead anywhere. */

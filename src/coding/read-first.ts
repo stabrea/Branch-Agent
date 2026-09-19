@@ -42,6 +42,11 @@ export class ReadFirstGuard {
     return seen;
   }
 
+  /** Whether this task is held to the rule right now; while it is not, callers skip the check entirely. */
+  holds(runId: string): boolean {
+    return !!runId && this.on();
+  }
+
   /** The task read this file and was shown `content`. */
   noteRead(runId: string, absolute: string, content: string): void {
     if (runId && this.on()) this.forTask(runId).set(this.key(absolute), fingerprint(content));

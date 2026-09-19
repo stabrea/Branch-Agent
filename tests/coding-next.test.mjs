@@ -521,3 +521,113 @@ test("1 read-first on: a file the task had tidied with code.format still counts 
   assert.equal(edited.path, "src/a.ts");
   assert.equal(await readFile(join(workspace, "src", "a.ts"), "utf8"), "const a = 2;\n");
 });
+
+// ------------------------------------------------------------------ integration review (adversarial)
+
+test("review 5 every place that starts this program to run a script says to run it as Node", async () => {
+  const { readdirSync, readFileSync, statSync } = await import("node:fs");
+  const files = [];
+  const walk = (dir) => { for (const name of readdirSync(dir)) { const path = join(dir, name); if (statSync(path).isDirectory()) walk(path); else if (path.endsWith(".ts")) files.push(path); } };
+  walk("src");
+  const starts = /(?:spawn|execFile|execFileSync|spawnSync|fork|runBenchmarkCommand)\(\s*process\.execPath|(?:executable|command):\s*process\.execPath/;
+  // The Linux wall's door bridge: its environment is put together further down, in linuxWall.
+  const bridge = (line) => line.includes("executable: process.execPath, args: [bridge,");
+  assert.match(readFileSync(join("src", "sandbox-backends.ts"), "utf8"), /proxyEnvironment\([^\n]*runAsNode\(process\.execPath\)/);
+  const missing = [];
+  for (const file of files) {
+    const lines = readFileSync(file, "utf8").split("\n");
+    lines.forEach((line, index) => {
+      if (!starts.test(line) || bridge(line)) return;
+      const near = lines.slice(Math.max(0, index - 3), index + 4).join("\n");
+      if (!/runAsNode\(|ELECTRON_RUN_AS_NODE/.test(near)) missing.push(`${file}:${index + 1}`);
+    });
+  }
+  assert.deepEqual(missing, [], "inside the desktop app these would open a second copy of the app");
+});
+
+test("review 2 a key that respells one the tool takes, or asks for nothing to really happen, is never dropped", async (t) => {
+  const { app } = await fixture(t);
+  const clean = (name, args) => app.registry.clean(name, args);
+  for (const [name, args] of [
+    ["code.patch", { patch: "x", dry_run: true }],
+    ["code.change_set", { reason: "r", edits: [{ path: "a", find: "x", replace: "y" }], "dry-run": true }],
+    ["files.write", { path: "a.txt", content: "x", preview: true }],
+    ["files.edit", { path: "a.txt", find: "x", replace: "y", replace_all: true }],
+  ]) assert.deepEqual(clean(name, args), { args, ignored: [] }, `${name} ${JSON.stringify(args)}`);
+  assert.deepEqual(clean("files.read", { path: "a.txt", format: "js" }).ignored, ["format"], "a key that means nothing still goes");
+});
+
+test("review 2 a patch sent with dry_run is refused, not applied for real", async (t) => {
+  const { app, workspace } = await readFirstFixture(t, [
+    call("code.patch", { patch: "--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-one\n+two\n", dry_run: true }), say("done")], "off");
+  const run = await app.runtime.run({ prompt: "show me the change" });
+  const [answer] = toolMessages(app, run);
+  assert.equal(answer.ok, false, JSON.stringify(answer));
+  assert.equal(await fileText(workspace, "a.txt"), "one\n");
+});
+
+test("review 2 the question shows the call as it will run, without the ignored key; the yes stays bound to what was sent", async (t) => {
+  const sent = { path: "keep.txt", content: "new", format: "markdown" };
+  const provider = scripted([call("files.write", sent), say("done")]);
+  const { app } = await fixture(t, { provider });
+  const { addPolicyRule } = await import("../dist/policy.js");
+  const { argumentFingerprint } = await import("../dist/runtime.js");
+  addPolicyRule(app.store, "local", { tool: "files.write", match: "keep.txt", decision: "ask", remember: "never" });
+  const run = await app.runtime.run({ prompt: "write" });
+  assert.equal(run.status, "needs_input");
+  const [question] = asked(app, run);
+  assert.deepEqual(JSON.parse(question.data.bytes), { path: "keep.txt", content: "new" });
+  assert.equal(question.data.fingerprint, argumentFingerprint(JSON.stringify(sent)));
+});
+
+test("review 4 a plain yes with no choice made is Once; carrying a workflow on never writes a standing rule", async (t) => {
+  const { app, workspace } = await testsFixture(t, [call("code.check", {})]);
+  const run = await app.runtime.run({ prompt: "fix it" });
+  assert.equal(asked(app, run)[0].data.remember, "never", "the terminal's y and other defaults answer Once");
+  const flow = app.workflows.create("local", { name: "check it", steps: [{ name: "tests", kind: "tool", tool: "code.check", args: {} }] });
+  const waiting = await app.workflows.run("local", flow.id);
+  assert.equal(waiting.status, "waiting_approval");
+  const done = await app.workflows.resume("local", flow.id);
+  assert.equal(done.status, "completed", JSON.stringify(done));
+  assert.match(done.state[0].output, /"ran":true/, "the pass let the tests run once");
+  const { readPolicy } = await import("../dist/policy.js");
+  assert.ok(!readPolicy(app.store, "local").rules.some((rule) => rule.tool === "code.tests"), "no standing rule");
+  const { projectTestsVerdict } = await import("../dist/coding/project-tests.js");
+  const host = { store: app.store, owner: "local", approvals: app.runtime.approvals, sessionId: "somewhere-else" };
+  assert.equal(projectTestsVerdict(host, workspace), "ask");
+  assert.throws(() => app.runtime.grantApproval("wf", { tool: "code.tests", target: workspace, label: "x", source: "schedule" }, "always"));
+});
+
+test("review 4 a dry run (plan) never runs the tests and never asks", async (t) => {
+  const { app } = await testsFixture(t, [call("code.check", {}), say("done")]);
+  const run = await app.runtime.run({ prompt: "plan it", dryRun: true });
+  assert.equal(asked(app, run).length, 0);
+  assert.equal(ranTests(app, run), false);
+  assert.ok(app.store.events(run.id).some((event) => event.kind === "tool.simulated"));
+});
+
+test("review 1 with the switch off the guard is never consulted", async (t) => {
+  const { app, workspace } = await readFirstFixture(t, [edit("one", "two"),
+    call("files.write", { path: "a.txt", content: "three\n" }), say("done")], "off");
+  const guard = app.coding["deps"].files.readFirst;
+  guard.require = async () => { throw new Error("looked at while off"); };
+  const run = await app.runtime.run({ prompt: "change it" });
+  assert.ok(toolMessages(app, run).every((answer) => answer.ok), JSON.stringify(toolMessages(app, run)));
+  assert.equal(await fileText(workspace, "a.txt"), "three\n");
+});
+
+test("review 6 a missing or damaged switch file means off, and a late crash still never throws", async (t) => {
+  const { DiagnosticLog, crashReporterPlan, crashCaptureMarked } = await import("../dist/diagnostic-log.js");
+  const { mkdir, writeFile } = await import("node:fs/promises");
+  const dataDir = await mkdtemp(join(tmpdir(), "branch-crash-bad-"));
+  t.after(() => discardTemp(dataDir));
+  assert.equal(crashCaptureMarked(dataDir), false);
+  await mkdir(join(dataDir, "logs"), { recursive: true });
+  for (const bad of ["{not json", JSON.stringify({ crashCapture: "yes" }), JSON.stringify("on"), ""]) {
+    await writeFile(join(dataDir, "logs", "crash-capture.json"), bad);
+    assert.equal(crashReporterPlan(dataDir), null, bad);
+    const log = new DiagnosticLog({ dir: join(dataDir, "logs"), settings: () => { throw new Error("database is not open"); } });
+    assert.doesNotThrow(() => log.crash("engine", new Error("late")));
+    assert.equal(log.crashes(5).length, 0, bad);
+  }
+});

@@ -317,12 +317,6 @@ async function start(): Promise<void> {
 }
 
 /**
- * When the window or one of Electron's helper programs dies, that happens in another process, so
- * nothing the engine listens for ever hears about it. Electron tells this process instead, over
- * its own IPC; each report is written into the same record of failures the engine keeps, with the
- * part of the app it came from on it. Nothing here changes what Electron then does.
- */
-/**
  * mac7/diagnostics: Electron's crash reporter keeps crash files (minidumps) on this computer only;
  * uploading is switched off (src/diagnostic-log.ts). "Report a problem" lists them, never sends them.
  * mac7/coding-next: only when the owner switched crash capture on. The switch is read here, at start,
@@ -337,6 +331,12 @@ function startCrashReporter(dataDir: string): void {
   } catch { /* a crash reporter that will not start must never stop the app */ }
 }
 
+/**
+ * When the window or one of Electron's helper programs dies, that happens in another process, so
+ * nothing the engine listens for ever hears about it. Electron tells this process instead, over
+ * its own IPC; each report is written into the same record of failures the engine keeps, with the
+ * part of the app it came from on it. Nothing here changes what Electron then does.
+ */
 function watchDesktopCrashes(branch: { store: { spans: SpanStore }; runtime: { owner: string; hideSecrets(value: string): string } }): void {
   const record = (where: string, message: string, stack?: string) => {
     diagnose(where === "window" ? "window" : "helper", "error", message); // mac7/diagnostics
