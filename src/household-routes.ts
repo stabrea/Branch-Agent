@@ -71,6 +71,7 @@ export const householdOwnRoutes: readonly TaskRoute[] = [
     own("/api/asks/surfaces/:id/refresh"),
     own("/api/batch/run"),
     own("/api/coding/ci"),
+    own("/api/conversation-mode"), // redesign phase 1: never looser than the owner's setting (src/conversation-mode-api.ts)
     own("/api/documents"),
     own("/api/documents/:id", "DELETE"),
     own("/api/documents/reindex"),

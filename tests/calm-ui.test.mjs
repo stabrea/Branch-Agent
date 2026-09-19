@@ -11,6 +11,7 @@ import { discardTemp } from "./temp-dir.mjs";
 import { closeSettings, openSettingFor, showEverything } from "./places.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
+import { saveConversationModeSettings } from "../dist/conversation-mode.js";
 
 /* What the calm window keeps out of sight until it is asked for. */
 const HIDDEN_WHEN_CALM = [
@@ -42,6 +43,10 @@ async function fixture(t, { provider, onboarded = false, width = 1440, height = 
   const root = await mkdtemp(join(tmpdir(), "branch-calm-ui-"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), ...(provider ? { provider } : {}) });
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  /* Redesign phase 1: a conversation begun in the window starts on Ask first. These tests are about
+     something else, so their conversations follow the setting as before (tests/conversation-mode.test.mjs
+     covers Ask first). */
+  saveConversationModeSettings(app.store, app.runtime.owner, { newConversation: "follow" });
   const browser = await chromium.launch({ headless: true });
   t.after(async () => {
     await browser.close();

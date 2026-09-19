@@ -239,3 +239,26 @@ test("only the tools that touch several things declare them; every other tool is
     assert.equal(folder.kind === "read", app.registry.permissionOf(name) === "git.read", name);
   }
 });
+
+// ------------------------------------------------------------------ the conversation's own mode (redesign phase 1)
+
+test("Auto mode lets workspace changes through, but a refused folder in a patch still refuses the patch", async (t) => {
+  const provider = scripted([call("code.patch", { patch: bothFiles }), say("done")]);
+  const { app, workspace } = await fixture(t, { provider });
+  financeRule(app);
+  const run = await app.runtime.run({ prompt: "patch them", conversationMode: "auto" });
+  const [denied] = eventsOf(app, run, "policy.denied");
+  assert.match(denied?.data.reason ?? "", /finance\/b\.csv/);
+  assert.equal(await readFile(join(workspace, "src", "a.ts"), "utf8"), "one\n");
+});
+
+test("Plan mode: looking at two files is fine, unless one of them is in a refused folder", async (t) => {
+  const { app } = await fixture(t);
+  financeRule(app);
+  const run = app.store.createRun("local", "compare", undefined, false);
+  app.runtime.startMode(run.sessionId, "plan");
+  const context = app.runtime.context({ runId: run.id });
+  assert.equal(app.runtime.checkPolicy("documents.compare", { file: "public/a.md", against: "public/b.md" }, context).decision, "allow");
+  refusedNaming(app.runtime.checkPolicy("documents.compare", { file: "public/a.md", against: "finance/b.md" }, context), "finance/b.md");
+  assert.equal(app.runtime.checkPolicy("code.patch", { patch: srcPart }, context).decision, "deny", "Plan changes nothing");
+});

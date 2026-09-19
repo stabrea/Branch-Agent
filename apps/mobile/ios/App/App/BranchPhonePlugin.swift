@@ -130,7 +130,7 @@ public class BranchPhonePlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func look(_ call: CAPPluginCall) {
         guard fromAppPage(call) else { return }
         let saved = UserDefaults.standard.dictionary(forKey: "branch-look") ?? [:]
-        call.resolve(["theme": saved["theme"] as? String ?? "forest", "mode": saved["mode"] as? String ?? "dark"])
+        call.resolve(["theme": saved["theme"] as? String ?? "slate", "mode": saved["mode"] as? String ?? "dark"])
     }
 
     @objc func notify(_ call: CAPPluginCall) {
