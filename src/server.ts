@@ -4000,6 +4000,9 @@ function isExecution(request: IncomingMessage, path: string): boolean {
 function configureLimits(server: Server): void {
   server.requestTimeout = 150000;
   server.headersTimeout = 10000;
+  // Node's own 5 seconds let the server drop an idle connection just as the window (or any fetch
+  // pool) sent its next request down it, which arrives as ECONNRESET after a few quiet seconds.
+  server.keepAliveTimeout = 65000;
   server.maxHeadersCount = 40;
 }
 async function stopServer(app: Branch, server: Server): Promise<void> {
