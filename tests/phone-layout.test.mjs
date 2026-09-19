@@ -320,6 +320,26 @@ test("at every width from a phone to a wide screen nothing runs off sideways and
   assert.deepEqual(f.errors, []);
 });
 
+test("a household person's bar offers exactly what their side list offers, and carries the same count", async (t) => {
+  const f = await fixture(t, { connect: false });
+  const person = f.app.store.profiles.create({ name: "Sam", pin: "1234" });
+  f.app.store.profiles.switch({ profileId: person.id, pin: "1234" });
+  await f.signIn();
+  await f.page.waitForFunction(() => document.documentElement.dataset.household === "on", null, { timeout: 10000 });
+  await f.page.waitForTimeout(1500);
+  const seen = await f.page.evaluate(() => ({
+    /* every place the side list holds for this person (the calm window folds them into More; they are still theirs) */
+    side: [...document.querySelectorAll(".lx-place-link")].filter((link) => !link.hidden).map((link) => link.dataset.place),
+    bar: [...document.querySelectorAll(".ew-place")].filter((button) => !button.hidden).map((button) => button.dataset.place),
+    sideCount: document.getElementById("lx-inbox-badge").hidden ? "" : document.getElementById("lx-inbox-badge").textContent,
+    barCount: document.getElementById("ew-inbox-badge").hidden ? "" : document.getElementById("ew-inbox-badge").textContent,
+  }));
+  assert.deepEqual(seen.bar.filter((place) => !["chat", "settings"].includes(place)), seen.side.filter((place) => place !== "customize"),
+    "the bar lists the side list's places (the conversation and Settings in Customize's spot, as in the sample)");
+  assert.equal(seen.barCount, seen.sideCount, "and the Inbox count is the side list's own");
+  assert.deepEqual(f.errors, []);
+});
+
 /** Shows a question at 390 px, with the policy answer rewritten by `edit` on its way to the page. */
 async function askOnPhone(f, edit = (body) => body) {
   await f.page.route("**/api/policy", async (route) => {

@@ -48,7 +48,7 @@ critiques #44, #53). Screenshots and terminal frames: `claude-session-files/bran
 
 ## Integration (adversarial integrator, 2026-09-19)
 
-Verdict: MERGE WITH FIXES (fixes below, commit 20cd9f3c on `integrate/p2-everywhere`).
+Verdict: MERGE WITH FIXES (fixes below, on `integrate/p2-everywhere`). The builder claimed no audit ids.
 
 - [x] Review: household profiles see only this computer on the terminal rail and no usage line (usageGlance and
       railItems both check the owner; tested). The phone bar's Inbox count mirrors the side list's badge and the bar
@@ -72,7 +72,13 @@ Verdict: MERGE WITH FIXES (fixes below, commit 20cd9f3c on `integrate/p2-everywh
       at 560 and under, side list a column from 700.
 - Screenshots: `phase2-shots/everywhere/window/*-fixed.png` (ask/talk at 390 with notch, 820, 1440, light and dark;
   firstpaint-none/forest-390-fixed.png).
-- Not changed / not provable here: `src/desktop/main.ts` still sets the Electron window's background to Forest before the
-  page paints (it is shown on ready-to-show, after the first paint; desktop tests are off-limits here). The phone app's
+- [x] Household check made a test: a household person's bar lists the same places their side list holds (no place is
+      removed for anyone; the calm window folds them into More) and carries the side list's own Inbox count.
+- [x] Fix: a saved run recording (src/run-recording-page.ts) names Forest on its page, so it keeps the look it always
+      had instead of taking the new Slate first paint (tests/run-recording.test.mjs asserts it).
+- Wider effect, on purpose: pages that load tokens.css and never name a theme (pair.html on a phone, people.html, the
+  dashboard before it wears its theme) now paint Slate, the default, instead of Forest.
+- Not visible, so not changed: `src/desktop/main.ts` sets the Electron window's background to Forest, but the window is
+  shown on ready-to-show, after the page's first paint. The phone app's
   own screens paint Slate first for a Forest chooser, then Forest once the window reports its theme (the native splash
   was already Slate). On the computer "No" still looks like the yeses (outside this branch's phone layout).
