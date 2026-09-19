@@ -606,6 +606,28 @@ test("review 4 a dry run (plan) never runs the tests and never asks", async (t) 
   assert.ok(app.store.events(run.id).some((event) => event.kind === "tool.simulated"));
 });
 
+test("--allow-tests with a dry run still never runs the tests", async (t) => {
+  const { app } = await testsFixture(t, [call("code.check", {}), say("done")]);
+  const run = await app.runtime.run({ prompt: "plan it", dryRun: true, allowProjectTests: true });
+  assert.equal(asked(app, run).length, 0);
+  assert.equal(ranTests(app, run), false);
+  assert.ok(app.store.events(run.id).some((event) => event.kind === "tool.simulated"));
+});
+
+test("branch headless --allow-tests runs the tests for its requests; without it they are skipped", async (t) => {
+  const { runHeadless } = await import("../dist/headless.js");
+  const { parseRunArgs } = await import("../dist/cli-run.js");
+  const check = call("code.check", {});
+  const { app } = await testsFixture(t, [check, say("done"), check, say("done")]);
+  const writer = { line() {}, note() {} };
+  const skipped = await runHeadless(app.runtime, { prompts: ["fix it"], flags: parseRunArgs([]), stopEarly: false }, writer);
+  assert.equal(skipped.exitCode, 0);
+  assert.equal(ranTests(app, { id: skipped.steps[0].runId }), false);
+  const allowed = await runHeadless(app.runtime, { prompts: ["fix it"], flags: parseRunArgs(["--allow-tests"]), stopEarly: false }, writer);
+  assert.equal(allowed.exitCode, 0);
+  assert.equal(ranTests(app, { id: allowed.steps[0].runId }), true);
+});
+
 test("review 1 with the switch off the guard is never consulted", async (t) => {
   const { app, workspace } = await readFirstFixture(t, [edit("one", "two"),
     call("files.write", { path: "a.txt", content: "three\n" }), say("done")], "off");
@@ -794,7 +816,9 @@ async function branchRun(t, args, extraEnv = {}) {
   await writeFile(join(workspace, "package.json"), JSON.stringify({ name: "p", type: "module" }));
   await writeFile(join(workspace, "test", "a.test.mjs"), 'import test from "node:test";\ntest("adds", () => {});\n');
   const env = { ...process.env, BRANCH_WORKSPACE: workspace, BRANCH_DATA_DIR: join(root, "data"), BRANCH_PROVIDER: "openai",
-    BRANCH_ENDPOINT: await checkingModel(t), BRANCH_MODEL: "m", BRANCH_API_KEY: "k", FORCE_TTY: "0", ...extraEnv };
+    BRANCH_ENDPOINT: await checkingModel(t), BRANCH_MODEL: "m", BRANCH_API_KEY: "k" };
+  delete env.FORCE_TTY; // a child started here has no terminal; that alone must make it a script
+  Object.assign(env, extraEnv);
   return new Promise((resolve) => execFile(process.execPath, ["dist/cli.js", "run", "fix it", ...args], { env, timeout: 120_000 },
     (error, stdout, stderr) => resolve({ code: error ? error.code ?? 1 : 0, stdout, stderr })));
 }

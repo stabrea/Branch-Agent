@@ -259,7 +259,7 @@ The tests question ended every unattended task (`branch run` from a script, the 
 with one plain line and the task carries on.
 
 - [x] "Nobody can answer" = `ToolContext.unattended` (new; set by `branch run` when stdin/stdout are not a
-  terminal — the same `looksInteractive` test `branch` itself uses — or with `--json`, and always by
+  terminal — the same `looksInteractive` test `branch` itself uses — and always by
   `branch headless`) or a task started by a schedule, trigger, chat app, MCP or A2A (`nobodyToAsk` in
   `src/coding/project-tests.ts`). The app window, `branch chat`, `branch run` typed in a terminal and an
   editor over ACP (which has its own answer loop) are still asked, exactly as before.

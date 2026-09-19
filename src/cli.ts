@@ -630,7 +630,7 @@ async function runOnce(
   if (preset) writer.note(preset.message);
   let run: Run;
   try {
-    run = await runForScripts(app.runtime, flags, writer, inTerminal && !flags.json);
+    run = await runForScripts(app.runtime, flags, writer, inTerminal);
   } finally {
     preset?.restore();
   }
