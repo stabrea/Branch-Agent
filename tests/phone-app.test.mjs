@@ -292,6 +292,47 @@ test("the desktop download carries the checked phone app in phone/, and builds w
   assert.equal(includedInApp("/phones"), false);
 });
 
+// mac7/android-release: the release builds and signs the Android app once, from the repository's
+// secrets, and every desktop download takes that one APK. A fork without the secrets still releases,
+// honestly without the phone app. The workflow is read as text, so a change to its shape fails here.
+test("the release signs the Android app once and every desktop download carries it, or none does", async () => {
+  const workflow = await readFile(new URL("../.github/workflows/package.yml", import.meta.url), "utf8");
+  const jobs = Object.fromEntries(workflow.split(/\n(?=  [a-z-]+:\n)/).slice(1).map((block) => [/^  ([a-z-]+):/.exec(block)[1], block]));
+  const android = jobs.android, build = jobs.build, publish = jobs.publish;
+  assert.ok(android && build && publish, "the android, build and publish jobs are all there");
+  const steps = android.split(/\n\s+- /).slice(1);
+  // Gated on the secrets, step by step (a job-level if cannot see secrets), so a fork skips cleanly.
+  assert.match(android, /HAS_ANDROID_KEY: \$\{\{ secrets\.ANDROID_KEYSTORE_BASE64 != '' && secrets\.ANDROID_KEYSTORE_PASSWORD != '' \}\}/);
+  for (const step of steps) {
+    if (/Say the downloads will not include/.test(step)) assert.match(step, /if: env\.HAS_ANDROID_KEY != 'true'/);
+    else if (/Remove the Android signing key/.test(step)) assert.match(step, /if: always\(\)/);
+    else if (/upload-artifact/.test(step)) assert.match(step, /if: steps\.phone-app\.outputs\.built == 'true'/);
+    else assert.match(step, /if: env\.HAS_ANDROID_KEY == 'true'/, step.split("\n")[0]);
+  }
+  // The key goes to this run's temporary folder, closed to others, and never onto the log.
+  const load = steps.find((step) => step.includes("Load the Android signing key"));
+  assert.match(load, /umask 077\n\s+printf '%s' "\$KEYSTORE_BASE64" \| base64 --decode > "\$RUNNER_TEMP\/branch-agent\.jks"/);
+  assert.match(steps.find((step) => step.includes("Remove the Android signing key")), /rm -f "\$RUNNER_TEMP\/branch-agent\.jks"/);
+  assert.doesNotMatch(workflow, /echo[^\n]*\$(KEYSTORE_BASE64|BRANCH_ANDROID_KEYSTORE_PASSWORD)|echo[^\n]*secrets\.ANDROID/);
+  // Signed with Branch's own certificate, or refused: phones only update from the same certificate.
+  const sign = steps.find((step) => step.includes("Build and sign the Android app"));
+  assert.match(android, /ANDROID_CERT_SHA256: 78ec3b2816557ae4df6222dd27f7abdb4746eea42464ad40ae7b34c6ef04bb76/);
+  assert.match(sign, /node scripts\/package-mobile\.mjs --android\n/);
+  assert.match(sign, /sha256sum --check Branch-Agent-android\.apk\.sha256/);
+  assert.match(sign, /grep -Fxq "Signer #1 certificate SHA-256 digest: \$ANDROID_CERT_SHA256"[\s\S]*exit 1[\s\S]*echo "built=true" >> "\$GITHUB_OUTPUT"/);
+  assert.match(android, /built: \$\{\{ steps\.phone-app\.outputs\.built \}\}/);
+  // Every desktop build waits for it and takes the same APK into the folder stagePhoneApp reads.
+  assert.match(build, /^  build:\n    needs: android\n/);
+  const fetch = build.split(/\n\s+- /).find((step) => step.includes("Fetch the phone app"));
+  assert.match(fetch, /if: needs\.android\.outputs\.built == 'true'/, "without the key the download is built as before");
+  assert.match(fetch, /name: phone-app\n\s+path: release\/mobile\n/);
+  assert.ok(build.indexOf("Fetch the phone app") < build.indexOf("npm run package:desktop"));
+  // Run by hand it builds the phone app only and never touches a release.
+  assert.match(workflow, /workflow_dispatch:\n\s+inputs:\n\s+phone_only:/);
+  assert.match(build, /if: github\.event_name == 'push' \|\| !inputs\.phone_only/);
+  assert.match(publish, /if: github\.event_name == 'push' && startsWith\(github\.ref, 'refs\/tags\/v'\)/);
+});
+
 /* ---------- who may open it ---------- */
 
 test("only the owner in the app window opens it, never under Lockdown or a short-lived key", async (t) => {
