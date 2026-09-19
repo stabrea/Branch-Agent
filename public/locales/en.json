@@ -4283,6 +4283,8 @@
   "terms.gemini.route": "Google sign-in through your own Google Cloud client, billed to your own project. Branch never reuses Gemini CLI's sign-in, which Google forbids; to use a Google plan, add Gemini CLI under coding assistants.",
   "terms.label": "Terms:",
   "terms.read": "Read the terms ↗",
+  "terms.read-of": "{name} terms ↗",
+  "terms.guide-of": "How {name} sign-in works (unofficial) ↗",
   "terms.standing.not-offered": "Not offered",
   "terms.standing.official": "Official route.",
   "terms.standing.retired": "Retired",

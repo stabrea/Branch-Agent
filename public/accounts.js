@@ -281,7 +281,8 @@ function termsLine(pool) {
   // Integration review: several links each say whose terms they are, never "Read the terms" twice.
   const several = pool.terms.links.length > 1;
   for (const link of pool.terms.links) {
-    const anchor = several ? node("a", "", `${link.label} ↗`) : worded("a", "terms.read");
+    const anchor = several && link.name
+      ? worded("a", link.guide ? "terms.guide-of" : "terms.read-of", "", { name: link.name }) : worded("a", "terms.read");
     anchor.href = link.url;
     anchor.target = "_blank";
     anchor.rel = "noopener noreferrer";

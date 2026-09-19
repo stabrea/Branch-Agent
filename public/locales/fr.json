@@ -4284,6 +4284,8 @@
   "terms.gemini.route": "Connexion Google avec votre propre client Google Cloud, facturée à votre propre projet. Branch ne réutilise jamais la connexion de Gemini CLI, ce que Google interdit ; pour utiliser un abonnement Google, ajoutez Gemini CLI parmi les assistants de programmation.",
   "terms.label": "Conditions :",
   "terms.read": "Lire les conditions ↗",
+  "terms.read-of": "Conditions : {name} ↗",
+  "terms.guide-of": "Connexion {name} : fonctionnement (non officiel) ↗",
   "terms.standing.not-offered": "Non proposé",
   "terms.standing.official": "Voie officielle.",
   "terms.standing.retired": "Retiré",
