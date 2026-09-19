@@ -9,6 +9,7 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { createServer, request } from "node:http";
 import { mkdir, mkdtemp, readFile, stat, utimes, writeFile } from "node:fs/promises";
@@ -319,7 +320,14 @@ test("the release signs the Android app once and every desktop download carries 
   assert.match(android, /ANDROID_CERT_SHA256: 78ec3b2816557ae4df6222dd27f7abdb4746eea42464ad40ae7b34c6ef04bb76/);
   assert.match(sign, /node scripts\/package-mobile\.mjs --android\n/);
   assert.match(sign, /sha256sum --check Branch-Agent-android\.apk\.sha256/);
-  assert.match(sign, /grep -Fxq "Signer #1 certificate SHA-256 digest: \$ANDROID_CERT_SHA256"[\s\S]*exit 1[\s\S]*echo "built=true" >> "\$GITHUB_OUTPUT"/);
+  assert.match(sign, /if \[ "\$digests" != "\$ANDROID_CERT_SHA256" \]; then[\s\S]*exit 1[\s\S]*echo "built=true" >> "\$GITHUB_OUTPUT"/);
+  // The digests are read whatever apksigner calls the signer: every one must be Branch's, and one is.
+  const rule = /digests="\$\((.+)\)"$/m.exec(sign)[1].replaceAll('"$RUNNER_TEMP/android-certs.txt"', "");
+  const digests = (listing) => execFileSync("sh", ["-c", rule], { input: listing, encoding: "utf8" }).trim();
+  const ours = "78ec3b2816557ae4df6222dd27f7abdb4746eea42464ad40ae7b34c6ef04bb76";
+  assert.equal(digests(`Signer #1 certificate DN: CN=Branch Agent\nSigner #1 certificate SHA-256 digest: ${ours}\n`), ours);
+  assert.equal(digests(`V2 Signer: certificate SHA-256 digest: ${ours}\nV3 Signer: certificate SHA-256 digest: ${ours}\n`), ours);
+  assert.notEqual(digests(`V2 Signer: certificate SHA-256 digest: ${ours}\nV3 Signer: certificate SHA-256 digest: ${"0".repeat(64)}\n`), ours);
   assert.match(android, /built: \$\{\{ steps\.phone-app\.outputs\.built \}\}/);
   // Every desktop build waits for it and takes the same APK into the folder stagePhoneApp reads.
   assert.match(build, /^  build:\n    needs: android\n/);

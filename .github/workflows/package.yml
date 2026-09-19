@@ -74,9 +74,11 @@ jobs:
           (cd release/mobile && sha256sum --check Branch-Agent-android.apk.sha256)
           signer="$(ls -1 "$ANDROID_HOME/build-tools" | sort -V | tail -n 1)"
           "$ANDROID_HOME/build-tools/$signer/apksigner" verify --print-certs "$apk" > "$RUNNER_TEMP/android-certs.txt"
-          if ! grep -Fxq "Signer #1 certificate SHA-256 digest: $ANDROID_CERT_SHA256" "$RUNNER_TEMP/android-certs.txt"; then
+          # apksigner labels the line by version ("Signer #1" or "V2 Signer"), so only the digests are read.
+          digests="$(sed -n 's/.*certificate SHA-256 digest: //p' "$RUNNER_TEMP/android-certs.txt" | sort -u)"
+          echo "Signed with certificate SHA-256 $digests"
+          if [ "$digests" != "$ANDROID_CERT_SHA256" ]; then
             echo "::error::The Android app is not signed with Branch's own certificate, so installed phones could not update to it."
-            grep -F "certificate SHA-256 digest" "$RUNNER_TEMP/android-certs.txt" || cat "$RUNNER_TEMP/android-certs.txt"
             exit 1
           fi
           echo "built=true" >> "$GITHUB_OUTPUT"
