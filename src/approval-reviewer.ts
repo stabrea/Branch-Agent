@@ -7,6 +7,7 @@ import { FeatureSwitchSchema } from "./loop-guard.js";
 import { redactLeaks } from "./leak-guard.js";
 import { evaluatePolicy, type Policy, type PolicyOutcome, type RunSource } from "./policy.js";
 import { isCommandTool } from "./policy-resources.js";
+import { judgeTargets, stricterThan } from "./policy-targets.js"; // mac7/multi-target
 import type { ApprovalGate } from "./approvals.js";
 import type { ModelPreset, ModelRouter } from "./models.js";
 import type { ToolRegistry } from "./registry.js";
@@ -162,11 +163,25 @@ function rawOutcome(host: ReviewerHost, check: PolicyCheck, about: ReviewedCall,
   const { call, args, context } = about;
   const resource = host.registry.resourceOf(call.name, check.target, args);
   const policy = host.policy(context.source ?? "owner", context.runId);
-  const ruled = evaluatePolicy(policy, { tool: call.name, target: check.target, readOnly, resource });
+  const ruled = everyTarget(host, policy, evaluatePolicy(policy, { tool: call.name, target: check.target, readOnly, resource }), about, check.target);
   const outcome = host.leakGuard.tighten(ruled, args);
   // R17-C integration review: a second look never takes away the question a personal tool or a lock always gets.
   const held = outcome.decision === "allow" && personalHold(call.name, args, context.source ?? "owner") !== null;
   return { outcome: held ? { ...outcome, decision: "ask", rule: null } : outcome, matched: ruled.rule !== null && policy.rules.includes(ruled.rule) };
+}
+
+/**
+ * mac7/multi-target: the rules' answer for the whole call, made stricter by any one of the things it
+ * touches, as the runtime's own check does; a call whose targets cannot be told is refused.
+ */
+function everyTarget(host: ReviewerHost, policy: Policy, whole: PolicyOutcome, about: ReviewedCall, callTarget: string): PolicyOutcome {
+  let targets;
+  try { targets = host.registry.targetsOf(about.call.name, about.args, about.context); } catch { return { decision: "deny", rule: null }; }
+  if (!targets) return whole;
+  const tool = about.call.name;
+  const spread = judgeTargets(policy, { tool, permission: host.registry.permissionOf(tool), callTarget, args: about.args,
+    resourceOf: (text) => host.registry.resourceOf(tool, text, about.args) }, targets);
+  return stricterThan(spread.decision, whole.decision) ? { decision: spread.decision, rule: spread.rule } : whole;
 }
 
 /**

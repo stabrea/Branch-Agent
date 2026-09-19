@@ -110,8 +110,8 @@
     align-items: start;
     gap: 10px 8px;
   }
-  #live-ask > strong,
-  #live-ask > p {
+  /* the heading, the question and anything said about it (the files it touches) run the card's full width */
+  #live-ask > :not(.live-ask-choice) {
     grid-column: 1 / -1;
   }
   #live-ask .live-ask-choice {
