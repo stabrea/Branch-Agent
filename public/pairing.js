@@ -215,7 +215,8 @@ function letInStep(panel) {
   const card = make("div", "pair-ask");
   card.append(make("p", "studio-lede", "pair.asks", "{name} ({kind}) asks to join.", { name: request.name, kind: platformWord(request.platform) }),
     make("p", "studio-note", "pair.asks.note", "Let it in only if you are pairing it now. Once in, it can do nothing until you switch something on."),
-    button("studio-primary", "devices.request.allow", "Let it in", () => decide(true)), button("", "devices.request.refuse", "Refuse", () => decide(false)));
+    make("div", "ov-acts"));
+  card.lastChild.append(button("studio-primary", "devices.request.allow", "Let it in", () => decide(true)), button("", "devices.request.refuse", "Refuse", () => decide(false)));
   panel.append(card);
 }
 async function decide(approve) {
