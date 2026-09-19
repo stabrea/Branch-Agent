@@ -4185,13 +4185,16 @@ this computer's own address. The door's chain (key, pairing, phone secret) is no
 which holds none of them and proves itself by signature instead, but a "never" rule for the device's
 id on `remote` in the list of who may reach Branch still turns it away there. The phone pairs from the phone itself: open the app, go to *Lend this phone to Branch* on its home
 screen, scan the same square and type the same six numbers. The phone makes its own Ed25519 key, keeps
-it in the iOS Keychain (this phone only, never a backup) or sealed with an Android Keystore key in the
-app's own storage, and signs with it there; the app's page never receives it, and neither does Branch,
+it in the iOS Keychain (this phone only, never a backup) or, on Android, inside the Android Keystore
+itself where it can never be read out (Android 13 and later; a phone whose Keystore has no Ed25519
+gets a software key sealed with a Keystore key in the app's own storage), and signs with it there; the app's page never receives it, and neither does Branch,
 which is given the public half alone. Everything is done on the native side because the app's page may
 only talk to itself (its Content-Security-Policy), and the address rule is checked there and in the
 page. The card also keeps the phone's own **never allow** list — the camera, a picture of the screen,
 the microphone and running programs — the phone's equivalent of `branch node never`. It only ever takes
-away. Today it keeps what it names out of what this phone offers Branch at all, so those switches never
+away. The camera and microphone refusals also hold inside the app's own web view: a page other than
+the phone app's own (the owner's Branch window included) is refused them while they are ticked, where
+the web view would otherwise grant them. Today it keeps what it names out of what this phone offers Branch at all, so those switches never
 appear in the card; turning a request away again at the moment it arrives lives in
 `apps/mobile/web/phone-node.js` and starts working with the socket below (this computer lets the owner
 switch on whatever the *platform* can do, so the second look is not spare). *Stop lending this phone* throws the key away on the phone; remove the device here too.
@@ -4271,7 +4274,8 @@ and `icons.mjs` write those native files before every build; none of them is kep
 
 **Building.** `npm run build`, then `npm ci` in `apps/mobile`, then
 `node scripts/package-mobile.mjs [--android] [--ios]`. Files land in `release/mobile/`, each with a
-`.sha256`:
+`.sha256`. To keep every output out of the checkout, set `BRANCH_MOBILE_OUT` (the finished files),
+`BRANCH_GRADLE_BUILD_DIR` (Gradle's build folders) and `BRANCH_MOBILE_WORK` (Xcode's):
 
 - `Branch-Agent-android.apk` — signed with a key made once on this Mac in
   `~/.branch-mobile-keystore/`. Its password is generated and kept in the macOS Keychain (service
@@ -4292,7 +4296,12 @@ the files for seven days. It publishes nothing.
 
 **Putting it on a phone.** Nothing here is uploaded anywhere; each route is a step the owner takes.
 
-- *iPhone, free Apple ID:* open `Branch-Agent-ios.ipa` in Sideloadly or AltStore, sign in with your
+- *iPhone, free Apple ID, with Xcode and a cable:* after `npm run sync` in `apps/mobile`, open
+  `apps/mobile/ios/App/App.xcodeproj`, choose your Personal Team for both targets, give both bundle
+  identifiers a prefix of your own, remove the App Groups capability from both (a personal team
+  cannot have it; only the share sheet loses its way in), pick the plugged-in iPhone and press Run.
+  The install stops opening after seven days; press Run again. A paid account lasts a year.
+- *iPhone, free Apple ID, without Xcode:* open `Branch-Agent-ios.ipa` in Sideloadly or AltStore, sign in with your
   Apple ID and install. A free ID's apps expire after seven days and need signing again (AltStore
   can do that on its own). Turn on Developer Mode on the phone when iOS asks.
 - *iPhone, paid Apple Developer account (TestFlight, then the App Store):* in the developer
