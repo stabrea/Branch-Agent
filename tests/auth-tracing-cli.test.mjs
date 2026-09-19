@@ -137,6 +137,9 @@ test("T1 instrumentation coverage: runs, rounds, tools, retrievals, channel deli
     async complete(request) {
       const said = request.messages.map((message) => message.content ?? "").join("\n");
       if (said.includes("a small piece")) return { content: "the small piece is done", toolCalls: [] };
+      // 0.18.1: a chat's task now waits for the owner before a write even under "No approvals", so the
+      // chat message is simply answered — what is under test there is the delivery span, not the write.
+      if (said.includes("say hello")) return { content: "hello", toolCalls: [] };
       const answered = request.messages.filter((message) => message.role === "tool").length;
       if (answered === 0)
         return { content: "", toolCalls: [{ id: "c1", name: "files.write", arguments: JSON.stringify({ path: "note.txt", content: "hi" }) }] };

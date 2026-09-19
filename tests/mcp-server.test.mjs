@@ -537,8 +537,11 @@ test("branch mcp-serve speaks JSON-RPC on standard input and output", async (t) 
 
   assert.equal(answers[0].result.serverInfo.name, "branch", stderr);
   assert.deepEqual(answers[1].result.tools.map((tool) => tool.name), ["branch.ask"]);
-  assert.equal(answers[2].result.isError, false);
-  assert.ok(answers[2].result.content[0].text.length > 0);
+  // 0.18.1 (deliberate update): this used to expect isError false, because "No approvals" let an MCP
+  // caller's task write the demo file unasked. It is now held to "Ask before changes", so the caller
+  // is told the task is waiting for the owner's yes.
+  assert.equal(answers[2].result.isError, true);
+  assert.match(answers[2].result.content[0].text, /Before I go ahead: Writing branch-demo\.txt/);
   assert.equal(stdout.trim().split("\n").length, 3, "a notification must not get a reply");
   assert.equal(exit, 0);
   assert.match(stderr, /ready for another AI tool/);

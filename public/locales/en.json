@@ -3047,6 +3047,7 @@
   "playground.result": "What came back",
   "playground.run": "Run it",
   "playground.title": "Try things out",
+  "policy.preset.off.description": "Tasks you start yourself get on with it; anything started from outside — a trigger, a chat app, another program — still asks before it changes anything.",
   "practice.body": "Branch can't do real work yet. Choose how it thinks in Settings, then ask for anything.",
   "practice.connect": "Choose how it thinks",
   "practice.title": "Practice mode",

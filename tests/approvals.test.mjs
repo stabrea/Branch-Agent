@@ -328,13 +328,15 @@ test("a task the owner did not start cannot be given a standing yes and never ge
     assert.equal(evaluatePolicy(capped, { tool: "files.read", target: "auto.txt", readOnly: true }).decision, "allow",
       `${source} runs may still read`);
   }
-  // A deny the owner set is kept for those tasks too, and nothing at all applies while no preset is picked.
+  // A deny the owner set is kept for those tasks too.
   savePolicy(app.store, app.runtime.owner, { rules: [{ tool: "shell.execute", decision: "deny" }] });
   assert.equal(evaluatePolicy(cappedPolicy(readPolicy(app.store, app.runtime.owner), "trigger"),
     { tool: "shell.execute", target: "git status", readOnly: false }).decision, "deny");
+  // Deliberately changed in 0.18.1 (security fix): this used to expect "allow", because "No approvals"
+  // left outside tasks unheld. It now holds them to "Ask before changes" like every other preset.
   savePolicy(app.store, app.runtime.owner, { preset: "off" });
   assert.equal(evaluatePolicy(cappedPolicy(readPolicy(app.store, app.runtime.owner), "trigger"),
-    { tool: "files.write", target: "auto.txt", readOnly: false }).decision, "allow");
+    { tool: "files.write", target: "auto.txt", readOnly: false }).decision, "ask");
   // The run itself cannot hand out a permanent yes.
   savePolicy(app.store, app.runtime.owner, { preset: "ask-before-changes" });
   const run = await app.runtime.run({ prompt: "write it", source: "trigger" });

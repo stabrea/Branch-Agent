@@ -3195,7 +3195,7 @@ The switch lives beside the one for other AI tools, in `settings/mcp-sharing` as
 
 **Tasks.** JSON-RPC 2.0 by `POST` to `/a2a`, with your session key as `Authorization: Bearer …` (the same key as every other route; the server listens on this computer only). `tasks/send` runs one task and answers with it. `tasks/get` finds one started earlier — in memory only, so a restart forgets tasks that were still running. `tasks/cancel` stops one. `tasks/sendSubscribe` answers with a stream instead: a `submitted` state, then one state update for every step Branch records, then the answer as an artifact and a last update marked `final`.
 
-A task is a plain Branch task: it shows in Activity with the same signed receipts, its events carry `source: "a2a"`, and an `a2a.task` event names the assistant that asked. Because you did not start it, it never gets more freedom than **Ask before changes** — a standing yes of yours does not travel to a stranger, so anything that would change a file, run a command or act on a web page stops and waits for you, and the caller is told the task is `input-required`. This works the same way as MCP, and so does its one gap: while you have chosen **No approvals** — which is how Branch behaves until you pick something else — there is nothing to hold a caller to, and it can use any of Branch's tools without stopping to ask. Pick an approval setting before you switch this on. Note too that the shared tool list shapes the card's skills but not what a task may do: `branch.ask` reaches the whole toolbox, within your approval setting.
+A task is a plain Branch task: it shows in Activity with the same signed receipts, its events carry `source: "a2a"`, and an `a2a.task` event names the assistant that asked. Because you did not start it, it never gets more freedom than **Ask before changes** — a standing yes of yours does not travel to a stranger, so anything that would change a file, run a command or act on a web page stops and waits for you, and the caller is told the task is `input-required`. This works the same way as MCP, and holds under **No approvals** too — the starting setting frees only the tasks you start yourself. Note too that the shared tool list shapes the card's skills but not what a task may do: `branch.ask` reaches the whole toolbox, within your approval setting.
 
 **What does not cross.** Only written instructions. A message part that is a file, an image or anything other than text is refused with "Branch takes written instructions only". One calling assistant may start 20 tasks a minute (a `-32003` error and HTTP 429 past that), and a task is stopped after two minutes, like every other task. Name yourself with an `X-Branch-Agent` header so the allowance and the record are per caller — it is a name for the record, not a credential, so the allowance only holds honest callers apart.
 
@@ -3816,7 +3816,7 @@ is written, and a skill arrives as its own document so it is installed and scann
 Settings → **When to check with me** decides how much Branch Agent may get on with by itself. Until
 you choose something, nothing changes: Branch Agent does whatever its tools allow, exactly as before.
 **The four choices.**
-- **No approvals** (the starting point). Nothing is checked with you and nothing is refused.
+- **No approvals** (the starting point). Tasks you start yourself get on with it; anything started from outside — a trigger, a chat app, another program — still asks before it changes anything.
 - **Ask before changes.** Reading is free. Anything that changes a file, runs a command or acts on a
   web page stops and waits for your yes.
 - **Just do it inside my workspace.** Writing files is fine. Running a command, and clicking or
@@ -3838,9 +3838,10 @@ your next message in that conversation to carry on.
 **Tasks you did not start yourself.** A task started by an inbound trigger, by a schedule or by
 another AI tool over MCP never gets more freedom than *Ask before changes*, and it cannot give
 itself a permanent yes from inside the run — the most it can be granted is a yes for that one
-conversation. This only applies once you have chosen something other than *No approvals*.
-Worth knowing before you choose: nobody is sitting there to answer for those tasks. Once you pick a
-setting, a schedule or trigger that wants to change something stops and waits, and stays waiting
+conversation. This applies under every setting, *No approvals* included (since 0.18.1). Tasks you start yourself get on with it; anything started from outside — a trigger, a chat app, another program — still asks before it changes anything. A
+schedule counts as started from outside even when you made it yourself, because nobody is there when it
+runs. Worth knowing: nobody is sitting there to answer for those tasks, so a schedule or trigger that
+wants to change something stops and waits, and stays waiting
 until you answer it in Settings. Branch Agent tells you it has: the pause appears under *Waiting for
 your yes*, and an outbound webhook subscribed to `approval.needed` is sent at the same time, so an
 unattended install can be told about it wherever you actually look.
