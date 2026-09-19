@@ -252,6 +252,35 @@ Notes, not fixed (judgement calls, fail closed or pre-existing):
 - Pre-existing, not this branch: a tool whose schema is not `.strict()` strips extra keys silently, while
   `policyTarget` still reads the raw `url`/`path`.
 
+## Follow-up: mac7/tests-unattended (2026-09-19)
+
+The tests question ended every unattended task (`branch run` from a script, the coding bench) with
+`needs_input` after 1–2 model calls. Now, when nobody can answer, `code.check` skips the project's tests
+with one plain line and the task carries on.
+
+- [x] "Nobody can answer" = `ToolContext.unattended` (new; set by `branch run` when stdin/stdout are not a
+  terminal — the same `looksInteractive` test `branch` itself uses — or with `--json`, and always by
+  `branch headless`) or a task started by a schedule, trigger, chat app, MCP or A2A (`nobodyToAsk` in
+  `src/coding/project-tests.ts`). The app window, `branch chat`, `branch run` typed in a terminal and an
+  editor over ACP (which has its own answer loop) are still asked, exactly as before.
+- [x] Skip path: in `CodeChanges.testsRefusal`, only after the verdict says "ask" (Lockdown and a No keep
+  their own answers); returns `testsSkippedNote(folder)` before anything is started. Nothing is saved or
+  remembered.
+- [x] Outside-started work: CHANGES still wait for the owner (`cappedPolicy`, 0.18.1) — `code.check` itself
+  is asked for such a task first; only the tests question after that yes is skipped instead of waiting.
+  Chat apps are skipped as the brief decided, although a chat person could answer Once before.
+- [x] `branch run --allow-tests` (and `branch headless --allow-tests`): `RunOptions.allowProjectTests`, for
+  that one task (every `code.check` in it, and its own specialists), never saved; the CLI refuses it under
+  Lockdown, in a household profile and under a short-lived key; the runtime re-checks (owner source, no
+  short-lived key/household person/chat along the recorded origin, Lockdown). A standing or conversation No
+  still wins; a Once is not used up. Not in `RunInputSchema` (strict), so it cannot come in over HTTP.
+- [x] Help: `branch run --help` / `branch headless --help` list it with a sentence (`notes` on the command
+  entry). Docs: `docs/configuration.md` "For scripts" and "The project's check".
+- [x] Tests: `tests/coding-next.test.mjs` "unattended: …", "--allow-tests …", "the real branch run …" (the
+  last two start the real CLI in a child process against a model on 127.0.0.1; `FORCE_TTY=1` stands in
+  for a terminal). Mutation-checked by editing `dist/`: the unattended skip, the flag's verdict line.
+- [x] Targeted run on this branch (before merge): 14 files, 216 tests, 213 pass, 0 fail, 3 skipped.
+
 ## Not done / not proven
 - No benchmark re-run (as instructed); none of these has been measured on the coding bench.
 - Electron itself was not run: `crashReporter.start` placement and `ELECTRON_RUN_AS_NODE` are tested through
