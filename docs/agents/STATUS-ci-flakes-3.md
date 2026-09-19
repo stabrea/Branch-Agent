@@ -83,6 +83,16 @@ STATUS-ci-flakes.md and STATUS-ci-flakes-2.md.
   between choosing and saving, trunk's file fails with exactly 'off' !== 'when-needed', the fix passes.
   The test keeps that wait.
 
+## Left for somebody: more of the same family, not failing CI today
+The window's refresh every 3 seconds redraws whole cards, and these write over what a person is in the
+middle of typing or choosing, so the value saved can be the old one:
+- public/mcp-workbench.js renderConnections: "keep warm" minutes, most servers at once, when to connect.
+- public/approvals.js render: the two limits (tool calls a minute, model rounds a minute).
+- public/misc.js: the category choosers.
+Each wants the same treatment as public/os-permissions.js here (write the saved answer in only while
+what is on screen is still what the file last wrote), or the `document.activeElement` guard that
+public/panels-hide.js uses for the see-through slider.
+
 ## Progress
 - [x] fixes above: b45e1070, 1f2de612, 8e9df59b, the walk-rules spelling test, bf8073a5
 - [x] after merging trunk 2674e2ae (settings redesign): clean dist, tsc, the 14 touched files +
