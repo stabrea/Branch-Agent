@@ -9,7 +9,11 @@ branch: an integrator reviews it. Every new test is in `tests/residuals.test.mjs
   `Runtime.carryOrigin` dropped `originFrom` for anything not from outside, so the copy lost the key's mark.
   It now keeps it when the named task was a short-lived key's: the copy records `shortLivedKey`, its key id is
   read along the chain (only that key may answer its questions), owner-only tools refuse it. Test 1; fails with the line taken out of dist.
-- [ ] 2. A Trunk task that stops to ask: its message is "waiting for a yes", not failed, and no failure notice is sent.
+- [x] 2. A Trunk task that stops to ask: its message is "waiting for a yes", not failed, and no failure notice is sent.
+  `TrunkMessages.finished`: `needs_input` makes the receipt `waiting` (a new status) and sends nothing back. The
+  owner answers the question and sends the next message in that Trunk's conversation (that is how a yes carries
+  on, public/approvals.js); that task takes the waiting receipt over, and its answer goes back as the reply (or
+  its failure as the notice, as before). Test 2 covers both halves; each fails with its line taken out of dist.
 - [ ] 3. A2A / ACP / app-server may only continue conversations they started; otherwise refused in plain words.
 - [ ] 4a. `process.start` arguments judged by command rules like a shell command.
 - [ ] 4b. `code.run` judged only by its permission.

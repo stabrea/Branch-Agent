@@ -12,6 +12,8 @@ import { createBranch } from "../dist/index.js";
 import { replayRun } from "../dist/replay.js";
 import { keyAnswerRefusal, runOrigin, underShortLivedKey } from "../dist/key-context.js";
 import { accessRefusal, keyRefusal } from "../dist/devices/tools.js";
+import { TrunkMessages } from "../dist/trunks/messages.js";
+import { fixture as trunksFixture, on } from "./trunks-helpers.mjs";
 
 /** A model that calls the tool the newest message names ("please <tool> <json>"), then says it is done. */
 function scripted() {
@@ -49,4 +51,35 @@ test("1. Do this again on a short-lived key's task is held as that key's work, n
   const own = (await replayRun(app.runtime, app.store, mine.id)).run;
   assert.equal(started(app, own.id).shortLivedKey, undefined);
   assert.equal(started(app, own.id).originFrom, undefined);
+});
+
+test("2. A Trunk's message whose task stops to ask waits for a yes: not failed, no failure notice, answered after", async (t) => {
+  const { app } = await trunksFixture(t);
+  on(app, "messages");
+  const ann = app.trunks.create({ name: "Ann" }), ben = app.trunks.create({ name: "Ben" });
+  await app.trunks.introduced();
+  app.trunks.messages.close(); // only the copy under test follows the tasks
+  const sent = [];
+  const messages = new TrunkMessages(app.store, app.runtime.owner, app.trunks.records,
+    { followUp: (sessionId, prompt, _person, carry) => { sent.push({ sessionId, prompt, carry }); return { id: "q", position: 1, queued: 1 }; } });
+  t.after(() => messages.close());
+  const own = await app.runtime.run({ prompt: "hi", sessionId: ann.chatSessionId });
+  messages.send({ ...app.runtime.context({ runId: own.id }), agent: `trunk:${ann.id}` }, { to: "ben", message: "ping" });
+  const task = (prompt, status, output) => {
+    const run = app.store.createRun(app.runtime.owner, prompt, ben.chatSessionId);
+    app.store.event(run.id, "run.started", {});
+    app.store.event(run.id, "run.finished", { status, output });
+    return run;
+  };
+  task(sent[0].prompt, "needs_input", "May I write ben.txt?");
+  const receipt = () => messages.receipts(ben.id).find((r) => r.kind === "message");
+  assert.equal(receipt().status, "waiting", "waiting for a yes, not failed");
+  assert.equal(sent.length, 1, "no failure notice goes back to Ann");
+  // The owner says yes and sends the next message in Ben's conversation; that task's answer is the reply.
+  const next = task("Go ahead.", "completed", "Written.");
+  assert.equal(receipt().status, "answered");
+  assert.equal(receipt().runId, next.id);
+  assert.equal(sent.length, 2);
+  assert.equal(sent[1].sessionId, ann.chatSessionId);
+  assert.match(sent[1].prompt, /^Reply from Ben \(@ben\) to your message:\nWritten\./);
 });

@@ -43,7 +43,8 @@ export interface Receipt {
   /** Where it was delivered, and the exact words, so the task that reads it can be matched. */
   sessionId: string;
   prompt: string;
-  status: "queued" | "delivered" | "answered" | "failed";
+  /** "waiting": the task that read it stopped to ask the owner a question (mac7/residuals); the next task in that conversation carries it on. */
+  status: "queued" | "delivered" | "waiting" | "answered" | "failed";
   depth: number;
   attempts: number;
   runId: string | null;
@@ -155,7 +156,8 @@ export class TrunkMessages {
     const run = this.store.run(runId);
     if (!run) return;
     if (kind === "run.started") {
-      const waiting = this.receipts().reverse().find((r) => r.status === "queued" && r.sessionId === run.sessionId && r.prompt === run.prompt);
+      const waiting = this.receipts().reverse().find((r) => r.status === "queued" && r.sessionId === run.sessionId && r.prompt === run.prompt)
+        ?? this.receipts().find((r) => r.status === "waiting" && r.sessionId === run.sessionId && r.runId !== runId);
       if (!waiting) return;
       this.update(waiting.id, { status: "delivered", runId });
       this.store.event(runId, depthEvent, { depth: waiting.depth });
@@ -165,6 +167,12 @@ export class TrunkMessages {
     if (receipt) this.finished(receipt, String(data.status ?? run.status), String(data.output ?? run.output ?? ""));
   }
   private finished(receipt: Receipt, status: string, output: string): void {
+    // mac7/residuals: a task that stopped to ask the owner has not failed. It waits for a yes, and the
+    // answer goes back once the next task in that conversation (the one after the owner's answer) ends.
+    if (status === "needs_input") {
+      this.update(receipt.id, { status: "waiting" });
+      return;
+    }
     if (status === "completed") {
       this.update(receipt.id, { status: "answered", reply: output.slice(0, 4000) });
       if (receipt.kind === "message" && !isPass(output)) this.answerBack(receipt, "reply", output);
