@@ -1,6 +1,6 @@
 import { mkdir } from "node:fs/promises";
-import { existsSync } from "node:fs";
-import { resolve, join, relative, isAbsolute } from "node:path";
+import { existsSync, readdirSync, rmSync } from "node:fs";
+import { resolve, join, relative, isAbsolute, basename } from "node:path";
 import { Store } from "./store.js";
 import { ToolRegistry } from "./registry.js";
 import { WorkspaceFiles, registerFiles } from "./files.js";
@@ -195,7 +195,10 @@ import { setFlyCoreMode, syncSuggestTool } from "./fly-core/tool.js";
 import { loadGatewayConfig } from "./never-break/gateway-config.js";
 import { gatewayDryRun, registerNeverBreak } from "./never-break/api.js";
 import { journalHook, openJournal, type TaskJournal } from "./never-break/journal.js";
-import { migrate, storeMigrations } from "./never-break/migrations.js";
+import { assertFormatReadable, dataOpenError, formatOf, migrate, storeMigrations, type MigrateReport } from "./never-break/migrations.js";
+import { activationJournalName, openActivationJournal, settleActivation, type ActivationJournal } from "./never-break/activation.js";
+import { databaseName } from "./install/layout.js";
+import { formatCopiesToPrune } from "./install/update-backup.js";
 import { recoverOnStart } from "./never-break/resume.js";
 import { connectGuidedTelegram, saveTelegramSetup, telegramSetupView } from "./never-break/telegram-setup.js";
 import { fileURLToPath } from "node:url";
@@ -278,7 +281,15 @@ export async function createBranch(options: {
   await files.checked(".", true);
   // mac2/desktop-ui: whether this is a new install decides whether the three-way switches start off.
   const existedBefore = existsSync(join(dataDir, "branch.sqlite"));
-  const store = new Store(join(dataDir, "branch.sqlite"));
+  // --- mac7/install-torture: the saved work is looked at before it is opened for writing, so data
+  // from a newer Branch is refused while it is still untouched, and a damaged or unwritable folder
+  // is said in plain words instead of SQLite's own. ---
+  const databasePath = join(dataDir, "branch.sqlite");
+  assertFormatReadable(databasePath, storeMigrations);
+  let store: Store;
+  try { store = new Store(databasePath); }
+  catch (error) { throw dataOpenError(databasePath, error); }
+  // --- end mac7/install-torture ---
   // --- mac3/never-break: the data format stamp (refuses data newer than this version can read) and
   // the task journal beside the database, flushed before every step.
   const { journal, reset: journalReset } = openNeverBreak(store, dataDir);
@@ -1457,15 +1468,59 @@ async function replayNamedRecipe(knowledge: Knowledge, store: Store, runtime: Ru
   if (!match) throw new Error(`No verified recipe called "${recipe}"`);
   await knowledge.replayProcedure(runtime.context({ runId }), match.id);
 }
+/**
+ * mac7/safe-rollback: tells the activation journal which format changes this version made to the
+ * saved work. Best effort throughout: a record that cannot be written only means a later undo is
+ * refused for want of one, which is the safe direction, and it must never stop Branch starting.
+ */
+function noteStoreMigration(dataDir: string, store: Store, report: MigrateReport): void {
+  if (report.from === report.to) return;
+  let opened: { journal: ActivationJournal } | null = null;
+  try {
+    opened = openActivationJournal(join(dataDir, activationJournalName));
+    const entry = opened.journal.current();
+    if (!entry) return;
+    const now = formatOf(store.sqlite);
+    opened.journal.noteMigration(entry.id, {
+      name: databaseName,
+      before: { version: report.from, readableBy: report.from },
+      after: now,
+      ran: storeMigrations.filter((one) => one.version > report.from && one.version <= report.to).map((one) => one.version),
+      backup: report.backup,
+    });
+  } catch { /* see above */ }
+  finally { opened?.journal.close(); }
+}
+
+/** mac7/install-torture: keeps the newest few copies taken before a change to the database's shape. */
+function pruneFormatCopies(dir: string, justTaken: string | null): void {
+  try {
+    const keep = justTaken ? basename(justTaken) : undefined;
+    for (const name of formatCopiesToPrune(readdirSync(dir), undefined, keep)) rmSync(join(dir, name), { force: true });
+  } catch { /* tidying is never a reason not to start */ }
+}
+
 /** mac3/never-break: stamps the store's data format and opens the journal; the store is closed if the stamp fails. */
 function openNeverBreak(store: Store, dataDir: string): { journal: TaskJournal; reset: string | null } {
   try {
-    migrate(store.sqlite, storeMigrations, { backupTo: join(dataDir, "update-backups", `before-format-${Date.now()}.sqlite`) });
+    // mac7/safe-rollback: an update the app handed over to a script never saw how it went; the
+    // version running now is the answer, so that is settled before anything else is written down.
+    try { settleActivation(join(dataDir, activationJournalName), String(createRequire(import.meta.url)("../package.json").version)); }
+    catch { /* a record that cannot be settled only means an undo is refused for want of one */ }
+    const report = migrate(store.sqlite, storeMigrations, { backupTo: join(dataDir, "update-backups", `before-format-${Date.now()}.sqlite`) });
+    // mac7/safe-rollback: the version that was just installed has moved the data on. The record of
+    // what the update changed learns it, so an undo knows whether going back is still safe.
+    noteStoreMigration(dataDir, store, report);
+    // mac7/install-torture: those copies are whole databases; a change that keeps failing would
+    // otherwise leave one behind on every start until the disk filled up.
+    pruneFormatCopies(join(dataDir, "update-backups"), report.backup);
     // A journal that cannot be read is put aside rather than stopping Branch from starting.
     return openJournal(join(dataDir, "journal.sqlite"));
   } catch (error) {
     store.close();
-    throw error;
+    // mac7/install-torture: whatever went wrong here is about the owner's saved work, so it reaches
+    // them as a sentence rather than as the database's own words.
+    throw dataOpenError(join(dataDir, "branch.sqlite"), error);
   }
 }
 async function closeBranch(
@@ -1573,6 +1628,7 @@ export * from "./skill-suggest.js";
 export * from "./skill-authoring.js";
 export * from "./plugins.js";
 export * from "./evaluation.js";
+export * from "./evaluation-honesty.js";
 export * from "./evaluation-suites.js";
 export * from "./evaluation-grading.js";
 export * from "./evaluation-runner.js";

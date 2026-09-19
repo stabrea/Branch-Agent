@@ -17,7 +17,9 @@ const { basename, dirname, join } = posix;
  * Installing and removing Branch on macOS and Linux without a single question, the counterpart of
  * `installer.ts` on Windows. Everything goes into this person's own folders, so nothing needs an
  * administrator: the app, a `branch` command that talks to it, and on Linux a menu entry. Removing
- * Branch keeps conversations and files unless the person asks for them to go too.
+ * Branch keeps conversations and files unless the person asks for them to go too — but what Branch
+ * itself downloaded (mac7/clean-uninstall: the programs that run models, and their models) always
+ * goes, because those gigabytes are Branch's doing rather than the person's work.
  */
 export type UnixPlatform = "darwin" | "linux";
 
@@ -345,6 +347,16 @@ export async function performUnixInstall(options: UnixInstallOptions): Promise<U
     quarantineCleared, icons, movedFrom };
 }
 
+/**
+ * mac7/clean-uninstall: the folders Branch fetches things into, inside its own data folder. They
+ * hold programs Branch downloaded and the models they read — gigabytes that are Branch's doing, not
+ * the person's work — so they go even when conversations and settings are kept. The names are
+ * fixed here and joined onto the layout's own data folder, so nothing outside it can be named.
+ */
+export const fetchedFolderNames = ["runners", "models", "local-installers", "local-models"] as const;
+export const fetchedFolders = (layout: UnixLayout): string[] =>
+  fetchedFolderNames.map((name) => join(layout.dataDir, name));
+
 export interface UnixUninstallOptions {
   layout: UnixLayout;
   deleteData?: boolean;
@@ -409,6 +421,12 @@ export async function performUnixUninstall(options: UnixUninstallOptions): Promi
   await options.removeService();
   await removeCopies(layout, removed, left, options.canWrite ?? canWriteDir, options.uid ?? myUid());
   await removeIcons(layout, removed);
+  // mac7/clean-uninstall: what Branch fetched goes whether or not the conversations are kept.
+  for (const folder of fetchedFolders(layout)) {
+    if (!(await lstat(folder).then(() => true, () => false))) continue;
+    await rm(folder, { recursive: true, force: true });
+    removed.push(folder);
+  }
   for (const [path, marker] of [[layout.launcher, launcherMarker], [layout.menuEntry, menuMarker]] as const) {
     if (!path || !(await lstat(path).then((found) => found.isFile(), () => false)) || !(await ours(path, marker))) continue;
     await rm(path, { force: true });

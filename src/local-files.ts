@@ -15,9 +15,17 @@ import type { LaunchEnv, RuntimeId } from "./local-launch.js";
  * checked against the SHA-256 its library published before it is put in place.
  */
 
-/** The folder each runtime keeps its models in. Ollama and LM Studio decide their own. */
-export function modelsFolder(runtime: RuntimeId, at: LaunchEnv, dataDir: string): string {
+/**
+ * The folder each runtime keeps its models in.
+ *
+ * mac7/clean-uninstall: when Branch fetched the program itself (`ownRunner`), its models go inside
+ * Branch too, so removing Branch takes the gigabytes with it. A program the person installed
+ * themselves keeps its own library where they already have it — moving it would be the same
+ * scattering, in reverse.
+ */
+export function modelsFolder(runtime: RuntimeId, at: LaunchEnv, dataDir: string, ownRunner = false): string {
   const join = at.platform === "win32" ? win32.join : posix.join;
+  if (ownRunner && (runtime === "ollama" || runtime === "lm-studio")) return join(dataDir, "models", runtime);
   switch (runtime) {
     case "ollama": return at.env.OLLAMA_MODELS?.trim() || join(at.home, ".ollama", "models");
     case "lm-studio": return join(at.home, ".lmstudio", "models");

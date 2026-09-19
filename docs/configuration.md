@@ -334,7 +334,7 @@ for a Google Cloud project.
 
 **What one click does** (`POST /api/local-models/setup`, with `{ "model": "qwen3-8b", "quant": "Q4_K_M" }` from the list, or `{ "name": "qwen3:8b" }`, and an optional `runtime`):
 
-1. Picks the program: the one asked for, or the first installed of Ollama, LM Studio, llama.cpp, MLX. Branch only looks for programs where they are normally installed (`candidatePaths` in `src/local-launch.ts`). **It never installs one**: when none is there, the answer is `needsRuntime` with each program's official page.
+1. Picks the program: the one asked for, or the first installed of Ollama, LM Studio, llama.cpp, MLX. Branch only looks for programs where they are normally installed (`candidatePaths` in `src/local-launch.ts`). When none is there, the answer is `needsRuntime` with each program's official page, and the one button below can install one for you if you let it.
 2. Judges the fit on **free** memory (`vm_stat` on a Mac, `MemAvailable` on Linux, Node's figure on Windows), the graphics (a card's own memory, or on Apple silicon the shared memory, capped by `sysctl iogpu.wired_limit_mb` when the owner set it), and the room for words: weights × 1.1 + the model's key/value cache for that context + 256 MB. The largest context from 32,768 down to 4,096 that fits well is chosen. A size that will not fit is refused unless `force` is sent.
 3. Checks the disk that will hold the model (`fs.statfs` on Ollama's `OLLAMA_MODELS` or `~/.ollama/models`, LM Studio's `~/.lmstudio/models`, or Branch's own `local-models/` folder), keeping 2 GB spare.
 4. Starts Ollama (`ollama serve`) or LM Studio (`lms daemon up`, `lms server start --port 1234`) if it is installed and not answering. On Linux, when Ollama is a system service, Branch says `sudo systemctl start ollama` instead of starting a second copy.
@@ -353,12 +353,29 @@ Routes, all under `/api/local-models`:
 | `POST /api/local-models/offers` | `{ "runtime": … }`: the list, with a fit and a context per size, for that program. |
 | `POST /api/local-models/search` | `{ "runtime", "query" }`. Hugging Face's search for LM Studio (GGUF), llama.cpp (GGUF) and MLX. Ollama's library has no search API, so for Ollama the query is looked up as an exact name in its registry, with its download size. |
 | `POST /api/local-models/setup`, `/setup/stop` | One click, and stopping it. |
+| `POST /api/local-models/one-button/plan` | What the one button would do, with nothing done: the program it would install (publisher, address, size, how it is checked, the exact commands) and a small, a middle and a large model sized for this computer. |
+| `POST /api/local-models/one-button` | The button itself: `{ "size": "small" \| "medium" \| "large", "agreedPlan": "<the plan's line>", "systemWide": false }`. |
+| `POST /api/local-models/install/switch` | `{ "mode": "off" \| "when-needed" \| "on" }` for `settings/local-runner-install`. |
+| Settings → Models → On this computer | `settings/local-runner-place`, `systemWide`: whether Branch may use a system installer, which puts the program outside Branch. No by default. |
 | `POST /api/local-models/unload` | `{ "runtime", "id" }`: Ollama `keep_alive: 0`, LM Studio `POST /api/v1/models/unload` with the instance id, or stopping the llama.cpp or MLX server Branch started. |
 | `POST /api/local-models/delete` | `{ "runtime", "id" }`: removes a downloaded model (and Ollama's sized copies, and the connection that used it) and says how much space it freed. LM Studio offers no delete route, so that one is refused with where to do it. |
 | `POST /api/local-models/runtime/start`, `/runtime/stop` | Starts an installed program; stops LM Studio's server or a program Branch started itself. |
 | `GET /api/local-models/downloads`, `POST /pull`, `/stop`, `/remove`, `/details`, `/load` | The earlier Ollama download routes and LM Studio load, kept for scripts; the changing ones also obey the switch. |
 | `GET` / `POST /api/local-models/routing` | Reads and saves the per-task routing rules (`settings/routing`). |
 | `POST /api/local-models/routing/preview` | Says which model would take a given task, and why, without running it. |
+
+**Installing the program itself** (`settings/local-runner-install`, `mode`, off by default; Settings → Models → On this computer → "Set one up for me"). This is the one place Branch changes your computer, so it has its own switch, it always asks first, and it is yours alone.
+
+One button takes a computer with nothing on it to a model that answers: install the program if it is missing, choose a model that fits, download it with progress, connect it, and ask it one small question to prove it works.
+
+- **Nothing happens until you say yes.** Pressing the button first shows what would be installed, who publishes it, the address it comes from, about how big the download is, how Branch checks it really is theirs, and the exact commands it would run. Your yes carries that plan's own line (`agreedPlan`) back, and only that exact plan then runs; if anything about it changed in between, Branch installs nothing and shows you the new one.
+- **It goes inside Branch (mac7/clean-uninstall).** Everything Branch fetches lands in Branch's own data folder, so that removing Branch takes it with it and nothing asks you for permissions of its own. Ollama comes from Ollama's own release as a plain archive — `Ollama-darwin.zip` on a Mac, `ollama-linux-<cpu>.tar.zst` on Linux, `ollama-windows-<cpu>.zip` on Windows — unpacked into `<data>/runners/ollama`, with its models in `<data>/models/ollama`. Branch reads the SHA-256 the publisher publishes beside the file and throws the download away if the two do not match; on a Mac it then asks macOS itself (`codesign --verify --strict`, `spctl --assess`) whether the program is signed by its publisher and notarised by Apple before the checked copy is put in place. No install script runs and nothing asks for your password on Linux, and no publisher's installer runs on Windows. Nothing installed this way registers a service, an entry that starts it when you sign in, or a file association: Branch runs the program straight out of that folder and never opens the bundle. Every command is an argument list; there is no shell line anywhere in this path.
+- **A program you already have is used as it is.** Branch looks in its own folder **last**, after the search path, Homebrew's folders, `/Applications` and `~/.lmstudio`, so a copy you installed yourself always wins and a second one is never installed. Its model library is left exactly where it is; only a copy Branch fetched is told to keep its models inside Branch (`OLLAMA_MODELS`).
+- **Where the models go, and how much room is left.** The card says the folder and how much space is free on that disk before anything is downloaded, and refuses with a plain sentence when the disk cannot take it (keeping 2 GB spare). On a Mac Branch asks Time Machine to skip the models folder (`tmutil addexclusion`, which needs no administrator), so gigabytes are not swept into a backup by surprise. That one step is advisory: if it does not take, the install still stands and the message says which hint was missed — a backup hint never decides whether a checked, unpacked program is thrown away.
+- **When a system installer is the only honest option.** LM Studio publishes no archive with a checksum, so it is installed with Homebrew (`brew install --cask lm-studio`) or winget (`winget install --id ElementLabs.LMStudio`); without either, Branch says so and points at lmstudio.ai rather than fetching it. You can also ask for a system-wide Ollama (`brew install ollama`, `winget install --id Ollama.Ollama`) by switching `settings/local-runner-place`, `systemWide`, on — no by default. Either way the card says plainly, before you agree, that the program will be **left behind when Branch is removed**, may ask you for permissions of its own and may start by itself when you sign in. Where it goes is part of the plan's own line, so a yes to the copy inside Branch is never a yes to the one outside it.
+- **What Branch will not do.** It never fetches anything unchecked. Downloads only ever come from `github.com`, `objects.githubusercontent.com`, `release-assets.githubusercontent.com` and `ollama.com`, each redirect checked again by hand. When a step fails, Branch says which step and what the program said, and stops: it never reports success it has not seen. After an install it looks the program up again the ordinary way and refuses to carry on if it is not really there.
+- **Choosing the model.** The three choices come from Branch's own list, sized for this computer by the same free-memory and graphics reading as the rest of this section, and only models that can use tools are offered. The suggested one is the largest that fits comfortably. Each says in plain words what it means here and how big the download is.
+- **Yours alone.** A message from a chat app, a short-lived key (which is also how another computer reaches this one), somebody else using this computer under their own profile, a Trunk, and work a schedule or a trigger started are each refused in one sentence, and while Lockdown is on nothing is installed whatever the switch says.
 
 **The list** is `data/local-models.json`: ten models, most in two or three sizes (Q4_K_M, Q8_0, F16, or gpt-oss's own MXFP4), each with its Ollama tag, Hugging Face GGUF file and SHA-256, and MLX repository where one exists, their sizes, whether it can use tools (a model that cannot is shown with a warning), and the figures the memory estimate needs. Sizes and hashes were read from the registries on 2026-09-17.
 
@@ -2093,6 +2110,63 @@ The design, the threat list and the test for each threat are in [never-break.md]
 
 **Updates that cannot brick it.** With the switch not off, the updater tries the unpacked version before anything is swapped (`src/never-break/canary.ts`): the process that holds the database takes a copy (`VACUUM INTO` of `branch.sqlite` and `journal.sqlite`, plus `locker.key` and `gateway.json`) into `updates/canary-*/` in the data folder — the window asks a background engine for it with `POST /api/never-break/snapshot` — and the new version's own runtime runs `branch start` with `BRANCH_SELF_TEST=<report>` on that copy (`src/never-break/self-test.ts`): it opens the saved work (applying its format changes to the copy), does a task with the offline model, loads every chat adapter, lets the timed jobs tick, carries an interrupted task on, and answers on its address. Any failed check stops the update with a sentence saying which, before the safety copy or the hand-over; the copy is always removed. A passed check writes `update-watch.json`; the new gateway watches the first `watchSeconds`, repairs a program folder an interrupted swap left half-done (`repairSwap`), ends the watch once the version has stayed up, and, if the new engine fails to start twice or trips the crash breaker inside the window, writes `updates/roll-back.sh` (or `roll-back.cmd`, started through the same hidden scheduled-task launcher as the update, so no console window opens) and closes: the script puts `<program>.previous` back, keeps the failed one as `<program>.failed`, promotes `<program>.previous-2`, and starts the previous version. Every update now keeps the last two versions (`.previous` and `.previous-2`) on all three systems. The gateway and its engine each state the contract version they speak and the range they read (`src/never-break/contract.ts`), so a new engine runs under an old gateway and the other way round for one release.
 
+**Going back from a bad update.** Every update writes down what it is about to change, before a
+single file moves, in `activation.sqlite` in the data folder (`src/never-break/activation.ts`,
+`synchronous=FULL`, and one of the places no task may touch): a fingerprint of the version that is
+installed and of the one replacing it (a SHA-256 digest over the sorted tree — each file's path,
+size and contents — plus where the file system keeps the folder), what format each database was in
+on both sides, which format changes ran, where the safety copies went, and **the newest data format
+the older version understood**, read from that version while it was still the one running. Only the
+newest activation is ever offered; earlier ones are marked superseded. Both ways of updating write
+one — `branch update --yes` and the app's Update button — and the app's stays `staged` until the
+next start says which version came up, because the window quits into the hand-over script. A record that cannot be
+written stops the update, because an update nobody can undo is not worth making; a file that cannot
+be read is put aside and a new one started, and an undo with nothing recorded refuses rather than
+guesses.
+
+`branch rollback` says what going back would do; `branch rollback --yes` does it. The decision is
+`assessRollback` in `src/never-break/rollback.ts`, and it **refuses**, in a sentence saying why and
+what to do instead, when: there is no record; this update was already undone or superseded; another
+copy of Branch already holds the undo (the claim is a conditional update inside `BEGIN IMMEDIATE`,
+so two copies at once cannot both run one); `<program>.previous` is gone; its fingerprint is not the
+one the update put aside; the fingerprint could not be finished inside its time budget, so nothing
+was really checked, or the fingerprint written down at update time was itself unfinished; the
+installed program is not the version this entry activated; the saved work is
+not in the format the entry recorded (`state-moved-since`); or the saved work has been migrated to a
+shape the older version cannot read and there is no recorded, copied way back
+(`state-migrated-no-rollback`). Refusing is the whole point: restoring an older program on top of
+newer data is how a rollback costs more than the failure did. A Branch that will not close stops the undo
+outright with nothing touched, exactly as it stops an update. `branch rollback` is macOS and Linux
+only; on Windows it says to use the app's Updates screen. When it is safe, the kept version goes
+back, the failed one is kept as `<program>.failed`, the spare moves up, the data is left alone (or
+the recorded format changes are taken back out after a copy — and the message says what that costs),
+the gateway is started again and the person is told in plain words. Every step is appended to the
+entry's ledger before it is attempted and each is tried even if an earlier one failed, so a rollback
+that only got part of the way says exactly how far. One cut off part-way is put back to one whole
+version by `repairRollback`, which the gateway's start-up tidy-up (`repairSwap`) already runs. The
+gateway's own automatic rollback, after a new version fails to stay up, asks the same gate first: a
+crash loop is recoverable, a database the installed program cannot open is not.
+
+**Starting on a broken machine (macOS and Linux).** Before anything opens the saved work for
+writing, Branch looks at it (`assertFormatReadable` in `src/never-break/migrations.ts`): data whose
+format is newer than this version understands is refused while it is still untouched, so the
+sentence "Nothing was changed" is true — before, the older version had already added columns,
+rewritten tasks that were running and thrown temporary sessions away by the time it said so. A
+damaged, unreadable or unwritable folder is said in plain words that name the file, say nothing was
+changed and point at the safety copies in `update-backups/` (`dataProblemSentence`), instead of
+SQLite's own "database disk image is malformed". `branch update --yes` reads the format the same
+way before it takes its safety copy or its copy for the check (`withStore` in
+`src/install/headless-update.ts`), so an older copy of Branch cannot rewrite newer work on its way
+to installing the newer one. A second Branch started on the same data folder
+refuses and says which folder is in use and what to do. A clock that jumped backwards no longer
+holds an update's watch open for ever or rolls a good version back on the first ordinary crash
+(`watchVerdict`), and no longer throws away the safety copy just written (`backupsToPrune`); the
+copies taken before a format change are pruned to the newest three as well. A fetched extra that is
+missing or whose download stopped half-way (the private browser, a reading-aloud program) is
+reported as missing with the command that gets it back, and Branch itself still starts. The whole
+set is exercised by `tests/never-break-install-chaos.test.mjs`, a seeded round that kills Branch
+mid-update, mid-format-change and mid-start (`BRANCH_INSTALL_SEEDS=200` for the long run).
+
 **Telegram from a card.** `customize:channels` has a **Set up Telegram** card (`public/telegram-setup.js`, `src/never-break/telegram-setup.ts`): the BotFather steps in plain words, a password field whose token goes straight into the locker as `TELEGRAM_BOT_TOKEN` in the default project (checked for BotFather's shape, never sent back), the three-way switch (settings key `telegram-setup`, shipped off), and a box for the six-digit code the bot sends a new person, which approves the owner's own account through the ordinary pairing. `GET|POST /api/never-break/telegram { mode?, token? }`. On a real start with the switch not off, Branch connects that bot through the network rules, unless the integrations file already has a Telegram channel. No real token was used to build or test it.
 
 **macOS and Linux.** The gateway is the same program on every system. It starts the engine with the same runtime it runs on (the app's own on an installed copy), with no window on Windows. The sign-in entries (`launchd`, `systemd --user`, the Windows scheduled task) are unchanged: they run `branch start`, which becomes the gateway when the switch is on, so `KeepAlive`/`Restart=on-failure` look after the gateway and the gateway looks after the engine. An engine whose gateway is killed closes itself within seconds, so the database is never left held.
@@ -2468,6 +2542,35 @@ result ids and reports the difference over the tasks both ran, with the range th
 very likely to be in, worked out by resampling the tasks two thousand times. When the range includes
 zero, nothing is claimed.
 
+**When a comparison is refused.** `compare` will not put two runs side by side unless both wrote
+down the conditions they ran under and those conditions match: the model choices and the models
+behind them, which model graded, the settings (`maxSteps`, `maxTokens`, `repeats`, `bestOfN`,
+`limit`, `retries`, where the tasks came from, the benchmarks folder), the version of Branch Agent,
+the computer, a hash of what every task actually says, and a digest of how the tasks were marked.
+Anything that differs is named in plain words with what you would have to do about it —
+"the model choices that answered: Before had fast, After had careful — run both sides with the same
+model choice". A result saved before this existed has no conditions at all, and that is refused
+too, because there is no way to tell what it measured. A run that lost a piece of work is refused
+on the same footing: a smaller denominator flatters whatever is left.
+
+This is deliberately a refusal rather than a footnote. A number with a caveat under it is still the
+number that gets quoted.
+
+**Repeats are a range.** With `repeats` above one, each model choice's row carries the spread its
+repeats covered as well as their mean, and the table prints both. One repeat has no spread and says
+so, which is what stops a single lucky run being read as a difference.
+
+**Where the money figure comes from.** Tokens are the provider's own reported count when the
+provider gave one, and Branch's own estimate only when it did not. The table says which, every
+time — "estimated: Branch counted the tokens itself and priced them from the table" is not the same
+claim as a bill, and is never printed as one.
+
+**A task nothing can decide.** A suite task with no checks, no scorers, no rubric and no "must not"
+list is refused when the suite is saved, and fails with that reason if an older suite still has one.
+It used to pass, whatever the answer said. A study also applies a suite task's own `checks` and
+`deny`, which it used to drop on the floor — so a task decided by checks is now decided by them in
+a study too, rather than passing for free.
+
 On the command line: `branch study list`, `branch study run <id> [--fresh] [--json]` (JSON is one
 result per line), `branch study compare <result id> <result id>`, and `branch study replay <id>`.
 
@@ -2493,6 +2596,52 @@ of what every task that ran says (its question, reference answer and scorers), n
 question reworded under the same id is a different dataset, so the two runs get different
 fingerprints and replay lists "Version of the tasks" among the changes. Entries written before this
 have no dataset version and keep the fingerprint they had. (A1082; `tests/chat-engine.test.mjs`.)
+
+**What replay prints when the two runs are not comparable.** It prints the refusal and nothing else.
+It used to print the table of what changed and then, underneath it, "Accuracy went from 0.0% to
+100.0%" — and that is the line a person quotes. Two runs whose conditions differ now get the reason
+they cannot be compared and no accuracy at all; two runs whose conditions match but whose study
+inputs moved get the table and the advice, and still no accuracy. (mac7/eval-honesty;
+`tests/evaluation-honesty.test.mjs`.)
+
+**How the tasks were marked.** The fingerprint covers a digest of the scorers themselves, not only
+their kinds: a rubric rewritten to be kinder keeps the kind `rubric`, and without this the two runs
+would look like the same experiment. The digest also covers which model grades, and leaves out any
+field whose name looks like a key or a token, so rotating a credential never moves it.
+
+### The grader cannot be reached by what it is grading
+
+A task's answer is the one part of a grading prompt that the thing being measured wrote, so it is
+the one part that can try to talk to its own judge. Two things stop it.
+
+The answer is **fenced**: wrapped in markers carrying sixteen fresh random bytes chosen after the
+text is in hand, with a sentence inside the block saying it is data and not instructions. An answer
+that ends with a plausible closing marker cannot close the block — it would have had to guess the
+nonce — and the "this is data" statement travels inside the fence, so it survives being pasted into
+an evaluator prompt somebody else wrote.
+
+The grader's own task is **isolated**. It gets its question and nothing else: no memory snapshot, no
+context files, no project instructions, no installed or pinned skills, no standing orders, no
+passages from your documents, no conversation and no tools. Nothing it does is learned from by the
+learning core, reviewed, or written into the record of outcomes. The fence alone would not be
+enough: a task that writes a memory, drops a file in the workspace or edits a skill could otherwise
+reach the judge that marks it the long way round, and the mark would stop meaning anything.
+
+### What is called a regression, and what is not
+
+A suite run says a task has regressed when it passed in each of the three runs before this one and
+has just failed. "The three runs before this one" now means the three most recent runs **measured
+the same way** — same model choice, same models, same version, same computer, same tasks, same
+scorers. A run on a cheaper model after three on a stronger one used to announce that something
+which used to work had stopped, and the nightly run sent that out as a regression notice.
+
+When there are not three comparable runs, the result says so in the same line a build log reads:
+"Nothing is called a regression here: of the 9 earlier run(s) of this suite, only 1 was measured the
+same way, and three are needed." Nothing found and nobody looked must never read the same.
+
+The trend (`GET /api/evaluation/trend`) marks each point with whether it can honestly be read
+against the newest one, and why not when it cannot — a trend line drawn through runs measured
+differently is a picture of the settings changing, not of the assistant changing.
 
 ### Scoring the real work as it finishes
 
@@ -8969,6 +9118,61 @@ after it opens a picker of the connections.
 
 Nothing here differs by system. Cmd counts as Ctrl for the shortcuts on macOS. The sound is played by the window
 itself, not by a system program.
+
+## Removing Branch and everything it installed (mac7/clean-uninstall)
+
+Everything Branch fetches lives inside Branch, so deleting Branch takes all of it with it. The
+**danger zone** is the last card in Settings → Updates & about, marked in the warning colour, and it
+is the one place in the window that removes things that cannot be brought back.
+
+**What it shows, before anything goes.** A list with real sizes, walked on this computer at the
+moment you look: Branch Agent itself, the programs Branch downloaded to run models
+(`<data>/runners`), the models it downloaded (`<data>/models`, and the older `<data>/local-models`),
+downloads kept part-way through (`<data>/local-installers`), your conversations and settings, the
+entry that starts Branch when you sign in, the `branch` command, and on Linux the applications-menu
+entry. Underneath, **what Branch cannot remove**, each named with the honest reason: a copy of
+Branch its own installer did not put there (a Mac's shared `/Applications`), and any program that
+runs models that lives outside Branch, because a system installer put it there or because you
+installed it yourself. Branch leaves those alone and tells you where they are.
+
+**Two choices, not one.** *Keep my conversations and settings* keeps the folder holding your work;
+what Branch downloaded still goes, because gigabytes of models are Branch's doing, not yours. It
+starts ticked, and a request that leaves `keepConversations` out keeps them too: only unticking it
+(`false`) takes your conversations and settings with everything else.
+
+**A misclick cannot pass.** The button stays off until you have typed `Branch Agent`, exactly, and
+your yes carries back the exact list you were shown (`agreedSurvey`); if what is really there has
+changed since you looked, nothing is removed and you are shown the new list.
+
+**Yours alone.** A message from a chat app, a short-lived key (which is also how another computer
+reaches this one), somebody else using this computer under their own profile, a Trunk, and work a
+schedule or a trigger started are each refused in one sentence. Unlike installing, this is *not*
+held off by Lockdown or by the install switch: taking Branch off your own computer stays yours.
+
+**Only a copy an installer put in place.** The card offers nothing when Branch is running from a
+source folder (a `.git` beside its `package.json`) or when no copy sits where its installer puts
+one; it says so plainly instead. That is a fact about the files, not an environment variable, so a
+window opened from the Dock is treated the same as one started from the `branch` command.
+
+**It works while Branch is running.** The removal closes the running Branch (and the engine that
+keeps working with the window closed) first, waits until it has really gone, takes out the sign-in
+entry, and only then removes the files. It is the same remover as `branch uninstall [--delete-data]`
+on the command line — there is no second path — extended to the folders Branch fetches into. That
+command now also prints which of those folders went, so "your conversations and files are kept"
+cannot be read as "nothing inside that folder was touched".
+
+| Route | What it does |
+| --- | --- |
+| `POST /api/remove-branch/plan` | `{ "keepConversations": true }` (the default): the list with sizes, what cannot be removed, the phrase to type, and the list's own line. Describes only; changes nothing. |
+| `POST /api/remove-branch` | `{ "keepConversations": true, "confirm": "Branch Agent", "agreedSurvey": "<the list's line>" }`. |
+
+On Windows both answer with the plain sentence pointing at *Add or remove programs* or
+`Uninstall Branch Agent.cmd /quiet`, because that is how Windows removes a program.
+
+**Which version this is.** The Updates card (Settings → Updates & about) says in plain words what is
+running and whether a newer one exists — "Running 0.18.0, newest is 0.18.1", or "Running 0.18.0,
+which is the newest", or that Branch has not looked yet — from the same update check as before.
+Nothing installs itself: *Update and restart* is still a button you press.
 
 ## Learning, deeper (R17-F)
 

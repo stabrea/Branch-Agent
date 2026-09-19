@@ -230,6 +230,17 @@ const reach: SettingSpec[] = [
 
 const comfort: SettingSpec[] = [
   one("local-models", "Models on this computer", "settings-kit.name.local-models", "settings:models:local", "plain", { keepsEnabled: true }),
+  // mac7/one-click (issue #107): installing a program that runs models is the one thing here that
+  // changes the owner's own computer, so it is its own switch and counts as reach.
+  one("local-runner-install", "Installing a program that runs models", "settings-kit.name.local-runner-install",
+    "settings:models:local", "reach"),
+  // mac7/clean-uninstall: what Branch fetches goes inside Branch, so removing Branch removes it.
+  // Allowing a system installer puts it outside Branch and leaves it behind, so it reaches further.
+  {
+    key: "local-runner-place", name: "Where a program that runs models is installed",
+    t: "settings-kit.name.local-runner-place", home: "settings:models:local",
+    fields: [yesNo("systemWide", "Allow installing outside Branch", "settings-kit.field.system-wide", "reach")],
+  },
   one("usage-report", "Usage report", "settings-kit.name.usage-report", "settings:data", "plain", { keepsEnabled: true }),
   one("event-loop-watch", "Whether Branch is keeping up", "settings-kit.name.event-loop", "settings:advanced", "plain",
     { write: (store, owner, patch) => { eventLoopWatch.follow(saveEventLoopSettings(store, owner, { ...eventLoopSettings(store, owner), ...patch })); } }),

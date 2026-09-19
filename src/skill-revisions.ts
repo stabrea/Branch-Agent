@@ -17,11 +17,25 @@ import { audit } from "./audit.js";
  * says yes or no. A draft they never accept simply sits there; nothing switches over on its own.
  */
 export interface TrialTask { prompt: string; runId: string }
-export interface TrialSide { finished: number; ms: number; tokens: number }
+export interface TrialSide {
+  finished: number; ms: number; tokens: number;
+  /**
+   * mac7/eval-honesty: tries that never produced a result at all — the provider was down, the
+   * child timed out. These used to be counted as "did not finish", which is the same number an
+   * answer that finished badly gets, so an outage on the version in use quietly made the draft
+   * look better and switched it on. They are counted apart and the trial refuses instead.
+   */
+  errors: number;
+  /** The model that actually answered on this side, when the run said. */
+  model?: string | null;
+}
 export interface TrialReport {
   tasks: number; baseline: TrialSide; candidate: TrialSide;
   /** Whether the draft did at least as well as the version in use. */
-  noWorse: boolean; ranAt: string; parentRunId: string;
+  noWorse: boolean;
+  /** Why this trial cannot be read at all, or null when it can. */
+  unreadable: string | null;
+  ranAt: string; parentRunId: string;
 }
 export interface RevisionCandidate {
   skillId: string; skillName: string; version: number; activeVersion: number | null;
@@ -59,6 +73,15 @@ export class SkillRevisions {
       decision: (saved.decision as RevisionCandidate["decision"]) ?? null,
       decidedAt: saved.decidedAt ? String(saved.decidedAt) : null };
   }
+  /** Which model actually answered one try, read off the event the runtime writes for every run. */
+  private modelOf(runId: string): string | null {
+    for (const event of this.store.events(runId))
+      if (event.kind === "model.selected") {
+        const model = (event.data as { model?: unknown }).model;
+        if (typeof model === "string") return model;
+      }
+    return null;
+  }
   private documentOf(skillId: string, version: number): string | null {
     try { return this.store.skills.read(this.owner, skillId, { version }).document; } catch { return null; }
   }
@@ -86,18 +109,25 @@ export class SkillRevisions {
     if (!tasks.length) throw new Error("This skill has not been used on a finished task yet, so there is nothing to try the draft against.");
     const parent = await runtime.run({ prompt: `Try the draft of "${skill.name}" against version ${base} on ${tasks.length} recent task(s)`, dryRun: true });
     const context = runtime.context({ runId: parent.id, dryRun: true });
-    const sides = { baseline: { finished: 0, ms: 0, tokens: 0 }, candidate: { finished: 0, ms: 0, tokens: 0 } };
+    const sides = {
+      baseline: { finished: 0, ms: 0, tokens: 0, errors: 0, model: null as string | null },
+      candidate: { finished: 0, ms: 0, tokens: 0, errors: 0, model: null as string | null },
+    };
     for (const task of tasks) for (const side of ["baseline", "candidate"] as const) {
       const started = Date.now();
       const run = await runtime.delegate(task.prompt, context, [...context.permissions],
         `The skill being tried (${side}):\n${documents[side]}`, { timeoutMs: 120000 }).catch(() => null);
       const usage = run ? this.store.usage(run.id) as { estimatedInput?: number; estimatedOutput?: number } : {};
+      if (!run) sides[side].errors += 1;
       sides[side].finished += run?.status === "completed" ? 1 : 0;
       sides[side].ms += Date.now() - started;
       sides[side].tokens += (usage.estimatedInput ?? 0) + (usage.estimatedOutput ?? 0);
+      sides[side].model ??= run ? this.modelOf(run.id) : null;
     }
     const report: TrialReport = { tasks: tasks.length, baseline: sides.baseline, candidate: sides.candidate,
-      noWorse: sides.candidate.finished >= sides.baseline.finished, ranAt: new Date().toISOString(), parentRunId: parent.id };
+      noWorse: sides.candidate.finished >= sides.baseline.finished,
+      unreadable: trialRefusal(sides.baseline, sides.candidate),
+      ranAt: new Date().toISOString(), parentRunId: parent.id };
     this.store.save("settings", this.owner, this.key(skillId, version), { ...(this.saved(skillId, version) ?? {}), trial: report });
     this.store.event(parent.id, "skill.candidate_tried", { skillId, version, ...report });
     return report;
@@ -109,6 +139,9 @@ export class SkillRevisions {
     const trial = saved.trial as TrialReport | undefined;
     if (!options.force && !trial)
       throw new Error("Try the draft on the last few tasks first, so there is something to compare.");
+    // mac7/eval-honesty: a trial that could not be read is not a trial the draft passed, and it is
+    // not a trial the draft failed either. Saying "it did worse" would be the wrong reason.
+    if (!options.force && trial?.unreadable) throw new Error(trial.unreadable);
     if (!options.force && trial && !trial.noWorse)
       throw new Error("The draft did worse than the version in use on those tasks. Accept it anyway only if you mean to.");
     const skill = this.store.skills.view(this.owner, skillId);
@@ -133,6 +166,22 @@ export class SkillRevisions {
     this.store.save("settings", this.owner, this.key(skillId, version), next);
     return this.describe(skillId, version, next)!;
   }
+}
+
+/**
+ * Why a trial cannot be read as a comparison, or null when it can. Two ways: a try that produced
+ * no result at all on either side, and the two sides having been answered by different models.
+ */
+export function trialRefusal(baseline: TrialSide, candidate: TrialSide): string | null {
+  if (baseline.errors || candidate.errors) {
+    const where = [baseline.errors ? `${baseline.errors} on the version in use` : "", candidate.errors ? `${candidate.errors} on the draft` : ""].filter(Boolean);
+    return `This trial cannot be read: ${where.join(" and ")} produced no result at all — the model could not be reached, or the try ran out of time. `
+      + `A try that never happened is not a try that went badly, and counting it as one would make whichever side had the outage look worse. Try the draft again.`;
+  }
+  if (baseline.model && candidate.model && baseline.model !== candidate.model)
+    return `This trial cannot be read: the version in use was answered by ${baseline.model} and the draft by ${candidate.model}, `
+      + `so any difference between them could be the model rather than the skill. Try the draft again with one model choice.`;
+  return null;
 }
 
 export const SkillSyncSchema = z.object({

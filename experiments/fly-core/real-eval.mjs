@@ -49,6 +49,8 @@ import { pathToFileURL } from "node:url";
 import { builtInSuites } from "../../dist/evaluation-suites.js";
 import { denyProblem } from "../../dist/evaluation-grading.js";
 import { evaluateChecks } from "../../dist/reliability.js";
+import { conditionsVersion, machineIdentity, scorerDigest } from "../../dist/evaluation-honesty.js";
+import { datasetVersionOf } from "../../dist/study-journal.js";
 
 export const defaultSuites = ["everyday", "tool-use", "reliability", "cost", "safety"];
 export const failureCheckSuites = ["safety"];
@@ -103,6 +105,28 @@ export function loadSuites(ids) {
 
 const sum = (values) => values.reduce((total, value) => total + (value ?? 0), 0);
 const known = (values) => values.filter((value) => value !== null && value !== undefined);
+
+/**
+ * mac7/eval-honesty: what one arm was measured under, in the same shape `comparisonRefusal` reads,
+ * so two reports saved at different times cannot be read together unless they agree on all of it.
+ * Without this, `--from a.json --from b.json` would happily put a run on one machine, one build and
+ * one model beside a run on another and call the difference a result.
+ */
+export function armConditions(target, suites, options, version) {
+  return {
+    version: conditionsVersion,
+    presets: [target.arm], models: [target.model ?? "not recorded"], judgeModel: null,
+    settings: {
+      passes: options.passes, maxSteps: options.maxSteps, maxTokens: options.maxTokens,
+      suites: options.suites.join(","), kind: target.kind, sharedDataFolder: Boolean(target.sharedFolder),
+    },
+    appVersion: version ?? "not recorded",
+    machine: machineIdentity(),
+    taskSetHash: datasetVersionOf(suites.flatMap((suite) => suite.tasks.map(({ id, prompt, expected, checks, deny, scorers, judge }) => ({ id, prompt, expected, checks, deny, scorers, judge })))),
+    scorerDigest: scorerDigest({ scorers: suites.flatMap((suite) => suite.tasks.flatMap((task) => task.scorers ?? [])), judgeModel: null }),
+    costBasis: target.kind === "hermes" ? "reported" : "estimated",
+  };
+}
 
 /** One suite on a running Branch, with each task's record read back for its tool calls and applied advice. */
 async function branchSuite(target, suite, options) {
@@ -195,13 +219,17 @@ export function hermesTarget(url, key, model, workspace) {
 }
 
 /** The numbers for one pass: pass rate over graded tasks, and per-task means of the rest. */
-export function passSummary(tasks) {
+export function passSummary(tasks, problems = []) {
   const ran = tasks.filter((task) => !task.skipped);
   const graded = ran.filter((task) => task.passed !== null);
   const checked = ran.filter((task) => task.checksPassed !== null);
   const mean = (values) => (values.length ? Math.round((sum(values) / values.length) * 1000) / 1000 : null);
   return {
     tasks: ran.length, skipped: tasks.length - ran.length,
+    // mac7/eval-honesty: a whole suite that failed to run used to vanish — its tasks simply were
+    // not in the denominator, and every figure below was quietly over what was left. The count
+    // travels with the figures now, and the proof refuses to judge a pass that lost one.
+    suitesMissing: problems.length,
     successRate: graded.length ? Math.round((graded.filter((task) => task.passed).length / graded.length) * 1000) / 1000 : null,
     checksSuccessRate: checked.length ? Math.round((checked.filter((task) => task.checksPassed).length / checked.length) * 1000) / 1000 : null,
     toolCallsPerTask: mean(known(ran.map((task) => task.toolCalls))),
@@ -225,13 +253,15 @@ async function runTarget(target, suites, options, log) {
         catch (error) { problems.push({ suite: suite.id, problem: error.message }); }
       }
       const main = tasks.filter((task) => !failureCheckSuites.includes(task.suite));
-      passes.push({ pass, summary: passSummary(main), failureCheck: tasks.filter((task) => failureCheckSuites.includes(task.suite)), tasks: main, problems });
-      log(`${target.name}: repeat ${repeat} pass ${pass}: ${JSON.stringify(passSummary(main))}`);
+      const summary = passSummary(main, problems);
+      passes.push({ pass, summary, failureCheck: tasks.filter((task) => failureCheckSuites.includes(task.suite)), tasks: main, problems });
+      log(`${target.name}: repeat ${repeat} pass ${pass}: ${JSON.stringify(summary)}`);
     }
     repeats.push({ repeat, ...prepared, passes });
   }
   const version = await target.version?.().catch(() => null) ?? null;
-  return { target: target.name, kind: target.kind, arm: target.arm, version, sharedFolder: target.sharedFolder, repeats };
+  return { target: target.name, kind: target.kind, arm: target.arm, version, sharedFolder: target.sharedFolder,
+    conditions: armConditions(target, suites, options, version), repeats };
 }
 
 /** Mean and spread (smallest to largest) of one number over repeats, at one pass. */
