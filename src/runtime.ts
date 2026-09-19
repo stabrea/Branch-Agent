@@ -2571,8 +2571,18 @@ ${run.output.slice(0, 6000)}`;
     call: ToolCall,
     context: ToolContext,
   ): Promise<unknown> {
-    let args: unknown, validArgs = true;
-    try { args = JSON.parse(call.arguments); } catch { validArgs = false; }
+    let parsed: unknown, validArgs = true;
+    try { parsed = JSON.parse(call.arguments); } catch { validArgs = false; }
+    // mac7/coding-next: keys the tool does not take are dropped here, before anything looks at the
+    // call — the policy, the approval, the wall and the tool all see only what is left — and the
+    // model is told in one line which ones were ignored. The approval's fingerprint and the bytes
+    // shown stay those of the exact request sent, which can only make a yes narrower, never wider.
+    const { args, ignored } = validArgs ? this.registry.clean(call.name, parsed) : { args: parsed, ignored: [] };
+    if (ignored.length) this.store.event(context.runId, "tool.arguments_ignored", { name: call.name, id: call.id, keys: ignored });
+    const outcome = await this.runToolCall(call, context, args, validArgs);
+    return ignored.length && outcome && typeof outcome === "object" ? { ...outcome, note: ignoredNote(ignored) } : outcome;
+  }
+  private async runToolCall(call: ToolCall, context: ToolContext, args: unknown, validArgs: boolean): Promise<unknown> {
     // The file a call is about is written down beside it — the path only — so that later the
     // assistant can notice which files this person keeps coming back to. See src/memory-learning.ts.
     const path = filePathOf(call.name, args);
@@ -2662,6 +2672,11 @@ export function channelSource(answeredOn: string | undefined): AuditSource | nul
   const name = answeredOn.trim().toLowerCase();
   return (auditSources as readonly string[]).includes(name) && !["owner", "trigger", "schedule", "system", "channel"].includes(name)
     ? (name as AuditSource) : "chat";
+}
+
+/** mac7/coding-next: the one line a model is told when some of its arguments were not used. */
+export function ignoredNote(keys: readonly string[]): string {
+  return `Ignored ${keys.length === 1 ? "an argument" : "arguments"} this tool does not take: ${keys.join(", ")}.`;
 }
 
 export function argumentFingerprint(argumentBytes: string): string {

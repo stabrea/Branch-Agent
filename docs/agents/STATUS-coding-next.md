@@ -8,7 +8,7 @@ Order worked: 5, 6, 3, 2, 1, 4 (2 before 1 because both touch `runtime.callTool`
 - [x] 5. `code.run` (and every other `process.execPath` spawn) runs as Node inside the desktop app
 - [x] 6. Crash capture switchable, ships off (engine crash notes + Electron crash reporter)
 - [x] 3. Longer first-reply wait for local models, with a status line
-- [ ] 2. Unknown tool arguments dropped (not refused), the model told; permission check sees cleaned arguments
+- [x] 2. Unknown tool arguments dropped (not refused), the model told; permission check sees cleaned arguments
 - [ ] 1. Read before edit
 - [ ] 4. "Let Branch run this project's tests?" asked once per folder
 - [ ] Merge latest `origin/mac/cross-platform`, rebuild, retest, push
@@ -82,3 +82,27 @@ Tests: `tests/coding-next.test.mjs` "5 …" — the helper, and `code.run` with 
   defaults updated for the new field.
 - Seen once: `tests/empty-completion-adversarial.test.mjs` failed at file level (no subtest failed) under
   `--test-concurrency=2`; passed alone and twice more concurrently. Looks like a teardown flake, not this change.
+
+### 2. Extra tool arguments
+- `ToolRegistry.clean(name, args)` (src/registry.ts): parses with the tool's own schema; if every issue is
+  `unrecognized_keys`, removes exactly those keys (nested ones too, e.g. `edits.0.line`) and parses again
+  (at most 3 rounds). It returns cleaned arguments only when they now parse; a wrong type or a missing field
+  leaves the arguments exactly as sent, so the call is refused as before. Works through `files.edit`'s
+  preprocess wrapper (its alias names are mapped first, then unknown keys reported).
+- `Runtime.callTool` cleans immediately after `JSON.parse`, before anything else looks at the call, and hands
+  the cleaned arguments to all of it: the file note, the policy check and approval (`gate`/`checkPolicy`,
+  `targetOf`, `describeToolCall`), the wall, the tool, the troubleshooter. The body that used to be
+  `callTool` is now `runToolCall(call, context, args, validArgs)`, unchanged apart from taking `args`.
+- Deliberately NOT changed: the approval fingerprint and the bytes shown on the approval card are still those
+  of the exact request sent (`call.arguments`). That can only make a yes narrower (the same call without the
+  junk is asked about again), never wider, and keeps the replay/journal semantics as they were.
+- The model is told in one line, as a sibling of `result` in the envelope (so signed receipts do not change):
+  `note: "Ignored an argument this tool does not take: format."`; event `tool.arguments_ignored` lists the keys.
+- No switch: precedent is the merged coding-gap fixes (whitespace-tolerant edits, patch placement, alias
+  names), which shipped unswitched as refusal-quality fixes. It never runs anything the call did not ask for.
+- Scope: model calls through `callTool` only. `executeTool` (routes, "Try a tool", tools.script) and the MCP
+  server that exposes Branch's tools to other agents still refuse unknown keys.
+- Tests: `tests/coding-next.test.mjs` "2 …": clean() cases (dropped, untouched, wrong type, missing field,
+  nested, files.edit aliases); a real run with an extra key succeeds with the note; a wrong type is still
+  refused; and a deny rule for `keep.txt` still fires when the model adds a `url` that would have made the raw
+  call's target a different host (policyTarget reads `url` before `path`).

@@ -224,3 +224,75 @@ test("3 the owner's setting: localFirstReplySeconds overrides the launch figure;
   saveKnobs(app.store, "local", "limits", { localFirstReplySeconds: null });
   assert.equal(localFirstReplyMs(app.store, "local", app.runtime.reliability), 300_000);
 });
+
+// ------------------------------------------------------------------ 2. unknown tool arguments
+
+/** A provider driven by a script of answers, one per round; the last one repeats. */
+function scripted(steps) {
+  const provider = { name: "scripted", requests: [], async complete(request) {
+    provider.requests.push(request);
+    return steps[Math.min(provider.requests.length - 1, steps.length - 1)](request);
+  } };
+  return provider;
+}
+const say = (content) => () => ({ content, toolCalls: [] });
+const call = (name, args) => () => ({ content: "", toolCalls: [{ id: `c${Math.random().toString(36).slice(2, 8)}`, name, arguments: JSON.stringify(args) }] });
+const toolMessages = (app, run) => app.store.messages(run.sessionId).filter((message) => message.role === "tool").map((message) => JSON.parse(message.content));
+
+test("2 clean: unknown keys are dropped, and only when what is left is a valid call", async (t) => {
+  const { app } = await fixture(t);
+  const clean = (name, args) => app.registry.clean(name, args);
+  assert.deepEqual(clean("files.read", { path: "a.txt", format: "js" }), { args: { path: "a.txt" }, ignored: ["format"] });
+  assert.deepEqual(clean("files.read", { path: "a.txt" }), { args: { path: "a.txt" }, ignored: [] }, "a clean call is untouched");
+  // A wrong type or a missing field is left exactly as sent, so the call is refused as before.
+  assert.deepEqual(clean("files.read", { path: 5, format: "js" }), { args: { path: 5, format: "js" }, ignored: [] });
+  assert.deepEqual(clean("files.read", { format: "js" }), { args: { format: "js" }, ignored: [] });
+  // Inside a list, and through files.edit's own argument names.
+  const set = clean("code.change_set", { reason: "r", edits: [{ path: "a", find: "x", replace: "y", line: 3 }], why: "?" });
+  assert.deepEqual(set.ignored.sort(), ["edits.0.line", "why"]);
+  assert.deepEqual(set.args, { reason: "r", edits: [{ path: "a", find: "x", replace: "y" }] });
+  const edit = clean("files.edit", { file_path: "a", old_string: "x", new_string: "y", mode: "fast" });
+  assert.deepEqual(edit.ignored, ["mode"]);
+  assert.equal(edit.args.old_string, "x", "the other agents' names still reach files.edit's own mapping");
+});
+
+test("2 a call with an extra key runs, and the model is told in one line what was ignored", async (t) => {
+  const provider = scripted([call("files.read", { path: "notes.txt", format: "text" }), say("done")]);
+  const { app, workspace } = await fixture(t, { provider });
+  const { mkdir, writeFile } = await import("node:fs/promises");
+  await mkdir(workspace, { recursive: true });
+  await writeFile(join(workspace, "notes.txt"), "hello");
+  const run = await app.runtime.run({ prompt: "read notes.txt" });
+  assert.equal(run.status, "completed", run.output);
+  const [answer] = toolMessages(app, run);
+  assert.equal(answer.ok, true);
+  assert.equal(answer.result.content, "hello");
+  assert.equal(answer.note, "Ignored an argument this tool does not take: format.");
+  assert.deepEqual(app.store.events(run.id).find((event) => event.kind === "tool.arguments_ignored").data.keys, ["format"]);
+});
+
+test("2 a wrong type is still refused, extra key or not", async (t) => {
+  const provider = scripted([call("files.read", { path: 42, format: "text" }), say("done")]);
+  const { app } = await fixture(t, { provider });
+  const run = await app.runtime.run({ prompt: "read" });
+  const [answer] = toolMessages(app, run);
+  assert.equal(answer.ok, false);
+  assert.match(answer.error, /path/);
+  assert.equal(answer.note, undefined);
+});
+
+test("2 an unknown key cannot steer the permission check: the rule sees the cleaned call", async (t) => {
+  // files.write takes no `url`. Were the raw arguments judged, the target would be the url's host
+  // (policyTarget reads `url` before `path`) and the owner's refusal for this file would be missed.
+  const provider = scripted([call("files.write", { path: "keep.txt", content: "overwritten", url: "https://trusted.example/" }), say("done")]);
+  const { app, workspace } = await fixture(t, { provider });
+  const { addPolicyRule } = await import("../dist/policy.js");
+  const { mkdir, writeFile, readFile } = await import("node:fs/promises");
+  await mkdir(workspace, { recursive: true });
+  await writeFile(join(workspace, "keep.txt"), "original");
+  addPolicyRule(app.store, "local", { tool: "files.write", match: "keep.txt", decision: "deny", remember: "always" });
+  const run = await app.runtime.run({ prompt: "write" });
+  assert.equal(await readFile(join(workspace, "keep.txt"), "utf8"), "original");
+  const denied = app.store.events(run.id).find((event) => event.kind === "policy.denied");
+  assert.equal(denied?.data.target, "keep.txt");
+});

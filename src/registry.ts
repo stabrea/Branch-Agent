@@ -99,6 +99,36 @@ export class ToolRegistry {
   permissions(): string[] {
     return [...new Set([...this.tools.values()].map((t) => t.permission))];
   }
+  /**
+   * mac7/coding-next: a model's call with keys the tool does not take, with those keys taken out. A
+   * small model often adds one (`workspace.checkpoint` with a `path`, `documents.write` with a
+   * `format`), and refusing the whole call over it wastes a turn. Only keys the tool's own schema
+   * reports as unrecognised are dropped, and only when what is left is a valid call; a wrong type or
+   * a missing field is left exactly as sent, so the call is refused as before. Whoever calls this
+   * must hand the cleaned arguments to everything after it — the permission check included — so a
+   * dropped key can never be seen by one step and not another.
+   */
+  clean(name: string, args: unknown): { args: unknown; ignored: string[] } {
+    const tool = this.tools.get(name);
+    if (!tool || !args || typeof args !== "object" || Array.isArray(args)) return { args, ignored: [] };
+    let current: unknown = structuredClone(args);
+    const ignored: string[] = [];
+    for (let round = 0; round < 3; round++) {
+      const parsed = tool.parameters.safeParse(current);
+      if (parsed.success) return ignored.length ? { args: current, ignored } : { args, ignored: [] };
+      const extra = parsed.error.issues.filter((issue) => issue.code === "unrecognized_keys");
+      if (!extra.length || extra.length !== parsed.error.issues.length) break;
+      for (const issue of extra) {
+        const holder = valueAt(current, issue.path);
+        if (!holder || typeof holder !== "object") return { args, ignored: [] };
+        for (const key of (issue as { keys: string[] }).keys) {
+          delete (holder as Record<string, unknown>)[key];
+          ignored.push([...issue.path, key].join("."));
+        }
+      }
+    }
+    return { args, ignored: [] };
+  }
   async execute(
     name: string,
     args: unknown,
@@ -128,6 +158,16 @@ export class ToolRegistry {
   afterTool?: (name: string, args: unknown, result: unknown, context: ToolContext) => Promise<unknown>;
   /** mac7/r17-d (src/coding/large-output.ts): a replacement for an answer over 64 KiB, or undefined to refuse it. */
   oversized?: (name: string, result: unknown, context: ToolContext) => unknown;
+}
+
+/** The value at a zod issue's path inside `root`, or undefined when the path does not lead anywhere. */
+function valueAt(root: unknown, path: readonly PropertyKey[]): unknown {
+  let here: unknown = root;
+  for (const step of path) {
+    if (!here || typeof here !== "object") return undefined;
+    here = (here as Record<PropertyKey, unknown>)[step];
+  }
+  return here;
 }
 
 /**
