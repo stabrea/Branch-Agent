@@ -1,4 +1,5 @@
 import { app, ipcMain, shell, type BrowserWindow, type IpcMainInvokeEvent } from "electron";
+import { diagnose } from "../diagnostic-log.js"; // mac7/diagnostics
 import { launchHandOver } from "./hand-over.js";
 import { join } from "node:path";
 import { Updater } from "./updater.js";
@@ -63,11 +64,25 @@ export function registerUpdaterIpc(
       throw new Error("Desktop update access denied");
   };
   ipcMain.handle("branch:update-status", (event) => { authorized(event); return updater.status; });
-  ipcMain.handle("branch:update-check", (event) => { authorized(event); return updater.check(); });
+  ipcMain.handle("branch:update-check", (event) => {
+    authorized(event);
+    // mac7/diagnostics: each check, and any failure, is a line in the activity log.
+    return updater.check().then((status) => {
+      diagnose("updater", "info", "Checked for updates", { fields: { current: version, latest: updater.status.release?.latestVersion ?? "" } });
+      return status;
+    }, (error: unknown) => {
+      diagnose("updater", "warn", `Checking for updates failed: ${error instanceof Error ? error.message : String(error)}`);
+      throw error;
+    });
+  });
   ipcMain.handle("branch:update-install", async (event) => {
     authorized(event);
     if (updater.inProgress) return updater.status;
-    const { script, stagedDir } = await updater.install();
+    diagnose("updater", "info", "Installing an update", { fields: { from: version, to: updater.status.release?.latestVersion ?? "" } });
+    const { script, stagedDir } = await updater.install().catch((error: unknown) => {
+      diagnose("updater", "error", `The update could not be installed: ${error instanceof Error ? error.message : String(error)}`);
+      throw error;
+    });
     // mac7/safe-rollback: recorded here, marked as landed by the next start (`settleActivation`),
     // because this process quits into the hand-over and never sees how it went.
     if (hooks?.record) await hooks.record(stagedDir, updater.status.release?.latestVersion ?? "");

@@ -1728,6 +1728,36 @@
             <button id="trace-save" type="button" data-t="action.save-trace-settings">Save trace settings</button>
             <p id="trace-status" class="subtle" aria-live="polite"></p>
           </section>
+          <!-- mac7/diagnostics: the activity log (public/activity-log.js). Off unless the owner turns it on. -->
+          <section id="activity-log-card" class="card">
+            <h2 data-t="settings.card.activity-log">Activity log</h2>
+            <p id="activity-log-intro" data-t="activity-log.intro">A record, on this computer only, of what each part of Branch did: tasks, chat apps, outside tool servers, updates and the window. Keys, email addresses and your folder names are removed as it is written. Off unless you turn it on; crashes are always noted.</p>
+            <label for="activity-log-mode" data-t="field.activity-log-mode">Keep an activity log</label>
+            <select id="activity-log-mode" aria-describedby="activity-log-intro">
+              <option value="off" data-t="activity-log.mode.off">Off</option>
+              <option value="when-needed" data-t="activity-log.mode.when-needed">When needed: warnings and errors only</option>
+              <option value="on" data-t="activity-log.mode.on">On: everything</option>
+            </select>
+            <label for="activity-log-days" data-t="field.activity-log-days">Keep it for this many days</label>
+            <input id="activity-log-days" type="number" min="1" max="90" aria-describedby="activity-log-intro" />
+            <button id="activity-log-save" type="button" data-t="action.activity-log-save">Save the activity log setting</button>
+            <p id="activity-log-status" class="subtle" role="status"></p>
+            <div class="row">
+              <label for="activity-log-component" data-t="field.activity-log-component">Part of Branch</label>
+              <select id="activity-log-component" aria-describedby="activity-log-intro"><option value="" data-t="activity-log.all-parts">Every part</option></select>
+              <label for="activity-log-level" data-t="field.activity-log-level">At least</label>
+              <select id="activity-log-level" aria-describedby="activity-log-intro">
+                <option value="" data-t="activity-log.level.any">Anything</option>
+                <option value="warn" data-t="activity-log.level.warn">Warnings</option>
+                <option value="error" data-t="activity-log.level.error">Errors</option>
+              </select>
+              <label for="activity-log-task" data-t="field.activity-log-task">Task id</label>
+              <input id="activity-log-task" maxlength="80" spellcheck="false" aria-describedby="activity-log-intro" />
+              <button id="activity-log-show" type="button" data-t="action.activity-log-show">Show</button>
+              <button id="activity-log-clear" type="button" data-t="action.activity-log-clear">Clear the log</button>
+            </div>
+            <ol id="activity-log-lines" class="activity-log-lines"></ol>
+          </section>
           <section id="backup-card" class="card">
             <h2 data-t="settings.card.backup">Backup</h2>
             <p>Save everything this app knows (conversations, memory, skills, schedules, settings) to one file. Secrets stay on this device and are not included. To bring a backup back, install Branch Agent fresh and run <code>branch restore &lt;file&gt;</code>.</p>
@@ -1814,6 +1844,21 @@
           </form>
           <!-- mac7/clean-uninstall: the danger zone, last in Settings, like the delete-account area
                in other products. It shows what would go before anything goes. -->
+          <!-- mac7/diagnostics: Report a problem (public/activity-log.js). Nothing is sent: the owner
+               reads every item, removes what they like, then saves a zip or opens a GitHub issue form. -->
+          <section id="problem-report-card" class="card">
+            <h2 data-t="settings.card.report">Report a problem</h2>
+            <p id="problem-report-intro" data-t="report.intro">If something went wrong, Branch can gather what a developer needs to find the cause. You read every part first and can remove any of it. Nothing is sent: you save it as a zip, or open a GitHub issue form and attach the zip yourself.</p>
+            <label for="problem-report-summary" data-t="field.report-summary">What went wrong (optional)</label>
+            <input id="problem-report-summary" maxlength="500" aria-describedby="problem-report-intro" />
+            <button id="problem-report-gather" type="button" data-t="action.report-gather">Gather a report to read</button>
+            <p id="problem-report-status" class="subtle" role="status"></p>
+            <div id="problem-report-items"></div>
+            <div id="problem-report-actions" hidden>
+              <button id="problem-report-save" type="button" data-t="action.report-save">Save as a zip</button>
+              <button id="problem-report-issue" type="button" data-t="action.report-issue">Open a GitHub issue form</button>
+            </div>
+          </section>
           <section id="danger-zone" class="card danger-zone" data-home="settings:about">
             <h2 data-t="danger.card.title">Danger zone</h2>
             <p class="subtle" data-t="danger.intro">Removing Branch closes it, takes away the app, the programs it downloaded to run models, the models themselves, and the entry that starts it when you sign in. Nothing here can be undone.</p>
@@ -1840,6 +1885,7 @@
       <div class="context-block" id="context-help" hidden>
         <h2 class="context-head" id="context-help-title">Help</h2>
         <div id="context-help-body" class="markdown context-help-body"></div>
+        <a id="context-help-report" class="context-link" href="/#open=settings:about" data-t="help.report-a-problem">Report a problem</a>
         <button id="context-help-close" class="context-help-close" type="button" data-t="help.close">Close help</button>
       </div>
       <div class="context-block">
@@ -1961,6 +2007,7 @@
     <script src="/studies.js" type="module"></script>
     <script src="/usage.js" type="module"></script>
     <script src="/diagnostics.js" type="module"></script>
+    <script src="/activity-log.js" type="module"></script>
     <script src="/documents.js" type="module"></script>
     <script src="/knowledge.js" type="module"></script>
     <script src="/media.js" type="module"></script>
