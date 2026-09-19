@@ -71,20 +71,27 @@ const visible = (page, selector) => page.locator(selector).first().isVisible();
  * in and two frames running draw every box in the same place. Reading boxes one call at a time, or
  * after a guessed pause, can catch the page between a font arriving and it being drawn again.
  */
-function settledBoxes(page, selectors) {
-  return page.waitForFunction(async (names) => {
-    await document.fonts.ready;
-    const read = () => names.map((name) => {
-      const box = [...document.querySelectorAll(name)].at(-1)?.getBoundingClientRect(); // the last one named
-      return box ? { x: box.x, y: box.y, width: box.width, height: box.height } : null;
-    });
-    const frame = () => new Promise((done) => requestAnimationFrame(() => done()));
-    await frame();
-    const first = read();
-    await frame();
-    const second = read();
-    return second.every(Boolean) && JSON.stringify(first) === JSON.stringify(second) ? second : null;
-  }, selectors, { timeout: 15000 }).then((handle) => handle.jsonValue());
+async function settledBoxes(page, selectors) {
+  // Not waitForFunction: it does not wait on a promise, so an async check "passes" at once with
+  // whatever it resolves to, null included. Each try is one step inside the page; try until settled.
+  const deadline = Date.now() + 15000;
+  for (;;) {
+    const boxes = await page.evaluate(async (names) => {
+      await document.fonts.ready;
+      const read = () => names.map((name) => {
+        const box = [...document.querySelectorAll(name)].at(-1)?.getBoundingClientRect(); // the last one named
+        return box ? { x: box.x, y: box.y, width: box.width, height: box.height } : null;
+      });
+      const frame = () => new Promise((done) => requestAnimationFrame(() => done()));
+      await frame();
+      const first = read();
+      await frame();
+      const second = read();
+      return second.every(Boolean) && JSON.stringify(first) === JSON.stringify(second) ? second : null;
+    }, selectors);
+    if (boxes) return boxes;
+    if (Date.now() > deadline) throw new Error(`the layout never settled for ${selectors.join(", ")}`);
+  }
 }
 async function shown(page, selectors) {
   const out = {};
