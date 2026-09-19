@@ -101,7 +101,8 @@ export function topLevelKeys(source) {
   return keys;
 }
 
-const SCHEMA = /export const (\w+(?:Settings|Preferences|Config))Schema\s*=\s*z[\s\S]{0,10}?\.object\(\{/g;
+// phase2/settings integration: `\w*`, not `\w+`, so the look's own `PreferencesSchema` (src/preferences.ts) counts too.
+const SCHEMA = /export const (\w*(?:Settings|Preferences|Config))Schema\s*=\s*z[\s\S]{0,10}?\.object\(\{/g;
 
 /**
  * Every settable key, mapped to the schemas that declare it. Exported for tests/settings-grown.test.mjs

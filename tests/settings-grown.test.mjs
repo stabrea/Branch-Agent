@@ -472,6 +472,10 @@ const NOT_IN_SEARCH = {
     "AnalyticsSettings.decidedAt", "AnalyticsSettings.lastSentAt", "BriefSettings.nextAt", "BriefSettings.lastSentAt",
     "AttachSettings.runId", "AttachSettings.grantedAt", "ConsolidationSettings.lastRunAt", "RelaySettings.machineId",
   ],
+  /* How much to show: the level itself, at the foot of the Settings list on every page. */
+  inTheSettingsList: [
+    "Preferences.settingsLevel",
+  ],
   /* Switches beside the message box (the More menu), not on a Settings page. */
   besideTheMessageBox: [
     "AskFirstSettings.askFirst", "PlanActSettings.planMode",
