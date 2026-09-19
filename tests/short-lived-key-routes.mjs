@@ -386,6 +386,11 @@ export const ROUTES = {
   "/api/trunks/rooms/:id/send": "task POST",
   "/api/trunks/rooms/:id/stop": "task POST",
   "/api/trunks/rooms/:id/answer": "owner POST",
+  "/api/trunks/rooms/:id/revoke": "owner POST", // phase2/rooms (integration review): Revoke beside a yes in a room
+  // phase2/rooms: who answers in a conversation is the owner's to choose.
+  "/api/trunks/conversations": "owner POST",
+  "/api/trunks/conversations/:id": "owner POST",
+  "/api/trunks/conversations/:id/room": "owner POST",
   // ---- end of the R17-A block ----
   // ---- mac7/r17-d: coding polish (src/coding/api.ts); checks and forks only start work ----
   "/api/coding": "look",
@@ -1010,7 +1015,7 @@ export const ROUTES = {
   "/api/voice/": "prefix",
   "/api/voice/command": "task POST",
   "/api/voice/engines": "owner POST",
-  "/api/voice/live": "task POST",
+  "/api/voice/live": "owner POST", // phase2/rooms: its tools run as the owner
   "/api/voice/plan": "look",
   "/api/voice/settings": "owner POST",
   "/api/voice/speak": "task POST",

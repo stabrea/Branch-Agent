@@ -600,14 +600,19 @@ async function refresh() {
   void window.branchSandboxRemote?.render();
 }
 const notifiedAttention = new Set();
+/* phase2/rooms (integration review): the Trunk that asked, named; a room member's question opens the room. */
+function needsYouTitle(item) {
+  if (!item.who) return t("attention.assistantNeedsYou");
+  return item.room ? t("attention.trunkNeedsYouInRoom", { name: item.who, room: item.room }) : t("attention.trunkNeedsYou", { name: item.who });
+}
 function renderAttention() {
   const waiting = state.attention || [];
   const banner = $("attention");
   banner.hidden = !waiting.length;
   banner.replaceChildren(...waiting.map((item) => {
     const row = el("div", undefined, "attention-row");
-    row.append(el("strong", "Your assistant needs you"), el("span", item.question),
-      button("Open conversation", () => { displayView("chat"); openConversation(item.sessionId); }));
+    row.append(el("strong", needsYouTitle(item)), el("span", item.question),
+      button(t(item.room ? "attention.openRoom" : "attention.openConversation"), () => { displayView("chat"); openConversation(item.open ?? item.sessionId); })); // phase2/rooms
     return row;
   }));
   for (const item of waiting) {
@@ -617,8 +622,8 @@ function renderAttention() {
     if (globalThis.branchComfort?.attention(item) === "handled") continue;
     if (typeof Notification === "undefined") continue;
     const show = () => {
-      const note = new Notification("Your assistant needs you", { body: item.question.slice(0, 200), tag: item.runId });
-      note.onclick = () => { window.focus(); displayView("chat"); openConversation(item.sessionId); };
+      const note = new Notification(needsYouTitle(item), { body: item.question.slice(0, 200), tag: item.runId });
+      note.onclick = () => { window.focus(); displayView("chat"); openConversation(item.open ?? item.sessionId); }; // phase2/rooms
     };
     if (Notification.permission === "granted") show();
     else if (Notification.permission !== "denied") Notification.requestPermission().then((p) => { if (p === "granted") show(); }).catch(() => undefined);

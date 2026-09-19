@@ -87,6 +87,7 @@ const PARTS = {
   messages: ["trunks.part.messages", "Trunks messaging each other"],
   routines: ["trunks.part.routines", "Routines a Trunk owns"],
   teach: ["trunks.part.teach", "Teaching a Trunk by showing it once"],
+  conversations: ["trunks.part.conversations", "Choosing a Trunk to answer in any conversation"], // phase2/rooms
 };
 function switchFor(part, modes) {
   const select = document.createElement("select");
@@ -338,6 +339,7 @@ function roomLine(view, event, composer) {
   return line;
 }
 async function openRoom(id) {
+  if (globalThis.branchOpenRoom?.(id)) return; // phase2/rooms: a room opens as a conversation (public/rooms.js)
   const host = $("trunks-room");
   if (!host) return;
   clearTimeout(roomTimer);
@@ -535,11 +537,11 @@ function watchComposer() {
   const box = $("prompt"), form = $("chat-form");
   if (!box || !form || box.dataset.trunks) return;
   box.dataset.trunks = "on";
-  box.addEventListener("input", () => { if (known.length) showMenu(box); });
+  box.addEventListener("input", () => { if (globalThis.branchRooms?.handlesMentions()) return; if (known.length) showMenu(box); }); // phase2/rooms
   box.addEventListener("blur", () => setTimeout(closeMenu, 100));
   box.addEventListener("keydown", (event) => {
     const menu = $("trunks-mentions");
-    if (!menu) return;
+    if (!menu || globalThis.branchRooms?.handlesMentions()) return; // phase2/rooms
     if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); event.stopImmediatePropagation(); moveChoice(event.key === "ArrowDown" ? 1 : -1); }
     else if (event.key === "Enter" || event.key === "Tab") {
       event.preventDefault(); event.stopImmediatePropagation();
@@ -547,6 +549,7 @@ function watchComposer() {
     } else if (event.key === "Escape") { event.stopImmediatePropagation(); closeMenu(); }
   }, true);
   form.addEventListener("submit", (event) => {
+    if (globalThis.branchRooms?.handlesMentions()) return; // phase2/rooms: public/rooms.js decides where "@name" goes
     const match = /^@([a-z0-9-]+)\s+([\s\S]+)$/i.exec(box.value.trim());
     const trunk = match && known.find((entry) => entry.handle === match[1].toLowerCase());
     if (!trunk) return;
