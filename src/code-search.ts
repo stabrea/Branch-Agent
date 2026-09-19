@@ -4,6 +4,7 @@ import { z } from "zod";
 import { ignoreRulesFor, type IgnoreChoice } from "./comfort/ignore-files.js"; // R17-S20
 import { isSecretEntry, type WorkspaceFiles } from "./files.js";
 import type { ToolRegistry } from "./registry.js";
+import { WalkRules } from "./walk-rules.js"; // mac7/walk-rules
 
 /**
  * Looking around the workspace: listing files by pattern, searching inside them, a light map of
@@ -19,7 +20,8 @@ export const searchLimits = {
   answerBytes: 48 * 1024,
 };
 export interface WalkEntry { path: string; bytes: number; mtimeMs: number }
-export interface Walk { entries: WalkEntry[]; truncated: boolean }
+/** mac7/walk-rules: `leftOut` says, once, what the owner's rules kept this walk out of. */
+export interface Walk { entries: WalkEntry[]; truncated: boolean; leftOut?: string }
 
 /** Adds items while the answer stays comfortably inside the 64 KiB tool-output limit. */
 function bounded<T>(items: T[], value: T, used: { bytes: number }): boolean {
@@ -45,19 +47,22 @@ export class WorkspaceSearch {
 
   /** Every readable file under `path`, as workspace-relative paths, bounded and ignore-aware. */
   async walk(path = ".", limit = searchLimits.entries): Promise<Walk> {
+    // mac7/walk-rules: every folder and file is held to this task's rules; a start inside a refused folder is refused.
+    const rules = new WalkRules(this.files.walkRules());
+    rules.start(path);
     const root = await this.files.checked(path, true);
     const prefix = path === "." ? "" : `${path.replace(/\/+$/, "")}/`;
     const ignore = await this.ignoreRules();
     const entries: WalkEntry[] = [];
-    const state = { scanned: 0, truncated: false };
+    const state = { scanned: 0, truncated: false, rules };
     await this.descend(root, prefix, ignore, entries, state, limit, 0);
-    return { entries, truncated: state.truncated };
+    return rules.noted({ entries, truncated: state.truncated });
   }
 
   private async descend(
     directory: string, prefix: string,
     ignore: (path: string, isDirectory?: boolean) => boolean,
-    out: WalkEntry[], state: { scanned: number; truncated: boolean },
+    out: WalkEntry[], state: { scanned: number; truncated: boolean; rules: WalkRules },
     limit: number, depth: number,
   ): Promise<void> {
     if (depth > searchLimits.depth) return;
@@ -67,18 +72,18 @@ export class WorkspaceSearch {
       // The same refused names as the file tools (src/files.ts), so a search never opens one either.
       if (entry.isSymbolicLink() || isSecretEntry(relative)) continue;
       if (entry.isDirectory()) {
-        if (alwaysSkipped.has(entry.name) || ignore(relative, true)) continue;
+        if (alwaysSkipped.has(entry.name) || ignore(relative, true) || !state.rules.folder(relative)) continue;
         await this.descend(join(directory, entry.name), `${relative}/`, ignore, out, state, limit, depth + 1);
         continue;
       }
-      if (!entry.isFile() || ignore(relative, false)) continue;
+      if (!entry.isFile() || ignore(relative, false) || !state.rules.file(relative)) continue;
       const info = await stat(join(directory, entry.name));
       out.push({ path: relative, bytes: info.size, mtimeMs: info.mtimeMs });
     }
   }
 
   /** Files whose path matches any of the given patterns (`src/**\/*.ts`, `*.json`, …). */
-  async glob(patterns: string[], path = "."): Promise<{ files: WalkEntry[]; moreAvailable: boolean }> {
+  async glob(patterns: string[], path = "."): Promise<{ files: WalkEntry[]; moreAvailable: boolean; leftOut?: string }> {
     const walk = await this.walk(path);
     const files: WalkEntry[] = [];
     const used = { bytes: 0 };
@@ -87,7 +92,7 @@ export class WorkspaceSearch {
       if (!patterns.some((pattern) => safeMatch(entry.path, pattern))) continue;
       if (!bounded(files, entry, used)) { moreAvailable = true; break; }
     }
-    return { files, moreAvailable };
+    return withNote({ files, moreAvailable }, walk);
   }
 
   /** Lines matching a word or a regular expression, with the lines around each match. */
@@ -106,17 +111,17 @@ export class WorkspaceSearch {
       if (!collect(entry.path, buffer.toString("utf8"), expression, input, matches, used)) { moreAvailable = true; break; }
       if (matches.length >= input.maxResults) { moreAvailable = true; break; }
     }
-    return { matches, filesSearched, filesSkipped, moreAvailable };
+    return withNote({ matches, filesSearched, filesSkipped, moreAvailable }, walk);
   }
 
   /** Files whose path looks like what was typed, best first. */
-  async find(query: string, limit = 20): Promise<{ files: { path: string; score: number }[] }> {
+  async find(query: string, limit = 20): Promise<{ files: { path: string; score: number }[]; leftOut?: string }> {
     const walk = await this.walk(".");
     const scored = walk.entries
       .map((entry) => ({ path: entry.path, score: scorePath(entry.path, query) }))
       .filter((item) => item.score > 0)
       .sort((a, b) => b.score - a.score || a.path.length - b.path.length || a.path.localeCompare(b.path));
-    return { files: scored.slice(0, limit) };
+    return withNote({ files: scored.slice(0, limit) }, walk);
   }
 
   /** A bounded tree of the workspace with a language guess and the headings or names in each file. */
@@ -131,7 +136,7 @@ export class WorkspaceSearch {
       const symbols = await this.symbolsFor(entry, language);
       if (!bounded(files, { path: entry.path, bytes: entry.bytes, language, symbols }, used)) { moreAvailable = true; break; }
     }
-    return { files, folders: foldersOf(files), cacheHits: this.cacheHits, moreAvailable };
+    return withNote({ files, folders: foldersOf(files), cacheHits: this.cacheHits, moreAvailable }, walk);
   }
 
   private async symbolsFor(entry: WalkEntry, language: string): Promise<string[]> {
@@ -152,10 +157,14 @@ export interface GrepInput {
   glob?: string[] | undefined; context: number; maxResults: number; maxFileBytes: number;
 }
 export interface GrepMatch { path: string; line: number; text: string; before: string[]; after: string[] }
-export interface GrepResult { matches: GrepMatch[]; filesSearched: number; filesSkipped: number; moreAvailable: boolean }
+export interface GrepResult { matches: GrepMatch[]; filesSearched: number; filesSkipped: number; moreAvailable: boolean; leftOut?: string }
 export interface MapFile { path: string; bytes: number; language: string; symbols: string[] }
-export interface MapResult { files: MapFile[]; folders: string[]; cacheHits: number; moreAvailable: boolean }
+export interface MapResult { files: MapFile[]; folders: string[]; cacheHits: number; moreAvailable: boolean; leftOut?: string }
 
+/** mac7/walk-rules: an answer built from a walk carries the walk's note about what was left out. */
+function withNote<T extends object>(result: T, walk: Walk): T & { leftOut?: string } {
+  return walk.leftOut ? { ...result, leftOut: walk.leftOut } : result;
+}
 function safeMatch(path: string, pattern: string): boolean {
   try { return matchesGlob(path, pattern); } catch { return false; }
 }

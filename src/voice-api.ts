@@ -28,6 +28,8 @@ export interface VoiceApiDeps {
   fetch: typeof globalThis.fetch;
   /** Wave 7: signing in with Google for Gemini. Absent in tests that do not use it. */
   oauth?: OAuthConnections;
+  /** phase2/rooms: why a live conversation cannot hang off this conversation (a Trunk's, a room), or null. */
+  liveRefusal?: (sessionId: string) => string | null;
 }
 
 const switchBody = z.object({ sessionId: z.string().uuid(), model: z.string().trim().min(1).max(120) }).strict();
@@ -77,6 +79,9 @@ export async function voiceApi(
  */
 export function openLive(deps: VoiceApiDeps, input: unknown) {
   const { sessionId } = liveBody.parse(input);
+  // phase2/rooms: asked for a new conversation too (Lockdown, a household person); src/live-refusal.ts.
+  const refused = deps.liveRefusal?.(sessionId ?? "") ?? null;
+  if (refused) throw new Error(refused);
   const plan = livePlanFor(deps.voice.settings(deps.owner), deps.models.plan(deps.owner, sessionId ?? "voice").candidates[0]);
   if (!plan.available) throw new Error(plan.reason);
   const run = deps.store.createRun(deps.owner, "A live conversation", sessionId ?? undefined, false, "web");

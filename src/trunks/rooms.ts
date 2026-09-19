@@ -4,6 +4,7 @@ import type { Run } from "../contracts.js";
 import type { PolicyRemember } from "../policy.js";
 import type { Runtime } from "../runtime.js";
 import type { Store } from "../store.js";
+import { shortLivedKeyMark, startedWithShortLivedKey, underShortLivedKey } from "../key-context.js"; // phase2/rooms
 import type { TrunkRecords } from "./record.js";
 import {
   asksForOwner, isPass, maxRoomMembers, minRoomMembers, nextRoomTurn,
@@ -51,11 +52,15 @@ export interface Room {
   pinned: boolean;
   section: string;
   order: number;
+  /** phase2/rooms: what came before, when the room was made from a conversation; each member reads it on its first turn. */
+  context?: string;
   createdAt: string;
   updatedAt: string;
 }
 
-export type RoomRuntime = Pick<Runtime, "run" | "approve" | "waitingApprovals" | "cancel">;
+export type RoomRuntime = Pick<Runtime, "run" | "approve" | "waitingApprovals" | "cancel">
+  // phase2/rooms (integration review): the yeses a member holds in a room, shown with Revoke and ended with the seat.
+  & Partial<Pick<Runtime, "allowedNow" | "revokeGrant" | "endGrants">>;
 export interface RoomDeps {
   store: Store;
   owner: string;
@@ -100,13 +105,14 @@ export class TrunkRooms {
     return run.sessionId;
   }
 
-  create(input: unknown): Room {
+  create(input: unknown, options: { context?: string } = {}): Room {
     const value = RoomCreateSchema.parse(input);
     this.checkMembers(value.members);
     if (this.list().some((r) => r.name.toLowerCase() === value.name.toLowerCase())) throw new Error("A room already has that name");
     const now = new Date().toISOString();
     const room: Room = { id: randomUUID(), name: value.name, members: value.members, sessionId: this.conversation(`Room: ${value.name}`),
-      memberSessions: {}, events: [], seq: 0, needsYou: false, picture: null, pinned: false, section: "", order: 0, createdAt: now, updatedAt: now };
+      memberSessions: {}, events: [], seq: 0, needsYou: false, picture: null, pinned: false, section: "", order: 0, createdAt: now, updatedAt: now,
+      ...(options.context ? { context: options.context.slice(0, 3000) } : {}) }; // phase2/rooms
     for (const id of room.members) room.memberSessions[id] = this.conversation(`Room ${value.name}: ${this.deps.records.get(id).name}`);
     this.deps.store.message(room.sessionId, { role: "system", content: `Room "${room.name}". ${this.roster(room).map((m) => `@${m.handle}`).join(", ")} and you.` });
     this.put(room);
@@ -121,6 +127,8 @@ export class TrunkRooms {
       throw new Error("A room already has that name");
     if (change.members) {
       this.checkMembers(change.members);
+      // phase2/rooms (integration review): a Trunk taken out of the room loses every yes it held here.
+      for (const gone of room.members.filter((m) => !change.members!.includes(m))) this.endGrants(room.memberSessions[gone]);
       for (const member of change.members) room.memberSessions[member] ??= this.conversation(`Room ${room.name}: ${this.deps.records.get(member).name}`);
       room.members = change.members;
     }
@@ -132,6 +140,7 @@ export class TrunkRooms {
   }
   remove(id: string): { removed: boolean } {
     this.stop(id);
+    for (const session of Object.values(this.get(id).memberSessions)) this.endGrants(session); // phase2/rooms: the room's yeses end with it
     const removed = this.deps.store.delete("governance", this.deps.owner, `trunk-room:${id}`);
     this.deps.changed();
     return { removed };
@@ -139,6 +148,10 @@ export class TrunkRooms {
   /** Every conversation that belongs to a Trunk through a room: member conversation → Trunk id. */
   memberConversations(): Map<string, string> {
     return new Map(this.list().flatMap((room) => Object.entries(room.memberSessions).map(([trunk, session]) => [session, trunk] as const)));
+  }
+  /** phase2/rooms: member conversation → the room's own conversation, whose mode every member follows. */
+  memberRooms(): Map<string, string> {
+    return new Map(this.list().flatMap((room) => Object.values(room.memberSessions).map((session) => [session, room.sessionId] as const)));
   }
   roster(room: Room): RoomMember[] {
     return room.members.flatMap((id) => {
@@ -160,7 +173,7 @@ export class TrunkRooms {
   /** The owner speaks. The turns it starts run in the background; `settled` waits for them. */
   send(id: string, input: unknown): { seq: number } {
     const { text } = z.object({ text: z.string().trim().min(1).max(8000) }).strict().parse(input);
-    const room = this.append(id, { kind: "user", text });
+    const room = this.append(id, { kind: "user", text, ...(startedWithShortLivedKey() ? { byKey: shortLivedKeyMark() } : {}) }); // phase2/rooms
     this.put({ ...room, needsYou: this.waiting(id).length > 0 });
     this.deps.store.message(room.sessionId, { role: "user", content: text });
     this.kick(id);
@@ -186,7 +199,7 @@ export class TrunkRooms {
     // Each round has a hard cap, so this bound is only a guard against a log that cannot settle.
     for (let step = 0; step < 40 && !this.closing; step++) {
       const room = this.get(id);
-      const decision: RoomDecision = nextRoomTurn(room.name, this.roster(room), room.events);
+      const decision: RoomDecision = nextRoomTurn(room.name, this.roster(room), room.events, room.context); // phase2/rooms: context
       if (decision.status === "waiting") return this.flag(room, "A Trunk in the room is waiting for your answer");
       if (decision.status !== "task") return;
       await this.turn(room, decision.task);
@@ -197,8 +210,11 @@ export class TrunkRooms {
     const sessionId = room.memberSessions[task.memberId];
     if (!member || !sessionId) { this.append(room.id, { kind: "failed", text: "This Trunk is gone", memberId: task.memberId, round: task.round, discussion: task.discussion, seen: task.seen }); return; }
     let run: Run;
+    // phase2/rooms: a turn answering a short-lived key's message is that key's work.
+    const byKey = room.events.find((e) => e.seq === task.discussion)?.byKey;
+    const start = () => this.deps.runtime.run({ prompt: task.prompt, sessionId, onStarted: (started) => this.running.set(room.id, started.id), onTextDelta: () => undefined });
     try {
-      run = await this.deps.runtime.run({ prompt: task.prompt, sessionId, onStarted: (started) => this.running.set(room.id, started.id), onTextDelta: () => undefined });
+      run = await (byKey ? underShortLivedKey(start, byKey) : start());
     } catch (error) {
       if (this.closing) return;
       this.append(room.id, { kind: "failed", text: error instanceof Error ? error.message : String(error), memberId: member.id, round: task.round, discussion: task.discussion, seen: task.seen });
@@ -232,19 +248,50 @@ export class TrunkRooms {
     return Object.entries(room.memberSessions).filter(([member]) => room.members.includes(member)).flatMap(([memberId, sessionId]) =>
       this.deps.runtime.waitingApprovals(sessionId).map((q) => ({ memberId, sessionId, tool: q.tool, target: q.target, label: q.label, fingerprint: q.fingerprint ?? null })));
   }
-  /** Answers a member's question in the room, and lets that member take its turn again. */
+  /**
+   * Answers a member's question in the room, and lets that member take its turn again.
+   * phase2/rooms: the turn is taken again from the start, as a new task, so a yes "just this once"
+   * was used up by nothing and the member asked the same question for ever. A yes now holds for that
+   * member in this room (its own conversation for the room) unless "never" is sent.
+   */
   answer(id: string, input: unknown): unknown {
     const value = z.object({ memberId: z.string().uuid(), decision: z.enum(["allow", "deny"]),
-      remember: z.enum(["never", "session"]).default("never"), fingerprint: z.string().regex(/^[a-f0-9]{32}$/).optional() }).strict().parse(input);
+      remember: z.enum(["never", "session"]).default("session"), fingerprint: z.string().regex(/^[a-f0-9]{32}$/).optional() }).strict().parse(input);
     const room = this.get(id);
     const sessionId = room.memberSessions[value.memberId];
     if (!sessionId || !room.members.includes(value.memberId)) throw new Error("That Trunk is not in this room");
-    const answered = this.deps.runtime.approve(sessionId, value.decision, value.remember satisfies PolicyRemember, value.fingerprint);
+    // Integration review: what the safety check advised against is allowed this once only (the
+    // owner's one-time overrule carries to the turn taken again), never kept for the room.
+    const asked = this.deps.runtime.waitingApprovals(sessionId).find((q) => !value.fingerprint || q.fingerprint === value.fingerprint);
+    const remember: PolicyRemember = asked?.onceOnly ? "never" : value.remember;
+    const answered = this.deps.runtime.approve(sessionId, value.decision, remember, value.fingerprint);
     const fresh = this.get(id);
     fresh.events = fresh.events.map((e) => (e.kind === "waiting" && e.memberId === value.memberId ? { ...e, answered: true } : e));
     this.put({ ...fresh, needsYou: this.waiting(id).length > 0 });
     this.kick(id);
     return answered;
+  }
+  /**
+   * phase2/rooms (integration review): the yeses each member holds in this room right now: that
+   * Trunk, that kind of action, that exact thing, in this room only, for at most an hour.
+   */
+  allowed(room: Room): { memberId: string; tool: string; target: string; label: string; expiresAt: string }[] {
+    return room.members.flatMap((memberId) => {
+      const sessionId = room.memberSessions[memberId];
+      return (sessionId ? this.deps.runtime.allowedNow?.(sessionId) ?? [] : []).filter((g) => g.decision === "allow")
+        .map((g) => ({ memberId, tool: g.tool, target: g.target, label: g.label, expiresAt: g.expiresAt }));
+    });
+  }
+  /** Takes back one yes a member holds in this room; it asks again next time. */
+  revoke(id: string, input: unknown): { revoked: boolean } {
+    const value = z.object({ memberId: z.string().uuid(), tool: z.string().min(1).max(200), target: z.string().max(4000) }).strict().parse(input);
+    const room = this.get(id);
+    const sessionId = room.memberSessions[value.memberId];
+    if (!sessionId || !room.members.includes(value.memberId)) throw new Error("That Trunk is not in this room");
+    return { revoked: this.deps.runtime.revokeGrant?.(sessionId, value.tool, value.target) ?? false };
+  }
+  private endGrants(sessionId: string | undefined): void {
+    if (sessionId) this.deps.runtime.endGrants?.(sessionId);
   }
   /** After a restart: every room with a discussion still open carries on. */
   resumeAll(): void {
@@ -258,6 +305,6 @@ export class TrunkRooms {
   /** What the room shows: its members, the log, and whether anyone is speaking. */
   view(id: string) {
     const room = this.get(id);
-    return { ...room, roster: this.roster(room), speaking: this.driving.has(id), waiting: this.waiting(id) };
+    return { ...room, roster: this.roster(room), speaking: this.driving.has(id), waiting: this.waiting(id), allowed: this.allowed(room) };
   }
 }

@@ -4,6 +4,7 @@ import { z } from "zod";
 import { Citations, type Citation } from "./citations.js";
 import { errorText, type Provider } from "./contracts.js";
 import type { KnowledgeBases } from "./knowledge-bases.js";
+import { passageVisible } from "./walk-rules.js"; // mac7/walk-rules
 import type { ModelPreset, ModelRouter } from "./models.js";
 import type { Store } from "./store.js";
 import { runBatch, supportsBatch } from "./batch-inference.js";
@@ -67,10 +68,13 @@ export class KnowledgeSummaries {
   async summarise(owner: string, input: unknown, signal?: AbortSignal): Promise<KnowledgeSummary> {
     const value = SummariseSchema.parse(input);
     const current = this.bases.one(owner, value.collection);
-    const version = this.version(owner, current.id);
+    // mac7/walk-rules: passages from files the rules keep the assistant out of are not summarised, and
+    // a summary written while they were readable is not handed back (the version names what is hidden).
+    const hidden = this.hiddenFiles(owner, current.id);
+    const version = hidden.length ? `${this.version(owner, current.id)}-${createHash("sha256").update(hidden.join("|")).digest("hex").slice(0, 8)}` : this.version(owner, current.id);
     const kept = value.refresh ? null : this.kept(owner, current.id, version, value.focus);
     if (kept) return { ...kept, collection: current.id, name: current.name, version, cached: true };
-    const rows = this.passages(owner, current.id, value.focus);
+    const rows = this.passages(owner, current.id, value.focus).filter((row) => !hidden.includes(row.docId));
     if (!rows.length)
       return { collection: current.id, name: current.name, summary: "", citations: [], passages: 0, batches: 0,
         cached: false, version, note: "There is nothing in this knowledge base to summarise yet." };
@@ -78,17 +82,23 @@ export class KnowledgeSummaries {
     this.keep(owner, current.id, version, value.focus, written.summary, written.citations, rows.length);
     return { collection: current.id, name: current.name, ...written, passages: rows.length, cached: false, version };
   }
+  /** mac7/walk-rules: the files of a collection the rules keep the assistant out of right now. */
+  private hiddenFiles(owner: string, collection: string): string[] {
+    const rules = this.bases.readRules();
+    return this.db.prepare("SELECT DISTINCT doc_id FROM kb_chunks WHERE owner=? AND collection=? ORDER BY doc_id").all(owner, collection)
+      .map((row) => String(row.doc_id)).filter((docId) => !passageVisible(rules, docId));
+  }
   /** The passages to read: the whole collection, or the ones a focus asks about, best first. */
-  private passages(owner: string, collection: string, focus: string): { chunkId: string; text: string; name: string; heading: string; page: number | null }[] {
+  private passages(owner: string, collection: string, focus: string): { chunkId: string; docId: string; text: string; name: string; heading: string; page: number | null }[] {
     const limit = batchSize * maximumBatches;
     const rows = focus
-      ? this.db.prepare(`SELECT chunk_id, chunk_text, doc_name, heading, page FROM kb_chunks
+      ? this.db.prepare(`SELECT chunk_id, doc_id, chunk_text, doc_name, heading, page FROM kb_chunks
           WHERE owner=? AND collection=? AND chunk_text LIKE ? ORDER BY doc_name, chunk_index LIMIT ?`)
         .all(owner, collection, `%${focus.slice(0, 80)}%`, limit)
-      : this.db.prepare(`SELECT chunk_id, chunk_text, doc_name, heading, page FROM kb_chunks
+      : this.db.prepare(`SELECT chunk_id, doc_id, chunk_text, doc_name, heading, page FROM kb_chunks
           WHERE owner=? AND collection=? ORDER BY doc_name, chunk_index LIMIT ?`).all(owner, collection, limit);
     return rows.map((row) => ({
-      chunkId: String(row.chunk_id), text: String(row.chunk_text).slice(0, passageChars), name: String(row.doc_name),
+      chunkId: String(row.chunk_id), docId: String(row.doc_id), text: String(row.chunk_text).slice(0, passageChars), name: String(row.doc_name),
       heading: String(row.heading ?? ""), page: row.page === null || row.page === undefined ? null : Number(row.page),
     }));
   }

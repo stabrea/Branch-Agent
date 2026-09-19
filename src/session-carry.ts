@@ -56,6 +56,15 @@ export function readSessionCarry(store: Store, owner: string, sessionId: string)
   return parsed.success ? parsed.data : null;
 }
 
+/**
+ * phase2/rooms (integration review): forgets the answers a conversation carries into a restart, and
+ * nothing else it carries (its model, project and toolboxes stay as they were written).
+ */
+export function dropCarriedGrants(store: Store, owner: string, sessionId: string): void {
+  const carried = readSessionCarry(store, owner, sessionId);
+  if (carried?.grants.length) store.save("settings", owner, recordId(sessionId), { ...carried, grants: [] });
+}
+
 /** Writes down what a conversation is carrying, at the end of a task. Never throws. */
 export function rememberSessionCarry(
   deps: CarryDeps, owner: string, sessionId: string, opened: readonly string[] = [],

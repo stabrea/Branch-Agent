@@ -3,6 +3,7 @@ import { currentAccountCall, withAccountCall } from "./accounts/context.js"; // 
 import { lockdownActive, lockdownToolRefusal, lowersRiskOnly } from "./lockdown.js"; // mac7/lockdown-fix
 import { isSignInConnection, trunkCandidates, trunkSignInRefusal } from "./accounts/trunk-guard.js"; // mac7/lockdown-fix
 import { protectedAreas, protectedTarget, cwdOf, type ProtectedAreas } from "./never-break/protected.js"; // mac3/never-break
+import { unreadable, unreadableInside } from "./never-break/protected.js"; // mac7/walk-rules
 import { noJournal, type JournalHook } from "./never-break/journal.js"; // mac3/never-break
 import { neverBreakModeSync } from "./never-break/gateway-config.js"; // mac3/never-break
 import { runOrigin, shortLivedKeyMark, startedWithShortLivedKey, underShortLivedKey } from "./key-context.js"; // bucket-18 (A0300), bucket 19
@@ -104,7 +105,7 @@ import {
 // Wave 7: three tiers of tool, a hard ceiling on the tool section, and searching for the rest.
 import { ToolLoader, meaningSearchOn, toolDescribeName, toolNoteName, toolSearchName } from "./tool-loading.js";
 import {
-  carrySentences, rememberSessionCarry, restoreSessionCarry, type CarryDeps, type RestoredSession,
+  carrySentences, dropCarriedGrants, rememberSessionCarry, restoreSessionCarry, type CarryDeps, type RestoredSession, // phase2/rooms: dropCarriedGrants
 } from "./session-carry.js";
 import type { RunToolEmbedder, ToolEmbedder } from "./tool-index.js";
 import { mcpAppIn } from "./mcp-apps.js";
@@ -141,6 +142,9 @@ import { learnAfterTask } from "./reflection/hook.js";
 import { advisedPreload } from "./fly-core/apply.js";
 import { autonomyPrompt } from "./autonomy/hooks.js"; // r17-b
 import { learningOpening } from "./learning-more/hook.js"; // R17-F: memory blocks and lessons
+import { walkCheck, type PathCheck } from "./walk-rules.js"; // mac7/walk-rules
+import { underTask } from "./task-scope.js"; // mac7/walk-rules
+import { resolve as resolvePath } from "node:path"; // mac7/walk-rules
 
 // R17-S11: sub-tasks at once is the owner's `parallelSubtasks` setting (shipped as 4, src/knobs/settings.ts).
 /** What the approval policy says about one tool call, before anything is done about it. */
@@ -1172,6 +1176,11 @@ ${run.output.slice(0, 6000)}`;
    * connects it; on its own every task is an ordinary one.
    */
   trunkShape: (options: RunOptions) => TrunkRunShape | null = () => null;
+  /**
+   * phase2/rooms: the conversation whose mode this one follows. A Trunk's turn in a room runs in that
+   * Trunk's own conversation for the room, so it is held to the room's conversation (src/trunks/).
+   */
+  modeFollows: (sessionId: string) => string | null = () => null;
   private sendSpans(runId: string): void {
     // A runtime that is shutting down refuses new background work, and a send that cannot start is
     // simply not made. Nothing here — refused, failed or off — may reach the task's own result.
@@ -1561,7 +1570,9 @@ ${run.output.slice(0, 6000)}`;
       "branch.retrieval.source": "documents",
     });
     try {
-      const found = await this.documents.contextFor(context.owner, await this.searchQuestion(run, context, messages), context.signal); // w911 (A0847) hook
+      const question = await this.searchQuestion(run, context, messages);
+      // mac7/walk-rules: looked up as part of this task, so its rules decide which files' passages may come in.
+      const found = await underTask(run.id, () => this.documents!.contextFor(context.owner, question, context.signal)); // w911 (A0847) hook
       if (!found) { span?.end("ok", "", { "branch.retrieval.passages": 0 }); return; }
       const at = ids.findIndex((id) => id !== null), position = at < 0 ? messages.length : at;
       messages.splice(position, 0, { role: "system", content:
@@ -2181,7 +2192,10 @@ ${run.output.slice(0, 6000)}`;
     const seen = new Set<string>();
     for (let id: string | null = runId; id && !seen.has(id) && seen.size < 20; id = this.parentOf(id)) {
       seen.add(id);
-      const record = readConversationMode(this.store, this.owner, this.store.run(id)?.sessionId);
+      const session = this.store.run(id)?.sessionId;
+      // phase2/rooms: a Trunk's side of a room follows the room's own conversation, never a mode of its own.
+      const follows = session ? this.modeFollows(session) : null;
+      const record = readConversationMode(this.store, this.owner, follows ?? session);
       if (record) return record;
     }
     return null;
@@ -2313,6 +2327,25 @@ ${run.output.slice(0, 6000)}`;
     return { decision: answered ?? decision, label: leak ? `${noted}, and the address carries ${leak}` : hold ? `${noted}. ${hold.reason}` : noted, target, readOnly,
       remember: hold?.onceOnly ? "never" : extra.exact ? "session" : source === "owner" ? rule?.remember ?? "session" : "session",
       sandbox: rule?.sandbox ?? null, backend: rule?.backend ?? null, paths: rule?.paths ?? null, ...(extra.code ? { needsCode: true } : {}) };
+  }
+  /**
+   * mac7/walk-rules: what a tool that walks a folder may list or read, entry by entry (src/walk-rules.ts):
+   * the rules this task is held to right now, the same ones `checkPolicy` weighs (the conversation's
+   * mode, folder trust, the hold on outside work, a household person's role, Lockdown), read once for
+   * the walk. Branch's own files are never read, as for any call.
+   */
+  pathCheck(input: { tool: string; runId?: string | undefined; source?: RunSource | undefined }): PathCheck {
+    const permission = this.registry.permissionOf(input.tool) || "files.read";
+    if (this.roleRefusal(input.tool, permission, input.runId) || lockdownToolRefusal(this.store, this.owner, input.tool, permission))
+      return () => false;
+    const source = this.sourceOf({ source: input.source, runId: input.runId });
+    const scope = this.registry.pathScope(), base = resolvePath(this.protectedAreas.workspace, scope);
+    const guarded = unreadableInside(this.protectedAreas, base)
+      ? (path: string) => unreadable(this.protectedAreas, resolvePath(base, path)) : undefined;
+    return walkCheck({
+      policy: this.policy(source, input.runId), tool: input.tool, scope,
+      resourceOf: (tool, path) => this.registry.resourceOf(tool, path, { path }), ...(guarded ? { guarded } : {}),
+    });
   }
   /**
    * mac7/multi-target: every thing a call touches, for a tool that names more than one; null for one
@@ -2710,6 +2743,17 @@ ${run.output.slice(0, 6000)}`;
         reason: "You took back a yes you had given for this conversation", outcome: "refused",
       });
     return gone;
+  }
+  /**
+   * phase2/rooms (integration review): ends every answer kept for one conversation — a Trunk taken
+   * out of a room, or the room removed — including the copy written down for a restart, so it
+   * cannot come back when that conversation is next used.
+   */
+  endGrants(sessionId: string): number {
+    const grants = this.approvals.grants(sessionId);
+    for (const grant of grants) this.revokeGrant(sessionId, grant.tool, grant.target);
+    dropCarriedGrants(this.store, this.owner, sessionId);
+    return grants.length;
   }
   /** Lists everything a practice run would have done, once it has finished. */
   private reportDryRun(run: Run): void {

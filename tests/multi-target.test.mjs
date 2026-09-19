@@ -322,9 +322,13 @@ test("integration: a whole folder holding a refused folder is refused; naming a 
   assert.equal(judge(app, "git.commit", { folder: ".", message: "save", paths: ["src/a.ts"] }).decision, "allow", "only src/a.ts is saved");
   assert.equal(judge(app, "git.log", { folder: ".", path: "src/a.ts" }).decision, "allow");
   assert.equal(judge(app, "git.diff", { folder: "src" }).decision, "allow", "a folder beside finance");
-  refusedNaming(judge(app, "knowledge.create", { name: "All", sources: [{ kind: "folder", path: "." }] }), "finance");
+  // Integration (walk-rules): a knowledge base walks its folders and leaves out what the rules refuse
+  // (tests/walk-rules.test.mjs), so a base of the whole workspace is not refused whole; the folder
+  // named itself still is.
+  assert.equal(judge(app, "knowledge.create", { name: "All", sources: [{ kind: "folder", path: "." }] }).decision, "allow");
   assert.equal(judge(app, "knowledge.create", { name: "One", sources: [{ kind: "file", path: "notes.md" }] }).decision, "allow");
-  refusedNaming(judge(app, "knowledge.add", { collection: "c", source: { kind: "folder", path: "./" } }), "finance");
+  assert.equal(judge(app, "knowledge.add", { collection: "c", source: { kind: "folder", path: "./" } }).decision, "allow");
+  refusedNaming(judge(app, "knowledge.add", { collection: "c", source: { kind: "folder", path: "finance" } }), "finance");
   addPolicyRule(app.store, "local", { tool: "*", match: "*", decision: "deny", remember: "always", resource: { kind: "path", pattern: "sr" } });
   assert.equal(judge(app, "git.diff", { folder: "src" }).decision, "allow", "a folder called sr is not inside src");
 });

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { WalkRules } from "./walk-rules.js"; // mac7/walk-rules
 import { realpathSync } from "node:fs";
 import { relative, resolve, sep } from "node:path";
 import type { WorkspaceFiles } from "./files.js";
@@ -63,7 +64,10 @@ export class AICommentScanner {
   /** Looks at the changed files (workspace paths) and says what the comments ask for. */
   async scan(paths: readonly string[]): Promise<AICommentsReport> {
     const comments: AIComment[] = [];
+    // mac7/walk-rules: the task a comment starts is a trigger's, so the owner's rules decide what is read for it.
+    const rules = new WalkRules(this.files.walkRules({ source: "trigger" }));
     for (const path of [...new Set(paths)].slice(0, 200)) {
+      if (!rules.file(path)) continue;
       const text = await this.text(path);
       if (text === null) continue;
       const hash = digest(text);

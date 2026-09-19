@@ -233,8 +233,10 @@ import { handlesKnobsPath, knobsApi, KnobsApiError } from "./knobs/api.js";
 // R17-E: models, cheaper and smarter (src/model-savings/).
 import { handlesSavingsPath, savingsApi, SavingsApiError } from "./model-savings/api.js";
 // mac7/usage-bar: how much of each connection's allowance is left (src/usage-limits.ts).
+import { panelsWork, panelsWorkPath } from "./panels-work.js"; // phase2/panels
 import { conversationModeApi, ConversationModeError, handlesConversationModePath, modeRefusal, planAgreed } from "./conversation-mode-api.js";
 import { handlesUsageLimitsPath, usageGlance, usageGlancePath, usageLimitsRoute, UsageLimitsError } from "./usage-limits-api.js";
+import { DelightError, delightRoute, handlesDelightPath } from "./delight.js"; // phase2/delight
 import { savingsRefusal } from "./short-lived-keys.js";
 import { householdMaySend, householdRefusalFor } from "./household-routes.js"; // profile-audit
 // R17-S-C: the comfort settings (src/comfort/); every change is the owner's.
@@ -441,6 +443,14 @@ async function staticFile(
 ): Promise<boolean> {
   const assets: Record<string, [string, string]> = {
     "/acorn.js": ["acorn.js", "text/javascript; charset=utf-8"],
+    // phase2/delight: the corner (acorn and pet), achievements and your own background.
+    "/delight.js": ["delight.js", "text/javascript; charset=utf-8"],
+    "/delight.css": ["delight.css", "text/css; charset=utf-8"],
+    "/delight-kit.js": ["delight-kit.js", "text/javascript; charset=utf-8"],
+    "/delight-pet.js": ["delight-pet.js", "text/javascript; charset=utf-8"],
+    "/delight-achievements.js": ["delight-achievements.js", "text/javascript; charset=utf-8"],
+    "/delight-background.js": ["delight-background.js", "text/javascript; charset=utf-8"],
+    "/delight-3d.js": ["delight-3d.js", "text/javascript; charset=utf-8"],
     "/look-sync.js": ["look-sync.js", "text/javascript; charset=utf-8"],
     "/assets/keepoak-mark.png": ["assets/keepoak-mark.png", "image/png"],
     "/assets/keepoak-mark-reversed.png": ["assets/keepoak-mark-reversed.png", "image/png"],
@@ -654,8 +664,20 @@ async function staticFile(
     "/token-meter.js": ["token-meter.js", "text/javascript; charset=utf-8"],
     "/usage-glance.js": ["usage-glance.js", "text/javascript; charset=utf-8"],
     "/conversation-mode.js": ["conversation-mode.js", "text/javascript; charset=utf-8"],
+    // phase2/everywhere: the window at phone and tablet widths
+    "/phone-layout.js": ["phone-layout.js", "text/javascript; charset=utf-8"],
+    "/phone-layout.css": ["phone-layout.css", "text/css; charset=utf-8"],
+    "/look-early.js": ["look-early.js", "text/javascript; charset=utf-8"],
+    "/rooms.js": ["rooms.js", "text/javascript; charset=utf-8"], // phase2/rooms
+    "/rooms.css": ["rooms.css", "text/css; charset=utf-8"], // phase2/rooms
+    "/voice-bar.js": ["voice-bar.js", "text/javascript; charset=utf-8"], // phase2/rooms
+    "/voice-view.js": ["voice-view.js", "text/javascript; charset=utf-8"], // phase2/rooms
     "/suggestions.js": ["suggestions.js", "text/javascript; charset=utf-8"],
     "/glass-select.js": ["glass-select.js", "text/javascript; charset=utf-8"],
+    // phase2/panels: the side panel's tabs, resizable panes, see-through message box, hide anything.
+    "/panels.js": ["panels.js", "text/javascript; charset=utf-8"],
+    "/panels.css": ["panels.css", "text/css; charset=utf-8"],
+    "/panels-hide.js": ["panels-hide.js", "text/javascript; charset=utf-8"],
     "/playground.js": ["playground.js", "text/javascript; charset=utf-8"],
     "/tool-catalog.js": ["tool-catalog.js", "text/javascript; charset=utf-8"],
     "/i18n.js": ["i18n.js", "text/javascript; charset=utf-8"],
@@ -683,7 +705,15 @@ async function staticFile(
     "referrer-policy": "no-referrer",
     "content-security-policy":
       // worker-src and manifest-src let the installable web app register its service worker.
-      "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; worker-src 'self'; manifest-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+      // phase2/delight: blob: lets the owner's own background picture or video, kept in the window's own
+      // storage, be shown without ever being sent anywhere. Only the page's own script can make one.
+      // Integration review: blob: is allowed for pictures and sound/video only, never for scripts,
+      // workers, frames, objects or connections, and it stays on for everyone rather than following the
+      // background switch: reading answers aloud (public/voice.js, voice-talk.js) plays blob: sound too,
+      // which the old media rule silently refused; img-src already takes data:, which untrusted text could
+      // reach more easily than blob: (a blob: address is minted only by this page's own script, every
+      // artifact frame is sandboxed without scripts, and chat text renders no pictures).
+      "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
   });
   response.end(body);
   return true;
@@ -849,11 +879,16 @@ function toolInventory(app: Branch) {
 }
 /** Tasks waiting for the person's answer: the latest run of a conversation that stopped with a question. */
 function attention(app: Branch) {
-  const seen = new Set<string>(), waiting: { runId: string; sessionId: string; question: string; createdAt: string }[] = [];
+  type Waiting = { runId: string; sessionId: string; question: string; createdAt: string; who?: string; room?: string; open?: string };
+  const seen = new Set<string>(), waiting: Waiting[] = [];
   for (const run of app.store.runs(app.runtime.owner)) {
     if (seen.has(run.sessionId)) continue;
     seen.add(run.sessionId);
-    if (run.status === "needs_input") waiting.push({ runId: run.id, sessionId: run.sessionId, question: run.output, createdAt: run.createdAt });
+    if (run.status !== "needs_input") continue;
+    // phase2/rooms (integration review): a Trunk's question says which Trunk, and a room member's opens the room.
+    const by = app.trunks.conversations.answerer(run.sessionId);
+    waiting.push({ runId: run.id, sessionId: run.sessionId, question: run.output, createdAt: run.createdAt,
+      ...(by ? { who: by.name, open: by.sessionId, ...(by.room ? { room: by.room } : {}) } : {}) });
   }
   return waiting;
 }
@@ -1290,7 +1325,11 @@ async function api(
     app.store.profiles.requireOwner("The speech settings");
   // Wave 7: voice routes and plans, routing profiles, switching model mid-conversation, and a live
   // check of what each connection can do. The bodies of all of these live in src/voice-api.ts.
-  if (path === "/api/voice/settings" || path === "/api/voice/plan" || path === "/api/voice/voices"
+  // phase2/rooms: Talk live's own start was never in this list, so the button could not open a
+  // conversation. Its tools run as the owner, so it is the owner's alone (src/short-lived-keys.ts no
+  // longer lets a key or a household person reach it).
+  if (path === "/api/voice/live"
+    || path === "/api/voice/settings" || path === "/api/voice/plan" || path === "/api/voice/voices"
       || path.startsWith("/api/models/profiles") || path === "/api/models/switch" || path === "/api/models/probe"
       || path === "/api/models/gemini-signin")
     return voiceApi(voiceDeps(app), request.method ?? "GET", path, () => readBody(request));
@@ -1535,6 +1574,10 @@ async function api(
       throw new HttpError(401, "A short-lived key can answer this once or for this conversation, but cannot make a standing rule. Do that in the app window.");
     // bucket 19: a short-lived key answers only the questions of tasks it started itself.
     requireBoundSession(shortLivedKeyMark().sessionId, input.sessionId);
+    // phase2/rooms (integration review): a yes that holds for a Trunk in a room is the owner's, given in the room.
+    if (input.remember !== "never" && app.trunks.conversations.kind(input.sessionId) === "member"
+      && (startedWithShortLivedKey() || !app.store.profiles.isOwner()))
+      throw new HttpError(401, "A yes that holds in a room is given by the owner, in the room. Answer this once instead.");
     // With nothing waiting, the answer below says so in its own words.
     const asked = app.runtime.approvals.questionFor(input.sessionId, input.fingerprint);
     const keyRefusal = asked ? keyAnswerRefusal(app.store, asked.runId) : null;
@@ -1577,6 +1620,9 @@ async function api(
       ...(input.mode && !input.sessionId ? { conversationMode: input.mode } : {}),
     });
   }
+  // phase2/panels: what the side panel's Browser and Terminal tabs show (src/panels-work.ts); owner only.
+  if (request.method === "GET" && path === panelsWorkPath)
+    return panelsWork(app.store, app.runtime.owner, new URL(request.url ?? "/", "http://local").searchParams.get("session") ?? "");
   // Redesign phase 1: the mode chip in the message box (src/conversation-mode-api.ts).
   if (handlesConversationModePath(path))
     return conversationModeApi(app, request.method ?? "GET", new URL(request.url ?? "/", "http://local"), () => readBody(request))
@@ -1690,6 +1736,10 @@ async function api(
     return usageLimitsRoute(app, request, path, () => readBody(request))
       .catch((error: unknown) => { throw error instanceof UsageLimitsError ? new HttpError(error.status, error.message) : error; });
   // --- end mac7/usage-bar ---
+  // phase2/delight: the pet, achievements and your own background; the owner's alone (src/delight.ts).
+  if (handlesDelightPath(path))
+    return delightRoute(app, request.method ?? "GET", path, () => readBody(request))
+      .catch((error: unknown) => { throw error instanceof DelightError ? new HttpError(error.status, error.message) : error; });
   throw new HttpError(404, "Endpoint not found");
 }
 async function sessionApi(app: Branch, request: IncomingMessage, path: string): Promise<unknown> {
@@ -3883,7 +3933,17 @@ function voiceDeps(app: Branch) {
     voice: app.voice, policy: app.web.policy, fetch: app.web.policy.guard(globalThis.fetch),
     // Wave 7: the Gemini card's "Sign in with Google" needs the workspace's OAuth connections.
     oauth: app.oauth,
+    liveRefusal: (sessionId: string) => liveRefusalFor(app, sessionId), // phase2/rooms
   };
+}
+/**
+ * phase2/rooms: Talk live runs its tools as your assistant, so it is refused in a conversation a
+ * Trunk answers in (its own chat, one chosen for it, its seat in a room) and in a room: there it
+ * would step round the Trunk's own limits.
+ */
+function liveRefusalFor(app: Branch, sessionId: string): string | null {
+  // Integration review: the same words LiveConversations.start answers with (src/live-refusal.ts).
+  return app.live.refuse(sessionId);
 }
 /**
  * Batch 20 (wave 8): the doors a short-lived key never opens, whatever its scope. A "run" key is

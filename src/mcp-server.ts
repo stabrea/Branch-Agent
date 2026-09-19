@@ -733,7 +733,8 @@ export class McpServer {
     if (scope) {
       if (!this.mayRead(scope)) throw new Error(`Unknown resource: ${uri}`);
       if (uri === 'memory://facts') return json(this.store.list('memory', this.runtime.owner));
-      if (uri === 'workspace://files') return json(await this.files.list());
+      // mac7/walk-rules: another program reading the workspace is held to the owner's rules, entry by entry.
+      if (uri === 'workspace://files') return json(await this.files.list(".", undefined, { source: "mcp" }));
       if (!this.documents) throw new Error(`Unknown resource: ${uri}`);
       return json(this.documents.list(this.runtime.owner));
     }

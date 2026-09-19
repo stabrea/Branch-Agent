@@ -1791,6 +1791,13 @@ A **live conversation** is the other way of talking to Branch: instead of holdin
 **Honest limits.** Branch has been tested against local stand-ins speaking OpenAI's and Gemini's documented live message shapes. It has **not** been tested against the real services with real sound; treat "Branch speaks the right language" as what is proved, not "this has been heard working".
 
 Routes: `POST /api/voice/live` (opens a task for a live conversation and answers with whether one is possible); the conversation itself runs on the task's existing socket `/api/runs/<id>/ws`, with your microphone going up as binary frames and the answer coming back as binary frames numbered so they play in order. `GET /api/voice/plan` reports under `live` whether the connection in use can hold one, and the limits it would run under.
+Until redesign phase 2 the server never answered `POST /api/voice/live` (the route was not in its voice list), so the button
+could not open a conversation; it does now. It is the owner's alone: a household person and a short-lived key are refused,
+because a live conversation's tools run as the owner. It is also refused in a room and in a conversation a Trunk answers in,
+under Lockdown (your voice would go to a service outside this computer), and in a conversation that began outside Branch
+(a chat app, a schedule, a trigger or another program), which stays held however it is carried on. These refusals are
+checked where a live conversation really opens (`LiveConversations.start`, reached from any task's socket), not only by the
+route, and each tool it uses is still judged with the conversation's mode (src/live-refusal.ts).
 
 ### Which model does what (wave 7)
 
@@ -2812,20 +2819,22 @@ A recipe (`procedures.propose`) may declare `parameters` (`{ name: { type: "stri
 
 **Talking in the terminal.** `branch` on its own, in a terminal, opens the terminal view; `branch chat` opens the same view. (Run with no terminal attached — a launcher, a service, a pipe — `branch` on its own still starts the web app, exactly as before.) The view is the window's design in character cells (`docs/design.md`, `docs/places.md`):
 
-- **The head** carries the KeepOak mark and the assistant's name, the page you are on (`Inbox › Needs you`, `Settings › Models › Defaults`), the model that answers, and the Lockdown shield while Lockdown is on. While it is on, a red line under the head says so on every page.
+- **The head** carries the KeepOak mark and the assistant's name, the page you are on (`Inbox › Needs you`, `Settings › Models › Defaults`, or `Conversation › ` and the conversation's first words), the model that answers, and the Lockdown shield while Lockdown is on. While it is on, a red line under the head says so on every page.
+- **The rail** (redesign phase 2, from 100 columns): down the left, as in the window, one mark for this computer, one for each of the owner's paired devices (a phone or another computer) and one for each Trunk that is switched on and shown; the mark of the place you are in is lit, and a click says whose it is. A household profile sees only this computer.
+- **The usage line** (redesign phase 2): above the key hints, the connection with the least left, drawn as the window's ring under the message box draws it — a bar, the share left and when it refills. It follows the ring's own switch (Settings › Data & usage) and shows only a share a service reported; with nothing reported, or for anyone but the owner, there is no line.
 - **The tab row** holds the five places in the window's order and with the window's names — Conversation, Inbox (with a count of what waits for your yes), Automations, Library, Customize.
-- **The conversation** is one column of messages with the composer floating at its foot: the model chip first, then what the next message carries (the approval preset, attached files, practice run, a plan first). Each step the assistant takes is one short row — `· Writing notes.txt` while it happens, `ok Writing notes.txt` when it is done — and **Ctrl+E** shows what is behind those rows. The **side pane** (Activity, Plan, Files, Memory) opens with **Ctrl+P** or **F2**; under 100 columns it floats over the conversation, as the window's does under 1180 px.
+- **The conversation** is one column of messages with the composer floating at its foot: the model chip first, then what the next message carries (the approval preset, attached files, practice run, a plan first). Each step the assistant takes is one short row — `· Writing notes.txt` while it happens, `ok Writing notes.txt` when it is done — and **Ctrl+E** shows what is behind those rows. Each answer is headed with the assistant's own name. The **side pane** (Activity, Plan, Files, Memory) opens with **Ctrl+P** or **F2**; under 100 columns it floats over the conversation, as the window's does under 1180 px.
 - **Every other place** reads as the window's places do: its name, one sentence saying what it holds, its tabs, and its rows, each a title and one plain line. An empty tab says what the tab is for and what to do next. The ask box at the foot sends a question straight to the conversation.
 - **Settings** opens as a window over the place you were in, with its twelve pages down the left (in a strip along the top under 86 columns) and the five Models tabs. Appearance, Models › Defaults and Permissions can be changed right there; the other pages say what they hold and where the rest of the page is.
 - **Ctrl+K** (or **/** in an empty composer) opens the palette: every place and tab, every Settings page, the top actions, recent conversations and every slash command. Typing narrows it; Enter goes.
 
-**Keys.** **Enter** sends, **Alt+Enter** adds a line, the **up arrow** brings back a message you sent, **PgUp**/**PgDn** scroll the conversation, **Ctrl+C** stops the task in hand without closing anything, **Ctrl+N** starts a conversation, **Ctrl+L** draws everything again and **Ctrl+D** leaves. **Esc** steps out of the composer without touching what you typed; then **1** to **5** open the places (**Alt+1** to **Alt+5** work from anywhere). In a place, the up and down arrows choose a row, left and right change tab, **Enter** opens a row and **Tab** moves to the ask box; **Esc** goes back to the conversation. In Settings, left and right change page and **Tab** changes the Models tab. **F1**, `/help` or `/keys` lists all of this. A paste arrives whole, line breaks and all, rather than sending half of it. Nothing needs a mouse.
+**Keys.** On a terminal of 30 rows or more the conversation's foot adds the window's key line (Enter sends, Alt+Enter adds a line, Up recalls, Ctrl+E shows step details, Ctrl+C stops the task, Ctrl+D leaves). **Enter** sends, **Alt+Enter** adds a line, the **up arrow** brings back a message you sent, **PgUp**/**PgDn** scroll the conversation, **Ctrl+C** stops the task in hand without closing anything, **Ctrl+N** starts a conversation, **Ctrl+L** draws everything again and **Ctrl+D** leaves. **Esc** steps out of the composer without touching what you typed; then **1** to **5** open the places (**Alt+1** to **Alt+5** work from anywhere). In a place, the up and down arrows choose a row, left and right change tab, **Enter** opens a row and **Tab** moves to the ask box; **Esc** goes back to the conversation. In Settings, left and right change page and **Tab** changes the Models tab. **F1**, `/help` or `/keys` lists all of this. A paste arrives whole, line breaks and all, rather than sending half of it. Nothing needs a mouse.
 
 **Three switches, all off.** `/switch mouse`, `/switch sidePane` and `/switch oak` (or Settings › Appearance in the view) each take on, off or when needed, and a fresh install has all three off. *Clicks and the wheel*: on catches them everywhere; when needed only while the palette or Settings is open; off never, so your terminal's own text selection always works. *The side pane opens by itself*: on opens it when the view starts; when needed opens it while a task works and folds it when the task ends; off leaves it to Ctrl+P. *The oak*: the window's pixel oak, drawn on an empty conversation in the season of the year from the theme's own colours; on whenever it fits, when needed only on a terminal of 30 rows or more.
 
 The commands inside it are `/help` (and `/keys`), `/model [id]`, `/think <low|medium|high|default>`, `/preset [name]`, `/memory [words]`, `/skills`, `/plan`, `/verify`, `/dry-run`, `/attach <file>`, `/history`, `/export [file]`, `/new`, `/sessions [id]`, `/go <place>`, `/inbox`, `/automations`, `/library`, `/customize`, `/settings [page]`, `/theme`, `/default <id>`, `/switch`, `/pane`, `/lockdown [on|off]` and `/exit`. They live in one table (`src/terminal-command-table.ts`) that the help, the palette and the parser all read, and several answer to the names Hermes and OpenClaw use (`/reset`, `/clear`, `/models`, `/reasoning`, `/config`, `/tools`, `/cron`, `/skin`, `/pause`, `/quit`). `/plan`, `/verify` and `/dry-run` switch on and off and apply to every message after that. `/attach` takes a picture (PNG, JPEG, WebP or GIF) as a picture and any other text file as words added to your next message. `/export` writes the conversation to a Markdown file in your workspace. `/go` takes any place, tab or Settings page by id, English name or French name: `/go inbox finished`, `/go settings models defaults`, `/go Bibliothèque`.
 
-**When it stops to ask.** If your approval preset makes a task pause, the terminal shows the question with the tool and the exact file or command, and takes **y** (yes, remembered as the rule suggests), **n** (no), **a** (yes, always — written into your approval settings as a rule) or **s** (yes, for this conversation), then Enter. The answer goes through the same route as the app's **Settings → When to check with me** screen, and the task carries straight on.
+**When it stops to ask.** If your approval preset makes a task pause, the terminal shows the question as one card with a warning edge, as the window's "needs you" card, with the tool and the exact file or command (and Activity in the side pane says it is waiting for your yes), and takes **y** (yes, remembered as the rule suggests), **n** (no), **a** (yes, always — written into your approval settings as a rule) or **s** (yes, for this conversation), then Enter. The answer goes through the same route as the app's **Settings → When to check with me** screen, and the task carries straight on.
 
 **When the terminal cannot take it.** `branch chat` falls back to the plain streaming view when stdout is not a terminal or when you pass `--plain`. With `NO_COLOR` set, or `TERM=dumb`, the view prints plain lines and writes not a single escape sequence — no colour, no cursor movement, no window title, no progress indicator — and every slash command, place and Settings page still works, printed as lines. `FORCE_TTY=1` asks for the full view anyway (this is what the tests use), and `FORCE_TTY=0` asks for the plain one. `COLUMNS` and `LINES` override the window size; the view redraws itself when the window changes size and works from 80×24 up. The view is drawn on the terminal's second screen with line wrapping off, so leaving puts back exactly what was there. On a terminal that takes them, the window title names the place you are in and Windows Terminal's taskbar progress indicator (OSC 9;4) turns on while a task is working; `BRANCH_TUI_DECORATIONS=0` turns just those two off.
 
@@ -3905,7 +3914,7 @@ Local HTTP authorization is single-owner access, not a multi-user tenancy system
 record (`PreferencesSchema` in `src/preferences.ts`) holds `appearance` (`forest` or `daylight`),
 `followSystem`, `accent` (`copper`, `leaf`, `earth`, `slate`, `ink`), `textSize`
 (`small`/`medium`/`large`), `density` (`comfortable`/`compact`), `font` (`geist`/`system`),
-`reduceMotion`, `showAcorn` (the acorn toy in the side pane, off by default), `showEverything`
+`reduceMotion`, `showAcorn` (the pixel acorn in the rail's bottom corner, off by default), `showEverything`
 and `showVoice`. Every field has a default, so a record saved by an older version still loads.
 Settings → Appearance changes all of them; each choice shows at once and Save keeps it.
 
@@ -3939,6 +3948,37 @@ Settings → Appearance, or at the foot of the More menu). `showVoice` (default 
 microphone and Talk buttons beside the message box in the calm window; the full window always
 shows them.
 
+**The side panel, its tabs and panes you can resize (redesign phase 2, panels).** The title bar has one
+side-panel button (in the calm window too); the panel's tabs sit inside it: Activity, Plan, Files, Memory,
+Browser and Terminal. **Browser** lists the web pages the assistant opened in this conversation, with the last
+picture it took of a page; **Terminal** lists the commands it ran, what they printed, and the ones it was
+refused or is waiting on a yes for. Both read `GET /api/panels/work?session=<id>` (src/panels-work.ts), the
+conversation's last eight tasks; nothing there runs a command or opens a page. A key-shaped value in a
+command line or a printout is shown as `[hidden key-like value: …]` there, as it is in a chat app's copy. They are the owner's: a
+short-lived key and a household person are refused the route, and a household person's window does not offer
+the two tabs. The edge of the side list and of the side panel can be dragged (double-click resets, arrow keys
+move it, Enter folds it); Ctrl+B (Cmd+B on a Mac) folds the side list. Widths are kept in this browser only
+(`branch-pane-widths:<workspace>:<owner or household>` in local storage, so a household person at the same
+window keeps their own), not in the preferences record.
+
+**What's on screen (Settings → Appearance).** Four more fields of the preferences record:
+
+- `conversationWidth` (`comfortable`, `wide` or `full`; default `wide`): how wide the conversation and the
+  message box grow on a wide screen. `comfortable` is the old 760-pixel column.
+- `seeThrough` (0 to 100; default `30`): how see-through the message box is, from solid to glass. It never
+  goes past the fill that keeps the words readable over the theme's darkest and lightest oak, and it stays
+  solid when the computer asks for less transparency or "Keep things still" is on.
+- `hidden` (a list of part names; default empty): the parts of the window the person chose to hide — the
+  whole side list or title bar, the oak, the rows of the side list, the title bar's buttons, the question and
+  suggestions on a new conversation, the messages, the message box and the chips and lines around it, the acorn.
+  Questions it asks before it acts, the Lockdown banner, Stop while a task runs and Settings are never on the
+  list; with the side list hidden a small gear stays in the corner. A part name the list does not know (one
+  typed into the record by hand) is ignored, so nothing else can be hidden that way. When every part on the
+  list is hidden, the window says `branch-everything-hidden` on `document` once (the achievements'
+  "It's lonely over here" listens for it); it says it again only after something was brought back.
+- `rightClickHide` (default `false`): right-clicking a part of the window offers "Hide this" (with Undo in
+  the notice). Off, right-click behaves as it always has.
+
 Every section (Conversation, Activity, Usage, Memory, Skills, Specialists, Procedures, Schedules,
 Documents, Settings) is a row in the rail's "Sections" group on the left, so nothing hides behind a
 drop-down. Below it, "Projects" lists the workspace folders (`POST /api/projects/active` switches
@@ -3960,6 +4000,88 @@ It refreshes every five seconds while it is open and hides below 1180 px. The in
 `/tokens.css`, `/shell.css`, `/shell.js`, `/context-pane.js` and `/appearance.js` are served from
 the same local allowlist as the rest of the interface. See [design.md](design.md) for the tokens
 and the layout.
+
+### The corner: the acorn, a pet, achievements and your own background (redesign phase 2)
+
+**The acorn** (`showAcorn`, off by default) sits in the bottom corner of the rail, just above its
+foot, and stays there. It has no caption: *Drag to turn* is its tooltip, and a small pause button
+shows when the pointer is over it or it has the keyboard. *Keep things still* stops it turning.
+
+Three playful extras sit beside it. Each has its own switch in Settings → Appearance, and **all
+three are off** until the owner turns them on. They are the owner's alone: a household profile, a
+short-lived key and a chat app never see them or change them.
+
+- **A pet** (`pets`) — a small forest creature drawn like the acorn, in the theme's own colours, in
+  the corner beside it. It naps when nothing is happening, paces while a task works, hops when
+  something waits for your yes, jumps when a task finishes and shivers while Lockdown is on. It says
+  one thing at a time in one small bubble: a message stays for its reading time (three to eight
+  seconds) and goes; a status that stops being true goes at once; a click dismisses it. With *Tips*
+  on it now and then says one short, true tip about what is on screen, each only once, and fewer
+  as the owner's rank rises (Bronze: at most one every few minutes; Silver: at most one an hour;
+  Gold and above: none). Right-click it for its own menu (pat, no more tips, its settings, hide).
+  Pressing it pats it; when something waits for your yes, pressing it opens Inbox.
+  Fields: `on` (default `false`), `kind` (`squirrel`, `owl`, `hedgehog`, `fox`, `robin`, `rabbit`,
+  `snail`, `fawn`; default `squirrel`), `name` (1–20 characters, default `Hazel`), `talks` (default
+  `true`), `tips` (default `true`).
+- **Achievements** (`achievements`) — 505: Bronze, Silver, Gold, Diamond and Godly, exactly 100 of
+  each, and five near-impossible SSS+ ones. Every one is earned from something that really happened
+  and was written down: Branch's own records (finished tasks and where they came from, conversations,
+  the days and hours tasks finished, tools that ran, the audit log's answered approvals and other
+  moments, schedules, procedures, what is remembered, live voice calls) or a moment the owner's own
+  window saw and reported from a closed list (a theme worn, a season shown, a Settings page opened,
+  the acorn turned, a pet patted, a background chosen, *Keep things still*, *Show everything*, a new
+  language, and "It's lonely over here" when everything that can be hidden is hidden). Nothing is
+  granted for time passing. The tiers come from how long an everyday owner would take. A streak is
+  the best run of days in a row with a finished task, so it only ever pauses. Switching achievements
+  on finds the past without any pop-up; after that a Bronze or Silver one shows as a small note at
+  the top for about seven seconds, and Gold and above as a card with falling leaves that grows with
+  the rank (*Keep things still* shows the card without them). Locked ones give less away the higher
+  they are: Gold hides its description, Diamond its name, Godly and SSS+ everything. They are kept in
+  Branch's own settings on this computer and are never sent anywhere. While achievements are off,
+  nothing the window sees is written down. The events Branch writes for every task are counted a
+  batch at a time (25,000 per look, kept with the achievements as `scan`), so a long history never
+  stops Branch while it is counted; what that past brings arrives quietly, and `GET
+  /api/delight/achievements` says `behind: true` until it is all counted. Fields: `on` (default `false`), `quiet` (default `false`:
+  earned without any pop-up).
+- **Your own background** (`background`) — a picture, a video, an animation (GIF, WebP or APNG) or
+  a 3D object behind the glass instead of the oak. The 3D object is one of Branch's own (the acorn
+  or the oak, drawn in the theme's colours and turning slowly) or a `.glb` model of your own: its
+  shapes and base colours are drawn by Branch's own small WebGL drawer (no library, nothing
+  fetched); textures and compressed models are not read, and a model that cannot be read is
+  refused in plain words (a `.glb` is checked piece by piece against the file and may hold at most
+  300,000 corners, 10,000 parts and 4,096 nodes). The file is kept in the window's own storage
+  (IndexedDB) on this computer and never reaches Branch's server or anywhere else; switching the
+  background off removes it from that storage, and a full disk is said in plain words. Pictures and animations up to 8 MB, videos up
+  to 25 MB, 3D models up to 5 MB; anything else is refused in plain words. A scrim in the theme's ground
+  colour lies over it so text stays readable in every theme. A video pauses for *Keep things still*
+  and while the window is hidden. Fields: `on` (default `false`), `scrim` (20–90, how strongly the
+  theme's colour covers it; default `60`), `fit` (`fill`, `fit` or `tile`; default `fill`).
+
+- **Pixel or 3D** (`look`) — `style`: `pixel` (default: the acorn and the pet as they have always
+  been) or `3d` (the same acorn and pet as small turning 3D stand-ins in the theme's colours, drawn
+  by the same WebGL drawer; dragging turns them). Where WebGL is not available they stay pixel.
+
+The window's page is allowed to show a `blob:` picture or video it made itself (`img-src` and
+`media-src` in its content security policy), which is how the background is shown without being
+sent anywhere. It is allowed for pictures and sound or video only, never for scripts, workers,
+frames, objects or connections, and it stays allowed whether or not the background is on: answers
+read aloud are played as `blob:` sound as well.
+
+Routes (every one the owner's alone, at this computer's own window):
+
+- `GET /api/delight` — `{ available, settings, earned, rank }`. Anybody else gets
+  `{ "available": false }`: not an error, and nothing else.
+- `POST /api/delight/settings` — change any of the fields above, e.g. `{ "pets": { "on": true } }`.
+- `GET /api/delight/achievements` — every achievement as the window may show it, what was just
+  earned and not yet celebrated (`fresh`), how many are earned and the rank. Refused to a
+  short-lived key and to a household profile.
+- `POST /api/delight/noticed` — something the window saw, from the closed list above, e.g.
+  `{ "what": "theme", "mode": "dark", "theme": "forest", "season": "winter" }`. Ignored while
+  achievements are off.
+- `POST /api/delight/told` — `{ ids }`: these were celebrated, so they are not shown again.
+
+Another part of the window can earn "It's lonely over here" by dispatching the
+`branch-everything-hidden` event on `document` when everything that can be hidden is hidden.
 
 ## Skill packages, registry versions, plugins and suggestions
 
@@ -7529,6 +7651,7 @@ Every field of `VoiceSettingsSchema` (`src/voice.ts`), which is what **Settings 
 | `liveMaxDollars` | How much one live conversation may cost. $1.00 by default. |
 | `liveVoiceDetection` | Let the service decide when you have stopped speaking, rather than waiting for the button. |
 | `keepLiveRecordings` | Note in the task's record how much sound a live conversation carried — the size of each piece and nothing else. The sound itself is never kept either way. |
+| `liveView` | `off` (the default) or `on`. On: Talk live opens a view of its own, like the voice modes of ChatGPT and Codex: a circle that moves with the real sound going up and coming back, what each side says as it is said, Mute (the sound stops leaving this computer), Show the chat, and End; the send button offers Talk live while the message box is empty. A question the assistant asks mid-conversation folds the view away so its card can be answered. The microphone is asked for only when you press Talk live. Off: Talk live is the plain button it always was. Talk live is never offered in a room or a conversation a Trunk answers in. |
 
 ### The rest
 
@@ -7982,7 +8105,7 @@ person on this computer (those are people, in Settings → General) and not a sp
 set of instructions), though a specialist can be brought across as a Trunk. Branch's answer to Hermes
 Agent's Bots and Grok's bots.
 
-Five parts, each with the three-way switch, all off at first. The card is in Customize → Specialists,
+Six parts, each with the three-way switch, all off at first. The card is in Customize → Specialists,
 under "Trunks"; the roster sits in the sidebar above Recents; rooms that asked for you show in
 Inbox → Needs you.
 
@@ -7993,6 +8116,7 @@ Inbox → Needs you.
 | Messages | `trunk.message` lets a Trunk write to another from its own conversation only. Branch signs the message, it waits until the other is free, the answer comes back later, a failure that a second try can help is tried once more, and a chain stops three messages deep. One task sends at most three messages, and all Trunks together at most thirty an hour. |
 | Routines | Schedules a Trunk owns (`[Trunk @name]` in Automations). They run as the Trunk and report in its conversation; the first turn is at the time you chose. While Routines are off, or once the Trunk is gone, they do not run at all (never as you). |
 | Teaching | Watch me, do the job once, Save what I did: the task's steps become a workflow the Trunk owns, optionally repeated every day. |
+| Conversations (`trunks-conversations`, redesign phase 2) | Choosing a Trunk to answer in any conversation: the faces at the top of a conversation say who answers there; pick a Trunk and every task in that conversation runs as it (its instructions, memory, tools, model and keys), exactly as in its own chat, until you pick your assistant again. Each reply is signed with whoever gave it. Bringing a second Trunk in (with Rooms on) makes a room with both, which is handed the last few messages so they know what came before; the conversation itself stays as it was. `@name` in a conversation then brings that Trunk here rather than switching to its own chat. Off: the faces are not there and `@name …` goes to the Trunk's own chat, as before; a conversation a Trunk was chosen for before it was switched off keeps that Trunk (which only ever narrows what it may do) until you give it back to your assistant, which works with the switch off. |
 
 What a Trunk may reach starts off: no chat apps (a chat linked to its conversation is refused in one
 sentence until the Trunk may answer there), no commands (`shell.execute`, `code.execute`,
@@ -8015,6 +8139,25 @@ marked as a Trunk's, whichever way the call arrives (`refuseSignInForTrunk` in `
 memory, keys or reach, and key-shaped text is taken out. One brought in from a file says nothing by
 itself, uses no tool server and may only look (reads that stay on this computer) until you change it.
 Teaching learns only from a task you started yourself.
+
+**A room's mode (redesign phase 2).** A room's own conversation is where its mode lives (the chip in
+the message box: Ask first, Plan, Auto, Full access). Each Trunk answers in a conversation of its own
+for the room, and every turn it takes follows the room's mode, the moment it changes, and after a
+restart too (`modeFollows` in `src/runtime.ts`), capped by that Trunk's own limits: a Full access room
+gives a Trunk no command it may not run and no tool it was not given. A message sent to a room with a
+short-lived key is written down as that key's, and the turns it starts are held to your own setting,
+never to a looser mode you picked for the room. A Trunk's own side of a room never has a mode of its own:
+the room's always wins. A yes you give a Trunk in a room holds for that Trunk, that exact request (the same
+tool on the same thing, with the same bytes), in that room only, for at most an hour, because the Trunk takes
+its turn again from the start after your answer; before redesign phase 2 a yes "just this once" was used up
+by nothing and the Trunk asked the same question for ever. The room shows each such yes ("Ledger may do this
+in this room: …") with **Revoke**; it ends when that Trunk is taken out of the room or the room is removed
+(the copy kept for a restart too), and Lock ends it as it ends every yes. Only the owner, in the room, gives
+it: a short-lived key or a household profile answering a room Trunk's question may answer once only, and a
+chat app never reaches a room's questions. A request the safety check advised against is allowed once, never
+kept. A no is remembered the same way as a yes. A Trunk's side of a room is kept out of Recents and search;
+the room itself is what you open, and "… needs you" names the Trunk and opens the room. Talk live is refused in a room and in any conversation
+a Trunk answers in, because its tools would not keep the Trunk's limits.
 
 Everything is under `/api/trunks/`, owner only (and so is `/trunk`), except talking to a Trunk and sending to or stopping
 a room, which a short-lived "run" key may do (`src/short-lived-keys.ts`). The picture model is asked

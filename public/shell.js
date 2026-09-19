@@ -89,7 +89,7 @@ function rememberOwner(id) {
 }
 
 /* ---------- the two panes that fold away ---------- */
-const overlayRail = () => globalThis.innerWidth <= 860;
+const overlayRail = () => globalThis.innerWidth < 700; // phase2/everywhere: a tablet held upright keeps the side list docked
 function pane(key, toggleId, className, onToggle) {
   const open = localStorage.getItem(key) !== "closed";
   document.body.classList.toggle(className, !open);

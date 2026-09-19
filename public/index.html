@@ -2,9 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" /><!-- phase2/everywhere: the page reaches under a phone's notch and home bar; phone-layout.css keeps everything clear of them -->
     <meta name="color-scheme" content="dark light" />
     <title>Branch Agent — Your personal assistant</title>
+    <script src="/look-early.js"></script><!-- phase2/everywhere: a chosen theme is named before the first paint -->
     <link rel="stylesheet" href="/tokens.css" />
     <link rel="stylesheet" href="/style.css" />
     <link rel="stylesheet" href="/shell.css" />
@@ -12,12 +13,18 @@
     <link rel="stylesheet" href="/web-ui.css" />
     <!-- Wave 9 redesign: glass panes over the oak, the five places and the Settings window (public/layout.js). -->
     <link rel="stylesheet" href="/layout.css" />
+    <!-- phase2/panels: the side panel's tabs, resizable panes, the conversation's width, hiding parts of the window. -->
+    <link rel="stylesheet" href="/panels.css" />
+    <!-- phase2/delight: the corner, pets, achievements and your own background (public/delight.js). -->
+    <link rel="stylesheet" href="/delight.css" />
+    <link rel="stylesheet" href="/rooms.css" /><!-- phase2/rooms -->
     <!-- phase2/shell: faces, the Trunks strip, the Add a Trunk studio, Overview and People. -->
     <link rel="stylesheet" href="/faces.css" />
     <link rel="stylesheet" href="/strip.css" />
     <link rel="stylesheet" href="/studio.css" />
     <link rel="stylesheet" href="/brand-marks.css" /><!-- phase2/accounts: service marks -->
     <link rel="stylesheet" href="/accounts.css" /><!-- phase2/accounts: Accounts, the assistant's files, Secrets -->
+    <link rel="stylesheet" href="/phone-layout.css" /><!-- phase2/everywhere -->
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" href="/assets/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/assets/icon-192.png" />
@@ -81,6 +88,17 @@
           <div id="rail-labels" class="label-chips-host" hidden></div>
           <div id="rail-list" class="rail-rows" aria-live="polite"></div>
         </section>
+      </div>
+      <!-- phase2/delight: the corner. The pixel acorn (no caption; "Drag to turn" is its tooltip) stays put
+           here, and a pet, when switched on, lives beside it (public/delight.js). -->
+      <div class="delight-corner" id="delight-corner">
+        <div class="acorn-art">
+          <canvas id="keepoak-acorn" width="40" height="40" role="img" tabindex="0" title="Drag to turn"
+            data-t-title="acorn.tip" aria-label="KeepOak acorn. Drag or use arrow keys to turn it."></canvas>
+          <button id="acorn-motion" class="acorn-motion" type="button" aria-label="Pause rotation" title="Pause rotation"
+            ><svg viewBox="0 0 24 24" aria-hidden="true"><path class="acorn-pause" d="M9 6v12M15 6v12" /><path class="acorn-play" d="M8 5l11 7-11 7z" /></svg></button>
+        </div>
+        <div class="pet-lane" id="pet-lane"></div>
       </div>
       <div class="rail-foot">
         <button id="owner-menu-button" class="owner-row" type="button" aria-haspopup="true" aria-expanded="false">
@@ -1230,6 +1248,13 @@
             <label class="check-row">
               <input id="voice-live-record" type="checkbox" /> Note in the task's record how much sound a live conversation carried (the sound itself is never kept either way)
             </label>
+            <!-- phase2/rooms: Talk live in a view of its own (public/voice-view.js). Off by default. -->
+            <label for="voice-live-view" data-t="field.voice-live-view">Talk live in its own view</label>
+            <select id="voice-live-view" aria-describedby="voice-live-view-note">
+              <option value="off" data-t="field.switch-off">Off</option>
+              <option value="on" data-t="field.switch-on">On</option>
+            </select>
+            <p id="voice-live-view-note" class="field-note" data-t="settings.voice.liveViewNote">On: pressing Talk live, or the send button while the message box is empty, opens a calm view with a circle that moves with the sound, what each of you says as it is said, Mute and End. The microphone is asked for the first time you press it, never before. Off: Talk live is the plain button it always was.</p>
             <label for="voice-language" data-t="field.language-leave-empty-to-let">Language (leave empty to let it work that out)</label>
             <input id="voice-language" maxlength="20" placeholder="for example en" />
             <label for="voice-local-exe" data-t="field.speech-program-on-this-computer">Speech program on this computer</label>
@@ -1990,12 +2015,6 @@
         <div><dt>Memories</dt><dd id="context-memory">—</dd></div>
         <div><dt>Tools</dt><dd id="context-tools">—</dd></div>
       </dl>
-      <div class="acorn-art">
-        <canvas id="keepoak-acorn" width="120" height="104" role="img" tabindex="0"
-          aria-label="KeepOak acorn. Drag or use arrow keys to turn it." aria-describedby="acorn-hint"></canvas>
-        <span id="acorn-hint" class="eyebrow">DRAG THE ACORN</span>
-        <button id="acorn-motion" class="acorn-motion" type="button" data-t="action.pause-rotation">Pause rotation</button>
-      </div>
     </aside>
     <div id="update-screen" class="update-screen" hidden role="dialog" aria-live="polite" aria-label="Updating">
       <div class="update-panel">
@@ -2038,6 +2057,7 @@
     <script src="/usage.js" type="module"></script>
     <script src="/usage-glance.js" type="module"></script>
     <script src="/conversation-mode.js" type="module"></script>
+    <script src="/phone-layout.js" type="module"></script><!-- phase2/everywhere -->
     <script src="/suggestions.js" type="module"></script>
     <script src="/glass-select.js" type="module"></script>
     <script src="/diagnostics.js" type="module"></script>
@@ -2053,6 +2073,8 @@
     <script src="/desktop.js" type="module"></script>
     <script src="/os-permissions.js" type="module"></script>
     <script src="/acorn.js" type="module"></script>
+    <!-- phase2/delight: the pet, achievements and your own background, all off until switched on. -->
+    <script src="/delight.js" type="module"></script>
     <script src="/look-sync.js" type="module"></script>
     <script src="/context-pane.js" type="module"></script>
     <script src="/memory-tidy.js" type="module"></script>
@@ -2134,6 +2156,11 @@
     <script src="/phone-app.js" type="module"></script>
     <script src="/autonomy.js" type="module"></script>
     <script src="/trunks.js" type="module"></script>
+    <!-- phase2/rooms: who answers in a conversation, rooms as conversations, @mentions. -->
+    <script src="/rooms.js" type="module"></script>
+    <!-- phase2/rooms: dictation surfaced as a bar, and Talk live in its own view (off at first). -->
+    <script src="/voice-bar.js" type="module"></script>
+    <script src="/voice-view.js" type="module"></script>
     <!-- phase2/shell: the Trunks strip, the Overview and People (studio.js and pairing.js load when opened). -->
     <script src="/strip.js" type="module"></script>
     <script src="/overview.js" type="module"></script>
@@ -2157,5 +2184,8 @@
     <!-- Wave mac3: the dashboard's switch (Customize → Channels) and the links back in from it. -->
     <script src="/dashboard-card.js" type="module"></script>
     <script src="/layout.js" type="module"></script>
+    <!-- phase2/panels: Browser and Terminal, resizable panes, See-through and What's on screen (after layout.js). -->
+    <script src="/panels.js" type="module"></script>
+    <script src="/panels-hide.js" type="module"></script>
   </body>
 </html>

@@ -62,7 +62,7 @@ export const shortLivedKeyTaskRoutes: readonly TaskRoute[] = [
   // What a task says and hears.
   post("/api/voice/transcribe", "speech to text for a message"),
   post("/api/voice/speak", "reads an answer aloud"),
-  post("/api/voice/live", "a live voice conversation"),
+  // phase2/rooms: not "/api/voice/live": a live conversation's tools run as the owner, so it is the owner's.
   post("/api/voice/command", "whether a phrase is a spoken command"),
   post("/api/media/understand", "what a video or sound file shows and says"),
   post("/api/artifacts/page", "an address for a reply's page"),
@@ -104,6 +104,8 @@ export const shortLivedKeyTaskRoutes: readonly TaskRoute[] = [
 /** Reads a short-lived key may not make: what they return is a secret, or everybody's data. */
 const ownerOnlyReads: readonly RegExp[] = [
   /^\/api\/backup$/,
+  // phase2/delight: the owner's achievements are the owner's alone (src/delight.ts).
+  /^\/api\/delight\/achievements$/,
   new RegExp(`^/api/(triggers|webhooks)(/${id})?$`),
   /^\/api\/channels\/addresses$/,
   // integration review (bucket 16, merged into bucket 19): the waiting Slack events carry message text.
@@ -138,6 +140,9 @@ const ownerOnlyReads: readonly RegExp[] = [
   /^\/api\/usage\/limits(\/|$)/,
   // Redesign phase 1: the ring's own settings are the owner's too (the ring itself answers others with nothing).
   /^\/api\/usage\/glance\/settings$/,
+  // phase2/panels: the side panel's Browser and Terminal tabs carry the commands the owner's tasks ran
+  // and what they printed, and the pages they opened.
+  /^\/api\/panels\/work$/,
 ];
 
 /**

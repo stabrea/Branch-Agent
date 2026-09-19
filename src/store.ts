@@ -15,6 +15,7 @@ import { Locker, type LockerKeySource } from "./locker.js";
 import { Secrets } from "./vault.js";
 import { Receipts } from "./receipts.js";
 import { AuditLog } from "./audit.js";
+import { achievementTallies, type AchievementTallies, type EventScan } from "./achievement-tallies.js"; // phase2/delight
 import { MemoryReview } from "./memory-review.js";
 import { SkillGovernance } from "./skill-governance.js";
 import { exportBackup, importBackup, type RestoreOptions } from "./backup.js";
@@ -169,12 +170,18 @@ export class Store {
     return { ...this.branches.view(owner, sessionId), imported: this.library.imported(sessionId), temporary: this.sessionTemporary(sessionId) };
   }
   searchSessions(owner: string, input: unknown) {
-    return this.library.search(owner, input);
+    return this.library.search(owner, input, this.hiddenSessions().slice(0, 500));
   }
   /** The recent conversations with what was last said in each, for picking one up on a phone. */
   recentSessions(owner: string, limit?: number) {
-    return this.library.recent(owner, limit);
+    return this.library.recent(owner, limit, this.hiddenSessions().slice(0, 500));
   }
+  /**
+   * phase2/rooms (integration review): conversations kept out of Recents and search. Set by
+   * src/index.ts to each Trunk's side of a room, whose first message is the room's instructions to
+   * that Trunk; the room itself is the conversation the owner opens.
+   */
+  hiddenSessions: () => readonly string[] = () => [];
   exportSession(owner: string, sessionId: string) {
     return this.library.export(owner, sessionId);
   }
@@ -259,6 +266,11 @@ export class Store {
   /** Completed top-level runs created after a moment, oldest first, for consolidation. */
   runsSince(owner: string, after: string, limit = 20): Run[] {
     return this.db.prepare("SELECT * FROM tasks WHERE owner=? AND status='completed' AND created_at>? ORDER BY created_at ASC LIMIT ?").all(owner, after, limit).map((row) => this.toRun(row));
+  }
+  /** phase2/delight: counts of the owner's own finished work, for achievements (src/achievement-tallies.ts).
+   *  `scan` carries the events already counted and is moved on by at most one batch. */
+  achievementTallies(owner: string, scan: EventScan): { tallies: AchievementTallies; caughtUp: boolean } {
+    return achievementTallies(this.db, owner, scan);
   }
   /** Workspace file history and snapshots for the given workspace. */
   openWorkspaceHistory(files: WorkspaceFiles, owner: string): WorkspaceHistory {
