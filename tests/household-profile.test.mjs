@@ -10,7 +10,7 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
@@ -19,6 +19,7 @@ import { startServer, offLimitsToHousehold, offLimitsToShortLivedKeys } from "..
 import { householdOwnRoutes, householdRefusal, householdRefusalFor } from "../dist/household-routes.js";
 import { runOrigin } from "../dist/key-context.js";
 import { removalGuard, removePersonRefusal } from "../dist/remove-branch.js";
+import { runForCurrentPerson } from "../dist/collab-server.js";
 import { ROUTES, SAMPLE_ID, entry } from "./short-lived-key-routes.mjs";
 
 const concrete = (path) => path.replaceAll(":id", SAMPLE_ID);
@@ -141,4 +142,138 @@ test("a task the window starts for a household profile is written down as theirs
   assert.equal(removalGuard(app.store, { source: "owner" }), null);
   // The window's switch, handed to the removal guard the way the server hands it, refuses.
   assert.equal(removalGuard(app.store, { source: "owner", person: sam.id }), removePersonRefusal);
+});
+
+/* ---------- household-followups ---------- */
+
+/** A Branch whose model writes a.txt on its first round, after `midway` has run (a switch of the window). */
+async function writer(t, midway) {
+  const root = await mkdtemp(join(tmpdir(), "branch-household-task-"));
+  let round = 0;
+  const provider = { name: "scripted", async complete() {
+    round += 1;
+    if (round > 1) return { content: "Done.", toolCalls: [] };
+    await midway();
+    return { content: "", toolCalls: [{ id: "w1", name: "files.write", arguments: JSON.stringify({ path: "a.txt", content: "hi" }) }] };
+  } };
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider });
+  t.after(async () => { await app.close(); await discardTemp(root); });
+  const written = () => readFile(join(root, "workspace", "a.txt"), "utf8").then(() => true, () => false);
+  return { app, written, reset: () => { round = 0; } };
+}
+
+test("a task keeps its person's role when the window is switched back to the owner halfway through", async (t) => {
+  let app;
+  const { app: made, written } = await writer(t, async () => { app.store.profiles.switch({ profileId: null }); });
+  app = made;
+  const sam = app.store.profiles.create({ name: "Sam", pin: "2468" });
+  app.runtime.roles.save(sam.id, { role: "child" });
+  app.store.profiles.switch({ profileId: sam.id, pin: "2468" });
+  const run = await runForCurrentPerson(app, { prompt: "write a.txt" });
+  assert.equal(app.store.profiles.isOwner(), true, "the window was switched back during the task");
+  assert.equal(runOrigin(app.store, run.id).personProfileId, sam.id);
+  assert.equal(await written(), false, "the child's task wrote a file once the window was the owner's again");
+  const refused = JSON.stringify(app.store.events(run.id));
+  assert.match(refused, /Sam is set up as \\"Child\\" here/);
+});
+
+test("the owner's task is not held to a person's role when the window is switched to them halfway through", async (t) => {
+  let app, sam;
+  const { app: made, written } = await writer(t, async () => { app.store.profiles.switch({ profileId: sam.id, pin: "2468" }); });
+  app = made;
+  sam = app.store.profiles.create({ name: "Sam", pin: "2468" });
+  app.runtime.roles.save(sam.id, { role: "child" });
+  const run = await app.runtime.run({ prompt: "write a.txt" });
+  assert.equal(app.store.profiles.isOwner(), false);
+  assert.equal(runOrigin(app.store, run.id).personProfileId, null);
+  assert.equal(await written(), true, "the owner's own task was held to the child's role");
+});
+
+test("a task whose person is removed while it runs is refused the rest of its tools", async (t) => {
+  let app, sam;
+  const { app: made, written } = await writer(t, async () => {
+    app.store.profiles.switch({ profileId: null });
+    app.store.profiles.remove(sam.id);
+  });
+  app = made;
+  sam = app.store.profiles.create({ name: "Sam", pin: "2468" });
+  app.store.profiles.switch({ profileId: sam.id, pin: "2468" });
+  const run = await runForCurrentPerson(app, { prompt: "write a.txt" });
+  assert.equal(await written(), false);
+  assert.match(JSON.stringify(app.store.events(run.id)), /no longer on this computer/);
+});
+
+test("reclassified: a person's imports land in their own profile, and the owner's housekeeping is refused them", async (t) => {
+  const { app, call, sam, toSam, back } = await served(t);
+  await toSam();
+  for (const path of ["/api/retention/prune", "/api/usage/metering/now", "/api/brief/send", "/api/history/restore"]) {
+    const answer = await call("POST", path, {});
+    assert.equal(answer.status, 400, path);
+    assert.equal(answer.body.error, householdRefusal, path);
+  }
+  const imported = await call("POST", "/api/memory/import", { jsonl: JSON.stringify({ id: "11111111-1111-4111-8111-111111111111", data: { text: "Sam likes tea" } }) });
+  assert.equal(imported.status, 200, JSON.stringify(imported.body));
+  await back();
+  assert.equal(app.store.list("memory", app.runtime.owner).some((record) => /Sam likes tea/.test(JSON.stringify(record.data))), false,
+    "a person's import reached the owner's memory");
+  const theirs = app.store.list("memory", `profile:${sam.id}`);
+  assert.ok(theirs.some((record) => /Sam likes tea/.test(JSON.stringify(record.data))), JSON.stringify(imported.body));
+});
+
+test("the owner's PIN for switching back: off by default, then checked like a person's PIN", async (t) => {
+  const { app, call, toSam, back } = await served(t);
+  assert.equal((await call("GET", "/api/profiles")).body.ownerPin, false, "it ships off");
+  await toSam();
+  await back(); // no PIN while it is off
+  assert.equal((await call("POST", "/api/profiles/owner-pin", { pin: "12" })).status, 400, "four to eight digits");
+  assert.deepEqual((await call("POST", "/api/profiles/owner-pin", { pin: "9753" })).body, { ownerPin: true });
+  assert.equal((await call("GET", "/api/profiles")).body.ownerPin, true);
+
+  await toSam();
+  // A household person may not change it or switch it off.
+  const change = await call("POST", "/api/profiles/owner-pin", { pin: null });
+  assert.equal(change.status, 400);
+  assert.equal(change.body.error, householdRefusal);
+  // Going back now asks for it, in the same words a person's PIN uses, with the same lockout.
+  const bare = await call("POST", "/api/profiles/switch", { profileId: null });
+  assert.equal(bare.status, 400);
+  assert.equal(bare.body.error, "That PIN is not right");
+  for (let i = 0; i < 4; i += 1) await call("POST", "/api/profiles/switch", { profileId: null, pin: "0000" });
+  const held = await call("POST", "/api/profiles/switch", { profileId: null, pin: "9753" });
+  assert.equal(held.body.error, "Too many wrong PINs. Wait a few minutes and try again.", "the right PIN during the wait");
+  assert.equal(app.store.profiles.isOwner(), false);
+  const later = app.store.profiles.now() + 300001;
+  app.store.profiles.now = () => later;
+  assert.equal((await call("POST", "/api/profiles/switch", { profileId: null, pin: "9753" })).status, 200);
+  assert.equal(app.store.profiles.isOwner(), true);
+  // Switching to somebody asks for their PIN, never the owner's; switching off again needs none back.
+  await toSam();
+  assert.equal((await call("POST", "/api/profiles/switch", { profileId: null, pin: "9753" })).status, 200);
+  assert.deepEqual((await call("POST", "/api/profiles/owner-pin", { pin: null })).body, { ownerPin: false });
+  await toSam();
+  await back();
+});
+
+test("the owner's PIN for switching back: a restart comes back on the person's profile, and only while it is set", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-household-restart-"));
+  t.after(() => discardTemp(root));
+  const provider = { name: "scripted", async complete() { return { content: "Done.", toolCalls: [] }; } };
+  const open = () => createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider });
+  let app = await open();
+  const sam = app.store.profiles.create({ name: "Sam", pin: "2468" });
+  app.store.profiles.switch({ profileId: sam.id, pin: "2468" });
+  await app.close();
+  app = await open();
+  assert.equal(app.store.profiles.isOwner(), true, "with no owner PIN a restart is the owner, as it always was");
+  app.store.profiles.setOwnerPin({ pin: "9753" });
+  app.store.profiles.switch({ profileId: sam.id, pin: "2468" });
+  await app.close();
+  app = await open();
+  assert.equal(app.store.profiles.active()?.id, sam.id, "closing and reopening Branch was a way back to the owner");
+  assert.throws(() => app.store.profiles.switch({ profileId: null }), /That PIN is not right/);
+  app.store.profiles.switch({ profileId: null, pin: "9753" });
+  await app.close();
+  app = await open();
+  assert.equal(app.store.profiles.isOwner(), true);
+  await app.close();
 });

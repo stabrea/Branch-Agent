@@ -14,7 +14,16 @@
  * somebody lists it here, and tests/household-profile.test.mjs fails until the table in
  * tests/short-lived-key-routes.mjs and this list agree.
  *
- * This is separation on one computer, not a lock: going back to the owner's profile needs no PIN.
+ * Out of the box this is separation on one computer, not a lock: going back to the owner's profile
+ * needs no PIN. The owner may set one (src/profiles.ts, household-followups), and then it is a lock
+ * against somebody at the keyboard — still not against somebody who can open the data folder.
+ *
+ * household-followups: clearing old conversations (/api/retention/prune), writing the usage file now,
+ * sending the morning brief to the owner's chats, and putting back an older version of a file or a
+ * whole snapshot in the owner's workspace (/api/history/restore, /api/history/snapshots/:id/restore)
+ * are the owner's: each works on the owner's records or reaches the owner's chats. Importing
+ * conversations and remembered facts stays a person's own, because both write only under the
+ * profile switched on (profiles.scope()); taking a snapshot changes nothing and stays too.
  */
 import type { TaskRoute } from "./short-lived-keys.js";
 
@@ -61,7 +70,6 @@ export const householdOwnRoutes: readonly TaskRoute[] = [
     own("/api/asks/sources/sync"),
     own("/api/asks/surfaces/:id/refresh"),
     own("/api/batch/run"),
-    own("/api/brief/send"),
     own("/api/coding/ci"),
     own("/api/documents"),
     own("/api/documents/:id", "DELETE"),
@@ -79,9 +87,7 @@ export const householdOwnRoutes: readonly TaskRoute[] = [
     own("/api/flows/:id", "PUT,DELETE"),
     own("/api/flows/check"),
     own("/api/flows/yaml"),
-    own("/api/history/restore"),
     own("/api/history/snapshots"),
-    own("/api/history/snapshots/:id/restore"),
     own("/api/issues/context"),
     own("/api/knowledge"),
     own("/api/knowledge/:id", "DELETE"),
@@ -164,7 +170,6 @@ export const householdOwnRoutes: readonly TaskRoute[] = [
     own("/api/reflection/retire"),
     own("/api/reports"),
     own("/api/request-cache/clear"),
-    own("/api/retention/prune"),
     own("/api/retrieval/context"),
     own("/api/retrieval/pipelines"),
     own("/api/rules/test"),
@@ -200,7 +205,6 @@ export const householdOwnRoutes: readonly TaskRoute[] = [
     own("/api/tools/forget"),
     own("/api/tools/notes/:id", "DELETE"),
     own("/api/trunks/:id/seen"),
-    own("/api/usage/metering/now"),
     own("/api/webhooks/:id/preview"),
     own("/api/workflows"),
     own("/api/workflows/:id/remove"),

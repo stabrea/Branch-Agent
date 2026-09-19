@@ -26,7 +26,7 @@ const projectId = z.object({ project: z.string().regex(/^[a-z0-9][a-z0-9-]{0,39}
 /** Everything the Sharing, Workflows, Waiting line, Days off and People panels show. */
 export function collabState(app: Branch): unknown {
   const owner = app.runtime.owner, profiles = app.store.profiles, scope = profiles.scope();
-  const person = { active: profiles.active(), all: profiles.list(), isOwner: profiles.isOwner() };
+  const person = { active: profiles.active(), all: profiles.list(), isOwner: profiles.isOwner(), ownerPin: profiles.ownerPinOn() };
   // Shared copies, saved workflows, the waiting line and days off are the owner's, so a screen
   // opened under somebody else's profile shows their labels and nothing of the owner's.
   if (!profiles.isOwner())
@@ -147,7 +147,7 @@ async function queueApi(app: Branch, request: IncomingMessage, path: string, bod
 async function profilesApi(app: Branch, request: IncomingMessage, path: string, body: ReadBody): Promise<unknown | typeof notCollab> {
   const profiles = app.store.profiles;
   if (request.method === "GET" && path === "/api/profiles")
-    return { profiles: profiles.list(), active: profiles.active(), isOwner: profiles.isOwner(),
+    return { profiles: profiles.list(), active: profiles.active(), isOwner: profiles.isOwner(), ownerPin: profiles.ownerPinOn(),
       // Batch 26 (wave 8): what each person may have Branch do, for the card beside their name.
       roles: app.runtime.roles.all(profiles.list().map((profile) => profile.id)), roleLabels };
   if (request.method === "POST" && path === "/api/profiles") {
@@ -164,6 +164,16 @@ async function profilesApi(app: Branch, request: IncomingMessage, path: string, 
       reason: "Somebody switched who is using this computer", outcome: "switched",
     });
     return switched;
+  }
+  // household-followups: the owner's PIN for switching back (off until the owner sets one).
+  if (request.method === "POST" && path === "/api/profiles/owner-pin") {
+    const saved = profiles.setOwnerPin(await body());
+    audit(app.store, app.runtime.owner, {
+      action: "policy.changed", actor: app.runtime.owner, subject: "switching back to you",
+      reason: saved.ownerPin ? "The owner set a PIN for switching back" : "The owner switched the PIN for switching back off",
+      outcome: saved.ownerPin ? "on" : "off",
+    });
+    return saved;
   }
   // The role and grant on one profile. Only the owner may set what anybody else is allowed to do.
   const role = new RegExp(`^/api/profiles/(${idPattern})/role$`).exec(path);
