@@ -214,3 +214,59 @@ test("D15 each stored event lands under the part of Branch it came from", () => 
   assert.equal(componentOf("mcp.tried"), "mcp");
   assert.equal(componentOf("run.failed"), "tasks");
 });
+
+/* ---------------------------------------------------------------- integration review: wider cleaning */
+
+test("D16 every provider's key, cookies, sign-in headers, credential addresses, other homes and shares are removed", () => {
+  const win = makeRedactor("C:\\Users\\Taofik");
+  // Built from pieces so the repository's secret scanning does not take these made-up keys for real ones.
+  const fake = (...parts) => parts.join("");
+  const cases = [
+    [fake("AIza", "SyA1234567890abcdefghijklmnopqrstu"), "AIzaSyA1234567890"],
+    [fake("gsk_", "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJ"), "gsk_abcdefghij"],
+    [fake("xai-", "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJ"), "xai-abcdefghij"],
+    [fake("hf_", "abcdefghijklmnopqrstuvwxyzABCDEFGH"), "hf_abcdefghij"],
+    [fake("mistral key: 3kX9aB2cD4eF", "6gH8iJ0kL2mN4oP6qR8s"), "3kX9aB2cD4eF"],
+    [fake("secret wJalrXUtnFEMI", "/K7MDENG/bPxRfiCYEXAMPLEKEY"), "wJalrXUtnFEMI"],
+    [fake("bot token 123456789:", "AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw"), "AAHdqTcvCH1v"],
+    [fake("https://api.telegram.org/bot123456789:", "AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw/sendMessage"), "AAHdqTcvCH1v"],
+    [fake("MTE4NzY1NDMyMTA5ODc2NTQzMg", ".GaBcDe.abcdefghijklmnopqrstuvwxyz0123456789AB"), "MTE4NzY1NDMy"],
+    ["eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.abc", "eyJzdWIiOiIxIn0"],
+    ["Cookie: session=abc123; other=def456", "def456"],
+    ["Set-Cookie: sid=s%3Aabcdef123456; Path=/; HttpOnly", "abcdef123456"],
+    ['{"cookie":"sid=abcdef123"}', "abcdef123"],
+    ["Authorization: Basic dXNlcjpwYXNz", "dXNlcjpwYXNz"],
+    ["x-goog-api-key: abcdef", "abcdef"],
+    ["https://generativelanguage.googleapis.com/v1/models?key=sometokenvalue123", "sometokenvalue123"],
+    ["https://b.s3.amazonaws.com/f?X-Amz-Signature=deadbeefcafe&X-Amz-Credential=AKIAXX", "deadbeefcafe"],
+    ["https://app.example.com/cb#access_token=fragtoken123", "fragtoken123"],
+    ["Failed to open C:\\Users\\bob\\Documents\\x.txt", "bob"],
+    [JSON.stringify("C:\\Users\\Taofik\\x"), "Taofik"],
+    ["c:/users/taofik/x", "taofik"],
+    ["\\\\FILESERVER\\private\\Taofik\\plan.docx", "FILESERVER"],
+    ["/Users/alice/x and /home/carol/y", "alice"],
+    ["/home/carol/y", "carol"],
+    ["taofik%40gmail.com", "gmail.com"],
+  ];
+  for (const [dirty, leak] of cases) {
+    const out = win(dirty);
+    assert.ok(!out.includes(leak), `${leak} survived in ${out}`);
+  }
+  // Ordinary lines keep their meaning.
+  for (const fine of ["GET /api/tasks/3f2b1c9a-1234-4bcd-9abc-0123456789ab failed (400)", "Checked for updates 0.18.1",
+    "connect ECONNREFUSED 127.0.0.1:3000", "run.completed tokens 12345", "model claude-sonnet-4-5-20250929"])
+    assert.equal(win(fine), fine);
+  const fields = redactFields({ auth: "Basic abc", session: "s", sid: "abc", privateKey: "x", url: "https://a?token=zz" }, win);
+  assert.ok(!JSON.stringify(fields).match(/abc|"s"|"x"|zz/), JSON.stringify(fields));
+});
+
+test("D17 a crash note never quotes the text a failure choked on", async (t) => {
+  const dir = await folder(t);
+  const log = new DiagnosticLog({ dir, settings: settings({ mode: "off" }), clean });
+  let parseError;
+  try { JSON.parse("my private message to the doctor about the results"); } catch (e) { parseError = e; }
+  log.crash("engine", parseError);
+  const text = await readFile(log.crashFile, "utf8");
+  assert.ok(!text.includes("private message") && !text.includes("my priva"), text);
+  assert.match(text, /SyntaxError/);
+});

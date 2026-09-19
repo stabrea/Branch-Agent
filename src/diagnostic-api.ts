@@ -31,7 +31,9 @@ export interface DiagnosticContext { app: Branch; dataDir: string; installType: 
 
 /** Sets up the one log for this engine: the folder, the owner's mode, the task events and crashes. */
 export function startDiagnosticLog(app: Branch, dataDir: string): () => void {
-  const log = new DiagnosticLog({ dir: join(dataDir, "logs"), settings: () => diagnosticLogSettings(app.store, app.runtime.owner) });
+  // The owner's own saved keys and passwords are hidden too, whatever shape they have.
+  const clean = (text: string): string => app.runtime.hideSecrets(redactForLog(text));
+  const log = new DiagnosticLog({ dir: join(dataDir, "logs"), settings: () => diagnosticLogSettings(app.store, app.runtime.owner), clean });
   setDiagnosticLog(log);
   log.prune();
   const stopCrashes = watchProcessCrashes(log, "engine");

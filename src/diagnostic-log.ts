@@ -48,19 +48,57 @@ export function saveDiagnosticLogSettings(store: Store, owner: string, input: un
 // ---- cleaning ----
 
 const emailPattern = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}\b/g;
-const secretField = /(api[-_]?key|^key$|token|secret|password|passphrase|authorization|bearer|credential|cookie|pin$)/i;
+const secretField = /(api[-_]?key|^key$|token|secret|password|passphrase|authorization|^auth$|bearer|credential|cookie|^session$|^sid$|private[-_]?key|pin$)/i;
 const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * Key shapes the shared leak guard does not know (it is tuned for tool results, where a false alarm
+ * hides real work); in a log line a false alarm only costs a few characters, so these are wider.
+ */
+const providerKeys = [
+  /\bAIza[0-9A-Za-z_-]{30,}/g, // Google
+  /\b(?:gsk|hf|r8|pplx|glpat|npm|dop_v1|fw|nvapi|csk|tvly)[_-][A-Za-z0-9_-]{16,}/g, // Groq, Hugging Face, Replicate, Perplexity, GitLab, npm, …
+  /\bxai-[A-Za-z0-9_-]{16,}/g, // xAI
+  /\bsk[_-][A-Za-z0-9_-]{12,}/g, // OpenAI, Anthropic, Stripe and the many services that copied the prefix
+  /(?<!\d)\d{6,12}:[A-Za-z0-9_-]{30,}/g, // Telegram bot tokens (also inside api.telegram.org/bot…/ addresses)
+  /\b[MNO][A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{5,8}\.[A-Za-z0-9_-]{25,}/g, // Discord bot tokens
+  /\beyJ[A-Za-z0-9_-]{5,}\.eyJ[A-Za-z0-9_-]{2,}\.[A-Za-z0-9_-]*/g, // any JWT, however short its parts
+  /\b(?:aws_secret_access_key|secret(?:[_ -]?access)?[_ -]?key)\s*[:=]?\s*["']?[A-Za-z0-9/+]{40}\b/gi, // AWS secret keys
+  /\bsecret\s+[A-Za-z0-9/+]{40}\b/gi,
+  /\b(?:Basic|Digest)\s+[A-Za-z0-9+/=]{6,}/g, // HTTP sign-in values outside a header line
+];
+/** Whole header lines whose value is a credential, to the end of the line (a Basic value, every cookie). */
+const secretHeader = /\b(proxy-authorization|authorization|set-cookie|cookie|x-api-key|api-key|x-goog-api-key|x-auth-token|x-access-token|private-token)\s*[:=]\s*[^\n\r]*/gi;
+/** The same header or field as a JSON pair: `"cookie": "sid=…"`. */
+const secretJsonPair = /"([\w-]*(?:authorization|cookie|api[-_]?key|token|secret|password|passphrase|credential|session)[\w-]*)"\s*:\s*"(?:[^"\\]|\\.)*"/gi;
+/** A labelled key in running text: `key: 3kX9…`, `token=abc…`. */
+const labelledKey = /\b((?:api[-_ ]?)?key|token|secret|password|passphrase)(\s*[:=]\s*)["']?[A-Za-z0-9_./+-]{12,}/gi;
+/** Web address parameters that carry a credential: ?key=, &access_token=, X-Amz-Signature=, … */
+const secretParam = /([?&#;](?:[\w.-]*(?:key|token|sig|signature|secret|password|passwd|auth|session|sid|code|credential|ticket)[\w.-]*))=(?!\[)([^&\s#"'<>]+)/gi;
+/** Other people's home folders, on any system, and in JSON's doubled backslashes too. */
+const anyHome = /((?:\b[A-Za-z]:)?(?:\\\\|\\|\/)(?:Users|home|Documents and Settings)(?:\\\\|\\|\/))(?!Shared\b|Public\b|\[user\])[^\\/\s"'<>|:*?]+/gi;
+/** A Windows network share, `\\server\share\…`: the machine and share names are the owner's own. */
+const networkShare = /(?<=^|[\s"'(=,[])(?:\\\\){1,2}[A-Za-z0-9._$-]+(?:\\{1,2}[^\\\s"'<>|]+)*/g;
+/** Email addresses written into a web address (`name%40example.com`). */
+const encodedEmail = /\b[A-Za-z0-9._%+-]+%40[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}\b/g;
 
 /** A cleaner bound to one home folder (the real one unless a test names another). */
 export function makeRedactor(home = homedir()): (text: string) => string {
-  const homes = [home, home.replace(/\\/g, "/")].filter((each, index, all) => each.length > 3 && all.indexOf(each) === index);
+  const homes = [home, home.replace(/\\/g, "/"), home.replace(/\\/g, "\\\\")]
+    .filter((each, index, all) => each.length > 3 && all.indexOf(each) === index);
   const homePattern = homes.length ? new RegExp(homes.map(escapeRegExp).join("|"), "gi") : null;
   return (text) => {
     let out = redactLeaks(text).text;
     out = scrubText(out);
-    out = out.replace(/\b(authorization|cookie|x-api-key)\s*[:=]\s*\S+/gi, "$1: [removed]");
-    out = out.replace(emailPattern, "[email removed]");
+    out = out.replace(secretHeader, "$1: [removed]");
+    out = out.replace(secretJsonPair, '"$1":"[removed]"');
+    for (const pattern of providerKeys) out = out.replace(pattern, "[removed]");
+    out = out.replace(secretParam, "$1=[removed]");
+    out = out.replace(labelledKey, "$1$2[removed]");
+    out = out.replace(emailPattern, "[email removed]").replace(encodedEmail, "[email removed]");
     if (homePattern) out = out.replace(homePattern, "~");
+    out = out.replace(anyHome, "$1[user]");
+    out = out.replace(networkShare, "\\\\[network share]");
     return out;
   };
 }
@@ -126,8 +164,8 @@ export class DiagnosticLog {
 
   /** A crash, written straight away (synchronously) with the breadcrumbs before it. */
   crash(component: string, error: unknown, origin = "uncaught"): void {
-    const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
-    const stack = error instanceof Error ? error.stack ?? "" : "";
+    const message = withoutQuotedText(error instanceof Error ? `${error.name}: ${error.message}` : String(error));
+    const stack = withoutQuotedText(error instanceof Error ? error.stack ?? "" : "");
     const line = this.shape({ level: "error", component, message, fields: { origin, stack: stack.slice(0, 4000) } });
     const record = { ...line, kind: "crash", breadcrumbs: this.breadcrumbs() };
     try { this.append(this.crashFile, JSON.stringify(record), 512 * 1024); } catch { /* never a second crash */ }
@@ -194,6 +232,14 @@ export class DiagnosticLog {
   }
 }
 
+/**
+ * A failure's own words can quote the text it choked on: `JSON.parse` says `Unexpected token 'h',
+ * "hello, my"... is not valid JSON`, and that text can be a message or a reply. Quoted text in a
+ * crash note is replaced, so a crash can never carry what the owner wrote or was sent.
+ */
+function withoutQuotedText(text: string): string {
+  return text.replace(/"(?:[^"\\\n]|\\.){4,}"(?:\.\.\.)?/g, '"[text removed]"').replace(/'(?:[^'\\\n]|\\.){4,}'/g, "'[text removed]'");
+}
 const rotated = (base: string, index: number): string => base.replace(/\.jsonl$/, `.${index}.jsonl`);
 function rotate(base: string): void {
   const oldest = rotated(base, fileCount - 1);
