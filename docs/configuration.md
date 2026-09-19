@@ -8050,6 +8050,73 @@ through the one tool gate (`media.image`).
 
 **macOS and Linux.** Plain Node and the window's own code; it works the same on all three systems.
 
+## The Trunks strip, faces, Overview and People (redesign phase 2)
+
+A narrow strip at the left edge of the window (a row at the foot on a phone), after the KeepOak
+portal's rail. From the top: Branch's mark (the Overview of this computer), this computer, your other
+computers (Devices), your Trunks, **+** (Add a Trunk, or pair a computer or your phone), and at the
+foot **Who is using Branch**. Each face has a ring that follows its shape: green is fine, amber needs
+you, grey is off. Right-click, a long press or the small **⋯** opens Branch's own menu for that face
+(never the browser's): Change look, Rename, Settings for this Trunk, Overview, Pin to the top, Move
+up or down, Hide from the strip and sidebar, Remove. Trunks can also be dragged into a new order.
+A computer or phone asking to join shows in the strip at once with a smooth turning ring; pressing
+it opens the studio at Let it in. While this computer is joining another Branch, its own ring turns.
+
+Two switches, in Settings › Appearance (card "The strip and faces"), saved in the settings record
+`shell-look` (`src/shell-look.ts`, `GET`/`POST /api/shell-look`; changing them is the owner's alone,
+at the window — a household person or a short-lived key is refused):
+
+| Setting | Values | Default | What it does |
+|---|---|---|---|
+| `strip` | `off`, `on` | `on` | Shows the strip. A layout the owner asked for, so it ships on; `off` gives the window without it. |
+| `faces3d` | `off`, `on` | `off` | Draws the procedural 3D stand-in (a thick tile of the Trunk's shape that turns slowly, hand-written CSS, no library) for Trunks set to it. Off, every face is flat. Reduced motion keeps it still. |
+
+**A Trunk's look** (`look` on the Trunk, `src/trunks/look.ts`), chosen in the Add a Trunk studio or
+with Change look: `face` (`drawn` — two eyes and a smile made from the name —, `letters`, `emoji`,
+`pattern` — pixel art made from the name —; a photo is the Trunk's picture), `letters` (one or two),
+`emoji`, `shuffle` (a new pixel pattern without renaming), `colour` (`1` to `8`, one of the theme's
+eight series colours, or `theme` for the theme's own highlight; never a colour value), `shape`
+(`circle`, `squircle`, `leaf`, `acorn`, `shield`, `hexagon`, `pebble`), `motion` (`none`, `breathe`,
+`sway`, `shimmer`, `pulse`, `dots`; Pulse and Dots move only while it works) and `depth` (`flat`,
+`3d`). A Trunk nobody restyled has no `look` and draws as it always did. The look travels in the
+Trunk's file (`branch-trunk/1`).
+
+**Pairing without a terminal.** Add a Trunk › Another computer has two ways. *Invite a computer to
+this one* makes the usual invitation (Devices must not be off; the studio offers to switch it to
+"only when it is needed") and walks through Pair, Let it in, Name it and What it may do, with a Back
+at each step; closing or leaving the tab while an invitation is open asks "Stop pairing?". *Join
+another computer*, on the other computer, takes that invitation and number (`POST /api/devices/join`
+`{ link, code, name? }`; `GET /api/devices/join` says where it stands; `POST /api/devices/join/leave`
+stops and forgets the key). It is `branch node pair` and `branch node run` run inside Branch itself:
+it dials out, never listens, keeps its key in `<data folder>/node/identity.json`, reconnects on its
+own while Branch runs, and remembers that it joined in the settings record `devices-join`
+(`{ on }`, default off — nothing is lent until the owner joins). Everything the joined computer could
+do starts off on the other side. Joining is the owner's alone at the window; a household person, a
+short-lived key and Lockdown are refused, and turning Lockdown on closes the connection. An
+invitation to an address only this computer can reach (`127.0.0.1`) is said plainly, with the way to
+open Branch to your private network. Computers are renamed from their face (`POST
+/api/devices/:id/rename`).
+
+While a computer waits for the yes, it shows a **check code** (eight letters and digits made from its
+own key), and the owner's Branch shows the same code beside its request (studio, Devices card, and
+`branch node pair` prints it). If they differ, the request came from somewhere else: press Refuse.
+Stop (or Leave, or Lockdown) ends the wait at once, so a yes given later connects nothing and leaves
+no key; a computer taken off the other Branch's list forgets its key straight away. The invitation
+itself is unchanged: six digits, five minutes, one use, five tries, and only over https, this computer
+or Tailscale.
+
+**Overview** (Branch's mark, or a computer's face) shows what is working, what needs your yes, what
+finished lately, the schedules, who uses the computer and whether it is lent to another Branch; for
+one of your other computers, whether it is connected and what it may do; for a Trunk, its latest
+words and what it may reach. **People** lists everyone who uses Branch on this computer with a face
+drawn from each name, their role, projects and daily allowance, where they are signed in (while
+signing in from their own device is on), and — for the owner — Add someone, Switch to, the role and
+Remove. Branch does not know who is present, so it says when each person last used Branch rather
+than showing an "online" dot. A household person sees their own card, the owner's, and the way back.
+**Who is using Branch** at the foot of the strip switches person (asking their PIN, or the owner's
+PIN when that is set). Replies show the face of whoever answered — the assistant on this computer or
+a specialist, drawn from its name — never Branch's logo.
+
 ## Reach and platform (r17-i)
 
 Twelve parts, each with the owner's three-way switch (off, on, only when it is needed), all off at

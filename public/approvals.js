@@ -30,10 +30,13 @@ const status = (message) => { $("policy-status").textContent = message; };
 /** The list of presets to choose from, with the plain-language description of each. */
 function renderPresets() {
   const picker = $("policy-preset");
-  picker.replaceChildren();
-  for (const preset of state.presets) picker.append(new Option(preset.label, preset.id));
-  if (state.policy.preset === "custom") picker.append(new Option("Rules I set myself", "custom"));
-  picker.value = state.policy.preset;
+  // Integration review (p2-shell): the three-second refresh used to rebuild these options every time,
+  // which closed an open list under the person's pointer (public/glass-select.js closes a list whose
+  // choices change). The options are only rebuilt when they are really different.
+  const wanted = [...state.presets.map((preset) => [preset.id, preset.label]), ...(state.policy.preset === "custom" ? [["custom", "Rules I set myself"]] : [])];
+  const same = picker.options.length === wanted.length && wanted.every(([id, label], index) => picker.options[index].value === id && picker.options[index].text === label);
+  if (!same) picker.replaceChildren(...wanted.map(([id, label]) => new Option(label, id)));
+  if (picker.value !== state.policy.preset) picker.value = state.policy.preset;
   const chosen = state.presets.find((preset) => preset.id === state.policy.preset);
   const localDescription = chosen ? t(`policy.preset.${chosen.id}.description`) : "";
   $("policy-description").textContent = chosen

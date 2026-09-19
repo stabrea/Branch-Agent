@@ -11,6 +11,7 @@
    Placed through data-home (public/layout.js); colours only through tokens. */
 import { api, displayView, openConversation } from "/app.js";
 import { t } from "/i18n.js";
+import { face, trunkSpec } from "/faces.js"; // phase2/shell
 
 const $ = (id) => document.getElementById(id);
 const say = (key, english, values) => { const word = t(key, values); return word === key ? english.replace(/\{(\w+)\}/g, (w, n) => (values && n in values ? String(values[n]) : w)) : word; };
@@ -69,47 +70,13 @@ function report(error) {
 const saved = () => { if (statusLine) { statusLine.dataset.t = "trunks.saved"; statusLine.textContent = say("trunks.saved", "Saved."); } };
 const list = (text) => text.split(",").map((part) => part.trim()).filter(Boolean);
 
-/* ---------- a Trunk's face: drawn from its name, coloured by a series token ---------- */
-const SVG = "http://www.w3.org/2000/svg";
-function shape(tag, attributes) {
-  const node = document.createElementNS(SVG, tag);
-  for (const [name, value] of Object.entries(attributes)) {
-    // phase2/rooms (integration review): the window's content rules refuse a `style` attribute, so every
-    // drawn face (the sidebar's too) came out black; the same colours set through the element's own style are allowed.
-    if (name === "style") for (const line of String(value).split(";")) {
-      const at = line.indexOf(":");
-      if (at > 0) node.style.setProperty(line.slice(0, at).trim(), line.slice(at + 1).trim());
-    }
-    else node.setAttribute(name, String(value));
-  }
-  return node;
-}
-function hash(text) {
-  let value = 2166136261;
-  for (const char of (text || "trunk").trim().toLowerCase()) value = Math.imul(value ^ char.codePointAt(0), 16777619) >>> 0;
-  return value;
-}
+/* ---------- a Trunk's face ----------
+   phase2/shell: drawn by public/faces.js, the one renderer the strip, the studio and the replies use,
+   so a Trunk looks the same everywhere: its own colour, face, shape and movement (critique #7). */
 export function avatar(trunk, size = 28) {
-  const kind = trunk.avatar?.kind ?? "face";
-  if (kind !== "face") {
-    const img = document.createElement("img");
-    img.src = trunk.avatar.dataUrl;
-    img.alt = "";
-    img.width = size; img.height = size;
-    img.className = "trunk-face";
-    return img;
-  }
-  const seed = hash(trunk.avatar?.seed || trunk.name);
-  const svg = shape("svg", { viewBox: "0 0 32 32", width: size, height: size, "aria-hidden": "true", class: "trunk-face" });
-  const head = seed % 4, eyes = (seed >>> 3) % 4, mouth = (seed >>> 6) % 4, series = ((seed >>> 9) % 8) + 1; // phase2/rooms: >>> (the seed is unsigned; >> made half the faces colourless)
-  const fill = `var(--series-${series})`;
-  svg.append(head % 2 ? shape("rect", { x: 3, y: 3, width: 26, height: 26, rx: 6 + head * 2, style: `fill:${fill}` }) : shape("circle", { cx: 16, cy: 16, r: 13, style: `fill:${fill}` }));
-  const eye = { style: "fill:var(--ground)" };
-  for (const x of [11, 21]) svg.append(eyes % 2 ? shape("circle", { cx: x, cy: 13, r: 1.5 + eyes / 2, ...eye }) : shape("rect", { x: x - 2, y: 12, width: 4, height: 2 + eyes, rx: 1, ...eye }));
-  const curve = ["M11 20 Q16 24 21 20", "M11 21 H21", "M12 20 Q16 23 20 20 Q16 22 12 20", "M13 21 Q16 19 19 21"][mouth];
-  svg.append(shape("path", { d: curve, style: "fill:none;stroke:var(--ground);stroke-width:1.8;stroke-linecap:round" }));
-  if (trunk.working) svg.animate([{ transform: "translateY(0)" }, { transform: "translateY(-2px)" }, { transform: "translateY(0)" }], { duration: 900, iterations: Infinity });
-  return svg;
+  const drawn = face(trunkSpec(trunk), size, { working: !!trunk.working });
+  drawn.classList.add("trunk-face");
+  return drawn;
 }
 
 /* ---------- the switches ---------- */
