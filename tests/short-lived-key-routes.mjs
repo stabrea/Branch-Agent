@@ -42,6 +42,14 @@ export const ROUTES = {
   "/api/accounts/settings": "owner POST",
   "/api/accounts/switch": "owner POST",
   "/api/accounts/update": "owner POST",
+  // mac7/adapt: reading what is stopped is looking; everything that fetches, installs or switches
+  // something on is the owner's own step in the app window.
+  "/api/adapt": "look",
+  "/api/adapt/": "prefix",
+  "/api/adapt/go": "owner POST",
+  "/api/adapt/plan": "owner POST",
+  "/api/adapt/stopped": "owner POST",
+  "/api/adapt/switch": "owner POST",
   "/api/action": "task POST",
   "/api/activity": "look",
   "/api/agents": "prefix",
@@ -569,6 +577,12 @@ export const ROUTES = {
   "/api/lock": "owner POST",
   "/api/lock/settings": "owner POST",
   "/api/lock/unlock": "owner POST",
+  // mac7/learn: reading the switch only looks; a map reads the whole folder and a tour may ask a model.
+  "/api/learn": "look",
+  "/api/learn/cost": "other POST",
+  "/api/learn/map": "other POST",
+  "/api/learn/switch": "owner POST",
+  "/api/learn/tour": "other POST",
   "/api/lockdown": "owner POST",
   // mac7/bind (integration review): where Branch's own door listens. Reading it tells a caller
   // where to knock, so looking is the owner's alone as much as moving it is.
@@ -971,6 +985,11 @@ export const ROUTES = {
   "/api/web-pages": "owner POST", // w911 (A0743, A1452) hook: the switch for reading and crawling web pages
   // mac7/wake-pins: the word that starts a turn. Reading says what this computer could do; changing is the owner's.
   "/api/voice/wake": "secret-read",
+  // mac7/live-voice: speaking and seeing the words. Reading says which speech program is here and
+  // whether the microphone is open; starting it opens a microphone on the owner's own computer, so
+  // both are the owner's alone at the app window and neither is anything a key may do.
+  "/api/voice/dictation": "secret-read",
+  "/api/voice/dictation/listen": "secret-read",
   "/api/webhooks": "secret-read",
   "/api/webhooks/:id": "secret-read",
   "/api/webhooks/:id/enable": "owner POST",

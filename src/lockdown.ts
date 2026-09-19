@@ -92,6 +92,9 @@ const coveredSettings: readonly RegExp[] = [
   /^reach-(machines|remote-trunks|background-screen|video|relay|send|agent-git|skill-bundles|usb)$/,
   // mac7/wake-pins: listening for a word is the microphone open by itself, so Lockdown switches it off.
   /^wake-word$/,
+  // mac7/live-voice: dictation holds the microphone open while it listens, so Lockdown switches it
+  // off too — and the listener asks again before every piece of sound, so it lets go within a tick.
+  /^live-dictation$/,
   // mac7/vault-autofill (R17-068): typing one of the owner's saved passwords into a page.
   /^vault-autofill$/,
   // mac7/bind: a door open to the private network is Branch reaching past this computer, which is

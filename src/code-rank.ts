@@ -27,7 +27,8 @@ export interface RankOptions {
   /** Extra starting weight per file (from words in the request that match its path or names). */
   personal?: ReadonlyMap<string, number>;
 }
-interface Edge { from: string; to: string; weight: number; name: string }
+/** A use of a name: the file that uses it, the file that declares it, and how telling it is. */
+export interface Edge { from: string; to: string; weight: number; name: string }
 
 /** How much a name says about where to look: Aider's multipliers. */
 function nameWeight(name: string, definers: number, mentioned: ReadonlySet<string> | undefined): number {
