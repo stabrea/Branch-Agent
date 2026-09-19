@@ -2364,7 +2364,7 @@
   "local.install.after": "Afterwards: {after}",
   "local.install.already": "{name} is already on this computer, so nothing needs installing.",
   "local.install.checked": "How Branch knows it is really theirs: {how}",
-  "local.install.from": "From {source} — about {size} GB to download.",
+  "local.install.from": "To download: {note}",
   "local.install.guidance": "{guidance} About {size} GB to download.",
   "local.install.inside": "It goes inside Branch, in {where}, so removing Branch removes it too.",
   "local.install.leaves-behind": "Left behind when Branch is removed: {why}",
