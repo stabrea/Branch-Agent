@@ -83,6 +83,15 @@ STATUS-ci-flakes.md and STATUS-ci-flakes-2.md.
   between choosing and saving, trunk's file fails with exactly 'off' !== 'when-needed', the fix passes.
   The test keeps that wait.
 
+## Run 35474392706 on 024f4531 (one shard red, everything else green)
+- thinking-levels K3 (Linux): PRODUCT BUG, the same family a third time. `presetOptions` in app.js
+  rebuilds the model lists on every 3-second refresh and sets them back to what is saved, so a model
+  picked in Settings › Models was swapped back within 3 s (and while the list had the keyboard, the
+  pick was dropped and nothing put back). The thinking levels then followed the old model, which is
+  what the test saw. Now the list is rewritten only when its choices really changed, and a pick that
+  is not saved yet is kept. Reproduced: with a 3.5 s wait after picking, trunk's file fails ("the pick
+  is still theirs"), the fix passes. The test keeps that wait.
+
 ## Left for somebody: more of the same family, not failing CI today
 The window's refresh every 3 seconds redraws whole cards, and these write over what a person is in the
 middle of typing or choosing, so the value saved can be the old one:
