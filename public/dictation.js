@@ -115,9 +115,16 @@ function write(state) {
   if (state?.settled && said) { typed = field.value; settledAlready = said; } // the phrase is yours now; the next one follows it
 }
 
+/**
+ * ci-flakes-3: which press the questions belong to. A question sent while the microphone was open can
+ * answer after it closed; its words and its "open" then came back over the ✕ that had just put the box
+ * back, so it is dropped once another press has happened.
+ */
+let round = 0;
 async function collect() {
+  const mine = round;
   const state = await api("voice/dictation").catch(() => null);
-  if (!state) return;
+  if (!state || mine !== round) return;
   write(state);
   ask("voice-dictate").setAttribute("aria-pressed", String(Boolean(state.open)));
   // The line is on for exactly as long as the microphone is, and it is driven by the app's answer
@@ -134,6 +141,8 @@ function stopAsking() {
 async function press() {
   const button = ask("voice-dictate");
   const on = button.getAttribute("aria-pressed") !== "true";
+  round += 1;
+  if (!on) stopAsking();
   if (on) { typed = (box()?.value ?? "").trim(); settledAlready = null; startedWith = box()?.value ?? ""; }
   try {
     const answer = await api("voice/dictation/listen", { on });

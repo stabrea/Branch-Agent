@@ -106,7 +106,11 @@ function choiceButton(key, value) {
 /* Changes are saved one after another, so the last one made is the last one kept. */
 let saving = Promise.resolve();
 let unsaved = 0;
+/** How many changes this window has made, so a look asked for before one of them is known to be older. */
+let made = 0;
+export const appearanceChanges = () => made;
 function change(patch) {
+  made += 1;
   applyAppearance({ ...current, ...patch });
   const value = { ...current };
   unsaved += 1;
@@ -119,8 +123,10 @@ function change(patch) {
  * after it, and the next save sent the undone value back (a lettering choice came back as the
  * default in shell-ui). So it is taken only once nothing here is waiting to be saved.
  */
-export function adoptSaved(value) {
-  if (unsaved === 0) applyAppearance(value);
+/* ci-flakes-3: nor when a change was made here after the refresh asked (`since`). Its answer could arrive
+   after that change had been saved, and put the look from before it back on screen. */
+export function adoptSaved(value, since = made) {
+  if (unsaved === 0 && since === made) applyAppearance(value);
 }
 
 /** Called once by public/app.js with the way to save a preferences record. */

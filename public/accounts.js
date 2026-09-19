@@ -483,7 +483,9 @@ async function refresh() {
 void refresh();
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") void refresh(); });
 document.addEventListener("branch-language", () => { if (last) draw(last); void drawChip(); });
-document.addEventListener("branch-models", () => { if (last && last.mode !== "off") drawLow(last); });
+/* The fallback order is the owner's: the models arriving after the page was drawn for someone else must
+   not draw it for them (it was, whenever the models loaded after Accounts on a busy computer). */
+document.addEventListener("branch-models", () => { if (last && last.mode !== "off" && !forSomeoneElse(last)) drawLow(last); });
 /** The workspace shows a moment before the key is kept, so wait for the key before the first look. */
 async function afterSignIn(tries = 20) {
   for (let left = tries; left > 0 && !token(); left--) await new Promise((done) => setTimeout(done, 250));

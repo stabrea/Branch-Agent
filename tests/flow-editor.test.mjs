@@ -32,7 +32,7 @@ async function fixture(t) {
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  await page.goto(server.url);
+  await page.goto(server.url, { timeout: 120000 }); // a busy Windows build machine once took over 30 s (tests/places.mjs waits 120 s too)
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.locator("#workspace").waitFor({ state: "visible" });

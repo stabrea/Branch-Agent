@@ -19,7 +19,12 @@ async function fixture(t, { liveView = "off", liveAvailable = false, dictation =
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider: model });
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0, host: "127.0.0.1" });
   const browser = await chromium.launch({ headless: true });
-  t.after(async () => { await browser.close(); await server.close(); await app.close(); await discardTemp(root); });
+  let page = null;
+  t.after(async () => {
+    /* A route still answering when the test ends (its route.fetch) failed on the closed browser. */
+    await page?.unrouteAll({ behavior: "ignoreErrors" }).catch(() => undefined);
+    await browser.close(); await server.close(); await app.close(); await discardTemp(root);
+  });
   const call = (path, body) => fetch(new URL(path, server.url), { method: body === undefined ? "GET" : "POST",
     headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) })
     .then((response) => response.json());
@@ -27,7 +32,7 @@ async function fixture(t, { liveView = "off", liveAvailable = false, dictation =
   await call("/api/conversation-mode/settings", { newConversation: "follow" });
   await call("/api/deployment/suggestion", { id: "updates", answer: "never" }).catch(() => undefined);
   if (liveView !== "off") await call("/api/voice/settings", { liveView });
-  const page = await (await browser.newContext({ viewport: { width: 1440, height: 950 } })).newPage();
+  page = await (await browser.newContext({ viewport: { width: 1440, height: 950 } })).newPage();
   await page.addInitScript(() => {
     globalThis.__microphoneAsked = 0;
     const devices = navigator.mediaDevices ?? {};
@@ -57,8 +62,11 @@ async function dictationRoutes(page, state) {
     await route.fulfill({ json: { open: state.open, refusal: "" } });
   });
   await page.route("**/api/voice/dictation", async (route) => {
-    await route.fulfill({ json: { settings: { mode: "on", silenceSeconds: 4 }, mode: "on", canDictate: true, refusal: "", isOwner: true,
-      engine: { how: "A test engine.", available: true }, open: state.open, words: state.words, settled: !state.open } });
+    const json = { settings: { mode: "on", silenceSeconds: 4 }, mode: "on", canDictate: true, refusal: "", isOwner: true,
+      engine: { how: "A test engine.", available: true }, open: state.open, words: state.words, settled: !state.open };
+    // `hold`: an answer given while the microphone is open, held back until the test lets it go.
+    if (state.hold && state.open) { state.held = (state.held ?? 0) + 1; await state.hold; }
+    await route.fulfill({ json }).catch(() => undefined);
   });
 }
 const microphoneAsked = (page) => page.evaluate(() => globalThis.__microphoneAsked);
@@ -153,5 +161,29 @@ test("dictation: a microphone in the box, a bar while it listens, and throwing t
   assert.match(await f.page.locator("#prompt").inputValue(), /Please compare the two quotes/);
   assert.deepEqual(state.presses, [true, false, true, false]);
   assert.equal(await microphoneAsked(f.page), 0, "the window itself never touches a microphone for dictation");
+  assert.deepEqual(f.errors, []);
+});
+
+test("dictation: an answer still on its way when the words are thrown away does not bring them back", async (t) => {
+  let release;
+  const state = { open: false, words: "compare the two quotes", presses: [] };
+  const f = await fixture(t, { dictation: state });
+  const button = f.page.locator("#voice-dictate");
+  await button.waitFor({ state: "visible" });
+  await f.page.locator("#prompt").fill("Please");
+  await button.click();
+  await f.page.waitForFunction(() => document.getElementById("prompt").value.includes("compare the two quotes"));
+  state.hold = new Promise((resolve) => { release = resolve; });
+  t.after(() => release());
+  await f.page.waitForFunction(() => document.getElementById("dictation-bar"));
+  while (!state.held) await new Promise((resolve) => setTimeout(resolve, 20));
+  await f.page.getByRole("button", { name: "Stop and throw the words away" }).click();
+  await f.page.waitForFunction(() => !document.getElementById("dictation-bar"));
+  assert.equal(await f.page.locator("#prompt").inputValue(), "Please");
+  release();
+  await f.page.waitForTimeout(600);
+  assert.equal(await f.page.locator("#prompt").inputValue(), "Please", "the late answer's words stay thrown away");
+  assert.equal(await button.getAttribute("aria-pressed"), "false", "and the microphone stays shown as closed");
+  assert.equal(await f.page.locator("#dictation-bar").count(), 0);
   assert.deepEqual(f.errors, []);
 });
