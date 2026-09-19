@@ -9,7 +9,7 @@ Nothing here is tagged, published or merged into trunk. That is the coordinator'
 - [x] 1. Version 0.19.0 everywhere (e08c98e4)
 - [x] 2. Release notes `docs/agents/briefs/release-notes-0.19.0.md` (verification section left as a placeholder)
 - [ ] 3. Linux gate on `branch-test-linux`: desktop tests (xvfb, one at a time), full suite, chaos 200 seeds, install-torture 200 seeds
-- [ ] 4. macOS: build, tsc, every non-desktop test file at concurrency 2
+- [x] 4. macOS: build, tsc, every non-desktop test file at concurrency 2
 - [x] 5. Windows: packaged desktop tests over `ssh legion-branch` (session 0, no visible window)
 - [x] 6. Commit and push `mac7/release-019` (not merged, not tagged)
 
@@ -47,7 +47,17 @@ Worktree `/Volumes/512GB SSD/branch-wt/release-019` at e08c98e4, `npm ci`, then 
 (exit 0) and `npx tsc --noEmit` (exit 0). Suite: every `tests/*.test.mjs` except `desktop*` and
 `screen-control`, plus `packages/sdk/test/sdk.test.mjs`, at concurrency 2. Logs in `~/rel019-mac/`.
 `tests/mac2-desktop-ui.test.mjs` was kept: it drives headless Chromium against the local server and opens
-no window. Result: (pending).
+no window.
+
+**PASS with one flake: 4295 tests, 4275 pass, 1 fail, 19 skipped, 14 min 11 s.**
+
+The one failure is `tests/fly-core-real-eval.test.mjs` → *R1 --dry-run runs both arms against throwaway
+Branch copies and says the numbers mean nothing*, at line 63:
+`with it on, the second pass uses what the first taught it` (`advicePerTask` for the second pass was 0).
+It does not reproduce: the file passes on its own, and all four `fly-core*` files together at
+concurrency 2 passed three times out of three straight after. Load-sensitive, not a product fault as far
+as this run can show — worth handing to whoever keeps the flake list, since it is a *value* that came back
+0 rather than a timeout.
 
 ## 5. Windows
 
