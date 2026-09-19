@@ -159,7 +159,7 @@ test("A6 a household person with nothing shared sees no owner cards and no switc
   assert.equal((await call("/api/profiles/switch", { profileId: sam.id, pin: "2468" })).status, 200);
   await open();
   await page.locator("#accounts-card .accounts-honest").waitFor({ state: "attached", timeout: 30000 });
-  await page.waitForTimeout(500);
+  await page.waitForTimeout(3500); // past one of the window's 3-second refreshes, which redraws the models (ci-flakes-3)
   assert.equal(await page.locator("#accounts-card .accounts-pool").count(), 0, "nothing is shared with Sam");
   assert.equal(await page.locator("#accounts-mode").count(), 0, "the switch is the owner's");
   // drawTrunks makes its card whatever the answer, so no card means the page never asked for the Trunks.

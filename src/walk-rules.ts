@@ -208,7 +208,9 @@ export const passageVisible = (rules: WalkRules, docId: string): boolean => docI
  */
 export function byFullAddress(rules: WalkRules, base: string): (absolute: string, folder: boolean) => boolean {
   let root = base;
-  try { root = realpathSync(base); } catch { /* a folder that is not there yet is compared as written */ }
+  /* .native, as fs/promises realpath is: on Windows the plain one keeps an 8.3 short name (C:\Users\RUNNER~1)
+     that the walkers' own real paths spell out in full, so every place looked outside the workspace. */
+  try { root = realpathSync.native(base); } catch { /* a folder that is not there yet is compared as written */ }
   return (absolute, folder) => {
     const from = relative(root, absolute);
     if (!from || from.startsWith("..") || isAbsolute(from)) return true;

@@ -1,4 +1,4 @@
-import { adoptSaved, currentAppearance, initAppearance } from "/appearance.js";
+import { adoptSaved, appearanceChanges, currentAppearance, initAppearance } from "/appearance.js";
 // Wave 6: replies render as markdown, and any task can be opened with "Look inside".
 import { fillMarkdown, inlineNodes } from "/markdown.js";
 // A phone paired in its browser sends its own secret with every request (src/remote/gateway-auth.ts).
@@ -535,6 +535,7 @@ function renderSchedules() {
   );
 }
 async function refresh() {
+  const lookSince = appearanceChanges();
   state = await api("state");
   noteProfile(state.collab?.profile); // household-followups
   $("login").hidden = true;
@@ -548,7 +549,7 @@ async function refresh() {
   const look = JSON.stringify(state.preferences);
   if (savedAppearance !== look) {
     savedAppearance = look;
-    adoptSaved(state.preferences);
+    adoptSaved(state.preferences, lookSince);
   }
   /* A model running here is said plainly, so it is obvious when nothing leaves this computer. */
   $("context-provider").textContent = demo

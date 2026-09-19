@@ -143,7 +143,7 @@ test("the new settings have their defaults, ship off where they change behaviour
 
 /* ---------------------------------------------------------------- the window */
 
-async function windowFixture(t, { width = 1440, height = 950, seeded = true } = {}) {
+async function windowFixture(t, { width = 1440, height = 950, seeded = true, serviceWorkers = "allow" } = {}) {
   const { app, root } = await world(t);
   const seededWith = seeded ? await seed(app) : null;
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0, host: "127.0.0.1" });
@@ -155,7 +155,7 @@ async function windowFixture(t, { width = 1440, height = 950, seeded = true } = 
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   }).then((response) => response.json());
   await call("/api/onboarding", { done: true });
-  const context = await browser.newContext({ viewport: { width, height } });
+  const context = await browser.newContext({ viewport: { width, height }, serviceWorkers });
   const page = await context.newPage();
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
@@ -166,6 +166,8 @@ async function windowFixture(t, { width = 1440, height = 950, seeded = true } = 
     await page.getByLabel("Session token", { exact: true }).fill(server.token);
     await page.getByRole("button", { name: "Connect", exact: true }).click();
     await page.locator("body.lx-ready").waitFor({ state: "attached" });
+    // layout.js marks lx-ready as the page loads, before the key is taken: the window is open once #workspace shows.
+    await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
     await page.waitForFunction(() => globalThis.branchPanels && globalThis.branchOnscreen);
     errors.length = 0; // what failed before the key was given is the login page's business
   };
@@ -215,7 +217,11 @@ test("More offers Browser and Terminal, and a household window offers neither", 
   await f.page.locator("#lx-more").click();
   await f.page.locator('#lx-more-menu [data-target="terminal"]').click();
   await f.page.waitForFunction(() => document.getElementById("context-panel").dataset.pane === "terminal" && document.body.classList.contains("lx-aside"));
-  await f.page.evaluate(() => { document.documentElement.dataset.household = "on"; });
+  /* A real household profile: the window's regular refresh writes data-household from what the server
+     says, so an attribute set by hand here was put back to "off" by the next refresh. */
+  const person = f.app.store.profiles.create({ name: "Sam", pin: "1234" });
+  f.app.store.profiles.switch({ profileId: person.id, pin: "1234" });
+  await f.page.waitForFunction(() => document.documentElement.dataset.household === "on");
   assert.equal(await f.page.locator('#lx-pane-tabs [data-pane="terminal"]').isVisible(), false);
   assert.equal(await f.page.locator('#lx-pane-tabs [data-pane="browser"]').isVisible(), false);
   assert.deepEqual(f.errors, []);
@@ -264,6 +270,8 @@ test("the side list and side panel can be dragged, the width is kept, double-cli
   assert.ok(Math.abs(stored - (before + 125)) <= 2, `kept in this browser (${stored})`);
   await f.page.reload();
   await f.page.locator("body.lx-ready").waitFor({ state: "attached" });
+  // layout.js marks lx-ready as the page loads, before the key is taken: the window is open once #workspace shows.
+  await f.page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
   await f.page.waitForFunction(() => globalThis.branchPanels);
   assert.equal(await f.page.evaluate(() => document.documentElement.style.getPropertyValue("--aside-w")), `${stored}px`, "kept after a reload");
   const rail = f.page.locator('.panels-rz[data-rz="rail"]');
@@ -273,10 +281,10 @@ test("the side list and side panel can be dragged, the width is kept, double-cli
   await rail.dblclick();
   assert.equal(JSON.parse(await f.page.evaluate(() => localStorage.getItem(Object.keys(localStorage).find((k) => k.startsWith("branch-pane-widths:")) ?? "none") || "{}")).rail, undefined, "double-click resets");
   await f.page.locator("#prompt").click();
-  await f.page.keyboard.press("Control+b");
+  await f.page.keyboard.press("ControlOrMeta+b");
   await f.page.waitForFunction(() => document.body.classList.contains("no-rail"));
   await f.page.waitForFunction(() => document.querySelector('.panels-rz[data-rz="rail"]').hidden, null, { timeout: 3000 }); // no handle on a folded list
-  await f.page.keyboard.press("Control+b");
+  await f.page.keyboard.press("ControlOrMeta+b");
   await f.page.waitForFunction(() => !document.body.classList.contains("no-rail"));
   assert.deepEqual(f.errors, []);
 });
@@ -298,6 +306,12 @@ test("the conversation uses the width on a wide screen, and Comfortable brings t
 test("See-through never goes past readable, and stays solid when things are kept still", async (t) => {
   const f = await windowFixture(t, { seeded: false });
   const alpha = () => f.page.evaluate(() => Number(document.body.style.getPropertyValue("--comp-a")));
+  /* The window follows the computer's "Reduce transparency" (a macOS build machine has it on), so the
+     computer's answer is set here: first no preference, and at the end, reduce. */
+  const cdp = await f.context.newCDPSession(f.page);
+  const transparency = (value) => cdp.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-transparency", value }] });
+  await transparency("no-preference");
+  await f.page.waitForFunction(() => !matchMedia("(prefers-reduced-transparency: reduce)").matches);
   await f.look({ seeThrough: 0 });
   assert.equal(await alpha(), 1, "0 is solid");
   await f.look({ seeThrough: 100 });
@@ -312,6 +326,52 @@ test("See-through never goes past readable, and stays solid when things are kept
   await f.look({ reduceMotion: true });
   assert.equal(await alpha(), 1, "Keep things still keeps it solid");
   assert.match(await f.page.locator("#panels-see-note").innerText().catch(() => ""), /^$|solid/);
+  await f.look({ reduceMotion: false });
+  assert.ok(await alpha() < 1, "glass again");
+  await transparency("reduce");
+  await f.page.waitForFunction(() => Number(document.body.style.getPropertyValue("--comp-a")) === 1, null, { timeout: 5000 });
+  assert.deepEqual(f.errors, []);
+});
+
+test("a refresh that asked before a change never puts the older look back once that change is saved", async (t) => {
+  // The page's own offline helper answers /api/state once it is running, out of reach of page.route.
+  const f = await windowFixture(t, { seeded: false, serviceWorkers: "block" });
+  const look = () => f.page.evaluate(async () => (await import("/appearance.js")).currentAppearance().seeThrough);
+  /* Every answer carrying the look another window saved (60) is held until the change below is saved. */
+  let release, held = 0;
+  const seen = [];
+  const gate = new Promise((resolve) => { release = resolve; });
+  t.after(() => release());
+  await f.page.route("**/api/state", async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    seen.push(body.preferences?.seeThrough);
+    if (body.preferences?.seeThrough === 60) { held += 1; await gate; }
+    await route.fulfill({ response }).catch(() => undefined);
+  });
+  const saved = (await f.call("/api/state")).preferences;
+  await f.call("/api/preferences", { ...saved, seeThrough: 60 });
+  for (let tries = 0; !held; tries += 1) {
+    assert.ok(tries < 500, `the window asked again (${seen.join(", ")})`);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  // Other parts of the window read /api/state too: the window's own refresh (every 3 s) is among those held by now.
+  await f.page.waitForTimeout(3500);
+  const savedHere = f.page.waitForResponse((r) => r.url().endsWith("/api/preferences") && r.request().method() === "POST");
+  await f.look({ seeThrough: 100 });
+  await savedHere;
+  await f.page.waitForTimeout(100); // the window has heard its save back: nothing of its own is waiting any more
+  assert.equal((await f.call("/api/state")).preferences.seeThrough, 100, "the change is saved");
+  await f.page.evaluate(() => {
+    globalThis.__looks = [];
+    document.addEventListener("branch-appearance", (event) => globalThis.__looks.push(event.detail.seeThrough));
+  });
+  release();
+  await f.page.waitForTimeout(500);
+  assert.deepEqual(await f.page.evaluate(() => globalThis.__looks.filter((value) => value !== 100)), [],
+    "the answer from before the change is never applied over it, not even for a moment");
+  assert.equal(await look(), 100);
+  await f.page.unrouteAll({ behavior: "ignoreErrors" });
   assert.deepEqual(f.errors, []);
 });
 
@@ -495,6 +555,8 @@ test("with achievements on, hiding everything earns \"It's lonely over here\" (p
   await f.call("/api/delight/settings", { achievements: { on: true } });
   await f.page.reload(); // the window reads the switch when it starts
   await f.page.locator("body.lx-ready").waitFor({ state: "attached" });
+  // layout.js marks lx-ready as the page loads, before the key is taken: the window is open once #workspace shows.
+  await f.page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
   await f.page.waitForFunction(() => globalThis.branchOnscreen);
   assert.equal((await lonely()).got, undefined, "not earned yet");
   await f.look({ hidden: await f.page.evaluate(() => globalThis.branchOnscreen.ids()) });

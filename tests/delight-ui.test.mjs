@@ -54,9 +54,22 @@ async function switchOn(page, id) {
   await closeSettings(page);
 }
 
-/** Notes every timer and animation frame asked for by a delight file, before the page's own scripts run. */
+/**
+ * Notes every timer and animation frame asked for by a delight file, before the page's own scripts run,
+ * and every request for the work (activity, achievements, noticed) a delight file makes: the window's own
+ * panes ask for /api/activity too, every few seconds, so a request is delight's only when a delight file made it.
+ */
 function watchTimers() {
   const asked = (globalThis.__delightTimers = []);
+  const fetched = (globalThis.__delightFetches = []);
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = function (input, ...rest) {
+    const from = (new Error().stack ?? "").split(/\r?\n/).slice(2).find((line) => /delight/.test(line));
+    const url = String(input?.url ?? input);
+    // Its own switch (/api/delight) is read at start; what it must not ask for while off is the work.
+    if (from && /\/api\/(activity|delight\/(achievements|noticed))/.test(url)) fetched.push(`${url} ${from.trim()}`);
+    return realFetch.call(this, input, ...rest);
+  };
   for (const name of ["setInterval", "setTimeout", "requestAnimationFrame"]) {
     const real = globalThis[name];
     globalThis[name] = function (...args) {
@@ -69,11 +82,12 @@ function watchTimers() {
 test("off by default: no pet, no own background, the acorn hidden, and the three cards waiting in Appearance", async (t) => {
   const f = await fixture(t, { init: watchTimers });
   const asked = [];
-  f.page.on("request", (request) => { if (/\/api\/(activity|delight\/(achievements|noticed))/.test(request.url())) asked.push(request.url()); });
+  f.page.on("request", (request) => { if (/\/api\/delight\/(achievements|noticed)/.test(request.url())) asked.push(request.url()); });
   await f.call("/api/run", { prompt: "one" });
   await f.page.waitForTimeout(2500);
   assert.deepEqual(await f.page.evaluate(() => globalThis.__delightTimers), [], "switched off, nothing of delight's ticks");
   assert.deepEqual(asked, [], "and nothing is asked of the server");
+  assert.deepEqual(await f.page.evaluate(() => globalThis.__delightFetches), [], "not even what the window asks for anyway (activity)");
   assert.equal(await f.page.locator("#pet").count(), 0);
   assert.equal(await f.page.locator("#delight-wall").count(), 0);
   assert.equal(await f.page.locator("#delight-corner").isVisible(), false, "the corner is empty and takes no room");
@@ -121,6 +135,9 @@ test("the pet lives in the corner, works while a task works, and says one thing 
   assert.match(await f.page.locator("#pet").getAttribute("aria-label"), /Hazel the squirrel/);
   void f.call("/api/run", { prompt: "Sort my Downloads folder." }).catch(() => undefined);
   await f.page.locator("#pet-say:not([hidden])").waitFor({ timeout: 15000 });
+  /* On a slow machine the page is over 20 s old by now, so a tip (one at a time, up to 8 s) may be
+     showing when the task starts; the pet says it is working once the tip has had its time. */
+  await f.page.waitForFunction(() => document.getElementById("pet-say")?.textContent === "Working on it…", null, { timeout: 20000 });
   assert.equal(await f.page.locator("#pet-say").innerText(), "Working on it…");
   let most = 0;
   for (let i = 0; i < 8; i++) {

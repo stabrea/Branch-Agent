@@ -56,6 +56,8 @@ async function fixture(t, { onboarded = true } = {}) {
       await page.getByRole("button", { name: "Connect", exact: true }).click();
     }
     await page.locator("body.lx-ready").waitFor({ state: "attached", timeout: 120000 });
+    // layout.js marks lx-ready as the page loads, before the key is taken: the window is open once #workspace shows.
+    await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
   };
   return { app, server, call, page, errors, open };
 }
