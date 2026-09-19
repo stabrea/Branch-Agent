@@ -5779,6 +5779,39 @@ The enforcement is in the runtime's own policy check, not in the window.
   Changing it is the owner's alone.
 - `POST /api/run` takes `mode` for the message that starts a conversation.
 
+### Suggestions, updates as choice cards, and quitting while work runs (redesign phase 1)
+
+Now and then one quiet bar at the top of the conversation pane recommends a setting, the way the
+update question in the approved design does: *"Keep Branch up to date by itself? Recommended"*. There
+is only ever one, at most once each time the window opens, never before the first-run screen is done,
+and only in the owner's window. Each has **Yes**, **Not now** and **Don't ask again**, and nothing
+changes unless Yes is pressed. In order of how much they matter:
+
+1. **Keep Branch running in the background?** — offered where Branch is installed and the background
+   engine is not set up, because a Trunk on Telegram (or any chat app, or an automation) only answers
+   while Branch is running. Yes sets up the same background engine as *How Branch runs on this computer*.
+2. **Keep Branch up to date by itself?** — offered while updates are off. Yes sets `autoUpdate` to
+   `install`.
+
+**Not now** lasts until the window opens again; **Don't ask again** is kept with the workspace:
+
+- `background` — `ask` (default) or `never`.
+- `updates` — `ask` (default) or `never`.
+- `GET /api/deployment/suggestion` — `{ "bar": "background" | "updates" | null }`. Anybody but the
+  owner in the app window gets `null`.
+- `POST /api/deployment/suggestion` — `{ id, answer: "never" }`. The owner's alone.
+
+**Updates** in Settings is now three choice cards instead of a list: *Install updates by myself*,
+*Tell me when there's an update*, and *Keep Branch up to date by itself* (marked Recommended). Picking
+a card saves it at once. It is the same `autoUpdate` setting (`off`, `check`, `install`), still off
+as shipped.
+
+**Quitting while work runs.** Closing the window keeps Branch in the tray (or the dock), so work goes
+on. Quitting stops it, so when a task is running and no background engine would carry on with it,
+Branch asks first: *"A task is still working. Quitting now stops it."* with **Keep running in the
+background** (the window closes and Branch keeps working in the tray), **Quit anyway** and **Cancel**.
+An update, a restart you asked for and `branch quit` never ask.
+
 ## Specialists that work in different ways (batch 20, wave 7)
 
 A specialist now says how it works, not just what it knows. Pick one in Specialists → Propose a

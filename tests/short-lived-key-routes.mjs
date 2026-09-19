@@ -159,6 +159,8 @@ export const ROUTES = {
   "/api/deployment/remote/invite": "owner POST",
   "/api/deployment/restore-point": "owner POST",
   "/api/deployment/restore-points": "look",
+  // Redesign phase 1: which suggestion bar to show; others are offered nothing, and Don't ask again is the owner's.
+  "/api/deployment/suggestion": "owner POST",
   "/api/desktop/settings": "owner POST",
   "/api/developer": "prefix",
   "/api/developer/": "prefix",

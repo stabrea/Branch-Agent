@@ -1,6 +1,7 @@
 import {
   app,
   BrowserWindow,
+  dialog,
   Menu,
   Tray,
   nativeImage,
@@ -43,11 +44,19 @@ import { WINDOW_ICON_SIZE, isTemplateTrayIcon, trayIconScales, trayIconSize } fr
 import { recordActivation } from "../install/headless-update.js";
 // mac7/win-icon: the taskbar shows the KeepOak mark, not Electron's atom.
 import { refreshShortcutsFlag, refreshWindowsIdentity, windowsAppId } from "../install/windows-identity.js";
+// Redesign phase 1: asking before a Quit that would stop work (src/desktop/quit-guard.ts).
+import { asksBeforeQuit, quitChoice, quitQuestion, runningTaskCount, type QuitReason } from "./quit-guard.js";
 
 let window: BrowserWindow | undefined;
 let tray: Tray | undefined;
 let stop: (() => Promise<void>) | undefined;
 let quitting = false;
+/* Redesign phase 1: why Branch is quitting, how many tasks are working, and whether an engine in the
+   background carries on after this window goes. */
+let quitReason: QuitReason = "person";
+let runningNow: () => number = () => 0;
+let joinedBackground = false;
+let askingToQuit = false;
 
 function markPath(): string {
   return fileURLToPath(new URL("../../public/assets/keepoak-mark.png", import.meta.url));
@@ -139,10 +148,11 @@ async function createWindow(
   protectWindow(window, url, token);
   registerSettingsIpc(window, url, settings, process.env.BRANCH_PROVIDER !== undefined);
   registerConversationExportIpc(window, url);
-  registerUpdaterIpc(window, url, app.getVersion(), () => app.quit(), update);
+  registerUpdaterIpc(window, url, app.getVersion(), () => { quitReason = "update"; app.quit(); }, update);
   // Asked for from an open window, so the new copy opens its window too, even after a quiet start.
   registerRestartIpc(ipcMain, window, url, () => {
     app.relaunch({ args: process.argv.slice(1).filter((arg) => arg !== minimizedFlag) });
+    quitReason = "restart";
     app.quit();
   });
   window.on("close", (event) => {
@@ -243,6 +253,7 @@ async function start(): Promise<void> {
   const running = await attachToRunning(dataDir);
   // Joining an engine means that engine owns the saved work and holds the program files open, so the
   // safety copy is asked of it and it is closed before an update swaps anything.
+  joinedBackground = Boolean(running);
   if (running)
     return createWindow(running.url, running.token, settings, {
       backup: () => requestUpdateBackup(running.url, running.token),
@@ -266,6 +277,7 @@ async function start(): Promise<void> {
     }),
   });
   watchDesktopCrashes(branch);
+  runningNow = () => runningTaskCount(branch.store);
   let integrationClose: (() => Promise<void>) | undefined;
   let serverClose: (() => Promise<void>) | undefined;
   let stopping: Promise<void> | undefined;
@@ -297,7 +309,7 @@ async function start(): Promise<void> {
       dataDir, port: 0, presence: "app",
       executable: app.isPackaged ? process.execPath : null,
       installRoot: installedAppRoot(app.isPackaged, process.platform, process.execPath),
-      quit: () => app.quit(), // bucket 22: `branch quit` is the same as Quit in the menu (bounded shutdown below)
+      quit: () => { quitReason = "command"; app.quit(); }, // bucket 22: `branch quit` is the same as Quit in the menu (bounded shutdown below)
     });
     serverClose = server.close;
     await createWindow(server.url, server.token, settings, {
@@ -310,6 +322,37 @@ async function start(): Promise<void> {
   } catch (error) {
     await stop();
     throw error;
+  }
+}
+
+/**
+ * Shutting down waits for the loopback server and open work, but never for long: an update
+ * hand-over depends on this process actually ending.
+ */
+function shutDown(): void {
+  quitting = true;
+  const deadline = new Promise<void>((resolve) => setTimeout(resolve, 8000).unref());
+  void Promise.race([(stop?.() ?? Promise.resolve()), deadline])
+    .catch((error) => console.error("Shutdown:", error.message))
+    .finally(() => {
+      tray?.destroy();
+      app.exit(0);
+    });
+}
+/** Redesign phase 1: work is running and nothing would carry it on, so the person decides. */
+async function askThenQuit(): Promise<void> {
+  askingToQuit = true;
+  try {
+    const question = quitQuestion(runningNow());
+    const parent = window?.isVisible() ? window : undefined;
+    const { response } = parent ? await dialog.showMessageBox(parent, question) : await dialog.showMessageBox(question);
+    const choice = quitChoice(response);
+    if (choice === "quit") return shutDown();
+    if (choice === "keep") window?.hide();
+    else { window?.show(); window?.focus(); }
+    quitReason = "person";
+  } finally {
+    askingToQuit = false;
   }
 }
 
@@ -372,16 +415,10 @@ else {
   app.on("before-quit", (event) => {
     if (quitting) return;
     event.preventDefault();
-    quitting = true;
-    // Shutting down waits for the loopback server and open work, but never for long: an update
-    // hand-over depends on this process actually ending.
-    const deadline = new Promise<void>((resolve) => setTimeout(resolve, 8000).unref());
-    void Promise.race([(stop?.() ?? Promise.resolve()), deadline])
-      .catch((error) => console.error("Shutdown:", error.message))
-      .finally(() => {
-        tray?.destroy();
-        app.exit(0);
-      });
+    if (askingToQuit) return;
+    if (asksBeforeQuit({ reason: quitReason, runningTasks: runningNow(), engineInBackground: joinedBackground }))
+      return void askThenQuit();
+    shutDown();
   });
   void app
     .whenReady()

@@ -2233,3 +2233,124 @@ body.lx .composer-dock:has(.mode-menu:not([hidden])) {
   width: 15px;
   height: 15px;
 }
+
+/* ---------- redesign phase 1: the suggestion bar above the message box, and the update cards ----------
+   (public/suggestions.js, public/comfort.js) Copied from the sample's "Keep Branch up to date by
+   itself? Recommended": a small glass bar with the KeepOak mark, the question and three answers. */
+.suggest-bar {
+  position: absolute;
+  top: 64px;
+  left: 50%;
+  z-index: 40;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px 10px;
+  width: min(640px, calc(100% - 24px));
+  transform: translateX(-50%);
+  box-shadow: var(--card-shadow, var(--shadow));
+  padding: 8px 10px 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--surface) 90%, transparent);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  color: var(--text);
+  font-size: 13px;
+}
+.suggest-mark {
+  flex: none;
+  width: 22px;
+  height: 22px;
+}
+.suggest-words {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+.suggest-words b {
+  color: var(--ok);
+  font-weight: 600;
+}
+.suggest-words small {
+  display: block;
+  margin-top: 1px;
+  color: var(--text-3);
+  font-size: 12px;
+}
+.suggest-bar button {
+  min-height: 30px;
+  padding: 4px 12px;
+  border-radius: 9px;
+  box-shadow: none;
+  font-size: 13px;
+}
+.suggest-bar .quiet-button {
+  border-color: var(--line-2);
+  background: transparent;
+  color: var(--text);
+}
+.suggest-bar .text-button {
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  padding: 4px 6px;
+}
+.suggest-bar .quiet-button:hover,
+.suggest-bar .text-button:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.choice-cards {
+  display: grid;
+  gap: 8px;
+  margin: 8px 0;
+  padding: 0;
+  border: 0;
+}
+.choice-cards legend {
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+.choice-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 1px 10px;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  cursor: pointer;
+  color: var(--text);
+}
+.choice-card input {
+  margin-top: 4px;
+  accent-color: var(--copper);
+}
+.choice-card b {
+  display: block;
+  font-weight: 600;
+}
+.choice-card small {
+  display: block;
+  color: var(--text-3);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+.choice-card:has(input:checked) {
+  border-color: var(--copper-edge);
+  background: var(--copper-tint);
+}
+.choice-card:has(input:focus-visible) {
+  outline: 2px solid var(--copper);
+  outline-offset: 2px;
+}
+.choice-recommended {
+  display: inline-flex;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--chip-ok-bg);
+  color: var(--chip-ok-fg);
+  font-size: 11px;
+  font-weight: 560;
+  vertical-align: 1px;
+}

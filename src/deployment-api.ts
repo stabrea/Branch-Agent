@@ -13,6 +13,10 @@ import { doctorFix } from "./doctor-fix.js";
 import type { RemoteAccess } from "./remote/remote-access.js";
 import type { QrMatrix } from "./remote/qr.js";
 import type { createBranch } from "./index.js";
+import { readComfort } from "./comfort/settings.js";
+import { currentPerson } from "./people/context.js";
+import { startedWithShortLivedKey } from "./key-context.js";
+import { neverSuggest, nextSuggestion, suggestionsSettings } from "./suggestions.js";
 
 /**
  * The screens behind "how Branch runs on this computer": start when the person signs in, keep working
@@ -138,6 +142,24 @@ async function closeEngine(request: IncomingMessage, context: DeploymentContext,
   return { closing: true, message: "Branch is closing in the background so the new version can replace the files." };
 }
 
+/**
+ * Redesign phase 1: the one bar to offer above the message box now (src/suggestions.ts). Anybody
+ * but the owner in the app window is offered nothing. Looking whether the background engine is set
+ * up reads the system's own list and changes nothing.
+ */
+async function suggestion(app: Branch, context: DeploymentContext, platform: NodeJS.Platform): Promise<{ bar: string | null }> {
+  const owner = app.runtime.owner;
+  const here = !startedWithShortLivedKey() && !currentPerson() && !app.store.profiles.active();
+  if (!here) return { bar: null };
+  const installed = Boolean(context.executable && context.installRoot);
+  const note = await readRunning(context.dataDir).catch(() => null);
+  const inBackground = note?.mode === "daemon" && note.pid === process.pid;
+  const background = inBackground || (installed && (await daemonCommand("status", daemonOptions(context, platform)).catch(() => null))?.installed === true);
+  const onboarded = (app.store.get("settings", owner, "onboarding")?.data as { done?: unknown } | undefined)?.done === true;
+  return { bar: nextSuggestion({ owner: here, onboarded, settings: suggestionsSettings(app.store, owner), installed,
+    background, autoUpdate: readComfort(app.store, owner, "notify").autoUpdate }) };
+}
+
 /** Handles everything under /api/deployment; returns undefined when the path is not one of ours. */
 export async function deploymentApi(
   app: Branch, request: IncomingMessage, path: string, context: DeploymentContext,
@@ -147,6 +169,12 @@ export async function deploymentApi(
 ): Promise<unknown | undefined> {
   const platform = deps.platform ?? process.platform;
   if (request.method === "GET" && path === "/api/deployment") return overview(app, context, platform);
+  if (request.method === "GET" && path === "/api/deployment/suggestion") return suggestion(app, context, platform);
+  // "Don't ask again": only the owner reaches this (an unlisted change is refused to everyone else).
+  if (request.method === "POST" && path === "/api/deployment/suggestion") {
+    app.store.profiles.requireOwner("Suggestions");
+    return { settings: neverSuggest(app.store, app.runtime.owner, await readBody(request)) };
+  }
   if (request.method === "POST" && path === "/api/deployment/autostart") {
     const { enabled, minimized } = EnabledSchema.parse(await readBody(request));
     if (!context.executable) throw new Error(`Branch has to be installed on this computer before it can ${startsBySelfWords(platform)}.`);

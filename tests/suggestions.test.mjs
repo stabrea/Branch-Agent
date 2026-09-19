@@ -1,0 +1,148 @@
+/* Redesign phase 1: the one suggestion bar above the message box, and the update choice cards.
+   Nothing here installs anything: the background engine's own route is answered by the test. */
+import test from "node:test";
+import assert from "node:assert/strict";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { chromium } from "playwright";
+import { discardTemp } from "./temp-dir.mjs";
+import { openSettingFor } from "./places.mjs";
+import { createBranch } from "../dist/index.js";
+import { startServer } from "../dist/server.js";
+import { nextSuggestion, SuggestionsSettingsSchema } from "../dist/suggestions.js";
+import { readComfort } from "../dist/comfort/settings.js";
+
+const ask = SuggestionsSettingsSchema.parse({});
+const facts = (over) => ({ owner: true, onboarded: true, settings: ask, installed: true, background: false, autoUpdate: "off", ...over });
+
+test("the bar that matters most comes first, one at a time, and only for the owner after first run", () => {
+  assert.equal(nextSuggestion(facts()), "background", "keeping Branch running comes before updates");
+  assert.equal(nextSuggestion(facts({ background: true })), "updates");
+  assert.equal(nextSuggestion(facts({ installed: false })), "updates", "a copy that is not installed cannot run in the background");
+  assert.equal(nextSuggestion(facts({ settings: { ...ask, background: "never" } })), "updates", "Don't ask again is kept");
+  assert.equal(nextSuggestion(facts({ background: true, autoUpdate: "install" })), null, "nothing left to recommend");
+  assert.equal(nextSuggestion(facts({ background: true, autoUpdate: "check" })), null, "a choice already made is not argued with");
+  assert.equal(nextSuggestion(facts({ onboarded: false })), null, "never before first run is done");
+  assert.equal(nextSuggestion(facts({ owner: false })), null, "never for anybody but the owner");
+});
+
+async function fixture(t, { onboarded = true } = {}) {
+  const root = await mkdtemp(join(tmpdir(), "branch-suggestions-"));
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"),
+    provider: { name: "scripted", async complete() { return { content: "ok", toolCalls: [] }; } } });
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  const browser = await chromium.launch({ headless: true });
+  t.after(async () => { await browser.close(); await server.close(); await app.close(); await discardTemp(root); });
+  const call = async (path, body) => {
+    const response = await fetch(new URL(path, server.url), { method: body === undefined ? "GET" : "POST",
+      headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+    return { status: response.status, body: await response.json() };
+  };
+  if (onboarded) await call("/api/onboarding", { done: true });
+  const page = await browser.newPage({ viewport: { width: 1440, height: 950 } });
+  const errors = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  /* Opening the window again: the token is kept for the tab, so only the first time asks for it. */
+  const open = async () => {
+    await page.goto(server.url);
+    await page.waitForFunction(() => document.getElementById("workspace")?.hidden === false
+      || document.getElementById("token")?.offsetParent !== null);
+    if (await page.locator("#token").isVisible()) {
+      await page.getByLabel("Session token", { exact: true }).fill(server.token);
+      await page.getByRole("button", { name: "Connect", exact: true }).click();
+    }
+    await page.locator("body.lx-ready").waitFor({ state: "attached" });
+  };
+  return { app, server, call, page, errors, open };
+}
+
+test("the server offers the update bar to the owner, remembers Don't ask again, and offers nobody else anything", async (t) => {
+  const f = await fixture(t);
+  assert.deepEqual((await f.call("/api/deployment/suggestion")).body, { bar: "updates" }, "not installed here, so updates is the one");
+  const person = f.app.store.profiles.create({ name: "Sam", pin: "1234" });
+  f.app.store.profiles.switch({ profileId: person.id, pin: "1234" });
+  assert.deepEqual((await f.call("/api/deployment/suggestion")).body, { bar: null }, "a household person is offered nothing");
+  assert.notEqual((await f.call("/api/deployment/suggestion", { id: "updates", answer: "never" })).status, 200, "nor may they answer for the owner");
+  f.app.store.profiles.switch({ profileId: null });
+  assert.equal((await f.call("/api/deployment/suggestion", { id: "updates", answer: "never" })).status, 200);
+  assert.deepEqual((await f.call("/api/deployment/suggestion")).body, { bar: null });
+});
+
+test("Yes on the update bar turns on updating by itself; nothing changes before it", async (t) => {
+  const f = await fixture(t);
+  await f.open();
+  const bar = f.page.locator("#suggest-bar");
+  await bar.waitFor({ state: "visible" });
+  assert.match(await bar.innerText(), /Keep Branch up to date by itself\?\s*Recommended/);
+  assert.equal(readComfort(f.app.store, f.app.runtime.owner, "notify").autoUpdate, "off", "showing it changed nothing");
+  await bar.getByRole("button", { name: "Yes", exact: true }).click();
+  await bar.waitFor({ state: "detached" });
+  await f.page.waitForFunction(() => /keeps itself up to date/.test(document.getElementById("toast")?.textContent ?? ""));
+  assert.equal(readComfort(f.app.store, f.app.runtime.owner, "notify").autoUpdate, "install");
+  assert.deepEqual(f.errors, []);
+});
+
+test("Not now lasts until the window opens again; Don't ask again lasts; first run always comes first", async (t) => {
+  const f = await fixture(t, { onboarded: false });
+  await f.open();
+  await f.page.waitForTimeout(800);
+  assert.equal(await f.page.locator("#suggest-bar").count(), 0, "never before the first-run screen is done");
+  await f.call("/api/onboarding", { done: true });
+  await f.page.evaluate(() => globalThis.branchSuggestions.offer());
+  assert.equal(await f.page.locator("#suggest-bar").count(), 0, "and not later in that same first launch either");
+  await f.open();
+  const bar = f.page.locator("#suggest-bar");
+  await bar.waitFor({ state: "visible" });
+  await bar.getByRole("button", { name: "Not now", exact: true }).click();
+  await bar.waitFor({ state: "detached" });
+  await f.page.evaluate(() => globalThis.branchSuggestions.offer());
+  assert.equal(await bar.count(), 0, "at most once each time the window opens");
+  await f.open();
+  await bar.waitFor({ state: "visible" });
+  await bar.getByRole("button", { name: "Don't ask again", exact: true }).click();
+  await bar.waitFor({ state: "detached" });
+  await f.open();
+  await f.page.waitForTimeout(800);
+  assert.equal(await bar.count(), 0, "Don't ask again is kept");
+  assert.equal(readComfort(f.app.store, f.app.runtime.owner, "notify").autoUpdate, "off", "no answer changed the setting");
+  assert.deepEqual(f.errors, []);
+});
+
+test("the background bar comes first where Branch is installed, and Yes sets up the background engine", async (t) => {
+  const f = await fixture(t);
+  const asked = [];
+  await f.page.route("**/api/deployment/suggestion", (route) => route.fulfill({ json: { bar: "background" } }));
+  await f.page.route("**/api/deployment/daemon", (route) => {
+    asked.push(route.request().postDataJSON());
+    return route.fulfill({ json: { action: "install", installed: true, taskName: "Branch Agent", message: "Set up." } });
+  });
+  await f.open();
+  const bar = f.page.locator("#suggest-bar");
+  await bar.waitFor({ state: "visible" });
+  assert.match(await bar.innerText(), /Keep Branch running in the background\?\s*Recommended/);
+  assert.match(await bar.innerText(), /Telegram/);
+  assert.deepEqual(asked, [], "nothing is set up by showing it");
+  await bar.getByRole("button", { name: "Yes", exact: true }).click();
+  await f.page.waitForFunction(() => /running in the background/.test(document.getElementById("toast")?.textContent ?? ""));
+  assert.deepEqual(asked, [{ action: "install" }]);
+  assert.deepEqual(f.errors, []);
+});
+
+test("Updates in Settings are three choice cards, the recommended one marked, and picking one saves it", async (t) => {
+  const f = await fixture(t);
+  await f.call("/api/deployment/suggestion", { id: "updates", answer: "never" });
+  await f.open();
+  await f.page.waitForFunction(() => document.getElementById("comfort-updates-card")?.closest("#lx-page-about"));
+  await openSettingFor(f.page, "#comfort-updates-card");
+  const cards = f.page.locator("#comfort-updates-card .choice-card");
+  assert.equal(await cards.count(), 3);
+  assert.match(await cards.nth(2).innerText(), /Keep Branch up to date by itself\s*Recommended/);
+  assert.equal(await f.page.locator('#comfort-updates-card input[value="off"]').isChecked(), true, "Off, as shipped");
+  await cards.nth(1).click();
+  await f.page.waitForFunction(() => document.querySelector("#comfort-updates-card [role=status]")?.textContent?.length > 0);
+  assert.equal(readComfort(f.app.store, f.app.runtime.owner, "notify").autoUpdate, "check");
+  assert.equal(await f.page.locator('#comfort-updates-card select').count(), 0, "no hidden list any more");
+  assert.deepEqual(f.errors, []);
+});

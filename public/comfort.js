@@ -48,7 +48,8 @@ const CARDS = [
   { id: "files", card: "files", home: "settings:general", fields: [sw("respectGitignore", true), { name: "extraIgnoreFiles", kind: "lines", def: [] }] },
   { id: "display", card: "display", home: "settings:appearance", fields: [{ name: "statusLine", kind: "status", def: null }, sw("timestamps", false)] },
   { id: "notify", card: "notify", home: "settings:notifications", fields: [pick("method", "system", ["system", "window"]), pick("sound", "off", ["off", "chime", "knock"])] },
-  { id: "updates", card: "notify", home: "settings:about", fields: [pick("autoUpdate", "off", ["off", "check", "install"])] },
+  // Redesign phase 1: three choice cards rather than a list, with the one Branch recommends marked.
+  { id: "updates", card: "notify", home: "settings:about", fields: [{ name: "autoUpdate", kind: "cards", def: "off", options: ["off", "check", "install"], recommended: "install" }] },
   { id: "voice", card: "voice", home: "settings:voice", fields: [combo("pushToTalkKey", ""), { name: "maxRecordingSeconds", kind: "number", min: 5, max: 600, def: null }] },
   { id: "browser", card: "browser", home: "settings:computer", warn: "comfort.warn.owner", fields: [
     sw("confirmSensitive", false), sw("blockUploads", false), pick("dialogs", "dismiss", ["dismiss", "accept"])] },
@@ -143,8 +144,36 @@ function control(field, value) {
     return { nodes: labelled(id, field.name, area), read, set: (v) => { area.value = v.join("\n"); } };
   }
   if (field.kind === "keys") return keysBox(field, id, value);
+  if (field.kind === "cards") return choiceCards(field, id, value);
   if (field.kind === "status") return statusBox(field, id, value);
   return certificates(field, id, value);
+}
+
+/** Redesign phase 1: one card per choice, each saying what it does; picking one saves it at once. */
+function choiceCards(field, id, value) {
+  const group = document.createElement("fieldset");
+  group.className = "choice-cards";
+  group.id = id;
+  group.setAttribute("role", "radiogroup");
+  group.append(keyed("legend", `comfort.field.${field.name}`));
+  const radios = field.options.map((choice) => {
+    const card = document.createElement("label");
+    card.className = "choice-card";
+    const radio = Object.assign(document.createElement("input"), { type: "radio", name: id, value: choice, checked: choice === value });
+    const title = keyed("b", `comfort.update.${choice}`);
+    if (choice === field.recommended) title.append(" ", keyed("span", "suggest.recommended", "choice-recommended"));
+    const words = document.createElement("span");
+    const said = keyed("small", `comfort.update.${choice}.note`);
+    said.id = `${id}-${choice}-note`;
+    radio.setAttribute("aria-describedby", said.id);
+    words.append(title, said);
+    card.append(radio, words);
+    group.append(card);
+    return radio;
+  });
+  const read = () => radios.find((radio) => radio.checked)?.value ?? field.def;
+  const set = (v) => { for (const radio of radios) radio.checked = radio.value === v; };
+  return { nodes: [group], read, set, instant: true };
 }
 
 /** The owner's extra certificates: each one listed with what it is, and a way to add another. */
@@ -217,7 +246,11 @@ function buildCard(spec) {
   const status = document.createElement("p");
   status.className = "subtle";
   status.setAttribute("role", "status");
-  card.append(actions(spec, controls, status), status);
+  const row = actions(spec, controls, status);
+  card.append(row, status);
+  /* A card of choices saves the moment one is picked, as the sample's update cards do. */
+  if (controls.some(([, c]) => c.instant))
+    card.addEventListener("change", (event) => { if (event.target.type === "radio") row.querySelector("button")?.click(); });
   return card;
 }
 function tryButton() {
