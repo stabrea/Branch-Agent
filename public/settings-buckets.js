@@ -30,6 +30,9 @@ export const BUCKETS = {
       [["lx-look", R], ["settings-form", R], ["shell-look-card", R]]],
     ["shows", "eye", "What a conversation shows", "How much of the working-out you see while it works.",
       [["panels-onscreen", R], ["knobs-show-reasoning-card", A], ["comfort-display-card", A], ["savings-round-chart-card", A], ["flows-focus-card", A]]],
+    /* p2-delight's cards (integration): each is off until turned on, so showing them changes nothing. */
+    ["fun", "spark", "Just for fun", "A pet, achievements and a background of your own. Each is off until you turn it on.",
+      [["delight-pet-card", R], ["delight-ach-card", R], ["delight-bg-card", R]]],
   ],
   notifications: [
     ["attention", "bell", "When Branch gets your attention", "Sounds, banners and the times it should leave you alone.",

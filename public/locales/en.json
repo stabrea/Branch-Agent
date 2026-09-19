@@ -4565,6 +4565,8 @@
   "settingsGrown.bucket.secrets.keys.line": "Keys and passwords Branch may use, one at a time.",
   "settingsGrown.bucket.voice.talk": "Talking and listening",
   "settingsGrown.bucket.voice.talk.line": "Speaking to Branch and how it hears you.",
+  "settingsGrown.bucket.appearance.fun": "Just for fun",
+  "settingsGrown.bucket.appearance.fun.line": "A pet, achievements and a background of your own. Each is off until you turn it on.",
   "settingsGrown.bucket.accounts.accounts": "Your accounts",
   "settingsGrown.bucket.accounts.accounts.line": "The accounts Branch signs in with, and sharing the work between them.",
   "settingsGrown.bucket.voice.voices": "The voices it speaks with",
