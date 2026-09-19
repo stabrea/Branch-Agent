@@ -33,16 +33,20 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: windows-latest, shard: 1, total: 5 }
-          - { os: windows-latest, shard: 2, total: 5 }
-          - { os: windows-latest, shard: 3, total: 5 }
-          - { os: windows-latest, shard: 4, total: 5 }
-          - { os: windows-latest, shard: 5, total: 5 }
+          - { os: windows-latest, shard: 1, total: 6 }
+          - { os: windows-latest, shard: 2, total: 6 }
+          - { os: windows-latest, shard: 3, total: 6 }
+          - { os: windows-latest, shard: 4, total: 6 }
+          - { os: windows-latest, shard: 5, total: 6 }
+          - { os: windows-latest, shard: 6, total: 6 }
           - { os: macos-latest, shard: 1, total: 2 }
           - { os: macos-latest, shard: 2, total: 2 }
           - { os: ubuntu-latest, shard: 1, total: 2 }
           - { os: ubuntu-latest, shard: 2, total: 2 }
     runs-on: ${{ matrix.os }}
+    # A share takes under 20 minutes. A test that leaves a process behind once kept a share waiting
+    # 78 minutes for a file that would never finish; the default limit is six hours.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       # '24' is the newest Node 24, which is above the floor in src/node-floor.ts (24.14.0). The
@@ -105,6 +109,7 @@ jobs:
       matrix:
         os: [windows-latest, macos-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4

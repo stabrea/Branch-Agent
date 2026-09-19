@@ -6,9 +6,8 @@
 // Nothing in the app was wrong, so the files are no longer started side by side. Everything else
 // still runs three at a time.
 //
-// `npm test -- --shard=2/5` runs the second of five shares. The build machines run one share each at
-// the same time, so the whole suite finishes in a fifth of the time: on Windows it took 63 minutes on
-// one machine. The shares are packed by how long each file took last time it was measured
+// `npm test -- --shard=2/6` runs the second of six shares. The build machines run one share each at
+// the same time, so the whole suite no longer waits on one machine: on Windows it took 63 minutes. The shares are packed by how long each file took last time it was measured
 // (tests/test-weights.json), not by counting files, because one file runs for seven minutes and
 // hundreds finish in under a second. Every file lands in exactly one share; tests/run-tests.test.mjs
 // holds that. With no --shard, every file runs here, as before.
