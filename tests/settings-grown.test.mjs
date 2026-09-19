@@ -76,8 +76,8 @@ async function visitEverything(page) {
     for (const home of globalThis.branchLayout.homes()) if (!home.startsWith("settings")) { globalThis.branchLayout.go(home); await wait(150); }
   });
   await openSettings(page);
-  for (const link of await page.locator(".lx-settings-link:not(.sg-place-link)").all()) { await link.click(); await page.waitForTimeout(150); }
-  await page.locator('.lx-settings-link[data-page="models"]').click();
+  const pages = await page.evaluate(() => [...document.querySelectorAll("#sg-page-pick option")].map((option) => option.value));
+  for (const name of [...pages, "models"]) { await openSettings(page, name); await page.waitForTimeout(150); }
   for (const tab of await page.locator("#lx-page-models .lx-subtab").all()) { await tab.click(); await page.waitForTimeout(150); }
 }
 /** Turns on every feature switch that only changes a record, so what sits behind a switch is drawn too. */
@@ -342,6 +342,9 @@ test("S11 closing and opening Settings, pressing the same page, or changing the 
 for (const [width, height] of [[1440, 950], [1024, 700], [390, 844]]) {
   test(`S12 at ${width}×${height} no Settings page overflows sideways and no chip leaves its card`, async (t) => {
     const f = await fixture(t, { width, height, preferences: { showEverything: true, settingsLevel: "technical" } });
+    /* With every switch that only changes a record on, so the chips and lists behind them are drawn too. */
+    await visitEverything(f.page);
+    await switchEverythingOn(f.page);
     await openSettings(f.page, "general");
     const pages = await f.page.evaluate(() => [...document.querySelectorAll("#sg-page-pick option")].map((option) => option.value));
     const problems = [];
@@ -377,3 +380,36 @@ function sweep() {
   }
   return out;
 }
+
+test("S13 Appearance: two live mirrors of your own window, dark and light, that follow the tile you point at", async (t) => {
+  const f = await fixture(t);
+  await openSettings(f.page, "appearance");
+  const mirrors = () => f.page.evaluate(() => [...document.querySelectorAll(".sg-mirror")].map((figure) => {
+    const doc = figure.querySelector("iframe").contentDocument;
+    return { mode: figure.dataset.mode, theme: doc?.documentElement.dataset.theme, panes: doc?.body.children.length ?? 0,
+      prompt: Boolean(doc?.getElementById("prompt")), caption: figure.querySelector("figcaption").textContent };
+  }));
+  await f.page.waitForFunction(() => [...document.querySelectorAll(".sg-mirror iframe")].every((frame) => frame.contentDocument?.body?.children.length > 0));
+  const drawn = await mirrors();
+  assert.deepEqual(drawn.map(({ mode, theme }) => [mode, theme]), [["dark", "forest"], ["light", "daylight"]]);
+  for (const mirror of drawn) {
+    assert.ok(mirror.panes >= 2, "the mirror holds the rail and the conversation");
+    assert.ok(mirror.prompt, "the mirror is a copy of this window, message box included");
+    assert.match(mirror.caption, /^Slate · (Dark|Light)$/);
+  }
+  assert.equal(await f.page.locator("#prompt").count(), 1, "the copy never adds a second message box to the window itself");
+  /* Side by side, and small beside the themes. */
+  const boxes = await f.page.locator(".sg-mirror").evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().toJSON()));
+  assert.ok(Math.abs(boxes[0].top - boxes[1].top) < 2 && boxes[1].left > boxes[0].right - 1, "the two mirrors sit side by side");
+  assert.ok(boxes[0].width < 400, "each mirror is small");
+  await f.page.locator('#lx-theme-gallery .lx-tile[data-family="cherry"]').hover();
+  await f.page.waitForFunction(() => document.querySelector(".sg-mirror figcaption").textContent.startsWith("Cherry"));
+  assert.equal(await f.page.evaluate(() => document.documentElement.dataset.palette), "slate", "pointing at a theme does not choose it");
+  /* Plain words on a few tiles instead of numbers. */
+  assert.match(await f.page.locator('#lx-theme-gallery .lx-tile[data-family="mono"] .sg-tile-tag').textContent(), /Easiest to read/);
+  /* The eye beside Light and dark clears the view. */
+  await f.page.locator("#sg-clear-view").click();
+  await f.page.waitForFunction(() => document.documentElement.dataset.quiet === "1");
+  assert.equal(await f.page.locator("#settings-window").isVisible(), false);
+  assert.deepEqual(f.errors, []);
+});

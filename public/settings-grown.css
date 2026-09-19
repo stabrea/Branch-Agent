@@ -46,9 +46,10 @@
 
 /* ---------- a group's heading ---------- */
 .sg-head {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 12px;
+  gap: 4px 12px;
   margin: 22px 0 12px;
   padding-top: 18px;
   border-top: 1px solid var(--line);
@@ -251,11 +252,16 @@
     border: 0;
   }
   .sg-head {
-    align-items: flex-start;
-    flex-wrap: wrap;
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .sg-tile {
+    width: 32px;
+    height: 32px;
   }
   .sg-more {
-    margin-left: 50px;
+    grid-column: 2;
+    justify-self: start;
+    margin-left: 0;
   }
 }
 
@@ -397,6 +403,12 @@
   border: 1px solid var(--line-2);
   border-radius: 10px;
   background: var(--well);
+}
+@media (max-width: 860px) {
+  /* A phone's own window is tall: its mirror shows the top of it. */
+  .sg-mirror-box {
+    max-height: 200px;
+  }
 }
 .sg-mirror-frame {
   position: absolute;

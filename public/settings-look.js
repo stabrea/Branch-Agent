@@ -60,6 +60,7 @@ function mirrorFrame(mode, key, english) {
   frame.className = "sg-mirror-frame";
   frame.setAttribute("aria-hidden", "true");
   frame.tabIndex = -1;
+  frame.inert = true;
   frame.title = "";
   box.append(frame);
   const caption = document.createElement("figcaption");
@@ -100,16 +101,16 @@ function prepare(frame) {
   doc.body.dataset.ready = "1";
   return doc;
 }
-/** The window's panes as they are now, without ids, names, hidden parts or anything that runs. */
+/**
+ * The window's panes as they are now, without hidden parts or anything that runs. The copy keeps its ids
+ * so the same rules dress it; it lives in the frame's own document, where no id or name can clash.
+ */
 function copyPanes(doc) {
   const panes = [...document.querySelectorAll("body > .rail, body > main, body > .context-panel")].filter((pane) => pane.checkVisibility());
   return panes.map((pane) => {
     const copy = doc.importNode(pane, true);
-    for (const node of [...copy.querySelectorAll("[hidden], script, iframe, video, audio, canvas, select, dialog")]) node.remove();
-    for (const node of [copy, ...copy.querySelectorAll("*")]) {
-      for (const name of ["id", "name", "for", "data-home", "aria-controls", "aria-labelledby", "aria-describedby"]) node.removeAttribute(name);
-    }
-    for (const field of copy.querySelectorAll("input, textarea, button")) field.disabled = true;
+    for (const node of [...copy.querySelectorAll("[hidden], script, iframe, video, audio, canvas, dialog")]) node.remove();
+    for (const field of copy.querySelectorAll("input, textarea, button, select")) field.disabled = true;
     return copy;
   });
 }
@@ -128,11 +129,11 @@ function drawMirror(figure, family) {
   const frame = figure.querySelector("iframe"), doc = prepare(frame);
   if (!doc) return;
   const width = innerWidth, height = innerHeight, box = figure.querySelector(".sg-mirror-box");
-  const scale = box.clientWidth / width;
+  const scale = box.clientWidth / width, tallest = parseFloat(getComputedStyle(box).maxHeight) || Infinity;
   frame.style.width = `${width}px`;
   frame.style.height = `${height}px`;
   frame.style.transform = `scale(${scale})`;
-  box.style.height = `${Math.round(height * scale)}px`;
+  box.style.height = `${Math.round(Math.min(height * scale, tallest))}px`;
   dress(doc, figure.dataset.mode, family);
   doc.body.replaceChildren(...copyPanes(doc));
   const caption = figure.querySelector("figcaption");
