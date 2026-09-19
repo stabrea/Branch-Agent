@@ -22,6 +22,7 @@ import {
   addAccount, dismissNotice, setMode, switchAccount, updateAccount, updatePool, viewAll,
 } from "../dist/accounts/manage.js";
 import { executeCommand } from "../dist/commands/execute.js";
+import { Budget } from "../dist/contracts.js";
 import { saveCommandSettings } from "../dist/commands/settings.js";
 
 const POOL = "cli-claude-code";
@@ -31,9 +32,9 @@ const acct = (id, extra = {}) => ({
 });
 const ids = (accounts) => accounts.map((account) => account.id);
 
-async function fixture(t) {
+async function fixture(t, options = {}) {
   const root = await mkdtemp(join(tmpdir(), "branch-pooling-"));
-  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data") });
+  const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), ...options });
   t.after(async () => { await app.close(); await discardTemp(root); });
   const service = accountsServiceFor(app.runtime.models);
   let clock = Date.parse("2026-09-19T10:00:00Z");
@@ -286,4 +287,121 @@ test("P8 a conversation switched by hand to the owner's second plan never reache
   const stopped = await app.runtime.run({ prompt: "and more", sessionId: opened.sessionId });
   assert.equal(stopped.status, "failed");
   assert.ok(!seen.includes("primary"), "never the owner's first plan: that would be moving between their own plans");
+});
+
+/*
+ * mac7/pooling-review: the conversation's plan is followed by everything done for that conversation,
+ * and a conversation that was moved by hand onto an account kept separate is never moved on to a
+ * second of the owner's own plans while another of them is at its limit.
+ */
+
+/** The owner's plans answer by folder: "second" is at its limit, "work" (kept separate) answers. */
+function byFolder(fx, ids, work = () => answer("from work")) {
+  const seen = [];
+  const spawn = async (row, prompt, signal, limits, home) => {
+    const who = home ? home.path.split(/[\\/]/).pop() : "primary";
+    seen.push(who === ids.second ? "second" : who === ids.work ? "work" : who);
+    if (who === ids.second) return limited;
+    if (who === ids.work) return work();
+    return answer("from primary");
+  };
+  fx.service.deps.spawnAgent = spawn;
+  return { seen, spawn };
+}
+
+test("P9 a model call a tool makes on the side follows its conversation's plan, never the owner's other plan", async (t) => {
+  const side = { id: "s1", name: "pooling.side", arguments: "{}" };
+  let step = 0;
+  const provider = { name: "scripted", async complete() { return step++ % 2 === 0 ? { content: "", toolCalls: [side] } : { content: "done", toolCalls: [] }; } };
+  const fx = await fixture(t, { provider });
+  const { app, owner, service } = fx;
+  const ids = {};
+  const { seen, spawn } = byFolder(fx, ids);
+  registerCliAgent(app.runtime.models, { id: "claude-code" }, {}, spawn);
+  const { z } = await import("zod");
+  const asked = [];
+  app.registry.register({ name: "pooling.side", permission: "files.read", description: "asks a model on the side",
+    parameters: z.object({}).strict(), execute: async () => {
+      const reply = await app.runtime.models.presets.get(POOL).provider.complete({ messages: [{ role: "user", content: "side" }], tools: [], signal: AbortSignal.timeout(5000) })
+        .then((done) => done.content, (error) => error.message);
+      asked.push(reply);
+      return { said: reply };
+    } });
+  Object.assign(ids, await threeAccounts(fx));
+  const opened = await app.runtime.run({ prompt: "hello" });
+  assert.equal(opened.output, "done");
+  assert.deepEqual(asked, ["from primary"]);
+  switchAccount(service, { pool: POOL, account: ids.second, sessionId: opened.sessionId });
+  // Sharing off: the side question stays on the conversation's plan, which has run out.
+  updatePool(service, { pool: POOL, autoSwitch: false });
+  seen.length = 0;
+  await app.runtime.run({ prompt: "more", sessionId: opened.sessionId });
+  assert.match(asked.at(-1), /"Second" has reached its plan limit/);
+  assert.deepEqual(seen, ["second"], "never the owner's first plan");
+  // Sharing on, with the owner's first plan the one with most left: still only the account kept separate.
+  updatePool(service, { pool: POOL, autoSwitch: true });
+  service.statesOf(POOL).set("primary", { ...service.stateOf(POOL, "primary"), remaining: 95 });
+  seen.length = 0;
+  await app.runtime.run({ prompt: "again", sessionId: opened.sessionId });
+  assert.equal(asked.at(-1), "from work", "the conversation's plan ran out: the side question goes to the account kept separate");
+  assert.ok(!seen.includes("primary"), "never the owner's first plan");
+  assert.equal(sessionChoice(app.store, owner, opened.sessionId)[POOL], ids.second);
+});
+
+test("P10 a helper a conversation starts answers through that conversation's plan", async (t) => {
+  const fx = await fixture(t);
+  const { app, owner } = fx;
+  const ids = {};
+  const { seen, spawn } = byFolder(fx, ids);
+  registerCliAgent(app.runtime.models, { id: "claude-code" }, {}, spawn);
+  app.runtime.models.configure(owner, { activePreset: POOL });
+  Object.assign(ids, await threeAccounts(fx));
+  const opened = await app.runtime.run({ prompt: "hello" });
+  assert.equal(opened.output, "from primary");
+  switchAccount(fx.service, { pool: POOL, account: ids.second, sessionId: opened.sessionId });
+  const moved = await app.runtime.run({ prompt: "more", sessionId: opened.sessionId });
+  assert.equal(moved.output, "from work");
+  // The owner's first plan has the most left, so only the rule keeps the helper off it.
+  fx.service.statesOf(POOL).set("primary", { ...fx.service.stateOf(POOL, "primary"), remaining: 95 });
+  seen.length = 0;
+  const parent = { owner, workspace: app.runtime.workspace, runId: moved.id, permissions: new Set(), signal: new AbortController().signal, budget: new Budget(), depth: 0 };
+  const helper = await app.runtime.delegate("help with this", parent, [], "");
+  assert.notEqual(helper.sessionId, opened.sessionId, "the helper has a conversation of its own");
+  assert.equal(helper.output, "from work", "the helper follows its conversation: its own plan ran out, so the account kept separate");
+  assert.ok(!seen.includes("primary"), "never the owner's first plan");
+});
+
+test("P11 moved by hand onto the work account after one own plan ran out: never on to the owner's other plan", async (t) => {
+  const fx = await fixture(t);
+  const { app, owner, service } = fx;
+  const ids = {};
+  let workLeft = 1;
+  const { seen, spawn } = byFolder(fx, ids, () => (workLeft-- > 0 ? answer("from work") : limited));
+  registerCliAgent(app.runtime.models, { id: "claude-code" }, {}, spawn);
+  app.runtime.models.configure(owner, { activePreset: POOL });
+  Object.assign(ids, await threeAccounts(fx));
+  updatePool(service, { pool: POOL, autoSwitch: false });
+  const opened = await app.runtime.run({ prompt: "hello" });
+  switchAccount(service, { pool: POOL, account: ids.second, sessionId: opened.sessionId });
+  const ranOut = await app.runtime.run({ prompt: "more", sessionId: opened.sessionId });
+  assert.equal(ranOut.status, "failed");
+  assert.match(ranOut.output, /\/account Work/);
+  // The owner takes the suggestion.
+  switchAccount(service, { pool: POOL, account: ids.work, sessionId: opened.sessionId });
+  assert.equal((await app.runtime.run({ prompt: "go on", sessionId: opened.sessionId })).output, "from work");
+  const workOut = await app.runtime.run({ prompt: "and on", sessionId: opened.sessionId });
+  assert.equal(workOut.status, "failed");
+  assert.ok(!workOut.output.includes("Your usual sign-in"), "the sentence does not point at the owner's other plan");
+  assert.match(workOut.output, /does not move your work between your own plans/);
+  // With sharing on, Branch does not move it there by itself either.
+  updatePool(service, { pool: POOL, autoSwitch: true });
+  seen.length = 0;
+  const shared = await app.runtime.run({ prompt: "once more", sessionId: opened.sessionId });
+  assert.equal(shared.status, "failed");
+  assert.ok(!seen.includes("primary"), "never the owner's first plan");
+  assert.ok(!shared.output.includes("Your usual sign-in"));
+  // A conversation that never used another own plan still has the owner's plan once nothing of theirs is at its limit.
+  service.statesOf(POOL).delete(ids.second);
+  const fresh = await app.runtime.run({ prompt: "new work" });
+  assert.equal(fresh.output, "from primary");
 });

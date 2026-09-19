@@ -749,11 +749,25 @@ ${run.output.slice(0, 6000)}`;
   /**
    * mac7/lockdown-fix: a Trunk's tool runs marked as the Trunk's, so a model call it makes on the side
    * (a summary, a document read, a flow it starts) never goes through a sign-in account either.
+   * mac7/pooling-review: an owner's tool is marked with its conversation in the same way, so a model
+   * call it makes on the side answers through that conversation's account, not the owner's default
+   * (which may be a second of the owner's own plans, reached after the first ran out).
    */
   private asTrunk<T>(context: ToolContext, work: () => Promise<T>): Promise<T> {
-    if (!context.trunkKeys || currentAccountCall()?.trunk) return work();
+    if (currentAccountCall()?.trunk) return work();
+    if (!context.trunkKeys)
+      return withAccountCall({ owner: this.owner, sessionId: this.accountSession(context.runId), runId: context.runId }, work);
     const sessionId = this.store.run(context.runId)?.sessionId ?? "";
     return withAccountCall({ owner: this.owner, sessionId, runId: context.runId, trunk: { keys: context.trunkKeys } }, work);
+  }
+  /**
+   * mac7/pooling-review: the conversation whose account choice a task's model calls follow: the one
+   * at the top of its tree, so a helper or a background sub-task answers through the account its
+   * conversation uses (see src/accounts/pool-provider.ts), never through another of the owner's plans.
+   */
+  private accountSession(runId: string): string {
+    const root = this.spendRoot.get(runId) ?? runId;
+    return this.store.run(root)?.sessionId ?? this.store.run(runId)?.sessionId ?? "";
   }
   /** Temporary conversations cannot write long-term memory; nothing from them should persist. */
   private scopeToSession(run: Run, given: ToolContext, trunk: TrunkRunShape | null = null): ToolContext {
@@ -1920,7 +1934,7 @@ ${run.output.slice(0, 6000)}`;
         ...savings.requestExtras(this.store, this.owner, preset, !context.permissions.size), // R17-045 / R17-046
         ...(shape ? { responseFormat: { name: shape.name, schema: shape.schema } } : {}) };
       // mac6/accounts: the call carries its conversation, so a connection with several accounts can honour the one chosen for it.
-      const raw = await withAccountCall({ owner: run.owner, sessionId: run.sessionId, runId: run.id, note: (kind, data) => this.store.event(run.id, kind, data),
+      const raw = await withAccountCall({ owner: run.owner, sessionId: this.accountSession(run.id), runId: run.id, note: (kind, data) => this.store.event(run.id, kind, data),
         ...(context.trunkKeys ? { trunk: { keys: context.trunkKeys } } : {}) }, async () => onTextDelta
         // mac7/empty-completion: thinking resets the silence clock as text does. A reasoning model
         // writes no words of its answer while it thinks, and the watchdog was calling that a dead
