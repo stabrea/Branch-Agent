@@ -143,8 +143,10 @@ async function draw() {
     /* The count beside Activity is kept up to date even when the pane is folded away. */
     const running = await api("activity").catch(() => []);
     setActivityCount(running.length);
-    /* The calm window can show the pane while work runs even when it was folded away by hand. */
-    if (document.body.classList.contains("no-aside") && !document.body.classList.contains("lx-aside")) return;
+    /* public/layout.js says whether the pane is on screen (lx-aside): nothing is fetched for a pane
+       nobody can see, and the calm window can still show it while work runs after a fold by hand. */
+    const shownByLayout = document.body.classList.contains("lx");
+    if (shownByLayout ? !document.body.classList.contains("lx-aside") : document.body.classList.contains("no-aside")) return;
     const state = await api("state");
     await drawWorking();
     drawTasks(running);

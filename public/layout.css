@@ -1358,7 +1358,7 @@ body.lx #connection[data-state="lost"] {
 /* What the calm window keeps out of sight. Nothing here is removed. */
 :root:not([data-everything="on"]) :is(
   #cmd-open, #appearance-shortcut, .lx-gear, #rail-find,
-  #owner-menu-button, .rail-maker,
+  #owner-menu-button,
   #thread-labels, #lx-pane-tabs, #lx-clear, #lx-shield, #aside-toggle,
   #saved-conversations, #practice-card, #plan-controls, #model-controls,
   .welcome > p, #suggestions,

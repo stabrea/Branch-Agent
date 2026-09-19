@@ -978,6 +978,7 @@ function askForPane(id) {
   paneTab = id;
   if (narrow.matches) document.body.classList.toggle("lx-pane-float", paneAsked);
   syncPane();
+  if (paneAsked) document.dispatchEvent(new CustomEvent("branch-pane-draw"));
 }
 /** The pane slides in once work has run for a moment, and away a moment after it stops, so a quick answer never flashes it. */
 let workTimer = null;
@@ -1033,6 +1034,7 @@ const MORE = [
     ["lockdown", "", "more.lockdown", "Lockdown: refuse commands"],
     ["quiet", "", "look.clear", "Clear the view"],
     ["press", "menu-help", "menu.help", "Help"],
+    ["press", "lock", "action.lock-session", "Lock session"],
     ["everything", "appearance-everything", "more.everything", "Show everything"],
   ]],
 ];
@@ -1090,7 +1092,7 @@ function syncMoreChecks() {
     copy.closest("label").hidden = real.options.length < 2;
   }
   for (const row of document.querySelectorAll('#lx-more-menu [data-kind="press"]'))
-    row.hidden = !$(row.dataset.target);
+    row.hidden = !$(row.dataset.target) || $(row.dataset.target).hidden;
 }
 function buildMore() {
   const trigger = button("lx-more", "more.label", "More");
