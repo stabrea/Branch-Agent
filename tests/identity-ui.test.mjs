@@ -138,5 +138,7 @@ test('explicit identity reload freezes controls until saved values arrive', asyn
   await controls(f.page, false);
   assert.equal(await f.page.locator('#identity-name').inputValue(), 'Current saved identity');
   assert.equal(await f.page.locator('#identity-instructions').inputValue(), 'Current instructions');
+  // The window keeps asking for /api/state every 3 s: a route.fetch still running as the browser closes fails.
+  await f.page.unrouteAll({ behavior: 'ignoreErrors' });
   assert.deepEqual(f.errors, []);
 });
