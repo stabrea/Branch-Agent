@@ -4,7 +4,8 @@
 import { t } from "./i18n.js"; // relative, so a test can import this file too; the same /i18n.js in the page
 
 /** Builds the panel shown under Schedules. `helpers` supplies el, api, toast and refresh. */
-export function showCollab(state, helpers) {
+export function showCollab(state, given) {
+  const helpers = relative(given);
   const collab = state.collab ?? {};
   const panel = helpers.el("div", undefined, "collab-panel");
   /* Each part is named, so the window can show it where it belongs (public/layout.js). */
@@ -21,6 +22,15 @@ export function showCollab(state, helpers) {
     panel.appendChild(node);
   }
   return panel;
+}
+
+/**
+ * household-followups: app.js's api() already puts "/api/" in front of the path, and every call here
+ * was written with it too, so the panel asked for "/api//api/…" and nothing in it worked. The paths
+ * stay written in full, and are made relative here.
+ */
+function relative(helpers) {
+  return { ...helpers, api: (path, ...rest) => helpers.api(String(path).replace(/^\/api\//, ""), ...rest) };
 }
 
 /** Runs a click handler and shows whatever went wrong instead of failing silently. */
@@ -262,4 +272,34 @@ function ownerPinCard(profile, helpers) {
       await api("/api/profiles/owner-pin", { pin: null }); toast("Saved"); await refresh();
     }));
   return card;
+}
+
+/**
+ * household-followups: while the window is on somebody else's profile, the title bar says whose, in
+ * the calm window and the full one, with a way back (asking the owner's PIN when that is set). It
+ * shows nothing while the window is the owner's.
+ */
+export function showProfileBadge(state, given) {
+  const helpers = relative(given);
+  const badge = document.getElementById("profile-badge");
+  const profile = state?.collab?.profile;
+  if (!badge) return;
+  const person = profile && !profile.isOwner ? profile.active : null;
+  if (!person) { badge.hidden = true; badge.replaceChildren(); delete badge.dataset.person; return; }
+  /* Redrawn only when who it is (or whether a PIN is asked) changes, so a PIN being typed survives the refresh. */
+  const key = `${person.id}:${profile.ownerPin ? "pin" : "open"}`;
+  if (badge.dataset.person === key && !badge.hidden) return;
+  badge.dataset.person = key;
+  const { el, api, toast, refresh } = helpers;
+  const avatar = el("span", person.name.slice(0, 1).toUpperCase(), "profile-avatar");
+  avatar.dataset.hue = String([...person.name].reduce((sum, ch) => sum + ch.codePointAt(0), 0) % 4);
+  avatar.setAttribute("aria-hidden", "true");
+  const words = el("span", t("people.badge.on", { name: person.name }), "profile-name");
+  const pin = profile.ownerPin ? pinInput(helpers, t("people.back.pin")) : null;
+  const back = onClick(helpers, el("button", t("people.badge.back"), "profile-back"), async () => {
+    await api("/api/profiles/switch", { profileId: null, ...(pin ? { pin: pin.value } : {}) });
+    toast(t("people.badge.back-done")); await refresh();
+  });
+  badge.replaceChildren(avatar, words, ...(pin ? [pin] : []), back);
+  badge.hidden = false;
 }
