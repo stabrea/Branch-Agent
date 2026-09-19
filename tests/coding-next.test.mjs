@@ -606,6 +606,28 @@ test("review 4 a dry run (plan) never runs the tests and never asks", async (t) 
   assert.ok(app.store.events(run.id).some((event) => event.kind === "tool.simulated"));
 });
 
+test("--allow-tests with a dry run still never runs the tests", async (t) => {
+  const { app } = await testsFixture(t, [call("code.check", {}), say("done")]);
+  const run = await app.runtime.run({ prompt: "plan it", dryRun: true, allowProjectTests: true });
+  assert.equal(asked(app, run).length, 0);
+  assert.equal(ranTests(app, run), false);
+  assert.ok(app.store.events(run.id).some((event) => event.kind === "tool.simulated"));
+});
+
+test("branch headless --allow-tests runs the tests for its requests; without it they are skipped", async (t) => {
+  const { runHeadless } = await import("../dist/headless.js");
+  const { parseRunArgs } = await import("../dist/cli-run.js");
+  const check = call("code.check", {});
+  const { app } = await testsFixture(t, [check, say("done"), check, say("done")]);
+  const writer = { line() {}, note() {} };
+  const skipped = await runHeadless(app.runtime, { prompts: ["fix it"], flags: parseRunArgs([]), stopEarly: false }, writer);
+  assert.equal(skipped.exitCode, 0);
+  assert.equal(ranTests(app, { id: skipped.steps[0].runId }), false);
+  const allowed = await runHeadless(app.runtime, { prompts: ["fix it"], flags: parseRunArgs(["--allow-tests"]), stopEarly: false }, writer);
+  assert.equal(allowed.exitCode, 0);
+  assert.equal(ranTests(app, { id: allowed.steps[0].runId }), true);
+});
+
 test("review 1 with the switch off the guard is never consulted", async (t) => {
   const { app, workspace } = await readFirstFixture(t, [edit("one", "two"),
     call("files.write", { path: "a.txt", content: "three\n" }), say("done")], "off");
@@ -630,4 +652,201 @@ test("review 6 a missing or damaged switch file means off, and a late crash stil
     assert.doesNotThrow(() => log.crash("engine", new Error("late")));
     assert.equal(log.crashes(5).length, 0, bad);
   }
+});
+
+// ------------------------------------------------------------------ mac7/tests-unattended
+
+const lastAnswer = (app, run) => toolMessages(app, run).at(-1);
+const testsRules = async (app) => (await import("../dist/policy.js")).readPolicy(app.store, "local").rules.filter((rule) => rule.tool === "code.tests");
+const scriptFlags = async (...words) => (await import("../dist/cli-run.js")).parseRunArgs(["fix it", ...words]);
+const quietWriter = () => { const notes = []; return { notes, line() {}, note(text) { notes.push(text); } }; };
+const escaped = (text) => text.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&");
+
+test("unattended: nobody to ask, so the tests are skipped with a note and the task carries on to the end", async (t) => {
+  const { app, workspace } = await testsFixture(t, [call("code.check", {}), call("files.write", { path: "fixed.txt", content: "ok\n" }), say("done")]);
+  const run = await app.runtime.run({ prompt: "fix it", unattended: true });
+  assert.equal(run.status, "completed", run.output);
+  assert.equal(asked(app, run).length, 0, "no question was put");
+  assert.equal(ranTests(app, run), false, "the tests did not run");
+  const [skipped] = toolMessages(app, run).filter((answer) => answer.result?.note?.includes("were not run"));
+  assert.equal(skipped.result.ran, false);
+  assert.match(skipped.result.note, new RegExp(`^This project's tests were not run: running them has not been allowed for ${escaped(workspace)}\\.`));
+  assert.match(skipped.result.note, /Always for this folder.+branch run --allow-tests/);
+  assert.equal(await fileText(workspace, "fixed.txt"), "ok\n", "the work after the check went ahead");
+  assert.deepEqual(await testsRules(app), [], "nothing was saved");
+  assert.equal(app.runtime.approvals.answer(run.sessionId, "code.tests", workspace), undefined, "no answer was remembered either");
+});
+
+test("unattended: a script's branch run skips; the same run from a terminal still asks", async (t) => {
+  const { runForScripts } = await import("../dist/cli-run.js");
+  const { app } = await testsFixture(t, [call("code.check", {}), say("done"), call("code.check", {})]);
+  const script = await runForScripts(app.runtime, await scriptFlags(), quietWriter());
+  assert.equal(script.status, "completed", script.output);
+  assert.equal(asked(app, script).length, 0);
+  assert.equal(ranTests(app, script), false);
+  const typed = await runForScripts(app.runtime, await scriptFlags(), quietWriter(), true);
+  assert.equal(typed.status, "needs_input", "a person at a terminal is asked, as before");
+  assert.equal(asked(app, typed)[0].data.kind, "project-tests");
+  assert.equal(ranTests(app, typed), false);
+});
+
+test("unattended: work nobody watches skips the tests question; an editor over ACP is still asked", async (t) => {
+  const check = call("code.check", {});
+  const { app } = await testsFixture(t, [check, check, say("done"), check, check]);
+  // Outside work is held to "Ask before changes", so code.check itself waits for a yes first (0.18.1).
+  const scheduled = await app.runtime.run({ prompt: "fix it", source: "schedule" });
+  assert.equal(scheduled.status, "needs_input");
+  assert.equal(asked(app, scheduled)[0].data.name, "code.check", "the change-hold is untouched");
+  app.runtime.approve(scheduled.sessionId, "allow", "session");
+  const carried = await app.runtime.run({ prompt: "carry on", sessionId: scheduled.sessionId, source: "schedule" });
+  assert.equal(carried.status, "completed", carried.output);
+  assert.equal(asked(app, carried).length, 0, "the tests question was not put");
+  assert.equal(ranTests(app, carried), false);
+  assert.match(lastAnswer(app, carried).result.note, /were not run/);
+  const editor = await app.runtime.run({ prompt: "fix it", source: "acp" });
+  app.runtime.approve(editor.sessionId, "allow", "session");
+  const again = await app.runtime.run({ prompt: "carry on", sessionId: editor.sessionId, source: "acp" });
+  assert.equal(again.status, "needs_input", "the editor has a person to answer");
+  assert.equal(asked(app, again).at(-1).data.kind, "project-tests");
+});
+
+test("--allow-tests runs the tests in that one task, every time it checks, and saves nothing", async (t) => {
+  const { runForScripts } = await import("../dist/cli-run.js");
+  const check = call("code.check", {});
+  const { app, workspace } = await testsFixture(t, [check, check, say("done"), check]);
+  const writer = quietWriter();
+  const run = await runForScripts(app.runtime, await scriptFlags("--allow-tests"), writer);
+  assert.equal(run.status, "completed", run.output);
+  assert.equal(asked(app, run).length, 0);
+  assert.equal(app.store.events(run.id).filter((event) => event.kind === "code.check").length, 2, "both checks ran the tests");
+  assert.equal(lastAnswer(app, run).result.ran, true);
+  assert.match(writer.notes.join("\n"), /may run the project's tests without asking; nothing is saved/);
+  assert.deepEqual(await testsRules(app), [], "no standing rule");
+  assert.equal(app.runtime.approvals.answer(run.sessionId, "code.tests", workspace), undefined, "no answer remembered");
+  assert.equal(app.runtime.approvals.takeOnce(run.sessionId, "code.tests", workspace), false, "no Once left behind");
+  const next = await app.runtime.run({ prompt: "again", sessionId: run.sessionId });
+  assert.equal(next.status, "needs_input", "the next task in the same conversation asks again");
+});
+
+test("--allow-tests: a No already given still wins", async (t) => {
+  const { app, workspace } = await testsFixture(t, [call("code.check", {}), say("done")]);
+  const { addPolicyRule } = await import("../dist/policy.js");
+  addPolicyRule(app.store, "local", { tool: "code.tests", match: workspace, decision: "deny", remember: "always" });
+  const run = await app.runtime.run({ prompt: "fix it", allowProjectTests: true });
+  assert.equal(ranTests(app, run), false);
+  assert.match(lastAnswer(app, run).result.note, /chose not to let Branch run/);
+});
+
+test("--allow-tests is refused under Lockdown and for anyone but the owner; the flag cannot come in over the API", async (t) => {
+  const { runForScripts } = await import("../dist/cli-run.js");
+  const { underShortLivedKey } = await import("../dist/key-context.js");
+  const { RunInputSchema } = await import("../dist/contracts.js");
+  const { app } = await testsFixture(t, [call("code.check", {}), say("done")]);
+  const flags = await scriptFlags("--allow-tests");
+  app.store.save("settings", "local", "lockdown", { on: true });
+  await assert.rejects(runForScripts(app.runtime, flags, quietWriter()), /cannot be used while Lockdown is on/);
+  app.store.save("settings", "local", "lockdown", { on: false });
+  await assert.rejects(underShortLivedKey(() => runForScripts(app.runtime, flags, quietWriter())), /the owner's alone/);
+  const person = app.store.profiles.create({ name: "Sam", pin: "1234" });
+  app.store.profiles.switch({ profileId: person.id, pin: "1234" });
+  await assert.rejects(runForScripts(app.runtime, flags, quietWriter()), /the owner's alone/);
+  app.store.profiles.switch({ profileId: null });
+  assert.equal(app.store.runs("local").length, 0, "no task was started");
+  assert.equal(RunInputSchema.safeParse({ prompt: "fix it", allowTests: true }).success, false);
+  assert.equal(RunInputSchema.safeParse({ prompt: "fix it", allowProjectTests: true }).success, false);
+});
+
+test("--allow-tests reaching the runtime some other way is still held to the owner's own task, outside Lockdown", async (t) => {
+  const { underShortLivedKey } = await import("../dist/key-context.js");
+  const { allowedForThisRun } = await import("../dist/coding/project-tests.js");
+  const check = call("code.check", {});
+  const { app } = await testsFixture(t, [check, check, say("done"), check, say("done")]);
+  const keyed = await underShortLivedKey(() => app.runtime.run({ prompt: "fix it", allowProjectTests: true }));
+  assert.equal(ranTests(app, keyed), false);
+  assert.equal(keyed.status, "needs_input", "asked as if the flag were not there");
+  const own = await app.runtime.run({ prompt: "fix it", allowProjectTests: true });
+  assert.equal(ranTests(app, own), true, "the owner's own task with the flag runs them (the control)");
+  for (const source of ["channel", "schedule", "trigger", "mcp", "a2a", "acp"])
+    assert.equal(allowedForThisRun(app.store, "local", contextOf(app, { allowProjectTests: true, source })), false, source);
+  app.store.save("settings", "local", "lockdown", { on: true });
+  const locked = await app.runtime.run({ prompt: "fix it", allowProjectTests: true });
+  assert.equal(ranTests(app, locked), false, "Lockdown refuses even when the flag reached the runtime");
+  assert.equal(asked(app, locked).length, 0);
+});
+
+test("branch run --help says what --allow-tests does", async () => {
+  const { commandHelp } = await import("../dist/cli-completion.js");
+  for (const name of ["run", "headless"]) {
+    const help = commandHelp(name);
+    assert.match(help, /^ {2}--allow-tests$/m, name);
+    assert.match(help, /--allow-tests lets this one task run the project's tests without asking.+Lockdown refuses it/, name);
+  }
+});
+
+/**
+ * A model on this computer that opens the code toolbox, calls code.check once, and then says done:
+ * enough to drive the real `branch run` in a child process, which has no terminal of its own.
+ */
+async function checkingModel(t) {
+  const { createServer } = await import("node:http");
+  const named = (payload, pattern) => (payload.tools ?? []).find((tool) => pattern.test(tool.function.description))?.function.name;
+  const server = createServer(async (request, response) => {
+    let body = "";
+    for await (const part of request) body += part;
+    const payload = JSON.parse(body);
+    const checked = payload.messages.some((message) => message.role === "tool" && /"ran"/.test(String(message.content)));
+    const check = named(payload, /^Run the check the owner set up/), open = named(payload, /^Open a (whole )?toolbox/);
+    const pick = checked ? null : check ? [check, "{}"] : open ? [open, JSON.stringify({ groups: ["code"] })] : null;
+    const delta = pick ? { tool_calls: [{ index: 0, id: `c${Math.random().toString(36).slice(2, 8)}`, type: "function", function: { name: pick[0], arguments: pick[1] } }] } : { content: "done" };
+    const frames = [{ choices: [{ index: 0, delta, finish_reason: null }] }, { choices: [{ index: 0, delta: {}, finish_reason: pick ? "tool_calls" : "stop" }] }];
+    response.setHeader("Content-Type", "text/event-stream");
+    response.end(frames.map((frame) => `data: ${JSON.stringify(frame)}\n\n`).join("") + "data: [DONE]\n\n");
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  return `http://127.0.0.1:${server.address().port}/v1`;
+}
+async function branchRun(t, args, extraEnv = {}) {
+  const { execFile } = await import("node:child_process");
+  const { mkdir, writeFile } = await import("node:fs/promises");
+  const root = await mkdtemp(join(tmpdir(), "branch-tests-unattended-"));
+  t.after(() => discardTemp(root));
+  const workspace = join(root, "ws");
+  await mkdir(join(workspace, "test"), { recursive: true });
+  await writeFile(join(workspace, "package.json"), JSON.stringify({ name: "p", type: "module" }));
+  await writeFile(join(workspace, "test", "a.test.mjs"), 'import test from "node:test";\ntest("adds", () => {});\n');
+  const env = { ...process.env, BRANCH_WORKSPACE: workspace, BRANCH_DATA_DIR: join(root, "data"), BRANCH_PROVIDER: "openai",
+    BRANCH_ENDPOINT: await checkingModel(t), BRANCH_MODEL: "m", BRANCH_API_KEY: "k" };
+  delete env.FORCE_TTY; // a child started here has no terminal; that alone must make it a script
+  Object.assign(env, extraEnv);
+  return new Promise((resolve) => execFile(process.execPath, ["dist/cli.js", "run", "fix it", ...args], { env, timeout: 120_000 },
+    (error, stdout, stderr) => resolve({ code: error ? error.code ?? 1 : 0, stdout, stderr })));
+}
+const kinds = (stdout, kind) => stdout.split("\n").filter(Boolean).map((line) => JSON.parse(line)).filter((line) => line.kind === kind);
+
+test("the real branch run from a script skips the tests and finishes; typed in a terminal it still asks", async (t) => {
+  const script = await branchRun(t, ["--json"]);
+  assert.equal(script.code, 0, script.stderr);
+  assert.equal(kinds(script.stdout, "policy.ask").length, 0);
+  assert.equal(kinds(script.stdout, "code.check").length, 0, "the tests did not run");
+  assert.match(script.stdout, /This project's tests were not run: running them has not been allowed for /);
+  const typed = await branchRun(t, [], { FORCE_TTY: "1" });
+  assert.equal(typed.code, 2, "a person at the terminal is asked, as before (exit 2: stopped to ask)");
+  assert.match(typed.stdout, /Let Branch run this project's tests\?/);
+});
+
+test("the real branch run --allow-tests runs them once for that task; under Lockdown it is refused", async (t) => {
+  const allowed = await branchRun(t, ["--json", "--allow-tests"]);
+  assert.equal(allowed.code, 0, allowed.stderr);
+  assert.equal(kinds(allowed.stdout, "code.check").length, 1, "the tests ran");
+  assert.match(allowed.stderr, /nothing is saved/);
+  const { createBranch: open } = await import("../dist/index.js");
+  const root = await mkdtemp(join(tmpdir(), "branch-tests-unattended-lock-"));
+  t.after(() => discardTemp(root));
+  const app = await open({ workspace: join(root, "ws"), dataDir: join(root, "data"), presets: [{ id: "alpha", name: "Alpha", provider: { name: "none", async complete() { return { content: "", toolCalls: [] }; } }, model: "a" }] });
+  app.store.save("settings", "local", "lockdown", { on: true });
+  await app.close();
+  const locked = await branchRun(t, ["--json", "--allow-tests"], { BRANCH_DATA_DIR: join(root, "data") });
+  assert.notEqual(locked.code, 0);
+  assert.match(locked.stderr, /--allow-tests cannot be used while Lockdown is on/);
 });

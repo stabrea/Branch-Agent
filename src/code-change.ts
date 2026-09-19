@@ -13,7 +13,7 @@ import { netlessEnvironment } from "./integrations/shell-config.js";
 import { runAsNode } from "./child-env.js";
 import { defaultJobObjects, jobWithin, type JobObjects } from "./integrations/job-object.js";
 import { ApprovalRequiredError } from "./approvals.js";
-import { projectTestsLabel, projectTestsQuestion, projectTestsTool, type TestsVerdict } from "./coding/project-tests.js";
+import { nobodyToAsk, projectTestsLabel, projectTestsQuestion, projectTestsTool, testsSkippedNote, type TestsVerdict } from "./coding/project-tests.js";
 
 /**
  * Changing several files at once, safely. A patch or a change set is worked out in full first, so
@@ -202,12 +202,14 @@ export class CodeChanges {
    * mac7/coding-next: with the script switch off, a folder's own tests run only once the person has
    * said yes. Not asked yet: the task stops on "Let Branch run this project's tests?" (thrown, so the
    * runtime puts it the way it puts every question). Refused: the sentence the model is told instead.
+   * mac7/tests-unattended: when nobody can answer, the tests are skipped and the task carries on.
    */
   private testsRefusal(context: ToolContext): string | null {
     const verdict = this.testsPermission?.(context, this.workspace) ?? { refuse: noCheckNote(false) };
     if (verdict === "run") return null;
     // A tool run by hand ("Try a tool") has nowhere to put the question, so it is told as before.
     if (verdict === "ask" && !context.askable && !context.approvalKey) return noCheckNote(false);
+    if (verdict === "ask" && nobodyToAsk(context)) return testsSkippedNote(this.workspace);
     // "never": a plain yes with no choice made (the terminal's y, carrying a workflow on) is Once.
     if (verdict === "ask")
       throw new ApprovalRequiredError(projectTestsTool, this.workspace, projectTestsLabel, "never", undefined,
