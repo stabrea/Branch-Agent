@@ -100,12 +100,18 @@ function collapse(edges: readonly Edge[], declarations: ReadonlyMap<string, read
  * that map -- `knowledge.map` does, and does it without a model by default -- so this is a view over
  * what is stored, which is the whole point: it adds no truth of its own.
  */
-export function documentMap(db: DatabaseSync, owner: string, collection: string): LearnMap {
-  const rows = db.prepare(`SELECT r.source, r.target, r.relation, r.chunk_id, c.doc_name, c.heading, c.page
+export function documentMap(
+  db: DatabaseSync, owner: string, collection: string, visible: (docId: string) => boolean = () => true,
+): LearnMap {
+  const stored = db.prepare(`SELECT r.source, r.target, r.relation, r.chunk_id, c.doc_id, c.doc_name, c.heading, c.page
     FROM kb_relations r LEFT JOIN kb_chunks c ON c.owner=r.owner AND c.collection=r.collection AND c.chunk_id=r.chunk_id
     WHERE r.owner=? AND r.collection=? LIMIT ?`).all(owner, collection, mapLimits.links);
+  // mac7/walk-rules: links read from files the rules keep the assistant out of are not shown, and
+  // then neither is a name no shown link comes from (it may have been read only from such a file).
+  const rows = stored.filter((row) => row.doc_id === null || row.doc_id === undefined || visible(String(row.doc_id)));
+  const shownNames = new Set(rows.flatMap((row) => [String(row.source), String(row.target)]));
   const named = db.prepare("SELECT entity_id, name, kind, mentions FROM kb_entities WHERE owner=? AND collection=? ORDER BY mentions DESC LIMIT ?")
-    .all(owner, collection, mapLimits.things);
+    .all(owner, collection, mapLimits.things).filter((row) => rows.length === stored.length || shownNames.has(String(row.entity_id)));
   const label = new Map(named.map((row) => [String(row.entity_id), String(row.name)]));
   const where = new Map<string, LearnCitation>();
   const links: MapLink[] = [];

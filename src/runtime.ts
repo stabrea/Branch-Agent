@@ -141,6 +141,7 @@ import { advisedPreload } from "./fly-core/apply.js";
 import { autonomyPrompt } from "./autonomy/hooks.js"; // r17-b
 import { learningOpening } from "./learning-more/hook.js"; // R17-F: memory blocks and lessons
 import { walkCheck, type PathCheck } from "./walk-rules.js"; // mac7/walk-rules
+import { underTask } from "./task-scope.js"; // mac7/walk-rules
 import { resolve as resolvePath } from "node:path"; // mac7/walk-rules
 
 // R17-S11: sub-tasks at once is the owner's `parallelSubtasks` setting (shipped as 4, src/knobs/settings.ts).
@@ -1541,7 +1542,9 @@ ${run.output.slice(0, 6000)}`;
       "branch.retrieval.source": "documents",
     });
     try {
-      const found = await this.documents.contextFor(context.owner, await this.searchQuestion(run, context, messages), context.signal); // w911 (A0847) hook
+      const question = await this.searchQuestion(run, context, messages);
+      // mac7/walk-rules: looked up as part of this task, so its rules decide which files' passages may come in.
+      const found = await underTask(run.id, () => this.documents!.contextFor(context.owner, question, context.signal)); // w911 (A0847) hook
       if (!found) { span?.end("ok", "", { "branch.retrieval.passages": 0 }); return; }
       const at = ids.findIndex((id) => id !== null), position = at < 0 ? messages.length : at;
       messages.splice(position, 0, { role: "system", content:

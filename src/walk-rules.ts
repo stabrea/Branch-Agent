@@ -124,12 +124,18 @@ export class WalkRules {
   }
   /** May this file be listed, or read? A file left out is counted against its folder, never named. */
   file(path: string, kind: PathAccess = "read"): boolean {
-    const tidy = tidyWalkPath(path);
-    if (this.check(tidy, kind)) return true;
+    const tidy = tidyWalkPath(path), key = `${kind}:${tidy}`;
+    const known = this.files.get(key);
+    if (known !== undefined) return known;
+    const allowed = this.check(tidy, kind);
+    this.files.set(key, allowed);
+    if (allowed) return true;
     const folder = parentOf(tidy), seen = this.leftOut.get(folder) ?? { folder: false, files: 0 };
     this.leftOut.set(folder, { ...seen, files: seen.files + 1 });
     return false;
   }
+  /** Each file is decided once per walk, so a file seen twice (two passages of it) is counted once. */
+  private readonly files = new Map<string, boolean>();
   /** Whether anything was left out. */
   get anyLeftOut(): boolean {
     return this.leftOut.size > 0;
@@ -153,3 +159,6 @@ export class WalkRules {
 /** The refusal for a walk that starts in a place the rules keep the task out of. */
 export const walkRefusal = (path: string): string =>
   `Your settings do not allow looking in ${path}. Nothing was read. Tell the person what you wanted to look for, and why.`;
+
+/** Whether a passage kept from a file may be handed back under `rules`; an accepted fact card has no file. */
+export const passageVisible = (rules: WalkRules, docId: string): boolean => docId.startsWith("card:") || rules.file(docId);
