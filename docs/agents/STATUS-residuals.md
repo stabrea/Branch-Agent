@@ -36,11 +36,10 @@ p2-shell-ui, delight-ui; tests/panels.test.mjs line 73 marked `not-a-real-secret
   command is marked `listed`: with no rule about it, it goes ahead as before (the program is on the owner's own
   list) instead of getting the unknown-command question, so nothing changes for existing users without a rule.
   Test 4a; taking out the `command` hook or the `listed` exemption each fails it. 212 process/policy tests pass.
-- [ ] 4b. `code.run` judged only by its permission. **Not changed (no decision given; a design question).**
-  Its "target" is a script, not a path or a command: no folder or command rule can say what a script will do.
-  It is held by a rule on `code.run` / `code.execute`, the job limits, and the wall when that is on
-  (src/sandbox-wall.ts `walledTools`). Judging it by a folder rule would need the script run inside a
-  deny-aware sandbox; left for the owner to decide.
+- [x] 4b. `code.run` — decided by the coordinator, done by the integrator: in an Ask first conversation it
+  asks every time, Once only (its target is only "a small script", so a kept yes would have covered the next
+  one); under Lockdown it is refused; otherwise it follows the scripts permission as before
+  (src/runtime.ts `scriptHold`). tests/residuals.test.mjs 4b.
 - [x] 4c. `mail.save_attachment` declares its file target.
   Its target is the owner's attachments folder (`mail.settings().folder`), so a folder rule ("never under finance")
   judges it. The file's own name is known only after the message is fetched, so a rule on a file name or type
@@ -146,3 +145,36 @@ Left alone on purpose: settings-describe.js / settings-kit.js inline `<style>` (
 - 16. `public/panels-hide.js` dispatches `branch-everything-hidden` once every part is hidden,
   `public/delight.js` listens; `tests/panels.test.mjs` counts the event (0 while one part shows, then 1).
   Fixed by the p2-panels integrator.
+
+## Integration (2026-09-19, adversarial integrator)
+
+Verdict: **MERGE WITH FIXES** (fixes below, already applied in 50e9339a and the commit after it).
+
+Fixed here:
+- **2 was a mis-route.** Any next task in the Trunk's conversation (the owner's unrelated question, a
+  chat app's message) took the oldest waiting receipt, and its answer went to the sending Trunk. Now a
+  waiting message is taken over only after the owner presses **Answer** on its card at the top of the
+  window ("Ben is waiting for your answer", "About Ann's message: “…”", Answer / Not now); never by a
+  task marked `source: "channel"` or `shortLivedKey`. **Not now** ends it and tells the sender.
+  Owner-only routes `POST /api/trunks/messages/<id>/answer|decline` (short-lived keys refused by the
+  route table; household refused by `requireOwner`). State field `trunkWaiting` (owner only, never a key).
+  Tests: residuals 2 (unrelated message not taken, chat/key not taken, chosen one of two, Not now),
+  2 (routes), residuals-ui 2 (integration).
+- **13 held only in the window.** `POST /api/devices/requests/<id>` with `approve: true` now needs
+  `codeMatches: true` (400 otherwise); both window callers send the tick; p2-shell asserts the 400,
+  p2-shell-ui ticks with the keyboard (focus + Space). Documented in docs/configuration.md.
+- **4b** implemented as decided (above). **4a** verified: an Ask first conversation asks for a listed
+  program no rule mentions (new assertion); Full access still lets it start.
+- **3**: restart test added (A2A, ACP and the app-server each carry on their own conversation after the
+  app is closed and opened again). Error codes documented: A2A `-32602`, ACP `-32000`, app-server `-32600`.
+  Note: any A2A caller with the key may carry on any A2A-begun conversation (the agent name is
+  self-declared), and ACP and app-server share the "acp" source; both documented, not changed.
+- panels.test.mjs:73 marker made identical to ci-flakes-3's, so the two merge without a conflict.
+
+Remove-fix spot checks (dist edited, test failed, restored): 4e, 4d, 4a `listed`, 4c, 2 `needs_input`.
+Others (5, 7, 8, 11, 12, 14, 15, 18) taken on the builder's word, their tests passed.
+Item 10 is PARTIAL: the Swift and Java were read (the key is made once and reused by pairing) but not compiled.
+
+Runs: 58 files at --test-concurrency=2: 737 tests, 730 pass, 1 fail, 6 skipped. The one failure is
+trunk's own "hiding everything earns It's lonely over here" (fails the same on trunk 2674e2ae under
+load; passes alone). tests/automation.test.mjs alone: 5/5.
