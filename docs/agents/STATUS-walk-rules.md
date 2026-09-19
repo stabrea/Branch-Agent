@@ -10,7 +10,7 @@ returned `finance/q1.txt`'s text. A tool that walks a folder was judged by the f
 - [x] 4. workspace.snapshot and what leaves the machine (pull request from changes)
 - [x] 5. The rest of the walkers (list below)
 - [x] 6. Mutation proof (below)
-- [ ] 7. Merge latest `origin/mac/cross-platform`, rebuild, retest, push
+- [x] 7. Merge latest `origin/mac/cross-platform`, rebuild, retest, push
 
 ## The check
 
@@ -127,3 +127,14 @@ The file-level checks inside an allowed folder (search read, grep file, notes fi
 refuses reading but not listing; the test "a rule against reading finance (listing allowed)" holds them (it was added
 when these three mutations first failed nothing).
 Not held by a mutation test: `knowledge-graph` `linksOf` and `build`, the Learn document map, knowledge pictures.
+
+## Merge and final run
+- Merged `origin/mac/cross-platform` at `73f73153` (outside-review; no conflicts). `dist/` deleted and rebuilt, the new code
+  checked present in `dist/`, `npx tsc --noEmit` clean.
+- 34 files at `--test-concurrency=2` (walk-rules, hardening-3, ai-comments, catalog-diet, code-ide, code-tools, coding-next,
+  coding-polish, coding-gap-edits, conversation-mode, docs-memory-2, documents, files-paths, folder-trust, handbook,
+  history, household-profile, index-structure, knowledge, knowledge-quality, learn, manual-actions-gate, mcp-server,
+  never-break-deny, obsidian, outside-review, pr-hook, rag-vector, repo-map, server, shell-ui, static-assets, ui,
+  workspace-history): 468 tests, 460 pass, 7 skipped, 1 fail: `tests/server.test.mjs` reported as failed at file level
+  with no failing test inside it; run again alone 4/4 and with static-assets, index-structure and handbook 18/18.
+- Not merged into trunk (the integrator does that).
