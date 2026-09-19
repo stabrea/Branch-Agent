@@ -21,7 +21,7 @@ import { apkType, assertDoorAddress, doorHandler, doorRoute, fileHeaders, PhoneD
 import { candidateAddresses, defaultInterface, doorAddresses, homeNetworkAddress } from "../dist/phone-app/address.js";
 import { damagedReason, findPhoneApp, missingReason, phoneAppEnvName, readCheckedApp } from "../dist/phone-app/file.js";
 import { isApplePhone, loadDictionaries, pickLanguage } from "../dist/phone-app/page.js";
-import { PhoneApp, phoneAppApi, phoneLockdownRefusal, pickedAddressRefusal } from "../dist/phone-app/index.js";
+import { noAddressRefusal, PhoneApp, phoneAppApi, phoneLockdownRefusal, pickedAddressRefusal } from "../dist/phone-app/index.js";
 import { parsePhoneArgs, phoneCommand, phoneLockdownClosed } from "../dist/phone-app/cli.js";
 import { encodeQr, qrTerminal } from "../dist/remote/qr.js";
 import { createBranch } from "../dist/index.js";
@@ -300,6 +300,10 @@ test("only the owner in the app window opens it, never under Lockdown or a short
   const phone = new PhoneApp({ root, env: {}, addresses: async () => ["10.0.0.5"] });
   const deps = { store, owner: "local", method: "POST", readBody: async () => ({ address: "8.8.8.8" }) };
   await assert.rejects(phoneAppApi(phone, deps, "/api/phone-app/share"), (error) => error.status === 400 && error.message === pickedAddressRefusal);
+  // No Wi-Fi and no Tailscale: nothing opens, and the owner is told why in plain words.
+  const nowhere = new PhoneApp({ root, env: {}, addresses: async () => [] });
+  await assert.rejects(nowhere.share({}), (error) => error.status === 409 && error.message === noAddressRefusal);
+  assert.equal(nowhere.door.view(), null);
   for (const path of ["/api/phone-app", "/api/phone-app/share", "/api/phone-app/stop"])
     for (const method of ["GET", "POST"]) assert.match(offLimitsToShortLivedKeys(method, path), /short-lived key/);
   const branchRoot = await mkdtemp(join(tmpdir(), "branch-phone-lock-"));

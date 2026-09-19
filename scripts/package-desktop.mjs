@@ -274,9 +274,9 @@ export async function stagePhoneApp({
 
 async function main() {
   const options = parseArgs(process.argv.slice(2), process.arch);
-  await stagePhoneApp();
   if (needsAssetName(process.platform, options.release) && !assetNameFor(process.platform, options.arch))
     throw new Error(`There is no desktop download for ${process.platform} ${options.arch}.`);
+  await stagePhoneApp();
   if (process.platform === "win32") return packageWindows(options);
   if (process.platform === "darwin") return packageMac(options);
   return packageLinux(options);
