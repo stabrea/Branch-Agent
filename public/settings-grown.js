@@ -322,30 +322,42 @@ function nodeFor([id, , card, , , selector]) {
 function shownBySearch(row) {
   const node = nodeFor(row);
   const card = node?.closest(".lx-page > *, .lx-subpanel > *");
-  return Boolean(card && !card.classList.contains("lx-miss") && node.closest(".lx-page"));
+  return Boolean(card && !card.classList.contains("lx-miss") && node.closest(".lx-page") && node.checkVisibility?.());
 }
+/** Settings in the index that match and are not already on show, closest first: the label itself, then its start. */
 function matches(needle) {
   const found = [];
   for (const row of SETTINGS_INDEX) {
-    const words = `${row[3]} ${homeWords(row[1])}`.toLowerCase();
-    if (words.includes(needle) && !shownBySearch(row)) found.push(row);
+    const label = row[3].toLowerCase();
+    const words = `${label} ${row[6] ?? ""} ${homeWords(row[1])}`.toLowerCase();
+    if (!words.includes(needle) || shownBySearch(row)) continue;
+    found.push([label === needle ? 0 : label.startsWith(needle) ? 1 : label.includes(needle) ? 2 : 3, row]);
   }
-  return found;
+  return found.sort((a, b) => a[0] - b[0]).map(([, row]) => row);
 }
 function foundRow(row) {
   const item = make("li", "sg-found-item");
   item.dataset.setting = row[0];
   const words = make("span", "sg-found-words");
-  words.append(make("b", "", row[3]), make("small", "", homeWords(row[1])));
-  if (!nodeFor(row)?.checkVisibility?.() && row[1].startsWith("settings"))
-    words.append(worded("small", "sg-found-gate", "settingsGrown.found.gate", "Shows once the switch on its card is on."));
+  words.append(make("b", "", row[3]), make("small", "", [row[6], homeWords(row[1])].filter(Boolean).join(" · ")));
+  const why = whyUnseen(row);
+  if (why) words.append(worded("small", "sg-found-gate", ...why));
   const go = worded("button", "sg-found-go", "settingsGrown.found.go", "Go there");
   go.type = "button";
   go.addEventListener("click", () => goToSetting(row));
   item.append(words, go);
   return item;
 }
-const FOUND_MAX = 12;
+/** Why a Settings control is not on show: its card is hidden on this computer now, or it waits for its card's switch. */
+function whyUnseen(row) {
+  if (!row[1].startsWith("settings")) return null;
+  const node = nodeFor(row);
+  if (node?.checkVisibility?.()) return null;
+  const card = node?.closest(".lx-page > *, .lx-subpanel > *") ?? (row[2] ? $(row[2]) : null);
+  if (!card || card.hidden) return ["settingsGrown.found.hidden", "Not shown on this computer right now."];
+  return ["settingsGrown.found.gate", "Shows once the switch on its card is on."];
+}
+const FOUND_FIRST = 12;
 function drawFound(query) {
   $("sg-found")?.remove();
   const needle = query.trim().toLowerCase();
@@ -359,10 +371,16 @@ function drawFound(query) {
   const title = worded("h3", "sg-found-title", "settingsGrown.found.title", "Also found, elsewhere or behind a switch");
   title.id = "sg-found-title";
   const list = make("ul", "sg-found-list");
-  list.append(...found.slice(0, FOUND_MAX).map(foundRow));
+  list.append(...found.slice(0, FOUND_FIRST).map(foundRow));
   box.append(title, list);
-  if (found.length > FOUND_MAX) box.append(make("p", "sg-found-more", say("settingsGrown.found.more", `And ${found.length - FOUND_MAX} more. Add a word to narrow it.`, { count: found.length - FOUND_MAX })));
+  if (found.length > FOUND_FIRST) box.append(showAll(list, found));
   $("lx-settings-body").prepend(box);
+}
+function showAll(list, found) {
+  const all = make("button", "sg-found-all", say("settingsGrown.found.all", `Show all ${found.length}`, { count: found.length }));
+  all.type = "button";
+  all.addEventListener("click", () => { list.append(...found.slice(FOUND_FIRST).map(foundRow)); all.remove(); });
+  return all;
 }
 /** Heads follow their cards while searching: a group shows when one of its cards is a match. */
 function searchHeads(query) {
@@ -382,6 +400,7 @@ function onSearch(event) {
 function goToSetting(row) {
   const node = nodeFor(row);
   const layout = globalThis.branchLayout;
+  hold = null;
   if (!node || !layout?.reveal(node)) {
     layout?.go(row[1].startsWith("settings:") ? `settings:${row[1].split(":")[1]}` : row[1]);
     return;
@@ -415,9 +434,12 @@ const body = () => $("lx-settings-body");
 /** Keeps the thing under the pointer where it was while something above it changes (a level, a redraw). */
 function keepAnchor(change) {
   const scroller = body();
-  const anchor = scroller && [...scroller.querySelectorAll(".sg-head, .lx-page > *, .lx-subpanel > *")]
-    .find((node) => node.checkVisibility?.() && node.getBoundingClientRect().bottom > scroller.getBoundingClientRect().top + 8);
+  const edge = scroller?.getBoundingClientRect().top ?? 0;
+  const shown = scroller ? [...scroller.querySelectorAll(".lx-page > *, .lx-subpanel > *")].filter((node) => node.checkVisibility?.()) : [];
+  /* The first thing that starts on screen (a heading, usually), else the one running across the top edge. */
+  const anchor = shown.find((node) => node.getBoundingClientRect().top >= edge - 1) ?? shown.findLast((node) => node.getBoundingClientRect().top < edge);
   const top = anchor?.getBoundingClientRect().top;
+  hold = null;
   change();
   if (!anchor) return;
   requestAnimationFrame(() => {
@@ -425,35 +447,60 @@ function keepAnchor(change) {
     if (target && top !== undefined) scroller.scrollTop += target.getBoundingClientRect().top - top;
   });
 }
+const currentPage = () => document.querySelector(".lx-settings-link[aria-current='true']")?.dataset.page ?? null;
 /** Where each page was scrolled to, so closing and opening Settings, or pressing a page again, lands where you left. */
 const spots = new Map();
 let pageNow = null;
 function watchPlace() {
   const scroller = body();
-  scroller.addEventListener("scroll", () => { if (pageNow) spots.set(pageNow, scroller.scrollTop); }, { passive: true });
   const win = $("settings-window");
+  scroller.addEventListener("scroll", () => { if (!win.hidden && currentPage()) spots.set(currentPage(), scroller.scrollTop); }, { passive: true });
   new MutationObserver(() => {
-    if (win.hidden) { clearPeeks(); return; }
+    if (win.hidden) { clearPeeks(); hold = null; return; }
     returnToSpot();
   }).observe(win, { attributes: true, attributeFilter: ["hidden"] });
   document.querySelector(".lx-settings-nav").addEventListener("click", (event) => {
     const link = event.target.closest(".lx-settings-link:not(.sg-place-link)");
     if (!link) return;
     const again = link.dataset.page === pageNow;
-    if (!again) clearPeeks();
+    if (!again) { clearPeeks(); hold = null; }
     const spot = spots.get(link.dataset.page);
-    requestAnimationFrame(() => { if (again && spot) scroller.scrollTop = spot; afterPageChange(); });
+    if (again && spot) holdScroll(spot);
+    afterPageChange();
   });
 }
 let revealing = false;
 function returnToSpot() {
-  if (revealing) { requestAnimationFrame(afterPageChange); return; }
-  const current = document.querySelector(".lx-settings-link[aria-current='true']")?.dataset.page;
+  if (revealing) { afterPageChange(); return; }
+  const current = currentPage();
   const spot = current === pageNow ? spots.get(current) : 0;
-  requestAnimationFrame(() => { if (spot) body().scrollTop = spot; afterPageChange(); });
+  if (spot) holdScroll(spot);
+  afterPageChange();
+}
+/**
+ * Puts the page back at a spot and keeps it there for a moment: cards that redraw themselves as the page
+ * opens can shrink it for a frame, which would drop you at the top. Scrolling yourself ends the hold.
+ */
+let hold = null;
+function holdScroll(top, ms = 1200) {
+  const scroller = body();
+  scroller.scrollTop = top;
+  hold = { top, until: performance.now() + ms };
+}
+function watchHold() {
+  const scroller = body();
+  const release = () => { hold = null; };
+  for (const type of ["wheel", "touchstart", "keydown", "pointerdown"]) scroller.addEventListener(type, release, { passive: true });
+  scroller.addEventListener("scroll", () => {
+    if (!hold) return;
+    if (performance.now() > hold.until) { hold = null; return; }
+    if (Math.abs(scroller.scrollTop - hold.top) > 2) requestAnimationFrame(() => { if (hold) scroller.scrollTop = hold.top; });
+  }, { passive: true });
+  const again = new ResizeObserver(() => { if (hold && performance.now() <= hold.until) scroller.scrollTop = hold.top; });
+  for (const page of document.querySelectorAll(".lx-page")) again.observe(page);
 }
 function afterPageChange() {
-  pageNow = document.querySelector(".lx-settings-link[aria-current='true']")?.dataset.page ?? null;
+  pageNow = currentPage();
   syncPicker();
 }
 
@@ -472,6 +519,7 @@ function start() {
   arrangeAll();
   watchPages();
   watchPlace();
+  watchHold();
   $("lx-settings-search")?.addEventListener("input", onSearch);
   new MutationObserver(applyLevel).observe(root, { attributes: true, attributeFilter: ["data-everything"] });
   $("appearance-everything")?.addEventListener("change", (event) => {
