@@ -414,10 +414,11 @@ test("following the computer's light or dark is noticed, and a flag is told once
   await f.page.evaluate(() => globalThis.branchDelight.reload());
   const told = [];
   f.page.on("request", (request) => { if (request.url().endsWith("/api/delight/noticed")) told.push(request.postData() ?? ""); });
-  await openSettingFor(f.page, "#appearance-follow");
-  await f.page.locator("#appearance-follow").check();
-  await f.page.locator("#appearance-follow").uncheck();
-  await f.page.locator("#appearance-follow").check();
+  await openSettingFor(f.page, "#lx-mode");
+  const mode = (name) => f.page.locator("#lx-mode").getByRole("button", { name, exact: true }).click();
+  await mode("Follow this computer");
+  await mode("Dark");
+  await mode("Follow this computer");
   await f.page.waitForTimeout(500);
   assert.equal(told.filter((body) => body.includes("follow-system")).length, 1);
   const view = await f.call("/api/delight/achievements");
