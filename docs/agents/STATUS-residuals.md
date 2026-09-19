@@ -62,7 +62,9 @@ branch: an integrator reviews it. Every new test is in `tests/residuals.test.mjs
 
 ## UI / polish
 
-- [ ] 7. Mode menu and usage list 98% opaque, like the glass dropdown.
+- [x] 7. Mode menu and usage list 98% opaque, like the glass dropdown.
+  public/layout.css `.mode-menu` (was 95%) and `.usage-pop` (was 88%) now mix the surface at 98%, as `.glass-list`.
+  tests/residuals-ui.test.mjs 7 compares the computed colours in light and dark; the old mode menu fails it.
 - [ ] 8. Achievement names and descriptions in French.
 - [x] 9. Room member conversations in Recents; "needs you" banner names the Trunk — already fixed (below).
 - [x] 10. Phone app shows the pairing check code.

@@ -1803,7 +1803,8 @@ body.lx #connection[data-state="lost"] {
   padding: 6px;
   border: 1px solid var(--glass-edge);
   border-radius: 14px;
-  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  /* mac7/residuals: as opaque as the glass dropdown, so text under it does not read through. */
+  background: color-mix(in srgb, var(--surface) 98%, transparent);
   -webkit-backdrop-filter: var(--blur);
   backdrop-filter: var(--blur);
   box-shadow: var(--card-shadow, var(--shadow));
@@ -2086,7 +2087,8 @@ body.lx .composer-dock:has(.usage-pop:not([hidden])) {
   padding: 6px;
   border: 1px solid var(--glass-edge);
   border-radius: 14px;
-  background: color-mix(in srgb, var(--surface) 95%, transparent);
+  /* mac7/residuals: as opaque as the glass dropdown, so text under it does not read through. */
+  background: color-mix(in srgb, var(--surface) 98%, transparent);
   -webkit-backdrop-filter: var(--blur);
   backdrop-filter: var(--blur);
   box-shadow: var(--card-shadow, var(--shadow));

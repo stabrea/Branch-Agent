@@ -101,3 +101,23 @@ test("14. Read aloud on a reply really plays: a blob: sound, no content-rule ref
   assert.equal(heard.ended, 1, "it played to the end");
   assert.deepEqual(errors, []);
 });
+
+test("7. the mode menu and the usage list are as opaque as the glass dropdown", async (t) => {
+  const { page } = await fixture(t);
+  for (const theme of ["light", "dark"]) {
+    const backgrounds = await page.evaluate((theme) => {
+      document.documentElement.dataset.theme = theme;
+      return ["glass-list", "mode-menu", "usage-pop"].map((name) => {
+        const node = document.createElement("div");
+        node.className = name;
+        document.body.append(node);
+        const colour = getComputedStyle(node).backgroundColor;
+        node.remove();
+        return colour;
+      });
+    }, theme);
+    const [dropdown, ...others] = backgrounds;
+    assert.match(dropdown, /0\.98\)$/, `${theme}: the dropdown is the 98% one (${dropdown})`);
+    assert.deepEqual(others, [dropdown, dropdown], `${theme}: the mode menu and the usage list match it`);
+  }
+});
