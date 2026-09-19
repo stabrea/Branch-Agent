@@ -18,5 +18,7 @@ person's own account).
       `firstChoice` shared by single() and rotationSet so both pick the same own account, id comparison,
       a never-saved list starts under the rule, a damaged record is not overwritten by the migration)
 - [x] 3 surfaces (manage/api/command; `/account separate|not-separate <name>`; notice returned as locale key + service)
-- [ ] 4-5 docs/locales/tests
+- [x] 4-5 docs/locales/tests: window (notice + Got it, Kept separate box, badge; the tick-box labels keep their
+      box when the language is applied), en + fr, docs/configuration.md (terms decision item 2 rewritten, new
+      keys), handbook chapter 01 section, tests/accounts-pooling.test.mjs P1-P7 + accounts-ui U3
 - [ ] 6 merged

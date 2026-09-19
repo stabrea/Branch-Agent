@@ -156,8 +156,8 @@ function capBlock(pool, account) {
   const share = node("input");
   share.type = "checkbox";
   share.checked = account.shared;
-  const shareLabel = worded("label", "accounts.field.shared");
-  shareLabel.prepend(share);
+  const shareLabel = node("label");
+  shareLabel.append(share, worded("span", "accounts.field.shared"));
   share.addEventListener("change", async () => {
     try { await api("/update", { pool: pool.pool, account: account.id, shared: share.checked }); } catch (error) { said = error.message; }
     await refresh();
@@ -173,8 +173,9 @@ function separateBlock(pool, account) {
   const tick = node("input");
   tick.type = "checkbox";
   tick.checked = account.keptSeparate;
-  const label = worded("label", "accounts.field.kept-separate");
-  label.prepend(tick);
+  // The words sit in their own span: applying a language rewrites a keyed node's text, which would drop the box.
+  const label = node("label");
+  label.append(tick, worded("span", "accounts.field.kept-separate"));
   tick.addEventListener("change", async () => {
     try { await api("/update", { pool: pool.pool, account: account.id, keptSeparate: tick.checked }); } catch (error) { said = error.message; }
     await refresh();
@@ -206,8 +207,8 @@ function poolControls(pool) {
   const tick = node("input");
   tick.type = "checkbox";
   tick.checked = pool.autoSwitch;
-  const label = worded("label", "accounts.field.auto-switch");
-  label.prepend(tick);
+  const label = node("label");
+  label.append(tick, " ", worded("span", "accounts.field.auto-switch"));
   tick.addEventListener("change", () => void api("/pool", { pool: pool.pool, autoSwitch: tick.checked }).catch((e) => { said = e.message; }).then(refresh));
   box.append(label, worded("p", "accounts.auto-switch.risk", "field-note"));
   return box;

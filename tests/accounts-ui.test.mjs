@@ -13,11 +13,13 @@ import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 import { openPlace, openSettingFor } from "./places.mjs";
+import { registerCliAgent } from "../dist/providers/cli-agent.js";
+import { accountsServiceFor } from "../dist/accounts/service.js";
 
 const POOL = "openai-ui";
 const KEY = "sk-ui-test-key-000000000"; // not-a-real-secret
 
-async function fixture(t, width = 1440) {
+async function fixture(t, width = 1440, before = () => undefined) {
   const scratch = join(tmpdir(), "branch-session-files");
   await mkdir(scratch, { recursive: true });
   const root = await mkdtemp(join(scratch, "branch-accounts-ui-"));
@@ -27,6 +29,7 @@ async function fixture(t, width = 1440) {
   app.runtime.models.register({ id: POOL, name: "OpenAI (work)", model: "gpt-4o-mini", catalogId: "openai",
     provider: { name: "openai-chat", complete: async () => ({ content: "ok", toolCalls: [] }) } });
   app.runtime.models.configure(owner, { activePreset: POOL });
+  before(app, owner);
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
   const browser = await chromium.launch({ headless: true });
   t.after(async () => { await browser.close(); await server.close(); await app.close(); await discardTemp(root); });
@@ -97,5 +100,34 @@ test("U2 at 400 px nothing scrolls sideways, every word has a key, and French is
   await openSettingFor(page, "#accounts-card");
   await page.waitForFunction(() => document.querySelector("label[for=accounts-mode]")?.textContent === "Plusieurs comptes par connexion");
   assert.match(await page.locator("#accounts-card .terms-line").first().innerText(), /Conditions/);
+  assert.deepEqual(errors, []);
+});
+
+/* mac7/account-pooling: a list that shared work between the owner's own plans, from before the rule. */
+function oldSharedList(app, owner) {
+  registerCliAgent(app.runtime.models, { id: "claude-code" }, {}, async () => ({ code: 0, stdout: "{}", stderr: "" }));
+  const at = "2026-09-19T10:00:00.000Z";
+  app.store.save("settings", owner, "accounts", { mode: "on", pools: [{ pool: "cli-claude-code", kind: "cli", autoSwitch: true,
+    accounts: [{ id: "primary", label: "Mine", createdAt: at }, { id: "abcd1234", label: "Partner plan", createdAt: at }] }] });
+  accountsServiceFor(app.runtime.models).applyPoolingRule();
+}
+
+test("U3 a sign-in list says once why sharing stopped, and an account can be marked kept separate", async (t) => {
+  const { page, errors, app } = await fixture(t, 1440, oldSharedList);
+  await openCard(page);
+  const pool = page.locator('.accounts-pool[data-pool="cli-claude-code"]');
+  await pool.waitFor();
+  const notice = pool.locator(".accounts-notice");
+  assert.match(await notice.innerText(), /no longer switches between your own .+ plans.*mark it kept separate/s);
+  await notice.getByRole("button", { name: "Got it" }).click();
+  await notice.waitFor({ state: "detached" });
+  const row = pool.locator(".accounts-row", { hasText: "Partner plan" });
+  await row.getByLabel(/Kept separate/).check();
+  await pool.locator(".accounts-row", { hasText: "Partner plan" }).getByText("(kept separate)").waitFor();
+  const saved = accountsServiceFor(app.runtime.models).settings();
+  assert.equal(saved.pools[0].accounts.find((account) => account.id === "abcd1234").keptSeparate, true);
+  assert.deepEqual(saved.poolingNotices, [], "the notice is read once");
+  assert.match(await pool.innerText(), /It never moves between your own plans/, "the words beside the tick box say the rule");
+  assert.equal(await pool.getByLabel(/Kept separate/).count(), 2, "every sign-in has the box");
   assert.deepEqual(errors, []);
 });
