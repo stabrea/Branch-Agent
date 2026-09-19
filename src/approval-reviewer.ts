@@ -6,7 +6,7 @@ import { checkResult } from "./delegation.js";
 import { FeatureSwitchSchema } from "./loop-guard.js";
 import { redactLeaks } from "./leak-guard.js";
 import { evaluatePolicy, type Policy, type PolicyOutcome, type RunSource } from "./policy.js";
-import { isCommandTool, resourceOf } from "./policy-resources.js";
+import { isCommandTool } from "./policy-resources.js";
 import type { ApprovalGate } from "./approvals.js";
 import type { ModelPreset, ModelRouter } from "./models.js";
 import type { ToolRegistry } from "./registry.js";
@@ -160,7 +160,7 @@ const namedForChange = (tool: string): boolean => changeWords.test(tool.replace(
 /** What the rules alone say about the call, before any earlier answer is counted, and whether a rule said it. */
 function rawOutcome(host: ReviewerHost, check: PolicyCheck, about: ReviewedCall, readOnly: boolean): { outcome: PolicyOutcome & { leak?: string }; matched: boolean } {
   const { call, args, context } = about;
-  const resource = resourceOf(call.name, host.registry.permissionOf(call.name), check.target, args);
+  const resource = host.registry.resourceOf(call.name, check.target, args);
   const policy = host.policy(context.source ?? "owner");
   const ruled = evaluatePolicy(policy, { tool: call.name, target: check.target, readOnly, resource });
   const outcome = host.leakGuard.tighten(ruled, args);

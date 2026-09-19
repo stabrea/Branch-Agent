@@ -79,7 +79,6 @@ import {
   addPolicyRule, cappedPolicy, evaluatePolicy, isReadOnlyPermission, readPolicy,
   type Policy, type PolicyDecision, type PolicyRemember, type RunSource,
 } from "./policy.js";
-import { resourceOf } from "./policy-resources.js";
 import { ProfileRoles, grantRefusal } from "./profile-roles.js";
 import { Handoffs } from "./orchestration-modes.js";
 import { categoryOf } from "./tool-categories.js";
@@ -2132,7 +2131,7 @@ ${run.output.slice(0, 6000)}`;
     const source: RunSource = context.source ?? "owner";
     // What the call is about — a folder, a website, a messaging account, a command — so a rule the
     // owner wrote about that one thing is considered before the broad ones.
-    const resource = resourceOf(tool, permission, target, args);
+    const resource = this.registry.resourceOf(tool, target, args); // integration (hardening-3): with the workspace-written path
     // Somebody else in the house, working under their own profile, is held to their role first.
     // A role can only refuse; it never lets anything through that the rules would have stopped.
     // --- mac3/never-break: Branch's own program, gateway settings, database and updater can never be

@@ -5,12 +5,19 @@ import type {
   ToolDescription,
 } from "./contracts.js";
 import { policyTarget } from "./policy.js";
+import { resourceOf, type PolicyResource } from "./policy-resources.js";
 import { inferToolGroup, slimTool } from "./catalog.js";
 import { underTask } from "./task-scope.js"; // household-followups
 
 export class ToolRegistry {
   private readonly tools = new Map<string, ToolDefinition>();
   private readonly runFinished = new Set<(context: ToolContext) => Promise<void>>();
+  /**
+   * Integration (hardening-3): the folder of the workspace a tool's paths are read inside right now
+   * (the active project's folder or a task's working copy; "" for the workspace itself). Set once at
+   * start-up to the same answer the file tools use.
+   */
+  pathScope: () => string = () => "";
   onRunFinished(listener: (context: ToolContext) => Promise<void>): void {
     this.runFinished.add(listener);
   }
@@ -115,6 +122,16 @@ export class ToolRegistry {
       const parsed = tool.parameters.safeParse(args);
       return parsed.success ? parsed.data : args;
     } catch { return args; }
+  }
+  /**
+   * Integration (hardening-3): what a call is about, for the rules. A path is also given as written
+   * from the workspace when the file tools read paths inside one of its folders, so a folder rule
+   * (written about the workspace) holds whichever folder is active.
+   */
+  resourceOf(name: string, target: string, args: unknown): PolicyResource | null {
+    const resource = resourceOf(name, this.permissionOf(name), target, args);
+    const scope = this.pathScope();
+    return resource?.kind === "path" && scope ? { ...resource, inWorkspace: `${scope}/${resource.value}` } : resource;
   }
   permissions(): string[] {
     return [...new Set([...this.tools.values()].map((t) => t.permission))];

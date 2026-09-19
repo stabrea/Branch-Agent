@@ -8,7 +8,6 @@ import type { ToolRegistry } from "./registry.js";
 import type { Store } from "./store.js";
 import type { ToolContext } from "./contracts.js";
 import { evaluatePolicy, isReadOnlyPermission, policyTarget, readPolicy } from "./policy.js";
-import { resourceOf } from "./policy-resources.js";
 import type { ManualVerdict } from "./tool-gate.js";
 
 export const TryToolSchema = z
@@ -67,7 +66,7 @@ export async function tryTool(
   const target = registry.targetOf(input.name, seen, context) || policyTarget(input.name, seen);
   // What the call is about goes in too, so trying a command by hand is decided exactly as a
   // command the assistant asked for would be — a command nobody has ruled on is asked about.
-  const resource = resourceOf(input.name, permission, target, seen);
+  const resource = registry.resourceOf(input.name, target, seen);
   const verdict = gate?.(input.name, seen, context);
   const decision = verdict?.decision
     ?? evaluatePolicy(readPolicy(store, owner), { tool: input.name, target, readOnly: isReadOnlyPermission(permission), resource }).decision;

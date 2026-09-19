@@ -5489,13 +5489,18 @@ website (`host`), a messaging account (`channel`) or a command (`command`). A ru
 these is looked at before the broader rules, so "never write anything under finance" beats "writing
 files is fine". A rule without one covers whatever the tool would touch, which is exactly how every
 rule written before this behaves — nothing you already had changes.
-A folder rule covers everything inside it, so `finance` fits `finance/2026/q1.xlsx`. A website rule
+A folder rule covers everything inside it, so `finance` fits `finance/2026/q1.xlsx`, however the path
+is written (`./finance/q1.xlsx`, `a/../finance/q1.xlsx`). Folders are named from the workspace itself:
+while a project with its own folder is active (or a task works in its own copy), a path the task gives
+inside it is weighed both as written and from the workspace, so with the project's folder set to
+`finance`, `q1.xlsx` is under `finance`. A website rule
 covers the site and anything under it, so `example.com` fits `shop.example.com`. A command rule
 covers the words it names and anything after them, so `rm` fits `rm -rf something` and `git status`
 fits `git status --short` but not `git push` (see "Always allow, per command" below). `*` still
 stands for any text.
 Which kind a call counts as is worked out from what the call says it would touch, not from its
-arguments: a bare website name is a website, and anything else is a folder or file. That means a
+arguments: a bare website name is a website, and anything else is a folder or file (a tool that works
+on files and was given no address is always about a file, so `q1.txt` is a file there). That means a
 tool that reports what it touches through its own `target()` — as a tool with no plain `path`
 argument is meant to — is covered by a folder rule like any other.
 Browser clicking, typing and uploading go through these same rules with the website as the thing
