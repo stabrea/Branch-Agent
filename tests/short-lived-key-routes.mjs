@@ -149,6 +149,13 @@ export const ROUTES = {
   "/api/dashboard/settings": "owner POST",
   "/api/deferred": "look",
   "/api/deferred/settle": "task POST",
+  // phase2/delight: somebody else is told only that there is nothing here for them; the achievements
+  // are the owner's alone, and every change is the owner's.
+  "/api/delight": "look",
+  "/api/delight/achievements": "secret-read",
+  "/api/delight/noticed": "owner POST",
+  "/api/delight/settings": "owner POST",
+  "/api/delight/told": "owner POST",
   "/api/deployment": "look",
   "/api/deployment/autostart": "owner POST",
   "/api/deployment/backup": "owner POST",
