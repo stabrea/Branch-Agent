@@ -15,11 +15,11 @@ export async function accountCommand(call: Call): Promise<Reply> {
   call.host.requireOwner("/account");
   const service = accountsServiceFor(call.host.runtime.models);
   if (!service || !service.on())
-    return { text: "Several accounts per connection is switched off. Turn it on in Settings › Models." };
+    return { text: "Several accounts per connection is switched off. Turn it on in Settings › Accounts." };
   const session = call.sessionId ?? "";
   const view = viewSession(service, session);
   if (!view.pool || !("accounts" in view))
-    return { text: "The model in use has only one account. Add more in Settings › Models, in that connection's card." };
+    return { text: "The model in use has only one account. Add more in Settings › Accounts." };
   const words = call.argument.trim();
   if (!words || words === "?" || words === "list") {
     const lines = view.accounts!.map((account) => `${account.id === view.account ? "→ " : "  "}${account.label}${account.keptSeparate ? " (kept separate)" : ""}`);
