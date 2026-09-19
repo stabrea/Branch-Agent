@@ -355,3 +355,46 @@ test("the map of names built before a rule no longer hands back finance's passag
   await financeRule(app);
   assert.doesNotMatch(text(graph.passagesAround("local", base.id, "Acme Holdings", 10)), new RegExp(secretText));
 });
+
+// ------------------------------------------------------------------ integration (adversarial review)
+
+test("integration: a walk of a folder the owner was asked about and said yes to shows what is inside", async (t) => {
+  const walk = call("files.list", { path: "finance" });
+  const { app } = await fixture(t, [walk, walk, say("done")]);
+  await financeRule(app, "ask");
+  // A refusal written for one file inside still holds after the yes.
+  const { addPolicyRule } = await import("../dist/policy.js");
+  addPolicyRule(app.store, "local", { tool: "*", match: "*", decision: "deny", remember: "always", resource: { kind: "path", pattern: "finance/q1.txt" } });
+  const first = await app.runtime.run({ prompt: "look" });
+  assert.equal(first.status, "needs_input", "the walk of finance is asked about");
+  app.runtime.approve(first.sessionId, "allow", "session");
+  const second = await app.runtime.run({ prompt: "look", sessionId: first.sessionId });
+  const failed = app.store.events(second.id).filter((event) => event.kind === "tool.failed");
+  assert.deepEqual(failed, [], "the owner's yes is not overruled by the walk");
+  const [completed] = app.store.events(second.id).filter((event) => event.kind === "tool.completed");
+  assert.deepEqual(completed.data.result.entries.map((entry) => entry.name), ["2026"]);
+  assert.match(completed.data.result.leftOut ?? "", /1 file in finance/);
+});
+
+test("integration: documents.list and the MCP document library do not name a document read from a refused file", async (t) => {
+  const { app, root } = await fixture(t, [call("documents.list", {}), say("done")]);
+  await app.documents.add("local", { path: "finance/q1.txt" });
+  await app.documents.add("local", { path: "notes/open.txt" });
+  await app.documents.add("local", { name: "pasted", text: "just text" });
+  await financeRule(app);
+  const run = await app.runtime.run({ prompt: "what documents do I have" });
+  const [completed] = app.store.events(run.id).filter((event) => event.kind === "tool.completed");
+  assert.deepEqual(completed.data.result.documents.map((document) => document.name).sort(), ["open.txt", "pasted"]);
+  assert.doesNotMatch(text(completed.data.result.documents), /q1/);
+  assert.match(completed.data.result.leftOut ?? "", /1 file in finance/);
+  assert.equal(app.documents.list("local").length, 3, "the owner's own window still lists everything");
+  const { startServer } = await import("../dist/server.js");
+  const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
+  t.after(async () => { await server.close(); });
+  const ask = async (body) => (await fetch(`${server.url}/mcp`, { method: "POST", body: JSON.stringify(body),
+    headers: { authorization: `Bearer ${server.token}`, origin: server.url, "content-type": "application/json", "mcp-session-id": "docs" } })).json();
+  await ask({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", clientInfo: { name: "t", version: "1" } } });
+  const read = await ask({ jsonrpc: "2.0", id: 2, method: "resources/read", params: { uri: "documents://library" } });
+  const listed = JSON.parse(read.result.contents[0].text);
+  assert.deepEqual(listed.map((document) => document.name).sort(), ["open.txt", "pasted"]);
+});

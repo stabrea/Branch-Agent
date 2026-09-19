@@ -889,7 +889,8 @@ export async function createBranch(options: {
   // ---- end mac6/accounts ----
   // Nothing is shared with other AI tools until the owner turns it on in Settings.
   const mcpServer = await startMcpServer(registry, store, runtime, knowledge, files);
-  mcpServer.documents = { list: (who: string) => documents.list(who) as unknown[] };
+  // Integration (mac7/walk-rules): another program is not told the name of a document the owner's rules refuse.
+  mcpServer.documents = { list: (who: string) => documents.listFor(who, { source: "mcp" }).documents as unknown[] };
   // Somebody else's AI-tool server is opened only when a task first needs it, and closed when that
   // task ends. Each household profile keeps its own settings for how long and how many.
   const mcpConnections = new McpConnections(store, () => store.profiles.scope());

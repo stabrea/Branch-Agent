@@ -17,8 +17,11 @@ import { globMatches, type PolicyResource } from "./policy-resources.js";
 
 /** Listing a name, or reading what is inside. */
 export type PathAccess = "list" | "read";
-/** May this task list (or read) this path, written from the folder the file tools work in? */
-export type PathCheck = (path: string, kind: PathAccess) => boolean;
+/**
+ * May this task list (or read) this path, written from the folder the file tools work in? `start` is
+ * where the walk began (integration: a question the task was asked, and allowed, about that folder).
+ */
+export type PathCheck = (path: string, kind: PathAccess, start?: string) => boolean;
 /** No rules to weigh: the owner's own window, and anything that is not a task's walk. */
 export const allowAll: PathCheck = () => true;
 
@@ -69,14 +72,26 @@ export function walkCheck(input: WalkCheckInput): PathCheck {
     if (!folders.has(folder)) folders.set(folder, folderPolicy(input.policy, specific, tools, folder, input.scope ?? ""));
     return folders.get(folder)!;
   };
-  return (path, kind) => {
+  const asked = new Map<string, PolicyRule | null>();
+  // Integration: the rule that asked about the walk's own folder. The walk is running, so that
+  // question was put to the person and answered yes; the same rule is not a reason to hide what is inside.
+  const askedAtStart = (start: string | undefined): PolicyRule | null => {
+    if (!start) return null;
+    if (!asked.has(start)) {
+      const outcome = evaluatePolicy(input.policy, { tool: input.tool, target: start, readOnly: true, resource: input.resourceOf(input.tool, start) });
+      asked.set(start, outcome.decision === "ask" ? outcome.rule : null);
+    }
+    return asked.get(start) ?? null;
+  };
+  return (path, kind, start) => {
     const tidy = tidyWalkPath(path);
     if (input.guarded?.(tidy)) return false;
     const policy = specific.length ? policyIn(parentOf(tidy)) : null;
     if (!policy) return true;
     return [...new Set([input.tool, accessTools[kind]])].every((tool) => {
       const outcome = evaluatePolicy(policy, { tool, target: tidy, readOnly: true, resource: input.resourceOf(tool, tidy) });
-      return outcome.decision === "allow" || (outcome.decision === "ask" && outcome.rule === baseline(tool));
+      if (outcome.decision !== "ask") return outcome.decision === "allow";
+      return outcome.rule === baseline(tool) || (outcome.rule !== null && outcome.rule === askedAtStart(start));
     });
   };
 }
@@ -127,16 +142,19 @@ export class WalkRules {
   private readonly leftOut = new Map<string, { folder: boolean; files: number }>();
   constructor(private readonly check: PathCheck = allowAll) {}
 
+  /** Where the walk began: the first `start`, since a walk over many folders starts each listing. */
+  private origin: string | undefined;
   /** A walk that starts inside a place the rules keep this task out of is refused outright. */
   start(path: string): void {
     const tidy = tidyWalkPath(path);
+    this.origin ??= tidy;
     if (tidy && !this.folder(tidy)) throw new Error(walkRefusal(tidy));
   }
   /** May this folder be gone into (and named)? Decided once per walk. */
   folder(path: string): boolean {
     const tidy = tidyWalkPath(path);
     if (!this.folders.has(tidy)) {
-      const allowed = this.check(tidy, "list");
+      const allowed = this.check(tidy, "list", this.origin);
       this.folders.set(tidy, allowed);
       if (!allowed) this.leftOut.set(tidy, { folder: true, files: 0 });
     }
@@ -147,7 +165,7 @@ export class WalkRules {
     const tidy = tidyWalkPath(path), key = `${kind}:${tidy}`;
     const known = this.files.get(key);
     if (known !== undefined) return known;
-    const allowed = this.check(tidy, kind);
+    const allowed = this.check(tidy, kind, this.origin);
     this.files.set(key, allowed);
     if (allowed) return true;
     const folder = parentOf(tidy), seen = this.leftOut.get(folder) ?? { folder: false, files: 0 };
