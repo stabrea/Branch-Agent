@@ -145,3 +145,77 @@ Not held by a mutation test: `knowledge-graph` `linksOf` and `build`, the Learn 
   with no failing test inside it. My MCP test did not wait for its server to close (`t.after(() => server.close())`);
   made to wait, the same 34 files again: 471 tests, 464 pass, 0 fail, 7 skipped.
 - Not merged into trunk (the integrator does that).
+
+## Integration (adversarial review, 2026-09-19)
+Integrator: Claude (Opus). Reviewed at `d9cc077e`. Every fix below has a test that was checked to fail with the fix
+taken out of `dist/`.
+
+Found and fixed:
+- **An owner's yes was overruled by the walk** (blocking). Under "ask before anything under finance", a task's
+  `files.list {path: "finance"}` was asked about, the owner said yes, and the retried call failed with "Your settings
+  do not allow looking in finance": `WalkRules.start` weighed the same asking rule again and treated it as a refusal.
+  Now the rule that asked about the walk's own starting folder counts as answered inside that walk (the walk is
+  running, so the question was put and answered yes); any other rule inside still holds (a "never" on
+  `finance/q1.txt` still hides that file after the yes). A walk of "." is unchanged: a rule asking about finance still
+  leaves it out. `PathCheck` takes the walk's start as a third argument; `WalkRules` remembers its first `start`.
+  Test: "integration: a walk of a folder the owner was asked about and said yes to shows what is inside".
+- **`documents.list` and the MCP `documents://library` named a refused document** (the builder's "found, not fixed";
+  the brief asks to hide it). Both now go through `DocumentLibrary.listFor(owner, outside)`: a document read in from a
+  workspace file the rules refuse is not listed, and the tool's answer carries `leftOut`. The owner's own window
+  (`view`, the library screen), the morning brief (src/brief.ts) and the terminal place list still use `list` and see
+  everything; a pasted document (no file) is always listed. Test: "integration: documents.list and the MCP document
+  library do not name a document read from a refused file" (mutations: the filter, and the MCP wiring, each fail it).
+- **Merge with mac7/multi-target: a knowledge base of the workspace was refused whole** (blocking, found by the merge).
+  multi-target's integration made `knowledge.create` / `knowledge.add` declare a folder source as a whole-folder target
+  (`folder: true`), so `innerFolderRule` refused a base of "." under "never anything under finance" — while this
+  branch reads that base and leaves finance out. Per the brief (walkers filter; only non-walking tools refuse the whole
+  call) the knowledge tools now declare the plain path only: the folder named is still judged (a base of `finance`
+  is refused), and what is inside is filtered when the base is read. `tests/multi-target.test.mjs` updated to match.
+  Tests: "a knowledge base of the whole workspace made by a task is made, and read without finance" (through a
+  model's turn) and a guard, "only tools that do not walk (git) refuse a whole folder; a walker is never a
+  whole-folder target", which fails if any tool other than git/plans/github declares `folder: true`.
+
+Checked and left as is (probes run through a model's turn, then removed):
+- Paths: `FINANCE`, `notes/../finance`, `./finance/` as a walk's start are refused by the gate; `files.glob
+  ["finance/**", "../finance/**"]` and `files.grep {glob: ["finance/**"]}` return nothing plus the note. A junction
+  `notes/link -> finance`: a walk from "." skips it (entries that are links are never followed) and a walk starting
+  at `notes/link` is refused by `files.checked` ("Symbolic link or junction path denied"). Trailing dots/spaces, `:`
+  (drive letters, UNC, streams) and backslashes are refused by `files.checked`. Letter case: rules match either case.
+- Windows 8.3 short names (`FINANC~1`): not tested; the multi-target integrator found none generated on this drive.
+  If a volume has them, every file tool (not only walkers) would see the long name only after the rules; a general
+  gap, not this branch's.
+- Names inside a refused folder: never named; the note names the refused folder and only counts files elsewhere.
+- No ripgrep or other search program is run: `files.grep` and friends read files in-process (src/code-search.ts);
+  no `execFile`/`spawn` of rg/grep/find/findstr anywhere in src.
+- Other folder readers found by a sweep of `readdir`/`fs.watch` in src, all outside the workspace or the owner's own
+  action: plugin install from a folder the owner names in full (src/plugin-catalog.ts), `branch skill package`
+  (src/cli.ts), add-on export (writes), `.branch/rules`/schedules/review checks (fixed names via `markdownFiles`),
+  folder trust's note scan (names only, for the trust screen), `branch watch` (prints the changed name to the
+  owner's console; the procedure gets no file names), device and USB folders (not the workspace).
+- Git: after multi-target, `git.diff {folder: "."}` and `git.status` under "never anything under finance" are refused
+  whole ("…because it would read finance"), checked end to end with a real repository whose finance file had a
+  change. Pathspec exclusions were **not** added: the gate refuses before git runs, so they would be dead code
+  unless the refusal were turned into filtering, which is multi-target's call, not this branch's.
+- Performance: the rules are read once per walk (`Runtime.pathCheck`), each folder is weighed once and a folder no
+  rule reaches costs nothing (`walkCheck`'s per-folder cache); each file once per walk (`WalkRules`). Not timed here.
+- This supersedes one line of STATUS-multi-target.md's Integration: `knowledge.create` / `knowledge.add` with the
+  folder "." are no longer refused whole; they are made and read without the refused folder.
+
+### Not proved
+- `knowledge-graph` `linksOf`/`build`, the Learn document map and knowledge pictures still have no mutation test of
+  their own (the builder's list); `@folder/` mentions and `skills.sync` are covered only through `files.list`.
+- The merge commit `b3feda97` carries git's default message without the Co-Authored-By line (not rewritten).
+
+### Merge with trunk and runs
+- Waited for mac7/multi-target to land on trunk (`11cb301d`), then merged trunk at `9d54e67a`. One conflict,
+  `src/runtime.ts`: this branch's `pathCheck` and multi-target's `everyTarget` sit side by side; both kept whole.
+  The knowledge-tools change above was made on a trial merge first and carried over.
+- `dist/` deleted and rebuilt, the new code checked present in `dist/`, `npx tsc --noEmit` clean.
+- 40 files at `--test-concurrency=2` (walk-rules, multi-target, hardening-2/3, knowledge, knowledge-quality,
+  documents, mcp-server, git, code-tools, code-ide, files-paths, docs-memory-2, rag-vector, repo-map, obsidian,
+  ai-comments, pr-hook, workspace-history, history, learn, coding-next, coding-polish, coding-gap-edits,
+  conversation-mode, folder-trust, household-profile, never-break-deny, manual-actions-gate, outside-review,
+  catalog-diet, static-assets, index-structure, handbook, server, ui, shell-ui, approvals, plan-act, leak-guard):
+  604 tests, 597 pass, 0 fail, 7 skipped. `tests/automation.test.mjs` alone: 5/5.
+
+Verdict: MERGE WITH FIXES.
