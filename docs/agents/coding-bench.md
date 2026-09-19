@@ -66,6 +66,12 @@ Contestants, all on that model:
   off), so `code.check` runs `node --test`. It answers what that one switch is worth.
 - **branch-after2 / branch-after2-scripts** — the final build, adding the adaptive reply ceiling
   (window 4).
+
+*Integration review (2026-09-19), after these windows were measured:* the `node --test` stand-in now
+runs only when `code.check` is called by name; after `code.patch` / `code.change_set` only a check the
+owner set up runs (a files.write tool must not run the files it wrote). Patch placement is stricter: a
+part that fits more than one place is refused instead of put on the first, and the empty-reply nudge
+fires only for a reply that thought. The rows below predate those changes and were not re-run.
 - **codex** — Codex CLI 0.155.1, fresh install, `codex exec --oss --local-provider ollama`,
   sandbox `workspace-write`, its own `CODEX_HOME` under `/workspace/bench`.
 - **openclaw** — OpenClaw 2026.9.4, the scoreboard's fresh install and settings.
