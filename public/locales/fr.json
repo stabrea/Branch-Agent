@@ -4454,6 +4454,8 @@
   "settingsGrown.bucket.secrets.keys.line": "Les clés et mots de passe que Branch peut utiliser, un à la fois.",
   "settingsGrown.bucket.voice.talk": "Parler et écouter",
   "settingsGrown.bucket.voice.talk.line": "Parler à Branch, et comment il vous entend.",
+  "settingsGrown.bucket.accounts.accounts": "Vos comptes",
+  "settingsGrown.bucket.accounts.accounts.line": "Les comptes avec lesquels Branch se connecte, et le partage du travail entre eux.",
   "settingsGrown.bucket.voice.voices": "Les voix avec lesquelles il parle",
   "settingsGrown.bucket.voice.voices.line": "Comment il répond à voix haute.",
   "settingsGrown.found.gate": "Apparaît une fois l'interrupteur de sa carte allumé.",

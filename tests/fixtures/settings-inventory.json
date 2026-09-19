@@ -219,7 +219,7 @@
 {"id":"model-endpoint","home":"settings:models:connection","type":"text","label":"Web address of the service","defaultRaw":"","gated":false,"source":"public/index.html:1802"},
 {"id":"model-name","home":"settings:models:connection","type":"text","label":"Model identifier","defaultRaw":"","gated":false,"source":"public/index.html:1805"},
 {"id":"model-key","home":"settings:models:connection","type":"text","label":"API key","defaultRaw":"","gated":false,"source":"public/index.html:1808"},
-{"id":"accounts-mode","home":"settings:models:connection","type":"three-way","label":"Several accounts per connection","defaultRaw":"off","gated":false,"source":"public/accounts.js:80"},
+{"id":"accounts-mode","home":"settings:accounts","type":"three-way","label":"Several accounts per connection","defaultRaw":"off","gated":false,"source":"public/accounts.js:80"},
 {"id":"gemini-client-id","home":"settings:models:connection","type":"text","label":"Your Google sign-in client id","defaultRaw":"","gated":false,"source":"public/index.html:1254"},
 {"id":"gemini-signin-model","home":"settings:models:connection","type":"text","label":"Gemini model","defaultRaw":"gemini-2.5-flash","gated":false,"source":"public/index.html:1256"},
 {"id":"models-active","home":"settings:models:connection","type":"select","label":"Default model","defaultRaw":"default","gated":false,"source":"public/index.html:1746"},
@@ -527,4 +527,4 @@
 {"id":"asks-hindsight-secret","home":"library:memory","type":"text","label":"Saved secret with its key (optional)","defaultRaw":null,"gated":true,"source":"public/asks.js:278"},
 {"id":"lmore-providers-address","home":"library:memory","type":"text","label":"Server address","defaultRaw":null,"gated":true,"source":"public/learning-more.js:293"},
 {"id":"lmore-providers-key","home":"library:memory","type":"text","label":"Key name in the locker","defaultRaw":null,"gated":true,"source":"public/learning-more.js:294"},
-{"id":"accounts-pools","home":"settings:models:connection","type":"list","label":"(accounts per connection)","defaultRaw":null,"gated":true,"source":"public/accounts.js:83"}]}
+{"id":"accounts-pools","home":"settings:accounts","type":"list","label":"(accounts per connection)","defaultRaw":null,"gated":true,"source":"public/accounts.js:83"}]}

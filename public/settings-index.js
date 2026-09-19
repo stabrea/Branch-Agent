@@ -226,7 +226,7 @@ export const SETTINGS_INDEX = [
   ["model-endpoint","settings:models:connection","model-settings-form","Web address of the service","model-settings.endpoint",null,"Model connection",true],
   ["model-name","settings:models:connection","model-settings-form","Model identifier","model-settings.model",null,"Model connection",true],
   ["model-key","settings:models:connection","model-settings-form","API key",null,null,"Model connection",true],
-  ["accounts-mode","settings:models:connection","accounts-card","Several accounts per connection","accounts.mode",null,"Accounts",true],
+  ["accounts-mode","settings:accounts","accounts-card","Several accounts per connection","accounts.mode",null,"Accounts",true],
   ["gemini-client-id","settings:models:connection","gemini-signin-card","Your Google sign-in client id","gemini-signin.clientId",null,"Gemini",true],
   ["gemini-signin-model","settings:models:connection","gemini-signin-card","Gemini model","gemini-signin.model",null,"Gemini",true],
   ["models-active","settings:models:connection","models-form","Default model","models.activePreset",null,"Models",true],
@@ -534,7 +534,7 @@ export const SETTINGS_INDEX = [
   ["asks-hindsight-secret","library:memory","asks-hindsight-card","Saved secret with its key (optional)","asks-hindsight-settings.secret",null,"A Hindsight memory server",true],
   ["lmore-providers-address","library:memory","lmore-providers-card","Server address","learning-more-providers-settings.address","#lmore-provider-address","Outside memory services",true],
   ["lmore-providers-key","library:memory",null,"Key name in the locker","learning-more-providers-settings.key","#lmore-provider-secret","Outside memory services",true],
-  ["accounts-pools","settings:models:connection","accounts-card","Accounts for each connection","accounts.pools","#accounts-card","Accounts",true],
+  ["accounts-pools","settings:accounts","accounts-card","Accounts for each connection","accounts.pools","#accounts-card","Accounts",true],
   /* Added at integration (2026-09-19): settings that arrived after the audit, found by S14's sweep of the settings schemas. */
   ["glance-ring","settings:data","usage","Show what is left as a ring under the message box","usage-glance.ring",null,"What each connection has left",true],
   ["glance-save-progress","settings:data","usage","At 95% used, ask whether running tasks should save their progress","usage-glance.saveProgress",null,"What each connection has left",true],
@@ -545,4 +545,7 @@ export const SETTINGS_INDEX = [
   ["addons-windows-without-wall","customize:plugins","add-ons-card","Run add-on code on Windows without the wall","add-ons.windowsWithoutWall",null,"Add-ons other people wrote",true],
   ["knobs-localFirstReplySeconds","settings:advanced","knobs-retries-card","Wait for a model on this computer to start answering (seconds)","knobs.localFirstReplySeconds",null,"Trying the model service again",true],
   ["knobs-exceptions","settings:permissions","knobs-leak-guard-card","Kinds of value that are not hidden","knobs.exceptions","#knobs-leak-guard-card fieldset","Hiding key-like values",true],
+  ["shell-look-strip","settings:appearance","shell-look-card","Trunks strip","shell-look.strip",null,"The strip and faces",true],
+  ["shell-look-3d","settings:appearance","shell-look-card","3D faces","shell-look.faces3d",null,"The strip and faces",true],
+  ["voice-live-view","settings:voice","voice-settings-form","Talk live in its own view","voice.liveView",null,"Voice",true],
 ];

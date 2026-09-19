@@ -4453,6 +4453,8 @@
   "settingsGrown.bucket.secrets.keys.line": "Keys and passwords Branch may use, one at a time.",
   "settingsGrown.bucket.voice.talk": "Talking and listening",
   "settingsGrown.bucket.voice.talk.line": "Speaking to Branch and how it hears you.",
+  "settingsGrown.bucket.accounts.accounts": "Your accounts",
+  "settingsGrown.bucket.accounts.accounts.line": "The accounts Branch signs in with, and sharing the work between them.",
   "settingsGrown.bucket.voice.voices": "The voices it speaks with",
   "settingsGrown.bucket.voice.voices.line": "How it answers out loud.",
   "settingsGrown.found.gate": "Shows once the switch on its card is on.",

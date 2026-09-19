@@ -19,11 +19,11 @@ export const BUCKETS = {
     ["keys", "keyboard", "Keys and typed commands", "Shortcuts, and the commands you can type with a slash.",
       [["comfort-keys-card", A], ["commands-card", A]]],
     ["whole", "sliders", "All your settings at once", "Start from a preset, put settings back, or keep them in one file.",
-      [["settings-kit-presets", A], ["settings-kit-reset", A], ["settings-kit-files", T]]],
+      [["settings-kit-presets", A], ["settings-kit-reset", A]]],
   ],
   assistant: [
     ["who", "person", "Who your assistant is", "Its name, its manner, and standing instructions.",
-      [["identity-form", R], ["context-assistant", A], ["autonomy-instructions-card", A]]],
+      [["identity-form", R], ["context-assistant", A], ["agent-files", A], ["autonomy-instructions-card", A]]],
   ],
   appearance: [
     ["theme", "leaf", "Theme and lettering", "Colours, the size of the words, and the language.",
@@ -37,7 +37,7 @@ export const BUCKETS = {
   ],
   "models:connection": [
     ["connection", "chip", "Your model connection", "Which service answers, and how Branch signs in to it.",
-      [["model-settings-form", R], ["chatgpt-card", R], ["models-form", R], ["model-probe-card", R], ["accounts-card", A]]],
+      [["model-settings-form", R], ["chatgpt-card", R], ["models-form", R], ["model-probe-card", R]]],
     ["services", "swap", "Other model services", "Extra services Branch can use.",
       [["gemini-signin-card", A], ["savings-openrouter-card", A], ["asks-runtimes-card", A]]],
   ],
@@ -60,6 +60,11 @@ export const BUCKETS = {
   "models:media": [
     ["media", "image", "Pictures, sound and video", "Reading and making pictures, sound and video.",
       [["media-form", R], ["video-programs-card", A], ["reach-video-card", A]]],
+  ],
+  /* phase2/accounts gave Accounts a page of its own (integration). */
+  accounts: [
+    ["accounts", "key", "Your accounts", "The accounts Branch signs in with, and sharing the work between them.",
+      [["accounts-card", R]]],
   ],
   voice: [
     ["talk", "mic", "Talking and listening", "Speaking to Branch and how it hears you.",
