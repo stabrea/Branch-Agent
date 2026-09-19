@@ -338,3 +338,81 @@ test("in French every word of the strip and the studio follows at once, and no i
   assert.deepEqual(await untranslated(f.page), []);
   assert.deepEqual(f.errors, []);
 });
+
+/* ---------------------------------------------------------------- integration review */
+
+test("integration review: faces are painted in real colours under the page's style rules, in the strip and the sidebar roster", async (t) => {
+  const f = await fixture(t);
+  for (const name of ["Scout", "Ledger", "Quill", "Harbour", "Moss", "Tally"]) await withTrunk(f, name, { face: "drawn" });
+  await f.open();
+  const painted = await f.page.evaluate(async () => {
+    const { face, trunkSpec } = await import("/faces.js");
+    const { avatar } = await import("/trunks.js");
+    const boxes = [...document.querySelectorAll("#trunk-strip .face .fc")];
+    for (let n = 0; n < 40; n++) {
+      for (const drawn of [face(trunkSpec({ name: `Face ${n}` }), 28), avatar({ name: `Face ${n}` }, 28)]) {
+        document.body.append(drawn);
+        boxes.push(drawn.querySelector(".fc"));
+      }
+    }
+    const colours = boxes.map((box) => getComputedStyle(box).backgroundColor);
+    for (const box of boxes) if (!box.closest("#trunk-strip")) box.closest(".face")?.remove();
+    return colours;
+  });
+  assert.ok(painted.length > 80);
+  const bad = painted.filter((colour) => /^rgba?\(0, 0, 0(, 0)?\)$/.test(colour) || colour === "transparent");
+  assert.deepEqual(bad, [], "no black or empty face: the colour reaches the page through its style rules");
+  assert.deepEqual(f.errors, []);
+});
+
+test("integration review: dropping a Trunk three places down moves it there, and Hide has an Undo", async (t) => {
+  const f = await fixture(t);
+  const trunks = [];
+  for (const name of ["Alpha", "Bravo", "Charlie", "Delta"]) trunks.push(await withTrunk(f, name, { face: "letters" }));
+  await f.open();
+  const order = () => f.page.locator('#trunk-strip [data-strip-id^="trunk:"]').evaluateAll((nodes) => nodes.map((node) => node.querySelector(".strip-face").getAttribute("aria-label").split(",")[0]));
+  assert.deepEqual(await order(), ["Alpha", "Bravo", "Charlie", "Delta"]);
+  await f.page.evaluate(async (id) => (await import("/strip.js")).moveTrunk(id, 3), trunks[0].id);
+  await f.page.waitForFunction(() => document.querySelector('#trunk-strip [data-strip-id^="trunk:"]:last-of-type .strip-face')?.getAttribute("aria-label").startsWith("Alpha"));
+  assert.deepEqual(await order(), ["Bravo", "Charlie", "Delta", "Alpha"], "moved, not swapped with Delta");
+  await trunkFace(f.page, trunks[1].id).click({ button: "right" });
+  await f.page.locator("#strip-menu").getByRole("menuitem", { name: "Hide from the strip and sidebar" }).click();
+  await f.page.waitForFunction((id) => !document.querySelector(`#trunk-strip [data-strip-id="trunk:${id}"]`), trunks[1].id);
+  await f.page.locator("#toast .strip-undo").click();
+  await trunkFace(f.page, trunks[1].id).waitFor({ state: "visible" });
+  assert.equal((await f.call(`/api/trunks/${trunks[1].id}`)).trunk.hidden, false, "Undo shows it again");
+  assert.deepEqual(f.errors, []);
+});
+
+test("integration review: switched off on the server, a fresh window keeps no gap where the strip would be", async (t) => {
+  const f = await fixture(t);
+  await f.call("/api/shell-look", { strip: "off" });
+  await f.page.goto(f.server.url);
+  await f.page.getByLabel("Session token", { exact: true }).fill(f.server.token);
+  await f.page.getByRole("button", { name: "Connect", exact: true }).click();
+  await f.page.locator("body.lx-ready").waitFor({ state: "attached" });
+  await f.page.waitForFunction(() => !document.getElementById("trunk-strip"), undefined, { timeout: 15000 });
+  await f.page.waitForTimeout(500);
+  const left = await f.page.locator("#conversation-rail").boundingBox();
+  assert.ok(left.x < 30, `the sidebar starts at the edge again (${left.x})`);
+  assert.equal(await f.page.evaluate(() => document.body.classList.contains("lx-strip")), false);
+  await f.page.addInitScript(() => new MutationObserver(() => { if (document.body?.classList.contains("lx-strip")) globalThis.__stripSeen = true; })
+    .observe(document.documentElement, { subtree: true, attributes: true, attributeFilter: ["class"] }));
+  await f.page.reload();
+  await f.page.locator("body.lx-ready").waitFor({ state: "attached" });
+  await f.page.waitForTimeout(2500);
+  assert.equal(await f.page.evaluate(() => globalThis.__stripSeen === true), false, "and the next load never draws or reserves it, not even for a moment");
+});
+
+test("integration review: an open dropdown stays open through the window's three-second refresh", async (t) => {
+  const f = await fixture(t);
+  await f.open();
+  const { openSettingFor } = await import("./places.mjs");
+  await openSettingFor(f.page, "#policy-preset");
+  await f.page.waitForFunction(() => document.getElementById("policy-preset").options.length >= 4);
+  await f.page.locator("#policy-preset").click();
+  await f.page.locator("#glass-list").waitFor({ state: "visible" });
+  await f.page.waitForTimeout(7000); // at least two refreshes
+  assert.equal(await f.page.locator("#glass-list").isVisible(), true, "the list is still open");
+  assert.deepEqual(f.errors, []);
+});

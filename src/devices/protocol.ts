@@ -1,4 +1,4 @@
-import { createPublicKey, randomBytes, verify } from "node:crypto";
+import { createHash, createPublicKey, randomBytes, verify } from "node:crypto";
 import { z } from "zod";
 import { CapabilitySchema, devicePlatforms, type DevicePlatform } from "./capabilities.js";
 
@@ -64,6 +64,15 @@ export const newDeviceId = (): string => randomBytes(8).toString("hex");
 
 /** Exactly what the device signs, so a signature for one purpose is never valid for another. */
 export const helloText = (deviceId: string, nonce: string): string => `branch-node-hello-v1\n${deviceId}\n${nonce}`;
+/**
+ * phase2/shell integration review: a short check code made from a device's public key. The device
+ * shows it while it waits and Branch shows it beside the request, so the owner can see the request
+ * really came from the computer in front of them before pressing "Let it in". Not a secret.
+ */
+export function keyCheck(publicKey: string): string {
+  const hex = createHash("sha256").update(publicKey, "utf8").digest("hex").slice(0, 8).toUpperCase();
+  return `${hex.slice(0, 4)} ${hex.slice(4)}`;
+}
 export const pairText = (requestId: string, purpose: "pair" | "status"): string => `branch-node-${purpose}-v1\n${requestId}`;
 
 /** A public key as the device sends it: SPKI DER in base64. Refuses anything but Ed25519. */

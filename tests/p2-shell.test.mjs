@@ -4,7 +4,7 @@
    captured or run: every ability of the joined computer stays switched off. */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, stat } from "node:fs/promises";
+import { mkdtemp, readFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as wait } from "node:timers/promises";
@@ -115,4 +115,100 @@ test("joining is the owner's alone, refused under Lockdown, and a wrong number s
   const locked = await guest.call("/api/devices/join", { link: invite.link, code: invite.code });
   assert.equal(locked.status, 409);
   assert.match(locked.body.error, /Lockdown/);
+});
+
+/* ---------------------------------------------------------------- integration review: attacks on joining */
+
+const identityFile = (b) => join(b.root, "data", "node", "identity.json");
+async function hostAndInvite(t, tag) {
+  const host = await branch(t, `host-${tag}`);
+  await host.call("/api/devices/mode", { mode: "when-needed" });
+  return { host, invite: (await host.call("/api/devices/invite", {})).body };
+}
+
+test("integration review: both screens show the same check code, an invitation works once, and a yes after Stop connects nothing", async (t) => {
+  const { host, invite } = await hostAndInvite(t, "check");
+  const guest = await branch(t, "guest-check");
+  const thief = await branch(t, "thief-check");
+  const waiting = (await guest.call("/api/devices/join", { link: invite.link, code: invite.code, name: "Kitchen laptop" })).body;
+  assert.match(waiting.check, /^[0-9A-F]{4} [0-9A-F]{4}$/, "the joining computer shows a check code while it waits");
+  const request = await until(async () => (await host.call("/api/devices")).body.requests.find((entry) => entry.name === "Kitchen laptop"), "the request");
+  assert.equal(request.check, waiting.check, "the owner sees the same code beside the request");
+  assert.equal(request.publicKey, undefined, "never the key itself");
+  // Somebody who saw the invitation and the number cannot use them again: the first answer burned them.
+  assert.equal((await thief.call("/api/devices/join", { link: invite.link, code: invite.code, name: "Kitchen laptop" })).body.state, "waiting");
+  const refused = await until(async () => { const now = (await thief.call("/api/devices/join")).body; return now.state === "failed" ? now : null; }, "the replay to be refused");
+  assert.match(refused.message, /did not accept that invitation/);
+  assert.equal((await host.call("/api/devices")).body.requests.length, 1, "a replayed invitation leaves no second request");
+  // Stop before the yes: a yes that comes later must not connect this computer.
+  assert.equal((await guest.call("/api/devices/join/leave", {})).body.state, "off");
+  assert.equal((await host.call(`/api/devices/requests/${request.id}`, { approve: true })).status, 200);
+  await wait(4500); // longer than one of the joining computer's three-second asks
+  const after = (await guest.call("/api/devices/join")).body;
+  assert.equal(after.state, "off");
+  assert.equal(after.connected, false);
+  assert.equal((await host.call("/api/devices")).body.devices.some((device) => device.connected), false, "nothing connected to the owner's Branch");
+  await assert.rejects(stat(identityFile(guest)), "and no key is kept for it");
+});
+
+test("integration review: only https or a private line, never from another web page, and no key in any answer", async (t) => {
+  const { host, invite } = await hostAndInvite(t, "lines");
+  const guest = await branch(t, "guest-lines");
+  const offer = new URL(invite.link).searchParams.get("offer");
+  for (const link of [`http://example.com/devices/pair?offer=${offer}`, `http://192.168.1.20:4000/devices/pair?offer=${offer}`, `ftp://127.0.0.1/devices/pair?offer=${offer}`]) {
+    const answer = await guest.call("/api/devices/join", { link, code: invite.code });
+    assert.equal(answer.status, 400, `refused: ${link}`);
+    assert.match(answer.body.error, /https|pairing link/);
+  }
+  const post = (headers) => fetch(new URL("/api/devices/join", guest.server.url), { method: "POST", headers: { "content-type": "application/json", ...headers },
+    body: JSON.stringify({ link: invite.link, code: invite.code }) });
+  assert.equal((await post({ authorization: `Bearer ${guest.server.token}`, origin: "https://evil.example" })).status, 403, "a page on another site cannot start a join");
+  assert.equal((await post({ authorization: `Bearer ${guest.server.token}`, "sec-fetch-site": "cross-site" })).status, 403);
+  assert.equal((await post({})).status, 401, "nor can anything without the window's key");
+  assert.equal((await guest.call("/api/devices/join")).body.state, "off", "none of those started anything");
+  await guest.call("/api/devices/join", { link: invite.link, code: invite.code, name: "Den" });
+  await until(async () => (await host.call("/api/devices")).body.requests.length, "the request");
+  const { publicKey, privateKey } = JSON.parse(await readFile(identityFile(guest), "utf8"));
+  for (const answer of [(await guest.call("/api/devices/join")).body, (await host.call("/api/devices")).body]) {
+    const text = JSON.stringify(answer);
+    assert.ok(!text.includes(publicKey) && !text.includes(privateKey.split("\n")[1]) && !/PRIVATE KEY/.test(text), "no key in what either window reads");
+  }
+  await guest.call("/api/devices/join/leave", {});
+});
+
+test("integration review: Lockdown here cuts a joined computer off, and being taken off the list forgets the key at once", async (t) => {
+  const { host, invite } = await hostAndInvite(t, "revoke");
+  const guest = await branch(t, "guest-revoke");
+  await guest.call("/api/devices/join", { link: invite.link, code: invite.code, name: "Attic" });
+  const request = await until(async () => (await host.call("/api/devices")).body.requests.find((entry) => entry.name === "Attic"), "the request");
+  await host.call(`/api/devices/requests/${request.id}`, { approve: true });
+  const device = await until(async () => (await host.call("/api/devices")).body.devices.find((entry) => entry.connected), "connected");
+  await guest.call("/api/lockdown", { on: true });
+  await until(async () => !(await host.call("/api/devices")).body.devices.find((entry) => entry.id === device.id).connected, "Lockdown to close the line");
+  assert.match((await guest.call("/api/devices/join")).body.message, /Lockdown/);
+  await guest.call("/api/lockdown", { on: false });
+  await until(async () => (await host.call("/api/devices")).body.devices.find((entry) => entry.id === device.id)?.connected, "it to come back after Lockdown");
+  assert.equal((await host.call(`/api/devices/${device.id}/revoke`, {})).status, 200);
+  const off = await until(async () => { const now = (await guest.call("/api/devices/join")).body; return now.state === "off" ? now : null; }, "the joined computer to hear it was removed");
+  assert.match(off.message, /took this computer off/);
+  await until(async () => stat(identityFile(guest)).then(() => false, () => true), "its key to be forgotten");
+});
+
+test("integration review: a household person cannot restyle, hide or remove the owner's Trunks, and a picture is never SVG", async (t) => {
+  const b = await branch(t, "trunk-guard");
+  await b.call("/api/trunks/switch", { part: "trunks", mode: "on" });
+  const { trunk } = (await b.call("/api/trunks", { name: "Ledger", title: "Keeps receipts", description: "" })).body;
+  const svg = `data:image/svg+xml;base64,${Buffer.from("<svg xmlns='http://www.w3.org/2000/svg' onload='alert(1)'/>").toString("base64")}`;
+  assert.equal((await b.call(`/api/trunks/${trunk.id}/avatar`, { kind: "image", dataUrl: svg })).status, 400, "an SVG is refused");
+  assert.equal((await b.call(`/api/trunks/${trunk.id}/avatar`, { kind: "image", dataUrl: `data:image/png;base64,${"A".repeat(400_001)}` })).status, 400, "and so is a picture that is too large");
+  const person = (await b.call("/api/profiles", { name: "Kid", pin: "2468" })).body;
+  await b.call("/api/profiles/switch", { profileId: person.id, pin: "2468" });
+  for (const [path, body] of [[`/api/trunks/${trunk.id}`, { look: { colour: 3 } }], [`/api/trunks/${trunk.id}`, { hidden: true }], [`/api/trunks/${trunk.id}`, { order: 5 }],
+    [`/api/trunks/${trunk.id}/avatar`, { kind: "face", locked: true }], [`/api/trunks/${trunk.id}/remove`, {}]])
+    assert.equal((await b.call(path, body)).status, 400, `refused to a household person: ${path} ${JSON.stringify(body)}`);
+  await b.call("/api/profiles/switch", { profileId: null });
+  const kept = b.app.trunks.records.get(trunk.id);
+  assert.equal(kept.look, undefined);
+  assert.equal(kept.hidden, false);
+  assert.equal(kept.avatar.kind, "face");
 });

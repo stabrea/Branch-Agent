@@ -185,7 +185,10 @@ const REMEMBERED = "branch-strip";
 function remembered() { try { return localStorage.getItem(REMEMBERED) !== "off"; } catch { return true; } }
 function remember(on) { try { localStorage.setItem(REMEMBERED, on ? "on" : "off"); } catch { /* a private window forgets */ } }
 function reserveRoom() {
-  if (!remembered() || $("trunk-strip")) return;
+  // Integration review: until the server answers, the window draws what it last knew, so a strip switched
+  // off does not flash on when something (a change of language) redraws it before the first answer.
+  if (!remembered()) { shell.look.strip = "off"; return; }
+  if ($("trunk-strip")) return;
   document.body.classList.add("lx-strip");
   const nav = make("nav", "strip");
   nav.id = "trunk-strip";
@@ -260,7 +263,7 @@ function trunkRows(item) {
     menuRow(trunk.pinned ? "strip.menu.unpin" : "strip.menu.pin", trunk.pinned ? "Unpin from the top" : "Pin to the top", () => changeTrunk(trunk.id, { pinned: !trunk.pinned })),
     menuRow("strip.menu.up", "Move up", () => moveTrunk(trunk.id, -1)),
     menuRow("strip.menu.down", "Move down", () => moveTrunk(trunk.id, 1)),
-    menuRow("strip.menu.hide", "Hide from the strip and sidebar", () => changeTrunk(trunk.id, { hidden: true }, say("strip.hidden", "{name} is hidden. Find it in Customize › Specialists.", { name: trunk.name }))),
+    menuRow("strip.menu.hide", "Hide from the strip and sidebar", () => hideTrunk(trunk)),
     menuGap(),
     menuRow("strip.menu.remove", "Remove…", async () => (await studio()).confirmRemoveTrunk(trunk)),
   ];
@@ -316,12 +319,21 @@ async function changeTrunk(id, change, words) {
   if (words) toast(words);
   await refresh();
 }
-/** Swaps a Trunk with its neighbour and numbers the list again, so the order is kept exactly. */
+/** Integration review: hiding is one click, so the notice carries an Undo that shows it again. */
+async function hideTrunk(trunk) {
+  await changeTrunk(trunk.id, { hidden: true }, say("strip.hidden", "{name} is hidden. Find it in Customize › Specialists.", { name: trunk.name }));
+  const undo = make("button", "strip-undo", "strip.undo", "Undo");
+  undo.type = "button";
+  undo.addEventListener("click", () => void changeTrunk(trunk.id, { hidden: false }, say("strip.shown", "{name} is back.", { name: trunk.name })).catch((error) => toast(error.message)));
+  $("toast")?.append(" ", undo);
+}
+/** Moves a Trunk `step` places (dropped onto another face, or one up or down) and numbers the list again, so the order is kept exactly. */
 export async function moveTrunk(id, step) {
   const list = visibleTrunks(), at = list.findIndex((trunk) => trunk.id === id), to = at + step;
   if (at < 0 || to < 0 || to >= list.length) return toast(step < 0 ? say("strip.first", "Already first.") : say("strip.last", "Already last."));
   if (list[at].pinned !== list[to].pinned) return toast(say("strip.pinnedApart", "Pinned Trunks stay above the others."));
-  [list[at], list[to]] = [list[to], list[at]];
+  // Integration review: a drop three places down moves it there; the ones in between each step up one.
+  list.splice(to, 0, ...list.splice(at, 1));
   await Promise.all(list.map((trunk, index) => (trunk.order === index * 10 ? null : api(`trunks/${trunk.id}`, { order: index * 10 }))));
   await refresh();
 }

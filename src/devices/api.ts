@@ -6,6 +6,7 @@ import { CapabilitySchema, capabilityInfo, capabilities, offeredOn } from "./cap
 import type { Devices } from "./index.js";
 import { pairingBusy, pairingRefused } from "./book.js";
 import { pickDevice } from "./tools.js";
+import { keyCheck } from "./protocol.js";
 
 /**
  * mac7/nodes: the web side of Devices.
@@ -60,7 +61,8 @@ function overview(deps: DevicesHttpDeps): unknown {
     mode: book.mode(),
     invitation: book.invitation(),
     requests: book.requests().filter((request) => request.status === "waiting")
-      .map(({ publicKey: _key, ...request }) => request),
+      // phase2/shell integration review: the check code the device shows while it waits, never the key itself.
+      .map(({ publicKey, ...request }) => ({ ...request, check: keyCheck(publicKey) })),
     devices: book.devices().map(({ publicKey: _key, ...device }) => ({
       ...device, connected: hub.connected(device.id), canOffer: offeredOn(device.platform),
     })),

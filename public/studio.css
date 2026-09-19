@@ -345,9 +345,19 @@
   justify-content: flex-start;
   padding: 8px 10px;
 }
-.studio-strip-row span {
+.studio-strip-row {
+  justify-content: space-around;
+}
+.studio-state {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.studio-state > span:last-child {
   color: var(--muted);
   font-size: 11px;
+  white-space: nowrap;
 }
 .studio-reply {
   display: flex;
@@ -634,9 +644,15 @@
   font-size: 12.5px;
   font-weight: 600;
 }
-.shell-title {
+.shell-title,
+/* Integration review: the places' own card headings (layout.css) are smaller and were winning here,
+   so Overview and People had a 16 px title where the sample has a large one. */
+.lx-place .card .shell-title,
+.lx-page .card .shell-title,
+.lx-slot .shell-title {
   margin: 0 0 6px;
   font: 700 clamp(26px, 4vw, 38px) / 1.05 var(--display);
+  font-stretch: 62%;
   overflow-wrap: anywhere;
 }
 .shell-lede {
@@ -748,6 +764,12 @@
 .person-add input {
   flex: 1 1 160px;
 }
+/* Integration review: on a phone each field takes the whole row, so "four to eight digits" is never cut off. */
+@media (max-width: 520px) {
+  .person-add input {
+    flex-basis: 100%;
+  }
+}
 
 /* ---------- Who is using Branch ---------- */
 .who-menu {
@@ -805,10 +827,23 @@
     transform: scale(1);
   }
 }
-/* the three tabs fit a phone without scrolling */
+/* the three tabs fit a phone without scrolling: they share the width and a long name takes two lines */
 @media (max-width: 440px) {
   .studio-tab {
-    padding: 6px 8px;
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 6px;
     font-size: 12px;
+    line-height: 1.25;
+    white-space: normal;
   }
+}
+
+/* Integration review: the check code both screens show while a computer asks to join. */
+.pair-check {
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--well);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
 }

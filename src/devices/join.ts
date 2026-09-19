@@ -4,7 +4,8 @@ import { z } from "zod";
 import { lockdownActive, onLockdownChange } from "../lockdown.js";
 import type { Store } from "../store.js";
 import { NodeActions } from "./node/actions.js";
-import { loadIdentity, NodeClient, pairNode, parsePairLink, type NodeIdentity } from "./node/client.js";
+import { loadIdentity, NodeClient, pairNode, pairingStopped, parsePairLink, type NodeIdentity } from "./node/client.js";
+import { keyCheck } from "./protocol.js";
 import type { NodeOs } from "./node/commands.js";
 import { dialNode, type DialNode } from "./node/socket.js";
 
@@ -20,7 +21,12 @@ import { dialNode, type DialNode } from "./node/socket.js";
  * join and closes the connection; leaving forgets the key.
  */
 export type JoinState = "off" | "waiting" | "joined" | "refused" | "failed";
-export interface JoinStatus { state: JoinState; hub: string | null; name: string | null; connected: boolean; message: string | null }
+export interface JoinStatus {
+  state: JoinState; hub: string | null; name: string | null; connected: boolean; message: string | null;
+  /** While waiting: the check code the other computer shows beside the request (src/devices/protocol.ts keyCheck). */
+  check: string | null;
+}
+const idle: JoinStatus = { state: "off", hub: null, name: null, connected: false, message: null, check: null };
 
 export interface JoinDeps {
   store: Store;
@@ -46,8 +52,10 @@ const RecordSchema = z.object({ on: z.boolean().default(false) }).strict();
 const lockdownWords = "Lockdown is on here, so this computer is not lent to another Branch. Turn Lockdown off first.";
 
 export class DeviceJoin {
-  private state: JoinStatus = { state: "off", hub: null, name: null, connected: false, message: null };
+  private state: JoinStatus = { ...idle };
   private stopper: AbortController | null = null;
+  /** Integration review: the wait for the yes, stopped by Stop, Leave or Lockdown so a late yes cannot connect. */
+  private pairing: AbortController | null = null;
   private readonly os: NodeOs | null;
   private readonly stopListening: () => void;
 
@@ -73,22 +81,29 @@ export class DeviceJoin {
       throw Object.assign(new Error("This computer is already joined to a Branch. Leave it first."), { status: 409 });
     const { hub } = parsePairLink(link);
     this.halt(null);
-    this.state = { state: "waiting", hub, name: name ?? null, connected: false, message: null };
-    void this.pair(link, code.replace(/\s/g, ""), name);
+    const pairing = new AbortController();
+    this.pairing = pairing;
+    this.state = { state: "waiting", hub, name: name ?? null, connected: false, message: null, check: null };
+    const check = keyCheck((await loadIdentity(this.deps.nodeDir)).publicKey);
+    if (this.pairing !== pairing) return this.status();
+    this.state = { ...this.state, check };
+    void this.pair(link, code.replace(/\s/g, ""), name, pairing.signal);
     return this.status();
   }
 
-  private async pair(link: string, code: string, name: string | undefined): Promise<void> {
+  private async pair(link: string, code: string, name: string | undefined, signal: AbortSignal): Promise<void> {
     try {
       const identity = await pairNode(this.deps.nodeDir, link, code, {
-        platform: this.os!, offers: await this.actions().available(), ...(name ? { name } : {}),
+        platform: this.os!, offers: await this.actions().available(), ...(name ? { name } : {}), signal,
         ...(this.deps.fetch ? { fetch: this.deps.fetch } : {}), ...(this.deps.pairIntervalMs ? { intervalMs: this.deps.pairIntervalMs } : {}),
       });
-      if (this.state.state !== "waiting") return;
+      if (signal.aborted || this.state.state !== "waiting") return;
+      this.pairing = null;
       this.remember(true);
       this.connect(identity);
     } catch (error) {
-      if (this.state.state !== "waiting") return;
+      if (signal.aborted || this.state.state !== "waiting") return;
+      this.pairing = null;
       const message = error instanceof Error ? error.message : String(error);
       this.state = { ...this.state, state: /refused/i.test(message) ? "refused" : "failed", message: plainPairError(message) };
     }
@@ -104,13 +119,15 @@ export class DeviceJoin {
     this.stopper?.abort();
     const stopper = new AbortController();
     this.stopper = stopper;
-    this.state = { state: "joined", hub: identity.hub, name: identity.name, connected: false, message: null };
+    this.state = { state: "joined", hub: identity.hub, name: identity.name, connected: false, message: null, check: null };
     const client = new NodeClient({ identity, platform: this.os!, actions: this.actions(), dial: this.watchedDial(),
       log: (line) => { if (this.stopper === stopper) this.state.message = line.slice(0, 300); } });
     void client.run(stopper.signal).then((why) => {
       if (why !== "revoked" || this.stopper !== stopper) return;
       this.remember(false);
-      this.state = { ...this.state, state: "off", connected: false, message: "The owner of the other Branch took this computer off their list." };
+      this.state = { ...idle, message: "The owner of the other Branch took this computer off their list." };
+      // Integration review: taken off the list, its key is forgotten here too, as Leave does.
+      return rm(join(this.deps.nodeDir, "identity.json"), { force: true });
     }).catch(() => undefined);
   }
 
@@ -132,11 +149,13 @@ export class DeviceJoin {
     this.halt(null);
     this.remember(false);
     await rm(join(this.deps.nodeDir, "identity.json"), { force: true });
-    this.state = { state: "off", hub: null, name: null, connected: false, message: null };
+    this.state = { ...idle };
     return this.status();
   }
 
   private halt(message: string | null): void {
+    this.pairing?.abort();
+    this.pairing = null;
     this.stopper?.abort();
     this.stopper = null;
     if (this.state.state === "joined" || this.state.state === "waiting")
@@ -155,6 +174,7 @@ export class DeviceJoin {
 
   close(): void {
     this.stopListening();
+    this.pairing?.abort();
     this.stopper?.abort();
     this.stopper = null;
   }
@@ -162,6 +182,7 @@ export class DeviceJoin {
 
 /** The pairing errors in the words the window shows. */
 function plainPairError(message: string): string {
+  if (message === pairingStopped) return message;
   if (/refused this computer/i.test(message)) return "The owner of the other Branch said no.";
   if (/in time/i.test(message)) return "Nobody answered on the other computer in time. Ask for a new invitation and try again.";
   if (/https|Tailscale/i.test(message)) return message;

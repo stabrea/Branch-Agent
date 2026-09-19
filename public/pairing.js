@@ -177,6 +177,12 @@ function waiting(key, english) {
   line.setAttribute("role", "status");
   return line;
 }
+/** phase2/shell integration review: the check code both screens show, so the owner can compare them. */
+function checkLine(key, english, check) {
+  const line = make("p", "pair-check", key, english, { check });
+  line.id = "pair-check";
+  return line;
+}
 function errorLine(text) { const line = make("p", "pair-error"); line.textContent = text; line.setAttribute("role", "alert"); return line; }
 async function lookForRequest() {
   const overview = await api("devices").catch(() => null);
@@ -215,6 +221,7 @@ function letInStep(panel) {
   const card = make("div", "pair-ask");
   card.append(make("p", "studio-lede", "pair.asks", "{name} ({kind}) asks to join.", { name: request.name, kind: platformWord(request.platform) }),
     make("p", "studio-note", "pair.asks.note", "Let it in only if you are pairing it now. Once in, it can do nothing until you switch something on."),
+    ...(request.check ? [checkLine("pair.check", "Check code {check}. The other computer shows the same code while it waits. If they differ, press Refuse.", request.check)] : []),
     make("div", "ov-acts"));
   card.lastChild.append(button("studio-primary", "devices.request.allow", "Let it in", () => decide(true)), button("", "devices.request.refuse", "Refuse", () => decide(false)));
   panel.append(card);
@@ -320,10 +327,12 @@ async function join(form) {
 function joinStatus(status) {
   const wrap = make("div", "pair-joined");
   const where = status.hub ?? "";
-  if (status.state === "waiting") wrap.append(waiting("pair.join.waiting", "Waiting for the owner to let this computer in, on the other computer."));
+  if (status.state === "waiting") wrap.append(waiting("pair.join.waiting", "Waiting for the owner to let this computer in, on the other computer."),
+    ...(status.check ? [checkLine("pair.join.check", "Check code {check}. The other computer shows the same code beside this one's request; it should be let in only if they match.", status.check)] : []));
   else if (status.connected) wrap.append(make("p", "studio-lede", "pair.join.done", "Joined. Branch at {where} can now use what its owner switches on for this computer — everything starts off. It stays connected while Branch runs here.", { where }));
   else wrap.append(make("p", "studio-lede", "pair.join.connecting", "Joined Branch at {where}. Connecting…", { where }), ...(status.message ? [errorLine(status.message)] : []));
-  wrap.append(button("studio-danger", "pair.join.leave", status.state === "waiting" ? "Stop" : "Leave", async () => { await api("devices/join/leave", {}); redraw(); }));
+  const waitingNow = status.state === "waiting";
+  wrap.append(button("studio-danger", waitingNow ? "pair.join.stop" : "pair.join.leave", waitingNow ? "Stop joining" : "Leave", async () => { await api("devices/join/leave", {}); redraw(); }));
   every(2000, async () => {
     const now = await api("devices/join").catch(() => null);
     if (now && (now.state !== status.state || now.connected !== status.connected)) redraw();

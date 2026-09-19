@@ -323,8 +323,13 @@ function drawPreview() {
   const big = make("div", "studio-big");
   big.append(face(spec, 104, { status: "on", ground: "strip" }));
   const strip = make("div", "studio-strip-row");
-  strip.append(...["on", "wait", "off"].map((status) => face(spec, 42, { status, ground: "strip" })),
-    make("span", "", "studio.preview.states", "ready · needs you · off"));
+  // Integration review: each face says its own state underneath, so the words never wrap into a column of dots.
+  const states = [["on", "strip.status.on", "Ready"], ["wait", "strip.status.wait", "Needs you"], ["off", "strip.status.off", "Off"]];
+  strip.append(...states.map(([status, key, english]) => {
+    const one = make("span", "studio-state");
+    one.append(face(spec, 42, { status, ground: "strip" }), make("span", "", key, english));
+    return one;
+  }));
   const reply = make("div", "studio-reply");
   const words = make("div", "studio-reply-words");
   words.append(Object.assign(make("small"), { textContent: studio.draft.name || say("studio.newName", "New Trunk") }), make("i"), make("i", "short"));
