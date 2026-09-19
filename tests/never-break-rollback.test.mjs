@@ -566,3 +566,20 @@ test("branch rollback is not half-attempted on Windows", async () => {
   assert.equal(code, 1);
   assert.match(said.join("\n"), /On Windows, go back to the previous version from the app/);
 });
+
+test("merge-queue review: a swap that fails after the format was taken down does not say the work was untouched", async (t) => {
+  const root = await temp(t);
+  const { journal, entry } = await stagedEntry(t, root, { databases: [{
+    name: "branch.sqlite", before: { version: 1, readableBy: 1 }, after: { version: 3, readableBy: 3 },
+    ran: [2, 3], backup: join(root, "copy.sqlite") }] });
+  const report = await performRollback(entry, {
+    journal, by: "test",
+    observe: (one) => look(one, { storeFormat: async () => ({ version: 3, readableBy: 3 }) }),
+    takeDown: async () => ({ backup: join(root, "copy.sqlite") }),
+    swap: async () => { throw new Error("the folder is in use"); },
+  });
+  assert.equal(report.ok, false);
+  assert.doesNotMatch(report.message, /were not changed/);
+  assert.match(report.message, /had already been put back into the format/);
+  assert.match(report.message, /moves it forward again the next time it starts/);
+});

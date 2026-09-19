@@ -315,9 +315,12 @@ export async function performRollback(entry: ActivationEntry | null, deps: Rollb
         message: `${why} Nothing was changed; going back to version ${entry.fromVersion} can be tried again once Branch has closed.` };
     }
   }
+  // Set once the saved work has been moved back a format, so a swap that then fails says so.
+  let tookDown: { backup: string | null } | null = null;
   if (decision.data.action === "take-down" && deps.takeDown) {
     try {
       const { backup } = await deps.takeDown(decision.data.to);
+      tookDown = { backup };
       note(entry.id, "took the format changes back out of your work", true, `back to format ${decision.data.to}${backup ? `, copy at ${backup}` : ""}`);
     } catch (error) {
       // The data could not be taken back: putting an older program on top of it is the thing this
@@ -344,7 +347,7 @@ export async function performRollback(entry: ActivationEntry | null, deps: Rollb
     for (const line of repaired) note(entry.id, "tidied up", true, line);
     deps.journal.release(entry.id);
     return { ok: false, reason: null, steps,
-      message: `Version ${entry.fromVersion} could not be put back (${why}). ${repaired.length ? repaired.join(" ") : "The program folder was left as it was."} Your conversations, settings and memory were not changed.${forwardAdvice(entry)}` };
+      message: `Version ${entry.fromVersion} could not be put back (${why}). ${repaired.length ? repaired.join(" ") : "The program folder was left as it was."} ${dataAfterFailedSwap(entry, tookDown)}${forwardAdvice(entry)}` };
   }
   deps.journal.rolledBack(entry.id);
   if (deps.restart) {
@@ -359,6 +362,18 @@ export async function performRollback(entry: ActivationEntry | null, deps: Rollb
     : "";
   return { ok: true, reason: null, steps,
     message: `Branch is back on version ${entry.fromVersion}. ${dataWords} Version ${entry.toVersion} is kept beside it as \`${entry.target.split(/[\\/]/).pop()}.failed\` in case you want to try it again.${tail}` };
+}
+
+/**
+ * What a rollback whose swap failed did to the saved work. When the format changes had already been
+ * taken out, saying "not changed" would be false: version `toVersion` is still installed and moves
+ * the work forward again the next time it starts, from the copy-free data it finds.
+ */
+function dataAfterFailedSwap(entry: ActivationEntry, tookDown: { backup: string | null } | null): string {
+  if (!tookDown) return "Your conversations, settings and memory were not changed.";
+  const copy = tookDown.backup ? ` A copy taken before that is at ${tookDown.backup}.` : "";
+  return `Your work had already been put back into the format version ${entry.fromVersion} reads; version ${entry.toVersion}, `
+    + `which is still the one installed, moves it forward again the next time it starts.${copy}`;
 }
 
 /** The format of the saved work, read from a database the caller already holds open. */
