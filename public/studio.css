@@ -805,3 +805,10 @@
     transform: scale(1);
   }
 }
+/* the three tabs fit a phone without scrolling */
+@media (max-width: 440px) {
+  .studio-tab {
+    padding: 6px 8px;
+    font-size: 12px;
+  }
+}

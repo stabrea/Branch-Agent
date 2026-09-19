@@ -39,7 +39,17 @@ the new thing is **the Trunks strip** (`#trunk-strip`, `public/strip.js`) everyw
 - [x] Docs: docs/configuration.md "The Trunks strip, faces, Overview and People"; docs/places.md homes.
 - [x] Locales: ~250 keys en + fr (strip., studio., pair., ov., household., shellLook., place.overview/household).
 - [x] Tests: tests/p2-shell.test.mjs (server: look, switches, two-server join), tests/p2-shell-ui.test.mjs (window).
-- [ ] Merge latest origin/mac/cross-platform, rebuild, retest, push.
+- [x] Merge latest origin/mac/cross-platform (clean, at 98beb5d8), dist rebuilt from scratch, retested, pushed.
+
+## Test runs (merged tree)
+
+- tests/p2-shell.test.mjs 4/4, tests/p2-shell-ui.test.mjs 10/10.
+- 30 files (p2-shell*, trunks*, devices*, people*, calm-ui, shell-ui, web-ui, redesign-phase1, glass-select, mobile-shell,
+  conversation-mode, suggestions, household-profile, lockdown-*, hardening-3, outside-resume, static-assets,
+  index-structure, handbook): 312 tests, 308 pass, 3 skipped, 1 fail = shell-ui "a folded Projects group stays folded"
+  (timing: it passed in the first run and twice alone; not touched by this work).
+- Screenshots: 14 scenes x light/dark x 1440/390 plus 5 at 1024x700 (panel open included): zero page errors after load,
+  no sideways overflow.
 
 ## Shared-file edits (all marked `phase2/shell`)
 
