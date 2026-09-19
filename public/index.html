@@ -14,6 +14,8 @@
     <link rel="stylesheet" href="/layout.css" />
     <!-- phase2/delight: the corner, pets, achievements and your own background (public/delight.js). -->
     <link rel="stylesheet" href="/delight.css" />
+    <link rel="stylesheet" href="/brand-marks.css" /><!-- phase2/accounts: service marks -->
+    <link rel="stylesheet" href="/accounts.css" /><!-- phase2/accounts: Accounts, the assistant's files, Secrets -->
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" href="/assets/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/assets/icon-192.png" />
@@ -1355,7 +1357,7 @@
             <p>Keys and tokens your host commands need. Values are locked away once saved: they are never shown again and the assistant never sees them. A command can only use secrets from the active project.</p>
             <label for="secret-project" data-t="field.project">Project</label>
             <select id="secret-project"></select>
-            <label for="secret-name" data-t="field.name-as-an-environment-variable">Name (as an environment variable)</label>
+            <label for="secret-name" data-t="field.name-as-an-environment-variable">The name your commands use for it (capital letters, like DEPLOY_TOKEN)</label>
             <input id="secret-name" maxlength="64" pattern="[A-Z][A-Z0-9_]{0,63}" placeholder="DEPLOY_TOKEN" autocomplete="off" />
             <label for="secret-value" data-t="field.value">Value</label>
             <input id="secret-value" type="password" maxlength="8192" autocomplete="new-password" spellcheck="false" />
@@ -2106,6 +2108,8 @@
     <script src="/channel-setup.js" type="module"></script><!-- mac7/connect -->
     <!-- mac6/accounts: several accounts per connection, and the account chip in the title bar. -->
     <script src="/accounts.js" type="module"></script>
+    <script src="/thinking-levels.js" type="module"></script><!-- phase2/accounts -->
+    <script src="/service-marks.js" type="module"></script><!-- phase2/accounts -->
     <!-- Wave mac2 (goal-undo): the goal strip, and editing an earlier message to go back to it. -->
     <script src="/goal.js" type="module"></script>
     <script src="/rewind.js" type="module"></script>
@@ -2146,6 +2150,7 @@
     <script src="/learning-more.js" type="module"></script>
     <!-- R17-S-A: understandable settings (descriptions, scope chips, presets, reset, one settings file, first-run offers). -->
     <script src="/settings-describe.js" type="module"></script>
+    <script src="/agent-files.js" type="module"></script><!-- phase2/accounts -->
     <script src="/settings-kit.js" type="module"></script>
     <script src="/first-run-next.js" type="module"></script>
     <!-- mac4/bucket-20: working with other agents and tools (Customize → Connections, Specialists). -->

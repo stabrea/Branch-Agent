@@ -8,6 +8,7 @@
 import { api, displayView, toast } from "/app.js";
 import { t, formatDate } from "/i18n.js";
 import { popover } from "/popover.js";
+import { markTile } from "/brand-marks.js"; // phase2/accounts
 
 const $ = (id) => document.getElementById(id);
 const SVG = "http://www.w3.org/2000/svg";
@@ -67,10 +68,10 @@ function paintRing() {
 /* ---------- the list behind the ring ---------- */
 
 const STATE_CHIP = { measured: ["glance.measured", "ok"], estimated: ["glance.estimate", "warn"], not_published: ["glance.notPublished", "idle"] };
-/** A small tile with the connection's first letter. The app has no provider marks of its own to show. */
-function tile(name) {
-  const mark = el("span", (name.trim()[0] || "?").toUpperCase(), "glance-tile");
-  mark.setAttribute("aria-hidden", "true");
+/** phase2/accounts (#21, #31): the service's own mark (public/brand-marks.js), or a neutral tile. */
+function tile(row) {
+  const mark = markTile([row.connection, row.connectionName], { size: 26 });
+  mark.classList.add("glance-tile");
   return mark;
 }
 function windowLine(window) {
@@ -104,7 +105,7 @@ function rowNode(row) {
   body.append(head);
   for (const window of row.windows) body.append(windowLine(window));
   if (row.note) body.append(el("small", row.note));
-  node.append(tile(row.connectionName), body);
+  node.append(tile(row), body);
   return node;
 }
 function paintPopover() {

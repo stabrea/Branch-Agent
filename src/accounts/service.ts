@@ -159,7 +159,7 @@ export class AccountsService {
     // same name, pointing somewhere else, must never receive the old keys.
     const added = this.pool(pool)?.accounts.find((entry) => entry.id === account)?.address;
     if (!added || added !== this.addressOf(preset.id))
-      throw new Error(`The key "${this.pool(pool)?.accounts.find((entry) => entry.id === account)?.label ?? account}" was added for a different address than this connection now uses, so Branch did not send it. Remove it and add it again in Settings › Models.`);
+      throw new Error(`The key "${this.pool(pool)?.accounts.find((entry) => entry.id === account)?.label ?? account}" was added for a different address than this connection now uses, so Branch did not send it. Remove it and add it again in Settings › Accounts.`);
     const name = keyName(account), project = keyProject(pool);
     const key = (await this.deps.store.locker.resolve(this.deps.owner, project, [name]))[name]!;
     // Every request still goes through the owner's network rules and is watched like the first key.

@@ -972,6 +972,7 @@ export const ROUTES = {
   "/api/settings-kit/export": "secret-read",
   "/api/settings-kit/files": "secret-read",
   "/api/settings-kit/files/sample": "secret-read",
+  "/api/settings-kit/files/undo": "owner POST", // phase2/accounts: undo of the last save of an agent file
   "/api/settings-kit/preview": "owner POST",
   "/api/settings-kit/apply": "owner POST",
   // mac7/wake-pins: pinning a setting is the owner's alone; the list of pins is only names and values.
