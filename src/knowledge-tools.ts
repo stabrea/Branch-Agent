@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { Citations } from "./citations.js";
+import { fileList } from "./patch.js";
 
 import type { ModelRouter } from "./models.js";
 import type { ToolRegistry } from "./registry.js";
@@ -83,6 +84,10 @@ export function registerKnowledgeBases(
     name: "knowledge.create", group: "documents", permission: "documents.write",
     description: "Start a named knowledge base from workspace folders or files. It is empty until it is read with knowledge.reindex.",
     parameters: z.object({ name: z.string().trim().min(1).max(120), sources: z.array(SourceSchema).max(20).default([]) }).strict(),
+    // mac7/multi-target: every folder or file the base will read, each judged by the rules.
+    // Integration: named like any list of files, so an "Always" for it names this list and no other.
+    target: (input) => fileList(input.sources.map((source) => source.path)),
+    targets: (input) => input.sources.map((source) => ({ kind: "read" as const, path: source.path, ...(source.kind === "folder" ? { folder: true } : {}) })),
     execute: async (input, context) => bases.create(context.owner, input),
   });
   registry.register({
@@ -97,6 +102,8 @@ export function registerKnowledgeBases(
     parameters: IdSchema.extend({ source: SourceSchema }).strict(),
     // hardening-3: the folder or file sits one level down, so a folder rule is told which one it is.
     target: (input) => input.source.path,
+    // Integration (multi-target): a folder reaches everything inside it, so a rule about a folder in it counts.
+    targets: (input) => [{ kind: "read" as const, path: input.source.path, ...(input.source.kind === "folder" ? { folder: true } : {}) }],
     execute: async (input, context) => bases.addSource(context.owner, input.collection, input.source),
   });
   registry.register({
