@@ -8,11 +8,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discardTemp } from "./temp-dir.mjs";
 import { Store } from "../dist/store.js";
+import { startPlan } from "../dist/local-launch.js";
 import { ModelRouter } from "../dist/models.js";
 import { NetworkPolicy } from "../dist/network-policy.js";
 import { RuntimeLauncher } from "../dist/local-launch.js";
@@ -120,8 +122,40 @@ test("I3 a yes only ever agrees to the plan that was shown", () => {
   assert.equal(planFingerprint(mac), mac.fingerprint, "the line is the plan's own facts, nothing else");
   const meddled = { ...mac, steps: [{ what: "x", command: ["/bin/sh", "-c", "curl x | sh"] }] };
   assert.notEqual(planFingerprint(meddled), mac.fingerprint);
-  assert.match(planSize(mac), /GB$/);
+  assert.match(planSize(mac), /MB$/);
   assert.notEqual(planFingerprint({ ...mac, where: "/Applications" }), mac.fingerprint, "where it goes is part of the plan");
+  assert.match(planSize(installPlan("ollama", at.linux, noTools, DATA)), /GB$/);
+
+  // The size and the sentence about how it is checked are part of what the owner agreed to: change
+  // either and the yes they gave no longer fits. Both were left out of the line at first.
+  assert.notEqual(planFingerprint({ ...mac, approxBytes: mac.approxBytes * 10 }), mac.fingerprint);
+  assert.notEqual(planFingerprint({ ...mac, verify: "Branch checks nothing at all." }), mac.fingerprint);
+});
+
+test("I3b the size and the address the owner reads are what really happens", () => {
+  // Measured against the publishers on 2026-09-18, from the machines themselves:
+  //   Ollama-darwin.zip is 197,183,181 bytes; the Linux and Windows x64 archives are about 1.4 GB.
+  // (merge-queue: Branch now unpacks Ollama's own archive inside its folder rather than running the
+  // publisher's installer, so these are the archives' sizes.) A size the owner agrees to has to be
+  // the size that is really transferred.
+  const linux = installPlan("ollama", at.linux, noTools, DATA);
+  assert.ok(linux.approxBytes > 1024 ** 3,
+    "the Linux plan counts the whole archive");
+  assert.match(linux.source, /github\.com\/ollama\/ollama\/releases/, "and names where the program itself comes from");
+  assert.match(planSize(linux), /GB$/);
+
+  const win = installPlan("ollama", at.win32, noTools, DATA);
+  assert.ok(win.approxBytes > 1024 ** 3 && win.approxBytes < 3 * 1024 ** 3, "the Windows archive is about 1.4 GB");
+  const winget = installPlan("ollama", at.win32, { homebrew: null, winget: "C:\\w\\winget.exe" }, DATA, true);
+  assert.equal(winget.approxBytes, win.approxBytes, "winget fetches the same program, so it is counted at the same size");
+
+  const mac = installPlan("ollama", at.darwin, noTools, DATA);
+  assert.ok(mac.approxBytes < 512 * 1024 ** 2, "Ollama-darwin.zip is about 190 MB, not 1.2 GB");
+
+  // A size under a megabyte was rounded up to "about 1 MB"; small is allowed to look small.
+  assert.equal(planSize({ approxBytes: 15902 }), "about 16 KB");
+  assert.equal(planSize({ approxBytes: 0 }), "about 0 KB");
+  assert.equal(planSize({ approxBytes: 30 * 1024 ** 2 }), "about 30 MB");
 });
 
 test("I4 Homebrew and winget are looked for only where they really live", async () => {
@@ -183,6 +217,54 @@ test("I6 nothing is ever fetched from anywhere but the publisher", async (t) => 
   }), /only ever downloaded from its own publisher/, "a redirect off https is refused too");
 });
 
+test("I6b a real release redirect is followed: GitHub's signed asset address is ~900 characters", async (t) => {
+  // Found on a real Ubuntu box: github.com sends a release download on to
+  // release-assets.githubusercontent.com with a signed address about 900 characters long. A cap of
+  // 400 refused it, so the whole download path — Linux, and a Mac or Windows with no package
+  // manager — could never install anything. The cap stays, because an address is still bounded
+  // input; it is just no longer shorter than the publisher's own.
+  const root = await scratch("install-redirect");
+  t.after(async () => { await discardTemp(root); });
+  const body = Buffer.from("#!/bin/sh\nexit 0\n");
+  const sum = createHash("sha256").update(body).digest("hex");
+  const signed = (name) =>
+    `https://release-assets.githubusercontent.com/github-production-release-asset/658928958/${"a".repeat(40)}`
+    + `?sp=r&sv=2018-11-09&sr=b&rscd=attachment%3B+filename%3D${name}&sig=${"b".repeat(60)}&jwt=${"c".repeat(600)}`;
+  assert.ok(signed("ollama-linux-amd64.tar.zst").length > 700, "the stand-in is as long as the real thing");
+  const library = async (url) => {
+    if (url.startsWith("https://github.com/"))
+      return new Response(null, { status: 302, headers: { location: signed(url.split("/").pop()) } });
+    return new Response(url.includes("sha256sum.txt") ? `${sum}  ./ollama-linux-amd64.tar.zst\n` : body);
+  };
+  const plan = installPlan("ollama", at.linux, noTools, DATA);
+  const file = await fetchInstaller(plan, {
+    at: at.linux, run: async () => ({ stdout: "" }), exists: async () => false, library, scratchDir: join(root, "dl"),
+  });
+  assert.ok(file.endsWith("ollama-linux-amd64.tar.zst"));
+
+  // Still bounded, and still only the publisher's own hosts.
+  const tooLong = async () => new Response(null, { status: 302, headers: { location: signed("x") + "d".repeat(4000) } });
+  await assert.rejects(fetchInstaller(plan, {
+    at: at.linux, run: async () => ({ stdout: "" }), exists: async () => false, library: tooLong, scratchDir: join(root, "dl2"),
+  }), /only ever downloaded from its own publisher/);
+});
+
+test("I6c on Linux the service Ollama's own installer started is waited for, not handed back", async () => {
+  // Found on a real Ubuntu box: install.sh installs Ollama as a systemd service and starts it, but
+  // it is not answering the instant the script returns. Branch asked once, got no answer, and gave
+  // up with "start it yourself" — for a service that was already running. The one-click could never
+  // finish on Linux. A service that is up is not something to start; a stopped one still is.
+  const running = startPlan("ollama", "/usr/local/bin/ollama", {}, at.linux, "active");
+  assert.equal(running.instead, null, "a running service is not handed back to the owner");
+  assert.deepEqual(running.commands, []);
+  assert.equal(running.serve, null, "and Branch does not start a second copy beside it");
+
+  const stopped = startPlan("ollama", "/usr/local/bin/ollama", {}, at.linux, "known");
+  assert.match(stopped.instead, /system service/, "a stopped service still needs the owner's password");
+  assert.deepEqual(startPlan("ollama", "/usr/local/bin/ollama", {}, at.linux, "none").serve,
+    ["/usr/local/bin/ollama", "serve"], "with no service at all Branch runs it itself");
+});
+
 test("I7 a step that fails stops the rest and is reported honestly", async (t) => {
   const root = await scratch("install-run");
   t.after(async () => { await discardTemp(root); });
@@ -202,7 +284,15 @@ test("I7 a step that fails stops the rest and is reported honestly", async (t) =
   assert.equal(failed.installed, false);
   assert.match(failed.message, /could not install Ollama/);
   assert.match(failed.message, /No such keg/);
-  assert.match(failed.message, /Nothing was left half-installed/);
+
+  // winget says why on its ordinary output, not on the error one, so on a real Windows box the
+  // owner was told only that the step "did not work" and nothing at all about why.
+  const quiet = await runInstall(plan, {
+    at: at.darwin, exists: async () => true, library: async () => { throw new Error("no internet"); }, scratchDir: join(root, "y"),
+    run: async () => { throw Object.assign(new Error("exit 1"), { stdout: "No applicable upgrade found", stderr: "" }); },
+  });
+  assert.match(quiet.message, /No applicable upgrade found/);
+  assert.match(failed.message, /Nothing was left half-installed/, "Homebrew tidies up after itself");
 
   const refused = await runInstall(installPlan("lm-studio", at.linux, noTools, DATA), {
     at: at.linux, exists: async () => true, library: async () => { throw new Error("no"); }, scratchDir: join(root, "x"),
@@ -247,6 +337,64 @@ async function world(t, { mode = "when-needed", install = "when-needed", program
   });
   return { store, root, here, ran, oneClick };
 }
+
+test("I7b a download that cannot happen is said in plain words, with nothing left behind", async (t) => {
+  // On a real Ubuntu box with no network the owner was told "fetch failed", and with the publisher
+  // unreachable, nothing more. A step that fails has always said what it was and what to do next;
+  // the download in front of the steps said whatever the network happened to throw.
+  const root = await scratch("install-offline");
+  t.after(async () => { await discardTemp(root); });
+  const plan = installPlan("ollama", at.linux, noTools, DATA);
+  const ran = [];
+  const outcome = await runInstall(plan, {
+    at: at.linux, exists: async () => false, scratchDir: join(root, "dl"),
+    library: async () => { throw new TypeError("fetch failed"); },
+    run: async (file, args) => { ran.push([file, ...args]); return { stdout: "" }; },
+  });
+  assert.equal(outcome.installed, false);
+  assert.deepEqual(ran, [], "nothing is run when the download never happened");
+  assert.match(outcome.message, /could not download Ollama/);
+  assert.match(outcome.message, /fetch failed/, "and what really went wrong is still in there");
+  assert.match(outcome.message, /Nothing was left half-installed/);
+  assert.match(outcome.message, /ollama\.com/, "and where to install it by hand");
+  assert.deepEqual(await readdir(join(root, "dl")).catch(() => []), [], "and no half a file on the disk");
+
+  // A file that arrives but is not the publisher's keeps its own sentence: it is a different thing.
+  const body = Buffer.from("not the real installer");
+  const wrong = async (url) => new Response(url.endsWith("sha256sum.txt") ? `${"a".repeat(64)}  ./ollama-linux-amd64.tar.zst\n` : body);
+  const refused = await runInstall(plan, {
+    at: at.linux, exists: async () => false, scratchDir: join(root, "dl2"), library: wrong,
+    run: async () => { throw new Error("a refused download must run nothing"); },
+  });
+  assert.match(refused.message, /did not match the checksum its publisher published/);
+});
+
+test("I7c when unpacking inside Branch fails, what was unpacked is cleared and nothing outside was touched", async (t) => {
+  // merge-queue: mac7/one-click-real ran Ollama's Linux install script, which could leave part of
+  // itself in /usr/local. Since mac7/clean-uninstall Branch unpacks Ollama's own archive into its own
+  // folder instead, and clears that folder when a step fails, so this promise is one it can keep.
+  const root = await scratch("install-partial");
+  t.after(async () => { await discardTemp(root); });
+  const body = Buffer.from("not really an archive");
+  const sum = createHash("sha256").update(body).digest("hex");
+  const library = async (url) => new Response(url.includes("sha256sum.txt") ? `${sum}  ./ollama-linux-amd64.tar.zst\n` : body);
+  const plan = installPlan("ollama", at.linux, noTools, join(root, "data"));
+  const outcome = await runInstall(plan, {
+    at: at.linux, exists: async () => false, library, scratchDir: join(root, "dl"), dataDir: join(root, "data"),
+    run: async () => { throw Object.assign(new Error("exit 1"), { stderr: "tar: this does not look like a tar archive" }); },
+  });
+  assert.equal(outcome.installed, false);
+  assert.match(outcome.message, /does not look like a tar archive/, "what it said is still there");
+  assert.match(outcome.message, /cleared away again, and nothing outside Branch was touched/);
+  assert.equal(existsSync(plan.where), false, "the half-unpacked folder inside Branch is gone");
+
+  // Homebrew and winget clean up after themselves, so there the promise holds too.
+  const brew = await runInstall(installPlan("ollama", at.darwin, { homebrew: "/opt/homebrew/bin/brew", winget: null }, DATA, true), {
+    at: at.darwin, exists: async () => false, library: async () => { throw new Error("no download here"); },
+    scratchDir: join(root, "x"), run: async () => { throw Object.assign(new Error("exit 1"), { stderr: "No such keg" }); },
+  });
+  assert.match(brew.message, /Nothing was left half-installed/);
+});
 
 test("I8 the switch ships off, and Lockdown holds it off whatever is saved", async (t) => {
   const w = await world(t, { install: null });
@@ -373,6 +521,19 @@ test("I13 with the program already there the button goes straight to the model, 
   assert.ok(answer.chose, "it chose a size");
   assert.match(answer.message, /Setting up/);
   assert.deepEqual(w.ran, [], "nothing was installed: the program was already there");
+});
+
+test("I13b the size on the screen is the one sentence the server worked out", async (t) => {
+  // The page did its own `${bytes / 1024 ** 3} GB`, so a 30 MB Homebrew install read "about 0.0 GB
+  // to download" and a 190 MB one read "0.2 GB". The sentence the server already writes is the one
+  // shown, and it picks the unit that fits.
+  const w = await world(t, { programs: [] });
+  const view = await w.oneClick.buttonPlan({});
+  assert.ok(view.install, "a Mac with no Homebrew is offered the download");
+  assert.equal(view.downloadNote, `${planSize(view.install)} from ${view.install.source}.`);
+  assert.match(view.downloadNote, /^about 190 MB from https:\/\/github\.com\//);
+  assert.doesNotMatch(view.downloadNote, /0\.[0-2] GB/);
+  assert.equal(planSize({ approxBytes: 30 * 1024 ** 2 }), "about 30 MB", "and Homebrew's is not 0.0 GB either");
 });
 
 test("I14 a short-lived key can neither flip the switch nor press the button", async () => {

@@ -185,9 +185,11 @@ function installSwitch(mode) {
 }
 
 /** What would be installed, in plain words, with the exact commands Branch would run. */
-function planDetail(plan) {
+function planDetail(plan, note) {
   const nodes = [keyed("p", "local.install.what", "local-detail", { name: plan.name, publisher: plan.publisher }),
-    keyed("p", "local.install.from", "local-detail", { source: plan.source, size: gb(plan.approxBytes) }),
+    // The size and where from are the one sentence the server worked out, so a 30 MB install does
+    // not read "about 0.0 GB to download".
+    keyed("p", "local.install.from", "local-detail", { note }),
     keyed("p", "local.install.checked", "local-detail", { how: plan.verify })];
   for (const step of plan.steps) {
     const line = el("div", undefined, "local-detail");
@@ -245,7 +247,7 @@ function oneButtonBlock(view) {
   if (!shown) return nodes;
   const plan = shown.install ?? null;
   if (shown.refusal) nodes.push(keyed("p", "local.install.refused", "local-warning", { why: shown.refusal }));
-  else if (plan) nodes.push(...planDetail(plan));
+  else if (plan) nodes.push(...planDetail(plan, shown.downloadNote ?? ""));
   else nodes.push(keyed("p", "local.install.already", "local-detail", { name: shown.name ?? "" }));
   // mac7/clean-uninstall: where the models will go and how much room is left, before downloading.
   if (!shown.refusal && shown.modelsFolder)

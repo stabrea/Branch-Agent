@@ -53,6 +53,18 @@ export function ollamaAssetFor(at: LaunchEnv): string | null {
   if (at.platform === "win32") return `ollama-windows-${cpu}.zip`;
   return null;
 }
+/**
+ * About how much really crosses the wire, per archive, read from Ollama's own release (v0.34.2) on
+ * 2026-09-18. The owner agrees to a size, so it is the size that is really transferred. An estimate
+ * that drifts with a release is fine; one that is out by a hundredfold is not.
+ */
+const ollamaDownloadSize: Record<string, number> = {
+  "Ollama-darwin.zip": 190 * 1024 ** 2,
+  "ollama-linux-amd64.tar.zst": 1400 * 1024 ** 2,
+  "ollama-linux-arm64.tar.zst": 1500 * 1024 ** 2,
+  "ollama-windows-amd64.zip": 1400 * 1024 ** 2,
+  "ollama-windows-arm64.zip": 200 * 1024 ** 2,
+};
 
 export interface ToolsPresent {
   /** Where `brew` is, when this Mac (or Linux) has Homebrew. */
@@ -118,7 +130,10 @@ const mac = (runner: InstallableRunner) => ({ publisher: runner === "ollama" ? "
 
 /** The plan as one line, so a yes can only ever agree to the plan that was shown. */
 export function planFingerprint(plan: Omit<InstallPlan, "fingerprint">): string {
-  const facts = JSON.stringify([plan.runner, plan.platform, plan.via, plan.source, plan.fetch, plan.steps, plan.instead, plan.where]);
+  // How big it is and how Branch knows it is the publisher's are part of the plan the owner read, so
+  // a yes that was given for 190 MB checked against a signature cannot carry to something else.
+  const facts = JSON.stringify([plan.runner, plan.platform, plan.via, plan.source, plan.approxBytes,
+    plan.verify, plan.fetch, plan.steps, plan.instead, plan.where]);
   return createHash("sha256").update(facts).digest("hex").slice(0, 32);
 }
 const finish = (plan: Omit<InstallPlan, "fingerprint">): InstallPlan => ({ ...plan, fingerprint: planFingerprint(plan) });
@@ -177,7 +192,7 @@ function homebrewPlan(runner: InstallableRunner, at: LaunchEnv, brew: string): I
   return finish({
     runner, name: runtimeInfo[runner].name, platform: at.platform, via: "homebrew", ...mac(runner),
     source: `Homebrew (${runner === "ollama" ? "the ollama formula" : "the lm-studio cask"})`,
-    approxBytes: runner === "ollama" ? 30 * 1024 ** 2 : 700 * 1024 ** 2,
+    approxBytes: runner === "ollama" ? 30 * 1024 ** 2 : 600 * 1024 ** 2,
     verify: "Homebrew checks the download against the checksum in its own package description before it installs anything.",
     fetch: null, steps: [{ what: `Install ${runtimeInfo[runner].name} with Homebrew`, command }],
     after: runner === "lm-studio" ? openOnce : "", instead: null,
@@ -191,7 +206,7 @@ function wingetPlan(runner: InstallableRunner, at: LaunchEnv, winget: string): I
     "--accept-package-agreements", "--accept-source-agreements"];
   return finish({
     runner, name: runtimeInfo[runner].name, platform: at.platform, via: "winget", ...mac(runner),
-    source: `winget (${id})`, approxBytes: runner === "ollama" ? 700 * 1024 ** 2 : 700 * 1024 ** 2,
+    source: `winget (${id})`, approxBytes: runner === "ollama" ? ollamaDownloadSize["ollama-windows-amd64.zip"]! : 600 * 1024 ** 2,
     verify: "winget checks the download against the checksum in Microsoft's package list before it installs anything.",
     fetch: null, steps: [{ what: `Install ${runtimeInfo[runner].name} with winget`, command }],
     after: runner === "lm-studio" ? openOnce : "", instead: null,
@@ -209,10 +224,10 @@ function wingetPlan(runner: InstallableRunner, at: LaunchEnv, winget: string): I
 function downloadPlan(at: LaunchEnv, asset: string, root: string): InstallPlan {
   const fetch: InstallFetch = { url: `${ollamaRelease}/${asset}`, checksums: `${ollamaRelease}/sha256sum.txt`, asset };
   const common = { runner: "ollama" as const, name: "Ollama", platform: at.platform, via: "download" as const, ...mac("ollama"),
-    source: `${ollamaRelease}/${asset}`, fetch, instead: null, where: root, leavesBehind: false, leavesBehindNote: "" };
+    source: `${ollamaRelease}/${asset}`, approxBytes: ollamaDownloadSize[asset] ?? 0, fetch, instead: null, where: root, leavesBehind: false, leavesBehindNote: "" };
   const after = `Nothing else. Ollama lives in ${root} and is removed with Branch.`;
   if (at.platform === "darwin") return finish({
-    ...common, approxBytes: 1200 * 1024 ** 2,
+    ...common,
     verify: "Branch checks the download against the SHA-256 Ollama publishes beside it, then asks macOS itself whether the program is signed by its publisher and notarised by Apple. Anything that does not match is thrown away.",
     steps: [
       { what: "Unpack it", command: ["/usr/bin/ditto", "-x", "-k", "{file}", "{unpacked}"] },
@@ -225,13 +240,16 @@ function downloadPlan(at: LaunchEnv, asset: string, root: string): InstallPlan {
     after,
   });
   if (at.platform === "win32") return finish({
-    ...common, approxBytes: 700 * 1024 ** 2,
+    ...common,
     verify: "Branch checks the download against the SHA-256 Ollama publishes beside it, and throws it away if it does not match.",
     steps: [{ what: "Unpack it inside Branch", command: [windowsTar(at), "-xf", "{file}", "-C", "{root}"] }],
     after,
   });
+  // The script Branch checks is 16 KB; the program it then fetches from ollama.com is most of a
+  // gigabyte and a half. The owner is told the size and the address of both, because they agree to
+  // the whole of it, not to the part Branch happens to download itself.
   return finish({
-    ...common, approxBytes: 1400 * 1024 ** 2,
+    ...common,
     verify: "Branch checks the download against the SHA-256 Ollama publishes beside it, and throws it away if it does not match. No install script runs and nothing asks for your password.",
     steps: [{ what: "Unpack it inside Branch", command: ["tar", "--zstd", "-xf", "{file}", "-C", "{root}"] }],
     after,
@@ -288,19 +306,28 @@ export interface InstallDeps {
   signal?: AbortSignal;
 }
 
-const HttpsUrl = z.string().max(400).refine((value) => {
+// GitHub hands a release download on to a signed address about 900 characters long, so the bound is
+// the publisher's own length, not a guess. It is still a bound: an address is input like any other.
+const HttpsUrl = z.string().max(2000).refine((value) => {
   try { const url = new URL(value); return url.protocol === "https:" && installerHosts.test(url.hostname); } catch { return false; }
 }, "A program is only ever downloaded from its own publisher");
 
+/** The address, or a plain sentence. Never a validation error: the owner reads this. */
+function publisherUrl(value: string): string {
+  const seen = HttpsUrl.safeParse(value);
+  if (!seen.success) throw new Error("A program is only ever downloaded from its own publisher, and that address is not one of theirs, so Branch stopped.");
+  return seen.data;
+}
+
 /** Fetches one address from a publisher, following its redirects by hand and checking each hop. */
 async function openPublisher(url: string, call: typeof globalThis.fetch, signal?: AbortSignal): Promise<Response> {
-  let next = HttpsUrl.parse(url);
+  let next = publisherUrl(url);
   for (let hop = 0; hop < 6; hop++) {
     const response = await call(next, { redirect: "manual", ...(signal ? { signal } : {}) });
     const location = response.headers.get("location");
     if (response.status >= 300 && response.status < 400 && location) {
       await response.body?.cancel().catch(() => undefined);
-      next = HttpsUrl.parse(new URL(location, next).href);
+      next = publisherUrl(new URL(location, next).href);
       continue;
     }
     if (!response.ok) throw new Error(`${new URL(next).hostname} answered ${response.status}`);
@@ -308,6 +335,9 @@ async function openPublisher(url: string, call: typeof globalThis.fetch, signal?
   }
   throw new Error("The publisher sent Branch round too many redirects");
 }
+
+/** Marks a refusal that already says everything the owner needs, so nothing wraps it again. */
+class CheckedRefusal extends Error {}
 
 /** Downloads the file into Branch's own folder and refuses it unless its checksum matches. */
 export async function fetchInstaller(plan: InstallPlan, deps: InstallDeps): Promise<string> {
@@ -325,9 +355,26 @@ export async function fetchInstaller(plan: InstallPlan, deps: InstallDeps): Prom
   const got = await sha256Of(target);
   if (got !== sha256) {
     await rm(target, { force: true });
-    throw new Error(`The ${plan.name} download did not match the checksum its publisher published, so it was thrown away and nothing was installed.`);
+    throw new CheckedRefusal(`The ${plan.name} download did not match the checksum its publisher published, so it was thrown away and nothing was installed.`);
   }
   return target;
+}
+
+/**
+ * The download, with anything half-written cleared away and whatever went wrong said in the same
+ * plain words a failed step uses. A network that is not there threw "fetch failed" at the owner.
+ */
+async function downloadFor(plan: InstallPlan, deps: InstallDeps): Promise<string> {
+  try {
+    return await fetchInstaller(plan, deps);
+  } catch (error) {
+    if (error instanceof CheckedRefusal) throw error;
+    const join = deps.at.platform === "win32" ? win32.join : posix.join;
+    if (plan.fetch) await rm(join(deps.scratchDir, plan.fetch.asset.replace(/[^A-Za-z0-9._-]/g, "_")), { force: true });
+    const said = String((error as Error)?.message ?? error).trim().slice(0, 200);
+    throw new CheckedRefusal(`Branch could not download ${plan.name}${said ? `: ${said}` : "."}. `
+      + `Nothing was left half-installed by Branch. You can install it yourself from ${runtimeInfo[plan.runner].installPage}.`);
+  }
 }
 
 async function writeTo(response: Response, target: string, total: number, deps: InstallDeps): Promise<void> {
@@ -364,7 +411,11 @@ export interface InstallOutcome { installed: boolean; message: string; ran: stri
 export async function runInstall(plan: InstallPlan, deps: InstallDeps): Promise<InstallOutcome> {
   if (plan.instead) return { installed: false, message: plan.instead, ran: [] };
   const join = deps.at.platform === "win32" ? win32.join : posix.join;
-  const file = plan.fetch ? await fetchInstaller(plan, deps) : "";
+  let file = "";
+  if (plan.fetch) {
+    try { file = await downloadFor(plan, deps); }
+    catch (error) { return { installed: false, ran: [], message: (error as Error).message }; }
+  }
   const unpacked = join(deps.scratchDir, "unpacked");
   if (plan.fetch && plan.platform === "darwin") await rm(unpacked, { recursive: true, force: true });
   // mac7/clean-uninstall: a fresh folder inside Branch for the program, and one for its models, so
@@ -394,12 +445,24 @@ export async function runInstall(plan: InstallPlan, deps: InstallDeps): Promise<
   return { installed: true, ran, message: `${plan.name} was installed${plan.after ? `. ${plan.after}` : "."}${missed}` };
 }
 
+/**
+ * What to say when a step did not work. merge-queue: a program Branch fetched itself is unpacked
+ * into Branch's own folder, which is cleared again when a step fails, so that is a promise Branch can
+ * keep. Homebrew and winget tidy up after a step of theirs that fails.
+ */
 function stepFailure(plan: InstallPlan, step: InstallStep, error: unknown): string {
-  const said = String((error as { stderr?: string })?.stderr ?? (error as Error)?.message ?? "").trim().slice(0, 300);
-  return `Branch could not install ${plan.name}: the step "${step.what}" did not work${said ? `. It said: ${said}` : "."} `
-    + `Nothing was left half-installed by Branch. You can install it yourself from ${runtimeInfo[plan.runner].installPage}.`;
+  // winget says why on its ordinary output, not on the error one, so both are looked at.
+  const told = error as { stderr?: string; stdout?: string };
+  const said = String(told?.stderr?.trim() || told?.stdout?.trim() || (error as Error)?.message || "").trim().slice(0, 300);
+  const page = runtimeInfo[plan.runner].installPage;
+  const after = plan.fetch
+    ? `What Branch had unpacked was cleared away again, and nothing outside Branch was touched. You can install it yourself from ${page}.`
+    : `Nothing was left half-installed by Branch. You can install it yourself from ${page}.`;
+  return `Branch could not install ${plan.name}: the step "${step.what}" did not work${said ? `. It said: ${said}` : "."} ${after}`;
 }
 
 /** How big the download is, in plain words, for the sentence the owner reads before saying yes. */
-export const planSize = (plan: InstallPlan): string => plan.approxBytes >= 1024 ** 3
-  ? `about ${gb(plan.approxBytes)} GB` : `about ${Math.max(1, Math.round(plan.approxBytes / 1024 ** 2))} MB`;
+export const planSize = (plan: Pick<InstallPlan, "approxBytes">): string => plan.approxBytes >= 1024 ** 3
+  ? `about ${gb(plan.approxBytes)} GB`
+  : plan.approxBytes >= 1024 ** 2 ? `about ${Math.round(plan.approxBytes / 1024 ** 2)} MB`
+    : `about ${Math.round(plan.approxBytes / 1024)} KB`;
