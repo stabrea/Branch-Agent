@@ -3863,6 +3863,13 @@ wants to change something stops and waits, and stays waiting
 until you answer it in Settings. Branch Agent tells you it has: the pause appears under *Waiting for
 your yes*, and an outbound webhook subscribed to `approval.needed` is sent at the same time, so an
 unattended install can be told about it wherever you actually look.
+
+Such a task stays held however it is carried on (since 0.18.1, mac7/outside-resume): pressing
+*Continue* after a restart, Branch carrying it on by itself, answering its question and sending your
+next message in its conversation, *Do this again*, a branch or copy of its conversation, a flow or
+workflow it set going, and the mode picker (even *Full access*) all leave it asking before changes,
+and a chat's task still cannot do what only you may do. Nothing in the window turns it into your own
+work; to have Branch do it freely, ask for it in a new conversation of your own.
 **What the rules do not cover.** They apply to what the assistant decides to do on its own. A tool
 you run yourself from this app (`POST /api/action`) is your own action and goes straight through.
 **A practice run.** `POST /api/run` with `"dryRun": true`, or `node dist/cli.js run "..." --dry-run`,

@@ -9,6 +9,8 @@ import { WorkflowSchema, type StepState, type Workflows, type WorkflowStep, type
 import { FlowGraphSchema, FlowGraphError, compileGraph, isGraphDefinition, zodForShape,
   type FlowGraphDefinition } from "./flow-graph.js";
 import { FlowGraphRunner, type GraphRunView } from "./flow-graph-run.js";
+import type { RunSource } from "./policy.js";
+import { heldSource } from "./outside-origin.js"; // mac7/outside-resume
 
 /**
  * A flow is a saved workflow seen as a picture: the steps are boxes and the arrows say what happens
@@ -199,11 +201,12 @@ export class Flows {
    * Starts a graph flow and hands back the task id straight away, before a single box has run, so
    * the page can open the run socket and watch the boxes happen rather than asking over and over.
    */
-  startGraph(id: string, input: Record<string, unknown> = {}, within?: readonly string[]): GraphRunStart {
+  startGraph(id: string, input: Record<string, unknown> = {}, within?: readonly string[], source: RunSource = "owner"): GraphRunStart {
     const definition = this.definitionOf(id);
-    const started = this.graphs.begin(definition, input, { source: "owner" });
+    const started = this.graphs.begin(definition, input, { source });
     // mac7/lockdown-fix: a flow a task sets going through its own tool keeps to that task's tools.
-    this.follow(started.runId, this.graphs.work(started.runId, started.compiled, { source: "owner", ...(within ? { within } : {}) }));
+    // mac7/outside-resume: and is held as that task is, when it came from outside.
+    this.follow(started.runId, this.graphs.work(started.runId, started.compiled, { source, ...(within ? { within } : {}) }));
     return { runId: started.runId, flowId: id, status: "running", name: definition.name };
   }
   /** Whether a saved flow is drawn as a graph rather than kept as a list of steps. */
@@ -214,14 +217,15 @@ export class Flows {
    * assistant never sets it, so a flow waiting on the owner stays waiting until they answer.
    */
   resumeGraph(id: string,
-    options: { runId?: string; approve?: boolean; interrupted?: "again" | "past"; within?: readonly string[] } = {}): GraphRunStart {
+    options: { runId?: string; approve?: boolean; interrupted?: "again" | "past"; within?: readonly string[]; source?: RunSource } = {}): GraphRunStart {
     const definition = this.definitionOf(id);
     const pick = options.runId ?? this.graphs.resumable(id)?.runId;
     if (!pick) throw new Error("There is nothing to carry on: no run of that flow stopped part way through.");
     const waiting = this.graphs.view(pick);
     if (!options.approve && !options.interrupted && waiting.question)
       throw new Error("That flow is waiting for you to say yes on your own screen. Approve it there, then carry it on.");
-    this.follow(pick, this.graphs.resume(pick, definition, { source: "owner", approve: options.approve === true,
+    // mac7/outside-resume: a run set going from outside stays held as that (FlowGraphRunner.work reads it).
+    this.follow(pick, this.graphs.resume(pick, definition, { source: options.source ?? "owner", approve: options.approve === true,
       ...(options.interrupted === undefined ? {} : { interrupted: options.interrupted }),
       ...(options.within ? { within: options.within } : {}) })); // mac7/lockdown-fix: a task carrying it on keeps to its tools
     return { runId: pick, flowId: id, status: "running", name: definition.name };
@@ -271,7 +275,8 @@ export class Flows {
         name, permission: "workflows.manage",
         description: `Runs the saved flow "${flow.name}".`.slice(0, 200),
         parameters: zodForShape(flow.definition.input) as z.ZodType<Record<string, unknown>>,
-        execute: async (value, context) => this.settled(this.startGraph(flow.id, value, this.workflows.taskLimit(context)).runId), // mac7/lockdown-fix
+        execute: async (value, context) => this.settled(this.startGraph(flow.id, value, this.workflows.taskLimit(context), // mac7/lockdown-fix
+          heldSource(context, this.store)).runId), // mac7/outside-resume
       });
       published.push(name);
     }

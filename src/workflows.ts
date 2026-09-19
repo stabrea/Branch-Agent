@@ -1,4 +1,5 @@
 import { chatOwnerOnly, startedFromChat } from "./key-context.js";
+import { heldSource } from "./outside-origin.js"; // mac7/outside-resume
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { Store, SavedRecord } from "./store.js";
@@ -106,7 +107,7 @@ export class Workflows {
    * to everyone outside, so "carry it on" is the one tool it already had rather than a second one
    * in a toolbox that is already full.
    */
-  resumeGraph: ((id: string, within?: readonly string[]) => unknown) | null = null;
+  resumeGraph: ((id: string, within?: readonly string[], source?: RunSource) => unknown) | null = null;
   constructor(
     readonly store: Store,
     private readonly runtime: Runtime,
@@ -135,6 +136,8 @@ export class Workflows {
       waitingUntil: existing?.waitingUntil ?? null, question: null, error: null,
       // mac7/lockdown-fix (integration review): saving the steps again never drops a task's limit.
       taskLimit: Array.isArray(existing?.taskLimit) ? existing.taskLimit : null,
+      // mac7/outside-resume: nor who set a paused run going.
+      ...(typeof existing?.startedFrom === "string" ? { startedFrom: existing.startedFrom } : {}),
     });
     return this.view(owner, id);
   }
@@ -240,6 +243,16 @@ export class Workflows {
     return saved && !fresh ? saved.filter((p) => within.includes(p)) : [...within];
   }
   /**
+   * mac7/outside-resume: who a run of the workflow is held as. Carrying one on (after a pause, a wait
+   * or a yes) keeps whoever set it going — a schedule, a chat, another program — whoever carries it
+   * on; the owner starting it afresh from the first step is the owner's own.
+   */
+  private heldSource(owner: string, id: string, fresh: boolean, source: RunSource): RunSource {
+    if (fresh || source !== "owner") return source;
+    const saved = (this.store.get("workflows", owner, id)?.data as { startedFrom?: RunSource } | undefined)?.startedFrom;
+    return saved ?? "owner";
+  }
+  /**
    * Works through the steps until one needs the owner, a time to pass, or everything is done.
    * `source` is whoever set it going: a workflow started by a schedule or another app is held to
    * the same limits that task would have been, so it cannot be used to get around them.
@@ -249,10 +262,12 @@ export class Workflows {
     if (current.status === "running") throw new Error("That workflow is working right now");
     const fresh = ["idle", "completed", "failed"].includes(current.status);
     const limit = this.limitFor(owner, id, fresh, within); // mac7/lockdown-fix
-    current = this.setStatus(owner, id, { status: "running", error: null, question: null, pausedFrom: null, pendingApproval: null, taskLimit: limit, ...(fresh ? { cursor: 0 } : {}) });
+    const held = this.heldSource(owner, id, fresh, source); // mac7/outside-resume
+    current = this.setStatus(owner, id, { status: "running", error: null, question: null, pausedFrom: null, pendingApproval: null, taskLimit: limit,
+      startedFrom: held, ...(fresh ? { cursor: 0 } : {}) });
     for (let index = current.cursor; index < current.steps.length; index++) {
       const step = current.steps[index]!;
-      const outcome = await this.step(owner, id, index, step, current, source, chain, limit);
+      const outcome = await this.step(owner, id, index, step, current, held, chain, limit);
       if (outcome.halt) return this.setStatus(owner, id, { cursor: outcome.cursor ?? index, ...outcome.patch });
       // Take the saved view back, so a later step sees what the last one wrote (a wait's moment).
       current = this.setStatus(owner, id, { cursor: outcome.cursor ?? index + 1, ...outcome.patch });
@@ -408,7 +423,8 @@ export function registerWorkflows(registry: ToolRegistry, workflows: Workflows):
     // The workflow is held to whatever this task is held to: starting one is no way around the
     // approval settings a schedule or another app is kept to.
     // mac7/lockdown-fix: and to the tools this task may use, so a workflow is no way round its own list.
-    execute: async (value, context) => workflows.run(workflows.forOwner(context.owner), value.id, context.source ?? "owner", [], workflows.taskLimit(context)),
+    // mac7/outside-resume: read from the task's record too, so a task carried on from outside is held as it started.
+    execute: async (value, context) => workflows.run(workflows.forOwner(context.owner), value.id, heldSource(context, workflows.store), [], workflows.taskLimit(context)),
   });
   registry.register({
     name: "workflows.pause",
@@ -426,8 +442,9 @@ export function registerWorkflows(registry: ToolRegistry, workflows: Workflows):
       const owner = workflows.forOwner(context.owner);
       // A flow drawn as a graph carries on from its own checkpoint; everything else is a step list.
       const within = workflows.taskLimit(context); // mac7/lockdown-fix
-      return workflows.resumeGraph?.(value.id, within)
-        ?? workflows.resumeWithoutApproving(owner, value.id, context.source ?? "owner", within);
+      const source = heldSource(context, workflows.store); // mac7/outside-resume
+      return workflows.resumeGraph?.(value.id, within, source)
+        ?? workflows.resumeWithoutApproving(owner, value.id, source, within);
     },
   });
 }
