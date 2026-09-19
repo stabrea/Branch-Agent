@@ -47,6 +47,8 @@ export class Profiles {
   private current: string | null = null;
   /** Wrong PINs counted per profile for this launch, so nobody can sit and try every number. */
   private readonly wrongPins = new Map<string, { count: number; until: number }>();
+  /** household-followups: whether the owner's PIN is set, read once and kept up to date here. */
+  private ownerPinSet = false;
   /** Overridden in tests so the wait can be stepped over without sleeping. */
   now: () => number = () => Date.now();
   constructor(private readonly db: DatabaseSync, private readonly owner: string) {
@@ -57,12 +59,14 @@ export class Profiles {
     // on while it is set, so quitting and reopening the app is not a way back to the owner.
     db.exec(`CREATE TABLE IF NOT EXISTS household_owner_pin(owner TEXT PRIMARY KEY, salt TEXT NOT NULL,
       pin_hash BLOB NOT NULL, active_profile TEXT)`);
+    this.ownerPinSet = !!db.prepare("SELECT 1 AS here FROM household_owner_pin WHERE owner=?").get(owner);
   }
   /**
    * household-followups: while the owner's PIN is set, puts the window back on the profile it was
    * left on before the app last closed. Called once, after the app has started up as the owner.
    */
   resumeWhereLeft(): void {
+    if (!this.ownerPinSet) return;
     const left = this.db.prepare("SELECT active_profile FROM household_owner_pin WHERE owner=?").get(this.owner)?.active_profile;
     if (typeof left === "string" && this.list().some((profile) => profile.id === left)) this.current = left;
   }
@@ -118,7 +122,7 @@ export class Profiles {
   }
   /** household-followups: whether switching back to the owner asks for the owner's PIN. */
   ownerPinOn(): boolean {
-    return !!this.db.prepare("SELECT 1 AS on_ FROM household_owner_pin WHERE owner=?").get(this.owner);
+    return this.ownerPinSet;
   }
   /**
    * household-followups: sets the owner's PIN for switching back, or switches it off with null. Only
@@ -130,11 +134,13 @@ export class Profiles {
     this.wrongPins.delete(ownerPinKey);
     if (pin === null) {
       this.db.prepare("DELETE FROM household_owner_pin WHERE owner=?").run(this.owner);
+      this.ownerPinSet = false;
       return { ownerPin: false };
     }
     const salt = randomBytes(16).toString("hex");
     this.db.prepare(`INSERT INTO household_owner_pin(owner,salt,pin_hash,active_profile) VALUES(?,?,?,NULL)
       ON CONFLICT(owner) DO UPDATE SET salt=excluded.salt, pin_hash=excluded.pin_hash`).run(this.owner, salt, hash(pin, salt));
+    this.ownerPinSet = true;
     return { ownerPin: true };
   }
   /** household-followups: the owner's PIN, checked exactly as a profile's is, in the same words. */
@@ -156,7 +162,8 @@ export class Profiles {
   /** Puts the window on a profile (null: the owner), remembered across a restart while the owner's PIN is set. */
   private leaveOn(profileId: string | null): void {
     this.current = profileId;
-    this.db.prepare("UPDATE household_owner_pin SET active_profile=? WHERE owner=?").run(profileId, this.owner);
+    // Without the owner's PIN nothing is remembered, and nothing touches the database.
+    if (this.ownerPinSet) this.db.prepare("UPDATE household_owner_pin SET active_profile=? WHERE owner=?").run(profileId, this.owner);
   }
   /** bucket 19: a new PIN for one profile, after a reset the owner started or the person's own change. */
   setPin(profileId: string, pin: string): void {
