@@ -218,17 +218,13 @@ test("an open list stays open when the window's refresh writes the same choices 
   const select = f.page.locator("#policy-preset"), list = f.page.locator("#glass-list");
   await select.click();
   await list.waitFor({ state: "visible" });
-  /* What the refresh every 3 s does (public/approvals.js): the preset choices are written again, the same
-     ones. That closed the list on the macOS runner before it could be measured (trunk 677e7d34). */
-  const rewrites = await f.page.evaluate(async () => {
-    let seen = 0;
-    const count = new MutationObserver(() => { seen++; });
-    count.observe(document.getElementById("policy-preset"), { childList: true });
-    await window.branchApprovals.render();
-    count.disconnect();
-    return seen;
+  /* What a redraw on the window's refresh every 3 s can do: the same choices written again (approvals.js
+     did it to the presets until p2-shell). That closed the list on the macOS runner before it could be
+     measured (trunk 677e7d34); any select's redraw must leave an open list alone when nothing changed. */
+  await f.page.evaluate(() => {
+    const picker = document.getElementById("policy-preset");
+    picker.replaceChildren(...[...picker.options].map((option) => new Option(option.text, option.value, false, option.selected)));
   });
-  assert.ok(rewrites > 0, "the refresh did write the choices again");
   await f.page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
   assert.equal(await list.isVisible(), true, "the same choices written again leave the list open");
   assert.equal(await select.getAttribute("aria-expanded"), "true");

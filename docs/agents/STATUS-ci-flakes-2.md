@@ -111,6 +111,9 @@ condition. Also any other test that failed more than once in the last ~15 trunk 
       IRC line order: JOIN before the SASL token every time; NIP-04: 67 / 20000 wrong-key decrypts returned).
       after: ai-comments 75/75, all IRC tests 75/75 + 45/45, NIP-04 75/75 (2000 wrong keys each),
       all run-socket voice tests 75/75 (after the close-listener fix).
-- [x] merged origin/mac/cross-platform (through outside-review), clean dist, tsc, the 13 test files touched
-      or looped + source-hygiene + static-assets + index-structure + handbook: 195 pass, 0 fail,
-      1 skipped (macOS-only). Waited for the running trunk Checks run to finish before pushing.
+- [x] merged origin/mac/cross-platform (through p2-accounts and p2-shell), clean dist, tsc, the 13 test
+      files touched or looped + source-hygiene + static-assets + index-structure + handbook: 195 pass,
+      1 fail, 1 skipped, the fail being the new glass test, whose rewrite came from approvals.js; p2-shell
+      now leaves identical presets alone, so the test writes the same options itself (fails on trunk's
+      glass-select.js, passes here; glass-select + conversation-mode files 33/33). Pushed without waiting
+      for trunk Checks, per the coordinator's rule change.
