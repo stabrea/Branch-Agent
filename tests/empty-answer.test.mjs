@@ -44,7 +44,9 @@ async function sseFixture(t, frames) {
 }
 
 test("a round that produces nothing ends as a failure with a sentence, not completed", async (t) => {
-  const { app } = await fixture(t, calls({ content: "", toolCalls: [] }));
+  // mac7/coding-gap: an empty reply is nudged twice before the task is judged, so the model stays empty three times here.
+  const empty = () => ({ content: "", toolCalls: [] });
+  const { app } = await fixture(t, calls(empty(), empty(), empty()));
   const run = await app.runtime.run({ prompt: "fix the failing test" });
   assert.notEqual(run.status, "completed");
   assert.equal(run.status, "failed");
@@ -54,11 +56,13 @@ test("a round that produces nothing ends as a failure with a sentence, not compl
 });
 
 test("a model that spends its whole reply thinking says so rather than reporting success", async (t) => {
-  const { app } = await fixture(t, calls({ content: "", toolCalls: [], reasoningChars: 6200 }));
+  // mac7/coding-gap: an empty reply is nudged twice before the task is judged, so the model stays empty three times here.
+  const thought = () => ({ content: "", toolCalls: [], reasoningChars: 6200 });
+  const { app } = await fixture(t, calls(thought(), thought(), thought()));
   const run = await app.runtime.run({ prompt: "write summary.md" });
   assert.equal(run.status, "failed");
   assert.match(run.output, /thinking/i);
-  assert.match(run.output, /6,200/);
+  assert.match(run.output, /18,600/, "three replies of 6,200 characters each, all counted");
   assert.match(run.output, /larger model/i);
 });
 
@@ -67,7 +71,7 @@ test("a task whose tools all failed and then said nothing is still a failure", a
   // only a task whose every tool failed and that said nothing is empty.
   const { app } = await fixture(t, calls(
     { content: "", toolCalls: [{ id: "one", name: "files.write", arguments: "{\"path\": \"a.txt\", cont" }] },
-    { content: "", toolCalls: [] },
+    { content: "", toolCalls: [] }, { content: "", toolCalls: [] }, { content: "", toolCalls: [] },
   ));
   const run = await app.runtime.run({ prompt: "write a.txt" });
   assert.equal(run.status, "failed");

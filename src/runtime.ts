@@ -164,6 +164,9 @@ export interface DelegateOptions { timeoutMs?: number; resultSchema?: Record<str
 export interface FollowUp { id: string; prompt: string; createdAt: string; shortLivedKey?: boolean; shortLivedKeyId?: string; personProfileId?: string }
 export interface BackgroundResult { childRunId: string; parentRunId: string; status: string; output: string; finishedAt: string }
 export interface FanoutOutcome { waves: string[][]; tasks: Record<string, { runId: string; status: string; output: string; result: ResultCheck }> }
+/** What the model is told after a reply that was all thinking: act on it now. */
+export const emptyReplyNudge = "Your last reply had thinking but no answer and no tool call, so nothing happened. "
+  + "Act on what you worked out now: call the tool for the next step, or, if the task is finished, give your final answer.";
 /** A task's own deadline: two minutes unless the caller asked for another, within one day. */
 export function runDeadline(timeoutMs: number | undefined): number {
   const asked = Number.isFinite(timeoutMs) ? Math.floor(timeoutMs!) : 0;
@@ -1187,6 +1190,7 @@ ${run.output.slice(0, 6000)}`;
     const conductor = this.orchestration.conductor(run, { ...conduct, ...planned, ...(checks ? { checks } : {}) }, (aside) => this.aside(run, context, route, aside));
     this.add(run, messages, ids, await conductor.start());
     let checkFailures = 0;
+    let emptyReplies = 0; // mac7/coding-gap: replies that were all thinking and no action
     let knownTools = this.registry.version;
     // ── bucket-15: the owner's filters are asked about the connection that answers. The preview is held
     // back (the stall watch still runs) while an outlet filter applies to any connection this round may
@@ -1224,6 +1228,15 @@ ${run.output.slice(0, 6000)}`;
         const calling = completion.toolCalls.length > 0;
         completion.content = outlet.blocked ? (calling ? "" : outlet.blocked) : outlet.text;
         spoken = outlet.blocked ? completion.content : (scratch ? this.filterText("outlet", scratch.rest, filterModels).text : completion.content);
+      }
+      // mac7/coding-gap: a local reasoning model often thinks, then stops with no words and no tool
+      // call. That is not an answer, and ending the task there wastes all the thinking; ask it once
+      // or twice to act on what it worked out before the task is judged to have produced nothing.
+      if (!completion.toolCalls.length && !completion.content.trim() && emptyReplies < 2) {
+        emptyReplies++;
+        this.store.event(run.id, "model.empty_reply", { round: round + 1, nudge: emptyReplies });
+        this.add(run, messages, ids, { role: "user", content: emptyReplyNudge });
+        continue;
       }
       const assistant: Message = {
         role: "assistant",

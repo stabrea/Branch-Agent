@@ -95,3 +95,29 @@ test("a task's deadline is the caller's when given, so a longer --timeout really
   const whole = await app.runtime.run({ prompt: "hi", timeoutMs: 5000 });
   assert.equal(whole.status, "completed");
 });
+
+test("a reply that is all thinking is nudged to act, twice at most, before the task counts as empty", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-coding-gap-"));
+  let calls = 0;
+  const seen = [];
+  const thinker = (answerOn) => ({ name: "scripted", async complete(request) {
+    calls++;
+    seen.push(request.messages.at(-1)?.content ?? "");
+    return { content: calls === answerOn ? "Done." : "", toolCalls: [] };
+  } });
+  const app = await createBranch({ dataDir: join(root, "data"), workspace: join(root, "w"), provider: thinker(2) });
+  t.after(async () => { await app.close(); await discardTemp(root); });
+  const run = await app.runtime.run({ prompt: "fix it" });
+  assert.equal(run.status, "completed");
+  assert.equal(calls, 2);
+  assert.match(seen[1], /thinking but no answer and no tool call/);
+  assert.equal(app.runtime.store.events(run.id).filter((e) => e.kind === "model.empty_reply").length, 1);
+
+  const root2 = await mkdtemp(join(tmpdir(), "branch-coding-gap-"));
+  calls = 0;
+  const never = await createBranch({ dataDir: join(root2, "data"), workspace: join(root2, "w"), provider: thinker(99) });
+  t.after(async () => { await never.close(); await discardTemp(root2); });
+  const empty = await never.runtime.run({ prompt: "fix it" });
+  assert.equal(empty.status, "failed", "still judged to have produced nothing");
+  assert.equal(calls, 3, "one reply and two nudges, no more");
+});
