@@ -85,3 +85,55 @@ block, static allowlist), `src/index.ts` (Devices gets `join.nodeDir`), `src/dev
 - Screenshots: `node claude-session-files/branch/p2shell/shots.mjs <worktree> <scene...>` (scenes in scenes.mjs there:
   strip, strip-3d, menu, studio, studio-off, studio-computer, studio-join, studio-phone, overview, overview-device,
   people, people-page, replies). Locale strings: `python claude-session-files/branch/p2shell/fr.py <worktree>`.
+
+## Integration (integrate-p2-shell, 2026-09-19)
+
+Adversarial review, fixed on this branch, merged into `mac/cross-platform`.
+
+Security (pairing without a terminal) — it runs the same protocol as `branch node pair`, so the invitation
+is unchanged: 128-bit offer id + six digits, five minutes, one use, five tries, 20/min global + 10/min per
+address, https or loopback/Tailscale only, the owner's explicit "Let it in", and every ability off. The
+route sits under `/api/devices`: owner only, refused to a household person and to a short-lived key, and
+behind the origin/`sec-fetch-site` check. Fixed here:
+- [x] **Mutual check** (was missing in both paths): `keyCheck(publicKey)` (src/devices/protocol.ts) is
+      shown on the joining computer while it waits, beside the request in the studio and on the Devices
+      card, and printed by `branch node pair`. The key itself is never in any answer.
+- [x] **A yes after Stop connected / re-saved the key**: the wait for the yes now takes an AbortSignal
+      (`pairNode` `signal`); Stop, Leave, Lockdown and close abort it, so a late yes connects nothing and
+      leaves no key. A new join after Leave cannot be hijacked by the old wait. Removal on the other side
+      now forgets the key here too (it only switched off before).
+- [x] Attack tests (tests/p2-shell.test.mjs, "integration review"): a replayed invitation is refused
+      and leaves no second request; a yes after Stop; http to a public/LAN address, ftp, a cross-site
+      Origin, `sec-fetch-site: cross-site` and no key are all refused; no key in either window's answers;
+      Lockdown closes a joined line and it comes back after; removal forgets the key; a household person
+      cannot restyle/hide/reorder/re-picture/remove a Trunk; SVG and oversized pictures refused.
+
+Window fixes (owner nitpicks): dragging a Trunk moved it by swapping (now it moves); Hide gets an Undo in
+the notice; "Let it in"/"Refuse" were stacked; "Your phone" tab was cut off at 390 (tabs share the row);
+"ready · needs you · off" wrapped into a column of dots (each face now captioned); Overview/People title
+was 16 px because layout.css won (now the sample's large condensed title); add-person PIN placeholder cut
+off at 390; "Leave" said while only waiting (now "Stop joining"); a strip switched off could be drawn
+before the first server answer (starts from the remembered choice).
+
+glass-select `-388` on trunk: **not caused by the strip** (strip.js is not on trunk). Root cause: app.js's
+3-second refresh re-renders `#policy-preset`'s options, glass-select's MutationObserver closes the open list,
+and a hidden list measures `top 0`, so the gap is -select.bottom. ci-flakes-2 fixes glass-select.js
+generally; here `approvals.js` just stops rebuilding unchanged options (test: an open dropdown survives two refreshes).
+
+Guide lightbulb (#36): confirmed there is no guide/tour/compass button in the real app (Help is a text item
+in More; the only "compass" is an emoji-picker entry in studio.js). Nothing to change.
+
+Rooms black-face fix: faces.js uses unsigned shifts throughout and sets colours through CSSOM
+(`style.setProperty`), which the `style-src 'self'` policy allows; a new test checks computed colours of
+80+ faces (strip, faces.js and trunks.js `avatar()`) are never black or empty.
+
+Screenshots retaken as `*-fixed.png` (asking, studio, studio-computer, join-waiting, overview, people-page,
+menu, strip; light/dark, 1440/390): zero page errors after load, no sideways overflow.
+
+Audit verdicts: 1 strip VERIFIED; 2 look + own menu VERIFIED; 3 studio + pairing VERIFIED (with fixes);
+4 People/Overview VERIFIED; 5 reply faces VERIFIED; 6 3D stand-ins VERIFIED; 7 lightbulb N/A (no guide exists).
+
+Not done / notes: the check code is shown but not enforced (the owner compares); the phone app does not
+show it yet (apps/ not touched). The Overview/People pages keep the places' own floating composer, which
+sits over the last lines until scrolled. The first load in a brand-new browser with the strip off on
+the server still reserves the strip's room until the first answer (nothing is remembered yet).
