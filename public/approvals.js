@@ -30,10 +30,13 @@ const status = (message) => { $("policy-status").textContent = message; };
 /** The list of presets to choose from, with the plain-language description of each. */
 function renderPresets() {
   const picker = $("policy-preset");
-  picker.replaceChildren();
-  for (const preset of state.presets) picker.append(new Option(preset.label, preset.id));
-  if (state.policy.preset === "custom") picker.append(new Option("Rules I set myself", "custom"));
-  picker.value = state.policy.preset;
+  // Integration review (p2-shell): the three-second refresh used to rebuild these options every time,
+  // which closed an open list under the person's pointer (public/glass-select.js closes a list whose
+  // choices change). The options are only rebuilt when they are really different.
+  const wanted = [...state.presets.map((preset) => [preset.id, preset.label]), ...(state.policy.preset === "custom" ? [["custom", "Rules I set myself"]] : [])];
+  const same = picker.options.length === wanted.length && wanted.every(([id, label], index) => picker.options[index].value === id && picker.options[index].text === label);
+  if (!same) picker.replaceChildren(...wanted.map(([id, label]) => new Option(label, id)));
+  if (picker.value !== state.policy.preset) picker.value = state.policy.preset;
   const chosen = state.presets.find((preset) => preset.id === state.policy.preset);
   const localDescription = chosen ? t(`policy.preset.${chosen.id}.description`) : "";
   $("policy-description").textContent = chosen
@@ -72,6 +75,8 @@ function renderWaiting() {
   for (const question of state.waiting) {
     const item = el("div", undefined, "item");
     item.append(el("h3", question.label), el("p", question.question, "subtle"));
+    const listed = filesBlock(question, "subtle");
+    if (listed) item.append(listed);
     // Exactly what it wants to do, word for word, with any saved password or key already taken out.
     // Your answer is tied to these exact words: if it changes them, it has to ask again.
     if (question.bytes) item.append(el("pre", question.bytes, "subtle"));
@@ -99,6 +104,24 @@ function renderWaiting() {
     item.append(no);
     box.append(item);
   }
+}
+
+/* mac7/multi-target: every file a question's call touches, the first few named and the rest folded away. */
+function filesBlock(question, tone) {
+  const files = Array.isArray(question.files) ? question.files : [];
+  if (files.length < 2) return null;
+  const line = (file) => el("li", t(file.kind === "read" ? "live.fileRead" : file.kind === "delete" ? "live.fileDelete" : "live.fileWrite", { path: file.path }));
+  const shown = el("ul");
+  for (const file of files.slice(0, 5)) shown.append(line(file));
+  const box = el("div");
+  box.append(el("p", t("live.files", { count: files.length }), tone), shown);
+  if (files.length > 5) {
+    const more = el("details"), rest = el("ul");
+    for (const file of files.slice(5)) rest.append(line(file));
+    more.append(el("summary", t("live.filesMore", { count: files.length - 5 })), rest);
+    box.append(more);
+  }
+  return box;
 }
 
 async function answer(sessionId, decision, remember, fingerprint) {

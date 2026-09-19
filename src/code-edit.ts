@@ -6,7 +6,7 @@ import { languageOf } from "./code-search.js";
 import type { WorkspaceFiles, WriteObserver } from "./files.js";
 import type { ToolContext } from "./contracts.js";
 import type { ToolRegistry } from "./registry.js";
-import { parsePatch, applyHunks } from "./patch.js";
+import { parsePatch, applyHunks, patchFileList, patchTargets } from "./patch.js";
 import { replaceText } from "./text-replace.js";
 import { bracketValidation, canCheckBrackets, typeScriptValidation } from "./code-syntax.js";
 import { runAsNode } from "./child-env.js";
@@ -240,6 +240,9 @@ export function registerCodeEdit(registry: ToolRegistry, files: WorkspaceFiles, 
     name: "files.patch", permission: "files.write",
     description: "Apply a unified diff or a *** Begin Patch block. Parts are placed by their lines even when line numbers are off; if any part's lines are missing, nothing is written.",
     parameters: z.object({ patch: z.string().min(1).max(131072) }).strict(),
+    // mac7/multi-target: the files are inside the patch, read the way it will be applied.
+    target: (a) => patchFileList(a.patch),
+    targets: (a) => patchTargets(a.patch),
     execute: async (a, c: ToolContext) => editor.patch(a.patch, c),
   });
   registry.register({

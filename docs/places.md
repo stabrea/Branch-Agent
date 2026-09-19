@@ -41,6 +41,8 @@ A home is written `place:tab`, or `settings:page`, or `settings:models:tab`.
 | `customize:plugins` | Plugins |
 | `customize:connections` | MCP in both directions: servers the assistant uses, other AI tools using Branch |
 | `customize:channels` | Chat apps, the phone, pages and the browser extension that reach Branch |
+| `overview:here` | (phase 2, reached from the Trunks strip, not the sidebar) the Overview of this computer, one of your other computers or a Trunk (`public/overview.js`) |
+| `household:people` | (phase 2, reached from the strip's Who is using Branch) People on this computer, with faces (`public/people-place.js`) |
 | `settings:general` | Starting with the computer, projects, labels, shared copies, people on this computer |
 | `settings:assistant` | Name, picture, working instructions, persona |
 | `settings:appearance` | Theme, light or dark, season, contrast, text size, spacing, lettering, language |

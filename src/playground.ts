@@ -8,6 +8,7 @@ import type { ToolRegistry } from "./registry.js";
 import type { Store } from "./store.js";
 import type { ToolContext } from "./contracts.js";
 import { evaluatePolicy, isReadOnlyPermission, policyTarget, readPolicy } from "./policy.js";
+import { everyTargetDecision } from "./policy-targets.js"; // mac7/multi-target
 import type { ManualVerdict } from "./tool-gate.js";
 
 export const TryToolSchema = z
@@ -68,8 +69,10 @@ export async function tryTool(
   // command the assistant asked for would be — a command nobody has ruled on is asked about.
   const resource = registry.resourceOf(input.name, target, seen);
   const verdict = gate?.(input.name, seen, context);
-  const decision = verdict?.decision
-    ?? evaluatePolicy(readPolicy(store, owner), { tool: input.name, target, readOnly: isReadOnlyPermission(permission), resource }).decision;
+  const policy = readPolicy(store, owner);
+  // mac7/multi-target: without the runtime's gate, every file the call touches is still weighed.
+  const decision = verdict?.decision ?? everyTargetDecision(registry, policy, { tool: input.name, permission, callTarget: target, args: seen }, context,
+    evaluatePolicy(policy, { tool: input.name, target, readOnly: isReadOnlyPermission(permission), resource }).decision).decision;
   if (decision === "deny")
     return { status: "refused", reason: verdict?.reason ?? `Your settings do not allow ${input.name}${target ? ` on ${target}` : ""}.`, tool: input.name, target };
   if (decision === "ask" && !input.confirm)

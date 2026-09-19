@@ -39,6 +39,11 @@ export interface PendingApproval {
    * project's tests?", answered Always for this folder / Once / No (src/coding/project-tests.ts).
    */
   kind?: "project-tests";
+  /**
+   * mac7/multi-target: every file the call touches, and whether it reads, changes or deletes each,
+   * when it touches more than one; the card lists them (the first few, the rest folded away).
+   */
+  files?: { kind: "read" | "write" | "delete"; path: string }[];
 }
 
 /** Wave mac3 (tool-safety): what the owner is told when they try to keep a yes the safety check advised against. */
