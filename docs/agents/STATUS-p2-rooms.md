@@ -49,3 +49,59 @@ conversation follows it** (capped by that Trunk's own limits: its tools, its rea
 - Room member conversations appear in Recents with the room prompt as their title (pre-existing).
 - "Your assistant needs you" banner (app.js) names the assistant for a Trunk's question in a room (pre-existing);
   its Open conversation leads to the member's side, which offers Open the room.
+
+## Integration (adversarial review, Claude, 2026-09-19)
+
+Reviewed f071bc26, merged with trunk f5b8d582 (outside-review and tests-unattended are on trunk; clean merge).
+Fixes in 9a1b43a4 and the commit after it. Verdict: **MERGE WITH FIXES** (applied). Every new security test was
+checked to fail with its fix taken out of `dist/` (7 of 7; the face test with the fix taken out of `public/`).
+
+Fixed (tests marked "integration review" in tests/p2-rooms.test.mjs and tests/p2-rooms-ui.test.mjs):
+- [x] **Room yes, scoped and shown.** It was already bound to the Trunk's own side of the room and to the exact
+  request (tool, target, bytes) for an hour, but it outlived the seat: taking the Trunk out or removing the room
+  left it standing, and the copy kept for a restart brought it back. Now it ends with the seat and with the room
+  (`Runtime.endGrants`, the restart copy too); the room shows each one ("Ledger may do this in this room: …",
+  until when) with **Revoke** (`POST /api/trunks/rooms/:id/revoke`, owner only). A key or a household profile
+  cannot leave one standing through `/api/policy/approve` (401; a key could, for a turn its own message started).
+  A request the safety check advised against is answered once, never kept (it threw before).
+- [x] **A room member's own mode.** The member's side was read first, so a mode put on it (Recents, the chip)
+  beat the room's; the room's mode now always wins.
+- [x] **Blocking: Talk live's refusals were on the route only.** Every task's socket (`/api/runs/:id/ws`) accepts
+  `{live:"start"}`, so a room member's or a Trunk conversation's task could host a live conversation whose tools
+  run as the owner. The refusal is now in `LiveConversations.start` (src/live-refusal.ts), and it also refuses
+  under Lockdown (the sound leaves the computer), for a household person, and in a conversation that began outside
+  Branch (outside-resume's carrier). Tools in a live conversation are still judged with the conversation's mode.
+- [x] **Recents.** A room's inner conversations (first message: the room's instructions to that Trunk) are kept
+  out of Recents, search and the phone list (`store.hiddenSessions`, a `NOT IN` in the query so pages stay whole).
+- [x] **"… needs you"** names the Trunk ("Ledger needs you in Price check") and Open leads to the room. en + fr.
+- [x] **Faces.** p2-shell is not on trunk, so this branch's avatar() stays. The `>>>` fix is right; the colours
+  were still refused by the window's content rules everywhere except rooms.js (the sidebar's faces drew black).
+  `shape()` in public/trunks.js now sets them through the element's style; rooms.js's `keepColours` is gone.
+  When p2-shell (faces.js) merges, take theirs and drop this.
+- [x] **Switch off**: with "Choosing a Trunk" off nothing changes (tested by the builder); a conversation chosen
+  before it was switched off can now be given back to your assistant (it was stuck).
+- [x] A room's last card clears the message box's fade on a phone (padding under 700 px).
+- [x] Test flake (fix waits for the condition): tests/p2-rooms-ui.test.mjs's first test sent before trunks.js knew
+  the Trunks on a busy machine.
+
+Checked and fine: room turns after a restart and after a yes keep the key a message came with (`byKey` in the
+persisted log); only keys reach `rooms/:id/send` from outside (chat apps, schedules and tools do not), so there is
+no other outside origin to carry into a room turn; trunk's outside-review fix (a Trunk-to-Trunk message) targets a
+Trunk's own chat, not room turns, so nothing to reconcile. The switch ships off and nothing changes while off.
+`/api/voice/live` is 401 to keys (tested), refused to a household person, refused in Trunk conversations/rooms.
+The microphone opens only on press (voice-live.js `press`), Mute stops sending; nothing is recorded before.
+
+Per piece: 1 VERIFIED (after fixes), 2 VERIFIED, 3 VERIFIED (after the yes/Revoke/banner/Recents fixes),
+4 VERIFIED, 5 VERIFIED, 6 VERIFIED (after the socket refusal), 7 VERIFIED (docs updated for the fixes).
+
+Not fixed / notes:
+- **Pre-existing flake**: tests/p2-voice-ui.test.mjs "the view follows the live conversation" fails on this
+  machine when run after the file's earlier tests, identically on the builder's f071bc26; it passes alone. The page
+  has the setting (checked) and `openView()` works when called; the event's handler returns before opening. Not
+  found in the time I gave it; CI (Linux) not yet seen on it.
+- The room's own conversation still shows in Recents under the owner's first message; the Trunks' own chats show
+  "Introduce yourself to the owner…" (pre-existing, not a room's).
+- The room UI offers Yes (holds for the hour, in the room) and No; no "just this once" (every re-taken turn would ask
+  again). The Yes button's label says so.
+- `GET /api/trunks/conversations/:id` needs only Trunks on, not the Conversations part (read only).
+- Screenshots: `phase2-shots/rooms/room-fixed-*.png`, `room-allowed-fixed-*.png` (1440/1024/390, light/dark).

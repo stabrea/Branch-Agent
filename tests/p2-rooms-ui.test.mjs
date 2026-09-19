@@ -59,6 +59,9 @@ test("with choosing a Trunk switched off, nothing new shows and @name goes to th
   assert.equal(await f.page.locator("#who-button").isVisible(), false);
   assert.equal(await f.page.locator("#who-hero").count(), 0);
   assert.equal(await f.page.evaluate(() => globalThis.branchRooms.handlesMentions()), false);
+  // Integration review: the sidebar's roster is drawn once public/trunks.js knows the Trunks; on a busy
+  // machine the message could go before that, as an ordinary message.
+  await f.page.locator("#trunks-rail svg.trunk-face").nth(1).waitFor({ state: "attached" });
   await send(f.page, "@scout hello there");
   await f.page.waitForFunction((id) => document.getElementById("conversation").dataset.sessionId === id, f.scout.chatSessionId);
   assert.deepEqual(f.errors, []);

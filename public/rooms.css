@@ -553,3 +553,10 @@ body.lx .composer-dock:has(> .rooms-mentions) {
   padding: 4px 10px;
   white-space: nowrap;
 }
+
+/* Integration review: a room's last card (a question, a yes with Revoke) clears the message box's fade on a phone. */
+@media (max-width: 700px) {
+  #conversation[data-room] {
+    padding-bottom: 72px;
+  }
+}
