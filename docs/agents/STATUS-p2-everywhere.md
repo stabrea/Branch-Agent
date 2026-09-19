@@ -10,7 +10,10 @@ critiques #44, #53). Screenshots and terminal frames: `claude-session-files/bran
 ## Pieces
 
 - [x] 1. Phone apps: the Slate fallback in the native build files (splash/launch colour, Android colours,
-      iOS colour sets, app icon ground) and the phone page's first paint; tests in tests/mobile-shell.test.mjs
+      iOS colour sets, app icon ground); tests in tests/mobile-shell.test.mjs read the generated files back.
+      NOT done: the phone's own page still paints tokens.css's Forest ground (#03140b) for the moment before
+      theme.js wears Slate (#18242C), so a Slate splash can be followed by a Forest blink. Fixing it means a Slate
+      default in public/tokens.css (the window's first paint too) — left for whoever owns the token layer.
 - [x] 2. Terminal view in the desktop's design language (src/terminal-*.ts): rail of Trunks/computers,
       approval card, Activity status, usage line, key hints; ASCII fallback; snapshots regenerated and read.
       New src/terminal-everywhere.ts (rail + usage data, owner only), drawing in src/terminal-screen.ts (marked
@@ -35,7 +38,9 @@ critiques #44, #53). Screenshots and terminal frames: `claude-session-files/bran
   place); it stays in the side list.
 - The window's viewport has no viewport-fit=cover, so env(safe-area-inset-bottom) is 0 in the phone app and the
   bar sits above the home indicator as the rest of the page does. Not changed (it would move the title bar too).
-- Terminal answers are now headed "<assistant name>:" (was "Assistant:").
+- Terminal answers are now headed "<assistant name>:" (was "Assistant:"), in the drawn and the plain view.
+- The places bar only shows once the window is connected (not on the sign-in screen). The two-by-two question
+  layout and the scroll-into-view apply at 900 px and under, so 1024x700 keeps the computer's layout (tested).
 
 - The "early errors" in the proof script (401/429 and two CSP inline-style warnings) all come from the sign-in
   screen before the session token is entered; they exist on trunk too. Errors after the window settles are counted

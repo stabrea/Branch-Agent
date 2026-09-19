@@ -22,7 +22,7 @@ const asking = {
   },
 };
 
-async function fixture(t, { width = 390, height = 844 } = {}) {
+async function fixture(t, { width = 390, height = 844, connect = true } = {}) {
   const root = await mkdtemp(join(tmpdir(), "branch-phone-layout-"));
   const app = await createBranch({ workspace: join(root, "workspace"), dataDir: join(root, "data"), provider: asking });
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0, host: "127.0.0.1" });
@@ -42,15 +42,27 @@ async function fixture(t, { width = 390, height = 844 } = {}) {
   const page = await browser.newPage({ viewport: { width, height }, hasTouch: width < 900 });
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
+  const signIn = async () => {
+    await page.getByLabel("Session token", { exact: true }).fill(server.token);
+    await page.getByRole("button", { name: "Connect", exact: true }).click();
+    await page.locator("#workspace").waitFor({ state: "visible" });
+  };
   await page.goto(server.url);
-  await page.getByLabel("Session token", { exact: true }).fill(server.token);
-  await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.locator("body.lx-ready").waitFor({ state: "attached" });
   await page.locator("#ew-places").waitFor({ state: "attached" });
-  return { page, call, errors, app };
+  if (connect) await signIn();
+  return { page, call, errors, app, signIn };
 }
 const box = (page, selector) => page.locator(selector).first().boundingBox();
 const lit = (page) => page.locator('.ew-place[aria-current="page"]').getAttribute("data-place");
+/** How a question card would be laid out at this width, measured on a stand-in that is taken away again. */
+const askLayout = (page) => page.evaluate(() => {
+  const card = Object.assign(document.createElement("div"), { id: "live-ask", className: "live-ask" });
+  document.getElementById("chat").append(card);
+  const display = getComputedStyle(card).display;
+  card.remove();
+  return display;
+});
 const noSideways = (page) => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth);
 
 test("a phone has the places at its foot, in the sample's order, and the message box rides above them", async (t) => {
@@ -66,6 +78,14 @@ test("a phone has the places at its foot, in the sample's order, and the message
   for (const one of await bar.locator(".ew-place").all()) assert.ok((await one.boundingBox()).height >= 44, "each place is a thumb's size");
   assert.equal(await lit(f.page), "chat");
   assert.equal(await noSideways(f.page), true);
+  assert.deepEqual(f.errors, []);
+});
+
+test("the sign-in screen has no places bar; it comes once the window is connected", async (t) => {
+  const f = await fixture(t, { connect: false });
+  assert.equal(await f.page.locator("#ew-places").isVisible(), false);
+  await f.signIn();
+  await f.page.locator("#ew-places").waitFor({ state: "visible" });
   assert.deepEqual(f.errors, []);
 });
 
@@ -145,6 +165,7 @@ test("a tablet held upright keeps the side list as a column; it still folds away
   const side = await rail.boundingBox(), main = await box(f.page, "body > main");
   assert.ok(main.x >= side.x + side.width, "the conversation sits beside it");
   assert.equal(await f.page.locator("#ew-places").isVisible(), false, "a tablet has no bar at its foot");
+  assert.equal(await askLayout(f.page), "grid", "a tablet answers a question two by two, as a phone does");
   await f.page.locator("#rail-toggle").click();
   await f.page.waitForFunction(() => document.body.classList.contains("no-rail"));
   assert.equal(await rail.isVisible(), false, "the toggle folds it away");
@@ -164,6 +185,7 @@ test("a computer's window is unchanged: no bar, the side list where it always wa
     const f = await fixture(t, { width, height });
     assert.equal(await f.page.locator("#ew-places").isVisible(), false, `${width}: no bar`);
     assert.equal(await f.page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--ew-bar-h")), "", `${width}: nothing is lifted for a bar`);
+    assert.equal(await askLayout(f.page), "flex", `${width}: a question keeps the computer's layout`);
     assert.equal(await noSideways(f.page), true);
     assert.deepEqual(f.errors, []);
   }

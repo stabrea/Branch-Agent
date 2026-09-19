@@ -192,3 +192,18 @@ test("in the running view a question shows as a card, Activity says it waits, an
   assert.ok(tui.conversation.transcript.some((line) => line.kind === "ok" && line.text === "Branch Agent:"), "the answer is headed with the assistant's own name");
   assert.ok(!tui.conversation.paneRows("activity", words).some((row) => row.title === "Waiting for your yes"), "and Activity stops saying it waits");
 });
+
+test("a terminal that cannot be drawn on heads each answer with the assistant's name too", async (t) => {
+  const app = await fixture(t);
+  const input = new PassThrough(), output = new PassThrough(), signals = new EventEmitter();
+  let printed = "";
+  output.on("data", (chunk) => { printed += chunk.toString(); });
+  const tui = new Tui(app.runtime, { input, output, signals, app, pollIntervalMs: 5, env: { TERM: "dumb", NO_COLOR: "1", COLUMNS: "80", LINES: "24" } });
+  const done = tui.start();
+  t.after(async () => { input.write("\x04"); await done; });
+  await delay(50);
+  input.write("hello\r");
+  for (let i = 0; i < 400 && !printed.includes("Here it is."); i++) await delay(10);
+  assert.match(printed, /Branch Agent:\r?\nHere it is\./);
+  assert.doesNotMatch(printed, /Assistant:/);
+});

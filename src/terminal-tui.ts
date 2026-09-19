@@ -157,6 +157,8 @@ export class Tui {
     if (language !== this.words.language) this.words = loadWords(language);
     if (this.catalogue) this.palette = paletteFor(this.catalogue, this.previewTheme ?? this.look.theme, lookMode(store, owner, this.env), this.look.contrast);
     this.needs = this.app ? needsCount(this.app) : 0;
+    // phase2/everywhere: answers are headed with the assistant's own name, in the drawn and the plain view alike.
+    this.conversation.assistant = this.app ? assistantName(this.app) : "Branch Agent";
     this.readEverywhere();
     this.screen?.setMouse(this.switches.mouse === "on" || (this.switches.mouse === "when-needed" && (!!this.overlay || "settings" in this.route)));
   }
@@ -198,7 +200,6 @@ export class Tui {
     const { rows } = this.size();
     const oak = this.switches.oak === "on" || (this.switches.oak === "when-needed" && rows >= 30);
     const partial = this.conversation.partial;
-    this.conversation.assistant = this.app ? assistantName(this.app) : "Branch Agent"; // phase2/everywhere
     return {
       words: this.words, glyphs: glyphsFor(this.style.unicode), assistant: this.app ? assistantName(this.app) : "Branch Agent",
       model: this.conversation.modelName(), lockdown: lockdownState(this.runtime.store, this.runtime.owner).on,

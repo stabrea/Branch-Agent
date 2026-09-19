@@ -82,6 +82,10 @@
   .ew-badge[hidden] {
     display: none;
   }
+  /* not before connecting: the sign-in screen has no places to open */
+  body.lx > main > .ew-places[hidden] {
+    display: none;
+  }
   /* while the side list slides over the page, or Settings covers it, the bar steps aside (and out of
      the reading order), so each place has one button on screen */
   body.lx.rail-open > main > .ew-places,
@@ -98,8 +102,8 @@
   }
 }
 
-/* ---------- a phone or tablet: a question's answers two by two, each a button a thumb can find ---------- */
-@media (max-width: 1024px) {
+/* ---------- a phone or tablet (900 px and under): a question's answers two by two, each a button a thumb can find ---------- */
+@media (max-width: 900px) {
   #live-ask {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));

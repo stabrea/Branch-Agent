@@ -5,7 +5,7 @@
    - At phone width (560 px and under) a bar of places sits at the foot of the window, as in the sample:
      Conversation, Inbox (with its count), Automations, Library and Settings. The message box sits
      above it, never under it. Customize stays in the side list.
-   - On a phone or tablet, a question the assistant stops on is scrolled into view above the message
+   - On a phone or tablet (900 px and under), a question the assistant stops on is scrolled into view above the message
      box when it arrives, so it can be answered without hunting for it.
    - The tablet layout (the side list kept as a column from 700 px) is CSS only (public/phone-layout.css).
 
@@ -25,14 +25,14 @@ const ICONS = {
   settings: "M12 15a3 3 0 100-6 3 3 0 000 6zM12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1",
 };
 /** [where it opens, word key, English] in the sample's order. */
-export const BAR = [
+const BAR = [
   ["chat", "nav.chat", "Conversation"],
   ["inbox", "place.inbox", "Inbox"],
   ["automations", "place.automations", "Automations"],
   ["library", "place.library", "Library"],
   ["settings", "settings.title", "Settings"],
 ];
-const nearby = matchMedia("(max-width: 1024px)");
+const nearby = matchMedia("(max-width: 900px)");
 
 function icon(name) {
   const svg = document.createElementNS(SVG, "svg");
@@ -65,7 +65,7 @@ function barButton([target, key, english]) {
 }
 
 /** Which button is lit: Settings while its window is open, else the place on screen. */
-export function currentOf(body = document.body) {
+function currentOf(body = document.body) {
   if (body.classList.contains("lx-settings-open")) return "settings";
   return document.querySelector('.lx-place-link[aria-current="page"]')?.dataset.place || "chat";
 }
@@ -88,6 +88,11 @@ function buildBar() {
   nav.setAttribute("aria-label", say("ew.places", "Places"));
   nav.append(...BAR.map(barButton));
   main.append(nav);
+  /* Only once connected: the sign-in screen shares the window and has no places to open. */
+  const workspace = $("workspace");
+  const showWhenConnected = () => { nav.hidden = !workspace || workspace.hidden; };
+  showWhenConnected();
+  if (workspace) new MutationObserver(showWhenConnected).observe(workspace, { attributes: true, attributeFilter: ["hidden"] });
   syncBar();
   document.addEventListener("branch-place", syncBar);
   new MutationObserver(syncBar).observe(document.body, { attributes: true, attributeFilter: ["class"] });

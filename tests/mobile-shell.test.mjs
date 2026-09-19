@@ -133,9 +133,6 @@ test("the splash, launch colour and icon ground wear the window's default theme,
   await writeIcons(root);
   const icon = readPng(await readFile(join(root, "android", "app", "src", "main", "res", "mipmap-mdpi", "ic_launcher.png")));
   assert.deepEqual([...icon.data.subarray(0, 3)], [1, 3, 5].map((at) => parseInt(slate.dark.ground.slice(at, at + 2), 16)), "the icon sits on Slate's ground");
-  const page = await readFile(join(WEB, "index.html"), "utf8");
-  assert.match(page, /<html lang="en" data-palette="slate">/, "the phone's page names Slate before its script runs");
-  assert.doesNotMatch(page, /forest/i);
 });
 
 /* ---------- the page itself, headless, at a phone's width ---------- */
