@@ -8,7 +8,7 @@ Every fix has a test that was checked to fail with the fix taken out of `dist/` 
 - [x] 3. Hung local model: one retry, capped first-reply wait, plain message
 - [x] 4. `code.rename` held to read-before-edit
 - [x] 5. Malware check: over 10 pages is "not checked", not clean
-- [ ] 6. Monthly spend includes a video still being made
+- [x] 6. Monthly spend includes a video still being made
 - [ ] 7. Docker: `BRANCH_BIND`
 - [ ] 8. `/account` notice shows the connection's name
 - [ ] 9. `accounts viewAll`: a household person sees only their own accounts
@@ -166,3 +166,17 @@ Grouped by where the thing a rule is about comes from. "own" = the tool's `targe
 - Test "5 …": 10 pages read then refused as unchecked; malware on page 3 of an endless answer still found; the card's
   problem text; the install request is `unchecked` and a plain yes rejected. Proved: with the throw removed in
   `dist/`, it fails. `tests/security-malware.test.mjs`, `flows-boards*.test.mjs` still pass.
+
+## 6. Monthly spend includes a video still being made
+- `UsageStore.getMonthlyStats` (src/usage.ts) counted only finished tasks, so a video a running task had already paid
+  for (its `spend.recorded` is written before the service is asked) was missing from the month — and from the
+  "pause at budget" check for every *other* task. Now the spend recorded by running / waiting tasks this month is
+  added to `estimatedCost` and reported as `stillBeingMade`. The video's own budget check (src/reach/video.ts) no
+  longer adds its task's spend on top (it is in the month now; counting it twice would refuse too early).
+- Shown: the Usage screen's limit card adds "That includes about $X for something still being made, such as a video
+  a task that has not finished asked for." (en + fr key `usage.stillBeingMade`); the `/usage` command line says
+  "including about $X for something still being made". In-flight *tokens* are still counted when the task ends, as
+  before (not asked; the brief was about media).
+- Test "6 …": a running task's $1.20 video is in the month and in `stillBeingMade`, a new task is refused at a $1
+  budget naming $1.20, and after the task finishes it is counted once. Proved: with `inFlightSpend` zeroed in
+  `dist/usage.js` it fails. `reach-leftovers` (the video budget tests), usage, dashboard, cost tests pass.

@@ -4312,6 +4312,7 @@
   "trunks.unread": "{n} non lus",
   "usage.card.limit": "Limite mensuelle",
   "usage.card.limitPurpose": "Arrêter de lancer de nouvelles tâches une fois atteint un nombre de mots, un montant, ou l'un ou l'autre. Laissez une case vide pour ne pas l'utiliser.",
+  "usage.stillBeingMade": "Cela comprend environ {money} pour quelque chose encore en cours de fabrication, comme une vidéo demandée par une tâche qui n'est pas terminée.",
   "usage.intro": "Ce que votre assistant a fait ce mois-ci, ce que cela a coûté, et les limites que vous avez posées. Les chiffres sont calculés sur cet ordinateur à partir de vos propres tâches.",
   "usage.report.lead": "Une page à garder ou à transmettre : ce que votre assistant a fait et ce que cela a probablement coûté sur une période, à côté de la même période juste avant.",
   "usage.report.mode.off": "Désactivé",

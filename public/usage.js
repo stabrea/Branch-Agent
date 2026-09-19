@@ -203,6 +203,8 @@ function renderBudget(view) {
   if (stats)
     card.append(el("p", `So far this month: ${stats.currentMonthlyTokens.toLocaleString()} tokens` +
       (stats.estimatedCost > 0 ? `, costing about ${money(stats.estimatedCost)}.` : ". No price is on file for the models used, so the cost is unknown."), "subtle"));
+  // hardening-3: money a running task has already spent (a video it asked for) is in that figure; say so.
+  if (stats?.stillBeingMade > 0) card.append(el("p", t("usage.stillBeingMade", { money: money(stats.stillBeingMade) }), "subtle"));
   view.append(card);
   $("save-budget").addEventListener("click", () => void saveBudget());
 }

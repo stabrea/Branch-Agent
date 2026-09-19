@@ -239,3 +239,22 @@ test("5 an answer longer than ten pages is 'not checked', never clean", async (t
   assert.match(asked.check.note, /not read to the end/);
   await assert.rejects(installs.answer(asked.id, true), /did not give a full answer/);
 });
+
+// ------------------------------------------------------------------ 6. the month counts what is still being made
+
+test("6 a video a still-running task paid for is in this month's figure, and stops new tasks at the budget", async (t) => {
+  const { app } = await fixture(t);
+  const store = app.store;
+  const running = store.createRun("local", "make a video");
+  // Written down before the video service is asked (src/reach/video.ts), while the task is still going.
+  store.event(running.id, "spend.recorded", { dollars: 1.2, what: "a 12-second video (sora-2)", estimate: false });
+  const month = store.usageStore().getMonthlyStats();
+  assert.equal(month.estimatedCost, 1.2, "the month is not understated while the task runs");
+  assert.equal(month.stillBeingMade, 1.2);
+  store.save("settings", "local", "usage_budget", { maxMonthlyDollars: 1, pauseAtBudget: true });
+  await assert.rejects(app.runtime.run({ prompt: "another" }), /Monthly budget reached.*\$1\.20/);
+  store.finish(running.id, "completed", "made");
+  const after = store.usageStore().getMonthlyStats();
+  assert.equal(after.estimatedCost, 1.2, "counted once when it finishes");
+  assert.equal(after.stillBeingMade, 0);
+});
