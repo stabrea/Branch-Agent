@@ -30,7 +30,7 @@ async function branchEditCounts(dataDir) {
     const { DatabaseSync } = await import("node:sqlite");
     const db = new DatabaseSync(file, { readOnly: true });
     const count = (kind) => db.prepare(
-      "SELECT COUNT(*) AS n FROM events WHERE kind = ? AND json_extract(data, '$.name') IN ('files.edit','files.patch','files.write','files.multi_edit')",
+      "SELECT COUNT(*) AS n FROM events WHERE kind = ? AND json_extract(data, '$.name') IN ('files.edit','files.patch','files.write','code.patch','code.change_set')",
     ).get(kind).n;
     const result = { failedEdits: count("tool.failed"), edits: count("tool.started") };
     db.close();

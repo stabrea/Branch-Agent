@@ -74,8 +74,55 @@ wanted inside its sandbox.
 
 ## 3. Results
 
-RESULTS
+_Window 3 is the counted window (60 cells, 5 rows × 12 tasks, one pass). Its table is pasted here
+from `experiments/coding-bench/report.mjs` when it lands; see `experiments/coding-bench/STATUS.md`._
+
+### What the stopped windows showed (mechanisms, not scores)
+
+Windows 0–2 were each stopped after a few cells because a cell exposed a defect worth fixing first;
+their rows are not reported as scores. What they showed, all on `fix-range` (change `<` to `<=`),
+which **every contestant failed in every window**:
+
+| who | what happened | evidence |
+|---|---|---|
+| branch-before | two model rounds of ~60 s each, then **cancelled at 124–127 s** — the hard 2-minute ceiling, with `--timeout 600000` given | `model.cancelled "The operation was aborted due to timeout"` |
+| branch-after (patch/edit/deadline fixes only) | first reply was **2,292 characters of thinking and nothing else**; the task ended "produced nothing" after 47 s | `run.produced_nothing` |
+| branch-after (+ nudge) | called `code.check`, was told "No check is set up for this project", and **answered that it could not proceed** ("we need to configure a test runner") — 177 s | `run.finished` output |
+| codex | ran `node --test` twice, read the test and the source, reasoned to the right fix in its thinking — and **the turn ended without applying it** (a reasoning-only final item) | `--json` events: `reasoning` then `turn.completed` |
+| openclaw | **21 of 21 tool calls failed** (`tool_call` wrapper missing an `id`), then told the user to run the tests themselves | its JSON envelope `toolSummary` |
+
+So on this model the binding constraint is the model driving a tool loop at all; the agents differ in
+how they fail. The Branch fixes below are each justified by a mechanism seen above or by a unit
+test, not by a pass-rate difference.
 
 ## 4. Ranked fix plan
 
-RANKED
+Ranked by what was measured to stop a coding task, biggest first. **Done** items are on this branch
+with tests (`tests/coding-gap-edits.test.mjs`, plus updated `tests/empty-answer.test.mjs`).
+
+1. **Branch cannot run the tests out of the box.** No shell until the owner configures executable
+   aliases, `code.run` off, `code.check` only runs an owner-configured program. Seen: the model
+   concluded the task was impossible and stopped. *Done (partly):* `code.check` now says the task is
+   not blocked and what to do instead; with the owner's run-scripts switch on, a Node project's own
+   `node --test` stands in for a missing check. *Owner decision:* whether a coding workspace should
+   be able to run its own tests by default (Codex runs commands in a workspace-write sandbox by
+   default; Claude Code asks). The `branch-after-scripts` row measures what that switch is worth.
+2. **A run's deadline could only be shortened (F2).** Every before-cell was cancelled at ~2 min.
+   *Done:* `RunOptions.timeoutMs`, passed by `branch run --timeout`; default unchanged (2 min).
+3. **A reply of pure thinking ended the task.** *Done:* the model is told to act on what it worked
+   out, at most twice; a model that stays empty is still a failure with the same sentence.
+4. **Patches applied only at the exact line number and declared counts.** Models get both wrong; Codex's
+   grammar has no line numbers at all. *Done:* hunks placed by their lines (exact, then trailing,
+   then leading whitespace), counts forgiven, bare `@@`, and the `*** Begin Patch` form.
+5. **Exact-text edits refused on whitespace slips, with an unhelpful refusal.** *Done:* tolerant
+   whole-line matching with re-indentation, used only when it finds exactly the expected number of
+   places; refusals give the count and the fix, or the closest line; `old_string`/`new_string`/
+   `file_path`/`replace_all` accepted.
+6. **2,048-token reply ceiling (F1).** Not hit in these windows (replies were 500–1,300 tokens) but a
+   longer think will hit it. *Next:* derive the ceiling from the model's window and remaining budget
+   rather than raise the constant — the owner kept the constant for 0.18.1.
+7. **No read-before-write guard.** `files.write` overwrites a file the model never read; Claude Code
+   refuses. Not measured here. *Next:* refuse a whole-file write over an existing file not read (or
+   changed since read) in this run, with a sentence saying to read it first.
+8. **Tool-call robustness on small models** — Branch showed 18 of 214 tools and every tool call
+   parsed; OpenClaw's all failed. Nothing to fix; worth keeping as a regression check.
