@@ -1035,7 +1035,7 @@ export async function createBranch(options: {
     assertHost: (host, port) => web.policy.assertAllowed(new URL(`https://${host}:${port}/`), "mail server address") });
   // ── end mac6/bucket-23 ──
   // ── mac7/nodes: the owner's other devices lending Branch a few abilities (src/devices/). Ships off. ──
-  const devices = new Devices({ store, owner: runtime.owner, registry, files });
+  const devices = new Devices({ store, owner: runtime.owner, registry, files, join: { nodeDir: join(dataDir, "node") } }); // phase2/shell: join
   // ── end mac7/nodes ──
   // ── r17-b: suggestions, standing orders, loops, self-starting procedures (src/autonomy/). Every part ships off. ──
   const autonomy = new Autonomy({ runtime, registry, scheduler, chats: channels, handoff: interop.handoffParts,

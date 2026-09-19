@@ -83,10 +83,32 @@ async function deviceChange(deps: DevicesHttpDeps, id: string, action: string): 
   return { device: book.rename(id, body.name) };
 }
 
+/**
+ * phase2/shell: lending this computer to another Branch from the window (src/devices/join.ts).
+ *   GET  /api/devices/join         where it stands
+ *   POST /api/devices/join         { link, code, name? } answers the other computer's invitation
+ *   POST /api/devices/join/leave   stops lending it and forgets the key
+ */
+async function joinRoute(deps: DevicesHttpDeps, path: string): Promise<unknown> {
+  const joining = deps.devices.joining;
+  if (!joining) throw new DevicesHttpError(404, "This Branch cannot join another one.");
+  if (deps.method === "GET" && path === "/api/devices/join") return joining.status();
+  if (deps.method !== "POST") return undefined;
+  if (path === "/api/devices/join/leave") return joining.leave();
+  try {
+    return await joining.start(await deps.readBody());
+  } catch (error) {
+    if (error instanceof z.ZodError) throw new DevicesHttpError(400, error.issues.map((issue) => issue.message).join("; "));
+    const status = (error as { status?: unknown }).status;
+    throw new DevicesHttpError(typeof status === "number" ? status : 400, error instanceof Error ? error.message : String(error));
+  }
+}
+
 /** The owner's routes. Answers undefined for a path it does not know. */
 export async function devicesApi(deps: DevicesHttpDeps, path: string): Promise<unknown> {
   const { devices, method } = deps;
   if (path === "/api/devices" && method === "GET") return overview(deps);
+  if (path === "/api/devices/join" || path === "/api/devices/join/leave") return joinRoute(deps, path); // phase2/shell
   if (method !== "POST") return undefined;
   if (path === "/api/devices/mode") return { mode: devices.setMode(await deps.readBody()) };
   if (path === "/api/devices/invite") {

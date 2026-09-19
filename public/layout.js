@@ -215,6 +215,11 @@ const PLACES = {
   customize: { key: "place.customize", english: "Customize", intro: ["place.customize.intro", "What your assistant can do, and who can reach it."],
     tabs: [["skills", "place.customize.skills", "Skills", "skills"], ["specialists", "place.customize.specialists", "Specialists", "specialists"],
       ["plugins", "place.customize.plugins", "Plugins"], ["connections", "place.customize.connections", "Connections"], ["channels", "place.customize.channels", "Channels"]] },
+  // phase2/shell: two places reached from the Trunks strip (public/strip.js), not listed in the sidebar.
+  overview: { key: "place.overview", english: "Overview", strip: true, intro: ["place.overview.intro", "What a computer or a Trunk is doing, in one screen."],
+    tabs: [["here", "place.overview.here", "Overview"]] },
+  household: { key: "place.household", english: "People", strip: true, intro: ["place.household.intro", "Everyone who uses Branch here, and what each may do."],
+    tabs: [["people", "place.household.people", "People"]] },
 };
 const SETTINGS_PAGES = [
   ["general", "settings.page.general", "General", "How Branch starts and runs on this computer, your projects, and the people who use it."],
@@ -277,6 +282,7 @@ for (const [page] of SETTINGS_PAGES) ROUTES[`settings:${page}`] = { settings: pa
 
 let place = "chat";
 const lastTab = { inbox: "needs", automations: "scheduled", library: "memory", customize: "skills" };
+for (const [id, spec] of Object.entries(PLACES)) lastTab[id] ??= spec.tabs[0][0]; // phase2/shell
 let settingsPage = "general";
 
 /* ---------- building the places ---------- */
@@ -659,6 +665,7 @@ function buildRail() {
   const nav = $("sections-nav");
   for (const id of Object.keys(PLACES)) {
     const spec = PLACES[id];
+    if (spec.strip) continue; // phase2/shell: reached from the strip
     const row = button("lx-place-link", spec.key, spec.english);
     iconAndWords(row, id);
     row.dataset.place = id;
