@@ -10,6 +10,7 @@ import type { WorkspaceFiles } from "./files.js";
 import { CodeEditor, type ChangeSummary, type PlannedChange } from "./code-edit.js";
 import { ShellProcess } from "./integrations/shell-process.js";
 import { netlessEnvironment } from "./integrations/shell-config.js";
+import { runAsNode } from "./child-env.js";
 import { defaultJobObjects, jobWithin, type JobObjects } from "./integrations/job-object.js";
 
 /**
@@ -167,7 +168,7 @@ export class CodeChanges {
       ? { executable: setting.command, args: setting.args, timeoutMs: setting.timeoutMs, env: {} }
       : { executable: process.execPath, args: ["--test"], timeoutMs: 60000, env: {
         // Inside the desktop app this program is the app itself; this makes it run as plain Node.
-        ...(process.versions.electron ? { ELECTRON_RUN_AS_NODE: "1" } : {}),
+        ...runAsNode(process.execPath),
         ...(scripts.network ? {} : netlessEnvironment()) } };
     const job = await jobWithin(this.jobs, { maxMemoryMb: 2048, maxCpuSeconds: 120 }, 1500);
     const result = await new ShellProcess({

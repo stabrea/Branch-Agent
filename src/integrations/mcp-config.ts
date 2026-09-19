@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { getDefaultEnvironment, StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { boundedFetch } from './bounded-fetch.js';
+import { runAsNode } from '../child-env.js';
 
 const common = {
   id: z.string().regex(/^[a-z][a-z0-9-]{0,29}$/),
@@ -38,7 +39,8 @@ export function makeTransport(config: McpTransportConfig, env: NodeJS.ProcessEnv
   if (config.transport === 'stdio') {
     const selected = Object.fromEntries(config.envKeys.map(key => [key, credential(env, key)]));
     const transport = new StdioClientTransport({ command: config.command, args: config.args,
-      env: { ...getDefaultEnvironment(), ...selected }, stderr: 'pipe', maxBufferSize: 1048576,
+      // A server started with this app's own program (the example notes server) must run as Node.
+      env: { ...getDefaultEnvironment(), ...selected, ...runAsNode(config.command) }, stderr: 'pipe', maxBufferSize: 1048576,
       ...(config.cwd ? { cwd: config.cwd } : {}) });
     transport.stderr?.on('data', () => undefined);
     return { transport, secrets: Object.values(selected) };

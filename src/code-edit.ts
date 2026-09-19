@@ -9,6 +9,7 @@ import type { ToolRegistry } from "./registry.js";
 import { parsePatch, applyHunks } from "./patch.js";
 import { replaceText } from "./text-replace.js";
 import { bracketValidation, canCheckBrackets, typeScriptValidation } from "./code-syntax.js";
+import { runAsNode } from "./child-env.js";
 
 /**
  * Changing code precisely: applying a unified diff to one or more files, replacing an exact piece
@@ -180,7 +181,7 @@ function jsonValidation(path: string, content: string): Validation {
  */
 function scriptValidation(path: string, absolute: string): Promise<Validation> {
   return new Promise((resolve) => {
-    execFile(process.execPath, ["--check", absolute], { timeout: 10000, windowsHide: true }, (error, _out, stderr) => {
+    execFile(process.execPath, ["--check", absolute], { timeout: 10000, windowsHide: true, env: { ...process.env, ...runAsNode(process.execPath) } }, (error, _out, stderr) => {
       if (!error) { resolve({ path, language: "JavaScript", checked: true, ok: true, problems: [] }); return; }
       const text = String(stderr).trim();
       const message = /^(?:SyntaxError|.*Error):.*$/m.exec(text)?.[0] ?? "This file could not be parsed";

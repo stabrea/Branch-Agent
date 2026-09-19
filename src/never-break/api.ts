@@ -11,6 +11,7 @@ import {
   saveGatewayConfig, type DryRun, type GatewayConfig,
 } from "./gateway-config.js";
 import { readState } from "./gateway-state.js";
+import { runAsNode } from "../child-env.js";
 
 /**
  * The owner's side of the gateway: the switch, what the gateway last said, and changes the
@@ -123,7 +124,7 @@ const cleanEnv = (env: NodeJS.ProcessEnv): NodeJS.ProcessEnv => {
 };
 
 async function tryGateway(script: string, env: NodeJS.ProcessEnv, limitMs: number): Promise<{ ok: boolean; detail: string }> {
-  const child = spawn(process.execPath, [script, "start"], { env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+  const child = spawn(process.execPath, [script, "start"], { env: { ...env, ...runAsNode(process.execPath) }, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
   const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
   let output = "";
   child.stdout.on("data", (chunk: Buffer) => { output += chunk.toString(); });

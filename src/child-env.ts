@@ -24,3 +24,13 @@ export function cleanChildEnvironment(source: NodeJS.ProcessEnv = process.env): 
   for (const [name, value] of Object.entries(source)) if (value !== undefined && allowedName(name)) out[name] = value;
   return out;
 }
+
+/**
+ * Inside the desktop app `process.execPath` is the app itself, not Node. Started to run a script
+ * without this variable it opens a second copy of the app instead. Every place that starts this
+ * program to run JavaScript adds what this returns to the child's environment; for any other
+ * program, and outside the desktop app, it adds nothing.
+ */
+export function runAsNode(executable: string): Record<string, string> {
+  return process.versions.electron && executable === process.execPath ? { ELECTRON_RUN_AS_NODE: "1" } : {};
+}
