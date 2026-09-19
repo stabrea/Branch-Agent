@@ -925,6 +925,7 @@
   "coding.mentions.label": "Files to point at",
   "coding.part.checklist": "A checklist for each task that you can edit while it runs",
   "coding.part.checks": "Review checks kept in the project",
+  "coding.part.readFirst": "Reading a file before changing it",
   "coding.part.ci": "Running Branch in GitHub Actions or GitLab CI",
   "coding.part.format": "Tidying a file and checking it for mistakes after every change",
   "coding.part.init": "Writing the project's instruction file (/init)",

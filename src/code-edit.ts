@@ -47,7 +47,7 @@ export class CodeEditor {
 
   /** Applies a whole unified diff or nothing at all. */
   async patch(text: string, context: ToolContext): Promise<{ files: ChangeSummary[] }> {
-    const changed = await this.writeAll(await this.planPatch(text), context);
+    const changed = await this.writeAll(await this.planPatch(text), context, { readFirst: true });
     this.notifyPatched(changed, context);
     return { files: changed };
   }
@@ -78,11 +78,27 @@ export class CodeEditor {
     return summaries;
   }
 
-  /** Writes every planned file; a failure part-way puts the files already written back as they were. */
+  /**
+   * mac7/coding-next: refuses a change to an existing file this task has not read as it is now, when
+   * the owner's read-before-edit switch is on. Checked for every file before any file is written.
+   */
+  async mustHaveRead(paths: string[], context: ToolContext): Promise<void> {
+    const guard = this.files.readFirst;
+    if (!guard) return;
+    for (const path of paths) await guard.require(context.runId, await this.files.checked(path), path);
+  }
+
+  /**
+   * Writes every planned file; a failure part-way puts the files already written back as they were.
+   * `readFirst` holds the change to the read-before-edit rule (the model's own edits and patches);
+   * a change worked out elsewhere, such as a language server's rename, is not held to it.
+   */
   async writeAll(
     planned: PlannedChange[],
     context: ToolContext,
+    options: { readFirst?: boolean } = {},
   ): Promise<ChangeSummary[]> {
+    if (options.readFirst) await this.mustHaveRead(planned.map((item) => item.path), context);
     const done: { path: string; before: string | null }[] = [];
     const summaries: ChangeSummary[] = [];
     try {
@@ -108,6 +124,7 @@ export class CodeEditor {
   private async save(path: string, content: string, context: ToolContext): Promise<void> {
     const token = this.observer ? await this.observer.before(path, context) : undefined;
     await this.files.write(path, content, context.signal);
+    this.files.readFirst?.noteWritten(context.runId, this.files.addressOf(path)); // mac7/coding-next
     if (this.observer) await this.observer.after(path, context, token);
   }
 
@@ -122,6 +139,7 @@ export class CodeEditor {
     const existing = await this.original(input.path);
     // An empty `find` on a file that is not there yet creates it, as other agents' edit tools do.
     if (existing === null && input.find !== "") throw new Error(`Edit refused: "${input.path}" does not exist`);
+    if (existing !== null) await this.mustHaveRead([input.path], context); // mac7/coding-next
     const before = existing ?? "";
     const result = replaceText(before, input.find, input.replace, input.replaceAll ? "all" : input.expectedOccurrences, `Edit refused: "${input.path}"`);
     await this.save(input.path, result.after, context);

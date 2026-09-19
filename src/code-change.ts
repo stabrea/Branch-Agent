@@ -90,7 +90,7 @@ export class CodeChanges {
   async patch(input: z.infer<typeof PatchInputSchema>, context: ToolContext) {
     const planned = await this.editor.planPatch(input.patch);
     await this.refuseBinary(planned);
-    const settled = await this.settle(planned, input.dryRun, context);
+    const settled = await this.settle(planned, input.dryRun, context, true);
     // A patch going in is its own moment, apart from a file changing and a tool finishing, so a
     // hook can be set to fire on exactly that (issue #55, workflow-hooks).
     if (settled.applied) this.editor.notifyPatched(settled.files, context);
@@ -100,10 +100,12 @@ export class CodeChanges {
   async changeSet(input: z.infer<typeof ChangeSetInputSchema>, context: ToolContext) {
     if (new Set(input.edits.map((edit) => edit.path)).size !== input.edits.length)
       throw new Error("Change refused: name each file once; put several replacements for one file in one patch instead.");
+    // mac7/coding-next: "read it first" comes before "that text is not in the file", which it explains.
+    if (!input.dryRun) await this.editor.mustHaveRead(input.edits.map((edit) => edit.path), context);
     const planned: PlannedChange[] = [];
     for (const edit of input.edits) planned.push(await this.planEdit(edit));
     await this.refuseBinary(planned);
-    return { reason: input.reason, ...(await this.settle(planned, input.dryRun, context)) };
+    return { reason: input.reason, ...(await this.settle(planned, input.dryRun, context, true)) };
   }
   /**
    * A set of whole-file replacements that was worked out somewhere else — a language server's
@@ -133,7 +135,7 @@ export class CodeChanges {
     }
   }
   /** Shows the change, or writes it and runs the owner's check afterwards. */
-  private async settle(planned: PlannedChange[], dryRun: boolean, context: ToolContext) {
+  private async settle(planned: PlannedChange[], dryRun: boolean, context: ToolContext, readFirst = false) {
     if (dryRun)
       return { applied: false, dryRun: true, files: this.editor.preview(planned),
         note: "Nothing was written. Send the same change again without dryRun to apply it." };
@@ -142,7 +144,7 @@ export class CodeChanges {
     // put it back. A folder that is not kept in Git simply has no mark, and is told so.
     const mark = await this.checkpoints?.before(this.workspace, fileList(planned.map((item) => item.path)), context.signal)
       .catch(() => null) ?? null;
-    const files = await this.editor.writeAll(planned, context);
+    const files = await this.editor.writeAll(planned, context, { readFirst });
     const check = await this.runCheck(context);
     if (context.runId) this.store.event(context.runId, "code.changed", { files: files.map((f) => f.path), check: check.ran ? check.ok : null, undo: mark?.id ?? "" });
     return { applied: true, dryRun: false, files, check,

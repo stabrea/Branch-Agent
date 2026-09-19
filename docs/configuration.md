@@ -8950,7 +8950,7 @@ link: it is checked with `lstat` first, and opened with `O_NOFOLLOW` where the s
 
 ## Coding polish (mac7/r17-d)
 
-Eleven parts for work on code, each with the owner's three-way switch (off, on, only when it is
+Twelve parts for work on code, each with the owner's three-way switch (off, on, only when it is
 needed) and all off at first. The switches and their settings are one card in **Settings → Advanced**
 (`public/coding.js`), under `/api/coding/`, owner only. A short-lived "run" key may run the review
 checks and fork a conversation into its own copy (both only start work); it may read the rest except
@@ -8972,6 +8972,7 @@ said so, never asked.
 | Very long answers kept (`large-output`) | A tool answer over 64 KB, which used to fail the call, is kept (secrets hidden, at most 8 million characters) in `<data folder>/tool-output/`, for a week and at most 200 per person, and the model reads it in pieces with `output.read` | `src/coding/large-output.ts` |
 | Notebooks (`notebooks`) | `notebook.read` gives a `.ipynb` as numbered cells with their printed output; pictures are named, not carried | `src/coding/notebooks.ts` |
 | Review checks (`review-checks`) | `.agents/checks/*.md` (`name`, optional `paths`, the body says what to look for); `review.checks` hands each check and the current changes to a read-only helper, four at a time | `src/coding/review-checks.ts` |
+| Reading a file before changing it (`read-first`) | A guard, with no tool of its own; *when needed* and *on* both switch it on. `files.edit`, `files.patch`, `files.write`, `code.patch` and `code.change_set` refuse to change a file that already exists unless this task has read it with `files.read` since it last changed on disk — a change somebody or something else made in between counts — and say so in one sentence ("read it with files.read first"). A new file needs no read, and a file the task itself wrote counts as read as it is after the call (a formatter's tidying included). Only a fingerprint of what was read is kept, per task, and forgotten when the task ends. A language server's rename, `code.format`, `files.restore` and the undo tools are not held to it. Ships off, like every coding and safety part (see `src/safety-extras/settings.ts`: "every one ships off, the scans that can only tighten included") | `src/coding/read-first.ts` |
 
 The runtime asks these parts two things, in marked blocks of `src/runtime.ts`: where a task works (a
 fork's or helper's copy) and what to add to each round (the mentions once; the checklist and folder

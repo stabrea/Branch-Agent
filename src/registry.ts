@@ -141,11 +141,17 @@ export class ToolRegistry {
       throw new Error(`Permission denied: ${tool.permission}`);
     context.budget.step(context.signal);
     const parsed = tool.parameters.parse(args);
-    // household-followups: an owner-only guard inside the tool judges by this task's person.
-    let result = await underTask(context.runId, () => tool.execute(parsed, context));
-    context.signal.throwIfAborted();
-    // ── mac7/r17-d: format and diagnostics after an edit, and a very long answer kept in a file. ──
-    if (this.afterTool) result = await this.afterTool(name, parsed, result, context);
+    let result: unknown;
+    try {
+      // household-followups: an owner-only guard inside the tool judges by this task's person.
+      result = await underTask(context.runId, () => tool.execute(parsed, context));
+      context.signal.throwIfAborted();
+      // ── mac7/r17-d: format and diagnostics after an edit, and a very long answer kept in a file. ──
+      if (this.afterTool) result = await this.afterTool(name, parsed, result, context);
+    } finally {
+      // mac7/coding-next: files this call wrote count as read, as they are once it has finished.
+      await this.afterWrites?.(context).catch(() => undefined);
+    }
     if (JSON.stringify(result).length > 65536) {
       const kept = this.oversized?.(name, result, context);
       if (kept !== undefined) return kept;
@@ -154,6 +160,8 @@ export class ToolRegistry {
     // ── end mac7/r17-d ──
     return result;
   }
+  /** mac7/coding-next (src/coding/read-first.ts): told after every call, so what it wrote counts as read. */
+  afterWrites?: (context: ToolContext) => Promise<void>;
   /** mac7/r17-d (src/coding/): looks at a finished call and may add to its answer (format-on-edit). */
   afterTool?: (name: string, args: unknown, result: unknown, context: ToolContext) => Promise<unknown>;
   /** mac7/r17-d (src/coding/large-output.ts): a replacement for an answer over 64 KiB, or undefined to refuse it. */

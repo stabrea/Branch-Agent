@@ -63,6 +63,7 @@ const PARTS = {
   "large-output": ["coding.part.largeOutput", "Keeping very long tool output in a file"],
   notebooks: ["coding.part.notebooks", "Reading Jupyter notebooks cell by cell"],
   "review-checks": ["coding.part.checks", "Review checks kept in the project"],
+  "read-first": ["coding.part.readFirst", "Reading a file before changing it"],
 };
 
 function switchFor(part, modes, status) {

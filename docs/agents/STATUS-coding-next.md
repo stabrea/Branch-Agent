@@ -9,7 +9,7 @@ Order worked: 5, 6, 3, 2, 1, 4 (2 before 1 because both touch `runtime.callTool`
 - [x] 6. Crash capture switchable, ships off (engine crash notes + Electron crash reporter)
 - [x] 3. Longer first-reply wait for local models, with a status line
 - [x] 2. Unknown tool arguments dropped (not refused), the model told; permission check sees cleaned arguments
-- [ ] 1. Read before edit
+- [x] 1. Read before edit
 - [ ] 4. "Let Branch run this project's tests?" asked once per folder
 - [ ] Merge latest `origin/mac/cross-platform`, rebuild, retest, push
 
@@ -106,3 +106,31 @@ Tests: `tests/coding-next.test.mjs` "5 …" — the helper, and `code.run` with 
   nested, files.edit aliases); a real run with an extra key succeeds with the note; a wrong type is still
   refused; and a deny rule for `keep.txt` still fires when the model adds a `url` that would have made the raw
   call's target a different host (policyTarget reads `url` before `path`).
+
+### 1. Read before edit
+- **Ships OFF.** The brief allowed default-on for coding tasks only if precedent says safety guards like this
+  default on. It does not: every top-level coding and safety switch defaults off, and
+  `src/safety-extras/settings.ts` says it outright ("every one ships off, the scans that can only tighten
+  included (no owner design asks for them to start on)"). The only `default(true)` values found are sub-fields
+  inside features that are themselves off (`format-on-edit.diagnostics`, `notebooks.outputs`,
+  `code-approvals.releaseNeedsCode`).
+- Setting: a twelfth coding part, `read-first` (`settings/coding-read-first`, off / when needed / on; both
+  non-off modes hold every task). It appears on the Coding card by itself (public/coding.js, en + fr), `POST
+  /api/coding/switch` like the others, and is documented in the Coding polish table of docs/configuration.md.
+- `src/coding/read-first.ts` `ReadFirstGuard`: per task (run id) a sha256 of the text `files.read` returned,
+  path keyed by full address (lower-cased on Windows). `require()` reads the file now: missing -> new file,
+  allowed; no record -> "read it with files.read first"; different fingerprint -> "has changed since this task
+  last read it". A content fingerprint rather than mtime/size, so a change within the same second or of the
+  same size is still caught, and a touch with no change is not.
+- Held: `files.write`, `files.edit`, `files.patch`, `code.patch`, `code.change_set` (checked for every file before
+  any file is written; change_set checks before looking for the text, so "read it first" is the refusal a
+  blind edit gets). Not held: `code.rename` (language server, via `applyPlanned`), `code.format`,
+  `files.restore`, undo/redo, documents.* — they are not the model writing from what it thinks a file says.
+- The task's own writes: `CodeEditor.save` and `files.write` note the file; `ToolRegistry.execute` calls
+  `afterWrites` in a `finally` after the tool and after `afterTool` (format-on-edit), which re-fingerprints
+  those files as they are on disk. So a formatter's tidying never makes the next edit look like an outside change.
+- Forgotten on `finishRun`; at most 500 tasks kept. Tasks with no run id (routes, "Try a tool") are not held.
+- Tests: `tests/coding-next.test.mjs` "1 …": off by default (edit goes through); on: unread refused for all four
+  kinds of change, nothing written; read then edit, own second edit and a whole-file write allowed; an outside
+  change after the read refused, then allowed after reading again; new files (write, empty-find edit, Add
+  File patch) allowed; a formatter rewriting the file after the task's edit does not refuse the next edit.

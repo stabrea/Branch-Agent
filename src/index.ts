@@ -239,6 +239,8 @@ import { leakOptions } from "./knobs/leak-options.js";
 import { syncMixtures } from "./model-savings/mixture.js";
 import { skillIdeaDraft } from "./fly-core/skill-idea.js";
 import { forgetLearning, learningCoreView } from "./fly-core-api.js";
+import { ReadFirstGuard } from "./coding/read-first.js"; // mac7/coding-next
+import { codingOn } from "./coding/settings.js"; // mac7/coding-next
 
 export async function createBranch(options: {
   workspace: string;
@@ -317,6 +319,11 @@ export async function createBranch(options: {
   const registry = new ToolRegistry();
   // mac7/r17-d: a task working in its own copy of the project (src/coding/worktrees.ts) reads and writes there.
   files.scope = () => worktreeScope() ?? store.projects.active(options.owner ?? "local").folder;
+  // mac7/coding-next: read before edit (src/coding/read-first.ts), the owner's switch, off as shipped.
+  const readFirst = new ReadFirstGuard(() => codingOn(store, options.owner ?? "local", "read-first"));
+  files.readFirst = readFirst;
+  registry.afterWrites = (context) => readFirst.settle(context.runId);
+  registry.onRunFinished(async (context) => readFirst.forget(context.runId));
   const history = store.openWorkspaceHistory(files, options.owner ?? "local");
   let documents: DocumentLibrary | undefined;
   const writeObserver = {

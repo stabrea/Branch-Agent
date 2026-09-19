@@ -296,3 +296,101 @@ test("2 an unknown key cannot steer the permission check: the rule sees the clea
   const denied = app.store.events(run.id).find((event) => event.kind === "policy.denied");
   assert.equal(denied?.data.target, "keep.txt");
 });
+
+// ------------------------------------------------------------------ 1. read before edit
+
+/** A workspace with `a.txt` in it, the read-before-edit switch set to `mode`, and a scripted model. */
+async function readFirstFixture(t, steps, mode = "on") {
+  const provider = scripted(steps);
+  const { app, workspace } = await fixture(t, { provider });
+  const { saveCodingMode } = await import("../dist/coding/settings.js");
+  const { mkdir, writeFile } = await import("node:fs/promises");
+  await mkdir(workspace, { recursive: true });
+  await writeFile(join(workspace, "a.txt"), "one\n");
+  saveCodingMode(app.store, "local", "read-first", mode);
+  return { app, workspace };
+}
+const fileText = async (workspace, name) => (await import("node:fs/promises")).readFile(join(workspace, name), "utf8");
+const edit = (find, replace) => call("files.edit", { path: "a.txt", find, replace });
+
+test("1 read-first ships off: an edit to an unread file goes through as before", async (t) => {
+  const { codingMode } = await import("../dist/coding/settings.js");
+  const { app, workspace } = await readFirstFixture(t, [edit("one", "two"), say("done")], "off");
+  assert.equal(codingMode({ get: () => undefined }, "local", "read-first"), "off");
+  const run = await app.runtime.run({ prompt: "change it" });
+  assert.equal(toolMessages(app, run)[0].ok, true);
+  assert.equal(await fileText(workspace, "a.txt"), "two\n");
+});
+
+test("1 read-first on: an unread file is refused, in a sentence that says to read it first", async (t) => {
+  const { app, workspace } = await readFirstFixture(t, [
+    edit("one", "two"),
+    call("files.write", { path: "a.txt", content: "whole\n" }),
+    call("files.patch", { patch: "--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-one\n+two\n" }),
+    call("code.change_set", { reason: "r", edits: [{ path: "a.txt", find: "one", replace: "two" }] }),
+    say("done")]);
+  const run = await app.runtime.run({ prompt: "change it" });
+  const answers = toolMessages(app, run);
+  assert.equal(answers.length, 4);
+  for (const answer of answers) {
+    assert.equal(answer.ok, false, JSON.stringify(answer));
+    assert.match(answer.error, /read "a\.txt" with files\.read first/);
+  }
+  assert.equal(await fileText(workspace, "a.txt"), "one\n", "nothing was changed");
+});
+
+test("1 read-first on: after a read the edit goes through, and the task's own change counts as read", async (t) => {
+  const { app, workspace } = await readFirstFixture(t, [
+    call("files.read", { path: "a.txt" }), edit("one", "two"), edit("two", "three"),
+    call("files.write", { path: "a.txt", content: "four\n" }), say("done")]);
+  const run = await app.runtime.run({ prompt: "change it" });
+  const answers = toolMessages(app, run);
+  assert.ok(answers.every((answer) => answer.ok), JSON.stringify(answers));
+  assert.equal(await fileText(workspace, "a.txt"), "four\n");
+});
+
+test("1 read-first on: a change made by someone else after the read is refused until it is read again", async (t) => {
+  let workspaceDir = "";
+  const { writeFile } = await import("node:fs/promises");
+  const { app, workspace } = await readFirstFixture(t, [
+    call("files.read", { path: "a.txt" }),
+    async () => { await writeFile(join(workspaceDir, "a.txt"), "one\nadded by a person\n"); return edit("one", "two")(); },
+    call("files.read", { path: "a.txt" }), edit("one", "two"), say("done")]);
+  workspaceDir = workspace;
+  const run = await app.runtime.run({ prompt: "change it" });
+  const answers = toolMessages(app, run);
+  assert.equal(answers[1].ok, false);
+  assert.match(answers[1].error, /has changed since this task last read it/);
+  assert.equal(answers[3].ok, true, "read again, the edit goes through");
+  assert.equal(await fileText(workspace, "a.txt"), "two\nadded by a person\n");
+});
+
+test("1 read-first on: a new file needs no read", async (t) => {
+  const { app, workspace } = await readFirstFixture(t, [
+    call("files.write", { path: "new.txt", content: "fresh\n" }),
+    call("files.edit", { path: "made.txt", find: "", replace: "made\n" }),
+    call("code.patch", { patch: "*** Begin Patch\n*** Add File: added.txt\n+added\n*** End Patch\n" }),
+    say("done")]);
+  const run = await app.runtime.run({ prompt: "make files" });
+  const answers = toolMessages(app, run);
+  assert.ok(answers.every((answer) => answer.ok), JSON.stringify(answers));
+  assert.equal(await fileText(workspace, "new.txt"), "fresh\n");
+  assert.equal(await fileText(workspace, "made.txt"), "made\n");
+  assert.equal(await fileText(workspace, "added.txt"), "added\n");
+});
+
+test("1 read-first on: a file tidied after the task's own edit (format-on-edit) still counts as read", async (t) => {
+  const { writeFile, readFile } = await import("node:fs/promises");
+  const { app, workspace } = await readFirstFixture(t, [
+    call("files.read", { path: "a.txt" }), edit("one", "two"), edit("TWO", "three"), say("done")]);
+  // Stands in for a formatter run after every edit (src/coding/format-on-edit.ts), which rewrites the file.
+  const before = app.registry.afterTool;
+  app.registry.afterTool = async (name, args, result, context) => {
+    if (name === "files.edit") await writeFile(join(workspace, "a.txt"), (await readFile(join(workspace, "a.txt"), "utf8")).toUpperCase());
+    return before ? before(name, args, result, context) : result;
+  };
+  const run = await app.runtime.run({ prompt: "change it" });
+  const answers = toolMessages(app, run);
+  assert.ok(answers.every((answer) => answer.ok), JSON.stringify(answers));
+  assert.equal(await fileText(workspace, "a.txt"), "THREE\n");
+});

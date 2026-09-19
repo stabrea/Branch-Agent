@@ -15,6 +15,8 @@ import type { Store } from "../store.js";
 export const codingParts = [
   "format-on-edit", "shell-snapshot", "mentions", "worktrees", "init", "ci",
   "checklist", "path-rules", "large-output", "notebooks", "review-checks",
+  // mac7/coding-next: a guard, not a tool; "when needed" and "on" both hold every task to it.
+  "read-first",
 ] as const;
 export type CodingPart = (typeof codingParts)[number];
 export const CodingPartSchema = z.enum(codingParts);
@@ -39,6 +41,7 @@ export const codingLabels: Record<CodingPart, string> = {
   "large-output": "Keeping very long tool output in a file",
   notebooks: "Reading Jupyter notebooks cell by cell",
   "review-checks": "Review checks kept in the project",
+  "read-first": "Reading a file before changing it",
 };
 
 /** The tools each part owns, so the catalog can leave them out while the part is off. */
@@ -54,6 +57,7 @@ export const codingTools: Record<CodingPart, readonly string[]> = {
   "large-output": ["output.read"],
   notebooks: ["notebook.read"],
   "review-checks": ["review.checks"],
+  "read-first": [],
 };
 
 /** For src/feature-switches.ts: each part with tools — its settings record, why it is loaded, and its tools. */
