@@ -3935,7 +3935,8 @@ conversation's last eight tasks; nothing there runs a command or opens a page. T
 short-lived key and a household person are refused the route, and a household person's window does not offer
 the two tabs. The edge of the side list and of the side panel can be dragged (double-click resets, arrow keys
 move it, Enter folds it); Ctrl+B (Cmd+B on a Mac) folds the side list. Widths are kept in this browser only
-(`branch-pane-widths` in local storage), not in the preferences record.
+(`branch-pane-widths:<workspace>:<owner or household>` in local storage, so a household person at the same
+window keeps their own), not in the preferences record.
 
 **What's on screen (Settings → Appearance).** Four more fields of the preferences record:
 

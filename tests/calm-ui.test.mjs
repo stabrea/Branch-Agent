@@ -151,7 +151,12 @@ test("Show everything brings the full window back, and is remembered for this pe
   assert.deepEqual(Object.entries(back).filter(([, on]) => !on).map(([selector]) => selector), [], "these did not come back");
   assert.equal(await visible(f.page, "#lx-more"), false, "the full window is the old one, without More");
   /* Kept with the person's own preferences, not only in this browser. */
-  const saved = await f.call("/api/state");
+  /* The window saves the change a moment after it shows it; on a loaded machine that moment is longer. */
+  let saved = await f.call("/api/state");
+  for (let tries = 0; !saved.preferences.showEverything && tries < 50; tries += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    saved = await f.call("/api/state");
+  }
   assert.equal(saved.preferences.showEverything, true);
   await f.page.reload();
   await f.page.locator("body.lx-ready").waitFor({ state: "attached" });

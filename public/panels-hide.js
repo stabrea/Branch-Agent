@@ -207,6 +207,7 @@ function switchRow(id, key, english) {
   const row = make("label", "check-row panels-row");
   const box = make("input");
   Object.assign(box, { type: "checkbox", id: `panels-show-${id}`, checked: !hiddenNow().has(id) });
+  box.setAttribute("aria-describedby", "panels-show-note");
   box.addEventListener("change", () => setHidden(id, !box.checked));
   row.append(box, make("span", "", say(key, english)));
   return row;
@@ -249,14 +250,23 @@ function rightClickRow() {
   const row = make("label", "check-row");
   const box = make("input");
   Object.assign(box, { type: "checkbox", id: "panels-right-click" });
+  box.setAttribute("aria-describedby", "panels-right-click-note");
   box.addEventListener("change", () => changeAppearance({ rightClickHide: box.checked }));
   row.append(box, make("span", "", say("onscreen.rightClick", "Right-click a part of the window to hide it")));
-  return row;
+  const note = heading("p", "onscreen.rightClickNote", "Off, right-click works as it always has. On, it offers Hide this, with Undo.", "field-note");
+  note.id = "panels-right-click-note";
+  return [row, note];
+}
+function showNote() {
+  const note = heading("p", "onscreen.showNote", "Ticked shows that part of the window; unticked hides it until you tick it again.", "field-note");
+  note.id = "panels-show-note";
+  return note;
 }
 function buildCard() {
   const card = make("section", "card panels-onscreen");
   card.id = "panels-onscreen";
   card.dataset.home = "settings:appearance";
+  card.dataset.scope = "computer"; // saved with the rest of the look, as the Appearance card says
   const everything = make("button", "", say("onscreen.showAll", "Show everything again"));
   everything.type = "button";
   everything.id = "panels-show-all";
@@ -267,7 +277,7 @@ function buildCard() {
     ...HIDE.filter((row) => row[4] === group).map(([id, rowKey, rowEnglish]) => switchRow(id, rowKey, rowEnglish))]);
   card.append(heading("h2", "onscreen.title", "What's on screen"),
     heading("p", "onscreen.intro", "Hide any part of the window you don't use, and choose how the conversation looks. The things that keep you safe always stay.", "subtle"),
-    widthLabel, widthRow(), seeRow(), rightClickRow(), everything, ...rows,
+    widthLabel, widthRow(), seeRow(), ...rightClickRow(), everything, showNote(), ...rows,
     heading("h3", "onscreen.group.never", "Always shown", "panels-group"), ...NEVER.map(neverRow));
   return card;
 }

@@ -238,7 +238,7 @@ test("the side list and side panel can be dragged, the width is kept, double-cli
   await f.page.mouse.up();
   const after = await f.page.evaluate(() => document.getElementById("context-panel").getBoundingClientRect().width);
   assert.ok(after > before + 90, `the panel grew (${before} → ${after})`);
-  const stored = JSON.parse(await f.page.evaluate(() => localStorage.getItem("branch-pane-widths"))).aside;
+  const stored = JSON.parse(await f.page.evaluate(() => localStorage.getItem(Object.keys(localStorage).find((k) => k.startsWith("branch-pane-widths:")) ?? "none"))).aside;
   assert.ok(Math.abs(stored - (before + 125)) <= 2, `kept in this browser (${stored})`);
   await f.page.reload();
   await f.page.locator("body.lx-ready").waitFor({ state: "attached" });
@@ -247,9 +247,9 @@ test("the side list and side panel can be dragged, the width is kept, double-cli
   const rail = f.page.locator('.panels-rz[data-rz="rail"]');
   await rail.focus();
   await f.page.keyboard.press("ArrowRight");
-  assert.ok(JSON.parse(await f.page.evaluate(() => localStorage.getItem("branch-pane-widths"))).rail > 0, "the arrow keys move it");
+  assert.ok(JSON.parse(await f.page.evaluate(() => localStorage.getItem(Object.keys(localStorage).find((k) => k.startsWith("branch-pane-widths:")) ?? "none"))).rail > 0, "the arrow keys move it");
   await rail.dblclick();
-  assert.equal(JSON.parse(await f.page.evaluate(() => localStorage.getItem("branch-pane-widths") || "{}")).rail, undefined, "double-click resets");
+  assert.equal(JSON.parse(await f.page.evaluate(() => localStorage.getItem(Object.keys(localStorage).find((k) => k.startsWith("branch-pane-widths:")) ?? "none") || "{}")).rail, undefined, "double-click resets");
   await f.page.locator("#prompt").click();
   await f.page.keyboard.press("Control+b");
   await f.page.waitForFunction(() => document.body.classList.contains("no-rail"));
@@ -406,5 +406,28 @@ test("on a phone the one switch is there and opens the floating panel with its t
   await f.look({ hidden: ["panel-button"] });
   await f.page.waitForFunction(() => document.documentElement.dataset.hide === "panel-button");
   assert.equal(await f.page.locator("#aside-toggle").isVisible(), false, "the person's choice wins over the calm window's own rule");
+  assert.deepEqual(f.errors, []);
+});
+
+test("a panel closed long ago in the full window still opens from the switch in the calm window; widths are per person", async (t) => {
+  const f = await windowFixture(t);
+  await f.page.evaluate(() => localStorage.setItem("branch-aside", "closed"));
+  await f.page.reload();
+  await f.page.locator("body.lx-ready").waitFor({ state: "attached" });
+  await f.page.waitForFunction(() => globalThis.branchPanels);
+  await f.conversation();
+  assert.equal(await f.page.evaluate(() => document.body.classList.contains("no-aside")), true, "the old choice is still written down");
+  await f.page.locator("#aside-toggle").click();
+  await f.page.waitForFunction(() => document.body.classList.contains("lx-aside"));
+  assert.equal(await f.page.locator("#context-panel").isVisible(), true, "the panel shows");
+  /* Widths: the owner's are not a household person's. */
+  await f.page.waitForFunction(() => !document.querySelector('.panels-rz[data-rz="aside"]').hidden, null, { timeout: 5000 })
+    .catch(async () => assert.fail(JSON.stringify(await f.page.evaluate(() => ({ cls: document.body.className, w: document.getElementById("context-panel").getBoundingClientRect().width, cols: getComputedStyle(document.body).gridTemplateColumns })))));
+  await f.page.evaluate(() => document.querySelector('.panels-rz[data-rz="aside"]').focus());
+  await f.page.keyboard.press("ArrowLeft");
+  const mine = await f.page.evaluate(() => document.documentElement.style.getPropertyValue("--aside-w"));
+  assert.ok(mine, "the owner's width is set");
+  await f.page.evaluate(() => { document.documentElement.dataset.household = "on"; document.dispatchEvent(new CustomEvent("branch-profile", { detail: { owner: false } })); });
+  assert.equal(await f.page.evaluate(() => document.documentElement.style.getPropertyValue("--aside-w")), "", "a household person starts from the normal width");
   assert.deepEqual(f.errors, []);
 });

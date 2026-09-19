@@ -184,8 +184,13 @@ const RZ = {
   rail: { v: "--rail-w", min: 200, max: 440, snap: 150, label: ["panels.rz.rail", "Side list width"], toggle: "rail-toggle", fold: "no-rail", wide: 861 },
   aside: { v: "--aside-w", min: 260, max: 640, snap: 200, label: ["panels.rz.aside", "Side panel width"], toggle: "aside-toggle", wide: 1181 },
 };
+/* Kept per workspace and per person at this window: a household person's widths are their own. */
+const widthsKey = () => `${WIDTHS}:${store.get("branch-owner") || "owner"}:${root.dataset.household === "on" ? "household" : "owner"}`;
 let widths = {};
-try { widths = JSON.parse(store.get(WIDTHS) || "{}") || {}; } catch { widths = {}; }
+function loadWidths() {
+  try { widths = JSON.parse(store.get(widthsKey()) || "{}") || {}; } catch { widths = {}; }
+  applyWidths();
+}
 const keys = () => (mac ? "Cmd+B" : "Ctrl+B");
 const tip = () => say("panels.rz.tip", "Drag to resize · Double-click to reset · {keys} hides the side list", { keys: keys() });
 const widthOf = (k) => widths[k] ?? (parseFloat(getComputedStyle(root).getPropertyValue(RZ[k].v)) || 280);
@@ -200,11 +205,11 @@ function setWidth(k, px, save = true) {
   const c = RZ[k];
   widths[k] = Math.round(Math.max(c.min, Math.min(c.max, px)));
   applyWidths();
-  if (save) store.set(WIDTHS, JSON.stringify(widths));
+  if (save) store.set(widthsKey(), JSON.stringify(widths));
 }
 function resetWidth(k) {
   delete widths[k];
-  store.set(WIDTHS, Object.keys(widths).length ? JSON.stringify(widths) : null);
+  store.set(widthsKey(), Object.keys(widths).length ? JSON.stringify(widths) : null);
   applyWidths();
 }
 const paneEl = (k) => (k === "rail" ? $("conversation-rail") : $("context-panel"));
@@ -267,7 +272,7 @@ function endDrag() {
   root.classList.remove("panels-resizing");
   handle.classList.remove("panels-will-fold");
   if (fold) return foldPane(k);
-  store.set(WIDTHS, JSON.stringify(widths));
+  store.set(widthsKey(), JSON.stringify(widths));
 }
 function foldPane(k) {
   $(RZ[k].toggle)?.click();
@@ -313,7 +318,8 @@ function watchPanes() {
   document.addEventListener("transitionend", again);
   const railToggle = $("rail-toggle");
   if (railToggle) railToggle.title = say("panels.railToggle", "Hide or show the side list ({keys})", { keys: keys() });
-  applyWidths();
+  document.addEventListener("branch-profile", loadWidths);
+  loadWidths();
 }
 
 function start() {
