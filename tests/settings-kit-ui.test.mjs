@@ -29,7 +29,7 @@ async function fixture(t) {
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.locator("body.lx-ready").waitFor({ state: "attached", timeout: 120000 });
-  await page.locator("#settings-kit-files").waitFor({ state: "attached", timeout: 60000 });
+  await page.locator("#agent-files").waitFor({ state: "attached", timeout: 60000 });
   return { app, page, errors, root };
 }
 const noSidewaysScroll = (page) => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1);
@@ -92,19 +92,21 @@ test("R17-S07: settings go out as one file and come back through the same change
 
 test("R17-S05: which file does what, and changing one without leaving the window", async (t) => {
   const { app, page } = await fixture(t);
-  await openSettings(page, "general");
-  const card = page.locator("#settings-kit-files");
+  // phase2/accounts: the list moved to Settings › Assistant as "Your assistant's files" (public/agent-files.js).
+  await openSettings(page, "assistant");
+  const card = page.locator("#agent-files");
   await card.scrollIntoViewIfNeeded();
-  assert.equal(await card.locator(".kit-file").count(), 8);
-  const soul = card.locator(".kit-file", { hasText: "SOUL.md" });
+  assert.equal(await card.locator(".agent-file").count(), 8);
+  const soul = card.locator(".agent-file", { hasText: "SOUL.md" });
   assert.match(await soul.textContent(), /Its character/);
   assert.match(await soul.textContent(), /Not written yet/);
-  await soul.getByRole("button", { name: "Change it here" }).click();
+  await soul.getByRole("button", { name: "Change SOUL.md here" }).click();
   await card.getByLabel("What the file says").fill("Speak plainly and briefly.");
   await card.getByRole("button", { name: "Save this file" }).click();
   await card.locator("[role=status]", { hasText: "Saved" }).waitFor();
   assert.equal(await readFile(join(app.store.folder, "SOUL.md"), "utf8"), "Speak plainly and briefly.\n");
-  await card.locator(".kit-file", { hasText: "SOUL.md" }).locator("text=Not read: switched off").waitFor();
+  await card.getByRole("button", { name: "Back to all files" }).click();
+  await card.locator(".agent-file", { hasText: "SOUL.md" }).locator("text=Not read: switched off").waitFor();
   assert.ok(await noSidewaysScroll(page));
 });
 
@@ -132,7 +134,7 @@ test("every word the new cards show is on file in English", async (t) => {
   const { page } = await fixture(t);
   await page.evaluate(() => { globalThis.branchFirstRunDone(); });
   const keys = await page.evaluate(() => [...document.querySelectorAll(
-    "#settings-kit-presets [data-t], #settings-kit-reset [data-t], #settings-kit-file [data-t], #settings-kit-files [data-t], #first-run-next [data-t], .kit-describe[data-t], .kit-scope[data-t]",
+    "#settings-kit-presets [data-t], #settings-kit-reset [data-t], #settings-kit-file [data-t], #agent-files [data-t], #first-run-next [data-t], .kit-describe[data-t], .kit-scope[data-t]",
   )].map((node) => node.dataset.t));
   assert.ok(keys.length > 20);
   assert.deepEqual([...new Set(keys.filter((key) => !(key in en)))], []);

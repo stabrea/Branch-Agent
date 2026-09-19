@@ -1,0 +1,94 @@
+/* Redesign phase 2 (accounts): the Accounts page (public/accounts.js), the assistant's files
+   (public/agent-files.js) and the Secrets list (public/secrets-marks.js). Theme tokens only. */
+
+/* ---------- the assistant's files ---------- */
+.agent-files-list {
+  display: grid;
+  gap: 0;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.agent-file {
+  display: grid;
+  grid-template-columns: minmax(96px, 128px) minmax(0, 1fr) auto;
+  gap: 4px 12px;
+  align-items: center;
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+}
+.agent-file-name {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+}
+.agent-file-body p {
+  margin: 1px 0;
+  overflow-wrap: anywhere;
+}
+.agent-file-about {
+  font-weight: 520;
+}
+.agent-files-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+}
+.agent-files-head h3 {
+  margin: 0;
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+.agent-files-tabs {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  margin: 6px 0;
+  border-radius: 10px;
+  background: var(--well);
+}
+.agent-files-tabs button {
+  border: 0;
+  border-radius: 8px;
+  padding: 4px 12px;
+  background: transparent;
+  color: var(--muted);
+}
+.agent-files-tabs button[aria-pressed="true"] {
+  background: var(--selected);
+  color: var(--text);
+}
+.agent-files-text {
+  width: 100%;
+  min-height: 220px;
+  box-sizing: border-box;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.agent-files-preview {
+  min-height: 220px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow-wrap: anywhere;
+}
+.agent-files-size[data-over="true"] {
+  color: var(--bad);
+}
+.agent-files-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+@media (max-width: 560px) {
+  .agent-file {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .agent-file-body {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+}

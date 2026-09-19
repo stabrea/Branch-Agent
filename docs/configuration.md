@@ -9069,12 +9069,19 @@ smaller asks), so the change takes effect at once and is recorded. While Lockdow
 changed from here. Every route is the owner's: a household profile gets 400 (the same status as every other "belongs to the owner" refusal). A short-lived key may read
 the list of settings but not the file, the owner's own files, or any change (`src/short-lived-keys.ts`).
 
-**Which file does what** (Settings → General) lists SOUL, IDENTITY, USER, AGENTS, TOOLS, SOP, MEMORY
-and HEARTBEAT: what each is for, whether it is kept with your own things or in the project, and whether
-it is read right now. "Change it here" reads the file through the loader in `src/context-files.ts`
-and replaces it whole; a file longer than the loader carries, a link, a file with a second name (hard
-link), or a file in an untrusted project folder is not edited here, and a project's file is checked
-against the never-break guard before it is written.
+**Your assistant's files** (Settings → Assistant; it was "Which file does what" on General until
+redesign phase 2) lists SOUL, IDENTITY, USER, AGENTS, TOOLS, SOP, MEMORY and HEARTBEAT: what each is
+for, whether it is kept with your own things or in the project, and whether it is read right now.
+"Change it here" opens an editor (Write and Preview, a counter against the 8,000 bytes the loader
+carries, Save refused above it, and a starter for an empty file). It reads the file through the loader
+in `src/context-files.ts` and replaces it whole; a file longer than the loader carries, a link, a file
+with a second name (hard link), or a file in an untrusted project folder is not edited here, and a
+project's file is checked against the never-break guard before it is written. **Undo the last save**
+(`POST /api/settings-kit/files/undo { slot }`) puts back what the file held before the last save made
+here, or takes the file away again when that save made it; only while the file still holds exactly what
+was saved, so a change made since in another editor or by a task is never overwritten. One save per
+file is kept for this (`settings-kit-file-undo-<slot>` setting, with the earlier text). The card is
+marked for the Advanced level of detail (`data-level="advanced"`) for the Settings level control.
 
 After first run, a card under the conversation offers Say hello, Watch me once (turns on recording
 each task, "only when it is needed", so the next task can be saved as a workflow from Inbox › History)
