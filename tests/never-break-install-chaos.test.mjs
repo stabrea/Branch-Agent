@@ -304,7 +304,7 @@ test(`an update cut off during the swap always leaves one whole version (${swapM
 });
 
 test(`a rollback cut off part-way still leaves one whole version (${seeds} seeds)`, { skip: !posix && "POSIX shell" }, async (t) => {
-  const cuts = [/mv "\$TARGET" "\$FAILED"/, /mv "\$PREVIOUS" "\$TARGET"/, /mv "\$PREVIOUS-2" "\$PREVIOUS"/, /rm -rf "\$FAILED"/];
+  const cuts = [/mv "\$TARGET" "\$FAILED"/, /mv "\$PREVIOUS" "\$TARGET"/, /mv "\$PREVIOUS-2" "\$PREVIOUS"/, /drop "\$FAILED"/];
   const outcomes = [];
   const dead = deadPid();
   for (let seed = 1; seed <= seeds; seed++) {
