@@ -39,7 +39,7 @@ export function shortLivedKeyMark(): KeyMark {
 export interface RunOrigin {
   /** Started with a short-lived key, or started by something that was. */
   shortLivedKey: boolean;
-  /** Who started the task at the top of the chain: "owner", "schedule", "trigger", "mcp", ... */
+  /** Who started the task at the top of the chain (parents, resumed tasks, carried-on tasks): "owner", "schedule", "trigger", "mcp", ... */
   source: string;
   /** What the task itself was allowed to use; null when it recorded nothing. */
   permissions: string[] | null;
@@ -81,7 +81,8 @@ export function runOrigin(store: EventReader, runId: string): RunOrigin {
     if (typeof data.personProfileId === "string") origin.personProfileId ??= data.personProfileId;
     if (typeof data.source === "string" && data.source !== "owner") origin.source = data.source;
     if (data.source === "channel") chat = true;
-    for (const next of [data.parentRunId, data.resumedFrom]) if (typeof next === "string") queue.push(next);
+    // mac7/outside-resume: `originFrom` is the earlier task a follow-up or a "Do this again" carries on for.
+    for (const next of [data.parentRunId, data.resumedFrom, data.originFrom]) if (typeof next === "string") queue.push(next);
   }
   if (chat) origin.source = "channel";
   origin.lentTo = lentAlong(store, runId);
