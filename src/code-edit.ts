@@ -7,6 +7,7 @@ import type { WorkspaceFiles, WriteObserver } from "./files.js";
 import type { ToolContext } from "./contracts.js";
 import type { ToolRegistry } from "./registry.js";
 import { parsePatch, applyHunks } from "./patch.js";
+import { replaceText } from "./text-replace.js";
 import { bracketValidation, canCheckBrackets, typeScriptValidation } from "./code-syntax.js";
 
 /**
@@ -109,21 +110,22 @@ export class CodeEditor {
     if (this.observer) await this.observer.after(path, context, token);
   }
 
-  /** Replaces an exact piece of text; refuses when the number of matches is not what was expected. */
+  /**
+   * Replaces a piece of text; refuses when the number of matches is not what was expected. Exact
+   * text first; only when it is nowhere in the file, whole lines that differ by whitespace alone.
+   */
   async edit(
-    input: { path: string; find: string; replace: string; expectedOccurrences: number },
+    input: { path: string; find: string; replace: string; expectedOccurrences: number; replaceAll?: boolean },
     context: ToolContext,
-  ): Promise<ChangeSummary> {
-    const before = await this.original(input.path);
-    if (before === null) throw new Error(`Edit refused: "${input.path}" does not exist`);
-    const found = before.split(input.find).length - 1;
-    if (found !== input.expectedOccurrences)
-      throw new Error(
-        `Edit refused: "${input.path}" contains that text ${found} time(s), but ${input.expectedOccurrences} was expected`,
-      );
-    const after = before.split(input.find).join(input.replace);
-    await this.save(input.path, after, context);
-    return summarise(input.path, before, after, []);
+  ): Promise<ChangeSummary & { matched?: string }> {
+    const existing = await this.original(input.path);
+    // An empty `find` on a file that is not there yet creates it, as other agents' edit tools do.
+    if (existing === null && input.find !== "") throw new Error(`Edit refused: "${input.path}" does not exist`);
+    const before = existing ?? "";
+    const result = replaceText(before, input.find, input.replace, input.replaceAll ? "all" : input.expectedOccurrences, `Edit refused: "${input.path}"`);
+    await this.save(input.path, result.after, context);
+    const summary = summarise(input.path, existing, result.after, []);
+    return result.tolerant ? { ...summary, matched: `ignoring ${result.tolerant}` } : summary;
   }
 }
 
@@ -192,22 +194,38 @@ function scriptValidation(path: string, absolute: string): Promise<Validation> {
 }
 
 const pathSchema = z.string().min(1).max(500);
+/**
+ * files.edit's arguments. The names other coding agents use for the same thing (`old_string`,
+ * `new_string`, `file_path`, `replace_all`) are accepted and mapped, because a model trained on one
+ * of them reaches for those names first, and refusing the call over a spelling wastes a whole turn.
+ */
+const editParameters = z.preprocess((raw) => {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return raw;
+  const input = { ...(raw as Record<string, unknown>) };
+  const alias = (from: string, to: string) => {
+    if (from in input && !(to in input)) input[to] = input[from];
+    delete input[from];
+  };
+  alias("old_string", "find"); alias("new_string", "replace"); alias("file_path", "path"); alias("replace_all", "replaceAll");
+  return input;
+}, z.object({
+  path: pathSchema,
+  find: z.string().max(32768),
+  replace: z.string().max(32768),
+  expectedOccurrences: z.number().int().min(1).max(100).default(1),
+  replaceAll: z.boolean().default(false),
+}).strict());
 export function registerCodeEdit(registry: ToolRegistry, files: WorkspaceFiles, editor: CodeEditor): void {
   registry.register({
     name: "files.patch", permission: "files.write",
-    description: "Apply a set of changes to workspace files. Nothing changes unless every part fits exactly.",
+    description: "Apply a unified diff or a *** Begin Patch block. Parts are placed by their lines even when line numbers are off; if any part's lines are missing, nothing is written.",
     parameters: z.object({ patch: z.string().min(1).max(131072) }).strict(),
     execute: async (a, c: ToolContext) => editor.patch(a.patch, c),
   });
   registry.register({
     name: "files.edit", permission: "files.write",
-    description: "Replace an exact piece of text in a workspace file, refusing when it appears a different number of times than expected.",
-    parameters: z.object({
-      path: pathSchema,
-      find: z.string().min(1).max(32768),
-      replace: z.string().max(32768),
-      expectedOccurrences: z.number().int().min(1).max(100).default(1),
-    }).strict(),
+    description: "Replace text in a file. Read it first and copy `find` from it, with nearby lines so it is unique; `replace` is the new text. Empty `find` appends (or creates the file).",
+    parameters: editParameters,
     execute: async (a, c: ToolContext) => editor.edit(a, c),
   });
   registry.register({

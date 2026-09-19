@@ -1,5 +1,7 @@
+import { replaceText } from "./text-replace.js";
+import { codeRunSettings } from "./code-run.js";
 import { readFile, stat } from "node:fs/promises";
-import { isAbsolute } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { z } from "zod";
 import type { Store } from "./store.js";
 import type { ToolContext } from "./contracts.js";
@@ -7,6 +9,7 @@ import type { ToolRegistry } from "./registry.js";
 import type { WorkspaceFiles } from "./files.js";
 import { CodeEditor, type ChangeSummary, type PlannedChange } from "./code-edit.js";
 import { ShellProcess } from "./integrations/shell-process.js";
+import { netlessEnvironment } from "./integrations/shell-config.js";
 import { defaultJobObjects, jobWithin, type JobObjects } from "./integrations/job-object.js";
 
 /**
@@ -56,7 +59,8 @@ export const PatchInputSchema = z.object({
 }).strict();
 const editShape = z.object({
   path: z.string().min(1).max(500),
-  find: z.string().min(1).max(32768),
+  /** Empty means "add `replace` to the end", as in files.edit; the file must already exist here. */
+  find: z.string().max(32768),
   replace: z.string().max(32768),
   expectedOccurrences: z.number().int().min(1).max(100).default(1),
 }).strict();
@@ -116,10 +120,8 @@ export class CodeChanges {
     const absolute = await this.files.checked(edit.path);
     const before = await readFile(absolute, "utf8").catch(() => null);
     if (before === null) throw new Error(`Change refused: "${edit.path}" does not exist, so nothing was changed`);
-    const found = before.split(edit.find).length - 1;
-    if (found !== edit.expectedOccurrences)
-      throw new Error(`Change refused: "${edit.path}" contains that text ${found} time(s), but ${edit.expectedOccurrences} was expected; nothing was changed`);
-    return { path: edit.path, before, after: before.split(edit.find).join(edit.replace) };
+    const { after } = replaceText(before, edit.find, edit.replace, edit.expectedOccurrences, `Change refused (nothing was changed): "${edit.path}"`);
+    return { path: edit.path, before, after };
   }
   private async refuseBinary(planned: PlannedChange[]): Promise<void> {
     for (const item of planned) {
@@ -146,23 +148,52 @@ export class CodeChanges {
       undo: mark ? { id: mark.id, note: "Ask to undo this, and the files go back to how they were just before." }
         : { id: "", note: "This folder is not kept in Git, so there is no way back to before the change." } };
   }
-  /** Runs the project's own check and reports it; a check that fails is news, not a failure. */
-  async runCheck(context: ToolContext): Promise<CheckOutcome> {
+  /**
+   * Runs the project's own check and reports it; a check that fails is news, not a failure. With no
+   * check set up, a Node project's own tests (`node --test`, with this app's Node) stand in — but
+   * only when the model asks for the check itself (`code.check`, a code.execute tool) and the owner
+   * has switched script running on, since that runs the project's code too. After a patch or a
+   * change set (files.write tools) only the owner's own configured check runs: writing a file must
+   * never become running it. The stand-in reaches the internet only when scripts may.
+   */
+  async runCheck(context: ToolContext, options: { projectTests?: boolean } = {}): Promise<CheckOutcome> {
     const setting = projectCheck(this.store, this.owner);
-    if (!setting.enabled || !setting.command) return { ran: false, ok: true, note: "No check is set up for this project." };
+    const scripts = codeRunSettings(this.store, this.owner);
+    const configured = setting.enabled && !!setting.command;
+    const nodeTests = !configured && options.projectTests === true && scripts.enabled
+      && await stat(join(this.workspace, "package.json")).then((info) => info.isFile(), () => false);
+    if (!configured && !nodeTests) return { ran: false, ok: true, note: noCheckNote(scripts.enabled) };
+    const command = configured
+      ? { executable: setting.command, args: setting.args, timeoutMs: setting.timeoutMs, env: {} }
+      : { executable: process.execPath, args: ["--test"], timeoutMs: 60000, env: {
+        // Inside the desktop app this program is the app itself; this makes it run as plain Node.
+        ...(process.versions.electron ? { ELECTRON_RUN_AS_NODE: "1" } : {}),
+        ...(scripts.network ? {} : netlessEnvironment()) } };
     const job = await jobWithin(this.jobs, { maxMemoryMb: 2048, maxCpuSeconds: 120 }, 1500);
     const result = await new ShellProcess({
-      executable: setting.command, args: setting.args, cwd: this.workspace,
-      env: { PATH: process.env.PATH ?? "", SYSTEMROOT: process.env.SYSTEMROOT ?? "", TEMP: process.env.TEMP ?? "" },
-      signal: context.signal, timeoutMs: setting.timeoutMs, maxOutputBytes: 8192,
+      executable: command.executable, args: command.args, cwd: this.workspace,
+      env: { PATH: process.env.PATH ?? "", SYSTEMROOT: process.env.SYSTEMROOT ?? "", TEMP: process.env.TEMP ?? "", ...command.env },
+      signal: context.signal, timeoutMs: command.timeoutMs, maxOutputBytes: 8192,
       maxMemoryMb: 2048, maxCpuSeconds: 120, ...(job ? { job } : {}),
     }).run();
     const ok = result.status === "completed";
     const output = `${result.stdout}${result.stderr}`.slice(0, 4000);
     if (context.runId) this.store.event(context.runId, "code.check", { ok, status: result.status, exitCode: result.exitCode });
+    const what = configured ? "The project's check" : "The project's tests (node --test)";
     return { ran: true, ok, exitCode: result.exitCode, output,
-      note: ok ? "The project's check passed after the change." : `The project's check did not pass after the change (${result.status}). Read the output and put it right.` };
+      note: ok ? `${what} passed.` : `${what} did not pass (${result.status}). Read the output and put it right.` };
   }
+}
+
+/**
+ * What the model is told when there is no check to run. "No check is set up" on its own was read by
+ * a small model as "this task cannot be done" and it stopped (docs/agents/coding-bench.md); the
+ * sentence now says what it can still do.
+ */
+export function noCheckNote(scriptsOn: boolean): string {
+  return "No check is set up for this project, so its tests cannot be run with this tool. That does not block the task: "
+    + "read the test files and the source with files.read, work out what the tests expect, and make the change"
+    + (scriptsOn ? ", or run a test file yourself with code.run." : ".");
 }
 
 const fileList = (paths: string[]): string =>
@@ -171,10 +202,10 @@ const fileList = (paths: string[]): string =>
 export function registerCodeChanges(registry: ToolRegistry, changes: CodeChanges): void {
   registry.register({
     name: "code.patch", permission: "files.write", group: "code",
-    description: "Apply a unified diff across workspace files. Every part must fit exactly; if one does not, nothing at all is written. Set dryRun to see the whole change first without writing it. Binary files and anything outside the workspace are refused, and each file changed can be put back from its history.",
+    description: "Apply a unified diff (or *** Begin Patch block) across workspace files; parts are placed by their lines even when line numbers are off, and if any part's lines are missing nothing is written. Set dryRun to see the whole change first without writing it. Binary files and anything outside the workspace are refused, and each file changed can be put back from its history.",
     parameters: PatchInputSchema,
     target: (args) => {
-      const paths = [...String(args.patch).matchAll(/^\+\+\+ (?:b\/)?(\S+)/gm)].map((m) => m[1]!);
+      const paths = [...String(args.patch).matchAll(/^(?:\+\+\+ (?:b\/)?|\*\*\* (?:Update|Add) File: )(\S+)/gm)].map((m) => m[1]!);
       return args.dryRun ? "" : fileList(paths);
     },
     execute: (args, context) => changes.patch(args, context),
@@ -190,6 +221,6 @@ export function registerCodeChanges(registry: ToolRegistry, changes: CodeChanges
     name: "code.check", permission: "code.execute", group: "code",
     description: "Run the check the owner set up for this project (their tests or their linter) and report what it said. A check that does not pass comes back as something to read, not as a failure.",
     parameters: z.object({}).strict(),
-    execute: (_args, context) => changes.runCheck(context),
+    execute: (_args, context) => changes.runCheck(context, { projectTests: true }),
   });
 }

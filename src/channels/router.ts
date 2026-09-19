@@ -1,4 +1,5 @@
 import { randomInt } from "node:crypto";
+import { diagnose } from "../diagnostic-log.js"; // mac7/diagnostics
 import { z } from "zod";
 import type { Store } from "../store.js";
 import { heldReplay } from "../never-break/resume.js"; // mac3/never-break
@@ -318,7 +319,8 @@ export class ChannelRouter {
   flush(): Promise<void> {
     return (this.flushing = this.flushing.then(async () => {
       for (const [id, { adapter }] of this.adapters)
-        await this.deliveries.flush(id, (chatId, text, replyTo) => adapter.send(chatId, text, replyTo)).catch(() => undefined);
+        await this.deliveries.flush(id, (chatId, text, replyTo) => adapter.send(chatId, text, replyTo))
+          .catch((error: unknown) => diagnose("channels", "warn", `Messages waiting for ${adapter.kind} could not be sent: ${error instanceof Error ? error.message : String(error)}`)); // mac7/diagnostics
     }));
   }
   /** Outbound messages that are waiting or gave up, for the owner to see and retry. */

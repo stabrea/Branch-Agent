@@ -44,6 +44,7 @@ async function sseFixture(t, frames) {
 }
 
 test("a round that produces nothing ends as a failure with a sentence, not completed", async (t) => {
+  // mac7/coding-gap: only a reply that thought is nudged; one with no thinking is judged at once, as before.
   const { app } = await fixture(t, calls({ content: "", toolCalls: [] }));
   const run = await app.runtime.run({ prompt: "fix the failing test" });
   assert.notEqual(run.status, "completed");
@@ -54,11 +55,13 @@ test("a round that produces nothing ends as a failure with a sentence, not compl
 });
 
 test("a model that spends its whole reply thinking says so rather than reporting success", async (t) => {
-  const { app } = await fixture(t, calls({ content: "", toolCalls: [], reasoningChars: 6200 }));
+  // mac7/coding-gap: an empty reply is nudged twice before the task is judged, so the model stays empty three times here.
+  const thought = () => ({ content: "", toolCalls: [], reasoningChars: 6200 });
+  const { app } = await fixture(t, calls(thought(), thought(), thought()));
   const run = await app.runtime.run({ prompt: "write summary.md" });
   assert.equal(run.status, "failed");
   assert.match(run.output, /thinking/i);
-  assert.match(run.output, /6,200/);
+  assert.match(run.output, /18,600/, "three replies of 6,200 characters each, all counted");
   assert.match(run.output, /larger model/i);
 });
 

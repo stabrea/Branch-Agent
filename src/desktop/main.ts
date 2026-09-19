@@ -26,6 +26,8 @@ import { loadDesktopSettings, registerSettingsIpc } from "./settings-ipc.js";
 import { registerUpdaterIpc, type UpdateHooks } from "./updater-ipc.js";
 import { ChatGPTAuth, FileTokenVault } from "../chatgpt-auth.js";
 import { safeStorage } from "electron";
+import { crashReporter } from "electron"; // mac7/diagnostics
+import { crashReporterOptions, diagnose } from "../diagnostic-log.js"; // mac7/diagnostics
 import type { DesktopSettings } from "./settings.js";
 import { registerConversationExportIpc } from "./conversation-export-ipc.js";
 // 0.18.1: "Branch stopped responding — Restart" relaunches the app, and with it the local server.
@@ -363,9 +365,11 @@ async function askThenQuit(): Promise<void> {
  * part of the app it came from on it. Nothing here changes what Electron then does.
  */
 function watchDesktopCrashes(branch: { store: { spans: SpanStore }; runtime: { owner: string; hideSecrets(value: string): string } }): void {
-  const record = (where: string, message: string, stack?: string) =>
+  const record = (where: string, message: string, stack?: string) => {
+    diagnose(where === "window" ? "window" : "helper", "error", message); // mac7/diagnostics
     recordDesktopCrash(branch.store.spans, branch.runtime.owner,
       (value) => branch.runtime.hideSecrets(value), { where, message, ...(stack === undefined ? {} : { stack }) });
+  };
   app.on("render-process-gone", (_event, _contents, details) =>
     record("window", `The window stopped: ${details.reason}${details.exitCode ? ` (code ${details.exitCode})` : ""}`));
   app.on("child-process-gone", (_event, details) =>
@@ -402,6 +406,12 @@ app.setName("Branch Agent");
 if (process.platform === "win32") app.setAppUserModelId(windowsAppId);
 if (process.env.BRANCH_DESKTOP_HOME)
   app.setPath("userData", process.env.BRANCH_DESKTOP_HOME);
+// mac7/diagnostics: Electron's crash reporter keeps crash files (minidumps) on this computer only;
+// uploading is switched off (src/diagnostic-log.ts). "Report a problem" lists them, never sends them.
+try {
+  crashReporter.start(crashReporterOptions());
+  process.env.BRANCH_CRASH_DUMPS = app.getPath("crashDumps");
+} catch { /* a crash reporter that will not start must never stop the app */ }
 if (process.argv.includes(refreshShortcutsFlag)) {
   // The installer's one-off request: put the shortcuts right and quit, touching nothing else.
   void app.whenReady().then(refreshWindowsShortcuts).finally(() => app.exit(0));

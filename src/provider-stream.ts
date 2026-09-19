@@ -275,6 +275,10 @@ function outOfRoomThinking(chars: number): string {
   return `The model used its whole reply allowance thinking (${chars.toLocaleString()} characters) `
     + "and was cut off before it answered. Try a larger model, or ask for one step at a time.";
 }
+/** Whether a failure is a reply cut off while still thinking (the reply ceiling, not the provider). */
+export function isOutOfRoomThinking(error: unknown): boolean {
+  return error instanceof Error && error.message.startsWith("The model used its whole reply allowance thinking");
+}
 /** integrate/empty-completion: the first of the thinking fields that is text; anything else is ignored. */
 export function thinkingText(...fields: unknown[]): string {
   for (const field of fields) if (typeof field === "string" && field) return field;

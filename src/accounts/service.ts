@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { audit } from "../audit.js";
 import type { ChatGPTAuth } from "../chatgpt-auth.js";
 import { chatgptPresetPrefix, syncChatGPTPresets } from "../chatgpt-presets.js";
 import { ChatGPTProvider } from "../chatgpt-provider.js";
@@ -16,8 +17,8 @@ import type { AccountState } from "./pool.js";
 import { freshState } from "./pool.js";
 import { pooled, unwrapProvider } from "./pool-provider.js";
 import {
-  type Account, type AccountKind, type Pool, accountsSettings, keyName, keyProject, primaryAccount,
-  saveSessionChoice, sessionChoice,
+  type Account, type AccountKind, type Pool, accountsSettings, applyPoolingRule, keyName, keyProject, primaryAccount,
+  saveAccountsSettings, saveSessionChoice, savedAccountsSettings, sessionChoice,
 } from "./settings.js";
 import { AccountUsageLedger } from "./usage.js";
 
@@ -196,6 +197,24 @@ export class AccountsService {
     return join(this.deps.dataDir, "accounts", pool, account);
   }
 
+  /**
+   * mac7/account-pooling: brings a saved list up to the sharing rule once (see `applyPoolingRule`).
+   * A list that shared work between the owner's own plans stops, keeps their first choice, and is
+   * written to the record of what Branch did.
+   */
+  applyPoolingRule(): string[] {
+    // Nothing saved, or a damaged record (which reads as switched off and is left as it is).
+    const current = savedAccountsSettings(this.deps.store, this.deps.owner);
+    if (!current) return [];
+    const { settings, stopped } = applyPoolingRule(current);
+    if (settings === current) return [];
+    saveAccountsSettings(this.deps.store, this.deps.owner, settings);
+    for (const pool of stopped)
+      audit(this.deps.store, this.deps.owner, { action: "connection.changed", actor: this.deps.owner, subject: pool,
+        reason: "Sharing work between the owner's own sign-ins of one service was stopped: providers treat it as abuse", outcome: "off" });
+    return stopped;
+  }
+
   /** Registers the ChatGPT models when an extra account is signed in, even if the first one is not. */
   async ensureChatGPTPresets(): Promise<void> {
     const legacy = this.deps.chatgpt;
@@ -220,6 +239,7 @@ export function accountsServiceFor(models: ModelRouter): AccountsService | undef
 export async function startAccounts(deps: AccountsDeps): Promise<AccountsService> {
   const service = new AccountsService(deps);
   services.set(deps.models, service);
+  service.applyPoolingRule();
   deps.models.presetHook = service.wrap;
   service.rewrap();
   await service.ensureChatGPTPresets().catch(() => undefined);

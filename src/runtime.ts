@@ -108,6 +108,7 @@ import { estimateCost, formatCost, pricingSettings } from "./pricing.js";
 import * as knobs from "./knobs/apply.js";
 import { thinkingFilter, withoutThinking } from "./knobs/thinking.js";
 import { produced, producedNothing, thinkingTokens } from "./empty-answer.js"; // mac7/empty-completion
+import { isOutOfRoomThinking } from "./provider-stream.js"; // mac7/coding-gap
 // --- end R17-S-B ---
 // --- R17-E: models, cheaper and smarter (src/model-savings/hook.ts) ---
 import * as savings from "./model-savings/hook.js";
@@ -165,6 +166,16 @@ export interface DelegateOptions { timeoutMs?: number; resultSchema?: Record<str
 export interface FollowUp { id: string; prompt: string; createdAt: string; shortLivedKey?: boolean; shortLivedKeyId?: string; personProfileId?: string }
 export interface BackgroundResult { childRunId: string; parentRunId: string; status: string; output: string; finishedAt: string }
 export interface FanoutOutcome { waves: string[][]; tasks: Record<string, { runId: string; status: string; output: string; result: ResultCheck }> }
+/** Every reply may be this long; a run whose model runs out of room thinking may double it twice. */
+const baseReplyCeiling = 2048, maxReplyCeiling = 8192;
+/** What the model is told after a reply that was all thinking: act on it now. */
+export const emptyReplyNudge = "Your last reply had thinking but no answer and no tool call, so nothing happened. "
+  + "Act on what you worked out now: call the tool for the next step, or, if the task is finished, give your final answer.";
+/** A task's own deadline: two minutes unless the caller asked for another, within one day. */
+export function runDeadline(timeoutMs: number | undefined): number {
+  const asked = Number.isFinite(timeoutMs) ? Math.floor(timeoutMs!) : 0;
+  return asked > 0 ? Math.min(asked, 24 * 60 * 60 * 1000) : 120000;
+}
 const reviewInstructions = "You review a finished task. Reply with JSON only: {\"memories\":[{\"text\":\"a durable fact or preference about the person, in one sentence\",\"source\":\"why you believe it\"}],\"skills\":[{\"skillId\":\"id of an installed skill this task used\",\"note\":\"one improvement to its instructions\"}]}. Only include things worth keeping for future tasks; empty arrays are the normal answer.";
 // The conversation share alone is what triggers compaction now, and how much of it there is
 // depends on what the tool catalog and the answer leave over: see derivedCompactionThreshold in
@@ -213,6 +224,13 @@ export interface RunOptions {
   reasoning?: ReasoningEffort | null;
   permissions?: string[];
   signal?: AbortSignal;
+  /**
+   * How long this task may run, in milliseconds. Defaults to two minutes. A caller that asks for
+   * longer gets longer: the default used to be combined with the caller's own signal, so a
+   * `--timeout` could shorten a task but never lengthen it, and a local model — a minute a round —
+   * was cancelled after two rounds whatever was asked for (experiments/scoreboard/FINDINGS.md, F2).
+   */
+  timeoutMs?: number;
   budget?: BudgetOptions;
   onStarted?: (run: Run) => void;
   onTextDelta?: (text: string) => void;
@@ -257,6 +275,13 @@ export interface RunOptions {
 }
 export class Runtime {
   private readonly controllers = new Map<string, AbortController>();
+  /**
+   * mac7/coding-gap: the reply ceiling for a run whose model was cut off mid-thought. Every run
+   * starts at the usual 2,048 tokens; only a reply that ran out of room thinking raises it, twice at
+   * most (4,096, then 8,192), and only for that run. Measured on the coding bench: after the
+   * deadline fix, half of Branch's failed tasks ended this way with qwen3:14b.
+   */
+  private readonly replyCeilings = new Map<string, number>();
   private readonly children = new Map<string, number>();
   /** R17-050: keeps a Claude connection's prompt cache warm during a pause, when the owner asked. */
   private warmCache?: KeepAlive;
@@ -727,11 +752,25 @@ ${run.output.slice(0, 6000)}`;
   /**
    * mac7/lockdown-fix: a Trunk's tool runs marked as the Trunk's, so a model call it makes on the side
    * (a summary, a document read, a flow it starts) never goes through a sign-in account either.
+   * mac7/pooling-review: an owner's tool is marked with its conversation in the same way, so a model
+   * call it makes on the side answers through that conversation's account, not the owner's default
+   * (which may be a second of the owner's own plans, reached after the first ran out).
    */
   private asTrunk<T>(context: ToolContext, work: () => Promise<T>): Promise<T> {
-    if (!context.trunkKeys || currentAccountCall()?.trunk) return work();
+    if (currentAccountCall()?.trunk) return work();
+    if (!context.trunkKeys)
+      return withAccountCall({ owner: this.owner, sessionId: this.accountSession(context.runId), runId: context.runId }, work);
     const sessionId = this.store.run(context.runId)?.sessionId ?? "";
     return withAccountCall({ owner: this.owner, sessionId, runId: context.runId, trunk: { keys: context.trunkKeys } }, work);
+  }
+  /**
+   * mac7/pooling-review: the conversation whose account choice a task's model calls follow: the one
+   * at the top of its tree, so a helper or a background sub-task answers through the account its
+   * conversation uses (see src/accounts/pool-provider.ts), never through another of the owner's plans.
+   */
+  private accountSession(runId: string): string {
+    const root = this.spendRoot.get(runId) ?? runId;
+    return this.store.run(root)?.sessionId ?? this.store.run(runId)?.sessionId ?? "";
   }
   /** Temporary conversations cannot write long-term memory; nothing from them should persist. */
   private scopeToSession(run: Run, given: ToolContext, trunk: TrunkRunShape | null = null): ToolContext {
@@ -823,7 +862,7 @@ ${run.output.slice(0, 6000)}`;
     const signal = AbortSignal.any([
       controller.signal,
       options.signal ?? new AbortController().signal,
-      AbortSignal.timeout(120000),
+      AbortSignal.timeout(runDeadline(options.timeoutMs)),
     ]);
     const context = this.scopeToSession(run, parent
       ? { ...parent, runId: run.id, signal, scratchRoot: parent.scratchRoot ?? parent.runId }
@@ -1032,6 +1071,7 @@ ${run.output.slice(0, 6000)}`;
     // failure with a plain sentence, not a success. This is the only place the runtime finishes a
     // run — an owner's task, a delegated child and a manual tool action all settle here — so the
     // check cannot be walked around, and it judges only what the task itself recorded.
+    this.replyCeilings.delete(run.id);
     const nothing = producedNothing(status, output, produced(this.store.events(run.id)));
     if (nothing) {
       this.store.event(run.id, "run.produced_nothing", { reason: nothing });
@@ -1187,6 +1227,7 @@ ${run.output.slice(0, 6000)}`;
     const conductor = this.orchestration.conductor(run, { ...conduct, ...planned, ...(checks ? { checks } : {}) }, (aside) => this.aside(run, context, route, aside));
     this.add(run, messages, ids, await conductor.start());
     let checkFailures = 0;
+    let emptyReplies = 0; // mac7/coding-gap: replies that were all thinking and no action
     let knownTools = this.registry.version;
     // ── bucket-15: the owner's filters are asked about the connection that answers. The preview is held
     // back (the stall watch still runs) while an outlet filter applies to any connection this round may
@@ -1224,6 +1265,16 @@ ${run.output.slice(0, 6000)}`;
         const calling = completion.toolCalls.length > 0;
         completion.content = outlet.blocked ? (calling ? "" : outlet.blocked) : outlet.text;
         spoken = outlet.blocked ? completion.content : (scratch ? this.filterText("outlet", scratch.rest, filterModels).text : completion.content);
+      }
+      // mac7/coding-gap: a local reasoning model often thinks, then stops with no words and no tool
+      // call. That is not an answer, and ending the task there wastes all the thinking; ask it once
+      // or twice to act on what it worked out before the task is judged to have produced nothing.
+      // Only a reply that did think: an empty reply with no thinking ends the turn as it always did.
+      if (!completion.toolCalls.length && !completion.content.trim() && (completion.reasoningChars ?? 0) > 0 && emptyReplies < 2) {
+        emptyReplies++;
+        this.store.event(run.id, "model.empty_reply", { round: round + 1, nudge: emptyReplies });
+        this.add(run, messages, ids, { role: "user", content: emptyReplyNudge });
+        continue;
       }
       const assistant: Message = {
         role: "assistant",
@@ -1764,6 +1815,13 @@ ${run.output.slice(0, 6000)}`;
       try {
         return await this.complete(run, messages, context, preset, route.reasoning, emit);
       } catch (error) {
+        const ceiling = this.replyCeilings.get(run.id) ?? baseReplyCeiling;
+        if (isOutOfRoomThinking(error) && ceiling < maxReplyCeiling && !context.signal.aborted) {
+          this.replyCeilings.set(run.id, ceiling * 2);
+          this.store.event(run.id, "model.ceiling_raised", { from: ceiling, to: ceiling * 2 });
+          retriesUsed = -1;
+          continue;
+        }
         if (error instanceof StallError) {
           if (this.recoverStall(run, context, route, error, stalls++)) { retriesUsed = -1; continue; }
           throw error;
@@ -1855,7 +1913,7 @@ ${run.output.slice(0, 6000)}`;
     // written down as an attempt, so a round that never reached the provider really does cost
     // nothing — in the inspector and in the figures alike. The step count still applies, so a task
     // cannot go round for ever on kept answers.
-    const maxTokens = Math.min(2048, Math.max(0, context.budget.remaining() - input));
+    const maxTokens = Math.min(this.replyCeilings.get(run.id) ?? baseReplyCeiling, Math.max(0, context.budget.remaining() - input));
     const cacheKey: CacheKeyParts = {
       provider: preset.provider.name, model: preset.model, reasoning: reasoning ?? null, maxTokens,
       messages, tools: tools.map((tool) => ({ name: tool.name, description: tool.description })),
@@ -1888,7 +1946,7 @@ ${run.output.slice(0, 6000)}`;
         ...savings.requestExtras(this.store, this.owner, preset, !context.permissions.size), // R17-045 / R17-046
         ...(shape ? { responseFormat: { name: shape.name, schema: shape.schema } } : {}) };
       // mac6/accounts: the call carries its conversation, so a connection with several accounts can honour the one chosen for it.
-      const raw = await withAccountCall({ owner: run.owner, sessionId: run.sessionId, runId: run.id, note: (kind, data) => this.store.event(run.id, kind, data),
+      const raw = await withAccountCall({ owner: run.owner, sessionId: this.accountSession(run.id), runId: run.id, note: (kind, data) => this.store.event(run.id, kind, data),
         ...(context.trunkKeys ? { trunk: { keys: context.trunkKeys } } : {}) }, async () => onTextDelta
         // mac7/empty-completion: thinking resets the silence clock as text does. A reasoning model
         // writes no words of its answer while it thinks, and the watchdog was calling that a dead

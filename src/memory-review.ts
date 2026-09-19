@@ -91,6 +91,8 @@ export class MemoryReview {
    * in at start-up like `acceptCard`. Without it a skill note is only noted.
    */
   applySkillNote?: (owner: string, proposal: Proposal) => unknown;
+  /** The consolidation under way for each person, so a second request shares it (see `consolidate`). */
+  private readonly consolidating = new Map<string, Promise<ConsolidationReport>>();
   constructor(private readonly db: DatabaseSync, private readonly memories: MemoryFacts) {
     db.exec(`CREATE TABLE IF NOT EXISTS memory_proposals(id TEXT PRIMARY KEY, owner TEXT NOT NULL, data TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL, decided_at TEXT);
       CREATE TABLE IF NOT EXISTS memory_checkpoints(id TEXT PRIMARY KEY, owner TEXT NOT NULL, label TEXT NOT NULL, memories TEXT NOT NULL, skills TEXT NOT NULL, created_at TEXT NOT NULL);`);
@@ -236,8 +238,21 @@ export class MemoryReview {
   /**
    * Looks over completed tasks since the cursor (at most 20), asks the model once what is worth
    * remembering, stages the answers as suggestions, and advances the cursor only when that worked.
+   *
+   * One at a time per person. The scheduler checks every few seconds whether the daily look is due,
+   * and it stays due until the cursor moves at the very end; a model that took longer than one check
+   * (or the owner pressing the button while it ran) used to start a second look over the same tasks
+   * and stage every suggestion twice. A request while one is under way now waits for that one and
+   * gets its result.
    */
-  async consolidate(runtime: Runtime, owner: string): Promise<ConsolidationReport> {
+  consolidate(runtime: Runtime, owner: string): Promise<ConsolidationReport> {
+    const running = this.consolidating.get(owner);
+    if (running) return running;
+    const started = this.consolidateOnce(runtime, owner).finally(() => this.consolidating.delete(owner));
+    this.consolidating.set(owner, started);
+    return started;
+  }
+  private async consolidateOnce(runtime: Runtime, owner: string): Promise<ConsolidationReport> {
     const cursor = this.cursor(owner);
     const runs = this.db.prepare("SELECT * FROM tasks WHERE owner=? AND status='completed' AND created_at>? AND prompt NOT LIKE 'Consolidate %' ORDER BY created_at ASC LIMIT 20").all(owner, cursor.through)
       .map((row) => ({ id: String(row.id), sessionId: String(row.session_id), prompt: String(row.prompt), output: String(row.output), createdAt: String(row.created_at) }))
