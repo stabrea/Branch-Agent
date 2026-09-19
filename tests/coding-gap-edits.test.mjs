@@ -140,3 +140,35 @@ test("code.check with nothing set up says the task can go on; with scripts on it
   assert.match(on.note, /node --test/);
   assert.match(on.output, /fail 1/);
 });
+
+test("a reply cut off while thinking raises that run's reply ceiling, twice at most", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-coding-gap-"));
+  const asked = [];
+  const cramped = (enough) => ({ name: "scripted", async complete(request) {
+    asked.push(request.maxTokens);
+    if (request.maxTokens < enough) throw new Error("The model used its whole reply allowance thinking (9,000 characters) and was cut off before it answered. Try a larger model, or ask for one step at a time.");
+    return { content: "Done.", toolCalls: [] };
+  } });
+  const app = await createBranch({ dataDir: join(root, "data"), workspace: join(root, "w"), provider: cramped(4096) });
+  t.after(async () => { await app.close(); await discardTemp(root); });
+  const run = await app.runtime.run({ prompt: "think hard" });
+  assert.equal(run.status, "completed");
+  assert.deepEqual(asked, [2048, 4096]);
+  const next = await app.runtime.run({ prompt: "again" });
+  assert.equal(next.status, "completed");
+  assert.deepEqual(asked.slice(2), [2048, 4096], "the next run starts at 2,048 again");
+});
+
+test("the ceiling stops at 8,192: a model that never fits still fails with the same sentence", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-coding-gap-"));
+  const asked = [];
+  const app = await createBranch({ dataDir: join(root, "data"), workspace: join(root, "w"), provider: { name: "scripted", async complete(request) {
+    asked.push(request.maxTokens);
+    throw new Error("The model used its whole reply allowance thinking (9,000 characters) and was cut off before it answered. Try a larger model, or ask for one step at a time.");
+  } } });
+  t.after(async () => { await app.close(); await discardTemp(root); });
+  const run = await app.runtime.run({ prompt: "think hard" });
+  assert.equal(run.status, "failed");
+  assert.match(run.output, /whole reply allowance thinking/);
+  assert.deepEqual(asked.slice(0, 3), [2048, 4096, 8192]);
+});

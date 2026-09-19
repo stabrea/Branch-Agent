@@ -108,6 +108,7 @@ import { estimateCost, formatCost, pricingSettings } from "./pricing.js";
 import * as knobs from "./knobs/apply.js";
 import { thinkingFilter, withoutThinking } from "./knobs/thinking.js";
 import { produced, producedNothing, thinkingTokens } from "./empty-answer.js"; // mac7/empty-completion
+import { isOutOfRoomThinking } from "./provider-stream.js"; // mac7/coding-gap
 // --- end R17-S-B ---
 // --- R17-E: models, cheaper and smarter (src/model-savings/hook.ts) ---
 import * as savings from "./model-savings/hook.js";
@@ -164,6 +165,8 @@ export interface DelegateOptions { timeoutMs?: number; resultSchema?: Record<str
 export interface FollowUp { id: string; prompt: string; createdAt: string; shortLivedKey?: boolean; shortLivedKeyId?: string; personProfileId?: string }
 export interface BackgroundResult { childRunId: string; parentRunId: string; status: string; output: string; finishedAt: string }
 export interface FanoutOutcome { waves: string[][]; tasks: Record<string, { runId: string; status: string; output: string; result: ResultCheck }> }
+/** Every reply may be this long; a run whose model runs out of room thinking may double it twice. */
+const baseReplyCeiling = 2048, maxReplyCeiling = 8192;
 /** What the model is told after a reply that was all thinking: act on it now. */
 export const emptyReplyNudge = "Your last reply had thinking but no answer and no tool call, so nothing happened. "
   + "Act on what you worked out now: call the tool for the next step, or, if the task is finished, give your final answer.";
@@ -269,6 +272,13 @@ export interface RunOptions {
 }
 export class Runtime {
   private readonly controllers = new Map<string, AbortController>();
+  /**
+   * mac7/coding-gap: the reply ceiling for a run whose model was cut off mid-thought. Every run
+   * starts at the usual 2,048 tokens; only a reply that ran out of room thinking raises it, twice at
+   * most (4,096, then 8,192), and only for that run. Measured on the coding bench: after the
+   * deadline fix, half of Branch's failed tasks ended this way with qwen3:14b.
+   */
+  private readonly replyCeilings = new Map<string, number>();
   private readonly children = new Map<string, number>();
   /** R17-050: keeps a Claude connection's prompt cache warm during a pause, when the owner asked. */
   private warmCache?: KeepAlive;
@@ -1035,6 +1045,7 @@ ${run.output.slice(0, 6000)}`;
     // failure with a plain sentence, not a success. This is the only place the runtime finishes a
     // run — an owner's task, a delegated child and a manual tool action all settle here — so the
     // check cannot be walked around, and it judges only what the task itself recorded.
+    this.replyCeilings.delete(run.id);
     const nothing = producedNothing(status, output, produced(this.store.events(run.id)));
     if (nothing) {
       this.store.event(run.id, "run.produced_nothing", { reason: nothing });
@@ -1777,6 +1788,13 @@ ${run.output.slice(0, 6000)}`;
       try {
         return await this.complete(run, messages, context, preset, route.reasoning, emit);
       } catch (error) {
+        const ceiling = this.replyCeilings.get(run.id) ?? baseReplyCeiling;
+        if (isOutOfRoomThinking(error) && ceiling < maxReplyCeiling && !context.signal.aborted) {
+          this.replyCeilings.set(run.id, ceiling * 2);
+          this.store.event(run.id, "model.ceiling_raised", { from: ceiling, to: ceiling * 2 });
+          retriesUsed = -1;
+          continue;
+        }
         if (error instanceof StallError) {
           if (this.recoverStall(run, context, route, error, stalls++)) { retriesUsed = -1; continue; }
           throw error;
@@ -1868,7 +1886,7 @@ ${run.output.slice(0, 6000)}`;
     // written down as an attempt, so a round that never reached the provider really does cost
     // nothing — in the inspector and in the figures alike. The step count still applies, so a task
     // cannot go round for ever on kept answers.
-    const maxTokens = Math.min(2048, Math.max(0, context.budget.remaining() - input));
+    const maxTokens = Math.min(this.replyCeilings.get(run.id) ?? baseReplyCeiling, Math.max(0, context.budget.remaining() - input));
     const cacheKey: CacheKeyParts = {
       provider: preset.provider.name, model: preset.model, reasoning: reasoning ?? null, maxTokens,
       messages, tools: tools.map((tool) => ({ name: tool.name, description: tool.description })),
