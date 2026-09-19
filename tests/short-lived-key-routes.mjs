@@ -571,7 +571,6 @@ export const ROUTES = {
   "/api/lock/unlock": "owner POST",
   // mac7/learn: reading the switch only looks; a map reads the whole folder and a tour may ask a model.
   "/api/learn": "look",
-  "/api/learn/": "prefix",
   "/api/learn/cost": "other POST",
   "/api/learn/map": "other POST",
   "/api/learn/switch": "owner POST",
