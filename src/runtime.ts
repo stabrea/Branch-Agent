@@ -289,6 +289,10 @@ export interface RunOptions {
    * that marks it, and the mark stops meaning anything.
    */
   isolated?: boolean;
+  /** mac7/tests-unattended: nobody can answer a question while this task runs (see ToolContext.unattended). */
+  unattended?: boolean;
+  /** mac7/tests-unattended: `branch run --allow-tests`, for this one task (see ToolContext.allowProjectTests). */
+  allowProjectTests?: boolean;
 }
 export class Runtime {
   private readonly controllers = new Map<string, AbortController>();
@@ -446,6 +450,9 @@ export class Runtime {
       scratchRoot?: string;
       /** Where answers already given are remembered, when this is not a conversation. */
       approvalKey?: string;
+      /** mac7/tests-unattended: see ToolContext.unattended and ToolContext.allowProjectTests. */
+      unattended?: boolean;
+      allowProjectTests?: boolean;
     } = {},
   ): ToolContext {
     return {
@@ -461,6 +468,8 @@ export class Runtime {
       ...(options.isolated ? { isolated: true } : {}),
       ...(options.source ? { source: options.source } : {}),
       ...(options.approvalKey ? { approvalKey: options.approvalKey } : {}),
+      ...(options.unattended ? { unattended: true } : {}),
+      ...(options.allowProjectTests ? { allowProjectTests: true } : {}),
     };
   }
   cancel(id: string): boolean {
@@ -900,6 +909,8 @@ ${run.output.slice(0, 6000)}`;
           // A grader is given no tools at all, whatever it was asked for.
           ...(options.isolated ? { isolated: true, permissions: [] } : {}),
           ...(options.source ? { source: options.source } : {}),
+          ...(options.unattended ? { unattended: true } : {}),
+          ...(options.allowProjectTests ? { allowProjectTests: true } : {}),
         }), trunk);
     if (options.resumeFrom) instructions += this.resumeNote(run, options.resumeFrom);
     else this.store.message(run.sessionId, { role: "user", content: options.prompt + picturesNote(options.images) });

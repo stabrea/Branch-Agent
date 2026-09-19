@@ -4,6 +4,7 @@ import type { Store } from "./store.js";
 import { addPolicyRule, readPolicy, savePolicy, policyPresets, type PolicyPresetName } from "./policy.js";
 import { readAttachment, type Attachment, attachedText } from "./terminal-commands.js";
 import { progressLine } from "./terminal.js";
+import { allowTestsRefusal } from "./coding/project-tests.js";
 import type { ImagePart } from "./contracts.js";
 
 /**
@@ -42,6 +43,11 @@ export interface RunFlags {
   sessionId?: string;
   resumeRunId?: string;
   forkFrom?: string;
+  /**
+   * mac7/tests-unattended: `--allow-tests` lets this one task run the project's tests without asking,
+   * as if the owner had answered Once each time. Nothing is saved; refused under Lockdown.
+   */
+  allowTests: boolean;
 }
 const wholeNumber = (name: string, value: string | undefined): number => {
   const parsed = Number(value);
@@ -51,7 +57,7 @@ const wholeNumber = (name: string, value: string | undefined): number => {
 
 /** Reads the words and flags after `branch run`. Anything not a known flag is part of the request. */
 export function parseRunArgs(argv: string[]): RunFlags {
-  const flags: RunFlags = { prompt: "", json: false, attach: [], plan: false, verify: false, dryRun: false, savePreset: false };
+  const flags: RunFlags = { prompt: "", json: false, attach: [], plan: false, verify: false, dryRun: false, savePreset: false, allowTests: false };
   const words: string[] = [];
   for (let at = 0; at < argv.length; at++) {
     const word = argv[at]!;
@@ -59,6 +65,7 @@ export function parseRunArgs(argv: string[]): RunFlags {
     else if (word === "--plan") flags.plan = true;
     else if (word === "--verify") flags.verify = true;
     else if (word === "--dry-run") flags.dryRun = true;
+    else if (word === "--allow-tests") flags.allowTests = true;
     else if (word === "--attach") flags.attach.push(argv[++at] ?? "");
     else if (word === "--preset") flags.preset = argv[++at] ?? "";
     else if (word === "--save-preset") { flags.preset = argv[++at] ?? ""; flags.savePreset = true; }
@@ -140,7 +147,10 @@ export async function runForScripts(
   runtime: Runtime,
   flags: RunFlags,
   writer: RunWriter,
+  /** mac7/tests-unattended: whether a person is at a terminal to be asked; false for scripts. */
+  attended = false,
 ): Promise<Run> {
+  const allowTests = flags.allowTests ? allowTestsFor(runtime, writer) : false;
   const attachments: Attachment[] = [];
   for (const path of flags.attach) attachments.push(await readAttachment(path));
   const images = attachments.map((a) => a.image).filter((image): image is ImagePart => !!image);
@@ -158,6 +168,7 @@ export async function runForScripts(
       ...(images.length ? { images } : {}),
       ...(flags.plan ? { plan: true } : {}), ...(flags.verify ? { verify: true } : {}),
       ...(flags.dryRun ? { dryRun: true } : {}),
+      ...(attended ? {} : { unattended: true }), ...(allowTests ? { allowProjectTests: true } : {}),
       ...(flags.budget ? { budget: { maxSteps: 60, maxTokens: flags.budget } } : {}),
       onStarted: (started) => { runId = started.id; if (flags.json) writer.line({ type: "run.started", runId: started.id, sessionId: started.sessionId }); },
       onTextDelta: (text) => { if (flags.json) writer.line({ type: "text", text }); },
@@ -168,6 +179,13 @@ export async function runForScripts(
     clearInterval(pump);
     if (timer) clearTimeout(timer);
   }
+}
+/** `--allow-tests`, refused in plain words when it may not be used, and said out loud when it is. */
+function allowTestsFor(runtime: Runtime, writer: RunWriter): true {
+  const refusal = allowTestsRefusal(runtime.store, runtime.owner);
+  if (refusal) throw new Error(refusal);
+  writer.note("[this task may run the project's tests without asking; nothing is saved]");
+  return true;
 }
 /** Writes the stored events of a task that have not been written yet; answers with the new mark. */
 function drain(runtime: Runtime, runId: string, after: number, writer: RunWriter): number {

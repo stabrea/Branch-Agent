@@ -240,7 +240,7 @@ import { syncMixtures } from "./model-savings/mixture.js";
 import { skillIdeaDraft } from "./fly-core/skill-idea.js";
 import { forgetLearning, learningCoreView } from "./fly-core-api.js";
 import { ReadFirstGuard } from "./coding/read-first.js"; // mac7/coding-next
-import { projectTestsVerdict } from "./coding/project-tests.js"; // mac7/coding-next
+import { allowedForThisRun, projectTestsVerdict } from "./coding/project-tests.js"; // mac7/coding-next, mac7/tests-unattended
 import { codingOn } from "./coding/settings.js"; // mac7/coding-next
 
 export async function createBranch(options: {
@@ -458,7 +458,8 @@ export async function createBranch(options: {
   runtime.artifacts = artifacts;
   // mac7/coding-next: "Let Branch run this project's tests?", answered through the ordinary questions.
   codeChanges.testsPermission = (context, folder) => projectTestsVerdict({ store, owner: runtime.owner,
-    approvals: runtime.approvals, sessionId: runtime.approvalSessionOf(context) }, folder);
+    approvals: runtime.approvals, sessionId: runtime.approvalSessionOf(context),
+    allowedForThisRun: allowedForThisRun(store, runtime.owner, context) }, folder); // mac7/tests-unattended: --allow-tests
   // Locking the app: after a quiet spell the locker stays shut until the owner unlocks it again.
   const sessionLock = new SessionLock(store, runtime.owner);
   store.secrets.gate = () => sessionLock.require();
