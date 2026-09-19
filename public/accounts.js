@@ -254,7 +254,9 @@ function poolBlock(pool) {
   list.append(...pool.accounts.map((account) => accountRow(pool, account)));
   box.append(heading);
   if (pool.notice) box.append(noticeBlock(pool));
-  box.append(poolControls(pool), list, addBlock(pool), termsLine(pool));
+  // hardening-3: a household person is sent only the accounts shared with them, not how the list is run.
+  const owners = pool.strategy !== undefined;
+  box.append(...(owners ? [poolControls(pool)] : []), list, ...(owners ? [addBlock(pool)] : []), termsLine(pool));
   return box;
 }
 /** mac7/account-pooling: said once, why sharing between the owner's own plans stopped. */

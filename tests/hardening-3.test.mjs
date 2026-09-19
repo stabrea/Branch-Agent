@@ -258,3 +258,55 @@ test("6 a video a still-running task paid for is in this month's figure, and sto
   assert.equal(after.estimatedCost, 1.2, "counted once when it finishes");
   assert.equal(after.stillBeingMade, 0);
 });
+
+// ------------------------------------------------------------------ 8 and 9. accounts: names, and whose they are
+
+/** The installed Claude Code program (a stand-in), the accounts switch on, and a second sign-in added. */
+async function accountsFixture(t) {
+  const { registerCliAgent } = await import("../dist/providers/cli-agent.js");
+  const { accountsServiceFor } = await import("../dist/accounts/service.js");
+  const { setMode, addAccount } = await import("../dist/accounts/manage.js");
+  const { saveCommandSettings } = await import("../dist/commands/settings.js");
+  const made = await fixture(t);
+  const { app } = made;
+  const service = accountsServiceFor(app.runtime.models);
+  const spawn = async () => ({ code: 0, stdout: JSON.stringify({ result: "hi" }), stderr: "" });
+  registerCliAgent(app.runtime.models, { id: "claude-code" }, {}, spawn);
+  app.runtime.models.configure(app.runtime.owner, { activePreset: "cli-claude-code" });
+  service.deps.spawnAgent = spawn;
+  saveCommandSettings(app.store, app.runtime.owner, { mode: "on" });
+  setMode(service, { mode: "on" });
+  const second = (await addAccount(service, { pool: "cli-claude-code", label: "Second" })).accounts.at(-1).id;
+  return { ...made, service, second };
+}
+
+test("8 /account's one-time notice and the window name the connection alike, never by its internal id", async (t) => {
+  const { app, service } = await accountsFixture(t);
+  const { saveAccountsSettings } = await import("../dist/accounts/settings.js");
+  const { viewAll } = await import("../dist/accounts/manage.js");
+  // A second list, for the Codex program, saved while Codex is not set up on this computer right now.
+  const codex = { pool: "cli-codex", kind: "cli", autoSwitch: false, accounts: [
+    { id: "primary", label: "Mine", pinned: false, disabled: false, monthlyCapUsd: null, shared: false, keptSeparate: false, createdAt: "2026-09-19T10:00:00.000Z" }] };
+  const settings = service.settings();
+  saveAccountsSettings(app.store, app.runtime.owner, { ...settings, pools: [...settings.pools, codex], poolingNotices: ["cli-claude-code", "cli-codex"] });
+  const pools = (await viewAll(service)).pools;
+  assert.equal(pools.find((pool) => pool.pool === "cli-codex").name, "Codex (installed on this computer)", "the window never shows cli-codex");
+  const windowName = pools.find((pool) => pool.pool === "cli-claude-code").notice.service;
+  const { executeCommand } = await import("../dist/commands/execute.js");
+  const host = { runtime: app.runtime, requireOwner: (what) => app.store.profiles.requireOwner(what) };
+  const looked = await executeCommand(host, { surface: "dashboard", line: "/account", access: "read" });
+  assert.doesNotMatch(looked.text, /cli-claude-code/);
+  assert.ok(looked.text.includes(windowName), `the notice says "${windowName}"`);
+});
+
+test("9 a household person is shown none of the owner's lists: no kind, no strategy, no sign-in state", async (t) => {
+  const { app, service } = await accountsFixture(t);
+  const { viewAll } = await import("../dist/accounts/manage.js");
+  assert.ok((await viewAll(service)).pools.some((pool) => pool.pool === "cli-claude-code"), "the owner sees the list");
+  const person = app.store.profiles.create({ name: "Sam", pin: "1234" });
+  app.store.profiles.switch({ profileId: person.id, pin: "1234" });
+  t.after(() => app.store.profiles.switch({ profileId: null }));
+  const theirs = await viewAll(service);
+  assert.deepEqual(theirs.pools, [], "nothing is shared with them, so there is nothing to show");
+  assert.doesNotMatch(JSON.stringify(theirs), /strategy|autoSwitch|signedIn|defaultAccount|claude/i);
+});

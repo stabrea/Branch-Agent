@@ -322,12 +322,14 @@ test("A10 people sharing the computer use only keys the owner shared, and never 
   assert.match(refused.output, /None of this connection's accounts is shared with you/);
   const { viewAll } = await import("../dist/accounts/manage.js");
   const hidden = (await viewAll(service)).pools.find((pool) => pool.pool === POOL);
-  assert.deepEqual(hidden.accounts, [], "nothing of the owner's is listed for them while nothing is shared");
+  // hardening-3: not even the list itself (its kind, strategy, default) while nothing is shared with them.
+  assert.equal(hidden, undefined, "nothing of the owner's is listed for them while nothing is shared");
   app.store.profiles.switch({ profileId: null });
   await updateAccount(service, { pool: POOL, account: second, shared: true, monthlyCapUsd: 50 });
   app.store.profiles.switch({ profileId: person.id, pin: "1234" });
   const seen = (await viewAll(service)).pools.find((pool) => pool.pool === POOL);
   assert.deepEqual(seen.accounts.map((account) => account.label), ["Second"]);
+  assert.deepEqual(Object.keys(seen).sort(), ["accounts", "kind", "name", "pool", "terms"], "only the shared accounts, not how the owner's list is run");
   assert.equal(seen.accounts[0].monthlyCapUsd, null, "the owner's cap is not shown to them");
   assert.equal(seen.accounts[0].usage.costUsd, 0);
   const shared = await app.runtime.run({ prompt: "hello" });
