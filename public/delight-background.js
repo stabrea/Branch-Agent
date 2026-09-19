@@ -1,8 +1,9 @@
 /* phase2/delight: your own background behind the glass (off unless switched on) — a picture, a video or
    an animation. The file is kept in this window's own storage on this computer (IndexedDB) and is never
    sent anywhere, not even to Branch's own server. A scrim in the theme's own ground colour lies over it
-   so text stays readable in every theme; how strong it is can be changed. Small files only. Switching
-   it off forgets the file: the window's storage for it is removed. */
+   so text stays readable in every theme; how strong it is can be changed. Small files only.
+   mac7/residuals: switching it off keeps the file for next time; "Remove picture" (with a yes first)
+   is what throws it away, removing the window's storage for it. */
 import { el, notice, on, onDelight, say, state, still } from "/delight-kit.js";
 import { acornModel, oakModel, readGlb, view3d } from "/delight-3d.js";
 
@@ -30,13 +31,17 @@ async function withStore(mode, work) {
     });
   } finally { db.close(); }
 }
-export const savedBackground = () => withStore("readonly", (store) => store.get(KEY)).catch(() => undefined);
-let emptied = false;
+/** Whether the window has storage for a background at all; asking never makes one for somebody who never chose a file. */
+async function stored() {
+  const names = await indexedDB.databases?.().catch(() => null);
+  return !names || names.some((db) => db.name === DB);
+}
+export const savedBackground = async () =>
+  (await stored()) ? withStore("readonly", (store) => store.get(KEY)).catch(() => undefined) : undefined;
 /** Keeps the file, or says in plain words why the window's storage would not take it. */
 async function keep(value) {
   try {
     await withStore("readwrite", (store) => store.put(value, KEY));
-    emptied = false;
     return null;
   } catch (error) {
     return error?.name === "QuotaExceededError"
@@ -44,18 +49,16 @@ async function keep(value) {
       : say("delight.bg.notKept", "That file could not be kept in this window. Nothing was changed.");
   }
 }
-export const forgetBackground = async () => { await withStore("readwrite", (store) => store.delete(KEY)).catch(() => undefined); await applyBackground(); };
-/** Switched off, nothing is kept: the window's storage for the background is removed, if there is any. */
-async function forgetStored() {
-  if (emptied) return;
-  emptied = true;
+/** "Remove picture": the file goes, and the window's storage for it with it. Switching off does not do this. */
+export async function forgetBackground() {
   clear();
-  const names = await indexedDB.databases?.().catch(() => null);
-  if (names && !names.some((db) => db.name === DB)) return;
-  await new Promise((resolve) => {
-    const request = indexedDB.deleteDatabase(DB);
-    request.onsuccess = request.onerror = request.onblocked = () => resolve();
-  });
+  if (await stored()) {
+    await new Promise((resolve) => {
+      const request = indexedDB.deleteDatabase(DB);
+      request.onsuccess = request.onerror = request.onblocked = () => resolve();
+    });
+  }
+  await applyBackground();
 }
 
 /** A .glb the reader refused, in the window's language. */
@@ -148,7 +151,8 @@ function media(saved, url, fit) {
   return node;
 }
 export async function applyBackground() {
-  if (state.available && state.settings?.background?.on === false) return forgetStored();
+  // mac7/residuals: switched off, it is only taken down; the file stays for when it is switched on again.
+  if (state.available && state.settings?.background?.on === false) return clear();
   const saved = on("background") ? await savedBackground() : undefined;
   if (!saved?.blob && !saved?.model) return clear();
   const wall = layer(), background = state.settings.background;

@@ -381,7 +381,7 @@ test(".glb files from anywhere: truncated, garbage, huge counts, loops and too m
   assert.deepEqual(f.errors, []);
 });
 
-test("your own background: a full disk is said plainly, and switching off removes what was kept", async (t) => {
+test("your own background: a full disk is said plainly; switching off keeps the file, Remove picture (after a yes) throws it away", async (t) => {
   const f = await fixture(t);
   await switchOn(f.page, "delight-bg-on");
   await openSettingFor(f.page, "#delight-bg-file");
@@ -399,12 +399,24 @@ test("your own background: a full disk is said plainly, and switching off remove
   await f.page.locator("#delight-wall img").waitFor({ state: "attached" });
   const stored = () => f.page.evaluate(async () => (await indexedDB.databases()).some((db) => db.name === "branch-delight"));
   assert.equal(await stored(), true);
+  // mac7/residuals: switched off it is taken down but kept; switched on again it is back.
   await f.page.locator("#delight-bg-on").uncheck();
   await f.page.locator("#delight-wall").waitFor({ state: "detached" });
-  await f.page.waitForFunction(async () => !(await indexedDB.databases()).some((db) => db.name === "branch-delight"));
+  assert.equal(await stored(), true, "switching off keeps the file");
+  assert.equal(await f.page.locator("#delight-bg-name").innerText(), "tiny.png");
+  assert.equal(await f.page.locator("#delight-bg-remove").isVisible(), true, "Remove picture is there while switched off");
   await f.page.locator("#delight-bg-on").check();
+  await f.page.locator("#delight-wall img").waitFor({ state: "attached" });
+  // Remove picture asks first; No keeps it, Yes throws it away.
+  f.page.once("dialog", (dialog) => void dialog.dismiss());
+  await f.page.getByRole("button", { name: "Remove picture" }).click();
+  await f.page.waitForTimeout(200);
+  assert.equal(await stored(), true, "No keeps the file");
+  f.page.once("dialog", (dialog) => { assert.match(dialog.message(), /cannot be brought back/); void dialog.accept(); });
+  await f.page.getByRole("button", { name: "Remove picture" }).click();
+  await f.page.locator("#delight-wall").waitFor({ state: "detached" });
+  await f.page.waitForFunction(async () => !(await indexedDB.databases()).some((db) => db.name === "branch-delight"));
   await f.page.getByText("No file chosen yet.").waitFor();
-  assert.equal(await f.page.locator("#delight-wall").count(), 0, "switched back on, the forgotten file does not come back");
   assert.deepEqual(f.errors, []);
 });
 

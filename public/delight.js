@@ -130,7 +130,7 @@ document.addEventListener("branch-achievements", () => paintAchievementsCard());
 /* ---------- your own background's card ---------- */
 function backgroundCard() {
   const box = card("delight-bg-card", "delight.bg.title", "Your own background", "delight.bg.note",
-    "A picture, a video or an animation behind the glass instead of the oak. It stays in this window on this computer and is never sent anywhere. Switching it off forgets the file.");
+    "A picture, a video or an animation behind the glass instead of the oak. It stays in this window on this computer and is never sent anywhere. Switching it off keeps the file for next time; Remove picture throws it away.");
   const more = part("delight-bg-more"), pick = el("label", "delight-field delight-file"), file = el("input");
   file.type = "file";
   file.id = "delight-bg-file";
@@ -138,14 +138,23 @@ function backgroundCard() {
   file.addEventListener("change", () => void pickFile(file));
   pick.append(el("span", "", say("delight.bg.choose", "Choose a file")), file);
   const limits = el("p", "field-note", say("delight.bg.limits3d", "Pictures and animations up to {picture} MB, videos up to {video} MB, 3D models (.glb) up to {model} MB.", { picture: LIMITS.picture, video: LIMITS.video, model: LIMITS["3d"] }));
-  const chosen = el("div", "delight-ach-line"), forget = el("button", "secondary", say("delight.bg.remove", "Remove it"));
+  more.append(pick, limits, builtIns(), scrimRow(), fitRow(), statusLine("delight-bg-said"));
+  // mac7/residuals: the kept file and "Remove picture" show whether it is switched on or off.
+  box.append(checkRow("delight-bg-on", "delight.bg.on", "Use my own background", (v) => saveDelight({ background: { on: v } }).then(paintBackgroundCard)),
+    keptLine(), more);
+  return box;
+}
+/** The file kept in this window, and the one button that throws it away (after a yes). */
+function keptLine() {
+  const chosen = el("div", "delight-ach-line"), forget = el("button", "secondary", say("delight.bg.removePicture", "Remove picture"));
   forget.type = "button";
   forget.id = "delight-bg-remove";
-  forget.addEventListener("click", () => void forgetBackground().then(paintBackgroundCard));
+  forget.addEventListener("click", () => {
+    if (!globalThis.confirm(say("delight.bg.removeSure", "Remove this picture from this window? It cannot be brought back."))) return;
+    void forgetBackground().then(paintBackgroundCard);
+  });
   chosen.append(Object.assign(el("span", "delight-bg-name"), { id: "delight-bg-name" }), forget);
-  more.append(pick, limits, builtIns(), chosen, scrimRow(), fitRow(), statusLine("delight-bg-said"));
-  box.append(checkRow("delight-bg-on", "delight.bg.on", "Use my own background", (v) => saveDelight({ background: { on: v } })), more);
-  return box;
+  return chosen;
 }
 /** Branch's own 3D objects, for when there is no model file to hand. */
 function builtIns() {

@@ -4051,7 +4051,8 @@ short-lived key and a chat app never see them or change them.
   refused in plain words (a `.glb` is checked piece by piece against the file and may hold at most
   300,000 corners, 10,000 parts and 4,096 nodes). The file is kept in the window's own storage
   (IndexedDB) on this computer and never reaches Branch's server or anywhere else; switching the
-  background off removes it from that storage, and a full disk is said in plain words. Pictures and animations up to 8 MB, videos up
+  background off takes it down and keeps the file for next time, and **Remove picture** (after a yes)
+  removes it from that storage for good. A full disk is said in plain words. Pictures and animations up to 8 MB, videos up
   to 25 MB, 3D models up to 5 MB; anything else is refused in plain words. A scrim in the theme's ground
   colour lies over it so text stays readable in every theme. A video pauses for *Keep things still*
   and while the window is hidden. Fields: `on` (default `false`), `scrim` (20–90, how strongly the

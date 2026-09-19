@@ -84,7 +84,14 @@ branch: an integrator reviews it. Every new test is in `tests/residuals.test.mjs
   works). tests/devices-ui.test.mjs and tests/p2-shell-ui.test.mjs now assert the button is disabled, tick, then
   let it in; taking out either disabling line fails its test.
 - [ ] 14. Read-aloud: a headless test that a spoken reply plays (blob: src, no CSP violation).
-- [ ] 15. Own background: switching off keeps the file; a separate "Remove picture" deletes it (with a confirm).
+- [x] 15. Own background: switching off keeps the file; a separate "Remove picture" deletes it (with a confirm).
+  public/delight-background.js: off only takes it down (`clear`); `forgetBackground` removes the window's
+  IndexedDB database; `savedBackground` looks with `indexedDB.databases()` first, so painting the card never makes
+  storage for somebody who never chose a file. public/delight.js: the kept file's name and "Remove picture" sit
+  outside the part that needs it on, so they show while it is off; the button asks first (`confirm`, "It cannot be
+  brought back"). en + fr; the card's note and docs/configuration.md say so. tests/delight-ui.test.mjs "your own
+  background: … switching off keeps the file, Remove picture (after a yes)…" replaces the old "switching off
+  removes" test; forgetting on off, or no confirm, each fails it.
 - [x] 16. `branch-everything-hidden` wired from the hide feature — already fixed (below).
 - [ ] 17. Merge latest trunk, rebuild, retest, push.
 
