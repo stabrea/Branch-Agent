@@ -73,6 +73,9 @@ function actionsAtCap(count, now, perSide = maximumWeightsPerSide, seed = 7) {
 test("F13 the fast index ranks exactly as the full read did, and follows every save and another connection's writes", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "branch-fly-index-"));
   const file = join(root, "fly.db"), db = new DatabaseSync(file), other = new DatabaseSync(file);
+  // Written ahead, as Branch's own database is (store.ts): the default journal is a new file made
+  // and deleted on every save, and on Windows each one is scanned before it may be used.
+  db.exec("PRAGMA journal_mode=WAL");
   t.after(async () => { db.close(); other.close(); await discardTemp(root); });
   const state = new FlyState(db);
   const circuit = new Circuit(), codes = ["fix the build", "write to grandma", "plot the sales numbers", "rename the photos"].map((prompt) => wiring.code({ prompt }));
@@ -115,6 +118,7 @@ test("F14 each side keeps at most its cap of learned synapses, faintest dropped 
   const root = await mkdtemp(join(tmpdir(), "branch-fly-size-"));
   t.after(() => discardTemp(root));
   const file = join(root, "fly.db"), db = new DatabaseSync(file);
+  db.exec("PRAGMA journal_mode=WAL");
   new FlyState(db).save("local", actionsAtCap(maximumActions, start));
   db.exec("VACUUM");
   db.close();

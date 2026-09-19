@@ -4,7 +4,7 @@
  * writes the saved switches; see src/channels/parity-switch.ts for what each position does.
  * Its home is Customize, Chat apps.
  */
-import { api } from "/app.js";
+import { api, ownerAtWindow } from "/app.js";
 import { t } from "/i18n.js";
 
 const $ = (id) => document.getElementById(id);
@@ -57,7 +57,7 @@ function show() {
 }
 
 async function load() {
-  if (!$("channels-more-form")) return;
+  if (!$("channels-more-form") || !ownerAtWindow()) return; // household-followups: the chat apps are the owner's
   services = (await api("channels/parity")).services;
   show();
 }
@@ -87,3 +87,5 @@ load().catch(() => {});
 const signedIn = $("workspace");
 if (signedIn) new MutationObserver(() => { if (!signedIn.hidden) load().catch(() => {}); })
   .observe(signedIn, { attributes: true, attributeFilter: ["hidden"] });
+/* household-followups: loaded again once the window is the owner's. */
+document.addEventListener("branch-profile", (event) => { if (event.detail?.owner) load().catch(() => {}); });

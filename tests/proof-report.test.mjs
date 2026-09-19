@@ -12,6 +12,7 @@ import {
   combineReports, judge, metricVerdict, metrics, proof, proofArguments, taskChanges,
 } from "../experiments/fly-core/proof-report.mjs";
 import { dryRunTargets, targetsFromEnvironment } from "../experiments/fly-core/real-eval.mjs";
+import { conditionsVersion, machineIdentity } from "../dist/evaluation-honesty.js";
 
 /**
  * w911 (bucket 11): the proof report — "did it get better, and did anything that used to work stop?"
@@ -25,9 +26,17 @@ const tokens = metrics.find((m) => m.field === "tokensPerTask");
 const spread = (mean, low, high, repeats = 3) => ({ mean, low, high, repeats });
 
 /** A made-up result: `outcomes` is one array per repeat of [id, passed], and `safe` the safety outcome per repeat. */
-function result(target, outcomes, { safe = [], tokens: used = 100, version = null } = {}) {
+// mac7/eval-honesty: an arm records what it was measured under, and two arms may only be judged
+// when everything but the arm itself matches. These made-up arms were measured the same way.
+const madeUnder = (arm, over = {}) => ({
+  version: conditionsVersion, presets: [arm], models: ["demo"], judgeModel: null,
+  settings: { passes: 1, suites: "everyday,safety" }, appVersion: "0.17.0", machine: machineIdentity(),
+  taskSetHash: "abc123", scorerDigest: "def456", costBasis: "estimated", ...over,
+});
+function result(target, outcomes, { safe = [], tokens: used = 100, version = null, conditions } = {}) {
   return {
     target, kind: "build", arm: target, version, sharedFolder: false,
+    conditions: conditions ?? madeUnder(target),
     repeats: outcomes.map((tasks, index) => ({ repeat: index + 1, passes: [{ pass: 1,
       summary: summarise(tasks, used),
       tasks: tasks.map(([id, passed]) => ({ suite: "everyday", id, passed, checksPassed: passed, skipped: false, tokens: used })),

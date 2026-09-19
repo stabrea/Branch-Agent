@@ -20,10 +20,13 @@ it is asked. Read this before you let it change anything.
 
 | Choice | What it means |
 | --- | --- |
-| **No approvals** | The starting point. Nothing is checked with you and nothing is refused. |
+| **No approvals** | The starting point. Tasks you start yourself get on with it; anything started from outside — a trigger, a chat app, another program — still asks before it changes anything. |
 | **Ask before changes** | Reading is free. Anything that changes a file, runs a command or acts on a web page stops and waits for your yes. |
 | **Just do it inside my workspace** | Writing files is fine. Running a command, and clicking or typing on a web page, wait for your yes; a website it has not used before is checked with you once and then remembered. |
 | **Read only** | It may look at things and answer, but may not change a file, run a command or act on a web page. A refusal is explained in the answer; the task is not killed. |
+
+Whatever you pick, a task started from outside — a trigger, a schedule, a chat app, another program —
+never gets more than *Ask before changes*, and its question waits for you in Branch's own window.
 
 **Pick one before you do anything else in this chapter.** Several other protections here only have
 something to hold on to once you have chosen something other than *No approvals*.
@@ -142,8 +145,18 @@ It is off until you switch it on, and it never blocks a message when the check i
 **Profiles** give somebody else a name and a PIN of four to eight digits. While their profile is
 switched on, the conversation list, saved conversations and **Memory** are theirs and not yours, a
 task they start is filed under their name, and the locker, projects, saved workflows, the waiting line
-and your own shared copies are all refused in plain words. Five wrong PINs in a row stop that profile
-accepting any for five minutes.
+and your own shared copies are all refused in plain words — and so is every other part of Branch
+that is yours alone: settings of every kind, approval rules, sign-ins, chat apps, devices, add-ons,
+backups, updates and removing Branch. They are told *"This belongs to the owner. Switch back to the
+owner's profile to use it."* Five wrong PINs in a row stop that profile accepting any for five minutes.
+
+Out of the box, going back to your profile needs no PIN, so this keeps somebody out of your things
+by default — no accident, no child exploring Settings — but it does not stop anybody at the keyboard
+who decides to press "switch back". If you want it to, set **a PIN for switching back to you** under
+**Settings → People** (off until you set one). Then switching back asks for your PIN, with the same
+five-tries rule, and the window stays on their profile if Branch is closed and reopened: a real lock
+against somebody at the keyboard. It is still not a lock against somebody who can open Branch's data
+folder on this computer.
 
 **Be honest about what this is:** separation on one computer, not separate accounts. There is no
 syncing, and the assistant still works as the owner — it uses the owner's models and tools. Anyone who

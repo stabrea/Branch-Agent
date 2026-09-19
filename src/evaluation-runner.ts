@@ -8,12 +8,19 @@ import { estimateCost, pricingSettings, type CostConfidence } from "./pricing.js
 import { findSuite, type EvaluationTask, type SuiteEntry } from "./evaluation-suites.js";
 import { gradeTask, type GradeMethod } from "./evaluation-grading.js";
 import { applyGates, EvaluationGateSchema, readTrajectory, runtimeJudge, scoreTrajectory, type GateVerdict } from "./evaluation-run.js";
+import {
+  combinedBasis, comparisonRefusal, conditionsVersion, costNote, ledgerTokens, machineIdentity, scorerDigest,
+  type CostBasis, type RunConditions,
+} from "./evaluation-honesty.js";
+import { datasetVersionOf } from "./study-journal.js";
 
 /** One task's result: did it pass, how long it took, how many tokens and how much money. */
 export interface TaskOutcome {
   id: string; runId: string | null; status: string; passed: boolean; skipped: boolean;
   score: number; method: GradeMethod | "skipped" | "scorers"; problem: string | null; reason: string | null;
   ms: number; tokens: number; dollars: number | null; tags: string[];
+  /** Whether the tokens behind `dollars` were the provider's own count or Branch's own guess. */
+  costBasis?: "reported" | "estimated";
   /** Wave 7: each scorer's own verdict, when the task declares scorers. */
   scores?: { kind: string; score: number; pass: boolean }[];
   /** Wave 7: every reason a scorer gave for failing, in plain words. */
@@ -31,6 +38,15 @@ export interface SuiteRun {
   regressions: { taskId: string; problem: string | null }[];
   /** Wave 7: whether this run cleared the bar it was given, or null when it was given none. */
   gate?: GateVerdict | null;
+  /**
+   * mac7/eval-honesty: what this run was measured under. A run without it is never used as the
+   * "before" of a regression, because there is no way to tell whether it measured the same thing.
+   */
+  conditions?: RunConditions;
+  /** Why no regression could honestly be worked out, when none could. Null when one could. */
+  regressionNote?: string | null;
+  /** Where the money figure came from; never printed as a bill. */
+  costBasis?: CostBasis;
 }
 /** One model choice's line in a side-by-side comparison. */
 export interface CompareRow {
@@ -81,7 +97,7 @@ export class SuiteRunner {
     const startedAt = new Date().toISOString();
     const tasks: TaskOutcome[] = [];
     for (const task of suite.tasks) tasks.push(await this.runTask(task, request, readOnly, choice.model));
-    const result = this.assemble(suite, choice.presetId, choice.model, startedAt, tasks);
+    const result = this.assemble(suite, choice.presetId, choice.model, startedAt, tasks, request, readOnly);
     if (request.gates) result.gate = applyGates(result, request.gates);
     this.store.save("governance", this.owner, recordId(result.id), { ...result });
     return result;
@@ -101,7 +117,7 @@ export class SuiteRunner {
       id: task.id, runId: run.id, status: run.status, passed: grade.passed, skipped: false,
       score: grade.score, method: grade.method, problem: grade.problem, reason: grade.reason,
       ms: Date.now() - began, tokens: tokens.input + tokens.output,
-      dollars: this.costOf(model, tokens).amount, tags: task.tags,
+      dollars: this.costOf(model, tokens).amount, tags: task.tags, costBasis: tokens.basis,
     };
     return task.scorers?.length ? await this.applyScorers(task, outcome, run.output) : outcome;
   }
@@ -146,23 +162,45 @@ export class SuiteRunner {
     return this.runtime.resume(first.id);
   }
 
-  private tokensFor(runId: string): { input: number; output: number } {
-    const usage = this.store.usage(runId);
-    return { input: usage.estimatedInput ?? 0, output: usage.estimatedOutput ?? 0 };
+  /**
+   * mac7/eval-honesty: the provider's own count when it gave one, Branch's estimate otherwise, and
+   * which of the two it was — so a figure worked out from a guess is never printed as a bill.
+   */
+  private tokensFor(runId: string): { input: number; output: number; basis: "reported" | "estimated" } {
+    return ledgerTokens(this.store.usage(runId));
   }
 
   private costOf(model: string, tokens: { input: number; output: number }) {
     return estimateCost(model, tokens, pricingSettings(this.store, this.owner).overrides);
   }
 
-  private assemble(suite: SuiteEntry, preset: string, model: string, startedAt: string, tasks: TaskOutcome[]): SuiteRun {
+  /** What this run was measured under, so a later run can tell whether it measured the same thing. */
+  private conditionsFor(suite: SuiteEntry, preset: string, model: string, request: z.infer<typeof RunSuiteSchema>, readOnly: boolean, bases: CostBasis[]): RunConditions {
+    const judged = suite.tasks.some((task) => task.judge) || suite.tasks.some((task) => task.scorers?.some((scorer) => (scorer as { kind?: unknown }).kind === "rubric"));
+    return {
+      version: conditionsVersion,
+      presets: [preset], models: [model], judgeModel: judged ? model : null,
+      settings: { maxSteps: request.maxSteps, maxTokens: request.maxTokens, readOnly, suite: suite.id, source: suite.source },
+      appVersion: this.version,
+      machine: machineIdentity(),
+      taskSetHash: datasetVersionOf(suite.tasks.map(({ id, prompt, expected, checks, deny, scorers, judge }) => ({ id, prompt, expected, checks, deny, scorers, judge }))),
+      scorerDigest: scorerDigest({ scorers: suite.tasks.flatMap((task) => task.scorers ?? []), judgeModel: judged ? model : null }),
+      costBasis: combinedBasis(bases),
+    };
+  }
+
+  private assemble(suite: SuiteEntry, preset: string, model: string, startedAt: string, tasks: TaskOutcome[], request: z.infer<typeof RunSuiteSchema>, readOnly: boolean): SuiteRun {
     const scored = tasks.filter((task) => !task.skipped);
     const passed = scored.filter((task) => task.passed).length;
     const latencies = scored.map((task) => task.ms);
     const priced = scored.filter((task) => task.dollars !== null);
     const confidence = this.costOf(model, { input: 0, output: 0 }).confidence;
     const id = randomUUID();
+    const basis = combinedBasis(scored.flatMap((task) => (task.costBasis ? [task.costBasis] : [])));
+    const conditions = this.conditionsFor(suite, preset, model, request, readOnly, scored.flatMap((task) => (task.costBasis ? [task.costBasis] : [])));
+    const looked = this.regressionsFor(suite.id, tasks, conditions);
     return {
+      conditions, costBasis: basis, regressionNote: looked.note,
       id, suiteId: suite.id, suiteName: suite.name, preset, model, version: this.version,
       startedAt, finishedAt: new Date().toISOString(), tasks,
       summary: {
@@ -173,18 +211,37 @@ export class SuiteRunner {
         dollars: priced.length ? Math.round(priced.reduce((total, task) => total + (task.dollars ?? 0), 0) * 1e6) / 1e6 : null,
         costConfidence: confidence, energy: "unavailable",
       },
-      regressions: this.regressionsFor(suite.id, tasks),
+      regressions: looked.regressions,
     };
   }
 
-  /** A task that passed in each of the three runs before this one and has just failed. */
-  private regressionsFor(suiteId: string, tasks: TaskOutcome[]): { taskId: string; problem: string | null }[] {
-    const previous = this.history(suiteId).slice(0, 3);
-    if (previous.length < 3) return [];
-    return tasks
-      .filter((task) => !task.skipped && !task.passed)
-      .filter((task) => previous.every((run) => run.tasks.some((old) => old.id === task.id && old.passed)))
-      .map((task) => ({ taskId: task.id, problem: task.problem }));
+  /**
+   * A task that passed in each of the three runs before this one and has just failed.
+   *
+   * mac7/eval-honesty: "the three runs before this one" used to mean any three runs of the same
+   * suite, whatever model choice, version or computer they were made on. A run on a cheaper model
+   * after three on a stronger one therefore announced that something which used to work had
+   * stopped — and `runScheduled` sent that out as a regression notice. Only runs measured the same
+   * way count now, and when there are not three of those, the run says so rather than reporting
+   * nothing as if it had looked.
+   */
+  private regressionsFor(suiteId: string, tasks: TaskOutcome[], conditions: RunConditions): { regressions: { taskId: string; problem: string | null }[]; note: string | null } {
+    const comparable = this.history(suiteId).filter((run) => !comparisonRefusal(run.conditions, conditions));
+    const previous = comparable.slice(0, 3);
+    if (previous.length < 3) {
+      const all = this.history(suiteId).length;
+      return { regressions: [], note: all < 3
+        ? `Nothing is called a regression yet: this suite has ${all} earlier run(s), and three measured the same way are needed.`
+        : `Nothing is called a regression here: of the ${all} earlier run(s) of this suite, only ${previous.length} were measured the same way `
+          + `(same model choice, version, computer, tasks and scorers), and three are needed. Run this suite three times under these conditions first.` };
+    }
+    return {
+      note: null,
+      regressions: tasks
+        .filter((task) => !task.skipped && !task.passed)
+        .filter((task) => previous.every((run) => run.tasks.some((old) => old.id === task.id && old.passed)))
+        .map((task) => ({ taskId: task.id, problem: task.problem })),
+    };
   }
 
   /** Every stored run, newest first, for one suite or for all of them. */
@@ -202,7 +259,16 @@ export class SuiteRunner {
     const runs = this.history(suiteId).slice().reverse();
     const taskIds = [...new Set(runs.flatMap((run) => run.tasks.map((task) => task.id)))];
     return {
-      runs: runs.map((run) => ({ id: run.id, at: run.startedAt, preset: run.preset, version: run.version, accuracy: run.summary.accuracy, meanMs: run.summary.latencyMs.mean, tokens: run.summary.tokens, dollars: run.summary.dollars, regressions: run.regressions.length })),
+      // mac7/eval-honesty: a trend line drawn through runs measured differently is a picture of the
+      // settings changing, not of the assistant changing. Each point says whether it can honestly
+      // be read against the newest one, and why not when it cannot.
+      runs: runs.map((run) => {
+        const against = runs.at(-1)?.conditions;
+        const refusal = comparisonRefusal(run.conditions, against, { before: "this run", after: "the newest run" });
+        return { id: run.id, at: run.startedAt, preset: run.preset, version: run.version, accuracy: run.summary.accuracy,
+          meanMs: run.summary.latencyMs.mean, tokens: run.summary.tokens, dollars: run.summary.dollars,
+          regressions: run.regressions.length, comparable: !refusal, whyNot: refusal };
+      }),
       tasks: taskIds.map((id) => ({ id, results: runs.map((run) => run.tasks.find((task) => task.id === id)?.passed ?? null) })),
       latestRegressions: runs.at(-1)?.regressions ?? [],
     };
@@ -256,5 +322,9 @@ export function summaryLine(result: SuiteRun): string {
   const skipped = result.summary.skipped ? `, ${result.summary.skipped} skipped` : "";
   // Wave 7: when a bar was set, say whether it was cleared — that is the line a build log needs.
   const gate = !result.gate ? "" : result.gate.passed ? " It cleared the bar that was set." : ` It did not clear the bar: ${result.gate.failures.join("; ")}.`;
-  return `${result.suiteName}: ${result.summary.passed} of ${result.summary.total} right using ${result.preset}${skipped}, ${result.summary.latencyMs.mean} ms each on average, ${money}.${regressions}${gate}`;
+  // mac7/eval-honesty: say where the money figure came from, and say when nothing could honestly be
+  // called a regression — "no regressions" and "we did not look" must never read the same.
+  const basis = ` (${costNote(result.costBasis ?? "unknown", result.summary.dollars !== null)})`;
+  const looked = result.regressionNote ? ` ${result.regressionNote}` : "";
+  return `${result.suiteName}: ${result.summary.passed} of ${result.summary.total} right using ${result.preset}${skipped}, ${result.summary.latencyMs.mean} ms each on average, ${money}${basis}.${regressions}${looked}${gate}`;
 }

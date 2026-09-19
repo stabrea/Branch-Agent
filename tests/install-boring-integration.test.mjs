@@ -81,25 +81,45 @@ test("installing never writes over another program's `branch` command, or throug
   assert.equal(again.attached, true);
 });
 
-test("a Mac copy in the shared Applications folder is linked up, never written to, and never removed", { skip: posixOnly }, async (t) => {
+/**
+ * mac7/app-icon changed one half of this rule. A Mac copy in the shared Applications folder that this
+ * person cannot write without an administrator may be somebody else's: it is linked up, never written
+ * to and never removed, exactly as before. One this person can write is the installer's own — since
+ * `--applications` now puts it there — so an update really lands on it instead of quietly doing
+ * nothing, and `uninstall` takes it away again.
+ */
+test("a Mac copy in the shared Applications folder is linked up when it needs an administrator, and updated when it does not", { skip: posixOnly }, async (t) => {
   const root = await scratch(t);
   const base = unixLayout("darwin", {}, join(root, "home"));
   const shared = join(root, "Applications", "Branch Agent.app");
-  const layout = { ...base, candidates: [base.installRoot, shared] };
+  const layout = { ...base, sharedRoot: shared, candidates: [base.installRoot, shared] };
   await fakeApp(join(root, "Applications"), "darwin", "1.0.0");
   const copy = async () => { throw new Error("nothing may be copied over the shared copy"); };
-  const report = await performUnixInstall({ layout, source: await fakeApp(join(root, "v2"), "darwin", "2.0.0"), version: "2.0.0", copy });
+  const report = await performUnixInstall({ layout, source: await fakeApp(join(root, "v2"), "darwin", "2.0.0"), version: "2.0.0", copy,
+    canWrite: async () => false });
   assert.equal(report.installRoot, shared);
   assert.equal(report.attached, true);
   assert.equal(report.version, "1.0.0", "the version that is really there is reported");
   assert.equal(report.previousKept, null);
+  assert.equal(report.quarantineCleared, false, "a copy that is not the installer's is not touched at all");
   assert.equal(await exists(`${shared}.previous`), false);
   assert.ok((await readFile(layout.launcher, "utf8")).includes("Applications/Branch Agent.app/Contents/MacOS"));
 
-  const removed = await performUnixUninstall({ layout, stop: async () => {}, removeService: async () => {} });
+  const left = await performUnixUninstall({ layout, stop: async () => {}, removeService: async () => {}, canWrite: async () => false });
   assert.ok(await exists(join(shared, "Contents", "MacOS", "Branch Agent")), "a copy the installer did not put there is left");
-  assert.deepEqual(removed.left, [shared]);
-  assert.deepEqual(removed.removed, [layout.launcher]);
+  assert.deepEqual(left.left, [shared]);
+  assert.deepEqual(left.removed, [layout.launcher]);
+
+  // The same folder, writable: the installer's own, so the update lands and removing takes it away.
+  const updated = await performUnixInstall({ layout, source: await fakeApp(join(root, "v3"), "darwin", "2.0.0"), version: "2.0.0",
+    copy: (from, to) => cp(from, to, { recursive: true, verbatimSymlinks: true }), run: async () => "", canWrite: async () => true });
+  assert.equal(updated.installRoot, shared);
+  assert.equal(updated.attached, false, "an update that silently does nothing is the thing to avoid");
+  assert.equal(updated.version, "2.0.0");
+  const gone = await performUnixUninstall({ layout, stop: async () => {}, removeService: async () => {}, canWrite: async () => true });
+  assert.deepEqual(gone.left, []);
+  assert.ok(gone.removed.includes(shared));
+  assert.equal(await exists(shared), false);
 });
 
 test("removing Branch removes links as links and never follows them out of its folders", { skip: posixOnly }, async (t) => {

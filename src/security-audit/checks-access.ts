@@ -138,8 +138,8 @@ function nothingAsked(snapshot: SecuritySnapshot): Verdict | null {
   return {
     severity: channelsOn(snapshot) ? "critical" : "warn",
     detail: channelsOn(snapshot)
-      ? "Nothing is checked with you before a tool runs, the assistant can run programs, and people can message it from outside."
-      : "Nothing is checked with you before a tool runs, and the assistant can run programs on this computer.",
+      ? "Nothing you start yourself is checked with you before a tool runs, the assistant can run programs, and people can message it from outside."
+      : "Nothing you start yourself is checked with you before a tool runs, and the assistant can run programs on this computer.",
     advice: "Pick \"Ask before changes\" in Settings → Permissions.",
   };
 }

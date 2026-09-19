@@ -157,17 +157,18 @@ test("R17-S01: controls rebuilt on the page are described as they are rebuilt, n
 
   // Describing adds nodes to the page, which is itself a change the watcher sees. The pass leaves a
   // control that is described already alone, so it settles instead of going round for ever — which
-  // would starve the page rather than fail a test. Count what it makes, over several turns.
-  const settled = await page.evaluate(async () => {
-    const count = () => document.querySelectorAll(".kit-describe, .kit-scope").length;
+  // would starve the page rather than fail a test. So a second pass straight after the first must
+  // change nothing at all. Both run inside one page function, so nothing else on the page (a redraw
+  // that brings new controls, which the pass rightly describes) can land between them; counting
+  // nodes across timers once caught exactly such a redraw on a Windows build machine.
+  const changes = await page.evaluate(() => {
     globalThis.branchDescribeSettingsNow();
-    const after = [];
-    for (let turn = 0; turn < 5; turn += 1) {
-      await new Promise((done) => setTimeout(done, 20));
-      after.push(count());
-    }
-    return after;
+    const watcher = new MutationObserver(() => undefined);
+    watcher.observe(document.body, { childList: true, subtree: true }); // what the page's own watcher reacts to
+    globalThis.branchDescribeSettingsNow();
+    const records = watcher.takeRecords();
+    watcher.disconnect();
+    return records.map((record) => `${record.type} on ${record.target.id || record.target.className || record.target.nodeName}`);
   });
-  assert.deepEqual(settled, settled.map(() => settled[0]),
-    `describing the page keeps making new nodes instead of settling: ${settled.join(", ")}`);
+  assert.deepEqual(changes, [], "describing a page that is described already changed it again");
 });

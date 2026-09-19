@@ -151,8 +151,8 @@ Branch can also hand work to an assistant elsewhere. The request carries the wor
 else — no files, no secrets, nothing it has read.
 
 **Read this before you switch either on:** because you did not start such a task, it never gets more
-freedom than *Ask before changes*. But while you are still on *No approvals* — which is how Branch behaves
-until you pick something else — there is nothing to hold a caller to. **Pick an approval setting first.**
+freedom than *Ask before changes* — even on *No approvals*, the starting setting. Anything that would change
+a file, run a command or act on a web page waits for your yes in Branch's own window.
 
 ## Tools from any documented service
 

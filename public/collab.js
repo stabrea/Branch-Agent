@@ -1,9 +1,11 @@
 // Sharing, labels and notes, saved workflows, the waiting line for tasks, days off and quiet
 // hours, and the people who share this computer. app.js imports this and hands over the current
 // state plus its own small helpers, so nothing here depends on globals.
+import { t } from "./i18n.js"; // relative, so a test can import this file too; the same /i18n.js in the page
 
 /** Builds the panel shown under Schedules. `helpers` supplies el, api, toast and refresh. */
-export function showCollab(state, helpers) {
+export function showCollab(state, given) {
+  const helpers = relative(given);
   const collab = state.collab ?? {};
   const panel = helpers.el("div", undefined, "collab-panel");
   /* Each part is named, so the window can show it where it belongs (public/layout.js). */
@@ -20,6 +22,15 @@ export function showCollab(state, helpers) {
     panel.appendChild(node);
   }
   return panel;
+}
+
+/**
+ * household-followups: app.js's api() already puts "/api/" in front of the path, and every call here
+ * was written with it too, so the panel asked for "/api//api/…" and nothing in it worked. The paths
+ * stay written in full, and are made relative here.
+ */
+function relative(helpers) {
+  return { ...helpers, api: (path, ...rest) => helpers.api(String(path).replace(/^\/api\//, ""), ...rest) };
 }
 
 /** Runs a click handler and shows whatever went wrong instead of failing silently. */
@@ -219,11 +230,15 @@ function peopleSection(profile, helpers) {
     wrap.appendChild(card);
   }
   if (!profile.isOwner) {
-    wrap.appendChild(smallButton(helpers, "Back to the owner", async () => {
-      await api("/api/profiles/switch", { profileId: null }); await refresh();
+    // household-followups: with the owner's PIN set, going back asks for it.
+    const ownerPin = pinInput(helpers, t("people.back.pin"));
+    if (profile.ownerPin) wrap.appendChild(ownerPin);
+    wrap.appendChild(smallButton(helpers, t("people.back"), async () => {
+      await api("/api/profiles/switch", { profileId: null, ...(profile.ownerPin ? { pin: ownerPin.value } : {}) }); await refresh();
     }));
     return wrap;
   }
+  wrap.appendChild(ownerPinCard(profile, helpers));
   const name = el("input"); name.placeholder = "Their name"; name.maxLength = 40; name.setAttribute("aria-label", "Their name");
   const newPin = el("input"); newPin.type = "password"; newPin.inputMode = "numeric"; newPin.placeholder = "Four to eight digits"; newPin.setAttribute("aria-label", "Their PIN, four to eight digits");
   const adding = el("div", undefined, "collab-row");
@@ -233,4 +248,58 @@ function peopleSection(profile, helpers) {
   }));
   wrap.appendChild(adding);
   return wrap;
+}
+
+function pinInput(helpers, label) {
+  const input = helpers.el("input"); input.type = "password"; input.inputMode = "numeric";
+  input.placeholder = label; input.setAttribute("aria-label", label);
+  return input;
+}
+
+/** household-followups: the owner's PIN for switching back to them, off until the owner sets one. */
+function ownerPinCard(profile, helpers) {
+  const { el, api, toast, refresh } = helpers;
+  const card = el("div", undefined, "collab-card");
+  card.dataset.part = "owner-pin";
+  card.appendChild(el("strong", t("people.owner-pin.title")));
+  card.appendChild(el("p", t(profile.ownerPin ? "people.owner-pin.on" : "people.owner-pin.off"), "collab-meta"));
+  const pin = pinInput(helpers, t("people.owner-pin.field"));
+  card.append(pin, smallButton(helpers, t("people.owner-pin.set"), async () => {
+    await api("/api/profiles/owner-pin", { pin: pin.value }); pin.value = ""; toast("Saved"); await refresh();
+  }));
+  if (profile.ownerPin)
+    card.appendChild(smallButton(helpers, t("people.owner-pin.remove"), async () => {
+      await api("/api/profiles/owner-pin", { pin: null }); toast("Saved"); await refresh();
+    }));
+  return card;
+}
+
+/**
+ * household-followups: while the window is on somebody else's profile, the title bar says whose, in
+ * the calm window and the full one, with a way back (asking the owner's PIN when that is set). It
+ * shows nothing while the window is the owner's.
+ */
+export function showProfileBadge(state, given) {
+  const helpers = relative(given);
+  const badge = document.getElementById("profile-badge");
+  const profile = state?.collab?.profile;
+  if (!badge) return;
+  const person = profile && !profile.isOwner ? profile.active : null;
+  if (!person) { badge.hidden = true; badge.replaceChildren(); delete badge.dataset.person; return; }
+  /* Redrawn only when who it is (or whether a PIN is asked) changes, so a PIN being typed survives the refresh. */
+  const key = `${person.id}:${profile.ownerPin ? "pin" : "open"}`;
+  if (badge.dataset.person === key && !badge.hidden) return;
+  badge.dataset.person = key;
+  const { el, api, toast, refresh } = helpers;
+  const avatar = el("span", person.name.slice(0, 1).toUpperCase(), "profile-avatar");
+  avatar.dataset.hue = String([...person.name].reduce((sum, ch) => sum + ch.codePointAt(0), 0) % 4);
+  avatar.setAttribute("aria-hidden", "true");
+  const words = el("span", t("people.badge.on", { name: person.name }), "profile-name");
+  const pin = profile.ownerPin ? pinInput(helpers, t("people.back.pin")) : null;
+  const back = onClick(helpers, el("button", t("people.badge.back"), "profile-back"), async () => {
+    await api("/api/profiles/switch", { profileId: null, ...(pin ? { pin: pin.value } : {}) });
+    toast(t("people.badge.back-done")); await refresh();
+  });
+  badge.replaceChildren(avatar, words, ...(pin ? [pin] : []), back);
+  badge.hidden = false;
 }

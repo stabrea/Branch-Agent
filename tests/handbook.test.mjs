@@ -4,7 +4,7 @@
  * chapter to itself, and that Help opens the right chapter for the section a person is looking at.
  */
 import test from "node:test";
-import { openPlace } from "./places.mjs";
+import { openPlace, showEverything } from "./places.mjs";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { mkdir, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
@@ -41,14 +41,16 @@ async function fixture(t) {
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.locator("#workspace").waitFor({ state: "visible" });
+  /* This file exercises the full window's own controls: "Show everything" since 0.18.1. */
+  await showEverything(page);
   return { app, page, server, errors };
 }
 
 /** Walks past the first-run panel, when there is one, so a section can be opened. */
 async function settle(page) {
   if (await page.locator("#first-run").isHidden()) return;
-  await page.getByRole("button", { name: /Just look around/ }).click();
-  await page.getByRole("button", { name: "Done, start chatting", exact: true }).click();
+  /* "Try it without an account" finishes first run in one click. */
+  await page.getByRole("button", { name: /Try it without an account/ }).click();
   await page.locator("#first-run").waitFor({ state: "hidden" });
 }
 

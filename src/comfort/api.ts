@@ -50,7 +50,7 @@ const PlanSchema = z.object({
 function requireOwnerHere(store: Store, what: string): void {
   if (startedWithShortLivedKey() || currentPerson())
     throw new ComfortApiError(403, `${what} can only be changed by the owner, in the app window.`);
-  try { store.profiles.requireOwner(what); } catch (error) { throw new ComfortApiError(403, (error as Error).message); }
+  try { store.profiles.requireOwner(what); } catch (error) { throw new ComfortApiError(400, (error as Error).message); }
 }
 const cardWords: Record<string, string> = { browser: "How carefully the browser acts", network: "The proxy and trusted certificates" };
 const updateWords = "Whether Branch updates itself";

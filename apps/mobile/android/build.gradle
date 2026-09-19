@@ -22,6 +22,9 @@ allprojects {
         google()
         mavenCentral()
     }
+    // BRANCH_GRADLE_BUILD_DIR puts every project's build output outside the checkout (a build drive).
+    def outside = System.getenv('BRANCH_GRADLE_BUILD_DIR')
+    if (outside) layout.buildDirectory = new File(outside, project.name)
 }
 
 task clean(type: Delete) {

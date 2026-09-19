@@ -1,10 +1,13 @@
-import { chmod, lstat, mkdir, readFile, rename, rm, rmdir, stat, writeFile } from "node:fs/promises";
+import { access, chmod, copyFile, lstat, mkdir, readdir, readFile, rename, rm, rmdir, stat, writeFile } from "node:fs/promises";
+import { constants } from "node:fs";
 import { homedir } from "node:os";
 import { posix } from "node:path";
 import { shellQuote } from "../desktop/hand-over.js";
 import { stagedEngine } from "../never-break/canary.js";
 import { launchdPlistPath } from "./launchd.js";
 import { systemdUnitPath } from "./systemd.js";
+import { runningNow } from "./quit.js";
+import { LINUX_ICON_FOLDER, LINUX_ICON_SIZES, iconFileSize } from "./unix-icons.js";
 import { runTool, type RunTool } from "./windows.js";
 
 // These files only ever exist on macOS or Linux, so their paths use forward slashes wherever they are composed.
@@ -14,7 +17,9 @@ const { basename, dirname, join } = posix;
  * Installing and removing Branch on macOS and Linux without a single question, the counterpart of
  * `installer.ts` on Windows. Everything goes into this person's own folders, so nothing needs an
  * administrator: the app, a `branch` command that talks to it, and on Linux a menu entry. Removing
- * Branch keeps conversations and files unless the person asks for them to go too.
+ * Branch keeps conversations and files unless the person asks for them to go too — but what Branch
+ * itself downloaded (mac7/clean-uninstall: the programs that run models, and their models) always
+ * goes, because those gigabytes are Branch's doing rather than the person's work.
  */
 export type UnixPlatform = "darwin" | "linux";
 
@@ -30,6 +35,10 @@ export interface UnixLayout {
   serviceFile: string;
   /** Linux: the applications-menu entry. */
   menuEntry: string | null;
+  /** macOS: the shared Applications folder's copy, which is not this person's own. */
+  sharedRoot: string | null;
+  /** Linux: the icon theme this person's own menu reads (mac7/app-icon). */
+  iconTheme: string | null;
   /** The folder the app keeps everything in (Electron's own per-person folder). */
   userDataDir: string;
   dataDir: string;
@@ -48,14 +57,16 @@ export function unixLayout(platform: UnixPlatform, env: NodeJS.ProcessEnv = proc
   if (platform === "darwin") {
     const userDataDir = join(home, "Library", "Application Support", dataFolderName);
     const installRoot = join(home, "Applications", macBundle);
-    return { platform, installRoot, candidates: [installRoot, join("/Applications", macBundle)], launcher, serviceFile: launchdPlistPath(home),
-      menuEntry: null, userDataDir, dataDir: join(userDataDir, "state"), workspace: join(userDataDir, "workspace") };
+    const sharedRoot = join("/Applications", macBundle);
+    return { platform, installRoot, candidates: [installRoot, sharedRoot], launcher, serviceFile: launchdPlistPath(home),
+      menuEntry: null, sharedRoot, iconTheme: null, userDataDir, dataDir: join(userDataDir, "state"), workspace: join(userDataDir, "workspace") };
   }
   const dataHome = env.XDG_DATA_HOME || join(home, ".local", "share");
   const userDataDir = join(env.XDG_CONFIG_HOME || join(home, ".config"), dataFolderName);
   const installRoot = join(dataHome, linuxProgram, linuxAppFolder);
   return { platform, installRoot, candidates: [installRoot], launcher, serviceFile: systemdUnitPath(env, home),
     menuEntry: join(dataHome, "applications", `${linuxProgram}.desktop`),
+    sharedRoot: null, iconTheme: join(dataHome, "icons", "hicolor"),
     userDataDir, dataDir: join(userDataDir, "state"), workspace: join(userDataDir, "workspace") };
 }
 
@@ -91,12 +102,83 @@ export function launcherScript(input: { platform: UnixPlatform; installRoot: str
 /** Characters a menu entry's quoted `Exec` would have to escape; a folder with them gets no entry. */
 const unsafeForMenu = /["`$\\\n]/;
 
-/** The menu entry inside the download names files beside itself; installed, it names them in full. */
-export function installedMenuEntry(text: string, root: string): string | null {
+/**
+ * The menu entry inside the download names files beside itself; installed, it names them in full.
+ * Once this person's icon theme holds the mark in every size, `Icon` names the theme's entry instead,
+ * so each menu draws the size made for it rather than shrinking one big picture (mac7/app-icon).
+ */
+export function installedMenuEntry(text: string, root: string, themed = false): string | null {
   if (unsafeForMenu.test(root)) return null;
   return text
     .replace(/^Exec="?branch-agent"?/m, `Exec="${root}/${linuxProgram}"`)
-    .replace(/^Icon=branch-agent\.png$/m, `Icon=${root}/${linuxProgram}.png`);
+    .replace(/^Icon=branch-agent\.png$/m, themed ? `Icon=${linuxProgram}` : `Icon=${root}/${linuxProgram}.png`);
+}
+
+/** Whether this person can write inside a folder without an administrator; tests hand in their own. */
+export type CanWrite = (path: string) => Promise<boolean>;
+const canWriteDir: CanWrite = (path) => access(path, constants.W_OK).then(() => true, () => false);
+
+const myUid = (): number => process.getuid?.() ?? -1;
+
+/**
+ * Whether a copy outside this person's own folder is theirs to write over and to remove again.
+ * Every administrator can write a Mac's shared `/Applications`, so a writable folder is not enough:
+ * the copy must also be nothing yet, or a real folder (never a link) holding Branch, owned by this
+ * person. Anything else may be somebody else's, and it is left exactly as it was found.
+ */
+export async function sharedCopyIsMine(
+  platform: UnixPlatform, root: string, canWrite: CanWrite = canWriteDir, uid: number = myUid(),
+): Promise<boolean> {
+  if (!(await canWrite(dirname(root)))) return false;
+  const found = await lstat(root).catch(() => null);
+  if (!found) return true;
+  return found.isDirectory() && found.uid === uid && (await copyVersion(platform, root)) !== null;
+}
+
+/** Whether a copy is the installer's to write over and to remove again. This person's own folder always is. */
+export async function updatable(layout: UnixLayout, root: string, canWrite: CanWrite = canWriteDir, uid: number = myUid()): Promise<boolean> {
+  return root === layout.installRoot || sharedCopyIsMine(layout.platform, root, canWrite, uid);
+}
+
+/** Where a fresh install goes: the shared Applications folder when it was asked for and is this person's to use. */
+export async function chooseRoot(
+  layout: UnixLayout, applications: boolean, canWrite: CanWrite = canWriteDir, uid: number = myUid(),
+): Promise<string> {
+  if (!applications || !layout.sharedRoot) return layout.installRoot;
+  return (await sharedCopyIsMine(layout.platform, layout.sharedRoot, canWrite, uid)) ? layout.sharedRoot : layout.installRoot;
+}
+
+/**
+ * macOS marks everything that came from the internet, and that mark travels through the zip into the
+ * unpacked app and through the copy into the installed one — so macOS then refuses to open it. The
+ * installer takes the mark off the copy it just made, and off nothing else: `-s` acts on a link
+ * itself, because without it xattr clears the file a link inside the app points at, wherever that
+ * is. The root must be a real folder, not a link. The answer is true only when xattr succeeded.
+ */
+export async function clearQuarantine(platform: UnixPlatform, root: string, run: RunTool): Promise<boolean> {
+  if (platform !== "darwin") return false;
+  if (!(await lstat(root).then((found) => found.isDirectory(), () => false))) return false;
+  return run("/usr/bin/xattr", ["-r", "-s", "-d", "com.apple.quarantine", root]).then(() => true, () => false);
+}
+
+/**
+ * Copies each ready-made size out of the download into this person's own icon theme, so menus, docks
+ * and switchers all draw a mark made for their size. Returns what was written.
+ */
+export async function installIcons(layout: UnixLayout, root: string): Promise<string[]> {
+  if (!layout.iconTheme) return [];
+  const from = join(root, LINUX_ICON_FOLDER);
+  const names = await readdir(from).catch(() => [] as string[]);
+  const written: string[] = [];
+  for (const name of names.sort()) {
+    const size = iconFileSize(linuxProgram, name);
+    if (size === null) continue;
+    const to = join(layout.iconTheme, `${size}x${size}`, "apps", `${linuxProgram}.png`);
+    await mkdir(dirname(to), { recursive: true });
+    await copyFile(join(from, name), to);
+    written.push(to);
+  }
+  return written;
 }
 
 export type CopyTree = (from: string, to: string) => Promise<void>;
@@ -118,8 +200,17 @@ export interface UnixInstallOptions {
   menuEntry?: boolean;
   /** Put the same version in again (a repair) instead of attaching to it. */
   repair?: boolean;
+  /** macOS: put Branch in the shared Applications folder, when this person can write it. */
+  applications?: boolean;
+  /** macOS: the person said yes to taking the internet mark off the copy this install makes. */
+  clearMark?: boolean;
+  /** Whether Branch is running now; a copy that is running is never taken away. */
+  running?: () => Promise<boolean>;
+  /** Whose files count as this person's (their user id); tests hand in another. */
+  uid?: number;
   copy?: CopyTree;
   run?: RunTool;
+  canWrite?: CanWrite;
 }
 export interface UnixInstallReport {
   installRoot: string;
@@ -130,6 +221,12 @@ export interface UnixInstallReport {
   attached: boolean;
   version: string;
   dataDir: string;
+  /** macOS: the "came from the internet" mark was taken off the installed copy. */
+  quarantineCleared: boolean;
+  /** Linux: the icon files written into this person's own icon theme. */
+  icons: string[];
+  /** The copy that was moved out of the way when Branch moved into the shared Applications folder. */
+  movedFrom: string | null;
 }
 
 /** The copy to use: an existing install wherever it was found, otherwise the usual place. */
@@ -186,12 +283,40 @@ async function writeInPlace(path: string, text: string, mode: number): Promise<v
   await rename(incoming, path);
 }
 
-async function writeMenuEntry(root: string, path: string): Promise<string | null> {
+async function writeMenuEntry(root: string, path: string, themed: boolean): Promise<string | null> {
   const text = await readFile(join(root, `${linuxProgram}.desktop`), "utf8").catch(() => null);
-  const entry = text === null ? null : installedMenuEntry(text, root);
+  const entry = text === null ? null : installedMenuEntry(text, root, themed);
   if (entry === null || !(await mayWrite(path, menuMarker))) return null;
   await writeInPlace(path, entry, 0o644);
   return path;
+}
+
+interface Target {
+  root: string;
+  found: { root: string; version: string } | null;
+  /** Whether the installer may write that copy at all. */
+  mine: boolean;
+}
+
+/**
+ * Which copy this install acts on. Normally it is the one already there, wherever it was found.
+ * Asking for the shared Applications folder wins over that, so "put Branch in Applications" moves it;
+ * when that folder needs an administrator the ask is dropped and this person's own folder is used.
+ */
+async function chooseTarget(options: UnixInstallOptions, canWrite: CanWrite): Promise<Target> {
+  const { layout } = options;
+  const found = await findInstall(layout);
+  const uid = options.uid ?? myUid();
+  const asked = await chooseRoot(layout, options.applications === true, canWrite, uid);
+  const root = asked === layout.installRoot ? found?.root ?? layout.installRoot : asked;
+  return { root, found, mine: await updatable(layout, root, canWrite, uid) };
+}
+
+/** After a move into the shared folder, the copy left in this person's own folder would only confuse. */
+async function removeMoved(layout: UnixLayout, root: string): Promise<string | null> {
+  if (root === layout.installRoot || !(await copyVersion(layout.platform, layout.installRoot))) return null;
+  await rm(layout.installRoot, { recursive: true, force: true });
+  return layout.installRoot;
 }
 
 /** Installs, or links up the copy that is already there, and writes the `branch` command. */
@@ -200,20 +325,37 @@ export async function performUnixInstall(options: UnixInstallOptions): Promise<U
   await checkSource(layout, options.source);
   if (!(await mayWrite(layout.launcher, launcherMarker)))
     throw new Error(`There is already a different \`branch\` command at ${layout.launcher}, so nothing was installed. Move it away and run the installer again.`);
-  const found = await findInstall(layout);
-  const root = found?.root ?? layout.installRoot;
-  // A copy found outside this person's own folder (a Mac's shared /Applications) is only linked up,
-  // never written to: that would need an administrator and may be somebody else's.
-  const elsewhere = root !== layout.installRoot;
-  const attached = elsewhere || (found?.version === options.version && !options.repair);
+  const run = options.run ?? runTool;
+  // A copy this person cannot write (a Mac's shared /Applications owned by somebody else) is only
+  // linked up, never written to: that would need an administrator.
+  const { root, found, mine } = await chooseTarget(options, options.canWrite ?? canWriteDir);
+  const already = found?.root === root ? found : null;
+  const attached = !mine || (already?.version === options.version && !options.repair);
+  if (!attached && root !== layout.installRoot && found?.root === layout.installRoot
+    && (await (options.running ?? (async () => (await runningNow(layout.dataDir)) !== null))()))
+    throw new Error(`Branch Agent is running from ${layout.installRoot}, so it was not moved. Quit it (\`branch quit\`) and run the installer again.`);
   const previousKept = attached ? null
-    : await replaceCopy(root, options.source, options.copy ?? copyWith(layout.platform, options.run ?? runTool));
+    : await replaceCopy(root, options.source, options.copy ?? copyWith(layout.platform, run));
+  const movedFrom = attached ? null : await removeMoved(layout, root);
+  const quarantineCleared = !attached && options.clearMark === true && (await clearQuarantine(layout.platform, root, run));
   await writeInPlace(layout.launcher, launcherScript({ platform: layout.platform, installRoot: root, dataDir: layout.dataDir, workspace: layout.workspace }), 0o755);
-  const menuEntry = layout.menuEntry && options.menuEntry !== false ? await writeMenuEntry(root, layout.menuEntry) : null;
+  const icons = await installIcons(layout, root);
+  const menuEntry = layout.menuEntry && options.menuEntry !== false ? await writeMenuEntry(root, layout.menuEntry, icons.length > 0) : null;
   await mkdir(layout.dataDir, { recursive: true, mode: 0o700 });
   return { installRoot: root, launcher: layout.launcher, menuEntry, previousKept, attached,
-    version: elsewhere ? found!.version : options.version, dataDir: layout.dataDir };
+    version: mine ? options.version : found?.version ?? options.version, dataDir: layout.dataDir,
+    quarantineCleared, icons, movedFrom };
 }
+
+/**
+ * mac7/clean-uninstall: the folders Branch fetches things into, inside its own data folder. They
+ * hold programs Branch downloaded and the models they read — gigabytes that are Branch's doing, not
+ * the person's work — so they go even when conversations and settings are kept. The names are
+ * fixed here and joined onto the layout's own data folder, so nothing outside it can be named.
+ */
+export const fetchedFolderNames = ["runners", "models", "local-installers", "local-models"] as const;
+export const fetchedFolders = (layout: UnixLayout): string[] =>
+  fetchedFolderNames.map((name) => join(layout.dataDir, name));
 
 export interface UnixUninstallOptions {
   layout: UnixLayout;
@@ -222,6 +364,8 @@ export interface UnixUninstallOptions {
   stop: () => Promise<void>;
   /** Takes out the "start by itself when you sign in" entry (see daemon.ts). */
   removeService: () => Promise<void>;
+  canWrite?: CanWrite;
+  uid?: number;
 }
 export interface UnixUninstallReport {
   removed: string[];
@@ -241,9 +385,11 @@ const installFolder = (layout: UnixLayout, root: string): boolean =>
  * Only the copy in this person's own folder is the installer's; one found elsewhere (a Mac's shared
  * /Applications) is reported and left. A link in place of a copy is removed as a link, never followed.
  */
-async function removeCopies(layout: UnixLayout, removed: string[], left: string[]): Promise<void> {
+async function removeCopies(layout: UnixLayout, removed: string[], left: string[], canWrite: CanWrite, uid: number): Promise<void> {
   for (const root of layout.candidates) {
-    if (root !== layout.installRoot) {
+    // The same test the installer used: a shared copy that is not this person's own (it needs an
+    // administrator, belongs to someone else, or is a link) is reported and left exactly as it is.
+    if (root !== layout.installRoot && !(await sharedCopyIsMine(layout.platform, root, canWrite, uid))) {
       if (await copyVersion(layout.platform, root)) left.push(root);
       continue;
     }
@@ -253,7 +399,18 @@ async function removeCopies(layout: UnixLayout, removed: string[], left: string[
       await rm(path, { recursive: true, force: true });
       removed.push(path);
     }
-    if (layout.platform === "linux") await rmdir(dirname(root)).catch(() => undefined);
+    if (layout.platform === "linux" && root === layout.installRoot) await rmdir(dirname(root)).catch(() => undefined);
+  }
+}
+
+/** The icon files the installer copied into this person's own icon theme go with the rest. */
+async function removeIcons(layout: UnixLayout, removed: string[]): Promise<void> {
+  if (!layout.iconTheme) return;
+  for (const size of LINUX_ICON_SIZES) {
+    const path = join(layout.iconTheme, `${size}x${size}`, "apps", `${linuxProgram}.png`);
+    if (!(await lstat(path).then((found) => found.isFile(), () => false))) continue;
+    await rm(path, { force: true });
+    removed.push(path);
   }
 }
 
@@ -262,7 +419,14 @@ export async function performUnixUninstall(options: UnixUninstallOptions): Promi
   const { layout } = options, removed: string[] = [], left: string[] = [];
   await options.stop();
   await options.removeService();
-  await removeCopies(layout, removed, left);
+  await removeCopies(layout, removed, left, options.canWrite ?? canWriteDir, options.uid ?? myUid());
+  await removeIcons(layout, removed);
+  // mac7/clean-uninstall: what Branch fetched goes whether or not the conversations are kept.
+  for (const folder of fetchedFolders(layout)) {
+    if (!(await lstat(folder).then(() => true, () => false))) continue;
+    await rm(folder, { recursive: true, force: true });
+    removed.push(folder);
+  }
   for (const [path, marker] of [[layout.launcher, launcherMarker], [layout.menuEntry, menuMarker]] as const) {
     if (!path || !(await lstat(path).then((found) => found.isFile(), () => false)) || !(await ours(path, marker))) continue;
     await rm(path, { force: true });

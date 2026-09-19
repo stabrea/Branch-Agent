@@ -48,8 +48,8 @@ for (const theme of ["forest", "daylight"]) {
     await page.getByRole("button", { name: "Connect", exact: true }).click();
     await page.locator("#workspace").waitFor({ state: "visible" });
     if (await page.locator("#first-run").isVisible()) {
-      await page.getByRole("button", { name: /Just look around/ }).click();
-      await page.getByRole("button", { name: "Done, start chatting", exact: true }).click();
+      /* "Try it without an account" finishes first run in one click. */
+      await page.getByRole("button", { name: /Try it without an account/ }).click();
       await page.locator("#first-run").waitFor({ state: "hidden" });
     }
     /* A fresh load so the rail, its chips and the month card are all drawn from what exists. */

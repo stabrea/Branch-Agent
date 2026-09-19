@@ -24,6 +24,16 @@ async function railControl(page, selector) {
   return control;
 }
 
+/* The calm window (the default since 0.18.1) keeps the places in the More menu and Settings in one
+   row at the foot of the rail; the full window ("Show everything") keeps them in the rail and the gear. */
+const calm = (page) => page.evaluate(() => document.documentElement.dataset.everything !== "on");
+async function openPlaceLink(page, place) {
+  if (!(await calm(page))) return (await railControl(page, `.lx-place-link[data-place="${place}"]`)).click();
+  await page.locator("#lx-more").click();
+  await page.locator(`#lx-more-menu .lx-more-item[data-kind="view"][data-target="${place}"]`).click();
+}
+const settingsEntry = async (page) => (await calm(page) ? railControl(page, "#lx-settings-row") : railControl(page, ".lx-gear"));
+
 /**
  * Opens a page by its old name ("memory", "runs", "settings", "usage", "chat") or its new one
  * ("customize:plugins", "settings:models").
@@ -41,7 +51,7 @@ export async function openPlace(page, view) {
   if (view.startsWith("settings:")) return openSettings(page, view.slice("settings:".length));
   const [place, tab] = TABS[view] ?? view.split(":");
   await closeSettings(page);
-  await (await railControl(page, `.lx-place-link[data-place="${place}"]`)).click();
+  await openPlaceLink(page, place);
   const trigger = TABS[view] ? `.lx-tab[data-view="${tab}"]` : `.lx-tab[data-place="${place}"][data-tab="${tab}"]`;
   await page.locator(trigger).click();
 }
@@ -49,7 +59,7 @@ export async function openPlace(page, view) {
 /** Opens the Settings window, on a page when one is named. */
 export async function openSettings(page, name) {
   await ready(page);
-  if (!(await page.locator("#settings-window").isVisible())) await (await railControl(page, ".lx-gear")).click();
+  if (!(await page.locator("#settings-window").isVisible())) await (await settingsEntry(page)).click();
   if (name) await page.locator(`.lx-settings-link[data-page="${name}"]`).click();
 }
 
@@ -67,4 +77,25 @@ export async function openSettingFor(page, selector) {
   if (!where.page) throw new Error(`${selector} is not on any Settings page`);
   await openSettings(page, where.page);
   if (where.sub) await page.locator(`#lx-page-models .lx-subtab[data-sub="${where.sub}"]`).click();
+}
+
+/**
+ * Switches on "Show everything" (0.18.1) for a test that exercises the full window's own controls —
+ * the tabs, meter, switches and icons the calm default keeps behind More. It is saved the way the
+ * Settings switch saves it, then shown at once. The calm default has its own tests (calm-ui.test.mjs).
+ */
+export async function showEverything(page, patch = { showEverything: true }) {
+  await ready(page);
+  await page.evaluate(async (changes) => {
+    const { applyAppearance, currentAppearance } = await import("/appearance.js");
+    const value = { ...currentAppearance(), ...changes };
+    const response = await fetch("/api/preferences", {
+      method: "POST",
+      headers: { authorization: "Bearer " + sessionStorage.getItem("branch-token"), "content-type": "application/json" },
+      body: JSON.stringify(value),
+    });
+    if (!response.ok) throw new Error("the preference was refused");
+    applyAppearance(value);
+  }, patch);
+  if (patch.showEverything) await page.waitForFunction(() => document.documentElement.dataset.everything === "on");
 }

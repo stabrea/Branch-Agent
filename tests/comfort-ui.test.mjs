@@ -175,8 +175,12 @@ test("R17-S17: updating by itself looks once, and installs only through the Upda
   const { app, page } = await openApp(t);
   await page.evaluate(() => {
     globalThis.__desktop = [];
+    /* Only what the automatic update asks counts here. The Updates card also reads the updater's
+       status whenever the page redraws, which can come at any moment and is not a look for an
+       update, so a status read counts only when it comes from autoUpdate itself. */
+    const fromAutoUpdate = () => /\bautoUpdate\b/.test(new Error().stack ?? "");
     window.branchDesktop = {
-      updateStatus: async () => { globalThis.__desktop.push("status"); return { phase: globalThis.__phase ?? "idle", message: "" }; },
+      updateStatus: async () => { if (fromAutoUpdate()) globalThis.__desktop.push("status"); return { phase: globalThis.__phase ?? "idle", message: "" }; },
       checkForUpdates: async () => { globalThis.__desktop.push("check"); return { phase: "current", message: "" }; },
       installUpdate: async () => { globalThis.__desktop.push("install"); return { phase: "ready", message: "" }; },
       modelSettings: async () => ({}), openExternal: async () => true,

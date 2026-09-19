@@ -32,7 +32,7 @@ import { MatrixAdapter } from '../channels/matrix.js';
 import { SignalAdapter } from '../channels/signal-cli.js';
 import { connectWebSocket, type WebSocketConnect } from '../channels/ws-client.js';
 import { WebConfigSchema, type WebAccess } from './web.js';
-import { HookSchema, type Hooks, type HookRunner } from '../hooks.js';
+import { HookSchema, type Hooks, type HookRunner, type HookConfig } from '../hooks.js';
 import type { ToolContext } from '../contracts.js';
 import type { NetworkPolicy } from '../network-policy.js';
 import type { GitTools } from './git.js';
@@ -558,20 +558,29 @@ function parseVerdict(printed: string): unknown {
 }
 
 function hookRunner(shell: BranchShell, context: (runId: string) => ToolContext): HookRunner {
-  return async (hook, payload) => {
-    const scoped = { ...context(String(payload.runId ?? '')), signal: AbortSignal.timeout(hook.timeoutMs + 1000) };
-    for (let attempt = 0; attempt < 4; attempt++) {
-      try {
-        const result = await shell.execute({ executable: hook.executable, args: [...hook.args, JSON.stringify(payload).slice(0, 4000)], cwd: '.', secrets: [], timeoutMs: hook.timeoutMs }, scoped);
-        // A check that can stop a call says so by printing {"decision":"ask","reason":"..."}.
-        // Anything else it prints is ignored, so an ordinary notify-only hook behaves as before.
-        return result.status === 'completed' ? { ok: true, verdict: parseVerdict(result.stdout) } : { ok: false, error: `${result.status}${result.stderr ? ': ' + result.stderr.slice(0, 200) : ''}` };
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        if (!/already active/.test(message) || attempt === 3) return { ok: false, error: message };
-        await new Promise(resolve => setTimeout(resolve, 500));
-      }
-    }
-    return { ok: false, error: 'busy' };
+  // The shell runs one host command at a time. Hooks for the same event fire together, so they take
+  // turns here, and each waits for any task command still running before it starts.
+  let turn: Promise<unknown> = Promise.resolve();
+  return (hook, payload) => {
+    const mine = turn.then(() => runHook(shell, context, hook, payload));
+    turn = mine.catch(() => undefined);
+    return mine;
   };
+}
+
+async function runHook(shell: BranchShell, context: (runId: string) => ToolContext, hook: HookConfig, payload: Record<string, unknown>): ReturnType<HookRunner> {
+  const scoped = { ...context(String(payload.runId ?? '')), signal: AbortSignal.timeout(hook.timeoutMs + 1000) };
+  for (;;) {
+    try {
+      await shell.whenIdle(scoped.signal);
+      const result = await shell.execute({ executable: hook.executable, args: [...hook.args, JSON.stringify(payload).slice(0, 4000)], cwd: '.', secrets: [], timeoutMs: hook.timeoutMs }, scoped);
+      // A check that can stop a call says so by printing {"decision":"ask","reason":"..."}.
+      // Anything else it prints is ignored, so an ordinary notify-only hook behaves as before.
+      return result.status === 'completed' ? { ok: true, verdict: parseVerdict(result.stdout) } : { ok: false, error: `${result.status}${result.stderr ? ': ' + result.stderr.slice(0, 200) : ''}` };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      // Another command started between the shell going quiet and this one asking: wait again.
+      if (!/already active/.test(message) || scoped.signal.aborted) return { ok: false, error: message };
+    }
+  }
 }

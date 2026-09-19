@@ -13,7 +13,12 @@ export const PreferencesSchema = z
     density: z.enum(["comfortable", "compact"]).default("comfortable"),
     font: z.enum(["geist", "system"]).default("geist"),
     reduceMotion: z.boolean().default(false),
-    showAcorn: z.boolean().default(true),
+    /** The acorn toy in the side pane. Off unless the owner switches it on. */
+    showAcorn: z.boolean().default(false),
+    /** The full window (every tab, meter and switch) instead of the calm one. Off by default. */
+    showEverything: z.boolean().default(false),
+    /** The microphone and Talk buttons beside the message box. Off by default. */
+    showVoice: z.boolean().default(false),
   })
   .strict();
 export type Preferences = z.infer<typeof PreferencesSchema>;

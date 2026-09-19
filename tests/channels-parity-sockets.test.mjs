@@ -459,16 +459,30 @@ test("MQTT: a refused password is said plainly and not retried; a dropped connec
   await delay(100);
   assert.equal(wrong.connections.length, 1, "not retried");
 
+  // Pings, on a keep-alive short enough to see several. A ping still unanswered when the next is due
+  // closes the link, and on a busy build machine 50 ms can pass before an answer is read, so the
+  // link may be opened again here; what is held is that pings go out, are answered, and it is up.
+  const pinged = await rawServer(t, (connection) => mqttBroker(connection, { password: MQTT_PASSWORD }));
+  const pinging = mqttChannel(pinged.port, { keepAliveSeconds: 0.05 });
+  await pinging.start(async () => undefined);
+  t.after(() => pinging.stop());
+  await until(() => pinged.connections.some((link) => link.mqtt.pings >= 2), "pings answered");
+  await until(() => pinging.health().state === "connected", "connected while pinging");
+  await pinging.stop();
+
+  // Dropping and saying goodbye, on the usual keep-alive, so no ping can open a third link and the
+  // goodbye is owed to exactly the second one.
   const flaky = await rawServer(t, (connection) => mqttBroker(connection, { password: MQTT_PASSWORD }));
-  const channel = mqttChannel(flaky.port, { keepAliveSeconds: 0.05 });
+  const channel = mqttChannel(flaky.port);
   await channel.start(async () => undefined);
   t.after(() => channel.stop());
-  await until(() => flaky.connections[0]?.mqtt.pings >= 2, "pings answered");
+  await until(() => flaky.connections[0]?.mqtt.subscriptions.length, "subscribed");
   assert.equal(channel.health().state, "connected");
   flaky.connections[0].socket.destroy();
   await until(() => flaky.connections[1]?.mqtt.subscriptions.length, "reconnected and subscribed again");
   await channel.stop();
   await until(() => flaky.connections[1].mqtt.disconnected, "says goodbye with DISCONNECT");
+  assert.equal(flaky.connections.length, 2, "one drop, one new link");
   await context.app.channels.attach(refused, policy);
   await assertNoSecret(context, [MQTT_PASSWORD]);
 });

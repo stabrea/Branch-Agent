@@ -14,6 +14,7 @@ import { t } from "/i18n.js";
 import { THEMES, THEME_GROUPS } from "/theme-catalogue.js";
 import { solid, themeById, tokensFor, wearTokens } from "/theme-bridge.js";
 import { paint as paintGrove, seasonToday } from "/grove.js";
+import { popover } from "/popover.js";
 
 const $ = (id) => document.getElementById(id);
 const root = document.documentElement;
@@ -45,6 +46,9 @@ function button(className, key, english) {
 }
 const ICONS = {
   inbox: "M4 13l2.5-7h11L20 13v5H4zM4 13h4.5l1 2h5l1-2H20",
+  up: "M12 19V5M6 11l6-6 6 6",
+  plus: "M12 5v14M5 12h14",
+  stop: "M7 7h10v10H7z",
   automations: "M13 3 5 13h6l-1 8 8-10h-6z",
   library: "M5 4h9a4 4 0 014 4v12H9a4 4 0 01-4-4zM5 16a4 4 0 014-4h9",
   customize: "M4 7h10M18 7h2M4 17h4M12 17h8M16 5a2 2 0 110 4 2 2 0 010-4zM10 15a2 2 0 110 4 2 2 0 010-4z",
@@ -715,6 +719,7 @@ const paneOpen = () => narrow.matches
   ? document.body.classList.contains("lx-pane-float")
   : !document.body.classList.contains("no-aside");
 function choosePaneTab(id) {
+  if (calm()) return askForPane(id);
   const open = paneOpen();
   if (narrow.matches) document.body.classList.toggle("lx-pane-float", !(open && paneTab === id));
   else if (!open || paneTab === id) $("aside-toggle").click();
@@ -739,7 +744,8 @@ function syncPane() {
   const panel = $("context-panel");
   panel.dataset.pane = paneTab;
   const helping = !$("context-help").hidden;
-  const open = paneOpen();
+  /* The calm window opens the pane only while work runs, or when it was asked for from More. */
+  const open = calm() ? calmPaneWanted() : paneOpen();
   document.body.classList.toggle("lx-aside", helping || (place === "chat" && open));
   document.body.classList.toggle("lx-help", helping);
   for (const trigger of document.querySelectorAll(".lx-pane-tab"))
@@ -770,16 +776,7 @@ function buildLockdown(shield) {
   pop.setAttribute("aria-label", say("lockdown.label", "Lockdown"));
   pop.append(worded("p", "lx-eyebrow", "lockdown.label", "Lockdown"), $("lockdown-panel"));
   shield.after(pop);
-  shield.addEventListener("click", (event) => {
-    event.stopPropagation();
-    pop.hidden = !pop.hidden;
-    shield.setAttribute("aria-expanded", String(!pop.hidden));
-  });
-  pop.addEventListener("click", (event) => event.stopPropagation());
-  document.addEventListener("click", () => {
-    pop.hidden = true;
-    shield.setAttribute("aria-expanded", "false");
-  });
+  popover(shield, pop);
   const banner = make("div", "lx-lockbanner");
   banner.id = "lx-lockbanner";
   banner.hidden = true;
@@ -912,6 +909,8 @@ function watchWork() {
     document.body.classList.toggle("lx-waiting", !$("lx-inbox-badge").hidden);
   };
   if (badge) new MutationObserver(sync).observe(badge, { attributes: true, childList: true, characterData: true, subtree: true });
+  const plan = $("context-todos")?.closest(".context-block");
+  if (plan) new MutationObserver(sync).observe(plan, { attributes: true, attributeFilter: ["hidden"], childList: true, subtree: true });
   new MutationObserver(sync).observe($("lx-inbox-badge"), { attributes: true, attributeFilter: ["hidden"] });
   setInterval(() => { if (!document.hidden) void drawInbox(); }, 8000);
 }
@@ -925,8 +924,13 @@ function wireKeys() {
       closeSettings();
       return;
     }
-    if (event.key === "Escape" && !$("lx-lock-pop").hidden) $("lx-lock-pop").hidden = true;
-    if (event.key === "Escape" && document.body.classList.contains("lx-pane-float")) document.body.classList.remove("lx-pane-float");
+    /* The floating pane closes, and the keyboard goes back to what opened it. */
+    if (event.key === "Escape" && document.body.classList.contains("lx-pane-float")) {
+      const back = calm() ? $("lx-more") : document.querySelector('.lx-pane-tab[aria-pressed="true"]');
+      if (calm()) paneAsked = false;
+      document.body.classList.remove("lx-pane-float");
+      back?.focus();
+    }
   });
   const after = (id, view) => $(id)?.addEventListener("click", () => displayView(view));
   after("appearance-shortcut", "settings:appearance");
@@ -955,6 +959,398 @@ function extendPalette() {
   for (const [page, , english] of SETTINGS_PAGES) titles[`settings:${page}`] = `Settings › ${english}`;
 }
 
+/* ---------- the calm window (0.18.1) ----------
+   One question and one box. Everything else is still on the page with its id and its module; it is
+   hidden by layout.css while <html data-everything="off">, and reached from the one More menu or
+   shown only when it matters (the pane while work runs, Inbox while something waits). Settings →
+   Appearance → "Show everything" (the showEverything preference, kept per person) brings back the
+   full window. Nothing here removes or rewires an existing control. */
+const calm = () => root.dataset.everything !== "on";
+let paneAsked = false;
+let calmWorking = false;
+const liveRunning = () => $("live-row") && !$("live-row").hidden;
+const badgeRunning = () => { const badge = $("activity-count"); return Boolean(badge && !badge.hidden && Number(badge.textContent) > 0); };
+/** A goal on this conversation (public/goal.js) keeps its Resume and Stop in view, between rounds too. */
+const goalShowing = () => Boolean($("goal-strip") && !$("goal-strip").hidden);
+/** In the calm window the pane shows while work runs, or when the owner asked for it; a narrow window floats it only when asked. */
+function calmPaneWanted() {
+  if (narrow.matches) return paneAsked && document.body.classList.contains("lx-pane-float");
+  return paneAsked || calmWorking;
+}
+function askForPane(id) {
+  paneAsked = !(paneAsked && paneTab === id);
+  paneTab = id;
+  if (narrow.matches) document.body.classList.toggle("lx-pane-float", paneAsked);
+  syncPane();
+  if (paneAsked) document.dispatchEvent(new CustomEvent("branch-pane-draw"));
+}
+/** The pane slides in once work has run for a moment, and away a moment after it stops, so a quick answer never flashes it. */
+let workTimer = null;
+function watchCalmWork() {
+  const sync = () => {
+    const now = liveRunning() || badgeRunning() || goalShowing();
+    clearTimeout(workTimer);
+    workTimer = setTimeout(() => {
+      if (calmWorking === now) return;
+      calmWorking = now;
+      document.body.classList.toggle("lx-calm-working", now);
+      if (now) document.dispatchEvent(new CustomEvent("branch-pane-draw"));
+      syncPane();
+    }, now ? 1200 : 1500);
+  };
+  const live = $("live-row");
+  if (live) new MutationObserver(sync).observe(live, { attributes: true, attributeFilter: ["hidden"] });
+  const badge = $("activity-count");
+  if (badge) new MutationObserver(sync).observe(badge, { attributes: true, childList: true, characterData: true, subtree: true });
+  const plan = $("context-todos")?.closest(".context-block");
+  if (plan) new MutationObserver(sync).observe(plan, { attributes: true, attributeFilter: ["hidden"], childList: true, subtree: true });
+  /* Switching between the calm and the full window starts the pane afresh; the same value written again does nothing. */
+  let was = root.dataset.everything;
+  new MutationObserver(() => {
+    if (root.dataset.everything === was) return;
+    was = root.dataset.everything;
+    paneAsked = false;
+    document.body.classList.remove("lx-pane-float");
+    syncPane();
+  }).observe(root, { attributes: true, attributeFilter: ["data-everything"] });
+}
+
+/* The More menu: every control the calm window hides, in plain words. Each row presses the real control. */
+const MORE = [
+  ["more.message", "This message", [
+    ["check", "ask-first-toggle", "more.askFirst", "Ask me questions first"],
+    ["planfirst", "session-plan-mode", "more.planFirst", "Show me the plan first"],
+    ["check", "temporary-toggle", "more.temporary", "Forget this conversation afterwards"],
+    ["press", "composer-attach", "more.attach", "Attach a document…"],
+    ["press", "composer-media", "more.picture", "Add a picture or a sound…"],
+    ["assistant", "composer-specialist", "more.assistant", "Who should answer"],
+  ]],
+  ["more.pane", "Side panel", [
+    ["pane", "activity", "pane.activity", "Activity"], ["pane", "plan", "pane.plan", "Plan"],
+    ["pane", "files", "pane.files", "Files"], ["pane", "memory", "pane.memory", "Memory"],
+    ["allowed", "context-allowed", "allowed.title", "What is allowed right now"],
+  ]],
+  ["more.goTo", "Go to", [
+    ["view", "inbox", "place.inbox", "Inbox"], ["view", "automations", "place.automations", "Automations"],
+    ["view", "library", "place.library", "Library"], ["view", "customize", "place.customize", "Customize"],
+    ["find", "", "rail.find", "Find anything"],
+  ]],
+  ["more.window", "This window", [
+    ["press", "thread-labels", "more.labels", "Labels for this conversation"],
+    ["lockdown", "", "more.lockdown", "Lockdown: refuse commands"],
+    ["quiet", "", "look.clear", "Clear the view"],
+    ["press", "menu-help", "menu.help", "Help"],
+    ["press", "lock", "action.lock-session", "Lock session"],
+    ["everything", "appearance-everything", "more.everything", "Show everything"],
+  ]],
+];
+function moreRow([kind, target, key, english], close) {
+  if (kind === "assistant") return assistantRow(target, key, english);
+  const row = button("lx-more-item", key, english);
+  row.setAttribute("role", ["check", "lockdown", "planfirst"].includes(kind) ? "menuitemcheckbox" : "menuitem");
+  row.dataset.kind = kind;
+  row.dataset.target = target;
+  row.addEventListener("click", (event) => {
+    event.stopPropagation();
+    runMoreRow(kind, target);
+    if (kind !== "check" && kind !== "planfirst") close();
+    else syncMoreChecks();
+  });
+  return row;
+}
+function runMoreRow(kind, target) {
+  if (kind === "check" || kind === "press" || kind === "everything") $(target)?.click();
+  else if (kind === "pane") { displayView("chat"); askForPane(target); }
+  else if (kind === "allowed") showAllowed();
+  else if (kind === "view") displayView(`${target}:${lastTab[target]}`);
+  else if (kind === "find") openPalette();
+  else if (kind === "lockdown") $("lockdown-panel").querySelector("button")?.click();
+  else if (kind === "quiet") setQuiet(true);
+  else if (kind === "planfirst") {
+    const select = $(target);
+    select.value = select.value === "show-plan" ? "just-do-it" : "show-plan";
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+}
+/** Opens the Activity pane (never closes it) and brings "What is allowed right now" into view. */
+function showAllowed() {
+  displayView("chat");
+  const open = calm() ? calmPaneWanted() : paneOpen();
+  if (!(open && paneTab === "activity")) choosePaneTab("activity");
+  $("context-allowed")?.closest(".context-block")?.scrollIntoView({ block: "nearest" });
+}
+/** The assistant picker is a copy of the real one: choosing here chooses there. */
+function assistantRow(target, key, english) {
+  const row = make("label", "lx-more-assistant");
+  const select = make("select");
+  select.id = "lx-more-assistant";
+  select.addEventListener("click", (event) => event.stopPropagation());
+  select.addEventListener("change", () => {
+    const real = $(target);
+    real.value = select.value;
+    real.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  row.append(worded("span", "", key, english), select);
+  return row;
+}
+function syncMoreChecks() {
+  for (const row of document.querySelectorAll('#lx-more-menu [data-kind="check"]'))
+    row.setAttribute("aria-checked", String(Boolean($(row.dataset.target)?.checked)));
+  const plan = document.querySelector('#lx-more-menu [data-kind="planfirst"]');
+  plan?.setAttribute("aria-checked", String($("session-plan-mode")?.value === "show-plan"));
+  const lock = document.querySelector('#lx-more-menu [data-kind="lockdown"]');
+  lock?.setAttribute("aria-checked", String($("lx-shield")?.getAttribute("aria-pressed") === "true"));
+  const real = $("composer-specialist"), copy = $("lx-more-assistant");
+  if (real && copy) {
+    copy.replaceChildren(...[...real.options].map((option) => new Option(option.textContent, option.value, false, option.selected)));
+    copy.closest("label").hidden = real.options.length < 2;
+  }
+  for (const row of document.querySelectorAll('#lx-more-menu [data-kind="press"]'))
+    row.hidden = !$(row.dataset.target) || $(row.dataset.target).hidden;
+}
+function buildMore() {
+  const trigger = button("lx-more", "more.label", "More");
+  trigger.id = "lx-more";
+  trigger.setAttribute("aria-haspopup", "menu");
+  trigger.setAttribute("aria-expanded", "false");
+  const menu = make("div", "lx-pop lx-more-menu");
+  menu.id = "lx-more-menu";
+  menu.hidden = true;
+  menu.setAttribute("role", "menu");
+  menu.setAttribute("aria-label", say("more.label", "More"));
+  let pop = null;
+  const close = () => pop?.close();
+  for (const [key, english, rows] of MORE) {
+    const group = make("div", "lx-more-group");
+    const head = worded("p", "lx-more-head", key, english);
+    head.id = `lx-more-${key.replace(/\W/g, "-")}`;
+    group.setAttribute("role", "group");
+    group.setAttribute("aria-labelledby", head.id);
+    group.append(head, ...rows.map((row) => moreRow(row, close)));
+    menu.append(group);
+  }
+  let focusLast = false;
+  pop = popover(trigger, menu, {
+    onOpen: syncMoreChecks,
+    afterOpen: () => { const items = moreItems(menu); items[focusLast ? items.length - 1 : 0]?.focus(); focusLast = false; },
+  });
+  trigger.addEventListener("keydown", (event) => {
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    event.preventDefault();
+    focusLast = event.key === "ArrowUp";
+    if (!pop.isOpen()) pop.open();
+  });
+  menu.addEventListener("keydown", (event) => moveInMore(event, menu, close));
+  $("aside-toggle").after(trigger, menu);
+}
+/** The rows a keyboard can land on: the visible items, and the assistant picker when it shows. */
+const moreItems = (menu) => [...menu.querySelectorAll(".lx-more-item, #lx-more-assistant")].filter((node) => node.checkVisibility());
+/** Arrow keys, Home and End move through More; Tab leaves it closed, as a menu does. */
+function moveInMore(event, menu, close) {
+  if (event.key === "Tab") return close();
+  const items = moreItems(menu);
+  const at = items.indexOf(document.activeElement);
+  const to = { ArrowDown: at + 1, ArrowUp: at - 1, Home: 0, End: items.length - 1 }[event.key];
+  if (to === undefined || !items.length) return;
+  /* The assistant picker keeps its own arrow keys. */
+  if (document.activeElement?.id === "lx-more-assistant" && event.key.startsWith("Arrow")) return;
+  event.preventDefault();
+  items[(to + items.length) % items.length].focus();
+}
+
+/* One plain Settings row at the foot of the rail, in place of the small gear and the owner row. */
+function buildSettingsRow() {
+  const row = button("rail-row lx-settings-row", "menu.settingsShort", "Settings");
+  row.id = "lx-settings-row";
+  iconAndWords(row, "settings");
+  row.addEventListener("click", () => displayView("settings"));
+  document.querySelector(".rail-foot").prepend(row);
+}
+
+/* "Connected" only ever meant the window reached Branch on this computer. It is said only when that stops being true. */
+let misses = 0;
+async function checkServer() {
+  if (document.hidden || $("workspace").hidden) return;
+  try {
+    await fetch("/api/health", { cache: "no-store" });
+    misses = 0;
+  } catch {
+    misses += 1;
+  }
+  const lost = misses >= 2;
+  const chip = $("connection");
+  if (lost) chip.textContent = say("server.lost", "Branch stopped responding");
+  else if (chip.dataset.state === "lost") chip.textContent = "Connected";
+  chip.dataset.state = lost ? "lost" : "ok";
+  $("lx-restart").hidden = !lost;
+}
+/** The desktop app starts Branch again for real (src/desktop/restart-ipc.ts); a browser can only load the page again. */
+async function restartBranch() {
+  $("lx-restart").disabled = true;
+  try {
+    if (globalThis.branchDesktop?.restartBranch) return void await globalThis.branchDesktop.restartBranch();
+  } catch { /* the page is loaded again below */ }
+  location.reload();
+}
+function buildServerWatch() {
+  const restart = button("lx-button lx-restart", "server.restart", "Restart");
+  restart.id = "lx-restart";
+  restart.hidden = true;
+  restart.addEventListener("click", () => void restartBranch());
+  $("connection").after(restart);
+  setInterval(() => void checkServer(), 10000);
+}
+
+/* Inbox stays out of the calm rail until something is waiting in it. */
+function watchInboxBadge() {
+  const sync = () => document.body.classList.toggle("lx-inbox-waiting", !$("lx-inbox-badge").hidden);
+  new MutationObserver(sync).observe($("lx-inbox-badge"), { attributes: true, attributeFilter: ["hidden"] });
+  sync();
+}
+/* After the first task ever to finish, one quiet line offers what first run no longer asks with tick
+   boxes: starting at sign-in, and using Branch from a phone. Each offer opens the real Settings switch
+   rather than flipping it. It is shown once: the trigger is the workspace's first completed task, and
+   the line is marked seen the moment it shows. The full window never shows it. */
+const TIP_SEEN = "branch-calm-tip";
+async function offerNextSteps(event) {
+  const { status, completedRuns } = event.detail ?? {};
+  if (!calm() || status !== "completed" || completedRuns !== 1 || store.get(TIP_SEEN) || $("lx-tip")) return;
+  const running = await api("deployment").catch(() => null);
+  if (!running) return;
+  const offers = [
+    ...(running.installed && !running.autostart?.enabled ? [["start-with-windows", "tip.start", "Start Branch when I sign in"]] : []),
+    ...(!running.remote?.enabled ? [["phone-switch", "tip.phone", "Use it from my phone"]] : []),
+  ];
+  if (!offers.length || $("lx-tip")) return;
+  store.set(TIP_SEEN, "1");
+  const line = make("div", "lx-tip");
+  line.id = "lx-tip";
+  line.setAttribute("role", "status");
+  line.append(worded("span", "lx-tip-lead", "tip.lead", "That worked. If you like:"));
+  for (const [id, key, english] of offers) {
+    const offer = button("lx-tip-offer", key, english);
+    offer.addEventListener("click", () => { line.remove(); if (reveal(id)) $(id).focus(); });
+    line.append(offer);
+  }
+  const dismiss = button("lx-tip-close", "tip.dismiss", "Not now");
+  dismiss.addEventListener("click", () => { line.remove(); $("prompt")?.focus(); });
+  line.append(dismiss);
+  $("chat-form").before(line);
+}
+/* ---------- the calm message box ----------
+   One line that grows as it fills, a "+" for attachments on the left, and one round button on the
+   right: quiet while the box is empty, the accent once there is something to send, and Stop while a
+   task runs. The full window keeps its own row of controls; every id stays where it was. */
+const STARTERS = [
+  ["starter.tidy", "Tidy a folder", "starter.tidyWords", "Look through my Downloads folder and suggest how to tidy it. Do not delete anything."],
+  ["starter.research", "Research something", "starter.researchWords", "Research this and give me a short summary with sources: "],
+  ["starter.week", "Plan my week", "starter.weekWords", "Help me plan my week. Here is what I have on: "],
+];
+function buildCalmComposer() {
+  const form = $("chat-form"), prompt = $("prompt"), send = $("send");
+  /* Send keeps its id, its words for the full window and its name; the calm window shows an arrow. */
+  const words = make("span", "lx-send-words", send.textContent.trim());
+  send.replaceChildren(words, icon("up"));
+  send.setAttribute("aria-label", say("composer.send", "Send"));
+  send.title = say("composer.sendHint", "Send (Enter). Shift+Enter starts a new line.");
+  const stop = make("button", "lx-stop");
+  stop.type = "button";
+  stop.id = "lx-stop";
+  stop.hidden = true;
+  stop.setAttribute("aria-label", say("live.stop", "Stop"));
+  stop.title = stop.getAttribute("aria-label");
+  stop.append(icon("stop"));
+  stop.addEventListener("click", () => void stopRunning(stop));
+  send.after(stop);
+  const empty = () => send.classList.toggle("lx-empty", !prompt.value.trim());
+  prompt.addEventListener("input", empty);
+  empty();
+  /* An empty box is not sent: the button says it is off, and pressing it only puts you in the box. */
+  send.addEventListener("click", (event) => {
+    if (!calm() || prompt.value.trim()) return;
+    event.preventDefault();
+    prompt.focus();
+  });
+  /* app.js disables Send while a task works (setConversationBusy): that is when Stop takes its place. */
+  const busy = () => {
+    const working = send.disabled;
+    empty();
+    document.body.classList.toggle("lx-sending", working);
+    stop.hidden = !working;
+    stop.disabled = false;
+  };
+  new MutationObserver(busy).observe(send, { attributes: true, attributeFilter: ["disabled"] });
+  busy();
+  form.prepend(buildPlus());
+  $("composer-dock").append(buildStarters());
+}
+/** Stop presses the working card's own Stop, once the task it belongs to is known. */
+async function stopRunning(stop) {
+  stop.disabled = true;
+  for (let tries = 0; tries < 20 && !$("live-stop"); tries += 1) await new Promise((done) => setTimeout(done, 150));
+  $("live-stop")?.click();
+}
+/** "+" on the left of the box: the same two ways to add something as in More, pressing the real controls. */
+function buildPlus() {
+  const wrap = make("div", "lx-plus-wrap");
+  const plus = make("button", "lx-plus");
+  plus.type = "button";
+  plus.id = "lx-plus";
+  plus.setAttribute("aria-label", say("composer.add", "Add a document, a picture or a sound"));
+  plus.title = plus.getAttribute("aria-label");
+  plus.setAttribute("aria-haspopup", "menu");
+  plus.setAttribute("aria-expanded", "false");
+  plus.append(icon("plus"));
+  const menu = make("div", "lx-pop lx-plus-menu");
+  menu.id = "lx-plus-menu";
+  menu.hidden = true;
+  menu.setAttribute("role", "menu");
+  menu.setAttribute("aria-label", plus.getAttribute("aria-label"));
+  let pop = null;
+  const close = () => pop?.close();
+  for (const [target, key, english] of [["composer-attach", "more.attach", "Attach a document…"], ["composer-media", "more.picture", "Add a picture or a sound…"]]) {
+    const row = button("lx-more-item", key, english);
+    row.setAttribute("role", "menuitem");
+    row.dataset.target = target;
+    row.addEventListener("click", () => { close(); $(target)?.click(); });
+    menu.append(row);
+  }
+  pop = popover(plus, menu, {
+    onOpen: () => { for (const row of menu.querySelectorAll(".lx-more-item")) row.disabled = Boolean($(row.dataset.target)?.disabled); },
+    afterOpen: () => moreItems(menu)[0]?.focus(),
+  });
+  menu.addEventListener("keydown", (event) => moveInMore(event, menu, close));
+  wrap.append(plus, menu);
+  return wrap;
+}
+/** Three plain starting points under the empty box. Each only fills the box; nothing is sent. */
+function buildStarters() {
+  const row = make("div", "lx-starters");
+  row.id = "lx-starters";
+  for (const [key, english, wordsKey, wordsEnglish] of STARTERS) {
+    const chip = button("lx-starter", key, english);
+    chip.addEventListener("click", () => {
+      const prompt = $("prompt");
+      prompt.value = say(wordsKey, wordsEnglish);
+      prompt.dispatchEvent(new Event("input", { bubbles: true }));
+      prompt.focus();
+      prompt.setSelectionRange(prompt.value.length, prompt.value.length);
+    });
+    row.append(chip);
+  }
+  return row;
+}
+function buildCalm() {
+  document.addEventListener("branch-run-finished", (event) => void offerNextSteps(event));
+  buildCalmComposer();
+  buildMore();
+  buildSettingsRow();
+  buildServerWatch();
+  watchCalmWork();
+  watchInboxBadge();
+  $("demo-connect")?.addEventListener("click", () => displayView("settings:models"));
+}
+
 /* ---------- start ---------- */
 function start() {
   buildRail();
@@ -967,9 +1363,10 @@ function start() {
   buildQuiet();
   buildOwnerMenu();
   buildModelChip();
+  buildCalm();
   wireKeys();
   extendPalette();
-  globalThis.branchLayout = { go, reveal, homes: () => [...Object.keys(ROUTES)] };
+  globalThis.branchLayout = { go, reveal, homes: () => [...Object.keys(ROUTES)], checkServer };
   applyLook();
   const open = [...document.querySelectorAll("#workspace > .view")].find((node) => !node.hidden)?.id || "chat";
   go(open === "settings" ? "chat" : open);

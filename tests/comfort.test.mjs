@@ -249,7 +249,7 @@ test("R17-S20: the settings route checks the proxy and certificates before keepi
   const person = branch.store.profiles.create({ name: "Sam", pin: "4321" });
   branch.store.profiles.switch({ profileId: person.id, pin: "4321" });
   const household = await call("POST", "/api/comfort", { card: "browser", values: { blockUploads: true } });
-  assert.equal(household.status, 403);
+  assert.equal(household.status, 400); // profile-audit: refused at one place in src/server.ts, as requireOwner answers
   branch.store.profiles.switch({ profileId: null });
   assert.equal((await call("POST", "/api/comfort", { card: "browser", values: { blockUploads: true } })).status, 200);
 });

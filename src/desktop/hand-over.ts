@@ -1,6 +1,7 @@
 import { execFile, spawn } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import { win32 } from "node:path";
+import { portableFolder, portableMarker } from "../install/layout.js";
 
 /**
  * Starts the update hand-over script so that it outlives the app and stays invisible. A child started
@@ -69,6 +70,10 @@ export interface PosixHandOverPlan {
   daemonPid: number | null;
   /** How long the new version must stay up before the update counts as done (20 seconds). */
   settleSeconds?: number;
+  /** The downloaded archive, removed with the unpacked copy once the new version is up. */
+  archive?: string;
+  /** Linux: whose sandbox helper counts as set up by an administrator (root, 0); tests hand in their own. */
+  sandboxOwner?: number;
 }
 
 /** Quotes one word for sh; nothing inside single quotes is interpreted. */
@@ -110,9 +115,9 @@ export function posixHandOverScript(plan: PosixHandOverPlan): string {
   return [
     "#!/bin/sh", 'PID="$1"',
     `TARGET=${q(plan.target)}`, `STAGED=${q(plan.staged)}`, `LOG=${q(plan.log)}`,
-    'PREVIOUS="$TARGET.previous"', 'INCOMING="$TARGET.incoming"',
+    'PREVIOUS="$TARGET.previous"', 'INCOMING="$TARGET.incoming"', 'FAILED="$TARGET.failed"',
     'log() { printf \'[%s] %s\\n\' "$(date \'+%Y-%m-%d %H:%M:%S\')" "$1" >>"$LOG"; }',
-    ...posixWait,
+    ...posixWait, ...posixCarry(plan),
     'log "update started for pid $PID"',
     'wait_for "$PID" app',
     ...(plan.daemonPid ? [`wait_for ${plan.daemonPid} "background engine"`] : []),
@@ -120,15 +125,64 @@ export function posixHandOverScript(plan: PosixHandOverPlan): string {
     'rm -rf "$INCOMING"',
     `${posixCopy(plan, "$STAGED", "$INCOMING")} || { log "copy failed; nothing was changed"; rm -rf "$INCOMING"; exit 1; }`,
     // mac3/never-break: the last two versions are kept, so a rollback still has one to spare.
-    'log "keeping previous version"', 'rm -rf "$PREVIOUS-2"', 'if [ -e "$PREVIOUS" ]; then mv "$PREVIOUS" "$PREVIOUS-2"; fi', 'rm -rf "$PREVIOUS"',
+    'log "keeping previous version"', 'drop "$PREVIOUS-2"', 'if [ -e "$PREVIOUS" ]; then mv "$PREVIOUS" "$PREVIOUS-2"; fi', 'drop "$PREVIOUS"',
     'if [ -e "$TARGET" ] && ! mv "$TARGET" "$PREVIOUS"; then log "old version could not be moved; nothing was changed"; rm -rf "$INCOMING"; exit 1; fi',
     'if ! mv "$INCOMING" "$TARGET"; then log "new version could not be moved in; restoring previous"; mv "$PREVIOUS" "$TARGET"; exit 1; fi',
+    'carry_person "$PREVIOUS" "$TARGET"',
     'if [ "$2" = stay ]; then exit 0; fi',
     'log "starting new version"', posixLaunch(plan, true), "STARTED=$!", `sleep ${plan.settleSeconds ?? 20}`,
-    'if kill -0 "$STARTED" 2>/dev/null; then log "new version is running"; exit 0; fi',
-    'log "new version did not start; restoring previous"',
-    'rm -rf "$TARGET"', posixCopy(plan, "$PREVIOUS", "$TARGET"), posixLaunch(plan, false), "exit 1", "",
+    `if kill -0 "$STARTED" 2>/dev/null; then log "new version is running"; rm -rf "$STAGED"${plan.archive ? ` ${q(plan.archive)}` : ""}; exit 0; fi`,
+    // mac7/real-update: the previous version is moved back whole, not copied, so what an administrator
+    // set up in it (Linux's sandbox helper, owned by root) still works; the new one is kept aside.
+    'log "new version did not start; restoring previous"', "carry_person \"$TARGET\" \"$PREVIOUS\"",
+    'drop "$FAILED"', 'if mv "$TARGET" "$FAILED" && mv "$PREVIOUS" "$TARGET"; then log "previous version is back"; else log "previous version could not be moved back; copying it"; drop "$TARGET"; ' + posixCopy(plan, "$PREVIOUS", "$TARGET") + "; fi",
+    posixLaunch(plan, false), "exit 1", "",
   ].join("\n");
+}
+
+/**
+ * mac7/real-update. What belongs to the person rather than to a version, moved from one copy of the
+ * program to the other when they swap: a portable copy's marker and its `Branch Data` folder (which
+ * live beside the program), and on Linux a sandbox helper an administrator made root's (see
+ * docs/configuration.md). Moving keeps the helper's owner, which a copy cannot. The helper is only
+ * exchanged with the new version's own when both are plain files (no links), the old one is root's
+ * with the setuid bit and no other name, the new one is not setuid, and the two are byte for byte the
+ * same; the new version's unprivileged copy goes into the old folder, so going back can exchange them
+ * again. A user cannot rewrite a root-owned file or hard-link one (protected_hardlinks), so what is
+ * moved after the check is the file that was compared. `Branch Data` is never replaced: when the
+ * other copy already has one, both are left where they are.
+ *
+ * `drop` removes an old copy, but first moves any `Branch Data` left inside it out beside the
+ * program; when that cannot be done, the copy is kept instead.
+ */
+function posixCarry(plan: { platform: "darwin" | "linux"; sandboxOwner?: number }): string[] {
+  const beside = plan.platform === "darwin" ? "Contents/MacOS/" : "";
+  const owner = plan.sandboxOwner ?? 0;
+  if (!Number.isSafeInteger(owner)) throw new Error("The sandbox helper's owner is not a number.");
+  return [
+    "carry_person() {",
+    `  for KEEP in ${portableMarker} ${shellQuote(portableFolder)}; do`,
+    `    if [ -e "$1/${beside}$KEEP" ]; then`,
+    `      if [ -e "$2/${beside}$KEEP" ]; then log "$KEEP is in both copies; each is left where it is"; else mv "$1/${beside}$KEEP" "$2/${beside}$KEEP" && log "moved $KEEP to the version in use"; fi`,
+    "    fi",
+    "  done",
+    ...(plan.platform === "linux" ? [
+      '  S1="$1/chrome-sandbox"; S2="$2/chrome-sandbox"; SW="$1/chrome-sandbox.swap"',
+      `  if [ -f "$S1" ] && [ ! -h "$S1" ] && [ -u "$S1" ] && [ "$(stat -c %u:%h "$S1" 2>/dev/null)" = ${owner}:1 ] && [ -f "$S2" ] && [ ! -h "$S2" ] && [ ! -u "$S2" ] && cmp -s "$S1" "$S2"; then`,
+      '    if mv "$S2" "$SW" && mv "$S1" "$S2"; then mv "$SW" "$S1"; log "kept the sandbox helper an administrator set up"',
+      '    elif [ -e "$SW" ] && [ ! -e "$S2" ]; then mv "$SW" "$S2"; fi',
+      "  fi",
+    ] : []),
+    "}",
+    "drop() {",
+    '  if [ ! -e "$1" ] && [ ! -h "$1" ]; then return 0; fi',
+    `  if [ -e "$1/${beside}${portableFolder}" ]; then`,
+    `    SAVED="$TARGET - saved ${portableFolder} $(date +%Y%m%d-%H%M%S)"`,
+    `    if mv "$1/${beside}${portableFolder}" "$SAVED"; then log "moved the ${portableFolder} left in $1 to $SAVED"; else log "kept $1 because it holds ${portableFolder}"; return 1; fi`,
+    "  fi",
+    '  rm -rf "$1"',
+    "}",
+  ];
 }
 
 // ------------------------------------------------------------------------------ rolling back (mac3/never-break)
@@ -138,6 +192,8 @@ export interface RollbackPlan {
   target: string;
   log: string;
   executableName: string;
+  /** See PosixHandOverPlan.sandboxOwner. */
+  sandboxOwner?: number;
 }
 
 /**
@@ -152,13 +208,14 @@ export function posixRollbackScript(plan: RollbackPlan): string {
     `TARGET=${q(plan.target)}`, `LOG=${q(plan.log)}`,
     'PREVIOUS="$TARGET.previous"', 'FAILED="$TARGET.failed"',
     'log() { printf \'[%s] %s\\n\' "$(date \'+%Y-%m-%d %H:%M:%S\')" "$1" >>"$LOG"; }',
-    ...posixWait,
+    ...posixWait, ...posixCarry(plan),
     'log "going back to the previous version for pid $PID"',
     'wait_for "$PID" gateway',
     'if [ ! -e "$PREVIOUS" ]; then log "there is no previous version to go back to; nothing was changed"; exit 1; fi',
-    'rm -rf "$FAILED"',
+    'drop "$FAILED"',
     'if [ -e "$TARGET" ] && ! mv "$TARGET" "$FAILED"; then log "the new version could not be moved aside; nothing was changed"; exit 1; fi',
     'if ! mv "$PREVIOUS" "$TARGET"; then log "the previous version could not be put back; restoring the new one"; mv "$FAILED" "$TARGET"; exit 1; fi',
+    'carry_person "$FAILED" "$TARGET"', // mac7/real-update
     'if [ -e "$PREVIOUS-2" ]; then mv "$PREVIOUS-2" "$PREVIOUS"; fi',
     'log "previous version is back"',
     'if [ "$2" = stay ]; then exit 0; fi',
@@ -166,18 +223,30 @@ export function posixRollbackScript(plan: RollbackPlan): string {
   ].join("\n");
 }
 
+/**
+ * mac7/real-update. What belongs to the person or to the installer rather than to a version, carried
+ * from one copy of the program to the other when they swap, and never removed by a mirror: the
+ * uninstaller the installer wrote (Add or remove programs runs it), and a portable copy's marker and
+ * its `Branch Data` folder, which hold the person's work.
+ */
+export const windowsKeep = { files: ["Uninstall Branch Agent.cmd", portableMarker], folder: portableFolder } as const;
+/** robocopy switches that leave what is kept alone on both sides of a mirror. */
+export const windowsKeepOut = ` /XF ${windowsKeep.files.map((f) => `"${f}"`).join(" ")} /XD "${windowsKeep.folder}"`;
+
 /** Windows: the same way back, as a batch file run through the hidden launcher (no console window). */
 export function windowsRollbackScript(plan: { install: string; exe: string; log: string }): string {
   const sys = "%SystemRoot%\\System32\\";
   const previous = `${plan.install}.previous`, failed = `${plan.install}.failed`;
-  const mirror = (from: string, to: string) => `${sys}robocopy.exe "${from}" "${to}" /MIR /R:10 /W:1 /NP /NFL /NDL >>"${plan.log}" 2>&1`;
+  const mirror = (from: string, to: string, extra = "") => `${sys}robocopy.exe "${from}" "${to}" /MIR${extra} /R:10 /W:1 /NP /NFL /NDL >>"${plan.log}" 2>&1`;
   return [
     "@echo off", "setlocal", 'set "PID=%~1"', "set WAITED=0",
     `echo [%date% %time%] going back to the previous version for pid %PID% >>"${plan.log}"`,
     ":wait", `${sys}tasklist.exe /FI "PID eq %PID%" /NH /FO CSV 2>NUL | ${sys}find.exe ",""%PID%""," >NUL`,
     `if not errorlevel 1 if %WAITED% lss 60 ( set /a WAITED+=1 & ${sys}ping.exe -n 2 127.0.0.1 >NUL & goto wait )`,
     `if not exist "${previous}\\" ( echo [%time%] there is no previous version to go back to >>"${plan.log}" & exit /b 1 )`,
-    mirror(plan.install, failed), mirror(previous, plan.install), "if errorlevel 8 exit /b 1",
+    // mac7/real-update review: since the swap moves Branch Data and the uninstaller into the version in
+    // use, the previous copy no longer has them, and a plain mirror would delete them from the program folder.
+    mirror(plan.install, failed, windowsKeepOut), mirror(previous, plan.install, windowsKeepOut), "if errorlevel 8 exit /b 1",
     `echo [%time%] previous version is back >>"${plan.log}"`,
     'if "%~2"=="stay" exit /b 0', `start "" "${plan.exe}"`, "exit /b 0", "",
   ].join("\r\n");

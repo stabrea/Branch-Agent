@@ -308,7 +308,7 @@ test("integration: another household profile cannot see or play the owner's task
     assert.equal(answer.status, 404, part);
     assert.doesNotMatch(answer.text, /the owner's task/);
   }
-  assert.equal((await call("POST", "/api/event-loop", { mode: "on" })).status, 403, "the app-wide watch is the owner's switch");
+  assert.equal((await call("POST", "/api/event-loop", { mode: "on" })).status, 400, "the app-wide watch is the owner's switch"); // profile-audit: refused at one place in src/server.ts, as requireOwner answers
 });
 
 test("integration: a short-lived key cannot change the recording or watch switches; a read key cannot make a workflow", async (t) => {

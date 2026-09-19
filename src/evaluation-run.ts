@@ -49,7 +49,9 @@ export function runtimeJudge(
 ): ScorerContext["judge"] {
   if (!runtime) return undefined;
   return async (prompt: string): Promise<string> => {
-    const run = await runtime.run({ prompt, permissions: [], budget: { maxSteps: 2, maxTokens: 20000 } });
+    // mac7/eval-honesty: the grader runs isolated — no memory, no context files, no skills, no
+    // standing orders, no documents, no tools — so the task it is grading cannot have primed it.
+    const run = await runtime.run({ prompt, permissions: [], isolated: true, temporary: true, budget: { maxSteps: 2, maxTokens: 20000 } });
     if (spent) spent(judgeCost(runtime, run.id));
     return run.status === "completed" ? run.output : `{"score": 0, "reason": "The grader did not finish (${run.status})"}`;
   };

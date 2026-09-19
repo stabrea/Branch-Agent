@@ -100,6 +100,8 @@ async function overview(app: Branch, context: DeploymentContext, platform: NodeJ
     restorePoints: await listUpdateBackups(context.dataDir),
     firstStart: await readFirstStart(context.dataDir),
     version: app.version,
+    // "when I sign in to Windows / my Mac / this computer": the window names the system Branch runs on.
+    platform,
   };
 }
 

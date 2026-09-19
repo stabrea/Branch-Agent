@@ -11,7 +11,8 @@ import { exportSettings, maximumSettingsFileBytes, readSettingsFile } from "./tr
 
 /**
  * R17-S-A: the window's side of understandable settings, under /api/settings-kit. Every route is the
- * owner's alone: a household profile is answered 403 (integration review). A short-lived key is
+ * owner's alone: a household profile is answered 400, the status every "belongs to the owner" refusal
+ * has (src/server.ts answers the owner-only routes the same way before the kit is reached). A short-lived key is
  * refused every change here (none of these routes is on its list in src/short-lived-keys.ts), and the
  * settings file and the owner's own files are on its list of reads it may not make.
  */
@@ -32,7 +33,7 @@ export interface SettingsKitDeps {
 
 function ownerOnly(deps: SettingsKitDeps, what: string): void {
   try { deps.store.profiles.requireOwner(what); }
-  catch (error) { throw new SettingsKitError(403, (error as Error).message); }
+  catch (error) { throw new SettingsKitError(400, (error as Error).message); }
 }
 
 export const handlesSettingsKitPath = (path: string): boolean => path === "/api/settings-kit" || path.startsWith("/api/settings-kit/");

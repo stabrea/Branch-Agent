@@ -4,7 +4,7 @@
  * installable-app files, and switching the language.
  */
 import test from "node:test";
-import { openPlace, openSettingFor } from "./places.mjs";
+import { openPlace, openSettingFor, showEverything } from "./places.mjs";
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -41,13 +41,15 @@ async function fixture(t, provider) {
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.locator("#workspace").waitFor({ state: "visible" });
+  /* This file exercises the full window's own controls: "Show everything" since 0.18.1. */
+  await showEverything(page);
   return { app, page, server, errors, browser };
 }
 /** Walks past the first-run panel, when there is one, so the conversation column is what is on screen. */
 async function settle(page) {
   if (await page.locator("#first-run").isHidden()) return;
-  await page.getByRole("button", { name: /Just look around/ }).click();
-  await page.getByRole("button", { name: "Done, start chatting", exact: true }).click();
+  /* "Try it without an account" finishes first run in one click. */
+  await page.getByRole("button", { name: /Try it without an account/ }).click();
   await page.locator("#first-run").waitFor({ state: "hidden" });
 }
 
@@ -269,7 +271,7 @@ test("U4 the context meter fills in after a task and opens its numbers", async (
   await page.locator("#meter-row").waitFor({ state: "visible" });
   await page.waitForFunction(() => Number(document.getElementById("meter-row").dataset.share) >= 0 && document.getElementById("meter-text").textContent.length > 0);
   assert.match(await page.locator("#meter-text").innerText(), /words of context/);
-  assert.match(await page.evaluate(() => document.getElementById("meter-cost").textContent), /so far|No price on file/);
+  assert.match(await page.evaluate(() => document.getElementById("meter-cost").textContent), /so far|^$/, "a price shows only when one is known");
   await page.locator("#meter-button").click();
   await page.locator("#meter-popover").waitFor({ state: "visible" });
   const rows = await page.locator(".meter-stat").allInnerTexts();
@@ -508,8 +510,10 @@ const SHARED_WITH_FRENCH = new Set([
 test("Q6 French is a real translation, not the English file under another name", async (t) => {
   const english = JSON.parse(await readFile(join(PUBLIC, "locales", "en.json"), "utf8"));
   const french = JSON.parse(await readFile(join(PUBLIC, "locales", "fr.json"), "utf8"));
+  // A string that is only a place for words said elsewhere ("{message}") has nothing to translate.
+  const wordless = (text) => !/\p{L}/u.test(text.replace(/\{[^}]+\}/g, ""));
   const copied = Object.keys(english).filter((key) =>
-    french[key] === english[key] && !SHARED_WITH_FRENCH.has(english[key]));
+    french[key] === english[key] && !SHARED_WITH_FRENCH.has(english[key]) && !wordless(english[key]));
   assert.deepEqual(copied, [], "these keys still answer in English when French is chosen");
   assert.ok(Object.keys(french).length >= Object.keys(english).length, "French answers every key");
 });

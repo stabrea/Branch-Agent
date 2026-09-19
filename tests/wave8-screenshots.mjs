@@ -114,10 +114,9 @@ for (const theme of THEMES) {
     /* 2. First run: the welcome card, before a model is chosen, and once one is picked. */
     await page.locator("#first-run").waitFor({ state: "visible" });
     await shot(page, `first-run-${tag}`, width);
-    await page.getByRole("button", { name: /Just look around/ }).click();
+    await page.getByRole("button", { name: /Try it without an account/ }).click();
     await page.waitForTimeout(500);
     await shot(page, `first-run-chosen-${tag}`, width);
-    await page.getByRole("button", { name: "Done, start chatting", exact: true }).click();
     await page.locator("#first-run").waitFor({ state: "hidden" });
 
     /* A fresh load so the rail, its chips and every card are drawn from what exists. */

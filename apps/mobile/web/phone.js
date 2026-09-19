@@ -10,6 +10,7 @@ import { $, phone, plugin, say, show, status } from "/phone-common.js";
 import { pair, readAddress, scan, unlock } from "/phone-pair.js";
 import { drawHome } from "/phone-home.js";
 import { addFiles, drawShared, send, startTalking, stopTalking } from "/phone-send.js";
+import { closeDeviceScan, drawDevice, pairDevice, readDeviceAddress, scanDevice, unpairDevice } from "/phone-device.js"; // mac7/phone-pairing
 
 const AWAY_MS = 5 * 60_000;
 
@@ -45,7 +46,12 @@ function wire() {
   $("send").addEventListener("click", () => void send());
   $("talk").addEventListener("pointerdown", () => void startTalking());
   for (const type of ["pointerup", "pointercancel", "pointerleave"]) $("talk").addEventListener(type, stopTalking);
-  $("forget").addEventListener("click", async () => { await phone.vault.forget(); show("screen-pair"); });
+  $("forget").addEventListener("click", async () => { closeDeviceScan(); await phone.vault.forget(); show("screen-pair"); });
+  // mac7/phone-pairing: lending this phone to Branch as one of the owner's devices.
+  $("device-scan").addEventListener("click", () => void scanDevice());
+  $("device-address").addEventListener("change", readDeviceAddress);
+  $("device-pair").addEventListener("click", () => void pairDevice());
+  $("device-forget").addEventListener("click", () => void unpairDevice());
   document.addEventListener("branch-shared", () => void openHome());
 }
 async function boot() {

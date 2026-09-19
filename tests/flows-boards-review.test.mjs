@@ -154,8 +154,11 @@ test("review: a widget looks only, is checked again every time it is asked, and 
   assert.equal(calls, 1, "a tool that is gone is not called either");
   // A live page the owner pinned by hand is bucket 23's, and is not held to the widget rule.
   app.registry.register({ name: "tests.mine", permission: "files.write", description: "test", parameters: z.object({}).passthrough(), execute: async () => "by hand" });
+  // 0.18.1 (deliberate update): this used to expect no error, because under "No approvals" the page's
+  // unattended refresh (it runs as a schedule) changed things unasked. It is not held to the widget
+  // rule, but it is held to "Ask before changes" like every task the owner is not there to start.
   const own = await app.asks.surfaces.add({ title: "Mine", tool: "tests.mine" });
-  assert.equal(own.error, null);
+  assert.match(own.error ?? "", /Before I go ahead: Using tests\.mine/);
 });
 
 /* ---------- recipe checks ---------- */

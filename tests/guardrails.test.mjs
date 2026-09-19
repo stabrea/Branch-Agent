@@ -82,9 +82,11 @@ test("lifecycle hooks run on events and switch themselves off after repeated fai
   const log = join(root, "hook.log"), config = join(root, "integrations.json");
   await writeFile(config, JSON.stringify({
     shell: { executables: { node: { path: process.execPath, args: [] } }, timeoutMs: 10000 },
+    // Each hook keeps its own log. Both run at once after every task, and two programs appending to
+    // one file at the same moment lost a line on Windows although both hooks ran and succeeded.
     hooks: [
-      { id: "flaky", event: "run.finished", executable: "node", args: [script, log, "flaky", "fail"], failureThreshold: 2 },
-      { id: "steady", event: "run.finished", executable: "node", args: [script, log, "steady", "ok"] },
+      { id: "flaky", event: "run.finished", executable: "node", args: [script, `${log}.flaky`, "flaky", "fail"], failureThreshold: 2 },
+      { id: "steady", event: "run.finished", executable: "node", args: [script, `${log}.steady`, "steady", "ok"] },
     ],
   }));
   const integrations = await loadIntegrations(app.registry, config, process.env, app.secretsFor, app.channelHost);
@@ -105,12 +107,17 @@ test("lifecycle hooks run on events and switch themselves off after repeated fai
   const third = await app.runtime.run({ prompt: "three" });
   await app.hooks.settle();
   assert.equal(app.hooks.list().find((h) => h.id === "flaky").runs, 2, "a disabled hook does not run");
+  // A success resets the failure count, so the steady hook's own failures are read from each task.
+  const steadyFailed = [first, second, third].flatMap((run) => app.store.events(run.id))
+    .filter((event) => event.data.hook === "steady").map((event) => `${event.kind}: ${event.data.error}`);
+  assert.deepEqual(steadyFailed, [], "the steady hook never failed");
+  assert.equal(app.hooks.list().find((h) => h.id === "steady").runs, 3);
   const re = app.hooks.enable("flaky");
   assert.deepEqual([re.enabled, re.failures], [true, 0]);
   const { readFile } = await import("node:fs/promises");
-  const lines = (await readFile(log, "utf8")).trim().split("\n");
-  assert.deepEqual(lines.filter((l) => l === "steady").length, 3);
-  assert.equal(lines.filter((l) => l === "flaky").length, 2);
+  const lines = async (hook) => (await readFile(`${log}.${hook}`, "utf8")).trim().split("\n");
+  assert.deepEqual(await lines("steady"), ["steady", "steady", "steady"]);
+  assert.deepEqual(await lines("flaky"), ["flaky", "flaky"]);
   void third;
 });
 

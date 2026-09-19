@@ -1,5 +1,5 @@
 import test from "node:test";
-import { openPlace } from "./places.mjs";
+import { closeSettings, openPlace, openSettingFor } from "./places.mjs";
 import assert from "node:assert/strict";
 import { mkdtemp, rm, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -35,15 +35,19 @@ test("browser UI connects, runs demo, saves memory, and fits mobile viewport", a
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.locator("#workspace").waitFor({ state: "visible" });
+  /* No model yet is said once, in plain words: practice mode (0.18.1). */
+  assert.match(await page.locator("#demo-notice").textContent(), /Practice mode/);
+  /* The acorn is off by default and the calm window keeps the side pane away until work runs, so
+     both are switched on in Settings (real clicks) to check the artwork. */
+  await openSettingFor(page, "#appearance-acorn");
+  await page.locator("#appearance-acorn").check();
+  await page.locator("#appearance-everything").check();
+  await closeSettings(page);
   await verifyArtwork(page);
-  assert.match(
-    await page.locator("#demo-notice").innerText(),
-    /offline demonstration/,
-  );
   /* The welcome card is the greeting on a new workspace; the suggestion chips
      take its place once the owner has chosen how the assistant should think. */
-  await page.getByRole("button", { name: /Just look around/ }).click();
-  await page.getByRole("button", { name: "Done, start chatting", exact: true }).click();
+  /* "Try it without an account" finishes first run in one click. */
+  await page.getByRole("button", { name: /Try it without an account/ }).click();
   await page.getByRole("button", { name: "Try the file workflow" }).click();
   await page.getByRole("button", { name: "Send" }).click();
   await page.locator(".message.assistant").waitFor();

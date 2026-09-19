@@ -2,6 +2,7 @@
 import { newAttention, pollPlan, SWITCH_POSITIONS } from "/rules.js";
 import { $, phone, plugin, say } from "/phone-common.js";
 import { drawConnect } from "/phone-connect.js"; // mac7/connect
+import { drawDevice } from "/phone-device.js"; // mac7/phone-pairing
 
 export const SWITCHES = [
   ["lock", "Lock with face or fingerprint", "Ask before showing Branch. When needed: only after five minutes away."],
@@ -76,5 +77,6 @@ export async function checkAttention() {
 export async function drawHome(session) {
   $("paired-with").textContent = say("phone.home.pairedWith", "Paired with {address}", { address: session.origin });
   void drawConnect(); // mac7/connect
+  void drawDevice(); // mac7/phone-pairing
   return drawSwitches();
 }

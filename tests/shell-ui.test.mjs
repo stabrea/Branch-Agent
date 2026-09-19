@@ -7,7 +7,7 @@ import { discardTemp } from "./temp-dir.mjs";
 import { chromium } from "playwright";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
-import { openPlace, openSettingFor } from "./places.mjs";
+import { openPlace, openSettingFor, showEverything } from "./places.mjs";
 
 /* Wave 9 redesign: four places in the sidebar, and Settings behind the gear (public/layout.js). */
 const PLACES = ["Inbox", "Automations", "Library", "Customize"];
@@ -35,6 +35,9 @@ async function fixture(t) {
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.locator("#workspace").waitFor({ state: "visible" });
+  /* These tests are about the full shell: every rail row, icon, tab and meter. Since 0.18.1 that is
+     "Show everything"; the calm default has its own tests in calm-ui.test.mjs. */
+  await showEverything(page);
   return { page, server, errors };
 }
 const look = (page) => page.evaluate(() => ({ ...document.documentElement.dataset }));
@@ -160,6 +163,8 @@ test("every appearance control applies at once and survives a reload", async (t)
     font: "system",
     motion: "reduced",
     acorn: "off",
+    everything: "on",
+    voice: "off",
   };
   assert.deepEqual(await look(f.page), chosen, "every choice shows straight away");
   assert.equal(await f.page.locator(".acorn-art").isVisible(), false);
@@ -195,7 +200,8 @@ test("an unknown appearance value is refused and the saved look is unchanged", a
   assert.equal((await send({ accent: "purple" })).ok, false);
   const kept = await (await send({ appearance: "daylight" })).json();
   assert.equal(kept.accent, "copper", "fields left out keep their defaults");
-  assert.equal(kept.showAcorn, true);
+  assert.equal(kept.showAcorn, false, "the acorn starts off");
+  assert.equal(kept.showEverything, false, "the calm window is the default");
 });
 
 test("the shell fits a 400 pixel window without sideways scrolling", async (t) => {
@@ -323,7 +329,8 @@ test("Send keeps its label on one line and the helper note sits under the compos
     const send = await f.page.evaluate(() => {
       const button = document.getElementById("send");
       const range = document.createRange();
-      range.selectNodeContents(button);
+      /* Since 0.18.1 the words sit in their own span beside the calm window's arrow. */
+      range.selectNodeContents(button.querySelector(".lx-send-words") ?? button);
       return { lines: range.getClientRects().length, wrap: getComputedStyle(button).whiteSpace };
     });
     assert.equal(send.lines, 1, `Send is one line at ${size.width}`);
@@ -349,7 +356,7 @@ test("a Recents row lights up under the pointer in Daylight", async (t) => {
   await f.page.getByRole("button", { name: "Light", exact: true }).click();
   await f.page.locator(".lx-settings-close").click();
   await f.page.locator("#prompt").fill("Say hello");
-  await f.page.getByRole("button", { name: "Send ↗", exact: true }).click();
+  await f.page.getByRole("button", { name: "Send", exact: true }).click();
   await f.page.locator("#conversation .message.assistant").first().waitFor({ timeout: 30000 });
   /* The rail fills itself when the workspace opens, so it is read after a reload. */
   await f.page.reload();
@@ -358,17 +365,28 @@ test("a Recents row lights up under the pointer in Daylight", async (t) => {
   const row = f.page.locator("#rail-list .rail-line").first();
   const colour = () => row.evaluate((node) => getComputedStyle(node).backgroundColor);
   const resting = await colour();
-  await row.hover();
   /* The wash arrives through a CSS transition, so wait for the colour rather than for a stopwatch:
      a build machine under load paints later than a quiet laptop, and 150ms is a guess either way.
      Waited for inside the page, in one step: the old loop asked the page again every 25ms, and on a
      loaded machine each of those round trips costs more than the transition it was waiting for, so
      the deadline ran out while the wash was already on screen (seen once at load average 22). */
-  const hovered = await f.page.waitForFunction((was) => {
-    const node = document.querySelector("#rail-list .rail-line");
-    const now = node && getComputedStyle(node).backgroundColor;
-    return now && now !== was ? now : null;
-  }, resting, { timeout: 5000 }).then((handle) => handle.jsonValue(), () => resting);
+  /* The rail can be drawn again just after it first fills (it reloads each time the workspace is
+     shown), and the browser does not move :hover onto a row that replaced the one under a still
+     pointer. So the row being pointed at is marked, and if it is replaced the new row is pointed at:
+     what is waited for is the wash on the row the pointer is really over. */
+  let hovered = resting;
+  for (let attempt = 0; attempt < 5 && hovered === resting; attempt++) {
+    await row.evaluate((node) => { node.dataset.pointed = "yes"; });
+    await row.hover();
+    hovered = await f.page.waitForFunction((was) => {
+      const node = document.querySelector("#rail-list .rail-line");
+      if (!node) return null;
+      if (node.dataset.pointed !== "yes") return "replaced";
+      const now = getComputedStyle(node).backgroundColor;
+      return now !== was ? now : null;
+    }, resting, { timeout: 5000 }).then((handle) => handle.jsonValue(), () => resting);
+    if (hovered === "replaced") { hovered = resting; await f.page.mouse.move(0, 0); }
+  }
   assert.notEqual(hovered, resting, "the row takes a background under the pointer");
   /* color-mix serialises as color(srgb r g b / a), so the alpha is the last part. */
   const alpha = hovered.includes("/")

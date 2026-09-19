@@ -34,6 +34,12 @@ export interface UpdateHooks {
   stopDaemon?: () => Promise<number | null>;
   /** mac3/never-break: the new version's check on a copy of the data (see src/never-break/canary.ts). */
   canary?: (stagedDir: string, version: string) => Promise<void>;
+  /**
+   * mac7/safe-rollback: writes down what this update is about to change, before the hand-over moves
+   * a single file, so it can be undone afterwards. It throws when it cannot be written, and the
+   * update stops there — an update nobody can undo is not one worth making.
+   */
+  record?: (stagedDir: string, version: string) => Promise<void>;
 }
 
 export function registerUpdaterIpc(
@@ -61,7 +67,10 @@ export function registerUpdaterIpc(
   ipcMain.handle("branch:update-install", async (event) => {
     authorized(event);
     if (updater.inProgress) return updater.status;
-    const { script } = await updater.install();
+    const { script, stagedDir } = await updater.install();
+    // mac7/safe-rollback: recorded here, marked as landed by the next start (`settleActivation`),
+    // because this process quits into the hand-over and never sees how it went.
+    if (hooks?.record) await hooks.record(stagedDir, updater.status.release?.latestVersion ?? "");
     // The background engine is already closed by this point, so say so if the hand-over cannot start.
     await launchHandOver(script, process.pid).catch((error: unknown) => {
       const why = error instanceof Error ? error.message : String(error);

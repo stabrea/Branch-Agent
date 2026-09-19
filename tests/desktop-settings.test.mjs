@@ -105,7 +105,7 @@ test("native settings encrypt a key, keep IPC narrow, and connect after restart"
     await page.screenshot({ path: join(home, "model-settings.png"), fullPage: true });
     console.log(`Model settings screenshot: ${join(home, "model-settings.png")}`);
     assert.deepEqual(await page.evaluate(() => Object.keys(window.branchDesktop).sort()),
-      ["checkForUpdates", "exportBackup", "exportConversation", "exportMemory", "installUpdate", "modelSettings", "openExternal", "saveModelSettings", "updateStatus"]);
+      ["checkForUpdates", "exportBackup", "exportConversation", "exportMemory", "installUpdate", "modelSettings", "openExternal", "restartBranch", "saveModelSettings", "updateStatus"]);
     await verifyOtherWindowDenied(electron, page.url());
     await electron.close();
     assert.equal(firstChild.exitCode, 0);
@@ -115,7 +115,7 @@ test("native settings encrypt a key, keep IPC narrow, and connect after restart"
     restarted.setDefaultTimeout(10000);
     await connected(restarted);
     await restarted.getByLabel("Your message", { exact: true }).fill("Test the saved model connection.");
-    await restarted.getByRole("button", { name: "Send ↗", exact: true }).click();
+    await restarted.getByRole("button", { name: "Send", exact: true }).click();
     await restarted.locator(".message.assistant").filter({ hasText: "Saved connection is working." }).waitFor();
     assert.equal(provider.requests.length, 1);
     assert.equal(provider.requests[0].authorization, "Bearer fixture-device-key-82743");

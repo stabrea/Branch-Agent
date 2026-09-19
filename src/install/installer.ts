@@ -1,6 +1,7 @@
-import { cp, mkdir, rm, stat, writeFile } from "node:fs/promises";
+import { cp, mkdir, open, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { installedLocation, legacyDataDirs, migrateLegacyData, type MigrationReport } from "./layout.js";
+import { quitRunning, type QuitReport } from "./quit.js";
+import { installedLocation, portableLocation, legacyDataDirs, migrateLegacyData, type MigrationReport } from "./layout.js";
 import { createShortcuts, regDeleteKeyArgs, runTool, systemTool, writeRegistryValues, type RegistryValue, type RunTool } from "./windows.js";
 
 /**
@@ -34,12 +35,60 @@ export interface InstallReport {
   installRoot: string;
   executable: string;
   previousKept: string | null;
+  /** mac7/real-update: a Branch that was open was closed through its own route before installing. */
+  closedFirst: boolean;
   shortcuts: string[];
+  /** mac7/win-icon: whether the installed app gave the shortcuts the taskbar's app ID. */
+  shortcutsStamped: boolean;
   uninstallKey: string;
   uninstaller: string;
   data: MigrationReport;
 }
-export interface InstallDeps { run?: RunTool; systemRoot?: string }
+export interface InstallDeps {
+  run?: RunTool; systemRoot?: string;
+  /** mac7/real-update: asks a running Branch to close through its own route (src/install/quit.ts). */
+  quit?: (dataDir: string) => Promise<QuitReport>;
+  /** mac7/real-update: whether Windows still holds the program file open. */
+  locked?: (file: string) => Promise<boolean>;
+  lockPauseMs?: number;
+  /**
+   * mac7/win-icon: asks the installed app to give its shortcuts the taskbar's app ID, which the
+   * script host cannot write (src/install/windows-identity.ts). A failure is not fatal: the shortcuts
+   * already carry the KeepOak icon, and the app adds the ID itself when it first starts.
+   */
+  stampShortcuts?: (executable: string) => Promise<void>;
+}
+
+/** Windows will not let a running program's file be opened for writing; nothing is written. */
+async function fileLocked(file: string): Promise<boolean> {
+  try { await (await open(file, "r+")).close(); return false; }
+  catch (error) { return ["EBUSY", "EPERM", "EACCES"].includes((error as { code?: string }).code ?? ""); }
+}
+
+/**
+ * mac7/real-update. Installing over the copy that is open failed half-way with a raw
+ * "EPERM: operation not permitted, unlink ...Branch Agent.exe". The copy that is running is now asked
+ * to close through its own route first; when it cannot be (0.17.0 has no such route) or something
+ * still holds the program open, the install stops before anything changes, and says what to do.
+ */
+async function closeRunningFirst(options: InstallOptions, deps: InstallDeps): Promise<boolean> {
+  const executable = join(options.installRoot, options.executableName);
+  let closed = false;
+  for (const dataDir of [installedLocation(options.userDataDir).dataDir, portableLocation(options.installRoot).dataDir]) {
+    const report = await (deps.quit ?? quitRunning)(dataDir).catch(() => null);
+    if (report?.wasRunning && !report.stopped) throw stillOpen();
+    closed ||= Boolean(report?.wasRunning);
+  }
+  const installed = await stat(executable).then(() => true, () => false);
+  const locked = deps.locked ?? fileLocked;
+  // The window's helper processes let go of the program a moment after the app itself has gone.
+  for (let tries = closed ? 30 : 0; installed && tries > 0 && await locked(executable); tries--)
+    await new Promise((resolve) => setTimeout(resolve, deps.lockPauseMs ?? 500));
+  if (installed && await locked(executable)) throw stillOpen();
+  return closed;
+}
+const stillOpen = () => new Error("Branch Agent is still open, so it was not replaced. Nothing was changed. "
+  + "Quit it first (right-click the Branch icon by the clock and choose Quit), then run the installer again.");
 
 export function defaultInstallRoot(env: NodeJS.ProcessEnv): string {
   const local = env.LOCALAPPDATA ?? join(env.USERPROFILE ?? "C:\\Users\\Default", "AppData", "Local");
@@ -51,9 +100,20 @@ export function uninstallKey(hive = defaultUninstallHive): string {
 export const runKey = "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run";
 export const runValueName = "Branch Agent";
 
+/**
+ * mac7/app-icon: the KeepOak icon that travels inside the app, and what Windows shows when it is not
+ * there. The executable itself is the stock Electron one (see scripts/package-desktop.mjs, which
+ * copies it back over the packaged one so Smart App Control keeps recognising its hash), so it still
+ * carries Electron's own logo. Every shortcut and every list entry has to name the `.ico` instead.
+ */
+export const shippedIconPath = join("resources", "app", "public", "assets", "keepoak.ico");
+export function shortcutIcon(installRoot: string, executableName: string, hasIcon: boolean): string {
+  return hasIcon ? `${join(installRoot, shippedIconPath)},0` : `${join(installRoot, executableName)},0`;
+}
+
 /** What Add/Remove Programs shows, and how it removes the app again. */
 export function uninstallEntries(options: {
-  installRoot: string; executableName: string; version: string; uninstaller: string;
+  installRoot: string; executableName: string; version: string; uninstaller: string; icon?: string;
 }): RegistryValue[] {
   const quiet = `"${options.uninstaller}" /quiet`;
   return [
@@ -61,7 +121,7 @@ export function uninstallEntries(options: {
     { name: "DisplayVersion", type: "REG_SZ", value: options.version },
     { name: "Publisher", type: "REG_SZ", value: publisher },
     { name: "InstallLocation", type: "REG_SZ", value: options.installRoot },
-    { name: "DisplayIcon", type: "REG_SZ", value: join(options.installRoot, options.executableName) },
+    { name: "DisplayIcon", type: "REG_SZ", value: options.icon ?? join(options.installRoot, options.executableName) },
     { name: "UninstallString", type: "REG_SZ", value: `"${options.uninstaller}"` },
     { name: "QuietUninstallString", type: "REG_SZ", value: quiet },
     { name: "NoModify", type: "REG_DWORD", value: "1" },
@@ -142,18 +202,25 @@ function shortcutTargets(options: InstallOptions): { path: string; desktop: bool
   return targets;
 }
 
+/** Whether the copy that was just installed carries the KeepOak `.ico`. */
+async function hasShippedIcon(installRoot: string): Promise<boolean> {
+  return stat(join(installRoot, shippedIconPath)).then(() => true, () => false);
+}
+
 /** Copies the app into place, makes the shortcuts, registers Uninstall and brings older data along. */
 export async function performInstall(options: InstallOptions, deps: InstallDeps = {}): Promise<InstallReport> {
   const executable = join(options.installRoot, options.executableName);
+  const closedFirst = await closeRunningFirst(options, deps);
   const previousKept = await keepPrevious(options.installRoot, options.executableName);
   await mkdir(options.installRoot, { recursive: true });
   await cp(options.source, options.installRoot, { recursive: true, force: true });
   await mkdir(options.startMenuDir, { recursive: true });
   if (options.desktopDir) await mkdir(options.desktopDir, { recursive: true });
+  const iconLocation = shortcutIcon(options.installRoot, options.executableName, await hasShippedIcon(options.installRoot));
   const shortcuts = await createShortcuts(
     shortcutTargets(options).map((target) => ({
       path: target.path, target: executable, workingDirectory: options.installRoot,
-      description: "Branch Agent — your assistant on this computer",
+      description: "Branch Agent — your assistant on this computer", iconLocation,
     })), deps);
   const hive = options.uninstallHive ?? defaultUninstallHive;
   const uninstaller = join(options.installRoot, "Uninstall Branch Agent.cmd");
@@ -163,13 +230,15 @@ export async function performInstall(options: InstallOptions, deps: InstallDeps 
   }), "utf8");
   await writeRegistryValues(uninstallKey(hive), uninstallEntries({
     installRoot: options.installRoot, executableName: options.executableName,
-    version: options.version, uninstaller,
+    version: options.version, uninstaller, icon: iconLocation.replace(/,0$/, ""),
   }), deps);
+  const shortcutsStamped = deps.stampShortcuts
+    ? await deps.stampShortcuts(executable).then(() => true, () => false) : false;
   const target = installedLocation(options.userDataDir).dataDir;
   await mkdir(target, { recursive: true });
   const data = await migrateLegacyData(
     options.legacyDataDirs ?? legacyDataDirs(process.env), target);
-  return { installRoot: options.installRoot, executable, previousKept, shortcuts, uninstallKey: uninstallKey(hive), uninstaller, data };
+  return { installRoot: options.installRoot, executable, previousKept, closedFirst, shortcuts, shortcutsStamped, uninstallKey: uninstallKey(hive), uninstaller, data };
 }
 
 /** Removes the Add/Remove Programs entry; the folder itself is removed by the uninstall script. */

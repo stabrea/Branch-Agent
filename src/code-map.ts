@@ -41,7 +41,7 @@ const scriptEndings = [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".c
 
 interface Cached { key: string; entry: MapFileEntry; tags: TagScan }
 /** The map as the ranking reads it: every file with its declarations and the names it uses. */
-interface TaggedMap { result: ProjectMapResult; tagged: RankInput[] }
+export interface TaggedMap { result: ProjectMapResult; tagged: RankInput[] }
 export interface OutlineResult { outline: string; tokens: number; budget: number; declarations: number; considered: number; truncated: boolean }
 
 export class ProjectMap {
@@ -59,7 +59,8 @@ export class ProjectMap {
     return (await this.buildTagged(path, limit)).result;
   }
 
-  private async buildTagged(path: string, limit: number): Promise<TaggedMap> {
+  /** mac7/learn: public so the map and the tour can read the same declarations the ranking does. */
+  async buildTagged(path: string, limit = 400): Promise<TaggedMap> {
     const walk = await this.search.walk(path, limit);
     const entries: MapFileEntry[] = [];
     let scanned = 0, cached = 0;

@@ -334,7 +334,7 @@ for a Google Cloud project.
 
 **What one click does** (`POST /api/local-models/setup`, with `{ "model": "qwen3-8b", "quant": "Q4_K_M" }` from the list, or `{ "name": "qwen3:8b" }`, and an optional `runtime`):
 
-1. Picks the program: the one asked for, or the first installed of Ollama, LM Studio, llama.cpp, MLX. Branch only looks for programs where they are normally installed (`candidatePaths` in `src/local-launch.ts`). **It never installs one**: when none is there, the answer is `needsRuntime` with each program's official page.
+1. Picks the program: the one asked for, or the first installed of Ollama, LM Studio, llama.cpp, MLX. Branch only looks for programs where they are normally installed (`candidatePaths` in `src/local-launch.ts`). When none is there, the answer is `needsRuntime` with each program's official page, and the one button below can install one for you if you let it.
 2. Judges the fit on **free** memory (`vm_stat` on a Mac, `MemAvailable` on Linux, Node's figure on Windows), the graphics (a card's own memory, or on Apple silicon the shared memory, capped by `sysctl iogpu.wired_limit_mb` when the owner set it), and the room for words: weights × 1.1 + the model's key/value cache for that context + 256 MB. The largest context from 32,768 down to 4,096 that fits well is chosen. A size that will not fit is refused unless `force` is sent.
 3. Checks the disk that will hold the model (`fs.statfs` on Ollama's `OLLAMA_MODELS` or `~/.ollama/models`, LM Studio's `~/.lmstudio/models`, or Branch's own `local-models/` folder), keeping 2 GB spare.
 4. Starts Ollama (`ollama serve`) or LM Studio (`lms daemon up`, `lms server start --port 1234`) if it is installed and not answering. On Linux, when Ollama is a system service, Branch says `sudo systemctl start ollama` instead of starting a second copy.
@@ -353,12 +353,29 @@ Routes, all under `/api/local-models`:
 | `POST /api/local-models/offers` | `{ "runtime": … }`: the list, with a fit and a context per size, for that program. |
 | `POST /api/local-models/search` | `{ "runtime", "query" }`. Hugging Face's search for LM Studio (GGUF), llama.cpp (GGUF) and MLX. Ollama's library has no search API, so for Ollama the query is looked up as an exact name in its registry, with its download size. |
 | `POST /api/local-models/setup`, `/setup/stop` | One click, and stopping it. |
+| `POST /api/local-models/one-button/plan` | What the one button would do, with nothing done: the program it would install (publisher, address, size, how it is checked, the exact commands) and a small, a middle and a large model sized for this computer. |
+| `POST /api/local-models/one-button` | The button itself: `{ "size": "small" \| "medium" \| "large", "agreedPlan": "<the plan's line>", "systemWide": false }`. |
+| `POST /api/local-models/install/switch` | `{ "mode": "off" \| "when-needed" \| "on" }` for `settings/local-runner-install`. |
+| Settings → Models → On this computer | `settings/local-runner-place`, `systemWide`: whether Branch may use a system installer, which puts the program outside Branch. No by default. |
 | `POST /api/local-models/unload` | `{ "runtime", "id" }`: Ollama `keep_alive: 0`, LM Studio `POST /api/v1/models/unload` with the instance id, or stopping the llama.cpp or MLX server Branch started. |
 | `POST /api/local-models/delete` | `{ "runtime", "id" }`: removes a downloaded model (and Ollama's sized copies, and the connection that used it) and says how much space it freed. LM Studio offers no delete route, so that one is refused with where to do it. |
 | `POST /api/local-models/runtime/start`, `/runtime/stop` | Starts an installed program; stops LM Studio's server or a program Branch started itself. |
 | `GET /api/local-models/downloads`, `POST /pull`, `/stop`, `/remove`, `/details`, `/load` | The earlier Ollama download routes and LM Studio load, kept for scripts; the changing ones also obey the switch. |
 | `GET` / `POST /api/local-models/routing` | Reads and saves the per-task routing rules (`settings/routing`). |
 | `POST /api/local-models/routing/preview` | Says which model would take a given task, and why, without running it. |
+
+**Installing the program itself** (`settings/local-runner-install`, `mode`, off by default; Settings → Models → On this computer → "Set one up for me"). This is the one place Branch changes your computer, so it has its own switch, it always asks first, and it is yours alone.
+
+One button takes a computer with nothing on it to a model that answers: install the program if it is missing, choose a model that fits, download it with progress, connect it, and ask it one small question to prove it works.
+
+- **Nothing happens until you say yes.** Pressing the button first shows what would be installed, who publishes it, the address it comes from, about how big the download is, how Branch checks it really is theirs, and the exact commands it would run. Your yes carries that plan's own line (`agreedPlan`) back, and only that exact plan then runs; if anything about it changed in between, Branch installs nothing and shows you the new one.
+- **It goes inside Branch (mac7/clean-uninstall).** Everything Branch fetches lands in Branch's own data folder, so that removing Branch takes it with it and nothing asks you for permissions of its own. Ollama comes from Ollama's own release as a plain archive — `Ollama-darwin.zip` on a Mac, `ollama-linux-<cpu>.tar.zst` on Linux, `ollama-windows-<cpu>.zip` on Windows — unpacked into `<data>/runners/ollama`, with its models in `<data>/models/ollama`. Branch reads the SHA-256 the publisher publishes beside the file and throws the download away if the two do not match; on a Mac it then asks macOS itself (`codesign --verify --strict`, `spctl --assess`) whether the program is signed by its publisher and notarised by Apple before the checked copy is put in place. No install script runs and nothing asks for your password on Linux, and no publisher's installer runs on Windows. Nothing installed this way registers a service, an entry that starts it when you sign in, or a file association: Branch runs the program straight out of that folder and never opens the bundle. Every command is an argument list; there is no shell line anywhere in this path.
+- **A program you already have is used as it is.** Branch looks in its own folder **last**, after the search path, Homebrew's folders, `/Applications` and `~/.lmstudio`, so a copy you installed yourself always wins and a second one is never installed. Its model library is left exactly where it is; only a copy Branch fetched is told to keep its models inside Branch (`OLLAMA_MODELS`).
+- **Where the models go, and how much room is left.** The card says the folder and how much space is free on that disk before anything is downloaded, and refuses with a plain sentence when the disk cannot take it (keeping 2 GB spare). On a Mac Branch asks Time Machine to skip the models folder (`tmutil addexclusion`, which needs no administrator), so gigabytes are not swept into a backup by surprise. That one step is advisory: if it does not take, the install still stands and the message says which hint was missed — a backup hint never decides whether a checked, unpacked program is thrown away.
+- **When a system installer is the only honest option.** LM Studio publishes no archive with a checksum, so it is installed with Homebrew (`brew install --cask lm-studio`) or winget (`winget install --id ElementLabs.LMStudio`); without either, Branch says so and points at lmstudio.ai rather than fetching it. You can also ask for a system-wide Ollama (`brew install ollama`, `winget install --id Ollama.Ollama`) by switching `settings/local-runner-place`, `systemWide`, on — no by default. Either way the card says plainly, before you agree, that the program will be **left behind when Branch is removed**, may ask you for permissions of its own and may start by itself when you sign in. Where it goes is part of the plan's own line, so a yes to the copy inside Branch is never a yes to the one outside it.
+- **What Branch will not do.** It never fetches anything unchecked. Downloads only ever come from `github.com`, `objects.githubusercontent.com`, `release-assets.githubusercontent.com` and `ollama.com`, each redirect checked again by hand. When a step fails, Branch says which step and what the program said, and stops: it never reports success it has not seen. After an install it looks the program up again the ordinary way and refuses to carry on if it is not really there.
+- **Choosing the model.** The three choices come from Branch's own list, sized for this computer by the same free-memory and graphics reading as the rest of this section, and only models that can use tools are offered. The suggested one is the largest that fits comfortably. Each says in plain words what it means here and how big the download is.
+- **Yours alone.** A message from a chat app, a short-lived key (which is also how another computer reaches this one), somebody else using this computer under their own profile, a Trunk, and work a schedule or a trigger started are each refused in one sentence, and while Lockdown is on nothing is installed whatever the switch says.
 
 **The list** is `data/local-models.json`: ten models, most in two or three sizes (Q4_K_M, Q8_0, F16, or gpt-oss's own MXFP4), each with its Ollama tag, Hugging Face GGUF file and SHA-256, and MLX repository where one exists, their sizes, whether it can use tools (a model that cannot is shown with a warning), and the figures the memory estimate needs. Sizes and hashes were read from the registries on 2026-09-17.
 
@@ -375,6 +392,8 @@ Routes, all under `/api/local-models`:
 ### Updates
 
 The packaged Windows app checks `https://api.github.com/repos/stabrea/Branch-Agent/releases/latest`, downloads `Branch-Agent-windows-x64.zip`, verifies it against the published `.sha256`, unpacks it next to the install, then restarts through a small script that mirrors the new files into place. A checkout installed from Git updates with `node dist/cli.js update` (`git pull --ff-only`, `npm ci`, `npm run build`).
+
+**Updates replace the whole app, and always will.** Binary delta updates — shipping only the bytes that changed and patching the installed copy — are ruled out on macOS, and not by preference. A macOS signature seals every file in the bundle into `Contents/_CodeSignature/CodeResources`; writing into any of them afterwards breaks that seal and macOS reports the app as damaged. Patching without re-signing destroys the signature, so the identity the owner's microphone, screen recording and accessibility permissions are attached to no longer matches and every one of them is asked for again — worse than today. Re-signing on the person's own computer is not an alternative, because it would mean shipping the private signing key inside the download, which makes it public and worth nothing. The same wall is why Sparkle refuses a delta when the code signing information differs and why electron-updater's differential download does not work for a macOS zip. So the signed `.app` is immutable between releases: it is replaced whole, with `ditto` into a scratch folder and an atomic swap, or not at all. Anything that should vary without a full release belongs outside the bundle, fetched into the user data folder, not patched into the app.
 
 The `openai` adapter uses Chat Completions; the `anthropic` adapter uses Messages. Compatibility depends on the configured server implementing the expected request, tool-call and usage formats. Remote model endpoints require HTTPS; loopback endpoints may use HTTP. API usage may incur the provider's charges.
 
@@ -2091,6 +2110,63 @@ The design, the threat list and the test for each threat are in [never-break.md]
 
 **Updates that cannot brick it.** With the switch not off, the updater tries the unpacked version before anything is swapped (`src/never-break/canary.ts`): the process that holds the database takes a copy (`VACUUM INTO` of `branch.sqlite` and `journal.sqlite`, plus `locker.key` and `gateway.json`) into `updates/canary-*/` in the data folder — the window asks a background engine for it with `POST /api/never-break/snapshot` — and the new version's own runtime runs `branch start` with `BRANCH_SELF_TEST=<report>` on that copy (`src/never-break/self-test.ts`): it opens the saved work (applying its format changes to the copy), does a task with the offline model, loads every chat adapter, lets the timed jobs tick, carries an interrupted task on, and answers on its address. Any failed check stops the update with a sentence saying which, before the safety copy or the hand-over; the copy is always removed. A passed check writes `update-watch.json`; the new gateway watches the first `watchSeconds`, repairs a program folder an interrupted swap left half-done (`repairSwap`), ends the watch once the version has stayed up, and, if the new engine fails to start twice or trips the crash breaker inside the window, writes `updates/roll-back.sh` (or `roll-back.cmd`, started through the same hidden scheduled-task launcher as the update, so no console window opens) and closes: the script puts `<program>.previous` back, keeps the failed one as `<program>.failed`, promotes `<program>.previous-2`, and starts the previous version. Every update now keeps the last two versions (`.previous` and `.previous-2`) on all three systems. The gateway and its engine each state the contract version they speak and the range they read (`src/never-break/contract.ts`), so a new engine runs under an old gateway and the other way round for one release.
 
+**Going back from a bad update.** Every update writes down what it is about to change, before a
+single file moves, in `activation.sqlite` in the data folder (`src/never-break/activation.ts`,
+`synchronous=FULL`, and one of the places no task may touch): a fingerprint of the version that is
+installed and of the one replacing it (a SHA-256 digest over the sorted tree — each file's path,
+size and contents — plus where the file system keeps the folder), what format each database was in
+on both sides, which format changes ran, where the safety copies went, and **the newest data format
+the older version understood**, read from that version while it was still the one running. Only the
+newest activation is ever offered; earlier ones are marked superseded. Both ways of updating write
+one — `branch update --yes` and the app's Update button — and the app's stays `staged` until the
+next start says which version came up, because the window quits into the hand-over script. A record that cannot be
+written stops the update, because an update nobody can undo is not worth making; a file that cannot
+be read is put aside and a new one started, and an undo with nothing recorded refuses rather than
+guesses.
+
+`branch rollback` says what going back would do; `branch rollback --yes` does it. The decision is
+`assessRollback` in `src/never-break/rollback.ts`, and it **refuses**, in a sentence saying why and
+what to do instead, when: there is no record; this update was already undone or superseded; another
+copy of Branch already holds the undo (the claim is a conditional update inside `BEGIN IMMEDIATE`,
+so two copies at once cannot both run one); `<program>.previous` is gone; its fingerprint is not the
+one the update put aside; the fingerprint could not be finished inside its time budget, so nothing
+was really checked, or the fingerprint written down at update time was itself unfinished; the
+installed program is not the version this entry activated; the saved work is
+not in the format the entry recorded (`state-moved-since`); or the saved work has been migrated to a
+shape the older version cannot read and there is no recorded, copied way back
+(`state-migrated-no-rollback`). Refusing is the whole point: restoring an older program on top of
+newer data is how a rollback costs more than the failure did. A Branch that will not close stops the undo
+outright with nothing touched, exactly as it stops an update. `branch rollback` is macOS and Linux
+only; on Windows it says to use the app's Updates screen. When it is safe, the kept version goes
+back, the failed one is kept as `<program>.failed`, the spare moves up, the data is left alone (or
+the recorded format changes are taken back out after a copy — and the message says what that costs),
+the gateway is started again and the person is told in plain words. Every step is appended to the
+entry's ledger before it is attempted and each is tried even if an earlier one failed, so a rollback
+that only got part of the way says exactly how far. One cut off part-way is put back to one whole
+version by `repairRollback`, which the gateway's start-up tidy-up (`repairSwap`) already runs. The
+gateway's own automatic rollback, after a new version fails to stay up, asks the same gate first: a
+crash loop is recoverable, a database the installed program cannot open is not.
+
+**Starting on a broken machine (macOS and Linux).** Before anything opens the saved work for
+writing, Branch looks at it (`assertFormatReadable` in `src/never-break/migrations.ts`): data whose
+format is newer than this version understands is refused while it is still untouched, so the
+sentence "Nothing was changed" is true — before, the older version had already added columns,
+rewritten tasks that were running and thrown temporary sessions away by the time it said so. A
+damaged, unreadable or unwritable folder is said in plain words that name the file, say nothing was
+changed and point at the safety copies in `update-backups/` (`dataProblemSentence`), instead of
+SQLite's own "database disk image is malformed". `branch update --yes` reads the format the same
+way before it takes its safety copy or its copy for the check (`withStore` in
+`src/install/headless-update.ts`), so an older copy of Branch cannot rewrite newer work on its way
+to installing the newer one. A second Branch started on the same data folder
+refuses and says which folder is in use and what to do. A clock that jumped backwards no longer
+holds an update's watch open for ever or rolls a good version back on the first ordinary crash
+(`watchVerdict`), and no longer throws away the safety copy just written (`backupsToPrune`); the
+copies taken before a format change are pruned to the newest three as well. A fetched extra that is
+missing or whose download stopped half-way (the private browser, a reading-aloud program) is
+reported as missing with the command that gets it back, and Branch itself still starts. The whole
+set is exercised by `tests/never-break-install-chaos.test.mjs`, a seeded round that kills Branch
+mid-update, mid-format-change and mid-start (`BRANCH_INSTALL_SEEDS=200` for the long run).
+
 **Telegram from a card.** `customize:channels` has a **Set up Telegram** card (`public/telegram-setup.js`, `src/never-break/telegram-setup.ts`): the BotFather steps in plain words, a password field whose token goes straight into the locker as `TELEGRAM_BOT_TOKEN` in the default project (checked for BotFather's shape, never sent back), the three-way switch (settings key `telegram-setup`, shipped off), and a box for the six-digit code the bot sends a new person, which approves the owner's own account through the ordinary pairing. `GET|POST /api/never-break/telegram { mode?, token? }`. On a real start with the switch not off, Branch connects that bot through the network rules, unless the integrations file already has a Telegram channel. No real token was used to build or test it.
 
 **macOS and Linux.** The gateway is the same program on every system. It starts the engine with the same runtime it runs on (the app's own on an installed copy), with no window on Windows. The sign-in entries (`launchd`, `systemd --user`, the Windows scheduled task) are unchanged: they run `branch start`, which becomes the gateway when the switch is on, so `KeepAlive`/`Restart=on-failure` look after the gateway and the gateway looks after the engine. An engine whose gateway is killed closes itself within seconds, so the database is never left held.
@@ -2466,6 +2542,35 @@ result ids and reports the difference over the tasks both ran, with the range th
 very likely to be in, worked out by resampling the tasks two thousand times. When the range includes
 zero, nothing is claimed.
 
+**When a comparison is refused.** `compare` will not put two runs side by side unless both wrote
+down the conditions they ran under and those conditions match: the model choices and the models
+behind them, which model graded, the settings (`maxSteps`, `maxTokens`, `repeats`, `bestOfN`,
+`limit`, `retries`, where the tasks came from, the benchmarks folder), the version of Branch Agent,
+the computer, a hash of what every task actually says, and a digest of how the tasks were marked.
+Anything that differs is named in plain words with what you would have to do about it —
+"the model choices that answered: Before had fast, After had careful — run both sides with the same
+model choice". A result saved before this existed has no conditions at all, and that is refused
+too, because there is no way to tell what it measured. A run that lost a piece of work is refused
+on the same footing: a smaller denominator flatters whatever is left.
+
+This is deliberately a refusal rather than a footnote. A number with a caveat under it is still the
+number that gets quoted.
+
+**Repeats are a range.** With `repeats` above one, each model choice's row carries the spread its
+repeats covered as well as their mean, and the table prints both. One repeat has no spread and says
+so, which is what stops a single lucky run being read as a difference.
+
+**Where the money figure comes from.** Tokens are the provider's own reported count when the
+provider gave one, and Branch's own estimate only when it did not. The table says which, every
+time — "estimated: Branch counted the tokens itself and priced them from the table" is not the same
+claim as a bill, and is never printed as one.
+
+**A task nothing can decide.** A suite task with no checks, no scorers, no rubric and no "must not"
+list is refused when the suite is saved, and fails with that reason if an older suite still has one.
+It used to pass, whatever the answer said. A study also applies a suite task's own `checks` and
+`deny`, which it used to drop on the floor — so a task decided by checks is now decided by them in
+a study too, rather than passing for free.
+
 On the command line: `branch study list`, `branch study run <id> [--fresh] [--json]` (JSON is one
 result per line), `branch study compare <result id> <result id>`, and `branch study replay <id>`.
 
@@ -2491,6 +2596,52 @@ of what every task that ran says (its question, reference answer and scorers), n
 question reworded under the same id is a different dataset, so the two runs get different
 fingerprints and replay lists "Version of the tasks" among the changes. Entries written before this
 have no dataset version and keep the fingerprint they had. (A1082; `tests/chat-engine.test.mjs`.)
+
+**What replay prints when the two runs are not comparable.** It prints the refusal and nothing else.
+It used to print the table of what changed and then, underneath it, "Accuracy went from 0.0% to
+100.0%" — and that is the line a person quotes. Two runs whose conditions differ now get the reason
+they cannot be compared and no accuracy at all; two runs whose conditions match but whose study
+inputs moved get the table and the advice, and still no accuracy. (mac7/eval-honesty;
+`tests/evaluation-honesty.test.mjs`.)
+
+**How the tasks were marked.** The fingerprint covers a digest of the scorers themselves, not only
+their kinds: a rubric rewritten to be kinder keeps the kind `rubric`, and without this the two runs
+would look like the same experiment. The digest also covers which model grades, and leaves out any
+field whose name looks like a key or a token, so rotating a credential never moves it.
+
+### The grader cannot be reached by what it is grading
+
+A task's answer is the one part of a grading prompt that the thing being measured wrote, so it is
+the one part that can try to talk to its own judge. Two things stop it.
+
+The answer is **fenced**: wrapped in markers carrying sixteen fresh random bytes chosen after the
+text is in hand, with a sentence inside the block saying it is data and not instructions. An answer
+that ends with a plausible closing marker cannot close the block — it would have had to guess the
+nonce — and the "this is data" statement travels inside the fence, so it survives being pasted into
+an evaluator prompt somebody else wrote.
+
+The grader's own task is **isolated**. It gets its question and nothing else: no memory snapshot, no
+context files, no project instructions, no installed or pinned skills, no standing orders, no
+passages from your documents, no conversation and no tools. Nothing it does is learned from by the
+learning core, reviewed, or written into the record of outcomes. The fence alone would not be
+enough: a task that writes a memory, drops a file in the workspace or edits a skill could otherwise
+reach the judge that marks it the long way round, and the mark would stop meaning anything.
+
+### What is called a regression, and what is not
+
+A suite run says a task has regressed when it passed in each of the three runs before this one and
+has just failed. "The three runs before this one" now means the three most recent runs **measured
+the same way** — same model choice, same models, same version, same computer, same tasks, same
+scorers. A run on a cheaper model after three on a stronger one used to announce that something
+which used to work had stopped, and the nightly run sent that out as a regression notice.
+
+When there are not three comparable runs, the result says so in the same line a build log reads:
+"Nothing is called a regression here: of the 9 earlier run(s) of this suite, only 1 was measured the
+same way, and three are needed." Nothing found and nobody looked must never read the same.
+
+The trend (`GET /api/evaluation/trend`) marks each point with whether it can honestly be read
+against the newest one, and why not when it cannot — a trend line drawn through runs measured
+differently is a picture of the settings changing, not of the assistant changing.
 
 ### Scoring the real work as it finishes
 
@@ -3044,7 +3195,7 @@ The switch lives beside the one for other AI tools, in `settings/mcp-sharing` as
 
 **Tasks.** JSON-RPC 2.0 by `POST` to `/a2a`, with your session key as `Authorization: Bearer …` (the same key as every other route; the server listens on this computer only). `tasks/send` runs one task and answers with it. `tasks/get` finds one started earlier — in memory only, so a restart forgets tasks that were still running. `tasks/cancel` stops one. `tasks/sendSubscribe` answers with a stream instead: a `submitted` state, then one state update for every step Branch records, then the answer as an artifact and a last update marked `final`.
 
-A task is a plain Branch task: it shows in Activity with the same signed receipts, its events carry `source: "a2a"`, and an `a2a.task` event names the assistant that asked. Because you did not start it, it never gets more freedom than **Ask before changes** — a standing yes of yours does not travel to a stranger, so anything that would change a file, run a command or act on a web page stops and waits for you, and the caller is told the task is `input-required`. This works the same way as MCP, and so does its one gap: while you have chosen **No approvals** — which is how Branch behaves until you pick something else — there is nothing to hold a caller to, and it can use any of Branch's tools without stopping to ask. Pick an approval setting before you switch this on. Note too that the shared tool list shapes the card's skills but not what a task may do: `branch.ask` reaches the whole toolbox, within your approval setting.
+A task is a plain Branch task: it shows in Activity with the same signed receipts, its events carry `source: "a2a"`, and an `a2a.task` event names the assistant that asked. Because you did not start it, it never gets more freedom than **Ask before changes** — a standing yes of yours does not travel to a stranger, so anything that would change a file, run a command or act on a web page stops and waits for you, and the caller is told the task is `input-required`. This works the same way as MCP, and holds under **No approvals** too — the starting setting frees only the tasks you start yourself. Note too that the shared tool list shapes the card's skills but not what a task may do: `branch.ask` reaches the whole toolbox, within your approval setting.
 
 **What does not cross.** Only written instructions. A message part that is a file, an image or anything other than text is refused with "Branch takes written instructions only". One calling assistant may start 20 tasks a minute (a `-32003` error and HTTP 429 past that), and a task is stopped after two minutes, like every other task. Name yourself with an `X-Branch-Agent` header so the allowance and the record are per caller — it is a name for the record, not a credential, so the allowance only holds honest callers apart.
 
@@ -3211,7 +3362,7 @@ Open a conversation and choose **Forget what this conversation saved to memory**
 
 ### First-run setup
 
-Until setup is marked done, the Conversation view opens with three doors: sign in with a ChatGPT plan, use an API key, or look around on the offline demonstration. **Test the connection** makes one real, tool-free completion through the model that will answer next and reports the reply and how long it took (`POST /api/models/test {preset?}`); nothing is added to your conversations. **Done, start chatting** records completion (`POST /api/onboarding {done: true}`).
+Until setup is marked done, the Conversation view opens with the doors: sign in with a ChatGPT plan, paste an API key, use the model on this computer (only when Ollama or LM Studio answers on 127.0.0.1, `GET /api/providers/local`), or try it without an account on the offline demonstration, which finishes setup in one click. **Test the connection** makes one real, tool-free completion through the model that will answer next and reports the reply and how long it took (`POST /api/models/test {preset?}`); nothing is added to your conversations. **Done, start chatting** records completion (`POST /api/onboarding {done: true}`).
 
 ### Stored facts
 
@@ -3665,7 +3816,7 @@ is written, and a skill arrives as its own document so it is installed and scann
 Settings → **When to check with me** decides how much Branch Agent may get on with by itself. Until
 you choose something, nothing changes: Branch Agent does whatever its tools allow, exactly as before.
 **The four choices.**
-- **No approvals** (the starting point). Nothing is checked with you and nothing is refused.
+- **No approvals** (the starting point). Tasks you start yourself get on with it; anything started from outside — a trigger, a chat app, another program — still asks before it changes anything.
 - **Ask before changes.** Reading is free. Anything that changes a file, runs a command or acts on a
   web page stops and waits for your yes.
 - **Just do it inside my workspace.** Writing files is fine. Running a command, and clicking or
@@ -3687,9 +3838,10 @@ your next message in that conversation to carry on.
 **Tasks you did not start yourself.** A task started by an inbound trigger, by a schedule or by
 another AI tool over MCP never gets more freedom than *Ask before changes*, and it cannot give
 itself a permanent yes from inside the run — the most it can be granted is a yes for that one
-conversation. This only applies once you have chosen something other than *No approvals*.
-Worth knowing before you choose: nobody is sitting there to answer for those tasks. Once you pick a
-setting, a schedule or trigger that wants to change something stops and waits, and stays waiting
+conversation. This applies under every setting, *No approvals* included (since 0.18.1). Tasks you start yourself get on with it; anything started from outside — a trigger, a chat app, another program — still asks before it changes anything. A
+schedule counts as started from outside even when you made it yourself, because nobody is there when it
+runs. Worth knowing: nobody is sitting there to answer for those tasks, so a schedule or trigger that
+wants to change something stops and waits, and stays waiting
 until you answer it in Settings. Branch Agent tells you it has: the pause appears under *Waiting for
 your yes*, and an outbound webhook subscribed to `approval.needed` is sent at the same time, so an
 unattended install can be told about it wherever you actually look.
@@ -3725,9 +3877,39 @@ Local HTTP authorization is single-owner access, not a multi-user tenancy system
 record (`PreferencesSchema` in `src/preferences.ts`) holds `appearance` (`forest` or `daylight`),
 `followSystem`, `accent` (`copper`, `leaf`, `earth`, `slate`, `ink`), `textSize`
 (`small`/`medium`/`large`), `density` (`comfortable`/`compact`), `font` (`geist`/`system`),
-`reduceMotion` and `showAcorn`. Every field has a default, so a record saved by an older version
-still loads. Settings → Appearance changes all of them; each choice shows at once and Save keeps
-it.
+`reduceMotion`, `showAcorn` (the acorn toy in the side pane, off by default), `showEverything`
+and `showVoice`. Every field has a default, so a record saved by an older version still loads.
+Settings → Appearance changes all of them; each choice shows at once and Save keeps it.
+
+**The calm window.** Since 0.18.1 the window opens calm: one question ("What do you want done?")
+and one box with Send, plus New conversation, the recent conversations and Settings in the rail.
+Everything else is still on the page and still works; it is reached from the **More** button in
+the title bar (asking questions first, forgetting the conversation afterwards, attaching a
+document or a picture, who should answer, the Activity/Plan/Files/Memory panel, Inbox,
+Automations, Library, Customize, Find anything, labels, what is allowed right now, Lockdown,
+Clear the view, Help) or it shows only when it matters: the side panel slides in while a task or
+a goal runs and away when it finishes (with any yes the conversation carries beside the work, and
+a goal's Resume and Stop), approval questions, "Your assistant needs you" and the Lockdown banner
+always show, Inbox appears in the rail while something waits in it, the Projects list only when
+there is more than one project, and a price under the box only when one is known. The window
+says the model is not connected once, as "Practice mode", and says nothing about its link to
+Branch unless that link is lost ("Branch stopped responding", with Restart). First run is one
+screen of choices (ChatGPT plan, a key, the model on this computer when Ollama or LM Studio
+answers there, or trying it without an account in one click); opening Branch at sign-in and
+reaching it from a phone are in Settings → General, and after the first task ever to finish one
+line under the conversation offers both (each opens its switch; "Not now" closes it, and it is not
+shown again). The calm window keeps the same glass over the pixel oak (softened where it shows between
+panes, with the moon only in a cleared view, and the Activity panel joined to the conversation);
+while Lockdown is on its
+shield stays in the title bar beside the red banner. When the link to Branch is lost, Restart in the
+desktop app starts the whole app again, and with it Branch's local server; in a browser it loads
+the page again.
+
+`showEverything` (default `false`) brings back the full window — every tab, meter and switch,
+all the time — and is kept per person with the rest of this record ("Show everything" in
+Settings → Appearance, or at the foot of the More menu). `showVoice` (default `false`) shows the
+microphone and Talk buttons beside the message box in the calm window; the full window always
+shows them.
 
 Every section (Conversation, Activity, Usage, Memory, Skills, Specialists, Procedures, Schedules,
 Documents, Settings) is a row in the rail's "Sections" group on the left, so nothing hides behind a
@@ -3873,13 +4055,36 @@ check, restart, update and remove Branch with one script.
 | | macOS and Linux | Windows |
 |---|---|---|
 | Install | `sh install-branch-agent.sh --quiet` beside the download and its `.sha256` | `"Install Branch Agent.cmd" /quiet` beside the zip |
-| Where it goes | Mac: `~/Applications/Branch Agent.app` (a copy already in `/Applications` is linked up instead, and never written to or removed). Linux: `~/.local/share/branch-agent/app`, with `~/.local/share/applications/branch-agent.desktop` | `%LOCALAPPDATA%\Programs\Branch Agent` |
+| Where it goes | Mac: `~/Applications/Branch Agent.app`, or `/Applications` with `--applications`. Linux: `~/.local/share/branch-agent/app`, with `~/.local/share/applications/branch-agent.desktop` and the icon in `~/.local/share/icons/hicolor` | `%LOCALAPPDATA%\Programs\Branch Agent` |
 | The `branch` command | `~/.local/bin/branch` | not written yet |
 | Conversations and files | Mac: `~/Library/Application Support/Branch Agent`. Linux: `~/.config/Branch Agent` | `%APPDATA%\Branch Agent` |
 | What is installed | `branch --version --json` prints `{"version","path","dataDir","running","installed"}` | — |
 | Restart | `branch quit`, then open the app (or `branch start`); while the never-break gateway runs the engine, `branch quit` refuses (exit 1) | — |
 | Update | `branch update --yes` | the app's Update button |
 | Remove | `sh install-branch-agent.sh --uninstall [--delete-data]` or `branch uninstall [--delete-data]` | `Uninstall Branch Agent.cmd /quiet [--delete-data]` |
+
+**What a person gets after downloading (mac7/app-icon).** On a Mac the installer asks one question,
+and only when a person is at a terminal to answer it: whether to put Branch in the shared
+`/Applications` folder. `--applications` and `--no-applications` answer it in advance and `--quiet`
+(or a script with no terminal) is never asked, so installing from a script still asks nothing.
+`/Applications` is used only when this person can write it without an administrator; otherwise the
+install falls back to `~/Applications` and says so. A copy that was in `~/Applications` is taken away
+once Branch has moved, so there is never more than one.
+
+macOS marks anything that came from the internet, and the mark travels through the zip into the
+unpacked app and through the copy into the installed one — after which macOS refuses to open it at
+all. The installer takes that mark off the copy it has just made (`xattr -r -d com.apple.quarantine`
+on the installed bundle and nothing else) and says in plain words that it did. Releases are still only
+ad-hoc sealed until a Developer ID certificate is in the workflow; taking the mark off is what makes
+an unsigned download open like an ordinary app.
+
+On Linux the download carries the KeepOak mark ready-made in every size an icon theme asks for (16 to
+512, in its `icons` folder), and the installer copies each into `~/.local/share/icons/hicolor`, so the
+menu entry names the theme's icon and each menu, dock and switcher draws the size made for it. They
+are removed again with the rest. On Windows the Start-menu and desktop shortcuts, and the Add/Remove
+Programs entry, name the KeepOak `.ico` that travels inside the app: the executable itself is the
+stock Electron one (kept byte for byte so Smart App Control recognises its hash), so it still carries
+Electron's own logo and cannot be used for the icon.
 
 Installing a version that is already there does not copy it again: the copy is linked up (the
 `branch` command and menu entry are written again) and `--repair` copies it anyway. Installing a
@@ -3910,7 +4115,9 @@ Removing Branch closes it, takes out its "start by itself when you sign in" entr
 before, the `branch` command and the menu entry. Conversations and files stay unless `--delete-data` is
 given. A `branch` command or menu entry the installer did not write (or a link in its place) is left
 alone, and installing refuses to write over another program's `branch`. A copy in the Mac's shared
-`/Applications` is not the installer's and is left; `branch uninstall` names it.
+`/Applications` is the installer's to update and to remove only when this person can write that folder
+without an administrator; one that needs an administrator may be somebody else's, so it is left exactly
+as it is and `branch uninstall` names it.
 `install-branch-agent.sh --uninstall` only runs a `branch` command the installer wrote. The script uses
 the system's own tools whatever `PATH` says, checks and unpacks a private copy of the download (so it
 cannot be swapped in between), and refuses a download that names files outside its own folder.
@@ -4183,10 +4390,29 @@ paired door (the Tailscale address) now answers the device socket, and only that
 and page checks, so a phone or computer on your tailnet can be a device; a task's own socket stays on
 this computer's own address. The door's chain (key, pairing, phone secret) is not asked of a device,
 which holds none of them and proves itself by signature instead, but a "never" rule for the device's
-id on `remote` in the list of who may reach Branch still turns it away there. The phone app's device module (`apps/mobile/web/phone-node.js`) needs no new plugin for the
+id on `remote` in the list of who may reach Branch still turns it away there. The phone pairs from the phone itself: open the app, go to *Lend this phone to Branch* on its home
+screen, scan the same square and type the same six numbers. The phone makes its own Ed25519 key, keeps
+it in the iOS Keychain (this phone only, never a backup) or, on Android, inside the Android Keystore
+itself where it can never be read out (Android 13 and later; a phone whose Keystore has no Ed25519
+gets a software key sealed with a Keystore key in the app's own storage), and signs with it there; the app's page never receives it, and neither does Branch,
+which is given the public half alone. Everything is done on the native side because the app's page may
+only talk to itself (its Content-Security-Policy), and the address rule is checked there and in the
+page. The card also keeps the phone's own **never allow** list — the camera, a picture of the screen,
+the microphone and running programs — the phone's equivalent of `branch node never`. It only ever takes
+away. The camera and microphone refusals also hold inside the app's own web view: a page other than
+the phone app's own (the owner's Branch window included) is refused them while they are ticked, where
+the web view would otherwise grant them. Today it keeps what it names out of what this phone offers Branch at all, so those switches never
+appear in the card; turning a request away again at the moment it arrives lives in
+`apps/mobile/web/phone-node.js` and starts working with the socket below (this computer lets the owner
+switch on whatever the *platform* can do, so the second look is not spare). *Stop lending this phone* throws the key away on the phone; remove the device here too.
+
+The phone app's device module (`apps/mobile/web/phone-node.js`) needs no new plugin for the
 camera, microphone, location, speech, opening pages and showing a page while the app is open;
 notifications and the clipboard need `@capacitor/local-notifications` and `@capacitor/clipboard`, and
-working while the app is closed needs a native background service, none of which is added yet.
+working while the app is closed needs a native background service, none of which is added yet. Pairing
+itself needs neither of them. Staying connected from the phone is not wired up yet either: the page
+cannot open the device socket (its Content-Security-Policy lets it talk only to itself), so that needs
+a native socket, which is not written.
 
 ## Phone apps
 
@@ -4197,6 +4423,32 @@ way to get one codebase onto both phones while the screens stay Branch's own web
 redesign, the 44 themes and every place look the same on the phone. The native parts use only what
 each phone ships (Keychain, `LocalAuthentication`, `BackgroundTasks`; Android Keystore,
 `BiometricPrompt`, `JobScheduler`), so there are no further plugins and no Google services.
+
+**Getting it onto the phone (mac7/phone-qr).** Nothing is published: no store, no public link, no
+release asset. The signed Android app travels inside the desktop download, in `phone/` with its
+`.sha256` (`scripts/package-desktop.mjs` copies it from where `scripts/package-mobile.mjs` built it;
+about 3.7 MB, around 2% of the download), and a copy that does not match its checksum is never
+offered. The app is read and checked each time a code is made, and the door sends exactly those
+checked bytes from memory, so a file changed on disk while the code is showing never reaches a phone. *Get Branch on your phone* (Customize, Channels) — or `branch phone` in a terminal — shows
+a code for the phone's ordinary camera. Pressing *Show the code* opens a separate little web server,
+not Branch's own door, on one home network address of this computer (the one its default route
+uses, but never a VPN or other tunnel's; Tailscale if there is none; never a public or every
+address) for fifteen minutes. While it is
+showing, anyone on that network can reach exactly two things with no key: `/get/<link>`, the install
+page, and `/get/<link>/Branch-Agent.apk`, the app, sent as
+`application/vnd.android.package-archive` with `Content-Disposition: attachment;
+filename="Branch-Agent.apk"`, its real `Content-Length`, `nosniff`, and no compression. Every other
+path, method or link, and the right link once it has expired or been stopped, gets one identical
+404, and then the port closes. The link is 18 random bytes. The page is in the phone's own language
+and says what to press: Download, allow installing from this source once, Install, Open; then how to
+connect it (the pairing code is never on this page, since anyone on the network can open it). An
+iPhone gets an honest page instead of the Android file: today the iPhone app is installed from a
+Mac with Xcode, and scanning to install is coming. Updating the phone is scanning again: the new
+app has the same name and the same signing key, so Android installs it over the old one and keeps
+its data, pairing included. Opening, reading and closing the link are the owner's alone, in the app
+window: a short-lived key and a household profile are refused, and Lockdown refuses to open it and
+closes one that is showing (a `branch phone` left running in a terminal notices within seconds). `BRANCH_PHONE_APP` names a signed app elsewhere (with its `.sha256`
+beside it), for a builder.
 
 **What it does.** The first screen connects to your Branch: switch on reaching Branch from your
 phone on the computer (see above), then scan its square code with the phone's camera (or paste its
@@ -4222,6 +4474,13 @@ network (`10/8`, `172.16/12`, `192.168/16`, the phone itself), Tailscale (`100.6
 `fd7a:115c:a1e0::/48`, names ending `.ts.net`) and `.local` / `.home.arpa` names. The web view may
 open only the paired address; every other link goes to the phone's browser.
 
+**Lending this phone.** Below the switches, *Lend this phone to Branch* pairs this phone as one of
+your devices (see "Devices" above) without starting at the computer: scan the square from *Your
+devices*, type its six numbers, and wait for your yes on the computer. It shows which computer this
+phone is lent to and can stop lending. Its *never allow* ticks — the camera, a picture of the screen,
+the microphone, running programs — are the phone's own refusals, kept beside its key. What they name is
+never offered to your computer at all, so it cannot be switched on there. The key is made and used only natively; the page never sees it.
+
 **On this phone.** Five switches, each *off*, *when needed* or *on*, and all off on a new install:
 
 | Switch | When needed | On |
@@ -4245,10 +4504,15 @@ The splash screen, the icon, the status bar and the native screens take their co
 `public/theme-catalogue.js` through `apps/mobile/web/palette.js`, and their words from the
 `phone.*` keys in `public/locales` (English and French). `apps/mobile/scripts/native-files.mjs`
 and `icons.mjs` write those native files before every build; none of them is kept in git.
+`icons.mjs` writes the Android launcher at all five densities (the square, the round one and the
+adaptive front layer, the last inside the 66% a launcher never crops) and, since iOS 18, three 1024
+icons rather than one: the ordinary one, one for a dark home screen and a grey one the system tints
+itself. Only the ordinary one is opaque, as Apple asks (mac7/app-icon).
 
 **Building.** `npm run build`, then `npm ci` in `apps/mobile`, then
 `node scripts/package-mobile.mjs [--android] [--ios]`. Files land in `release/mobile/`, each with a
-`.sha256`:
+`.sha256`. To keep every output out of the checkout, set `BRANCH_MOBILE_OUT` (the finished files),
+`BRANCH_GRADLE_BUILD_DIR` (Gradle's build folders) and `BRANCH_MOBILE_WORK` (Xcode's):
 
 - `Branch-Agent-android.apk` — signed with a key made once on this Mac in
   `~/.branch-mobile-keystore/`. Its password is generated and kept in the macOS Keychain (service
@@ -4269,7 +4533,12 @@ the files for seven days. It publishes nothing.
 
 **Putting it on a phone.** Nothing here is uploaded anywhere; each route is a step the owner takes.
 
-- *iPhone, free Apple ID:* open `Branch-Agent-ios.ipa` in Sideloadly or AltStore, sign in with your
+- *iPhone, free Apple ID, with Xcode and a cable:* after `npm run sync` in `apps/mobile`, open
+  `apps/mobile/ios/App/App.xcodeproj`, choose your Personal Team for both targets, give both bundle
+  identifiers a prefix of your own, remove the App Groups capability from both (a personal team
+  cannot have it; only the share sheet loses its way in), pick the plugged-in iPhone and press Run.
+  The install stops opening after seven days; press Run again. A paid account lasts a year.
+- *iPhone, free Apple ID, without Xcode:* open `Branch-Agent-ios.ipa` in Sideloadly or AltStore, sign in with your
   Apple ID and install. A free ID's apps expire after seven days and need signing again (AltStore
   can do that on its own). Turn on Developer Mode on the phone when iOS asks.
 - *iPhone, paid Apple Developer account (TestFlight, then the App Store):* in the developer
@@ -4789,7 +5058,64 @@ removes one. Only the owner may add or remove people. Five wrong PINs in a row s
 accepting any for five minutes. While somebody's profile is switched on, the conversation list,
 saved conversations and the Memory view are theirs and not the owner's, a task they start is filed
 under their name, and the secrets locker, projects, saved workflows, the waiting line, days off and
-the owner's shared copies are all refused in plain words. **Be honest about what this is:** separation on one computer, not separate accounts. There
+the owner's shared copies are all refused in plain words.
+
+**Switched to somebody's profile, the window is that person (profile-audit).** Every owner-only
+address — every route `tests/short-lived-key-routes.mjs` marks `owner`, and every read it marks as
+carrying a secret or everybody's data — is refused to a window switched to a household profile, at
+one place in `src/server.ts` before the route's own code runs, in one sentence: *"This belongs to the
+owner. Switch back to the owner's profile to use it."* (the chat apps and their Set up panel name
+themselves in it: *"Your chat apps belongs to the owner …"*), answered with 400 as every
+`requireOwner` refusal always has been. That covers settings of every kind (the comfort cards, the
+knobs, appearance and the settings kit included), approval rules and the safety check, the locker,
+sign-ins and saved-password filling, the sandbox and network, chat apps and pairing, devices and
+the phone download, integrations, add-ons, skills and models on this computer, backups and
+restores, updates and restarts, the danger zone (removing Branch), Lockdown, pinning and unpinning,
+and the people here. The rule fails closed like the short-lived key's: a household person may use
+the task routes, read what anybody may read, and change only their own things (their
+conversations, what is remembered for them, documents, notes and lists, listed in
+`src/household-routes.ts`), plus the two ways out — switching profile and locking the window. The
+wake-word and dictation cards still answer them, with the owner's word and the microphone left out.
+A task the window starts while switched is written down as that person's (`personProfileId`), so a
+tool that asks where a task came from, a resumed task and a queued follow-up still see them after
+the window is switched back. `tests/household-profile.test.mjs` drives every owner-only route with
+the window switched and fails when a route is added to the table without being decided here.
+
+**Out of the box this is a convenience, not a lock.** Going back to the owner's profile needs no PIN:
+anybody at the keyboard can press it. The refusals above keep a household person out of the owner's
+things by default, so nothing is changed by accident or by a child exploring; they do not stop
+somebody who decides to switch back. Only switching *into* a profile asks for a PIN.
+
+**A PIN for switching back (off by default).** Under **Settings → People** the owner can set a PIN
+of four to eight digits for switching back to them (`POST /api/profiles/owner-pin` with
+`{ "pin": "1234" }`; `{ "pin": null }` switches it off again; `GET /api/profiles` says `ownerPin:
+true` while it is set). It is checked exactly like a person's PIN: the same hashing (scrypt with its
+own salt, kept in the `household_owner_pin` table), the same five wrong tries before it waits five
+minutes, and the same answers (*"That PIN is not right"*, *"Too many wrong PINs. Wait a few minutes
+and try again."*). While it is set, the profile the window is on is also remembered, so closing and
+reopening Branch comes back on that person's profile rather than the owner's. Only the owner, in
+their own profile, can set it or switch it off; the route is owner-only, so a household person and a
+short-lived key are refused it. **With it on, the household restriction is a real lock against
+somebody at the keyboard** — they cannot get back to the owner's things without the PIN. It is still
+not a lock against somebody who can reach this computer's files: anyone who can open Branch's data
+folder (or read its local key there) can read everything and act as the owner.
+
+**Owner-only housekeeping (household-followups).** Clearing old conversations
+(`/api/retention/prune`), writing the usage file now (`/api/usage/metering/now`), sending the morning
+brief (`/api/brief/send`) and putting back an older file or a snapshot in the workspace
+(`/api/history/restore`, `/api/history/snapshots/:id/restore`) are the owner's: they work on the
+owner's records or reach the owner's chats. Importing conversations and remembered facts stays open to
+a household person, because both land only in their own profile.
+
+**A task keeps its person's limits (household-followups).** A task's role, projects and daily
+allowance are those of the person it was started for, read from the `personProfileId` it wrote
+down at its start (a specialist's task inherits its parent's). Switching the window back to the
+owner halfway through does not lift them, and switching it to somebody else does not put theirs on
+the owner's task. If that person is removed while the task runs, the rest of its tool calls are
+refused. Only a tool call that is not part of a task (the developer's *Try a tool*, another AI
+tool's server) is held to whoever the window is switched to at that moment.
+
+**Be honest about what this is:** separation on one computer, not separate accounts. There
 is no syncing, and the assistant still works as the owner: it uses the owner's models, tools and
 settings, it draws on the facts the owner has it remember while answering somebody else, and
 anything it decides to remember by itself during their task is filed under the owner, not them.
@@ -7016,6 +7342,7 @@ Every field of `VoiceSettingsSchema` (`src/voice.ts`), which is what **Settings 
 | `localSpeechExecutable` | The full path to whisper.cpp or faster-whisper, if you have one. Branch downloads nothing. |
 | `localSpeechModel` | The model file that program should use. |
 | `localSpeechKind` | Which of the two it is: `whisper-cpp` or `faster-whisper`, so the right flags are used. |
+| `localSpeechStream` | The full path to a streaming speech program that is handed sound on its standard input and writes words out as it hears them, for live dictation. Empty means none, and Branch looks for `whisper-stream` or sherpa-onnx on your search path instead. Branch downloads nothing. |
 | `liveMaxMinutes` | How many minutes one live conversation may last. 10 by default. |
 | `liveMaxDollars` | How much one live conversation may cost. $1.00 by default. |
 | `liveVoiceDetection` | Let the service decide when you have stopped speaking, rather than waiting for the button. |
@@ -7962,6 +8289,7 @@ the switch is off.
 | `/health` | `/doctor` | any key | new | new | new | — | new |
 | `/prompts [name]` | `/procedures`, `/workflows` | any key | new | new | new | new | new |
 | `/trunk [name] [message]` | `/trunks` | a key that may start tasks (on its own: any key) | new | new | new | — | — |
+| `/adapt [what it said \| yes <line>]` | `/unblock` | the key of this computer (on its own: any key) | new | — | new | — | — |
 
 ### Parity with other agents
 
@@ -8327,10 +8655,13 @@ beside the other long-lived parts. It runs only while the switch is on, a word i
 computer can really listen, and it asks again **before every window** rather than being told once, so
 Lockdown coming on, the switch going off, or the app closing stops it within one window whoever
 turned it — the card, the terminal, a settings file or another window — and the microphone is let go
-of when it stops. The recorder is **one program per window**: it is started, it ends when the window
-is up, and it is ended by the count of bytes as well, so only one window of sound is ever in memory
-and nothing can hold the microphone open between windows. A recorder that will not go when it is
-asked is ended for good two seconds later. The sound goes to the spotter on its standard input; no
+of when it stops. **For the wake word**, the recorder is **one program per window**: it is started,
+it ends when the window is up, and it is ended by the count of bytes as well, so only one window of
+sound is ever in memory and **nothing in this feature can hold the microphone open between
+windows**. A recorder that will not go when it is asked is ended for good two seconds later.
+Live dictation, below, is the one feature that does hold the microphone open, deliberately and
+only while you are dictating; it is a separate switch, it ships off, and its card says so above the
+switch. Nothing it does changes the sentences in this section, which are about the wake word. The sound goes to the spotter on its standard input; no
 file name is ever an argument to either program, and no file is written.
 
 **Locking Branch, and unlocking it (integration review).** Locking Branch lets go of the microphone
@@ -8432,6 +8763,90 @@ is. The program that would be run never travels: its full path is the owner's. `
 saves the settings and is the owner's alone. A short-lived key is refused both, the read included,
 because the word outlives any key.
 
+## Speak and see the words (mac7/live-voice)
+
+Speak, and the words appear in the message box as you say them — on this computer, for nothing, and
+nothing is sent anywhere. Its card, **Speak and see the words**, lives in Settings → Voice. It ships
+**off**, like everything else, and has the same three-way switch: **off** — the Dictate control is
+not there and nothing can open the microphone; **when needed** — the control appears once a
+conversation is open on screen, which the app window really does know (this is not the wake word's
+unwired "when needed"); **on** — the control is always there. That is the whole difference between
+the three: which windows offer you the control. **"On" does not mean the microphone is
+open.** No setting in this feature ever opens a microphone: only pressing **Dictate** does, and only
+at the app window. Say that to yourself once before reading the rest, because it is the difference
+between this and every voice assistant that listens to a room.
+
+**While dictation is on, the microphone stays open.** That is what it is: a recorder runs for as
+long as you are dictating, and Branch holds a few seconds of sound in memory at a time. It is opened
+when you turn dictation on and closed the moment you turn it off, the conversation closes, Branch is
+locked, or Lockdown comes on — and the indicator on screen is on for exactly as long as the
+microphone is. Nothing is written to disk and nothing is kept. The wake word is unchanged: it still
+takes one window at a time and still lets go of the microphone every window.
+
+That paragraph replaces a promise this reference used to make without qualification. The section
+above, **A word that starts a turn**, said that "nothing can hold the microphone open between
+windows". That is still true *of the wake word*, and it is now written that way; it was never going
+to be true of dictation, whose whole point is that the microphone stays open while you speak. The
+card says this **above the switch**, in the same words, so nobody can switch it on without having
+been told.
+
+**A quiet room lets go of the microphone.** Nobody speaking for a few seconds — `silenceSeconds`,
+four by default, anywhere from one to thirty — ends the phrase and ends the program holding the
+microphone. Branch does not hold a microphone open for a room that has gone quiet. On the path where
+Branch is handed the sound itself, it also counts how loud the room is — plain arithmetic over
+twenty milliseconds of sound at a time, with the floor learned from the first second — and feeds the
+speech program only what carries speech, so a quiet room costs the processor nothing.
+
+**It fills the message box; it does not send.** The words land where typed words land and *you*
+press send. Hearing something grants nothing, which is the same rule the wake word lives under.
+
+**You supply the speech program. Branch installs none and downloads none.** Dictation needs a
+program that writes words out *as it hears them*, which is a different thing from one that writes
+out a recording. Branch looks on your own search path for `whisper-stream` (whisper.cpp's streaming
+build, which also wants SDL2), then sherpa-onnx's microphone or ALSA build, and it uses the model
+you named under Voice. All three open the microphone themselves, so on that path **no sound reaches
+Branch at all** — only the words, and only while the program runs. You may also name your own
+streaming program under `localSpeechStream`, and that one is handed sound on its standard input by a
+recorder Branch holds open beside it. Where this computer has none of them, the card says which to
+install — `brew install whisper-cpp` on a Mac, sherpa-onnx on Linux — as something *you* might do,
+never something Branch does, and **the switch stays off**.
+
+- **macOS.** macOS has an on-device speech engine of its own inside the system, and it is very good.
+  There is no command a program can ask for it, and Branch will not ship a compiled helper of its
+  own to reach it, so it is not what dictation uses. The card says that plainly rather than implying
+  a Mac has nothing.
+- **Windows.** Windows' own speech recognition listens for one phrase at a time against a grammar
+  rather than writing out free speech, so it cannot do this. It stays what it is: the wake word's
+  spotter, and nothing more.
+- **Linux.** sherpa-onnx is the smallest thing that genuinely streams and it needs no graphics card.
+
+**Words appear about a second behind you, and may change as it hears more.** That is the honest
+claim and it is the one the card makes. It is not "as you speak": every one of these programs looks
+at the last few seconds and says what it has every half second, so the words settle rather than
+arriving finished.
+
+**Whose it is.** Dictation is the **owner's**, at the app window. It is refused to a task started
+from a chat app, to a short-lived key, to somebody else on this computer using a household profile,
+to a Trunk and to another computer — none of those is the owner at the window, and each is refused
+by the same guard rather than by five different ones. A household profile is not shown the switch,
+which speech program is here, the model, or the control. While **Lockdown** is on dictation is off
+whatever the switch says, and the microphone is let go of within half a second of it coming on.
+
+**Locking Branch.** Locking it lets go of the microphone along with everything else it holds only
+for "while I am here". Unlocking it deliberately does **not** start dictation again — that would be
+a microphone opened without a press, which nothing in this feature may do. Press Dictate.
+
+**When the speech program dies.** That is a stop, not something to paper over: the microphone is let
+go of and the words so far are settled. It is never restarted by itself; a press restarts it. A
+program that dies the instant it starts, three times over, makes the next press refuse with a
+sentence rather than trying for ever. A program that is not keeping up has its sound **dropped where
+it arrives** — never queued behind it — so a slow or dying program cannot pile up sound or spin.
+
+| Setting (`live-dictation`) | What it does |
+| --- | --- |
+| `mode` | `off`, `when-needed` or `on`. Ships `off`. All three decide only whether the Dictate control is offered; none of them ever opens a microphone by itself. |
+| `silenceSeconds` | How long a quiet room ends the phrase and lets go of the microphone. 4 by default, 1 to 30. |
+
 ## Settings you have pinned (mac7/wake-pins)
 
 Pin a setting and it is fixed. Somebody else who uses this computer — a household profile — still
@@ -8443,8 +8858,9 @@ what each one is fixed at, and a household profile sees that same list read-only
 (`Store.save`), so each of these meets the same refusal in the same words — the window, the API, the
 terminal, a settings file, a whole-app preset and a tool the assistant calls. The refusal says *"The
 owner pinned this setting (…), so it cannot be changed here. Only the owner can unpin it, in
-Settings."* This matters because several settings screens write the owner's own record without a
-profile check of their own; the pin is what stands in the way there.
+Settings."* Over HTTP a household profile never reaches a settings screen at all (profile-audit, above);
+the pin is what stands in the way of the other ways in — the terminal, a settings file, a preset and
+a tool the assistant calls during somebody else's task.
 
 A pin is checked against what the record would **mean**, not against the text sent, so a write that
 leaves the field out, or that flips the older yes/no some records keep beside their switch, is
@@ -8501,7 +8917,7 @@ list as well. Working until a goal is met and writing new skills count as reachi
 the snapshots counts as taking a protection away. Guards are saved through their own module's save
 (the second look, loop guard, folder trust, security check, the wall, Keychain entries, retention, the
 smaller asks), so the change takes effect at once and is recorded. While Lockdown is on, nothing is
-changed from here. Every route is the owner's: a household profile gets 403. A short-lived key may read
+changed from here. Every route is the owner's: a household profile gets 400 (the same status as every other "belongs to the owner" refusal). A short-lived key may read
 the list of settings but not the file, the owner's own files, or any change (`src/short-lived-keys.ts`).
 
 **Which file does what** (Settings → General) lists SOUL, IDENTITY, USER, AGENTS, TOOLS, SOP, MEMORY
@@ -8881,6 +9297,116 @@ after it opens a picker of the connections.
 Nothing here differs by system. Cmd counts as Ctrl for the shortcuts on macOS. The sound is played by the window
 itself, not by a system program.
 
+## Removing Branch and everything it installed (mac7/clean-uninstall)
+
+Everything Branch fetches lives inside Branch, so deleting Branch takes all of it with it. The
+**danger zone** is the last card in Settings → Updates & about, marked in the warning colour, and it
+is the one place in the window that removes things that cannot be brought back.
+
+**What it shows, before anything goes.** A list with real sizes, walked on this computer at the
+moment you look: Branch Agent itself, the programs Branch downloaded to run models
+(`<data>/runners`), the models it downloaded (`<data>/models`, and the older `<data>/local-models`),
+downloads kept part-way through (`<data>/local-installers`), your conversations and settings, the
+entry that starts Branch when you sign in, the `branch` command, and on Linux the applications-menu
+entry. Underneath, **what Branch cannot remove**, each named with the honest reason: a copy of
+Branch its own installer did not put there (a Mac's shared `/Applications`), and any program that
+runs models that lives outside Branch, because a system installer put it there or because you
+installed it yourself. Branch leaves those alone and tells you where they are.
+
+**Two choices, not one.** *Keep my conversations and settings* keeps the folder holding your work;
+what Branch downloaded still goes, because gigabytes of models are Branch's doing, not yours. It
+starts ticked, and a request that leaves `keepConversations` out keeps them too: only unticking it
+(`false`) takes your conversations and settings with everything else.
+
+**A misclick cannot pass.** The button stays off until you have typed `Branch Agent`, exactly, and
+your yes carries back the exact list you were shown (`agreedSurvey`); if what is really there has
+changed since you looked, nothing is removed and you are shown the new list.
+
+**Yours alone.** A message from a chat app, a short-lived key (which is also how another computer
+reaches this one), somebody else using this computer under their own profile, a Trunk, and work a
+schedule or a trigger started are each refused in one sentence. Unlike installing, this is *not*
+held off by Lockdown or by the install switch: taking Branch off your own computer stays yours.
+
+**Only a copy an installer put in place.** The card offers nothing when Branch is running from a
+source folder (a `.git` beside its `package.json`) or when no copy sits where its installer puts
+one; it says so plainly instead. That is a fact about the files, not an environment variable, so a
+window opened from the Dock is treated the same as one started from the `branch` command.
+
+**It works while Branch is running.** The removal closes the running Branch (and the engine that
+keeps working with the window closed) first, waits until it has really gone, takes out the sign-in
+entry, and only then removes the files. It is the same remover as `branch uninstall [--delete-data]`
+on the command line — there is no second path — extended to the folders Branch fetches into. That
+command now also prints which of those folders went, so "your conversations and files are kept"
+cannot be read as "nothing inside that folder was touched".
+
+| Route | What it does |
+| --- | --- |
+| `POST /api/remove-branch/plan` | `{ "keepConversations": true }` (the default): the list with sizes, what cannot be removed, the phrase to type, and the list's own line. Describes only; changes nothing. |
+| `POST /api/remove-branch` | `{ "keepConversations": true, "confirm": "Branch Agent", "agreedSurvey": "<the list's line>" }`. |
+
+On Windows both answer with the plain sentence pointing at *Add or remove programs* or
+`Uninstall Branch Agent.cmd /quiet`, because that is how Windows removes a program.
+
+**Which version this is.** The Updates card (Settings → Updates & about) says in plain words what is
+running and whether a newer one exists — "Running 0.18.0, newest is 0.18.1", or "Running 0.18.0,
+which is the newest", or that Branch has not looked yet — from the same update check as before.
+Nothing installs itself: *Update and restart* is still a button you press.
+
+## Getting what a stopped task is missing (mac7/adapt)
+
+Settings → Models → *Getting what a stopped task is missing* is a three-way switch that ships
+**off**. When a task cannot go on because this computer has not got something, Branch works out what
+that is, tells you in plain words what would fix it and what that costs, and — only after you say
+yes — gets it and hands the task back the step it stopped on. In the message box and the terminal
+the same thing is `/adapt`.
+
+**Off, only when it is needed, on.** *Off*: Branch still says what is missing, exactly as it always
+did, and offers nothing. *Only when it is needed*: it offers a fix when a task has really stopped.
+*On*: it also names what is missing and what would fix it before you ask. In every position it
+fetches, installs and switches on **nothing** until you have said yes to the exact offer you read.
+
+**What it can place.** It invents no new error language: it reads the sentences Branch already says
+and says which kind of missing thing each one is — no program that runs models; no model of the kind
+the work needs (reading aloud, writing out speech, comparing passages by meaning, looking at
+pictures, drawing pictures); a program that is not installed (Git, Docker, a recorder, a speech
+program); a model service with no key; a switch left off; a permission this computer has not
+granted; not enough room on the disk; no connection to the internet. A sentence it cannot place is
+said plainly to be one it cannot place, and nothing is done.
+
+**What it offers for each.** For a missing program that runs models, and for a missing model when
+nothing here runs models yet, the offer is the one-button install's own plan — the publisher, the
+address, about how big, how the download is checked, and the exact commands — and the work is done
+by that same button, which asks the *Installing a program that runs models* switch again. So
+`/adapt` can never install a runner behind that switch's back. For a switch left off, it offers to
+turn on the one switch whose own sentence it can place exactly, and refuses to guess at any other.
+
+**What it refuses, honestly.** A permission is yours to grant and your computer will take it from
+nobody else; a key is yours to paste into the locker; a full disk is not Branch's to empty; a lost
+connection is not Branch's to bring back; and a program Branch has no publisher, checksum and plan
+for is not something it will fetch from wherever the internet happens to offer it. Each of those
+says so in one sentence, names what you could do yourself, and installs nothing. Branch never
+half-installs something and calls it done.
+
+**Nothing happens until you say yes.** Looking shows the offer and its own line (`fingerprint`).
+Your yes carries that line back (`/adapt yes <line>`, or the button on the card), and only that exact
+offer is then carried out; if it changed in between, nothing is fetched and you are shown the new
+one. The wording and the shape are the one-button install's, not a second set of its own.
+
+**Carrying on, not starting again.** A task that stops writes down what it was doing, the steps it
+had already finished and the one step it stopped on. When what was missing arrives, that record —
+not the original request — is handed back: the work starts at the step it stopped on, the finished
+steps are named as finished and are not done again, and the answer says what the task can now do
+that it could not before. The records survive Branch closing.
+
+**Yours alone.** A message from a chat app, a short-lived key (which is also how another computer
+reaches this one), somebody else using this computer under their own profile, a Trunk, and work a
+schedule or a trigger started are each refused in one sentence — the very checks the one-button
+install makes, asked of the same code — and everything here is held off while Lockdown is on. The
+assistant has no tool for this: it can mention `/adapt` in an answer, but it cannot run it, and
+neither can an automation. `GET /api/adapt` reads the switch and what is stopped; `POST
+/api/adapt/switch` `{ mode }`, `/api/adapt/stopped`, `/api/adapt/plan` and `/api/adapt/go` are the
+owner's own, in the app window, and refused to every short-lived key.
+
 ## Learning, deeper (R17-F)
 
 Nine parts under `src/learning-more/`, each with the owner's three-way switch (off, on, only when it
@@ -8915,3 +9441,101 @@ characters), `readOnly` and `value`; a fact's labels are `tags` (up to 12) and `
 Nothing here depends on the platform. The Claude Code and Codex folders follow each assistant's own
 override variable (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`) and otherwise `~/.claude` and `~/.codex` on
 every system (`src/migrate/detect.ts`).
+
+## Understanding something (mac7/learn)
+
+Point Branch at something you are trying to understand -- a folder of code, a knowledge base, a
+folder of notes -- and get two things: **a map** of what is in there and how the parts connect, and
+**a tour**, a guided walk through it, one stop at a time, in plain words. The card is in Library →
+Documents, beside the other knowledge base cards. `/learn` does the same from the message box, the
+terminal and the dashboard. Routes are under `/api/learn`, the owner's profile only.
+
+**It ships off**, like every feature. Off, `/learn` and the three tools refuse in one sentence and
+are not offered to the assistant; "only when it is needed" lists them until the work calls for them;
+"on" loads them from the first round.
+
+### What every claim carries
+
+This is the whole point of the feature, so it is said first. Every claim the map or the tour makes
+carries the place it was read from, and you can open it:
+
+- over code, the file and the **line** where a name is declared;
+- over documents, the **document, heading and page** of the passage -- the citation Branch's entity
+  map has carried all along (`GraphLink.citation`).
+
+A claim with nothing behind it is not quietly dropped and not quietly shown: it says so on itself,
+in words ("Nothing on this stop could be traced to a passage: …"), and the tour counts them for you.
+A confident summary written for somebody who cannot check it is how a wrong map teaches the wrong
+shape without anybody noticing, so there is no way to leave the citation out.
+
+Anything a model wrote -- the paragraph on a stop -- is marked as written by the assistant from the
+named source, never as something the document says.
+
+### What it costs
+
+**Building a map calls no model at all**, over code or over documents, so it costs nothing and
+nothing leaves this computer. That is said in words, never as a figure: a made-up `$0.00` cannot be
+told apart from a model whose price nobody knows.
+
+The only model call in the whole feature writes the paragraph on each stop of the tour -- one call
+for the whole tour, and only if you tick the box. Press **What would this cost** (or use
+`learn.cost`) and you are told before anything is spent: how many parts the map has, and what the
+tour's one call would come to from the price table, from a price you typed in, or -- for a model
+with no price on file -- the plain words "no price is on file for that model", never a zero
+(`src/pricing.ts`). Nothing starts on its own and nothing is spent without you pressing the button.
+
+### How the tour is made
+
+Compute first, narrate second. The stops, their order and the source under each one are worked out
+on this computer before a model is asked anything:
+
+1. the ranking Branch already has says what the rest leans on (`src/code-rank.ts`, no model);
+2. the things are grouped, and each group becomes a stop -- grouping before spending, so a model is
+   asked few, well-shaped questions instead of one per file;
+3. over code the stops are ordered by following the links out from the highest-ranked file, which is
+   the order the folder really reads in; over documents it is most-talked-about outward;
+4. only then, if you asked for it, one model call writes the words.
+
+With no model connected the tour still exists: every stop keeps its title, its source and a plain
+sentence, and says that is what happened. A model's answer is assumed to be broken and repaired on
+the way in -- fenced blocks, trailing commas, stops numbered from zero, words under another name --
+and anything that cannot be matched to a real stop is dropped rather than guessed at, so a bad
+answer can never move a paragraph onto the wrong stop.
+
+Your language reaches the **written words**, not only the buttons: with the workspace in French the
+model is told, in French, to write in French, so a French tour is French sentences and not French
+chrome around English ones.
+
+### What works less well without code
+
+Worth saying plainly, because it is the honest difference between the two halves.
+
+Code states its own dependencies: one file imports another, and that is a real link nobody had to
+guess. **A folder of documents states nothing about itself.** With no import graph there is no cheap
+structure to group by and no natural starting point, so over documents:
+
+- a link usually means only "these two names turned up in the same passage". It does not say how the
+  two are related, and the map does not pretend to know. The map says so in its own limits.
+- there is **no "start here"**. The order is what the files talk about most, which is useful but is
+  not a reading order. If you know what you want to understand, say so -- ranking the map around
+  your own question works better than any guess at an entry point.
+- the names come from runs of capitalised words, so two spellings of one thing are two things, and a
+  name that is also an ordinary word turns up as both. That is the reader on this computer being
+  honest about what it is.
+
+Over code the names come from a light reader, not a real parser, so a name inside a comment or a
+string can be read as a declaration. Both caveats are on the map itself, not only here.
+
+### Safety
+
+Passages are somebody else's writing, so they go to the model marked untrusted, with a note that
+they are material to read and never instructions to follow; a passage carrying a copy of the marker
+cannot close the envelope early. Anything that comes back reading like instructions aimed at the
+assistant is dropped and the stop keeps its own words. Nothing is uploaded, nothing is published,
+and no map is ever offered to a hosted service.
+
+Nothing ever rebuilds a map on its own. A stale map is a row saying so; you press Build.
+
+Settings fields (`learn`): `mode` (off, when-needed, on -- off at first) and `steps`, how many stops
+a tour may have (3 to 12, default 8). Tools: `learn.map`, `learn.tour`, `learn.cost`, all under the
+permission for reading documents.

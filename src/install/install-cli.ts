@@ -1,8 +1,10 @@
 #!/usr/bin/env node
+import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { defaultInstallRoot, defaultUninstallHive, performInstall, removeUninstallEntry } from "./installer.js";
 import { legacyDataDirs } from "./layout.js";
+import { refreshShortcutsFlag } from "./windows-identity.js";
 // bucket 22: the same installer on macOS and Linux (src/install/unix-install-cli.ts).
 import { unixInstallMain } from "./unix-install-cli.js";
 
@@ -20,6 +22,17 @@ async function version(source: string): Promise<string> {
     const manifest = JSON.parse(await readFile(join(source, "resources", "app", "package.json"), "utf8")) as { version?: string };
     return manifest.version ?? "0.0.0";
   } catch { return "0.0.0"; }
+}
+
+/**
+ * mac7/win-icon: runs the installed app once as itself (not as Node, which this installer is) so it
+ * can give the new shortcuts the taskbar's app ID, then quits without opening a window.
+ */
+function stampShortcuts(executable: string): Promise<void> {
+  const env = { ...process.env };
+  delete env.ELECTRON_RUN_AS_NODE;
+  return new Promise((resolve, reject) => execFile(executable, [refreshShortcutsFlag],
+    { env, windowsHide: true, timeout: 60000 }, (error) => (error ? reject(error) : resolve())));
 }
 
 async function main(): Promise<void> {
@@ -44,7 +57,8 @@ async function main(): Promise<void> {
     uninstallHive: hive,
     userDataDir: flag("user-data") ?? join(appData, "Branch Agent"),
     legacyDataDirs: legacyDataDirs(env),
-  });
+  }, { stampShortcuts });
+  if (report.closedFirst) console.log("Branch Agent was open, so it was closed first. Open it again from the Start menu."); // mac7/real-update
   console.log(`Branch Agent is installed in ${report.installRoot}.`);
   console.log(`Shortcuts: ${report.shortcuts.join(", ")}`);
   if (report.previousKept) console.log(`The version that was there is kept in ${report.previousKept}.`);

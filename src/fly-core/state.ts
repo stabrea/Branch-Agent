@@ -97,19 +97,34 @@ export class FlyState {
     }
     return circuit;
   }
+  /**
+   * Writes what was learned in one transaction. One row at a time, each its own commit, cost a
+   * journal file and a flush to disk per row: 5,000 actions took ten minutes on Windows, where every
+   * new journal file is also scanned, against seconds on a Mac.
+   */
   save(owner: string, states: readonly ActionState[]): void {
     const put = this.db.prepare(`INSERT INTO fly_synapses(owner, kind, action, approach, avoid, uses, net, updated_at) VALUES(?,?,?,?,?,?,?,?)
       ON CONFLICT(owner, kind, action) DO UPDATE SET approach=excluded.approach, avoid=excluded.avoid, uses=excluded.uses, net=excluded.net, updated_at=excluded.updated_at`);
     const saved = states.map((s) => ({ ...s, action: s.action.slice(0, 200), updatedAt: Math.round(s.updatedAt) }));
-    for (const s of saved)
-      put.run(owner, s.kind, s.action, packWeights(s.approach), packWeights(s.avoid), s.uses, s.net, s.updatedAt);
+    const drop = this.db.prepare("DELETE FROM fly_synapses WHERE owner=? AND kind=? AND action=?");
+    const own = !this.db.isTransaction;
+    if (own) this.db.exec("BEGIN");
+    let dropped = 0;
+    try {
+      for (const s of saved)
+        put.run(owner, s.kind, s.action, packWeights(s.approach), packWeights(s.avoid), s.uses, s.net, s.updatedAt);
+      const over = this.db.prepare(`SELECT kind, action FROM fly_synapses WHERE owner=? ORDER BY updated_at DESC LIMIT -1 OFFSET ?`)
+        .all(owner, maximumActions);
+      for (const row of over) drop.run(owner, String(row.kind), String(row.action));
+      dropped = over.length;
+      if (own) this.db.exec("COMMIT");
+    } catch (error) {
+      if (own && this.db.isTransaction) this.db.exec("ROLLBACK");
+      throw error;
+    }
     const index = existingIndex(this.db, owner);
     index?.put(saved);
-    const over = this.db.prepare(`SELECT kind, action FROM fly_synapses WHERE owner=? ORDER BY updated_at DESC LIMIT -1 OFFSET ?`)
-      .all(owner, maximumActions);
-    if (!over.length) return;
-    const drop = this.db.prepare("DELETE FROM fly_synapses WHERE owner=? AND kind=? AND action=?");
-    for (const row of over) drop.run(owner, String(row.kind), String(row.action));
+    if (!dropped) return;
     const kept = this.db.prepare("SELECT kind, action FROM fly_synapses WHERE owner=?").all(owner);
     index?.keep(new Set(kept.map((row) => actionKey(String(row.kind) as ActionKind, String(row.action)))));
   }

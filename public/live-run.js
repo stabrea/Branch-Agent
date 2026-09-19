@@ -155,6 +155,8 @@ export function watchRun(sessionId, prompt) {
         if ($("live-row").dataset.runId !== mine.runId) {
           $("live-row").dataset.runId = mine.runId;
           $("live-controls-slot").replaceChildren(controls(mine.runId));
+          /* Recents shows this conversation straight away, marked as working (public/shell.js). */
+          document.dispatchEvent(new CustomEvent("branch-run-started", { detail: { sessionId: mine.sessionId, runId: mine.runId } }));
           socket = follow(mine.runId, since, seen);
         }
       }

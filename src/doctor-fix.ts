@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 import { execFile } from "node:child_process";
-import { access, constants } from "node:fs/promises";
+import { access, constants, stat } from "node:fs/promises";
 
 /**
  * Setting-up problems, in plain words, with the repair offered rather than described. Each check says
@@ -93,8 +93,12 @@ async function checkBrowser(options: DoctorOptions, deps: DoctorDeps): Promise<D
 async function defaultBrowserCheck(): Promise<boolean> {
   try {
     const { chromium } = await import("playwright");
-    await access(chromium.executablePath(), constants.X_OK);
-    return true;
+    const path = chromium.executablePath();
+    await access(path, constants.X_OK);
+    // mac7/install-torture: a download cut off part-way can leave an empty file that is still marked
+    // runnable. That is not a browser, and calling it one turns a plain "it is missing" into a crash.
+    const info = await stat(path);
+    return info.isFile() && info.size > 0;
   } catch { return false; }
 }
 

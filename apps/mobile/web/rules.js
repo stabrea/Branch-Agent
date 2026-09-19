@@ -76,9 +76,46 @@ export function readInvitation(text) {
   const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : `http://${raw}`;
   const origin = checkAddress(withScheme);
   const url = new URL(withScheme);
-  const id = url.pathname.replace(/\/+$/, "") === "/pair" ? url.searchParams.get("id") : null;
+  const where = url.pathname.replace(/\/+$/, "");
+  if (where === "/devices/pair")
+    throw refusal("phone.error.deviceLink", "That is the square from Your devices. Use \u201cLend this phone to Branch\u201d further down instead.");
+  const id = where === "/pair" ? url.searchParams.get("id") : null;
   if (id !== null && !offerPattern.test(id)) throw refusal("phone.error.damaged", "That invitation link is damaged. Show the square code again.");
   return { origin, offerId: id };
+}
+
+/* ---------- Lend this phone to Branch (the Devices card's invitation) ---------- */
+
+/**
+ * What this phone can promise never to do, whatever Branch switches on: the four the owner is most
+ * likely to mind. They are the capability names src/devices/capabilities.ts uses.
+ */
+export const DEVICE_REFUSALS = ["camera", "screen", "listen", "run"];
+/** A kept refusal list, in a fixed order, with anything unknown dropped. */
+export const readNever = (saved) => DEVICE_REFUSALS.filter((name) => (Array.isArray(saved) ? saved : []).includes(name));
+
+const devicePattern = /^[a-f0-9]{32}$/;
+/**
+ * Reads the square code from Customize, Channels, Your devices: the computer's address and the
+ * invitation id, and nothing else. The same address rule as everything else on this phone.
+ */
+export function readDeviceInvitation(text) {
+  const raw = String(text ?? "").trim();
+  if (!raw) throw refusal("phone.error.deviceEmpty", "Scan the square code from Your devices on your computer.");
+  const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : `http://${raw}`;
+  const origin = checkAddress(withScheme);
+  const url = new URL(withScheme);
+  if (url.pathname.replace(/\/+$/, "") !== "/devices/pair") throw refusal("phone.error.notDeviceLink", "That is not the square from Your devices. Press Pair a device on your computer.");
+  const offer = url.searchParams.get("offer") ?? "";
+  if (!devicePattern.test(offer)) throw refusal("phone.error.damaged", "That invitation link is damaged. Show the square code again.");
+  return { origin, offer };
+}
+
+/** The six numbers showing on the computer, with the spaces people type taken out. */
+export function sixDigits(code) {
+  const digits = String(code ?? "").replace(/\s+/g, "");
+  if (!/^\d{6}$/.test(digits)) throw refusal("phone.error.code", "Type the six numbers showing on your computer.");
+  return digits;
 }
 
 /** The body the computer expects when the six numbers are typed (src/server.ts pairingRequest). */

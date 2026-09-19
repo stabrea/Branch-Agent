@@ -118,3 +118,26 @@ body {
 /* mac7/connect: the chat app setup card. */
 .phone-connect { display: grid; gap: 0.5rem; margin-top: 0.5rem; }
 .phone-connect a.quiet-button { display: block; text-align: center; text-decoration: none; }
+
+/* mac7/phone-pairing: the "never allow" ticks on the device card. */
+.phone-checks { display: grid; gap: var(--s2); margin-top: var(--s2); }
+.phone-check {
+  display: grid;
+  grid-template-columns: 22px 1fr;
+  align-items: start;
+  gap: var(--s2);
+  min-height: 44px;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+.phone-check input { width: 20px; height: 20px; margin: 2px 0 0; }
+.phone-check span { display: block; min-width: 0; }
+.phone-check strong { display: block; font-weight: 600; }
+.phone-check small { display: block; font-size: 0.8rem; color: var(--muted); overflow-wrap: anywhere; }
+#device-scan-view {
+  width: 100%;
+  margin-top: var(--s3);
+  border-radius: var(--r2);
+  border: 1px solid var(--line);
+  background: var(--well);
+}

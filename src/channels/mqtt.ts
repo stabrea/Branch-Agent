@@ -161,8 +161,19 @@ export class MqttChannel implements ChannelAdapter {
   }
   async stop(): Promise<void> {
     this.stopping = true;
-    if (this.socket) { this.write(packet(PACKET.DISCONNECT, 0)); this.socket.end(); this.socket.destroy(); }
+    const socket = this.socket;
+    let unanswered: NodeJS.Timeout | null = null;
+    if (socket) {
+      // DISCONNECT has to reach the broker before the socket goes. Destroying it straight after the
+      // write threw the goodbye away wherever the write was still queued (on Windows it often is),
+      // so the socket is ended, which sends what is queued first, and the broker closes its side.
+      this.write(packet(PACKET.DISCONNECT, 0));
+      socket.end();
+      unanswered = setTimeout(() => socket.destroy(), 2000);
+    }
     await this.loop?.catch(() => undefined);
+    if (unanswered) clearTimeout(unanswered);
+    socket?.destroy();
     this.loop = null;
   }
 

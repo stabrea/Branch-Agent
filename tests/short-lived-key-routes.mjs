@@ -42,6 +42,14 @@ export const ROUTES = {
   "/api/accounts/settings": "owner POST",
   "/api/accounts/switch": "owner POST",
   "/api/accounts/update": "owner POST",
+  // mac7/adapt: reading what is stopped is looking; everything that fetches, installs or switches
+  // something on is the owner's own step in the app window.
+  "/api/adapt": "look",
+  "/api/adapt/": "prefix",
+  "/api/adapt/go": "owner POST",
+  "/api/adapt/plan": "owner POST",
+  "/api/adapt/stopped": "owner POST",
+  "/api/adapt/switch": "owner POST",
   "/api/action": "task POST",
   "/api/activity": "look",
   "/api/agents": "prefix",
@@ -68,7 +76,7 @@ export const ROUTES = {
   "/api/batch-sets": "look",
   "/api/batch/run": "other POST",
   "/api/brief": "owner POST",
-  "/api/brief/send": "other POST",
+  "/api/brief/send": "owner POST",
   "/api/browser": "prefix",
   "/api/browser/": "prefix",
   "/api/browser/attach": "owner POST",
@@ -200,9 +208,9 @@ export const ROUTES = {
   "/api/help/": "prefix",
   "/api/history/": "prefix",
   "/api/history/files": "look",
-  "/api/history/restore": "other POST",
+  "/api/history/restore": "owner POST",
   "/api/history/snapshots": "other POST",
-  "/api/history/snapshots/:id/restore": "other POST",
+  "/api/history/snapshots/:id/restore": "owner POST",
   "/api/hooks": "look",
   "/api/hooks/sample/enable": "owner POST",
   "/api/identity": "owner POST",
@@ -290,6 +298,11 @@ export const ROUTES = {
   "/api/devices/[a-f0-9]{16}/rename": "owner POST",
   "/api/devices/[a-f0-9]{16}/revoke": "owner POST",
   "/api/devices/requests/[a-f0-9]{32}": "owner POST",
+  // mac7/phone-qr: the "Get Branch on your phone" card; the live link is on it, so even reading is the owner's.
+  "/api/phone-app": "secret-read",
+  "/api/phone-app/": "prefix",
+  "/api/phone-app/share": "owner POST",
+  "/api/phone-app/stop": "owner POST",
   "/api/asks/surfaces/:id/refresh": "other POST",
   "/api/asks/surfaces/:id/remove": "owner POST",
   "/api/asks/switch": "owner POST",
@@ -541,7 +554,12 @@ export const ROUTES = {
   "/api/local-models/delete": "owner POST",
   "/api/local-models/details": "other POST",
   "/api/local-models/downloads": "look",
+  // mac7/one-click (issue #107): installing the program that runs the models is the owner's alone.
+  "/api/local-models/install": "prefix",
+  "/api/local-models/install/switch": "owner POST",
   "/api/local-models/load": "owner POST",
+  "/api/local-models/one-button": "owner POST",
+  "/api/local-models/one-button/plan": "owner POST",
   "/api/local-models/offers": "other POST",
   "/api/local-models/pull": "owner POST",
   "/api/local-models/remove": "owner POST",
@@ -559,6 +577,12 @@ export const ROUTES = {
   "/api/lock": "owner POST",
   "/api/lock/settings": "owner POST",
   "/api/lock/unlock": "owner POST",
+  // mac7/learn: reading the switch only looks; a map reads the whole folder and a tour may ask a model.
+  "/api/learn": "look",
+  "/api/learn/cost": "other POST",
+  "/api/learn/map": "other POST",
+  "/api/learn/switch": "owner POST",
+  "/api/learn/tour": "other POST",
   "/api/lockdown": "owner POST",
   // mac7/bind (integration review): where Branch's own door listens. Reading it tells a caller
   // where to knock, so looking is the owner's alone as much as moving it is.
@@ -724,6 +748,7 @@ export const ROUTES = {
   "/api/profiles": "owner POST",
   "/api/profiles/:id/remove": "owner POST",
   "/api/profiles/:id/role": "owner POST",
+  "/api/profiles/owner-pin": "owner POST", // household-followups
   "/api/profiles/switch": "owner POST",
   "/api/projects": "owner POST",
   "/api/projects/active": "owner POST",
@@ -754,6 +779,10 @@ export const ROUTES = {
   "/api/queue/:id/cancel": "task POST",
   "/api/queue/settings": "owner POST",
   "/api/receipts/verify": "task POST",
+  // mac7/clean-uninstall: the danger zone. Describing what would go names every folder on this
+  // computer with its size, and doing it removes Branch, so both are the owner's alone.
+  "/api/remove-branch": "owner POST",
+  "/api/remove-branch/plan": "owner POST",
   "/api/recordings": "owner POST",
   "/api/reflection": "look",
   "/api/reflection/batches/:id/accept": "other POST",
@@ -781,7 +810,7 @@ export const ROUTES = {
   "/api/research": "look",
   "/api/restore": "owner POST",
   "/api/retention": "owner POST",
-  "/api/retention/prune": "other POST",
+  "/api/retention/prune": "owner POST",
   "/api/retrieval": "owner POST",
   "/api/retrieval/context": "other POST",
   "/api/retrieval/pipelines": "other POST",
@@ -942,7 +971,7 @@ export const ROUTES = {
   "/api/usage/limits": "secret-read",
   "/api/usage/limits/settings": "secret-read",
   "/api/usage/metering": "owner POST",
-  "/api/usage/metering/now": "other POST",
+  "/api/usage/metering/now": "owner POST",
   "/api/usage/report": "owner POST",
   "/api/usage/report/settings": "owner POST",
   "/api/voice/": "prefix",
@@ -957,6 +986,11 @@ export const ROUTES = {
   "/api/web-pages": "owner POST", // w911 (A0743, A1452) hook: the switch for reading and crawling web pages
   // mac7/wake-pins: the word that starts a turn. Reading says what this computer could do; changing is the owner's.
   "/api/voice/wake": "secret-read",
+  // mac7/live-voice: speaking and seeing the words. Reading says which speech program is here and
+  // whether the microphone is open; starting it opens a microphone on the owner's own computer, so
+  // both are the owner's alone at the app window and neither is anything a key may do.
+  "/api/voice/dictation": "secret-read",
+  "/api/voice/dictation/listen": "secret-read",
   "/api/webhooks": "secret-read",
   "/api/webhooks/:id": "secret-read",
   "/api/webhooks/:id/enable": "owner POST",
@@ -982,7 +1016,7 @@ export const OUTBOUND = [
   /^src\/channels\/(?!parity-api\.ts)/, /^src\/providers\//,
   /^src\/(local-models|tracing-export|voice|provider-batch)\.ts$/,
   // Callers of our own routes, and the route description, rather than the routes themselves.
-  /^src\/(cli|cli-attach|api-openapi|short-lived-keys)\.ts$/, /^src\/install\//, /^src\/desktop\//,
+  /^src\/(cli|cli-attach|api-openapi|short-lived-keys|household-routes)\.ts$/, /^src\/install\//, /^src\/desktop\//,
   /^src\/never-break\/gateway\.ts$/, /^src\/commands\/catalog\.ts$/,
   /^src\/channel-setup\/cli\.ts$/, // mac7/connect: `branch connect` calls the Set up routes of the running Branch
   // r17-i: callers of other computers' routes and of the relay's, not routes of this one.

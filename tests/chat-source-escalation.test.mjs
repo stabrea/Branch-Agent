@@ -71,6 +71,12 @@ test("a schedule a chat's task makes does not launder its work into the owner's"
   const due = new Date(Date.now() + 60_000).toISOString();
   const asked = JSON.stringify({ kind: "task", prompt: "tidy up", dueAt: due,
     permissions: ["workflows.manage", "memory.write", "memory.read"] });
+  // 0.18.1 (deliberate update): "No approvals" no longer frees a chat's task, so saving the schedule
+  // now waits for the owner. The owner says yes in their own window; the chat then carries on. This
+  // test used to rely on the chat's change going straight through under "off".
+  const waiting = await say(`please schedules.create ${asked}`);
+  assert.equal(waiting?.status, "needs_input", "the chat's change waits for the owner's yes");
+  app.runtime.approve(waiting.sessionId, "allow", "session");
   await say(`please schedules.create ${asked}`);
   const record = app.store.list("schedules", owner).find((item) => item.data.prompt === "tidy up");
   assert.ok(record, "the chat's task saved a schedule");

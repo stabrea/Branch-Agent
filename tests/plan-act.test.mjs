@@ -346,12 +346,15 @@ test("the switch is in the conversation, and the plan card approves in one press
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.locator("#workspace").waitFor({ state: "visible" });
   if (await page.locator("#first-run").isVisible()) {
-    await page.getByRole("button", { name: /Just look around/ }).click();
-    await page.getByRole("button", { name: "Done, start chatting", exact: true }).click();
+    /* "Try it without an account" finishes first run in one click. */
+    await page.getByRole("button", { name: /Try it without an account/ }).click();
     await page.locator("#first-run").waitFor({ state: "hidden" });
   }
-  // The choice lives beside the model picker in the conversation, not in Settings.
-  await page.locator("#session-plan-mode").selectOption("show-plan");
+  // The choice lives in the conversation, not in Settings: under More in the calm window (0.18.1).
+  await page.locator("#lx-more").click();
+  await page.getByRole("menuitemcheckbox", { name: "Show me the plan first" }).click();
+  await page.keyboard.press("Escape");
+  assert.equal(await page.locator("#session-plan-mode").inputValue(), "show-plan", "the real switch follows the menu");
   await page.waitForFunction(() => document.getElementById("plan-mode-state")?.textContent?.length > 0);
   await page.locator("#prompt").fill("summarise my notes");
   await page.locator("#send").click();

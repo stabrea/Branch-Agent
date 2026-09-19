@@ -5,6 +5,7 @@ import { z } from "zod";
 import type { Store } from "./store.js";
 import { CompletionCheckSchema } from "./reliability.js";
 import { ScorerSchema } from "./evaluation-scorers.js";
+import { vacuousTaskProblem } from "./evaluation-grading.js";
 
 /**
  * Evaluation suites kept as plain data, so a person can read one, copy it, and write their own
@@ -102,6 +103,13 @@ export function saveSuite(store: Store, owner: string, input: unknown): SuiteEnt
   const suite = SuiteSchema.parse(input);
   if (builtInSuites().some((entry) => entry.id === suite.id))
     throw new Error(`${suite.id} is the name of a suite that ships with the program; choose another`);
+  // mac7/eval-honesty: a case that can never fail is refused when it is written, not when it is
+  // read — a suite already saved is still listed and still runs, and says at grading time what is
+  // wrong with it. Refusing at read time would make old suites vanish from the list instead.
+  for (const task of suite.tasks) {
+    const problem = vacuousTaskProblem(task);
+    if (problem) throw new Error(problem);
+  }
   store.save("governance", owner, storeId(suite.id), { ...suite });
   return { ...suite, source: "yours" };
 }

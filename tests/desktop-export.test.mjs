@@ -1,5 +1,5 @@
 import test from 'node:test';
-import { openPlace } from "./places.mjs";
+import { openPlace, showEverything } from "./places.mjs";
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -54,6 +54,9 @@ test('native conversation export uses guarded IPC and leaves the blanket downloa
     // "performing click action", with nothing covering the button), so every step gets a minute.
     const page = await electron.firstWindow(); page.setDefaultTimeout(60000);
     await connected(page);
+    // Saved conversations is one of the full window's own lists, which the calm default keeps behind
+    // "Show everything".
+    await showEverything(page);
     await electron.evaluate(({ dialog }, path) => {
       globalThis.fixtureExportDialogs = [];
       dialog.showSaveDialog = async (_window, options) => {
