@@ -45,3 +45,34 @@ critiques #44, #53). Screenshots and terminal frames: `claude-session-files/bran
 - The "early errors" in the proof script (401/429 and two CSP inline-style warnings) all come from the sign-in
   screen before the session token is entered; they exist on trunk too. Errors after the window settles are counted
   separately and must be zero.
+
+## Integration (adversarial integrator, 2026-09-19)
+
+Verdict: MERGE WITH FIXES (fixes below, commit 20cd9f3c on `integrate/p2-everywhere`).
+
+- [x] Review: household profiles see only this computer on the terminal rail and no usage line (usageGlance and
+      railItems both check the owner; tested). The phone bar's Inbox count mirrors the side list's badge and the bar
+      lists the same five places the side list shows everyone, so it shows nothing the side list does not.
+- [x] "Assistant:" renamed to the assistant's name: nothing parses it (grep of src/tests/scripts/apps/public; only the
+      updated cli-tui regexes and the terminal-view fixture). Plain view (NO_COLOR/TERM=dumb) prints plain lines; ASCII
+      glyphs for the rail and usage bar; rail only from 100 columns; no new escape sequences.
+- [x] Fix: the first paint is Slate. `public/tokens.css` gains a block for a page that names no theme (or names
+      Slate) holding exactly the values layout.js wears for Slate (catalogue + BRIDGE + --surface, plus the shell
+      grounds); `public/look-early.js` (classic, in the head, before tokens.css) names a chosen theme first, so a chosen
+      Forest paints Forest from the first frame as before. The phone app's own screens (apps/mobile/web) now paint
+      Slate too. Tests: first paint equals the worn Slate colour for colour; the block equals the catalogue (dark and
+      light); a chosen Forest/Slate paints its own; redesign-phase1 passes unchanged.
+- [x] Fix: `viewport-fit=cover` on the window, with env(safe-area-inset-*) on the page margins, the places bar, the
+      slide-over side list, Settings and its close button, toasts and the floating side pane. Tested with Chromium's
+      safe-area override (47 px notch, 34 px home bar); margins at 1440/1024/820/390 unchanged without insets.
+- [x] Fix: a question's answers lock on the first press (live-run.js answerOnce), so a double tap sends one answer
+      (test fails without the fix: 3 requests); a failed send gives the buttons back. On a phone/tablet "No" is the
+      quiet outline answer and all answers share one height. "Yes, always" still hidden for a task the owner did not start.
+- [x] Breakpoint sweep 390/560/561/699/700/820/860/861/900/1024/1440: nothing sideways, the text field on top, bar only
+      at 560 and under, side list a column from 700.
+- Screenshots: `phase2-shots/everywhere/window/*-fixed.png` (ask/talk at 390 with notch, 820, 1440, light and dark;
+  firstpaint-none/forest-390-fixed.png).
+- Not changed / not provable here: `src/desktop/main.ts` still sets the Electron window's background to Forest before the
+  page paints (it is shown on ready-to-show, after the first paint; desktop tests are off-limits here). The phone app's
+  own screens paint Slate first for a Forest chooser, then Forest once the window reports its theme (the native splash
+  was already Slate). On the computer "No" still looks like the yeses (outside this branch's phone layout).
