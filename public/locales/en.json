@@ -1628,6 +1628,7 @@
   "event-loop.stuck": "Branch is stalling: some of its work waited {p99} ms to start. The window and chat apps will feel frozen.",
   "event-loop.switch": "The check",
   "event-loop.title": "Is Branch keeping up",
+  "ew.places": "Places",
   "field.a-conversation": "A conversation to make into a skill",
   "field.a-folder-of-code": "A folder of code",
   "field.a-knowledge-base": "A knowledge base",

@@ -636,6 +636,9 @@ async function staticFile(
     "/token-meter.js": ["token-meter.js", "text/javascript; charset=utf-8"],
     "/usage-glance.js": ["usage-glance.js", "text/javascript; charset=utf-8"],
     "/conversation-mode.js": ["conversation-mode.js", "text/javascript; charset=utf-8"],
+    // phase2/everywhere: the window at phone and tablet widths
+    "/phone-layout.js": ["phone-layout.js", "text/javascript; charset=utf-8"],
+    "/phone-layout.css": ["phone-layout.css", "text/css; charset=utf-8"],
     "/suggestions.js": ["suggestions.js", "text/javascript; charset=utf-8"],
     "/glass-select.js": ["glass-select.js", "text/javascript; charset=utf-8"],
     "/playground.js": ["playground.js", "text/javascript; charset=utf-8"],

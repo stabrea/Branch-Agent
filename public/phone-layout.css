@@ -1,0 +1,147 @@
+/* Redesign phase 2 "everywhere" (#44, #53): the window at phone and tablet widths, after the approved
+   sample's frames (public/phone-layout.js builds the bar). Layout only; every colour is a token. */
+
+.ew-places {
+  display: none;
+}
+
+/* ---------- a phone: the places at the foot, the message box above them ---------- */
+@media (max-width: 560px) {
+  :root {
+    --ew-bar-h: calc(58px + env(safe-area-inset-bottom, 0px));
+  }
+  body.lx > main > .ew-places {
+    position: relative;
+    z-index: 7;
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    flex: none;
+    height: var(--ew-bar-h);
+    padding: 0 4px env(safe-area-inset-bottom, 0px);
+    border-top: 1px solid var(--line);
+    background: var(--surface);
+  }
+  .ew-place {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    min-width: 0;
+    min-height: 48px;
+    padding: 4px 2px;
+    border: 0;
+    border-radius: 12px;
+    background: none;
+    box-shadow: none;
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 550;
+  }
+  .ew-place svg {
+    width: 22px;
+    height: 22px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.7;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .ew-place[aria-current="page"] {
+    color: var(--text);
+  }
+  .ew-place[aria-current="page"] svg {
+    stroke: var(--copper-text);
+  }
+  /* a long name (French "Boîte de réception") takes two short lines rather than being cut */
+  .ew-word {
+    display: -webkit-box;
+    max-width: 100%;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-height: 1.1;
+    text-align: center;
+    overflow-wrap: anywhere;
+  }
+  .ew-badge {
+    position: absolute;
+    top: 3px;
+    left: calc(50% + 6px);
+    min-width: 17px;
+    padding: 1px 5px;
+    border-radius: 9px;
+    background: var(--copper);
+    color: var(--on-copper);
+    font-size: 10.5px;
+    font-weight: 700;
+    line-height: 15px;
+    text-align: center;
+  }
+  .ew-badge[hidden] {
+    display: none;
+  }
+  /* the message box rides on the bar, never under it */
+  body.lx .composer-dock {
+    bottom: var(--ew-bar-h);
+  }
+  /* the veil behind the box stays close to it, so a question above it reads in full */
+  :root:not([data-everything="on"]) body.lx .composer-dock::before {
+    inset: -36px -24px -90px;
+  }
+}
+
+/* ---------- a phone or tablet: a question's answers two by two, each a button a thumb can find ---------- */
+@media (max-width: 1024px) {
+  #live-ask {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+    gap: 10px 8px;
+  }
+  #live-ask > strong,
+  #live-ask > p {
+    grid-column: 1 / -1;
+  }
+  #live-ask .live-ask-choice {
+    max-width: none;
+    justify-items: stretch;
+  }
+  #live-ask .live-ask-choice > button {
+    width: 100%;
+    min-height: 44px;
+    padding: 8px 10px;
+    white-space: normal;
+  }
+}
+
+/* ---------- a tablet held upright: the side list stays a column, as on the computer ---------- */
+@media (min-width: 700px) and (max-width: 860px) {
+  body.lx,
+  body.lx.lx-aside {
+    grid-template-columns: var(--rail-w) minmax(0, 1fr);
+  }
+  body.lx.no-rail,
+  body.lx.no-rail.lx-aside {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  body.lx:not(.no-rail) > .rail {
+    position: relative;
+    inset: auto;
+    z-index: 1;
+    display: flex;
+    width: auto;
+  }
+  body.lx:not(.no-rail) > main {
+    grid-column: 2;
+    margin-left: var(--pane-gap);
+  }
+  body.lx.no-rail > main {
+    grid-column: 1;
+    margin-left: 0;
+  }
+  body.lx.rail-open::after {
+    display: none;
+  }
+}

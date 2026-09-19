@@ -1629,6 +1629,7 @@
   "event-loop.stuck": "Branch se bloque : une partie de son travail a attendu {p99} ms avant de démarrer. La fenêtre et les messageries sembleront figées.",
   "event-loop.switch": "La vérification",
   "event-loop.title": "Branch suit-il le rythme ?",
+  "ew.places": "Espaces",
   "field.a-conversation": "Une conversation à transformer en compétence",
   "field.a-folder-of-code": "Un dossier de code",
   "field.a-knowledge-base": "Une base de connaissances",
