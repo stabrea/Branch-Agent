@@ -116,7 +116,12 @@ test("A0344 one burst of changes becomes one task, and the assistant's own edits
 test("A0344 the path-tracking watcher reports each changed file once per burst, and skips ignored folders", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "branch-watch-paths-"));
   const calls = [];
-  const handle = watchFolderPaths(root, async (paths) => { calls.push(paths.sort()); }, { settleMs: 60, ignore: ["node_modules"] });
+  // The quiet time that ends a burst. At 60ms the burst was a race with the writes below: between the
+  // last a.js event and the first b.js event come a new folder and a file inside it, whose events are
+  // ignored and so do not keep the burst open. On a loaded Windows runner that gap can pass 60ms, and
+  // the watcher then rightly runs twice (CI run 35446096639). 400ms is what the AI-comments watcher uses.
+  const settleMs = 400;
+  const handle = watchFolderPaths(root, async (paths) => { calls.push(paths.sort()); }, { settleMs, ignore: ["node_modules"] });
   t.after(async () => { await handle.stop(); await discardTemp(root); });
   await writeFile(join(root, "a.js"), "1");
   await writeFile(join(root, "a.js"), "2");
@@ -124,7 +129,8 @@ test("A0344 the path-tracking watcher reports each changed file once per burst, 
   await writeFile(join(root, "node_modules", "x.js"), "3");
   await writeFile(join(root, "b.js"), "4");
   await waitFor(() => calls.length > 0, "the first burst");
-  await new Promise((resolve) => setTimeout(resolve, 150));
+  // Longer than a whole quiet time, so a second burst would have been run by now.
+  await new Promise((resolve) => setTimeout(resolve, 2 * settleMs));
   assert.equal(handle.runs, 1);
   // macOS may also report the watched folder itself, or the new node_modules folder; neither is a file change.
   assert.deepEqual(calls[0].filter((path) => path.endsWith(".js")), ["a.js", "b.js"]);
