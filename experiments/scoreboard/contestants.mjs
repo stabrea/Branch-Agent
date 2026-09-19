@@ -17,7 +17,26 @@
  * of them reads or writes the owner's real settings, and none starts with the owner's history.
  */
 
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+
 const BENCH = "/workspace/bench";
+
+/** Branch's own record of its edit tools being refused, read from the run's database afterwards. */
+async function branchEditCounts(dataDir) {
+  const file = join(dataDir ?? "", "branch.sqlite");
+  if (!dataDir || !existsSync(file)) return { failedEdits: null, edits: null };
+  try {
+    const { DatabaseSync } = await import("node:sqlite");
+    const db = new DatabaseSync(file, { readOnly: true });
+    const count = (kind) => db.prepare(
+      "SELECT COUNT(*) AS n FROM events WHERE kind = ? AND json_extract(data, '$.name') IN ('files.edit','files.patch','files.write','files.multi_edit')",
+    ).get(kind).n;
+    const result = { failedEdits: count("tool.failed"), edits: count("tool.started") };
+    db.close();
+    return result;
+  } catch { return { failedEdits: null, edits: null }; }
+}
 
 /** The last line of stdout that parses as a JSON object, for programs that also log to stdout. */
 function lastJson(text) {
@@ -51,9 +70,10 @@ function branchContestant({ id, name, root, note }) {
         BRANCH_API_KEY: "ollama-local-no-key",
       },
     }),
-    parse: ({ stdout }) => {
+    parse: async ({ stdout, dataDir }) => {
+      const edits = await branchEditCounts(dataDir);
       const json = lastJson(stdout);
-      if (!json) return { answer: "", calls: null, usage: null, error: "Branch printed nothing that parsed as JSON" };
+      if (!json) return { answer: "", calls: null, usage: null, error: "Branch printed nothing that parsed as JSON", ...edits };
       const usage = json.usage ?? {};
       const reported = (usage.reports ?? 0) > 0 && (usage.reportedInput ?? 0) + (usage.reportedOutput ?? 0) > 0;
       // A run that did not complete has no answer: what Branch puts in `output` then is the reason
@@ -72,6 +92,7 @@ function branchContestant({ id, name, root, note }) {
         // Branch says so itself; the harness does not have to guess from the text.
         error: finished ? null : `run status ${json.run?.status ?? "unknown"}: ${String(json.run?.output ?? "").slice(0, 300)}`,
         incompleteCalls: usage.incompleteCalls ?? 0,
+        ...edits,
       };
     },
   };
@@ -166,5 +187,44 @@ export const contestants = [
     },
   },
 ];
+
+/** Codex CLI, pointed at the same Ollama through its own `--oss` provider. */
+contestants.push({
+  id: "codex",
+  name: "Codex CLI 0.155.1 (--oss, Ollama provider)",
+  toolSurface: "Codex's own shell + apply_patch tools, sandbox workspace-write, approvals never (exec mode), CODEX_HOME inside /workspace/bench",
+  limitsNote: "Codex has no metadata for a local model and says it falls back to defaults",
+  invoke: ({ dir, prompt, model }) => ({
+    file: `${BENCH}/codex/node_modules/.bin/codex`,
+    args: ["exec", "--oss", "--local-provider", "ollama", "-m", model.includes(":") ? model : `${model}:latest`,
+      "--json", "--skip-git-repo-check", "-s", "workspace-write", "-C", dir, prompt],
+    cwd: dir,
+    env: { CODEX_HOME: `${BENCH}/codex/home`, CODEX_OSS_BASE_URL: "http://127.0.0.1:11434/v1" },
+  }),
+  parse: ({ stdout }) => {
+    let answer = "", error = null, input = 0, output = 0, turns = 0, edits = 0, failedEdits = 0, seen = false;
+    for (const line of stdout.split("\n")) {
+      let event;
+      try { event = JSON.parse(line); } catch { continue; }
+      seen = true;
+      const item = event.item ?? {};
+      if (event.type === "turn.completed") { turns++; input += event.usage?.input_tokens ?? 0; output += event.usage?.output_tokens ?? 0; }
+      if (event.type === "turn.failed") error = event.error?.message ?? "turn failed";
+      if (event.type === "error") error = event.message ?? "error";
+      if (event.type === "item.completed" && item.type === "agent_message") answer = String(item.text ?? "");
+      if (event.type === "item.completed" && item.type === "file_change") { edits++; if (item.status === "failed") failedEdits++; }
+    }
+    if (!seen) return { answer: "", calls: null, usage: null, error: "Codex printed no JSON events" };
+    return { answer, calls: turns, usage: { input, output, basis: "reported" }, error, edits, failedEdits };
+  },
+});
+
+// The coding bench compares Branch with itself before and after the fixes on mac7/coding-gap.
+contestants.push(
+  branchContestant({ id: "branch-before", name: "Branch (mac/cross-platform 36ee8abb)", root: `${BENCH}/cg/before`,
+    note: "trunk as it stood when the coding bench was written, unmodified" }),
+  branchContestant({ id: "branch-after", name: "Branch (mac7/coding-gap)", root: `${BENCH}/cg/after`,
+    note: "the same tree with the coding-gap fixes; see docs/agents/coding-bench.md" }),
+);
 
 export const contestantById = Object.fromEntries(contestants.map((one) => [one.id, one]));

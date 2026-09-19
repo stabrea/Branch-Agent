@@ -26,13 +26,16 @@ import { fileURLToPath } from "node:url";
 
 import { conditionsVersion, machineIdentity, scorerDigest } from "../../dist/evaluation-honesty.js";
 import { contestants as allContestants } from "./contestants.mjs";
-import { filesUnder, tasks as allTasks } from "./tasks.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const argOf = (name, fallback) => {
   const at = process.argv.indexOf(`--${name}`);
   return at > 0 && process.argv[at + 1] ? process.argv[at + 1] : fallback;
 };
+// Which task set to run: this board's own ten, or another module with the same shape (the coding
+// bench in ../coding-bench/tasks.mjs). Everything else about the runner is shared, so both boards
+// are measured the same way.
+const { filesUnder, tasks: allTasks } = await import(argOf("taskset", "./tasks.mjs"));
 
 const settings = {
   model: argOf("model", "qwen3-4b-64k"),
@@ -70,7 +73,7 @@ const conditions = {
     endpoint: settings.endpoint,
     timeoutSeconds: settings.timeoutSec,
     repeats: settings.repeats,
-    contextWindowTokens: 65536,
+    contextWindowTokens: Number(argOf("context", "65536")),
     temperature: "each program's own default — see the report",
   },
   appVersion: `scoreboard-harness ${JSON.parse(readFileSync(join(here, "../../package.json"), "utf8")).version}`,
@@ -94,7 +97,9 @@ writeFileSync(join(settings.scratch, "conditions.json"), JSON.stringify(conditio
  * scoring it as one would quietly credit the busiest minutes of the afternoon to whichever agent
  * was not in them. A cell that fails this way is tried once more, and the retry is recorded.
  */
-const rigFailure = (text) => /fetch failed|ECONNREFUSED|ECONNRESET|socket hang up|EAI_AGAIN|HTTP 50[0-9]|Internal Server Error|network connection error|No response for \d+ seconds|Connection (reset|closed|aborted)|premature close/i.test(text ?? "");
+// `No response for N seconds` is deliberately absent: that is Branch's own stall watchdog, not the
+// server (FINDINGS.md, F6/F7), and letting it buy a retry gave Branch a second go no one else got.
+const rigFailure = (text) => /fetch failed|ECONNREFUSED|ECONNRESET|socket hang up|EAI_AGAIN|HTTP 50[0-9]|Internal Server Error|network connection error|Connection (reset|closed|aborted)|premature close/i.test(text ?? "");
 
 /** One attempt: set the folder up, run the program, put the tests back, and mark it. */
 async function runCell(contestant, task, repeat, attempt = 1) {
@@ -139,6 +144,10 @@ async function runCell(contestant, task, repeat, attempt = 1) {
   });
   const elapsedMs = Date.now() - started;
   const loadAfter = loadavg()[0];
+  // The program's own output, kept beside the row, so a failure can be read rather than guessed at.
+  mkdirSync(join(settings.scratch, "logs"), { recursive: true });
+  writeFileSync(join(settings.scratch, "logs", `${slug}.a${attempt}.out`), result.stdout ?? "");
+  writeFileSync(join(settings.scratch, "logs", `${slug}.a${attempt}.err`), result.stderr ?? "");
 
   const after = hashes(filesUnder(dir));
   const changed = [
@@ -147,7 +156,7 @@ async function runCell(contestant, task, repeat, attempt = 1) {
   ].sort();
 
   let parsed;
-  try { parsed = contestant.parse(result); }
+  try { parsed = await contestant.parse({ ...result, dataDir }); }
   catch (error) { parsed = { answer: "", calls: null, usage: null, error: `could not read its output: ${error.message}` }; }
 
   // Tamper first, then the check. A task marked read-only that wrote anything is a fail whatever
@@ -187,6 +196,8 @@ async function runCell(contestant, task, repeat, attempt = 1) {
     passed: verdict.passed, why: verdict.why,
     elapsedMs, exitCode: result.code, killed: result.killed,
     modelCalls: parsed.calls, usage: parsed.usage, agentError: parsed.error ?? null,
+    // Edits the agent tried that its own edit tool refused (null when the program does not say).
+    failedEdits: parsed.failedEdits ?? null, edits: parsed.edits ?? null,
     // "Rescued" on this board means exactly one of these three, and nothing softer: the harness had
     // to stop it, the program exited badly, or it handed back nothing to mark.
     rescued: Boolean(attempt > 1 || result.killed || (result.code !== 0 && result.code !== null) || (!parsed.answer && !changed.length)),

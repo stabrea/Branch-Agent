@@ -1,0 +1,1 @@
+{ "name": "flaky", "private": true, "type": "module", "scripts": { "test": "node --test" } }
