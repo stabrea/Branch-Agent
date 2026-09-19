@@ -56,8 +56,8 @@ async function switchOn(page, id) {
 
 /**
  * Notes every timer and animation frame asked for by a delight file, before the page's own scripts run,
- * and every request a delight file makes (the window's own panes ask for /api/activity too, every few
- * seconds, so a request is delight's only when a delight file made it).
+ * and every request for the work (activity, achievements, noticed) a delight file makes: the window's own
+ * panes ask for /api/activity too, every few seconds, so a request is delight's only when a delight file made it.
  */
 function watchTimers() {
   const asked = (globalThis.__delightTimers = []);
@@ -65,7 +65,9 @@ function watchTimers() {
   const realFetch = globalThis.fetch;
   globalThis.fetch = function (input, ...rest) {
     const from = (new Error().stack ?? "").split(/\r?\n/).slice(2).find((line) => /delight/.test(line));
-    if (from) fetched.push(`${String(input?.url ?? input)} ${from.trim()}`);
+    const url = String(input?.url ?? input);
+    // Its own switch (/api/delight) is read at start; what it must not ask for while off is the work.
+    if (from && /\/api\/(activity|delight\/(achievements|noticed))/.test(url)) fetched.push(`${url} ${from.trim()}`);
     return realFetch.call(this, input, ...rest);
   };
   for (const name of ["setInterval", "setTimeout", "requestAnimationFrame"]) {

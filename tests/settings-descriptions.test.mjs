@@ -46,6 +46,8 @@ async function fixture(t, viewport = { width: 1440, height: 1000 }) {
      the loaded Windows checker. Nothing is waited for less: a real signal replaces a proxy. */
   await page.getByRole("button", { name: "Connect", exact: true }).click({ noWaitAfter: true });
   await page.locator("body.lx-ready").waitFor({ state: "attached", timeout: 120000 });
+  // layout.js marks lx-ready as the page loads, before the key is taken: the window is open once #workspace shows.
+  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
   await page.locator("#agent-files").waitFor({ state: "attached", timeout: 60000 }); // phase2/accounts: was #settings-kit-files
   return { page, errors };
 }

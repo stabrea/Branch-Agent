@@ -50,6 +50,8 @@ async function fixture(t, { liveView = "off", liveAvailable = false, dictation =
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.locator("body.lx-ready").waitFor({ state: "attached" });
+  // layout.js marks lx-ready as the page loads, before the key is taken: the window is open once #workspace shows.
+  await page.locator("#workspace").waitFor({ state: "visible", timeout: 120000 });
   await page.waitForFunction(() => globalThis.branchVoiceView);
   await page.evaluate(() => globalThis.branchVoiceView.refresh());
   return { app, call, page, errors };
