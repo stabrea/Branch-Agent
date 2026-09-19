@@ -52,4 +52,7 @@ export async function desktopOptions() {
  * at once has taken well over thirty seconds for the same thing, so the allowance is for that.
  */
 export const STARTUP_MS = 120000;
-export const connected = (page) => page.getByText("Connected", { exact: true }).waitFor({ timeout: STARTUP_MS });
+/* The calm window says "Connected" only when the link is lost, so the pill is hidden while all is
+   well: what is waited for is its state, which the page sets when it reaches Branch, not its being
+   on screen. */
+export const connected = (page) => page.locator('#connection[data-state="ok"]').waitFor({ state: "attached", timeout: STARTUP_MS });

@@ -510,8 +510,10 @@ const SHARED_WITH_FRENCH = new Set([
 test("Q6 French is a real translation, not the English file under another name", async (t) => {
   const english = JSON.parse(await readFile(join(PUBLIC, "locales", "en.json"), "utf8"));
   const french = JSON.parse(await readFile(join(PUBLIC, "locales", "fr.json"), "utf8"));
+  // A string that is only a place for words said elsewhere ("{message}") has nothing to translate.
+  const wordless = (text) => !/\p{L}/u.test(text.replace(/\{[^}]+\}/g, ""));
   const copied = Object.keys(english).filter((key) =>
-    french[key] === english[key] && !SHARED_WITH_FRENCH.has(english[key]));
+    french[key] === english[key] && !SHARED_WITH_FRENCH.has(english[key]) && !wordless(english[key]));
   assert.deepEqual(copied, [], "these keys still answer in English when French is chosen");
   assert.ok(Object.keys(french).length >= Object.keys(english).length, "French answers every key");
 });

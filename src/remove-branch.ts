@@ -93,10 +93,12 @@ export interface RemovalSurvey {
 
 /** Every byte under a folder, walked here rather than shelled out to. Missing means zero. */
 export async function folderBytes(path: string, seen = new Set<string>()): Promise<number> {
-  const found = await lstat(path).catch(() => null);
+  // Read as big integers: NTFS file numbers do not fit a JavaScript number, and rounded they made
+  // two folders look like one, so a whole folder was counted as nothing.
+  const found = await lstat(path, { bigint: true }).catch(() => null);
   if (!found) return 0;
   if (found.isSymbolicLink()) return 0;
-  if (!found.isDirectory()) return found.size;
+  if (!found.isDirectory()) return Number(found.size);
   const key = `${found.dev}:${found.ino}`;
   if (seen.has(key)) return 0;
   seen.add(key);
@@ -133,9 +135,11 @@ export interface SurveyDeps {
 /** What "Remove Branch and everything it installed" would take away on this computer, with sizes. */
 export async function removalSurvey(deps: SurveyDeps, keepConversations = true): Promise<RemovalSurvey> {
   const nothing = { platform: deps.platform, items: [], left: [], totalBytes: 0, keptBytes: 0, confirmPhrase, fingerprint: "" };
+  // A copy built from source has no installer's work to undo on any system, Windows included, so
+  // that is said first; pointing it at Add or remove programs would send it looking for nothing.
+  if (deps.sourceCheckout) return { ...nothing, instead: notInstalledHere };
   if (deps.platform !== "darwin" && deps.platform !== "linux")
     return { ...nothing, instead: notRemovable(deps.platform) };
-  if (deps.sourceCheckout) return { ...nothing, instead: notInstalledHere };
   const layout = deps.layout ?? unixLayout(deps.platform as UnixPlatform, deps.env);
   if (!(deps.installed ?? Boolean(await findInstall(layout)))) return { ...nothing, instead: notInstalledHere };
   const size = deps.sizeOf ?? ((path: string) => folderBytes(path));

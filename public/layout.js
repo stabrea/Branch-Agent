@@ -251,8 +251,8 @@ const MOVES = [
   ["browser-card", "lx-page-computer"], ["remote-card", "lx-page-computer"],
   ["secrets-form", "lx-page-secrets"],
   ["usage", "lx-page-data"], ["retention-card", "lx-page-data"], ["backup-card", "lx-page-data"], ["snapshots-card", "lx-page-data"],
-  ["health-card", "lx-page-advanced"], ["diagnostics-card", "lx-page-advanced"], ["developer-card", "lx-page-advanced"],
-  ["updates-card", "lx-page-about"],
+  ["health-card", "lx-page-advanced"], ["diagnostics-card", "lx-page-advanced"], ["activity-log-card", "lx-page-advanced"], ["developer-card", "lx-page-advanced"],
+  ["updates-card", "lx-page-about"], ["problem-report-card", "lx-page-about"],
 ];
 /* Every name displayView has ever been called with, and where it lands now. */
 const ROUTES = {

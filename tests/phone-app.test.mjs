@@ -356,9 +356,9 @@ test("only the owner in the app window opens it, never under Lockdown or a short
   for (const path of ["/api/phone-app", "/api/phone-app/share", "/api/phone-app/stop"])
     for (const method of ["GET", "POST"]) assert.match(offLimitsToShortLivedKeys(method, path), /short-lived key/);
   const branchRoot = await mkdtemp(join(tmpdir(), "branch-phone-lock-"));
-  t.after(() => discardTemp(branchRoot));
   const app = await createBranch({ workspace: join(branchRoot, "workspace"), dataDir: join(branchRoot, "data") });
-  t.after(() => app.close());
+  // Closed before its folder goes: Windows will not delete a database that is still open.
+  t.after(async () => { await app.close(); await discardTemp(branchRoot); });
   setLockdown(app.store, app.runtime.owner, { on: true });
   store = app.store;
   await assert.rejects(phoneAppApi(phone, { ...deps, store, owner: app.runtime.owner, readBody: async () => ({}) }, "/api/phone-app/share"),

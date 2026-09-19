@@ -67,9 +67,15 @@ async function verifyNetworkBoundary(electron, page) {
     target = `http://127.0.0.1:${outside.address().port}`;
   try {
     await electron.evaluate(async ({ BrowserWindow }, target) => {
+      const contents = BrowserWindow.getAllWindows()[0].webContents;
       try {
-        await BrowserWindow.getAllWindows()[0].loadURL(target);
+        await contents.loadURL(target);
       } catch {}
+      /* The refused load is reported before the window has stopped loading. Loading the page again
+         in between made that late stop end the new load instead ("ERR_FAILED (-2) loading" the
+         app's own address, seen on Linux), so the window is let finish first. */
+      if (contents.isLoading())
+        await new Promise((done) => contents.once("did-stop-loading", done));
     }, target);
     assert.equal(hits, 0);
     await electron.evaluate(

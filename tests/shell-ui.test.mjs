@@ -365,17 +365,28 @@ test("a Recents row lights up under the pointer in Daylight", async (t) => {
   const row = f.page.locator("#rail-list .rail-line").first();
   const colour = () => row.evaluate((node) => getComputedStyle(node).backgroundColor);
   const resting = await colour();
-  await row.hover();
   /* The wash arrives through a CSS transition, so wait for the colour rather than for a stopwatch:
      a build machine under load paints later than a quiet laptop, and 150ms is a guess either way.
      Waited for inside the page, in one step: the old loop asked the page again every 25ms, and on a
      loaded machine each of those round trips costs more than the transition it was waiting for, so
      the deadline ran out while the wash was already on screen (seen once at load average 22). */
-  const hovered = await f.page.waitForFunction((was) => {
-    const node = document.querySelector("#rail-list .rail-line");
-    const now = node && getComputedStyle(node).backgroundColor;
-    return now && now !== was ? now : null;
-  }, resting, { timeout: 5000 }).then((handle) => handle.jsonValue(), () => resting);
+  /* The rail can be drawn again just after it first fills (it reloads each time the workspace is
+     shown), and the browser does not move :hover onto a row that replaced the one under a still
+     pointer. So the row being pointed at is marked, and if it is replaced the new row is pointed at:
+     what is waited for is the wash on the row the pointer is really over. */
+  let hovered = resting;
+  for (let attempt = 0; attempt < 5 && hovered === resting; attempt++) {
+    await row.evaluate((node) => { node.dataset.pointed = "yes"; });
+    await row.hover();
+    hovered = await f.page.waitForFunction((was) => {
+      const node = document.querySelector("#rail-list .rail-line");
+      if (!node) return null;
+      if (node.dataset.pointed !== "yes") return "replaced";
+      const now = getComputedStyle(node).backgroundColor;
+      return now !== was ? now : null;
+    }, resting, { timeout: 5000 }).then((handle) => handle.jsonValue(), () => resting);
+    if (hovered === "replaced") { hovered = resting; await f.page.mouse.move(0, 0); }
+  }
   assert.notEqual(hovered, resting, "the row takes a background under the pointer");
   /* color-mix serialises as color(srgb r g b / a), so the alpha is the last part. */
   const alpha = hovered.includes("/")
