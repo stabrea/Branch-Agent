@@ -162,7 +162,9 @@ Found and fixed:
   files (`git.log path`, `git.commit paths`), is judged on those as before.
 - **Speed**: a 500-file patch took ~1.5–2.3 s per `checkPolicy`, almost all in `protectedTarget` following each path
   through the file system (each path was checked twice, as target and as `args.path`). Now once per distinct path:
-  ~0.25–0.35 s on this machine. Not held by a test (a timing test would be a CI flake); measured with a probe.
+  ~0.25–0.35 s on this machine before the merge, 0.45–0.9 s after it (same probe, with other agents' test runs
+  on the machine; `realpath` in `protectedTarget` still dominates the profile). Not held by a test (a timing test
+  would be a CI flake); measured with a probe.
 
 Checked and left as is:
 - Patch forms: CRLF, `\ No newline`, quoted paths with spaces, `a/`/`b/` prefixes, `--- /dev/null` (add) are read by
