@@ -7,12 +7,21 @@ import { TERMINAL_CLI_COMMANDS } from "./terminal-parity.js";
 export const completionShells = ["bash", "zsh", "fish", "powershell"] as const;
 export type CompletionShell = (typeof completionShells)[number];
 
-/** Every subcommand, with the options that belong to it. Also drives `branch help`. */
-export const cliCommands: { name: string; summary: string; options: string[] }[] = [
+/** mac7/tests-unattended: what `--allow-tests` does, in `branch run --help` and `branch headless --help`. */
+const allowTestsHelp = "--allow-tests lets this one task run the project's tests without asking, as if you answered Once each time. "
+  + "Nothing is saved, only the owner can use it, and Lockdown refuses it. Without it, a task with nobody to ask skips the tests and carries on.";
+
+/**
+ * Every subcommand, with the options that belong to it. Also drives `branch help`. `notes` are extra
+ * lines `branch <command> --help` prints under the options, for an option that needs a sentence.
+ */
+export const cliCommands: { name: string; summary: string; options: string[]; notes?: string[] }[] = [
   { name: "start", summary: "Run the local web app", options: [] },
   { name: "chat", summary: "Talk to the assistant in this terminal", options: ["--plain", "--attach", "--session", "--watch"] },
-  { name: "run", summary: "Carry out one task and print the result", options: ["--json", "--attach", "--plan", "--verify", "--dry-run", "--preset", "--save-preset", "--budget", "--timeout", "--session", "--resume", "--fork"] },
-  { name: "headless", summary: "Run a scripted job with no window at all, one request per line", options: ["--script", "--stop-early", "--json", "--budget", "--timeout", "--session", "--preset"] },
+  { name: "run", summary: "Carry out one task and print the result", options: ["--json", "--attach", "--plan", "--verify", "--dry-run", "--allow-tests", "--preset", "--save-preset", "--budget", "--timeout", "--session", "--resume", "--fork"],
+    notes: [allowTestsHelp] },
+  { name: "headless", summary: "Run a scripted job with no window at all, one request per line", options: ["--script", "--stop-early", "--json", "--budget", "--timeout", "--session", "--preset", "--allow-tests"],
+    notes: [allowTestsHelp] },
   { name: "status", summary: "Tasks working now, questions waiting, and a health summary", options: ["--json"] },
   { name: "logs", summary: "Print what happened during one task", options: ["--json"] },
   { name: "approve", summary: "Answer a task that stopped to ask: approve <task id> yes|no", options: ["--json"] },
@@ -243,6 +252,7 @@ export function commandHelp(name: string): string | null {
     "",
     `  ${command.summary}`,
     ...(command.options.length ? ["", "Options:", ...command.options.map((option) => `  ${option}`)] : []),
+    ...(command.notes?.length ? ["", ...command.notes] : []),
   ].join("\n");
 }
 /** Whether the words after a command are asking what it does rather than telling it to work. */

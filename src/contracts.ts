@@ -267,6 +267,19 @@ export interface ToolContext {
    */
   askable?: boolean;
   /**
+   * mac7/tests-unattended: nobody can answer a question while this task runs — a script's
+   * `branch run` or `branch headless` with no terminal to ask in. Only the "Let Branch run this
+   * project's tests?" question reads it: the tests are skipped and the task carries on, instead of
+   * the task ending on a question nobody will see. Every other question still stops the task.
+   */
+  unattended?: boolean;
+  /**
+   * mac7/tests-unattended: `branch run --allow-tests`. The project's tests may run in this one task,
+   * as if the owner had answered Once each time; nothing is saved. Honoured only for the owner's own
+   * task (src/coding/project-tests.ts), and never under Lockdown.
+   */
+  allowProjectTests?: boolean;
+  /**
    * How tightly a program this call starts is to be held, when an approval rule said so. It is set
    * by the runtime just before the tool runs; a tool no rule says anything about never sees it and
    * behaves exactly as it did before rules could say.
