@@ -45,3 +45,54 @@ Each of pets, achievements and own background has its own off/on switch; all shi
   to the composer or rail, no per-Trunk pets); tips are the real app's own (the sample's mentioned features
   Branch does not have); no "KeepOak connected" achievement (Branch has no KeepOak account link, #14); the
   3D is hand-written WebGL, not three.js; SSS+ "Every leaf" asks for every theme by day and night in each season.
+
+## Integration (adversarial review, 2026-09-19)
+
+Integrator branch `integrate/p2-delight` (builder head 4dc3da54 + fixes 5a8a8e41, 5ae0f5b7, e72650a4,
+trunk merged). Fixed screenshots: `phase2-shots/delight/*-fixed.png` (corner, sheet, settings,
+background; 1440 and 390, light and dark; 0 px sideways overflow, 0 console errors after settling).
+
+Found and fixed:
+- **Achievements froze the server on a big history.** Every look scanned the whole events table
+  twice (and `factsFor` ran twice per look). Synthetic store, 1,000,000 events / 50,000 tasks:
+  7.8–8.2 s per look, blocking. Now events are counted from the last id seen, 25,000 per look,
+  kept in the owner's record (`scan`); the task pass is reused until a task finishes. Same store:
+  switch-on 405 ms once, catch-up looks ≤ 126 ms (39 looks, the window re-checks every 2 s while
+  `behind`), steady look 31 ms. What a long past brings while being counted arrives quietly
+  (`counting`). Bench: `claude-session-files/branch/integrate-delight/bench.mjs`.
+- **.glb reader (untrusted files).** `walk()` recursed with no visited set (a node loop overflowed the
+  stack; a shared branch grew exponentially); `merge()` spread big arrays into `push` (a valid 100k+
+  corner model was accepted, then threw uncaught in a frame callback forever); `accessor()` had no
+  bounds checks and leaked raw `RangeError` text into the window. Rewritten: every length/offset/
+  count/index checked against the file before use, iterative walk visiting each node once, limits
+  (5 MB, 300,000 corners, 900,000 indices, 10,000 parts, 4,096 nodes), refusals as `GlbError` with
+  localised words (en + fr); `view3d` returns null instead of throwing. Fuzzed in the headless test
+  (every truncation, 150 garbage files, 150 bit flips, huge counts/views, bad indices, loops, a
+  50^40 fan, 5,000 nodes, 200 instances, bad JSON, over-size) — all refused cleanly in < 1.5 s.
+- **Own background storage.** Writes resolved on the request, not the transaction (a full disk
+  could look saved); quota errors showed raw DOMException text. Now: done only on
+  `transaction.oncomplete`, `QuotaExceededError` said plainly; switching the background off deletes
+  the window's IndexedDB database (checked with `indexedDB.databases()` first so nothing is created
+  for people who never used it).
+- **Unearnable achievement.** "Follow the sun" (`follow-system`) was never reported by the window.
+  Now reported from the Light/Dark "Follow this computer" control. Flags are told once per window,
+  and the server writes the record only when a report changed it.
+- **Acorn (#26, #57).** Same dithered ray-traced acorn, but a 40-pixel backing store was stretched to
+  56 px (uneven 1.4x pixels). Now 1:1 (56 in 56) like the sample's 56-in-58 tile; test asserts 1:1,
+  `image-rendering: pixelated` and dither holes.
+- Pet: with Keep things still it no longer redraws every 160 ms when nothing changed; a blocked
+  localStorage no longer throws every 500 ms. Achievement sentences say "light mode"/"dark mode"
+  (the app's own Light/Dark), not "Moonlight"; earned dates in the window's language.
+
+CSP decision: `blob:` stays in `img-src`/`media-src` only, for everyone, not gated on the background
+switch. Verified headless that trunk's policy refused `new Audio(blob:)` (read aloud, public/voice.js
+and voice-talk.js create blob: sound), so the change also fixes read-aloud; `img-src` already allows
+`data:`, which untrusted content reaches more easily; a blob: URL is only minted by the page's own
+script (script-src 'self', no inline/eval), artifact frames are `sandbox=""`, MCP app pages have a
+`sandbox; default-src 'none'` policy, and chat markdown renders no images. Test asserts no `blob:`
+in default/script/worker/connect/frame/child/object/manifest.
+
+"It's lonely over here": p2-panels is not on trunk. Hook unchanged: dispatch
+`branch-everything-hidden` on `document` when every entry is hidden (public/delight.js listens).
+
+Audit ids: the builder claimed none (checkboxes only).
