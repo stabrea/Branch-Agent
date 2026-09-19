@@ -25,6 +25,7 @@ const runScript = (script, args) => new Promise((resolve) => {
 const read = (path) => readFile(path, "utf8").catch(() => null);
 
 /** A Linux install and its new version, as the hand-over sees them. */
+const me = typeof process.getuid === "function" ? process.getuid() : 0;
 async function install(root, { newStarts = true, portable = false, helper = null } = {}) {
   const target = join(root, "Apps", "Branch-Agent-linux-x64");
   const staged = join(root, "scratch", "unpacked", "Branch-Agent-linux-x64");
@@ -45,7 +46,7 @@ async function install(root, { newStarts = true, portable = false, helper = null
   await writeFile(archive, "archive");
   const log = join(root, "scratch", "apply-update.log");
   const script = join(root, "scratch", "apply-update.sh");
-  await writeFile(script, posixHandOverScript({ platform: "linux", target, staged, log, executableName: "branch-agent", daemonPid: null, settleSeconds: 1, archive }));
+  await writeFile(script, posixHandOverScript({ platform: "linux", target, staged, log, executableName: "branch-agent", daemonPid: null, settleSeconds: 1, archive, sandboxOwner: me }));
   return { target, staged, script, log, archive };
 }
 
@@ -79,8 +80,8 @@ test("putting the old version back moves it whole, keeps the new one aside and t
   assert.equal(existsSync(up.archive), false, "and so is the download");
 });
 
-// The real helper must be root's with the setuid bit, which a test cannot make; the script only looks
-// at the setuid bit, so a helper with it set by this user stands in for one an administrator set up.
+// The real helper must be root's with the setuid bit, which a test cannot make; the script is told this
+// user is the administrator (sandboxOwner), so a helper with the bit set by this user stands in for one.
 test("Linux keeps the sandbox helper an administrator set up, when the new version brings the same one", { skip: process.platform !== "linux" && "Linux setuid" }, async (t) => {
   const root = await scratch(t);
   const same = await install(join(root, "same"));
@@ -91,7 +92,8 @@ test("Linux keeps the sandbox helper an administrator set up, when the new versi
   assert.ok((await stat(join(same.target, "chrome-sandbox"))).mode & 0o4000, "the new version has the working helper");
   assert.match(await read(same.log), /kept the sandbox helper/);
   // Going back later hands it back to the old version.
-  await writeFile(join(root, "rb.sh"), posixRollbackScript({ platform: "linux", target: same.target, log: join(root, "rb.log"), executableName: "branch-agent" }));
+  assert.equal((await stat(join(`${same.target}.previous`, "chrome-sandbox"))).mode & 0o4000, 0, "the old copy holds the new version's plain one");
+  await writeFile(join(root, "rb.sh"), posixRollbackScript({ platform: "linux", target: same.target, log: join(root, "rb.log"), executableName: "branch-agent", sandboxOwner: me }));
   assert.equal(await runScript(join(root, "rb.sh"), ["999999", "stay"]), 0);
   assert.equal(await read(join(same.target, "resources", "version.txt")), "old");
   assert.ok((await stat(join(same.target, "chrome-sandbox"))).mode & 0o4000, "the old version has it again");
@@ -101,6 +103,65 @@ test("Linux keeps the sandbox helper an administrator set up, when the new versi
   await chmod(join(other.target, "chrome-sandbox"), 0o4755);
   assert.equal(await runScript(other.script, ["999999", "stay"]), 0);
   assert.ok((await stat(join(`${other.target}.previous`, "chrome-sandbox"))).mode & 0o4000, "a different helper is never swapped in");
+});
+
+test("Linux never carries a helper that is not the very one an administrator set up", { skip: process.platform !== "linux" && "Linux setuid" }, async (t) => {
+  const root = await scratch(t);
+  const { stat, symlink, rm, link } = await import("node:fs/promises");
+  const setuidIn = async (dir) => Boolean((await stat(join(dir, "chrome-sandbox")).catch(() => ({ mode: 0 }))).mode & 0o4000);
+  const cases = {
+    // The new version brings no helper: nothing is compared, so nothing is moved.
+    "the new version has none": async (up) => { await rm(join(up.staged, "chrome-sandbox")); },
+    // A link to some other setuid program passes `-u`; it is never moved.
+    "the old one is a link": async (up) => {
+      await rm(join(up.target, "chrome-sandbox"));
+      await writeFile(join(root, "elsewhere"), "helper"); await chmod(join(root, "elsewhere"), 0o4755);
+      await symlink(join(root, "elsewhere"), join(up.target, "chrome-sandbox"));
+    },
+    // Another name for the same file (a hard link) means it may be changed from somewhere else.
+    "the old one has a second name": async (up) => { await link(join(up.target, "chrome-sandbox"), join(root, `second-${Math.random()}`)); },
+    // Not the administrator's: some other owner's setuid file is not the one that was set up.
+    "the new one is already setuid": async (up) => { await chmod(join(up.staged, "chrome-sandbox"), 0o4755); },
+  };
+  for (const [name, arrange] of Object.entries(cases)) {
+    const up = await install(join(root, name.replace(/\W+/g, "-")));
+    await chmod(join(up.target, "chrome-sandbox"), 0o4755);
+    await arrange(up);
+    assert.equal(await runScript(up.script, ["999999", "stay"]), 0, name);
+    assert.equal(await read(join(up.target, "resources", "version.txt")), "new", name);
+    assert.doesNotMatch(await read(up.log), /kept the sandbox helper/, name);
+    if (name !== "the new one is already setuid") assert.equal(await setuidIn(up.target), false, `${name}: no setuid helper in the new version`);
+  }
+  // A helper owned by someone other than the administrator is not carried either.
+  const other = await install(join(root, "not-root"));
+  await chmod(join(other.target, "chrome-sandbox"), 0o4755);
+  await writeFile(other.script, posixHandOverScript({ platform: "linux", target: other.target, staged: other.staged, log: other.log,
+    executableName: "branch-agent", daemonPid: null, settleSeconds: 1, archive: other.archive, sandboxOwner: me + 1 }));
+  assert.equal(await runScript(other.script, ["999999", "stay"]), 0);
+  assert.equal(await setuidIn(other.target), false);
+});
+
+test("an old copy is never deleted with the person's work in it, and Branch Data is never replaced", { skip: !posix && "POSIX shell" }, async (t) => {
+  const root = await scratch(t);
+  // An update before this fix left Branch Data behind in the previous copy; two updates later that copy is removed.
+  const up = await install(join(root, "stranded"));
+  for (const old of [`${up.target}.previous`, `${up.target}.previous-2`]) {
+    await mkdir(join(old, "Branch Data"), { recursive: true });
+    await writeFile(join(old, "Branch Data", "work.txt"), `work in ${old}`);
+  }
+  assert.equal(await runScript(up.script, ["999999", "stay"]), 0);
+  const saved = (await readdir(join(root, "stranded", "Apps"))).filter((f) => f.includes("saved Branch Data"));
+  assert.equal(saved.length, 1, "the Branch Data in the copy that was removed is moved out first");
+  assert.equal(await read(join(root, "stranded", "Apps", saved[0], "work.txt")), `work in ${up.target}.previous-2`);
+  assert.equal(await read(join(`${up.target}.previous-2`, "Branch Data", "work.txt")), `work in ${up.target}.previous`);
+
+  // Both copies have a Branch Data: neither is deleted to make room for the other.
+  const both = await install(join(root, "both"), { portable: true });
+  await mkdir(join(both.staged, "Branch Data"), { recursive: true });
+  await writeFile(join(both.staged, "Branch Data", "fresh.txt"), "fresh");
+  assert.equal(await runScript(both.script, ["999999", "stay"]), 0);
+  assert.equal(await read(join(`${both.target}.previous`, "Branch Data", "state", "branch.sqlite")), "the person's work");
+  assert.match(await read(both.log), /Branch Data is in both copies/);
 });
 
 function release(asset, body) {
@@ -161,11 +222,19 @@ async function windowsInstall(root) {
         { name: "app.zip.sha256", browser_download_url: "https://example.invalid/app.sha256", size: 64 }] })
     : String(url).endsWith("app.zip") ? new Response(bytes) : new Response(`${digest}  app.zip\n`);
   const updater = new Updater({ repo: "x/y", currentVersion: "1.0.0", installDir: install, executableName: testExe,
-    assetName: "app.zip", scratchDir: join(root, "scratch"), fetch, platform: "win32",
+    assetName: "app.zip", scratchDir: join(root, "scratch"), fetch, platform: "win32", runOnceKey: testRunOnce,
     extract: async (_archive, into) => write(join(into, "Branch Agent-win32-x64"), "new") });
   const { script } = await updater.install();
-  return { install, script };
+  return { install, script, recover: join(root, "scratch", "recover-update.cmd") };
 }
+// Its own key, so a test never registers anything to run at the next real sign-in.
+const testRunOnce = "HKCU\\Software\\BranchAgentTest\\RunOnce";
+const armed = () => new Promise((resolve) => {
+  spawn("reg.exe", ["query", testRunOnce, "/v", "Branch Agent update recovery"], { stdio: "ignore", windowsHide: true }).on("close", (code) => resolve(code === 0));
+});
+const clearTestKey = () => new Promise((resolve) => {
+  spawn("reg.exe", ["delete", "HKCU\\Software\\BranchAgentTest", "/f"], { stdio: "ignore", windowsHide: true }).on("close", resolve);
+});
 const runCmd = (script, args) => new Promise((resolve) => {
   spawn("cmd.exe", ["/d", "/c", script, ...args], { stdio: "ignore", windowsHide: true }).on("close", resolve);
 });
@@ -184,10 +253,27 @@ test("Windows: the new version swaps in by renaming, and keeps the uninstaller a
   assert.ok(existsSync(join(install, "portable.txt")));
   assert.equal(await read(join(install, "Branch Data", "state", "branch.sqlite")), "the person's work");
   assert.equal(existsSync(`${install}.incoming`), false);
+  assert.equal(await armed(), false, "nothing is left to run at the next sign-in");
+});
+
+test("Windows: going back keeps the person's data and the uninstaller in the program folder", { skip: process.platform !== "win32" && "cmd.exe" }, async (t) => {
+  const { windowsRollbackScript } = await import("../dist/desktop/hand-over.js");
+  const root = await scratch(t);
+  t.after(clearTestKey);
+  const { install, script } = await windowsInstall(root);
+  assert.equal(await runCmd(script, ["999999", "stay"]), 0);
+  const back = join(root, "rollback.cmd");
+  await writeFile(back, windowsRollbackScript({ install, exe: join(install, testExe), log: join(root, "rollback.log") }));
+  assert.equal(await runCmd(back, ["999999", "stay"]), 0);
+  assert.equal(await whole(install), "old");
+  assert.equal(await read(join(install, "Branch Data", "state", "branch.sqlite")), "the person's work");
+  assert.ok(existsSync(join(install, "Uninstall Branch Agent.cmd")));
+  assert.ok(existsSync(join(install, "portable.txt")));
 });
 
 test("Windows: an update cut off after any step leaves a whole version to start", { skip: process.platform !== "win32" && "cmd.exe" }, async (t) => {
   const root = await scratch(t);
+  t.after(clearTestKey);
   const probe = await windowsInstall(join(root, "probe"));
   const lines = (await readFile(probe.script, "utf8")).split("\r\n");
   // Only the steps from the copy on can leave anything half-done; the waits before them change nothing.
@@ -195,14 +281,19 @@ test("Windows: an update cut off after any step leaves a whole version to start"
   const steps = lines.map((line, index) => [line, index]).filter(([line, index]) => index > from && /robocopy|^move|^rmdir|^if exist|^copy/.test(line)).map(([, index]) => index);
   assert.ok(steps.length >= 6);
   for (const cut of steps) {
-    const { install, script } = await windowsInstall(join(root, `cut-${cut}`));
+    const { install, script, recover } = await windowsInstall(join(root, `cut-${cut}`));
     const text = (await readFile(script, "utf8")).split("\r\n");
     text.splice(cut + 1, 0, "exit /b 9");
     await writeFile(script, text.join("\r\n"));
     await runCmd(script, ["999999", "stay"]);
+    // Cut off with no program folder, the recovery registered for the next sign-in puts one back.
+    if (!existsSync(install)) {
+      assert.ok(await armed(), `after "${lines[cut]}": the recovery is registered`);
+      await runCmd(recover, []);
+    }
     const now = await whole(install).catch(() => null);
     const kept = await whole(`${install}.previous`).catch(() => null);
-    assert.ok(now === "old" || now === "new" || (now === null && kept === "old"), `after "${lines[cut]}": ${now}, previous ${kept}`);
+    assert.ok(now === "old" || now === "new", `after "${lines[cut]}": ${now}, previous ${kept}`);
     if (now !== null) assert.equal(await read(join(install, "Branch Data", "state", "branch.sqlite")) ?? await read(join(`${install}.previous`, "Branch Data", "state", "branch.sqlite")), "the person's work");
   }
 });

@@ -5,8 +5,7 @@ import { join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { z } from "zod";
-import { posixHandOverScript } from "./hand-over.js";
-import { portableFolder, portableMarker } from "../install/layout.js";
+import { posixHandOverScript, windowsKeep, windowsKeepOut } from "./hand-over.js";
 import { checksumAssetName } from "./release-assets.js";
 
 /**
@@ -48,6 +47,8 @@ export interface UpdaterOptions {
   canary?: (stagedDir: string, version: string) => Promise<void>;
   /** mac7/real-update: how long the download may go without a byte before it counts as dropped (60 s). */
   stallMs?: number;
+  /** Windows: the registry key the update's recovery script is registered under (HKCU RunOnce); tests hand in their own. */
+  runOnceKey?: string;
 }
 export interface ReleaseInfo {
   currentVersion: string;
@@ -219,10 +220,12 @@ export class Updater {
     const file = createWriteStream(target, { flags: "wx" });
     let received = 0;
     const reader = response.body.getReader();
-    const next = () => new Promise<ReadableStreamReadResult<Uint8Array>>((resolve, reject) => {
+    // One listener for the whole download (one per chunk would pile up thousands on the same signal).
+    const quietTooLong = new Promise<never>((_resolve, reject) => {
       stalled.signal.addEventListener("abort", () => reject(dropped()), { once: true });
-      reader.read().then(resolve, () => reject(dropped()));
     });
+    quietTooLong.catch(() => undefined);
+    const next = () => Promise.race([reader.read().catch(() => { throw dropped(); }), quietTooLong]);
     try {
       for (let part = await next(); !part.done; part = await next()) {
         listen();
@@ -262,6 +265,9 @@ export class Updater {
     const script = join(this.options.scratchDir, "apply-update.cmd");
     const install = this.options.installDir!, image = this.options.executableName;
     const exe = join(install, image), previous = `${install}.previous`, log = join(this.options.scratchDir, "apply-update.log");
+    const recover = join(this.options.scratchDir, "recover-update.cmd");
+    const runOnceKey = this.options.runOnceKey ?? "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce";
+    await writeFile(recover, windowsRecoveryScript({ install, previous, failed: `${install}.failed`, incoming: `${install}.incoming`, log, runOnceKey }), "utf8");
     // System32 paths: the script may inherit a PATH where "find" is a Unix tool. tasklist's image
     // filter misses names with spaces, so the CSV listing is searched instead.
     const sys = "%SystemRoot%\\System32\\";
@@ -287,7 +293,7 @@ export class Updater {
       // program folder, when cut off part-way, leaves a folder that is neither version. The new version is
       // now copied in beside the old one and the two folders swap by renaming, which is all or nothing.
       // Only when the folder cannot be renamed (something has it open) is it copied over as before.
-      ...windowsSwap({ install, staged: stagedDir, previous, exe, log, sys, mirror, sleep, running,
+      ...windowsSwap({ install, staged: stagedDir, previous, exe, log, sys, mirror, sleep, running, recover, runOnceKey,
         archive: join(this.options.scratchDir, this.options.assetName!), unpacked: join(this.options.scratchDir, "unpacked") }),
     ].join("\r\n"), "utf8");
     return script;
@@ -315,53 +321,85 @@ export class Updater {
   }
 }
 
-/**
- * mac7/real-update. What belongs to the person or to the installer rather than to a version, carried
- * from one copy of the program to the other when they swap, and never removed by a mirror: the
- * uninstaller the installer wrote (Add or remove programs runs it), and a portable copy's marker and
- * its `Branch Data` folder, which hold the person's work.
- */
-export const windowsKeep = { files: ["Uninstall Branch Agent.cmd", portableMarker], folder: portableFolder } as const;
+export { windowsKeep };
 
 interface WindowsSwapPlan {
   install: string; staged: string; previous: string; exe: string; log: string; sys: string; archive: string; unpacked: string;
   mirror: (from: string, to: string, extra?: string) => string; sleep: (seconds: number) => string; running: string;
+  /** The script that puts a whole version back at the next sign-in if this one is cut off between the two renames. */
+  recover: string;
+  /** Where that script is registered to run once (HKCU RunOnce; tests hand in their own key). */
+  runOnceKey: string;
+}
+
+/** The value name under RunOnce; removed again as soon as the folders are whole. */
+export const recoveryValueName = "Branch Agent update recovery";
+
+/**
+ * mac7/real-update, integrator review. Between the two renames there is no program folder at all, and
+ * the Start menu shortcut points into it. That moment is milliseconds long, but a power cut or a sign
+ * out there would leave nothing to start, so the script below is registered to run once at the next
+ * sign-in first and taken off again straight after. It only acts when the program folder is missing,
+ * and then moves the previous version (which still has everything) back.
+ */
+export function windowsRecoveryScript(plan: { install: string; previous: string; failed: string; incoming: string; log: string; runOnceKey: string }): string {
+  const { install } = plan;
+  const back = (from: string) => `if not exist "${install}\\" if exist "${from}\\" move "${from}" "${install}" >NUL 2>&1`;
+  return [
+    "@echo off", `if exist "${install}\\" exit /b 0`,
+    `echo [%date% %time%] the last update was cut off with no program folder; putting a whole version back >>"${plan.log}"`,
+    back(plan.previous), back(plan.incoming), back(plan.failed),
+    `%SystemRoot%\\System32\\reg.exe delete "${plan.runOnceKey}" /v "${recoveryValueName}" /f >NUL 2>&1`, "exit /b 0", "",
+  ].join("\r\n");
 }
 
 /** The Windows swap: copy beside, rename twice, carry what is kept; the copy over the folder is the fallback. */
 export function windowsSwap(plan: WindowsSwapPlan): string[] {
-  const { install, previous, log, sys } = plan;
-  const incoming = `${install}.incoming`, failed = `${install}.failed`;
-  const keepOut = ` /XF ${windowsKeep.files.map((f) => `"${f}"`).join(" ")} /XD "${windowsKeep.folder}"`;
+  const { install, previous, log, exe } = plan;
+  const incoming = `${install}.incoming`, failed = `${install}.failed`, folder = windowsKeep.folder;
   const note = (text: string) => `echo [%time%] ${text} >>"${log}"`;
+  const reg = `${plan.sys}reg.exe`;
+  // Armed only for the two renames, so a cut there is put right at the next sign-in.
+  const arm = `${reg} add "${plan.runOnceKey}" /v "${recoveryValueName}" /t REG_SZ /d "\\"${plan.recover}\\"" /f >NUL 2>&1`;
+  const disarm = `${reg} delete "${plan.runOnceKey}" /v "${recoveryValueName}" /f >NUL 2>&1`;
+  // A folder move onto one that exists nests instead of replacing, so Branch Data only moves into a copy without one.
   const carry = (from: string, to: string) => [
     ...windowsKeep.files.map((f) => `if exist "${from}\\${f}" copy /y "${from}\\${f}" "${to}\\" >NUL`),
-    `if exist "${from}\\${windowsKeep.folder}\\" move "${from}\\${windowsKeep.folder}" "${to}\\${windowsKeep.folder}" >NUL`,
+    `if exist "${from}\\${folder}\\" if not exist "${to}\\${folder}\\" move "${from}\\${folder}" "${to}\\${folder}" >NUL`,
   ];
   return [
     ":copy", "set /a TRIES+=1", note("copying new version beside the old one, attempt %TRIES%"),
     `rmdir /s /q "${incoming}" 2>NUL`, plan.mirror(plan.staged, incoming),
-    `if errorlevel 8 ( if %TRIES% lss 3 ( ${plan.sleep(3)} & goto copy ) else ( ${note("copy failed; nothing was changed")} & rmdir /s /q "${incoming}" 2>NUL & start "" "${plan.exe}" & exit /b 1 ) )`,
-    `if exist "${previous}-2\\" rmdir /s /q "${previous}-2"`,
-    `if exist "${previous}\\" move "${previous}" "${previous}-2" >NUL`,
+    `if errorlevel 8 ( if %TRIES% lss 3 ( ${plan.sleep(3)} & goto copy ) else ( ${note("copy failed; nothing was changed")} & rmdir /s /q "${incoming}" 2>NUL & start "" "${exe}" & exit /b 1 ) )`,
+    `call :drop "${previous}-2"`,
+    `if exist "${previous}\\" if not exist "${previous}-2\\" move "${previous}" "${previous}-2" >NUL`,
     note("keeping previous version"),
-    `move "${install}" "${previous}" >NUL 2>&1`, "if errorlevel 1 goto inplace",
+    // A previous copy that could not be moved aside would swallow the program folder as a subfolder.
+    `if exist "${previous}\\" goto inplace`,
+    arm, `move "${install}" "${previous}" >NUL 2>&1`, `if errorlevel 1 ( ${disarm} & goto inplace )`,
     `move "${incoming}" "${install}" >NUL 2>&1`,
-    `if errorlevel 1 ( ${note("new version could not be moved in; restoring previous")} & move "${previous}" "${install}" >NUL & start "" "${plan.exe}" & exit /b 1 )`,
-    ...carry(previous, install), "goto swapped",
+    `if errorlevel 1 ( ${note("new version could not be moved in; restoring previous")} & move "${previous}" "${install}" >NUL & ${disarm} & start "" "${exe}" & exit /b 1 )`,
+    disarm, ...carry(previous, install), "goto swapped",
     ":inplace", note("the program folder is in use; copying over it instead"),
-    plan.mirror(install, previous), "if errorlevel 8 exit /b 1",
-    plan.mirror(incoming, install, keepOut), `if errorlevel 8 goto restore`, `rmdir /s /q "${incoming}" 2>NUL`,
+    plan.mirror(install, previous, windowsKeepOut), `if errorlevel 8 ( ${note("could not keep the previous version; nothing was changed")} & start "" "${exe}" & exit /b 1 )`,
+    plan.mirror(incoming, install, windowsKeepOut), `if errorlevel 8 goto restore`, `rmdir /s /q "${incoming}" 2>NUL`,
     ":swapped",
     'if "%~2"=="stay" exit /b 0',
-    note("starting new version"), `start "" "${plan.exe}"`, plan.sleep(20), plan.running, "if not errorlevel 1 goto done",
+    note("starting new version"), `start "" "${exe}"`, plan.sleep(20), plan.running, "if not errorlevel 1 goto done",
     plan.sleep(15), plan.running, "if not errorlevel 1 goto done",
     ":restore", note("new version did not start; restoring previous"),
-    `rmdir /s /q "${failed}" 2>NUL`, `move "${install}" "${failed}" >NUL 2>&1`, "if errorlevel 1 goto restorecopy",
-    `move "${previous}" "${install}" >NUL`, ...carry(failed, install), "goto restored",
-    ":restorecopy", plan.mirror(previous, install, keepOut),
-    ":restored", note("previous version is back"), `start "" "${plan.exe}"`, "exit /b 1",
-    ":done", note("new version is running"), `rmdir /s /q "${plan.unpacked}" 2>NUL`, `del /q "${plan.archive}" 2>NUL`, "exit /b 0", "",
+    `call :drop "${failed}"`, `if exist "${failed}\\" goto restorecopy`,
+    arm, `move "${install}" "${failed}" >NUL 2>&1`, `if errorlevel 1 ( ${disarm} & goto restorecopy )`,
+    `move "${previous}" "${install}" >NUL 2>&1`, `if errorlevel 1 ( move "${failed}" "${install}" >NUL & ${disarm} & goto restorecopy )`,
+    disarm, ...carry(failed, install), "goto restored",
+    ":restorecopy", plan.mirror(previous, install, windowsKeepOut),
+    ":restored", note("previous version is back"), `start "" "${exe}"`, "exit /b 1",
+    ":done", note("new version is running"), `rmdir /s /q "${plan.unpacked}" 2>NUL`, `del /q "${plan.archive}" 2>NUL`, "exit /b 0",
+    // Removes an old copy, first moving any Branch Data left in it out beside the program; keeps the copy when that fails.
+    ":drop", `if not exist "%~1\\" exit /b 0`,
+    `if exist "%~1\\${folder}\\" move "%~1\\${folder}" "${install} - saved ${folder} %RANDOM%" >NUL 2>&1`,
+    `if exist "%~1\\${folder}\\" ( ${note("kept %~1 because it holds " + folder)} & exit /b 1 )`,
+    `rmdir /s /q "%~1" 2>NUL`, "exit /b 0", "",
   ];
 }
 
