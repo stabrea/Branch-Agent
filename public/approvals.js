@@ -82,7 +82,10 @@ function renderWaiting() {
       item.append(el("p", "A yes for this conversation lasts until you close it, or until you lock Branch.", "subtle"));
     // Wave mac3 (tool-safety): a step the safety check advised against can only be allowed this once.
     if (question.onceOnly) item.append(el("p", t("live.onceOnly"), "subtle"));
-    for (const [label, remember] of [["Yes, just now", "never"], ["Yes, for this conversation", "session"], ["Yes, always", "always"]]) {
+    // mac7/coding-next: "Let Branch run this project's tests?" has answers of its own.
+    const yeses = question.kind === "project-tests" ? [["Always for this folder", "always"], ["Once", "never"]]
+      : [["Yes, just now", "never"], ["Yes, for this conversation", "session"], ["Yes, always", "always"]];
+    for (const [label, remember] of yeses) {
       if (remember === "always" && question.source !== "owner") continue;
       if (question.onceOnly && remember !== "never") continue;
       const button = el("button", label);

@@ -47,6 +47,7 @@ import { supportsImages } from "./providers.js";
 import { pinnedSkillInstructions, skillInstructions } from "./skill-tools.js";
 import type { ModelPlan, ModelPreset, ModelRouter, ReasoningEffort, RunModelOverride } from "./models.js";
 import { presetRunsLocally } from "./models.js"; // mac7/coding-next
+import { projectTestsTool } from "./coding/project-tests.js"; // mac7/coding-next
 import { checkResult, fanoutWaves, type FanoutTask, type ResultCheck } from "./delegation.js";
 import { describeToolCall, filePathOf } from "./activity.js";
 // Wave mac2 (guards): loop guard and folder trust; see src/run-guards.ts.
@@ -2332,6 +2333,8 @@ ${run.output.slice(0, 6000)}`;
       sandbox?: SandboxChoice | null;
       /** The exact request the person is shown, and the fingerprint their yes is bound to. */
       bytes?: string; fingerprint?: string;
+      /** mac7/coding-next: a question in words of its own, and its kind (for its own answers). */
+      question?: string; kind?: "project-tests";
     },
     callId?: string,
   ): never {
@@ -2339,7 +2342,7 @@ ${run.output.slice(0, 6000)}`;
     // A saved password or key can end up inside a command the assistant wants to run. The question
     // is shown on screen and kept in memory, so take the secrets back out here, once, for everyone.
     const label = this.hideSecrets(about.label), target = this.hideSecrets(about.target);
-    const question = approvalQuestion(label, target);
+    const question = about.question ? this.hideSecrets(about.question) : approvalQuestion(label, target);
     const sessionId = this.sessionOf(context);
     // A conversation can genuinely stop on more than one thing at once, so the question joins the
     // list rather than taking the place of whatever was already there. Only when the list is full
@@ -2347,13 +2350,15 @@ ${run.output.slice(0, 6000)}`;
     const dropped = this.approvals.ask({ runId: context.runId, sessionId, tool: about.tool, target,
       label, question, source, remember, askedAt: new Date().toISOString(),
       ...(about.sandbox ? { sandbox: about.sandbox } : {}),
+      ...(about.kind ? { kind: about.kind } : {}),
       ...(about.bytes === undefined ? {} : { bytes: about.bytes }),
       ...(about.fingerprint === undefined ? {} : { fingerprint: about.fingerprint }) });
     if (dropped) this.letOldestQuestionGo(dropped);
     // The exact bytes and their fingerprint travel with the event, so a phone or a chat channel
     // watching the socket sees the same question the app does and can answer under the same binding.
     this.store.event(context.runId, "policy.ask", { name: about.tool, id: callId, label, target, remember,
-      question, sandbox: about.sandbox ?? "", bytes: about.bytes ?? "", fingerprint: about.fingerprint ?? "" });
+      question, sandbox: about.sandbox ?? "", bytes: about.bytes ?? "", fingerprint: about.fingerprint ?? "",
+      ...(about.kind ? { kind: about.kind } : {}) });
     throw new NeedsInputError(question);
   }
   /**
@@ -2412,6 +2417,8 @@ ${run.output.slice(0, 6000)}`;
       throw new Error("That answer was for a different request. Look at what it wants to do now and answer again.");
     // mac7/r17-g: a yes the owner chose to guard needs a code from their authenticator app first.
     remember = safetyExtras.guardApproval(this.store, this.owner, waiting, sessionId, decision, remember);
+    // mac7/coding-next: only the owner, at the app, may let a folder's tests run for good.
+    if (waiting.tool === projectTestsTool && decision === "allow" && remember === "always") this.ownerAlwaysForTests(waiting, answeredOn);
     // Wave mac3 (tool-safety): a request the safety check advised against may be allowed only this once.
     this.approvals.settleOverrule(sessionId, waiting, decision, remember);
     this.approvals.resolve(sessionId, waiting.fingerprint);
@@ -2419,6 +2426,9 @@ ${run.output.slice(0, 6000)}`;
       this.approvals.remember(sessionId, waiting.tool, waiting.target, decision, {
         fingerprint: waiting.fingerprint, label: waiting.label,
       });
+    // mac7/coding-next: "Once" for the tests is a single pass for the next run of them.
+    if (waiting.tool === projectTestsTool && decision === "allow" && remember === "never")
+      this.approvals.grantOnce(sessionId, waiting.tool, waiting.target);
     if (remember === "always") addPolicyRule(this.store, this.owner, { tool: waiting.tool, match: waiting.target || "*", decision, remember: "always" });
     audit(this.store, this.owner, {
       action: "approval.decided", actor: this.owner, subject: `${waiting.tool}${waiting.target ? ` on ${waiting.target}` : ""}`,
@@ -2435,6 +2445,20 @@ ${run.output.slice(0, 6000)}`;
       outcome: decision === "allow" ? "allowed" : "refused",
     });
     return { tool: waiting.tool, target: waiting.target, decision, remembered: remember, fingerprint: waiting.fingerprint ?? null };
+  }
+  /**
+   * mac7/coding-next: "Always for this folder" to running a project's tests is the owner's alone:
+   * never from a chat app, never for a task somebody else in the house started, and never while the
+   * window is switched to somebody else's profile.
+   */
+  private ownerAlwaysForTests(waiting: PendingApproval, answeredOn: string | undefined): void {
+    const refusal = "Only the owner, in the app, can let Branch run this project's tests every time. Answer Once or No instead.";
+    if (answeredOn || waiting.source !== "owner" || this.taskPerson(waiting.runId)) throw new Error(refusal);
+    if (!this.store.profiles.isOwner()) throw new Error(refusal);
+  }
+  /** mac7/coding-next: where this call's answers are remembered (its conversation), for code outside the runtime. */
+  approvalSessionOf(context: ToolContext): string {
+    return this.sessionOf(context);
   }
   /**
    * The owner's answer to a plan waiting for them. Yes — with a step's wording changed, if they
@@ -2603,7 +2627,7 @@ ${run.output.slice(0, 6000)}`;
     // wave mac3 (os-sandbox, integration review): the wall comes only from wallContextFor below, never
     // from whatever context this call was handed, so an outer wall (and its key sites) cannot ride along.
     const { osSandbox: _outerWall, ...unwalled } = context;
-    const scoped: ToolContext = { ...unwalled, signal: AbortSignal.any([context.signal, timeout]),
+    const scoped: ToolContext = { ...unwalled, askable: true, signal: AbortSignal.any([context.signal, timeout]),
       ...(gated.sandbox ? { sandbox: gated.sandbox } : {}),
       ...(gated.backend ? { sandboxBackend: gated.backend } : {}),
       ...(gated.paths?.length ? { sandboxPaths: gated.paths } : {}),
@@ -2640,7 +2664,7 @@ ${run.output.slice(0, 6000)}`;
       if (e instanceof ApprovalRequiredError) {
         span?.end("error", "waiting for the person");
         this.askApproval(context, { tool: e.tool, label: e.label, target: e.target,
-          source: context.source ?? "owner", remember: e.remember,
+          source: context.source ?? "owner", remember: e.remember, ...e.asked,
           ...(e.fingerprint === undefined ? {} : { fingerprint: e.fingerprint }) }, call.id);
       }
       if (e instanceof BudgetError || e instanceof NeedsInputError || context.signal.aborted) {

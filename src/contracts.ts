@@ -261,6 +261,12 @@ export interface ToolContext {
    */
   approvalKey?: string;
   /**
+   * mac7/coding-next: set on a model's own tool call in a task, where a tool may stop to ask the
+   * person (ApprovalRequiredError) and the question is put in the conversation. A tool run by hand
+   * has nowhere to put one, so a tool that would ask answers there as it did before.
+   */
+  askable?: boolean;
+  /**
    * How tightly a program this call starts is to be held, when an approval rule said so. It is set
    * by the runtime just before the tool runs; a tool no rule says anything about never sees it and
    * behaves exactly as it did before rules could say.

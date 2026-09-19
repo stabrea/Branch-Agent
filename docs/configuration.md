@@ -5752,11 +5752,19 @@ memory and processor ceilings a host command gets, and what it said comes straig
 assistant in the same step, so it sees what its own change broke before it does anything else.
 `code.check` runs it on its own, and needs the `code.execute` permission, because running your
 tests is running a program on this computer whatever else it does. Off by default.
-With no check set up and running small scripts switched on (Settings, the same switch as
-`code.run`), `code.check` runs a Node project's own tests instead (`node --test` in the workspace,
-one minute at most), with no way out to the internet unless scripts may reach it. Only `code.check`
-does this: after `code.patch` or `code.change_set` only a check you set up yourself runs, so
-writing a file never becomes running it.
+With no check set up, `code.check` can run a Node project's own tests instead (`node --test` in the
+workspace, one minute at most), with no way out to the internet unless scripts may reach it. With
+running small scripts switched on (Settings, the same switch as `code.run`) it does so as before.
+With that switch off — as shipped — **it asks first: "Let Branch run this project's tests?"**, once per
+workspace folder, as an ordinary question in the conversation (mac7/coding-next,
+`src/coding/project-tests.ts`). *Always for this folder* saves a standing rule for the tool name
+`code.tests` on exactly that folder (you can take it back under Settings, Permissions, like any
+rule); only the owner can give it, in the app — never from a chat app, never for a task somebody
+else in the house started. *Once* lets the next run of the tests in that conversation go ahead. *No*
+is remembered for the conversation, and the assistant is told to work from the test files instead.
+Lockdown refuses without asking. A broad "allow everything" rule does not stand in for this yes.
+Only `code.check` does this: after `code.patch` or `code.change_set` only a check you set up
+yourself runs, so writing a file never becomes running it.
 
 ## Programs left running (batch 20, wave 7)
 

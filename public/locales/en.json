@@ -2315,6 +2315,8 @@
   "live.localLoading": "Waiting for the model on this computer to start. It may be loading into memory…",
   "live.yesAlways": "Yes, always",
   "live.yesOnce": "Yes, just now",
+  "live.testsAlways": "Always for this folder",
+  "live.testsOnce": "Once",
   "live.yesSession": "Yes, for this conversation",
   "lmore.blocks.aboutHint": "Your about-you note from Settings; its size and whether it is shown are set there.",
   "lmore.blocks.add": "Add the block",

@@ -394,3 +394,97 @@ test("1 read-first on: a file tidied after the task's own edit (format-on-edit) 
   assert.ok(answers.every((answer) => answer.ok), JSON.stringify(answers));
   assert.equal(await fileText(workspace, "a.txt"), "THREE\n");
 });
+
+// ------------------------------------------------------------------ 4. "Let Branch run this project's tests?"
+
+/** A Node project with one passing test, the script switch left off (as shipped), and a scripted model. */
+async function testsFixture(t, steps) {
+  const provider = scripted(steps);
+  const { app, workspace } = await fixture(t, { provider });
+  const { mkdir, writeFile } = await import("node:fs/promises");
+  await mkdir(join(workspace, "test"), { recursive: true });
+  await writeFile(join(workspace, "package.json"), JSON.stringify({ name: "p", type: "module" }));
+  await writeFile(join(workspace, "test", "a.test.mjs"), 'import test from "node:test";\ntest("adds", () => {});\n');
+  return { app, workspace };
+}
+const asked = (app, run) => app.store.events(run.id).filter((event) => event.kind === "policy.ask");
+const ranTests = (app, run) => app.store.events(run.id).some((event) => event.kind === "code.check");
+
+test("4 the tests are not run until the person says yes; Once lets the next run go and then asks again", async (t) => {
+  const check = call("code.check", {});
+  const { app, workspace } = await testsFixture(t, [check, check, say("done"), check]);
+  const first = await app.runtime.run({ prompt: "fix it" });
+  assert.equal(first.status, "needs_input");
+  assert.equal(ranTests(app, first), false, "nothing ran before the answer");
+  const [question] = asked(app, first);
+  assert.equal(question.data.kind, "project-tests");
+  assert.equal(question.data.name, "code.tests");
+  assert.equal(question.data.target, workspace);
+  assert.match(question.data.question, /^Let Branch run this project's tests\?/);
+  app.runtime.approve(first.sessionId, "allow", "never");
+  const second = await app.runtime.run({ prompt: "carry on", sessionId: first.sessionId });
+  assert.equal(second.status, "completed", second.output);
+  assert.equal(ranTests(app, second), true);
+  const [answer] = toolMessages(app, second).slice(-1);
+  assert.equal(answer.result.ran, true);
+  assert.equal(answer.result.ok, true, answer.result.output);
+  const third = await app.runtime.run({ prompt: "again", sessionId: first.sessionId });
+  assert.equal(third.status, "needs_input", "Once was used up");
+});
+
+test("4 Always for this folder is kept: later conversations run the tests without asking", async (t) => {
+  const check = call("code.check", {});
+  const { app, workspace } = await testsFixture(t, [check, check, say("done"), check, say("done")]);
+  const first = await app.runtime.run({ prompt: "fix it" });
+  app.runtime.approve(first.sessionId, "allow", "always");
+  const { readPolicy } = await import("../dist/policy.js");
+  assert.ok(readPolicy(app.store, "local").rules.some((rule) => rule.tool === "code.tests" && rule.match === workspace && rule.decision === "allow"));
+  const second = await app.runtime.run({ prompt: "carry on", sessionId: first.sessionId });
+  assert.equal(ranTests(app, second), true);
+  const elsewhere = await app.runtime.run({ prompt: "a new conversation" });
+  assert.equal(elsewhere.status, "completed", elsewhere.output);
+  assert.equal(asked(app, elsewhere).length, 0);
+  assert.equal(ranTests(app, elsewhere), true);
+});
+
+test("4 No is remembered for the conversation: the task is told, and not asked again", async (t) => {
+  const check = call("code.check", {});
+  const { app } = await testsFixture(t, [check, check, say("done")]);
+  const first = await app.runtime.run({ prompt: "fix it" });
+  app.runtime.approve(first.sessionId, "deny", "session");
+  const second = await app.runtime.run({ prompt: "carry on", sessionId: first.sessionId });
+  assert.equal(second.status, "completed", second.output);
+  assert.equal(asked(app, second).length, 0);
+  assert.equal(ranTests(app, second), false);
+  const [answer] = toolMessages(app, second).slice(-1);
+  assert.equal(answer.result.ran, false);
+  assert.match(answer.result.note, /chose not to let Branch run this project's tests/);
+});
+
+test("4 Always cannot be given from a chat app or for a task a chat app started; Once still can", async (t) => {
+  const check = call("code.check", {});
+  const { app } = await testsFixture(t, [check]);
+  const run = await app.runtime.run({ prompt: "fix it" });
+  assert.throws(() => app.runtime.approve(run.sessionId, "allow", "always", undefined, "telegram"), /Only the owner, in the app/);
+  const fromChat = await app.runtime.run({ prompt: "fix it", source: "channel" });
+  assert.equal(fromChat.status, "needs_input");
+  assert.throws(() => app.runtime.approve(fromChat.sessionId, "allow", "always"), /standing yes|Only the owner/);
+  app.runtime.approve(fromChat.sessionId, "allow", "never");
+  const { readPolicy } = await import("../dist/policy.js");
+  assert.ok(!readPolicy(app.store, "local").rules.some((rule) => rule.tool === "code.tests"), "no standing rule was written");
+});
+
+test("4 Lockdown refuses without asking; the script switch on runs the tests as before", async (t) => {
+  const check = call("code.check", {});
+  const { app } = await testsFixture(t, [check, say("done"), check, say("done")]);
+  app.store.save("settings", "local", "lockdown", { on: true });
+  const locked = await app.runtime.run({ prompt: "fix it" });
+  assert.equal(asked(app, locked).length, 0, "not asked");
+  assert.equal(ranTests(app, locked), false);
+  app.store.save("settings", "local", "lockdown", { on: false });
+  const { saveCodeRunSettings } = await import("../dist/code-run.js");
+  await saveCodeRunSettings(app.store, "local", { enabled: true });
+  const scripts = await app.runtime.run({ prompt: "fix it" });
+  assert.equal(asked(app, scripts).length, 0, "the owner already said yes to running scripts");
+  assert.equal(ranTests(app, scripts), true);
+});

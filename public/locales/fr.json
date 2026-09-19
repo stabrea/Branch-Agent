@@ -2316,6 +2316,8 @@
   "live.localLoading": "En attente du modèle sur cet ordinateur. Il est peut-être en cours de chargement en mémoire…",
   "live.yesAlways": "Oui, toujours",
   "live.yesOnce": "Oui, juste cette fois",
+  "live.testsAlways": "Toujours pour ce dossier",
+  "live.testsOnce": "Une fois",
   "live.yesSession": "Oui, pour cette conversation",
   "lmore.blocks.aboutHint": "Votre note « à propos de vous » des Réglages ; sa taille et son affichage se règlent là-bas.",
   "lmore.blocks.add": "Ajouter le bloc",

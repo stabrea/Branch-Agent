@@ -10,7 +10,7 @@ Order worked: 5, 6, 3, 2, 1, 4 (2 before 1 because both touch `runtime.callTool`
 - [x] 3. Longer first-reply wait for local models, with a status line
 - [x] 2. Unknown tool arguments dropped (not refused), the model told; permission check sees cleaned arguments
 - [x] 1. Read before edit
-- [ ] 4. "Let Branch run this project's tests?" asked once per folder
+- [x] 4. "Let Branch run this project's tests?" asked once per folder
 - [ ] Merge latest `origin/mac/cross-platform`, rebuild, retest, push
 
 ## Notes for the integrator
@@ -134,3 +134,42 @@ Tests: `tests/coding-next.test.mjs` "5 …" — the helper, and `code.run` with 
   kinds of change, nothing written; read then edit, own second edit and a whole-file write allowed; an outside
   change after the read refused, then allowed after reading again; new files (write, empty-find edit, Add
   File patch) allowed; a formatter rewriting the file after the task's edit does not refuse the next edit.
+
+### 4. "Let Branch run this project's tests?"
+- Where: `code.check`'s stand-in (`node --test` in the workspace, only when no check is configured and the
+  folder has a package.json). That is the only path that runs a project's tests without the owner having
+  named the program; an owner-configured check is the owner's own yes and is not asked about. After
+  `code.patch`/`code.change_set` nothing but the configured check runs (unchanged).
+- With the script switch (`code-run.enabled`) on, the stand-in runs as before without asking (that owner
+  already said yes to running scripts; not changing behaviour for them). Off, as shipped: `CodeChanges.testsRefusal`
+  asks `projectTestsVerdict` (src/coding/project-tests.ts), wired in src/index.ts through the runtime's approvals.
+- The question is an ordinary approval: `ApprovalRequiredError("code.tests", <workspace folder>, …, "always")`
+  thrown from the tool; `Runtime.callTool`'s existing catch puts it with `askApproval` (pending list,
+  `policy.ask` event, the app's question card, chat apps). Two optional fields ride along: `question`
+  ("Let Branch run this project's tests? It would run node --test in <folder>.") and `kind: "project-tests"`,
+  which the two question cards (public/live-run.js, public/approvals.js) use to show **Always for this folder /
+  Once / No** instead of the usual four (en + fr keys `live.testsAlways`, `live.testsOnce`).
+- Answers: Always = `approve(..., "always")` → the existing `addPolicyRule({ tool: "code.tests", match: folder })`,
+  so it is stored and revocable like any rule; Once = a single pass (`ApprovalGate.grantOnce/takeOnce`, cleared
+  by Lock and when the conversation is forgotten) — needed because the existing "Yes, just now" records nothing;
+  No = remembered for the conversation, and the model is told to work from the test files.
+- Only an exact `code.tests` rule for this folder counts; a broad allow rule (e.g. a "Full access" preset) does
+  not stand in for the yes. Owner-only Always: refused when answered from a chat app (`answeredOn`), for a task
+  a chat app or anything but the owner started (existing check), for a household person's task, or while the
+  window is switched to a household profile. Lockdown: `code.check` is refused by the existing Lockdown rule for
+  `code.execute` without asking; the verdict refuses too.
+- New `ToolContext.askable`: set on a model's own tool call (`runToolCall`). A tool run by hand ("Try a tool",
+  manual actions) has nowhere to put the question, so there `code.check` answers with the old "no check is set
+  up" note, as before (existing coding-gap test unchanged). Workflow steps (`approvalKey`) are asked, as the
+  existing ApprovalRequiredError design intends.
+- **Per permission mode, for whoever wires `mac7/redesign-phase1`'s picker** (no picker built here):
+  - *Plan*: never run. Already true: a dry run simulates `code.check` (not read-only) before it runs.
+  - *Ask first*: ask (this behaviour).
+  - *Auto* and *Full access*: still ask once per folder unless "Always for this folder" was given. The verdict
+    reads only the exact `code.tests` rule, so a mode that works by adding broad allow rules will not skip it;
+    a mode implemented some other way must not bypass `projectTestsVerdict`.
+- Tests: `tests/coding-next.test.mjs` "4 …": nothing runs before the answer; the question's kind, tool, folder
+  and words; Once runs the next call and then asks again; Always writes the folder rule and a new conversation
+  runs without asking; No is remembered and the model gets the note; Always refused from a chat app and for a
+  chat-started task (Once still works, no rule written); Lockdown refuses without asking; script switch on runs
+  as before. These run a real `node --test` on a one-test temp project (no window).
