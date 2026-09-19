@@ -180,6 +180,7 @@ const fields = [
   ["voice-live-dollars", "liveMaxDollars", "value"],
   ["voice-live-vad", "liveVoiceDetection", "checked"],
   ["voice-live-record", "keepLiveRecordings", "checked"],
+  ["voice-live-view", "liveView", "value"], // phase2/rooms: Talk live in its own view (public/voice-view.js)
 ];
 /** The two limits are numbers on the way back out; everything else on this form is text or a tick. */
 const numberFields = new Set(["liveMaxMinutes", "liveMaxDollars"]);

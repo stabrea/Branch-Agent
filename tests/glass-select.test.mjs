@@ -30,7 +30,7 @@ async function fixture(t, contextOptions = {}) {
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("body.lx-ready").waitFor({ state: "attached" });
+  await page.locator("body.lx-ready").waitFor({ state: "attached", timeout: 120000 });
   return { app, page, errors };
 }
 
@@ -161,6 +161,7 @@ test("integration review: the list sits flush under the select and fully covers 
     await f.page.locator("#glass-list").waitFor({ state: "visible" });
     await f.page.waitForTimeout(300); // the opening glide is over
     const seen = await f.page.evaluate(() => {
+      if (document.getElementById("glass-list").hidden) return { closed: true };
       const select = document.getElementById("policy-preset").getBoundingClientRect();
       const list = document.getElementById("glass-list");
       const box = list.getBoundingClientRect();
@@ -169,6 +170,7 @@ test("integration review: the list sits flush under the select and fully covers 
       return { gap: box.top - select.bottom, overNote: list.contains(probe), noteTop: note.top, listTop: box.top,
         alpha: Number(/\/\s*([\d.]+)\)/.exec(getComputedStyle(list).backgroundColor)?.[1] ?? 1) };
     });
+    assert.ok(!seen.closed, `the list is still open at ${viewport.width}`);
     assert.ok(seen.gap >= 0 && seen.gap <= 2, `flush under the select at ${viewport.width} (gap ${seen.gap})`);
     assert.ok(seen.overNote, `the list, not the help line, is what shows right under the select at ${viewport.width}`);
     assert.ok(seen.alpha >= 0.97, `the glass is opaque enough to read (${seen.alpha})`);
@@ -211,6 +213,25 @@ test("integration review: groups, greyed choices, one change event, the form's v
   await list.waitFor({ state: "hidden" });
   assert.equal(await select.inputValue(), "c", "a list that changed under the pointer closes and chooses nothing");
   assert.deepEqual(await f.page.evaluate(() => globalThis.__probe), ["c"]);
+  assert.deepEqual(f.errors, []);
+});
+
+test("an open list stays open when the window's refresh writes the same choices again", async (t) => {
+  const f = await fixture(t);
+  await openSettingFor(f.page, "#policy-preset");
+  const select = f.page.locator("#policy-preset"), list = f.page.locator("#glass-list");
+  await select.click();
+  await list.waitFor({ state: "visible" });
+  /* What a redraw on the window's refresh every 3 s can do: the same choices written again (approvals.js
+     did it to the presets until p2-shell). That closed the list on the macOS runner before it could be
+     measured (trunk 677e7d34); any select's redraw must leave an open list alone when nothing changed. */
+  await f.page.evaluate(() => {
+    const picker = document.getElementById("policy-preset");
+    picker.replaceChildren(...[...picker.options].map((option) => new Option(option.text, option.value, false, option.selected)));
+  });
+  await f.page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+  assert.equal(await list.isVisible(), true, "the same choices written again leave the list open");
+  assert.equal(await select.getAttribute("aria-expanded"), "true");
   assert.deepEqual(f.errors, []);
 });
 

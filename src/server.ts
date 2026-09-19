@@ -119,6 +119,7 @@ import { PreferencesSchema, preferences } from "./preferences.js";
 import { asksApi, AsksHttpError, handlesAsksPath } from "./asks/api.js"; // mac6/bucket-23: the smaller asks
 import { autonomyApi, AutonomyHttpError, handlesAutonomyPath } from "./autonomy/api.js"; // r17-b
 import { handlesTrunksPath, trunksApi, TrunksHttpError } from "./trunks/api.js"; // R17-A: Trunks
+import { handlesShellLookPath, shellLookApi, ShellLookError } from "./shell-look.js"; // phase2/shell
 import { codingApi, CodingHttpError, handlesCodingPath } from "./coding/api.js"; // mac7/r17-d: coding polish
 import { handlesPersonalPath, personalApi, PersonalHttpError } from "./personal/api.js"; // R17-C
 import { handlesReachPath, reachApi, ReachHttpError } from "./reach/api.js"; // r17-i
@@ -513,6 +514,16 @@ async function staticFile(
     "/phone-app.js": ["phone-app.js", "text/javascript; charset=utf-8"], // mac7/phone-qr
     "/autonomy.js": ["autonomy.js", "text/javascript; charset=utf-8"], // r17-b
     "/trunks.js": ["trunks.js", "text/javascript; charset=utf-8"], // R17-A
+    // phase2/shell: faces, the Trunks strip, the studio, pairing, Overview and People
+    "/faces.js": ["faces.js", "text/javascript; charset=utf-8"],
+    "/faces.css": ["faces.css", "text/css; charset=utf-8"],
+    "/strip.js": ["strip.js", "text/javascript; charset=utf-8"],
+    "/strip.css": ["strip.css", "text/css; charset=utf-8"],
+    "/studio.js": ["studio.js", "text/javascript; charset=utf-8"],
+    "/studio.css": ["studio.css", "text/css; charset=utf-8"],
+    "/pairing.js": ["pairing.js", "text/javascript; charset=utf-8"],
+    "/overview.js": ["overview.js", "text/javascript; charset=utf-8"],
+    "/people-place.js": ["people-place.js", "text/javascript; charset=utf-8"],
     "/coding.js": ["coding.js", "text/javascript; charset=utf-8"], // mac7/r17-d
     "/personal.js": ["personal.js", "text/javascript; charset=utf-8"], // R17-C
     "/reach.js": ["reach.js", "text/javascript; charset=utf-8"], // r17-i
@@ -563,6 +574,13 @@ async function staticFile(
     "/never-break.js": ["never-break.js", "text/javascript; charset=utf-8"],
     // mac6/accounts: the Accounts list in each connection's card, and the chip in the conversation header.
     "/accounts.js": ["accounts.js", "text/javascript; charset=utf-8"],
+    // phase2/accounts: thinking levels per model, the service marks, the Accounts page, the agent files editor.
+    "/thinking-levels.js": ["thinking-levels.js", "text/javascript; charset=utf-8"],
+    "/brand-marks.js": ["brand-marks.js", "text/javascript; charset=utf-8"],
+    "/brand-marks.css": ["brand-marks.css", "text/css; charset=utf-8"],
+    "/accounts.css": ["accounts.css", "text/css; charset=utf-8"],
+    "/agent-files.js": ["agent-files.js", "text/javascript; charset=utf-8"],
+    "/service-marks.js": ["service-marks.js", "text/javascript; charset=utf-8"],
     "/telegram-setup.js": ["telegram-setup.js", "text/javascript; charset=utf-8"],
     // mac7/connect: the Set up panel for each chat app.
     "/channel-setup.js": ["channel-setup.js", "text/javascript; charset=utf-8"],
@@ -636,6 +654,10 @@ async function staticFile(
     "/token-meter.js": ["token-meter.js", "text/javascript; charset=utf-8"],
     "/usage-glance.js": ["usage-glance.js", "text/javascript; charset=utf-8"],
     "/conversation-mode.js": ["conversation-mode.js", "text/javascript; charset=utf-8"],
+    "/rooms.js": ["rooms.js", "text/javascript; charset=utf-8"], // phase2/rooms
+    "/rooms.css": ["rooms.css", "text/css; charset=utf-8"], // phase2/rooms
+    "/voice-bar.js": ["voice-bar.js", "text/javascript; charset=utf-8"], // phase2/rooms
+    "/voice-view.js": ["voice-view.js", "text/javascript; charset=utf-8"], // phase2/rooms
     "/suggestions.js": ["suggestions.js", "text/javascript; charset=utf-8"],
     "/glass-select.js": ["glass-select.js", "text/javascript; charset=utf-8"],
     // phase2/settings: Settings grown up (groups, levels, search over every setting).
@@ -839,11 +861,16 @@ function toolInventory(app: Branch) {
 }
 /** Tasks waiting for the person's answer: the latest run of a conversation that stopped with a question. */
 function attention(app: Branch) {
-  const seen = new Set<string>(), waiting: { runId: string; sessionId: string; question: string; createdAt: string }[] = [];
+  type Waiting = { runId: string; sessionId: string; question: string; createdAt: string; who?: string; room?: string; open?: string };
+  const seen = new Set<string>(), waiting: Waiting[] = [];
   for (const run of app.store.runs(app.runtime.owner)) {
     if (seen.has(run.sessionId)) continue;
     seen.add(run.sessionId);
-    if (run.status === "needs_input") waiting.push({ runId: run.id, sessionId: run.sessionId, question: run.output, createdAt: run.createdAt });
+    if (run.status !== "needs_input") continue;
+    // phase2/rooms (integration review): a Trunk's question says which Trunk, and a room member's opens the room.
+    const by = app.trunks.conversations.answerer(run.sessionId);
+    waiting.push({ runId: run.id, sessionId: run.sessionId, question: run.output, createdAt: run.createdAt,
+      ...(by ? { who: by.name, open: by.sessionId, ...(by.room ? { room: by.room } : {}) } : {}) });
   }
   return waiting;
 }
@@ -1280,7 +1307,11 @@ async function api(
     app.store.profiles.requireOwner("The speech settings");
   // Wave 7: voice routes and plans, routing profiles, switching model mid-conversation, and a live
   // check of what each connection can do. The bodies of all of these live in src/voice-api.ts.
-  if (path === "/api/voice/settings" || path === "/api/voice/plan" || path === "/api/voice/voices"
+  // phase2/rooms: Talk live's own start was never in this list, so the button could not open a
+  // conversation. Its tools run as the owner, so it is the owner's alone (src/short-lived-keys.ts no
+  // longer lets a key or a household person reach it).
+  if (path === "/api/voice/live"
+    || path === "/api/voice/settings" || path === "/api/voice/plan" || path === "/api/voice/voices"
       || path.startsWith("/api/models/profiles") || path === "/api/models/switch" || path === "/api/models/probe"
       || path === "/api/models/gemini-signin")
     return voiceApi(voiceDeps(app), request.method ?? "GET", path, () => readBody(request));
@@ -1525,6 +1556,10 @@ async function api(
       throw new HttpError(401, "A short-lived key can answer this once or for this conversation, but cannot make a standing rule. Do that in the app window.");
     // bucket 19: a short-lived key answers only the questions of tasks it started itself.
     requireBoundSession(shortLivedKeyMark().sessionId, input.sessionId);
+    // phase2/rooms (integration review): a yes that holds for a Trunk in a room is the owner's, given in the room.
+    if (input.remember !== "never" && app.trunks.conversations.kind(input.sessionId) === "member"
+      && (startedWithShortLivedKey() || !app.store.profiles.isOwner()))
+      throw new HttpError(401, "A yes that holds in a room is given by the owner, in the room. Answer this once instead.");
     // With nothing waiting, the answer below says so in its own words.
     const asked = app.runtime.approvals.questionFor(input.sessionId, input.fingerprint);
     const keyRefusal = asked ? keyAnswerRefusal(app.store, asked.runId) : null;
@@ -3273,6 +3308,14 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
           return;
         }
         // ---- end of the R17-A block ----
+        // ---- phase2/shell: the strip and 3D faces switches (src/shell-look.ts); changing them is the owner's. ----
+        if (handlesShellLookPath(path)) {
+          const answer = await shellLookApi(app.store, app.runtime.owner, request.method ?? "GET", () => readBody(request, 4096))
+            .catch((error: unknown) => { throw error instanceof ShellLookError ? new HttpError(error.status, error.message) : error; });
+          send(response, 200, answer);
+          return;
+        }
+        // ---- end phase2/shell ----
         // ---- R17-C: files, voice, devices and personal connectors under /api/personal (src/personal/api.ts). ----
         if (handlesPersonalPath(path)) {
           app.store.profiles.requireOwner("Your personal connectors");
@@ -3865,7 +3908,17 @@ function voiceDeps(app: Branch) {
     voice: app.voice, policy: app.web.policy, fetch: app.web.policy.guard(globalThis.fetch),
     // Wave 7: the Gemini card's "Sign in with Google" needs the workspace's OAuth connections.
     oauth: app.oauth,
+    liveRefusal: (sessionId: string) => liveRefusalFor(app, sessionId), // phase2/rooms
   };
+}
+/**
+ * phase2/rooms: Talk live runs its tools as your assistant, so it is refused in a conversation a
+ * Trunk answers in (its own chat, one chosen for it, its seat in a room) and in a room: there it
+ * would step round the Trunk's own limits.
+ */
+function liveRefusalFor(app: Branch, sessionId: string): string | null {
+  // Integration review: the same words LiveConversations.start answers with (src/live-refusal.ts).
+  return app.live.refuse(sessionId);
 }
 /**
  * Batch 20 (wave 8): the doors a short-lived key never opens, whatever its scope. A "run" key is

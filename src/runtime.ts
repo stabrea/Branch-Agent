@@ -34,6 +34,7 @@ import type {
   ToolContext,
   ToolCall,
   ToolDescription,
+  ToolTarget,
 } from "./contracts.js";
 import type { Store } from "./store.js";
 import type { ToolRegistry } from "./registry.js";
@@ -80,6 +81,7 @@ import {
   addPolicyRule, cappedPolicy, evaluatePolicy, isReadOnlyPermission, readPolicy,
   type Policy, type PolicyDecision, type PolicyRemember, type RunSource,
 } from "./policy.js";
+import { judgeTargets, stricterThan, targetRefusal, targetText, unknownTargetsRefusal } from "./policy-targets.js"; // mac7/multi-target
 import { ProfileRoles, grantRefusal } from "./profile-roles.js";
 import { Handoffs } from "./orchestration-modes.js";
 import { categoryOf } from "./tool-categories.js";
@@ -102,7 +104,7 @@ import {
 // Wave 7: three tiers of tool, a hard ceiling on the tool section, and searching for the rest.
 import { ToolLoader, meaningSearchOn, toolDescribeName, toolNoteName, toolSearchName } from "./tool-loading.js";
 import {
-  carrySentences, rememberSessionCarry, restoreSessionCarry, type CarryDeps, type RestoredSession,
+  carrySentences, dropCarriedGrants, rememberSessionCarry, restoreSessionCarry, type CarryDeps, type RestoredSession, // phase2/rooms: dropCarriedGrants
 } from "./session-carry.js";
 import type { RunToolEmbedder, ToolEmbedder } from "./tool-index.js";
 import { mcpAppIn } from "./mcp-apps.js";
@@ -677,7 +679,11 @@ export class Runtime {
     const args = this.registry.runArgs(tool, sent); // hardening-3: as the tool will run it
     return wallContextFor({ store: this.store, owner: this.owner, policy: this.policy(context.source ?? "owner", context.runId),
       approvals: this.approvals, context, tool, permission: this.registry.permissionOf(tool),
-      target: this.registry.targetOf(tool, args, context), args, choice, untouchable: this.protectedAreas });
+      target: this.registry.targetOf(tool, args, context), targets: this.targetsOrNone(tool, args, context), args, choice, untouchable: this.protectedAreas });
+  }
+  /** mac7/multi-target: the things a call touches for the wall; one it cannot tell was refused before it got here. */
+  private targetsOrNone(tool: string, args: unknown, context: ToolContext): ToolTarget[] | null {
+    try { return this.registry.targetsOf(tool, args, context); } catch { return null; }
   }
   /** The kind of permission a tool needs (src/tool-gate.ts asks). */
   permissionOf(tool: string): string { return this.registry.permissionOf(tool); }
@@ -1166,6 +1172,11 @@ ${run.output.slice(0, 6000)}`;
    * connects it; on its own every task is an ordinary one.
    */
   trunkShape: (options: RunOptions) => TrunkRunShape | null = () => null;
+  /**
+   * phase2/rooms: the conversation whose mode this one follows. A Trunk's turn in a room runs in that
+   * Trunk's own conversation for the room, so it is held to the room's conversation (src/trunks/).
+   */
+  modeFollows: (sessionId: string) => string | null = () => null;
   private sendSpans(runId: string): void {
     // A runtime that is shutting down refuses new background work, and a send that cannot start is
     // simply not made. Nothing here — refused, failed or off — may reach the task's own result.
@@ -2175,7 +2186,10 @@ ${run.output.slice(0, 6000)}`;
     const seen = new Set<string>();
     for (let id: string | null = runId; id && !seen.has(id) && seen.size < 20; id = this.parentOf(id)) {
       seen.add(id);
-      const record = readConversationMode(this.store, this.owner, this.store.run(id)?.sessionId);
+      const session = this.store.run(id)?.sessionId;
+      // phase2/rooms: a Trunk's side of a room follows the room's own conversation, never a mode of its own.
+      const follows = session ? this.modeFollows(session) : null;
+      const record = readConversationMode(this.store, this.owner, follows ?? session);
       if (record) return record;
     }
     return null;
@@ -2262,6 +2276,9 @@ ${run.output.slice(0, 6000)}`;
     const untouchable = protectedTarget({ tool, readOnly, args, target, workspace: context.workspace, ...cwdOf(args) }, this.protectedAreas);
     if (untouchable) return { decision: "deny", label, target, readOnly, remember: "never", sandbox: null, backend: null, paths: null, reason: untouchable };
     // --- end mac3/never-break ---
+    // mac7/multi-target: every thing the call touches, each held to Branch's own files; refused when they cannot be told.
+    const every = this.everyTarget(tool, args, context);
+    if (typeof every === "string") return { decision: "deny", label, target, readOnly, remember: "never", sandbox: null, backend: null, paths: null, reason: every };
     const refusal = this.roleRefusal(tool, permission, context.runId);
     if (refusal) return { decision: "deny", label, target, readOnly, remember: "session", sandbox: null, backend: null, paths: null, reason: refusal };
     // --- mac7/lockdown-fix: while Lockdown is on, commands, programs, the screen and the borrowed browser are
@@ -2269,7 +2286,14 @@ ${run.output.slice(0, 6000)}`;
     const locked = lockdownToolRefusal(this.store, this.owner, tool, permission);
     if (locked) return { decision: "deny", label, target, readOnly, remember: "never", sandbox: null, backend: null, paths: null, reason: locked };
     // mac2/leak-guard: an address carrying a key or password is asked about even where rules allow it.
-    const tightened = this.leakGuard.tighten(evaluatePolicy(this.policy(source, context.runId), { tool, target, readOnly, resource }), args);
+    const policy = this.policy(source, context.runId);
+    const whole = this.leakGuard.tighten(evaluatePolicy(policy, { tool, target, readOnly, resource }), args);
+    // mac7/multi-target: and each of them weighed by the rules; the strictest answer wins, and a refusal names it.
+    const spread = every && judgeTargets(policy,
+      { tool, permission, callTarget: target, args, resourceOf: (text) => this.registry.resourceOf(tool, text, args) }, every);
+    if (spread?.decision === "deny" && spread.target)
+      return { decision: "deny", label, target, readOnly, remember: "never", sandbox: null, backend: null, paths: null, reason: targetRefusal(label, spread.target) };
+    const tightened = spread && stricterThan(spread.decision, whole.decision) ? { ...whole, decision: spread.decision, rule: spread.rule } : whole;
     const { rule, leak } = tightened;
     // --- R17-C integration review: the owner's mail, calendar and house (src/personal/guard.ts). Work the
     // owner did not start is asked about, and a lock or door always is, just this once — whatever the rules say.
@@ -2297,6 +2321,26 @@ ${run.output.slice(0, 6000)}`;
     return { decision: answered ?? decision, label: leak ? `${noted}, and the address carries ${leak}` : hold ? `${noted}. ${hold.reason}` : noted, target, readOnly,
       remember: hold?.onceOnly ? "never" : extra.exact ? "session" : source === "owner" ? rule?.remember ?? "session" : "session",
       sandbox: rule?.sandbox ?? null, backend: rule?.backend ?? null, paths: rule?.paths ?? null, ...(extra.code ? { needsCode: true } : {}) };
+  }
+  /**
+   * mac7/multi-target: every thing a call touches, for a tool that names more than one; null for one
+   * that does not (judged as before). Each is held to Branch's own files as the call is. A string is
+   * the refusal: one of them may never be touched, or what they are cannot be told.
+   */
+  private everyTarget(tool: string, args: unknown, context: ToolContext): ToolTarget[] | null | string {
+    let targets: ToolTarget[] | null;
+    try { targets = this.registry.targetsOf(tool, args, context); } catch (error) { return unknownTargetsRefusal(errorText(error)); }
+    // Integration: each distinct path once, named once (as the target), since every check follows it
+    // through the file system; a 500-file patch took about 1.5 s here before.
+    const seen = new Set<string>();
+    for (const one of targets ?? []) {
+      const text = targetText(one);
+      if (seen.has(`${one.kind === "read"} ${text}`)) continue;
+      seen.add(`${one.kind === "read"} ${text}`);
+      const untouchable = protectedTarget({ tool, readOnly: one.kind === "read", args: {}, target: text, workspace: context.workspace }, this.protectedAreas);
+      if (untouchable) return untouchable;
+    }
+    return targets;
   }
   /**
    * Why the person using this app right now may not have that done, or null. The owner is never
@@ -2438,7 +2482,7 @@ ${run.output.slice(0, 6000)}`;
     if (aside) {
       this.orchestration.pausePlan(this.sessionOf(context));
       return this.askApproval(context, { tool: call.name, label: aside, target, source: this.sourceOf(context),
-        remember, sandbox, bytes: this.hideSecrets(shown.arguments).slice(0, 2000), fingerprint }, call.id);
+        remember, sandbox, bytes: this.hideSecrets(shown.arguments).slice(0, 2000), fingerprint, files: this.cardFiles(call.name, args, context) }, call.id);
     }
     if (decision === "allow") return { refusal: null, ...held };
     if (decision === "deny") {
@@ -2451,7 +2495,12 @@ ${run.output.slice(0, 6000)}`;
     return this.askApproval(context, { tool: call.name, label: asked, target, source, remember, sandbox,
       // The exact request, cleaned of any saved password or key, is what the person is shown and
       // what their yes is bound to.
-      bytes: this.hideSecrets(shown.arguments).slice(0, 2000), fingerprint }, call.id);
+      bytes: this.hideSecrets(shown.arguments).slice(0, 2000), fingerprint, files: this.cardFiles(call.name, args, context) }, call.id);
+  }
+  /** mac7/multi-target: the files a call touches, for the question card (worked out only when it asks); none for a call that names one thing. */
+  private cardFiles(tool: string, args: unknown, context: ToolContext): PendingApproval["files"] {
+    return (this.targetsOrNone(tool, args, context) ?? []).map((one) => ({ kind: one.kind, path: targetText(one) }))
+      .filter((one, at, all) => one.path && all.findIndex((other) => other.path === one.path && other.kind === one.kind) === at);
   }
   /**
    * Why this call is not what the plan the owner agreed said would happen here, or null when it is.
@@ -2509,6 +2558,8 @@ ${run.output.slice(0, 6000)}`;
       bytes?: string; fingerprint?: string;
       /** mac7/coding-next: a question in words of its own, and its kind (for its own answers). */
       question?: string; kind?: "project-tests";
+      /** mac7/multi-target: every file the call touches, for the card to list. */
+      files?: PendingApproval["files"];
     },
     callId?: string,
   ): never {
@@ -2521,8 +2572,9 @@ ${run.output.slice(0, 6000)}`;
     // A conversation can genuinely stop on more than one thing at once, so the question joins the
     // list rather than taking the place of whatever was already there. Only when the list is full
     // does one go, and then the task that was waiting on it is told, in plain words.
+    const files = about.files?.length ? { files: about.files.map((one) => ({ kind: one.kind, path: this.hideSecrets(one.path) })) } : {};
     const dropped = this.approvals.ask({ runId: context.runId, sessionId, tool: about.tool, target,
-      label, question, source, remember, askedAt: new Date().toISOString(),
+      label, question, source, remember, askedAt: new Date().toISOString(), ...files,
       ...(about.sandbox ? { sandbox: about.sandbox } : {}),
       ...(about.kind ? { kind: about.kind } : {}),
       ...(about.bytes === undefined ? {} : { bytes: about.bytes }),
@@ -2531,7 +2583,7 @@ ${run.output.slice(0, 6000)}`;
     // The exact bytes and their fingerprint travel with the event, so a phone or a chat channel
     // watching the socket sees the same question the app does and can answer under the same binding.
     this.store.event(context.runId, "policy.ask", { name: about.tool, id: callId, label, target, remember,
-      question, sandbox: about.sandbox ?? "", bytes: about.bytes ?? "", fingerprint: about.fingerprint ?? "",
+      question, sandbox: about.sandbox ?? "", bytes: about.bytes ?? "", fingerprint: about.fingerprint ?? "", ...files,
       ...(about.kind ? { kind: about.kind } : {}) });
     throw new NeedsInputError(question);
   }
@@ -2666,6 +2718,17 @@ ${run.output.slice(0, 6000)}`;
         reason: "You took back a yes you had given for this conversation", outcome: "refused",
       });
     return gone;
+  }
+  /**
+   * phase2/rooms (integration review): ends every answer kept for one conversation — a Trunk taken
+   * out of a room, or the room removed — including the copy written down for a restart, so it
+   * cannot come back when that conversation is next used.
+   */
+  endGrants(sessionId: string): number {
+    const grants = this.approvals.grants(sessionId);
+    for (const grant of grants) this.revokeGrant(sessionId, grant.tool, grant.target);
+    dropCarriedGrants(this.store, this.owner, sessionId);
+    return grants.length;
   }
   /** Lists everything a practice run would have done, once it has finished. */
   private reportDryRun(run: Run): void {
@@ -2823,7 +2886,8 @@ ${run.output.slice(0, 6000)}`;
       // wave mac3 (os-sandbox): the wall around programs, from the owner's switch; see src/sandbox-wall.ts.
       ...wallContextFor({ store: this.store, owner: this.owner, policy: this.policy(context.source ?? "owner", context.runId),
         approvals: this.approvals, context, tool: call.name, permission: this.registry.permissionOf(call.name),
-        target: this.registry.targetOf(call.name, seen, context), args: seen, choice: gated.sandbox, untouchable: this.protectedAreas }) };
+        target: this.registry.targetOf(call.name, seen, context), targets: this.targetsOrNone(call.name, seen, context),
+        args: seen, choice: gated.sandbox, untouchable: this.protectedAreas }) };
     const span = this.tracer.start(context.runId, "tool", `tool ${call.name}`, {
       "branch.tool.name": call.name, "branch.tool.call_id": call.id,
       "branch.tool.permission": this.registry.permissionOf(call.name),

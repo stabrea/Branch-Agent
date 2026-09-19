@@ -50,6 +50,7 @@ A home is written `place:tab`, or `settings:page`, or `settings:models:tab`.
 | `settings:models:local` | Models running on this computer |
 | `settings:models:second` | Second opinion and debate |
 | `settings:models:media` | Pictures and sound models |
+| `settings:accounts` | Every sign-in and key, which one answers, and what happens when one runs low |
 | `settings:voice` | Speaking and listening |
 | `settings:permissions` | When to check with the owner, rules, limits, loop guards, trusted folders |
 | `settings:computer` | Screen and keyboard, where scripts run, network reach, other computers, the browser, operating-system permissions |
@@ -176,6 +177,16 @@ Inside a conversation there are no homes to add to, only two surfaces with stric
 
 When something new does not fit a row, apply the rule at the top and add a row here in the same
 change.
+
+## Reached from the Trunks strip, not one of the five places
+
+These two screens are opened from the Trunks strip (phase 2). They are not homes for new features and
+the terminal does not list them among its places.
+
+| Screen | What it shows |
+| --- | --- |
+| `overview:here` | the Overview of this computer, one of your other computers or a Trunk (`public/overview.js`) |
+| `household:people` | People on this computer, with faces (`public/people-place.js`) |
 
 ## Putting a new screen in its home
 

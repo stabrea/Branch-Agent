@@ -125,7 +125,9 @@ export async function serveRunSocket(store: Store, runId: string, request: Incom
 async function pollRun(store: Store, runId: string, socket: Duplex, isOpen: () => boolean, options: { pollMs?: number; maxMs?: number } & RunSocketHooks): Promise<void> {
   const deadline = Date.now() + (options.maxMs ?? 150000);
   let last = 0;
-  while (isOpen() && (Date.now() < deadline || options.liveOpen?.() === true)) {
+  // mac7/ci-flakes-2: the app closing shuts the database while a socket can still be open; the loop
+  // then stops at its next turn instead of reading a closed database (everything below is synchronous).
+  while (isOpen() && store.isOpen && (Date.now() < deadline || options.liveOpen?.() === true)) {
     for (const event of store.events(runId).filter((e) => e.id > last)) {
       socket.write(frame(JSON.stringify({ id: event.id, kind: event.kind, data: event.data, createdAt: event.createdAt })));
       last = event.id;

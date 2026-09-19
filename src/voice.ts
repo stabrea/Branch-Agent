@@ -59,6 +59,12 @@ export const VoiceSettingsSchema = z
      * never kept, on or off; this only adds the size of each piece to the task's record.
      */
     keepLiveRecordings: z.boolean().default(false),
+    /**
+     * phase2/rooms: Talk live in a view of its own (a circle that moves with the sound, what each side
+     * said as it is said, Mute, End), and the send button offering Talk live while the box is empty.
+     * Off: Talk live is the plain button it always was.
+     */
+    liveView: z.enum(["off", "on"]).default("off"),
   })
   .strict();
 export type VoiceSettings = z.infer<typeof VoiceSettingsSchema>;

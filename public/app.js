@@ -600,14 +600,19 @@ async function refresh() {
   void window.branchSandboxRemote?.render();
 }
 const notifiedAttention = new Set();
+/* phase2/rooms (integration review): the Trunk that asked, named; a room member's question opens the room. */
+function needsYouTitle(item) {
+  if (!item.who) return t("attention.assistantNeedsYou");
+  return item.room ? t("attention.trunkNeedsYouInRoom", { name: item.who, room: item.room }) : t("attention.trunkNeedsYou", { name: item.who });
+}
 function renderAttention() {
   const waiting = state.attention || [];
   const banner = $("attention");
   banner.hidden = !waiting.length;
   banner.replaceChildren(...waiting.map((item) => {
     const row = el("div", undefined, "attention-row");
-    row.append(el("strong", "Your assistant needs you"), el("span", item.question),
-      button("Open conversation", () => { displayView("chat"); openConversation(item.sessionId); }));
+    row.append(el("strong", needsYouTitle(item)), el("span", item.question),
+      button(t(item.room ? "attention.openRoom" : "attention.openConversation"), () => { displayView("chat"); openConversation(item.open ?? item.sessionId); })); // phase2/rooms
     return row;
   }));
   for (const item of waiting) {
@@ -617,8 +622,8 @@ function renderAttention() {
     if (globalThis.branchComfort?.attention(item) === "handled") continue;
     if (typeof Notification === "undefined") continue;
     const show = () => {
-      const note = new Notification("Your assistant needs you", { body: item.question.slice(0, 200), tag: item.runId });
-      note.onclick = () => { window.focus(); displayView("chat"); openConversation(item.sessionId); };
+      const note = new Notification(needsYouTitle(item), { body: item.question.slice(0, 200), tag: item.runId });
+      note.onclick = () => { window.focus(); displayView("chat"); openConversation(item.open ?? item.sessionId); }; // phase2/rooms
     };
     if (Notification.permission === "granted") show();
     else if (Notification.permission !== "denied") Notification.requestPermission().then((p) => { if (p === "granted") show(); }).catch(() => undefined);
@@ -831,6 +836,7 @@ async function renderSecrets() {
     const node = el("div", undefined, "record");
     node.append(el("strong", secret.name), el("span", ` · saved ${date(secret.createdAt)}`, "meta"),
       button("Remove", async () => { await api(`secrets/${project}/${secret.name}/remove`, {}); await renderSecrets(); toast("Secret removed."); }));
+    globalThis.branchSecretMarks?.(node, secret); // phase2/accounts: its service's mark and a plain name (public/service-marks.js)
     return node;
   }, ["No secrets saved here yet.", "A secret is a password or key your assistant needs. Add one below and it is locked away on this computer."]);
 }
@@ -1063,6 +1069,9 @@ function renderModels() {
     ? `${models.presets.length} models available.`
     : "One model is configured. Add more with BRANCH_MODEL_PRESETS in the launch environment, or in the desktop connection settings.";
   presetOptions($("session-model"), models.presets, "Workspace default", sessionModel.preset);
+  // phase2/accounts: the Thinking lists offer only what the model takes (public/thinking-levels.js).
+  globalThis.branchModelsNow = models;
+  document.dispatchEvent(new CustomEvent("branch-models", { detail: models }));
 }
 /* The page's own rebuild of the model controls, so a test can watch what a rebuild leaves behind. */
 globalThis.branchRenderModels = () => renderModels();
@@ -1089,6 +1098,7 @@ async function loadSessionModel() {
   presetOptions($("session-model"), state.models?.presets ?? [], "Workspace default", value.preset);
   $("session-reasoning").value = value.reasoning ?? "";
   $("model-used").textContent = `Next reply: ${value.effective.presetName} · ${value.effective.model}`;
+  document.dispatchEvent(new CustomEvent("branch-session-model", { detail: value })); // phase2/accounts
 }
 async function saveSessionModel() {
   if (!sessionId) return;

@@ -6,6 +6,7 @@ import { ProviderHealth, fallbackReason } from "./provider-health.js";
 import { RequestCounter } from "./dashboards.js";
 import { fallbackEligible } from "./provider-retry.js";
 import { effortFor } from "./knobs/apply.js"; // R17-S12
+import { thinkingLevels } from "./thinking-levels.js"; // phase2/accounts
 
 export const reasoningEfforts = ["low", "medium", "high"] as const;
 export type ReasoningEffort = (typeof reasoningEfforts)[number];
@@ -251,6 +252,8 @@ export class ModelRouter {
       presets: [...this.presets.values()].map(preset => ({
         id: preset.id, name: preset.name, provider: preset.provider.name, model: preset.model,
         reasoning: preset.reasoning ?? null,
+        // phase2/accounts (#22): the thinking levels this model really takes (src/thinking-levels.ts).
+        thinking: thinkingLevels(preset.provider.name, preset.model),
         local: presetRunsLocally(preset),
         coolingDownUntil: this.coolingDown(preset.id) ? new Date(this.cooldowns.get(preset.id)!).toISOString() : null,
         // Batch 19 (wave 7): what this connection has actually been doing, from real calls.

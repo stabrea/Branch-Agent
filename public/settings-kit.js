@@ -220,86 +220,7 @@ function fileCard() {
   return section;
 }
 
-/* ---------- which file does what ---------- */
-
-const SLOT_WORDS = {
-  soul: "Its character: how it sounds, what it cares about, where it draws lines. Replaces the built-in character.",
-  identity: "Its name and manner.",
-  user: "Who you are, what to call you, and what you prefer.",
-  agents: "How you want work done in this project.",
-  tools: "Notes about the programs on this computer and their quirks.",
-  sop: "Steps to follow the same way every time.",
-  memory: "Things you wrote down for it to remember.",
-  heartbeat: "What to check each time it wakes on a schedule.",
-};
-const SEEN_WORDS = {
-  carried: ["settings-kit.seen.carried", "Read at the start of every task"],
-  announced: ["settings-kit.seen.announced", "Named to it; read when the work calls for it"],
-  "no room": ["settings-kit.seen.no-room", "Switched on, but there was no room; named instead"],
-  off: ["settings-kit.seen.off", "Not read: switched off"],
-  missing: ["settings-kit.seen.missing", "Not written yet"],
-  empty: ["settings-kit.seen.empty", "Empty, so nothing to read"],
-  "not trusted": ["settings-kit.seen.not-trusted", "Not read: this folder is not trusted"],
-};
-
-function fileRow(entry, editor) {
-  const row = el("div", undefined, undefined, "kit-file");
-  row.append(el("strong", undefined, entry.name ?? entry.names[0]),
-    el("p", `settings-kit.slot.${entry.slot}`, SLOT_WORDS[entry.slot] ?? "", "kit-file-about"),
-    el("p", entry.scope === "you" ? "settings-kit.kept.you" : "settings-kit.kept.project",
-      entry.scope === "you" ? "Kept with your own things, used in every project" : "Kept in this project's folder", "meta"),
-    entry.name
-      ? el("p", undefined, say("settings-kit.written", "Written: {name}, {size} kB", { name: entry.name, size: Math.round(entry.bytes / 100) / 10 }), "meta")
-      : el("p", "settings-kit.seen.missing", "Not written yet", "meta"),
-    ...(entry.name || entry.outcome !== "missing" ? [el("p", ...(SEEN_WORDS[entry.outcome] ?? SEEN_WORDS.missing), "meta")] : []),
-    quiet("settings-kit.edit", "Change it here", () => editor(entry.slot)));
-  return row;
-}
-
-async function openEditor(area, slot, refresh) {
-  area.replaceChildren();
-  let file;
-  try { file = await api(`settings-kit/files/${slot}`); } catch (error) { area.append(el("p", undefined, error.message, "subtle")); return; }
-  area.append(el("h3", undefined, file.name));
-  if (!file.editable) {
-    const why = { "not trusted": ["settings-kit.why.not-trusted", "This project's folder is not trusted, so its files are not read or written. Trust it under Permissions first."],
-      "too long": ["settings-kit.why.too-long", "This file is longer than your assistant reads, so open it in your own editor to shorten it."] }[file.why]
-      ?? ["settings-kit.why.other", "This file cannot be changed here. Open it in your own editor."];
-    area.append(el("p", ...why, "subtle"));
-    return;
-  }
-  const text = document.createElement("textarea");
-  text.rows = 10;
-  text.value = file.text;
-  const status = el("p", undefined, undefined, "meta");
-  status.setAttribute("role", "status");
-  const save = el("button", "settings-kit.save-file", "Save this file");
-  save.type = "button";
-  save.addEventListener("click", async () => {
-    save.disabled = true;
-    try { await api("settings-kit/files", { slot, text: text.value }); status.textContent = say("settings-kit.file-saved", "Saved. It is read from your next task."); await refresh(); }
-    catch (error) { status.textContent = error.message; }
-    finally { save.disabled = false; }
-  });
-  area.append(...field("kit-file-text", text, ["settings-kit.field.file-text", "What the file says"],
-    ["describe.kit-file-text", "Saving replaces the whole file. Whether it is read at all is decided by its switch, on the card for that file."]), save, status);
-  if (file.setting === "off") area.append(el("p", "settings-kit.file-off", "This file is switched off, so it is not read yet.", "subtle"));
-}
-
-async function drawFileMap() {
-  let map;
-  try { map = await api("settings-kit/files"); } catch { return; }
-  const section = card("settings-kit-files", "settings:general",
-    ["settings-kit.card.files", "Which file does what"],
-    ["settings-kit.card.files-purpose", "The plain files you write to shape your assistant: what each one is for, where it is kept, and whether it is read right now. A file can change how it works, never what it is allowed to do."]);
-  const area = el("div", undefined, undefined, "kit-editor");
-  const list = el("div", undefined, undefined, "kit-files");
-  const fill = (files) => list.replaceChildren(...files.map((entry) => fileRow(entry, (slot) => openEditor(area, slot, refresh))));
-  const refresh = async () => { try { fill((await api("settings-kit/files")).files); } catch { /* the list stays as it was */ } };
-  fill(map.files);
-  section.append(list, area);
-  document.body.append(section);
-}
+/* ---------- which file does what: public/agent-files.js (phase2/accounts) draws it now ---------- */
 
 /* The look of the changes, files and editor lives in public/settings-kit.css (the page's Content Security Policy refuses an inline <style>). */
 
@@ -307,7 +228,7 @@ export async function drawKit() {
   let overview;
   try { overview = await api("settings-kit"); } catch { return; }
   document.body.append(presetCard(overview), resetCard(overview), fileCard());
-  await drawFileMap();
+  await globalThis.branchAgentFiles?.draw(); // phase2/accounts: the assistant's files, with an editor and undo
   globalThis.branchDescribeSettings?.();
 }
 

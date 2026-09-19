@@ -14,7 +14,7 @@ import { lockdownOverrides } from "../lockdown.js"; // mac7/lockdown-fix
  * The schema is written out here rather than imported from feature-switches.ts, because that file
  * reads these same records to decide what to preload, and the two must not import each other.
  */
-export const trunkParts = ["trunks", "rooms", "messages", "routines", "teach"] as const;
+export const trunkParts = ["trunks", "rooms", "messages", "routines", "teach", "conversations"] as const; // phase2/rooms: conversations
 export type TrunkPart = (typeof trunkParts)[number];
 export const TrunkPartSchema = z.enum(trunkParts);
 
@@ -32,6 +32,7 @@ export const trunkLabels: Record<TrunkPart, string> = {
   messages: "Trunks messaging each other",
   routines: "Routines a Trunk owns",
   teach: "Teaching a Trunk by showing it once",
+  conversations: "Choosing a Trunk to answer in any conversation", // phase2/rooms
 };
 
 /** The tools each part owns, so the catalog can leave them out while the part is off. */
@@ -41,6 +42,7 @@ export const trunkTools: Record<TrunkPart, readonly string[]> = {
   messages: ["trunk.message"],
   routines: [],
   teach: [],
+  conversations: [],
 };
 
 /** For src/feature-switches.ts: each part with tools — its settings record, why it is loaded, and its tools. */

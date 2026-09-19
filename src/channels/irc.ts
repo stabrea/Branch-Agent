@@ -105,6 +105,8 @@ export class IrcChannel implements ChannelAdapter {
   private counter = 0;
   /** mac6/bucket-16 integration: account tags are read only after the server agreed to send them. */
   private accountTags = false;
+  /** mac7/ci-flakes-2: SASL was refused, so the welcome that follows CAP END is not a signed-in one. */
+  private signInRefused = false;
   constructor(private readonly options: IrcOptions) {
     this.id = options.id;
     this.kind = options.kind ?? "irc";
@@ -148,6 +150,7 @@ export class IrcChannel implements ChannelAdapter {
   private greet(link: IrcLink): void {
     const { password, twitch } = this.options;
     this.accountTags = false;
+    this.signInRefused = false;
     if (twitch) {
       link.write("CAP REQ :twitch.tv/tags twitch.tv/commands");
       if (password) link.write(`PASS ${password.startsWith("oauth:") ? password : `oauth:${password}`}`);
@@ -168,11 +171,18 @@ export class IrcChannel implements ChannelAdapter {
       case "CAP": return this.onCap(line, link);
       case "AUTHENTICATE": return this.onAuthenticate(line, link);
       case "903": link.write("CAP END"); return;
-      case "904": case "905":
-        this.state = { state: "needs attention", reason: "The chat server did not accept the saved password" };
+      // IRCv3 SASL: 902 (nick locked), 904 (refused) and 905 (too long) all end the sign-in.
+      case "902": case "904": case "905":
+        this.signInRefused = true;
+        this.state = { state: "needs attention", reason: line.command === "902"
+          ? "The chat server would not sign in the saved account with this nick"
+          : "The chat server did not accept the saved password" };
         link.write("CAP END"); return;
       case "001":
         this.nick = line.params[0] ?? this.nick;
+        // mac7/ci-flakes-2: a server welcomes after CAP END even when SASL failed. That welcome is not
+        // signed in, so the problem stays on show and no channel is joined unsigned.
+        if (this.signInRefused) return;
         this.state = { state: "connected" };
         for (const name of this.options.channels) link.write(`JOIN ${clean(name)}`);
         return;

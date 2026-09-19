@@ -47,7 +47,7 @@ The first preset is the default. **Settings → Models** chooses the workspace d
 
 ### Several accounts per connection (mac6)
 
-**Settings › Models › Connection › Accounts** (and `/account` in the message box, the terminal, the phone and the dashboard) lets one connection hold several accounts, each with a name. It follows the three-way switch and ships **off**; off means one key or sign-in per connection, exactly as before (the connection is registered untouched). With it on:
+**Settings › Accounts** (its own page since redesign phase 2; and `/account` in the message box, the terminal, the phone and the dashboard) lets one connection hold several accounts, each with a name. It follows the three-way switch and ships **off**; off means one key or sign-in per connection, exactly as before (the connection is registered untouched). With it on:
 
 - **API keys** (any catalog connection with a key, such as OpenAI, Anthropic, Gemini, OpenRouter). Each extra key is pasted once and goes straight into the locker, in a project of its own per connection (`acct-<hash>`, name `KEY_<id>`); the first key stays where the connection put it. Each extra key is tied to the address (scheme, host and port) the connection used when the key was added; if the connection is later removed and added again under the same name with another address, Branch refuses to send the old key there and says so. Keys from the same OpenAI organization or project share one rate limit, so adding them does not raise it. Which key answers: *the first ready key in this order* (pinned first), *each key in turn*, or *the least used key*. A key refused with 401 or 403 rests five minutes; a billing or quota refusal (402, `insufficient_quota` and the other spend codes) rests the whole key an hour or as long as `Retry-After` says; a plain 429 rests **that model on that key** for exactly the `Retry-After` the service sent (a minute when it sent none). The next key is tried in the same request, and only once every key rests does the task move to the next connection in the fallback order. A service outage (5xx, a dropped connection) rests nothing, since every key would fail the same way. Each key's calls, tokens and estimated cost this month are counted (`account_usage` table, no key in it), and a key with a monthly cap in US dollars is passed over once the month's estimate reaches it.
 - **Sign-in accounts.** *ChatGPT*: each extra account signs in with the same device code as the first (still labelled unofficial) and keeps its tokens in its own locker project (`acct-chatgpt-<id>`); the first sign-in stays in `chatgpt-auth.json`. The plan window left is read from the `x-codex-primary-used-percent` header when ChatGPT sends it (the header Codex reads; OpenAI does not document it, so it may disappear). *Installed programs* (Claude Code, Codex, Gemini CLI, Copilot CLI): each extra account is a folder under `<data>/accounts/<connection>/<id>`, passed to the program in the variable its maker documents for exactly this (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `GEMINI_CLI_HOME`, `COPILOT_HOME`). The owner signs in by running the program once with that variable (the card shows the line to type: `VAR='<folder>' claude` on macOS and Linux, `$env:VAR='<folder>'; claude` in PowerShell on Windows); Branch only runs the unmodified program with it and never opens the folder.
@@ -58,6 +58,8 @@ The first preset is the default. **Settings → Models** chooses the workspace d
 - **Limits of the counts.** A key's cost is only counted when its service reports tokens with the answer; a connection that does not report them never reaches its cap. The locker holds values of up to 8192 characters, so a ChatGPT sign-in whose tokens are longer cannot be kept for an extra account: nothing is written (a token is never cut short) and the list says the account is not signed in, with that reason in a sentence.
 - **Someone else using Branch** (a household profile, or a person signed in from their own device) sees only the keys shared with them, without the owner's spending or caps, and cannot change anything.
 - **When every key already rests**, the connection answers as rate limited until its first key is ready: when that wait is within the retry limits (five seconds at most) the task waits and asks the same connection again, up to the retry count, and then moves to the next connection in the fallback order; a longer wait moves it on at once. A sign-in account at its limit is different on purpose: the task stops and says so (see below), and does not move to another connection unasked.
+
+- **The page** (redesign phase 2, `public/accounts.js`): every connection's list with the service's mark (see *Service marks* below), each account's state, what it used this month and, where the service says, a ring for how much of the plan window is left. *Use for new work*, *Switch off* and (sign-ins) the *Kept separate* box stay in sight; renaming, order, pin, cap, the program's sign-in line and removing are under *More for this account*. Past six accounts a search box filters the lists (nothing is fetched again). **When one runs low** shows both real mechanisms, each where it lives: inside a connection, its list in order (keys move on by themselves; sign-ins only with sharing on, never between the owner's own plans), and between connections, the models' fallback order (read-only here, with a button to Settings › Models). There is deliberately no single cross-provider list of accounts: Branch has none. **Which key each Trunk uses** lists every Trunk (when Trunks are on) with one choice per API key connection: a copy of the owner's default key (or, with *uses copies of your keys* off, none) or one named key; it is saved on the Trunk (`POST /api/trunks/:id { keys }`, the Trunk's `keys.accounts`). Sign-in connections are never offered: a sign-in never answers for a Trunk (`src/accounts/trunk-guard.ts`).
 
 #### The terms decision (read at the sources on 2026-09-17)
 
@@ -71,6 +73,14 @@ So Branch does this, and the card says it in one Terms line with the links:
 1. **API keys rotate automatically.** Each key is one the owner holds and pays for; Branch always waits out a key's `Retry-After` before using it again, so it never hammers a limit, and moving to another key is ordinary spreading of work across credentials. The Terms line says to add only keys the owner is entitled to use, and that opening extra accounts just to get past a service's limits is against OpenAI's, Google's and others' terms. Branch does not present rotation as a way past a limit.
 2. **Sign-in accounts never switch by themselves, and never between the owner's own plans** (the owner's decision of 2026-09-19). Moving one person's work to another of their own identical subscription plans because one reached its limit is limit evasion: it is the kind of thing "circumvent any rate limits" covers, none of the four vendors permits it in writing, and it puts the person's accounts at risk. So Branch never does it, with or without the opt-in. An account is either one of the owner's own plans (the default) or marked **kept separate** (`keptSeparate`, sign-in accounts only, set by the owner alone with the tick box or `/account separate <name>`): it genuinely belongs to someone or something else, such as a work plan or another person's own plan. Nothing is marked automatically. When an account reaches its limit (HTTP 429 from ChatGPT, or the program saying so), the task stops with a sentence naming the account and when it resets; it suggests only an account work may move to (`/account <name>`, or *Use for new work*), and when the only ready accounts are the owner's other plans it says Branch does not move work between them. *Share work between these accounts* (per connection, off) is the explicit opt-in, and it moves work only within one group: **at most one of the owner's own plans** (the conversation's pick, else the default, else the pinned one, else the first; never chosen by which one has plan left) **plus every account kept separate** (`rotationSet` in `src/accounts/pool.ts`). Everything done for a conversation follows that conversation's account: a helper or background sub-task it starts, and a model call a tool makes on the side, answer through the same group, never through the owner's default when the conversation uses another plan. While a conversation is on an account kept separate and another of the owner's own plans is at its limit, the owner's own plan leaves the group for that conversation (it may have come from the plan that ran out, and Branch cannot tell), so it is neither moved there nor told to go there. Within that group new conversations go to the account with most of its plan left (then the one used longest ago, pinned first), a conversation keeps its account, and a limited account is skipped. Providers may still count any switching of accounts as getting round their limits, so the risk stays in words beside the tick box and the opt-in is written to the record of what Branch was allowed to do. **Lists saved before the rule**: at start, a sign-in list with sharing on and two or more accounts not kept separate has sharing switched off, keeps the owner's default (else the first account) for new work, gets a one-time notice on its card saying why and how to mark an account kept separate, and the change is written to the record. API keys are not affected: they are pay-per-use keys the owner holds, and keep moving to the next key.
 3. **Never:** Branch never holds Claude.ai, Gemini CLI or Copilot sign-ins (it runs the owner's own program with its documented folder variable), never reuses another app's sign-in client for them, and never shares a sign-in account with another person on the computer. The ChatGPT route stays labelled unofficial as before.
+
+### Thinking levels that follow the model (redesign phase 2)
+
+The *Thinking* lists (Settings › Models, each conversation's own, and the per-model levels under Defaults) offer only the levels the chosen model really takes; `thinking` on each model in `/api/state` and `/api/knobs` says which (`src/thinking-levels.ts`). Branch sends a level from three places only: the OpenAI-shaped connection and Azure OpenAI, which builds the same request (`reasoning_effort`), the Responses API connection and the ChatGPT sign-in (`reasoning.effort`), and the Anthropic connection (a thinking budget of 1,024 / 4,096 / 8,192 tokens, also Claude on Vertex). Within those, the reasoning families take levels: OpenAI's o-series, GPT-5 and gpt-oss (Quick, Balanced, Thorough; not o1-mini, o1-preview or the GPT-5 chat models, which refuse it), xAI's grok-3-mini (Quick and Thorough only), Gemini 2.5 and later over the OpenAI-shaped address, and Claude 3.7 Sonnet and every Claude 4 and later (Off, then three budgets). Every other model is offered none, with a sentence saying so. A level saved earlier that the model does not take is kept and not cleared. Where the connection still sends it (the three above, `sent` in `thinking`), it is marked "(this model may refuse it)" with a sentence saying Branch still sends it and the service may refuse the request; elsewhere it is marked "(this model does not use it)". Nothing about what is sent changed.
+
+### Service marks (redesign phase 2)
+
+Connections, accounts, the usage list, Secrets and the chat apps show each service's own mark, drawn from small local SVG files (`public/assets/brands/`, drawn inline by `public/brand-marks.js`; nothing is fetched). Where each comes from and on what terms is in `THIRD_PARTY_NOTICES.md` (*Service marks*): Simple Icons (CC0) for most, OpenAI's own brand page for OpenAI. Services whose owners ask for permission first (Google, Meta, Microsoft, Apple, Amazon, Slack) and services no open icon set carries get a neutral tile instead: a plain symbol for a model service, a chat app, mail, a phone, a password manager or a key, never a letter. Secrets show a plain name ("OpenAI key", "Supplier API key") with the name commands use underneath.
 
 ### Provider catalog and testing
 
@@ -1781,6 +1791,13 @@ A **live conversation** is the other way of talking to Branch: instead of holdin
 **Honest limits.** Branch has been tested against local stand-ins speaking OpenAI's and Gemini's documented live message shapes. It has **not** been tested against the real services with real sound; treat "Branch speaks the right language" as what is proved, not "this has been heard working".
 
 Routes: `POST /api/voice/live` (opens a task for a live conversation and answers with whether one is possible); the conversation itself runs on the task's existing socket `/api/runs/<id>/ws`, with your microphone going up as binary frames and the answer coming back as binary frames numbered so they play in order. `GET /api/voice/plan` reports under `live` whether the connection in use can hold one, and the limits it would run under.
+Until redesign phase 2 the server never answered `POST /api/voice/live` (the route was not in its voice list), so the button
+could not open a conversation; it does now. It is the owner's alone: a household person and a short-lived key are refused,
+because a live conversation's tools run as the owner. It is also refused in a room and in a conversation a Trunk answers in,
+under Lockdown (your voice would go to a service outside this computer), and in a conversation that began outside Branch
+(a chat app, a schedule, a trigger or another program), which stays held however it is carried on. These refusals are
+checked where a live conversation really opens (`LiveConversations.start`, reached from any task's socket), not only by the
+route, and each tool it uses is still judged with the conversation's mode (src/live-refusal.ts).
 
 ### Which model does what (wave 7)
 
@@ -7539,6 +7556,7 @@ Every field of `VoiceSettingsSchema` (`src/voice.ts`), which is what **Settings 
 | `liveMaxDollars` | How much one live conversation may cost. $1.00 by default. |
 | `liveVoiceDetection` | Let the service decide when you have stopped speaking, rather than waiting for the button. |
 | `keepLiveRecordings` | Note in the task's record how much sound a live conversation carried — the size of each piece and nothing else. The sound itself is never kept either way. |
+| `liveView` | `off` (the default) or `on`. On: Talk live opens a view of its own, like the voice modes of ChatGPT and Codex: a circle that moves with the real sound going up and coming back, what each side says as it is said, Mute (the sound stops leaving this computer), Show the chat, and End; the send button offers Talk live while the message box is empty. A question the assistant asks mid-conversation folds the view away so its card can be answered. The microphone is asked for only when you press Talk live. Off: Talk live is the plain button it always was. Talk live is never offered in a room or a conversation a Trunk answers in. |
 
 ### The rest
 
@@ -7992,7 +8010,7 @@ person on this computer (those are people, in Settings → General) and not a sp
 set of instructions), though a specialist can be brought across as a Trunk. Branch's answer to Hermes
 Agent's Bots and Grok's bots.
 
-Five parts, each with the three-way switch, all off at first. The card is in Customize → Specialists,
+Six parts, each with the three-way switch, all off at first. The card is in Customize → Specialists,
 under "Trunks"; the roster sits in the sidebar above Recents; rooms that asked for you show in
 Inbox → Needs you.
 
@@ -8003,6 +8021,7 @@ Inbox → Needs you.
 | Messages | `trunk.message` lets a Trunk write to another from its own conversation only. Branch signs the message, it waits until the other is free, the answer comes back later, a failure that a second try can help is tried once more, and a chain stops three messages deep. One task sends at most three messages, and all Trunks together at most thirty an hour. |
 | Routines | Schedules a Trunk owns (`[Trunk @name]` in Automations). They run as the Trunk and report in its conversation; the first turn is at the time you chose. While Routines are off, or once the Trunk is gone, they do not run at all (never as you). |
 | Teaching | Watch me, do the job once, Save what I did: the task's steps become a workflow the Trunk owns, optionally repeated every day. |
+| Conversations (`trunks-conversations`, redesign phase 2) | Choosing a Trunk to answer in any conversation: the faces at the top of a conversation say who answers there; pick a Trunk and every task in that conversation runs as it (its instructions, memory, tools, model and keys), exactly as in its own chat, until you pick your assistant again. Each reply is signed with whoever gave it. Bringing a second Trunk in (with Rooms on) makes a room with both, which is handed the last few messages so they know what came before; the conversation itself stays as it was. `@name` in a conversation then brings that Trunk here rather than switching to its own chat. Off: the faces are not there and `@name …` goes to the Trunk's own chat, as before; a conversation a Trunk was chosen for before it was switched off keeps that Trunk (which only ever narrows what it may do) until you give it back to your assistant, which works with the switch off. |
 
 What a Trunk may reach starts off: no chat apps (a chat linked to its conversation is refused in one
 sentence until the Trunk may answer there), no commands (`shell.execute`, `code.execute`,
@@ -8026,11 +8045,97 @@ memory, keys or reach, and key-shaped text is taken out. One brought in from a f
 itself, uses no tool server and may only look (reads that stay on this computer) until you change it.
 Teaching learns only from a task you started yourself.
 
+**A room's mode (redesign phase 2).** A room's own conversation is where its mode lives (the chip in
+the message box: Ask first, Plan, Auto, Full access). Each Trunk answers in a conversation of its own
+for the room, and every turn it takes follows the room's mode, the moment it changes, and after a
+restart too (`modeFollows` in `src/runtime.ts`), capped by that Trunk's own limits: a Full access room
+gives a Trunk no command it may not run and no tool it was not given. A message sent to a room with a
+short-lived key is written down as that key's, and the turns it starts are held to your own setting,
+never to a looser mode you picked for the room. A Trunk's own side of a room never has a mode of its own:
+the room's always wins. A yes you give a Trunk in a room holds for that Trunk, that exact request (the same
+tool on the same thing, with the same bytes), in that room only, for at most an hour, because the Trunk takes
+its turn again from the start after your answer; before redesign phase 2 a yes "just this once" was used up
+by nothing and the Trunk asked the same question for ever. The room shows each such yes ("Ledger may do this
+in this room: …") with **Revoke**; it ends when that Trunk is taken out of the room or the room is removed
+(the copy kept for a restart too), and Lock ends it as it ends every yes. Only the owner, in the room, gives
+it: a short-lived key or a household profile answering a room Trunk's question may answer once only, and a
+chat app never reaches a room's questions. A request the safety check advised against is allowed once, never
+kept. A no is remembered the same way as a yes. A Trunk's side of a room is kept out of Recents and search;
+the room itself is what you open, and "… needs you" names the Trunk and opens the room. Talk live is refused in a room and in any conversation
+a Trunk answers in, because its tools would not keep the Trunk's limits.
+
 Everything is under `/api/trunks/`, owner only (and so is `/trunk`), except talking to a Trunk and sending to or stopping
 a room, which a short-lived "run" key may do (`src/short-lived-keys.ts`). The picture model is asked
 through the one tool gate (`media.image`).
 
 **macOS and Linux.** Plain Node and the window's own code; it works the same on all three systems.
+
+## The Trunks strip, faces, Overview and People (redesign phase 2)
+
+A narrow strip at the left edge of the window (a row at the foot on a phone), after the KeepOak
+portal's rail. From the top: Branch's mark (the Overview of this computer), this computer, your other
+computers (Devices), your Trunks, **+** (Add a Trunk, or pair a computer or your phone), and at the
+foot **Who is using Branch**. Each face has a ring that follows its shape: green is fine, amber needs
+you, grey is off. Right-click, a long press or the small **⋯** opens Branch's own menu for that face
+(never the browser's): Change look, Rename, Settings for this Trunk, Overview, Pin to the top, Move
+up or down, Hide from the strip and sidebar, Remove. Trunks can also be dragged into a new order.
+A computer or phone asking to join shows in the strip at once with a smooth turning ring; pressing
+it opens the studio at Let it in. While this computer is joining another Branch, its own ring turns.
+
+Two switches, in Settings › Appearance (card "The strip and faces"), saved in the settings record
+`shell-look` (`src/shell-look.ts`, `GET`/`POST /api/shell-look`; changing them is the owner's alone,
+at the window — a household person or a short-lived key is refused):
+
+| Setting | Values | Default | What it does |
+|---|---|---|---|
+| `strip` | `off`, `on` | `on` | Shows the strip. A layout the owner asked for, so it ships on; `off` gives the window without it. |
+| `faces3d` | `off`, `on` | `off` | Draws the procedural 3D stand-in (a thick tile of the Trunk's shape that turns slowly, hand-written CSS, no library) for Trunks set to it. Off, every face is flat. Reduced motion keeps it still. |
+
+**A Trunk's look** (`look` on the Trunk, `src/trunks/look.ts`), chosen in the Add a Trunk studio or
+with Change look: `face` (`drawn` — two eyes and a smile made from the name —, `letters`, `emoji`,
+`pattern` — pixel art made from the name —; a photo is the Trunk's picture), `letters` (one or two),
+`emoji`, `shuffle` (a new pixel pattern without renaming), `colour` (`1` to `8`, one of the theme's
+eight series colours, or `theme` for the theme's own highlight; never a colour value), `shape`
+(`circle`, `squircle`, `leaf`, `acorn`, `shield`, `hexagon`, `pebble`), `motion` (`none`, `breathe`,
+`sway`, `shimmer`, `pulse`, `dots`; Pulse and Dots move only while it works) and `depth` (`flat`,
+`3d`). A Trunk nobody restyled has no `look` and draws as it always did. The look travels in the
+Trunk's file (`branch-trunk/1`).
+
+**Pairing without a terminal.** Add a Trunk › Another computer has two ways. *Invite a computer to
+this one* makes the usual invitation (Devices must not be off; the studio offers to switch it to
+"only when it is needed") and walks through Pair, Let it in, Name it and What it may do, with a Back
+at each step; closing or leaving the tab while an invitation is open asks "Stop pairing?". *Join
+another computer*, on the other computer, takes that invitation and number (`POST /api/devices/join`
+`{ link, code, name? }`; `GET /api/devices/join` says where it stands; `POST /api/devices/join/leave`
+stops and forgets the key). It is `branch node pair` and `branch node run` run inside Branch itself:
+it dials out, never listens, keeps its key in `<data folder>/node/identity.json`, reconnects on its
+own while Branch runs, and remembers that it joined in the settings record `devices-join`
+(`{ on }`, default off — nothing is lent until the owner joins). Everything the joined computer could
+do starts off on the other side. Joining is the owner's alone at the window; a household person, a
+short-lived key and Lockdown are refused, and turning Lockdown on closes the connection. An
+invitation to an address only this computer can reach (`127.0.0.1`) is said plainly, with the way to
+open Branch to your private network. Computers are renamed from their face (`POST
+/api/devices/:id/rename`).
+
+While a computer waits for the yes, it shows a **check code** (eight letters and digits made from its
+own key), and the owner's Branch shows the same code beside its request (studio, Devices card, and
+`branch node pair` prints it). If they differ, the request came from somewhere else: press Refuse.
+Stop (or Leave, or Lockdown) ends the wait at once, so a yes given later connects nothing and leaves
+no key; a computer taken off the other Branch's list forgets its key straight away. The invitation
+itself is unchanged: six digits, five minutes, one use, five tries, and only over https, this computer
+or Tailscale.
+
+**Overview** (Branch's mark, or a computer's face) shows what is working, what needs your yes, what
+finished lately, the schedules, who uses the computer and whether it is lent to another Branch; for
+one of your other computers, whether it is connected and what it may do; for a Trunk, its latest
+words and what it may reach. **People** lists everyone who uses Branch on this computer with a face
+drawn from each name, their role, projects and daily allowance, where they are signed in (while
+signing in from their own device is on), and — for the owner — Add someone, Switch to, the role and
+Remove. Branch does not know who is present, so it says when each person last used Branch rather
+than showing an "online" dot. A household person sees their own card, the owner's, and the way back.
+**Who is using Branch** at the foot of the strip switches person (asking their PIN, or the owner's
+PIN when that is set). Replies show the face of whoever answered — the assistant on this computer or
+a specialist, drawn from its name — never Branch's logo.
 
 ## Reach and platform (r17-i)
 
@@ -9113,12 +9218,21 @@ smaller asks), so the change takes effect at once and is recorded. While Lockdow
 changed from here. Every route is the owner's: a household profile gets 400 (the same status as every other "belongs to the owner" refusal). A short-lived key may read
 the list of settings but not the file, the owner's own files, or any change (`src/short-lived-keys.ts`).
 
-**Which file does what** (Settings → General) lists SOUL, IDENTITY, USER, AGENTS, TOOLS, SOP, MEMORY
-and HEARTBEAT: what each is for, whether it is kept with your own things or in the project, and whether
-it is read right now. "Change it here" reads the file through the loader in `src/context-files.ts`
-and replaces it whole; a file longer than the loader carries, a link, a file with a second name (hard
-link), or a file in an untrusted project folder is not edited here, and a project's file is checked
-against the never-break guard before it is written.
+**Your assistant's files** (Settings → Assistant; it was "Which file does what" on General until
+redesign phase 2) lists SOUL, IDENTITY, USER, AGENTS, TOOLS, SOP, MEMORY and HEARTBEAT: what each is
+for, whether it is kept with your own things or in the project, and whether it is read right now.
+"Change it here" opens an editor (Write and Preview, a counter against the 8,000 bytes the loader
+carries, Save refused above it, and a starter for an empty file). It reads the file through the loader
+in `src/context-files.ts` and replaces it whole; a file longer than the loader carries, a link, a file
+with a second name (hard link), or a file in an untrusted project folder is not edited here, and a
+project's file is checked against the never-break guard before it is written. **Undo the last save**
+(`POST /api/settings-kit/files/undo { slot }`) puts back what the file held before the last save made
+here, or takes the file away again when that save made it; only while the file still holds exactly what
+was saved, so a change made since in another editor or by a task is never overwritten, and only while it is
+still the file Branch reads for that slot and may be written here (a project that changed or lost its trust is refused). One save per
+file is kept for this (`settings-kit-file-undo-<slot>` setting, with the earlier text; a backup copies it with the
+other settings, and neither the settings file nor the diagnostics report ever does). The card is
+marked for the Advanced level of detail (`data-level="advanced"`) for the Settings level control.
 
 After first run, a card under the conversation offers Say hello, Watch me once (turns on recording
 each task, "only when it is needed", so the next task can be saved as a workflow from Inbox › History)

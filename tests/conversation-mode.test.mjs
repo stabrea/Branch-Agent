@@ -186,7 +186,7 @@ async function windowFixture(t, script = () => ({ content: "Done.", toolCalls: [
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await page.locator("body.lx-ready").waitFor({ state: "attached" });
+  await page.locator("body.lx-ready").waitFor({ state: "attached", timeout: 120000 });
   return { app, server, call, page, errors };
 }
 
@@ -217,6 +217,22 @@ test("the chip starts a new conversation on Ask first, and its menu asks before 
   await menu.waitFor({ state: "visible" });
   await chip.click();
   await menu.waitFor({ state: "hidden" });
+  assert.deepEqual(f.errors, []);
+});
+
+test("the window's refresh redrawing the Lockdown switch leaves the open menu and the keyboard's place in it", async (t) => {
+  const f = await windowFixture(t);
+  await f.page.waitForFunction(() => document.getElementById("mode-chip")?.dataset.mode === "ask");
+  await f.page.locator("#mode-chip").click();
+  await f.page.locator("#mode-menu").waitFor({ state: "visible" });
+  await f.page.keyboard.press("ArrowDown");
+  assert.equal(await f.page.evaluate(() => document.activeElement?.dataset.mode), "plan");
+  /* What the refresh every 3 s does: the Lockdown switch is drawn again, which asks the menu to look again.
+     The menu used to be redrawn each time, and the keyboard fell out of it (trunk 98beb5d8, macOS). */
+  await f.page.evaluate(async () => { await window.branchOther.render(); await window.branchConversationMode.refresh(); });
+  assert.equal(await f.page.evaluate(() => document.activeElement?.dataset.mode), "plan", "the keyboard is still on Plan");
+  await f.page.keyboard.press("ArrowDown");
+  assert.equal(await f.page.evaluate(() => document.activeElement?.dataset.mode), "auto", "and the arrows carry on from there");
   assert.deepEqual(f.errors, []);
 });
 

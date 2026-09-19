@@ -182,8 +182,12 @@ export function nip04Decrypt(secretKey: Uint8Array, theirPublicKey: string, cont
   const iv = Buffer.from(match[2]!, "base64");
   if (iv.length !== 16) throw new Error("The message is not in the NIP-04 shape");
   const decipher = createDecipheriv("aes-256-cbc", sharedKey(secretKey, theirPublicKey), iv);
-  return Buffer.concat([decipher.update(Buffer.from(match[1]!, "base64")), decipher.final()]).toString("utf8");
+  const plain = Buffer.concat([decipher.update(Buffer.from(match[1]!, "base64")), decipher.final()]);
+  // mac7/ci-flakes-2: NIP-04 has no MAC, so the wrong key passes the padding check about once in 256
+  // and yields noise. The text must be UTF-8, and noise almost never is, so it is refused, not passed on.
+  return strictUtf8.decode(plain);
 }
+const strictUtf8 = new TextDecoder("utf-8", { fatal: true });
 
 const BECH32 = "qpzry9x8gf2tvdw0s3jn54khce6mua7l";
 function bech32Checksum(values: number[]): number {

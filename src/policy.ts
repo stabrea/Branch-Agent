@@ -211,16 +211,30 @@ export interface PolicyRequest {
   tool: string; target: string; readOnly: boolean;
   /** What the call is about, for rules that name a folder, a website, an account or a command. */
   resource?: PolicyResource | null | undefined;
+  /**
+   * mac7/multi-target: when one of several things a call touches is being judged, what the whole call
+   * is known by ("2 files: a, b"). A rule's `match` fits either, so a standing answer the owner gave
+   * for the whole call still counts for each thing in it.
+   */
+  callTarget?: string | undefined;
 }
 export interface PolicyOutcome { decision: PolicyDecision; rule: PolicyRule | null }
 /** Whether one rule covers this call: the tool, what it would touch, and the thing it is about. */
 function ruleCovers(rule: PolicyRule, request: PolicyRequest): boolean {
   if (rule.applies === "changes" && request.readOnly) return false;
   if (!globMatches(rule.tool, request.tool)) return false;
-  if (!globMatches(rule.match, request.target)) return false;
+  if (!globMatches(rule.match, request.target) && !namesWholeCall(rule, request)) return false;
   if (!rule.resource && rule.decision === "allow" && rule.match !== "*" && !commandTargetTrusted(request)) return false;
   return rule.resource ? resourceMatches(rule.resource, request.resource, rule.decision) : true;
 }
+/**
+ * mac7/multi-target: a standing answer given for the whole call ("2 files: a, b") counts for each
+ * thing in it. Integration: only when it names that exact call — a `*` in it is a star here, not
+ * "anything", so an "Always" for "2 files: a, *" (a file really called `*`) or an owner's "*src*" never
+ * covers a file of another call that the answer's words happen to fit.
+ */
+const namesWholeCall = (rule: PolicyRule, request: PolicyRequest): boolean =>
+  request.callTarget !== undefined && !rule.match.includes("*") && globMatches(rule.match, request.callTarget);
 /**
  * Integration review (mac3/tool-safety): an allow that names a command only through its target — a
  * remembered command from before, or "npm *" — covers a command only when the target is the whole

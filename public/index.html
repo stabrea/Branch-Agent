@@ -16,6 +16,13 @@
     <link rel="stylesheet" href="/settings-grown.css" />
     <!-- phase2/settings integration: the scope chips and settings kit, once an inline <style> the CSP refused. -->
     <link rel="stylesheet" href="/settings-kit.css" />
+    <link rel="stylesheet" href="/rooms.css" /><!-- phase2/rooms -->
+    <!-- phase2/shell: faces, the Trunks strip, the Add a Trunk studio, Overview and People. -->
+    <link rel="stylesheet" href="/faces.css" />
+    <link rel="stylesheet" href="/strip.css" />
+    <link rel="stylesheet" href="/studio.css" />
+    <link rel="stylesheet" href="/brand-marks.css" /><!-- phase2/accounts: service marks -->
+    <link rel="stylesheet" href="/accounts.css" /><!-- phase2/accounts: Accounts, the assistant's files, Secrets -->
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" href="/assets/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/assets/icon-192.png" />
@@ -1228,6 +1235,13 @@
             <label class="check-row">
               <input id="voice-live-record" type="checkbox" /> Note in the task's record how much sound a live conversation carried (the sound itself is never kept either way)
             </label>
+            <!-- phase2/rooms: Talk live in a view of its own (public/voice-view.js). Off by default. -->
+            <label for="voice-live-view" data-t="field.voice-live-view">Talk live in its own view</label>
+            <select id="voice-live-view" aria-describedby="voice-live-view-note">
+              <option value="off" data-t="field.switch-off">Off</option>
+              <option value="on" data-t="field.switch-on">On</option>
+            </select>
+            <p id="voice-live-view-note" class="field-note" data-t="settings.voice.liveViewNote">On: pressing Talk live, or the send button while the message box is empty, opens a calm view with a circle that moves with the sound, what each of you says as it is said, Mute and End. The microphone is asked for the first time you press it, never before. Off: Talk live is the plain button it always was.</p>
             <label for="voice-language" data-t="field.language-leave-empty-to-let">Language (leave empty to let it work that out)</label>
             <input id="voice-language" maxlength="20" placeholder="for example en" />
             <label for="voice-local-exe" data-t="field.speech-program-on-this-computer">Speech program on this computer</label>
@@ -1346,7 +1360,7 @@
             <p>Keys and tokens your host commands need. Values are locked away once saved: they are never shown again and the assistant never sees them. A command can only use secrets from the active project.</p>
             <label for="secret-project" data-t="field.project">Project</label>
             <select id="secret-project"></select>
-            <label for="secret-name" data-t="field.name-as-an-environment-variable">Name (as an environment variable)</label>
+            <label for="secret-name" data-t="field.name-as-an-environment-variable">The name your commands use for it (capital letters, like DEPLOY_TOKEN)</label>
             <input id="secret-name" maxlength="64" pattern="[A-Z][A-Z0-9_]{0,63}" placeholder="DEPLOY_TOKEN" autocomplete="off" />
             <label for="secret-value" data-t="field.value">Value</label>
             <input id="secret-value" type="password" maxlength="8192" autocomplete="new-password" spellcheck="false" />
@@ -2101,6 +2115,8 @@
     <script src="/channel-setup.js" type="module"></script><!-- mac7/connect -->
     <!-- mac6/accounts: several accounts per connection, and the account chip in the title bar. -->
     <script src="/accounts.js" type="module"></script>
+    <script src="/thinking-levels.js" type="module"></script><!-- phase2/accounts -->
+    <script src="/service-marks.js" type="module"></script><!-- phase2/accounts -->
     <!-- Wave mac2 (goal-undo): the goal strip, and editing an earlier message to go back to it. -->
     <script src="/goal.js" type="module"></script>
     <script src="/rewind.js" type="module"></script>
@@ -2130,6 +2146,15 @@
     <script src="/phone-app.js" type="module"></script>
     <script src="/autonomy.js" type="module"></script>
     <script src="/trunks.js" type="module"></script>
+    <!-- phase2/rooms: who answers in a conversation, rooms as conversations, @mentions. -->
+    <script src="/rooms.js" type="module"></script>
+    <!-- phase2/rooms: dictation surfaced as a bar, and Talk live in its own view (off at first). -->
+    <script src="/voice-bar.js" type="module"></script>
+    <script src="/voice-view.js" type="module"></script>
+    <!-- phase2/shell: the Trunks strip, the Overview and People (studio.js and pairing.js load when opened). -->
+    <script src="/strip.js" type="module"></script>
+    <script src="/overview.js" type="module"></script>
+    <script src="/people-place.js" type="module"></script>
     <script src="/coding.js" type="module"></script>
     <script src="/personal.js" type="module"></script>
     <!-- r17-i: reach and platform (other computers, relay, send and pause, sharing, USB, notes, arena). -->
@@ -2141,6 +2166,7 @@
     <script src="/learning-more.js" type="module"></script>
     <!-- R17-S-A: understandable settings (descriptions, scope chips, presets, reset, one settings file, first-run offers). -->
     <script src="/settings-describe.js" type="module"></script>
+    <script src="/agent-files.js" type="module"></script><!-- phase2/accounts -->
     <script src="/settings-kit.js" type="module"></script>
     <script src="/first-run-next.js" type="module"></script>
     <!-- mac4/bucket-20: working with other agents and tools (Customize → Connections, Specialists). -->

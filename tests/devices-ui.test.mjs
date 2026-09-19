@@ -69,7 +69,9 @@ test("pair, let in, switch on, pick, in English and French at 400 px, with nothi
     offers: ["screen", "notify", "run", "files"] });
   const request = card.locator(".devices-request");
   await request.waitFor({ timeout: 15000 });
-  assert.equal(await request.locator("p").innerText(), "Kitchen Mac (Mac computer) asks to join.");
+  assert.equal(await request.locator("p").first().innerText(), "Kitchen Mac (Mac computer) asks to join.");
+  // phase2/shell integration review: the check code the device shows while it waits, to compare before letting it in.
+  assert.match(await request.locator("p.subtle").innerText(), /^Check code [0-9A-F]{4} [0-9A-F]{4}\./);
   await request.getByRole("button", { name: "Let it in" }).click();
   const device = card.locator(".devices-device");
   await device.waitFor();
