@@ -290,6 +290,11 @@ export const ROUTES = {
   "/api/devices/[a-f0-9]{16}/rename": "owner POST",
   "/api/devices/[a-f0-9]{16}/revoke": "owner POST",
   "/api/devices/requests/[a-f0-9]{32}": "owner POST",
+  // mac7/phone-qr: the "Get Branch on your phone" card; the live link is on it, so even reading is the owner's.
+  "/api/phone-app": "secret-read",
+  "/api/phone-app/": "prefix",
+  "/api/phone-app/share": "owner POST",
+  "/api/phone-app/stop": "owner POST",
   "/api/asks/surfaces/:id/refresh": "other POST",
   "/api/asks/surfaces/:id/remove": "owner POST",
   "/api/asks/switch": "owner POST",

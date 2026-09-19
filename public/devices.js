@@ -293,3 +293,6 @@ whenReady(() => {
     if (picked && globalThis.branchSessionId?.() && globalThis.branchSessionId() !== pickedFor) void choose(picked);
   }, 5000);
 });
+
+// mac7/phone-qr: the "Get Branch on your phone" card draws its code the same way.
+export { qrPicture };

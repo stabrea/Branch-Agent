@@ -190,6 +190,7 @@ import { GatewayAuth } from "./remote/gateway-auth.js";
 // ---- mac7/nodes: the owner's devices (src/devices/) ----
 import type { Duplex } from "node:stream";
 import { devicesApi, DevicesHttpError, handlesDevicesPath, openDevicePaths, openDevicesApi } from "./devices/api.js";
+import { handlesPhoneAppPath, PhoneApp, phoneAppApi, PhoneAppRefusal } from "./phone-app/index.js";
 import { claimedDevice, refuseUpgrade } from "./devices/hub.js";
 import { decide as allowlistSays, readSenderAllowlist } from "./channels/allowlist.js";
 import { remoteChannel } from "./remote/gateway-auth.js";
@@ -493,6 +494,7 @@ async function staticFile(
     "/add-ons.js": ["add-ons.js", "text/javascript; charset=utf-8"],
     "/asks.js": ["asks.js", "text/javascript; charset=utf-8"], // mac6/bucket-23
     "/devices.js": ["devices.js", "text/javascript; charset=utf-8"], // mac7/nodes
+    "/phone-app.js": ["phone-app.js", "text/javascript; charset=utf-8"], // mac7/phone-qr
     "/autonomy.js": ["autonomy.js", "text/javascript; charset=utf-8"], // r17-b
     "/trunks.js": ["trunks.js", "text/javascript; charset=utf-8"], // R17-A
     "/coding.js": ["coding.js", "text/javascript; charset=utf-8"], // mac7/r17-d
@@ -2842,6 +2844,8 @@ export async function startServer(
   // meant to handle.
   const executions = app.executions;
   const remote = new RemoteAccess(token);
+  // mac7/phone-qr: the "Get Branch on your phone" download door; closed until the owner shows the code.
+  const phoneApp = new PhoneApp();
   // mac7/bind: where this door listens. 127.0.0.1 unless the owner said otherwise and every
   // protection the wider door needs is really on; see src/listen-address.ts for what is refused.
   const listen = decideListen({
@@ -3080,6 +3084,17 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
           if (answer !== notPeople) { send(response, 200, answer); return; }
         }
         // ---- end bucket 19 ----
+        // ---- mac7/phone-qr: the "Get Branch on your phone" card (src/phone-app/); the owner's alone. ----
+        if (handlesPhoneAppPath(path)) {
+          app.store.profiles.requireOwner("Getting Branch on your phone");
+          const answer = await phoneAppApi(phoneApp, { store: app.store, owner: app.runtime.owner, method: request.method ?? "GET",
+            readBody: () => readBody(request, 4096) }, path).catch((error: unknown) => {
+            throw error instanceof PhoneAppRefusal ? new HttpError(error.status, error.message) : error;
+          });
+          send(response, 200, answer);
+          return;
+        }
+        // ---- end mac7/phone-qr ----
         // ---- mac7/nodes: the Devices card's routes (src/devices/api.ts); the owner's alone. ----
         if (handlesDevicesPath(path)) {
           app.store.profiles.requireOwner("Your devices");
@@ -3327,6 +3342,8 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
   // connected from beyond this computer is dropped, and the door comes back on 127.0.0.1 alone.
   const boundPort = address.port;
   const stopWatchingLockdown = onLockdownChange((_store, _owner, on) => {
+    // mac7/phone-qr: Lockdown also ends a phone download link that is showing.
+    if (on) phoneApp.stop();
     if (on) void narrowToThisComputer().catch((error: unknown) => {
       // The wide socket is already given up by the time anything here can fail, so Lockdown has had
       // the effect that matters. What can still go wrong is coming back on 127.0.0.1 — say so
@@ -3378,6 +3395,7 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
     listeningOn: (): string => listen.address,
     close: async () => {
       stopWatchingLockdown();
+      phoneApp.stop();
       await remote.disable().catch(() => undefined);
       if (options.presence) await clearRunning(options.dataDir).catch(() => undefined);
       await stopServer(app, server);
@@ -3735,6 +3753,10 @@ export function offLimitsToShortLivedKeys(method: string | undefined, path: stri
   // key, so this is where a Trunk is refused too. Like the code editor above, it comes before
   // reading is let through, because the answer is where to knock.
   if (path === "/api/listen") return listenKeyRefusal;
+  // mac7/phone-qr: the phone download link is a way in from the home network, however narrow, and
+  // the live link is on the card, so opening, reading and closing it are the owner's alone.
+  if (path === "/api/phone-app" || path.startsWith("/api/phone-app/"))
+    return "A short-lived key cannot open or read the phone download. Do that in the app window.";
   // mac5/key-sweep: a few reads hand back a secret or everybody's data (src/short-lived-keys.ts).
   if (method === "GET") return ownerOnlyRead(path);
   // Wave mac3 (commands, integration review): when Branch checks with you, which model every new
