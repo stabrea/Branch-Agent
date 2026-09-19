@@ -149,6 +149,7 @@ test("Show everything brings the full window back, and is remembered for this pe
 
 test("the activity panel slides in while a task runs and away when it finishes", async (t) => {
   const model = slowModel();
+  t.after(() => model.release()); // registered before the fixture, so a failure never leaves the model holding Branch open
   const f = await fixture(t, { provider: model.provider, onboarded: true });
   assert.equal(await visible(f.page, "#context-panel"), false, "nothing running, no panel");
   await f.page.locator("#prompt").fill("Sort my Downloads folder. Delete nothing.");
@@ -239,6 +240,7 @@ function askingModel() {
 
 test("calm: an approval question, its answers, the waiting banner and Inbox all show; a yes it carries shows while work runs", async (t) => {
   const model = askingModel();
+  t.after(() => model.release()); // registered before the fixture, so a failure never leaves the model holding Branch open
   const f = await fixture(t, { provider: model.provider, onboarded: true });
   await f.call("/api/policy", { preset: "ask-before-changes" });
   await f.page.locator("#prompt").fill("write a note for me");
@@ -419,6 +421,7 @@ test("the calm window leaves the moon out behind its panes, softens the oak in t
 
 test("calm: a running task reads under its message, with a real Stop, and its conversation is in Recents at once", async (t) => {
   const model = slowModel();
+  t.after(() => model.release()); // registered before the fixture, so a failure never leaves the model holding Branch open
   const f = await fixture(t, { provider: model.provider, onboarded: true });
   await f.page.locator("#prompt").fill("Sort my Downloads folder. Delete nothing.");
   await f.page.locator("#send").click();
