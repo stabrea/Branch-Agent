@@ -13,11 +13,13 @@ import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer } from "../dist/server.js";
 import { openPlace, openSettingFor } from "./places.mjs";
+import { registerCliAgent } from "../dist/providers/cli-agent.js";
+import { accountsServiceFor } from "../dist/accounts/service.js";
 
 const POOL = "openai-ui";
 const KEY = "sk-ui-test-key-000000000"; // not-a-real-secret
 
-async function fixture(t, width = 1440) {
+async function fixture(t, width = 1440, before = () => undefined) {
   const scratch = join(tmpdir(), "branch-session-files");
   await mkdir(scratch, { recursive: true });
   const root = await mkdtemp(join(scratch, "branch-accounts-ui-"));
@@ -27,6 +29,7 @@ async function fixture(t, width = 1440) {
   app.runtime.models.register({ id: POOL, name: "OpenAI (work)", model: "gpt-4o-mini", catalogId: "openai",
     provider: { name: "openai-chat", complete: async () => ({ content: "ok", toolCalls: [] }) } });
   app.runtime.models.configure(owner, { activePreset: POOL });
+  before(app, owner);
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
   const browser = await chromium.launch({ headless: true });
   t.after(async () => { await browser.close(); await server.close(); await app.close(); await discardTemp(root); });
@@ -97,5 +100,59 @@ test("U2 at 400 px nothing scrolls sideways, every word has a key, and French is
   await openSettingFor(page, "#accounts-card");
   await page.waitForFunction(() => document.querySelector("label[for=accounts-mode]")?.textContent === "Plusieurs comptes par connexion");
   assert.match(await page.locator("#accounts-card .terms-line").first().innerText(), /Conditions/);
+  assert.deepEqual(errors, []);
+});
+
+/* mac7/account-pooling: a list that shared work between the owner's own plans, from before the rule. */
+function oldSharedList(app, owner) {
+  registerCliAgent(app.runtime.models, { id: "claude-code" }, {}, async () => ({ code: 0, stdout: "{}", stderr: "" }));
+  const at = "2026-09-19T10:00:00.000Z";
+  app.store.save("settings", owner, "accounts", { mode: "on", pools: [{ pool: "cli-claude-code", kind: "cli", autoSwitch: true,
+    accounts: [{ id: "primary", label: "Mine", createdAt: at }, { id: "abcd1234", label: "Partner plan", createdAt: at }] }] });
+  accountsServiceFor(app.runtime.models).applyPoolingRule();
+}
+
+test("U3 a sign-in list says once why sharing stopped, and an account can be marked kept separate", async (t) => {
+  const { page, errors, app } = await fixture(t, 1440, oldSharedList);
+  await openCard(page);
+  const pool = page.locator('.accounts-pool[data-pool="cli-claude-code"]');
+  await pool.waitFor();
+  const notice = pool.locator(".accounts-notice");
+  assert.match(await notice.innerText(), /no longer switches between your own .+ plans.*mark it kept separate/s);
+  await notice.getByRole("button", { name: "Got it" }).click();
+  await notice.waitFor({ state: "detached" });
+  const row = pool.locator(".accounts-row", { hasText: "Partner plan" });
+  await row.getByLabel(/Kept separate/).check();
+  await pool.locator(".accounts-row", { hasText: "Partner plan" }).getByText("(kept separate)").waitFor();
+  const saved = accountsServiceFor(app.runtime.models).settings();
+  assert.equal(saved.pools[0].accounts.find((account) => account.id === "abcd1234").keptSeparate, true);
+  assert.deepEqual(saved.poolingNotices, [], "the notice is read once");
+  assert.match(await pool.innerText(), /It never moves between your own plans/, "the words beside the tick box say the rule");
+  assert.equal(await pool.getByLabel(/Kept separate/).count(), 2, "every sign-in has the box");
+  assert.deepEqual(errors, []);
+});
+
+test("U4 the notice and the Kept separate box fit at 400 px, carry keys, and read in French", async (t) => {
+  const { page, errors } = await fixture(t, 400, oldSharedList);
+  await openCard(page);
+  const pool = page.locator('.accounts-pool[data-pool="cli-claude-code"]');
+  await pool.locator(".accounts-notice").waitFor();
+  const wide = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
+  assert.equal(wide, false, "nothing scrolls sideways");
+  const keyed = await page.evaluate(() => [...document.querySelectorAll('.accounts-pool[data-pool="cli-claude-code"] :is(.accounts-notice p, .accounts-notice button, label span)')]
+    .every((node) => node.dataset.t || node.dataset.tKey));
+  assert.ok(keyed, "the notice, its button and the box's words come from keys");
+  await openPlace(page, "settings:appearance");
+  await page.locator("#appearance-language").selectOption("fr");
+  await openSettingFor(page, "#accounts-card");
+  await page.waitForFunction(() => /Tenu à part/.test(document.querySelector('.accounts-pool[data-pool="cli-claude-code"]')?.innerText ?? ""));
+  const text = await pool.innerText();
+  assert.match(text, /Branch ne passe plus d'un de vos abonnements .+ à un autre/);
+  assert.match(text, /Compris/);
+  assert.match(text, /Tenu à part : ce compte appartient/);
+  assert.equal(text.match(/\{[a-z]+\}/g), null, "no {placeholder} is ever shown");
+  assert.equal(await pool.getByLabel(/Tenu à part/).count(), 2, "the box survives the language change");
+  const stillNarrow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
+  assert.equal(stillNarrow, false, "the longer French words still fit");
   assert.deepEqual(errors, []);
 });

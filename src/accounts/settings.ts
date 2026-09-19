@@ -35,6 +35,13 @@ export const AccountSchema = z.object({
   monthlyCapUsd: z.number().min(0).max(100_000).nullable().default(null),
   /** Whether people sharing this computer may use it. Only an API key can be shared. */
   shared: z.boolean().default(false),
+  /**
+   * mac7/account-pooling: sign-in accounts only. The owner marks an account "kept separate" when it
+   * belongs to someone else or to work (a household person's own plan, a work plan), not to the
+   * owner's own personal use. Only such accounts may share work with the owner's own account; the
+   * owner's own identical personal plans never rotate (providers treat that as abuse).
+   */
+  keptSeparate: z.boolean().default(false),
   /** Extra API keys only: the address (scheme, host, port) the key was added for; it is sent nowhere else. */
   address: z.string().max(300).optional(),
   createdAt: z.string().max(40),
@@ -56,18 +63,58 @@ export const PoolSchema = z.object({
 }).strict();
 export type Pool = z.infer<typeof PoolSchema>;
 
+/** The version of the sharing rule the saved list was last brought up to (see `applyPoolingRule`). */
+export const poolingRuleVersion = 1;
 export const AccountsSettingsSchema = z.object({
   mode: FeatureModeSchema.default("off"),
   pools: z.array(PoolSchema).max(64).default([]),
+  poolingRule: z.number().int().min(0).max(1000).default(0),
+  /** Connections whose sharing was stopped by the rule, until the owner has read why. */
+  poolingNotices: z.array(poolId).max(64).default([]),
 }).strict();
 export type AccountsSettings = z.infer<typeof AccountsSettingsSchema>;
 
 const settingKey = "accounts";
+
+/**
+ * mac7/account-pooling (owner decision 2026-09-19): a list that shared work between the owner's own
+ * sign-ins of one service stops sharing. The owner's first choice (their default, else the first in
+ * the list) is kept as the account new work uses, and a one-time notice says why. Idempotent: once
+ * the saved list carries this rule's version it is left alone.
+ */
+export function applyPoolingRule(settings: AccountsSettings): { settings: AccountsSettings; stopped: string[] } {
+  if (settings.poolingRule >= poolingRuleVersion) return { settings, stopped: [] };
+  const stopped: string[] = [];
+  const pools = settings.pools.map((pool) => {
+    const own = pool.accounts.filter((account) => !account.keptSeparate);
+    if (pool.kind === "api-key" || !pool.autoSwitch || own.length < 2) return pool;
+    stopped.push(pool.pool);
+    return { ...pool, autoSwitch: false, defaultAccount: pool.defaultAccount ?? pool.accounts[0]!.id };
+  });
+  const notices = [...new Set([...settings.poolingNotices, ...stopped])];
+  return { settings: { ...settings, pools, poolingRule: poolingRuleVersion, poolingNotices: notices }, stopped };
+}
+/**
+ * The one-time notice, naming the service ("ChatGPT", "Claude Code"). The window shows the locale
+ * key `accounts.notice.own-plans` with the same words; this text is for `/account`.
+ */
+export const poolingNotice = (service: string): string =>
+  `Branch no longer switches between your own ${service} plans when one runs out: providers treat that as abuse, so sharing work is now off for this list. If an account really belongs to someone else or to work, mark it kept separate and turn sharing back on.`;
 type Reader = Pick<Store, "get">;
 
+/** The list as saved, or null when nothing is saved or what is saved is damaged. */
+export function savedAccountsSettings(store: Reader, owner: string): AccountsSettings | null {
+  const found = store.get("settings", owner, settingKey);
+  if (!found) return null;
+  const saved = AccountsSettingsSchema.safeParse(found.data ?? {});
+  return saved.success ? saved.data : null;
+}
+/**
+ * A list never saved starts under the current sharing rule, so one made from now on is never
+ * mistaken for an old one that shared work between the owner's own plans (mac7/account-pooling).
+ */
 export function accountsSettings(store: Reader, owner: string): AccountsSettings {
-  const saved = AccountsSettingsSchema.safeParse(store.get("settings", owner, settingKey)?.data ?? {});
-  return saved.success ? saved.data : AccountsSettingsSchema.parse({});
+  return savedAccountsSettings(store, owner) ?? AccountsSettingsSchema.parse({ poolingRule: poolingRuleVersion });
 }
 export function saveAccountsSettings(store: Store, owner: string, value: AccountsSettings): AccountsSettings {
   const parsed = AccountsSettingsSchema.parse(value);

@@ -156,3 +156,20 @@ test("daily consolidation looks only at new tasks, stages suggestions, and advan
   await delay(20);
   void a;
 });
+
+test("the scheduler's beat during a consolidation the owner started shares it instead of staging every suggestion twice", async (t) => {
+  // The server's scheduler checks every five seconds; on a slow machine a consolidation outlasted
+  // one check, which found it still due and looked over the same tasks again (CI run 35446096639).
+  const { app, root, provider } = await fixture(t, [say("ok")]);
+  const api = await served(t, app, root);
+  await app.runtime.run({ prompt: "book the dentist for Tuesday" });
+  const b = await app.runtime.run({ prompt: "what is on my calendar" });
+  await api("memory/settings", { review: false, requireApproval: false, consolidateDaily: true });
+  provider.reset([say("consolidation parent"), say('{"memories":[{"text":"Sees a dentist on Tuesdays","source":"task 1"}]}')]);
+  const [asked] = await Promise.all([api("memory/consolidate", {}), app.scheduler.tick()]);
+  assert.deepEqual([asked.runs, asked.proposals, asked.skipped], [2, 1, false]);
+  assert.equal(app.store.review.proposals("local").length, 1, "one look, one set of suggestions");
+  assert.equal(app.store.runs("local").filter((run) => run.prompt.startsWith("Consolidate ")).length, 1, "one consolidation task");
+  assert.equal(app.store.review.cursor("local").through, b.createdAt);
+  assert.equal((await api("memory/consolidate", {})).skipped, true, "once it is over, the next request starts afresh and finds nothing new");
+});

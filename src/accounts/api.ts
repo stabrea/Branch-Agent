@@ -1,7 +1,7 @@
 import type { IncomingMessage } from "node:http";
 import { z } from "zod";
 import {
-  addAccount, removeAccount, setMode, switchAccount, updateAccount, updatePool, viewAll, viewSession,
+  addAccount, dismissNotice, removeAccount, setMode, switchAccount, updateAccount, updatePool, viewAll, viewSession,
 } from "./manage.js";
 import type { AccountsService } from "./service.js";
 import { primaryAccount } from "./settings.js";
@@ -31,6 +31,7 @@ const changes: Record<string, Change> = {
   "/api/accounts/pool": updatePool,
   "/api/accounts/remove": removeAccount,
   "/api/accounts/switch": switchAccount,
+  "/api/accounts/notice": dismissNotice, // mac7/account-pooling
   "/api/accounts/chatgpt/login": chatgptLogin,
   "/api/accounts/chatgpt/logout": chatgptLogout,
 };

@@ -62,6 +62,21 @@ Branch fills in four from the connections you really have: **Cheap and fast**, *
 context** (your own order). None is switched on until you pick one. When a profile picks, the task
 records a plain sentence saying why that connection answered.
 
+## Several accounts for one service
+
+**Settings → Models → Connection → Accounts** (off until you switch it on) lets one connection hold several API
+keys or sign-ins, each with a name; `/account` lists them and `/account <name>` switches the
+conversation. API keys move on to the next key by themselves when one is rate limited.
+
+Sign-ins are different. **Branch never moves your work between your own plans of one service** — two
+ChatGPT plans or two Claude plans that are both yours — to get past a limit: providers treat that as
+abuse and may suspend the accounts. When your plan runs out, the task stops and says so. *Share work
+between these accounts* can move work only between one of your own plans and an account you marked
+**kept separate**: one that really belongs to someone else or to work, such as your work plan or a
+family member's own plan. Tick *Kept separate* on that account, or type `/account separate <name>`
+(`/account not-separate <name>` takes the mark off). Nothing is ever marked for you. If a list of
+yours used to share work between your own plans, Branch stopped it and says why once, on the card.
+
 ## Models that run here
 
 **Settings → Models on this computer** sees, starts, downloads and removes models in Ollama and LM

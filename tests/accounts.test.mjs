@@ -222,7 +222,7 @@ function programFixture(fx, outcomes) {
 const limited = { code: 1, stdout: "", stderr: "Claude usage limit reached. Your limit resets at 3pm." };
 const answer = (text) => ({ code: 0, stdout: JSON.stringify({ result: text }), stderr: "" });
 
-test("A7 a sign-in account at its plan limit stops and names the others; it moves on only when allowed", async (t) => {
+test("A7 a sign-in account at its plan limit stops; it moves on only when allowed, and only to an account kept separate", async (t) => {
   const fx = await fixture(t);
   const { app, service } = fx;
   const seen = programFixture(fx, { primary: limited, default: answer("from the work account") });
@@ -234,13 +234,19 @@ test("A7 a sign-in account at its plan limit stops and names the others; it move
   const stopped = await app.runtime.run({ prompt: "hello" });
   assert.equal(stopped.status, "failed");
   assert.match(stopped.output, /"Your usual sign-in" has reached its plan limit/);
-  assert.match(stopped.output, /does not switch sign-in accounts by itself.*\/account Work/);
+  // mac7/account-pooling: an unmarked account is one of the owner's own plans, so it is not offered.
+  assert.match(stopped.output, /does not move your work between your own plans/);
+  assert.ok(!stopped.output.includes("Work"), "another of the owner's own plans is never suggested");
   assert.deepEqual(seen.map((s) => s.who), ["primary"], "the other account was not used");
   const again = await app.runtime.run({ prompt: "hello" });
   assert.equal(again.status, "failed");
   assert.equal(seen.length, 1, "a limited account is not asked again until it resets");
   await assert.rejects(updateAccount(service, { pool: "cli-claude-code", account: work.id, shared: true }), /cannot be shared/);
   updatePool(service, { pool: "cli-claude-code", autoSwitch: true });
+  const still = await app.runtime.run({ prompt: "hello" });
+  assert.equal(still.status, "failed", "sharing on never moves between the owner's own plans");
+  assert.equal(seen.length, 1);
+  await updateAccount(service, { pool: "cli-claude-code", account: work.id, keptSeparate: true });
   const moved = await app.runtime.run({ prompt: "hello" });
   assert.equal(moved.output, "from the work account");
   assert.deepEqual(seen.at(-1), { who: work.id, variable: "CLAUDE_CONFIG_DIR" });
