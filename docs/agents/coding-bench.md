@@ -218,7 +218,8 @@ with tests (`tests/coding-gap-edits.test.mjs`, plus updated `tests/empty-answer.
    `find` appends or creates. *Next:* a read-before-edit guard, as Claude Code has — refuse an edit
    or whole-file write to an existing file not read (or changed since it was read) in this run, with
    a sentence saying to read it first. This touches every task that writes files, so it wants its own
-   review.
+   review. Note for review: a refused edit now returns up to 1,500 characters of the file (it was one
+   line) from a `files.write` tool; the path has already passed the workspace and secret-name checks.
 8. **Strict tool schemas reject a small model's extra keys.** Every call parsed, but several were
    refused over an unexpected key (`workspace.checkpoint` called with `path`/`query`, `documents.write`
    with `format: "js"`). *Next:* say which keys a tool takes in the refusal, or drop unknown keys on

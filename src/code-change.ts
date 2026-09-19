@@ -58,7 +58,8 @@ export const PatchInputSchema = z.object({
 }).strict();
 const editShape = z.object({
   path: z.string().min(1).max(500),
-  find: z.string().min(1).max(32768),
+  /** Empty means "add `replace` to the end", as in files.edit; the file must already exist here. */
+  find: z.string().max(32768),
   replace: z.string().max(32768),
   expectedOccurrences: z.number().int().min(1).max(100).default(1),
 }).strict();
