@@ -9,7 +9,8 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, rmSync, mkdirSync, cpSync } from "node:fs";
+import { mkdtempSync, writeFileSync, rmSync, mkdirSync, cpSync, readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -136,4 +137,17 @@ test("a summary that writes the hour a different way is not failed for formattin
   writeFileSync(join(dir, "summary.md"),
     "- kept Postgres, dropped DynamoDB\n- support moves to 7pm UTC\n- free tier capped at 500 a day\n- designer role frozen until the fourth quarter\n");
   assert.equal(taskById["summarise-docs"].check(dir, "").passed, true);
+});
+
+test("merge-queue review: a lead that rests on one task is not called a win, and the Branch row is named as not the release", (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "scoreboard-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const here = dirname(fileURLToPath(import.meta.url));
+  const out = join(dir, "board.md");
+  execFileSync(process.execPath, [join(here, "../experiments/scoreboard/report-scoreboard.mjs"),
+    "--results", join(here, "../experiments/scoreboard/results.jsonl"), "--out", out], { stdio: "ignore" });
+  const page = readFileSync(out, "utf8");
+  assert.doesNotMatch(page, /is ahead of/, "four passes against two, all on find-retry, is not a lead");
+  assert.match(page, /the whole difference is one task \(`find-retry`\)/);
+  assert.match(page, /The Branch row is not the release/);
 });

@@ -2,7 +2,7 @@
 
 ## F1 — Branch cannot finish a single task on this rig, and here is why
 
-On `taofik-ai`, against `qwen3-4b-64k` (qwen3:4b, 65536-token window) at `http://127.0.0.1:11434/v1`,
+On the test machine, against `qwen3-4b-64k` (qwen3:4b, 65536-token window) at `http://127.0.0.1:11434/v1`,
 Branch `0.17.0` (`mac7/eval-honesty`, b23532d9) fails the very first task with:
 
 ```
@@ -61,6 +61,12 @@ Branch appears **twice**. `branch-trunk` is b23532d9 exactly as it stands, run o
 set — a demonstration of what these two constants cost, not a contestant. `branch` is the same tree
 with those two constants changed and nothing else. OpenClaw and Hermes ran unmodified. That
 asymmetry is stated wherever the board is printed: Branch needed two fixes to enter at all.
+
+**What reached the release.** Neither constant was changed on `mac/cross-platform`: the owner kept the
+2,048-token reply ceiling for 0.18.1, and the two-minute floor is as it was. What did land, through
+`integrate/empty-completion`, is that Branch now reads a reasoning model's thinking, counts it, lets it
+keep the stall watchdog awake, and says in plain words when a reply ran out of room while thinking —
+so F1 is no longer silent or blamed on the provider, but the ceiling itself still stands.
 
 ## F3 — with a small model, Branch picks a switched-off tool and then asks a question nobody can answer
 

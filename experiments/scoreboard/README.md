@@ -45,7 +45,7 @@ differed. `tests/scoreboard.test.mjs` holds that behaviour down.
 The rig is described in `~/Code/branch-coordination/RIG.md`. Everything below assumes it.
 
 ```sh
-# on taofik-ai, with the loopback forward to the P40 up
+# on the test machine, with the loopback forward to the P40 up
 export PATH=/workspace/bench/node/bin:$PATH
 cd /workspace/bench/branch
 node experiments/scoreboard/run-scoreboard.mjs \
@@ -95,9 +95,9 @@ RIG.md keeps a list of what the rig installed; this is what the board added on t
 | what | where | stop or remove it with |
 |---|---|---|
 | derived models `qwen3-4b-16k`, `qwen3-4b-64k`, `qwen3-4b-64k-nothink` | the owner's `branch-ollama` container | `docker exec branch-ollama ollama rm qwen3-4b-16k qwen3-4b-64k qwen3-4b-64k-nothink` |
-| the window itself | `taofik-ai`, systemd **user** unit | `systemctl --user stop bench-scoreboard` |
-| the keep-warm pinger (it holds ~12 GB of the P40 on a 24-hour keep-alive, and two copies were started) | `taofik-ai` | `pkill -f keep-model-warm.sh` then `docker exec branch-ollama ollama stop qwen3-4b-64k` |
-| the second Branch checkout, unmodified b23532d9 | `/workspace/bench/branch-trunk` on `taofik-ai` | `rm -rf` |
+| the window itself | the test machine, systemd **user** unit | `systemctl --user stop bench-scoreboard` |
+| the keep-warm pinger (it holds ~12 GB of the P40 on a 24-hour keep-alive, and two copies were started) | the test machine | `pkill -f keep-model-warm.sh` then `docker exec branch-ollama ollama stop qwen3-4b-64k` |
+| the second Branch checkout, unmodified b23532d9 | `/workspace/bench/branch-trunk` on the test machine | `rm -rf` |
 | the Hermes virtualenv and its home | `/workspace/bench/hermes-venv`, `/workspace/bench/hermes-home` | `rm -rf` |
 | every run's workspace and state | `/workspace/bench/board/{work,state}` | `rm -rf` |
 

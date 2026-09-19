@@ -184,10 +184,18 @@ if (refusals.length) {
     say();
   }
 
+  /** The tasks on which one of the two passed more of its attempts than the other. */
+  function tasksWhereOneLeads(rowsA, rowsB) {
+    const passes = (list, id) => list.filter((row) => row.task === id && row.passed).length;
+    return tasksRun.filter((id) => passes(rowsA, id) !== passes(rowsB, id));
+  }
+  const minTasksForALead = 3;
+
   say("### Where the ranges actually separate");
   say();
   say("Two agents are only called apart here when the range of one does not touch the range of the "
-    + "other over the repeats. Everything else is a tie as far as this board can tell.");
+    + "other over the repeats, and the difference is spread over at least three different tasks. "
+    + "Everything else is a tie as far as this board can tell.");
   say();
   let separated = 0;
   for (let i = 0; i < real.length; i++)
@@ -197,11 +205,20 @@ if (refusals.length) {
       const timeA = elapsedSpread(a[1]), timeB = elapsedSpread(b[1]);
       const nameA = contestantById[a[0]]?.name.split(" (")[0] ?? a[0];
       const nameB = contestantById[b[0]]?.name.split(" (")[0] ?? b[0];
-      if (spreadsSeparate(rateA, rateB)) {
+      // merge-queue review: two passes over the same ten tasks can give ranges of zero width that
+      // "do not overlap" while the whole difference is one task an agent happened to get. A lead is
+      // only called when it is spread over at least `minTasksForALead` different tasks.
+      const leadTasks = tasksWhereOneLeads(a[1], b[1]);
+      if (spreadsSeparate(rateA, rateB) && leadTasks.length < minTasksForALead) {
+        say(`- Tasks passed: **no claim between ${nameA} and ${nameB}** — ${pct(rateA.mean)} against ${pct(rateB.mean)}, `
+          + `but the whole difference is ${leadTasks.length === 1 ? "one task" : `${leadTasks.length} tasks`} `
+          + `(${leadTasks.map((id) => `\`${id}\``).join(", ")}). That is too few to call anyone ahead: a different `
+          + `task set could as easily have gone the other way.`);
+      } else if (spreadsSeparate(rateA, rateB)) {
         separated++;
         const [ahead, behind] = rateA.mean > rateB.mean ? [nameA, nameB] : [nameB, nameA];
         say(`- **Tasks passed: ${ahead} is ahead of ${behind}**, and the ranges do not overlap `
-          + `(${pct(rateA.low)}–${pct(rateA.high)} against ${pct(rateB.low)}–${pct(rateB.high)}).`);
+          + `(${pct(rateA.low)}–${pct(rateA.high)} against ${pct(rateB.low)}–${pct(rateB.high)}), over ${leadTasks.length} different tasks.`);
       } else if (rateA.repeats < 2 || rateB.repeats < 2) {
         // One measurement has no range, so it cannot overlap anything and cannot fail to. Saying
         // "their ranges overlap" here would be a sentence contradicted by the two numbers printed
@@ -339,6 +356,12 @@ if (droppedRepeats) {
 say("## What this is not");
 say();
 const basis = combinedBasis(rows.map((row) => row.usage?.basis ?? "unknown"));
+// merge-queue review: the Branch row was measured with two changes to src/runtime.ts that the
+// release did not take, so the page says which build it is before anyone quotes it.
+say(`- **The Branch row is not the release.** It was measured with two changes to \`src/runtime.ts\` `
+  + `— a reply ceiling of 8,192 tokens, and no two-minute cap when the caller names its own deadline — `
+  + `and neither was merged: Branch 0.18.1 keeps the 2,048-token ceiling. The unmodified build's single `
+  + `pass, under **Shown, not scored**, is the nearer picture of what ships.`);
 say(`- **Cost is not compared.** There is no price on file for a model running on the owner's own `
   + `card, so no money figure is printed at all; were one printed it would be ${costNote(basis, true)}. `
   + `The token counts above are what each program reported, and the three `

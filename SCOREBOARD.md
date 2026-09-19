@@ -1,6 +1,6 @@
 # The scoreboard
 
-Built 2026-09-18 22:20 UTC from `experiments/scoreboard/results.jsonl`.
+Built 2026-09-19 01:23 UTC from `experiments/scoreboard/results.jsonl`.
 
 Read **What this is not**, at the bottom, before quoting any number from here.
 
@@ -54,10 +54,11 @@ How many of that agent's attempts at that one task passed.
 
 ### Where the ranges actually separate
 
-Two agents are only called apart here when the range of one does not touch the range of the other over the repeats. Everything else is a tie as far as this board can tell.
+Two agents are only called apart here when the range of one does not touch the range of the other over the repeats, and the difference is spread over at least three different tasks. Everything else is a tie as far as this board can tell.
 
-- **Tasks passed: Branch Agent 0.17.0 is ahead of OpenClaw 2026.9.4**, and the ranges do not overlap (20%–20% against 10%–10%).
+- Tasks passed: **no claim between Branch Agent 0.17.0 and OpenClaw 2026.9.4** — 20% against 10%, but the whole difference is one task (`find-retry`). That is too few to call anyone ahead: a different task set could as easily have gone the other way.
 - Time: **Branch Agent 0.17.0 and OpenClaw 2026.9.4 overlap** (55s–300s against 144s–301s); no claim either way.
+
 
 ## Shown, not scored
 
@@ -90,6 +91,7 @@ This machine runs the owner's own work and cannot be quietened. The contestants 
 
 ## What this is not
 
+- **The Branch row is not the release.** It was measured with two changes to `src/runtime.ts` — a reply ceiling of 8,192 tokens, and no two-minute cap when the caller names its own deadline — and neither was merged: Branch 0.18.1 keeps the 2,048-token ceiling. The unmodified build's single pass, under **Shown, not scored**, is the nearer picture of what ships.
 - **Cost is not compared.** There is no price on file for a model running on the owner's own card, so no money figure is printed at all; were one printed it would be part measured, part estimated — do not read this as a bill. The token counts above are what each program reported, and the three programs do not count the same things: one reports what the provider said, one adds its own estimate when the provider says nothing, and they disagree about whether a reasoning block is output. The columns are printed so the difference in prompt size is visible, not so the totals can be divided into money.
 - **Claude Code is not on this board and cannot be.** It talks only to Anthropic's API, so it cannot use the P40 at all. Putting it here would mean one contestant on a frontier hosted model and three on a 4B local one, which is a different contest, not a closer one.
 - **The tool surfaces are not the same**, and nothing can make them the same. Each agent's is recorded with its rows; a task can be won by having the right built-in tool rather than by judging well.
