@@ -45,12 +45,21 @@ the new thing is **the Trunks strip** (`#trunk-strip`, `public/strip.js`) everyw
 
 ## Test runs (merged tree)
 
+- Trunk merged twice (98beb5d8, then 73f73153, both clean); dist deleted and rebuilt each time; `npx tsc --noEmit` clean.
 - tests/p2-shell.test.mjs 4/4, tests/p2-shell-ui.test.mjs 12/12 (includes the French redraw and the pairing ring).
 - 30 files (p2-shell*, trunks*, devices*, people*, calm-ui, shell-ui, web-ui, redesign-phase1, glass-select, mobile-shell,
   conversation-mode, suggestions, household-profile, lockdown-*, hardening-3, outside-resume, static-assets,
-  index-structure, handbook): 312 tests, 308 pass, 3 skipped, 1 fail = shell-ui "a folded Projects group stays folded"
-  (timing: it passed in the first run and twice alone; not touched by this work).
-- Screenshots: 14 scenes x light/dark x 1440/390 plus 5 at 1024x700 (panel open included): zero page errors after load,
+  index-structure, handbook) on 6dc916a6+the first-paint fix: 314 tests, 311 pass, 0 fail, 3 skipped.
+- After merging 73f73153: 13 files (mine, static-assets, index-structure, handbook, trunks*, conversation-mode,
+  outside-review, glass-select, devices-ui): 103/103 on the second run. The first run had one failure in
+  glass-select "the list sits flush under the select" at 1440 (gap -388 px: the select moved after the list opened);
+  it passed 3/3 alone and in every other run. Not proven to be unrelated to the strip.
+- Earlier, a real regression this work caused and fixed: the strip arriving after load moved the page at 390 px and
+  closed an open glass list; its room is now kept from the first paint (strip.js `reserveRoom`).
+- shell-ui "a folded Projects group stays folded" failed once in one full run: the group's key is saved before the
+  workspace name answers (a race in that code); the strip adds five start-up requests, which may widen it. It passed in
+  the other full runs and twice alone.
+- Screenshots: 15 scenes x light/dark x 1440/390, plus 5 at 1024x700 (panel open included): zero page errors after load,
   no sideways overflow.
 
 ## Shared-file edits (all marked `phase2/shell`)
