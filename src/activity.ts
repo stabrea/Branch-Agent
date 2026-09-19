@@ -104,7 +104,8 @@ export function runActivity(run: Run, events: Event[]): RunActivity {
   }
   const list = [...steps.values()];
   const working = list.filter((s) => s.status === "working").at(-1);
-  const thinking = events.at(-1)?.kind === "model.started";
+  // mac7/coding-next: a model on this computer still loading into memory is still the model's turn.
+  const thinking = events.at(-1)?.kind === "model.started" || events.at(-1)?.kind === "model.loading";
   const current = run.status !== "running" ? null : working ? working.label : thinking || !list.length ? "Thinking" : "Thinking about the results";
   return {
     runId: run.id, sessionId: run.sessionId, prompt: run.prompt, status: run.status,

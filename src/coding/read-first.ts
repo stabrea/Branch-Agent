@@ -59,7 +59,7 @@ export class ReadFirstGuard {
     if (read === undefined)
       throw new ReadFirstError(`Nothing was changed: read "${shown}" with files.read first. This task has not read it yet, and a change made without reading the file can overwrite what is really there.`);
     if (read !== fingerprint(now))
-      throw new ReadFirstError(`Nothing was changed: "${shown}" has changed since this task last read it (something else edited it). Read it again with files.read, then make the change.`);
+      throw new ReadFirstError(`Nothing was changed: "${shown}" has changed since this task last read it. Read it again with files.read, then make the change.`);
   }
 
   /** The task wrote this file; it counts as read once the call has finished (see `settle`). */

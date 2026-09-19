@@ -123,6 +123,8 @@ export class EditChecks {
     const found = Object.entries(settings.formatters).find(([, formatter]) => formatter.extensions.includes(extname(path).toLowerCase()));
     const check: FileCheck = { path, formatter: found?.[0] ?? null, reformatted: false };
     if (found) await this.format(found[1], absolute, settings.timeoutMs, context, check);
+    // mac7/coding-next: a file this task had tidied still counts as read (src/coding/read-first.ts).
+    if (check.reformatted) this.deps.files.readFirst?.noteWritten(context.runId, absolute);
     if (settings.diagnostics && this.deps.servers.enabled()) {
       const seen = await this.deps.servers.diagnostics({ path, waitMs: settings.waitMs }, context.runId).catch(() => null);
       if (seen) check.problems = seen.diagnostics.filter((d) => d.severity === "error" || d.severity === "warning").slice(0, 20)

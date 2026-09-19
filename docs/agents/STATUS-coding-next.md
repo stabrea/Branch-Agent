@@ -59,6 +59,9 @@ Tests: `tests/coding-next.test.mjs` "5 …" — the helper, and `code.run` with 
   now switch crash capture on, since they test a crash note's content.
 - Not tested: the Electron call itself (cannot run Electron here); `startCrashReporter` is 8 lines around
   `crashReporterPlan`, which is tested.
+- Trade-off of the move: with the switch on, a crash of the desktop process between launch and the data folder
+  being known (the few awaits before `start()` reads the switch) is not captured by Electron's reporter. Before
+  any window or the engine exists; the brief's "read at desktop start" needs the data folder first.
 
 ### 3. Local model first reply
 - Local = `presetRunsLocally` (src/models.ts), the app's existing test: the connection's own address is
@@ -70,6 +73,8 @@ Tests: `tests/coding-next.test.mjs` "5 …" — the helper, and `code.run` with 
 - Setting: launch `reliability.localFirstReplyMs` (default 300 s) and the owner's knob
   `localFirstReplySeconds` (limits card, Settings › Advanced, next to API retries; empty = launch figure).
   Hosted connections are unchanged (60 s). Documented in docs/configuration.md (reliability paragraph and knobs table).
+- `src/activity.ts` still reports "Thinking" while the last event is `model.loading` (it only looked for
+  `model.started`). Other consumers pair `model.started`/`model.completed` and ignore the new kind.
 - Status line: after 10 s of silence (or the stall time, if shorter) on a local connection, one `model.loading`
   event; the live row shows "Waiting for the model on this computer to start. It may be loading into memory…"
   (en + fr key `live.localLoading`), and the activity feed lists it. Chose a new event kind over a field on
@@ -126,6 +131,10 @@ Tests: `tests/coding-next.test.mjs` "5 …" — the helper, and `code.run` with 
   any file is written; change_set checks before looking for the text, so "read it first" is the refusal a
   blind edit gets). Not held: `code.rename` (language server, via `applyPlanned`), `code.format`,
   `files.restore`, undo/redo, documents.* — they are not the model writing from what it thinks a file says.
+- Known interaction, on purpose: `files.restore` and `workspace.undo`/`redo` write through the history, not
+  through the guard, so after them the next edit of those files asks for a fresh read (the task does not know
+  exactly what came back). The refusal says only "has changed since this task last read it", not who changed
+  it. `code.format` (by hand or after an edit) notes the files it tidied, so it does not cause a refusal.
 - The task's own writes: `CodeEditor.save` and `files.write` note the file; `ToolRegistry.execute` calls
   `afterWrites` in a `finally` after the tool and after `afterTool` (format-on-edit), which re-fingerprints
   those files as they are on disk. So a formatter's tidying never makes the next edit look like an outside change.
@@ -157,13 +166,15 @@ Tests: `tests/coding-next.test.mjs` "5 …" — the helper, and `code.run` with 
   not stand in for the yes. Owner-only Always: refused when answered from a chat app (`answeredOn`), for a task
   a chat app or anything but the owner started (existing check), for a household person's task, or while the
   window is switched to a household profile. Lockdown: `code.check` is refused by the existing Lockdown rule for
-  `code.execute` without asking; the verdict refuses too.
+  `code.execute` without asking (tested). The Lockdown line in `projectTestsVerdict` is belt-and-braces for any
+  future caller that is not a `code.execute` tool; it is the same refusal text, not a second rule.
 - New `ToolContext.askable`: set on a model's own tool call (`runToolCall`). A tool run by hand ("Try a tool",
   manual actions) has nowhere to put the question, so there `code.check` answers with the old "no check is set
   up" note, as before (existing coding-gap test unchanged). Workflow steps (`approvalKey`) are asked, as the
   existing ApprovalRequiredError design intends.
 - **Per permission mode, for whoever wires `mac7/redesign-phase1`'s picker** (no picker built here):
-  - *Plan*: never run. Already true: a dry run simulates `code.check` (not read-only) before it runs.
+  - *Plan*: never run. A dry run (`context.dryRun`) simulates `code.check` today, since it is not read-only; the
+    picker's Plan mode must map to dryRun, or call `projectTestsVerdict` and refuse. Not tested here.
   - *Ask first*: ask (this behaviour).
   - *Auto* and *Full access*: still ask once per folder unless "Always for this folder" was given. The verdict
     reads only the exact `code.tests` rule, so a mode that works by adding broad allow rules will not skip it;

@@ -488,3 +488,36 @@ test("4 Lockdown refuses without asking; the script switch on runs the tests as 
   assert.equal(asked(app, scripts).length, 0, "the owner already said yes to running scripts");
   assert.equal(ranTests(app, scripts), true);
 });
+
+test("1 read-first on: a file the task had tidied with code.format still counts as read", async (t) => {
+  const { app, workspace } = await fixture(t);
+  const { EditChecks } = await import("../dist/coding/format-on-edit.js");
+  const { saveCodingMode } = await import("../dist/coding/settings.js");
+  const { mkdir, writeFile, readFile } = await import("node:fs/promises");
+  await mkdir(join(workspace, "src"), { recursive: true });
+  await mkdir(join(workspace, "..", "bin"), { recursive: true });
+  const formatter = join(workspace, "..", "bin", "fmt");
+  await writeFile(formatter, "#!/bin/sh\n", { mode: 0o755 });
+  await writeFile(join(workspace, "src", "a.ts"), "const  a =  1;\n");
+  saveCodingMode(app.store, "local", "read-first", "on");
+  saveCodingMode(app.store, "local", "format-on-edit", "on");
+  // A formatter that squeezes spaces, started through a stand-in for the wall (no program runs).
+  const runner = async (run) => {
+    const file = run.args.at(-1);
+    await writeFile(file, (await readFile(file, "utf8")).replace(/  +/g, " "));
+    return { exitCode: 0, stdout: "", stderr: "", timedOut: false };
+  };
+  const checks = new EditChecks({ store: app.store, owner: "local", files: app.coding["deps"].files, runner,
+    areas: () => app.runtime.protectedAreas, servers: { enabled: () => false }, trusted: () => true,
+    wall: () => ({ network: "none" }), walled: async (run, start) => run(start) });
+  await checks.save({ formatters: { fmt: { path: formatter, args: ["{file}"], extensions: [".ts"] } } });
+  const task = app.store.createRun("local", "tidy and edit");
+  const context = contextOf(app, { runId: task.id, permissions: new Set(["files.read", "files.write"]) });
+  await app.registry.execute("files.read", { path: "src/a.ts" }, context);
+  // What code.format does, then what the registry does after every call.
+  assert.equal((await checks.check("src/a.ts", context)).reformatted, true);
+  await app.registry.afterWrites(context);
+  const edited = await app.registry.execute("files.edit", { path: "src/a.ts", find: "a = 1", replace: "a = 2" }, context);
+  assert.equal(edited.path, "src/a.ts");
+  assert.equal(await readFile(join(workspace, "src", "a.ts"), "utf8"), "const a = 2;\n");
+});
