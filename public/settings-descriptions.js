@@ -11,7 +11,7 @@
  */
 export const descriptions = [
   // mac7/clean-uninstall: the danger zone at the bottom of Settings.
-  ["#danger-keep", "describe.danger-keep", "Keeps the folder with your conversations and settings, so only Branch itself and what it downloaded go. Leave it off and everything goes."],
+  ["#danger-keep", "describe.danger-keep", "Keeps the folder with your conversations and settings, so only Branch itself and what it downloaded go. It starts ticked; untick it and everything goes."],
   ["#danger-confirm", "describe.danger-confirm", "Type Branch Agent, exactly, to switch the button on. It is there so a misclick cannot remove Branch."],
   ["#start-with-windows", "describe.start-with-computer", "Branch opens by itself when you sign in to this computer. Turn it off and you start it yourself."],
   ["#start-minimised", "describe.start-quietly", "It starts without a window, as an icon in the corner. Turn it off and the window opens at sign-in."],

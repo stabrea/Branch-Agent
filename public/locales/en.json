@@ -1340,7 +1340,7 @@
   "describe.commands-mode": "Whether the / commands work here and in chat apps. Off hides them everywhere.",
   "describe.counters": "Whether counts about tasks are sent to a place you chose. Off sends nothing.",
   "describe.danger-confirm": "Type Branch Agent, exactly, to switch the button on. It is there so a misclick cannot remove Branch.",
-  "describe.danger-keep": "Keeps the folder with your conversations and settings, so only Branch itself and what it downloaded go. Leave it off and everything goes.",
+  "describe.danger-keep": "Keeps the folder with your conversations and settings, so only Branch itself and what it downloaded go. It starts ticked; untick it and everything goes.",
   "describe.dbg-enabled": "Lets Branch run the debuggers you listed. Nothing is installed.",
   "describe.dbg-keep": "Keeps a program being debugged running between tasks.",
   "describe.dbg-list": "One debugger per line: a short name and the program.",
