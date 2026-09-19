@@ -398,3 +398,30 @@ test("integration: documents.list and the MCP document library do not name a doc
   const listed = JSON.parse(read.result.contents[0].text);
   assert.deepEqual(listed.map((document) => document.name).sort(), ["open.txt", "pasted"]);
 });
+
+test("integration: only tools that do not walk (git) refuse a whole folder; a walker is never a whole-folder target", async (t) => {
+  const { app } = await fixture(t);
+  const shapes = [{ folder: "." }, { folder: ".", message: "m" }, { folder: ".", name: "copy" }, { path: "." },
+    { name: "x", sources: [{ kind: "folder", path: "." }] }, { collection: "c", source: { kind: "folder", path: "." } }];
+  const judged = new Map();
+  for (const name of app.registry.names()) {
+    for (const args of shapes) {
+      try { judged.set(name, app.registry.targetsOf(name, args, {})); break; } catch { /* not this tool's shape */ }
+    }
+  }
+  assert.ok(judged.get("knowledge.create")?.length && judged.get("knowledge.add")?.length, "the knowledge tools were judged");
+  const whole = [...judged].filter(([, targets]) => (targets ?? []).some((target) => target.folder)).map(([name]) => name);
+  assert.ok(whole.includes("git.diff"), "git still refuses a whole folder holding a refused one");
+  assert.deepEqual(whole.filter((name) => !/^(git|plans|github)\./.test(name)), [],
+    "a walking tool filters what is inside (src/walk-rules.ts); declaring a whole folder would refuse the walk instead");
+});
+
+test("integration: a knowledge base of the whole workspace made by a task is made, and read without finance", async (t) => {
+  const { app } = await fixture(t, [call("knowledge.create", { name: "All", sources: [{ kind: "folder", path: "." }] }), say("done")]);
+  await financeRule(app);
+  const run = await app.runtime.run({ prompt: "make a knowledge base of everything" });
+  assert.deepEqual(app.store.events(run.id).filter((event) => event.kind === "policy.denied"), [], "not refused whole");
+  const [base] = app.knowledgeBases.list("local");
+  assert.ok(base, "the base was made");
+  assert.deepEqual((await app.knowledgeBases.filesIn("local", base.id)).sort(), ["notes/open.txt", "readme.md"]);
+});
