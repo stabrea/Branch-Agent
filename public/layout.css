@@ -1549,3 +1549,179 @@ body.lx #connection[data-state="lost"] {
 #live-row > #live-controls-slot:empty {
   display: none;
 }
+
+/* ---------- the calm message box (public/layout.js buildCalmComposer) ----------
+   One line that grows as it fills (to about two fifths of the pane, then scrolls), "+" on the left,
+   one round button on the right. Colours are the theme's tokens only. */
+.lx-send-words + .lx-icon,
+.lx-plus-wrap,
+#lx-stop,
+.lx-starters {
+  display: none;
+}
+:root:not([data-everything="on"]) body.lx #chat-form {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: end;
+  column-gap: 6px;
+  padding: 7px 8px 7px 8px;
+  border: 1px solid var(--glass-edge);
+  border-radius: 24px;
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  box-shadow: inset 0 1px 0 var(--glass-edge), var(--card-shadow, var(--shadow));
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+:root:not([data-everything="on"]) body.lx #chat-form:focus-within {
+  border-color: var(--copper);
+  box-shadow: inset 0 1px 0 var(--glass-edge), 0 0 0 3px var(--copper-tint), var(--card-shadow, var(--shadow));
+}
+:root:not([data-everything="on"]) body.lx #chat-form > #composer-attachments {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  margin: 2px 6px 6px;
+}
+:root:not([data-everything="on"]) body.lx #chat-form > .lx-plus-wrap {
+  display: block;
+  position: relative;
+  grid-column: 1;
+  grid-row: 2;
+}
+:root:not([data-everything="on"]) body.lx #prompt {
+  grid-column: 2;
+  grid-row: 2;
+  field-sizing: content;
+  min-height: 40px;
+  max-height: 40vh;
+  padding: 8px 6px;
+  overflow-y: auto;
+  font-size: 15px;
+  line-height: 24px;
+  outline: none;
+}
+:root:not([data-everything="on"]) body.lx #prompt::placeholder {
+  color: var(--text-3);
+}
+:root:not([data-everything="on"]) body.lx #chat-form > div:last-child {
+  grid-column: 3;
+  grid-row: 2;
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 2px 0;
+}
+:root:not([data-everything="on"]) body.lx #followup-send {
+  display: none;
+}
+/* the round buttons: Send (an arrow), Stop (a square), "+" */
+:root:not([data-everything="on"]) body.lx :is(#send, #lx-stop, #lx-plus) {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  min-width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  box-shadow: none;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+:root:not([data-everything="on"]) body.lx :is(#send, #lx-stop, #lx-plus) .lx-icon {
+  width: 18px;
+  height: 18px;
+  stroke-width: 2.2;
+}
+:root:not([data-everything="on"]) body.lx #send .lx-send-words {
+  display: none;
+}
+:root:not([data-everything="on"]) body.lx #send .lx-icon {
+  display: block;
+}
+:root:not([data-everything="on"]) body.lx #send {
+  background: var(--copper);
+  color: var(--on-copper);
+}
+:root:not([data-everything="on"]) body.lx #send:hover {
+  background: var(--copper-hi);
+}
+:root:not([data-everything="on"]) body.lx #send.lx-empty {
+  background: var(--press);
+  color: var(--text-3);
+  cursor: default;
+}
+:root:not([data-everything="on"]) body.lx.lx-sending #send {
+  display: none;
+}
+:root:not([data-everything="on"]) body.lx #lx-stop:not([hidden]) {
+  display: grid;
+  background: var(--text);
+  color: var(--ground);
+}
+:root:not([data-everything="on"]) body.lx #lx-stop .lx-icon {
+  fill: currentColor;
+  width: 14px;
+  height: 14px;
+}
+:root:not([data-everything="on"]) body.lx #lx-plus {
+  background: transparent;
+  color: var(--text-2);
+}
+:root:not([data-everything="on"]) body.lx #lx-plus:hover,
+:root:not([data-everything="on"]) body.lx #lx-plus[aria-expanded="true"] {
+  background: var(--hover);
+  color: var(--text);
+}
+:root:not([data-everything="on"]) body.lx :is(#send, #lx-stop, #lx-plus):focus-visible {
+  outline: 2px solid var(--copper);
+  outline-offset: 2px;
+}
+.lx-plus-menu {
+  bottom: calc(100% + 10px);
+  left: -4px;
+  top: auto;
+  right: auto;
+  width: min(260px, calc(100vw - 32px));
+  padding: 6px;
+}
+/* three starting points under the empty box */
+:root:not([data-everything="on"]) body.lx #chat:has(> .welcome:not([hidden])) .lx-starters {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin: 14px auto 0;
+}
+.lx-starter {
+  min-height: 32px;
+  padding: 5px 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 60%, transparent);
+  box-shadow: none;
+  color: var(--text-2);
+  font-size: 13.5px;
+  font-weight: 500;
+}
+.lx-starter:hover {
+  border-color: var(--line-2);
+  background: var(--hover);
+  color: var(--text);
+}
+/* Legibility first where people read and type (the benchmark's "no glow behind forms"): the oak
+   stays behind empty areas, but a soft veil of the pane's own colour sits behind the message box and
+   the question over it, and the Settings window is solid. */
+:root:not([data-everything="on"]) body.lx .composer-dock::before {
+  content: "";
+  position: absolute;
+  inset: -170px -240px -90px;
+  z-index: -1;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--surface) 94%, transparent) 45%, transparent);
+  pointer-events: none;
+}
+:root:not([data-everything="on"]) body.lx #chat > .welcome:not([hidden]) {
+  z-index: 6;
+}
+:root:not([data-everything="on"]) .lx-settings-win {
+  background: var(--surface);
+}

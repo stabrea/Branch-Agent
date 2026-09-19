@@ -45,6 +45,9 @@ function button(className, key, english) {
 }
 const ICONS = {
   inbox: "M4 13l2.5-7h11L20 13v5H4zM4 13h4.5l1 2h5l1-2H20",
+  up: "M12 19V5M6 11l6-6 6 6",
+  plus: "M12 5v14M5 12h14",
+  stop: "M7 7h10v10H7z",
   automations: "M13 3 5 13h6l-1 8 8-10h-6z",
   library: "M5 4h9a4 4 0 014 4v12H9a4 4 0 01-4-4zM5 16a4 4 0 014-4h9",
   customize: "M4 7h10M18 7h2M4 17h4M12 17h8M16 5a2 2 0 110 4 2 2 0 010-4zM10 15a2 2 0 110 4 2 2 0 010-4z",
@@ -1245,8 +1248,118 @@ async function offerNextSteps(event) {
   line.append(dismiss);
   $("chat-form").before(line);
 }
+/* ---------- the calm message box ----------
+   One line that grows as it fills, a "+" for attachments on the left, and one round button on the
+   right: quiet while the box is empty, the accent once there is something to send, and Stop while a
+   task runs. The full window keeps its own row of controls; every id stays where it was. */
+const STARTERS = [
+  ["starter.tidy", "Tidy a folder", "starter.tidyWords", "Look through my Downloads folder and suggest how to tidy it. Do not delete anything."],
+  ["starter.research", "Research something", "starter.researchWords", "Research this and give me a short summary with sources: "],
+  ["starter.week", "Plan my week", "starter.weekWords", "Help me plan my week. Here is what I have on: "],
+];
+function buildCalmComposer() {
+  const form = $("chat-form"), prompt = $("prompt"), send = $("send");
+  /* Send keeps its id, its words for the full window and its name; the calm window shows an arrow. */
+  const words = make("span", "lx-send-words", send.textContent.trim());
+  send.replaceChildren(words, icon("up"));
+  send.setAttribute("aria-label", say("composer.send", "Send"));
+  send.title = say("composer.sendHint", "Send (Enter). Shift+Enter starts a new line.");
+  const stop = make("button", "lx-stop");
+  stop.type = "button";
+  stop.id = "lx-stop";
+  stop.hidden = true;
+  stop.setAttribute("aria-label", say("live.stop", "Stop"));
+  stop.title = stop.getAttribute("aria-label");
+  stop.append(icon("stop"));
+  stop.addEventListener("click", () => void stopRunning(stop));
+  send.after(stop);
+  const empty = () => send.classList.toggle("lx-empty", !prompt.value.trim());
+  prompt.addEventListener("input", empty);
+  empty();
+  /* An empty box is not sent: the button says it is off, and pressing it only puts you in the box. */
+  send.addEventListener("click", (event) => {
+    if (!calm() || prompt.value.trim()) return;
+    event.preventDefault();
+    prompt.focus();
+  });
+  /* app.js disables Send while a task works (setConversationBusy): that is when Stop takes its place. */
+  const busy = () => {
+    const working = send.disabled;
+    empty();
+    document.body.classList.toggle("lx-sending", working);
+    stop.hidden = !working;
+    stop.disabled = false;
+  };
+  new MutationObserver(busy).observe(send, { attributes: true, attributeFilter: ["disabled"] });
+  busy();
+  form.prepend(buildPlus());
+  $("composer-dock").append(buildStarters());
+}
+/** Stop presses the working card's own Stop, once the task it belongs to is known. */
+async function stopRunning(stop) {
+  stop.disabled = true;
+  for (let tries = 0; tries < 20 && !$("live-stop"); tries += 1) await new Promise((done) => setTimeout(done, 150));
+  $("live-stop")?.click();
+}
+/** "+" on the left of the box: the same two ways to add something as in More, pressing the real controls. */
+function buildPlus() {
+  const wrap = make("div", "lx-plus-wrap");
+  const plus = make("button", "lx-plus");
+  plus.type = "button";
+  plus.id = "lx-plus";
+  plus.setAttribute("aria-label", say("composer.add", "Add a document, a picture or a sound"));
+  plus.title = plus.getAttribute("aria-label");
+  plus.setAttribute("aria-haspopup", "menu");
+  plus.setAttribute("aria-expanded", "false");
+  plus.append(icon("plus"));
+  const menu = make("div", "lx-pop lx-plus-menu");
+  menu.id = "lx-plus-menu";
+  menu.hidden = true;
+  menu.setAttribute("role", "menu");
+  menu.setAttribute("aria-label", plus.getAttribute("aria-label"));
+  const close = () => { menu.hidden = true; plus.setAttribute("aria-expanded", "false"); };
+  for (const [target, key, english] of [["composer-attach", "more.attach", "Attach a document…"], ["composer-media", "more.picture", "Add a picture or a sound…"]]) {
+    const row = button("lx-more-item", key, english);
+    row.setAttribute("role", "menuitem");
+    row.dataset.target = target;
+    row.addEventListener("click", () => { close(); $(target)?.click(); });
+    menu.append(row);
+  }
+  plus.addEventListener("click", (event) => {
+    event.stopPropagation();
+    if (!menu.hidden) return close();
+    for (const row of menu.querySelectorAll(".lx-more-item")) row.disabled = Boolean($(row.dataset.target)?.disabled);
+    menu.hidden = false;
+    plus.setAttribute("aria-expanded", "true");
+    moreItems(menu)[0]?.focus();
+  });
+  menu.addEventListener("click", (event) => event.stopPropagation());
+  menu.addEventListener("keydown", (event) => moveInMore(event, menu, close));
+  document.addEventListener("click", close);
+  document.addEventListener("keydown", (event) => { if (event.key === "Escape" && !menu.hidden) { close(); plus.focus(); } });
+  wrap.append(plus, menu);
+  return wrap;
+}
+/** Three plain starting points under the empty box. Each only fills the box; nothing is sent. */
+function buildStarters() {
+  const row = make("div", "lx-starters");
+  row.id = "lx-starters";
+  for (const [key, english, wordsKey, wordsEnglish] of STARTERS) {
+    const chip = button("lx-starter", key, english);
+    chip.addEventListener("click", () => {
+      const prompt = $("prompt");
+      prompt.value = say(wordsKey, wordsEnglish);
+      prompt.dispatchEvent(new Event("input", { bubbles: true }));
+      prompt.focus();
+      prompt.setSelectionRange(prompt.value.length, prompt.value.length);
+    });
+    row.append(chip);
+  }
+  return row;
+}
 function buildCalm() {
   document.addEventListener("branch-run-finished", (event) => void offerNextSteps(event));
+  buildCalmComposer();
   buildMore();
   buildSettingsRow();
   buildServerWatch();
