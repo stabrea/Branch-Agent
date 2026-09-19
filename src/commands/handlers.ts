@@ -169,7 +169,8 @@ function usage(call: Call): Reply {
   }
   const month = runtime.store.usageStore().getMonthlyStats();
   lines.push(`This month (since ${month.monthStart}): ${month.currentMonthlyTokens} tokens · about $${month.estimatedCost.toFixed(2)}`
-    + (month.unpricedRuns ? ` (${month.unpricedRuns} tasks had no price on file)` : ""));
+    + (month.unpricedRuns ? ` (${month.unpricedRuns} tasks had no price on file)` : "")
+    + (month.stillBeingMade > 0 ? `, including about $${month.stillBeingMade.toFixed(2)} for something still being made` : "")); // hardening-3
   return say(lines.join("\n"));
 }
 async function compact(call: Call): Promise<Reply> {

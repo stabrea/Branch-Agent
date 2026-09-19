@@ -112,7 +112,7 @@ export class InstallRequests {
     if (yes) item = { ...item, check: await this.look(item.ask) };
     if (yes && item.check.state === "harmful") return this.settle({ ...item, status: "refused" });
     if (yes && item.check.state === "unchecked" && !options.despiteUnchecked)
-      throw new Error(`The list of harmful packages could not be asked (${item.check.note}). Try again, or approve it anyway on purpose.`);
+      throw new Error(`The list of harmful packages could not be asked, or did not give a full answer (${item.check.note}). Try again, or approve it anyway on purpose.`);
     return this.settle({ ...item, status: yes ? "approved" : "declined", nextStep: yes ? nextStep(item.ask) : null });
   }
 

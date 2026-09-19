@@ -95,6 +95,8 @@ export function registerKnowledgeBases(
     name: "knowledge.add", group: "documents", permission: "documents.write",
     description: "Add a workspace folder or file to a knowledge base. Read the base again afterwards to index it.",
     parameters: IdSchema.extend({ source: SourceSchema }).strict(),
+    // hardening-3: the folder or file sits one level down, so a folder rule is told which one it is.
+    target: (input) => input.source.path,
     execute: async (input, context) => bases.addSource(context.owner, input.collection, input.source),
   });
   registry.register({
