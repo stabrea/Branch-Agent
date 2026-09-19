@@ -92,7 +92,7 @@ owner half of the chat, replay, mode, workflow and flow tests, and the existing 
       `dist/` (a worktree at 7c456c73, built, with this test file), 13 of the first 14 failed on the
       assertion they exist for and the owner's-own test passed; the two added after that (branch/copy,
       workflow tool) were written the same way but not re-run against the old build.
-- [x] Regression run: 97 related files, 1471 tests, 1 failure — tests/settings-descriptions.test.mjs
+- [x] Regression run: 97 related files, 1495 tests (1470 pass, 24 skipped), 1 failure — tests/settings-descriptions.test.mjs
       (`#mode-new-conversation has no description`, a redesign phase 1 control in public/; this branch
       touches nothing in public/).
 - [x] Docs: configuration.md and handbook chapter 4 say an outside task stays held when carried on.
