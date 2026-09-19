@@ -103,6 +103,21 @@ STATUS-ci-flakes.md and STATUS-ci-flakes-2.md.
   burst, since a heard burst starts its task in well under the 15 s it waits). Not reproducible here
   (Windows): 15 runs, 3 at once, 90/90 before and after.
 
+## Run 35476490803 on 233a4126 (macOS and Linux all green; three Windows shards red)
+- p2-voice-ui "dictation … throwing the words away puts the box back" (Windows, and the held-answer
+  test on macOS): the REAL cause, found here. Closing the microphone asks the app one last time, and
+  that answer writes the words into the box; ✕ only puts the box back afterwards. The bar disappears
+  in the middle of that (it follows the button), so the words really were in the box for a moment —
+  the test read it exactly then. Now ✕ puts the box back first and nothing of the words is written
+  while it is throwing them away. (The "questions belong to a press" guard from earlier stays; it was
+  not the whole story.)
+- quiet-jobs-ui "the quiet-jobs cards name their homes…" (Windows, notifyGate 'off'): NOT FIXED. The
+  card carries a `data-editing` mark so the refresh leaves it alone, and the Save button clears that
+  mark before it saves, so a refresh during the save can redraw the card from the old answer. Wants
+  the same treatment as the other cards.
+- glass-select "the list sits flush under the select…" (Windows, list never opened): NOT FIXED, not
+  looked into; the same test was fixed once by ci-flakes-2 for a different cause.
+
 ## Left for somebody: more of the same family, not failing CI today
 The window's refresh every 3 seconds redraws whole cards, and these write over what a person is in the
 middle of typing or choosing, so the value saved can be the old one:
