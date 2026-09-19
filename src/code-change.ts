@@ -9,6 +9,7 @@ import type { ToolRegistry } from "./registry.js";
 import type { WorkspaceFiles } from "./files.js";
 import { CodeEditor, type ChangeSummary, type PlannedChange } from "./code-edit.js";
 import { ShellProcess } from "./integrations/shell-process.js";
+import { netlessEnvironment } from "./integrations/shell-config.js";
 import { defaultJobObjects, jobWithin, type JobObjects } from "./integrations/job-object.js";
 
 /**
@@ -150,23 +151,28 @@ export class CodeChanges {
   /**
    * Runs the project's own check and reports it; a check that fails is news, not a failure. With no
    * check set up, a Node project's own tests (`node --test`, with this app's Node) stand in — but
-   * only when the owner has switched script running on, since that runs the project's code too.
+   * only when the model asks for the check itself (`code.check`, a code.execute tool) and the owner
+   * has switched script running on, since that runs the project's code too. After a patch or a
+   * change set (files.write tools) only the owner's own configured check runs: writing a file must
+   * never become running it. The stand-in reaches the internet only when scripts may.
    */
-  async runCheck(context: ToolContext): Promise<CheckOutcome> {
+  async runCheck(context: ToolContext, options: { projectTests?: boolean } = {}): Promise<CheckOutcome> {
     const setting = projectCheck(this.store, this.owner);
-    const scriptsOn = codeRunSettings(this.store, this.owner).enabled;
+    const scripts = codeRunSettings(this.store, this.owner);
     const configured = setting.enabled && !!setting.command;
-    const nodeTests = !configured && scriptsOn && await stat(join(this.workspace, "package.json")).then((info) => info.isFile(), () => false);
-    if (!configured && !nodeTests) return { ran: false, ok: true, note: noCheckNote(scriptsOn) };
+    const nodeTests = !configured && options.projectTests === true && scripts.enabled
+      && await stat(join(this.workspace, "package.json")).then((info) => info.isFile(), () => false);
+    if (!configured && !nodeTests) return { ran: false, ok: true, note: noCheckNote(scripts.enabled) };
     const command = configured
-      ? { executable: setting.command, args: setting.args, timeoutMs: setting.timeoutMs }
-      : { executable: process.execPath, args: ["--test"], timeoutMs: 60000 };
+      ? { executable: setting.command, args: setting.args, timeoutMs: setting.timeoutMs, env: {} }
+      : { executable: process.execPath, args: ["--test"], timeoutMs: 60000, env: {
+        // Inside the desktop app this program is the app itself; this makes it run as plain Node.
+        ...(process.versions.electron ? { ELECTRON_RUN_AS_NODE: "1" } : {}),
+        ...(scripts.network ? {} : netlessEnvironment()) } };
     const job = await jobWithin(this.jobs, { maxMemoryMb: 2048, maxCpuSeconds: 120 }, 1500);
     const result = await new ShellProcess({
       executable: command.executable, args: command.args, cwd: this.workspace,
-      env: { PATH: process.env.PATH ?? "", SYSTEMROOT: process.env.SYSTEMROOT ?? "", TEMP: process.env.TEMP ?? "",
-        // Inside the desktop app this program is the app itself; this makes it run as plain Node.
-        ...(!configured && process.versions.electron ? { ELECTRON_RUN_AS_NODE: "1" } : {}) },
+      env: { PATH: process.env.PATH ?? "", SYSTEMROOT: process.env.SYSTEMROOT ?? "", TEMP: process.env.TEMP ?? "", ...command.env },
       signal: context.signal, timeoutMs: command.timeoutMs, maxOutputBytes: 8192,
       maxMemoryMb: 2048, maxCpuSeconds: 120, ...(job ? { job } : {}),
     }).run();
@@ -215,6 +221,6 @@ export function registerCodeChanges(registry: ToolRegistry, changes: CodeChanges
     name: "code.check", permission: "code.execute", group: "code",
     description: "Run the check the owner set up for this project (their tests or their linter) and report what it said. A check that does not pass comes back as something to read, not as a failure.",
     parameters: z.object({}).strict(),
-    execute: (_args, context) => changes.runCheck(context),
+    execute: (_args, context) => changes.runCheck(context, { projectTests: true }),
   });
 }

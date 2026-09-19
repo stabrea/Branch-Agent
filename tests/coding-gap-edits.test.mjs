@@ -265,3 +265,27 @@ test("review: replaceText keeps a CRLF file CRLF, exact or tolerant, and a mixed
   assert.equal(replaceText(mixed, "x = 1   ", "x = 2", 1, "x").after, "a\r\nkeep\n  x = 2\r\nz\n");
   assert.equal(replaceText("a\r\nb", "", "c", 1, "x").after, "a\r\nb\r\nc", "appending to a CRLF file uses CRLF");
 });
+
+test("review: writing files never runs them — after code.patch or code.change_set only the owner's own check runs", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "branch-coding-gap-"));
+  const workspace = join(root, "workspace");
+  await mkdir(join(workspace, "test"), { recursive: true });
+  await writeFile(join(workspace, "package.json"), JSON.stringify({ type: "module" }));
+  await writeFile(join(workspace, "notes.txt"), "one\r\ntwo\r\n");
+  const app = await createBranch({ dataDir: join(root, "data"), workspace });
+  t.after(async () => { await app.close(); await discardTemp(root); });
+  app.store.save("settings", app.runtime.owner, "code-run", { enabled: true });
+  // A test file the patch itself writes: if writing ran the tests, this would run and leave a mark.
+  const marker = join(workspace, "ran.txt").replace(/\\/g, "/");
+  const body = `import { writeFileSync } from 'node:fs'; writeFileSync(${JSON.stringify(marker)}, 'ran');`;
+  const patched = await app.runtime.executeTool("code.patch", { patch: ["--- /dev/null", "+++ b/test/a.test.mjs", "@@ -0,0 +1,1 @@", `+${body}`, ""].join("\n") });
+  assert.equal(patched.check.ran, false, "a files.write tool does not run the project's tests");
+  const changed = await app.runtime.executeTool("code.change_set", { reason: "add a line", edits: [{ path: "notes.txt", find: "", replace: "three\n" }] });
+  assert.equal(changed.check.ran, false);
+  assert.equal(await readFile(join(workspace, "notes.txt"), "utf8"), "one\r\ntwo\r\nthree\r\n", "an empty find appends, in the file's own line ending");
+  await assert.rejects(app.runtime.executeTool("code.change_set", { reason: "x", edits: [{ path: "missing.txt", find: "", replace: "x" }] }), /does not exist/);
+  await assert.rejects(readFile(marker, "utf8"), "nothing ran the test file");
+  const asked = await app.runtime.executeTool("code.check", {});
+  assert.equal(asked.ran, true, "code.check, asked for by name, does run them");
+  assert.equal(await readFile(marker, "utf8"), "ran");
+});

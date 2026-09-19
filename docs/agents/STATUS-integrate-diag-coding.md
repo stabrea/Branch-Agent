@@ -26,7 +26,7 @@ Worktrees (Legion, Windows): `C:/Users/bishi/Code/wt/diagnostics`, `C:/Users/bis
 - [x] build + tsc + targeted tests on merged trunk (trunk had not moved; merge was a no-op):
   diagnostics-log, short-lived-keys, household-profile, static-assets, index-structure, handbook, server,
   ui, shell-ui, calm-ui, cli — 105 pass, 0 fail.
-- [ ] merged into trunk, pushed, CI run id noted
+- [x] merged into trunk and pushed: `mac/cross-platform` fast-forwarded 926eb454 -> cb4745e9; CI run 35448242701.
 
 **Verdict: MERGE WITH FIXES** (fixes above, applied). Stated plainly, not hidden: crash capture is the one
 part that is not switchable. An engine crash note is always written locally, and the desktop app always
@@ -35,9 +35,44 @@ helper process runs beside the app). Nothing is ever sent. "Report a problem" lo
 (DNS only) when the owner presses Gather, skipped under Lockdown.
 
 ## 2. mac7/coding-gap
-- [ ] adversarial review
-- [ ] fixes + tests
-- [ ] merged into trunk after diagnostics, pushed, CI run id noted
+- [x] Adversarial review of every claimed fix (patch placement, Codex patch form, whitespace-tolerant edits,
+  refusal text, --timeout, empty-reply nudge, 2048 -> 4k -> 8k ceiling, code.check wording, change_set empty find).
+- [x] Fixed in "fix(coding): a patch that fits more than one place is refused…" and "fix(coding): writing a file never runs it…":
+  - **Silent misplacement (blocking):** a hunk with no line number (bare `@@`, every `*** Begin Patch` hunk)
+    was put on the FIRST place its lines fitted; equidistant matches took the earlier one; a whitespace-only
+    match was taken anywhere. Now: the named line wins if it fits; else an exact match strictly nearest to
+    it; a hunk with no line number or a loose match must fit exactly one place; otherwise refused, listing
+    the places. The Codex form's `@@ line` anchors were ignored; now honoured (stacked too).
+  - A part that only adds lines went to the top of the file when it named no line, and past-the-end line
+    numbers were clamped; now: end of file (the Codex form's meaning), refused when unclear or out of range.
+  - Line endings: a mixed-ending file was rewritten wholesale by patches and tolerant edits; LF text sent for
+    a CRLF file was reported as a "whitespace slip"; appends used LF in CRLF files. Now every line keeps its
+    own ending, new lines take the file's usual one, and plain newlines against an all-CRLF file match exactly.
+  - A patch matched ignoring indentation kept the model's indentation on added lines (spaces in a tab file);
+    now re-indented to the file's, as edits already were.
+  - `*** Update File: b/x` had its `b/` folder stripped (wrote the wrong file); now taken as written.
+  - The empty-reply nudge fired on every empty reply (extra paid rounds for any provider), not only a reply
+    that thought as claimed; now only when the reply had thinking.
+  - **Permission hole (blocking):** with scripts on, every `code.patch` / `code.change_set` (files.write)
+    ran `node --test` afterwards, i.e. executed test files the same patch had just written, without the
+    code.execute permission. Now only `code.check` (code.execute) runs the stand-in; after a write only the
+    owner's own configured check runs. The stand-in now honours the scripts' no-internet setting and runs
+    Node as Node inside the desktop app (`ELECTRON_RUN_AS_NODE`; without it the packaged app would have
+    started itself). Running tests stays OFF by default (coordinator decision; gated by the scripts switch).
+  - 10 new tests (review: …) in tests/coding-gap-edits.test.mjs; empty-answer tests restored for replies with no thinking.
+- Checked and fine: default reply ceiling stays 2048 and resets per run; --timeout default 2 min, capped at
+  one day; the provider-facing schema of files.edit (a preprocess wrapper) still serialises correctly;
+  catalog-diet width holds; consecutive user turns after a nudge match the existing check-failure nudge.
+- Not changed, noted: `code.run` in the desktop app also starts `process.execPath` without
+  ELECTRON_RUN_AS_NODE (pre-existing, not this branch).
+- [x] build + tsc + targeted tests on the branch merged with trunk (includes diagnostics): 25 files,
+  291 tests, 290 pass, 0 fail, 1 platform skip; tests/automation.test.mjs alone 5/5. (shell-ui failed once
+  at file load under concurrency and passed 24/24 alone and in the next full run.)
+- [ ] merged into trunk, pushed, CI run id noted
+
+**Verdict: MERGE WITH FIXES** (two blocking problems found and fixed above: silent patch misplacement and
+tests run by a files.write tool). No benchmark re-run (as instructed); the bench numbers in
+docs/agents/coding-bench.md were measured before these fixes, which only make placement stricter.
 
 ## Next step for a new session
 Continue from the first unchecked box above.
