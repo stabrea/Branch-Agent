@@ -393,7 +393,11 @@ test("a quick double tap on a phone's big answer sends one answer, not two", asy
 
 test("an answer that could not be sent gives the buttons back; No is the quiet answer; a task somebody else started has no Yes, always", async (t) => {
   const f = await fixture(t);
-  const card = await askOnPhone(f, (body) => ({ ...body, waiting: body.waiting.map((question) => ({ ...question, source: "channel" })) }));
+  const files = [{ kind: "write", path: "a.txt" }, { kind: "write", path: "b.txt" }];
+  const card = await askOnPhone(f, (body) => ({ ...body, waiting: body.waiting.map((question) => ({ ...question, source: "channel", files })) }));
+  const widths = await card.evaluate((node) => [node.querySelector(":scope > div:not(.live-ask-choice)"), node.querySelector(":scope > p")]
+    .map((child) => Math.round(child.getBoundingClientRect().width)));
+  assert.equal(widths[0], widths[1], "the files a question touches run the card's full width, not one answer's cell");
   assert.deepEqual(await card.locator(".live-ask-choice > button").allInnerTexts(), ["Yes, just now", "Yes, for this conversation", "No"],
     "a standing yes stays the owner's, on a phone as on a computer");
   const heights = await card.locator(".live-ask-choice > button").evaluateAll((buttons) => buttons.map((b) => Math.round(b.getBoundingClientRect().height)));

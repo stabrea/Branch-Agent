@@ -218,20 +218,25 @@ body.lx {
    approved phone frame (the strip of faces across the top, the places at the foot), rather than a
    second bar stacked under the places. A tablet keeps the strip where public/strip.css puts it. */
 @media (max-width: 560px) {
+  /* a slimmer row than the tablet's, so a phone keeps its height for the conversation */
+  :root {
+    --ew-strip-h: 52px;
+  }
   body.lx.lx-strip {
-    padding-top: calc(env(safe-area-inset-top, 0px) + 6px + 60px + 6px);
+    padding-top: calc(env(safe-area-inset-top, 0px) + 6px + var(--ew-strip-h) + 6px);
     padding-bottom: 0;
   }
   body.lx.lx-strip > .strip {
     top: calc(env(safe-area-inset-top, 0px) + 6px);
     bottom: auto;
+    height: var(--ew-strip-h);
   }
   body.lx.lx-strip > .rail {
-    top: calc(env(safe-area-inset-top, 0px) + 6px + 60px + 6px);
+    top: calc(env(safe-area-inset-top, 0px) + 6px + var(--ew-strip-h) + 6px);
     bottom: max(6px, env(safe-area-inset-bottom, 0px));
   }
   .strip-item[aria-current="true"]::before {
-    top: -7px;
+    top: -3px;
     bottom: auto;
     border-radius: 0 0 3px 3px;
   }

@@ -80,6 +80,9 @@ Verdict: MERGE WITH FIXES (fixes below, on `integrate/p2-everywhere`). The build
       stacked. At 560 px and under the strip now runs across the top under the notch, as in the approved phone frame
       (faces across the top, places at the foot); a tablet keeps it at the foot. Tested (strip above the title bar,
       the places bar alone at the foot, 820 unchanged).
+      The phone's strip is a slimmer 52 px row, so the empty conversation in "Show everything" still fits at 400x800
+      (tests/shell-ui.test.mjs "never comes to rest" failed with both bars and passes now, with little room to spare).
+      A question card's files list (multi-target) runs the card's full width in the two-by-two layout (tested).
 - Wider effect, on purpose: pages that load tokens.css and never name a theme (pair.html on a phone, people.html, the
   dashboard before it wears its theme) now paint Slate, the default, instead of Forest.
 - Not visible, so not changed: `src/desktop/main.ts` sets the Electron window's background to Forest, but the window is
