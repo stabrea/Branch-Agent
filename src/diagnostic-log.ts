@@ -237,7 +237,7 @@ export class DiagnosticLog {
  * "hello, my"... is not valid JSON`, and that text can be a message or a reply. Quoted text in a
  * crash note is replaced, so a crash can never carry what the owner wrote or was sent.
  */
-function withoutQuotedText(text: string): string {
+export function withoutQuotedText(text: string): string {
   return text.replace(/"(?:[^"\\\n]|\\.){4,}"(?:\.\.\.)?/g, '"[text removed]"').replace(/'(?:[^'\\\n]|\\.){4,}'/g, "'[text removed]'");
 }
 const rotated = (base: string, index: number): string => base.replace(/\.jsonl$/, `.${index}.jsonl`);

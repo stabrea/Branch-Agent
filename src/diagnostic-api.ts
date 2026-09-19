@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import {
   activeDiagnosticLog, DiagnosticLog, diagnose, diagnosticLogSettings, logLevels, redactForLog, saveDiagnosticLogSettings, setDiagnosticLog,
-  watchProcessCrashes, componentOf, type Level, type LogFilter,
+  watchProcessCrashes, withoutQuotedText, componentOf, type Level, type LogFilter,
 } from "./diagnostic-log.js";
 import { dnsResolve, gatherReport, issueUrl, keptItems, reportZip, type ReportItem, type ReportSources } from "./diagnostic-report.js";
 import { redactEvent, redactSpan } from "./diagnostics.js";
@@ -78,10 +78,12 @@ export async function diagnosticApi(ctx: DiagnosticContext, method: string, path
   if (method === "GET" && path === "/api/diagnostics/log") return readLog(ctx, log, url);
   if (method === "POST" && path === "/api/diagnostics/log/clear") { log.clear(); return { cleared: true }; }
   if (method === "POST" && path === "/api/diagnostics/window-error") {
+    // A script error in the window is not a crash: it is a log line, so with the log off nothing
+    // reaches the disk (it is still kept in memory, for the note of a real crash that follows).
     const report = WindowErrorSchema.parse(await body());
-    const error = Object.assign(new Error(report.message), { name: report.kind === "error" ? "WindowError" : "UnhandledRejection", stack: report.stack });
-    log.crash("window", error, report.where || report.kind);
-    return { recorded: true };
+    log.write({ level: "error", component: "window", message: withoutQuotedText(report.message),
+      fields: { kind: report.kind, where: report.where, stack: withoutQuotedText(report.stack).slice(0, 4000) } });
+    return { recorded: diagnosticLogSettings(app.store, app.runtime.owner).mode !== "off" };
   }
   if (method === "POST" && path === "/api/diagnostics/report") return { items: await gatherReport(reportSources(ctx, log)) };
   if (method === "POST" && path === "/api/diagnostics/report/save") return saveReport(ctx, log, await body());

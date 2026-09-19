@@ -270,3 +270,27 @@ test("D17 a crash note never quotes the text a failure choked on", async (t) => 
   assert.ok(!text.includes("private message") && !text.includes("my priva"), text);
   assert.match(text, /SyntaxError/);
 });
+
+/* ---------------------------------------------------------------- integration review 2: the switch holds for the window too */
+
+test("D18 a script error in the window is a log line: nothing reaches the disk while the log is off", async (t) => {
+  const dataDir = await folder(t);
+  const post = (app, message) => diagnosticApi({ app, dataDir, installType: "x", startedAt: 0 }, "POST", "/api/diagnostics/window-error",
+    new URL("http://local/api/diagnostics/window-error"), async () => ({ message, stack: `at ${home}/x.js`, where: "app.js:1" }));
+  const off = await post(fakeApp(), "TypeError: boom");
+  assert.equal(off.recorded, false);
+  assert.deepEqual(await readdir(join(dataDir, "logs")).catch(() => []), [], "off writes no file, not even a crash note");
+  const on = fakeApp();
+  on.store.get = (_table, _owner, key) => key === "diagnostic-log" ? { data: { mode: "on" } } : undefined;
+  const written = await post(on, `SyntaxError: Unexpected token 'h', "hello, my private note" is not valid JSON`);
+  assert.equal(written.recorded, true);
+  const text = await readFile(join(dataDir, "logs", "branch.jsonl"), "utf8");
+  assert.match(text, /"component":"window"/);
+  assert.ok(!text.includes("private note") && !text.includes("hello, my"), text);
+  await assert.rejects(readFile(join(dataDir, "logs", "crashes.jsonl"), "utf8"), "a window error is not written as a crash");
+});
+
+test("D19 the issue link is still made when the returned about item is not JSON", () => {
+  const url = new URL(issueUrl([{ id: "about", title: "About", why: "", text: "edited by hand" }], "It froze"));
+  assert.match(url.searchParams.get("title"), /Branch \?\)$/);
+});

@@ -173,10 +173,18 @@ export function issueUrl(items: readonly ReportItem[], summary = ""): string {
     "**Report zip**", "Please attach the zip saved from Report a problem. It holds:",
     ...items.filter((item) => item.id !== "about").map((item) => `- ${item.title}`),
   ].join("\n").slice(0, maxBody);
-  const version = about ? (JSON.parse(about.text) as { branch?: string; os?: string }) : {};
+  const version = aboutFields(about?.text);
   const title = `Problem: ${redactForLog(summary.trim()).slice(0, 70) || "something went wrong"} (Branch ${version.branch ?? "?"})`;
   const query = new URLSearchParams({ title, body });
   return `https://github.com/${issueRepository}/issues/new?${query.toString()}`;
+}
+
+/** The version from the "about" item; the items come back from the window, so it may not be JSON. */
+function aboutFields(text: string | undefined): { branch?: string } {
+  try {
+    const parsed: unknown = JSON.parse(text ?? "{}");
+    return parsed && typeof parsed === "object" && typeof (parsed as { branch?: unknown }).branch === "string" ? { branch: (parsed as { branch: string }).branch } : {};
+  } catch { return {}; }
 }
 
 /** The default look-up for the network item: DNS only, never a request to the service itself. */
