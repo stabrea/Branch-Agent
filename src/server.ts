@@ -191,6 +191,8 @@ import { browserContainerApi, handlesBrowserContainer } from "./browser-containe
 import { handlesPageNotes, pageNotesApi } from "./browser-notes-api.js"; // w911 (A2144) hook: page notes
 import { buildTraceDocument, traceSettings, saveTraceSettings } from "./trace.js";
 import { writeDiagnosticsBundle } from "./diagnostics.js";
+import { diagnosticApi, handlesDiagnosticPath, installTypeOf, newRequestId, startDiagnosticLog } from "./diagnostic-api.js"; // mac7/diagnostics
+import { diagnose } from "./diagnostic-log.js";
 import { toolCatalogReport } from "./tool-report.js";
 // Wave 5 (deployment): installing, background running and reaching Branch from a phone.
 import { RemoteAccess } from "./remote/remote-access.js";
@@ -482,6 +484,7 @@ async function staticFile(
     "/tracing.js": ["tracing.js", "text/javascript; charset=utf-8"],
     "/desktop.js": ["desktop.js", "text/javascript; charset=utf-8"],
     "/diagnostics.js": ["diagnostics.js", "text/javascript; charset=utf-8"],
+    "/activity-log.js": ["activity-log.js", "text/javascript; charset=utf-8"], // mac7/diagnostics
     "/update-screen.js": ["update-screen.js", "text/javascript; charset=utf-8"],
     "/deployment.js": ["deployment.js", "text/javascript; charset=utf-8"],
     "/pair": ["pair.html", "text/html; charset=utf-8"],
@@ -886,6 +889,8 @@ function state(app: Branch): unknown {
     secretReminders: app.store.secrets.reminders(owner, app.store.projects.list(owner).map((p) => p.id)),
   };
 }
+/** mac7/diagnostics: what kind of install this engine is, and when it started, for the report. */
+const diagnosticInstall = { type: "package", startedAt: Date.now() };
 async function api(
   app: Branch,
   request: IncomingMessage,
@@ -1567,6 +1572,10 @@ async function api(
     return traceSettings(app.store, app.runtime.owner);
   if (request.method === "POST" && path === "/api/trace/settings")
     return saveTraceSettings(app.store, app.runtime.owner, app.runtime.workspace, await readBody(request));
+  // mac7/diagnostics: the activity log and "Report a problem" (src/diagnostic-api.ts), the owner's alone.
+  if (handlesDiagnosticPath(path))
+    return diagnosticApi({ app, dataDir, installType: diagnosticInstall.type, startedAt: diagnosticInstall.startedAt },
+      request.method ?? "GET", path, new URL(request.url ?? "/", "http://local"), () => readBody(request, 8 * 1024 * 1024));
   if (request.method === "POST" && path === "/api/diagnostics/bundle")
     return writeDiagnosticsBundle(app.store, app.runtime.owner, dataDir, {
       health: await healthReport(app), version: app.version, memory: app.memory.tidy.health(app.runtime.owner),
@@ -2910,6 +2919,9 @@ export async function startServer(
   },
 ) {
   const token = await sessionToken(options.dataDir);
+  diagnosticInstall.type = installTypeOf({ installRoot: options.installRoot ?? null, presence: options.presence ?? "app", packageRoot: packageRootHere() });
+  diagnosticInstall.startedAt = Date.now();
+  const stopDiagnosticLog = startDiagnosticLog(app, options.dataDir); // mac7/diagnostics
   let url = "";
   // The same count the waiting line uses, so the two together never run more than this computer is
   // meant to handle.
@@ -3337,6 +3349,10 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
         place?.();
       }
     } catch (e) {
+      // mac7/diagnostics: every failed request is one line in the activity log, with an id of its own.
+      const status = e instanceof HttpError ? e.status : e instanceof PinnedSettingError ? 403 : 400;
+      diagnose("gateway", status >= 500 || !(e instanceof HttpError) ? "warn" : "info", `${request.method ?? "GET"} ${new URL(request.url ?? "/", "http://local").pathname} failed (${status})`,
+        { requestId: newRequestId(), fields: { error: errorText(e).slice(0, 300) } });
       if (!response.headersSent)
         // mac7/wake-pins: a setting the owner pinned is refused the way every other thing of
         // theirs is, in the same words and with the same 403, wherever the write came from.
@@ -3485,6 +3501,7 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
     /** mac7/bind: the address the door is really on now, which Lockdown can narrow while it runs. */
     listeningOn: (): string => listen.address,
     close: async () => {
+      stopDiagnosticLog(); // mac7/diagnostics
       stopWatchingLockdown();
       phoneApp.stop();
       await remote.disable().catch(() => undefined);
@@ -3849,6 +3866,9 @@ export function offLimitsToShortLivedKeys(method: string | undefined, path: stri
   if (path === "/api/phone-app" || path.startsWith("/api/phone-app/"))
     return "A short-lived key cannot open or read the phone download. Do that in the app window.";
   // mac5/key-sweep: a few reads hand back a secret or everybody's data (src/short-lived-keys.ts).
+  // mac7/diagnostics: the activity log and problem reports are the owner's alone, reading included.
+  if (path.startsWith("/api/diagnostics/"))
+    return "A short-lived key cannot read the activity log or make a problem report. Do that in the app window.";
   if (method === "GET") return ownerOnlyRead(path);
   // Wave mac3 (commands, integration review): when Branch checks with you, which model every new
   // conversation starts with (and the model services behind it), and which commands are offered

@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { reportCommand } from "./diagnostic-cli.js"; // mac7/diagnostics
+import { installTypeOf } from "./diagnostic-api.js"; // mac7/diagnostics
 import { resolve } from "node:path";
 import { createBranch } from "./index.js";
 import { spawnSync } from "node:child_process";
@@ -275,6 +277,12 @@ async function main(): Promise<void> {
       return;
     }
     if (command === "trace") { traceCommand(app); return; }
+    // mac7/diagnostics: "Report a problem" from the terminal (src/diagnostic-cli.ts). Nothing is sent.
+    if (command === "report") {
+      process.exitCode = await reportCommand({ app, dataDir, installType: installTypeOf({ packageRoot: dirname(dirname(fileURLToPath(import.meta.url))) }), startedAt: Date.now() },
+        process.argv.slice(3), (line) => console.log(line));
+      return;
+    }
     // mac7/r17-g: `branch activity verify [--tip <hash>] [--json]` checks the tamper-evident chain.
     if (command === "activity") { process.exitCode = activityCommand(app.safetyExtras.chain, app.runtime.owner, process.argv.slice(3)); return; }
     // w911 (A1753) hook: `branch qa list` and `branch qa run <id>`.
