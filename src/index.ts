@@ -98,6 +98,8 @@ import { DocumentLibrary, registerDocuments } from "./documents.js";
 import { MediaTools, registerMedia } from "./media.js";
 import { VoiceService, registerVoice } from "./voice-service.js";
 import { startWakeWord, type ProgramPresent, type WakeCaptureRunner, type WakeRunner } from "./voice-wake.js"; // mac7/wake-mic
+import { startDictation, type SoundStreamRunner, type SpeechStreamRunner } from "./voice-dictation-run.js"; // mac7/live-voice
+import { soundStreamRunner, speechStreamRunner } from "./voice-dictation-host.js"; // mac7/live-voice
 import { wakeCaptureRunner, wakeRunner } from "./voice-wake-host.js"; // mac7/wake-mic
 // Bucket 17.
 import { MediaUnderstanding, registerMediaUnderstanding } from "./media-understand.js";
@@ -149,6 +151,8 @@ import { KnowledgeSummaries } from "./knowledge-summary.js";
 import { KnowledgeManagement } from "./knowledge-manage.js";
 import { KnowledgePictures } from "./knowledge-pictures.js";
 import { registerKnowledgeExtras, type KnowledgeParts } from "./knowledge-more.js";
+import { Learn, registerLearn } from "./learn/index.js"; // mac7/learn
+import { lookLanguage, readLook } from "./terminal-theme.js"; // mac7/learn: the workspace language for a tour
 import { MemoryMirror, readOnlyRefusal, registerMemoryMirror } from "./memory-mirror.js";
 // bucket-18: memory history (A2317)
 import { MemoryHistory, registerMemoryHistory } from "./memory-git.js";
@@ -263,6 +267,12 @@ export async function createBranch(options: {
    * programs on this computer are used; a test hands in its own so no microphone is ever opened.
    */
   wake?: { runner?: WakeRunner; capture?: WakeCaptureRunner; present?: ProgramPresent; platform?: string };
+  /**
+   * mac7/live-voice: fakes for live dictation, the other part of Branch that opens a microphone.
+   * Left out, the real programs on this computer are used; a test hands in its own, so no
+   * microphone is opened, no sound is recorded and no speech program is started by the tests.
+   */
+  dictation?: { speech?: SpeechStreamRunner; sound?: SoundStreamRunner; present?: ProgramPresent; platform?: string };
 }) {
   const retryPolicy = parseRetryPolicy(options.retryPolicy);
   const workspace = resolve(options.workspace),
@@ -910,6 +920,13 @@ export async function createBranch(options: {
     summaries: knowledgeSummaries, management: knowledgeManagement, pictures: knowledgePictures,
     cards: new KnowledgeCards(store, knowledgeBases, runtime.models) };
   registerKnowledgeExtras(registry, knowledgeParts, store);
+  // ── mac7/learn: "Understanding something" -- a map of a folder of code or a knowledge base and a
+  // guided walk through it, every claim carrying the line or passage it came from. Ships off. ──
+  const learn = new Learn({ store, registry, owner: runtime.owner, models: runtime.models,
+    bases: knowledgeBases, project: projectMap,
+    language: () => lookLanguage(readLook(store, runtime.owner), process.env) });
+  registerLearn(registry, learn);
+  // ── end mac7/learn ──
   // One hop through that map is another way of finding passages, beside words and meaning.
   retrieval.add(new GraphRetriever(knowledgeGraph, knowledgeBases));
   // Text pasted in for one job: searchable while the job runs, gone the moment it ends.
@@ -1077,6 +1094,25 @@ export async function createBranch(options: {
   releaseOnLock.push(() => wake.stop()); // locking Branch lets go of the microphone
   resumeOnUnlock.push(() => wake.refresh()); // ...and unlocking it listens again, with no save needed
   // ── end mac7/wake-mic ──
+  // ── mac7/live-voice: speak and see the words. Ships off, and never opens a microphone unpressed. ──
+  // Unlike the word that starts a turn, this holds the microphone open for as long as it listens,
+  // which is the feature. Every way it lets go of it again is built here and in
+  // src/voice-dictation-run.ts: a press, a quiet room, Lockdown, the switch, the lock, and the app
+  // closing. There is deliberately no resumeOnUnlock: unlocking Branch must not reopen a
+  // microphone, because nothing here may open one without the owner pressing Dictate.
+  const dictation = startDictation({
+    store, owner: runtime.owner,
+    speech: options.dictation?.speech ?? speechStreamRunner(),
+    sound: options.dictation?.sound ?? soundStreamRunner(),
+    locked: () => sessionLock.locked(),
+    ...(options.dictation?.present ? { present: options.dictation.present } : {}),
+    ...(options.dictation?.platform ? { platform: options.dictation.platform } : {}),
+    // The words are screen state: they go out to whoever is watching and are never written down,
+    // never traced, never kept and never sent. They fill the message box; they do not send it.
+    onHeard: () => undefined,
+  });
+  releaseOnLock.push(async () => dictation.stop()); // locking Branch lets go of the microphone
+  // ── end mac7/live-voice ──
   // ── r17-i: reach and platform (src/reach/). Every part ships off. ──
   const reachParts = new Reach({ runtime, registry, router: channels, files, policy: web.policy, fetch: web.policy.guard(globalThis.fetch),
     secret: async (name, purpose) => (await store.secrets.resolve(runtime.owner, store.projects.active(runtime.owner).id, [name], { purpose }))[name]!,
@@ -1167,6 +1203,8 @@ export async function createBranch(options: {
     flowsBoards,
     /** R17-F: learning, deeper (src/learning-more/); every part ships off. */
     learningMore,
+    /** mac7/learn: the map and the tour (src/learn/); ships off. */
+    learn,
     runtime,
     /** mac3/never-break: the task journal, and settling interrupted work after a restart. */
     neverBreak: {
@@ -1405,6 +1443,8 @@ export async function createBranch(options: {
     },
     /** mac7/wake-mic: the word that starts a turn. The card reads `listening` from this, never guesses it. */
     wake,
+    /** mac7/live-voice: live dictation. The card reads `open` from this, never guesses it from the switch. */
+    dictation,
     /** Sending traces and counters to an address the owner chose; off until they turn it on. */
     traceExport,
     /** Batch 20 (wave 8): short-lived keys for a script, an extension or the SDK. */
@@ -1436,6 +1476,7 @@ export async function createBranch(options: {
       asks.close(); // mac6/bucket-23: live pages stop asking their tools again
       devices.close(); // mac7/nodes: every device socket is closed
       await wake.stop(); // mac7/wake-mic: the microphone is let go of before the app closes
+      dictation.stop(); // mac7/live-voice: and so is the one dictation holds open
       runtime.keepAlive.stop(); // R17-050: no cache ping outlives the app
       await autonomy.close(); // r17-b: nothing more starts by itself, and a turn that is working gets a moment
       await trunks.close(); // R17-A: rooms stop between turns
@@ -1842,6 +1883,8 @@ export * from "./knowledge-summary.js";
 export * from "./knowledge-manage.js";
 export * from "./knowledge-pictures.js";
 export * from "./knowledge-more.js";
+export * from "./learn/index.js";
+export * from "./learn/api.js";
 export * from "./memory-mirror.js";
 export * from "./memory-ephemeral.js";
 // Batch 20 (wave 8): short-lived keys, the sources a saved password can come from, one list of who

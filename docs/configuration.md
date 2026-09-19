@@ -7254,6 +7254,7 @@ Every field of `VoiceSettingsSchema` (`src/voice.ts`), which is what **Settings 
 | `localSpeechExecutable` | The full path to whisper.cpp or faster-whisper, if you have one. Branch downloads nothing. |
 | `localSpeechModel` | The model file that program should use. |
 | `localSpeechKind` | Which of the two it is: `whisper-cpp` or `faster-whisper`, so the right flags are used. |
+| `localSpeechStream` | The full path to a streaming speech program that is handed sound on its standard input and writes words out as it hears them, for live dictation. Empty means none, and Branch looks for `whisper-stream` or sherpa-onnx on your search path instead. Branch downloads nothing. |
 | `liveMaxMinutes` | How many minutes one live conversation may last. 10 by default. |
 | `liveMaxDollars` | How much one live conversation may cost. $1.00 by default. |
 | `liveVoiceDetection` | Let the service decide when you have stopped speaking, rather than waiting for the button. |
@@ -8200,6 +8201,7 @@ the switch is off.
 | `/health` | `/doctor` | any key | new | new | new | — | new |
 | `/prompts [name]` | `/procedures`, `/workflows` | any key | new | new | new | new | new |
 | `/trunk [name] [message]` | `/trunks` | a key that may start tasks (on its own: any key) | new | new | new | — | — |
+| `/adapt [what it said \| yes <line>]` | `/unblock` | the key of this computer (on its own: any key) | new | — | new | — | — |
 
 ### Parity with other agents
 
@@ -8565,10 +8567,13 @@ beside the other long-lived parts. It runs only while the switch is on, a word i
 computer can really listen, and it asks again **before every window** rather than being told once, so
 Lockdown coming on, the switch going off, or the app closing stops it within one window whoever
 turned it — the card, the terminal, a settings file or another window — and the microphone is let go
-of when it stops. The recorder is **one program per window**: it is started, it ends when the window
-is up, and it is ended by the count of bytes as well, so only one window of sound is ever in memory
-and nothing can hold the microphone open between windows. A recorder that will not go when it is
-asked is ended for good two seconds later. The sound goes to the spotter on its standard input; no
+of when it stops. **For the wake word**, the recorder is **one program per window**: it is started,
+it ends when the window is up, and it is ended by the count of bytes as well, so only one window of
+sound is ever in memory and **nothing in this feature can hold the microphone open between
+windows**. A recorder that will not go when it is asked is ended for good two seconds later.
+Live dictation, below, is the one feature that does hold the microphone open, deliberately and
+only while you are dictating; it is a separate switch, it ships off, and its card says so above the
+switch. Nothing it does changes the sentences in this section, which are about the wake word. The sound goes to the spotter on its standard input; no
 file name is ever an argument to either program, and no file is written.
 
 **Locking Branch, and unlocking it (integration review).** Locking Branch lets go of the microphone
@@ -8669,6 +8674,90 @@ really use to spot the word and whether it has one at all, and why it is refused
 is. The program that would be run never travels: its full path is the owner's. `POST /api/voice/wake`
 saves the settings and is the owner's alone. A short-lived key is refused both, the read included,
 because the word outlives any key.
+
+## Speak and see the words (mac7/live-voice)
+
+Speak, and the words appear in the message box as you say them — on this computer, for nothing, and
+nothing is sent anywhere. Its card, **Speak and see the words**, lives in Settings → Voice. It ships
+**off**, like everything else, and has the same three-way switch: **off** — the Dictate control is
+not there and nothing can open the microphone; **when needed** — the control appears once a
+conversation is open on screen, which the app window really does know (this is not the wake word's
+unwired "when needed"); **on** — the control is always there. That is the whole difference between
+the three: which windows offer you the control. **"On" does not mean the microphone is
+open.** No setting in this feature ever opens a microphone: only pressing **Dictate** does, and only
+at the app window. Say that to yourself once before reading the rest, because it is the difference
+between this and every voice assistant that listens to a room.
+
+**While dictation is on, the microphone stays open.** That is what it is: a recorder runs for as
+long as you are dictating, and Branch holds a few seconds of sound in memory at a time. It is opened
+when you turn dictation on and closed the moment you turn it off, the conversation closes, Branch is
+locked, or Lockdown comes on — and the indicator on screen is on for exactly as long as the
+microphone is. Nothing is written to disk and nothing is kept. The wake word is unchanged: it still
+takes one window at a time and still lets go of the microphone every window.
+
+That paragraph replaces a promise this reference used to make without qualification. The section
+above, **A word that starts a turn**, said that "nothing can hold the microphone open between
+windows". That is still true *of the wake word*, and it is now written that way; it was never going
+to be true of dictation, whose whole point is that the microphone stays open while you speak. The
+card says this **above the switch**, in the same words, so nobody can switch it on without having
+been told.
+
+**A quiet room lets go of the microphone.** Nobody speaking for a few seconds — `silenceSeconds`,
+four by default, anywhere from one to thirty — ends the phrase and ends the program holding the
+microphone. Branch does not hold a microphone open for a room that has gone quiet. On the path where
+Branch is handed the sound itself, it also counts how loud the room is — plain arithmetic over
+twenty milliseconds of sound at a time, with the floor learned from the first second — and feeds the
+speech program only what carries speech, so a quiet room costs the processor nothing.
+
+**It fills the message box; it does not send.** The words land where typed words land and *you*
+press send. Hearing something grants nothing, which is the same rule the wake word lives under.
+
+**You supply the speech program. Branch installs none and downloads none.** Dictation needs a
+program that writes words out *as it hears them*, which is a different thing from one that writes
+out a recording. Branch looks on your own search path for `whisper-stream` (whisper.cpp's streaming
+build, which also wants SDL2), then sherpa-onnx's microphone or ALSA build, and it uses the model
+you named under Voice. All three open the microphone themselves, so on that path **no sound reaches
+Branch at all** — only the words, and only while the program runs. You may also name your own
+streaming program under `localSpeechStream`, and that one is handed sound on its standard input by a
+recorder Branch holds open beside it. Where this computer has none of them, the card says which to
+install — `brew install whisper-cpp` on a Mac, sherpa-onnx on Linux — as something *you* might do,
+never something Branch does, and **the switch stays off**.
+
+- **macOS.** macOS has an on-device speech engine of its own inside the system, and it is very good.
+  There is no command a program can ask for it, and Branch will not ship a compiled helper of its
+  own to reach it, so it is not what dictation uses. The card says that plainly rather than implying
+  a Mac has nothing.
+- **Windows.** Windows' own speech recognition listens for one phrase at a time against a grammar
+  rather than writing out free speech, so it cannot do this. It stays what it is: the wake word's
+  spotter, and nothing more.
+- **Linux.** sherpa-onnx is the smallest thing that genuinely streams and it needs no graphics card.
+
+**Words appear about a second behind you, and may change as it hears more.** That is the honest
+claim and it is the one the card makes. It is not "as you speak": every one of these programs looks
+at the last few seconds and says what it has every half second, so the words settle rather than
+arriving finished.
+
+**Whose it is.** Dictation is the **owner's**, at the app window. It is refused to a task started
+from a chat app, to a short-lived key, to somebody else on this computer using a household profile,
+to a Trunk and to another computer — none of those is the owner at the window, and each is refused
+by the same guard rather than by five different ones. A household profile is not shown the switch,
+which speech program is here, the model, or the control. While **Lockdown** is on dictation is off
+whatever the switch says, and the microphone is let go of within half a second of it coming on.
+
+**Locking Branch.** Locking it lets go of the microphone along with everything else it holds only
+for "while I am here". Unlocking it deliberately does **not** start dictation again — that would be
+a microphone opened without a press, which nothing in this feature may do. Press Dictate.
+
+**When the speech program dies.** That is a stop, not something to paper over: the microphone is let
+go of and the words so far are settled. It is never restarted by itself; a press restarts it. A
+program that dies the instant it starts, three times over, makes the next press refuse with a
+sentence rather than trying for ever. A program that is not keeping up has its sound **dropped where
+it arrives** — never queued behind it — so a slow or dying program cannot pile up sound or spin.
+
+| Setting (`live-dictation`) | What it does |
+| --- | --- |
+| `mode` | `off`, `when-needed` or `on`. Ships `off`. All three decide only whether the Dictate control is offered; none of them ever opens a microphone by itself. |
+| `silenceSeconds` | How long a quiet room ends the phrase and lets go of the microphone. 4 by default, 1 to 30. |
 
 ## Settings you have pinned (mac7/wake-pins)
 
@@ -9174,6 +9263,61 @@ running and whether a newer one exists — "Running 0.18.0, newest is 0.18.1", o
 which is the newest", or that Branch has not looked yet — from the same update check as before.
 Nothing installs itself: *Update and restart* is still a button you press.
 
+## Getting what a stopped task is missing (mac7/adapt)
+
+Settings → Models → *Getting what a stopped task is missing* is a three-way switch that ships
+**off**. When a task cannot go on because this computer has not got something, Branch works out what
+that is, tells you in plain words what would fix it and what that costs, and — only after you say
+yes — gets it and hands the task back the step it stopped on. In the message box and the terminal
+the same thing is `/adapt`.
+
+**Off, only when it is needed, on.** *Off*: Branch still says what is missing, exactly as it always
+did, and offers nothing. *Only when it is needed*: it offers a fix when a task has really stopped.
+*On*: it also names what is missing and what would fix it before you ask. In every position it
+fetches, installs and switches on **nothing** until you have said yes to the exact offer you read.
+
+**What it can place.** It invents no new error language: it reads the sentences Branch already says
+and says which kind of missing thing each one is — no program that runs models; no model of the kind
+the work needs (reading aloud, writing out speech, comparing passages by meaning, looking at
+pictures, drawing pictures); a program that is not installed (Git, Docker, a recorder, a speech
+program); a model service with no key; a switch left off; a permission this computer has not
+granted; not enough room on the disk; no connection to the internet. A sentence it cannot place is
+said plainly to be one it cannot place, and nothing is done.
+
+**What it offers for each.** For a missing program that runs models, and for a missing model when
+nothing here runs models yet, the offer is the one-button install's own plan — the publisher, the
+address, about how big, how the download is checked, and the exact commands — and the work is done
+by that same button, which asks the *Installing a program that runs models* switch again. So
+`/adapt` can never install a runner behind that switch's back. For a switch left off, it offers to
+turn on the one switch whose own sentence it can place exactly, and refuses to guess at any other.
+
+**What it refuses, honestly.** A permission is yours to grant and your computer will take it from
+nobody else; a key is yours to paste into the locker; a full disk is not Branch's to empty; a lost
+connection is not Branch's to bring back; and a program Branch has no publisher, checksum and plan
+for is not something it will fetch from wherever the internet happens to offer it. Each of those
+says so in one sentence, names what you could do yourself, and installs nothing. Branch never
+half-installs something and calls it done.
+
+**Nothing happens until you say yes.** Looking shows the offer and its own line (`fingerprint`).
+Your yes carries that line back (`/adapt yes <line>`, or the button on the card), and only that exact
+offer is then carried out; if it changed in between, nothing is fetched and you are shown the new
+one. The wording and the shape are the one-button install's, not a second set of its own.
+
+**Carrying on, not starting again.** A task that stops writes down what it was doing, the steps it
+had already finished and the one step it stopped on. When what was missing arrives, that record —
+not the original request — is handed back: the work starts at the step it stopped on, the finished
+steps are named as finished and are not done again, and the answer says what the task can now do
+that it could not before. The records survive Branch closing.
+
+**Yours alone.** A message from a chat app, a short-lived key (which is also how another computer
+reaches this one), somebody else using this computer under their own profile, a Trunk, and work a
+schedule or a trigger started are each refused in one sentence — the very checks the one-button
+install makes, asked of the same code — and everything here is held off while Lockdown is on. The
+assistant has no tool for this: it can mention `/adapt` in an answer, but it cannot run it, and
+neither can an automation. `GET /api/adapt` reads the switch and what is stopped; `POST
+/api/adapt/switch` `{ mode }`, `/api/adapt/stopped`, `/api/adapt/plan` and `/api/adapt/go` are the
+owner's own, in the app window, and refused to every short-lived key.
+
 ## Learning, deeper (R17-F)
 
 Nine parts under `src/learning-more/`, each with the owner's three-way switch (off, on, only when it
@@ -9208,3 +9352,101 @@ characters), `readOnly` and `value`; a fact's labels are `tags` (up to 12) and `
 Nothing here depends on the platform. The Claude Code and Codex folders follow each assistant's own
 override variable (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`) and otherwise `~/.claude` and `~/.codex` on
 every system (`src/migrate/detect.ts`).
+
+## Understanding something (mac7/learn)
+
+Point Branch at something you are trying to understand -- a folder of code, a knowledge base, a
+folder of notes -- and get two things: **a map** of what is in there and how the parts connect, and
+**a tour**, a guided walk through it, one stop at a time, in plain words. The card is in Library →
+Documents, beside the other knowledge base cards. `/learn` does the same from the message box, the
+terminal and the dashboard. Routes are under `/api/learn`, the owner's profile only.
+
+**It ships off**, like every feature. Off, `/learn` and the three tools refuse in one sentence and
+are not offered to the assistant; "only when it is needed" lists them until the work calls for them;
+"on" loads them from the first round.
+
+### What every claim carries
+
+This is the whole point of the feature, so it is said first. Every claim the map or the tour makes
+carries the place it was read from, and you can open it:
+
+- over code, the file and the **line** where a name is declared;
+- over documents, the **document, heading and page** of the passage -- the citation Branch's entity
+  map has carried all along (`GraphLink.citation`).
+
+A claim with nothing behind it is not quietly dropped and not quietly shown: it says so on itself,
+in words ("Nothing on this stop could be traced to a passage: …"), and the tour counts them for you.
+A confident summary written for somebody who cannot check it is how a wrong map teaches the wrong
+shape without anybody noticing, so there is no way to leave the citation out.
+
+Anything a model wrote -- the paragraph on a stop -- is marked as written by the assistant from the
+named source, never as something the document says.
+
+### What it costs
+
+**Building a map calls no model at all**, over code or over documents, so it costs nothing and
+nothing leaves this computer. That is said in words, never as a figure: a made-up `$0.00` cannot be
+told apart from a model whose price nobody knows.
+
+The only model call in the whole feature writes the paragraph on each stop of the tour -- one call
+for the whole tour, and only if you tick the box. Press **What would this cost** (or use
+`learn.cost`) and you are told before anything is spent: how many parts the map has, and what the
+tour's one call would come to from the price table, from a price you typed in, or -- for a model
+with no price on file -- the plain words "no price is on file for that model", never a zero
+(`src/pricing.ts`). Nothing starts on its own and nothing is spent without you pressing the button.
+
+### How the tour is made
+
+Compute first, narrate second. The stops, their order and the source under each one are worked out
+on this computer before a model is asked anything:
+
+1. the ranking Branch already has says what the rest leans on (`src/code-rank.ts`, no model);
+2. the things are grouped, and each group becomes a stop -- grouping before spending, so a model is
+   asked few, well-shaped questions instead of one per file;
+3. over code the stops are ordered by following the links out from the highest-ranked file, which is
+   the order the folder really reads in; over documents it is most-talked-about outward;
+4. only then, if you asked for it, one model call writes the words.
+
+With no model connected the tour still exists: every stop keeps its title, its source and a plain
+sentence, and says that is what happened. A model's answer is assumed to be broken and repaired on
+the way in -- fenced blocks, trailing commas, stops numbered from zero, words under another name --
+and anything that cannot be matched to a real stop is dropped rather than guessed at, so a bad
+answer can never move a paragraph onto the wrong stop.
+
+Your language reaches the **written words**, not only the buttons: with the workspace in French the
+model is told, in French, to write in French, so a French tour is French sentences and not French
+chrome around English ones.
+
+### What works less well without code
+
+Worth saying plainly, because it is the honest difference between the two halves.
+
+Code states its own dependencies: one file imports another, and that is a real link nobody had to
+guess. **A folder of documents states nothing about itself.** With no import graph there is no cheap
+structure to group by and no natural starting point, so over documents:
+
+- a link usually means only "these two names turned up in the same passage". It does not say how the
+  two are related, and the map does not pretend to know. The map says so in its own limits.
+- there is **no "start here"**. The order is what the files talk about most, which is useful but is
+  not a reading order. If you know what you want to understand, say so -- ranking the map around
+  your own question works better than any guess at an entry point.
+- the names come from runs of capitalised words, so two spellings of one thing are two things, and a
+  name that is also an ordinary word turns up as both. That is the reader on this computer being
+  honest about what it is.
+
+Over code the names come from a light reader, not a real parser, so a name inside a comment or a
+string can be read as a declaration. Both caveats are on the map itself, not only here.
+
+### Safety
+
+Passages are somebody else's writing, so they go to the model marked untrusted, with a note that
+they are material to read and never instructions to follow; a passage carrying a copy of the marker
+cannot close the envelope early. Anything that comes back reading like instructions aimed at the
+assistant is dropped and the stop keeps its own words. Nothing is uploaded, nothing is published,
+and no map is ever offered to a hosted service.
+
+Nothing ever rebuilds a map on its own. A stale map is a row saying so; you press Build.
+
+Settings fields (`learn`): `mode` (off, when-needed, on -- off at first) and `steps`, how many stops
+a tour may have (3 to 12, default 8). Tools: `learn.map`, `learn.tour`, `learn.cost`, all under the
+permission for reading documents.

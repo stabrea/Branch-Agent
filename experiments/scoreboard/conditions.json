@@ -1,0 +1,22 @@
+{
+  "version": 2,
+  "presets": [
+    "qwen3-4b-16k"
+  ],
+  "models": [
+    "qwen3-4b-16k"
+  ],
+  "judgeModel": null,
+  "settings": {
+    "endpoint": "http://127.0.0.1:11434/v1",
+    "timeoutSeconds": 300,
+    "repeats": 3,
+    "contextWindowTokens": 65536,
+    "temperature": "each program's own default — see the report"
+  },
+  "appVersion": "scoreboard-harness 0.17.0",
+  "machine": "linux-x64-6-ab63e03d",
+  "taskSetHash": "7b3ab3c45417",
+  "scorerDigest": "29dc45491ad76f88",
+  "costBasis": "reported"
+}

@@ -46,6 +46,7 @@ const packageRootHere = (): string => dirname(dirname(fileURLToPath(import.meta.
 import { localRuntimes } from "./local-runtimes.js";
 // Wave mac5 (local models): the one-click pieces kept beside this app's store.
 import { localKitFor } from "./local-kit.js";
+import { adaptApi, handlesAdaptPath } from "./adapt/api.js"; // mac7/adapt
 import { streamOwnerEvents, streamRunEvents } from "./streams.js";
 // Web app (wave 6): "Look inside" a task, and "Try a tool" in the developer playground.
 import { inspectRun } from "./inspect.js";
@@ -126,6 +127,7 @@ import { codesResting, confirmWithCode, restingRefusal } from "./safety-extras/c
 import { reservedProjectId } from "./projects.js"; // mac7/r17-g integration review
 import { flowsBoardsApi, FlowsBoardsHttpError, handlesFlowsBoardsPath } from "./flows-boards/api.js"; // r17-h
 import { handlesLearningMorePath, learningMoreApi, LearningMoreHttpError } from "./learning-more/api.js"; // R17-F
+import { handlesLearnPath, learnApi, LearnHttpError } from "./learn/api.js"; // mac7/learn
 // mac4/bucket-20: the Agent Protocol, programs lending tools, and the owner's interop routes.
 import { handleInterop, handlesInteropPath, interopOffLimits } from "./interop/api.js";
 import { clientToolsPath, serveClientToolSocket } from "./interop/client-tools.js";
@@ -149,6 +151,7 @@ import { reflectionApi } from "./reflection/api.js";
 import { handlesSettingsKitPath, settingsKitApi, settingsKitBodyBytes, SettingsKitError } from "./settings-kit/api.js"; // R17-S-A
 import { PinnedSettingError, pins } from "./settings-kit/pins.js"; // mac7/wake-pins
 import { saveWakeWordSettings, wakeWordSettings, wakeWordView } from "./voice-wake.js"; // mac7/wake-pins
+import { dictationOwnerOnlyRefusal, dictationSettings, dictationView, saveDictationSettings } from "./voice-dictation.js"; // mac7/live-voice
 import { voiceSettings, saveVoiceSettings } from "./voice.js";
 import { voiceApi } from "./voice-api.js";
 // bucket-18: pull requests from changes (A0300), and which requests came with a short-lived key.
@@ -526,6 +529,7 @@ async function staticFile(
     "/chat-live.js": ["chat-live.js", "text/javascript; charset=utf-8"],
     "/chat-permissions.js": ["chat-permissions.js", "text/javascript; charset=utf-8"], // mac7/chat-allowlist
     "/wake-word.js": ["wake-word.js", "text/javascript; charset=utf-8"], // mac7/wake-pins
+    "/dictation.js": ["dictation.js", "text/javascript; charset=utf-8"], // mac7/live-voice
     "/pins.js": ["pins.js", "text/javascript; charset=utf-8"], // mac7/wake-pins
     "/skill-revisions.js": ["skill-revisions.js", "text/javascript; charset=utf-8"],
     // Wave mac3 (channels-parity): the switches for the chat services added to match other assistants.
@@ -1024,6 +1028,10 @@ async function api(
         // mac7/wake-mic: the switch reached through a settings file or a preset starts and stops
         // the listener exactly as the card's own switch does.
         "wake-word": (patch) => { saveWakeWordSettings(app.store, app.runtime.owner, patch); app.wake.refresh(); },
+        // mac7/live-voice: the switch reached through a settings file or a preset stops dictation
+        // exactly as the card's own switch does. It can only ever stop it: nothing here — not a
+        // file, not a preset, not the card — opens a microphone without the owner pressing Dictate.
+        "live-dictation": (patch) => { saveDictationSettings(app.store, app.runtime.owner, patch); app.dictation.refresh(); },
         ...Object.fromEntries((["analytics", "answer-engine", "runtimes", "nodes", "project-board"] as const)
           .map((part) => [`asks-${part}`, (patch: Record<string, unknown>) => { app.asks.setMode(part, patch); }])),
         // r17-i integration review: a reach switch saved through Reach, so its tools and the relay follow at once.
@@ -1056,6 +1064,41 @@ async function api(
       state: wakeWordView(app.store, app.runtime.owner, process.platform, true, app.wake.listening) };
   }
   // ── end mac7/wake-pins ──
+  // ── mac7/live-voice: speak, and see the words as you say them ──
+  // Reading the card says what this computer could really do and whether the microphone is open
+  // this moment; everything else is the owner's, at this window. A chat's task, a short-lived key,
+  // a household profile, a Trunk and another computer all arrive here as something that is not the
+  // owner at this window, and all five are refused by the two guards below and by the fail-closed
+  // rule for short-lived keys in src/short-lived-keys.ts, which never lists this path.
+  if (path === "/api/voice/dictation" || path === "/api/voice/dictation/listen") {
+    if (request.method === "GET") {
+      // Whether the microphone is open comes from the listener itself, so the card cannot say one
+      // thing while the microphone does another.
+      const mine = app.store.profiles.isOwner();
+      const view = dictationView(app.store, app.runtime.owner, process.platform, mine, app.dictation.open);
+      // The words are screen state: they go to the window that is dictating and nowhere else. They
+      // are never written to disk, never traced, never kept past the phrase, and never sent. Anybody
+      // else on this computer is not shown them, because they are not shown any of this.
+      return mine ? { ...view, words: app.dictation.words, settled: app.dictation.settled } : view;
+    }
+    // Not `requireOwner`, whose sentence is about a setting belonging to the owner. This one is
+    // about a microphone, and a person reading it should be told that rather than something milder.
+    if (!app.store.profiles.isOwner()) throw new HttpError(403, dictationOwnerOnlyRefusal);
+    if (path === "/api/voice/dictation/listen") {
+      const body = await readBody(request) as { on?: unknown };
+      // Starting is the only thing that opens a microphone anywhere in this feature, and it happens
+      // here, once, on a press. It answers with the refusal rather than opening one when anything
+      // — the switch, Lockdown, the lock, a missing speech program — says it must not.
+      const refusal = body?.on === true ? app.dictation.start() : (app.dictation.stop(), null);
+      return { open: app.dictation.open, refusal,
+        state: dictationView(app.store, app.runtime.owner, process.platform, true, app.dictation.open) };
+    }
+    saveDictationSettings(app.store, app.runtime.owner, await readBody(request));
+    app.dictation.refresh(); // the switch going off stops it and lets go of the microphone at once
+    return { settings: dictationSettings(app.store, app.runtime.owner),
+      state: dictationView(app.store, app.runtime.owner, process.platform, true, app.dictation.open) };
+  }
+  // ── end mac7/live-voice ──
   if (request.method === "GET" && path === "/api/state") return state(app);
   // Wave 6: sharing, labels and notes, workflows, the waiting line, days off, and profiles.
   const collab = await collabApi(app, request, path, (maximumBytes) => readBody(request, maximumBytes));
@@ -1177,6 +1220,12 @@ async function api(
       { runtimes: localRuntimes(), store: app.store, models: app.runtime.models, owner: app.runtime.owner, kit: localKitFor(app.store) },
       request.method ?? "GET", path, () => readBody(request),
     );
+  // mac7/adapt: what a stopped task is missing, and getting it on the owner's yes. Looking only
+  // describes; everything that fetches or changes anything is the owner's own step in the window.
+  if (handlesAdaptPath(path))
+    return adaptApi({ store: app.store, owner: app.runtime.owner,
+      requireOwner: (what) => app.store.profiles.requireOwner(what) },
+    request.method ?? "GET", path, () => readBody(request, 16 * 1024), { source: "owner" });
   // mac7/clean-uninstall: the danger zone — what removing Branch would take away, and removing it.
   // The owner's alone, in the app window; the remover itself is the one `branch uninstall` uses.
   if (handlesRemovePath(path))
@@ -3237,6 +3286,19 @@ function widgetCors(app: Branch, request: IncomingMessage, response: ServerRespo
           return;
         }
         // ---- end R17-F ----
+        // ---- mac7/learn: the map and the tour under /api/learn (src/learn/api.ts); the owner's alone. ----
+        if (handlesLearnPath(path)) {
+          app.store.profiles.requireOwner("Understanding something");
+          const answer = await learnApi({
+            learn: app.learn, runtime: app.runtime, method: request.method ?? "GET",
+            scope: app.store.profiles.scope(), readBody: () => readBody(request, 131072),
+          }, path).catch((error: unknown) => {
+            throw error instanceof LearnHttpError ? new HttpError(error.status, error.message) : error;
+          });
+          send(response, 200, answer);
+          return;
+        }
+        // ---- end mac7/learn ----
         if (await rawApi(app, request, response, path)) return;
         if (path.startsWith("/api/deployment")) {
           // bucket 22: `branch quit`, from this computer with the master key only (src/install/quit.ts).
@@ -3794,6 +3856,10 @@ export function offLimitsToShortLivedKeys(method: string | undefined, path: stri
   // Lockdown is exactly that; without this a script's key could switch Lockdown off.
   if (path === "/api/lockdown")
     return "A short-lived key cannot switch Lockdown on or off. Do that in the app window or with the key of this computer.";
+  // mac7/adapt: getting what a stopped task is missing installs programs and spends the owner's
+  // disk, so no short-lived key — and so no other computer reaching this one — may ask for it.
+  if (handlesAdaptPath(path))
+    return "A short-lived key cannot have Branch fetch or install what a stopped task is missing. Do that in the app window.";
   // mac7/vault-autofill (R17-068): which saved sign-in Branch may type into a page is the owner's alone.
   if (path.startsWith("/api/vault-autofill"))
     return "A short-lived key cannot change which saved sign-ins Branch may fill. Do that in the app window.";
@@ -3897,6 +3963,8 @@ function isExecution(request: IncomingMessage, path: string): boolean {
     || (request.method !== "GET" && handlesFlowsBoardsPath(path))
     // R17-F: every change under /api/learning-more may ask a model or an outside service.
     || (request.method !== "GET" && handlesLearningMorePath(path))
+    // mac7/learn: building a map reads the whole folder, and a tour may ask a model.
+    || (request.method !== "GET" && handlesLearnPath(path))
   );
 }
 function configureLimits(server: Server): void {

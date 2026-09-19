@@ -1,0 +1,3 @@
+three crates of apples
+one crate of pears
+two crates of apples

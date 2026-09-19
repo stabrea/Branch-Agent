@@ -24,6 +24,8 @@ export const descriptions = [
   ["#project-folder", "describe.project-folder", "Work in this project stays inside this folder of your workspace. Leave it empty to use the whole workspace."],
   ["#project-instructions", "describe.project-instructions", "Read at the start of every task in this project, on top of your usual instructions."],
   ["#project-preset", "describe.project-preset", "The model this project's conversations start with. Empty uses your default model."],
+  // mac7/adapt: the switch on the "Getting what a stopped task is missing" card.
+  ["#adapt-mode", "describe.adapt-mode", "Whether Branch may get what a stopped task is missing. Off: it only names it. Only when it is needed: it offers a fix when something really stopped. On: it also says so before you ask. It never fetches or installs anything until you say yes."],
   ["#commands-mode", "describe.commands-mode", "Whether the / commands work here and in chat apps. Off hides them everywhere."],
   ["#asks-switch-project-board", "describe.project-board", "Keeps each project's flows and schedules on one board. Off hides the board; nothing on it is lost."],
   ["#context-switch-agents", "describe.file-agents", "Whether AGENTS.md in the project folder is read. On: at the start of every task. Only when needed: when the work calls for it. Off: never."],

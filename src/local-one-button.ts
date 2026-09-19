@@ -82,6 +82,19 @@ export function installGuard(
 ): string | null {
   if (lockdownActive(store, owner)) return installLockdownRefusal;
   if (oneButtonMode(store, owner) === "off") return installOffRefusal;
+  return callerGuard(store, context, person);
+}
+
+/**
+ * mac7/adapt: who is asking, apart from any switch — a chat message, a short-lived key (which is
+ * also how another computer reaches this one), somebody else's profile, a Trunk, or work a schedule
+ * or a trigger started. Split out of `installGuard` so a second owner-only feature asks exactly the
+ * same question of exactly the same code, instead of keeping a second copy of these seven rules.
+ */
+export function callerGuard(
+  store: Pick<Store, "get"> & Partial<Events>, context: PressContext,
+  person: string | null = currentPerson()?.profileId ?? null,
+): string | null {
   const events = store as unknown as Events;
   const origin = context.runId && typeof events.events === "function" ? runOrigin(events, context.runId) : null;
   if (startedWithShortLivedKey() || origin?.shortLivedKey) return installShortLivedRefusal;
