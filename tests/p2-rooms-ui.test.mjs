@@ -51,6 +51,9 @@ async function fixture(t, parts, { width = 1440, height = 950 } = {}) {
   return { app, call, page, errors, scout, ledger };
 }
 const send = async (page, text) => { await page.locator("#prompt").fill(text); await page.locator("#prompt").press("Enter"); };
+/* The reply is on screen before the window has finished that send (it reloads the conversation, then
+   the state): Send stays greyed until then, and a message sent in between goes nowhere. */
+const readyToSend = (page) => page.waitForFunction(() => !document.getElementById("send").disabled);
 const lastReply = (page) => page.locator("#conversation > .message.assistant").last();
 
 test("with choosing a Trunk switched off, nothing new shows and @name goes to the Trunk's own chat as before", async (t) => {
@@ -80,6 +83,7 @@ test("choosing who answers: Talking to on an empty conversation, then every repl
   await f.page.waitForFunction(() => /Scout here\./.test(document.querySelector("#conversation > .message.assistant:last-of-type")?.textContent ?? ""));
   await f.page.waitForFunction(() => document.querySelector("#conversation > .message.assistant:last-of-type")?.dataset.trunk);
   assert.match(await lastReply(f.page).locator("small").first().textContent(), /Scout/);
+  await readyToSend(f.page);
   // Back to your assistant: the next reply is not Scout's, and Scout's reply keeps its name.
   await f.page.locator("#who-button").click();
   await f.page.locator("#who-pop").getByRole("button", { name: "Let your assistant answer here again" }).click();
@@ -95,6 +99,7 @@ test("@ in the message box: the list offers the Trunks, Enter picks one, and sen
   const f = await fixture(t, ["conversations"]);
   await send(f.page, "hello");
   await f.page.waitForFunction(() => /Your assistant here\./.test(document.getElementById("conversation").textContent));
+  await readyToSend(f.page);
   await f.page.evaluate(() => globalThis.branchRooms.refresh());
   await f.page.locator("#prompt").fill("");
   await f.page.locator("#prompt").pressSequentially("@sco");
