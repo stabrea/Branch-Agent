@@ -2895,7 +2895,7 @@ The commands inside it are `/help` (and `/keys`), `/model [id]`, `/think <low|me
 | Help | `hermes --help` | `openclaw docs` | `branch help; branch <command> --help` | existed |  |
 | Every place by name | — | — | `branch places; branch inbox \| automations \| library \| customize` | built | Every home in docs/places.md. |
 
-**For scripts.** `branch run "..."` takes `--json` (every event as one JSON object per line on stdout, human wording on stderr), `--attach <file>` (repeatable), `--plan`, `--verify`, `--dry-run`, `--preset <off|ask-before-changes|workspace|read-only>`, `--save-preset <same names>`, `--budget <tokens>` and `--timeout <milliseconds>`. `--preset` uses that approval setting **for this one task** and puts your saved setting back afterwards, so a script cannot quietly change what you chose; `--save-preset` changes the saved setting and stays changed, and says so on stderr. The exit code is the contract:
+**For scripts.** `branch run "..."` takes `--json` (every event as one JSON object per line on stdout, human wording on stderr), `--attach <file>` (repeatable), `--plan`, `--verify`, `--dry-run`, `--allow-tests`, `--preset <off|ask-before-changes|workspace|read-only>`, `--save-preset <same names>`, `--budget <tokens>` and `--timeout <milliseconds>`. `--preset` uses that approval setting **for this one task** and puts your saved setting back afterwards, so a script cannot quietly change what you chose; `--save-preset` changes the saved setting and stays changed, and says so on stderr. `--allow-tests` lets this one task run the project's tests without asking "Let Branch run this project's tests?" (see *The project's check* below), as if you had answered Once each time; nothing is saved, only the owner can use it, and Lockdown refuses it. The exit code is the contract:
 
 | Code | Meaning |
 | --- | --- |
@@ -3866,7 +3866,10 @@ Such a task stays held however it is carried on (since 0.18.1, mac7/outside-resu
 next message in its conversation, *Do this again*, a branch or copy of its conversation, a flow or
 workflow it set going, and the mode picker (even *Full access*) all leave it asking before changes,
 and a chat's task still cannot do what only you may do. Nothing in the window turns it into your own
-work; to have Branch do it freely, ask for it in a new conversation of your own.
+work; to have Branch do it freely, ask for it in a new conversation of your own. The mode chip in
+such a conversation shows *Ask first* and says why. A message one Trunk sends another (and the reply)
+is read as the task that sent it: held the same way when that task came from outside, and with no more
+tools than the sending Trunk had (mac7/outside-review).
 **What the rules do not cover.** They apply to what the assistant decides to do on its own. A tool
 you run yourself from this app (`POST /api/action`) is your own action and goes straight through.
 **A practice run.** `POST /api/run` with `"dryRun": true`, or `node dist/cli.js run "..." --dry-run`,
@@ -5909,6 +5912,15 @@ rule); only the owner can give it, in the app — never from a chat app, never f
 else in the house started. *Once* lets the next run of the tests in that conversation go ahead. *No*
 is remembered for the conversation, and the assistant is told to work from the test files instead.
 Lockdown refuses without asking. A broad "allow everything" rule does not stand in for this yes.
+**When nobody can answer** — `branch run` or `branch headless` from a script, a benchmark or CI (no
+terminal to ask in), or a task a schedule, a trigger, a chat app or another AI tool (MCP, A2A)
+started — the question is not put and the task does not stop: `code.check` skips the project's
+tests, says in one line that they were not run because running them has not been allowed for this
+folder and how to allow it, and the task carries on (mac7/tests-unattended). Changes such a task
+wants still wait for you as before. The app window, the terminal chat, `branch run` typed in a
+terminal and an editor over ACP are still asked. `branch run --allow-tests` lets one task run them
+without asking, as if you had answered Once each time; nothing is saved, only the owner can use it
+(never a short-lived key or somebody else's profile), Lockdown refuses it, and a No you gave still wins.
 Only `code.check` does this: after `code.patch` or `code.change_set` only a check you set up
 yourself runs, so writing a file never becomes running it.
 

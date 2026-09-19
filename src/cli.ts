@@ -307,7 +307,7 @@ async function main(): Promise<void> {
       return;
     }
     if (command === "headless") return await headlessJob(app);
-    await runOnce(app, command);
+    await runOnce(app, command, inTerminal);
   } finally {
     await close();
   }
@@ -615,6 +615,8 @@ async function watchCommand(app: Awaited<ReturnType<typeof configuredApp>>["app"
 async function runOnce(
   app: Awaited<ReturnType<typeof createBranch>>,
   command: string,
+  /** mac7/tests-unattended: a person at a terminal, who can be asked (the same test `branch` itself uses). */
+  inTerminal: boolean,
 ): Promise<void> {
   const flags: RunFlags = parseRunArgs(process.argv.slice(3));
   if (command === "demo") flags.prompt = "Run the deterministic file write/read/verify fixture.";
@@ -628,7 +630,7 @@ async function runOnce(
   if (preset) writer.note(preset.message);
   let run: Run;
   try {
-    run = await runForScripts(app.runtime, flags, writer);
+    run = await runForScripts(app.runtime, flags, writer, inTerminal);
   } finally {
     preset?.restore();
   }
