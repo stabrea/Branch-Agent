@@ -109,10 +109,13 @@ test("piece 1: a yes given in the room lets the Trunk carry on, rather than aski
 /* ---------------------------------------------------------------- piece 2: who answers in a conversation */
 
 async function served(t, rules = []) {
-  const made = await fixture(t, rules);
+  // The server closes before the app and before its folder is thrown away (fixture's own after-hook
+  // runs first otherwise, and Windows refuses to delete a folder the server still holds).
+  let closeServer = async () => undefined;
+  const made = await fixture({ after: (hook) => t.after(async () => { await closeServer(); await hook(); }) }, rules);
   const { startServer } = await import("../dist/server.js");
   const server = await startServer(made.app, { dataDir: join(made.root, "data"), port: 0, host: "127.0.0.1" });
-  t.after(() => server.close());
+  closeServer = () => server.close();
   const call = async (path, body, token = server.token) => {
     const response = await fetch(new URL(path, server.url), { method: body === undefined ? "GET" : "POST",
       headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
