@@ -10,6 +10,7 @@ import type { NetworkPolicy } from "./network-policy.js";
 import type { ToolRegistry } from "./registry.js";
 import type { Store } from "./store.js";
 import type { WorkspaceFiles } from "./files.js";
+import { WalkRules } from "./walk-rules.js"; // mac7/walk-rules
 
 /**
  * Opening a pull request from a task's changes (A0300, after SWE-agent's "open PR" hook).
@@ -159,8 +160,10 @@ const issueArgument = (text: string): { issue?: string } => {
  */
 async function sendablePaths(deps: PullRequestDeps, cwd: string, paths: readonly string[]): Promise<string[]> {
   const kept: string[] = [];
+  // mac7/walk-rules: nothing the owner's rules keep the assistant out of leaves this computer.
+  const rules = new WalkRules(deps.files.walkRules({ source: "owner" }));
   for (const path of paths) {
-    if (!path || path.endsWith("/")) continue;
+    if (!path || path.endsWith("/") || !rules.file(path)) continue;
     const allowed = await deps.files.checked(path).then(() => true, () => false);
     if (!allowed || (await deps.files.hidden(path, false)) || deps.guard?.(path)) continue;
     const info = await lstat(join(cwd, path)).catch(() => null);

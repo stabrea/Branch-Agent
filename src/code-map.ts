@@ -33,6 +33,8 @@ export interface ProjectMapResult {
   scanned: number;
   cached: number;
   truncated: boolean;
+  /** mac7/walk-rules: what the owner's rules kept the map out of, said once. */
+  leftOut?: string;
 }
 export interface RankedFile { path: string; language: string; score: number; why: string; symbols: string[] }
 
@@ -42,7 +44,9 @@ const scriptEndings = [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".c
 interface Cached { key: string; entry: MapFileEntry; tags: TagScan }
 /** The map as the ranking reads it: every file with its declarations and the names it uses. */
 export interface TaggedMap { result: ProjectMapResult; tagged: RankInput[] }
-export interface OutlineResult { outline: string; tokens: number; budget: number; declarations: number; considered: number; truncated: boolean }
+export interface OutlineResult { outline: string; tokens: number; budget: number; declarations: number; considered: number; truncated: boolean; leftOut?: string }
+/** mac7/walk-rules: the walk's note about what the rules left out, carried into an answer built from it. */
+const leftOutOf = (result: ProjectMapResult): { leftOut?: string } => (result.leftOut ? { leftOut: result.leftOut } : {});
 
 export class ProjectMap {
   private readonly cache = new Map<string, Cached>();
@@ -81,7 +85,7 @@ export class ProjectMap {
     }
     for (const known of [...this.cache.keys()]) if (!live.has(known)) this.cache.delete(known);
     resolveImports(entries);
-    return { result: { files: entries, scanned, cached, truncated: walk.truncated }, tagged };
+    return { result: { files: entries, scanned, cached, truncated: walk.truncated, ...(walk.leftOut ? { leftOut: walk.leftOut } : {}) }, tagged };
   }
 
   private async read(file: WalkEntry): Promise<{ entry: MapFileEntry; tags: TagScan }> {
@@ -103,7 +107,7 @@ export class ProjectMap {
    * were asked about start the ranking, the graph of who uses whose names carries it on (Aider's
    * PageRank), and a file those files pull in, or that pulls them in, is lifted with them.
    */
-  async rank(request: string, limit = 20, path = "."): Promise<{ files: RankedFile[]; considered: number }> {
+  async rank(request: string, limit = 20, path = "."): Promise<{ files: RankedFile[]; considered: number; leftOut?: string }> {
     const { result, tagged } = await this.buildTagged(path, 400);
     const words = wordsOf(request);
     const direct = new Map<string, number>();
@@ -111,7 +115,7 @@ export class ProjectMap {
       const score = scoreFile(file, words);
       if (score > 0) direct.set(file.path, score);
     }
-    if (!direct.size) return { files: [], considered: result.files.length };
+    if (!direct.size) return { files: [], considered: result.files.length, ...leftOutOf(result) };
     const ranking = rankDeclarations(tagged, { personal: direct, mentioned: mentionedNames(tagged, words) });
     const scores = combineScores(result.files, direct, ranking.fileRank, ranking.edges);
     const order = symbolOrder(ranking.entries);
@@ -125,7 +129,7 @@ export class ProjectMap {
         why: direct.has(file.path) ? "the words you used appear here" : "it is connected to a file that matches",
         symbols: (order.get(file.path) ?? file.symbols.map((symbol) => symbol.name)).slice(0, 8),
       }));
-    return { files: ranked, considered: result.files.length };
+    return { files: ranked, considered: result.files.length, ...leftOutOf(result) };
   }
 
   /**
@@ -149,7 +153,7 @@ export class ProjectMap {
     return {
       outline: fitted.text, tokens: fitted.tokens, budget: options.budget,
       declarations: entries.slice(0, fitted.used).filter((entry) => entry.def).length,
-      considered: result.files.length, truncated: result.truncated || fitted.used < entries.length,
+      considered: result.files.length, truncated: result.truncated || fitted.used < entries.length, ...leftOutOf(result),
     };
   }
 }

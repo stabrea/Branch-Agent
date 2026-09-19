@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { WalkRules } from "./walk-rules.js"; // mac7/walk-rules
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { z } from "zod";
@@ -217,34 +218,47 @@ export class LanguageServers {
     const server = await this.serverFor(path, runId);
     return { server, uri: await server.open(path, absolute) };
   }
+  /**
+   * mac7/walk-rules: the language server reads the whole project by itself, so the places and
+   * complaints it names are held to the task's rules before they are passed on.
+   */
+  private visible<T extends { path: string }>(items: T[]): { items: T[]; note: { leftOut?: string } } {
+    const rules = new WalkRules(this.files.walkRules());
+    const kept = items.filter((item) => rules.file(item.path));
+    const leftOut = rules.note();
+    return { items: kept, note: leftOut ? { leftOut } : {} };
+  }
   private position(line: number, character: number) { return { line: Math.max(0, line - 1), character: Math.max(0, character - 1) }; }
 
   /** Mistakes and warnings for one file, or for every file already looked at. */
-  async diagnostics(input: { path?: string | undefined; waitMs: number }, runId = ""): Promise<{ diagnostics: Diagnostic[]; server: string }> {
+  async diagnostics(input: { path?: string | undefined; waitMs: number }, runId = ""): Promise<{ diagnostics: Diagnostic[]; server: string; leftOut?: string }> {
     if (!input.path) {
       const any = [...this.servers.values()].find((server) => server.running);
       if (!any) throw new Error("No language server is running yet; ask about one file first.");
-      return { server: any.name, diagnostics: any.diagnosticsFor(null) };
+      const shown = this.visible(any.diagnosticsFor(null));
+      return { server: any.name, diagnostics: shown.items, ...shown.note };
     }
     const { server, uri } = await this.at(input.path, runId);
     await new Promise((resolve) => setTimeout(resolve, input.waitMs));
     return { server: server.name, diagnostics: server.diagnosticsFor(uri) };
   }
 
-  async definition(input: { path: string; line: number; character: number }, runId = ""): Promise<{ places: Place[] }> {
+  async definition(input: { path: string; line: number; character: number }, runId = ""): Promise<{ places: Place[]; leftOut?: string }> {
     const { server, uri } = await this.at(input.path, runId);
     const answer = await server.request("textDocument/definition", {
       textDocument: { uri }, position: this.position(input.line, input.character),
     });
-    return { places: places(this.files.base, answer) };
+    const shown = this.visible(places(this.files.base, answer));
+    return { places: shown.items, ...shown.note };
   }
-  async references(input: { path: string; line: number; character: number; includeDeclaration: boolean }, runId = ""): Promise<{ places: Place[] }> {
+  async references(input: { path: string; line: number; character: number; includeDeclaration: boolean }, runId = ""): Promise<{ places: Place[]; leftOut?: string }> {
     const { server, uri } = await this.at(input.path, runId);
     const answer = await server.request("textDocument/references", {
       textDocument: { uri }, position: this.position(input.line, input.character),
       context: { includeDeclaration: input.includeDeclaration },
     });
-    return { places: places(this.files.base, answer) };
+    const shown = this.visible(places(this.files.base, answer));
+    return { places: shown.items, ...shown.note };
   }
   async hover(input: { path: string; line: number; character: number }, runId = ""): Promise<{ text: string }> {
     const { server, uri } = await this.at(input.path, runId);

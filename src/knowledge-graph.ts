@@ -1,4 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
+import { passageVisible } from "./walk-rules.js"; // mac7/walk-rules
 import { z } from "zod";
 import type { KnowledgeBases } from "./knowledge-bases.js";
 import type { Provider } from "./contracts.js";
@@ -104,8 +105,10 @@ export class KnowledgeGraph {
   async build(owner: string, collection: string, useModel = false, signal?: AbortSignal):
     Promise<{ collection: string; entities: number; links: number; how: string }> {
     const current = this.bases.one(owner, collection);
-    const rows = this.db.prepare(`SELECT chunk_id, chunk_text FROM kb_chunks WHERE owner=? AND collection=? LIMIT ?`)
-      .all(owner, current.id, maximumEntities);
+    // mac7/walk-rules: passages from files the rules keep the assistant out of are not read into the map.
+    const rules = this.bases.readRules();
+    const rows = this.db.prepare(`SELECT chunk_id, doc_id, chunk_text FROM kb_chunks WHERE owner=? AND collection=? LIMIT ?`)
+      .all(owner, current.id, maximumEntities).filter((row) => passageVisible(rules, String(row.doc_id)));
     this.clear(owner, current.id);
     const provider = useModel ? this.models?.plan(owner, "").candidates[0]?.provider : undefined;
     let modelled = 0;
@@ -190,10 +193,12 @@ export class KnowledgeGraph {
       .get(owner, collection, key)?.name ?? key);
   }
   private linksOf(owner: string, collection: string, key: string): GraphLink[] {
-    return this.db.prepare(`SELECT r.source, r.target, r.relation, r.chunk_id, c.doc_name, c.heading, c.page
+    const rules = this.bases.readRules(); // mac7/walk-rules: a link read from a refused file is not shown
+    return this.db.prepare(`SELECT r.source, r.target, r.relation, r.chunk_id, c.doc_id, c.doc_name, c.heading, c.page
       FROM kb_relations r LEFT JOIN kb_chunks c ON c.owner=r.owner AND c.collection=r.collection AND c.chunk_id=r.chunk_id
       WHERE r.owner=? AND r.collection=? AND (r.source=? OR r.target=?) LIMIT ?`)
-      .all(owner, collection, key, key, neighbourLimit).map((row) => ({
+      .all(owner, collection, key, key, neighbourLimit)
+      .filter((row) => row.doc_id === null || row.doc_id === undefined || passageVisible(rules, String(row.doc_id))).map((row) => ({
         from: this.nameOf(owner, collection, String(row.source)), to: this.nameOf(owner, collection, String(row.target)),
         relation: String(row.relation),
         citation: { chunkId: String(row.chunk_id), document: String(row.doc_name ?? ""),
@@ -212,10 +217,12 @@ export class KnowledgeGraph {
   passagesAround(owner: string, collection: string, name: string, limit: number): { chunkId: string; text: string; document: string }[] {
     const start = this.findEntity(owner, collection, name);
     if (!start) return [];
-    return this.db.prepare(`SELECT DISTINCT c.chunk_id, c.chunk_text, c.doc_name FROM kb_relations r
+    const rules = this.bases.readRules(); // mac7/walk-rules
+    return this.db.prepare(`SELECT DISTINCT c.chunk_id, c.doc_id, c.chunk_text, c.doc_name FROM kb_relations r
       JOIN kb_chunks c ON c.owner=r.owner AND c.collection=r.collection AND c.chunk_id=r.chunk_id
       WHERE r.owner=? AND r.collection=? AND (r.source=? OR r.target=?) LIMIT ?`)
       .all(owner, collection, start, start, Math.min(limit, neighbourLimit))
+      .filter((row) => passageVisible(rules, String(row.doc_id)))
       .map((row) => ({ chunkId: String(row.chunk_id), text: String(row.chunk_text), document: String(row.doc_name) }));
   }
   /** Which collections have a map, and how big each one is, for the Documents panel. */

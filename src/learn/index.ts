@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { passageVisible } from "../walk-rules.js"; // mac7/walk-rules
 import type { Provider } from "../contracts.js";
 import type { ProjectMap } from "../code-map.js";
 import type { KnowledgeBases } from "../knowledge-bases.js";
@@ -67,7 +68,8 @@ export class Learn {
       return codeMap(this.deps.project, of || ".");
     }
     const collection = this.collection(owner, of);
-    return documentMap(this.deps.store.sqlite, owner, collection);
+    const rules = this.deps.bases?.readRules(); // mac7/walk-rules
+    return documentMap(this.deps.store.sqlite, owner, collection, (docId) => !rules || passageVisible(rules, docId));
   }
 
   /**
