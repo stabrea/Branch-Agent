@@ -831,6 +831,7 @@ async function renderSecrets() {
     const node = el("div", undefined, "record");
     node.append(el("strong", secret.name), el("span", ` · saved ${date(secret.createdAt)}`, "meta"),
       button("Remove", async () => { await api(`secrets/${project}/${secret.name}/remove`, {}); await renderSecrets(); toast("Secret removed."); }));
+    globalThis.branchSecretMarks?.(node, secret); // phase2/accounts: its service's mark and a plain name (public/service-marks.js)
     return node;
   }, ["No secrets saved here yet.", "A secret is a password or key your assistant needs. Add one below and it is locked away on this computer."]);
 }

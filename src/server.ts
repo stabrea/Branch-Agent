@@ -569,6 +569,7 @@ async function staticFile(
     "/brand-marks.css": ["brand-marks.css", "text/css; charset=utf-8"],
     "/accounts.css": ["accounts.css", "text/css; charset=utf-8"],
     "/agent-files.js": ["agent-files.js", "text/javascript; charset=utf-8"],
+    "/service-marks.js": ["service-marks.js", "text/javascript; charset=utf-8"],
     "/telegram-setup.js": ["telegram-setup.js", "text/javascript; charset=utf-8"],
     // mac7/connect: the Set up panel for each chat app.
     "/channel-setup.js": ["channel-setup.js", "text/javascript; charset=utf-8"],
