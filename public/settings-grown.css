@@ -362,3 +362,116 @@
 :root:not([data-everything="on"]) .rail-foot .sg-foot-line > #lx-settings-row {
   display: grid !important;
 }
+
+/* ---------- Appearance: the themes beside two live mirrors of your window (#5, #24, #25, #38, #39) ---------- */
+.sg-look {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0 24px;
+}
+.sg-mirrors {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 14px;
+}
+.sg-mirrors-title {
+  margin: 0;
+  color: var(--text-2);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.sg-mirror-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.sg-mirror {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+}
+.sg-mirror-box {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--line-2);
+  border-radius: 10px;
+  background: var(--well);
+}
+.sg-mirror-frame {
+  position: absolute;
+  top: 0;
+  left: 0;
+  border: 0;
+  transform-origin: 0 0;
+  pointer-events: none;
+}
+.sg-mirror-caption {
+  overflow: hidden;
+  color: var(--text-3);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (min-width: 1200px) {
+  .sg-look {
+    grid-template-columns: minmax(0, 1fr) minmax(360px, 44%);
+  }
+  .sg-look > :not(.sg-mirrors) {
+    grid-column: 1;
+  }
+  .sg-mirrors {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    grid-column: 2;
+    grid-row: 1 / span 6;
+    align-self: start;
+    margin: 0;
+  }
+}
+.sg-clear-view {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--line-2);
+  border-radius: 9px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-2);
+}
+.sg-clear-view:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.sg-clear-view svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+}
+.lx-look-row:has(#lx-mode) {
+  justify-content: flex-start;
+}
+.lx-look-row:has(#lx-mode) .lx-look-label {
+  flex: 1 1 auto;
+}
+.sg-tile-tag {
+  position: absolute;
+  left: 5px;
+  bottom: 4px;
+  max-width: calc(100% - 30px);
+  padding: 1px 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.5;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

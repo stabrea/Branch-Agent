@@ -60,7 +60,12 @@ export async function openPlace(page, view) {
 export async function openSettings(page, name) {
   await ready(page);
   if (!(await page.locator("#settings-window").isVisible())) await (await settingsEntry(page)).click();
-  if (name) await page.locator(`.lx-settings-link[data-page="${name}"]`).click();
+  if (name) {
+    /* phase2/settings: on a narrow window the pages are one choice under the search box. */
+    const link = page.locator(`.lx-settings-link[data-page="${name}"]`);
+    if (await link.isVisible()) await link.click();
+    else await page.locator("#sg-page-pick").selectOption(name);
+  }
   await showEveryCard(page);
 }
 

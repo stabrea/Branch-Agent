@@ -642,6 +642,7 @@ async function staticFile(
     "/settings-grown.js": ["settings-grown.js", "text/javascript; charset=utf-8"],
     "/settings-buckets.js": ["settings-buckets.js", "text/javascript; charset=utf-8"],
     "/settings-index.js": ["settings-index.js", "text/javascript; charset=utf-8"],
+    "/settings-look.js": ["settings-look.js", "text/javascript; charset=utf-8"],
     "/settings-grown.css": ["settings-grown.css", "text/css; charset=utf-8"],
     "/playground.js": ["playground.js", "text/javascript; charset=utf-8"],
     "/tool-catalog.js": ["tool-catalog.js", "text/javascript; charset=utf-8"],
