@@ -6,6 +6,10 @@
  * settings with their fresh-install defaults). Every one must have a control in the window (or, when it
  * has no id of its own, the stand-in public/settings-index.js names), live where the audit says, start
  * at its real default, and be found by Settings search.
+ *
+ * Integration (2026-09-19): the audit is a snapshot, so S14 also reads every setting Branch declares (the
+ * settings schemas scripts/check-docs.mjs holds docs/configuration.md to) and fails for one that has no
+ * Settings search entry and no stated reason. S15 holds Regular to never hiding a safety control.
  */
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -17,6 +21,7 @@ import { discardTemp } from "./temp-dir.mjs";
 import { createBranch } from "../dist/index.js";
 import { startServer, offLimitsToHousehold } from "../dist/server.js";
 import { saveConversationModeSettings } from "../dist/conversation-mode.js";
+import { settingKeys } from "../scripts/check-docs.mjs";
 
 const ROOT = join(import.meta.dirname, "..");
 const INVENTORY = JSON.parse(await readFile(join(ROOT, "tests", "fixtures", "settings-inventory.json"), "utf8")).settings;
@@ -46,14 +51,19 @@ async function fixture(t, { width = 1440, height = 950, preferences } = {}) {
   }).then((response) => response.json());
   await call("/api/onboarding", { done: true });
   const page = await browser.newPage({ viewport: { width, height } });
-  const errors = [];
+  const errors = [], refused = [];
   page.on("pageerror", (error) => errors.push(error.message));
+  page.on("console", (message) => { if (/Content Security Policy/i.test(message.text())) refused.push(message.text()); });
+  await page.addInitScript(() => {
+    globalThis.__refused = [];
+    document.addEventListener("securitypolicyviolation", (event) => globalThis.__refused.push(`${event.violatedDirective} ${event.sourceFile}:${event.lineNumber}`));
+  });
   await page.goto(server.url);
   await page.getByLabel("Session token", { exact: true }).fill(server.token);
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.locator("#workspace").waitFor({ state: "visible" });
   await page.locator("body.sg-ready").waitFor({ state: "attached" });
-  return { page, call, errors, app, url: server.url, headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" } };
+  return { page, call, errors, refused, app, url: server.url, headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" } };
 }
 /** The cog after the account row: the calm window's, or the full window's. */
 const cog = (page) => page.locator(".sg-foot-line > .sg-gear:visible");
@@ -114,6 +124,11 @@ test("S1 every setting in the audit is in the index, at the home the audit gives
   const moved = INVENTORY.filter((s) => INDEX.get(s.id)?.[1] !== s.home).map((s) => s.id);
   assert.deepEqual(moved, [], "the index puts these somewhere other than their home");
   for (const row of SETTINGS_INDEX) assert.ok(row[3].length > 1, `${row[0]} has no words to search by`);
+  /* Search lists a name and its card; two that read the same cannot be told apart (#48). */
+  const alike = new Map();
+  for (const row of SETTINGS_INDEX) alike.set(`${row[3]} · ${row[6]}`, [...(alike.get(`${row[3]} · ${row[6]}`) ?? []), row[0]]);
+  assert.deepEqual([...alike].filter(([, ids]) => ids.length > 1), [], "these settings read the same in search");
+  assert.deepEqual(SETTINGS_INDEX.filter((row) => /^\(|\|/.test(row[3])).map((row) => row[0]), [], "a placeholder or a raw list format instead of words");
 });
 
 test("S2 every setting has a real control, where the audit says it lives", async (t) => {
@@ -128,6 +143,12 @@ test("S2 every setting has a real control, where the audit says it lives", async
   const astray = INVENTORY.filter((s) => where[s.id] !== s.home && !(s.id === "lockdown" && where[s.id] === "elsewhere"))
     .map((s) => `${s.id}: ${where[s.id]} (audit: ${s.home})`);
   assert.deepEqual(astray, [], "these controls are not where the audit says they live");
+  /* Rows added since the audit point at a real control too, at the home they give. */
+  const windowsOnly = new Set(["addons-windows-without-wall"]);
+  const since = SETTINGS_INDEX.filter((row) => !INVENTORY.some((s) => s.id === row[0]) && !(windowsOnly.has(row[0]) && process.platform !== "win32"));
+  assert.ok(since.length >= 8, "the settings added at integration are in the index");
+  assert.deepEqual(since.filter((row) => where[row[0]] !== row[1]).map((row) => `${row[0]}: ${where[row[0]]} (index: ${row[1]})`), [],
+    "these settings added since the audit have no control where the index says");
   assert.deepEqual(f.errors, []);
 });
 
@@ -398,7 +419,7 @@ function sweep() {
   if (doc.scrollWidth > doc.clientWidth + 1) out.push(`the window scrolls sideways by ${doc.scrollWidth - doc.clientWidth}px`);
   const body = document.getElementById("lx-settings-body");
   if (body.scrollWidth > body.clientWidth + 1) out.push(`the page scrolls sideways by ${body.scrollWidth - body.clientWidth}px`);
-  const chips = document.querySelectorAll("#lx-settings-body :is(.chip, .pill, .badge, .status-pill, .lx-count, [class*='chip'], [class*='pill'], [class*='badge'], .sg-more)");
+  const chips = document.querySelectorAll("#lx-settings-body :is(.chip, .pill, .badge, .status-pill, .lx-count, [class*='chip'], [class*='pill'], [class*='badge'], .sg-more, .kit-scope)");
   for (const chip of chips) {
     if (!chip.checkVisibility()) continue;
     const card = chip.closest(".lx-page > *, .lx-subpanel > *");
@@ -441,5 +462,209 @@ test("S13 Appearance: two live mirrors of your own window, dark and light, that 
   await f.page.locator("#sg-clear-view").click();
   await f.page.waitForFunction(() => document.documentElement.dataset.quiet === "1");
   assert.equal(await f.page.locator("#settings-window").isVisible(), false);
+  assert.deepEqual(f.errors, []);
+});
+
+/* ---------- S14: every setting Branch declares, not only the audit's ---------- */
+const NOT_IN_SEARCH = {
+  /* Written by Branch itself (when something last happened, which run holds the browser), never by a person. */
+  writtenByBranch: [
+    "AnalyticsSettings.decidedAt", "AnalyticsSettings.lastSentAt", "BriefSettings.nextAt", "BriefSettings.lastSentAt",
+    "AttachSettings.runId", "AttachSettings.grantedAt", "ConsolidationSettings.lastRunAt", "RelaySettings.machineId",
+  ],
+  /* Switches beside the message box (the More menu), not on a Settings page. */
+  besideTheMessageBox: [
+    "AskFirstSettings.askFirst", "PlanActSettings.planMode",
+  ],
+  /* Read from the launch configuration (the integrations file and the keep-running gateway's file), not saved from the window. */
+  launchConfiguration: [
+    "GitConfig.github", "GitConfig.githubApp", "GitConfig.gitlab", "IssuesConfig.github", "IssuesConfig.linear",
+    "IssuesConfig.gitlab", "IssuesConfig.jira", "BrowserConfig.allowedOrigins", "BrowserConfig.maxRuns",
+    "BrowserConfig.maxOriginsPerRun", "BrowserConfig.maxDownloadBytes", "BrowserConfig.downloadTypes",
+    "GitHubAppConfig.appId", "GitHubAppConfig.privateKeySecret", "GitHubAppConfig.installationId",
+    "GitHubConfig.apiBase", "GitHubConfig.tokenSecret", "GitHubConfig.timeoutMs", "GitHubConfig.maxBytes",
+    "GitLabConfig.apiBase", "GitLabConfig.tokenSecret", "GitLabConfig.timeoutMs", "GitLabConfig.maxBytes",
+    "JiraConfig.site", "JiraConfig.emailSecret", "JiraConfig.tokenSecret", "JiraConfig.timeoutMs",
+    "JiraConfig.maxBytes", "LinearConfig.apiBase", "LinearConfig.tokenSecret", "LinearConfig.timeoutMs",
+    "LinearConfig.maxBytes", "ShellConfig.executables", "ShellConfig.inheritEnv", "ShellConfig.env",
+    "ShellConfig.timeoutMs", "ShellConfig.maxMemoryMb", "ShellConfig.maxCpuSeconds", "ShellConfig.maxOutputBytes",
+    "ShellConfig.netless", "ShellConfig.useJobObject", "GatewayConfig.startSeconds", "GatewayConfig.holdSeconds",
+    "GatewayConfig.maxQuickCrashes", "GatewayConfig.gapSeconds", "GatewayConfig.watchSeconds",
+    "GatewayConfig.workerEnv",
+  ],
+  /* Found by the 2026-09-19 sweep with no Settings search entry. Each still needs a look: a control to index, or a
+     reason it has none (many are set through the assistant, a command or the API). Listed in docs/agents/STATUS-p2-settings.md.
+     Only ever take names off this list. */
+  notYetReviewed: [
+    "AccountsSettings.poolingRule", "AccountsSettings.poolingNotices", "AskFirstSettings.maxQuestions",
+    "AnalyticsSettings.consent", "HindsightSettings.budget", "BatchSettings.minQuestions", "BatchSettings.maxWaitMs",
+    "BatchSettings.pollMs", "BatchSettings.discount", "BriefSettings.dailyAt", "BriefSettings.deliverTo",
+    "BriefSettings.template", "BriefSettings.sections", "WebhookAddressSettings.acceptOldAddresses",
+    "WebhookAddressSettings.oldAddressesEndOn", "CodeRunSettings.python", "CodeRunSettings.timeoutMs",
+    "CodeRunSettings.maxMemoryMb", "CodeRunSettings.maxCpuSeconds", "CodeRunSettings.maxOutputBytes",
+    "FormatSettings.formatters", "FormatSettings.diagnostics", "FormatSettings.waitMs", "FormatSettings.timeoutMs",
+    "RepositoryContextSettings.repositoryContextFiles", "RepositoryContextSettings.repositoryOutlineTokens",
+    "CredentialSettings.services", "CredentialSettings.bitwardenCommand", "CredentialSettings.onePasswordCommand",
+    "CredentialSettings.timeoutMs", "DebugSettings.maxMemoryMb", "DebugSettings.maxCpuSeconds",
+    "DebugSettings.timeoutMs", "DocumentSettings.embeddingModel", "LiveScoringSettings.scorers",
+    "EventLoopSettings.stallMs", "HeartbeatSettings.deliverTo", "KnowledgeSettings.maxIndexTokens",
+    "KnowledgeSettings.compareAtMost", "LanguageServerSettings.maxMemoryMb", "LanguageServerSettings.maxCpuSeconds",
+    "LanguageServerSettings.timeoutMs", "LearnSettings.steps", "ListenSettings.where", "RoutingSettings.localPreset",
+    "RoutingSettings.cloudPreset", "MediaSettings.imagePrices", "ConsolidationSettings.everyHours",
+    "MemoryRetrievalSettings.embeddingModel", "OrchestrationSettings.autoPlan", "OrchestrationSettings.planApproval",
+    "OrchestrationSettings.verify", "OrchestrationSettings.milestoneRounds", "OrchestrationSettings.stuckAction",
+    "PeopleSettings.extra", "HomeSettings.tokenName", "HomeSettings.domains", "SignInSettings.clientSecretName",
+    "SignInSettings.tenant", "SpokenBriefSettings.calendar", "SpokenBriefSettings.morningBrief",
+    "SpokenBriefSettings.maxCharacters", "PullRequestHookSettings.base", "BackgroundSettings.maxRunning",
+    "BackgroundSettings.maxMinutes", "BackgroundSettings.maxMemoryMb", "BackgroundSettings.maxCpuSeconds",
+    "BackgroundSettings.bufferBytes", "PlatformSettings.paused", "VideoSettings.pricePerSecond",
+    "CacheSettings.ttlMinutes", "CacheSettings.maxEntries", "RetrievalPipelineSettings.byCollection",
+    "RerankSettings.candidates", "RecordingSettings.keepPictures", "GovernanceSettings.excludeAfterFailures",
+    "GovernanceSettings.windowMinutes", "GovernanceSettings.recoveryAfterMinutes",
+    "GovernanceSettings.demoteAfterFailures", "StudySettings.benchmarksFolder", "SuggestionsSettings.updates",
+    "TraceExportSettings.destination", "TraceExportSettings.headers", "TraceExportSettings.batchSize",
+    "TraceExportSettings.retries", "TraceExportSettings.serviceName", "TraceExportSettings.includeErrors",
+    "TroubleshootSettings.maxTries", "VaultAutofillSettings.timeoutMs", "SecretCommandSettings.timeoutMs",
+    "KeychainSettings.timeoutMs", "WakeWordSettings.windowSeconds", "VoiceSettings.sttModel",
+    "VoiceSettings.ttsModel", "VoiceSettings.localSpeechKind", "VoiceSettings.localSpeechStream",
+  ],
+};
+
+test("S14 every setting Branch declares has a Settings search entry, or a stated reason on the list above", () => {
+  /* A declared key counts as found when an index row names it where it is saved ("voice.liveMaxDollars",
+     "model-savings.openrouter-sort"). Loose on purpose: a common word such as "mode" is found by any row that
+     saves a mode, so this can miss a setting but never invents one. */
+  const saved = new Set(SETTINGS_INDEX.flatMap((row) => (row[4] ?? "").split(/[.· -]+/)).filter(Boolean));
+  const declared = [];
+  for (const [key, where] of settingKeys(ROOT)) for (const place of where) declared.push(`${place.split("Schema (")[0]}.${key}`);
+  assert.ok(declared.length > 400, `only ${declared.length} declared settings were read`);
+  const listed = Object.values(NOT_IN_SEARCH).flat();
+  const unfound = declared.filter((name) => !saved.has(name.split(".")[1]) && !listed.includes(name));
+  assert.deepEqual(unfound, [], "these settings are declared in src/ but Settings search cannot find them: add a row to " +
+    "public/settings-index.js for the control, or name them in NOT_IN_SEARCH with the reason");
+  assert.deepEqual(listed.filter((name) => !declared.includes(name)), [], "NOT_IN_SEARCH names settings that no longer exist");
+  assert.equal(new Set(listed).size, listed.length, "a setting is listed twice");
+});
+
+/* ---------- S15: Regular never hides a safety control ---------- */
+async function cardState(page, id) {
+  return page.evaluate((cardId) => {
+    const card = document.getElementById(cardId);
+    return card ? { level: card.dataset.level ?? "none", hidden: card.hidden, visible: card.checkVisibility(), peeked: "sgPeek" in card.dataset } : null;
+  }, id);
+}
+const SAFETY = {
+  permissions: ["policy-card", "safety-stop-card", "approval-reviewer-card"],
+  computer: ["desktop-card", "reach-background-card"],
+  general: ["deployment-card"],
+  about: ["updates-card", "comfort-updates-card"],
+};
+for (const [width, height] of [[1440, 950], [390, 844]]) {
+  test(`S15 at ${width}×${height} Regular, with nothing peeked, shows Lockdown, what Branch may do, approvals, updates and background work`, async (t) => {
+    const f = await fixture(t, { width, height });
+    assert.equal(await f.page.evaluate(() => document.documentElement.dataset.settingsLevel), "regular");
+    /* Lockdown is one press away in the More menu, in the calm window too. */
+    await f.page.locator("#lx-more").click();
+    await f.page.locator('#lx-more-menu [data-kind="lockdown"]').waitFor({ state: "visible" });
+    await f.page.keyboard.press("Escape");
+    for (const [page, ids] of Object.entries(SAFETY)) {
+      await openSettings(f.page, page);
+      await f.page.waitForTimeout(200);
+      for (const id of ids) {
+        const state = await cardState(f.page, id);
+        assert.ok(state, `${id} is not in the window`);
+        assert.equal(state.level, "regular", `${id} waits for a higher level`);
+        assert.equal(state.peeked, false, `${id} was only shown by a peek`);
+        /* The Updates card is the desktop app's alone (public/app.js hides it in a browser); every other one shows. */
+        if (!state.hidden) assert.equal(state.visible, true, `${id} is hidden on Regular`);
+      }
+    }
+    await openSettings(f.page, "permissions");
+    assert.equal(await f.page.locator("#policy-preset").isVisible(), true, "what Branch may do without asking");
+    assert.equal(await f.page.locator("#approval-reviewer-mode").isVisible(), true, "a second look at approvals");
+    assert.deepEqual(f.errors, []);
+  });
+}
+
+/* ---------- S16: the page's own rules are kept ---------- */
+test("S16 the window loads and opens Settings with no Content Security Policy refusal, and the scope chips are dressed", async (t) => {
+  const f = await fixture(t);
+  await openSettings(f.page, "general");
+  await f.page.locator("#projects-form > .kit-scope").waitFor();
+  await openSettings(f.page, "appearance");
+  await f.page.waitForTimeout(1500);
+  assert.deepEqual(f.refused, [], "the console reported a Content Security Policy refusal");
+  assert.deepEqual(await f.page.evaluate(() => globalThis.__refused), [], "the page saw a Content Security Policy violation");
+  await openSettings(f.page, "general");
+  const chip = await f.page.locator("#projects-form > .kit-scope").evaluate((node) => {
+    const look = getComputedStyle(node), card = node.parentElement.getBoundingClientRect(), box = node.getBoundingClientRect();
+    return { border: look.borderTopStyle, round: parseFloat(look.borderTopLeftRadius), narrower: box.width < card.width / 2, text: node.textContent.trim() };
+  });
+  assert.equal(chip.border, "solid", "the scope chip has no edge: its stylesheet did not load");
+  assert.ok(chip.round > 4, "the scope chip is not rounded");
+  assert.ok(chip.narrower, "the scope chip runs the width of the card, like plain text");
+  assert.ok(chip.text.length > 0);
+  assert.deepEqual(f.errors, []);
+});
+
+/* ---------- S17: cards that waited for the old button load the real values, and saving keeps them ---------- */
+test("S17 the second-opinion limits load when Settings opens from the cog, and saving them untouched keeps them", async (t) => {
+  const f = await fixture(t);
+  const chosen = { advisor: false, advisorPreset: null, advisorMaxTokens: 7000, debateExchanges: 2, debateMaxTokens: 90000 };
+  await f.call("/api/second-opinion", chosen);
+  await openSettings(f.page, "models");
+  await f.page.locator('#lx-page-models .lx-subtab[data-sub="second"]').click();
+  await f.page.waitForFunction(() => document.getElementById("advisor-ceiling")?.value === "7000");
+  assert.equal(await f.page.locator("#debate-exchanges").inputValue(), "2");
+  assert.equal(await f.page.locator("#debate-ceiling").inputValue(), "90000");
+  await f.page.locator("#second-opinion-form").evaluate((form) => form.requestSubmit());
+  await f.page.waitForTimeout(500);
+  const saved = await f.call("/api/second-opinion");
+  assert.deepEqual([saved.advisorMaxTokens, saved.debateExchanges, saved.debateMaxTokens], [7000, 2, 90000], "saving changed the limits");
+  assert.deepEqual(f.errors, []);
+});
+
+/* ---------- S18: the mirrors stay in sight while the themes scroll (#25) ---------- */
+for (const [width, height] of [[1440, 950], [1024, 700], [390, 844]]) {
+  test(`S18 at ${width}×${height} the mirrors stay in sight while you scroll down the themes and point at one`, async (t) => {
+    const f = await fixture(t, { width, height });
+    await openSettings(f.page, "appearance");
+    await f.page.waitForFunction(() => [...document.querySelectorAll(".sg-mirror iframe")].every((frame) => frame.contentDocument?.body?.children.length > 0));
+    const last = f.page.locator("#lx-theme-gallery .lx-tile").last();
+    await last.scrollIntoViewIfNeeded();
+    const inSight = await f.page.evaluate(() => {
+      const body = document.getElementById("lx-settings-body").getBoundingClientRect();
+      const mirrors = document.querySelector(".sg-mirror-pair").getBoundingClientRect();
+      return mirrors.top >= body.top - 2 && mirrors.bottom <= body.bottom + 2;
+    });
+    assert.equal(inSight, true, "scrolling down the themes took the mirrors out of sight");
+    /* The tile you point at is not under the mirrors riding along above it, and they follow it. */
+    const covered = await last.evaluate((tile) => {
+      const box = tile.getBoundingClientRect(), top = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+      return !tile.contains(top);
+    });
+    assert.equal(covered, false, "the mirrors cover the tile being pointed at");
+    await last.hover();
+    const family = await last.getAttribute("data-family");
+    const name = await f.page.evaluate(async (id) => (await import("/theme-bridge.js")).themeById(id)[1], family);
+    await f.page.waitForFunction((words) => document.querySelector(".sg-mirror figcaption").textContent.startsWith(`${words} ·`), name);
+    assert.deepEqual(f.errors, []);
+  });
+}
+
+/* ---------- S19: in French, search names settings in French ---------- */
+test("S19 in French, a setting found elsewhere is named in French, from the words beside its control", async (t) => {
+  const f = await fixture(t);
+  await f.page.evaluate(() => globalThis.branchLayout.go("library:memory"));
+  await f.page.locator("#knobs-snapshotFacts").waitFor({ state: "attached" });
+  await f.page.evaluate(async () => (await import("/i18n.js")).setLanguage("fr"));
+  await f.page.waitForFunction(() => document.documentElement.lang === "fr");
+  const french = await f.page.evaluate(() => document.getElementById("knobs-snapshotFacts").labels[0].textContent.replace(/\s+/g, " ").trim());
+  assert.notEqual(french, "Remembered facts given to a new conversation", "the label was not translated");
+  await openSettings(f.page, "general");
+  await f.page.locator("#lx-settings-search").fill(french);
+  const row = f.page.locator('#sg-found [data-setting="knobs-snapshotFacts"] b');
+  await row.waitFor();
+  assert.equal(await row.textContent(), french);
   assert.deepEqual(f.errors, []);
 });

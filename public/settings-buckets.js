@@ -3,7 +3,9 @@
    this order, draws a heading in front of each group and gives each card the least level that shows it
    (regular, advanced or technical). A card that is not listed here still shows, at the end of its page
    under "More on this page", at every level. Row: [bucket id, icon, English title, English line,
-   [[card id, level], ...]]. A card id may also be the class of a block with no id (lx-look). */
+   [[card id, level], ...]]. A card id may also be the class of a block with no id (lx-look).
+   Regular never hides a safety control: what Branch may do without asking, the stop switches, a second look
+   at approvals, updates and what runs in the background stay regular (tests/settings-grown.test.mjs S15). */
 const R = "regular", A = "advanced", T = "technical";
 
 export const BUCKETS = {
@@ -67,7 +69,7 @@ export const BUCKETS = {
   ],
   permissions: [
     ["checks", "shield", "When Branch checks with you", "What it may do without asking, and the stop switches.",
-      [["policy-card", R], ["safety-stop-card", R], ["approval-reviewer-card", A], ["pins-form", A]]],
+      [["policy-card", R], ["safety-stop-card", R], ["approval-reviewer-card", R], ["pins-form", A]]],
     ["limits", "gauge", "Limits on one task and one person", "How far one task may go, and how much one person may ask for.",
       [["limits-card", A], ["knobs-limits-card", A], ["loop-guard-card", A]]],
     ["safe", "lock", "Keeping things safe", "Hiding secrets, trusted folders and security checks.",
@@ -75,7 +77,7 @@ export const BUCKETS = {
   ],
   computer: [
     ["screen", "monitor", "Your screen, keyboard and apps", "When Branch may look at and use your screen.",
-      [["desktop-card", R], ["screen-switch-card", A], ["reach-background-card", A], ["reach-usb-card", A], ["os-permissions-card", A]]],
+      [["desktop-card", R], ["screen-switch-card", A], ["reach-background-card", R], ["reach-usb-card", A], ["os-permissions-card", A]]],
     ["commands", "terminal", "Running commands safely", "Where commands run and the wall around them.",
       [["sandbox-card", A], ["os-sandbox-card", A], ["knobs-commands-card", A], ["firewall-card", A], ["knobs-launch-file-card", T]]],
     ["browser", "globe", "The browser", "Sites it stays signed in to, and how carefully it clicks.",

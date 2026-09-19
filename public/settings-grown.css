@@ -288,6 +288,13 @@
     margin-left: 0;
   }
 }
+/* A phone: the search and the page each get a whole row, so neither is cut short. */
+@media (max-width: 520px) {
+  .lx-settings-nav .lx-search,
+  .sg-picker {
+    flex-basis: 100%;
+  }
+}
 
 /* ---------- search: what the pages hold, and what sits elsewhere or behind a switch ---------- */
 .sg-found {
@@ -428,10 +435,25 @@
   border-radius: 10px;
   background: var(--well);
 }
+/* Narrower than two columns, the mirrors ride along at the top while the themes scroll under them (#25),
+   small enough to leave the themes room. */
+@media (max-width: 1199.98px) {
+  .sg-mirrors {
+    position: sticky;
+    top: -1px;
+    z-index: 2;
+    margin: 0 0 14px;
+    padding: 8px 0;
+    background: linear-gradient(var(--well), var(--well)), var(--surface);
+  }
+  .sg-mirror-pair {
+    grid-template-columns: repeat(2, minmax(0, 180px));
+  }
+}
 @media (max-width: 860px) {
   /* A phone's own window is tall: its mirror shows the top of it. */
   .sg-mirror-box {
-    max-height: 200px;
+    max-height: 120px;
   }
 }
 .sg-mirror-frame {

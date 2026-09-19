@@ -95,6 +95,7 @@ function switches(state) {
   if (state.windows) {
     const weak = document.createElement("input");
     weak.type = "checkbox";
+    weak.id = "addons-windows-without-wall"; // phase2/settings: so Settings search can point at it
     weak.checked = state.settings.windowsWithoutWall;
     weak.addEventListener("change", async () => {
       try { await call("/settings", { windowsWithoutWall: weak.checked }); tell(say("addons.saved", "Saved.")); } catch (error) { tell(error.message); }

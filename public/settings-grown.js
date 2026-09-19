@@ -10,7 +10,7 @@
      behind a switch, in a dialog or in another place is still found, with a way to go there.
    - Settings is a cog right after the account row; opening and moving about never loses your place.
    Nothing here changes what a setting does. */
-import { t } from "/i18n.js";
+import { language, t } from "/i18n.js";
 import { changeAppearance, currentAppearance } from "/appearance.js";
 import { BUCKETS, ELSEWHERE, ICON_PATHS, NAV_GROUPS } from "/settings-buckets.js";
 import { SETTINGS_INDEX } from "/settings-index.js";
@@ -340,12 +340,21 @@ function shownBySearch(row) {
   const card = node?.closest(".lx-page > *, .lx-subpanel > *");
   return Boolean(card && !card.classList.contains("lx-miss") && node.closest(".lx-page") && node.checkVisibility?.());
 }
+/** Words drawn on the page, in the language it is in (the index holds English). */
+const drawn = (node) => node?.textContent.replace(/\s+/g, " ").trim() || null;
+/** A setting's name: the index's English, or in another language the words beside its control when it is drawn. */
+function labelOf(row) {
+  return language() === "en" ? row[3] : drawn($(row[0])?.labels?.[0]) ?? row[3];
+}
+function cardTitleOf(row) {
+  return language() === "en" || !row[2] ? row[6] : drawn($(row[2])?.querySelector(":scope > h2, :scope > h3")) ?? row[6];
+}
 /** Settings in the index that match and are not already on show, closest first: the label itself, then its start. */
 function matches(needle) {
   const found = [];
   for (const row of SETTINGS_INDEX) {
-    const label = row[3].toLowerCase();
-    const words = `${label} ${row[6] ?? ""} ${homeWords(row[1])}`.toLowerCase();
+    const label = labelOf(row).toLowerCase();
+    const words = `${label} ${row[3]} ${cardTitleOf(row) ?? ""} ${row[6] ?? ""} ${homeWords(row[1])}`.toLowerCase();
     /* Somebody else's profile is never shown the owner's settings, even by name. */
     if (!words.includes(needle) || shownBySearch(row) || (row[7] && household())) continue;
     found.push([label === needle ? 0 : label.startsWith(needle) ? 1 : label.includes(needle) ? 2 : 3, row]);
@@ -356,7 +365,7 @@ function foundRow(row) {
   const item = make("li", "sg-found-item");
   item.dataset.setting = row[0];
   const words = make("span", "sg-found-words");
-  words.append(make("b", "", row[3]), make("small", "", [row[6], homeWords(row[1])].filter(Boolean).join(" · ")));
+  words.append(make("b", "", labelOf(row)), make("small", "", [cardTitleOf(row), homeWords(row[1])].filter(Boolean).join(" · ")));
   const why = whyUnseen(row);
   if (why) words.append(worded("small", "sg-found-gate", ...why));
   const go = worded("button", "sg-found-go", "settingsGrown.found.go", "Go there");

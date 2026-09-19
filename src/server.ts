@@ -644,6 +644,8 @@ async function staticFile(
     "/settings-index.js": ["settings-index.js", "text/javascript; charset=utf-8"],
     "/settings-look.js": ["settings-look.js", "text/javascript; charset=utf-8"],
     "/settings-grown.css": ["settings-grown.css", "text/css; charset=utf-8"],
+    // phase2/settings integration: the scope chips' and settings kit's look (an inline <style> the CSP refused).
+    "/settings-kit.css": ["settings-kit.css", "text/css; charset=utf-8"],
     "/playground.js": ["playground.js", "text/javascript; charset=utf-8"],
     "/tool-catalog.js": ["tool-catalog.js", "text/javascript; charset=utf-8"],
     "/i18n.js": ["i18n.js", "text/javascript; charset=utf-8"],

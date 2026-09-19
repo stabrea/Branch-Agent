@@ -301,15 +301,7 @@ async function drawFileMap() {
   document.body.append(section);
 }
 
-const STYLE = `
-.kit-changes { display: grid; gap: var(--s1, 4px); margin: var(--s2, 8px) 0; }
-.kit-change { display: flex; flex-wrap: wrap; gap: var(--s2, 8px); align-items: baseline; overflow-wrap: anywhere; }
-.kit-loose { color: var(--warn); font-size: 0.8rem; }
-.kit-files { display: grid; gap: var(--s2, 8px); }
-.kit-file { border-top: 1px solid var(--line); padding-top: var(--s2, 8px); overflow-wrap: anywhere; }
-.kit-file p { margin: 2px 0; }
-.kit-editor textarea { width: 100%; }
-`;
+/* The look of the changes, files and editor lives in public/settings-kit.css (the page's Content Security Policy refuses an inline <style>). */
 
 export async function drawKit() {
   let overview;
@@ -320,9 +312,6 @@ export async function drawKit() {
 }
 
 if (typeof document !== "undefined") {
-  const style = document.createElement("style");
-  style.textContent = STYLE;
-  document.head.append(style);
   globalThis.branchSettingsKitReady = () => { drawKit().catch(() => {}); };
   document.addEventListener("branch-language", () => { drawKit().catch(() => {}); });
   drawKit().catch(() => {});
