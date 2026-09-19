@@ -7,6 +7,7 @@ import { noJournal, type JournalHook } from "./never-break/journal.js"; // mac3/
 import { neverBreakModeSync } from "./never-break/gateway-config.js"; // mac3/never-break
 import { runOrigin, shortLivedKeyMark, startedWithShortLivedKey, underShortLivedKey } from "./key-context.js"; // bucket-18 (A0300), bucket 19
 import { personalHold } from "./personal/guard.js"; // R17-C integration review
+import { conversationCarrier, outsideSourceOf, type OutsideSource } from "./outside-origin.js"; // mac7/outside-resume
 import { asPerson, currentPerson } from "./people/context.js"; // bucket 19
 import type { TrunkRunShape } from "./trunks/shape.js"; // R17-A (Trunks)
 import {
@@ -50,6 +51,7 @@ import { presetRunsLocally } from "./models.js"; // mac7/coding-next
 import { projectTestsTool } from "./coding/project-tests.js"; // mac7/coding-next
 import { checkResult, fanoutWaves, type FanoutTask, type ResultCheck } from "./delegation.js";
 import { describeToolCall, filePathOf } from "./activity.js";
+import { canonicalArguments } from "./loop-guard.js";
 // Wave mac2 (guards): loop guard and folder trust; see src/run-guards.ts.
 import { RunGuards } from "./run-guards.js";
 import { browserConfirmationHold, holdsBrowserStep, withBrowserConfirmation } from "./comfort/browser-safety.js"; // R17-S19
@@ -65,7 +67,7 @@ import { memoryScope } from "./memory.js";
 import { parseSessionSummary, summaryText } from "./session-summary.js";
 import { chatEngineSettings, condenseMessages, earlierTurns, shouldCondense, standaloneQuestion } from "./chat-engine.js"; // w911 (A0847)
 import {
-  CheckError, StallError, ReliabilityOptionsSchema, CompletionCheckSchema, clipToolResult, evaluateChecks, shrinkToolResults, withStallWatchdog,
+  CheckError, StallError, LocalModelSilentError, localFirstReplyGraceMs, ReliabilityOptionsSchema, CompletionCheckSchema, clipToolResult, evaluateChecks, shrinkToolResults, withStallWatchdog,
   type FirstReplyWait,
   thinkingKeepsAlive, thinkingCharsPerToken, thinkingStallWindows,
   type CompletionCheck, type ReliabilityInput, type ReliabilityOptions,
@@ -78,7 +80,6 @@ import {
   addPolicyRule, cappedPolicy, evaluatePolicy, isReadOnlyPermission, readPolicy,
   type Policy, type PolicyDecision, type PolicyRemember, type RunSource,
 } from "./policy.js";
-import { resourceOf } from "./policy-resources.js";
 import { ProfileRoles, grantRefusal } from "./profile-roles.js";
 import { Handoffs } from "./orchestration-modes.js";
 import { categoryOf } from "./tool-categories.js";
@@ -166,7 +167,9 @@ interface GateOutcome {
   backend: SandboxBackendName | null; paths: readonly string[] | null;
 }
 export interface DelegateOptions { timeoutMs?: number; resultSchema?: Record<string, unknown>; /** The shape this task wants back, declared in zod. A reply that misses it is re-asked once. */ shape?: AnswerShape; checks?: CompletionCheck; background?: boolean; /** Specialist id: limits memory reads to shared facts and its own. */ agent?: string; /** The specialist's working style; it changes how the loop runs. */ style?: SpecialistStyle }
-export interface FollowUp { id: string; prompt: string; createdAt: string; shortLivedKey?: boolean; shortLivedKeyId?: string; personProfileId?: string }
+export interface FollowUp { id: string; prompt: string; createdAt: string; shortLivedKey?: boolean; shortLivedKeyId?: string; personProfileId?: string;
+  /** mac7/outside-resume: the earlier task this message carries on for (a handed-over step's answer). */
+  originFrom?: string }
 export interface BackgroundResult { childRunId: string; parentRunId: string; status: string; output: string; finishedAt: string }
 export interface FanoutOutcome { waves: string[][]; tasks: Record<string, { runId: string; status: string; output: string; result: ResultCheck }> }
 /** Every reply may be this long; a run whose model runs out of room thinking may double it twice. */
@@ -245,6 +248,11 @@ export interface RunOptions {
   images?: ImagePart[];
   /** Internal: continue an interrupted run's transcript instead of adding a new prompt. */
   resumeFrom?: string;
+  /**
+   * mac7/outside-resume: the earlier task this one carries on for ("Do this again", a handed-over
+   * step's answer). When that task came from outside, this one is held as it was.
+   */
+  originFrom?: string;
   /** bucket 19 (integration review): whose conversation this is, when a person's own one is lent to the assistant. */
   lentTo?: string;
   /** Practice run: tools that would change something report what they would have done. */
@@ -407,8 +415,10 @@ export class Runtime {
   settleDeferred(id: string, outcome: string): { id: string; sessionId: string; queued: number } {
     const entry = this.deferrals.settle(id, outcome);
     if (entry.runId) this.store.event(entry.runId, "tool.deferred_settled", { id: entry.id, tool: entry.tool });
+    // mac7/outside-resume: the answer carries the task that handed the step over on, as that task.
     const queued = this.followUp(entry.sessionId,
-      `The "${entry.tool}" step you handed over earlier has finished${entry.description ? ` (${entry.description})` : ""}. What came of it: ${entry.outcome}`);
+      `The "${entry.tool}" step you handed over earlier has finished${entry.description ? ` (${entry.description})` : ""}. What came of it: ${entry.outcome}`,
+      null, entry.runId || undefined);
     return { id: entry.id, sessionId: entry.sessionId, queued: queued.queued };
   }
   /** The default preset's provider; individual runs may select another preset. */
@@ -466,7 +476,7 @@ export class Runtime {
    * Queues a message for a conversation; it runs, in order, as soon as the conversation is free,
    * so a person can steer a task that is still working without waiting for it to finish.
    */
-  followUp(sessionId: string, prompt: string, windowPerson: string | null = null): { id: string; position: number; queued: number } {
+  followUp(sessionId: string, prompt: string, windowPerson: string | null = null, originFrom?: string): { id: string; position: number; queued: number } {
     RunInputSchema.parse({ prompt, sessionId });
     // profile-audit: queued from the app window switched to a household profile, it runs as them.
     const person = currentPerson()?.profileId ?? windowPerson;
@@ -475,7 +485,7 @@ export class Runtime {
     const items = [...this.queued(sessionId), { id: randomUUID(), prompt, createdAt: new Date().toISOString(),
       ...(startedWithShortLivedKey() ? { shortLivedKey: true } : {}),
       ...(shortLivedKeyMark().keyId ? { shortLivedKeyId: shortLivedKeyMark().keyId } : {}),
-      ...(person ? { personProfileId: person } : {}) }];
+      ...(person ? { personProfileId: person } : {}), ...(originFrom ? { originFrom } : {}) }];
     this.store.save("settings", this.owner, `followups:${sessionId}`, { items });
     this.drainFollowUps(sessionId);
     const left = this.queued(sessionId);
@@ -486,7 +496,8 @@ export class Runtime {
     const [next, ...rest] = this.queued(sessionId);
     if (!next) return;
     this.store.save("settings", this.owner, `followups:${sessionId}`, { items: rest });
-    const start = () => this.track(() => this.execute({ prompt: next.prompt, sessionId, onTextDelta: () => undefined }));
+    const start = () => this.track(() => this.execute({ prompt: next.prompt, sessionId, onTextDelta: () => undefined,
+      ...(next.originFrom ? { originFrom: next.originFrom } : {}) }));
     const marked = () => (next.shortLivedKey ? underShortLivedKey(start, next.shortLivedKeyId ? { keyId: next.shortLivedKeyId } : {}) : start());
     // bucket 19: a message a household person queued runs as that person, held to their role.
     void (next.personProfileId ? asPerson({ profileId: next.personProfileId, keyId: "queued" }, marked) : marked()).catch(() => undefined);
@@ -527,10 +538,10 @@ export class Runtime {
     const lentTo = origin?.lentTo ?? null;
     if (!previous || !origin || (previous.owner !== this.owner && previous.owner !== lentTo)) throw new Error("Run not found");
     if (previous.status !== "interrupted") throw new Error("Only interrupted tasks can be continued");
-    // A chat message's task carries on as the chat's, with the same tools, never as the owner's own.
-    const chat = origin.source === "channel"
-      ? { source: "channel" as const, ...(origin.permissions ? { permissions: origin.permissions } : {}) } : {};
-    const again = { prompt: previous.prompt, sessionId: previous.sessionId, resumeFrom: previous.id, ...chat };
+    // A task from outside (a chat message, a trigger, a schedule, another program) carries on as it
+    // started, with the same tools, never as the owner's own: execute reads that from the record
+    // (carryOrigin, mac7/outside-resume), whoever pressed Continue.
+    const again = { prompt: previous.prompt, sessionId: previous.sessionId, resumeFrom: previous.id };
     const go = async () => {
       if (!lentTo) return this.execute(again);
       // Lent to the assistant for the resumed task, and handed back to the person after it.
@@ -647,7 +658,8 @@ export class Runtime {
    * mac5/manual-actions: the OS sandbox wall for a call made outside a conversation, worked out with
    * exactly the inputs a conversation's call uses (see callTool). Never taken from the caller.
    */
-  wallFor(tool: string, args: unknown, context: ToolContext, choice: PolicyCheck["sandbox"]): Pick<ToolContext, "osSandbox"> {
+  wallFor(tool: string, sent: unknown, context: ToolContext, choice: PolicyCheck["sandbox"]): Pick<ToolContext, "osSandbox"> {
+    const args = this.registry.runArgs(tool, sent); // hardening-3: as the tool will run it
     return wallContextFor({ store: this.store, owner: this.owner, policy: this.policy(context.source ?? "owner", context.runId),
       approvals: this.approvals, context, tool, permission: this.registry.permissionOf(tool),
       target: this.registry.targetOf(tool, args, context), args, choice, untouchable: this.protectedAreas });
@@ -801,12 +813,13 @@ ${run.output.slice(0, 6000)}`;
   }
   /** bucket-18 (A0300): who started the task, and whether a short-lived key was behind it or its parent. */
   private originMarks(options: RunOptions, context: ToolContext, parent?: ToolContext): Record<string, unknown> {
-    const inherited = [parent?.runId, options.resumeFrom].some((id) => !!id && runOrigin(this.store, id).shortLivedKey);
+    const inherited = [parent?.runId, options.resumeFrom, options.originFrom].some((id) => !!id && runOrigin(this.store, id).shortLivedKey);
     // household-followups: a specialist's task is its parent's person's, whatever the window says now.
     const person = parent?.runId ? runOrigin(this.store, parent.runId).personProfileId : this.startedFor(context.source);
     return {
       source: context.source ?? "owner",
       ...(options.resumeFrom ? { resumedFrom: options.resumeFrom } : {}),
+      ...(options.originFrom ? { originFrom: options.originFrom } : {}), // mac7/outside-resume
       ...(startedWithShortLivedKey() || inherited ? { shortLivedKey: true } : {}),
       // bucket 19: which key, so only that key may answer the questions this task asks.
       ...(shortLivedKeyMark().keyId ? { shortLivedKeyId: shortLivedKeyMark().keyId } : {}),
@@ -837,6 +850,7 @@ ${run.output.slice(0, 6000)}`;
     parent?: ToolContext,
     instructions = "",
   ): Promise<Run> {
+    options = this.carryOrigin(options, parent); // mac7/outside-resume
     // Check the monthly budget before creating the run
     if (!parent) {
       const refusal = this.monthlyBudgetRefusal();
@@ -894,6 +908,7 @@ ${run.output.slice(0, 6000)}`;
       // What this task was allowed to reach, so "Do this again" can hand it the very same tools.
       permissions: [...context.permissions].sort(),
     });
+    this.recordedSources.delete(run.id); // mac7/outside-resume: read again now that the start is written
     // ── mac2/fly-core: the learning core ranks what worked before as the task starts, and learns from
     // the outcome once it has settled (src/fly-core/hook.ts). Advice only; it never fails a task. ──
     const flyCoreSettled = parent || context.dryRun || context.isolated ? null : watchTask(this.store, run, context.owner);
@@ -941,6 +956,7 @@ ${run.output.slice(0, 6000)}`;
     // running — so every task lets go of its ids here, child runs included.
     this.tracer.forget(run.id);
     this.guards.forget(run.id); // wave mac2 (guards)
+    this.recordedSources.delete(run.id); // mac7/outside-resume
     safetyExtras.forgetProgress(this.store, run.id); // mac7/r17-g
     this.leaveSpend(run.id); // R17-S09
     if (!parent && !options.isolated && settled.status === "completed" && !options.resumeFrom) this.scheduleReview(run, context);
@@ -1309,7 +1325,11 @@ ${run.output.slice(0, 6000)}`;
         this.rememberToolWork(run.id, call.name, round + 1);
         // mac3/never-break: each call is written to the task journal, flushed, before it runs.
         const result = await this.journal.around({ runId: run.id, sessionId: run.sessionId, call, workspace: context.workspace, signal: context.signal,
-          permission: this.registry.permissionOf(call.name) }, () => this.guards.call(run.id, call, () => this.callTool(call, context))); // wave mac2 (guards)
+          permission: this.registry.permissionOf(call.name) }, () => {
+          // hardening-3: the loop guard compares the call as the tool will run it, so a changing junk key is still a repeat.
+          const prepared = this.prepareCall(call);
+          return this.guards.call(run.id, { ...call, arguments: prepared.seenText }, () => this.callTool(call, context, prepared));
+        }); // wave mac2 (guards)
         const message: Message = { role: "tool", toolCallId: call.id, content: this.clipped(run, call, JSON.stringify(result)) };
         messages.push(message); ids.push(null);
         this.store.message(run.sessionId, message);
@@ -1808,6 +1828,7 @@ ${run.output.slice(0, 6000)}`;
     onTextDelta?: (text: string) => void,
   ): Promise<Completion> {
     let stalls = 0;
+    const firstReply: LocalFirstReply = { started: Date.now(), retried: false }; // hardening-3
     for (let retriesUsed = 0; ; retriesUsed++) {
       let observedText = false;
       const emit = onTextDelta
@@ -1818,7 +1839,7 @@ ${run.output.slice(0, 6000)}`;
         : undefined;
       const preset = route.candidates[route.index]!;
       try {
-        return await this.complete(run, messages, context, preset, route.reasoning, emit);
+        return await this.complete(run, messages, context, preset, route.reasoning, emit, undefined, firstReply.capMs);
       } catch (error) {
         const ceiling = this.replyCeilings.get(run.id) ?? baseReplyCeiling;
         if (isOutOfRoomThinking(error) && ceiling < maxReplyCeiling && !context.signal.aborted) {
@@ -1828,6 +1849,7 @@ ${run.output.slice(0, 6000)}`;
           continue;
         }
         if (error instanceof StallError) {
+          if (error.beforeFirstWord && presetRunsLocally(preset)) { this.recoverLocalFirstReply(run, context, route, error, firstReply); retriesUsed = -1; continue; }
           if (this.recoverStall(run, context, route, error, stalls++)) { retriesUsed = -1; continue; }
           throw error;
         }
@@ -1851,6 +1873,27 @@ ${run.output.slice(0, 6000)}`;
         await waitForRetry(retry.delayMs, context.signal);
       }
     }
+  }
+  /**
+   * hardening-3: a model on this computer that has not said its first word. It is tried again once,
+   * and only for what is left of the owner's first-reply wait plus a short grace (it may have just
+   * finished loading); after that the next connection is used when the owner allows falling back,
+   * and otherwise the task ends with a plain sentence saying what to try. Returns only to carry on.
+   */
+  private recoverLocalFirstReply(run: Run, context: ToolContext, route: ModelRoute, error: StallError, wait: LocalFirstReply): void {
+    const preset = route.candidates[route.index]!;
+    const firstMs = knobs.localFirstReplyMs(this.store, this.owner, this.reliability), grace = localFirstReplyGraceMs(firstMs);
+    const left = firstMs + grace - (Date.now() - wait.started);
+    const retry = !context.signal.aborted && !wait.retried && this.reliability.stallRecovery !== "fail" && left > 0;
+    if (retry) {
+      Object.assign(wait, { retried: true, capMs: Math.min(grace, left) });
+      this.store.event(run.id, "model.stall_recovery", { action: "retry", stalls: 1, afterMs: error.afterMs, preset: preset.id, firstReply: true, waitMs: wait.capMs });
+      return;
+    }
+    const moved = !context.signal.aborted && this.reliability.stallRecovery !== "fail" && this.fallBack(run, context, route, error);
+    this.store.event(run.id, "model.stall_recovery", { action: moved ? "fallback" : "fail", stalls: wait.retried ? 2 : 1, afterMs: error.afterMs, preset: preset.id, firstReply: true });
+    if (!moved) throw new LocalModelSilentError(Date.now() - wait.started);
+    Object.assign(wait, { started: Date.now(), retried: false, capMs: undefined });
   }
   /** After a stalled model call: try again (twice at most), move to the next preset, or give up, as configured. */
   private recoverStall(run: Run, context: ToolContext, route: ModelRoute, error: StallError, stalls: number): boolean {
@@ -1905,6 +1948,7 @@ ${run.output.slice(0, 6000)}`;
     reasoning: ReasoningEffort | null,
     onTextDelta?: (text: string) => void,
     shape?: AnswerShape,
+    firstCapMs?: number,
   ): Promise<Completion> {
     context.budget.step(context.signal);
     // R17-S09: a task that has reached the owner's spending cap for one task stops here.
@@ -1960,7 +2004,7 @@ ${run.output.slice(0, 6000)}`;
             preset.provider.complete({ ...request, signal, onTextDelta: (text: string) => { touch(); onTextDelta(text); },
               // integrate/empty-completion: only within the reply's room and a bounded window.
               onReasoningDelta: thinkingKeepsAlive(touch, { maxChars: maxTokens * thinkingCharsPerToken,
-                forMs: this.reliability.modelStallMs * thinkingStallWindows }) }), this.firstReplyWait(run, preset))
+                forMs: this.reliability.modelStallMs * thinkingStallWindows }) }), this.firstReplyWait(run, preset, firstCapMs))
         : await preset.provider.complete({ ...request, signal: context.signal }));
       const { output, reported } = this.recordCompletion(run, context, raw, input);
       // R17-048 / R17-050: note the service's own count, and keep its cache warm if the owner asked.
@@ -2004,10 +2048,10 @@ ${run.output.slice(0, 6000)}`;
    * that first silence may last longer (the owner's setting, 300 s as shipped), and after a short
    * while the person is told why nothing has appeared yet. Hosted models wait exactly as before.
    */
-  private firstReplyWait(run: Run, preset: ModelPreset): FirstReplyWait {
+  private firstReplyWait(run: Run, preset: ModelPreset, capMs?: number): FirstReplyWait {
     if (!presetRunsLocally(preset)) return {};
     const firstMs = knobs.localFirstReplyMs(this.store, this.owner, this.reliability);
-    return { firstMs, quiet: { afterMs: Math.min(localQuietMs, this.reliability.modelStallMs), notify: () =>
+    return { firstMs, ...(capMs === undefined ? {} : { capMs }), quiet: { afterMs: Math.min(localQuietMs, this.reliability.modelStallMs), notify: () =>
       this.store.event(run.id, "model.loading", { preset: preset.id, model: preset.model, waitSeconds: Math.round(firstMs / 1000),
         message: "Waiting for the model on this computer to start. It may be loading into memory." }) } };
   }
@@ -2094,7 +2138,9 @@ ${run.output.slice(0, 6000)}`;
   policy(source: RunSource = "owner", runId?: string): Policy {
     // Wave mac2 (guards): with folder trust on, a task in a folder the owner does not trust asks first.
     // R17-S19: with "confirm sensitive browser steps" on, those steps ask every time (src/comfort/browser-safety.ts).
-    return withBrowserConfirmation(this.guards.policy(cappedPolicy(this.conversationPolicy(runId), source)), this.store, this.owner);
+    // mac7/outside-resume: held by the task's own record too, so work carried on from outside stays held.
+    const held = source !== "owner" ? source : this.recordedSource(runId) ?? "owner";
+    return withBrowserConfirmation(this.guards.policy(cappedPolicy(this.conversationPolicy(runId), held)), this.store, this.owner);
   }
   /** Redesign phase 1: the owner's policy as this task's conversation has narrowed or widened it. */
   private conversationPolicy(runId?: string): Policy {
@@ -2139,6 +2185,37 @@ ${run.output.slice(0, 6000)}`;
     return origin.source === "owner" && !origin.shortLivedKey;
   }
   /**
+   * mac7/outside-resume: a task that carries on outside work keeps where that work came from. The
+   * task it resumes, the task it says it carries on for, or the outside task its conversation began
+   * with (or stopped on) is read from the record; whoever pressed Continue, answered the question
+   * or typed the next message does not change it. A resumed task keeps its own tools as well.
+   */
+  private carryOrigin(options: RunOptions, parent?: ToolContext): RunOptions {
+    if (parent || (options.source && options.source !== "owner")) return options;
+    const { originFrom: asked, ...rest } = options;
+    const carried = (id: string | null | undefined) => (id && outsideSourceOf(this.store, id) ? id : undefined);
+    const from = carried(options.resumeFrom) ?? carried(asked) ?? carried(conversationCarrier(this.store, options.sessionId));
+    const source = outsideSourceOf(this.store, from);
+    if (!from || !source) return rest;
+    const kept = from === options.resumeFrom && !options.permissions ? runOrigin(this.store, from).permissions : null;
+    return { ...rest, source, ...(from === options.resumeFrom ? {} : { originFrom: from }), ...(kept ? { permissions: kept } : {}) };
+  }
+  /** mac7/outside-resume: who a piece of work is held as — its context, or its task's record when that is stricter. */
+  private sourceOf(context: { source?: RunSource | undefined; runId?: string | undefined }): RunSource {
+    const given = context.source ?? "owner";
+    return given !== "owner" ? given : this.recordedSource(context.runId) ?? "owner";
+  }
+  /** The outside source a task's record carries, read once per task (forgotten when it settles). */
+  private recordedSource(runId: string | undefined): OutsideSource | null {
+    if (!runId) return null;
+    if (this.recordedSources.has(runId)) return this.recordedSources.get(runId) ?? null;
+    const found = outsideSourceOf(this.store, runId);
+    if (this.recordedSources.size >= 500) this.recordedSources.clear();
+    this.recordedSources.set(runId, found);
+    return found;
+  }
+  private readonly recordedSources = new Map<string, OutsideSource | null>();
+  /**
    * Where answers already given are remembered for this piece of work: the conversation, or the
    * name a workflow gave when there is no conversation behind it.
    */
@@ -2150,15 +2227,17 @@ ${run.output.slice(0, 6000)}`;
    * account. The same reckoning a model's turn goes through, for the places that are not one: a
    * saved workflow's tool step, and every step of a procedure being replayed.
    */
-  checkPolicy(tool: string, args: unknown, context: ToolContext, fingerprint?: string): PolicyCheck {
+  checkPolicy(tool: string, sent: unknown, context: ToolContext, fingerprint?: string): PolicyCheck {
+    // hardening-3: judged as the tool will run it (the same schema, the same names), whatever the caller passed.
+    const args = this.registry.runArgs(tool, sent);
     const permission = this.registry.permissionOf(tool);
     const readOnly = isReadOnlyPermission(permission);
     const target = this.registry.targetOf(tool, args, context);
     const label = describeToolCall(tool, args);
-    const source: RunSource = context.source ?? "owner";
+    const source: RunSource = this.sourceOf(context); // mac7/outside-resume
     // What the call is about — a folder, a website, a messaging account, a command — so a rule the
     // owner wrote about that one thing is considered before the broad ones.
-    const resource = resourceOf(tool, permission, target, args);
+    const resource = this.registry.resourceOf(tool, target, args); // integration (hardening-3): with the workspace-written path
     // Somebody else in the house, working under their own profile, is held to their role first.
     // A role can only refuse; it never lets anything through that the rules would have stopped.
     // --- mac3/never-break: Branch's own program, gateway settings, database and updater can never be
@@ -2341,7 +2420,7 @@ ${run.output.slice(0, 6000)}`;
       : this.offPlanQuestion(context, { label, target, readOnly }) ?? this.retriedCommandQuestion(call, args, context);
     if (aside) {
       this.orchestration.pausePlan(this.sessionOf(context));
-      return this.askApproval(context, { tool: call.name, label: aside, target, source: context.source ?? "owner",
+      return this.askApproval(context, { tool: call.name, label: aside, target, source: this.sourceOf(context),
         remember, sandbox, bytes: this.hideSecrets(shown.arguments).slice(0, 2000), fingerprint }, call.id);
     }
     if (decision === "allow") return { refusal: null, ...held };
@@ -2350,7 +2429,7 @@ ${run.output.slice(0, 6000)}`;
         ...(verdict ? { hook: verdict.hook } : {}), ...(reason ? { reason } : {}) });
       return { refusal: { ok: false, error: reason || verdict?.reason || refusedByPolicy(label) }, ...held };
     }
-    const source: RunSource = context.source ?? "owner";
+    const source: RunSource = this.sourceOf(context); // mac7/outside-resume
     const asked = verdict?.reason ? `${label} — ${verdict.reason}` : label;
     return this.askApproval(context, { tool: call.name, label: asked, target, source, remember, sandbox,
       // The exact request, cleaned of any saved password or key, is what the person is shown and
@@ -2669,29 +2748,42 @@ ${run.output.slice(0, 6000)}`;
     if (!app) return;
     this.store.event(context.runId, "mcp.app", { tool: call.name, server: call.name.split(".")[1] ?? call.name, ...app });
   }
+  /**
+   * hardening-3: a model's call read once — the arguments cleaned of keys the tool does not take
+   * (the tool gets these) and the arguments the tool will run with once its own schema has mapped
+   * names, trimmed spaces and filled defaults (everything that judges or shows the call gets these:
+   * the rules, the approval card, the second look, the wall, and the loop guard).
+   */
+  prepareCall(call: ToolCall): PreparedCall {
+    let parsed: unknown, validArgs = true;
+    try { parsed = JSON.parse(call.arguments); } catch { validArgs = false; }
+    const { args, ignored } = validArgs ? this.registry.clean(call.name, parsed) : { args: parsed, ignored: [] };
+    const seen = validArgs ? this.registry.runArgs(call.name, args) : args;
+    return { args, seen, ignored, validArgs, seenText: validArgs ? argumentsText(seen, call.arguments) : call.arguments };
+  }
   private async callTool(
     call: ToolCall,
     context: ToolContext,
+    prepared: PreparedCall = this.prepareCall(call),
   ): Promise<unknown> {
-    let parsed: unknown, validArgs = true;
-    try { parsed = JSON.parse(call.arguments); } catch { validArgs = false; }
-    // mac7/coding-next: keys the tool does not take are dropped here, before anything looks at the
-    // call — the policy, the approval, the wall and the tool all see only what is left — and the
-    // model is told in one line which ones were ignored. The approval's fingerprint and the bytes
-    // shown stay those of the exact request sent, which can only make a yes narrower, never wider.
-    const { args, ignored } = validArgs ? this.registry.clean(call.name, parsed) : { args: parsed, ignored: [] };
+    // mac7/coding-next: keys the tool does not take are dropped before anything looks at the call,
+    // and the model is told in one line which ones were ignored. The approval's fingerprint stays
+    // that of the exact request sent, which can only make a yes narrower, never wider.
+    const { ignored } = prepared;
     if (ignored.length) this.store.event(context.runId, "tool.arguments_ignored", { name: call.name, id: call.id, keys: ignored });
-    // Integration review: the person asked and the second model are shown what will run, not the junk.
-    const shown = ignored.length ? { ...call, arguments: JSON.stringify(args) } : call;
-    const outcome = await this.runToolCall(call, context, args, validArgs, shown);
+    // Integration review, hardening-3: the person asked and the second model are shown what will run.
+    const shown = canonicalArguments(prepared.seenText) === canonicalArguments(call.arguments) ? call : { ...call, arguments: prepared.seenText };
+    const outcome = await this.runToolCall(call, context, prepared, shown);
     return ignored.length && outcome && typeof outcome === "object" ? { ...outcome, note: ignoredNote(ignored) } : outcome;
   }
-  private async runToolCall(call: ToolCall, context: ToolContext, args: unknown, validArgs: boolean, shown: ToolCall): Promise<unknown> {
+  private async runToolCall(call: ToolCall, context: ToolContext, prepared: PreparedCall, shown: ToolCall): Promise<unknown> {
+    // `args` is what the tool is handed; `seen` is the same call as the tool will read it, for everything else.
+    const { args, seen, validArgs } = prepared;
     // The file a call is about is written down beside it — the path only — so that later the
     // assistant can notice which files this person keeps coming back to. See src/memory-learning.ts.
-    const path = filePathOf(call.name, args);
+    const path = filePathOf(call.name, seen);
     this.store.event(context.runId, "tool.started",
-      { name: call.name, id: call.id, label: describeToolCall(call.name, args), ...(path ? { path } : {}) });
+      { name: call.name, id: call.id, label: describeToolCall(call.name, seen), ...(path ? { path } : {}) });
     if (call.name === expandToolName) return this.openToolbox(call, context, args);
     if (call.name === toolSearchName) return this.searchTools(call, context, args);
     if (call.name === toolDescribeName) return this.describeTools(call, context, args);
@@ -2699,7 +2791,7 @@ ${run.output.slice(0, 6000)}`;
     const blocked = this.reconciliationBlock(context, call);
     if (blocked) { this.store.event(context.runId, "reconciliation.required", { name: call.name, id: call.id }); return { ok: false, error: blocked }; }
     await this.pace(context, "tool", this.policy().limits.toolCallsPerMinute);
-    const gated = await this.gate(call, args, context, shown);
+    const gated = await this.gate(call, seen, context, shown);
     if (gated.refusal) return gated.refusal;
     const limitMs = knobs.toolLimits(this.store, this.owner, this.reliability).toolTimeoutMs, timeout = AbortSignal.timeout(limitMs); // R17-S10
     // How tightly a program this call starts is held travels with the call, so a tool that starts
@@ -2714,7 +2806,7 @@ ${run.output.slice(0, 6000)}`;
       // wave mac3 (os-sandbox): the wall around programs, from the owner's switch; see src/sandbox-wall.ts.
       ...wallContextFor({ store: this.store, owner: this.owner, policy: this.policy(context.source ?? "owner", context.runId),
         approvals: this.approvals, context, tool: call.name, permission: this.registry.permissionOf(call.name),
-        target: this.registry.targetOf(call.name, args, context), args, choice: gated.sandbox, untouchable: this.protectedAreas }) };
+        target: this.registry.targetOf(call.name, seen, context), args: seen, choice: gated.sandbox, untouchable: this.protectedAreas }) };
     const span = this.tracer.start(context.runId, "tool", `tool ${call.name}`, {
       "branch.tool.name": call.name, "branch.tool.call_id": call.id,
       "branch.tool.permission": this.registry.permissionOf(call.name),
@@ -2730,9 +2822,9 @@ ${run.output.slice(0, 6000)}`;
       const receipt = await this.store.receipts.sign(context.runId, call.id, call.name, result);
       this.store.event(context.runId, "tool.completed", { name: call.name, id: call.id, result, receipt });
       // A command that ran but came back with a complaint is still a command that did not work.
-      this.noteCommandFailure(call, context, args, result);
+      this.noteCommandFailure(call, context, seen, result);
       // w911 (A0374) hook: with "fixing failed commands" on, a failed command is diagnosed, fixed and tried again.
-      const mended = await troubleshootInTask(this, context, call, args, result, (fix) => this.callTool(fix, context), () => this.failedCommands.delete(this.sessionOf(context)));
+      const mended = await troubleshootInTask(this, context, call, seen, result, (fix) => this.callTool(fix, context), () => this.failedCommands.delete(this.sessionOf(context)));
       if (mended) { span?.end("ok"); return mended; }
       const failure = this.toolWork.get(context.runId)?.failures.get(call.name);
       if (failure !== undefined) { this.toolWork.get(context.runId)!.failures.delete(call.name); this.learnFromRetry(context, call.name, failure); }
@@ -2744,7 +2836,7 @@ ${run.output.slice(0, 6000)}`;
       if (e instanceof ApprovalRequiredError) {
         span?.end("error", "waiting for the person");
         this.askApproval(context, { tool: e.tool, label: e.label, target: e.target,
-          source: context.source ?? "owner", remember: e.remember, ...e.asked,
+          source: this.sourceOf(context), remember: e.remember, ...e.asked,
           ...(e.fingerprint === undefined ? {} : { fingerprint: e.fingerprint }) }, call.id);
       }
       if (e instanceof BudgetError || e instanceof NeedsInputError || context.signal.aborted) {
@@ -2754,7 +2846,7 @@ ${run.output.slice(0, 6000)}`;
       const stalled = timeout.aborted;
       const error = this.hideSecrets(stalled ? `The tool was stopped after ${limitMs / 1000} seconds without finishing` : errorText(e));
       this.store.event(context.runId, stalled ? "tool.stalled" : "tool.failed", { name: call.name, id: call.id, error });
-      this.noteCommandFailure(call, context, args);
+      this.noteCommandFailure(call, context, seen);
       this.toolWork.get(context.runId)?.failures.set(call.name, error);
       span?.end("error", error, { "branch.tool.outcome": stalled ? "stalled" : "failed" });
       return { ok: false, error };
@@ -2779,6 +2871,23 @@ export function channelSource(answeredOn: string | undefined): AuditSource | nul
 }
 
 /** mac7/coding-next: the one line a model is told when some of its arguments were not used. */
+/** hardening-3: how long a model on this computer has been waited for in this round, and whether it was tried again. */
+interface LocalFirstReply { started: number; retried: boolean; capMs?: number | undefined }
+/** hardening-3: a model's call as the runtime reads it once (see `Runtime.prepareCall`). */
+export interface PreparedCall {
+  /** What the tool is handed: the call without the keys it does not take. */
+  args: unknown;
+  /** The same call as the tool will read it, for the rules, the card, the second look and the loop guard. */
+  seen: unknown;
+  /** The same, as text. */
+  seenText: string;
+  ignored: string[];
+  validArgs: boolean;
+}
+/** Arguments as text, or the text that was sent when they cannot be written out. */
+function argumentsText(value: unknown, sent: string): string {
+  try { return JSON.stringify(value) ?? sent; } catch { return sent; }
+}
 export function ignoredNote(keys: readonly string[]): string {
   return `Ignored ${keys.length === 1 ? "an argument" : "arguments"} this tool does not take: ${keys.join(", ")}.`;
 }
