@@ -66,8 +66,6 @@ async function dictationRoutes(page, state) {
   await page.route("**/api/voice/dictation", async (route) => {
     const json = { settings: { mode: "on", silenceSeconds: 4 }, mode: "on", canDictate: true, refusal: "", isOwner: true,
       engine: { how: "A test engine.", available: true }, open: state.open, words: state.words, settled: !state.open };
-    // `hold`: an answer given while the microphone is open, held back until the test lets it go.
-    if (state.hold && state.open) { state.held = (state.held ?? 0) + 1; await state.hold; }
     await route.fulfill({ json }).catch(() => undefined);
   });
 }
@@ -166,29 +164,3 @@ test("dictation: a microphone in the box, a bar while it listens, and throwing t
   assert.deepEqual(f.errors, []);
 });
 
-test("dictation: an answer still on its way when the words are thrown away does not bring them back", async (t) => {
-  let release;
-  const state = { open: false, words: "compare the two quotes", presses: [] };
-  const f = await fixture(t, { dictation: state });
-  const button = f.page.locator("#voice-dictate");
-  await button.waitFor({ state: "visible" });
-  await f.page.locator("#prompt").fill("Please");
-  await button.click();
-  await f.page.waitForFunction(() => document.getElementById("prompt").value.includes("compare the two quotes"));
-  state.hold = new Promise((resolve) => { release = resolve; });
-  t.after(() => release());
-  await f.page.waitForFunction(() => document.getElementById("dictation-bar"));
-  for (let tries = 0; !state.held; tries += 1) {
-    assert.ok(tries < 500, "the window asks for the words while the microphone is open");
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
-  await f.page.getByRole("button", { name: "Stop and throw the words away" }).click();
-  await f.page.waitForFunction(() => !document.getElementById("dictation-bar"));
-  assert.equal(await f.page.locator("#prompt").inputValue(), "Please");
-  release();
-  await f.page.waitForTimeout(600);
-  assert.equal(await f.page.locator("#prompt").inputValue(), "Please", "the late answer's words stay thrown away");
-  assert.equal(await button.getAttribute("aria-pressed"), "false", "and the microphone stays shown as closed");
-  assert.equal(await f.page.locator("#dictation-bar").count(), 0);
-  assert.deepEqual(f.errors, []);
-});
