@@ -216,7 +216,7 @@ test("another program reading the workspace through the MCP server's file list d
   await financeRule(app);
   const { startServer } = await import("../dist/server.js");
   const server = await startServer(app, { dataDir: join(root, "data"), port: 0 });
-  t.after(() => server.close());
+  t.after(async () => { await server.close(); });
   const ask = async (body) => (await fetch(`${server.url}/mcp`, { method: "POST", body: JSON.stringify(body),
     headers: { authorization: `Bearer ${server.token}`, origin: server.url, "content-type": "application/json", "mcp-session-id": "walk" } })).json();
   await ask({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", clientInfo: { name: "t", version: "1" } } });

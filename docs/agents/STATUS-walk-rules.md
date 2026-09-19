@@ -95,7 +95,10 @@ Covered through `files.list` (no separate test): `@folder/` mentions (they go th
 `files.list`), `skills.sync` reading a skills folder (src/skill-revisions.ts), the knowledge picture walk.
 
 Left alone, on purpose:
-- **Git tools reading the working tree** (`git.status`/`git.diff` on "."): mac7/multi-target (not merged yet) judges
+- **Git tools reading the working tree** (`git.status`/`git.diff` on "."): **still open on trunk; this branch does not
+  close it and cannot** — git tools run git itself, so there is no walk in Branch's code to check per entry; the only
+  way is to refuse the whole call. Today, under "never anything under finance", `git.diff {folder: "."}` still shows
+  finance's lines. mac7/multi-target (not merged yet) does that refusal: it judges
   the repository folder as a whole-folder target (`folder: true`, `innerFolderRule`) and refuses it when a rule reaches
   a folder inside. Filtering here too would conflict with that and refuse twice. For whoever merges both: a walker must
   never declare "." as a folder target, or the whole walk is refused instead of filtered.
@@ -107,6 +110,9 @@ Left alone, on purpose:
 - Fixed configuration folders read by name (`.branch/rules`, schedules, review checks via `markdownFiles`) and `@file`
   imports inside instruction files the owner wrote (src/coding/imports.ts): the owner names those files.
 - `workspace.checkpoint` / undo / redo: only the files the assistant itself changed (each write was judged).
+- `branch watch <folder> <procedure-id>` (src/cli.ts): held already. It hands the task no file contents, only that
+  the folder changed, and the procedure's steps are ordinary tool calls judged one by one (and a walking step is held
+  by this branch like any other).
 
 ## Found, not fixed
 - `code.rename` edits the language server proposes across files are writes, judged by the write path (not this branch).
@@ -136,5 +142,6 @@ Not held by a mutation test: `knowledge-graph` `linksOf` and `build`, the Learn 
   history, household-profile, index-structure, knowledge, knowledge-quality, learn, manual-actions-gate, mcp-server,
   never-break-deny, obsidian, outside-review, pr-hook, rag-vector, repo-map, server, shell-ui, static-assets, ui,
   workspace-history): 468 tests, 460 pass, 7 skipped, 1 fail: `tests/server.test.mjs` reported as failed at file level
-  with no failing test inside it; run again alone 4/4 and with static-assets, index-structure and handbook 18/18.
+  with no failing test inside it. My MCP test did not wait for its server to close (`t.after(() => server.close())`);
+  made to wait, the same 34 files again: 471 tests, 464 pass, 0 fail, 7 skipped.
 - Not merged into trunk (the integrator does that).
