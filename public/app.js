@@ -1065,8 +1065,11 @@ function presetOptions(select, presets, firstLabel, value) {
     option.value = id;
     return option;
   }));
-  /* Their own pick, not saved yet, stays; anything else follows what is saved. */
-  const theirs = onScreen && onScreen !== (lastList.get(select.id) ?? "") && wanted.some(([id]) => id === onScreen);
+  /* Their own pick, not saved yet, stays — unless what is saved has itself changed since (another
+     conversation or project is being shown), which always wins. */
+  const before = lastList.get(select.id);
+  const theirs = onScreen && before !== undefined && (value ?? "") === before
+    && onScreen !== before && wanted.some(([id]) => id === onScreen);
   select.value = theirs ? onScreen : value ?? "";
   lastList.set(select.id, value ?? "");
 }
