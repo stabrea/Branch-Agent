@@ -831,6 +831,7 @@ async function renderSecrets() {
     const node = el("div", undefined, "record");
     node.append(el("strong", secret.name), el("span", ` · saved ${date(secret.createdAt)}`, "meta"),
       button("Remove", async () => { await api(`secrets/${project}/${secret.name}/remove`, {}); await renderSecrets(); toast("Secret removed."); }));
+    globalThis.branchSecretMarks?.(node, secret); // phase2/accounts: its service's mark and a plain name (public/service-marks.js)
     return node;
   }, ["No secrets saved here yet.", "A secret is a password or key your assistant needs. Add one below and it is locked away on this computer."]);
 }
@@ -1063,6 +1064,9 @@ function renderModels() {
     ? `${models.presets.length} models available.`
     : "One model is configured. Add more with BRANCH_MODEL_PRESETS in the launch environment, or in the desktop connection settings.";
   presetOptions($("session-model"), models.presets, "Workspace default", sessionModel.preset);
+  // phase2/accounts: the Thinking lists offer only what the model takes (public/thinking-levels.js).
+  globalThis.branchModelsNow = models;
+  document.dispatchEvent(new CustomEvent("branch-models", { detail: models }));
 }
 /* The page's own rebuild of the model controls, so a test can watch what a rebuild leaves behind. */
 globalThis.branchRenderModels = () => renderModels();
@@ -1089,6 +1093,7 @@ async function loadSessionModel() {
   presetOptions($("session-model"), state.models?.presets ?? [], "Workspace default", value.preset);
   $("session-reasoning").value = value.reasoning ?? "";
   $("model-used").textContent = `Next reply: ${value.effective.presetName} · ${value.effective.model}`;
+  document.dispatchEvent(new CustomEvent("branch-session-model", { detail: value })); // phase2/accounts
 }
 async function saveSessionModel() {
   if (!sessionId) return;

@@ -1,4 +1,4 @@
-import { closeSync, constants, fstatSync, ftruncateSync, lstatSync, openSync, writeSync } from "node:fs";
+import { closeSync, constants, fstatSync, ftruncateSync, lstatSync, openSync, readFileSync, unlinkSync, writeSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { z } from "zod";
 import type { Store } from "../store.js";
@@ -109,10 +109,59 @@ export function saveFile(store: Store, owner: string, workspace: string, input: 
   if (place.exists && !lstatSync(place.path).isFile()) throw new Error("That is not a plain file, so nothing was written.");
   const refused = resolve(dirname(place.path)) === resolve(store.folder) ? null : guard?.(place.path);
   if (refused) throw new Error(refused);
-  const handle = openForWrite(place.path, place.exists);
+  // phase2/accounts: what the file held before, so the last save here can be undone (`undoFile`).
+  const before = place.exists ? readFileSync(place.path, "utf8") : null;
+  const after = text.endsWith("\n") || !text ? text : `${text}\n`;
+  writeWhole(place.path, place.exists, after);
+  store.save("settings", owner, undoKey(slot), { path: place.path, at: new Date().toISOString(), text: { before, after } } satisfies UndoRecord);
+  return openFile(store, owner, workspace, slot);
+}
+function writeWhole(path: string, exists: boolean, text: string): void {
+  const handle = openForWrite(path, exists);
   try {
-    if (place.exists) ftruncateSync(handle, 0);
-    writeSync(handle, text.endsWith("\n") || !text ? text : `${text}\n`);
+    if (exists) ftruncateSync(handle, 0);
+    writeSync(handle, text);
   } finally { closeSync(handle); }
+}
+
+/* ---------- phase2/accounts (critique #40): undo of the last save made here ---------- */
+
+/**
+ * Integration review: the two texts sit one level down, so the diagnostics summary (which keeps only a
+ * record's top-level switch-like values, src/diagnostic-api.ts) never copies a word of the file.
+ */
+interface UndoRecord { path: string; at: string; text: { before: string | null; after: string } }
+const undoKey = (slot: SlotKey): string => `settings-kit-file-undo-${slot}`;
+export const FileUndoSchema = z.object({ slot: SlotSchema }).strict();
+
+/** When the last save here was made, while it can still be undone; null when there is nothing to undo. */
+export function lastSave(store: Store, owner: string, slot: SlotKey): string | null {
+  const record = store.get("settings", owner, undoKey(slot))?.data as UndoRecord | undefined;
+  return record?.text ? record.at : null;
+}
+
+/**
+ * Puts back what the file held before the last save here: the old text, or no file at all when the
+ * save made it. Only while the file still holds exactly what was saved, so a change made since (in
+ * another editor, by a task) is never overwritten; the same plain-file and never-break checks apply.
+ */
+export function undoFile(store: Store, owner: string, workspace: string, input: unknown, guard?: (target: string) => string | null): OpenedFile {
+  const { slot } = FileUndoSchema.parse(input);
+  const record = store.get("settings", owner, undoKey(slot))?.data as UndoRecord | undefined;
+  if (!record?.text) throw new Error("There is no save here to undo.");
+  // Integration review: only where this file is today, and only while it may be written here (the
+  // project folder or its trust may have changed since the save).
+  const place = placeFor(store, owner, workspace, slot);
+  if (!place || resolve(place.path) !== resolve(record.path) || !openFile(store, owner, workspace, slot).editable)
+    throw new Error("This file is no longer where it was saved, or may no longer be changed here, so nothing was undone.");
+  const { before, after } = record.text;
+  const found = lstatSync(record.path, { throwIfNoEntry: false });
+  if (!found?.isFile() || found.nlink > 1 || readFileSync(record.path, "utf8") !== after)
+    throw new Error("The file changed after it was saved here, so nothing was undone.");
+  const refused = resolve(dirname(record.path)) === resolve(store.folder) ? null : guard?.(record.path);
+  if (refused) throw new Error(refused);
+  if (before === null) unlinkSync(record.path);
+  else writeWhole(record.path, true, before);
+  store.delete("settings", owner, undoKey(slot));
   return openFile(store, owner, workspace, slot);
 }

@@ -157,7 +157,7 @@ export class AccountPoolProvider {
   private async single(pool: Pool, usable: Account[], request: CompletionRequest, call: AccountCall | undefined): Promise<Completion> {
     // mac7/account-pooling: chosen as `rotationSet` chooses the owner's own account, so both agree.
     const account = firstChoice(usable, [this.preferred(pool, call), pool.defaultAccount]);
-    if (!account) throw new Error("Every account of this connection is switched off. Switch one on in Settings › Models.");
+    if (!account) throw new Error("Every account of this connection is switched off. Switch one on in Settings › Accounts.");
     if (this.state(account.id).limitedUntil > this.hooks.now()) throw this.limitError(pool, usable, account);
     try { return await this.attempt(account, request, call); } catch (error) {
       if (!isLimit(error) || request.signal.aborted) throw error;
@@ -226,7 +226,7 @@ export class AccountPoolProvider {
     const ownReady = usable.some((entry) => ready(entry) && !allowed.includes(entry));
     const head = lead ?? `The account "${account.label}" has reached its plan limit (until about ${until} UTC).`;
     const next = others.length
-      ? ` Branch does not switch sign-in accounts by itself. To go on, type /account ${others[0]!.slice(1, -1)} or choose another account in Settings › Models (available: ${others.join(", ")}).`
+      ? ` Branch does not switch sign-in accounts by itself. To go on, type /account ${others[0]!.slice(1, -1)} or choose another account in Settings › Accounts (available: ${others.join(", ")}).`
       : ownReady
         ? " Branch does not move your work between your own plans of one service: providers treat that as abuse. Wait for the limit to reset, or pick another model."
         : " No other account of this connection is ready. Wait for the limit to reset, or pick another model.";
