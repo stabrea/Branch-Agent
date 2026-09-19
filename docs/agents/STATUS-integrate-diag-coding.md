@@ -26,7 +26,7 @@ Worktrees (Legion, Windows): `C:/Users/bishi/Code/wt/diagnostics`, `C:/Users/bis
 - [x] build + tsc + targeted tests on merged trunk (trunk had not moved; merge was a no-op):
   diagnostics-log, short-lived-keys, household-profile, static-assets, index-structure, handbook, server,
   ui, shell-ui, calm-ui, cli — 105 pass, 0 fail.
-- [x] merged into trunk and pushed: `mac/cross-platform` fast-forwarded 926eb454 -> cb4745e9; CI run 35448242701.
+- [x] merged into trunk and pushed: `mac/cross-platform` fast-forwarded 926eb454 -> cb4745e9; CI run 35448242701 was cancelled by the next trunk pushes (account-pooling, ci-flakes); the coding-gap push below carries it.
 
 **Verdict: MERGE WITH FIXES** (fixes above, applied). Stated plainly, not hidden: crash capture is the one
 part that is not switchable. An engine crash note is always written locally, and the desktop app always
@@ -59,20 +59,22 @@ helper process runs beside the app). Nothing is ever sent. "Report a problem" lo
     owner's own configured check runs. The stand-in now honours the scripts' no-internet setting and runs
     Node as Node inside the desktop app (`ELECTRON_RUN_AS_NODE`; without it the packaged app would have
     started itself). Running tests stays OFF by default (coordinator decision; gated by the scripts switch).
-  - 10 new tests (review: …) in tests/coding-gap-edits.test.mjs; empty-answer tests restored for replies with no thinking.
+  - 9 new tests (review: …) in tests/coding-gap-edits.test.mjs; empty-answer tests restored for replies with no thinking.
 - Checked and fine: default reply ceiling stays 2048 and resets per run; --timeout default 2 min, capped at
   one day; the provider-facing schema of files.edit (a preprocess wrapper) still serialises correctly;
   catalog-diet width holds; consecutive user turns after a nudge match the existing check-failure nudge.
 - Not changed, noted: `code.run` in the desktop app also starts `process.execPath` without
   ELECTRON_RUN_AS_NODE (pre-existing, not this branch).
-- [x] build + tsc + targeted tests on the branch merged with trunk (includes diagnostics): 25 files,
-  291 tests, 290 pass, 0 fail, 1 platform skip; tests/automation.test.mjs alone 5/5. (shell-ui failed once
-  at file load under concurrency and passed 24/24 alone and in the next full run.)
-- [ ] merged into trunk, pushed, CI run id noted
+- [x] build + tsc + targeted tests on the branch merged with the current trunk (diagnostics, account-pooling,
+  ci-flakes; clean dist): 26 files, 300 tests, 299 pass, 0 fail, 1 platform skip; tests/automation.test.mjs
+  alone 5/5. (shell-ui once failed at file load under concurrency on an earlier run and passed 24/24 alone
+  and in both later full runs.)
+- [x] merged into trunk and pushed (see the final report for the SHA and CI run).
+- No audit ids are claimed by either branch, so there are none to mark VERIFIED/PARTIAL.
 
 **Verdict: MERGE WITH FIXES** (two blocking problems found and fixed above: silent patch misplacement and
 tests run by a files.write tool). No benchmark re-run (as instructed); the bench numbers in
 docs/agents/coding-bench.md were measured before these fixes, which only make placement stricter.
 
 ## Next step for a new session
-Continue from the first unchecked box above.
+Both branches are merged. Nothing left here; check the trunk CI run for the coding-gap push.
