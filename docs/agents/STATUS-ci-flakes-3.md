@@ -52,7 +52,21 @@ STATUS-ci-flakes.md and STATUS-ci-flakes-2.md.
   `route.fetch` when the browser closed. The fixture unroutes (ignoring errors) before closing.
 - flow-editor F2 (Windows, page.goto 30 s): TEST. The page's load took over 30 s on a busy Windows
   runner; given 120 s like tests/places.mjs (ci-flakes-2 precedent).
-- phone-layout double tap: already fixed on trunk by e4a6188d. hardening-3 #3: fixed on trunk by
+- accounts-page A6, the real mechanism (reproduced): `renderModels` runs on every 3-second refresh
+  and fires `branch-models`, so the old listener drew the owner's fallback card for Sam within 3 s of
+  Accounts opening. Waiting 3.5 s instead of 0.5 s: old code `1 !== 0`, new code passes. A6 now looks
+  past one refresh.
+
+## After the settings merge (run 35470358144 on 2674e2ae), new
+- delight "the pet lives in the corner…" (Windows): TEST. Tips start once the page is 20 s old; on a
+  slow runner a tip ("Ctrl K finds…") was showing when the task started, and the pet says one thing at
+  a time. Reproduced by waiting 21 s first: old fails with exactly that text, new waits for "Working on it…".
+- phone-layout double tap (macOS): TEST teardown, same as the voice one: askOnPhone's route.fetch ran
+  as the browser closed. The fixture unroutes first. (e4a6188d had fixed the tap itself.)
+- phone-layout "the first paint is already Slate…" (Windows, once): "Cannot access rules" reading a
+  style sheet right after load. Cause not proven (all sheets are same-origin links; not reproduced).
+  The test now waits until every sheet can be read and names any that never can.
+- phone-layout double tap (earlier): already fixed on trunk by e4a6188d. hardening-3 #3: fixed on trunk by
   ci-flakes-2 (e8b85d07).
 - Found in passing, PRODUCT BUG (same "a refresh rewrites what you just did" family): the 3-second
   refresh applied a look it had asked for before a change made here, once that change was saved, so
@@ -60,7 +74,9 @@ STATUS-ci-flakes.md and STATUS-ci-flakes-2.md.
   before the window's latest change. New test holds such answers (fails before: 60 applied over 100).
 
 ## Progress
-- [x] fixes above, commits b45e1070, 1f2de612 and the fixture commit after the settings merge
+- [x] fixes above: b45e1070, 1f2de612, 8e9df59b, the walk-rules spelling test, bf8073a5
+- [x] after merging trunk 2674e2ae (settings redesign): clean dist, tsc, the 14 touched files +
+      phone-layout + static-assets + index-structure + handbook at 3 at once: 170/170
 - [ ] loops before/after
 - [ ] merged into trunk, pushed
 - [ ] two consecutive full green Checks runs on trunk
