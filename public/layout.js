@@ -12,7 +12,7 @@ import { api, displayView, openConversation, titles } from "/app.js";
 import { openPalette } from "/shell.js";
 import { t } from "/i18n.js";
 import { THEMES, THEME_GROUPS } from "/theme-catalogue.js";
-import { solid, themeById, tokensFor, wearTokens } from "/theme-bridge.js";
+import { DEFAULT_THEME, solid, themeById, tokensFor, wearTokens } from "/theme-bridge.js";
 import { paint as paintGrove, seasonToday } from "/grove.js";
 import { popover } from "/popover.js";
 
@@ -88,13 +88,13 @@ function iconAndWords(node, name) {
 
 /* ---------- the look: 44 themes, light or dark, the oak in its season ---------- */
 const look = {
-  family: store.get("branch-palette") || "forest",
+  family: store.get("branch-palette") || DEFAULT_THEME,
   season: store.get("branch-season") || "",
   contrast: store.get("branch-contrast") === "more" ? "more" : "standard",
 };
 const SEASONS = [["", "look.season.today", "Today"], ["spring", "look.season.spring", "Spring"],
   ["summer", "look.season.summer", "Summer"], ["autumn", "look.season.autumn", "Autumn"], ["winter", "look.season.winter", "Winter"]];
-const QUICK = ["forest", "nocturne", "cherry", "ocean", "lavender", "sepia", "mono"];
+const QUICK = ["slate", "forest", "nocturne", "cherry", "ocean", "lavender", "sepia", "mono"];
 const modeNow = () => (root.dataset.theme === "daylight" ? "light" : "dark");
 function applyLook() {
   const family = themeById(look.family), mode = modeNow();
@@ -107,7 +107,7 @@ function applyLook() {
 }
 function setLook(patch) {
   Object.assign(look, patch);
-  store.set("branch-palette", look.family === "forest" ? null : look.family);
+  store.set("branch-palette", look.family === DEFAULT_THEME ? null : look.family);
   store.set("branch-season", look.season || null);
   store.set("branch-contrast", look.contrast === "more" ? "more" : null);
   applyLook();

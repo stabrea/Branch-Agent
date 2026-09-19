@@ -209,7 +209,8 @@ export function terminalMode(env: NodeJS.ProcessEnv): LookMode | undefined {
  */
 export const THEME_ID = /^[a-z0-9-]{1,40}$/;
 export const LookSchema = z.object({
-  theme: z.string().regex(THEME_ID).default("forest"),
+  /* Redesign phase 1 (owner decision): a new install wears Slate. Forest and the rest stay. */
+  theme: z.string().regex(THEME_ID).default("slate"),
   contrast: z.enum(["standard", "more"]).default("standard"),
   language: z.enum(["auto", "en", "fr"]).default("auto"),
   changedAt: z.string().max(40).default(""),

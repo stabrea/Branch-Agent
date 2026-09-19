@@ -99,7 +99,7 @@ test("places and Settings pages print by name when there is no terminal", async 
   assert.match(models.out, /^# settings:models:defaults\n● Offline demonstration|^# settings:models:defaults\n/);
   const appearance = JSON.parse((await branch(env, "settings", "appearance", "--json")).out);
   assert.equal(appearance.rows[0].command, "/theme list");
-  assert.match(appearance.rows[0].title, /Theme: Forest/);
+  assert.match(appearance.rows[0].title, /Theme: Slate/, "redesign phase 1: a new install wears Slate (owner decision)");
   const nowhere = await branch(env, "settings", "nowhere");
   assert.notEqual(nowhere.code, 0);
   assert.match(nowhere.err, /branch places/);

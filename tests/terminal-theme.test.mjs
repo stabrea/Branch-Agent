@@ -111,7 +111,8 @@ async function workspace(t) {
 test("the terminal and the window share one theme record, and each change says who made it", async (t) => {
   const app = await workspace(t);
   const { store } = app, owner = app.runtime.owner;
-  assert.deepEqual(readLook(store, owner), { theme: "forest", contrast: "standard", language: "auto", changedAt: "", changedBy: "" });
+  // Redesign phase 1 (owner decision): Slate is the default; Forest stays one of the 44.
+  assert.deepEqual(readLook(store, owner), { theme: "slate", contrast: "standard", language: "auto", changedAt: "", changedBy: "" });
   const saved = await saveLook(store, owner, { theme: "nord" }, new Date("2026-09-17T10:00:00Z"));
   assert.deepEqual([saved.theme, saved.changedBy, saved.changedAt], ["nord", "terminal", "2026-09-17T10:00:00.000Z"]);
   await assert.rejects(saveLook(store, owner, { theme: "neon-nonsense" }), /no theme called neon-nonsense/);
