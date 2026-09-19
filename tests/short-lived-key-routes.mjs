@@ -314,6 +314,10 @@ export const ROUTES = {
   "/api/devices/invite": "owner POST",
   "/api/devices/invite/cancel": "owner POST",
   "/api/devices/pick": "owner POST",
+  // phase2/shell: lending this computer to another Branch from the window. Reading where it stands
+  // (with the check code) is refused to keys by the /api/devices reads rule; answering and leaving are the owner's.
+  "/api/devices/join": "owner POST",
+  "/api/devices/join/leave": "owner POST",
   "/api/devices/[a-f0-9]{16}/switch": "owner POST",
   "/api/devices/[a-f0-9]{16}/folder": "owner POST",
   "/api/devices/[a-f0-9]{16}/share": "owner POST",
@@ -357,6 +361,8 @@ export const ROUTES = {
   "/api/autonomy/switch": "owner POST",
   // ---- end of the r17-b block ----
   // ---- R17-A: Trunks (src/trunks/api.ts); talking to one is a task, every change is the owner's ----
+  // phase2/shell: which parts of the shell to draw; anyone at the window may read, changing is the owner's.
+  "/api/shell-look": "owner POST",
   "/api/trunks": "owner POST",
   "/api/trunks/": "prefix",
   "/api/trunks/switch": "owner POST",
