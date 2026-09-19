@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { parse } from "yaml";
 import { loadWeights, parseShard, shards, testGroups } from "../scripts/run-tests.mjs";
 
 test("npm test runs the files that start the desktop app on their own, and everything else together", () => {
@@ -57,4 +59,19 @@ test("the stored weights name only test files that exist", () => {
     const stale = Object.keys(loadWeights(platform)).filter((file) => !all.has(file));
     assert.deepEqual(stale, [], `${platform}: weights for files that are gone`);
   }
+});
+
+test("the build machines run every share, 1 to N, on every system, so no share of the suite is dropped", () => {
+  const workflow = parse(readFileSync(new URL("../.github/workflows/checks.yml", import.meta.url), "utf8"));
+  const bySystem = new Map();
+  for (const { os, shard, total } of workflow.jobs.test.strategy.matrix.include) {
+    bySystem.set(os, [...(bySystem.get(os) ?? []), { shard, total }]);
+  }
+  assert.deepEqual([...bySystem.keys()].sort(), ["macos-latest", "ubuntu-latest", "windows-latest"]);
+  for (const [os, shares] of bySystem) {
+    const total = shares[0].total;
+    assert.ok(shares.every((share) => share.total === total), `${os}: every share names the same total`);
+    assert.deepEqual(shares.map((share) => share.shard).sort((a, b) => a - b), Array.from({ length: total }, (_, i) => i + 1), `${os}: shares 1..${total}`);
+  }
+  assert.deepEqual(workflow.jobs.verify.needs, ["test", "package"], "verify waits for every share and every package");
 });

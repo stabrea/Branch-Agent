@@ -136,7 +136,7 @@ jobs:
             release/Install Branch Agent.cmd
           if-no-files-found: error
           retention-days: 7
-  # The one check to wait for, and the name branch protection on main requires. It runs even when a
+  # The one check to wait for, and the name to require if main is protected (it is not today). It runs even when a
   # share fails, so the check is red rather than skipped, and it is green only when every share on
   # every system and every packaging job passed.
   verify:
