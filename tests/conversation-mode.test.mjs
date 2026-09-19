@@ -439,3 +439,23 @@ test("integration review: Auto and Full access still ask once per folder; a plai
       `${mode}: Always for this folder is written down`);
   }
 });
+
+test("a conversation carried on from outside says why it asks first, and how to work without being asked", async (t) => {
+  const f = await windowFixture(t);
+  // mac7/outside-review: a trigger's conversation, set to Full access, still asks before every change.
+  const trigger = await f.app.runtime.run({ prompt: "hello", source: "trigger" });
+  await f.call("/api/conversation-mode", { sessionId: trigger.sessionId, mode: "full" });
+  await f.page.evaluate(async (id) => { const { openConversation } = await import("/app.js"); await openConversation(id); }, trigger.sessionId);
+  await f.page.waitForFunction(() => document.getElementById("mode-chip").dataset.outside === "true");
+  const chip = f.page.locator("#mode-chip");
+  assert.equal(await chip.getAttribute("data-mode"), "ask", "the chip says what really holds");
+  assert.match(await chip.getAttribute("title"), /came from outside this window \(a trigger\).*start a new conversation of your own/);
+  await chip.click();
+  assert.match(await f.page.locator("#mode-menu .mode-outside").innerText(), /asks before every change here, whatever you pick/);
+  // The owner's own conversation says nothing of the kind.
+  const mine = (await f.call("/api/run", { prompt: "mine" })).body;
+  await f.page.keyboard.press("Escape");
+  await f.page.evaluate(async (id) => { const { openConversation } = await import("/app.js"); await openConversation(id); }, mine.sessionId);
+  await f.page.waitForFunction(() => document.getElementById("mode-chip").dataset.outside === "false");
+  assert.deepEqual(f.errors, []);
+});
