@@ -206,7 +206,8 @@ Tests: `tests/coding-next.test.mjs` "5 …" — the helper, and `code.run` with 
 
 Reviewed 2a773919 against trunk 81f9e022; fixes in 5ba94e15. Verdict: **MERGE WITH FIXES** (applied).
 
-Fixed (each with a test in `tests/coding-next.test.mjs` "review …"; each test was checked to fail with its fix removed):
+Fixed (each with a test in `tests/coding-next.test.mjs` "review …"; every review test was checked to fail with its fix
+removed, by editing `dist/`, and so were the builder's item-2 and item-4 owner-only tests):
 - [x] **4, should have blocked:** the question was thrown with `remember: "always"`, which is the *default* answer
   wherever no choice is made. Carrying a waiting workflow on (`POST /api/workflows/:id/resume` with no `remember`,
   the documented "just this workflow" default) and a flow's approve wrote the standing `code.tests` rule, and the
@@ -244,6 +245,10 @@ Notes, not fixed (judgement calls, fail closed or pre-existing):
 - `code.rename` and other changes through `applyPlanned` are not held but still count as reads afterwards.
 - Read-set: at most 500 tasks, evicted oldest-first, so a very long task can be asked to read again; short
   (8.3) names or different letter case on macOS key differently and ask for a read (fail closed).
+- On purpose, fail closed: `meantSomething` compares with property names anywhere in the tool's schema, so a stray
+  top-level `path` on `code.change_set` (which has `path` inside each edit) is refused rather than dropped.
+- In `grantApproval` (workflows, flows) there is no task to look up, so the owner-only Always rests on the
+  existing `source !== "owner"` refusal and `store.profiles.isOwner()`; the workflow routes are owner-only too.
 - Pre-existing, not this branch: a tool whose schema is not `.strict()` strips extra keys silently, while
   `policyTarget` still reads the raw `url`/`path`.
 
