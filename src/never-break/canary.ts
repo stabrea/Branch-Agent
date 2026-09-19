@@ -4,6 +4,7 @@ import { isAbsolute, join, posix, relative, resolve, win32 } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 import { gatewayFile, loadGatewayConfig, writeAtomic } from "./gateway-config.js";
+import { repairRollback } from "./rollback.js";
 
 /** What `branch start` writes in self-test mode (see self-test.ts). */
 export interface SelfTestCheck { name: string; ok: boolean; detail: string }
@@ -177,7 +178,10 @@ export async function repairSwap(target: string): Promise<string[]> {
   const exists = (path: string) => stat(path).then(() => true, () => false);
   const done: string[] = [];
   const previous = `${target}.previous`, incoming = `${target}.incoming`;
-  if (!(await exists(target)) && (await exists(previous))) {
+  // `<target>.failed` only ever exists because a rollback was running, so that shape belongs to
+  // `repairRollback` below and is left alone here rather than being described as a half-done update.
+  const rollingBack = await exists(`${target}.failed`);
+  if (!rollingBack && !(await exists(target)) && (await exists(previous))) {
     await rename(previous, target);
     done.push("The update had stopped half-way; the previous version was put back.");
   }
@@ -185,5 +189,8 @@ export async function repairSwap(target: string): Promise<string[]> {
     await rm(incoming, { recursive: true, force: true });
     done.push("A half-copied new version was removed.");
   }
+  // A rollback cut off part-way leaves its own shapes (`.failed` beside a missing program); the same
+  // start-up tidy-up puts those back to one whole version too. See never-break/rollback.ts.
+  done.push(...await repairRollback(target).catch(() => [] as string[]));
   return done;
 }

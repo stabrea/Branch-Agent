@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { daemonCommand, daemonLauncherName } from "./daemon.js";
 import { headlessUpdate, type HeadlessUpdateDeps } from "./headless-update.js";
+import { rollbackCommand, type RollbackCliDeps } from "./rollback-cli.js";
 import { quitRunning, runningNow, type QuitDeps } from "./quit.js";
 import { performUnixUninstall, unixLayout, type UnixLayout } from "./unix-install.js";
 import type { RunTool } from "./windows.js";
@@ -13,6 +14,7 @@ import type { RunTool } from "./windows.js";
  *   branch quit                  close the running Branch and wait until it has gone
  *   branch update [--yes]        check for, and with --yes install, the newest release
  *   branch uninstall [--delete-data]   remove Branch; conversations and files stay unless asked
+ *   branch rollback [--yes]      go back to the version before the last update, or say why it cannot
  *
  * Each answers with an exit code: 0 only when it did what it says.
  */
@@ -23,7 +25,7 @@ export interface ManageContext {
   /** The folder holding this copy's package.json (a Git checkout has `.git` beside it). */
   packageRoot: string;
   print: (line: string) => void;
-  deps?: { quit?: QuitDeps; update?: HeadlessUpdateDeps; run?: RunTool; layout?: UnixLayout };
+  deps?: { quit?: QuitDeps; update?: HeadlessUpdateDeps; run?: RunTool; layout?: UnixLayout; rollback?: RollbackCliDeps };
 }
 
 export interface VersionInfo { version: string; path: string; dataDir: string; running: boolean; installed: boolean }
@@ -80,6 +82,11 @@ export async function manageCommand(args: string[], context: ManageContext): Pro
     return 0;
   }
   if (command === "quit") return quit(context);
+  // mac7/safe-rollback: undoing the last update, or refusing to in words the person can act on.
+  if (command === "rollback")
+    return rollbackCommand({ dataDir: dataDirOf(context.env), version: context.version,
+      platform: context.platform, yes: rest.includes("--yes") || rest.includes("-y"), print: context.print,
+      ...(context.deps?.rollback ? { deps: context.deps.rollback } : {}) });
   if (command === "uninstall") return uninstall(context, rest);
   if (command !== "update") return null;
   const installRoot = context.env.BRANCH_INSTALL_ROOT;
