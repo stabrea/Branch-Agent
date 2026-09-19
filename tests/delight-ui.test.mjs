@@ -202,7 +202,7 @@ test("tips get scarcer as the rank rises: Bronze every few minutes, Silver hourl
     const { tipGap } = await import("/delight-pet.js");
     return ["Bronze", "Silver", "Gold", "Diamond", "Godly"].map((rank) => { state.rank = rank; return tipGap(); });
   });
-  assert.deepEqual(gaps, [180000, 3600000, null, null, null], "Infinity arrives as null");
+  assert.deepEqual(gaps, [180000, 3600000, Infinity, Infinity, Infinity]);
   assert.deepEqual(f.errors, []);
 });
 
@@ -227,6 +227,7 @@ function tinyGlb() {
 test("3D: the acorn and the pet turn in 3D when chosen, and a .glb of your own is read or refused in plain words", async (t) => {
   const f = await fixture(t);
   await f.call("/api/delight/settings", { pets: { on: true }, look: { style: "3d" } });
+  await f.page.evaluate(() => globalThis.branchDelight.reload());
   await switchOn(f.page, "appearance-acorn");
   await f.page.locator("#acorn-3d").waitFor();
   await f.page.locator("#pet .pet-3d").waitFor();

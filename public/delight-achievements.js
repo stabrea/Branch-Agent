@@ -99,7 +99,18 @@ export function party(item, done = () => undefined) {
   const finish = () => { if (!layer.isConnected) return; layer.remove(); done(); };
   ok.addEventListener("click", finish);
   document.body.append(layer);
+  placeCard(card);
   setTimeout(finish, 9000);
+}
+/** Over the conversation, never over the message box: above it when there is room, else under it. */
+function placeCard(card) {
+  const main = document.querySelector("main")?.getBoundingClientRect(), box = $("chat-form")?.getBoundingClientRect();
+  if (main && main.width) card.style.setProperty("left", `${Math.round(main.left + main.width / 2)}px`);
+  if (!box || !box.height) return;
+  const height = card.offsetHeight, top = card.getBoundingClientRect().top;
+  if (top + height + 12 <= box.top) return;
+  const above = box.top - height - 12;
+  card.style.setProperty("top", `${Math.round(above >= 8 ? above : box.bottom + 12)}px`);
 }
 /** "Try a celebration" in Settings: exactly what a real one looks like, and nothing is earned. */
 export function preview(tier) {
