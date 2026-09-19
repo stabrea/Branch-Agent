@@ -82,6 +82,12 @@
   .ew-badge[hidden] {
     display: none;
   }
+  /* while the side list slides over the page, or Settings covers it, the bar steps aside (and out of
+     the reading order), so each place has one button on screen */
+  body.lx.rail-open > main > .ew-places,
+  body.lx.lx-settings-open > main > .ew-places {
+    visibility: hidden;
+  }
   /* the message box rides on the bar, never under it */
   body.lx .composer-dock {
     bottom: var(--ew-bar-h);
