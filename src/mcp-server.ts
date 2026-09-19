@@ -564,7 +564,9 @@ export class McpServer {
     const check = this.runtime.checkPolicy(name, args, context, fingerprint);
     const where = check.target ? ` on ${check.target}` : '';
     // Whoever is signed in here is held to their role as well, exactly as they are in a
-    // conversation; another AI tool's server must not be a way round what the owner said.
+    // conversation; another AI tool's server must not be a way round what the owner said. There is
+    // no task behind this call yet, so the role is the window's now (household-followups: a task's
+    // own calls are held to the person the task was started for instead).
     const held = this.runtime.roleRefusal(name, permission) ?? check.reason ?? null;
     return {
       decision: check.decision, name, target: check.target, label: check.label, approvalKey,
