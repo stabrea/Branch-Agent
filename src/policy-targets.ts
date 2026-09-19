@@ -1,7 +1,7 @@
 import type { ToolContext, ToolTarget } from "./contracts.js";
 import type { ToolRegistry } from "./registry.js";
 import { evaluatePolicy, type Policy, type PolicyDecision, type PolicyRule } from "./policy.js";
-import { resourceOf } from "./policy-resources.js";
+import { globMatches, resourceOf, tidyPath } from "./policy-resources.js";
 
 /**
  * mac7/multi-target: a call that touches several things — a patch across files, two documents
@@ -42,9 +42,34 @@ export function judgeTargets(policy: Policy, call: TargetsCall, targets: readonl
       resource: resourceOf(call.tool, call.permission, text, call.args), callTarget: call.callTarget,
     });
     if (stricterThan(outcome.decision, worst.decision)) worst = { decision: outcome.decision, rule: outcome.rule, target };
+    const inner = innerFolderRule(policy, call, target);
+    if (inner && stricterThan(inner.decision, worst.decision))
+      worst = { decision: inner.decision, rule: inner, target: { kind: target.kind, path: inner.resource!.pattern } };
     if (worst.decision === "deny") break;
   }
   return worst;
+}
+
+/**
+ * Integration (multi-target): a target that is a whole folder also reaches every folder inside it, so
+ * a rule that asks about or refuses one of those counts: "never anything under finance" refuses a
+ * repository diff of the workspace that holds finance, which would show finance's lines. Only rules
+ * that ask or refuse are read this way; an allow for a folder inside never lets the whole one through.
+ */
+function innerFolderRule(policy: Policy, call: TargetsCall, target: ToolTarget): PolicyRule | null {
+  if (!target.folder || target.path === undefined) return null;
+  const folder = tidyPath(target.path).toLowerCase();
+  return policy.rules.find((rule) => rule.resource?.kind === "path" && rule.decision !== "allow"
+    && !(rule.applies === "changes" && target.kind === "read")
+    && globMatches(rule.tool, call.tool) && globMatches(rule.match, target.path!)
+    && couldBeInside(tidyPath(rule.resource.pattern).toLowerCase(), folder)) ?? null;
+}
+
+/** Whether a folder pattern ("finance", "*.csv", "fin*") can name something inside `folder` ("" is the workspace). */
+function couldBeInside(pattern: string, folder: string): boolean {
+  if (folder === "" || folder === ".") return true;
+  const fixed = pattern.split("*")[0]!, within = `${folder}/`;
+  return fixed.length <= within.length ? within.startsWith(fixed) : fixed.startsWith(within);
 }
 
 const verbs: Record<ToolTarget["kind"], string> = { read: "read", write: "change", delete: "delete" };

@@ -181,3 +181,6 @@ export function ruleSentence(rule: {
   const held = rule.sandbox ? ` Run it ${sandboxSentences[rule.sandbox]}.` : "";
   return `${opening} ${words}${where ? " " + where : ""}.${held}`;
 }
+
+/** Integration (multi-target): the same tidying, for a rule about a folder inside a whole-folder target (src/policy-targets.ts). */
+export { tidyPath };

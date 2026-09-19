@@ -26,10 +26,15 @@ const title = z.string().trim().min(1).max(200);
  * folder rule ("never anything under finance", a read-only folder) covers the repository too.
  */
 function inFolder(kind: ToolTarget["kind"]) {
-  return (args: { folder: string; path?: string | undefined; paths?: string[] | undefined }): ToolTarget[] => [
-    { kind, path: args.folder },
-    ...[args.path, ...(args.paths ?? [])].filter((one): one is string => !!one).map((one) => ({ kind, path: posix.join(args.folder, one) })),
-  ];
+  return (args: { folder: string; path?: string | undefined; paths?: string[] | undefined }): ToolTarget[] => {
+    const named = [args.path, ...(args.paths ?? [])].filter((one): one is string => !!one);
+    // Integration: with no file named, the tool reaches the whole working copy (a diff shows every
+    // changed line, a commit saves every change), so a rule about a folder inside it counts too.
+    return [
+      { kind, path: args.folder, ...(named.length ? {} : { folder: true }) },
+      ...named.map((one) => ({ kind, path: posix.join(args.folder, one) })),
+    ];
+  };
 }
 
 /** Reading and changing the copy of the repository on this computer. */

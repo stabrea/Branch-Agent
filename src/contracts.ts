@@ -318,6 +318,11 @@ export interface ToolTarget {
   path?: string;
   /** A web address. */
   url?: string;
+  /**
+   * Integration (multi-target): the call reaches everything inside this folder (a repository's whole
+   * working copy, a folder a knowledge base reads), so a rule about a folder inside it counts too.
+   */
+  folder?: boolean;
 }
 export const RunInputSchema = z
   .object({

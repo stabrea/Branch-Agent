@@ -151,7 +151,7 @@ test("git tools: a repository folder under a refused folder is refused, and so i
   refusedNaming(judge(app, "git.commit", { folder: "finance/books", message: "save" }), "finance/books");
   refusedNaming(judge(app, "git.log", { folder: ".", path: "finance/q1.csv" }), "finance/q1.csv");
   refusedNaming(judge(app, "git.commit", { folder: ".", message: "save", paths: ["src/a.ts", "finance/b.csv"] }), "finance/b.csv");
-  assert.equal(judge(app, "git.status", {}).decision, "allow", "the workspace itself is not under finance");
+  assert.equal(judge(app, "git.status", { folder: "src" }).decision, "allow", "a repository folder outside finance");
 });
 
 // ------------------------------------------------------------------ kinds: a read-only folder
@@ -225,7 +225,7 @@ test("only the tools that touch several things declare them; every other tool is
   const declared = app.registry.names().filter((name) => {
     try { return app.registry.targetsOf(name, {}, {}) !== null; } catch { return true; }
   }).sort();
-  const expected = ["code.change_set", "code.patch", "documents.compare", "documents.edit", "files.patch", "knowledge.create",
+  const expected = ["code.change_set", "code.patch", "documents.compare", "documents.edit", "files.patch", "knowledge.add", "knowledge.create",
     "git.branch", "git.commit", "git.diff", "git.log", "git.status", "git.worktree_add", "git.worktree_list", "git.worktree_remove",
     "plans.diff", "plans.merge", "plans.try"];
   // git.push / git.pull / github.publish_repo are registered only when the owner switches them on.
@@ -261,4 +261,79 @@ test("Plan mode: looking at two files is fine, unless one of them is in a refuse
   assert.equal(app.runtime.checkPolicy("documents.compare", { file: "public/a.md", against: "public/b.md" }, context).decision, "allow");
   refusedNaming(app.runtime.checkPolicy("documents.compare", { file: "public/a.md", against: "finance/b.md" }, context), "finance/b.md");
   assert.equal(app.runtime.checkPolicy("code.patch", { patch: srcPart }, context).decision, "deny", "Plan changes nothing");
+});
+
+// ------------------------------------------------------------------ integration review (adversarial)
+
+const partFor = (path) => `--- a/${path}
++++ b/${path}
+@@ -1 +1 @@
+-1
++2
+`;
+const patchOf = (paths) => paths.map(partFor).join("");
+
+test("integration: an Always for a long list of files never covers another list that starts the same way", async (t) => {
+  const { app } = await fixture(t);
+  savePolicy(app.store, "local", { preset: "ask-before-changes" });
+  const listA = Array.from({ length: 8 }, (_, i) => `src/f${i}.ts`);
+  const listB = [...listA.slice(0, 7), "finance/secret.csv"];
+  const first = judge(app, "code.patch", { patch: patchOf(listA) });
+  assert.equal(first.decision, "ask");
+  addPolicyRule(app.store, "local", { tool: "code.patch", match: first.target, decision: "allow", remember: "always" });
+  assert.equal(judge(app, "code.patch", { patch: patchOf(listA) }).decision, "allow", "the same list is not asked again");
+  const other = judge(app, "code.patch", { patch: patchOf(listB) });
+  assert.notEqual(other.target, first.target, "a different list has a different name");
+  assert.equal(other.decision, "ask", "the eighth file was never seen by the owner, so it is asked about");
+  // Seven long names still make a name a standing answer can be saved under (500 characters at most).
+  const long = Array.from({ length: 7 }, (_, i) => `src/${"x".repeat(90)}${i}.ts`);
+  const named = judge(app, "code.patch", { patch: patchOf(long) }).target;
+  assert.ok(named.length <= 500, `${named.length} characters`);
+  addPolicyRule(app.store, "local", { tool: "code.patch", match: named, decision: "allow", remember: "always" });
+});
+
+test("integration: an Always given for a dry run is not a standing yes for every patch", async (t) => {
+  const { app } = await fixture(t);
+  savePolicy(app.store, "local", { preset: "ask-before-changes" });
+  const look = judge(app, "code.patch", { patch: srcPart, dryRun: true });
+  assert.equal(look.target, "look at 1 file: src/a.ts");
+  addPolicyRule(app.store, "local", { tool: "code.patch", match: look.target || "*", decision: "allow", remember: "always" });
+  assert.equal(judge(app, "code.patch", { patch: bothFiles }).decision, "ask", "a real change is still asked about");
+  assert.equal(judge(app, "code.patch", { patch: srcPart }).decision, "ask", "even to the same file");
+  const edits = [{ path: "src/a.ts", find: "one", replace: "ONE" }];
+  assert.equal(app.registry.targetOf("code.change_set", { reason: "r", edits, dryRun: true }, {}), "look at 1 file: src/a.ts");
+});
+
+test("integration: a star in an Always is a star, not any file", async (t) => {
+  const { app } = await fixture(t);
+  savePolicy(app.store, "local", { preset: "ask-before-changes" });
+  const starred = judge(app, "code.patch", { patch: srcPart + partFor("*") });
+  assert.equal(starred.target, "2 files: src/a.ts, *");
+  addPolicyRule(app.store, "local", { tool: "code.patch", match: starred.target, decision: "allow", remember: "always" });
+  assert.equal(judge(app, "code.patch", { patch: srcPart + partFor("finance/b.csv") }).decision, "ask");
+});
+
+test("integration: a whole folder holding a refused folder is refused; naming a file inside it is judged on the file", async (t) => {
+  const { app } = await fixture(t);
+  financeRule(app);
+  refusedNaming(judge(app, "git.diff", { folder: "." }), "finance");
+  refusedNaming(judge(app, "git.status", {}), "finance");
+  refusedNaming(judge(app, "git.commit", { folder: ".", message: "save" }), "finance");
+  assert.equal(judge(app, "git.commit", { folder: ".", message: "save", paths: ["src/a.ts"] }).decision, "allow", "only src/a.ts is saved");
+  assert.equal(judge(app, "git.log", { folder: ".", path: "src/a.ts" }).decision, "allow");
+  assert.equal(judge(app, "git.diff", { folder: "src" }).decision, "allow", "a folder beside finance");
+  refusedNaming(judge(app, "knowledge.create", { name: "All", sources: [{ kind: "folder", path: "." }] }), "finance");
+  assert.equal(judge(app, "knowledge.create", { name: "One", sources: [{ kind: "file", path: "notes.md" }] }).decision, "allow");
+  refusedNaming(judge(app, "knowledge.add", { collection: "c", source: { kind: "folder", path: "./" } }), "finance");
+});
+
+test("integration: a read-only folder inside a repository stops saving the whole copy, not looking at it", async (t) => {
+  const { app } = await fixture(t);
+  financeRule(app, "deny", "changes");
+  assert.equal(judge(app, "git.diff", { folder: "." }).decision, "allow");
+  refusedNaming(judge(app, "git.commit", { folder: ".", message: "save" }), "finance");
+  // A rule that only asks makes the whole folder a question, not a refusal.
+  const { app: other } = await fixture(t);
+  financeRule(other, "ask");
+  assert.equal(judge(other, "git.diff", { folder: "." }).decision, "ask");
 });

@@ -130,3 +130,51 @@ targets, the dry-run/Try test fails; with the `callTarget` match taken out of `p
 - The sandbox wall's new clause: no walled tool declares targets, and `wallContextFor` returns at once on Windows.
 - The reviewer's new clause is not exercised by a test (it needs a second model); it reuses `judgeTargets`.
 - The card was checked by reading the code and the locale files, not in a browser.
+
+## Integration (adversarial review, 2026-09-19)
+Integrator: Claude (Opus). Reviewed at `2bd7c259`; fixes on this branch, each with a test that was checked to
+fail with the fix taken out of `dist/`.
+
+Found and fixed:
+- **"Always" for a long list covered another list** (blocking). `fileList` showed the first 7 paths and "…", so
+  an Always for 8 files `src/f0..f7` also allowed `src/f0..f6` + `finance/secret.csv` — the whole call and, through
+  `callTarget`, every file in it. A list too long to show whole now ends "and N more (list <16 hex of sha256 of every
+  path>)", so a standing answer names one set only; the text also stays under the 500 characters a rule's match
+  holds (seven long names used to make "Always" throw). `knowledge.create`'s target (`join(", ").slice(0, 300)`, which
+  had the same collision) now uses `fileList` too.
+- **"Always" on a dry run became `match: "*"`** (blocking, older than this branch but now reachable more often). A dry
+  run of `code.patch` / `code.change_set` had the target "", and `match: target || "*"` made the answer a standing
+  yes for every patch to any file. A dry run is now named "look at 2 files: a, b".
+- **A `*` in a whole-call answer** ("2 files: src/a.ts, *", a file really called `*`, or an owner's `*src*`) matched
+  other files through `callTarget`. The whole-call match now only counts when the rule's match has no `*` (a plain
+  standing answer); an old `match: "*"` still covers every file as before, through the file's own match.
+- **A whole folder reached a refused folder inside it.** `git.diff` / `git.status` / `git.commit` on "." (the
+  workspace), and `knowledge.create` / `knowledge.add` with the folder ".", were allowed under "never anything under
+  finance" and would show finance's lines, save its changes or index it. A target can now say `folder: true` (a git
+  repository folder when no file is named; a knowledge source of kind folder), and a path rule that asks or refuses
+  about a folder that could lie inside it counts (`innerFolderRule`, src/policy-targets.ts); the refusal names the
+  inner folder. An allow for an inner folder never lets the whole folder through; a read-only folder still lets a
+  diff through and stops a commit. `knowledge.add` now declares its target for this.
+- **Speed**: a 500-file patch took ~1.5–2.3 s per `checkPolicy`, almost all in `protectedTarget` following each path
+  through the file system (each path was checked twice, as target and as `args.path`). Now once per distinct path:
+  ~0.25–0.35 s on this machine. Not held by a test (a timing test would be a CI flake); measured with a probe.
+
+Checked and left as is:
+- Patch forms: CRLF, `\ No newline`, quoted paths with spaces, `a/`/`b/` prefixes, `--- /dev/null` (add) are read by
+  `parsePatch`, the same reader the tools apply with, and a folder rule refuses each. `+++ /dev/null` and `*** Delete
+  File:` / `*** Move to:` were refused by the applier long before this branch (`fd0643cb`); refusing them here is the
+  single source of truth, not a regression, so they are not turned into delete targets for an applier that cannot delete.
+- `..` is refused by the patch reader; git's `paths: ["../finance/x"]` is refused (the join lands in finance).
+  Absolute paths in `code.change_set` are not matched by a folder rule but the tool refuses them (`files.checked`).
+  Case: rules match case-insensitively. Windows 8.3 short names: not generated on this machine's drive (`dir /x`
+  shows none), so not reachable here; a longer folder name on a volume with 8.3 names on is a general gap in every
+  file tool, not this branch's.
+- An "Always" answered for a call that a folder rule asks about is saved but never takes effect (the folder rule is
+  weighed first), so that question comes back each time. That is the rule working; noted for the card's wording.
+- Household people (roles are by category and project, call-level), chat-app and outside-started tasks
+  (`cappedPolicy` drops allow rules, so no Always counts), Lockdown: unchanged, and each target is weighed under the
+  same capped policy.
+- Card: plain words, first five then folded, en + fr present. Not checked in a browser.
+- `0332d8be` has no Co-Authored-By line; left alone (no force-push).
+- Not fixed, larger than this branch: `code.search` / `files.list` / `files.search` on "." still read inside a
+  refused folder (they have one target); they would need their results filtered by the rules.

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { ToolTarget } from "./contracts.js";
 import { endingOf, indentShift, joinLines, splitLines, type FileLine } from "./text-replace.js";
 /**
@@ -68,9 +69,27 @@ export function patchTargets(text: string, dryRun = false): ToolTarget[] {
   ]);
 }
 
-/** "2 files: a, b": how a call touching several files is named on a question and in a standing answer. */
-export const fileList = (paths: string[]): string =>
-  `${paths.length} file${paths.length === 1 ? "" : "s"}: ${paths.slice(0, 7).join(", ")}${paths.length > 7 ? ", …" : ""}`;
+/**
+ * "2 files: a, b": how a call touching several files is named on a question and in a standing answer.
+ * Integration (multi-target): an "Always" is saved with this text as its match, so it must name one set
+ * of files and no other. A list too long to show whole (more than 7 files, or 300 characters) ends
+ * with a fingerprint of every path, so two sets that begin alike are never the same answer, and the
+ * text stays inside the 500 characters a rule's match may hold.
+ */
+export function fileList(paths: string[]): string {
+  const head = `${paths.length} file${paths.length === 1 ? "" : "s"}: `;
+  const whole = head + paths.join(", ");
+  if (paths.length <= 7 && whole.length <= 300) return whole;
+  const shown: string[] = [];
+  let length = head.length;
+  for (const path of paths.slice(0, 7)) {
+    if (length + path.length + 2 > 300) break;
+    shown.push(path);
+    length += path.length + 2;
+  }
+  const print = createHash("sha256").update(paths.join("\n")).digest("hex").slice(0, 16);
+  return `${head}${shown.map((path) => `${path}, `).join("")}and ${paths.length - shown.length} more (list ${print})`;
+}
 /** mac7/multi-target: the files a patch names, as it will be applied; empty when it cannot be read (it is then refused). */
 export function patchFileList(patch: string): string {
   try { return fileList([...new Set(patchTargets(patch).map((one) => one.path ?? ""))]); } catch { return ""; }

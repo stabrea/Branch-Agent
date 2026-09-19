@@ -228,13 +228,17 @@ export function noCheckNote(scriptsOn: boolean): string {
     + (scriptsOn ? ", or run a test file yourself with code.run." : ".");
 }
 
+/** A dry run's name: it only looks, so a standing yes for it never covers the change itself. */
+const lookAt = (list: string): string => (list ? `look at ${list}` : "look at a patch that cannot be read");
 
 export function registerCodeChanges(registry: ToolRegistry, changes: CodeChanges): void {
   registry.register({
     name: "code.patch", permission: "files.write", group: "code",
     description: "Apply a unified diff (or *** Begin Patch block) across workspace files; parts are placed by their lines even when line numbers are off, and if any part's lines are missing nothing is written. Set dryRun to see the whole change first without writing it. Binary files and anything outside the workspace are refused, and each file changed can be put back from its history.",
     parameters: PatchInputSchema,
-    target: (args) => (args.dryRun ? "" : patchFileList(args.patch)),
+    // Integration (multi-target): a dry run is named too, as a look. With no name, "Always" on a dry run
+    // was saved as `*` and let every later patch, to any file, through without a question.
+    target: (args) => (args.dryRun ? lookAt(patchFileList(args.patch)) : patchFileList(args.patch)),
     // mac7/multi-target: every file the patch names, read the way it will be applied; a dry run reads them.
     targets: (args) => patchTargets(args.patch, args.dryRun),
     execute: (args, context) => changes.patch(args, context),
@@ -243,7 +247,10 @@ export function registerCodeChanges(registry: ToolRegistry, changes: CodeChanges
     name: "code.change_set", permission: "files.write", group: "code",
     description: "Change several files in one go: each entry replaces an exact piece of text in one file. The person is asked once, for the whole set, and sees which files it touches. All the files change or none of them do, and the project's check runs afterwards.",
     parameters: ChangeSetInputSchema,
-    target: (args) => (args.dryRun ? "" : fileList(args.edits.map((edit) => edit.path))),
+    target: (args) => {
+      const list = fileList(args.edits.map((edit) => edit.path));
+      return args.dryRun ? lookAt(list) : list;
+    },
     // mac7/multi-target: every file in the set; a dry run only reads them.
     targets: (args) => args.edits.map((edit) => ({ kind: args.dryRun ? "read" as const : "write" as const, path: edit.path })),
     execute: (args, context) => changes.changeSet(args, context),

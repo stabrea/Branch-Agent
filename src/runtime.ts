@@ -2257,9 +2257,14 @@ ${run.output.slice(0, 6000)}`;
   private everyTarget(tool: string, args: unknown, context: ToolContext): ToolTarget[] | null | string {
     let targets: ToolTarget[] | null;
     try { targets = this.registry.targetsOf(tool, args, context); } catch (error) { return unknownTargetsRefusal(errorText(error)); }
+    // Integration: each distinct path once, named once (as the target), since every check follows it
+    // through the file system; a 500-file patch took about 1.5 s here before.
+    const seen = new Set<string>();
     for (const one of targets ?? []) {
       const text = targetText(one);
-      const untouchable = protectedTarget({ tool, readOnly: one.kind === "read", args: { path: text }, target: text, workspace: context.workspace }, this.protectedAreas);
+      if (seen.has(`${one.kind === "read"} ${text}`)) continue;
+      seen.add(`${one.kind === "read"} ${text}`);
+      const untouchable = protectedTarget({ tool, readOnly: one.kind === "read", args: {}, target: text, workspace: context.workspace }, this.protectedAreas);
       if (untouchable) return untouchable;
     }
     return targets;
