@@ -2785,6 +2785,7 @@
   "mode.setting.savedFollow": "Les nouvelles conversations suivent le réglage ci-dessus.",
   "mode.yourRules": "Vos règles",
   "models.custom-address": "Une autre adresse web",
+  "models.fallback-codex": "Codex sur cet ordinateur se connecte de son côté. S'il est connecté à une autre de vos offres ChatGPT, le travail qui atteint votre limite ChatGPT peut continuer là-bas, sur cette offre. Branch ne peut pas voir quelle offre il utilise.",
   "more.askFirst": "Me poser des questions d'abord",
   "more.assistant": "Qui doit répondre",
   "more.attach": "Joindre un document…",

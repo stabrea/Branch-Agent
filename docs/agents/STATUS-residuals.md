@@ -46,7 +46,11 @@ branch: an integrator reviews it. Every new test is in `tests/residuals.test.mjs
 - [x] 4e. In-flight spend counts every still-running task, whatever month it began.
   `UsageStore.inFlightSpend` no longer filters on `created_at` (running or waiting for a person, as before).
   Test 4e (a task dated 40 days back); putting the month filter back fails it.
-- [ ] 5. ChatGPT single sign-in: a plain warning in the fallback settings when the order holds a Codex program.
+- [x] 5. ChatGPT single sign-in: a plain warning in the fallback settings when the order holds a Codex program.
+  Settings → Models, under "If the default fails, try these in order": `#models-fallback-codex` (en + fr) shows
+  while a ticked connection is a Codex program (`cli-agent:codex` or `app-server:codex`) and a ChatGPT sign-in
+  (`chatgpt`) is configured; it follows the boxes as they are ticked. Behaviour unchanged. (public/app.js
+  `codexFallbackNote`, public/index.html; not a settings*.js file.) tests/residuals-ui.test.mjs 5; always-hidden fails it.
 - [ ] 6. Coding-next notes (hung local model, read-set after 500 tasks, short names / case).
 
 ## UI / polish

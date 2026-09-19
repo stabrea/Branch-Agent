@@ -1045,6 +1045,17 @@ function presetOptions(select, presets, firstLabel, value) {
   if (firstLabel) select.options[0].value = "";
   if (!focused) select.value = value ?? "";
 }
+/**
+ * mac7/residuals: with a ChatGPT sign-in, a limit passes work down this order; a Codex program in it
+ * may be signed in to another of the owner's own ChatGPT plans, which Branch cannot see. Say so.
+ */
+function codexFallbackNote() {
+  const presets = state.models?.presets ?? [];
+  const ticked = new Set([...$("models-fallback").querySelectorAll("input:checked")].map((box) => box.value));
+  const codex = presets.some((preset) => ticked.has(preset.id) && /:codex$/.test(preset.provider ?? ""));
+  $("models-fallback-codex").hidden = !(codex && presets.some((preset) => preset.provider === "chatgpt"));
+}
+$("models-fallback").addEventListener("change", codexFallbackNote);
 function renderModels() {
   const models = state.models;
   if (!models) return;
@@ -1062,6 +1073,7 @@ function renderModels() {
       return label;
     }));
   }
+  codexFallbackNote();
   // Integration review (mac7/wake-pins): the checkboxes above are new nodes with no
   // aria-describedby. Describe them now rather than leaving them bare until the debounce runs.
   globalThis.branchDescribeSettingsNow?.();

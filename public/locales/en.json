@@ -2784,6 +2784,7 @@
   "mode.setting.savedFollow": "New conversations follow the setting above.",
   "mode.yourRules": "Your rules",
   "models.custom-address": "Another web address",
+  "models.fallback-codex": "Codex on this computer signs in on its own. If it is signed in to a different ChatGPT plan of yours, work that reaches your ChatGPT limit can carry on there, on that plan. Branch cannot see which plan it uses.",
   "more.askFirst": "Ask me questions first",
   "more.assistant": "Who should answer",
   "more.attach": "Attach a document…",
