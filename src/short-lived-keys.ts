@@ -138,6 +138,9 @@ const ownerOnlyReads: readonly RegExp[] = [
   /^\/api\/usage\/limits(\/|$)/,
   // Redesign phase 1: the ring's own settings are the owner's too (the ring itself answers others with nothing).
   /^\/api\/usage\/glance\/settings$/,
+  // phase2/panels: the side panel's Browser and Terminal tabs carry the commands the owner's tasks ran
+  // and what they printed, and the pages they opened.
+  /^\/api\/panels\/work$/,
 ];
 
 /**

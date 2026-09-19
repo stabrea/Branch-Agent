@@ -1,0 +1,484 @@
+/* Redesign phase 2 (panels): one side-panel switch with its tabs inside the panel, Browser and Terminal,
+   panes you can resize, the conversation's width and a see-through message box, and hiding parts of the
+   window (public/panels.js, public/panels-hide.js). Loaded after layout.css. Colours are tokens only. */
+
+/* ---------- one switch ---------- */
+/* The panel button is the one way to open the side panel, in the calm window too; its tabs are inside it. */
+:root:not([data-everything="on"]) body.lx.lx-chat #aside-toggle {
+  display: grid !important;
+}
+:root body.lx.lx-chat #aside-toggle {
+  position: relative;
+}
+#aside-toggle[aria-pressed="true"] {
+  background: var(--hover);
+  color: var(--text);
+}
+/* a small dot while work runs, so it is clear where to look */
+body.lx.lx-working #aside-toggle::after {
+  content: "";
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--copper);
+  box-shadow: 0 0 0 2px var(--surface);
+}
+
+/* ---------- the panel's head: its name, then the tabs on one line ---------- */
+.context-panel > .lx-pane-head {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  min-width: 0;
+}
+:root body.lx #context-panel #lx-pane-tabs {
+  display: flex !important;
+  container-type: inline-size;
+  width: 100%;
+  min-width: 0;
+  gap: 2px;
+  overflow: hidden;
+}
+.context-panel .lx-pane-tab {
+  position: relative;
+  flex: 1 1 0;
+  justify-content: center;
+  min-width: 0;
+  padding: 5px 4px;
+  white-space: nowrap;
+}
+.context-panel .lx-pane-tab .lx-words {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Narrow: every tab is its picture, and the chosen one also says its name, so nothing wraps or clips. */
+@container (max-width: 400px) {
+  .context-panel .lx-pane-tab .lx-words {
+    display: none;
+  }
+  .context-panel .lx-pane-tab[aria-pressed="true"] {
+    flex: 2 1 auto;
+  }
+  .context-panel .lx-pane-tab[aria-pressed="true"] .lx-words {
+    display: inline;
+  }
+}
+/* Terminal and Browser are the owner's; a household person's window never offers them. */
+:root[data-household="on"] :is(.lx-pane-tab, .lx-more-item):is([data-pane="browser"], [data-pane="terminal"], [data-target="browser"], [data-target="terminal"]) {
+  display: none !important;
+}
+.lx-pane-tab.panels-live::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--copper);
+}
+.context-panel[data-pane="browser"] > [data-pane]:not([data-pane="browser"]),
+.context-panel[data-pane="terminal"] > [data-pane]:not([data-pane="terminal"]) {
+  display: none;
+}
+
+/* ---------- Browser and Terminal ---------- */
+.panels-work {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+.panels-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 13px;
+  color: var(--text);
+}
+.panels-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--copper);
+  animation: panels-pulse 1.6s ease-in-out infinite;
+}
+@keyframes panels-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+:root[data-motion="reduced"] .panels-dot {
+  animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .panels-dot {
+    animation: none;
+  }
+}
+.panels-picture {
+  margin: 0;
+  display: grid;
+  gap: 4px;
+}
+.panels-picture img {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 240px;
+  object-fit: cover;
+  object-position: top;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--well);
+}
+.panels-picture figcaption,
+.panels-when {
+  font-size: 11.5px;
+  color: var(--text-2);
+}
+.panels-entry {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface) 55%, transparent);
+}
+.panels-entry-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+.panels-what {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text);
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.panels-chip {
+  flex: none;
+  max-width: 50%;
+  padding: 1px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 560;
+  line-height: 18px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-2);
+}
+.panels-chip-ok {
+  color: var(--ok);
+  border-color: color-mix(in srgb, var(--ok) 40%, transparent);
+}
+.panels-chip-bad {
+  color: var(--bad);
+  border-color: color-mix(in srgb, var(--bad) 40%, transparent);
+  background: var(--bad-tint);
+}
+.panels-chip-warn {
+  color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 45%, transparent);
+  background: var(--warn-tint);
+}
+.panels-chip-live {
+  color: var(--copper);
+  border-color: color-mix(in srgb, var(--copper) 45%, transparent);
+}
+.panels-out {
+  margin: 0;
+  max-height: 180px;
+  overflow: auto;
+  padding: 8px;
+  border-radius: 8px;
+  background: var(--well);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.panels-lock {
+  margin: 0;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: var(--bad-tint);
+  color: var(--bad);
+  font-size: 12.5px;
+}
+.panels-link {
+  justify-self: start;
+}
+
+/* ---------- panes you can resize ---------- */
+.panels-rz {
+  position: fixed;
+  z-index: 40;
+  width: 10px;
+  cursor: col-resize;
+  touch-action: none;
+  outline: none;
+}
+.panels-rz[hidden] {
+  display: none;
+}
+.panels-rz::after {
+  content: "";
+  position: absolute;
+  top: 18px;
+  bottom: 18px;
+  left: 4px;
+  width: 2px;
+  border-radius: 2px;
+  background: transparent;
+  transition: background 0.15s ease;
+}
+.panels-rz:hover::after,
+.panels-rz:focus-visible::after,
+:root.panels-resizing .panels-rz::after {
+  background: var(--copper);
+}
+.panels-rz.panels-will-fold::after {
+  background: var(--text-3);
+}
+:root.panels-resizing,
+:root.panels-resizing * {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+/* while dragging, the panes follow the pointer at once */
+:root.panels-resizing body.lx {
+  transition: none !important;
+}
+:root[data-quiet] .panels-rz {
+  display: none;
+}
+
+/* ---------- the conversation uses the width on a wide screen ---------- */
+:root {
+  --conv-w: min(1120px, 100%);
+}
+:root[data-convw="comfortable"] {
+  --conv-w: min(760px, 100%);
+}
+:root[data-convw="full"] {
+  --conv-w: 100%;
+}
+#workspace > #chat.view,
+body.lx .composer-dock > * {
+  width: var(--conv-w);
+}
+/* long answers stay a comfortable line length even when the column is wide */
+#conversation .message .markdown,
+#conversation .message > p {
+  max-width: 100ch;
+}
+
+/* ---------- a thinner, see-through message box ---------- */
+/* --comp-a is set by public/panels-hide.js from the See-through setting, never below what keeps text readable. */
+body.lx .composer {
+  background: color-mix(in srgb, var(--surface) calc(var(--comp-a, 0.92) * 100%), transparent);
+}
+:root:not([data-everything="on"]) body.lx #chat-form {
+  padding: 5px 7px;
+  background: color-mix(in srgb, var(--surface) calc(var(--comp-a, 0.88) * 100%), transparent);
+}
+:root:not([data-everything="on"]) body.lx #prompt {
+  min-height: 36px;
+  padding: 6px 6px;
+}
+@media (prefers-reduced-transparency: reduce) {
+  body.lx .composer,
+  :root:not([data-everything="on"]) body.lx #chat-form {
+    background: var(--surface);
+  }
+}
+
+/* ---------- hiding parts of the window ---------- */
+.panels-float-gear {
+  position: fixed;
+  left: 14px;
+  /* phase2/everywhere's bottom places bar sets --ew-bar-h on a phone; elsewhere it is 0 */
+  bottom: calc(14px + var(--ew-bar-h, 0px));
+  z-index: 70;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 1px solid var(--glass-edge);
+  border-radius: 12px;
+  background: var(--glass-2);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  color: var(--text);
+  box-shadow: var(--shadow);
+}
+.panels-float-gear svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+}
+.panels-menu {
+  position: fixed;
+  z-index: 95;
+  min-width: 200px;
+  padding: 5px;
+  border: 1px solid var(--glass-edge);
+  border-radius: 12px;
+  background: var(--glass-2);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  box-shadow: var(--shadow);
+}
+.panels-menu p {
+  margin: 4px 8px 6px;
+  font-size: 11.5px;
+  color: var(--text-2);
+}
+.panels-menu button {
+  display: block;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  box-shadow: none;
+  color: var(--text);
+  font-size: 13px;
+  text-align: left;
+}
+.panels-menu button:hover,
+.panels-menu button:focus-visible {
+  background: var(--hover);
+}
+#toast .panels-undo {
+  margin-left: 10px;
+  padding: 2px 10px;
+  border: 1px solid var(--line-strong, var(--line));
+  border-radius: 8px;
+  background: none;
+  box-shadow: none;
+  color: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+/* the What's on screen card */
+.panels-onscreen .panels-group {
+  margin: 14px 0 4px;
+  font-size: 12px;
+  font-weight: 620;
+  letter-spacing: 0.02em;
+  color: var(--text-2);
+}
+.panels-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--line);
+}
+.panels-row > label,
+.panels-row > .panels-row-name {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.panels-row .panels-why {
+  flex: 1 1 60%;
+  min-width: 0;
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+.panels-row.panels-locked {
+  color: var(--text-2);
+}
+.panels-see {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+.panels-see input[type="range"] {
+  flex: 1 1 160px;
+  min-width: 0;
+  max-width: 280px;
+  accent-color: var(--copper);
+}
+.panels-width-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* Parts of the window the person hid (Settings › Appearance › What's on screen; public/panels-hide.js keeps
+   <html data-hide> in step). Last in the file, so a hidden part stays hidden whatever showed it above. */
+:root[data-hide~="title-bar"] body.lx > main > header,
+:root[data-hide~="oak"] body.lx .lx-wall,
+:root[data-hide~="new"] body.lx #rail-new,
+:root[data-hide~="find"] body.lx #rail-find,
+:root[data-hide~="places"] body.lx .rail-group[data-group="sections"],
+:root[data-hide~="projects"] body.lx .rail-group[data-group="projects"],
+:root[data-hide~="recents"] body.lx .rail-group[data-group="recents"],
+:root[data-hide~="owner"] body.lx #owner-menu-button,
+:root[data-hide~="maker"] body.lx .rail-maker,
+:root[data-hide~="page-title"] body.lx > main > header .head-title,
+:root[data-hide~="side-toggle"] body.lx #rail-toggle,
+:root[data-hide~="panel-button"] body.lx #aside-toggle,
+:root[data-hide~="more"] body.lx #lx-more,
+:root[data-hide~="labels"] body.lx #thread-labels,
+:root[data-hide~="clear"] body.lx #lx-clear,
+:root[data-hide~="shield"] body.lx #lx-shield,
+:root[data-hide~="connection"] body.lx #connection,
+:root[data-hide~="welcome"] body.lx #chat > .welcome,
+:root[data-hide~="starters"] body.lx #lx-starters,
+:root[data-hide~="suggest"] body.lx #suggest-bar,
+:root[data-hide~="messages"] body.lx #conversation,
+:root[data-hide~="composer"] body.lx #composer-dock,
+:root[data-hide~="mode"] body.lx #chat-form .mode-wrap,
+:root[data-hide~="model"] body.lx .lx-model-chip,
+:root[data-hide~="usage"] body.lx #status-bar,
+:root[data-hide~="foot"] body.lx .composer-foot,
+:root[data-hide~="acorn"] body.lx .acorn-art {
+  display: none !important;
+}
+/* The side list keeps its place in the grid (so the conversation keeps its own) and gives its width back. */
+:root[data-hide~="side-list"] {
+  --rail-w: 0px !important;
+}
+:root[data-hide~="side-list"] body.lx > #conversation-rail {
+  visibility: hidden !important;
+  overflow: hidden !important;
+  padding: 0 !important;
+  border: 0 !important;
+}
+:root[data-hide~="side-list"] body.lx > main {
+  margin-left: 0 !important;
+}
+:root[data-hide~="side-list"] .panels-rz[data-rz="rail"] {
+  display: none !important;
+}

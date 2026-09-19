@@ -232,6 +232,7 @@ import { handlesKnobsPath, knobsApi, KnobsApiError } from "./knobs/api.js";
 // R17-E: models, cheaper and smarter (src/model-savings/).
 import { handlesSavingsPath, savingsApi, SavingsApiError } from "./model-savings/api.js";
 // mac7/usage-bar: how much of each connection's allowance is left (src/usage-limits.ts).
+import { panelsWork, panelsWorkPath } from "./panels-work.js"; // phase2/panels
 import { conversationModeApi, ConversationModeError, handlesConversationModePath, modeRefusal, planAgreed } from "./conversation-mode-api.js";
 import { handlesUsageLimitsPath, usageGlance, usageGlancePath, usageLimitsRoute, UsageLimitsError } from "./usage-limits-api.js";
 import { savingsRefusal } from "./short-lived-keys.js";
@@ -638,6 +639,10 @@ async function staticFile(
     "/conversation-mode.js": ["conversation-mode.js", "text/javascript; charset=utf-8"],
     "/suggestions.js": ["suggestions.js", "text/javascript; charset=utf-8"],
     "/glass-select.js": ["glass-select.js", "text/javascript; charset=utf-8"],
+    // phase2/panels: the side panel's tabs, resizable panes, see-through message box, hide anything.
+    "/panels.js": ["panels.js", "text/javascript; charset=utf-8"],
+    "/panels.css": ["panels.css", "text/css; charset=utf-8"],
+    "/panels-hide.js": ["panels-hide.js", "text/javascript; charset=utf-8"],
     "/playground.js": ["playground.js", "text/javascript; charset=utf-8"],
     "/tool-catalog.js": ["tool-catalog.js", "text/javascript; charset=utf-8"],
     "/i18n.js": ["i18n.js", "text/javascript; charset=utf-8"],
@@ -1559,6 +1564,9 @@ async function api(
       ...(input.mode && !input.sessionId ? { conversationMode: input.mode } : {}),
     });
   }
+  // phase2/panels: what the side panel's Browser and Terminal tabs show (src/panels-work.ts); owner only.
+  if (request.method === "GET" && path === panelsWorkPath)
+    return panelsWork(app.store, app.runtime.owner, new URL(request.url ?? "/", "http://local").searchParams.get("session") ?? "");
   // Redesign phase 1: the mode chip in the message box (src/conversation-mode-api.ts).
   if (handlesConversationModePath(path))
     return conversationModeApi(app, request.method ?? "GET", new URL(request.url ?? "/", "http://local"), () => readBody(request))

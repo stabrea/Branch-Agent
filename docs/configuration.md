@@ -3919,6 +3919,32 @@ Settings → Appearance, or at the foot of the More menu). `showVoice` (default 
 microphone and Talk buttons beside the message box in the calm window; the full window always
 shows them.
 
+**The side panel, its tabs and panes you can resize (redesign phase 2, panels).** The title bar has one
+side-panel button (in the calm window too); the panel's tabs sit inside it: Activity, Plan, Files, Memory,
+Browser and Terminal. **Browser** lists the web pages the assistant opened in this conversation, with the last
+picture it took of a page; **Terminal** lists the commands it ran, what they printed, and the ones it was
+refused or is waiting on a yes for. Both read `GET /api/panels/work?session=<id>` (src/panels-work.ts), the
+conversation's last eight tasks; nothing there runs a command or opens a page. They are the owner's: a
+short-lived key and a household person are refused the route, and a household person's window does not offer
+the two tabs. The edge of the side list and of the side panel can be dragged (double-click resets, arrow keys
+move it, Enter folds it); Ctrl+B (Cmd+B on a Mac) folds the side list. Widths are kept in this browser only
+(`branch-pane-widths` in local storage), not in the preferences record.
+
+**What's on screen (Settings → Appearance).** Four more fields of the preferences record:
+
+- `conversationWidth` (`comfortable`, `wide` or `full`; default `wide`): how wide the conversation and the
+  message box grow on a wide screen. `comfortable` is the old 760-pixel column.
+- `seeThrough` (0 to 100; default `30`): how see-through the message box is, from solid to glass. It never
+  goes past the fill that keeps the words readable over the theme's darkest and lightest oak, and it stays
+  solid when the computer asks for less transparency or "Keep things still" is on.
+- `hidden` (a list of part names; default empty): the parts of the window the person chose to hide — the
+  whole side list or title bar, the oak, the rows of the side list, the title bar's buttons, the question and
+  suggestions on a new conversation, the messages, the message box and the chips and lines around it, the acorn.
+  Questions it asks before it acts, the Lockdown banner, Stop while a task runs and Settings are never on the
+  list; with the side list hidden a small gear stays in the corner.
+- `rightClickHide` (default `false`): right-clicking a part of the window offers "Hide this" (with Undo in
+  the notice). Off, right-click behaves as it always has.
+
 Every section (Conversation, Activity, Usage, Memory, Skills, Specialists, Procedures, Schedules,
 Documents, Settings) is a row in the rail's "Sections" group on the left, so nothing hides behind a
 drop-down. Below it, "Projects" lists the workspace folders (`POST /api/projects/active` switches

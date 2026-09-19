@@ -64,6 +64,9 @@ const ICONS = {
   memory: "M12 5a3 3 0 00-5.8-1A3 3 0 004 9a3 3 0 001 5.5A3 3 0 009 19a3 3 0 003-1M12 5a3 3 0 015.8-1A3 3 0 0120 9a3 3 0 01-1 5.5A3 3 0 0115 19a3 3 0 01-3-1M12 5v13",
   send: "M12 19V5M6 11l6-6 6 6",
   spark: "M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M6 18l2.5-2.5M15.5 8.5 18 6",
+  // phase2/panels: the side panel's Browser and Terminal tabs
+  browser: "M12 3a9 9 0 110 18 9 9 0 010-18zM3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z",
+  terminal: "M4 5h16v14H4zM7 10l3 2-3 2M12 15h5",
 };
 function icon(name) {
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -683,7 +686,8 @@ function buildRail() {
   document.querySelector('.nav[data-view="usage"]')?.remove();
 }
 /* ---------- the title bar: the side pane, clear the view, lockdown ---------- */
-const PANE_TABS = [["activity", "pane.activity", "Activity"], ["plan", "pane.plan", "Plan"], ["files", "pane.files", "Files"], ["memory", "pane.memory", "Memory"]];
+const PANE_TABS = [["activity", "pane.activity", "Activity"], ["plan", "pane.plan", "Plan"], ["files", "pane.files", "Files"], ["memory", "pane.memory", "Memory"],
+  ["browser", "pane.browser", "Browser"], ["terminal", "pane.terminal", "Terminal"]]; // phase2/panels: Browser and Terminal (public/panels.js)
 let paneTab = store.get("branch-pane-tab") || "activity";
 function buildTitleBar() {
   const seg = make("div", "lx-pane-tabs");
@@ -694,7 +698,8 @@ function buildTitleBar() {
     const trigger = button("lx-pane-tab", key, english);
     iconAndWords(trigger, id);
     trigger.dataset.pane = id;
-    trigger.addEventListener("click", () => choosePaneTab(id));
+    trigger.title = say(key, english);
+    trigger.addEventListener("click", () => pickPaneTab(id)); // phase2/panels: a tab inside the panel never closes it
     seg.append(trigger);
   }
   const clear = make("button", "head-icon lx-clear");
@@ -712,8 +717,34 @@ function buildTitleBar() {
   shield.setAttribute("aria-label", say("lockdown.label", "Lockdown"));
   shield.title = shield.getAttribute("aria-label");
   shield.append(icon("shield"));
-  $("connection").before(seg, clear, shield);
+  /* phase2/panels: one switch in the title bar (the panel button); the tabs live inside the panel (tagPaneBlocks). */
+  paneSeg = seg;
+  $("connection").before(clear, shield);
+  $("aside-toggle").addEventListener("click", (event) => {
+    if (!calm() && !narrow.matches) return; // a wide full window folds the pane as it always has (public/shell.js)
+    event.stopImmediatePropagation();
+    togglePane();
+  }, true);
   buildLockdown(shield);
+}
+let paneSeg = null;
+/* phase2/panels: the calm window's pane can be shut while work runs; it opens by itself again for the next task. */
+let paneShut = false;
+function togglePane() {
+  if (!calm()) { document.body.classList.toggle("lx-pane-float"); return syncPane(); }
+  if (calmPaneWanted()) {
+    paneAsked = false;
+    paneShut = calmWorking;
+    document.body.classList.remove("lx-pane-float");
+    return syncPane();
+  }
+  paneShut = false;
+  askForPane(paneTab);
+}
+function pickPaneTab(id) {
+  const open = calm() ? calmPaneWanted() : paneOpen();
+  if (open && paneTab === id) return;
+  choosePaneTab(id);
 }
 /* On a narrow window the pane floats over the conversation, so it starts closed and opens only when asked. */
 const narrow = matchMedia("(max-width: 1180px)");
@@ -738,7 +769,7 @@ function tagPaneBlocks() {
   }
   document.querySelector(".context-stats").dataset.pane = "memory";
   const head = make("div", "lx-pane-head");
-  head.append(make("strong", "lx-pane-name"));
+  head.append(make("strong", "lx-pane-name"), paneSeg); // phase2/panels: the tabs sit in the panel's own head
   $("context-panel").prepend(head);
 }
 /** The pane belongs to the conversation: shown there when open, or anywhere while help is being read. */
@@ -750,6 +781,7 @@ function syncPane() {
   const open = calm() ? calmPaneWanted() : paneOpen();
   document.body.classList.toggle("lx-aside", helping || (place === "chat" && open));
   document.body.classList.toggle("lx-help", helping);
+  $("aside-toggle").setAttribute("aria-pressed", String(open)); // phase2/panels: the one switch says whether the panel is open
   for (const trigger of document.querySelectorAll(".lx-pane-tab"))
     trigger.setAttribute("aria-pressed", String(open && trigger.dataset.pane === paneTab));
   const tab = PANE_TABS.find(([id]) => id === paneTab);
@@ -928,7 +960,7 @@ function wireKeys() {
     }
     /* The floating pane closes, and the keyboard goes back to what opened it. */
     if (event.key === "Escape" && document.body.classList.contains("lx-pane-float")) {
-      const back = calm() ? $("lx-more") : document.querySelector('.lx-pane-tab[aria-pressed="true"]');
+      const back = $("aside-toggle"); // phase2/panels: the tabs are inside the pane now; its one switch takes the keyboard back
       if (calm()) paneAsked = false;
       document.body.classList.remove("lx-pane-float");
       back?.focus();
@@ -977,7 +1009,7 @@ const goalShowing = () => Boolean($("goal-strip") && !$("goal-strip").hidden);
 /** In the calm window the pane shows while work runs, or when the owner asked for it; a narrow window floats it only when asked. */
 function calmPaneWanted() {
   if (narrow.matches) return paneAsked && document.body.classList.contains("lx-pane-float");
-  return paneAsked || calmWorking;
+  return paneAsked || (calmWorking && !paneShut); // phase2/panels: shut with the switch while work runs
 }
 function askForPane(id) {
   paneAsked = !(paneAsked && paneTab === id);
@@ -995,6 +1027,7 @@ function watchCalmWork() {
     workTimer = setTimeout(() => {
       if (calmWorking === now) return;
       calmWorking = now;
+      if (!now) paneShut = false; // phase2/panels
       document.body.classList.toggle("lx-calm-working", now);
       if (now) document.dispatchEvent(new CustomEvent("branch-pane-draw"));
       syncPane();
@@ -1030,6 +1063,7 @@ const MORE = [
   ["more.pane", "Side panel", [
     ["pane", "activity", "pane.activity", "Activity"], ["pane", "plan", "pane.plan", "Plan"],
     ["pane", "files", "pane.files", "Files"], ["pane", "memory", "pane.memory", "Memory"],
+    ["pane", "browser", "pane.browser", "Browser"], ["pane", "terminal", "pane.terminal", "Terminal"], // phase2/panels
     ["allowed", "context-allowed", "allowed.title", "What is allowed right now"],
   ]],
   ["more.goTo", "Go to", [
