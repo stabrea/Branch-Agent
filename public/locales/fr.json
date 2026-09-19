@@ -4399,7 +4399,7 @@
   "rooms.stop": "Arrêter",
   "rooms.stopLabel": "Arrêter le salon : personne d'autre n'est sollicité",
   "rooms.yes": "Oui",
-  "rooms.yesLabel": "Oui, {name} peut le faire une fois",
+  "rooms.yesLabel": "Oui, {name} peut le faire dans ce salon",
   "rooms.no": "Non",
   "rooms.noLabel": "Non, {name} ne peut pas",
   "rooms.needYouMany": "{names} ont besoin de vous",

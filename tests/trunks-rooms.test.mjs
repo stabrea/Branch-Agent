@@ -163,7 +163,7 @@ test("a member waiting for a yes is answered in the room, a stop stops it, and a
   assert.deepEqual(flagged, ["@ann is waiting for your answer", "A Trunk in the room is waiting for your answer"]);
   assert.throws(() => rooms.answer(room.id, { memberId: "00000000-0000-4000-8000-000000000000", decision: "allow" }), /not in this room/);
   rooms.answer(room.id, { memberId: a.id, decision: "allow" });
-  assert.deepEqual(fake.approvals, [{ sessionId: room.memberSessions[a.id], decision: "allow", remember: "never" }]);
+  assert.deepEqual(fake.approvals, [{ sessionId: room.memberSessions[a.id], decision: "allow", remember: "session" }]); // phase2/rooms: a yes holds for the member in this room
   await rooms.settled(room.id);
   assert.equal(fake.runs.length, 2, "Ann took its turn again");
   assert.deepEqual(rooms.get(room.id).events.filter((e) => e.kind === "member").map((e) => e.text), ["Sent."]);

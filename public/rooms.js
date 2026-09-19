@@ -483,7 +483,7 @@ function askRow(view, ask) {
   const words = el("span", "rooms-row-words");
   words.append(el("b", "", trunk.name), el("small", "", ask.label || ask.tool));
   row.append(face(trunk, 24), words,
-    press("rooms-yes", say("rooms.yes", "Yes"), () => answer(view, ask, "allow"), say("rooms.yesLabel", "Yes, {name} may do this once", { name: trunk.name })),
+    press("rooms-yes", say("rooms.yes", "Yes"), () => answer(view, ask, "allow"), say("rooms.yesLabel", "Yes, {name} may do this in this room", { name: trunk.name })),
     press("rooms-no", say("rooms.no", "No"), () => answer(view, ask, "deny"), say("rooms.noLabel", "No, {name} may not", { name: trunk.name })));
   return row;
 }

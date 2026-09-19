@@ -4398,7 +4398,7 @@
   "rooms.stop": "Stop",
   "rooms.stopLabel": "Stop the room: nobody else is asked",
   "rooms.yes": "Yes",
-  "rooms.yesLabel": "Yes, {name} may do this once",
+  "rooms.yesLabel": "Yes, {name} may do this in this room",
   "rooms.no": "No",
   "rooms.noLabel": "No, {name} may not",
   "rooms.needYouMany": "{names} need you",

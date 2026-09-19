@@ -243,10 +243,15 @@ export class TrunkRooms {
     return Object.entries(room.memberSessions).filter(([member]) => room.members.includes(member)).flatMap(([memberId, sessionId]) =>
       this.deps.runtime.waitingApprovals(sessionId).map((q) => ({ memberId, sessionId, tool: q.tool, target: q.target, label: q.label, fingerprint: q.fingerprint ?? null })));
   }
-  /** Answers a member's question in the room, and lets that member take its turn again. */
+  /**
+   * Answers a member's question in the room, and lets that member take its turn again.
+   * phase2/rooms: the turn is taken again from the start, as a new task, so a yes "just this once"
+   * was used up by nothing and the member asked the same question for ever. A yes now holds for that
+   * member in this room (its own conversation for the room) unless "never" is sent.
+   */
   answer(id: string, input: unknown): unknown {
     const value = z.object({ memberId: z.string().uuid(), decision: z.enum(["allow", "deny"]),
-      remember: z.enum(["never", "session"]).default("never"), fingerprint: z.string().regex(/^[a-f0-9]{32}$/).optional() }).strict().parse(input);
+      remember: z.enum(["never", "session"]).default("session"), fingerprint: z.string().regex(/^[a-f0-9]{32}$/).optional() }).strict().parse(input);
     const room = this.get(id);
     const sessionId = room.memberSessions[value.memberId];
     if (!sessionId || !room.members.includes(value.memberId)) throw new Error("That Trunk is not in this room");

@@ -91,6 +91,21 @@ test("piece 1: after a restart the room's turns still follow the room's mode", a
   assert.equal(app.trunks.rooms.view(r.id).waiting.length, 1);
 });
 
+test("piece 1: a yes given in the room lets the Trunk carry on, rather than asking the same thing for ever", async (t) => {
+  const { app, room: r, ann } = await room(t);
+  const { pickConversationMode } = await import("../dist/conversation-mode-api.js");
+  pickConversationMode(app, r.sessionId, "ask");
+  app.trunks.rooms.send(r.id, { text: "@ann write it" });
+  await app.trunks.rooms.settled(r.id);
+  const [ask] = app.trunks.rooms.view(r.id).waiting;
+  app.trunks.rooms.answer(r.id, { memberId: ann.id, decision: "allow", ...(ask.fingerprint ? { fingerprint: ask.fingerprint } : {}) });
+  await app.trunks.rooms.settled(r.id);
+  assert.equal(existsSync(join(app.runtime.workspace, "room.txt")), true);
+  const view = app.trunks.rooms.view(r.id);
+  assert.equal(view.waiting.length, 0);
+  assert.deepEqual(view.events.map((e) => e.kind), ["user", "waiting", "member"]);
+});
+
 /* ---------------------------------------------------------------- piece 2: who answers in a conversation */
 
 async function served(t, rules = []) {
