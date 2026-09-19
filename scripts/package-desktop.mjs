@@ -106,7 +106,9 @@ async function packageWindows({ arch, release }) {
   // Smart App Control blocks unsigned executables it has never seen. The packager rewrites the
   // executable's icon and version resources, giving every build a brand-new hash. Until releases
   // are code-signed, ship the stock Electron executable (a widely known hash) under the app name;
-  // window, tray and taskbar icons are set at runtime, so only the file icon in Explorer changes.
+  // the window and tray icons are set at runtime, and the taskbar takes its icon from the shortcuts,
+  // which name keepoak.ico and the app's own ID (src/install/windows-identity.ts, mac7/win-icon). A
+  // shortcut that names the executable's icon shows Electron's atom in the taskbar: 0.18.0 did that.
   for (const out of paths) {
     const target = join(out, "Branch Agent.exe");
     await copyFile("node_modules/electron/dist/electron.exe", target);
