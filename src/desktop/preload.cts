@@ -12,4 +12,5 @@ contextBridge.exposeInMainWorld("branchDesktop", Object.freeze({
   checkForUpdates: () => ipcRenderer.invoke("branch:update-check"),
   installUpdate: () => ipcRenderer.invoke("branch:update-install"),
   openExternal: (url: unknown) => ipcRenderer.invoke("branch:open-external", url),
+  restartBranch: () => ipcRenderer.invoke("branch:restart"),
 }));
