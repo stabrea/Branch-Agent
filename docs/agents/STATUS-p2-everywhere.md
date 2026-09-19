@@ -25,7 +25,7 @@ critiques #44, #53). Screenshots and terminal frames: `claude-session-files/bran
       phase2/everywhere: index.html (one link, one script), src/server.ts (two allowlist rows), public/shell.js
       (the side list slides over under 700 px instead of 860, so an upright tablet keeps it docked).
       tests/phone-layout.test.mjs.
-- [x] 4. Merged origin/mac/cross-platform (677e7d34), rebuilt, ran 51 files (419 tests: 400 pass, 0 fail,
+- [x] 4. Merged origin/mac/cross-platform (677e7d34, then 98beb5d8: 91 targeted tests, 89 pass, 0 fail, 2 skipped), rebuilt, ran 51 files (419 tests: 400 pass, 0 fail,
       19 skipped): every UI file that sets a narrow viewport, the shell/calm/web/ui/redesign-phase1 suites,
       static-assets, index-structure, handbook, all terminal suites, mobile-shell/-rules, conversation-mode.
 
