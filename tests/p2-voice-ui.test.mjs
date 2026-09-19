@@ -178,7 +178,10 @@ test("dictation: an answer still on its way when the words are thrown away does 
   state.hold = new Promise((resolve) => { release = resolve; });
   t.after(() => release());
   await f.page.waitForFunction(() => document.getElementById("dictation-bar"));
-  while (!state.held) await new Promise((resolve) => setTimeout(resolve, 20));
+  for (let tries = 0; !state.held; tries += 1) {
+    assert.ok(tries < 500, "the window asks for the words while the microphone is open");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
   await f.page.getByRole("button", { name: "Stop and throw the words away" }).click();
   await f.page.waitForFunction(() => !document.getElementById("dictation-bar"));
   assert.equal(await f.page.locator("#prompt").inputValue(), "Please");

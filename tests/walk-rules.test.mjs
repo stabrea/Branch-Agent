@@ -277,6 +277,20 @@ test("obsidian.read does not read a tagged note in a refused folder when the not
   assert.doesNotMatch(text(completed?.data.result), new RegExp(secretText));
 });
 
+test("a place under the workspace is judged by the rules however the disk spells the workspace's path", async (t) => {
+  const { realpathSync } = await import("node:fs");
+  const { byFullAddress } = await import("../dist/walk-rules.js");
+  const { workspace } = await fixture(t);
+  // The notes walker's paths come from fs/promises realpath: on a Windows build machine TEMP is
+  // C:\Users\RUNNER~1\..., and that spells it C:\Users\runneradmin\... (ci-flakes-3).
+  const spelled = realpathSync.native(workspace);
+  const rules = { folder: (path) => path !== "finance", file: (path) => !path.startsWith("finance/") };
+  const may = byFullAddress(rules, workspace);
+  assert.equal(may(join(spelled, "finance", "ledger.md"), false), false, "a refused file, by the disk's own spelling");
+  assert.equal(may(join(spelled, "finance"), true), false);
+  assert.equal(may(join(spelled, "notes", "plan.md"), false), true);
+});
+
 // ------------------------------------------------------------------ the check itself
 
 test("the check: a broad question already answered for the walk does not hide anything; a question about one folder does", async () => {
