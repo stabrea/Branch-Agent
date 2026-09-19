@@ -432,7 +432,7 @@ async function drawRoom() {
   box.replaceChildren(...nodes, ...asks(roomView), ...talking(roomView));
   box.dataset.roomSeen = `${roomView.id}:${roomView.seq}:${roomView.waiting?.length ?? 0}:${roomView.speaking}`;
   // Only something new brings the newest line into view, so reading back up is never interrupted.
-  if (grown) box.lastElementChild?.scrollIntoView({ block: "nearest" });
+  if (grown) ($("chat") ?? box).scrollIntoView({ block: "end" }); // its end keeps room for the message box
   if ($("thread-name")) $("thread-name").textContent = roomView.name;
   const prompt = $("prompt");
   if (prompt && !prompt.dataset.roomsPlaceholder) {

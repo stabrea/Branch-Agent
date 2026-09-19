@@ -23,10 +23,29 @@ conversation follows it** (capped by that Trunk's own limits: its tools, its rea
 | 4 | @mention picker in the composer for rooms (members first, "mentioning adds it") | [x] done: rooms.js picker (Enter/Tab pick, Esc closes, never sends); public/trunks.js steps aside when rooms.js handles @ (3 marked lines). tests/p2-rooms-ui.test.mjs |
 | 5 | Dictation bar in the composer | [x] done: public/voice-bar.js (Dictate as a microphone; a bar while it listens: time, nothing leaves this computer, keep ✓ / throw away ✕); dictation.js gains `branchDictation.stop(keep)` (marked). Esc still stops and keeps, as before. tests/p2-voice-ui.test.mjs (routes answered by the test, no microphone) |
 | 6 | Talk live voice view (ships off) | [x] done: voice setting `liveView` off/on (Settings › Voice); public/voice-view.js (orb from real levels, captions, Mute, Cut in, Show the chat, End, folds away on a question; send button offers Talk live on an empty box); voice-live.js sends events and exposes press/stop/mute/levels (marked). `/api/voice/live` was never served: wired, owner-only. tests/p2-voice-ui.test.mjs |
-| 7 | Docs, locales, screenshots, merge trunk, final tests | [ ] |
+| 7 | Docs, locales, screenshots, merge trunk, final tests | [x] docs/configuration.md (trunks-conversations, liveView, room mode, room yes, Talk live route), en+fr strings, 66 shots in phase2-shots/rooms (1440/1024/390, light/dark), trunk merged, broad run 288/288 |
 
 ## How to continue
 
 - `npm run build`, `npx tsc --noEmit`, `node --test --test-concurrency=2 tests/p2-rooms*.test.mjs tests/trunks*.test.mjs tests/conversation-mode.test.mjs`.
 - Never run tests/desktop*.test.mjs or tests/screen-control.test.mjs. Never open a real microphone in a test.
 - Screenshots: `claude-session-files/branch/p2-rooms/shots.mjs <worktree> <scene...>` into `phase2-shots/rooms/`.
+
+## Deliberate differences from the sample
+
+- No "main one" and no "who answers when nobody is mentioned" control: the sample marks it a proposal, and the real
+  room engine has one rule (nobody mentioned means everyone). No side-by-side replies (replies stack, signed).
+- Adding a Trunk to a conversation makes a named room (the engine's persisted room) carrying the last messages; the
+  conversation itself stays as it was, rather than the sample's in-place membership.
+- The dictation bar shows no waveform: the app has no sound level for dictation, and a made-up one would be a fake.
+  Esc still stops and keeps the words (as before); the bar's ✕ throws them away.
+- The live view's circle moves with the real sound levels (AnalyserNode on the mic and on playback).
+
+## Known, not ours
+
+- trunks.js avatar() sets colours through a style attribute, which the window's CSP refuses (console errors, and it
+  would be black); rooms.js re-applies them with style.setProperty. p2-shell replaces avatar() with faces.js and fixes
+  both; take theirs at merge (our one `>>>` line in avatar() will conflict).
+- Room member conversations appear in Recents with the room prompt as their title (pre-existing).
+- "Your assistant needs you" banner (app.js) names the assistant for a Trunk's question in a room (pre-existing);
+  its Open conversation leads to the member's side, which offers Open the room.

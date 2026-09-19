@@ -124,7 +124,7 @@ test("Talk live is not offered in a conversation a Trunk answers in", async (t) 
   await f.page.evaluate(async (id) => { const { openConversation } = await import("/app.js"); await openConversation(id); }, started.sessionId);
   await f.page.waitForFunction(() => globalThis.branchRooms.liveAllowed() === false);
   await f.page.waitForFunction(() => !document.getElementById("send").classList.contains("voice-send"));
-  assert.equal(await f.page.locator("#voice-live").isVisible(), false);
+  await f.page.waitForFunction(() => document.getElementById("voice-live").hidden, null, { timeout: 5000 }); // the button asks the server first
   assert.deepEqual(f.errors, []);
 });
 

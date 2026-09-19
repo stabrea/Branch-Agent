@@ -36,7 +36,7 @@ const liveReady = () => plan?.live?.available === true && globalThis.branchRooms
 const ready = () => $("workspace")?.hidden === false && Boolean(sessionStorage.getItem("branch-token"));
 async function refresh() {
   if (!ready()) return;
-  plan = await api("voice/plan").catch(() => null);
+  plan = (await api("voice/plan").catch(() => null)) ?? plan; // a failed read keeps what was known
   paintSend();
 }
 
@@ -187,8 +187,9 @@ function caption(detail) {
 }
 
 /* ---------- following the conversation ---------- */
-document.addEventListener("branch-live-state", (event) => {
+document.addEventListener("branch-live-state", async (event) => {
   liveState = event.detail?.state ?? "idle";
+  if (!plan && liveState !== "idle") await refresh();
   paintSend();
   if (!viewOn()) return;
   if (liveState === "idle") { closeView(); return; }
