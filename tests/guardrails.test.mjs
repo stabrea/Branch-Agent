@@ -81,7 +81,10 @@ test("lifecycle hooks run on events and switch themselves off after repeated fai
   await writeFile(script, "const fs = require('fs'); const p = process.argv[2]; fs.appendFileSync(p, process.argv[3] + '\\n'); process.exit(process.argv[4] === 'fail' ? 1 : 0);");
   const log = join(root, "hook.log"), config = join(root, "integrations.json");
   await writeFile(config, JSON.stringify({
-    shell: { executables: { node: { path: process.execPath, args: [] } }, timeoutMs: 10000 },
+    // The limit on one hook's run. Each starts a new Node, which on a loaded Windows build machine
+    // took longer than 10 seconds, and a hook stopped at its limit counts as failed. The wait ends
+    // when the hook does; this only bounds one that never would.
+    shell: { executables: { node: { path: process.execPath, args: [] } }, timeoutMs: 60000 },
     hooks: [
       { id: "flaky", event: "run.finished", executable: "node", args: [script, log, "flaky", "fail"], failureThreshold: 2 },
       { id: "steady", event: "run.finished", executable: "node", args: [script, log, "steady", "ok"] },
@@ -105,6 +108,8 @@ test("lifecycle hooks run on events and switch themselves off after repeated fai
   const third = await app.runtime.run({ prompt: "three" });
   await app.hooks.settle();
   assert.equal(app.hooks.list().find((h) => h.id === "flaky").runs, 2, "a disabled hook does not run");
+  const steadyAfter = app.hooks.list().find((h) => h.id === "steady");
+  assert.deepEqual([steadyAfter.runs, steadyAfter.failures], [3, 0], `the steady hook's third run: ${steadyAfter.lastError ?? "no error"}`);
   const re = app.hooks.enable("flaky");
   assert.deepEqual([re.enabled, re.failures], [true, 0]);
   const { readFile } = await import("node:fs/promises");
