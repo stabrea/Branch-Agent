@@ -146,6 +146,9 @@ export class ToolRegistry {
    * (written about the workspace) holds whichever folder is active.
    */
   resourceOf(name: string, target: string, args: unknown): PolicyResource | null {
+    // mac7/residuals: a tool that says which command it runs is judged by that command.
+    const command = this.tools.get(name)?.command?.(this.runArgs(name, args));
+    if (command) return { kind: "command", value: command.slice(0, 8000), listed: true, ...(command.length > 8000 ? { cut: true } : {}) };
     const resource = resourceOf(name, this.permissionOf(name), target, args);
     const scope = this.pathScope();
     return resource?.kind === "path" && scope ? { ...resource, inWorkspace: `${scope}/${resource.value}` } : resource;

@@ -150,3 +150,25 @@ test("4d. an older match-style rule reads the file path tidied, and inside the a
   assert.equal(judge("q1.txt", "finance/q1.txt"), "deny", "the file inside the active project folder");
   assert.notEqual(judge("notes/q1.txt"), "deny", "another folder is not covered");
 });
+
+test("4a. process.start is judged by command rules on the command it really runs, arguments included", async (t) => {
+  const { app } = await fixture(t);
+  const { PolicySchema, evaluatePolicy } = await import("../dist/policy.js");
+  app.store.save("settings", app.runtime.owner, "background-processes", { programs: {
+    dev: { path: "C:/Program Files/nodejs/npm.cmd", args: ["run", "dev"] },
+    setup: { path: "/usr/bin/npm", args: ["install"] },
+  } });
+  const policy = PolicySchema.parse({ preset: "custom", rules: [
+    { tool: "*", match: "*", decision: "deny", resource: { kind: "command", pattern: "npm install" } },
+    { tool: "*", match: "*", decision: "deny", resource: { kind: "command", pattern: "npm run dev --host" } },
+  ] });
+  const judge = (args) => {
+    const target = app.registry.targetOf("process.start", args, app.runtime.context({}));
+    const resource = app.registry.resourceOf("process.start", target, args);
+    return evaluatePolicy(policy, { tool: "process.start", target, readOnly: false, resource }).decision;
+  };
+  assert.equal(judge({ program: "setup", args: ["left-pad"] }), "deny", "whatever short name the owner gave npm install");
+  assert.equal(judge({ program: "dev", args: ["--host", "0.0.0.0"] }), "deny", "the call's own arguments are read");
+  assert.equal(judge({ program: "dev", args: ["--port", "3000"] }), "allow", "a listed program no rule is about still goes ahead");
+  assert.equal(app.registry.targetOf("process.start", { program: "dev", args: [] }, app.runtime.context({})), "dev", "the card is unchanged");
+});

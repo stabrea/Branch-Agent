@@ -283,7 +283,7 @@ function unmatched(policy: Policy, request: PolicyRequest): PolicyOutcome {
     return { decision: "ask", rule: { tool: request.tool, match: request.target || "*", applies: "any", decision: "ask",
       remember: asksEveryTime(request.tool) ? "never" : "session" } };
   // ---- end mac7/nodes ----
-  if (request.resource?.kind !== "command" || policy.unmatchedCommands === "allow")
+  if (request.resource?.kind !== "command" || request.resource.listed || policy.unmatchedCommands === "allow")
     return { decision: "allow", rule: null };
   return {
     decision: "ask",

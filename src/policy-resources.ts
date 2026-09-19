@@ -34,6 +34,11 @@ export interface PolicyResource {
    */
   cut?: boolean;
   /**
+   * mac7/residuals: a command whose program the owner already put on their own list (`process.start`),
+   * so no rule about it means "go ahead", as before, instead of the question an unknown command gets.
+   */
+  listed?: boolean;
+  /**
    * Integration (hardening-3): the same path written from the workspace itself, when the call's
    * paths are read inside a folder of it (the active project's folder, or a task's working copy).
    * Folder rules are written about the workspace, so a path rule is weighed against both: "never

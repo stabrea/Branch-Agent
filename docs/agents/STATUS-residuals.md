@@ -23,7 +23,15 @@ branch: an integrator reviews it. Every new test is in `tests/residuals.test.mjs
   the conversation its own task record holds (src/interop/agent-protocol.ts `runStep`), unchanged. No "shared with
   a program" mechanism exists, so none is honoured. tests/interop-agents.test.mjs "a streamed task that never
   starts" now seeds an A2A conversation. Test 3; each of the three checks fails it when taken out.
-- [ ] 4a. `process.start` arguments judged by command rules like a shell command.
+- [x] 4a. `process.start` arguments judged by command rules like a shell command.
+  Decision: command rules read the **resolved** command, not the short name: a tool may now say which command it
+  runs (`ToolDefinition.command`, used by `ToolRegistry.resourceOf`); `process.start` gives the listed program
+  by its own name (no folder, no .exe/.cmd — a folder with spaces would break the word split), its listed
+  arguments, then the call's (`BackgroundProcesses.commandLine`). So "never npm install" holds whatever the owner
+  named it. The target (card text, remembered yes, legacy `match`) stays "shortname args", unchanged. Such a
+  command is marked `listed`: with no rule about it, it goes ahead as before (the program is on the owner's own
+  list) instead of getting the unknown-command question, so nothing changes for existing users without a rule.
+  Test 4a; taking out the `command` hook or the `listed` exemption each fails it. 212 process/policy tests pass.
 - [ ] 4b. `code.run` judged only by its permission.
 - [x] 4c. `mail.save_attachment` declares its file target.
   Its target is the owner's attachments folder (`mail.settings().folder`), so a folder rule ("never under finance")

@@ -317,6 +317,12 @@ export interface ToolDefinition<T = unknown> {
   /** What this call would touch, for the approval policy, when the arguments alone do not say. */
   target?: (args: T, context: ToolContext) => string | null;
   /**
+   * mac7/residuals: the command line a tool that starts a program really runs (`process.start`: the
+   * program the owner listed under a short name, its listed arguments, then the call's), so command
+   * rules judge it like a shell command. Null when it cannot say; the target is judged as before.
+   */
+  command?: (args: T) => string | null;
+  /**
    * mac7/multi-target: every file, folder or address a call touches, when it touches more than one
    * (a patch, two documents compared, a list of sources) or when its one path is not where the rules
    * look (a repository `folder`). Each is judged by the rules on its own and the call goes ahead only

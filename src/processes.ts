@@ -162,6 +162,18 @@ export class BackgroundProcesses {
     private readonly probe: SandboxProbe = defaultSandboxProbe(),
   ) {}
   settings(): BackgroundSettings { return backgroundSettings(this.store, this.owner); }
+  /**
+   * mac7/residuals: the command a start would run, for command rules: the listed program by its own
+   * name (no folder, no .exe/.cmd, so "never npm install" holds whatever the owner called it), its
+   * listed arguments, then the call's. Null for a short name that is not on the list (refused anyway).
+   */
+  commandLine(input: { program: string; args: readonly string[] }): string | null {
+    const programs = this.settings().programs;
+    const program = Object.hasOwn(programs, input.program) ? programs[input.program] : undefined;
+    if (!program) return null;
+    const name = program.path.replace(/^.*[\\/]/, "").replace(/\.(exe|cmd|bat|com)$/i, "");
+    return [name, ...program.args, ...input.args].join(" ").trim();
+  }
   /** Starts a program and leaves it running; the tool call is over long before the program is. */
   async start(input: z.infer<typeof StartInputSchema>, context: ToolContext): Promise<ProcessView & { sandbox: SandboxChoice; backend: SandboxBackendName }> {
     const settings = this.settings();
@@ -260,6 +272,7 @@ export function registerProcesses(registry: ToolRegistry, processes: BackgroundP
     description: "Start one of the programs the owner allows to be left running (a preview server, a watcher) and leave it going after this step is over. What it prints is kept in a rolling buffer you can read later. It stops when this conversation ends or the app closes.",
     parameters: StartInputSchema,
     target: (args) => `${args.program} ${args.args.join(" ")}`.trim().slice(0, 300),
+    command: (args) => processes.commandLine(args),
     execute: (args, context) => processes.start(args, context),
   });
   registry.register({

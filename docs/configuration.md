@@ -6059,6 +6059,11 @@ the most recent part of what it printed, and `process.stop` stops it and everyth
 each under a short name you choose, with how many may run at once and how long one may stay up.
 The limit on how many is counted across the whole app, not per conversation, so one task cannot use
 them all up and leave another with none.
+Your approval rules about commands judge a start by the command it really runs — the program by its own
+name, its listed arguments, then the ones the task added — so "never `npm install`" holds whatever short
+name you gave npm, and "never `npm run dev --host`" holds when a task adds `--host`. A listed program no
+rule is about still starts without asking, as before (you already put it on the list). The approval card
+and a remembered yes still show and key on the short name and the added arguments.
 Nothing else can be started. Each one is held in the same Windows job the one-off commands use, so
 the system enforces its memory and processor limits and kills whatever it left behind. Output is
 kept in a small rolling buffer, oldest dropped first. Everything started in a conversation stops
