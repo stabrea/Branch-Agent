@@ -89,7 +89,7 @@ body.lx.lx-working #aside-toggle::after {
    field is never covered. */
 @media (max-width: 1180px) {
   body.lx.lx-chat.lx-aside > .context-panel {
-    bottom: calc(var(--composer-h, 150px) + var(--pane-gap, 10px) + 6px);
+    bottom: calc(var(--composer-h, 150px) + var(--pane-gap, 10px) + 6px + var(--panels-foot, 0px));
   }
 }
 
@@ -340,9 +340,9 @@ body.lx .composer {
 .panels-float-gear {
   position: fixed;
   /* integrate/p2-panels: clear of the window's rounded corner, not across it */
-  left: 22px;
+  left: calc(22px + var(--panels-left, 0px));
   /* phase2/everywhere's bottom places bar sets --ew-bar-h on a phone; elsewhere it is 0 */
-  bottom: calc(22px + var(--ew-bar-h, 0px));
+  bottom: calc(22px + var(--ew-bar-h, 0px) + var(--panels-foot, 0px));
   z-index: 70;
   display: grid;
   place-items: center;
@@ -510,7 +510,8 @@ html:root[data-hide~="mode"] body.lx #chat-form .mode-wrap,
 html:root[data-hide~="model"] body.lx .lx-model-chip,
 html:root[data-hide~="usage"] body.lx #status-bar,
 html:root[data-hide~="foot"] body.lx .composer-foot,
-html:root[data-hide~="acorn"] body.lx .acorn-art {
+html:root[data-hide~="acorn"] body.lx .acorn-art,
+html:root[data-hide~="strip"] body.lx #trunk-strip {
   display: none !important;
 }
 /* The side list keeps its place in the grid (so the conversation keeps its own) and gives its width back. */
@@ -528,4 +529,34 @@ html:root[data-hide~="side-list"] body.lx > main {
 }
 html:root[data-hide~="side-list"] .panels-rz[data-rz="rail"] {
   display: none !important;
+}
+
+/* integrate/p2-panels: phase2/shell's Trunks strip. It sits at the left edge (at the foot on a phone), so the
+   corner gear and the floating panel step clear of it; hidden, the window takes its room back. */
+@media (min-width: 861px) {
+  body.lx.lx-strip {
+    --panels-left: calc(var(--pane-gap) + var(--strip-w));
+  }
+}
+@media (max-width: 860px) {
+  body.lx.lx-strip {
+    --panels-foot: calc(6px + 60px + 6px + env(safe-area-inset-bottom, 0px));
+  }
+}
+html:root[data-hide~="strip"] body.lx {
+  --panels-left: 0px;
+  --panels-foot: 0px;
+}
+html:root[data-hide~="strip"] body.lx.lx-strip {
+  padding: var(--pane-gap);
+}
+@media (max-width: 860px) {
+  html:root[data-hide~="strip"] body.lx.lx-strip {
+    padding: 6px;
+  }
+}
+@media (max-width: 560px) {
+  html:root[data-hide~="strip"] body.lx.lx-strip {
+    padding: 0;
+  }
 }

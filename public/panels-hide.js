@@ -30,6 +30,7 @@ export const HIDE = [
   ["side-list", "onscreen.sideList", "The whole side list", "#conversation-rail", "frame"],
   ["title-bar", "onscreen.titleBar", "The whole title bar", "main > header", "frame"],
   ["oak", "onscreen.oak", "The oak behind the window", ".lx-wall", "frame"],
+  ["strip", "onscreen.strip", "Your computers and Trunks (the strip)", "#trunk-strip", "frame"], // integrate/p2-panels: phase2/shell's strip
   ["new", "onscreen.new", "New conversation", "#rail-new", "side"],
   ["find", "onscreen.find", "Find anything", "#rail-find", "side"],
   ["places", "onscreen.places", "Inbox, Automations, Library and Customize", '.rail-group[data-group="sections"]', "side"],
