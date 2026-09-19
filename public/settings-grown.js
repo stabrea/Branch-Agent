@@ -51,27 +51,35 @@ function withIcon(node, name) {
 
 /* ---------- how much to show ---------- */
 /** The level in force: the saved choice, or Advanced for someone who already had Show everything on. */
+/** Whether the window is on somebody else's profile (public/app.js marks <html data-household>). */
+const household = () => root.dataset.household === "on";
 export function levelNow() {
+  /* Somebody else's profile always sees Regular: the fine controls and where things are saved are the owner's. */
+  if (household()) return "regular";
   const look = currentAppearance();
   if (LEVELS.includes(look.settingsLevel)) return look.settingsLevel;
   return look.showEverything ? "advanced" : "regular";
 }
 /** Regular is the calm window; Advanced and Technical bring back everything, as Show everything did. */
 function chooseLevel(level) {
-  if (!LEVELS.includes(level)) return;
+  if (!LEVELS.includes(level) || household()) return;
   keepAnchor(() => changeAppearance({ settingsLevel: level, showEverything: level !== "regular" }));
 }
+let applied = null;
 function applyLevel() {
-  const level = levelNow();
-  if (root.dataset.settingsLevel === level) return;
+  const level = levelNow(), state = `${level}:${household()}`;
+  if (applied === state) return;
+  applied = state;
   root.dataset.settingsLevel = level;
   for (const option of document.querySelectorAll(".sg-level [data-level-pick]"))
     option.setAttribute("aria-checked", String(option.dataset.levelPick === level));
-  const note = document.querySelector(".sg-level-note");
-  if (note) { note.dataset.t = `settingsGrown.level.${level}.note`; note.textContent = say(note.dataset.t, LEVEL_NOTES[level]); }
+  const note = document.querySelector(".sg-level-note"), key = household() ? "settingsGrown.level.household" : `settingsGrown.level.${level}.note`;
+  if (note) { note.dataset.t = key; note.textContent = say(key, household() ? HOUSEHOLD_NOTE : LEVEL_NOTES[level]); }
+  for (const option of document.querySelectorAll(".sg-level [data-level-pick]")) option.disabled = household();
   countHidden();
   document.dispatchEvent(new CustomEvent("branch-settings-level", { detail: { level } }));
 }
+const HOUSEHOLD_NOTE = "The owner keeps this profile on Regular.";
 const LEVEL_WORDS = { regular: "Regular", advanced: "Advanced", technical: "Technical" };
 const LEVEL_NOTES = {
   regular: "The essentials, in plain words.",
@@ -203,10 +211,7 @@ function putKeys(card) {
   if (!keys) return;
   if (!keyLines.has(card.id)) {
     const line = make("div", "sg-keys");
-    /* The keys are names, not words: drawn from an attribute, so nothing on the card needs a translation. */
-    const code = make("code", "sg-keys-names");
-    code.dataset.keys = keys.join(" · ");
-    line.append(worded("span", "sg-keys-label", "settingsGrown.savedAs", "Saved as"), code);
+    line.append(worded("span", "sg-keys-label", "settingsGrown.savedAs", "Saved as"), make("code", "sg-keys-names", keys.join(" · ")));
     keyLines.set(card.id, line);
   }
   const line = keyLines.get(card.id);
@@ -341,7 +346,8 @@ function matches(needle) {
   for (const row of SETTINGS_INDEX) {
     const label = row[3].toLowerCase();
     const words = `${label} ${row[6] ?? ""} ${homeWords(row[1])}`.toLowerCase();
-    if (!words.includes(needle) || shownBySearch(row)) continue;
+    /* Somebody else's profile is never shown the owner's settings, even by name. */
+    if (!words.includes(needle) || shownBySearch(row) || (row[7] && household())) continue;
     found.push([label === needle ? 0 : label.startsWith(needle) ? 1 : label.includes(needle) ? 2 : 3, row]);
   }
   return found.sort((a, b) => a[0] - b[0]).map(([, row]) => row);
@@ -538,8 +544,8 @@ function drawLatePages(event) {
 
 /* ---------- start ---------- */
 function start() {
-  root.dataset.settingsLevel = levelNow();
   dressNav();
+  applyLevel();
   placeGear();
   peekOnReveal();
   arrangeAll();
@@ -553,6 +559,7 @@ function start() {
     changeAppearance({ settingsLevel: level });
   });
   document.addEventListener("branch-place", drawLatePages);
+  document.addEventListener("branch-profile", () => { $("sg-found")?.remove(); applyLevel(); });
   document.addEventListener("branch-language", () => { $("sg-found")?.remove(); countHidden(); namePickerPages(); });
   document.body.classList.add("sg-ready");
 }

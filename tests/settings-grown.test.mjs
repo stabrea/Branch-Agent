@@ -53,7 +53,7 @@ async function fixture(t, { width = 1440, height = 950, preferences } = {}) {
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.locator("#workspace").waitFor({ state: "visible" });
   await page.locator("body.sg-ready").waitFor({ state: "attached" });
-  return { page, call, errors, app };
+  return { page, call, errors, app, url: server.url, headers: { authorization: `Bearer ${server.token}`, "content-type": "application/json" } };
 }
 /** The cog after the account row: the calm window's, or the full window's. */
 const cog = (page) => page.locator(".sg-foot-line > .sg-gear:visible");
@@ -225,7 +225,7 @@ test("S6 Regular shows the essentials; each level shows more; the choice is kept
   await f.page.locator("#developer-card").waitFor({ state: "visible" });
   await openSettings(f.page, "general");
   assert.equal(await f.page.locator("#never-break-card .sg-keys").isVisible(), true);
-  assert.match(await f.page.locator("#never-break-card .sg-keys-names").getAttribute("data-keys"), /never-break\.mode/);
+  assert.match(await f.page.locator("#never-break-card .sg-keys-names").textContent(), /never-break\.mode/);
   /* Show everything off is Regular again, and the other way round. */
   await openSettings(f.page, "appearance");
   await f.page.locator("#settings-form").evaluate((card) => { card.dataset.sgPeek = "1"; });
@@ -250,8 +250,28 @@ test("S7 someone who already had Show everything on starts on Advanced, and sear
   assert.deepEqual(f.errors, []);
 });
 
-test("S8 the level is the owner's to change: a household profile is refused, as for every preference", () => {
+test("S8 somebody else's profile sees Regular, cannot change the level, and search never names the owner's settings", async (t) => {
+  const f = await fixture(t, { preferences: { showEverything: true, settingsLevel: "technical" } });
+  assert.equal(await f.page.evaluate(() => document.documentElement.dataset.settingsLevel), "technical");
+  const sam = await fetch(new URL("/api/profiles", f.url), { method: "POST", headers: f.headers, body: JSON.stringify({ name: "Sam", pin: "2468" }) }).then((r) => r.json());
+  const switched = await fetch(new URL("/api/profiles/switch", f.url), { method: "POST", headers: f.headers, body: JSON.stringify({ profileId: sam.id, pin: "2468" }) });
+  assert.equal(switched.status, 200);
+  await f.page.waitForFunction(() => document.documentElement.dataset.household === "on", null, { timeout: 15000 });
+  await f.page.waitForFunction(() => document.documentElement.dataset.settingsLevel === "regular");
+  await openSettings(f.page, "general");
+  assert.equal(await f.page.locator(".sg-level [data-level-pick='technical']").isDisabled(), true);
+  assert.match(await f.page.locator(".sg-level-note").textContent(), /owner keeps this profile on Regular/);
+  await f.page.evaluate(() => globalThis.branchSettingsLevel.set("technical"));
+  assert.equal(await f.page.evaluate(() => document.documentElement.dataset.settingsLevel), "regular", "the level stayed on Regular");
+  /* Search: "Key name in Secrets" is the owner's; the one setting a household person may change still shows. */
+  await f.page.locator("#lx-settings-search").fill("Key name in Secrets");
+  await f.page.waitForTimeout(300);
+  assert.equal(await f.page.locator('#sg-found [data-setting="reach-video-secret"]').count(), 0, "an owner-only setting was named to somebody else");
+  await f.page.locator("#lx-settings-search").fill("Also name the files of this project");
+  await f.page.locator('#sg-found [data-setting="documents-repository"]').waitFor();
+  /* The server keeps the level the owner's too. */
   assert.notEqual(offLimitsToHousehold("POST", "/api/preferences"), null);
+  assert.deepEqual(f.errors, []);
 });
 
 test("S9 every page is grouped, and a card no group names still shows under More on this page", async (t) => {
