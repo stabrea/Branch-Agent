@@ -22,8 +22,10 @@ import type { AccountKind } from "./settings.js";
  *
  * So: keys the owner holds move on to the next key automatically, always waiting out the service's
  * Retry-After, and the card says a key made only to multiply a limit is not allowed. Sign-in
- * accounts never switch by themselves unless the owner turns that on beside this line, and are
- * never shared with other people on this computer.
+ * accounts never switch by themselves unless the owner turns that on beside this line, and even then
+ * never between the owner's own plans of one service — only to an account marked kept separate
+ * (someone else's, or work's; mac7/account-pooling, owner decision 2026-09-19). They are never
+ * shared with other people on this computer.
  */
 export interface AccountTerms { text: string; links: { label: string; url: string }[] }
 
@@ -52,7 +54,7 @@ export function accountTerms(kind: AccountKind, pool: string): AccountTerms & { 
     : pool === "cli-copilot" ? [github] : [openai];
   return {
     key: termsKeys[kind],
-    text: "Each sign-in is one person's own account and is never shared with others on this computer. When an account reaches its plan limit Branch stops and asks you; switching by itself is off unless you turn it on, and providers may treat moving between accounts to get past a limit as against their terms.",
+    text: "Each sign-in is one person's own account and is never shared with others on this computer. When an account reaches its plan limit Branch stops and asks you. Branch never switches between your own plans of one service by itself: providers treat that as abuse and may suspend the accounts. Only an account you mark kept separate (someone else's, or work's) may share work with yours.",
     links,
   };
 }
