@@ -3,6 +3,7 @@ import type {
   ToolContext,
   ToolDefinition,
   ToolDescription,
+  ToolTarget,
 } from "./contracts.js";
 import { policyTarget } from "./policy.js";
 import { inferToolGroup, slimTool } from "./catalog.js";
@@ -100,6 +101,22 @@ export class ToolRegistry {
     const seen = this.runArgs(name, args);
     const own = this.tools.get(name)?.target?.(seen, context);
     return (own ?? policyTarget(name, seen)) || "";
+  }
+  /**
+   * mac7/multi-target: every thing a call touches, for a tool that names more than one (or names its
+   * one where the rules do not look), read from the arguments it will run with; null for a tool that
+   * does not say, whose one target (`targetOf`) is judged exactly as before. Throws when the tool
+   * cannot tell what it would touch (a patch that cannot be read): the caller refuses the call.
+   */
+  targetsOf(name: string, args: unknown, context: ToolContext): ToolTarget[] | null {
+    const tool = this.tools.get(name);
+    if (!tool?.targets) return null;
+    // Arguments that do not fit the tool never run, but they are not waved through here either: what
+    // they would touch cannot be told, so the call is refused, saying what does not fit.
+    const parsed = tool.parameters.safeParse(args);
+    if (!parsed.success)
+      throw new Error(parsed.error.issues.map((issue) => `${issue.path.join(".") || name}: ${issue.message}`).join("; "));
+    return tool.targets(parsed.data, context);
   }
   /**
    * hardening-3: the arguments a call will really run with — the tool's own schema applied, with

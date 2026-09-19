@@ -83,6 +83,9 @@ export function registerKnowledgeBases(
     name: "knowledge.create", group: "documents", permission: "documents.write",
     description: "Start a named knowledge base from workspace folders or files. It is empty until it is read with knowledge.reindex.",
     parameters: z.object({ name: z.string().trim().min(1).max(120), sources: z.array(SourceSchema).max(20).default([]) }).strict(),
+    // mac7/multi-target: every folder or file the base will read, each judged by the rules.
+    target: (input) => input.sources.map((source) => source.path).join(", ").slice(0, 300),
+    targets: (input) => input.sources.map((source) => ({ kind: "read" as const, path: source.path })),
     execute: async (input, context) => bases.create(context.owner, input),
   });
   registry.register({

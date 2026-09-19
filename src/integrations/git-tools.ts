@@ -1,5 +1,6 @@
 import { z } from "zod";
-import type { ToolContext } from "../contracts.js";
+import { posix } from "node:path";
+import type { ToolContext, ToolTarget } from "../contracts.js";
 import type { ToolRegistry } from "../registry.js";
 import type { GitTools } from "./git.js";
 import { repositoryName, repositoryPath, type GitHubAccess } from "./github.js";
@@ -20,12 +21,24 @@ const copyName = z.string().min(1).max(40).regex(/^[a-z0-9][a-z0-9._-]*$/, "Use 
 const remoteName = z.string().min(1).max(40).regex(/^[A-Za-z][A-Za-z0-9._-]*$/, "Use a remote name such as origin").default("origin");
 const title = z.string().trim().min(1).max(200);
 
+/**
+ * mac7/multi-target: the repository folder a git tool works in, and any file it names inside it, so a
+ * folder rule ("never anything under finance", a read-only folder) covers the repository too.
+ */
+function inFolder(kind: ToolTarget["kind"]) {
+  return (args: { folder: string; path?: string | undefined; paths?: string[] | undefined }): ToolTarget[] => [
+    { kind, path: args.folder },
+    ...[args.path, ...(args.paths ?? [])].filter((one): one is string => !!one).map((one) => ({ kind, path: posix.join(args.folder, one) })),
+  ];
+}
+
 /** Reading and changing the copy of the repository on this computer. */
 export function registerGit(registry: ToolRegistry, git: GitTools): void {
   registry.register({
     name: "git.status", permission: "git.read",
     description: "Show what has changed in a repository folder since the last saved version, which line of work is active, and whether it is ahead of or behind the shared copy.",
     parameters: z.object({ folder }).strict(),
+    targets: inFolder("read"),
     execute: (input, context: ToolContext) => git.status(input.folder, context.signal),
   });
   registry.register({
@@ -33,24 +46,28 @@ export function registerGit(registry: ToolRegistry, git: GitTools): void {
     description: "Show the actual changed lines, either in the working folder or between two points such as main..mine. The text is capped; files hidden by .branchignore are left out.",
     parameters: z.object({ folder, range: revisionRange.optional(), staged: z.boolean().default(false) }).strict()
       .refine((input) => !(input.staged && input.range), "Ask either for what is staged or for a range, not both"),
+    targets: inFolder("read"),
     execute: (input, context: ToolContext) => git.diff(input, context.signal),
   });
   registry.register({
     name: "git.log", permission: "git.read",
     description: "List recent saved versions of a repository folder, newest first, with who saved each one and its summary line.",
     parameters: z.object({ folder, limit: z.number().int().min(1).max(100).default(20), path: filePath.optional() }).strict(),
+    targets: inFolder("read"),
     execute: (input, context: ToolContext) => git.log(input, context.signal),
   });
   registry.register({
     name: "git.branch", permission: "git.write",
     description: "List the separate lines of work in a repository, start a new one, or switch to an existing one.",
     parameters: z.object({ folder, action: z.enum(["list", "create", "switch"]).default("list"), name: branchName.optional() }).strict(),
+    targets: inFolder("write"),
     execute: (input, context: ToolContext) => git.branch(input, context.signal),
   });
   registry.register({
     name: "git.commit", permission: "git.write",
     description: "Save a version of the changed files with a short message describing them. Saves everything that changed unless you name paths. It refuses when nothing has changed and never rewrites an earlier saved version.",
     parameters: z.object({ folder, message: z.string().trim().min(1).max(2000), paths: z.array(filePath).max(50).optional() }).strict(),
+    targets: inFolder("write"),
     execute: (input, context: ToolContext) => git.commit(input, context.signal),
   });
   registerWorktrees(registry, git);
@@ -68,12 +85,14 @@ function registerWorktrees(registry: ToolRegistry, git: GitTools): void {
     description: "Make a parallel copy of the repository for an experiment, in .branch-worktrees.",
     parameters: z.object({ folder, name: copyName, branch: branchName.optional() }).strict(),
     target: (args) => `parallel copy ${args.name}`,
+    targets: inFolder("write"),
     execute: (input, context: ToolContext) => git.worktree({ ...input, action: "add" }, context.signal),
   });
   registry.register({
     name: "git.worktree_list", permission: "git.read",
     description: "The parallel copies of a repository that exist right now.",
     parameters: z.object({ folder }).strict(),
+    targets: inFolder("read"),
     execute: (input, context: ToolContext) => git.worktree({ ...input, action: "list" }, context.signal),
   });
   registry.register({
@@ -81,6 +100,7 @@ function registerWorktrees(registry: ToolRegistry, git: GitTools): void {
     description: "Remove a parallel copy of the repository and everything left in it.",
     parameters: z.object({ folder, name: copyName }).strict(),
     target: (args) => `remove parallel copy ${args.name}`,
+    targets: inFolder("write"),
     execute: (input, context: ToolContext) => git.worktree({ ...input, action: "remove" }, context.signal),
   });
 }
@@ -97,12 +117,14 @@ function registerPlanBranches(registry: ToolRegistry, git: GitTools): void {
     description: "Try a plan in a parallel copy of the repository, on a line of work named after it.",
     parameters: z.object({ folder, name: copyName, from: branchName.optional() }).strict(),
     target: (args) => `try "${args.name}" in a parallel copy`,
+    targets: inFolder("write"),
     execute: (input, context: ToolContext) => git.planStart(input, context.signal),
   });
   registry.register({
     name: "plans.diff", permission: "git.read",
     description: "What trying a plan changed, compared with where it started. Read this before merging.",
     parameters: z.object({ folder, name: copyName, against: branchName.optional() }).strict(),
+    targets: inFolder("read"),
     execute: (input, context: ToolContext) => git.planDiff(input, context.signal),
   });
   registry.register({
@@ -110,6 +132,7 @@ function registerPlanBranches(registry: ToolRegistry, git: GitTools): void {
     description: "Bring a plan's work back onto the line of work you are on and put the copy away.",
     parameters: z.object({ folder, name: copyName, message: z.string().trim().max(200).optional(), remove: z.boolean().default(true) }).strict(),
     target: (args) => `merge "${args.name}" back into the current line of work`,
+    targets: inFolder("write"),
     execute: (input, context: ToolContext) => git.planMerge(input, context.signal),
   });
 }
@@ -120,12 +143,14 @@ export function registerGitRemote(registry: ToolRegistry, git: GitTools): void {
     name: "git.push", permission: "git.remote",
     description: "Send saved versions from this computer to the shared server. Sending to the branch everyone shares (main or master) stops and asks you first.",
     parameters: z.object({ folder, remote: remoteName, branch: branchName.optional(), confirmed: z.boolean().default(false) }).strict(),
+    targets: inFolder("write"),
     execute: (input, context: ToolContext) => git.push(input, context.signal),
   });
   registry.register({
     name: "git.pull", permission: "git.remote",
     description: "Bring down work from the shared server, only when it can be added cleanly on top of yours.",
     parameters: z.object({ folder, remote: remoteName, branch: branchName.optional() }).strict(),
+    targets: inFolder("write"),
     execute: (input, context: ToolContext) => git.pull(input, context.signal),
   });
 }
@@ -187,6 +212,7 @@ function registerPublish(registry: ToolRegistry, github: GitHubAccess, git: GitT
       private: z.boolean().default(true), branch: branchName.optional(), remote: remoteName,
     }).strict(),
     target: (args) => `publish ${args.folder} to GitHub as ${args.name} (${args.private === false ? "public" : "private"}), sending it to the remote "${args.remote ?? "origin"}"`,
+    targets: inFolder("write"),
     execute: async (input, context: ToolContext) => {
       const created = (await github.createRepo(input)) as { repository?: string; address?: string; private?: boolean };
       const url = `https://github.com/${String(created.repository ?? input.name)}.git`;

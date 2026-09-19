@@ -303,6 +303,21 @@ export interface ToolDefinition<T = unknown> {
   execute: (args: T, context: ToolContext) => Promise<unknown>;
   /** What this call would touch, for the approval policy, when the arguments alone do not say. */
   target?: (args: T, context: ToolContext) => string | null;
+  /**
+   * mac7/multi-target: every file, folder or address a call touches, when it touches more than one
+   * (a patch, two documents compared, a list of sources) or when its one path is not where the rules
+   * look (a repository `folder`). Each is judged by the rules on its own and the call goes ahead only
+   * when every one is allowed. Throws when they cannot be worked out, and the call is then refused.
+   */
+  targets?: (args: T, context: ToolContext) => ToolTarget[];
+}
+/** mac7/multi-target: one thing a call touches, and whether it only reads it, changes it or deletes it. */
+export interface ToolTarget {
+  kind: "read" | "write" | "delete";
+  /** A workspace path, as the tool will use it. */
+  path?: string;
+  /** A web address. */
+  url?: string;
 }
 export const RunInputSchema = z
   .object({

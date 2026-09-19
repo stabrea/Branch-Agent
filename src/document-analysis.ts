@@ -203,8 +203,9 @@ export function registerDocumentAnalysis(registry: ToolRegistry, analysis: Docum
     name: "documents.compare", permission: "documents.read",
     description: "Hold two documents up against each other and say in plain language what was added, taken out or reworded, section by section.",
     parameters: CompareSchema,
-    // hardening-3: the first file; a rule sees one target, so `against` is not judged (see STATUS-hardening-3.md).
     target: (input) => input.file,
+    // mac7/multi-target: both files are read, so the rules judge both.
+    targets: (input) => [{ kind: "read", path: input.file }, { kind: "read", path: input.against }],
     execute: async (input, context) => analysis.compare(context.owner, input, context.signal),
   });
 }
