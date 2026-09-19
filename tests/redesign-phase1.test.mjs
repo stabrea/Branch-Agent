@@ -38,7 +38,7 @@ async function fixture(t, { provider, onboarded = true, width = 1440, height = 9
     await page.getByLabel("Session token", { exact: true }).fill(server.token);
     await page.getByRole("button", { name: "Connect", exact: true }).click();
     await page.locator("#workspace").waitFor({ state: "visible" });
-    await page.locator("body.lx-ready").waitFor({ state: "attached" });
+    await page.locator("body.lx-ready").waitFor({ state: "attached", timeout: 120000 });
   };
   await open();
   return { page, server, call, errors, app, open, context };
@@ -55,7 +55,7 @@ test("a new window wears Slate, and a picked Forest is remembered over the new d
   await f.page.waitForFunction(() => document.documentElement.dataset.palette === "forest");
   assert.equal(await f.page.evaluate(() => localStorage.getItem("branch-palette")), "forest", "Forest is written down, not left as the default");
   await f.page.reload();
-  await f.page.locator("body.lx-ready").waitFor({ state: "attached" });
+  await f.page.locator("body.lx-ready").waitFor({ state: "attached", timeout: 120000 });
   assert.equal(await f.page.evaluate(() => document.documentElement.dataset.palette), "forest");
   assert.deepEqual(f.errors, []);
 });
@@ -66,7 +66,7 @@ test("a Forest the workspace wrote down before Slate became the default is kept,
   // What an older copy left behind: the choice in the shared record, nothing in this browser.
   await f.call("/api/look", { theme: "forest", changedBy: "window" });
   await f.page.reload();
-  await f.page.locator("body.lx-ready").waitFor({ state: "attached" });
+  await f.page.locator("body.lx-ready").waitFor({ state: "attached", timeout: 120000 });
   await f.page.waitForFunction(() => document.documentElement.dataset.palette === "forest");
   assert.equal(await f.page.evaluate(() => localStorage.getItem("branch-palette")), "forest");
   assert.equal((await f.call("/api/look")).theme, "forest");

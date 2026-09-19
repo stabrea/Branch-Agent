@@ -88,8 +88,13 @@ test("A0344 one burst of changes becomes one task, and the assistant's own edits
   const { app, workspace, first } = await fixture(t);
   await mkdir(join(workspace, "src"), { recursive: true });
   const tasks = [];
+  // The quiet time that ends a burst. At 60 ms the three writes below raced it: the quiet time starts
+  // again on every change, so a first task without b.js means b.js's change reached the watcher more
+  // than 60 ms after a.js's, which a loaded macOS runner did (CI run 35453102759). 400 ms is the
+  // watcher's own default.
+  const settleMs = 400;
   const handle = await watchAIComments({
-    folder: join(workspace, "src"), files: app.files, settleMs: 60,
+    folder: join(workspace, "src"), files: app.files, settleMs,
     startTask: async (prompt) => {
       tasks.push(prompt);
       // The assistant answers by rewriting the file without the comment.
@@ -102,7 +107,8 @@ test("A0344 one burst of changes becomes one task, and the assistant's own edits
   await writeFile(join(workspace, "src/b.js"), "// ai: numbers are small\n");
   await writeFile(join(workspace, "src/c.js"), "export const c = 3;\n");
   await waitFor(() => tasks.length > 0, "the first task");
-  await new Promise((resolve) => setTimeout(resolve, 400));
+  // Longer than two quiet times, so a task for the assistant's own edit would have started by now.
+  await new Promise((resolve) => setTimeout(resolve, 2 * settleMs + 100));
   assert.equal(tasks.length, 1, "one task for the burst, none for the assistant's own edit");
   assert.match(tasks[0], /src\/a\.js, line 1/, "paths are named from the top of the workspace");
   assert.match(tasks[0], /src\/b\.js, line 1 \(context\)/);
