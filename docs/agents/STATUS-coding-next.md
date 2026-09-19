@@ -6,7 +6,7 @@ from trunk 8bcfec20. Not merged into trunk: an adversarial integrator reviews af
 Order worked: 5, 6, 3, 2, 1, 4 (2 before 1 because both touch `runtime.callTool`).
 
 - [x] 5. `code.run` (and every other `process.execPath` spawn) runs as Node inside the desktop app
-- [ ] 6. Crash capture switchable, ships off (engine crash notes + Electron crash reporter)
+- [x] 6. Crash capture switchable, ships off (engine crash notes + Electron crash reporter)
 - [ ] 3. Longer first-reply wait for local models, with a status line
 - [ ] 2. Unknown tool arguments dropped (not refused), the model told; permission check sees cleaned arguments
 - [ ] 1. Read before edit
@@ -38,3 +38,24 @@ Every place that starts `process.execPath` to run JavaScript, and what was done:
   `prompt-examples.ts` (builds a config; the spawn is mcp-config above).
 Tests: `tests/coding-next.test.mjs` "5 …" — the helper, and `code.run` with a stubbed spawner under a faked
 `process.versions.electron` checks the environment handed to the spawn.
+
+### 6. Crash capture switch
+- Setting: `crashCapture: "off" | "on"` in `settings/diagnostic-log` (ships off), a *Keep crash notes*
+  select on the Activity log card (en + fr), documented in `docs/configuration.md` (Activity log section).
+- Engine: `DiagnosticLog.crash()` writes `crashes.jsonl` only when on. The one-line "Crashed:" entry is an
+  ordinary log line and still follows the *log's* switch (split kept on purpose). `src/tracing.ts` still
+  records a crash in the task record as it did before mac7/diagnostics (that is not a crash file; untouched).
+- Desktop: `crashReporter.start` moved from module top level into `start()`, right after the data folder is
+  known, and runs only when `crashReporterPlan(dataDir)` says on. It reads `<data>/logs/crash-capture.json`,
+  which the engine writes on every save of the setting and once at engine start, so the desktop can know
+  before the database opens. A change applies to Electron's crash files at the next start (the setting's
+  help text says so). `BRANCH_CRASH_DUMPS` is set only when the reporter started; Report a problem already
+  treats a missing folder as "no crash files" (tested).
+- Fixed on the way: `saveDiagnosticLogSettings` laid zod 4 `.partial()` defaults over the saved record, so
+  saving the log's mode silently reset `maxMegabytes` (and would have reset `crashCapture`). Only sent
+  fields are applied now (tested).
+- Tests: `tests/coding-next.test.mjs` "6 …" (off writes nothing; on writes; saving mode keeps the switch; the
+  switch file and `crashReporterPlan`; Report a problem with it off); D7/D17 in `tests/diagnostics-log.test.mjs`
+  now switch crash capture on, since they test a crash note's content.
+- Not tested: the Electron call itself (cannot run Electron here); `startCrashReporter` is 8 lines around
+  `crashReporterPlan`, which is tested.

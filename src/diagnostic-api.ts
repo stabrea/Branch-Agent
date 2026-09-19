@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import {
   activeDiagnosticLog, DiagnosticLog, diagnose, diagnosticLogSettings, logLevels, redactForLog, saveDiagnosticLogSettings, setDiagnosticLog,
-  watchProcessCrashes, withoutQuotedText, componentOf, type Level, type LogFilter,
+  watchProcessCrashes, withoutQuotedText, componentOf, writeCrashCaptureMark, type Level, type LogFilter,
 } from "./diagnostic-log.js";
 import { dnsResolve, gatherReport, issueUrl, keptItems, reportZip, type ReportItem, type ReportSources } from "./diagnostic-report.js";
 import { redactEvent, redactSpan } from "./diagnostics.js";
@@ -35,6 +35,8 @@ export function startDiagnosticLog(app: Branch, dataDir: string): () => void {
   const clean = (text: string): string => app.runtime.hideSecrets(redactForLog(text));
   const log = new DiagnosticLog({ dir: join(dataDir, "logs"), settings: () => diagnosticLogSettings(app.store, app.runtime.owner), clean });
   setDiagnosticLog(log);
+  // mac7/coding-next: the desktop app reads the crash-capture switch from this file at its next start.
+  writeCrashCaptureMark(dataDir, diagnosticLogSettings(app.store, app.runtime.owner).crashCapture === "on");
   log.prune();
   const stopCrashes = watchProcessCrashes(log, "engine");
   // Every stored task event, reduced to its shape exactly as the diagnostics folder does it.
@@ -72,8 +74,12 @@ export async function diagnosticApi(ctx: DiagnosticContext, method: string, path
   const { app } = ctx;
   app.store.profiles.requireOwner("The activity log and problem reports");
   const log = activeDiagnosticLog() ?? currentLog(ctx);
-  if (path === "/api/diagnostics/log/settings")
-    return method === "POST" ? saveDiagnosticLogSettings(app.store, app.runtime.owner, await body()) : diagnosticLogSettings(app.store, app.runtime.owner);
+  if (path === "/api/diagnostics/log/settings") {
+    if (method !== "POST") return diagnosticLogSettings(app.store, app.runtime.owner);
+    const saved = saveDiagnosticLogSettings(app.store, app.runtime.owner, await body());
+    writeCrashCaptureMark(ctx.dataDir, saved.crashCapture === "on"); // mac7/coding-next
+    return saved;
+  }
   // Reading your own log is never blocked by Lockdown: it reaches nothing outside this computer.
   if (method === "GET" && path === "/api/diagnostics/log") return readLog(ctx, log, url);
   if (method === "POST" && path === "/api/diagnostics/log/clear") { log.clear(); return { cleared: true }; }

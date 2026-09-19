@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
@@ -16,8 +16,10 @@ import type { Store } from "./store.js";
  * addresses and the owner's home folder never reach the disk. The file is kept small (rotated at a
  * size cap) and short-lived (older files are removed after a number of days).
  *
- * The log is a feature, so it ships off. Crashes are the exception: they were already written down
- * (src/tracing.ts), and a crash note now also carries the last few things that happened before it.
+ * The log is a feature, so it ships off. Crash capture — a crash note in `crashes.jsonl` with the
+ * last few things that happened before it, and Electron's own crash files in the desktop app — is a
+ * second switch, and ships off too (mac7/coding-next). Crashes still reach the task record as they
+ * always did (src/tracing.ts); only these two extra copies depend on the switch.
  */
 export const logModes = ["off", "when-needed", "on"] as const;
 export type LogMode = (typeof logModes)[number];
@@ -31,6 +33,12 @@ export const DiagnosticLogSettingsSchema = z.object({
   keepDays: z.number().int().min(1).max(90).default(14),
   /** The most the log may take on disk, across all its files. */
   maxMegabytes: z.number().int().min(1).max(200).default(20),
+  /**
+   * mac7/coding-next: keep crash notes (`crashes.jsonl`) and, in the desktop app, Electron's crash
+   * files. Off by default. The desktop app reads it when it starts, so there a change applies at the
+   * next start; the engine's own crash notes follow it at once.
+   */
+  crashCapture: z.enum(["off", "on"]).default("off"),
 }).strict();
 export type DiagnosticLogSettings = z.infer<typeof DiagnosticLogSettingsSchema>;
 
@@ -40,7 +48,12 @@ export function diagnosticLogSettings(store: Pick<Store, "get">, owner: string):
   return saved.success ? saved.data : DiagnosticLogSettingsSchema.parse({});
 }
 export function saveDiagnosticLogSettings(store: Store, owner: string, input: unknown): DiagnosticLogSettings {
-  const next = DiagnosticLogSettingsSchema.parse({ ...diagnosticLogSettings(store, owner), ...DiagnosticLogSettingsSchema.partial().parse(input) });
+  // zod 4's .partial() still fills each missing field with its default, so only the fields that were
+  // really sent are laid over what is saved; otherwise saving the log's mode would switch crash capture off.
+  const parsed = DiagnosticLogSettingsSchema.partial().parse(input ?? {});
+  const sent = input && typeof input === "object" ? Object.keys(input) : [];
+  const changed = Object.fromEntries(Object.entries(parsed).filter(([key]) => sent.includes(key)));
+  const next = DiagnosticLogSettingsSchema.parse({ ...diagnosticLogSettings(store, owner), ...changed });
   store.save("settings", owner, settingsKey, next);
   return next;
 }
@@ -162,13 +175,19 @@ export class DiagnosticLog {
   /** Last things that happened, newest last, already cleaned. Kept in memory only. */
   breadcrumbs(): LogLine[] { return [...this.crumbs]; }
 
-  /** A crash, written straight away (synchronously) with the breadcrumbs before it. */
+  /**
+   * A crash, written straight away (synchronously) with the breadcrumbs before it — only while the
+   * owner has crash capture on. The one-line "Crashed:" entry is an ordinary log line and follows the
+   * log's own switch, as every other line does.
+   */
   crash(component: string, error: unknown, origin = "uncaught"): void {
     const message = withoutQuotedText(error instanceof Error ? `${error.name}: ${error.message}` : String(error));
-    const stack = withoutQuotedText(error instanceof Error ? error.stack ?? "" : "");
-    const line = this.shape({ level: "error", component, message, fields: { origin, stack: stack.slice(0, 4000) } });
-    const record = { ...line, kind: "crash", breadcrumbs: this.breadcrumbs() };
-    try { this.append(this.crashFile, JSON.stringify(record), 512 * 1024); } catch { /* never a second crash */ }
+    if (this.settings().crashCapture === "on") {
+      const stack = withoutQuotedText(error instanceof Error ? error.stack ?? "" : "");
+      const line = this.shape({ level: "error", component, message, fields: { origin, stack: stack.slice(0, 4000) } });
+      const record = { ...line, kind: "crash", breadcrumbs: this.breadcrumbs() };
+      try { this.append(this.crashFile, JSON.stringify(record), 512 * 1024); } catch { /* never a second crash */ }
+    }
     this.write({ level: "error", component, message: `Crashed: ${message}`, fields: { origin } });
   }
 
@@ -296,6 +315,33 @@ export function componentOf(kind: string): string {
     approval: "approvals", update: "updater", gateway: "gateway", local: "local-models", browser: "browser",
   };
   return names[head] ?? head;
+}
+
+/**
+ * mac7/coding-next: the crash-capture switch, copied to a small file beside the log so the desktop
+ * app can read it before the engine (and its database) has started. The engine writes it whenever
+ * the setting is saved and once at start, so the file follows the saved setting.
+ */
+export const crashCaptureMarkFile = "crash-capture.json";
+const markPath = (dataDir: string): string => join(dataDir, "logs", crashCaptureMarkFile);
+export function writeCrashCaptureMark(dataDir: string, on: boolean): void {
+  try {
+    // Nothing to say while it is off and never was on: the folder is not made for nothing.
+    if (!on && !existsSync(markPath(dataDir))) return;
+    mkdirSync(join(dataDir, "logs"), { recursive: true, mode: 0o700 });
+    writeFileSync(markPath(dataDir), JSON.stringify({ crashCapture: on ? "on" : "off" }), { mode: 0o600 });
+  } catch { /* the switch file must never stop a setting being saved */ }
+}
+/** Whether the owner had crash capture on when the file was last written; off when unsure. */
+export function crashCaptureMarked(dataDir: string): boolean {
+  try {
+    const saved = JSON.parse(readFileSync(markPath(dataDir), "utf8")) as { crashCapture?: unknown };
+    return saved.crashCapture === "on";
+  } catch { return false; }
+}
+/** What the desktop app starts Electron's crash reporter with at start, or null to leave it off. */
+export function crashReporterPlan(dataDir: string): ReturnType<typeof crashReporterOptions> | null {
+  return crashCaptureMarked(dataDir) ? crashReporterOptions() : null;
 }
 
 /**

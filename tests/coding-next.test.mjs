@@ -71,3 +71,65 @@ test("5 code.run inside the desktop app starts this program as Node, not a secon
   await runner.run({ language: "javascript", source: "console.log(1 + 2)" }, contextOf(app));
   assert.equal(world.calls.at(-1).env.ELECTRON_RUN_AS_NODE, undefined);
 });
+
+// ------------------------------------------------------------------ 6. crash capture is a switch
+
+test("6 crash capture ships off: a crash writes no note, and with the log off nothing at all", async (t) => {
+  const { DiagnosticLog, DiagnosticLogSettingsSchema } = await import("../dist/diagnostic-log.js");
+  const { readdir } = await import("node:fs/promises");
+  const dir = await mkdtemp(join(tmpdir(), "branch-crash-off-"));
+  t.after(() => discardTemp(dir));
+  assert.equal(DiagnosticLogSettingsSchema.parse({}).crashCapture, "off");
+  const log = new DiagnosticLog({ dir, settings: () => DiagnosticLogSettingsSchema.parse({}) });
+  log.write({ level: "info", component: "tasks", message: "step one" });
+  log.crash("engine", new Error("boom"));
+  assert.deepEqual(log.crashes(), []);
+  assert.deepEqual(await readdir(dir).catch(() => []), [], "off writes no file");
+  // With the log on, the crash is still an ordinary log line — just no crash note.
+  const logged = new DiagnosticLog({ dir, settings: () => DiagnosticLogSettingsSchema.parse({ mode: "on" }) });
+  logged.crash("engine", new Error("boom"));
+  assert.equal(logged.crashes().length, 0);
+  assert.match(logged.read()[0].message, /Crashed: Error: boom/);
+  // On: the note is written.
+  const on = new DiagnosticLog({ dir, settings: () => DiagnosticLogSettingsSchema.parse({ crashCapture: "on" }) });
+  on.crash("engine", new Error("boom"));
+  assert.equal(on.crashes().length, 1);
+});
+
+test("6 saving the log's mode keeps crash capture; the switch file tells the desktop app at its next start", async (t) => {
+  const { diagnosticApi } = await import("../dist/diagnostic-api.js");
+  const { crashReporterPlan, crashCaptureMarked } = await import("../dist/diagnostic-log.js");
+  const dataDir = await mkdtemp(join(tmpdir(), "branch-crash-mark-"));
+  t.after(() => discardTemp(dataDir));
+  const saved = new Map();
+  const app = { version: "9", runtime: { owner: "me" }, store: {
+    profiles: { requireOwner() {} },
+    get: (_table, _owner, key) => saved.has(key) ? { data: saved.get(key) } : undefined,
+    save: (_table, _owner, key, data) => { saved.set(key, data); },
+  } };
+  const post = (body) => diagnosticApi({ app, dataDir, installType: "x", startedAt: 0 }, "POST", "/api/diagnostics/log/settings",
+    new URL("http://local/api/diagnostics/log/settings"), async () => body);
+  assert.equal(crashReporterPlan(dataDir), null, "never switched on: the reporter is not started");
+  assert.equal((await post({ crashCapture: "on" })).crashCapture, "on");
+  assert.equal(crashCaptureMarked(dataDir), true);
+  assert.equal(crashReporterPlan(dataDir).uploadToServer, false, "on: started, and still never uploads");
+  const after = await post({ mode: "when-needed", keepDays: 7 });
+  assert.equal(after.crashCapture, "on", "changing the log's mode must not switch crash capture off");
+  assert.equal(after.maxMegabytes, 20);
+  await post({ crashCapture: "off" });
+  assert.equal(crashReporterPlan(dataDir), null);
+});
+
+test("6 Report a problem still works with crash capture off: it just has no crash files to offer", async (t) => {
+  const { DiagnosticLog, DiagnosticLogSettingsSchema } = await import("../dist/diagnostic-log.js");
+  const { gatherReport } = await import("../dist/diagnostic-report.js");
+  const dir = await mkdtemp(join(tmpdir(), "branch-crash-report-"));
+  t.after(() => discardTemp(dir));
+  const log = new DiagnosticLog({ dir, settings: () => DiagnosticLogSettingsSchema.parse({}) });
+  log.crash("engine", new Error("boom"));
+  const items = await gatherReport({ version: "9", dataDir: dir, installType: "x", log, logMode: "off",
+    health: async () => ({ ok: true, items: [] }), settings: () => ({}), services: () => ({}), events: () => ({ events: [] }),
+    crashDumpsDir: null, resolve: null });
+  const crashes = items.find((item) => item.id === "crashes");
+  assert.match(crashes.title, /0 noted, 0 crash files/);
+});

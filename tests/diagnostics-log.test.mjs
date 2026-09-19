@@ -102,7 +102,8 @@ test("D6 files older than the owner's number of days are removed", async (t) => 
 
 test("D7 a crash is written straight away with the breadcrumbs before it", async (t) => {
   const dir = await folder(t);
-  const log = new DiagnosticLog({ dir, settings: settings({ mode: "off" }), clean });
+  // mac7/coding-next: crash notes are their own switch now, off by default; this one has it on.
+  const log = new DiagnosticLog({ dir, settings: settings({ mode: "off", crashCapture: "on" }), clean });
   log.write({ level: "info", component: "tasks", message: "step one" });
   const stop = watchProcessCrashes(log, "engine");
   t.after(stop);
@@ -262,7 +263,7 @@ test("D16 every provider's key, cookies, sign-in headers, credential addresses, 
 
 test("D17 a crash note never quotes the text a failure choked on", async (t) => {
   const dir = await folder(t);
-  const log = new DiagnosticLog({ dir, settings: settings({ mode: "off" }), clean });
+  const log = new DiagnosticLog({ dir, settings: settings({ mode: "off", crashCapture: "on" }), clean });
   let parseError;
   try { JSON.parse("my private message to the doctor about the results"); } catch (e) { parseError = e; }
   log.crash("engine", parseError);
