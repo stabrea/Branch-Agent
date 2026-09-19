@@ -93,7 +93,7 @@ export function avatar(trunk, size = 28) {
   }
   const seed = hash(trunk.avatar?.seed || trunk.name);
   const svg = shape("svg", { viewBox: "0 0 32 32", width: size, height: size, "aria-hidden": "true", class: "trunk-face" });
-  const head = seed % 4, eyes = (seed >> 3) % 4, mouth = (seed >> 6) % 4, series = ((seed >> 9) % 8) + 1;
+  const head = seed % 4, eyes = (seed >>> 3) % 4, mouth = (seed >>> 6) % 4, series = ((seed >>> 9) % 8) + 1; // phase2/rooms: >>> (the seed is unsigned; >> made half the faces colourless)
   const fill = `var(--series-${series})`;
   svg.append(head % 2 ? shape("rect", { x: 3, y: 3, width: 26, height: 26, rx: 6 + head * 2, style: `fill:${fill}` }) : shape("circle", { cx: 16, cy: 16, r: 13, style: `fill:${fill}` }));
   const eye = { style: "fill:var(--ground)" };

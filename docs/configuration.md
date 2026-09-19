@@ -8000,7 +8000,10 @@ for the room, and every turn it takes follows the room's mode, the moment it cha
 restart too (`modeFollows` in `src/runtime.ts`), capped by that Trunk's own limits: a Full access room
 gives a Trunk no command it may not run and no tool it was not given. A message sent to a room with a
 short-lived key is written down as that key's, and the turns it starts are held to your own setting,
-never to a looser mode you picked for the room. Talk live is refused in a room and in any conversation
+never to a looser mode you picked for the room. A yes you give a Trunk in a room holds for that Trunk in
+that room (for the same kind of action on the same thing), because the Trunk takes its turn again from
+the start after your answer; before redesign phase 2 a yes "just this once" was used up by nothing and
+the Trunk asked the same question for ever. A no is remembered the same way. Talk live is refused in a room and in any conversation
 a Trunk answers in, because its tools would not keep the Trunk's limits.
 
 Everything is under `/api/trunks/`, owner only (and so is `/trunk`), except talking to a Trunk and sending to or stopping
