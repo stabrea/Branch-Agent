@@ -70,8 +70,22 @@ function soon() {
   requestAnimationFrame(() => { queued = false; decorate(); });
 }
 
+/* Only the two places that hold marked lists are watched, not the whole page: the Settings window and the
+   Customize place. Each is watched from the moment it exists (layout.js builds them after this loads). */
+const watched = new Set();
+function watch() {
+  for (const id of ["settings-window", "customize"]) {
+    const place = document.getElementById(id);
+    if (!place || watched.has(place)) continue;
+    watched.add(place);
+    new MutationObserver(soon).observe(place, { childList: true, subtree: true });
+  }
+  soon();
+}
+
 if (typeof document !== "undefined") {
   globalThis.branchSecretMarks = secretRow;
-  new MutationObserver(soon).observe(document.body, { childList: true, subtree: true });
-  soon();
+  const until = new MutationObserver(() => { watch(); if (watched.size === 2) until.disconnect(); });
+  until.observe(document.body, { childList: true, subtree: true });
+  watch();
 }

@@ -9097,7 +9097,8 @@ project's file is checked against the never-break guard before it is written. **
 (`POST /api/settings-kit/files/undo { slot }`) puts back what the file held before the last save made
 here, or takes the file away again when that save made it; only while the file still holds exactly what
 was saved, so a change made since in another editor or by a task is never overwritten. One save per
-file is kept for this (`settings-kit-file-undo-<slot>` setting, with the earlier text). The card is
+file is kept for this (`settings-kit-file-undo-<slot>` setting, with the earlier text; a backup copies it with the
+other settings, and the settings file never does). The card is
 marked for the Advanced level of detail (`data-level="advanced"`) for the Settings level control.
 
 After first run, a card under the conversation offers Say hello, Watch me once (turns on recording

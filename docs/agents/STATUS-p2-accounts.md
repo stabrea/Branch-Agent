@@ -11,9 +11,18 @@ Screenshots: `claude-session-files/branch/phase2-shots/accounts/` (harness: `cla
 - [x] 4 Agent files editor: Branch already had one (R17-S05, src/settings-kit/file-map.ts, owner-only, never-break guard, 8,000-byte limit) buried on General. Reused its routes; added undo of the last save (`POST /api/settings-kit/files/undo`, refuses when the file changed since); new card `public/agent-files.js` on Settings › Assistant replaces the old list (Write/Preview, counter, starter, Undo); `data-level="advanced"` + `branchSettingsLevel` hook. No new switch: nothing new is reachable (same routes, same owner-only rule). tests/agent-files.test.mjs F1-F4; settings-kit-ui R17-S05 moved to the new card
 - [x] 5 Secrets rows: mark + plain name ("OpenAI key", "Supplier API key") + "Commands use it as NAME" (hook in app.js renderSecrets, `public/service-marks.js`); the name field says what it is in plain words; marks on the chat apps (Customize › Channels), the ChatGPT/Gemini cards and the fallback list on Models, and the usage popover
 - [x] 6 Trunk merged (bfd51975, then pushed), rebuilt, `tsc --noEmit` clean. 25 targeted files: 202 tests, 201 pass; the one failure
-      (glass-select "sits flush", gap -388 at 1440) passes alone: load flake under concurrency, not this branch. Screenshots of
+      (glass-select "sits flush", gap -388 at 1440) passes alone. After narrowing service-marks.js's watcher to the Settings
+      window and Customize, the same 25 files ran 202/202 green; the same set on trunk 9faf5439 in a separate checkout under the
+      same load failed that same glass-select test (and short-lived-keys), so it is trunk's flake, not this branch's. Screenshots of
       accounts, accounts-more, accounts-low, files, files-edit, thinking, usage-pop, secrets, channels at 1440/1024/390 × light/dark:
       no sideways overflow, zero console errors after load (the ~47 before settling are the app's own load-time CSP/401/429 noise)
+
+## For the integrator
+- When the settings builder's level control lands, `globalThis.branchSettingsLevel() === "regular"` hides "Your assistant's
+  files" (as the brief asks). Today R17-S05's list shows at every level, so a Regular owner loses it from sight then.
+- `public/assets/brands/*.svg` are provenance, not served assets: the marks are drawn inline from `public/brand-marks.js`
+  (tests/brand-marks.test.mjs M1 keeps the two identical). No allowlist entries are missing.
+- The undo record of an agent file holds its earlier text in the settings store, so backups copy it (documented).
 
 ## Deviations from the sample
 - No single cross-provider account fallback list: Branch has none. The page shows the two real mechanisms instead.
