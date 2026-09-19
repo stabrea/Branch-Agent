@@ -664,6 +664,9 @@ test("a client on the run socket sends sound up and gets the answer's sound back
   // client that offers none is refused by the socket layer itself. This one speaks as the app does.
   const client = new WebSocket(`ws://127.0.0.1:${server.address().port}/api/runs/${run.id}/ws`, ["bearer", "token"]);
   client.binaryType = "arraybuffer";
+  // Listened for from the start: once the conversation is over and the task's 4 s have passed, the
+  // server may close the socket itself, before the test asks it to.
+  const closed = new Promise((done) => client.addEventListener("close", done, { once: true }));
   const notices = [], frames = [];
   client.addEventListener("message", (event) => {
     if (event.data instanceof ArrayBuffer) { frames.push(readAudioFrame(Buffer.from(event.data))); return; }
@@ -701,7 +704,6 @@ test("a client on the run socket sends sound up and gets the answer's sound back
   await until(() => live.get(run.id) === undefined, "the conversation end when stopped");
   // The socket's loop reads the task's events until it sees the close; it has to be over before the
   // app (and its database) closes behind this test (CI run 35453102759).
-  const closed = new Promise((done) => client.addEventListener("close", done, { once: true }));
   client.close();
   await closed;
   await Promise.all(served);
