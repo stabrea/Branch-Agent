@@ -107,7 +107,7 @@ function moveLevel(event, group) {
   group.querySelector(`[data-level-pick="${next}"]`)?.focus();
 }
 /* For other modules: the level now, choosing one, and showing one card whatever the level until you leave its page. */
-globalThis.branchSettingsLevel = { get: levelNow, set: chooseLevel, levels: [...LEVELS], peek: (node) => peek(node) };
+globalThis.branchSettingsLevel = { get: levelNow, set: chooseLevel, levels: [...LEVELS], peek: (node) => peek(node), peekPage: () => peekPage() };
 
 /* ---------- the groups on each page ---------- */
 const hostFor = (page) => (page.startsWith("models:") ? $(`lx-models-${page.slice(7)}`) : $(`lx-page-${page}`));
@@ -146,30 +146,34 @@ function headFor(page, bucket) {
   if (!heads.has(key)) heads.set(key, bucket[0] === "other" ? otherHead(page) : bucketHead(page, bucket));
   return heads.get(key);
 }
+/** Writes a data- value only when it differs: this runs whenever the page changes, and a write is a change too. */
+function mark(node, name, value) {
+  if (node.dataset[name] !== value) node.dataset[name] = value;
+}
 /** The nodes of a page in the order they should stand: each head, then its cards. */
 function wanted(page, host) {
   const order = [], placed = new Set();
   for (const bucket of BUCKETS[page]) {
-    const head = headFor(page, bucket);
-    head.dataset.cards = "";
+    const head = headFor(page, bucket), ids = [];
     order.push(head);
     for (const [ref, level] of bucket[4]) {
       const card = cardIn(host, ref);
       if (!card) continue;
-      card.dataset.level = level;
-      if (peeked.has(card.id)) card.dataset.sgPeek = "1";
-      card.dataset.sgBucket = head.dataset.bucket;
-      head.dataset.cards += `${card.id || ref} `;
+      mark(card, "level", level);
+      if (peeked.has(card.id) || peekedPages.has(page.split(":")[0])) mark(card, "sgPeek", "1");
+      mark(card, "sgBucket", head.dataset.bucket);
+      ids.push(card.id || ref);
       placed.add(card);
       order.push(card);
       putKeys(card);
     }
+    mark(head, "cards", ids.join(" "));
   }
   const rest = [...host.children].filter((node) => !node.matches(FIXED) && !placed.has(node) && !node.matches(".sg-head"));
   if (rest.length) {
     const head = headFor(page, ["other"]);
-    head.dataset.cards = rest.map((node) => node.id).join(" ");
-    for (const node of rest) node.dataset.sgBucket = head.dataset.bucket;
+    mark(head, "cards", rest.map((node) => node.id).join(" "));
+    for (const node of rest) mark(node, "sgBucket", head.dataset.bucket);
     order.push(head, ...rest);
   }
   return order.filter(Boolean);
@@ -220,11 +224,13 @@ function countHidden() {
     const more = head.querySelector(".sg-more");
     head.classList.toggle("sg-empty", cards.length === 0);
     head.classList.toggle("sg-thin", cards.length > 0 && above.length === cards.length);
-    more.hidden = above.length === 0;
+    if (more.hidden !== (above.length === 0)) more.hidden = above.length === 0;
     if (!above.length) continue;
     const to = above.some((card) => card.dataset.level === "advanced") ? "advanced" : "technical";
-    more.dataset.to = to;
-    more.textContent = say(`settingsGrown.more.${to}`, `${above.length} more with ${LEVEL_WORDS[to]}`, { count: above.length });
+    mark(more, "to", to);
+    const words = say(`settingsGrown.more.${to}`, `${above.length} more with ${LEVEL_WORDS[to]}`, { count: above.length });
+    /* Written only when it changes: this runs whenever the page changes, and a write is itself a change. */
+    if (more.textContent !== words) more.textContent = words;
   }
 }
 function arrangeAll() {
@@ -429,7 +435,14 @@ function peekOnReveal() {
   };
 }
 /** Cards shown whatever the level until you leave the page; kept by id, since a card may draw itself anew. */
-const peeked = new Set();
+const peeked = new Set(), peekedPages = new Set();
+/** Every card of the page open now, whatever the level, until you leave it (cards drawn later included). */
+function peekPage() {
+  const page = currentPage();
+  if (!page) return;
+  peekedPages.add(page);
+  for (const card of document.querySelectorAll(`#lx-page-${page} [data-level]`)) card.dataset.sgPeek = "1";
+}
 function peek(node) {
   const card = node?.closest?.(".lx-page > *, .lx-subpanel > *");
   if (!card) return;
@@ -438,6 +451,7 @@ function peek(node) {
 }
 function clearPeeks() {
   peeked.clear();
+  peekedPages.clear();
   for (const node of document.querySelectorAll("[data-sg-peek]")) delete node.dataset.sgPeek;
 }
 

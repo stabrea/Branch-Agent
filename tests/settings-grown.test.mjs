@@ -267,6 +267,14 @@ test("S9 every page is grouped, and a card no group names still shows under More
   const firstHead = order.indexOf("general:start"), projects = order.indexOf("general:projects");
   assert.ok(firstHead > -1 && projects > firstHead);
   assert.ok(order.slice(firstHead + 1, projects).every((item) => item === "general:start"), "a card stands under the wrong heading");
+  /* Settled, the groups do not keep writing to the page (a write that sets off another write loops forever). */
+  const churn = await f.page.evaluate(() => new Promise((done) => {
+    const count = [];
+    const watch = new MutationObserver((records) => { for (const r of records) if (r.target.closest?.(".sg-head") || r.target.parentElement?.closest(".sg-head")) count.push(`${r.type} ${r.attributeName ?? ""} on ${r.target.className || r.target.nodeName}`); });
+    watch.observe(document.getElementById("settings-window"), { subtree: true, childList: true, attributes: true, characterData: true });
+    setTimeout(() => { watch.disconnect(); done(count); }, 1500);
+  }));
+  assert.deepEqual(churn, [], "the group headings keep rewriting themselves");
   await f.page.evaluate(() => {
     const card = document.createElement("section");
     card.className = "card";

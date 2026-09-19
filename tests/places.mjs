@@ -75,9 +75,7 @@ export async function openSettings(page, name) {
  * changing the level (which would also change the calm window).
  */
 export async function showEveryCard(page) {
-  await page.evaluate(() => {
-    for (const card of document.querySelectorAll(".lx-page:not([hidden]) [data-level]")) globalThis.branchSettingsLevel.peek(card);
-  });
+  await page.evaluate(() => globalThis.branchSettingsLevel.peekPage());
 }
 
 export async function closeSettings(page) {
