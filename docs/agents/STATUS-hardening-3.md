@@ -70,7 +70,7 @@ Grouped by where the thing a rule is about comes from. "own" = the tool's `targe
   documents.analyse, documents.compare, knowledge.add, documents.edit.
 - **`path` / `url` read by `policyTarget` (40):** artifacts.keep, artifacts.restore, assistant.market, browser.navigate,
   code.definition, code.diagnostics, code.format, code.hover, code.map, code.references, data.export, data.load,
-  documents.add, documents.edit, documents.write, files.edit (was bypassable via `file_path`; fixed), files.glob,
+  documents.add, documents.write, files.edit (was bypassable via `file_path`; fixed), files.glob,
   files.grep, files.history, files.list, files.read, files.search, files.validate, files.verify, files.write, git.log,
   install.request, knowledge.pictures, knowledge.remove, media.describe, media.frames, media.info, media.transcribe,
   media.watch, monitor.create, notebook.read, rules.for_path, sdk.route, web.fetch, workspace.map.
