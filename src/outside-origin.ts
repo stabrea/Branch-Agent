@@ -28,8 +28,8 @@ export function outsideSourceOf(store: EventReader, runId: string | undefined): 
 /**
  * The earlier task a new message in this conversation carries on for, when that task came from
  * outside: the one that began the conversation (or the one it was branched off or copied from), or else
- * the latest one when it stopped part way — waiting for an answer, or cut off. Null means the new
- * message is simply the owner's own.
+ * the latest one when it stopped part way — waiting for an answer, or cut off (interrupted, or out of
+ * its allowance). Null means the new message is simply the owner's own.
  */
 export function conversationCarrier(store: Reader, sessionId: string | undefined): string | null {
   const seen = new Set<string>();
@@ -40,7 +40,8 @@ export function conversationCarrier(store: Reader, sessionId: string | undefined
     if (!tasks.length) continue;
     const first = tasks[0]!, last = tasks.at(-1)!;
     if (outsideSourceOf(store, first.id)) return first.id;
-    const stopped = last.status === "needs_input" || last.status === "interrupted";
+    // mac7/outside-review: running out of its step or token allowance is being cut off as well.
+    const stopped = ["needs_input", "interrupted", "budget_exceeded"].includes(last.status);
     return stopped && outsideSourceOf(store, last.id) ? last.id : null;
   }
   return null;
