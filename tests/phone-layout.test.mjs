@@ -382,10 +382,14 @@ test("a quick double tap on a phone's big answer sends one answer, not two", asy
     await new Promise((resolve) => setTimeout(resolve, 300));
     await route.continue();
   });
-  const yes = card.getByRole("button", { name: "Yes, just now", exact: true });
-  await yes.tap();
-  await yes.tap({ force: true });
-  await card.getByRole("button", { name: "No", exact: true }).tap({ force: true });
+  /* Three presses in the same instant (a thumb's double tap, then a slip onto No), so a slow machine cannot
+     let the first answer come back before the others land. */
+  await card.evaluate((node) => {
+    const [yes, no] = ["Yes, just now", "No"].map((name) => [...node.querySelectorAll("button")].find((button) => button.textContent === name));
+    yes.click();
+    yes.click();
+    no.click();
+  });
   await f.page.waitForFunction(() => /Noted/.test(document.getElementById("live-ask")?.textContent ?? ""), null, { timeout: 20000 });
   assert.equal(sent, 1, "one answer left the phone");
   assert.deepEqual(f.errors, []);
